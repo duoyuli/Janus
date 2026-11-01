@@ -8,7 +8,7 @@
 
 - 开发：`just dev`（等于 `cd backend && cargo run`），打开 `http://127.0.0.1:7878`。只改了 `frontend/app.html` 时刷新页面即可，改了 Rust 代码需要重启。
 - 测试：`just test`。不访问网络、不调用真实 Agent，需要本机有 `git` 和 `python3`。macOS 应用：`just mac` 从源码运行，`just test-mac` 测试（需要 Xcode）。
-- 打包与发布：`just dmg` 构建 `dist/Janus.app` 和 DMG；推送 `v*` 标签由 CI 构建通用 DMG 并发布，见 `docs/operations/ci_release.md`。
+- 打包与发布：`just dmg` 构建 `dist/Janus.app` 和 DMG；推送 `v*` 标签（按日期，例如 `v2026.11.01`）由 CI 构建 DMG 并发布，见 `docs/operations/ci_release.md`。
 - 安装与服务：`just install`、`just start`、`just restart`、`just status`、`just logs`，见 `docs/operations/deployment.md`。
 - 排障、重启恢复：见 `docs/operations/runbook.md`。
 

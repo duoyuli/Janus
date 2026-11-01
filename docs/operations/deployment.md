@@ -46,9 +46,9 @@
 
 1. 在 GitHub Release 中下载 `Janus-<版本>.dmg`，打开后把 Janus 拖进「应用程序」。
 2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 → 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
-3. 应用需要 macOS 14 或更高。Node.js 22.19 以上、`git` 和要用的 Agent CLI 仍需自己安装（见[前置条件](#prerequisites)），不需要 Rust 和 `just`。
+3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 14 或更高。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js；要用的 Agent CLI（例如 `codex`、`claude`）仍需自己安装，Grok 和 Pi 的适配器从 GitHub 安装，还需要 `git`（macOS 第一次用到时会提示安装命令行工具）。
 
-应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/macos_app.md#server_process)。
+应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/macos_app.md#server_process)。
 
 升级：下载新版本的 DMG 覆盖「应用程序」中的 Janus。应用在运行时会占用服务，覆盖前先退出应用。
 
@@ -63,7 +63,15 @@
 | `just dmg` | 构建 `dist/Janus.app` 和 `dist/Janus-<版本>.dmg` |
 | `just test-mac` | 运行应用的测试，需要 Xcode |
 
-`macos/scripts/package.sh` 依次：构建 release 服务、构建应用、生成图标、组装 `Janus.app`（`Contents/MacOS/Janus` 和 `Contents/MacOS/janus-server`）、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。`--universal` 同时构建 Apple silicon 和 Intel 版本（需要 Xcode 和两个 Rust 目标），发布由 CI 完成，见 [CI 与发布](ci_release.md)。
+`macos/scripts/package.sh` 只在 Apple 芯片的 Mac 上运行，依次：构建 release 服务、构建应用、下载 Node.js（`NODE_VERSION`，默认 24.22.0，按 nodejs.org 的 SHASUMS256.txt 校验，缓存在 `dist/cache/`）、生成图标、组装 `Janus.app`、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。发布由 CI 完成，见 [CI 与发布](ci_release.md)。
+
+`Janus.app` 的内容：
+
+| 路径 | 内容 |
+| --- | --- |
+| `Contents/MacOS/Janus` | 应用 |
+| `Contents/MacOS/janus-server` | Janus 服务（release 构建的 `janus`） |
+| `Contents/Resources/node/` | Node.js 的 `node`、`npm`、`npx`，供 ACP 适配器运行和安装 |
 
 <a id="prerequisites"></a>
 ## 前置条件

@@ -36,17 +36,27 @@ final class Backend {
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".janus")
         self.home = home
         // Same rule as the server's config.rs and the justfile's `_addr`.
-        let fromFile = (try? String(contentsOf: home.appendingPathComponent("config.toml"), encoding: .utf8))
-            .flatMap { text in
-                text.split(separator: "\n").lazy.compactMap { line -> String? in
-                    let l = line.trimmingCharacters(in: .whitespaces)
-                    guard l.hasPrefix("addr"), let eq = l.firstIndex(of: "=") else { return nil }
-                    let v = l[l.index(after: eq)...].trimmingCharacters(in: .whitespaces)
-                    return v.count >= 2 && v.hasPrefix("\"") && v.hasSuffix("\"") ? String(v.dropFirst().dropLast()) : nil
-                }.first
-            }
-        configured = env["JANUS_ADDR"].flatMap { $0.isEmpty ? nil : $0 } ?? fromFile ?? "127.0.0.1:7878"
+        configured = env["JANUS_ADDR"].flatMap { $0.isEmpty ? nil : $0 } ?? Self.config(home, "addr") ?? "127.0.0.1:7878"
         addr = configured
+    }
+
+    /// A string setting from `<home>/config.toml` (`key = "value"` lines).
+    nonisolated static func config(_ home: URL, _ key: String) -> String? {
+        guard let text = try? String(contentsOf: home.appendingPathComponent("config.toml"), encoding: .utf8) else { return nil }
+        for line in text.split(separator: "\n") {
+            let l = line.trimmingCharacters(in: .whitespaces)
+            guard let eq = l.firstIndex(of: "="), l[..<eq].trimmingCharacters(in: .whitespaces) == key else { continue }
+            let v = l[l.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            if v.count >= 2 && v.hasPrefix("\"") && v.hasSuffix("\"") { return String(v.dropFirst().dropLast()) }
+        }
+        return nil
+    }
+
+    /// Node.js shipped in Janus.app (Contents/Resources/node), for the ACP adapters.
+    nonisolated static func bundledNode() -> URL? {
+        guard let res = Bundle.main.resourceURL else { return nil }
+        let node = res.appendingPathComponent("node/bin/node")
+        return FileManager.default.isExecutableFile(atPath: node.path) ? node : nil
     }
 
     func start() async {
@@ -207,6 +217,12 @@ final class Backend {
         var env = ProcessInfo.processInfo.environment
         // Apps opened from Finder get a minimal PATH; agents need node, git and their own CLIs.
         env["PATH"] = Self.userPath()
+        // The bundled Node.js runs the ACP adapters and their npm installs, so the Mac needs no
+        // Node of its own. A node the person configured (JANUS_NODE, `node` in config.toml) wins.
+        if let node = Self.bundledNode() {
+            env["PATH"] = node.deletingLastPathComponent().path + ":" + (env["PATH"] ?? "")
+            if (env["JANUS_NODE"] ?? "").isEmpty && Self.config(home, "node") == nil { env["JANUS_NODE"] = node.path }
+        }
         env["JANUS_ADDR"] = addr
         p.environment = env
         p.currentDirectoryURL = fm.homeDirectoryForCurrentUser

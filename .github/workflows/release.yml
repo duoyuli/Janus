@@ -1,5 +1,5 @@
-# Pushing a tag v<version> builds a universal (Apple silicon + Intel) Janus.app with the server
-# inside, packs it into Janus-<version>.dmg and publishes it on the GitHub release of that tag.
+# Pushing a tag v<version> builds Janus.app for Apple silicon with the server and Node.js inside,
+# packs it into Janus-<version>.dmg and publishes it on the GitHub release of that tag.
 # Running the workflow by hand builds the DMG as a workflow artifact only.
 # See docs/operations/ci_release.md.
 name: Release
@@ -26,8 +26,6 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
@@ -46,13 +44,14 @@ jobs:
         run: swift test
 
       - name: Package
-        run: macos/scripts/package.sh --version "${{ steps.v.outputs.version }}" --universal
+        run: macos/scripts/package.sh --version "${{ steps.v.outputs.version }}"
 
       - name: Check the app
         run: |
           app=dist/Janus.app
-          lipo -archs "$app/Contents/MacOS/Janus"
-          lipo -archs "$app/Contents/MacOS/janus-server"
+          for f in Contents/MacOS/Janus Contents/MacOS/janus-server Contents/Resources/node/bin/node; do
+            [ "$(lipo -archs "$app/$f")" = arm64 ] || { echo "$f is not arm64"; exit 1; }
+          done
           codesign --verify --strict "$app"
           shasum -a 256 dist/Janus-*.dmg | tee dist/SHA256SUMS.txt
 
@@ -69,7 +68,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          notes="下载 Janus-${{ steps.v.outputs.version }}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」。运行需要 Node.js 22.19 以上和你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
+          notes="下载 Janus-${{ steps.v.outputs.version }}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」。只支持 Apple 芯片（M 系列）的 Mac，macOS 14 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/Janus-*.dmg dist/SHA256SUMS.txt --clobber
           else

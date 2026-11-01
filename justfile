@@ -29,11 +29,11 @@ mac:
 test-mac:
     cd macos && swift test
 
-# 构建 dist/Janus.app（原生界面 + 内置服务，本机架构，不打 DMG）
+# 构建 dist/Janus.app（原生界面 + 内置服务和 Node.js，不打 DMG）
 app:
     macos/scripts/package.sh --no-dmg
 
-# 构建 dist/Janus.app 和 dist/Janus-<版本>.dmg；发布用的通用版本由 CI 构建
+# 构建 dist/Janus.app 和 dist/Janus-<版本>.dmg（Apple 芯片，内置 Janus 服务和 Node.js）；正式发布由 CI 构建
 dmg:
     macos/scripts/package.sh
 

@@ -14,7 +14,9 @@ Janus 原来只有 Web 工作台：先用 `just install` 编译 Rust 服务，�
 3. 事件推导（`derive` / `boardFacts`）在 Swift 中逐条移植，不在应用里嵌网页。
 4. 保留 Web 工作台：服务照常提供页面，用于浏览器访问和没有 macOS 应用的环境。
 5. 安装包只做 ad-hoc 签名，不用 Apple 开发者证书，也不做公证。第一次打开下载的应用时，由用户在「系统设置 → 隐私与安全性」中允许。
-6. CI 在每次推送时运行编排器和应用的测试；推送 `v*` 标签时构建通用（Apple silicon + Intel）DMG，并发布到 GitHub Release。
+6. 只支持 Apple 芯片（M 系列）：不构建 Intel 版本，打包脚本和 CI 都只产出 arm64。
+7. 安装包内带 Node.js（官方构建，按校验和核对），ACP 适配器不再依赖用户安装的 Node。
+8. CI 在每次推送时运行编排器和应用的测试；推送 `v*` 标签时构建 DMG，并发布到 GitHub Release。
 
 ## 取舍
 
@@ -25,5 +27,6 @@ Janus 原来只有 Web 工作台：先用 `just install` 编译 Rust 服务，�
 ## 后果
 
 - 新增或修改事件类型时，除了页面的 `derive` / `boardFacts`、看板的 `board_entry` 和 `resume_run`，还要同步 `macos/Sources/Janus/Core/Derive.swift`。
-- Node.js 和 Agent CLI 仍需用户自己安装：ACP 适配器运行在 Node 上，安装包不带 Node。
+- 安装包约增加一个 Node.js 的体积。Agent CLI（`codex`、`claude` 等）仍需用户自己安装，它们就是被调度的 Agent 本身。
+- Intel Mac 不能使用安装包，只能从源码运行服务和网页版。
 - 只装命令行工具的机器可以构建应用，但 Swift 测试需要 Xcode（`@Test` 宏插件只随 Xcode 提供）；CI 的 macOS 运行环境自带 Xcode。

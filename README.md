@@ -21,7 +21,7 @@ Janus 是一个本地优先的多 Agent 协作工作空间。它通过 ACP（Age
 
 1. 在 [GitHub Releases](https://github.com/duoyuli/Janus/releases) 下载 `Janus-<版本>.dmg`，把 Janus 拖进「应用程序」。
 2. 第一次打开时，macOS 会提示无法验证开发者（安装包没有用 Apple 证书签名）：到「系统设置 → 隐私与安全性」点「仍要打开」。
-3. 需要 macOS 14 以上、Node.js 22.19 以上、`git`，以及要用的 Agent CLI。不需要 Rust。
+3. 需要 Apple 芯片（M 系列）的 Mac、macOS 14 以上，以及要用的 Agent CLI（例如 `codex`、`claude`）。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node。
 
 应用自带 Janus 服务，打开即用；如果你已经用 `just start` 运行了 Janus，应用会直接连接它。详见[部署方案](docs/operations/deployment.md#macos_app)。
 

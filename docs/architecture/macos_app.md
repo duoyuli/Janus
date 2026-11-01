@@ -6,7 +6,8 @@
 
 - SwiftUI 应用，Swift Package（`macos/Package.swift`），最低 macOS 14。只用系统框架，没有第三方依赖。
 - 它是展示层：所有数据和操作都通过[HTTP API](../interfaces/http_api.md)读写，和 Web 工作台用同一套接口，编排器本身不变。
-- 安装包 `Janus.app` 里同时放着应用（`Contents/MacOS/Janus`）和 Janus 服务（`Contents/MacOS/janus-server`，即 release 构建的 `janus`），下载后不需要编译 Rust。
+- 只支持 Apple 芯片（arm64），最低 macOS 14。
+- 安装包 `Janus.app` 里放着应用（`Contents/MacOS/Janus`）、Janus 服务（`Contents/MacOS/janus-server`，即 release 构建的 `janus`）和 Node.js（`Contents/Resources/node`），下载后不需要编译 Rust，也不需要安装 Node。
 - Web 工作台仍然可用：服务照常在 `/` 提供页面，应用菜单「帮助 → 在浏览器中打开网页版」直接打开它。
 
 <a id="server_process"></a>
@@ -32,7 +33,8 @@
 应用自己启动的服务：
 
 - 标准输出和错误追加到 `<Janus home>/logs/janus.out.log`，和服务方式运行时一样。
-- 从 Finder 打开的应用只有很短的 `PATH`，找不到 `node`、`git` 和 Agent CLI。应用用登录 shell（`$SHELL -ilc`）读取用户的 `PATH`，再补上 Homebrew、`~/.local/bin` 等常见位置，传给服务。
+- 从 Finder 打开的应用只有很短的 `PATH`，找不到 `git` 和 Agent CLI。应用用登录 shell（`$SHELL -ilc`）读取用户的 `PATH`，再补上 Homebrew、`~/.local/bin` 等常见位置，传给服务。
+- 包内的 Node.js 排在这个 `PATH` 的最前面，并设为 `JANUS_NODE`：ACP 适配器用它运行，`npm` / `npx` 安装适配器时也用它，Agent 进程继承同一个 `PATH`。用户自己设置了 `JANUS_NODE` 或 `config.toml` 的 `node` 时不覆盖。
 - 退出应用时停止服务（SIGTERM，3 秒后 SIGKILL）；被 `kill` 或 Ctrl-C 结束时也一样。还有进行中的 Run 时，退出前先确认，这些 Run 会中断，下次可以「从中断处继续」。
 - 连接的是别人启动的服务（launchd 服务）时，退出应用不影响它。
 
@@ -58,7 +60,7 @@ macos/
 │   │   └── Snapshots.swift    # 开发用：按命令保存窗口截图
 │   └── UI/                    # 侧栏、工作区首页、Run 各页面、设置
 ├── Tests/JanusTests/          # Swift Testing 测试
-└── scripts/                   # package.sh（打包）、make-icon.swift（图标）
+└── scripts/                   # package.sh（打包，含下载 Node.js）、make-icon.swift（图标）
 ```
 
 <a id="event_derivation"></a>
