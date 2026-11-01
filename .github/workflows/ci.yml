@@ -1,0 +1,40 @@
+# Every push to main and every pull request: orchestrator tests and the macOS app's build and tests.
+# See docs/operations/ci_release.md.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Orchestrator (cargo test)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - name: Test
+        working-directory: backend
+        run: cargo test --locked
+
+  macos-app:
+    name: macOS app (swift build + test)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        working-directory: macos
+        run: swift build
+      - name: Test
+        working-directory: macos
+        run: swift test

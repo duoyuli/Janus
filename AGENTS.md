@@ -1,13 +1,14 @@
 # Janus 仓库说明
 
-本地优先的多 Agent 协作工作空间：Rust 编排器在 `backend/`，单文件 Web 工作台是 `frontend/app.html`。仓库只放代码：数据库、ACP 适配器、产物、配置和日志都在 Janus home（`~/.janus`）。工程文档从 `docs/index.md` 开始，仓库结构和术语见 `docs/project_overview.md`，部署见 `docs/operations/deployment.md`。
+本地优先的多 Agent 协作工作空间：Rust 编排器在 `backend/`，单文件 Web 工作台是 `frontend/app.html`，原生 macOS 应用在 `macos/`（SwiftUI，安装包内带编排器）。仓库只放代码：数据库、ACP 适配器、产物、配置和日志都在 Janus home（`~/.janus`）。工程文档从 `docs/index.md` 开始，仓库结构和术语见 `docs/project_overview.md`，部署见 `docs/operations/deployment.md`。
 
 ## 常用命令
 
 命令都在仓库根目录用 `just` 执行，`just` 列出全部命令（定义在 `justfile`）。
 
 - 开发：`just dev`（等于 `cd backend && cargo run`），打开 `http://127.0.0.1:7878`。只改了 `frontend/app.html` 时刷新页面即可，改了 Rust 代码需要重启。
-- 测试：`just test`。不访问网络、不调用真实 Agent，需要本机有 `git` 和 `python3`。
+- 测试：`just test`。不访问网络、不调用真实 Agent，需要本机有 `git` 和 `python3`。macOS 应用：`just mac` 从源码运行，`just test-mac` 测试（需要 Xcode）。
+- 打包与发布：`just dmg` 构建 `dist/Janus.app` 和 DMG；推送 `v*` 标签由 CI 构建通用 DMG 并发布，见 `docs/operations/ci_release.md`。
 - 安装与服务：`just install`、`just start`、`just restart`、`just status`、`just logs`，见 `docs/operations/deployment.md`。
 - 排障、重启恢复：见 `docs/operations/runbook.md`。
 
@@ -16,7 +17,7 @@
 - 不修改用户自己的 Agent 配置（`~/.codex`、`~/.claude`、`~/.grok`、`~/.pi`）。Janus 需要为 Agent 写入的设置只写入 `~/.janus/agents/<id>/` 下的隔离配置。
 - 凭据不写进代码、日志、文档、SQLite 或设置接口的返回值。
 - 不替用户 commit 或 push；需要时先确认。
-- 新增或修改事件类型时，同步检查页面的 `derive` / `boardFacts`、看板的 `board_entry` 和恢复逻辑 `resume_run`，见 `docs/interfaces/events.md`。
+- 新增或修改事件类型时，同步检查页面的 `derive` / `boardFacts`、macOS 应用的 `macos/Sources/Janus/Core/Derive.swift`、看板的 `board_entry` 和恢复逻辑 `resume_run`，见 `docs/interfaces/events.md`。
 - 权限完全由各 Agent 的原生模式决定，Janus 不另加读写开关或校验，见 `docs/decisions/agent_native_permissions.md`。
 - `flow_tests` 中每个测试给 `harness` 传唯一的名字，测试并行运行时同名会互相删除临时目录。
 - 运行时不向仓库写任何文件；新的数据、依赖、配置或日志放进 Janus home 的对应子目录，并更新 `docs/operations/deployment.md` 的目录规范。

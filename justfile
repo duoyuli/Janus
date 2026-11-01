@@ -20,6 +20,23 @@ dev:
 test:
     cd backend && cargo test
 
+# @project-doc docs/operations/deployment.md#macos_app
+# 从源码运行 macOS 原生应用（连接已在运行的 Janus，否则启动 JANUS_HOME/bin/janus）
+mac:
+    cd macos && swift run Janus
+
+# macOS 应用的测试（Swift Testing，需要安装 Xcode）
+test-mac:
+    cd macos && swift test
+
+# 构建 dist/Janus.app（原生界面 + 内置服务，本机架构，不打 DMG）
+app:
+    macos/scripts/package.sh --no-dmg
+
+# 构建 dist/Janus.app 和 dist/Janus-<版本>.dmg；发布用的通用版本由 CI 构建
+dmg:
+    macos/scripts/package.sh
+
 # @project-doc docs/operations/deployment.md#install
 # 构建 release 二进制并安装到 JANUS_HOME/bin/janus（升级 Janus 也用它，之后 just restart）
 install:

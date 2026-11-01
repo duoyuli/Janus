@@ -1,6 +1,6 @@
 # 部署方案
 
-本文说明 Janus 的目录规范，以及怎样在一台机器上安装、启动、常驻、升级、备份和卸载 Janus。日常排障见[运行手册](runbook.md)，ACP 适配器的安装与升级机制见 [ACP 适配器管理](../architecture/adapters.md)。
+本文说明 Janus 的目录规范，以及怎样在一台机器上安装、启动、常驻、升级、备份和卸载 Janus。macOS 上最简单的方式是下载安装包，见 [macOS 应用](#macos_app)；以下各节是从源码安装服务的方式。日常排障见[运行手册](runbook.md)，ACP 适配器的安装与升级机制见 [ACP 适配器管理](../architecture/adapters.md)。
 
 所有命令都在仓库根目录用 [just](https://github.com/casey/just) 执行，`just` 不带参数时列出全部命令。命令定义在仓库根目录的 `justfile`。
 
@@ -35,7 +35,35 @@
 | 配置与日志 | `config.toml`、`logs/` | 配置项见[配置](../interfaces/configuration.md#settings) |
 | 程序 | `bin/janus` | 页面已经编进二进制，不依赖仓库 |
 
+仓库中的 `backend/target/`、`macos/.build/` 和 `dist/` 是构建输出，都在 `.gitignore` 中，运行时不会写入仓库。
+
 删除仓库不影响任何数据；删除 `~/.janus` 会丢失全部数据。理由见 [ADR：用户数据、依赖和日志都放在 Janus home](../decisions/user_home_layout.md)。
+
+<a id="macos_app"></a>
+## macOS 应用
+
+### 从安装包安装
+
+1. 在 GitHub Release 中下载 `Janus-<版本>.dmg`，打开后把 Janus 拖进「应用程序」。
+2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 → 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
+3. 应用需要 macOS 14 或更高。Node.js 22.19 以上、`git` 和要用的 Agent CLI 仍需自己安装（见[前置条件](#prerequisites)），不需要 Rust 和 `just`。
+
+应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/macos_app.md#server_process)。
+
+升级：下载新版本的 DMG 覆盖「应用程序」中的 Janus。应用在运行时会占用服务，覆盖前先退出应用。
+
+### 从源码构建
+
+需要 Rust 工具链和 Swift 6（Xcode 或命令行工具都可以）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `just mac` | 从源码运行应用（连接已在运行的 Janus，否则启动 `~/.janus/bin/janus`） |
+| `just app` | 构建 `dist/Janus.app`，本机架构 |
+| `just dmg` | 构建 `dist/Janus.app` 和 `dist/Janus-<版本>.dmg` |
+| `just test-mac` | 运行应用的测试，需要 Xcode |
+
+`macos/scripts/package.sh` 依次：构建 release 服务、构建应用、生成图标、组装 `Janus.app`（`Contents/MacOS/Janus` 和 `Contents/MacOS/janus-server`）、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。`--universal` 同时构建 Apple silicon 和 Intel 版本（需要 Xcode 和两个 Rust 目标），发布由 CI 完成，见 [CI 与发布](ci_release.md)。
 
 <a id="prerequisites"></a>
 ## 前置条件
@@ -109,7 +137,8 @@ release 构建把 `frontend/app.html` 编进二进制，安装后的 Janus 不�
 
 | 升级对象 | 做法 |
 | --- | --- |
-| Janus 本身 | 更新仓库代码后执行 `just install`，再执行 `just restart` |
+| Janus 本身（服务） | 更新仓库代码后执行 `just install`，再执行 `just restart` |
+| Janus 本身（macOS 应用） | 退出应用，用新版本的 DMG 覆盖「应用程序」中的 Janus |
 | ACP 适配器 | 在「设置 → ACP 适配器」中检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/adapters.md) |
 | Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → Agents」重新检查 |
 

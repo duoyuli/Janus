@@ -50,6 +50,10 @@ just start     # 以服务方式启动（macOS）；或 just run 在前台运行
 | 某次尝试失败 | `~/.janus/logs/<run>/<task>-a<n>.log` 是该子进程的 stderr；事件 `attempt.failed` 的 `data.error` 是失败原因 |
 | 发出的消息没进对话 | 看输入框上方的「待发送」区：「发送中」表示会话还没处理到它，「排队」表示要等这一轮结束，「留言」表示这个 Agent 当前没有会话 |
 | 页面不更新 | SSE 断开或缓冲溢出时页面会自动重新加载 Run；仍无变化时刷新页面 |
+| macOS 应用打不开，提示无法验证开发者 | 安装包没有用 Apple 证书签名：到「系统设置 → 隐私与安全性」点「仍要打开」，见[部署方案](deployment.md#macos_app) |
+| macOS 应用停在「Janus 服务没有启动」 | 页面上是 `~/.janus/logs/janus.out.log` 的末尾。端口被占用时应用会自动换端口（见 [macOS 应用](../architecture/macos_app.md#port_conflict)），所以多半是另一个用同一 Janus home 的 Janus 还在运行却连不上，先退出它（`just stop`）再点「重试」 |
+| macOS 应用侧栏显示「端口 … 被其他程序占用，改用 …」 | 正常：配置的端口被别的程序占着，这次服务用了提示中的端口。想固定端口时，在 `~/.janus/config.toml` 中把 `addr` 改成空闲的端口 |
+| macOS 应用里 Agent 检查报找不到 `node` 或 CLI | 应用从登录 shell 读取 `PATH`；确认在新开的终端里 `which node` 能找到。连接的是 launchd 服务时，`PATH` 来自执行 `just start` 的终端 |
 | 服务起不来 | `just status` 看进程状态；`~/.janus/logs/janus.out.log` 看启动错误，例如端口被占用，或「另一个 Janus 正在使用」，见[部署方案](deployment.md#single_instance) |
 
 完整的事件记录可以在 Run 页面导出，或请求 `GET /api/runs/{id}/export`。

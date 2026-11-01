@@ -38,7 +38,7 @@
 - `text` 用于展示，程序逻辑只读 `type` 和 `data`。
 - 等待用户或主控处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键的前缀：`q-<task>-<n>-<轮>` 是任务提问，`req-<task 或 agent>-<n>-<时间>` 是审批或表单请求。早期计划模式的 Run 还有 `plan` 和 `plan-invalid`。
 
-新增或修改事件类型时，同步检查：页面的 `derive` 和 `boardFacts`（[Web 工作台](../architecture/frontend.md#event_derivation)）、看板的 `board_entry`（[看板 MCP 工具](board_mcp.md#wait)）、恢复逻辑 `resume_run`。
+新增或修改事件类型时，同步检查：页面的 `derive` 和 `boardFacts`（[Web 工作台](../architecture/frontend.md#event_derivation)）、macOS 应用 `Derive.swift` 中的同名函数（[macOS 应用](../architecture/macos_app.md#event_derivation)）、看板的 `board_entry`（[看板 MCP 工具](board_mcp.md#wait)）、恢复逻辑 `resume_run`。
 
 <a id="message_flow"></a>
 ## 消息的流转

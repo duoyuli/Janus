@@ -1,0 +1,77 @@
+# Pushing a tag v<version> builds a universal (Apple silicon + Intel) Janus.app with the server
+# inside, packs it into Janus-<version>.dmg and publishes it on the GitHub release of that tag.
+# Running the workflow by hand builds the DMG as a workflow artifact only.
+# See docs/operations/ci_release.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for the build (for example 0.2.0-rc1)"
+        required: true
+        default: "0.0.0-dev"
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    name: Build Janus.dmg
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Version
+        id: v
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ inputs.version }}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Test orchestrator
+        working-directory: backend
+        run: cargo test --locked
+      - name: Test macOS app
+        working-directory: macos
+        run: swift test
+
+      - name: Package
+        run: macos/scripts/package.sh --version "${{ steps.v.outputs.version }}" --universal
+
+      - name: Check the app
+        run: |
+          app=dist/Janus.app
+          lipo -archs "$app/Contents/MacOS/Janus"
+          lipo -archs "$app/Contents/MacOS/janus-server"
+          codesign --verify --strict "$app"
+          shasum -a 256 dist/Janus-*.dmg | tee dist/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Janus-${{ steps.v.outputs.version }}
+          path: |
+            dist/Janus-*.dmg
+            dist/SHA256SUMS.txt
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          notes="下载 Janus-${{ steps.v.outputs.version }}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」。运行需要 Node.js 22.19 以上和你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/Janus-*.dmg dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "$tag" dist/Janus-*.dmg dist/SHA256SUMS.txt --title "Janus ${{ steps.v.outputs.version }}" --notes "$notes" --generate-notes
+          fi

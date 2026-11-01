@@ -48,11 +48,16 @@ Janus/
 │   │   └── db.rs          # SQLite
 │   └── testdata/fake_acp.py  # 测试用脚本化 ACP Agent
 ├── frontend/app.html      # Web 工作台（单文件，无构建，release 构建时编进二进制）
+├── macos/                 # 原生 macOS 应用（SwiftUI，Swift Package）
+│   ├── Sources/Janus/     # Core/（JSON、API、服务进程、事件推导）和 UI/
+│   ├── Tests/JanusTests/  # Swift Testing 测试
+│   └── scripts/           # package.sh（打包 Janus.app 和 DMG）、make-icon.swift
+├── .github/workflows/     # CI（测试）和 Release（打包 DMG 并发布）
 ├── examples/calc/         # 最小示例工作区（自带 .git）
 └── .agents/skills/        # 项目 skill（.claude/skills 是指向它的符号链接）
 ```
 
-仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/deployment.md#layout)。`.gitignore` 只忽略 `backend/target/`。
+仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/deployment.md#layout)。`.gitignore` 只忽略构建输出：`backend/target/`、`macos/.build/` 和 `dist/`。
 
 ## 常用命令
 
@@ -61,7 +66,9 @@ Janus/
 | 目的 | 命令 |
 | --- | --- |
 | 从源码启动（开发） | `just dev` |
-| 运行全部测试 | `just test` |
+| 运行全部测试 | `just test`；macOS 应用 `just test-mac` |
+| 从源码运行 macOS 应用 | `just mac` |
+| 打包 Janus.app 和 DMG | `just dmg` |
 | 安装并以服务方式启动 | `just install`，然后 `just start` |
 | 查看服务状态和日志 | `just status`、`just logs` |
 | 验证示例工作区 | `python3 -m unittest discover -s examples/calc` |
