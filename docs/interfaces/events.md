@@ -51,11 +51,12 @@
    | `delivery` | 含义 | 何时出现 |
    | --- | --- | --- |
    | `steer` | 已插入正在进行的这一轮 | Agent 支持 `_lody/session/steer` 且插入成功 |
-   | `queued` | 排队，这一轮结束后作为新一轮发送 | 不支持或插入失败；或 Agent 正在等用户处理请求 |
+   | `queued` | 排队，这一轮结束后作为新一轮发送 | 用户的消息，Agent 不支持插话或插入失败；Agent 正在等用户处理请求；用户接管着会话时主控发来的消息（交还托管时送达） |
+   | `interrupt` | 打断正在进行的这一轮，立即作为新一轮发送 | 主控的 `reply`，Agent 不支持插话或插入失败 |
    | `prompt` | 直接作为新的一轮发送 | 人工接管中一轮已结束、正在等消息时；或在等待提问回答时发送 |
    | `next` | 留言，下次会话开始时带给它 | 这个 Agent 当前没有会话 |
 
-3. **送达**：`queued` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。
+3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。
 
 重启后，没有 `steer` / `prompt` 也没有被送达的消息会恢复为留言，在 Agent 下一次会话时带入。早期 Run 的 `user.message` 没有 `id`，直接在 `delivery` 中记录去向。
 
@@ -67,7 +68,7 @@
 | 类型 | 说明 |
 | --- | --- |
 | `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`、`inPlace`、`mode` |
-| `run.delivered` | 交付；`data` 是交付结果：`headline`、`summary`、`deliverables`、`evidence`、`risks`、`review`、`confidence`、`diagnosis` |
+| `run.delivered` | 交付；`data` 是交付结果：`headline`（「已完成：<目标第一行>」或「部分交付：<目标第一行>」）、`summary`、`deliverables`、`evidence`、`risks`、`review`、`confidence`、`diagnosis` |
 | `run.accepted_with_risk` | 用户接受部分结果后的交付 |
 | `risk.accepted` | 用户验收 |
 | `run.failed` | Run 失败；`data.error` |
@@ -104,17 +105,18 @@
 | `task.assigned` | 任务分配给执行者 |
 | `task.ready` | 依赖满足，可以启动 |
 | `attempt.launch_requested` / `attempt.started` | 请求启动 / 尝试开始 |
-| `context.handoff` | 上游结果交给下游 |
-| `result.submitted` | 尝试提交结构化结果；`data.summary`、`data.evidence`、`data.risks` |
+| `context.handoff` | 上游结果交给下游；`data.amendments` 是主控对上游结论的修订 |
+| `result.amended` | 主控修订已完成任务的结论（`janus.amend`）；`data.text` |
+| `result.submitted` | 尝试提交结构化结果；`data.summary`、`data.checks`（逐条验收：`criterion`、`passed`、`evidence`）、`data.evidence`、`data.risks` |
 | `artifact.created` | 保存产物；`data.name`、`data.kind`、`data.path`、`data.hash`、`data.bytes` |
 | `attempt.failed` | 尝试失败；`data.error` |
 | `attempt.late_result` | 过期尝试的结果被忽略 |
 | `task.retry_scheduled` | 安排下一次尝试 |
-| `task.succeeded` / `task.failed` | 任务成功 / 用完尝试次数 |
+| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks` |
 | `task.blocked` | 硬依赖失败；`data.dependency` |
 | `task.cancel_requested` / `task.cancelled_by_dependency` | 因 `failFast` 上游失败而取消（只出现在旧 Run 中） |
-| `task.skipped_by_decision` | 用户接受部分结果时跳过 |
-| `task.reopened` | 用户重试后任务重新开始；`data.reason` 是 `user.retry`（旧 Run 中还有 `review.rejected`） |
+| `task.skipped_by_decision` | 跳过：用户接受部分结果时，或主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
+| `task.reopened` | 重试后任务重新开始；`data.reason` 是 `user.retry` 或 `lead.retry`（旧 Run 中还有 `review.rejected`）；主控重试时可能带新的 `data.instructions`、`data.accept`（旧 Run 中还有 `data.commands`） |
 | `review.approved` / `review.rejected` | 评审结论（只出现在旧 Run 中） |
 | `policy.violation` | 只读任务修改了文件，改动被丢弃（只出现在使用独立 worktree 的旧 Run 中） |
 
@@ -122,24 +124,22 @@
 
 | 类型 | 说明 |
 | --- | --- |
-| `verification.started` | 开始验证；`data.policy` |
-| `verification.command` | 执行了一条验证命令 |
-| `verification.command_rejected` | 命令不在允许列表 |
-| `verification.command_unavailable` | 命令无法执行 |
-| `verification.passed` / `verification.failed` | 验证结果；失败时 `data.failures` |
+| `verification.started` | 开始核对结果；`data.accept`（旧 Run 中是 `data.policy`） |
+| `verification.passed` / `verification.failed` | 核对结果；`data.checks`，失败时另有 `data.failures`（每条没核对、没证据或没达到的标准） |
+| `verification.command` / `verification.command_rejected` / `verification.command_unavailable` | 只出现在旧 Run 中：Janus 曾经执行主控指定的验证命令 |
 
 ### 会话
 
 | 类型 | 说明 |
 | --- | --- |
 | `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置） |
-| `agent.message` | Agent 的回复文本；`data.text` |
-| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup`）、`data.prompt`、`data.session` |
+| `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 3 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，页面也能先看到它说的话 |
+| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix`，`fix` 是把验证失败发回协作者的会话修复）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer` / `extension`） |
 | `tool.call` | 工具调用及其输入输出摘要 |
-| `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`、`data.status` |
-| `tool.completed` | Janus MCP 工具返回；`data.callId`、`data.tool`、`data.input`、`data.output`、`data.status` |
+| `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status` |
+| `tool.completed` | Janus MCP 工具返回；`data.callId`、`data.tool`、`data.input`、`data.args`、`data.output`、`data.status` |
 | `user.message` | 用户或主控发出一条消息，发出时立即记录；`data.id`、`data.text`，`data.delivery` 为 `pending`，见[消息的流转](#message_flow) |
-| `message.routed` | 会话决定这条消息怎么进入；`data.id`、`data.delivery`（`steer` / `queued` / `prompt` / `next`） |
+| `message.routed` | 会话决定这条消息怎么进入；`data.id`、`data.delivery`（`steer` / `queued` / `interrupt` / `prompt` / `next`） |
 | `message.delivered` | 等待中的消息送达：排队的消息在一轮结束后作为新一轮发送，留言在下次会话开始时带入；`data.ids` |
 | `session.interrupted` | 用户打断了一轮 |
 | `control.taken` / `control.released` | 接管 / 交还 |
@@ -149,7 +149,7 @@
 | 类型 | 说明 |
 | --- | --- |
 | `question.asked` | 任务提问；`data.key`、`data.question`、`data.options` |
-| `question.escalated` | 提问转给用户；`data.key`、`data.reason` |
+| `question.escalated` | 交给用户的决定：协作者的提问（带任务），或主控用 `ask_user` 提的问题（`actor` 为 `lead`，没有任务，另有 `data.question`、`data.options`、`data.recommend`）；`data.key`、`data.reason` |
 | `question.answered` | 提问被回答；`data.answer`、`data.via`（`lead`、`session` 或页面回答时省略） |
 | `answer.delivered` | 回答已发回会话 |
 | `approval.requested` | Agent 请求审批；`data.key`、`data.options` |

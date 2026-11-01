@@ -70,7 +70,7 @@ Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件�
 
 1. 打开会话，接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/acp_integration.md#session_setup)。
-3. 发送任务提示（`task_prompt`）：总目标、任务说明、验收标准、验证命令、上游结果、上次失败原因、角色指令、Skill 列表和结构化结果格式。
+3. 发送任务提示（`task_prompt`）：总目标、任务说明、验收标准（要求协作者结束前用自己判断的方式逐条验证，在 `checks` 中给出证据；标准不合理时在 `question` 中请主控调整）、上游结果（含主控的修订）、上次失败原因、Skill 列表和结构化结果格式。角色指令和 Provider 的自定义提示词按 [用户的长期要求](../interfaces/acp_integration.md#standing_instructions) 注入，只有没有系统层入口的 Agent 才附在这里。
 4. 收集流式输出、工具调用、审批请求和表单请求。
 5. 解析回复中最后一个 ```` ```json ```` 代码块作为结构化结果。
 
@@ -80,31 +80,40 @@ Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件�
 ```json
 {
   "summary": "一句话结果",
-  "evidence": ["可核对的证据，例如运行的命令和输出"],
+  "checks": [{ "criterion": "验收标准原文", "passed": true, "evidence": "怎么验证的、看到了什么" }],
+  "evidence": ["其他可核对的证据"],
   "risks": ["已知风险，没有就留空数组"],
   "question": null
 }
 ```
 
+- `checks` 按验收标准的顺序逐条给出，验证方式由 Agent 自己决定。
 - 没有 JSON 块时，摘要取回复第一行，并记一条风险「Agent 没有按约定返回结构化结果」。
 - `question` 不为空表示 Agent 在提问：`{"text": "问题", "options": ["A", "B"], "recommend": "A"}`。回答作为下一轮提示发回同一个会话。同一次尝试最多连续提问 4 轮。提问由谁回答见[提问的流转](goal_mode.md#question_routing)。
 
 <a id="verification"></a>
 ## 验证
 
-结果提交后，Janus 执行验证（`verify_result`，`verification.*` 事件）：
+结果提交后，Janus 核对结果（`verify_result` / `result_gaps`，`verification.*` 事件）。Janus 不运行任何验证命令，验证由协作者按验收标准自己完成，见[验收标准](../interfaces/board_mcp.md#acceptance_criteria)。核对的内容：
 
-- `summary` 不能为空，`evidence` 至少有一条。
-- 验证命令逐条在工作目录中执行，退出码非 0 即失败。命令必须在允许列表内，见[看板 MCP 工具](../interfaces/board_mcp.md#verification_commands)；万一执行时仍不合规，跳过并记为风险。
+- `summary` 不能为空。
+- 每条验收标准都有对应的 check（按顺序），check 有证据，且没有 `passed: false`。
+- 没有验收标准的任务（旧 Run）要求 `evidence` 至少有一条。
 
-验证失败视为这次尝试失败。
+验证没通过时，同一次尝试中按以下顺序处理：
+
+1. **在原会话里补一次**：把没核对、没证据或没达到的标准逐条发回同一个会话（`session.prompt`，`channel: "fix"`），请协作者修复后重新验证、补上证据；确实无法达到的如实写明原因。协作者保留着上下文，比开新会话从头做快，也更容易修对。补完后重新提交结果、重新核对。
+2. **仍然没通过**：任务失败（`task.failed`，`reason: "verification"`），不自动开新会话重试，由主控决定接受结果、修改后重试还是取消，见[看板 MCP 工具](../interfaces/board_mcp.md#accept_tool)。
+
+用户在会话中直接以当前结果结束时，不走修复这一步。
 
 <a id="retry"></a>
 ## 重试与失败
 
-- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败后还有剩余次数时，任务回到 `pending`，下一次尝试带上上次失败的原因（`task.retry_scheduled`）。
-- 用完次数后任务变为 `failed`（`task.failed`），Run 不停下，由主控在看板上读到后决定重新编排、换人还是自己做。
-- 用户也可以重试失败或取消的任务（`retry`），重试会重新给满尝试次数（`task.reopened`，`reason: "user.retry"`）。依赖它的 `blocked` 任务在它成功后自动恢复。
+- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、超时、自行取消等，不含验证没通过）后还有剩余次数时，任务回到 `pending`，下一次尝试带上上次失败的原因（`task.retry_scheduled`）。
+- 用完次数或验证没通过后任务变为 `failed`（`task.failed`），Run 不停下，由主控在看板上读到后用 `retry`、`accept`、`cancel` 处理，或自己做。被它阻塞的任务不需要重新编排。
+- 用户也可以重试失败或取消的任务（`retry`），重试会重新给满尝试次数（`task.reopened`，`reason: "user.retry"`）。主控的 `retry` 同理（`reason: "lead.retry"`）。依赖它的 `blocked` 任务在它成功后自动恢复。
+- 被打断而没有任何输出的一轮不保存回复产物。
 - 尝试结束后，它名下未处理的提问、审批和表单被撤回（`decision.withdrawn`）。过期尝试返回的结果被忽略（`attempt.late_result`）。
 
 <a id="timeouts"></a>
@@ -115,7 +124,6 @@ Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件�
 | Agent 启动和打开会话 | 10 分钟 |
 | 单次尝试 | 30 分钟 |
 | 单个 ACP 请求 | 30 分钟 |
-| 单条验证命令 | 10 分钟 |
 | 发送打断等控制指令 | 15 秒 |
 | Run 预算 | 6 小时，可用 `extendBudget` 追加 |
 

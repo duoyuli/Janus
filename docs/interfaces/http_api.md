@@ -34,6 +34,7 @@
 | POST | `/api/connections/{id}/test` | 在后台启动配置检查，立即返回 |
 | POST | `/api/connections/{id}/login` | 启动 Codex 或 Grok 的账号登录 |
 | GET | `/api/file?path=` | 读取产物文本 |
+| GET | `/api/stats/roles` | 最近的 Run 中各角色的任务统计，见[角色的执行统计](../domains/agents_and_roles.md#role_stats) |
 | GET | `/api/runs` | Run 列表 |
 | POST | `/api/runs` | 创建 Run |
 | GET | `/api/runs/{id}` | Run 详情和全部事件 |
@@ -129,7 +130,7 @@ Content-Type: application/json
 
 | `type` | 其他字段 | 说明 |
 | --- | --- | --- |
-| `answer` | `key`、`task`、`answer`、`note` | 回答提问 |
+| `answer` | `key`、`task`、`answer`、`note` | 回答提问；回答主控用 `ask_user` 提的问题时 `task` 为空 |
 | `approve` | `key`、`task`、`allow`、`option`、`label` | 处理审批请求，`option` 是 Agent 给出的 `optionId` |
 | `input` | `key`、`task`、`action`、`content` | 处理表单请求，`action` 是 `accept`、`decline` 或 `cancel` |
 | `message` | `text`，`agent` 或 `task` | 给会话发消息；Run 已中断时先恢复 |

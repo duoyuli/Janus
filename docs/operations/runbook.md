@@ -45,7 +45,7 @@ just start     # 以服务方式启动（macOS）；或 just run 在前台运行
 | 升级适配器后 Agent 异常 | 在「设置 → ACP 适配器」切回上一个版本，新启动的会话立即使用旧版本 |
 | 创建 Run 时提示主控不能做主控 | 主控角色必须绑定 Claude Code 或 Codex |
 | 主控拒绝 `/goal` | Agent 版本是否支持 `/goal`；Claude Code 是否允许 hooks；主控日志 `~/.janus/logs/<run>/lead-goal.log` |
-| 任务卡在等待 | 页面「需要你处理」中是否有审批、表单或提问；看板「待决」中是否有等主控回答的提问 |
+| 任务卡在等待 | 页面「需要你处理」中是否有审批、表单、提问或主控请你做的决定；看板「待处理」中标「主控处理」的事项（提问、失败、依赖失败）是否长时间没有进展 |
 | 协作者没有看板工具 | Agent 是否声明 `mcpCapabilities.http`；Pi 不支持，属预期行为 |
 | 某次尝试失败 | `~/.janus/logs/<run>/<task>-a<n>.log` 是该子进程的 stderr；事件 `attempt.failed` 的 `data.error` 是失败原因 |
 | 发出的消息没进对话 | 看输入框上方的「待发送」区：「发送中」表示会话还没处理到它，「排队」表示要等这一轮结束，「留言」表示这个 Agent 当前没有会话 |

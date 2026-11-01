@@ -82,7 +82,7 @@ pub fn kinds() -> Value {
         },
         {
             "id": "grok", "group": "builtin", "base": "grok", "name": "Grok", "desc": "xAI Grok", "color": "#111111", "init": "GK",
-            "isolation": "GROK_HOME", "runtime": runtime("grok"),
+            "isolation": "GROK_HOME", "runtime": runtime("grok"), "fixedEnv": { "GROK_DISABLE_AUTOUPDATER": "1" },
             "auths": [
                 { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.grok" }] },
                 { "id": "account", "label": "xAI 账号", "login": true, "desc": "创建后用设备码登录。", "fields": [] },
@@ -130,6 +130,26 @@ pub fn kinds() -> Value {
 }
 
 /// `KEY=VALUE` per line; a leading `export` and matching quotes are dropped, `#` starts a comment.
+/// A preset's default variables: the fixed ones, then the chosen endpoint's.
+fn preset_env(desc: &Value, c: &Value) -> Vec<(String, String)> {
+    let endpoint = desc["endpoints"].as_array().and_then(|e| e.iter().find(|e| e["id"] == c["endpoint"]));
+    desc["fixedEnv"]
+        .as_object()
+        .into_iter()
+        .chain(endpoint.and_then(|e| e["env"].as_object()))
+        .flat_map(|m| m.iter())
+        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
+        .collect()
+}
+
+/// A configured variable replaces any default of the same name; an empty value removes it.
+fn override_env(env: &mut Vec<(String, String)>, k: &str, v: &str) {
+    env.retain(|(name, _)| name != k);
+    if !v.is_empty() {
+        env.push((k.to_string(), v.to_string()));
+    }
+}
+
 pub fn parse_env(text: &str) -> Result<serde_json::Map<String, Value>> {
     let mut out = serde_json::Map::new();
     for (i, line) in text.lines().enumerate() {
@@ -584,18 +604,21 @@ impl App {
             "" => which(cmd),
             b => Some(expand_home(b)),
         };
-        // Sandbox first, then the variables configured on this agent, then its isolation and credentials,
-        // so nothing the user typed can point the agent back at the host's own directories.
+        // Sandbox first, then a preset's defaults, then the variables configured on this agent (which
+        // override the defaults; an empty value unsets one), then its isolation and credentials, so
+        // nothing the user typed can point the agent back at the host's own directories.
+        // @project-doc docs/domains/agents_and_roles.md#agent_env
         let mut env = self.sandbox_env(id)?;
-        env.extend(
-            c["env"]
-                .as_object()
-                .into_iter()
-                .chain(s["importedEnv"].as_object())
-                .flat_map(|m| m.iter())
-                .filter(|(k, _)| !is_sandbox_var(k))
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string())),
-        );
+        env.extend(preset_env(&desc, &c));
+        for (k, v) in c["env"]
+            .as_object()
+            .into_iter()
+            .chain(s["importedEnv"].as_object())
+            .flat_map(|m| m.iter())
+            .filter(|(k, _)| !is_sandbox_var(k))
+        {
+            override_env(&mut env, k, v.as_str().unwrap_or(""));
+        }
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
         let base = str_of(&c, "base").to_string();
         let mut program = crate::config::settings().node.clone();
@@ -625,19 +648,6 @@ impl App {
                 if let Some(b) = bin("claude") {
                     set("CLAUDE_CODE_EXECUTABLE", b);
                 }
-                if let Some(fixed) = desc["fixedEnv"].as_object() {
-                    for (k, v) in fixed {
-                        set(k, v.as_str().unwrap_or("").into());
-                    }
-                }
-                if let Some(ep) = desc["endpoints"]
-                    .as_array()
-                    .and_then(|e| e.iter().find(|e| e["id"] == c["endpoint"]))
-                {
-                    for (k, v) in ep["env"].as_object().unwrap() {
-                        set(k, v.as_str().unwrap_or("").into());
-                    }
-                }
                 match (desc["group"].as_str(), str_of(&c, "auth")) {
                     (Some("preset"), _) => {
                         set(desc["token"]["envKey"].as_str().unwrap(), secret("token"))
@@ -654,7 +664,6 @@ impl App {
                     "GROK_PATH",
                     bin("grok").context("找不到 grok 可执行文件，请填写运行时二进制路径")?,
                 );
-                set("GROK_DISABLE_AUTOUPDATER", "1".into());
                 if c["auth"] == "apikey" {
                     set("XAI_API_KEY", secret("apiKey"));
                 }
@@ -1220,6 +1229,18 @@ impl App {
 
     /// Claude Code runs `/goal` only in a workspace it trusts. The lead's agent has its own
     /// config directory, so record the trust there (never in the user's own Claude config).
+    /// The Pi extension that puts the person's standing instructions into Pi's system prompt.
+    /// Pi's ACP adapter has no system prompt slot but loads extensions passed with `-e`; the text
+    /// itself travels in `JANUS_STANDING_INSTRUCTIONS`. Written into this agent's isolated directory.
+    pub fn pi_standing_extension(&self, id: &str) -> Result<PathBuf> {
+        let file = self.agent_dir(id).join("janus").join("standing-instructions.js");
+        if std::fs::read_to_string(&file).ok().as_deref() != Some(PI_STANDING_EXTENSION) {
+            std::fs::create_dir_all(file.parent().unwrap())?;
+            std::fs::write(&file, PI_STANDING_EXTENSION)?;
+        }
+        Ok(file)
+    }
+
     pub fn trust_claude_workspace(&self, id: &str, path: &Path) -> Result<()> {
         let file = self.agent_dir(id).join("home").join(".claude.json");
         let mut cfg: Value = std::fs::read_to_string(&file)
@@ -1370,19 +1391,13 @@ impl App {
             let conn = self.connection(conn_id)?;
             let lead = m["role"] == ws["lead"];
             let session = role_session(&role, &conn);
-            // Whether this member edits files is its agent's permission mode, nothing else.
-            let write = session_writes(&session, &conn);
             let permission = session_label(&session, &conn);
             let model_label = model_label(&role, &conn);
-            let mut limits = vec![if write {
-                "按权限模式会修改文件，直接在工作目录中".to_string()
-            } else {
-                "按权限模式只读，不修改文件".to_string()
-            }];
-            limits.push(match permission.as_str() {
-                "" => "Agent 没有权限模式，审批和提问转给你".into(),
+            // What the member may do is its agent's own permission mode; Janus only names it.
+            let limits = vec![match permission.as_str() {
+                "" => "Agent 没有权限模式，审批和提问转给你".to_string(),
                 l => format!("权限：{l}；需要审批或填写的请求转给你"),
-            });
+            }];
             team.push(Member {
                 // "lead" is reserved for whichever role leads this environment.
                 id: if lead {
@@ -1397,7 +1412,6 @@ impl App {
                 desc: str_of(&role, "desc").into(),
                 limits,
                 ws: "workspace".into(),
-                writable: write,
                 runtime: conn_id.into(),
                 lead,
                 color: str_of(&role, "color").into(),
@@ -1473,11 +1487,43 @@ pub fn session_options(session: &Value) -> Value {
             "options": modes.as_array().unwrap().iter().map(|m| json!({ "value": m["id"], "name": m["name"], "desc": m["description"] })).collect::<Vec<_>>(),
         }));
     }
+    // Janus never runs an agent in a plan mode: plan toggles leave the controls (kept apart so a
+    // session can switch them off) and "plan" leaves every select's options.
+    let (plans, mut controls): (Vec<Value>, Vec<Value>) = controls.into_iter().partition(is_plan_toggle);
+    for c in controls.iter_mut() {
+        if let Some(o) = c["options"].as_array_mut() {
+            o.retain(|x| !is_plan_value(&x["value"]));
+        }
+    }
     if let Some(mode) = controls.iter().find(|c| c["category"] == "mode") {
         out["mode"] = json!({ "id": mode["id"], "current": mode["current"], "options": mode["options"] });
     }
     out["controls"] = json!(controls);
+    out["planToggles"] = json!(plans);
     out
+}
+
+/// A control that switches the agent into a plan mode: Codex's `plan-mode` (an on/off select),
+/// Grok's `plan_mode` (a boolean).
+// @project-doc docs/domains/agents_and_roles.md#no_plan_mode
+pub fn is_plan_toggle(c: &Value) -> bool {
+    str_of(c, "id").to_ascii_lowercase().contains("plan")
+}
+
+/// The value that switches a plan toggle off, or None when it is already off or has no off value.
+pub fn plan_off_value(c: &Value) -> Option<Value> {
+    if c["type"] == "boolean" {
+        return (c["current"] == true).then_some(json!(false));
+    }
+    let off = c["options"].as_array()?.iter().map(|o| &o["value"]).find(|v| {
+        v.as_str().is_some_and(|v| matches!(v.to_ascii_lowercase().as_str(), "off" | "false" | "disabled" | "no"))
+    })?;
+    (c["current"] != *off).then(|| off.clone())
+}
+
+/// A select value that is a plan mode (Claude Code's `plan`, older agents' `plan` session mode).
+pub fn is_plan_value(v: &Value) -> bool {
+    v.as_str().is_some_and(|v| v.to_ascii_lowercase().replace(['-', '_', ' '], "") == "plan")
 }
 
 fn select_choices(options: &Value) -> Vec<Value> {
@@ -1517,6 +1563,10 @@ pub fn role_session(role: &Value, conn: &Value) -> Value {
     let controls = conn["options"]["controls"].as_array().cloned().unwrap_or_default();
     let mut out = serde_json::Map::new();
     for (k, v) in role["session"].as_object().cloned().unwrap_or_default() {
+        // Plan modes are never chosen, whatever an older role or an older probe recorded.
+        if k.to_ascii_lowercase().contains("plan") || is_plan_value(&v) {
+            continue;
+        }
         let fits = match controls.iter().find(|c| c["id"] == k.as_str()) {
             Some(c) if c["type"] == "boolean" => v.is_boolean(),
             Some(c) => c["options"].as_array().is_some_and(|o| o.iter().any(|x| x["value"] == v)),
@@ -1528,27 +1578,6 @@ pub fn role_session(role: &Value, conn: &Value) -> Value {
         }
     }
     Value::Object(out)
-}
-
-/// Whether a session with these control values may change files, read from the agent's own
-/// permission modes: a read-only preset, or Plan switched on, only reads. Agents that declare no
-/// permission modes (Pi, most custom commands) edit freely.
-// @project-doc docs/domains/agents_and_roles.md#writability
-pub fn session_writes(session: &Value, conn: &Value) -> bool {
-    let controls = conn["options"]["controls"].as_array().cloned().unwrap_or_default();
-    for c in controls.iter().filter(|c| c["permission"] == true) {
-        let id = str_of(c, "id").replace('-', "_");
-        let v = session.get(c["id"].as_str().unwrap_or_default()).unwrap_or(&c["current"]);
-        let plan_on = id.contains("plan") && (v == &json!(true) || v == "on");
-        let read_only = v.as_str().is_some_and(|v| {
-            let v = v.to_ascii_lowercase().replace(['-', '_', ' '], "");
-            v == "readonly" || v == "plan"
-        });
-        if plan_on || read_only {
-            return false;
-        }
-    }
-    true
 }
 
 /// The model and reasoning effort a role runs with, by display name: the role's choice, or the
@@ -1589,7 +1618,7 @@ pub fn model_label(role: &Value, conn: &Value) -> String {
 pub fn session_label(session: &Value, conn: &Value) -> String {
     let controls = conn["options"]["controls"].as_array().cloned().unwrap_or_default();
     let mut parts = vec![];
-    for c in controls.iter().filter(|c| c["permission"] == true) {
+    for c in controls.iter().filter(|c| c["permission"] == true && !is_plan_toggle(c)) {
         let v = session.get(c["id"].as_str().unwrap_or_default()).unwrap_or(&c["current"]);
         let name = str_of(c, "name");
         parts.push(match v {
@@ -1750,6 +1779,17 @@ pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+// A prompt section, not a replacement: Pi keeps its own prompt and other extensions see the change.
+const PI_STANDING_EXTENSION: &str = r#"// Written by Janus. Adds the person's standing instructions to Pi's system prompt.
+export default function (pi) {
+  const text = process.env.JANUS_STANDING_INSTRUCTIONS;
+  if (!text) return;
+  pi.on("before_agent_start", (event) => {
+    event.systemPromptOptions.sections.standing_instructions = text;
+  });
+}
+"#;
 
 fn local_source(base: &str, source: &str) -> PathBuf {
     let default = match base {
@@ -2318,6 +2358,20 @@ mod session_option_tests {
     use super::*;
 
     #[test]
+    fn preset_variables_are_defaults_the_agent_settings_override() {
+        let kinds = kinds();
+        let glm = kinds.as_array().unwrap().iter().find(|k| k["id"] == "glm-claude").unwrap();
+        let mut env = preset_env(glm, &json!({ "endpoint": "zai" }));
+        let get = |env: &Vec<(String, String)>, k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        assert_eq!(get(&env, "ANTHROPIC_BASE_URL").as_deref(), Some("https://api.z.ai/api/anthropic"), "the chosen endpoint");
+        override_env(&mut env, "ANTHROPIC_DEFAULT_OPUS_MODEL", "glm-6");
+        override_env(&mut env, "API_TIMEOUT_MS", "");
+        assert_eq!(get(&env, "ANTHROPIC_DEFAULT_OPUS_MODEL").as_deref(), Some("glm-6"));
+        assert_eq!(get(&env, "API_TIMEOUT_MS"), None, "an empty value unsets the default");
+        assert_eq!(env.iter().filter(|(n, _)| n == "ANTHROPIC_DEFAULT_OPUS_MODEL").count(), 1);
+    }
+
+    #[test]
     fn controls_follow_what_each_agent_declares() {
         // Grok: permission mode under its own category, Plan as a boolean, model and effort apart.
         let grok = session_options(&json!({ "configOptions": [
@@ -2327,13 +2381,27 @@ mod session_option_tests {
             { "id": "model", "category": "model", "type": "select", "currentValue": "grok-4", "options": [{ "value": "grok-4", "name": "Grok 4" }] },
         ] }));
         let c = grok["controls"].as_array().unwrap();
-        assert_eq!(c.len(), 2);
+        assert_eq!(c.len(), 1, "Plan is never a role choice");
+        assert_eq!(grok["planToggles"][0]["id"], "plan_mode", "kept apart so a session can switch it off");
         assert!(c.iter().all(|c| c["permission"] == true));
         assert_eq!(grok["model"]["current"], "grok-4");
         let role = json!({ "session": { "permission_mode": "always-approve", "plan_mode": "yes", "gone": "x" } });
         let conn = json!({ "options": grok });
         assert_eq!(role_session(&role, &conn), json!({ "permission_mode": "always-approve" }));
-        assert_eq!(session_label(&role_session(&role, &conn), &conn), "Plan 关闭 · Always Approve");
+        assert_eq!(session_label(&role_session(&role, &conn), &conn), "Always Approve");
+        // Claude Code's Plan permission mode is not offered, and a role that chose it loses it.
+        let claude = session_options(&json!({ "configOptions": [{ "id": "mode", "category": "mode", "type": "select", "currentValue": "default",
+            "options": [{ "value": "default" }, { "value": "acceptEdits" }, { "value": "plan" }] }] }));
+        assert_eq!(claude["controls"][0]["options"].as_array().unwrap().len(), 2);
+        assert_eq!(role_session(&json!({ "session": { "mode": "plan" } }), &json!({ "options": claude })), json!({}));
+        // Codex: Plan mode is an on/off select; it is switched off, never offered.
+        let codex_plan = session_options(&json!({ "configOptions": [{ "id": "plan-mode", "name": "Plan mode", "type": "select", "currentValue": "on",
+            "options": [{ "value": "off" }, { "value": "on" }] }] }));
+        assert!(codex_plan["controls"].as_array().unwrap().is_empty());
+        assert_eq!(plan_off_value(&codex_plan["planToggles"][0]), Some(json!("off")));
+        let mut already_off = codex_plan["planToggles"][0].clone();
+        already_off["current"] = json!("off");
+        assert_eq!(plan_off_value(&already_off), None);
 
         // Codex: one mode select; a non-permission option stays a plain session option.
         let codex = session_options(&json!({ "configOptions": [
@@ -2348,18 +2416,7 @@ mod session_option_tests {
         // Older agents: ACP session modes become a control set through session/set_mode.
         let legacy = session_options(&json!({ "modes": { "currentModeId": "default", "availableModes": [{ "id": "default", "name": "Default" }, { "id": "plan", "name": "Plan" }] } }));
         assert_eq!(legacy["controls"][0]["via"], "mode");
-        assert_eq!(legacy["controls"][0]["options"].as_array().unwrap().len(), 2);
-
-        // Whether a role edits files comes from the mode alone.
-        let codex_conn = json!({ "options": codex });
-        assert!(session_writes(&json!({}), &codex_conn), "Codex default Agent mode edits");
-        assert!(!session_writes(&json!({ "mode": "read-only" }), &codex_conn));
-        assert!(!session_writes(&json!({ "plan_mode": true }), &conn), "Grok with Plan on only reads");
-        assert!(session_writes(&json!({}), &json!({ "options": { "controls": [] } })), "Pi declares no modes and edits");
-        let claude = json!({ "options": session_options(&json!({ "configOptions": [{ "id": "mode", "category": "mode", "type": "select", "currentValue": "default",
-            "options": [{ "value": "default" }, { "value": "acceptEdits" }, { "value": "plan" }] }] })) });
-        assert!(!session_writes(&json!({ "mode": "plan" }), &claude));
-        assert!(session_writes(&json!({ "mode": "acceptEdits" }), &claude));
+        assert_eq!(legacy["controls"][0]["options"].as_array().unwrap().len(), 1, "the plan session mode is not offered");
 
         // Model and effort as the lead is told them.
         let opts = json!({ "options": {

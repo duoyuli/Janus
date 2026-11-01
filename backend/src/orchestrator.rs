@@ -60,8 +60,6 @@ pub struct Member {
     pub limits: Vec<String>,
     #[serde(default)]
     pub ws: String,
-    #[serde(default)]
-    pub writable: bool,
     pub runtime: String,
     #[serde(default)]
     pub lead: bool,
@@ -133,15 +131,6 @@ pub struct TaskDef {
     pub assignee: String,
     #[serde(default = "default_max_attempts", rename = "maxAttempts")]
     pub max_attempts: i64,
-    #[serde(default)]
-    pub verification: VerificationPolicy,
-}
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct VerificationPolicy {
-    /// Commands Janus runs in the workspace once the task reports its result.
-    #[serde(default)]
-    pub commands: Vec<String>,
 }
 
 fn default_max_attempts() -> i64 {
@@ -172,6 +161,9 @@ impl TaskDef {
 /// What a person can do inside a running attempt's ACP session.
 pub enum Steer {
     Message(Msg),
+    /// From the lead: joins the running turn where the agent supports steering; otherwise the
+    /// turn is stopped and the message goes in right away, instead of waiting for a long turn.
+    Redirect(Msg),
     Interrupt,
     TakeOver,
     Release,
@@ -198,14 +190,40 @@ struct Control {
     queued: Vec<Msg>,
 }
 
+/// How long an agent's text may sit unshown after its last chunk.
+const MESSAGE_QUIET: Duration = Duration::from_secs(3);
+
 const RELEASE_PROMPT: &str = "人工介入结束。请结合上面的对话，自主完成原来的任务。完成后按最初的要求，以 ```json 结构化结果结束。";
+
+/// The agent finished but a verification command failed. Running the same command against a new
+/// session rarely changes the outcome (the command may not fit the workspace), so the lead decides.
+#[derive(Debug)]
+struct VerificationFailed(String);
+
+impl std::fmt::Display for VerificationFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "验证失败：{}", self.0)
+    }
+}
+
+impl std::error::Error for VerificationFailed {}
 
 #[derive(Clone, Debug, Default)]
 struct TaskResult {
     summary: String,
     evidence: Vec<String>,
     risks: Vec<String>,
+    /// The agent's own check of each acceptance criterion, in order.
+    checks: Vec<Check>,
     question: Option<Value>,
+}
+
+/// One acceptance criterion as the agent verified it, by whatever means it judged right.
+#[derive(Clone, Debug, Default, Serialize)]
+struct Check {
+    criterion: String,
+    passed: bool,
+    evidence: String,
 }
 
 struct Task {
@@ -221,6 +239,8 @@ struct Task {
     active_attempt: Option<String>,
     /// Attempts made before the current retry budget started (a user retry).
     retry_base: i64,
+    /// The lead's corrections to this task's conclusion, handed on with it (`result.amended`).
+    amendments: Vec<String>,
 }
 
 impl Task {
@@ -236,6 +256,7 @@ impl Task {
             artifacts: vec![],
             active_attempt: None,
             retry_base: 0,
+            amendments: vec![],
         }
     }
 }
@@ -254,6 +275,8 @@ struct RunState {
     live_agent: HashMap<String, String>,
     /// Messages for an agent that had no open session; delivered with its next session.
     notes: HashMap<String, Vec<Msg>>,
+    /// Why each task's last result did not pass its acceptance check, for the fix round and the lead.
+    last_verification: HashMap<String, String>,
     /// Sessions to reload when an interrupted task starts again, by task id.
     resume_session: HashMap<String, String>,
     /// Working in place: the working-tree diff last saved as an artifact, so a task that changed
@@ -867,7 +890,10 @@ impl App {
         if !lead_capable(&lead.kind) {
             bail!("主控只能是 Claude Code 或 Codex：只有它们支持 /goal");
         }
-        let spec = self.spec_for(&lead.runtime)?;
+        let standing = standing_instructions(&lead);
+        let channel = instruction_channel(&lead.kind);
+        let mut spec = self.spec_for(&lead.runtime)?;
+        spec = self.with_standing(spec, &channel, &standing)?;
         let workspace = run.cwd.clone();
         if lead.kind == "claude" {
             // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
@@ -898,8 +924,10 @@ impl App {
             };
             let brief = format!("{}{}", self.goal_brief(run, resumed), self.take_notes(run, "lead"));
             let claude = lead.kind == "claude";
+            // Claude's system layer carries the brief and, after it, the person's standing rules.
+            let system = if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") };
             let (sid, applied) = tokio::time::timeout(STARTUP_TIMEOUT, async {
-                let session = new_session(&conn, &workspace, &lead, &[self.mcp_server(run, "lead")], claude.then_some(brief.as_str())).await?;
+                let session = new_session(&conn, &workspace, &lead, &[self.mcp_server(run, "lead")], claude.then_some(system.as_str())).await?;
                 let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
                 let applied = configure_session(&conn, &session, &lead).await?;
                 Ok::<_, anyhow::Error>((sid, applied))
@@ -908,6 +936,7 @@ impl App {
             .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
             self.emit(run, ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" }).data(json!({ "phase": "thinking", "session": sid, "config": applied, "mode": "goal" })));
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
+            self.record_instructions(run, &ctx, &sid, &channel, &standing);
             if !claude {
                 // Codex has no slot for extra instructions: the brief goes in first, as context.
                 let ack = format!("{brief}\n\n以上是背景信息。现在只回复“已了解”，不要开始工作，目标会在下一条消息里给出。");
@@ -931,7 +960,7 @@ impl App {
                 if let Some(reason) = goal_refused(&text) {
                     bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
                 }
-                if !ctl.queued.is_empty() {
+                if !ctl.human && !ctl.queued.is_empty() {
                     let msgs: Vec<Msg> = ctl.queued.drain(..).collect();
                     let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
                     self.emit(run, ev("message.delivered", "janus", format!("这一轮结束，把你的 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
@@ -952,9 +981,15 @@ impl App {
                                 ctl.human = false;
                                 self.emit(run, ev("control.released", "user", "交还托管：主控继续推进目标").to("lead"));
                                 prompt = format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal);
+                                if !ctl.queued.is_empty() {
+                                    let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
+                                    let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
+                                    self.emit(run, ev("message.delivered", "janus", format!("交还托管，把排队的 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
+                                    prompt = format!("{}\n\n{prompt}", msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n"));
+                                }
                             }
                             Some(Steer::Finish) => ctl.finish = true,
-                            Some(Steer::TakeOver | Steer::Interrupt) => continue,
+                            Some(Steer::TakeOver | Steer::Interrupt | Steer::Redirect(_)) => continue,
                         }
                         break;
                     }
@@ -970,7 +1005,7 @@ impl App {
             let mut st = run.st.lock().unwrap();
             st.live.remove("lead");
             st.live_agent.remove("lead");
-            let stale: Vec<String> = st.waiters.keys().filter(|k| k.starts_with("req-lead-0-")).cloned().collect();
+            let stale: Vec<String> = st.waiters.keys().filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-")).cloned().collect();
             (st.conns.remove("lead"), stale)
         };
         for key in stale {
@@ -982,9 +1017,50 @@ impl App {
         result
     }
 
+    /// Starts the adapter so the standing instructions reach the agent's system layer.
+    fn with_standing(&self, mut spec: crate::acp::RuntimeSpec, channel: &Channel, text: &str) -> Result<crate::acp::RuntimeSpec> {
+        if text.is_empty() {
+            return Ok(spec);
+        }
+        match channel {
+            Channel::Developer => spec = with_developer_instructions(spec, text),
+            Channel::Extension => {
+                let ext = self.pi_standing_extension(&spec.id)?;
+                spec.args.extend(["-e".to_string(), ext.to_string_lossy().into_owned()]);
+                spec.env.push(("JANUS_STANDING_INSTRUCTIONS".into(), text.into()));
+            }
+            _ => {}
+        }
+        Ok(spec)
+    }
+
+    /// What went into the system layer is invisible in the transcript: record it, with its channel.
+    fn record_instructions(&self, run: &Run, ctx: &Ctx<'_>, sid: &str, channel: &Channel, text: &str) {
+        let via = match channel {
+            Channel::System => "system",
+            Channel::Developer => "developer",
+            Channel::Extension => "extension",
+            Channel::Prompt => return,
+        };
+        if text.is_empty() {
+            return;
+        }
+        let mut e = ev("session.prompt", "janus", "向 Agent 注入用户的长期要求")
+            .to(ctx.agent)
+            .data(json!({ "channel": "instructions", "via": via, "session": sid, "prompt": text }));
+        if let Some(task) = ctx.task {
+            e = e.task(task);
+        }
+        if let Some(attempt) = ctx.attempt {
+            e = e.attempt(attempt);
+        }
+        self.emit(run, e);
+    }
+
     fn record_session_prompt(&self, run: &Run, ctx: &Ctx<'_>, sid: &str, channel: &str, prompt: &str) {
         let label = match channel {
             "system" => "向 Agent 注入主控上下文",
+            "fix" => "验证没有通过，把结果发回 Agent 修复",
             "context" => "向主控发送团队上下文",
             "goal" => "向主控发送目标提示",
             _ => "向主控发送继续提示",
@@ -1008,23 +1084,43 @@ impl App {
         let mut p = format!(
             "你是 Janus 团队的主控，负责完成用户交给你的目标。你可以自己从头做到尾；也可以在需要时把一部分工作交给下面的协作者。是否需要协作、交给谁、怎么拆，都由你判断，不要为了协作而协作。
 
-工作目录：{cwd}（你和协作者都直接在这里工作，改动立即彼此可见）
+工作目录：{cwd}（你和协作者都直接在这里工作，改动立即彼此可见）。{git}
 
 协作者：
 {team}
 
 和协作者协作，都通过 janus MCP 工具和共享看板：
-- janus.orchestrate：提交一份编排（一组任务：id、标题、给执行者的完整说明、执行者、依赖、是否修改文件、验收标准）。Janus 先校验（执行者存在、依赖存在且无环、验证命令合规），不通过会返回具体错误，改好再提交；通过后任务写入看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前的任务。
-- janus.wait：从看板取回发给你的新消息并等待新进展：任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，以及协作者的提问。每次最多等 45 秒，没有新消息就再调用。
-- janus.reply：回答协作者的提问，或给正在执行的协作者补充指示。
+- janus.orchestrate：提交一份编排（一组任务：id、标题、给执行者的完整说明、执行者、依赖、是否修改文件、验收标准）。Janus 先校验，不通过会返回全部错误，改好再提交；通过后任务写入看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前的任务。
+- janus.wait：取回看板上的新消息并等待进展：任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，协作者的提问，以及用户的回答。每次最多等 45 秒，没有新消息就再调用。
+- janus.reply：回答协作者的提问，或给正在执行的协作者补充指示。消息会立即送达：协作者支持插话时插入当前这一轮，否则打断它当前这一轮后发送。
+- janus.retry：重新执行失败或已取消的任务，可以同时修改说明和验收标准。被它阻塞的任务会在它成功后自动继续，不需要重新编排。
+- janus.accept：执行者自认没有完全达到标准、但你核对后认为结果可以接受时，接受这个结果，让依赖它的任务继续。
+- janus.amend：推翻或修正一个已完成任务的结论时使用，依赖它的任务会收到修订。不要只在自己的对话里改主意。
+- janus.cancel：取消不再需要的任务（执行中的会被停止），依赖它的任务一并取消。
+- janus.ask_user：把只有用户能做的决定交给用户，答案会出现在 janus.wait 里。
 - janus.team：查看协作者和看板上所有任务的当前状态。
+
+谁来做决定：
+- 技术选型、实现方式、方案取舍、协作者提出的这类问题，由你直接决定并说明理由，不要问用户。
+- 只有以下情况用 janus.ask_user 交给用户：目标或需求有多种理解、会得到明显不同的结果；需要用户的账号、凭据、付费或外部资源；不可逆或影响工作目录之外的操作。问的时候给出选项和你的建议，并继续推进不依赖这个决定的工作。
+- 用户已经直接回答过的问题（看板上显示「用户已回答」），按用户的回答推进，不要再给出不同的答案。
+- 协作者的结论和你的决定冲突时，用 janus.amend 修订它的结论，让下游以同一个结论为准。
+
+验收标准（任务的 accept）：
+- 每个任务都要写可核对的验收标准：做到什么、怎样算做到。写结果和行为（「点击格子能翻开并显示周围雷数」「新增测试覆盖空输入并通过」），不要写成某条具体命令。
+- 怎么验证由执行者自己判断，它会逐条给出是否达到和证据。需要特定的验证方式时，写进标准或说明里，作为要求而不是唯一的检查。
+- 执行者自认没有达到、或漏了某条标准时，Janus 会让它在原会话里补一次；仍然不行才交给你：结果其实可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改说明和标准）；不需要了 → janus.cancel。
+- 执行者的证据是它的说法。关键的结果由你自己核对（读代码、运行、看实际表现），改了代码的目标在结束前安排独立评审。
+
 协作要点：
 - 协作者看不到你的对话，任务说明要写清背景、具体要做什么和验收标准。
 - 每个协作者同一时间只做一个任务，派给同一人的任务会排队；会改同一批文件的任务要用依赖串行。
-- 协作者提问时会停下来等你，用 janus.reply 回答；失败的任务需要你决定重新编排、换人，还是自己做。
+- 任务派出去后，不要自己去改它负责的文件：要调整就用 janus.reply 告诉执行者；决定自己做，就先用 janus.cancel 取消它。
+- 协作者提问时会停下来等你，用 janus.reply 回答。
 - 协作者完成后，你要自己核对结果（读文件、运行测试），确认目标真正达成后再结束。
 - 不要 git commit、push 或部署。",
             cwd = run.cwd.display(),
+            git = if run.git { "这是一个 Git 仓库。" } else { "这不是 Git 仓库，git 命令在这里不可用。" },
             team = team_lines(run),
         );
         if resumed {
@@ -1074,6 +1170,7 @@ impl App {
                     "callId": call_id,
                     "tool": format!("janus.{tool_name}"),
                     "input": summarize_input(&tool_input, &tool_name),
+                    "args": tool_input,
                     "status": "pending"
                 }));
             if !lead {
@@ -1086,7 +1183,7 @@ impl App {
                 "protocolVersion": req["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者，team 查看团队和任务状态。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要主控注意的事，用 board_post 写回看板。" },
+                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和任务状态。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要主控注意的事，用 board_post 写回看板。" },
             }),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
@@ -1098,6 +1195,11 @@ impl App {
                     (true, "orchestrate") => self.board_orchestrate(&run, args),
                     (true, "wait") => Ok(self.board_wait(&run, args).await),
                     (true, "reply") => self.board_reply(&run, args),
+                    (true, "retry") => self.board_retry(&run, args),
+                    (true, "accept") => self.board_accept(&run, args),
+                    (true, "amend") => self.board_amend(&run, args),
+                    (true, "cancel") => self.board_cancel(&run, args),
+                    (true, "ask_user") => self.board_ask_user(&run, args),
                     (false, "board_post") => self.board_post(&run, who, args),
                     _ => Err(format!("没有这个工具：{name}")),
                 };
@@ -1120,6 +1222,7 @@ impl App {
                 "callId": call_id,
                 "tool": format!("janus.{tool_name}"),
                 "input": summarize_input(&tool_input, &tool_name),
+                "args": tool_input,
                 "output": short(output, 8000),
                 "status": if failed { "failed" } else { "completed" }
             }));
@@ -1163,7 +1266,7 @@ impl App {
             .iter()
             .map(|d| json!({
                 "id": d.id, "kind": d.kind, "title": d.title, "desc": d.desc, "deps": d.deps,
-                "write": d.write, "accept": d.accept, "maxAttempts": d.max_attempts, "verification": d.verification,
+                "write": d.write, "accept": d.accept, "maxAttempts": d.max_attempts,
                 "agent": d.assignee, "delegated": true,
             }))
             .collect();
@@ -1227,11 +1330,19 @@ impl App {
             self.resolve(run, &key, json!({ "answer": text, "note": "" })).map_err(|e| format!("{e:#}"))?;
             return Ok(format!("已回答 {task} 的提问，{agent} 会接着做。"));
         }
+        let status = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.status).unwrap_or("");
+        if live.is_none() && terminal_task_status(status) {
+            // A reply to a finished task would otherwise wait for whatever this agent does next.
+            return Err(format!(
+                "{task} 已经结束（{}），{agent} 没有在做这个任务，消息不会送达。需要它继续做事，请用 janus.retry 重新执行 {task}，或用 janus.orchestrate 新建任务。",
+                task_status_label(status)
+            ));
+        }
         let msg = self.post_message(run, "lead", &agent, task, &format!("{LEAD_REPLY}{text}"));
         match live {
             Some(tx) => {
-                tx.send(Steer::Message(msg)).map_err(|_| format!("{task} 的会话刚刚结束"))?;
-                Ok(format!("已把消息发给正在执行 {task} 的 {agent}。"))
+                tx.send(Steer::Redirect(msg)).map_err(|_| format!("{task} 的会话刚刚结束"))?;
+                Ok(format!("已把消息发给正在执行 {task} 的 {agent}：能插话时插入当前这一轮，否则打断当前这一轮后立即发送。"))
             }
             None => {
                 self.route_message(run, &agent, task, 0, &msg.id, "next");
@@ -1239,6 +1350,248 @@ impl App {
                 Ok(format!("{task} 现在没有在执行，消息会在 {agent} 下一次开始工作时带给它。"))
             }
         }
+    }
+
+    /// The lead runs a failed or cancelled task again, optionally with new instructions or
+    /// acceptance criteria. Tasks blocked on it start once it succeeds.
+    fn board_retry(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+        let task = args["task"].as_str().unwrap_or("").trim();
+        let instructions = args["instructions"].as_str().map(str::trim).filter(|s| !s.is_empty());
+        let accept: Option<Vec<String>> = args["accept"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect());
+        if accept.as_ref().is_some_and(|a| a.is_empty()) {
+            return Err("accept 不能是空的：写出可核对的验收标准，或不传以沿用原来的".into());
+        }
+        {
+            let mut st = run.st.lock().unwrap();
+            let Some(t) = Run::task_mut(&mut st, task) else {
+                return Err(format!("看板上没有任务 {task}"));
+            };
+            if !matches!(t.status, "failed" | "cancelled" | "skipped_by_decision") {
+                return Err(format!("{task} 现在是「{}」，只能重试失败或已取消的任务", task_status_label(t.status)));
+            }
+            t.status = "pending";
+            t.active_attempt = None;
+            t.retry_base = t.attempts;
+            // A new run of the task brings a new conclusion; earlier corrections were about the old one.
+            t.amendments.clear();
+            if let Some(i) = instructions {
+                t.def.desc = i.to_string();
+            }
+            if let Some(a) = &accept {
+                t.def.accept = a.clone();
+            }
+        }
+        let mut data = json!({ "reason": "lead.retry" });
+        if let Some(i) = instructions {
+            data["instructions"] = json!(i);
+        }
+        if let Some(a) = &accept {
+            data["accept"] = json!(a);
+        }
+        self.emit(run, ev("task.reopened", "lead", format!("主控要求重新执行 {task}")).task(task).data(data));
+        run.wake.notify_one();
+        Ok(format!("{task} 会重新执行，依赖它的任务会在它成功后继续。"))
+    }
+
+    /// The lead accepts a result that failed only its verification (for example a command that
+    /// does not fit the workspace). The task counts as done; the failure stays on record as a risk.
+    fn board_accept(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+        let task = args["task"].as_str().unwrap_or("").trim();
+        let reason = args["reason"].as_str().unwrap_or("").trim();
+        if reason.is_empty() {
+            return Err("reason 不能为空：写明你核对了什么，为什么没达到的部分不影响目标".into());
+        }
+        let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
+        let mine = |kind: &str| events.iter().rev().find(|e| e.kind == kind && e.task.as_deref() == Some(task));
+        let failed = mine("task.failed").filter(|e| e.data.as_ref().is_some_and(|d| d["reason"] == "verification"));
+        let submitted = mine("result.submitted").filter(|r| failed.is_some_and(|f| r.seq < f.seq));
+        let (Some(failed), Some(submitted)) = (failed, submitted) else {
+            return Err(format!("{task} 不是因没通过验收核对而失败的任务，没有可以接受的结果"));
+        };
+        let d = submitted.data.clone().unwrap_or_default();
+        let strings = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default() };
+        let mut result = TaskResult { summary: d["summary"].as_str().unwrap_or("").to_string(), evidence: strings(&d["evidence"]), risks: strings(&d["risks"]), ..Default::default() };
+        let error = failed.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or("验证失败").to_string();
+        result.risks.push(format!("{error}；主控接受了结果：{reason}"));
+        {
+            let st = run.st.lock().unwrap();
+            if st.tasks.iter().find(|t| t.def.id == task).map(|t| t.status) != Some("failed") {
+                return Err(format!("{task} 已经不在失败状态"));
+            }
+        }
+        let seq = self.emit(run, ev("task.succeeded", "lead", format!("主控接受 {task} 的结果：{}", short(reason, 60))).task(task).attempt(submitted.attempt.unwrap_or(0)).data(json!({
+            "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "acceptedBy": "lead", "reason": reason
+        })));
+        {
+            let mut st = run.st.lock().unwrap();
+            let t = Run::task_mut(&mut st, task).unwrap();
+            t.status = "succeeded";
+            t.succeeded_seq = Some(seq);
+            t.result = Some(result);
+        }
+        run.wake.notify_one();
+        Ok(format!("已接受 {task} 的结果，依赖它的任务会继续。"))
+    }
+
+    /// How each role's tasks went in recent runs (the ones `runs()` lists): how many finished,
+    /// passed on their first attempt, failed verification, and how long a success took. The
+    /// numbers behind choosing a role's agent and model, or rewriting its instructions.
+    // @project-doc docs/domains/agents_and_roles.md#role_stats
+    pub fn role_stats(&self) -> Result<Value> {
+        let mut out: HashMap<String, RoleStat> = HashMap::new();
+        let runs = self.db.runs()?;
+        for r in &runs {
+            let run_id = r["id"].as_str().unwrap_or_default();
+            let role_of: HashMap<String, String> = r["config"]["team"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|m| m["lead"] != true)
+                .filter_map(|m| Some((m["id"].as_str()?.to_string(), m["role_id"].as_str().filter(|x| !x.is_empty()).or(m["id"].as_str())?.to_string())))
+                .collect();
+            let events = self.db.events(run_id, 0)?;
+            for stat in task_outcomes(&events).into_values() {
+                let Some(role) = stat.agent.as_ref().and_then(|a| role_of.get(a)) else { continue };
+                let s = out.entry(role.clone()).or_default();
+                match stat.outcome {
+                    Some(true) => {
+                        s.succeeded += 1;
+                        if stat.attempts == 1 && stat.verification_failures == 0 {
+                            s.first_pass += 1;
+                        }
+                        if let (Some(a), Some(b)) = (stat.started, stat.ended) {
+                            s.success_ms += b - a;
+                        }
+                    }
+                    Some(false) => s.failed += 1,
+                    None => continue,
+                }
+                if stat.verification_failures > 0 {
+                    s.verification_failed += 1;
+                }
+            }
+        }
+        let roles: serde_json::Map<String, Value> = out
+            .into_iter()
+            .map(|(k, s)| {
+                let done = s.succeeded + s.failed;
+                (k, json!({
+                    "tasks": done, "succeeded": s.succeeded, "failed": s.failed, "firstPass": s.first_pass,
+                    "verificationFailed": s.verification_failed,
+                    "avgMinutes": if s.succeeded > 0 { (s.success_ms as f64 / s.succeeded as f64 / 60000.0 * 10.0).round() / 10.0 } else { 0.0 },
+                }))
+            })
+            .collect();
+        Ok(json!({ "runs": runs.len(), "roles": roles }))
+    }
+
+    /// The lead corrects the conclusion of a finished task. Tasks that build on it hear about it:
+    /// running ones right away, ones that have not started with their handoff. Finished ones are
+    /// named in the reply so the lead can decide whether they need redoing.
+    fn board_amend(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+        let task = args["task"].as_str().unwrap_or("").trim();
+        let text = args["text"].as_str().unwrap_or("").trim();
+        if text.is_empty() {
+            return Err("text 不能为空：写明修订后的结论".into());
+        }
+        let (running, done) = {
+            let mut st = run.st.lock().unwrap();
+            let Some(t) = Run::task_mut(&mut st, task) else {
+                return Err(format!("看板上没有任务 {task}"));
+            };
+            if t.status != "succeeded" {
+                return Err(format!("{task} 现在是「{}」，只能修订已完成任务的结论；还在执行的任务用 janus.reply", task_status_label(t.status)));
+            }
+            t.amendments.push(text.to_string());
+            let downstream: Vec<&Task> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).collect();
+            let running: Vec<(String, String, mpsc::UnboundedSender<Steer>)> = downstream
+                .iter()
+                .filter_map(|x| st.live.get(&x.def.id).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone())))
+                .collect();
+            let done: Vec<String> = downstream.iter().filter(|x| x.status == "succeeded").map(|x| x.def.id.clone()).collect();
+            (running, done)
+        };
+        self.emit(run, ev("result.amended", "lead", format!("主控修订 {task} 的结论：{}", short(text, 60))).task(task).data(json!({ "text": text })));
+        for (id, agent, tx) in &running {
+            let msg = self.post_message(run, "lead", agent, id, &format!("{LEAD_REPLY}上游任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"));
+            let _ = tx.send(Steer::Redirect(msg));
+        }
+        let mut out = format!("已修订 {task} 的结论。");
+        if !running.is_empty() {
+            out.push_str(&format!("正在执行的 {} 已收到修订。", running.iter().map(|r| r.0.as_str()).collect::<Vec<_>>().join("、")));
+        }
+        if !done.is_empty() {
+            out.push_str(&format!("{} 已经基于旧结论完成，需要的话用 janus.retry 重做。", done.join("、")));
+        }
+        out.push_str("还没开始的下游任务会在交接时拿到修订。");
+        Ok(out)
+    }
+
+    /// The lead drops tasks it no longer needs; tasks that depend on them are dropped too.
+    /// A running one is stopped.
+    fn board_cancel(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+        let reason = args["reason"].as_str().unwrap_or("").trim().to_string();
+        let wanted: Vec<String> = args["tasks"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).collect()).unwrap_or_default();
+        if wanted.is_empty() {
+            return Err("tasks 不能为空".into());
+        }
+        let (dropped, conns) = {
+            let mut st = run.st.lock().unwrap();
+            if let Some(missing) = wanted.iter().find(|id| !st.tasks.iter().any(|t| &t.def.id == *id)) {
+                return Err(format!("看板上没有任务 {missing}"));
+            }
+            let mut dropped: Vec<(String, Option<String>)> = vec![];
+            let mut queue: Vec<(String, Option<String>)> = wanted.iter().map(|id| (id.clone(), None)).collect();
+            while let Some((id, because)) = queue.pop() {
+                let t = Run::task_mut(&mut st, &id).unwrap();
+                if matches!(t.status, "succeeded" | "skipped_by_decision") || dropped.iter().any(|(d, _)| d == &id) {
+                    continue;
+                }
+                t.status = "skipped_by_decision";
+                t.active_attempt = None;
+                dropped.push((id.clone(), because));
+                for d in st.tasks.iter().filter(|x| x.def.deps.contains(&id)) {
+                    queue.push((d.def.id.clone(), Some(id.clone())));
+                }
+            }
+            let conns: Vec<Arc<AcpConn>> = dropped.iter().filter_map(|(id, _)| st.conns.remove(id)).collect();
+            (dropped, conns)
+        };
+        for conn in conns {
+            tokio::spawn(async move { conn.kill().await });
+        }
+        for (id, because) in &dropped {
+            let text = match because {
+                Some(dep) => format!("{id} 依赖的 {dep} 被主控取消，一并取消"),
+                None => format!("主控取消 {id}：{}", if reason.is_empty() { "不再需要" } else { &reason }),
+            };
+            self.emit(run, ev("task.skipped_by_decision", "lead", text).task(id).data(json!({ "reason": reason, "dependency": because })));
+        }
+        run.wake.notify_one();
+        if dropped.is_empty() {
+            return Ok("这些任务都已经结束，没有需要取消的。".into());
+        }
+        Ok(format!("已取消：{}。", dropped.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")))
+    }
+
+    /// The lead hands the person a decision only they can make. It does not wait here: the answer
+    /// comes back through `wait`, and the lead keeps working on what does not depend on it.
+    fn board_ask_user(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+        let question = args["question"].as_str().unwrap_or("").trim();
+        let why = args["why"].as_str().unwrap_or("").trim();
+        if question.is_empty() || why.is_empty() {
+            return Err("question 和 why 都不能为空：why 写明为什么只有用户能决定、不同答案会怎样影响结果".into());
+        }
+        let options: Vec<String> = args["options"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+        let recommend = args["recommend"].as_str().unwrap_or("");
+        static NEXT: AtomicI64 = AtomicI64::new(0);
+        let key = format!("q-lead-{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+        let (tx, _rx) = oneshot::channel();
+        run.st.lock().unwrap().waiters.insert(key.clone(), tx);
+        self.emit(run, ev("question.escalated", "lead", format!("主控请你决定：{}", short(question, 60))).to("user").data(json!({
+            "key": key, "question": question, "options": options, "recommend": recommend, "reason": why, "from": "lead"
+        })));
+        Ok("已交给用户决定。用户回答后会出现在 janus.wait 的结果里；在那之前继续做不依赖这个决定的工作。".into())
     }
 
     /// A collaborator writes progress, a blocker or a note to the board while it works.
@@ -1281,6 +1634,7 @@ impl App {
         let text = match delivery {
             "steer" => "插入到正在进行的这一轮",
             "queued" => "排队：这一轮结束后发送",
+            "interrupt" => "打断正在进行的这一轮，立即发送",
             "prompt" => "作为新的一轮发送",
             _ => "留言：下次会话开始时带给它",
         };
@@ -1292,6 +1646,21 @@ impl App {
             }
         }
         self.emit(run, e);
+    }
+
+    /// Queued messages become the next turn of an attempt; returns its text.
+    fn deliver_queued(&self, run: &Run, ctl: &mut Control, agent: &str, id: &str, n: i64) -> String {
+        let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
+        let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
+        self.emit(
+            run,
+            ev("message.delivered", "janus", format!("把排队的 {} 条消息作为新一轮发给 {agent}", msgs.len()))
+                .task(id)
+                .attempt(n)
+                .to(agent)
+                .data(json!({ "ids": ids })),
+        );
+        msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n")
     }
 
     fn take_notes(&self, run: &Run, agent: &str) -> String {
@@ -1367,6 +1736,7 @@ impl App {
         }
         if let Err(err) = result {
             let msg = format!("{err:#}");
+            let verification = err.downcast_ref::<VerificationFailed>().is_some();
             let (current, cancelled) = {
                 let st = run.st.lock().unwrap();
                 let t = st.tasks.iter().find(|t| t.def.id == id);
@@ -1417,7 +1787,7 @@ impl App {
                 let (retry, max_attempts) = {
                     let mut st = run.st.lock().unwrap();
                     let t = Run::task_mut(&mut st, id).unwrap();
-                    t.status = if t.attempts - t.retry_base < t.def.max_attempts {
+                    t.status = if !verification && t.attempts - t.retry_base < t.def.max_attempts {
                         "pending"
                     } else {
                         "failed"
@@ -1435,10 +1805,10 @@ impl App {
                         ev(
                             "task.failed",
                             "janus",
-                            format!("{id} 已用完尝试次数，交给主控处理"),
+                            if verification { format!("{id} 验证没有通过，交给主控决定") } else { format!("{id} 已用完尝试次数，交给主控处理") },
                         )
                         .task(id)
-                        .data(json!({ "error": msg, "maxAttempts": max_attempts })),
+                        .data(json!({ "error": msg, "maxAttempts": max_attempts, "reason": if verification { "verification" } else { "attempts" } })),
                     );
                 }
             }
@@ -1464,8 +1834,9 @@ impl App {
                 let r = u.result.clone().unwrap_or_default();
                 let files: Vec<String> = u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
                 let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
-                let line = format!("- {} {}（{}，状态 {}）：{}\n  产物：{}", u.def.id, u.def.title, u.agent, u.status, r.summary, if files.is_empty() { "无".into() } else { files.join("，") });
-                let handoff = json!({ "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary, "artifacts": names, "risks": r.risks.len() });
+                let amended = if u.amendments.is_empty() { String::new() } else { format!("\n  主控修订了这个结论，以修订为准：{}", u.amendments.join("；")) };
+                let line = format!("- {} {}（{}，状态 {}）：{}{amended}\n  产物：{}", u.def.id, u.def.title, u.agent, u.status, r.summary, if files.is_empty() { "无".into() } else { files.join("，") });
+                let handoff = json!({ "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary, "artifacts": names, "risks": r.risks.len(), "amendments": u.amendments });
                 (line, handoff)
             }).unzip();
             (
@@ -1477,7 +1848,11 @@ impl App {
             )
         };
         let member = run.member(&agent).context("member missing")?.clone();
-        let spec = self.spec_for(&member.runtime)?;
+        let standing = standing_instructions(&member);
+        let channel = instruction_channel(&member.kind);
+        let mut spec = self.spec_for(&member.runtime)?;
+        spec = self.with_standing(spec, &channel, &standing)?;
+        let system = (channel == Channel::System && !standing.is_empty()).then_some(standing.as_str());
         self.db
             .start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
 
@@ -1515,7 +1890,7 @@ impl App {
             };
             let session = match previous {
                 Some(old) if conn.capabilities["loadSession"] == true => {
-                    match conn.request("session/load", json!({ "sessionId": old, "cwd": workspace, "mcpServers": mcp_servers(&member).into_iter().chain(board.iter().cloned()).collect::<Vec<_>>(), "_meta": session_meta(&format!("janus-{}", member.id), &session_values(&member)) })).await {
+                    match conn.request("session/load", json!({ "sessionId": old, "cwd": workspace, "mcpServers": mcp_servers(&member).into_iter().chain(board.iter().cloned()).collect::<Vec<_>>(), "_meta": with_system_prompt(session_meta(&format!("janus-{}", member.id), &session_values(&member)), system) })).await {
                         Ok(r) => {
                             // The reload replays history as updates; it is already in the event log.
                             // Updates can trail the response, so wait until the agent goes quiet.
@@ -1525,10 +1900,10 @@ impl App {
                             r["sessionId"] = json!(old);
                             r
                         }
-                        Err(_) => new_session(&conn, &workspace, &member, &board, None).await?,
+                        Err(_) => new_session(&conn, &workspace, &member, &board, system).await?,
                     }
                 }
-                _ => new_session(&conn, &workspace, &member, &board, None).await?,
+                _ => new_session(&conn, &workspace, &member, &board, system).await?,
             };
             let applied = configure_session(&conn, &session, &member).await?;
             Ok::<_, anyhow::Error>((session, applied, resumed))
@@ -1588,6 +1963,7 @@ impl App {
             attempt: Some(n),
             goal: false,
         };
+        self.record_instructions(run, &ctx, &sid, &channel, &standing);
         let (steer_tx, steer_rx) = mpsc::unbounded_channel();
         {
             let mut st = run.st.lock().unwrap();
@@ -1606,194 +1982,201 @@ impl App {
         let mut text = String::new();
         let mut round = 0;
         let mut asked = 0;
-        let mut result = loop {
-            if let Some(p) = next.take() {
-                text = self
-                    .stream_prompt(
-                        run,
-                        &conn,
-                        &mut rx,
-                        &sid,
-                        &p,
-                        &ctx,
-                        Some(&mut ctl),
-                        Some(ATTEMPT_TIMEOUT),
-                    )
-                    .await?;
-                let suffix = if round == 0 {
-                    String::new()
-                } else {
-                    format!("-r{round}")
-                };
-                round += 1;
-                self.save_artifact(
-                    run,
-                    id,
-                    n,
-                    &agent,
-                    &format!("{id}-a{n}-report{suffix}.md"),
-                    "report",
-                    text.as_bytes(),
-                    "Agent 这一轮的最终回复",
-                )?;
-            }
-            if ctl.finish {
-                break finished_by_user(&text);
-            }
-            if !ctl.queued.is_empty() {
-                let msgs: Vec<Msg> = ctl.queued.drain(..).collect();
-                let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                self.emit(
-                    run,
-                    ev(
-                        "message.delivered",
-                        "janus",
-                        format!(
-                            "这一轮结束，把你排队的 {} 条消息作为新一轮发给 {agent}",
-                            msgs.len()
-                        ),
-                    )
-                    .task(id)
-                    .attempt(n)
-                    .to(&agent)
-                    .data(json!({ "ids": ids })),
-                );
-                next = Some(msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n"));
-                continue;
-            }
-            if ctl.human {
-                self.emit(
-                    run,
-                    ev(
-                        "agent.status",
-                        &agent,
-                        "这一轮已结束，等待你的消息（人工接管中）",
-                    )
-                    .task(id)
-                    .data(json!({ "phase": "waiting_for_input", "turn": "idle" })),
-                );
-                match ctl.rx.recv().await {
-                    None => return Err(Cancelled.into()),
-                    Some(Steer::Message(m)) => {
-                        self.route_message(run, &agent, id, n, &m.id, "prompt");
-                        next = Some(m.text);
-                    }
-                    Some(Steer::Release) => {
-                        ctl.human = false;
-                        self.emit(
+        // A failed verification goes back to the same session once: the agent still has the context
+        // to fix its work, or to say why the command does not fit. A second failure goes to the lead.
+        let mut fixes = 0;
+        let result = 'session: loop {
+            let mut result = loop {
+                if let Some(p) = next.take() {
+                    text = self
+                        .stream_prompt(
                             run,
-                            ev(
-                                "control.released",
-                                "user",
-                                format!("交还托管：{agent} 继续自主完成任务"),
-                            )
-                            .task(id)
-                            .attempt(n)
-                            .to(&agent),
-                        );
-                        next = Some(RELEASE_PROMPT.into());
+                            &conn,
+                            &mut rx,
+                            &sid,
+                            &p,
+                            &ctx,
+                            Some(&mut ctl),
+                            Some(ATTEMPT_TIMEOUT),
+                        )
+                        .await?;
+                    let suffix = if round == 0 {
+                        String::new()
+                    } else {
+                        format!("-r{round}")
+                    };
+                    round += 1;
+                    // A turn stopped before it said anything (an interrupt) leaves no report.
+                    if !text.trim().is_empty() {
+                        self.save_artifact(
+                            run,
+                            id,
+                            n,
+                            &agent,
+                            &format!("{id}-a{n}-report{suffix}.md"),
+                            "report",
+                            text.as_bytes(),
+                            "Agent 这一轮的最终回复",
+                        )?;
                     }
-                    Some(Steer::Finish) => ctl.finish = true,
-                    Some(Steer::TakeOver | Steer::Interrupt) => {}
                 }
-                continue;
-            }
-            let parsed = parse_result(&text);
-            let Some(q) = parsed.question.clone() else {
-                break parsed;
-            };
-            asked += 1;
-            if asked > 4 {
-                bail!("连续 4 轮仍在提问，没有完成任务");
-            }
-            let key = format!("q-{id}-{n}-{round}");
-            let question = q["text"]
-                .as_str()
-                .or(q.as_str())
-                .unwrap_or("需要你的决定")
-                .to_string();
-            let options: Vec<String> = q["options"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|o| o.as_str().map(str::to_owned))
-                        .collect()
-                })
-                .unwrap_or_default();
-            self.emit(
-                run,
-                ev("question.asked", &agent, short(&question, 60))
-                    .task(id)
-                    .attempt(n)
-                    .to("lead")
-                    .data(json!({
-                        "key": key, "question": question, "options": options, "blocking": true
-                    })),
-            );
-            // Goal mode: the lead orchestrated this task and answers its questions (it reads them
-            // with `wait`). Otherwise the question goes to the person.
-            // The lead answers questions on the board; once it is gone, they go to the person.
-            if run.st.lock().unwrap().lead_done.is_some() {
-                self.escalate_open_questions(run);
-            }
-            // The question card and the session both reach the same agent; whichever you use first wins.
-            tokio::select! {
-                answer = self.wait_for(run, &key) => {
-                    let answer = answer?;
-                    next = Some(format!(
-                        "你的问题已得到回答：{}\n补充说明：{}\n请据此继续完成任务。完成后同样以 ```json 结构化结果结束。",
-                        answer["answer"].as_str().unwrap_or(""),
-                        answer["note"].as_str().filter(|s| !s.is_empty()).unwrap_or("无")
-                    ));
+                if ctl.finish {
+                    break finished_by_user(&text);
                 }
-                cmd = ctl.rx.recv() => {
-                    run.st.lock().unwrap().waiters.remove(&key);
-                    let reply = match cmd {
+                // Under takeover the agent waits for the person; queued messages wait with it.
+                if !ctl.human && !ctl.queued.is_empty() {
+                    next = Some(self.deliver_queued(run, &mut ctl, &agent, id, n));
+                    continue;
+                }
+                if ctl.human {
+                    self.emit(
+                        run,
+                        ev(
+                            "agent.status",
+                            &agent,
+                            "这一轮已结束，等待你的消息（人工接管中）",
+                        )
+                        .task(id)
+                        .data(json!({ "phase": "waiting_for_input", "turn": "idle" })),
+                    );
+                    match ctl.rx.recv().await {
                         None => return Err(Cancelled.into()),
                         Some(Steer::Message(m)) => {
                             self.route_message(run, &agent, id, n, &m.id, "prompt");
-                            next = Some(m.text.clone());
-                            m.text
+                            next = Some(m.text);
                         }
-                        Some(Steer::Finish) => { ctl.finish = true; "（直接以当前结果完成）".into() }
-                        Some(_) => {
-                            ctl.human = true;
-                            self.emit(run, ev("control.taken", "user", format!("接管 {agent} 的会话")).task(id).attempt(n).to(&agent));
-                            "（转为人工接管，在会话中继续）".into()
+                        // The lead's word while the person holds the session waits for the release.
+                        Some(Steer::Redirect(m)) => {
+                            self.route_message(run, &agent, id, n, &m.id, "queued");
+                            ctl.queued.push(m);
                         }
-                    };
-                    self.emit(run, ev("question.answered", "user", format!("在会话中回答：{}", short(&reply, 40))).task(id).to(&agent).data(json!({ "key": key, "answer": reply, "via": "session" })));
+                        Some(Steer::Release) => {
+                            ctl.human = false;
+                            self.emit(
+                                run,
+                                ev(
+                                    "control.released",
+                                    "user",
+                                    format!("交还托管：{agent} 继续自主完成任务"),
+                                )
+                                .task(id)
+                                .attempt(n)
+                                .to(&agent),
+                            );
+                            let waiting = if ctl.queued.is_empty() { String::new() } else { format!("\n\n{}", self.deliver_queued(run, &mut ctl, &agent, id, n)) };
+                            next = Some(format!("{RELEASE_PROMPT}{waiting}"));
+                        }
+                        Some(Steer::Finish) => ctl.finish = true,
+                        Some(Steer::TakeOver | Steer::Interrupt) => {}
+                    }
+                    continue;
                 }
+                let parsed = parse_result(&text);
+                let Some(q) = parsed.question.clone() else {
+                    break parsed;
+                };
+                asked += 1;
+                if asked > 4 {
+                    bail!("连续 4 轮仍在提问，没有完成任务");
+                }
+                let key = format!("q-{id}-{n}-{round}");
+                let question = q["text"]
+                    .as_str()
+                    .or(q.as_str())
+                    .unwrap_or("需要你的决定")
+                    .to_string();
+                let options: Vec<String> = q["options"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|o| o.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.emit(
+                    run,
+                    ev("question.asked", &agent, short(&question, 60))
+                        .task(id)
+                        .attempt(n)
+                        .to("lead")
+                        .data(json!({
+                            "key": key, "question": question, "options": options, "blocking": true
+                        })),
+                );
+                // Goal mode: the lead orchestrated this task and answers its questions (it reads them
+                // with `wait`). Otherwise the question goes to the person.
+                // The lead answers questions on the board; once it is gone, they go to the person.
+                if run.st.lock().unwrap().lead_done.is_some() {
+                    self.escalate_open_questions(run);
+                }
+                // The question card and the session both reach the same agent; whichever you use first wins.
+                tokio::select! {
+                    answer = self.wait_for(run, &key) => {
+                        let answer = answer?;
+                        next = Some(format!(
+                            "你的问题已得到回答：{}\n补充说明：{}\n请据此继续完成任务。完成后同样以 ```json 结构化结果结束。",
+                            answer["answer"].as_str().unwrap_or(""),
+                            answer["note"].as_str().filter(|s| !s.is_empty()).unwrap_or("无")
+                        ));
+                    }
+                    cmd = ctl.rx.recv() => {
+                        run.st.lock().unwrap().waiters.remove(&key);
+                        let reply = match cmd {
+                            None => return Err(Cancelled.into()),
+                            Some(Steer::Message(m) | Steer::Redirect(m)) => {
+                                self.route_message(run, &agent, id, n, &m.id, "prompt");
+                                next = Some(m.text.clone());
+                                m.text
+                            }
+                            Some(Steer::Finish) => { ctl.finish = true; "（直接以当前结果完成）".into() }
+                            Some(_) => {
+                                ctl.human = true;
+                                self.emit(run, ev("control.taken", "user", format!("接管 {agent} 的会话")).task(id).attempt(n).to(&agent));
+                                "（转为人工接管，在会话中继续）".into()
+                            }
+                        };
+                        self.emit(run, ev("question.answered", "user", format!("在会话中回答：{}", short(&reply, 40))).task(id).to(&agent).data(json!({ "key": key, "answer": reply, "via": "session" })));
+                    }
+                }
+            };
+            // An abort that arrived between turns (or a cancel) must not end up as a success.
+            self.check_aborted(run, id, &mut ctl)?;
+            if result.evidence.is_empty() {
+                result
+                    .evidence
+                    .push(format!("最终回复：{id}-a{n}-report.md"));
+            }
+            self.emit(
+                run,
+                ev(
+                    "result.submitted",
+                    &agent,
+                    format!("提交结构化结果：{}", short(&result.summary, 60)),
+                )
+                .task(id)
+                .attempt(n)
+                .data(json!({
+                    "attemptId": attempt_id,
+                    "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "checks": result.checks
+                })),
+            );
+            match self.verify_result(run, id, n, attempt_id, &def, &mut result).await {
+                Ok(()) => break 'session result,
+                Err(err) if fixes == 0 && !ctl.finish && err.is::<VerificationFailed>() => {
+                    fixes += 1;
+                    let prompt = format!(
+                        "你的结果还没有满足验收标准：\n{}\n\n请继续：没有达到的标准，修复后重新验证；没有核对或缺少证据的，补上验证和证据。如果某条标准在当前条件下确实无法达到，如实写 passed: false 并说明原因和你能提供的证据。完成后同样以 ```json 结构化结果结束，checks 逐条更新。",
+                        verification_output(run, id)
+                    );
+                    self.record_session_prompt(run, &ctx, &sid, "fix", &prompt);
+                    next = Some(prompt);
+                }
+                Err(err) => return Err(err),
             }
         };
         conn.kill().await;
-        // An abort that arrived between turns (or a cancel) must not end up as a success.
         self.check_aborted(run, id, &mut ctl)?;
-
         self.record_changes(run, id, n, &agent, &workspace)?;
-        if result.evidence.is_empty() {
-            result
-                .evidence
-                .push(format!("最终回复：{id}-a{n}-report.md"));
-        }
-        self.emit(
-            run,
-            ev(
-                "result.submitted",
-                &agent,
-                format!("提交结构化结果：{}", short(&result.summary, 60)),
-            )
-            .task(id)
-            .attempt(n)
-            .data(json!({
-                "attemptId": attempt_id,
-                "summary": result.summary, "evidence": result.evidence, "risks": result.risks
-            })),
-        );
-
-        self.verify_result(run, id, n, attempt_id, &def, &workspace, &mut result)
-            .await?;
-        self.check_aborted(run, id, &mut ctl)?;
 
         let current = run
             .st
@@ -1860,7 +2243,7 @@ impl App {
     fn check_aborted(&self, run: &Run, id: &str, ctl: &mut Control) -> Result<()> {
         let mut late = vec![];
         while let Ok(cmd) = ctl.rx.try_recv() {
-            if let Steer::Message(m) = cmd {
+            if let Steer::Message(m) | Steer::Redirect(m) = cmd {
                 late.push(m);
             }
         }
@@ -1885,6 +2268,9 @@ impl App {
         Ok(())
     }
 
+    /// Janus does not run commands of its own to verify a task. The agent verifies each acceptance
+    /// criterion in whatever way it judges right and reports it; Janus checks that every criterion
+    /// was answered, with evidence, and that none was reported unmet.
     // @project-doc docs/domains/run_lifecycle.md#verification
     async fn verify_result(
         &self,
@@ -1893,127 +2279,36 @@ impl App {
         n: i64,
         attempt_id: &str,
         def: &TaskDef,
-        workspace: &Path,
         result: &mut TaskResult,
     ) -> Result<()> {
         self.emit(
             run,
-            ev(
-                "verification.started",
-                "janus",
-                format!("开始验证 {id} 第 {n} 次尝试"),
-            )
-            .task(id)
-            .attempt(n)
-            .data(json!({ "attemptId": attempt_id, "policy": def.verification })),
+            ev("verification.started", "janus", format!("核对 {id} 第 {n} 次尝试的结果"))
+                .task(id)
+                .attempt(n)
+                .data(json!({ "attemptId": attempt_id, "accept": def.accept })),
         );
-        let mut failures = vec![];
-        if result.summary.trim().is_empty() {
-            failures.push("结构化结果缺少 summary".to_string());
-        }
-        if result.evidence.is_empty() {
-            failures.push("没有可核对的 evidence".to_string());
-        }
-        for command in &def.verification.commands {
-            // Orchestrations are checked against the same rules (validate_orchestration). A command
-            // that still fails here has a defect the agent cannot fix, so it is skipped as a risk
-            // instead of failing every attempt.
-            let (program, args, pipeline) = match verification_argv(command) {
-                Ok(v) => v,
-                Err(reason) => {
-                    let note = format!("验证命令未执行（{reason}）：{command}");
-                    result.risks.push(note.clone());
-                    self.emit(
-                        run,
-                        ev("verification.command_rejected", "janus", note)
-                            .task(id)
-                            .attempt(n)
-                            .data(json!({ "attemptId": attempt_id, "command": command, "reason": reason })),
-                    );
-                    continue;
-                }
-            };
-            let unavailable_name = if pipeline { "sh" } else { program.as_str() };
-            let output = tokio::time::timeout(
-                Duration::from_secs(10 * 60),
-                tokio::process::Command::new(&program)
-                    .args(&args)
-                    .current_dir(workspace)
-                    .output(),
-            )
-            .await
-            .map_err(|_| anyhow!("验证命令超时：{command}"))?;
-            let output = match output {
-                Ok(output) => output,
-                Err(err)
-                    if err.kind() == std::io::ErrorKind::NotFound
-                        && (READ_ONLY_COMMANDS.contains(&unavailable_name) || pipeline) =>
-                {
-                    let note = format!("只读验证命令不可用，保留 Agent 已提交的证据：{command}");
-                    result.risks.push(note.clone());
-                    self.emit(
-                        run,
-                        ev("verification.command_unavailable", "janus", note)
-                            .task(id)
-                            .attempt(n)
-                            .data(json!({ "attemptId": attempt_id, "command": command })),
-                    );
-                    continue;
-                }
-                Err(err) => return Err(err.into()),
-            };
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let status = output.status.code().unwrap_or(-1);
-            self.emit(run, ev("verification.command", "janus", format!("验证命令：{command}（exit {status}）")).task(id).attempt(n).data(json!({
-                "attemptId": attempt_id, "command": command, "exitCode": status, "output": short(&format!("{stdout}{stderr}"), 1200)
-            })));
-            result
-                .evidence
-                .push(format!("验证命令 `{command}` exit {status}"));
-            if !output.status.success() {
-                failures.push(format!("验证命令失败：{command}（exit {status}）"));
-            }
-        }
+        let failures = result_gaps(def, result);
         if !failures.is_empty() {
             let message = failures.join("；");
-            self.db.insert_verification(
-                &run.id,
-                id,
-                n,
-                attempt_id,
-                "failed",
-                &json!({ "attemptId": attempt_id, "failures": failures }),
-                now_ms(),
-            )?;
+            run.st.lock().unwrap().last_verification.insert(id.to_string(), failures.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n"));
+            self.db.insert_verification(&run.id, id, n, attempt_id, "failed", &json!({ "attemptId": attempt_id, "failures": failures }), now_ms())?;
             self.emit(
                 run,
-                ev(
-                    "verification.failed",
-                    "janus",
-                    format!("{id} 验证失败：{message}"),
-                )
-                .task(id)
-                .attempt(n)
-                .data(json!({ "attemptId": attempt_id, "failures": failures })),
+                ev("verification.failed", "janus", format!("{id} 没有通过验收核对：{}", short(&message, 120)))
+                    .task(id)
+                    .attempt(n)
+                    .data(json!({ "attemptId": attempt_id, "failures": failures, "checks": result.checks })),
             );
-            bail!("验证失败：{message}");
+            return Err(VerificationFailed(message).into());
         }
-        self.db.insert_verification(
-            &run.id,
-            id,
-            n,
-            attempt_id,
-            "passed",
-            &json!({ "attemptId": attempt_id, "commands": def.verification.commands }),
-            now_ms(),
-        )?;
+        self.db.insert_verification(&run.id, id, n, attempt_id, "passed", &json!({ "attemptId": attempt_id, "checks": result.checks }), now_ms())?;
         self.emit(
             run,
-            ev("verification.passed", "janus", format!("{id} 验证通过"))
+            ev("verification.passed", "janus", format!("{id} 通过验收核对"))
                 .task(id)
                 .attempt(n)
-                .data(json!({ "attemptId": attempt_id, "commands": def.verification.commands })),
+                .data(json!({ "attemptId": attempt_id, "checks": result.checks })),
         );
         Ok(())
     }
@@ -2077,7 +2372,18 @@ impl App {
                     None => std::future::pending().await,
                 }
             };
+            // Text the agent has said is shown once it stops talking for a moment, not only at its
+            // next tool call: an agent may say what it is about to do, then write a long file for minutes.
+            let unshown = out.len() > flushed;
+            let quiet = async move {
+                if unshown {
+                    tokio::time::sleep(MESSAGE_QUIET).await
+                } else {
+                    std::future::pending().await
+                }
+            };
             tokio::select! {
+                _ = quiet => self.flush_message(run, &out, &mut flushed, ctx),
                 res = &mut prompt, if !following => {
                     let res = res?;
                     // Updates that arrived with the response; a request among them still gets an answer.
@@ -2180,6 +2486,25 @@ impl App {
                         .is_ok_and(|r| r["outcome"] == "injected");
                 self.route_message(run, agent, task, n, &m.id, if injected { "steer" } else { "queued" });
                 if !injected {
+                    c.queued.push(m);
+                }
+            }
+            Steer::Redirect(m) => {
+                let injected = c.steering
+                    && conn
+                        .request_timeout("_lody/session/steer", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": m.text }], "steerId": m.id }), Some(STEER_TIMEOUT))
+                        .await
+                        .is_ok_and(|r| r["outcome"] == "injected");
+                if injected {
+                    self.route_message(run, agent, task, n, &m.id, "steer");
+                } else {
+                    // Stop the turn; the message is the next turn, sent as soon as this one returns.
+                    // Under takeover the person decides when the agent goes on, so it waits there.
+                    if !c.human {
+                        conn.notify("session/cancel", json!({ "sessionId": sid })).await?;
+                        c.interrupted = true;
+                    }
+                    self.route_message(run, agent, task, n, &m.id, if c.human { "queued" } else { "interrupt" });
                     c.queued.push(m);
                 }
             }
@@ -2452,7 +2777,7 @@ impl App {
                             self.steer_turn(run, conn, sid, c, cmd, ctx).await?;
                             return Ok(cancelled_reply(method));
                         }
-                        Some(Steer::Message(m)) => {
+                        Some(Steer::Message(m) | Steer::Redirect(m)) => {
                             // The agent is blocked on this request; the message goes in after the turn.
                             self.route_message(run, ctx.agent, task, n, &m.id, "queued");
                             c.queued.push(m);
@@ -2597,7 +2922,7 @@ impl App {
             };
             let place_note = format!(" 改动直接在工作目录 {} 中，Janus 没有提交。", run.cwd.display());
             json!({
-                "headline": if partial { format!("「{}」部分交付", short(&run.goal, 30)) } else { format!("「{}」已完成", short(&run.goal, 30)) },
+                "headline": format!("{}：{}", if partial { "部分交付" } else { "已完成" }, goal_title(&run.goal)),
                 "partial": partial,
                 "summary": format!("{summary}{place_note}"),
                 "confidence": if risks.is_empty() { "高" } else { "中" },
@@ -2670,6 +2995,9 @@ impl App {
                         .data(json!({ "key": key, "answer": answer, "note": a["note"] })),
                 );
                 self.resolve(run, key, a.clone())?;
+                if task.is_empty() {
+                    return Ok(());
+                }
                 self.emit(
                     run,
                     ev(
@@ -2798,6 +3126,7 @@ impl App {
                     t.active_attempt = None;
                     // A retry the person asks for gets a full attempt budget again.
                     t.retry_base = t.attempts;
+                    t.amendments.clear();
                 }
                 self.set_status(run, "running");
                 self.emit(
@@ -3006,6 +3335,16 @@ impl App {
             let mut def: TaskDef = serde_json::from_value(item.clone())?;
             def.assignee = item["agent"].as_str().unwrap_or("").to_string();
             let id = def.id.clone();
+            // The lead may have retried it with new instructions or acceptance criteria.
+            for e in events.iter().filter(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str())) {
+                let d = e.data.clone().unwrap_or_default();
+                if let Some(i) = d["instructions"].as_str() {
+                    def.desc = i.to_string();
+                }
+                if let Some(a) = d["accept"].as_array() {
+                    def.accept = a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect();
+                }
+            }
             let agent = def.assignee.clone();
             let mine = |kind: &str| -> Vec<&Event> {
                 events
@@ -3108,6 +3447,8 @@ impl App {
             task.succeeded_seq = succeeded.map(|e| e.seq);
             task.artifacts = artifacts;
             task.retry_base = retry_base;
+            let since = events.iter().rposition(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str())).map(|j| events[j].seq).unwrap_or(0);
+            task.amendments = mine("result.amended").iter().filter(|e| e.seq > since).filter_map(|e| e.data.as_ref().and_then(|d| d["text"].as_str().map(str::to_owned))).collect();
             tasks.push(task);
         }
         run.st.lock().unwrap().tasks = tasks;
@@ -3221,9 +3562,6 @@ fn role_extras(m: &Member, workspace: &Path) -> String {
             list.join("\n")
         ));
     }
-    if !m.role_prompt.is_empty() {
-        p.push_str(&format!("\n\n角色指令（{}）：\n{}", m.name, m.role_prompt));
-    }
     if !m.skills.is_empty() {
         let list: Vec<String> = m
             .skills
@@ -3246,13 +3584,77 @@ fn role_extras(m: &Member, workspace: &Path) -> String {
             names.join("、")
         ));
     }
-    if !m.prompt.is_empty() {
-        p.push_str(&format!(
-            "\n\n附加指令（来自这个 Agent 的 Provider 设置）：\n{}",
-            m.prompt
-        ));
-    }
     p
+}
+
+/// Where a member's standing instructions reach the model. They hold for the whole session and
+/// outrank the task text, so they go in the system layer wherever the agent offers one.
+// @project-doc docs/interfaces/acp_integration.md#standing_instructions
+#[derive(Debug, PartialEq)]
+enum Channel {
+    /// Claude Code: `session/new` / `session/load` `_meta.systemPrompt.append`.
+    System,
+    /// Codex: `developer_instructions` in the adapter's `CODEX_CONFIG`.
+    Developer,
+    /// Pi: a prompt section added by a Janus extension the adapter loads with `-e`.
+    Extension,
+    /// Everyone else: a block in the first prompt of the session.
+    Prompt,
+}
+
+fn instruction_channel(kind: &str) -> Channel {
+    match kind {
+        "claude" => Channel::System,
+        "codex" => Channel::Developer,
+        "pi" => Channel::Extension,
+        _ => Channel::Prompt,
+    }
+}
+
+/// The person's standing rules for this member: the provider's prompt, then the role's.
+/// Skills and MCP are not here: they reach the agent through its own mechanisms.
+fn standing_instructions(m: &Member) -> String {
+    let mut parts = vec![];
+    if !m.prompt.trim().is_empty() {
+        let from = if m.runtime_name.is_empty() { &m.kind } else { &m.runtime_name };
+        parts.push(format!("来自 Agent 设置（{from}）：\n{}", m.prompt.trim()));
+    }
+    if !m.role_prompt.trim().is_empty() {
+        parts.push(format!("角色指令（{}）：\n{}", m.name, m.role_prompt.trim()));
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!("以下是用户为你设定的长期要求，在整个会话中都有效。\n\n{}", parts.join("\n\n"))
+}
+
+/// The same rules for an agent with no system layer, set apart from the task in the first prompt.
+fn prompt_instructions(m: &Member) -> String {
+    let text = standing_instructions(m);
+    if text.is_empty() || instruction_channel(&m.kind) != Channel::Prompt {
+        return String::new();
+    }
+    format!("\n\n<standing_instructions>\n{text}\n</standing_instructions>")
+}
+
+/// Codex takes developer instructions only from its config: merge them into the one this adapter
+/// process starts with. Janus starts a process per session, so each role gets its own.
+fn with_developer_instructions(mut spec: crate::acp::RuntimeSpec, text: &str) -> crate::acp::RuntimeSpec {
+    if text.is_empty() {
+        return spec;
+    }
+    let i = spec.env.iter().position(|(k, _)| k == "CODEX_CONFIG");
+    let mut cfg: Value = i
+        .and_then(|i| serde_json::from_str(&spec.env[i].1).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}));
+    cfg["developer_instructions"] = json!(text);
+    let v = cfg.to_string();
+    match i {
+        Some(i) => spec.env[i].1 = v,
+        None => spec.env.push(("CODEX_CONFIG".into(), v)),
+    }
+    spec
 }
 
 /// One line per collaborator, as the lead is told about them: duty, agent, model, permission mode.
@@ -3262,7 +3664,7 @@ fn team_lines_vec(run: &Run) -> Vec<String> {
         .filter(|m| !m.lead)
         .map(|m| {
             format!(
-                "- {}：{}（{}）· 职责：{} · Agent {} · 模型 {} · 权限模式 {}（{}）",
+                "- {}：{}（{}）· 职责：{} · Agent {} · 模型 {} · 权限模式 {}",
                 m.id,
                 m.name,
                 m.role,
@@ -3270,7 +3672,6 @@ fn team_lines_vec(run: &Run) -> Vec<String> {
                 if m.runtime_name.is_empty() { &m.kind } else { &m.runtime_name },
                 if m.model_label.is_empty() { "Agent 默认" } else { &m.model_label },
                 if m.permission.is_empty() { "未声明，工具调用直接执行" } else { &m.permission },
-                if m.writable { "按这个模式会修改文件" } else { "按这个模式只读，不会修改文件" }
             )
         })
         .collect()
@@ -3353,7 +3754,7 @@ fn lead_tools() -> Value {
                         "minItems": 1,
                         "items": {
                             "type": "object",
-                            "required": ["id", "title", "instructions", "assignee"],
+                            "required": ["id", "title", "instructions", "assignee", "accept"],
                             "properties": {
                                 "id": { "type": "string", "description": "任务 id，字母数字和 - _，在整个看板里唯一，例如 T1" },
                                 "title": { "type": "string" },
@@ -3361,8 +3762,7 @@ fn lead_tools() -> Value {
                                 "assignee": { "type": "string", "description": "协作者 id" },
                                 "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的任务 id" },
                                 "write": { "type": "boolean", "description": "这个任务会修改文件" },
-                                "accept": { "type": "array", "items": { "type": "string" }, "description": "可核对的验收标准" },
-                                "commands": { "type": "array", "items": { "type": "string" }, "description": "完成后由 Janus 执行的验证命令（只读命令、git diff/status/log/show、cargo test/check、npm/pnpm test、python3 -m …）" }
+                                "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到和证据" }
                             }
                         }
                     }
@@ -3378,11 +3778,70 @@ fn lead_tools() -> Value {
         },
         {
             "name": "reply",
-            "description": "回答协作者在某个任务里的提问，或给正在执行的协作者补充指示。",
+            "description": "回答协作者在某个任务里的提问，或给正在执行的协作者补充指示。消息立即送达：能插话时插入当前这一轮，否则打断它当前这一轮后发送。任务已经结束时会返回错误。",
             "inputSchema": {
                 "type": "object",
                 "required": ["task", "text"],
                 "properties": { "task": { "type": "string" }, "text": { "type": "string" } }
+            },
+            "annotations": board_act()
+        },
+        {
+            "name": "retry",
+            "description": "重新执行一个失败或已取消的任务，重新给满尝试次数。可以同时修改给执行者的说明和验收标准。被它阻塞的任务会在它成功后自动继续。",
+            "inputSchema": {
+                "type": "object",
+                "required": ["task"],
+                "properties": {
+                    "task": { "type": "string" },
+                    "instructions": { "type": "string", "description": "新的完整说明；不填则沿用原说明" },
+                    "accept": { "type": "array", "items": { "type": "string" }, "description": "新的验收标准；不填则沿用" }
+                }
+            },
+            "annotations": board_act()
+        },
+        {
+            "name": "accept",
+            "description": "接受一个没有通过验收核对的任务的结果：执行者自认没有完全达到某条标准，但你核对后认为可以接受。任务算作完成，没达到的部分作为风险记录，依赖它的任务继续执行。",
+            "inputSchema": {
+                "type": "object",
+                "required": ["task", "reason"],
+                "properties": { "task": { "type": "string" }, "reason": { "type": "string", "description": "你核对了什么，为什么没达到的部分不影响目标" } }
+            },
+            "annotations": board_act()
+        },
+        {
+            "name": "amend",
+            "description": "修订一个已完成任务的结论（例如推翻它的选型）。正在执行的下游任务立即收到修订，还没开始的在交接时拿到；已经基于旧结论完成的下游任务会列出来，由你决定是否重做。",
+            "inputSchema": {
+                "type": "object",
+                "required": ["task", "text"],
+                "properties": { "task": { "type": "string" }, "text": { "type": "string", "description": "修订后的结论，以及和原结论的区别" } }
+            },
+            "annotations": board_act()
+        },
+        {
+            "name": "cancel",
+            "description": "取消不再需要的任务：还没开始的不再开始，执行中的被停止，依赖它们的任务一并取消。",
+            "inputSchema": {
+                "type": "object",
+                "required": ["tasks"],
+                "properties": { "tasks": { "type": "array", "items": { "type": "string" } }, "reason": { "type": "string" } }
+            },
+            "annotations": board_act()
+        },
+        {
+            "name": "ask_user",
+            "description": "把只有用户能做的决定交给用户：需求有多种理解且结果明显不同、需要用户的账号或付费资源、不可逆的操作。技术选型和实现方式由你自己决定，不要用这个工具。不会等待：用户的回答出现在 janus.wait 里。",
+            "inputSchema": {
+                "type": "object",
+                "required": ["question", "why"],
+                "properties": {
+                    "question": { "type": "string" },
+                    "why": { "type": "string", "description": "为什么必须由用户决定，不同答案会怎样影响结果" },
+                    "options": { "type": "array", "items": { "type": "string" } },
+                    "recommend": { "type": "string", "description": "你建议的选项" }
+                }
             },
             "annotations": board_act()
         }
@@ -3442,11 +3901,9 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
         let strings = |v: &Value| -> Vec<String> {
             v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
         };
-        let commands = strings(&t["commands"]);
-        for c in &commands {
-            if let Err(reason) = verification_argv(c) {
-                errors.push(format!("{label}：验证命令 `{c}` 不能使用：{reason}"));
-            }
+        let accept = strings(&t["accept"]);
+        if accept.is_empty() {
+            errors.push(format!("{label}：缺少 accept：写出可核对的验收标准（做到什么、怎样算做到），执行者会逐条验证并给出证据"));
         }
         let write = t["write"].as_bool().unwrap_or(false);
         ids.push(id.clone());
@@ -3457,10 +3914,9 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
             desc: instructions,
             deps: strings(&t["deps"]),
             write,
-            accept: strings(&t["accept"]),
+            accept,
             assignee,
             max_attempts: MAX_ATTEMPTS,
-            verification: VerificationPolicy { commands },
         });
     }
     for d in &defs {
@@ -3501,8 +3957,13 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
 /// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
 // @project-doc docs/interfaces/board_mcp.md#wait
 fn board_entry(run: &Run, e: &Event) -> Option<String> {
-    let task = e.task.as_deref()?;
     let d = e.data.clone().unwrap_or_default();
+    // The person's answer to a decision the lead handed them (`ask_user`).
+    if e.kind == "question.answered" && d["key"].as_str().is_some_and(|k| k.starts_with("q-lead-")) {
+        let note = d["note"].as_str().filter(|n| !n.is_empty()).map(|n| format!("（补充：{n}）")).unwrap_or_default();
+        return Some(format!("- [用户决定] 你交给用户的问题，用户的回答：{}{note}", d["answer"].as_str().unwrap_or("")));
+    }
+    let task = e.task.as_deref()?;
     let who = |agent: &str| run.member(agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.to_string());
     let (agent, title) = {
         let st = run.st.lock().unwrap();
@@ -3517,17 +3978,25 @@ fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let t = st.tasks.iter().find(|t| t.def.id == task)?;
             let r = t.result.clone().unwrap_or_default();
             let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
+            let checks: Vec<String> = r.checks.iter().map(|c| format!("{} {}：{}", if c.passed { "✓" } else { "✗" }, c.criterion, c.evidence)).collect();
             format!(
-                "- [完成] {task}「{title}」· {name}：{}{}{}{}",
+                "- [完成] {task}「{title}」· {name}：{}{}{}{}{}",
                 r.summary,
+                if checks.is_empty() { String::new() } else { format!("\n  验收：{}", checks.join("；")) },
                 if r.evidence.is_empty() { String::new() } else { format!("\n  证据：{}", r.evidence.join("；")) },
                 if r.risks.is_empty() { String::new() } else { format!("\n  风险：{}", r.risks.join("；")) },
                 if arts.is_empty() { String::new() } else { format!("\n  产物：{}", arts.join("、")) }
             )
         }
         "attempt.failed" => format!("- [尝试失败] {task}「{title}」· {name} 第 {} 次：{}", e.attempt.unwrap_or(1), d["error"].as_str().unwrap_or(&e.text)),
-        "task.failed" => format!("- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定重新编排、换人，还是自己做。", d["error"].as_str().unwrap_or(&e.text)),
-        "task.blocked" => format!("- [无法开始] {task}「{title}」：依赖 {} 失败", d["dependency"].as_str().unwrap_or("?")),
+        "task.failed" if d["reason"] == "verification" => format!(
+            "- [没通过验收] {task}「{title}」· {name} 补过一次仍没有满足验收标准：\n{}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
+            verification_output(run, task)
+        ),
+        "task.failed" => format!("- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（可改说明）、janus.cancel 取消，或自己做。", d["error"].as_str().unwrap_or(&e.text)),
+        "task.blocked" => format!("- [无法开始] {task}「{title}」：依赖 {} 失败。用 janus.retry 或 janus.accept 处理 {0} 后会自动继续；不再需要就 janus.cancel。", d["dependency"].as_str().unwrap_or("?")),
+        // A collaborator's question the person answered in its session: the lead must not answer again.
+        "question.answered" if d["via"] != "lead" => format!("- [用户已回答] {task} 的提问由用户直接回答：{}。不要再回答这个问题，按用户的回答推进。", d["answer"].as_str().unwrap_or("")),
         "board.posted" => {
             let label = match d["kind"].as_str() { Some("blocker") => "阻塞", Some("note") => "备注", _ => "进展" };
             format!("- [{label}] {task} · {name}：{}", d["text"].as_str().unwrap_or(&e.text))
@@ -3543,6 +4012,61 @@ fn board_entry(run: &Run, e: &Event) -> Option<String> {
         "approval.requested" | "input.requested" => format!("- [等用户] {task} · {name} 在等用户处理：{}", e.text),
         _ => return None,
     })
+}
+
+#[derive(Default)]
+struct RoleStat {
+    succeeded: i64,
+    failed: i64,
+    first_pass: i64,
+    verification_failed: i64,
+    success_ms: i64,
+}
+
+/// How one task went, read from a run's events.
+#[derive(Default)]
+struct TaskOutcome {
+    agent: Option<String>,
+    attempts: i64,
+    verification_failures: i64,
+    started: Option<i64>,
+    ended: Option<i64>,
+    /// Some(true) succeeded, Some(false) failed or cancelled after trying, None never finished.
+    outcome: Option<bool>,
+}
+
+fn task_outcomes(events: &[Event]) -> HashMap<String, TaskOutcome> {
+    let mut out: HashMap<String, TaskOutcome> = HashMap::new();
+    for e in events {
+        let Some(task) = e.task.as_deref() else { continue };
+        let t = out.entry(task.to_string()).or_default();
+        match e.kind.as_str() {
+            "task.assigned" => t.agent = e.to.clone().or(t.agent.take()),
+            "attempt.started" => {
+                t.attempts += 1;
+                t.started.get_or_insert(e.ts);
+                if t.agent.is_none() {
+                    t.agent = e.to.clone();
+                }
+            }
+            "verification.failed" => t.verification_failures += 1,
+            "task.succeeded" => {
+                t.outcome = Some(true);
+                t.ended = Some(e.ts);
+            }
+            "task.failed" => t.outcome = Some(false),
+            // A retry starts the count again: what matters is how the task finally went.
+            "task.reopened" => t.outcome = None,
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Why a task's last result did not pass its acceptance check, one line per gap.
+fn verification_output(run: &Run, task: &str) -> String {
+    let st = run.st.lock().unwrap();
+    st.last_verification.get(task).cloned().unwrap_or_default()
 }
 
 /// The lead's last message as the run's summary, without a trailing JSON block if it left one.
@@ -3593,10 +4117,12 @@ fn task_prompt(
 总目标：{goal}
 你的任务 {id}：{title}
 说明：{desc}
-最多尝试 {max_attempts} 次。完成后 Janus 会执行这些验证命令：[{commands}]
+最多尝试 {max_attempts} 次。
 
 验收标准：
 {accept}
+
+结束前逐条验证这些标准，验证方式由你判断：运行测试、启动程序看实际表现、读代码推理、对比输出，选能真正证明结果的方式，而不是只确认文件存在。在结果的 checks 中按顺序逐条写明是否达到和证据（做了什么、看到了什么）。没有达到的如实写 passed: false 并说明原因；标准本身不合理或在当前环境无法验证时，在 question 中请主控调整。
 
 工作目录：{ws}
 {wsnote}
@@ -3608,7 +4134,6 @@ fn task_prompt(
         title = def.title,
         desc = def.desc,
         max_attempts = def.max_attempts,
-        commands = def.verification.commands.join(", "),
         accept = def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n"),
         ws = workspace.display(),
         wsnote = if def.write {
@@ -3626,10 +4151,11 @@ fn task_prompt(
     p.push_str(
         "\n\n如果缺少超出你授权的关键决定，不要猜：在结果 JSON 的 question 字段写清问题和选项，然后结束本轮，主控会回答你。
 完成后，回复的最后必须是一个 ```json 代码块：
-{\"summary\":\"一句话结果\",\"evidence\":[\"可核对的证据，例如运行的命令和输出\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
+{\"summary\":\"一句话结果\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
 question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"你建议的选项\"}",
     );
     p.push_str(&role_extras(m, workspace));
+    p.push_str(&prompt_instructions(m));
     p
 }
 
@@ -3656,123 +4182,42 @@ fn extract_json(text: &str) -> Option<Value> {
 }
 
 /// Programs a verification command may run without side effects; also allowed inside a pipeline.
-const READ_ONLY_COMMANDS: &[&str] = &["pwd", "cat", "rg", "sed", "nl", "find", "sort"];
-
-/// Split a command at the pipes that are shell syntax, refusing any other shell syntax. Quotes
-/// are respected: `rg '(a|b)'` is one read-only command with a regex, not a pipeline or a
-/// subshell. Inside double quotes `$` and `` ` `` still expand, so they stay refused there.
-fn pipeline_segments(command: &str) -> std::result::Result<Vec<String>, String> {
-    let (mut segments, mut cur, mut quote) = (vec![], String::new(), None::<char>);
-    for c in command.chars() {
-        match quote {
-            Some('\'') => {
-                if c == '\'' {
-                    quote = None;
-                }
-            }
-            Some(_) => match c {
-                '"' => quote = None,
-                '$' | '`' => return Err(format!("包含不允许的 shell 语法 `{c}`")),
-                _ => {}
-            },
-            None => match c {
-                '\'' | '"' => quote = Some(c),
-                '|' => {
-                    segments.push(std::mem::take(&mut cur));
-                    continue;
-                }
-                ';' | '&' | '>' | '<' | '$' | '`' | '\n' | '(' | ')' | '\\' => {
-                    return Err(format!("包含不允许的 shell 语法 `{c}`"))
-                }
-                _ => {}
-            },
-        }
-        cur.push(c);
+/// A task status as the lead and the person read it.
+fn task_status_label(status: &str) -> &'static str {
+    match status {
+        "pending" => "等待开始",
+        "running" => "执行中",
+        "succeeded" => "已完成",
+        "failed" => "失败",
+        "blocked" => "依赖失败",
+        "cancelled" => "已取消",
+        "skipped_by_decision" => "主控已取消",
+        _ => "未知状态",
     }
-    if quote.is_some() {
-        return Err("引号没有闭合".into());
-    }
-    segments.push(cur);
-    Ok(segments)
 }
 
-/// Check a verification command and turn it into (program, args, pipeline). Pipelines of
-/// read-only programs run through `sh -c`; any other shell syntax is refused, since it would let
-/// a read-only-looking command run something else.
-// @project-doc docs/interfaces/board_mcp.md#verification_commands
-fn verification_argv(command: &str) -> std::result::Result<(String, Vec<String>, bool), String> {
-    let segments = pipeline_segments(command)?;
-    let argv = |segment: &str| -> std::result::Result<Vec<String>, String> {
-        let mut parts =
-            crate::agents::split_command(segment.trim()).map_err(|e| format!("无法解析：{e}"))?;
-        while parts
-            .first()
-            .is_some_and(|part| part.len() > 2 && part.contains('=') && !part.starts_with('-'))
-        {
-            parts.remove(0);
-        }
-        if parts.is_empty() {
-            return Err("命令为空".into());
-        }
-        Ok(parts)
-    };
-    let read_only = |parts: &[String]| -> std::result::Result<(), String> {
-        let program = parts[0].as_str();
-        if !READ_ONLY_COMMANDS.contains(&program) {
-            return Err(format!("{program} 不在只读命令列表"));
-        }
-        let writes = match program {
-            "sed" => parts
-                .iter()
-                .any(|p| p.starts_with("-i") || p == "--in-place" || p.starts_with("--in-place=")),
-            "find" => parts.iter().any(|p| {
-                matches!(
-                    p.as_str(),
-                    "-delete"
-                        | "-exec"
-                        | "-execdir"
-                        | "-ok"
-                        | "-okdir"
-                        | "-fprint"
-                        | "-fprintf"
-                        | "-fls"
-                )
-            }),
-            "sort" => parts.iter().any(|p| p == "-o" || p.starts_with("--output")),
-            _ => false,
-        };
-        if writes {
-            return Err(format!("{program} 的这个用法会写文件"));
-        }
-        Ok(())
-    };
-    if segments.len() > 1 {
-        for segment in &segments {
-            read_only(&argv(segment)?)?;
-        }
-        return Ok(("sh".into(), vec!["-c".into(), command.to_string()], true));
+/// What keeps a result from passing: no summary, an acceptance criterion with no check or no
+/// evidence, or one the agent itself reports unmet. Tasks without criteria (older runs) need evidence.
+fn result_gaps(def: &TaskDef, result: &TaskResult) -> Vec<String> {
+    let mut gaps = vec![];
+    if result.summary.trim().is_empty() {
+        gaps.push("结构化结果缺少 summary".to_string());
     }
-    let parts = argv(command)?;
-    let first_arg = parts.get(1).map(String::as_str).unwrap_or("");
-    let allowed = match parts[0].as_str() {
-        "git" => matches!(first_arg, "diff" | "status" | "log" | "show"),
-        "cargo" => {
-            matches!(first_arg, "test" | "check")
-                || (first_arg == "fmt" && parts.iter().any(|p| p == "--check"))
+    if def.accept.is_empty() {
+        if result.evidence.is_empty() {
+            gaps.push("没有可核对的 evidence".to_string());
         }
-        "npm" | "pnpm" => first_arg == "test",
-        "python3" | "python" => first_arg == "-m",
-        _ => {
-            read_only(&parts)?;
-            true
-        }
-    };
-    if !allowed {
-        return Err(format!("{} {first_arg} 不在允许列表", parts[0]));
+        return gaps;
     }
-    let mut parts = parts.into_iter();
-    let program = parts.next().unwrap_or_default();
-    Ok((program, parts.collect(), false))
+    for (i, criterion) in def.accept.iter().enumerate() {
+        match result.checks.get(i) {
+            None => gaps.push(format!("没有核对第 {} 条验收标准「{criterion}」", i + 1)),
+            Some(c) if !c.passed => gaps.push(format!("自认没有达到「{criterion}」：{}", if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() })),
+            Some(c) if c.evidence.trim().is_empty() => gaps.push(format!("「{criterion}」没有给出证据")),
+            Some(_) => {}
+        }
+    }
+    gaps
 }
 
 /// The person ended the attempt from the session: keep a structured result if the agent gave one.
@@ -3809,6 +4254,18 @@ fn parse_result(text: &str) -> TaskResult {
                 .unwrap_or_else(|| first_line(text)),
             evidence: strings(&v["evidence"]),
             risks: strings(&v["risks"]),
+            checks: v["checks"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .map(|c| Check {
+                            criterion: c["criterion"].as_str().unwrap_or("").to_string(),
+                            passed: c["passed"].as_bool().unwrap_or(false),
+                            evidence: c["evidence"].as_str().unwrap_or("").to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             question: Some(v["question"].clone())
                 .filter(|q| q.is_object() || q.as_str().is_some_and(|s| !s.is_empty())),
         },
@@ -3857,11 +4314,7 @@ async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceiver<Incoming>
 async fn new_session(conn: &AcpConn, cwd: &Path, m: &Member, extra: &[Value], system: Option<&str>) -> Result<Value> {
     let mut servers = mcp_servers(m);
     servers.extend_from_slice(extra);
-    let mut meta = session_meta(&format!("janus-{}", m.id), &session_values(m));
-    // Claude Code takes an appended system prompt; other agents ignore it.
-    if let Some(text) = system {
-        meta["systemPrompt"] = json!({ "append": text });
-    }
+    let meta = with_system_prompt(session_meta(&format!("janus-{}", m.id), &session_values(m)), system);
     let r = conn
         .request(
             "session/new",
@@ -3882,6 +4335,14 @@ pub fn session_meta(client: &str, values: &Value) -> Value {
         "clientIdentifier": client,
         "lody": { "sessionConfig": { "version": 1, "configOptionValues": values } },
     })
+}
+
+/// Claude Code appends this to its own system prompt (never replaces it); other agents ignore it.
+fn with_system_prompt(mut meta: Value, system: Option<&str>) -> Value {
+    if let Some(text) = system {
+        meta["systemPrompt"] = json!({ "append": text });
+    }
+    meta
 }
 
 /// The reply to an agent request Janus cannot put in front of anyone: a session that is closing,
@@ -3965,7 +4426,11 @@ async fn configure_session(
     for c in opts["controls"].as_array().cloned().unwrap_or_default() {
         let id = c["id"].as_str().unwrap_or_default();
         let current = c["current"].clone();
-        let want = wants.get(id).cloned().unwrap_or(Value::Null);
+        let mut want = wants.get(id).cloned().unwrap_or(Value::Null);
+        // A session that starts in a plan mode (the agent's own default) moves to the first other option.
+        if want.is_null() && crate::agents::is_plan_value(&current) {
+            want = c["options"][0]["value"].clone();
+        }
         let offered = match &want {
             Value::Bool(_) => c["type"] == "boolean",
             Value::String(_) => c["options"]
@@ -3994,6 +4459,18 @@ async fn configure_session(
         };
         applied["controls"][id] = if res.is_ok() { want } else { current };
     }
+    // Plan toggles are switched off; a plan mode never runs (Codex will not pursue /goal in one).
+    for t in opts["planToggles"].as_array().cloned().unwrap_or_default() {
+        if let Some(off) = crate::agents::plan_off_value(&t) {
+            let id = t["id"].as_str().unwrap_or_default();
+            if let Err(err) = conn
+                .request("session/set_config_option", json!({ "sessionId": sid, "configId": id, "value": off }))
+                .await
+            {
+                bail!("关闭 {} 的 {} 失败：{err}", m.runtime_name, str_of_value(&t["name"], id));
+            }
+        }
+    }
     if let Some(mode) = opts["controls"]
         .as_array()
         .and_then(|a| a.iter().find(|c| c["category"] == "mode"))
@@ -4002,6 +4479,10 @@ async fn configure_session(
     }
     applied["label"] = json!(applied_label(&opts, &applied["controls"]));
     Ok(applied)
+}
+
+fn str_of_value<'a>(v: &'a Value, fallback: &'a str) -> &'a str {
+    v.as_str().filter(|s| !s.is_empty()).unwrap_or(fallback)
 }
 
 /// "Agent · Plan 关闭": the permission controls a session actually runs with, by display name.
@@ -4112,6 +4593,12 @@ fn summarize_output(entry: &Value) -> String {
     }
 }
 
+/// A goal can be a long pasted brief: its first line, without Markdown marks, names it.
+fn goal_title(goal: &str) -> String {
+    let line = goal.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    short(&line.trim_start_matches('#').replace("**", "").replace('`', ""), 40)
+}
+
 pub fn short(s: &str, n: usize) -> String {
     let s = s.trim();
     if s.chars().count() > n {
@@ -4140,6 +4627,51 @@ fn short_sha(s: &str) -> &str {
 mod tests {
     use super::*;
 
+    fn member_with(kind: &str, provider: &str, role: &str) -> Member {
+        let mut m = test_run(1).team.remove(0);
+        m.name = "Reviewer".into();
+        m.kind = kind.into();
+        m.runtime_name = "Codex".into();
+        m.prompt = provider.into();
+        m.role_prompt = role.into();
+        m
+    }
+
+    #[test]
+    fn standing_instructions_pick_the_system_layer_when_there_is_one() {
+        assert_eq!(instruction_channel("claude"), Channel::System);
+        assert_eq!(instruction_channel("codex"), Channel::Developer);
+        assert_eq!(instruction_channel("pi"), Channel::Extension);
+        assert_eq!(instruction_channel("grok"), Channel::Prompt);
+        let m = member_with("codex", "用中文回答", "只报有依据的问题");
+        let text = standing_instructions(&m);
+        assert!(text.find("用中文回答").unwrap() < text.find("只报有依据的问题").unwrap(), "provider first, then role");
+        assert!(standing_instructions(&member_with("codex", " ", "")).is_empty());
+        // Only agents without a system layer get the rules in their prompt.
+        assert!(prompt_instructions(&m).is_empty());
+        assert!(prompt_instructions(&member_with("grok", "", "只报有依据的问题")).contains("<standing_instructions>"));
+        assert!(prompt_instructions(&member_with("pi", "", "只报有依据的问题")).is_empty());
+    }
+
+    #[test]
+    fn developer_instructions_merge_into_codex_config() {
+        let spec = |env: Vec<(String, String)>| crate::acp::RuntimeSpec { id: "c".into(), kind: "codex".into(), name: "Codex".into(), program: "node".into(), args: vec![], env };
+        let gw = r#"{"model_provider":"janus"}"#.to_string();
+        let out = with_developer_instructions(spec(vec![("CODEX_CONFIG".into(), gw)]), "规则");
+        let cfg: Value = serde_json::from_str(&out.env[0].1).unwrap();
+        assert_eq!(cfg["model_provider"], "janus", "the gateway config stays");
+        assert_eq!(cfg["developer_instructions"], "规则");
+        let out = with_developer_instructions(spec(vec![]), "规则");
+        assert_eq!(out.env, vec![("CODEX_CONFIG".to_string(), r#"{"developer_instructions":"规则"}"#.to_string())]);
+        assert!(with_developer_instructions(spec(vec![]), "").env.is_empty());
+    }
+
+    #[test]
+    fn goal_title_is_the_first_line() {
+        assert_eq!(goal_title("\n  ## 修 **bug**\n- 细节"), "修 bug");
+        assert_eq!(goal_title(&"长".repeat(50)), format!("{}…", "长".repeat(40)));
+    }
+
     fn test_run(team_size: usize) -> Run {
         Run {
             id: "r-test".into(),
@@ -4153,7 +4685,6 @@ mod tests {
                     desc: String::new(),
                     limits: vec![],
                     ws: String::new(),
-                    writable: true,
                     runtime: String::new(),
                     lead: i == 0,
                     color: String::new(),
@@ -4351,22 +4882,24 @@ mod flow_tests {
     }
 
     fn task(id: &str, assignee: &str, extra: Value) -> Value {
-        let mut t = json!({ "id": id, "title": id, "instructions": id, "assignee": assignee });
+        let mut t = json!({ "id": id, "title": id, "instructions": id, "assignee": assignee, "accept": [format!("{id} 的结果写清楚")] });
         for (k, v) in extra.as_object().unwrap() {
             t[k] = v.clone();
         }
         t
     }
 
-    /// A role's session controls reach the agent (seeded at session/new and set per session),
-    /// and the agent's own permission options and forms come back to the person and are
-    /// answered in the agent's terms.
+    /// A role's session controls reach the agent (seeded at session/new and set per session), a
+    /// plan mode never runs, and the agent's own permission options and forms come back to the
+    /// person and are answered in the agent's terms.
     #[tokio::test(flavor = "multi_thread")]
     async fn agent_requests_reach_the_person() {
         let h = harness("requests", &[("lead", false), ("m1", false)], json!({ "T1": ["permission"], "T2": ["elicit"] }));
         let mut conn = h.app.db.get_config("connection", "fake").unwrap().unwrap();
         conn["options"]["controls"].as_array_mut().unwrap().push(json!({ "id": "plan_mode", "name": "Plan", "type": "boolean", "via": "config", "current": false, "permission": true, "options": [] }));
         h.app.db.put_config("connection", "fake", &conn, now_ms()).unwrap();
+        // The agent starts in Plan mode and an older role still asks for it: Janus switches it off.
+        std::fs::write(h.dir.join("fake/plan-on"), "").unwrap();
         let mut role = h.app.db.get_config("role", "m1").unwrap().unwrap();
         role["session"] = json!({ "mode": "full", "plan_mode": true });
         h.app.db.put_config("role", "m1", &role, now_ms()).unwrap();
@@ -4391,10 +4924,169 @@ mod flow_tests {
         assert_eq!(summary("T2"), "accept janus");
         let started = evs.iter().find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).unwrap();
         assert_eq!(started.data.as_ref().unwrap()["config"]["controls"]["mode"], "full");
-        assert_eq!(started.data.as_ref().unwrap()["config"]["controls"]["plan_mode"], true);
+        assert!(started.data.as_ref().unwrap()["config"]["controls"].get("plan_mode").is_none(), "plan mode is not a role choice");
         let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
-        assert!(calls.contains(r#"seed {"mode": "full", "plan_mode": true}"#), "{calls}");
-        assert!(calls.contains("set mode \"full\"") && calls.contains("set plan_mode true"), "{calls}");
+        assert!(calls.contains(r#"seed {"mode": "full"}"#), "{calls}");
+        assert!(calls.contains("set mode \"full\"") && calls.contains("set plan_mode false"), "{calls}");
+        assert!(!calls.contains("set plan_mode true"), "{calls}");
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    fn task_event(evs: &[Event], kind: &str, task: &str) -> bool {
+        evs.iter().any(|e| e.kind == kind && e.task.as_deref() == Some(task))
+    }
+
+    /// A failed verification goes to the lead instead of a fresh retry; the lead accepts, retries,
+    /// cancels or hands a decision to the person, and blocked tasks follow without re-orchestration.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lead_resolves_failed_tasks() {
+        let h = harness("resolve", &[("lead", false), ("m1", true), ("m2", true)], json!({ "T1": ["unmet"], "T2": ["ok"], "T3": ["slow", "ok"], "T4": ["ok"] }));
+        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into() }).await.unwrap();
+        for _ in 0..100 {
+            if h.app.run(&run).is_some_and(|r| !r.st.lock().unwrap().mcp_token.is_empty()) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        // Every task needs acceptance criteria: the executor verifies against them.
+        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "T1", "instructions": "T1", "assignee": "m1" }] })).await;
+        assert!(err && text.contains("缺少 accept"), "{text}");
+
+        // T1's executor cannot meet its criterion, even after the fix round; T2 waits on T1.
+        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [
+            task("T1", "m1", json!({ "accept": ["页面能打开"] })), task("T2", "m2", json!({ "deps": ["T1"] }))] })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "T1 failed", |e| task_event(e, "task.failed", "T1")).await;
+        let evs = events(&h.app, &run);
+        assert_eq!(evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).count(), 1, "no fresh retry for a failed verification");
+        assert!(!task_event(&evs, "task.retry_scheduled", "T1"));
+        let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+        assert!(board.contains("[没通过验收] T1") && board.contains("自认没有达到「页面能打开」") && board.contains("janus.accept"), "{board}");
+        // A finished task does not take messages: they would land in some later session.
+        let (text, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T1", "text": "继续" })).await;
+        assert!(err && text.contains("已经结束"), "{text}");
+        let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "T1", "reason": "我打开过页面，可以用" })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "T2 after accept", |e| task_event(e, "task.succeeded", "T2")).await;
+
+        // Cancelling a running task stops it and drops what depends on it; retry brings them back.
+        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("T3", "m1", json!({})), task("T4", "m2", json!({ "deps": ["T3"] }))] })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "T3 running", |e| task_event(e, "attempt.started", "T3")).await;
+        let (text, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["T3"], "reason": "换个做法" })).await;
+        assert!(!err && text.contains("T3") && text.contains("T4"), "{text}");
+        wait_until(&h.app, &run, "T4 dropped", |e| task_event(e, "task.skipped_by_decision", "T4")).await;
+        let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T3", "instructions": "换个做法再做一次", "accept": ["换了做法"] })).await;
+        assert!(!err, "{text}");
+        let (_, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T4" })).await;
+        assert!(!err);
+        wait_until(&h.app, &run, "T3 and T4 after retry", |e| task_event(e, "task.succeeded", "T3") && task_event(e, "task.succeeded", "T4")).await;
+        let reopened = events(&h.app, &run).into_iter().find(|e| e.kind == "task.reopened" && e.task.as_deref() == Some("T3")).unwrap();
+        assert_eq!(reopened.data.as_ref().unwrap()["instructions"], "换个做法再做一次");
+        assert_eq!(reopened.data.as_ref().unwrap()["accept"], json!(["换了做法"]));
+
+        // A decision only the person can make: the answer reaches the lead through wait.
+        let (text, err) = tool(&h.app, &run, "lead", "ask_user", json!({ "question": "部署到哪个环境？", "why": "需要用户的账号", "options": ["测试", "生产"], "recommend": "测试" })).await;
+        assert!(!err, "{text}");
+        let asked = events(&h.app, &run).into_iter().find(|e| e.kind == "question.escalated").unwrap();
+        let key = asked.data.as_ref().unwrap()["key"].as_str().unwrap().to_string();
+        act(&h, &run, json!({ "type": "answer", "key": key, "task": "", "answer": "测试" }));
+        let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+        assert!(board.contains("[用户决定]") && board.contains("测试"), "{board}");
+
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// The lead's word reaches a collaborator in a long turn right away (the turn is stopped when
+    /// the agent cannot take it mid-turn), but waits while the person holds the session.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn lead_reply_does_not_wait_for_a_long_turn() {
+        let h = harness("redirect", &[("lead", false), ("m1", true), ("m2", true)], json!({ "T1": ["slow", "ok"], "T2": ["slow", "ok"] }));
+        let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m2", json!({}))])).await;
+        wait_until(&h.app, &run, "both running", |e| task_event(e, "attempt.started", "T1") && task_event(e, "attempt.started", "T2")).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let (text, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T1", "text": "改用方案 B" })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "T1 after the reply", |e| task_event(e, "task.succeeded", "T1")).await;
+        let evs = events(&h.app, &run);
+        assert!(evs.iter().any(|e| e.kind == "message.routed" && e.task.as_deref() == Some("T1") && e.data.as_ref().is_some_and(|d| d["delivery"] == "interrupt")));
+        assert!(task_event(&evs, "message.delivered", "T1"));
+
+        // The person takes T2 over: the lead's message waits until the session is handed back.
+        act(&h, &run, json!({ "type": "interrupt", "task": "T2" }));
+        wait_until(&h.app, &run, "T2 waiting for the person", |e| e.iter().any(|e| e.kind == "agent.status" && e.task.as_deref() == Some("T2") && e.text.contains("人工接管"))).await;
+        let (_, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T2", "text": "先停一下" })).await;
+        assert!(!err);
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let evs = events(&h.app, &run);
+        assert!(evs.iter().any(|e| e.kind == "message.routed" && e.task.as_deref() == Some("T2") && e.data.as_ref().is_some_and(|d| d["delivery"] == "queued")));
+        assert!(!task_event(&evs, "message.delivered", "T2"), "nothing goes in while the person holds the session");
+        act(&h, &run, json!({ "type": "release", "task": "T2" }));
+        wait_until(&h.app, &run, "T2 after release", |e| task_event(e, "message.delivered", "T2") && task_event(e, "task.succeeded", "T2")).await;
+
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// A result that does not meet its criteria goes back into the same session once; the agent
+    /// fixes its work there.
+    /// A second failure goes to the lead, still within one attempt.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn verification_failure_is_fixed_in_the_same_session() {
+        let h = harness("fix", &[("lead", false), ("m1", true), ("m2", true)], json!({ "T1": ["unmet", "ok"], "T2": ["unmet"] }));
+        let run = start(&h, json!([
+            task("T1", "m1", json!({ "accept": ["做好 done 功能", "写清用法"] })),
+            task("T2", "m2", json!({}))])).await;
+        wait_until(&h.app, &run, "T1 done and T2 failed", |e| task_event(e, "task.succeeded", "T1") && task_event(e, "task.failed", "T2")).await;
+        let evs = events(&h.app, &run);
+        let count = |kind: &str, t: &str| evs.iter().filter(|e| e.kind == kind && e.task.as_deref() == Some(t)).count();
+        assert_eq!(count("attempt.started", "T1"), 1, "fixed in the same session, no new attempt");
+        assert_eq!(count("verification.failed", "T1"), 1);
+        assert!(evs.iter().any(|e| e.kind == "session.prompt" && e.task.as_deref() == Some("T1") && e.data.as_ref().is_some_and(|d| d["channel"] == "fix" && d["prompt"].as_str().unwrap_or("").contains("自认没有达到「做好 done 功能」"))));
+        assert_eq!(count("attempt.started", "T2"), 1);
+        assert_eq!(count("verification.failed", "T2"), 2, "one fix round, then the lead decides");
+        let failed = evs.iter().find(|e| e.kind == "task.failed" && e.task.as_deref() == Some("T2")).unwrap();
+        assert_eq!(failed.data.as_ref().unwrap()["reason"], "verification");
+
+        // The numbers per role: T1 succeeded but not on first pass, T2 failed.
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let stats = h.app.role_stats().unwrap();
+        assert_eq!(stats["roles"]["m1"]["succeeded"], 1);
+        assert_eq!(stats["roles"]["m1"]["firstPass"], 0, "it needed the fix round");
+        assert_eq!(stats["roles"]["m1"]["verificationFailed"], 1);
+        assert_eq!(stats["roles"]["m2"]["failed"], 1);
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// When the lead overrules a finished task's conclusion, tasks that build on it use the new one:
+    /// a running one hears it at once, one that starts later gets it with the handoff.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn amended_conclusions_reach_downstream_tasks() {
+        let h = harness("amend", &[("lead", false), ("m1", true), ("m2", true), ("m3", true)], json!({ "A": ["ok"], "B": ["slow", "ok"], "C": ["ok"] }));
+        let run = start(&h, json!([task("A", "m1", json!({})), task("B", "m2", json!({ "deps": ["A"] }))])).await;
+        wait_until(&h.app, &run, "B running", |e| task_event(e, "attempt.started", "B")).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let (text, err) = tool(&h.app, &run, "lead", "amend", json!({ "task": "B", "text": "x" })).await;
+        assert!(err && text.contains("只能修订已完成任务"), "{text}");
+        let (text, err) = tool(&h.app, &run, "lead", "amend", json!({ "task": "A", "text": "改用经典 8 邻域规则" })).await;
+        assert!(!err && text.contains("B"), "{text}");
+        wait_until(&h.app, &run, "B after the amendment", |e| task_event(e, "task.succeeded", "B")).await;
+        let evs = events(&h.app, &run);
+        assert!(task_event(&evs, "result.amended", "A"));
+        assert!(evs.iter().any(|e| e.kind == "user.message" && e.task.as_deref() == Some("B") && e.data.as_ref().is_some_and(|d| d["text"].as_str().unwrap_or("").contains("改用经典 8 邻域规则"))));
+
+        let (_, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("C", "m3", json!({ "deps": ["A"] }))] })).await;
+        assert!(!err);
+        wait_until(&h.app, &run, "C started", |e| task_event(e, "attempt.started", "C")).await;
+        let started = events(&h.app, &run).into_iter().find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("C")).unwrap();
+        assert!(started.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("主控修订了这个结论，以修订为准：改用经典 8 邻域规则"));
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
@@ -4441,7 +5133,7 @@ mod flow_tests {
         let list = |who: &str| json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }).to_string() + who;
         let _ = list;
         let tools = h.app.mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.unwrap().unwrap();
-        assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 4);
+        assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
         assert!(h.app.mcp(&run, "wrong", "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err());
         assert!(h.app.mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await.unwrap().is_none());
 
@@ -4449,13 +5141,13 @@ mod flow_tests {
         let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [
             { "id": "T1", "title": "写笔记", "instructions": "写", "assignee": "nobody" },
             { "id": "T2", "title": "定名", "instructions": "定", "assignee": "m2", "deps": ["T9"] },
-            { "id": "T3", "title": "查", "instructions": "查", "assignee": "m1", "commands": ["rm -rf build"] }] })).await;
-        assert!(err && text.contains("nobody") && text.contains("T9") && text.contains("rm -rf build"), "{text}");
+            { "id": "T3", "title": "查", "instructions": "查", "assignee": "m1" }] })).await;
+        assert!(err && text.contains("nobody") && text.contains("T9") && text.contains("任务 T3：缺少 accept"), "{text}");
         assert!(h.app.run(&run).unwrap().st.lock().unwrap().tasks.is_empty());
 
         let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [
-            { "id": "T1", "title": "写笔记", "instructions": "在 notes.md 写笔记", "assignee": "m1", "write": true },
-            { "id": "T2", "title": "定名", "instructions": "给笔记定个名字", "assignee": "m2", "deps": ["T1"] }] })).await;
+            { "id": "T1", "title": "写笔记", "instructions": "在 notes.md 写笔记", "assignee": "m1", "write": true, "accept": ["notes.md 里有笔记"] },
+            { "id": "T2", "title": "定名", "instructions": "给笔记定个名字", "assignee": "m2", "deps": ["T1"], "accept": ["给出一个名字"] }] })).await;
         assert!(!err, "{text}");
         let evs = events(&h.app, &run);
         assert!(evs.iter().any(|e| {
@@ -4545,7 +5237,7 @@ mod flow_tests {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "定名", "instructions": "定个名字", "assignee": "m1" }] })).await;
+        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "定名", "instructions": "定个名字", "assignee": "m1", "accept": ["给出一个名字"] }] })).await;
         assert!(!err, "{text}");
         wait_until(&h.app, &run, "question", |e| has(e, "question.asked")).await;
         assert!(!has(&events(&h.app, &run), "question.escalated"), "the lead answers while it is there");
@@ -4585,7 +5277,7 @@ mod flow_tests {
             }
         };
         lead_started(1).await;
-        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "第一步", "instructions": "做第一步", "assignee": "m1" }] })).await;
+        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "第一步", "instructions": "做第一步", "assignee": "m1", "accept": ["第一步完成"] }] })).await;
         assert!(!err, "{text}");
         wait_until(&h.app, &run, "T1", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1"))).await;
         assert!(!events(&h.app, &run).iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")), "T1 changed nothing");
@@ -4603,7 +5295,7 @@ mod flow_tests {
         assert!(std::fs::read_to_string(&calls).unwrap().contains("brief ok resumed"), "the lead is told it continues");
 
         // It builds on the board it found.
-        let (text, err) = tool(&app2, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T2", "title": "第二步", "instructions": "做第二步", "assignee": "m1", "deps": ["T1"] }] })).await;
+        let (text, err) = tool(&app2, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T2", "title": "第二步", "instructions": "做第二步", "assignee": "m1", "deps": ["T1"], "accept": ["第二步完成"] }] })).await;
         assert!(!err, "{text}");
         wait_until(&app2, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2"))).await;
         let (board, _) = tool(&app2, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
@@ -4769,27 +5461,6 @@ mod flow_tests {
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
-    #[test]
-    fn verification_commands_are_checked() {
-        assert!(verification_argv("rg -n foo src").is_ok());
-        assert!(verification_argv("find janus -type f | sort").unwrap().2);
-        assert!(verification_argv("cargo test --quiet").is_ok());
-        assert!(verification_argv("cat a; rm -rf ~").is_err());
-        assert!(verification_argv("cat $(echo a)").is_err());
-        assert!(verification_argv("sed -i s/a/b/ f").is_err());
-        assert!(verification_argv("find . -delete").is_err());
-        // Shell syntax inside quotes is regex text, not a subshell or a pipeline.
-        let (program, args, pipeline) = verification_argv("rg -n '^#{1,4} |JANUS_|/api/|cargo (run|check|test)|worktree' README.md docs").unwrap();
-        assert_eq!((program.as_str(), pipeline), ("rg", false));
-        assert_eq!(args[1], "^#{1,4} |JANUS_|/api/|cargo (run|check|test)|worktree");
-        assert!(verification_argv("rg -c '(a|b)' src | sort").unwrap().2);
-        assert!(verification_argv("rg \"$(rm -rf ~)\" src").is_err(), "double quotes still expand");
-        assert!(verification_argv("rg 'a' src | rm -rf ~").is_err());
-        assert!(verification_argv("rg 'unclosed src").is_err());
-        assert!(verification_argv("ls -la").is_err());
-        assert!(verification_argv("cargo fmt").is_err());
-        assert!(verification_argv("cargo fmt -- --check").is_ok());
-    }
 
 }
 

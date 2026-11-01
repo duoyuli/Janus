@@ -2,7 +2,8 @@
 """A scripted ACP agent for orchestrator tests.
 
 FAKE_DIR holds script.json, which maps a task id to the outcome of each successive prompt for it:
-"ok", "fail", "cancelled", "slow", "write:<file>", "permission" (asks session/request_permission
+"ok", "fail", "cancelled", "slow", "write:<file>", "unmet" (reports its first acceptance criterion
+unmet), "permission" (asks session/request_permission
 with three options), "elicit" (asks elicitation/create with a form) or "ask" (ends the turn with a
 question; the answer comes back as the next prompt). The last outcome repeats.
 As a goal-mode lead it acknowledges the brief, then works on "/goal …" until FAKE_DIR/lead-go
@@ -31,8 +32,15 @@ def say(sid, text):
         "sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}})
 
 
-def result(**fields):
-    body = {"summary": "完成", "evidence": ["fake evidence"], "risks": [], "question": None}
+CRITERIA = {}  # session id -> acceptance criteria from the task prompt
+
+
+def result(sid=None, unmet=False, **fields):
+    """A structured result; every acceptance criterion of the session's task is checked (the first
+    one reported unmet when `unmet`)."""
+    checks = [{"criterion": c, "passed": not (unmet and i == 0), "evidence": "fake check" if not (unmet and i == 0) else "没做到"}
+              for i, c in enumerate(CRITERIA.get(sid, []))]
+    body = {"summary": "完成", "checks": checks, "evidence": ["fake evidence"], "risks": [], "question": None}
     body.update(fields)
     return "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```"
 
@@ -53,7 +61,8 @@ def log(line):
         f.write(line + "\n")
 
 
-CONFIG = {"mode": "ask", "plan_mode": False}
+# A `plan-on` file in FAKE_DIR starts sessions in Plan mode, as an agent whose own default is Plan would.
+CONFIG = {"mode": "ask", "plan_mode": os.path.exists(os.path.join(DIR, "plan-on"))}
 TASKS = {}  # session id -> task id, for follow-up prompts that do not repeat the task
 
 
@@ -110,6 +119,9 @@ def prompt(msg):
     m = re.search(r"你的任务 (\S+)：", text)
     task = m.group(1) if m else TASKS.get(sid, "unknown")
     TASKS[sid] = task
+    c = re.search(r"验收标准：\n((?:- .*\n?)+)", text) if m else None
+    if c:
+        CRITERIA[sid] = [line[2:].strip() for line in c.group(1).splitlines() if line.startswith("- ")]
     outcome = next_outcome(task)
     if outcome == "fail":
         raise RuntimeError("scripted failure")
@@ -127,21 +139,24 @@ def prompt(msg):
                        "options": [{"optionId": "a1", "name": "Allow once", "kind": "allow_once"},
                                    {"optionId": "a2", "name": "Always allow", "kind": "allow_always"},
                                    {"optionId": "r1", "name": "Reject", "kind": "reject_once"}]})
-        say(sid, result(summary=f"picked {r['outcome'].get('optionId')}"))
+        say(sid, result(sid, summary=f"picked {r['outcome'].get('optionId')}"))
         return {"stopReason": "end_turn"}
     if outcome == "elicit":
         r = ask_client("elicitation/create", {"sessionId": sid, "mode": "form", "message": "Which name?",
                        "requestedSchema": {"type": "object", "properties": {"name": {"type": "string", "title": "Name"}}, "required": ["name"]}})
-        say(sid, result(summary=f"{r['action']} {r.get('content', {}).get('name')}"))
+        say(sid, result(sid, summary=f"{r['action']} {r.get('content', {}).get('name')}"))
+        return {"stopReason": "end_turn"}
+    if outcome == "unmet":
+        say(sid, result(sid, unmet=True, summary=f"{task} 没有全部做到"))
         return {"stopReason": "end_turn"}
     if outcome == "ask":
-        say(sid, result(summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
+        say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
         return {"stopReason": "end_turn"}
     if outcome == "ok" and "你的问题已得到回答" in text:
         answer = text.split("你的问题已得到回答：", 1)[1].split("\n", 1)[0]
-        say(sid, result(summary=f"{task} 按回答 {answer} 完成"))
+        say(sid, result(sid, summary=f"{task} 按回答 {answer} 完成"))
         return {"stopReason": "end_turn"}
-    say(sid, result(summary=f"{task} 完成"))
+    say(sid, result(sid, summary=f"{task} 完成"))
     return {"stopReason": "end_turn"}
 
 

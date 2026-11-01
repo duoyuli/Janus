@@ -15,6 +15,7 @@
 ├── config.toml               # 用户配置，可选
 ├── janus.db                  # SQLite：Agent、角色、工作区、Run、事件
 ├── agents/<agent-id>/        # 每个 Agent 的隔离配置目录、HOME、临时目录和凭据
+│   └── janus/                # Janus 为这个 Agent 生成的文件，例如 Pi 的长期要求扩展
 ├── secrets/roles/            # 角色 MCP 的环境变量值
 ├── skills/                   # Janus Skill 库
 ├── adapters/<id>/            # ACP 适配器，按需下载，每个版本一个目录

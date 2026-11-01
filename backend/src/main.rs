@@ -253,6 +253,10 @@ async fn inspect(Query(q): Query<PathQuery>) -> Json<Value> {
     )
 }
 
+async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
+    Ok(Json(app.role_stats().map_err(bad)?).into_response())
+}
+
 async fn list_runs(State(app): State<Arc<App>>) -> ApiResult {
     Ok(Json(json!({ "runs": app.db.runs().map_err(bad)? })).into_response())
 }
@@ -489,6 +493,7 @@ async fn main() -> Result<()> {
         .route("/api/connections/{id}/test", post(test_connection))
         .route("/api/connections/{id}/login", post(login_connection))
         .route("/api/file", get(file))
+        .route("/api/stats/roles", get(role_stats))
         .route("/api/runs", get(list_runs).post(create_run))
         .route("/api/runs/{id}", get(get_run))
         .route("/api/runs/{id}/stream", get(stream))

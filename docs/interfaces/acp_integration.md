@@ -65,12 +65,28 @@ Janus 读取的 Agent 能力：
       "configOptionValues": { "<控制项 id>": "<值>" }
     }
   },
-  "systemPrompt": { "append": "<主控说明>" }
+  "systemPrompt": { "append": "<主控说明和用户的长期要求>" }
 }
 ```
 
 - `lody.sessionConfig` 让只在会话开始时接受权限模式的 Agent（例如 Grok）按角色的选择打开会话。不读取它的 Agent 会忽略。
-- `systemPrompt.append` 只在 Claude Code 主控的会话中设置，用于注入主控说明。
+- `systemPrompt.append` 只在 Claude Code 的会话中设置：主控会话放主控说明和用户的长期要求，协作者会话只放长期要求（见下一节）。`session/load` 恢复会话时同样带上。只追加，不替换 Claude Code 自带的系统提示。
+
+<a id="standing_instructions"></a>
+## 用户的长期要求
+
+Provider 的「自定义提示词」和角色的「指令」是用户给这个成员定的长期要求，在整个会话中都有效，优先级高于主控写的任务说明。`standing_instructions` 把两者合成一段（Provider 在前，角色在后），`instruction_channel` 按 Agent 类型选择注入方式：
+
+| Agent | 通道 | 做法 |
+| --- | --- | --- |
+| Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
+| Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_developer_instructions`） |
+| Pi | 系统提示分段 | Pi 的适配器没有系统提示入口，但会把启动参数 `-e <扩展>` 交给 Pi。Janus 在 `agents/<id>/janus/standing-instructions.js` 写入一个扩展，它在 `before_agent_start` 中把环境变量 `JANUS_STANDING_INSTRUCTIONS` 的内容加为系统提示的 `standing_instructions` 分段（`pi_standing_extension`、`with_standing`）。只加分段，不替换 Pi 自己的提示，适配器自己的扩展也能看到这个改动 |
+| 其他（Grok、自定义命令） | 任务说明 | 没有系统提示入口，用 `<standing_instructions>` 块附在每次任务说明的末尾 |
+
+走系统提示或开发者指令时，Janus 记一条 `session.prompt` 事件（`channel` 为 `instructions`，`via` 为 `system`、`developer` 或 `extension`），会话页可以展开查看。
+
+Skill、MCP 和权限模式不属于长期要求，它们按各 Agent 自己的机制生效。
 
 <a id="session_setup"></a>
 ## 会话设置
@@ -79,6 +95,7 @@ Janus 读取的 Agent 能力：
 
 1. 模型和推理强度：角色指定的值与当前值不同时，调用 `session/set_config_option`。Agent 不提供角色指定的模型时，会话以错误结束，提示重新选择模型；不提供指定的推理强度时，沿用当前值。改变模型后重新读取选项，因为可选的推理强度可能随模型变化。
 2. 会话控制项：对角色 `session` 中的每个值，按控制项的来源调用 `session/set_config_option`（`configId` + `value`）或 `session/set_mode`（`modeId`）。
+3. Plan 模式：开启着的 Plan 控制项设为关闭值（布尔为 `false`，Codex 的下拉为 `off`）；当前值为 `plan` 的下拉控制项改为第一个其他选项。规则见 [不使用 Plan 模式](../domains/agents_and_roles.md#no_plan_mode)。
 
 实际生效的设置记录在 `agent.status` 事件的 `data.config` 中。
 

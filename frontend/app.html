@@ -93,6 +93,7 @@
     .rt:last-child { border-bottom: 0; }
     .rt .grow { flex: 1; min-width: 0; }
     .rt .grow span { display: block; color: var(--faint); font-size: 12px; }
+    .srow-t .role-stat { display: block; margin-top: 2px; color: var(--faint); font-size: 11.5px; white-space: normal; overflow: visible; text-overflow: clip; }
     .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .pick { position: relative; display: flex; gap: 11px; align-items: flex-start; padding: 13px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; transition: .15s; width: 100%; }
     .pick:hover { border-color: var(--accent-line); }
@@ -155,7 +156,9 @@
     .dir:hover { background: var(--accent-soft); }
     @media (max-width: 720px) { .grid3 { grid-template-columns: 1fr; } .ws-table th, .ws-table td { padding: 8px; } }
     .session { padding-bottom: 0; overflow: hidden; }
-    .chat { max-height: 520px; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 12px; }
+    .card-hr { display: inline-flex; align-items: center; gap: 10px; }
+    .quiet-t { color: var(--faint); font-size: 12px; }
+    .chat { max-height: max(460px, calc(100vh - 330px)); overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 12px; }
     .chat > * { flex-shrink: 0; }
     .msg { display: flex; gap: 8px; align-items: flex-start; }
     .msg.from-user { justify-content: flex-end; }
@@ -170,10 +173,26 @@
     .msg-tray-i:first-of-type { border-top: 0; }
     .msg-tray-t { flex: 1; min-width: 0; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: var(--ink, inherit); }
     .spin { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
-    .chat-tool { margin-left: 28px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .chat-tool code { color: var(--accent-ink); }
+    .chat-tool { margin-left: 28px; color: var(--muted); font-size: 12px; }
+    .chat-tool summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; min-width: 0; }
+    .chat-tool summary::-webkit-details-marker { display: none; }
+    .chat-tool summary .tl { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-tool[open] summary .tl { white-space: normal; overflow-wrap: anywhere; }
+    .chat-tool code { flex: none; color: var(--accent-ink); }
+    .chat-tool.board code { padding: 0 6px; border-radius: 5px; background: var(--accent-soft); }
+    .chat-tool.board .tl { color: var(--text); }
     .chat-tool.pending { color: var(--amber); }
-    .chat-tool .pill { margin-left: 8px; }
+    .chat-tool .pill { flex: none; }
+    .chat-tool .tr { margin: 2px 0 0 0; padding-left: 2px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-tool pre { margin: 6px 0 2px; max-height: 320px; overflow: auto; padding: 8px 10px; border-radius: 8px; background: var(--soft); border: 1px solid var(--line-2); font: 11.5px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+    .tool-group { margin-left: 28px; font-size: 12px; color: var(--faint); }
+    .tool-group > summary { cursor: pointer; }
+    .tool-group[open] { display: flex; flex-direction: column; gap: 6px; }
+    .tool-group[open] > .chat-tool { margin-left: 0; }
+    .bubble.md { white-space: normal; }
+    .bubble.md p + p, .bubble.md p + ul, .bubble.md ul + p { margin-top: 6px; }
+    .bubble.md ul { margin: 0; padding-left: 18px; }
+    .bubble.md code { padding: 0 4px; border-radius: 4px; background: rgba(0,0,0,.05); font-size: 12px; }
     .chat-prompt { margin-left: 28px; padding: 8px 10px; border-left: 2px solid var(--accent); background: var(--soft); color: var(--muted); font-size: 12px; }
     .chat-prompt-h { color: var(--accent-ink); font-weight: 600; }
     .chat-prompt .via { margin-left: 8px; color: var(--faint); font-weight: 400; }
@@ -236,7 +255,6 @@
     details.sec { border-radius: 10px; background: var(--soft); padding: 10px 12px; }
     details.sec summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
     details.sec textarea { width: 100%; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; outline: 0; resize: vertical; font-size: 13px; }
-    pre.env-preview { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--soft); border: 1px solid var(--line-2); font: 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; color: var(--muted); }
     @media (max-width: 860px) { .set { grid-template-columns: 1fr; } .set-nav { position: static; grid-auto-flow: column; overflow: auto; } .pdlg { grid-template-columns: 1fr; height: calc(100vh - 32px); } .pdlg-rail { max-height: 200px; } }
     .import-pv { padding: 10px 12px; border-radius: 10px; background: var(--green-soft); border: 1px solid #cfe9dc; font-size: 12.5px; }
     .import-pv ul { margin: 6px 0 4px; padding: 0; list-style: none; display: grid; gap: 4px; }
@@ -316,7 +334,10 @@
 
     .run { padding: 18px 20px; }
     .run-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-    .run-top h1 { font-size: 20px; line-height: 1.35; letter-spacing: -.01em; margin-top: 6px; }
+    .run-top > div:first-child { min-width: 0; }
+    .run-top h1 { font-size: 20px; line-height: 1.35; letter-spacing: -.01em; margin-top: 6px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .goal-full { margin-top: 8px; padding: 12px 14px; border-radius: 10px; background: var(--soft); border: 1px solid var(--line-2); max-height: 360px; overflow: auto; }
+    .goal-more { margin-top: 4px; }
     .run-ctl { display: flex; gap: 6px; flex: none; }
     .run-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; color: var(--muted); font-size: 12.5px; }
     .run-meta b { color: var(--text); font-weight: 600; }
@@ -355,16 +376,34 @@
     .kv label { color: var(--faint); }
     .quiet { padding: 14px 16px; color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
 
-    .result { padding: 18px 20px; border-color: #c9ecdb; }
-    .result h2 { margin-top: 10px; font-size: 18px; }
-    .result > p { margin-top: 6px; color: var(--muted); }
-    .res-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
-    .res-grid h4, .diag h4 { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
-    .res-grid ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 13px; }
-    .res-grid li { display: grid; gap: 2px; }
-    .res-grid li .mono { color: var(--muted); font-size: 11.5px; word-break: break-all; }
-    .diag { margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--soft); border: 1px solid var(--line); }
+    .result { padding: 20px 22px; border-color: #c9ecdb; }
+    .res-top { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .result h2 { margin-top: 12px; font-size: 19px; }
+    .prose { margin-top: 12px; font-size: 13.5px; line-height: 1.75; color: var(--text); overflow-wrap: anywhere; }
+    .prose p + p, .prose p + ul, .prose ul + p, .prose ul + ul { margin-top: 8px; }
+    .prose ul { margin: 0; padding-left: 18px; }
+    .prose li + li { margin-top: 3px; }
+    .prose code { padding: 1px 5px; border-radius: 5px; background: var(--soft); border: 1px solid var(--line-2); font-size: 12px; }
+    .prose b { font-weight: 650; }
+    .prose.clamp { max-height: 168px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+    .prose-more { margin-top: 6px; }
+    .fact-prose { margin-top: 6px; font-size: 12.5px; line-height: 1.65; }
+    .fact-prose code { font-size: 11.5px; }
+    .res-secs { margin-top: 18px; border-top: 1px solid var(--line-2); }
+    .res-sec { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line-2); }
+    .res-sec h4 { font-size: 12.5px; color: var(--muted); padding-top: 1px; }
+    .res-sec h4 .n { margin-left: 4px; color: var(--faint); font-weight: 500; }
+    .res-sec ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 13px; line-height: 1.6; }
+    .res-sec li { min-width: 0; overflow-wrap: anywhere; }
+    .res-sec li .who { display: inline-block; margin-right: 6px; font: 600 11.5px var(--mono); color: var(--muted); }
+    .res-sec li.risk { padding-left: 18px; position: relative; }
+    .res-sec li.risk::before { content: "⚠"; position: absolute; left: 0; color: var(--amber); }
+    .res-sec .sub { display: block; color: var(--muted); font-size: 12.5px; }
+    .res-sec .path { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 11.5px; }
+    .res-sec .none { color: var(--faint); }
+    .diag { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--soft); border: 1px solid var(--line); }
     .diag.warn { background: #fffaf0; border-color: var(--amber-line); }
+    .diag h4 { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
     .cats { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
     .cats span { padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); background: #fff; color: var(--faint); font-size: 12px; }
     .cats span.hit { border-color: var(--amber); background: var(--amber); color: #fff; font-weight: 600; }
@@ -390,7 +429,8 @@
     .board-f { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
     .lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; align-items: start; }
     .lane { display: grid; gap: 8px; align-content: start; min-width: 0; padding: 10px; border-radius: 10px; background: var(--soft); }
-    .lane-open { background: var(--amber-soft); margin-bottom: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    .lane-open.yours { background: var(--amber-soft); }
+    .lane-open { margin-bottom: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
     .lane-open .lane-h, .lane-open .lane-more { grid-column: 1 / -1; }
     .board-ok { margin-left: auto; color: var(--faint); font-size: 12.5px; }
     .lane-h { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
@@ -427,11 +467,11 @@
     .agent-m { display: flex; align-items: center; gap: 9px; }
     .agent-m .grow { flex: 1; min-width: 0; }
     .agent-m b { display: block; font-size: 13.5px; }
-    .agent-m .grow span { display: block; color: var(--faint); font-size: 12px; }
+    .agent-m .grow > span { display: block; color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .agent-t { margin: 7px 0 0 35px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
     .agent-t b { color: var(--text); font-weight: 600; }
     .agent .bar { margin: 7px 0 0 35px; height: 4px; }
-    .agent-x { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 6px 0 0 35px; color: var(--faint); font-size: 11.5px; font-family: var(--mono); }
+    .agent-x { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 4px 0 0 35px; color: var(--faint); font-size: 11.5px; }
     .filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 4px; }
     .filters button { border: 0; background: none; color: var(--muted); border-radius: 7px; padding: 4px 8px; font-size: 12.5px; }
     .filters button.on, .filters button:hover { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
@@ -461,7 +501,9 @@
     .card-h span { color: var(--faint); font-size: 12px; }
     .acc { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13px; }
     .acc li { display: flex; gap: 8px; }
-    .acc i { font-style: normal; width: 18px; color: var(--faint); }
+    .acc i { font-style: normal; width: 18px; flex: none; color: var(--faint); }
+    .acc li.ok i { color: var(--green); } .acc li.no i { color: var(--red); }
+    .chat-result { margin-left: 28px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface); font-size: 12.5px; display: grid; gap: 6px; }
     .acc li.ok i { color: var(--green); }
     .prompt { margin: 0; padding: 12px 14px; border-radius: 10px; background: #2b2a27; color: #e3e6f4; font: 12.5px/1.65 var(--mono); white-space: pre-wrap; }
     .honest { margin-top: 10px; color: var(--faint); font-size: 12px; }
@@ -535,7 +577,7 @@
       .board, .detail { grid-template-columns: minmax(0, 1fr); }
       .board > *, .detail > * { min-width: 0; }
       .side { position: static; }
-      .res-grid { grid-template-columns: 1fr; }
+      .res-sec { grid-template-columns: 1fr; gap: 6px; }
       .log-r { grid-template-columns: 44px 70px 150px minmax(0, 1fr) 64px; }
       .log-r > :nth-child(4), .log-r > :nth-child(5) { display: none; }
     }
@@ -673,7 +715,6 @@
     details.sec textarea { margin-top: 0; border-radius: 10px; border-color: var(--line); }
     .import-pv { background: #f3f6ef; border-color: #dfe8d6; border-radius: 12px; padding: 12px 14px; }
     .import-pv li code { color: #3f6b2e; }
-    pre.env-preview { background: var(--soft); border-color: var(--line-2); border-radius: 10px; }
     .note { background: var(--soft); border-color: var(--line-2); border-radius: 10px; }
     .pill.violet, .lead-mark { background: var(--accent-soft); color: var(--accent-ink); }
     .set-item.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(31,30,29,.06), 0 0 0 1px var(--line); }
@@ -798,7 +839,7 @@
     const TASK_STATUS = {
       created: ["待确认", "gray"], pending: ["等待依赖", "gray"], ready: ["就绪", "gray"], assigned: ["已分配", "blue"], running: ["执行中", "blue"],
       waiting_input: ["等你回答", "amber"], waiting_approval: ["等你审批", "amber"], waiting_review: ["待评审", "violet"],
-      blocked: ["等待决策", "red"], cancelling: ["清理中", "amber"], cancelled_by_dependency: ["因依赖取消", "gray"], skipped_by_decision: ["按决定跳过", "gray"], verifying: ["验证中", "violet"], verification_failed: ["验证失败", "red"], succeeded: ["已完成", "green"], failed: ["失败", "red"], cancelled: ["已取消", "gray"]
+      blocked: ["依赖失败", "amber"], cancelling: ["清理中", "amber"], cancelled_by_dependency: ["因依赖取消", "gray"], skipped_by_decision: ["按决定跳过", "gray"], verifying: ["核对中", "violet"], verification_failed: ["没通过验收", "red"], succeeded: ["已完成", "green"], failed: ["失败", "red"], cancelled: ["已取消", "gray"]
     };
     const AGENT_PHASE = {
       idle: ["空闲", "gray"], thinking: ["规划中", "blue"], coordinating: ["协调中", "blue"], reading_files: ["读取文件", "blue"],
@@ -813,7 +854,7 @@
       "result.submitted": "⇪", "task.succeeded": "✓", "dependency.resolved": "⇢", "artifact.created": "▤", "artifact.handoff": "⇄", "context.handoff": "⇄",
       "question.asked": "?", "question.escalated": "⇡", "question.answered": "✎", "answer.delivered": "↩",
       "approval.requested": "⚑", "input.requested": "✎", "input.answered": "↩", "approval.granted": "✓", "approval.denied": "✕", "review.rejected": "✕", "review.approved": "✓",
-      "run.delivered": "★", "run.waiting_input": "?", "run.budget_exhausted": "⌛", "run.accepted_with_risk": "⚠", "risk.accepted": "✓", "fix.requested": "↻", "task.failed": "✕", "task.blocked": "⊘", "task.cancelled_by_dependency": "■", "task.skipped_by_decision": "→", "task.cancel_requested": "‖", "verification.started": "◌", "verification.failed": "✕", "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "policy.violation": "⚠", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓", "session.prompt": "→", "decision.summary": "◆",
+      "run.delivered": "★", "run.waiting_input": "?", "run.budget_exhausted": "⌛", "run.accepted_with_risk": "⚠", "risk.accepted": "✓", "fix.requested": "↻", "task.failed": "✕", "task.blocked": "⊘", "task.cancelled_by_dependency": "■", "task.skipped_by_decision": "→", "task.cancel_requested": "‖", "verification.started": "◌", "verification.failed": "✕", "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "policy.violation": "⚠", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓", "session.prompt": "→", "decision.summary": "◆", "result.amended": "✎",
       "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩", "plan.validation_exhausted": "✕", "plan.replan_requested": "✎", "verification.command_rejected": "⚠", "run.budget_extended": "⌛", "plan.revision_requested": "✎", "agent.message": "❝", "user.message": "✎", "message.delivered": "↪", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖"
     };
     const TONE = {
@@ -854,6 +895,41 @@
     const clock = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
     const dur = ms => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s} 秒` : `${Math.floor(s / 60)} 分 ${pad(s % 60)} 秒`; };
     const ago = (ts, now) => { const s = Math.max(0, Math.round((now - ts) / 1000)); return s < 60 ? `${s}s 前` : `${Math.floor(s / 60)} 分钟前`; };
+    // Home-relative path for display; the full path stays in the title.
+    const tilde = p => String(p || "").replace(/^\/(?:Users|home)\/[^/]+\//, "~/");
+    // A goal can be a long pasted brief; lists and headers show its first line.
+    const goalTitle = g => plain((String(g || "").split("\n").map(l => l.trim()).find(Boolean) || "")).trim();
+    // Light Markdown for agent prose: paragraphs, "- " lists, **bold**, `code` and [text](target).
+    // Links point at local files the browser cannot open, so they show as code with the path as title.
+    function mdInline(t) {
+      const code = [];
+      let h = esc(t).replace(/`([^`\n]+)`/g, (_, c) => `\u0000${code.push(c) - 1}\u0000`);
+      h = h.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, l, u) => `<code title="${u}">${l}</code>`)
+        .replace(/\*\*([^*\n]+?)\*\*/g, "<b>$1</b>");
+      return h.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${code[i]}</code>`);
+    }
+    // Previews are cut to a length, which can split a mark: drop the marks instead of rendering them.
+    const plain = t => String(t || "").replace(/\[([^\]\n]+)\]\([^)\s]+\)/g, "$1").replace(/\*\*|`/g, "").replace(/^#+\s*/gm, "");
+    function md(text) {
+      const inline = mdInline;
+      // Agents sometimes send a whole list on one line ("…： - a - b"); split it only then.
+      const raw = String(text || "").replace(/\r/g, "");
+      const src = raw.includes("\n") ? raw : raw.replace(/([：:。；;）)])\s+-\s+(?=\S)/g, "$1\n- ");
+      const out = [];
+      let list = null, para = [];
+      const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(" "))}</p>`); para = []; };
+      const flushL = () => { if (list) out.push(`<ul>${list.map(x => `<li>${inline(x)}</li>`).join("")}</ul>`); list = null; };
+      src.split("\n").forEach(line => {
+        const l = line.trim(), item = l.match(/^[-*•]\s+(.*)$/) || l.match(/^\d+[.、)]\s+(.*)$/);
+        if (!l) { flushP(); flushL(); }
+        else if (item) { flushP(); (list ||= []).push(item[1]); }
+        else if (/^#{1,6}\s/.test(l)) { flushP(); flushL(); out.push(`<p><b>${inline(l.replace(/^#+\s*/, ""))}</b></p>`); }
+        else if (list) list[list.length - 1] += " " + l;
+        else para.push(l);
+      });
+      flushP(); flushL();
+      return out.join("");
+    }
     const short = (text, n = 26) => text.length > n ? text.slice(0, n) + "…" : text;
     function toast(msg) { const el = $("#toast"); el.textContent = msg; el.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove("show"), 3200); }
 
@@ -927,6 +1003,7 @@
           case "task.cancel_requested": t.status = "cancelling"; break;
           case "task.cancelled_by_dependency": t.status = "cancelled_by_dependency"; endLive(t); break;
           case "task.skipped_by_decision": t.status = "skipped_by_decision"; endLive(t); break;
+          case "result.submitted": t.checks = d.checks || []; break;
           case "verification.started": t.status = "verifying"; break;
           case "verification.failed": t.status = "verification_failed"; t.verificationFailures = d.failures || []; if (!t.delegated) s.inbox.push({ kind: "failed", key: "verify-" + e.task, task: e.task, seq: e.seq, error: (d.failures || []).join("；") }); break;
           case "verification.passed": break;
@@ -959,8 +1036,9 @@
           }
           case "message.delivered": if (t) t.turn = "running"; (d.ids || []).forEach(id => { if (s.msgs[id]) s.msgs[id].deliveredSeq = e.seq; }); break;
           case "question.asked": t.status = "waiting_input"; t.question = { ...d, seq: e.seq, from: e.actor }; Object.assign(ag(e.actor), { phase: "waiting_for_input", note: e.text }); break;
-          case "question.escalated": s.inbox = s.inbox.filter(i => i.key !== d.key); s.inbox.push({ kind: "question", key: d.key, task: e.task, seq: e.seq, reason: d.reason, recommend: d.recommend }); break;
-          case "question.answered": s.answers[d.key] = d.answer; s.inbox = s.inbox.filter(i => i.key !== d.key); if (t.status === "waiting_input") t.status = "running"; if (t.question) t.question.answer = d.answer; ag(t.agent).phase = "thinking"; break;
+          // A collaborator's question passed on to the person, or a decision the lead hands over itself (no task).
+          case "question.escalated": s.inbox = s.inbox.filter(i => i.key !== d.key); s.inbox.push({ kind: "question", key: d.key, task: e.task, seq: e.seq, reason: d.reason, recommend: d.recommend, ...(e.task ? {} : { question: d.question, options: d.options || [], from: e.actor }) }); break;
+          case "question.answered": s.answers[d.key] = d.answer; s.inbox = s.inbox.filter(i => i.key !== d.key); if (!t) break; if (t.status === "waiting_input") t.status = "running"; if (t.question) t.question.answer = d.answer; ag(t.agent).phase = "thinking"; break;
           case "approval.requested": if (t) t.status = "waiting_approval"; s.inbox.push({ kind: "approval", task: e.task, agent: e.actor, seq: e.seq, ...d }); Object.assign(ag(e.actor), { phase: "waiting_approval", note: e.text }); break;
           case "input.requested": if (t) t.status = "waiting_input"; s.inbox.push({ kind: "input", task: e.task, agent: e.actor, seq: e.seq, ...d }); Object.assign(ag(e.actor), { phase: "waiting_for_input", note: e.text }); break;
           case "input.answered": s.answers[d.key] = d.action; s.inbox = s.inbox.filter(i => i.key !== d.key); if (t && t.status === "waiting_input") t.status = "running"; if (e.to) ag(e.to).phase = "thinking"; break;
@@ -989,7 +1067,14 @@
             const own = t.attempts.at(-1); if (own) own.status = "verdict"; endLive(t);
             t.status = "blocked"; t.blockedBy = d.target; Object.assign(ag(e.actor), { phase: "idle", note: "", progress: null }); break;
           }
-          case "task.reopened": t.status = "ready"; s.inbox = s.inbox.filter(i => !["fail-" + e.task, "verify-" + e.task, "run-decision"].includes(i.key)); if (["delivered", "accepted", "accepted_with_risk"].includes(s.run.status)) s.run.status = "running"; break;
+          case "result.amended": (t.amendments ||= []).push(d.text); break;
+          case "session.prompt": if (t && d.channel === "fix") t.status = "running"; break;
+          case "task.reopened":
+            t.amendments = [];
+            if (d.instructions) t.desc = d.instructions;
+            // Tasks held by this one's failure wait for it again instead of showing as stuck.
+            s.order.forEach(id => { const x = s.tasks[id]; if (x.status === "blocked" && x.blockedBy === e.task) x.status = "pending"; });
+            t.status = "ready"; s.inbox = s.inbox.filter(i => !["fail-" + e.task, "verify-" + e.task, "run-decision"].includes(i.key)); if (["delivered", "accepted", "accepted_with_risk"].includes(s.run.status)) s.run.status = "running"; break;
           case "task.succeeded": {
             Object.assign(t, { status: "succeeded", progress: 100, summary: d.summary, evidence: d.evidence }); endLive(t);
             const at = t.attempts.at(-1); if (at && at.status === "running") at.status = "succeeded";
@@ -1077,7 +1162,7 @@
       const data = await api(`/api/runs/${id}`);
       history.replaceState(null, "", `?run=${id}`);
       if (data.run.config?.workspace?.id && wsOf(data.run.config.workspace.id)) rememberWs(data.run.config.workspace.id);
-      const view = keepPage && S.runId === id ? { page: S.page, taskId: S.taskId, agentId: S.agentId } : { page: "board", taskId: null, agentId: null };
+      const view = keepPage && S.runId === id ? { page: S.page, taskId: S.taskId, agentId: S.agentId } : { page: "board", taskId: null, agentId: null, goalOpen: false, resultOpen: null };
       Object.assign(S, { runId: id, runTeam: data.run.config?.team || null, runConfig: data.run.config || null, menu: null, live: data.live, events: data.events, screen: "app", ...view, replay: null, drafts: {}, hl: null, openRow: null, modal: null, boardSel: null, boardAgent: "", boardTask: "", boardMore: {} });
       await loadRuns();
       mountApp(); render();
@@ -1130,6 +1215,8 @@
 
     async function loadSetup() {
       try { S.setup = await api("/api/setup"); } catch (err) { toast("读取设置失败：" + err.message); }
+      // How each role's tasks went in recent runs; the list works without it.
+      try { S.roleStats = await api("/api/stats/roles"); } catch { S.roleStats = null; }
       renderScreen();
     }
     async function setupSave(kind, body) {
@@ -1203,7 +1290,23 @@
     }
 
     // ---------- Settings: system-wide Agents and roles ----------
-    const envText = env => Object.entries(env || {}).map(([k, v]) => `${k}=${/\s|#/.test(v) ? JSON.stringify(v) : v}`).join("\n");
+    const envLine = (k, v) => `${k}=${/\s|#/.test(v) ? JSON.stringify(v) : v}`;
+    const envText = env => Object.entries(env || {}).map(([k, v]) => envLine(k, v)).join("\n");
+    // A preset's default variables (fixed, then the chosen endpoint's): where its editable env starts.
+    const endpointEnv = (k, ep) => (k?.endpoints || []).find(e => e.id === (ep || k.endpoints[0]?.id))?.env || {};
+    const presetEnv = (k, ep) => ({ ...(k?.fixedEnv || {}), ...endpointEnv(k, ep) });
+    // Set KEY=… lines in env text, keeping the person's other lines; null drops a key.
+    function setEnvLines(text, vars) {
+      const left = { ...vars };
+      const lines = String(text || "").split("\n").flatMap(l => {
+        const k = l.trim().replace(/^export\s+/, "").split("=")[0].trim();
+        if (!(k in left)) return [l];
+        const v = left[k]; delete left[k];
+        return v == null ? [] : [envLine(k, v)];
+      });
+      const add = Object.entries(left).filter(([, v]) => v != null).map(([k, v]) => envLine(k, v));
+      return [...lines.filter((l, i) => l.trim() || i < lines.length - 1), ...add].join("\n").replace(/^\n+/, "");
+    }
     const typeIcon = (k, cls = "") => `<span class="pv-ic ${cls}" style="background:${k?.color || "#64748b"}">${esc(k?.init || "?")}</span>`;
     // The auth method's own `login` flag says whether Janus drives an account login (Codex ChatGPT, Grok xAI).
     const loginAuth = c => kindOf(c.kind)?.auths?.find(a => a.id === c.auth && a.login);
@@ -1317,11 +1420,11 @@
     function rolesSection() {
       const rows = S.setup.roles.map(r => {
         const c = connOf(r.connection), k = c && kindOf(c.kind);
-        const facts = [c?.options?.controls && (permWrites(r.session, c) ? "可写" : "只读"), permLabel(r.session, c), r.prompt && "提示词", r.skills?.length && `${r.skills.length} Skill`, r.mcp?.length && `${r.mcp.length} MCP`].filter(Boolean);
+        const facts = [permLabel(r.session, c), r.prompt && "提示词", r.skills?.length && `${r.skills.length} Skill`, r.mcp?.length && `${r.mcp.length} MCP`].filter(Boolean);
         return `<div class="srow">
-          <button class="srow-main" data-act="roleOpen" data-v="${r.id}">${roleAv(r)}<span class="srow-t"><b>${esc(r.name)}${r.lead ? `<span class="lead-mark">主控</span>` : ""}</b><span>${esc(r.desc || r.role || "还没有填写职责")}</span></span></button>
+          <button class="srow-main" data-act="roleOpen" data-v="${r.id}">${roleAv(r)}<span class="srow-t"><b>${esc(r.name)}${r.lead ? `<span class="lead-mark">主控</span>` : ""}</b><span>${esc(r.desc || r.role || "还没有填写职责")}</span>${roleStatLine(S.roleStats?.roles?.[r.id], S.roleStats?.runs)}</span></button>
           <span class="srow-rel">${c ? `${typeIcon(k, "sm")}<span class="rel-t"><b>${esc(c.name)}</b>${esc(r.model || c.options?.model?.current || "默认模型")}${r.effort ? `，${esc(r.effort)}` : ""}</span>` : `<button class="link warn-t" data-act="roleOpen" data-v="${r.id}">选择 Agent</button>`}</span>
-          <span class="srow-state facts">${facts.map(f => `<span class="fact">${esc(f)}</span>`).join("") || `<span class="faint small">只读</span>`}</span>
+          <span class="srow-state facts">${facts.map(f => `<span class="fact">${esc(f)}</span>`).join("") || `<span class="faint small">—</span>`}</span>
           <button class="icon-btn" data-act="roleOpen" data-v="${r.id}" aria-label="编辑 ${esc(r.name)}">›</button>
         </div>`;
       }).join("");
@@ -1331,7 +1434,11 @@
     }
 
     // ---------- Session controls: whatever the agent itself declares (read when it is checked) ----------
-    const ctrlsOf = c => c?.options?.controls || [];
+    // Janus never offers a plan mode (same rule as the backend's `is_plan_toggle` / `is_plan_value`);
+    // agents checked before that rule still carry them in their saved options.
+    const isPlanValue = v => typeof v === "string" && v.toLowerCase().replace(/[-_ ]/g, "") === "plan";
+    const ctrlsOf = c => (c?.options?.controls || []).filter(x => !/plan/i.test(x.id))
+      .map(x => x.options?.some(o => isPlanValue(o.value)) ? { ...x, options: x.options.filter(o => !isPlanValue(o.value)) } : x);
     // Only agents with /goal can lead (same rule as the orchestrator).
     const leadCapable = c => ["claude", "codex"].includes(c?.base);
     const ctrlValue = (session, c) => session?.[c.id] === undefined ? c.current : session[c.id];
@@ -1344,13 +1451,13 @@
     };
     // Only for the icon: whether an option widens what the agent may do unasked is the agent's call.
     const permKind = o => { const v = `${o.value} ${o.name}`; return /read[-_ ]?only/i.test(v) ? "eye" : /full|bypass|always|yolo|danger|dontask/i.test(v) ? "risky" : /plan/i.test(v) ? "plan" : /edit/i.test(v) ? "edit" : "shield"; };
-    // Same rule as the orchestrator: a read-only preset or Plan switched on only reads; agents
-    // without permission modes edit freely.
-    function permWrites(session, conn) {
-      return !ctrlsOf(conn).filter(c => c.permission).some(c => {
-        const v = ctrlValue(session, c), n = String(v).toLowerCase().replace(/[-_ ]/g, "");
-        return (/plan/i.test(c.id) && (v === true || v === "on")) || n === "readonly" || n === "plan";
-      });
+    // Where the role's instructions reach the agent; same rule as the orchestrator's `instruction_channel`.
+    function instrVia(c) {
+      if (!c) return "绑定 Agent 后，按它支持的方式注入。";
+      if (c.base === "claude") return "作为系统提示追加在 Claude Code 自带的提示之后，整个会话都有效，优先于任务说明。";
+      if (c.base === "codex") return "作为 Codex 的开发者指令注入，整个会话都有效，优先于任务说明。";
+      if (c.base === "pi") return "通过 Janus 的 Pi 扩展加入系统提示，整个会话都有效，优先于任务说明。";
+      return `${esc(c.name)} 不支持系统提示，指令附在每次任务说明的末尾。`;
     }
     // "Agent · Plan 关闭": a role's permission choices in the agent's own words.
     function permLabel(session, conn) {
@@ -1383,6 +1490,13 @@
           : `<select class="ctl-sel" data-bind="roleCtrlSel" data-id="${esc(x.id)}" aria-label="${esc(x.name)}">${x.options.map(o => `<option value="${esc(o.value)}" ${o.value === v ? "selected" : ""}>${esc(o.name || o.value)}${o.value === x.current ? "（默认）" : ""}</option>`).join("")}</select>`}</label>`; }).join("")}</div>`;
     }
 
+    // "最近 27 个 Run：10 个任务 · 首次通过 70% · 验证失败 2 · 成功平均 5.2 分钟"
+    function roleStatLine(x, runs) {
+      if (!x || !x.tasks) return "";
+      const pct = n => `${Math.round(n / x.tasks * 100)}%`;
+      const parts = [`${x.tasks} 个任务`, `首次通过 ${pct(x.firstPass)}`, x.failed ? `失败 ${x.failed}` : "", x.verificationFailed ? `验证没通过 ${x.verificationFailed}` : "", x.avgMinutes ? `成功平均 ${x.avgMinutes} 分钟` : ""].filter(Boolean);
+      return `<span class="role-stat" title="首次通过：第一次尝试就完成，且验证一次通过">最近 ${runs} 个 Run：${parts.join(" · ")}</span>`;
+    }
     // ---------- Role editor: one column, top to bottom, the way the role is read ----------
     function roleDrawer() {
       const r = S.roleDraft, c = connOf(r.connection), opt = c?.options || {};
@@ -1425,7 +1539,8 @@
           </section>
 
           <section class="rsec"><h3>指令</h3>
-            <textarea id="rd-prompt" class="instr" data-bind="roleField" data-k="prompt" placeholder="告诉这个角色怎么做事，例如：只读，不修改文件；重点检查边界条件、错误处理和测试覆盖。">${esc(r.prompt || "")}</textarea>
+            <textarea id="rd-prompt" class="instr" data-bind="roleField" data-k="prompt" placeholder="告诉这个角色怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。">${esc(r.prompt || "")}</textarea>
+            <p class="hint">${instrVia(c)}</p>
           </section>
 
           <section class="rsec"><h3>Skills${picked.length ? `<em>${picked.length}</em>` : ""}</h3>${S.skillPick ? "" : `<button class="link" data-act="skillPick">添加</button>`}</section>
@@ -1436,7 +1551,7 @@
 
           <section class="rsec"><h3>权限</h3>${ctrlsOf(c).some(x => x.permission) ? `<span class="faint small">${esc(c.name)} 的权限模式</span>` : ""}</section>
           ${permSection(r, c)}
-          ${c?.options?.controls ? `<p class="pmode-note">${permWrites(r.session, c) ? "按这个模式，Agent 会修改文件，直接改工作目录。" : "按这个模式，Agent 只读不写。"}主控规划时会看到这个模式，按它分配任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。</p>` : ""}
+          ${c?.options?.controls ? `<p class="pmode-note">主控规划时会看到这个模式，按它分配任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。</p>` : ""}
           ${otherCtrls(r, c)}
 
           <section class="rsec"><h3>协作</h3></section>
@@ -1496,12 +1611,14 @@
         return `<div class="field"><label for="${id}">${esc(f.label)}${f.required ? "" : ` <span class="faint">可选</span>`}</label><input id="${id}" ${f.type === "secret" ? `type="password" autocomplete="off" placeholder="${saved ? "已保存，留空表示不修改" : esc(f.placeholder || "")}"` : `placeholder="${esc(f.placeholder || "")}"`} value="${f.type === "secret" ? "" : esc(d[f.key] || "")}" data-bind="connField" data-k="${f.key}">${f.help ? `<div class="hint">${esc(f.help)}</div>` : ""}</div>`;
       };
       const status = prev ? connStatus(prev) : null;
-      const injected = { ...(k.fixedEnv || {}), ...((k.endpoints || []).find(e => e.id === (d.endpoint || k.endpoints[0]?.id))?.env || {}) };
       const authBlock = auths.length ? `<div class="field"><label>认证</label><div class="seg stretch">${auths.map(a => `<button class="${a.id === auth.id ? "on" : ""}" data-act="connAuth" data-v="${a.id}">${esc(a.label)}</button>`).join("")}</div>${auth.desc ? `<div class="hint">${esc(auth.desc)}</div>` : ""}</div>
           ${auth.id === "import" ? `${d.showSource ? auth.fields.map(field).join("") : ""}${importPreview(d)}` : auth.fields.map(field).join("")}
           ${auth.login && prev ? `<div class="hint">${prev.loggedIn ? `已登录 ${esc(auth.label)}。` : "还没有登录。"}<button class="link" data-act="connLogin" data-v="${prev.id}" style="margin-left:6px">${prev.loggedIn ? "重新登录" : "现在登录"}</button></div>` : ""}` : "";
+      const envField = `<div class="field"><label for="cf-env">环境变量</label><textarea id="cf-env" class="mono" data-bind="connField" data-k="envText" rows="${Math.min(12, Math.max(3, (d.envText || "").split("\n").length + 1))}" placeholder="KEY=value">${esc(d.envText || "")}</textarea>
+                <div class="hint">${k.token ? `预设的默认值已经填好，可以直接修改；写成 <code>KEY=</code> 表示不设置这个变量。${esc(k.token.envKey)} 由上面的 token 填入。` : "写成 <code>KEY=</code> 表示不设置这个变量。"}</div></div>`;
       const presetBlock = k.token ? `${(k.endpoints || []).length ? `<div class="field"><label>接入点</label><div class="seg stretch">${k.endpoints.map(e => `<button class="${e.id === (d.endpoint || k.endpoints[0].id) ? "on" : ""}" data-act="connEndpoint" data-v="${e.id}">${esc(e.label)}</button>`).join("")}</div></div>` : ""}
           ${field({ key: "token", label: k.token.label, type: "secret", required: true, help: k.token.help })}
+          ${envField}
 ` : "";
       return `<div class="modal-bg" data-act="connBg"><div class="pdlg" role="dialog" aria-modal="true" aria-labelledby="pdlgTitle">
         <aside class="pdlg-rail">
@@ -1520,11 +1637,10 @@
             ${k.command ? `<div class="field"><label for="cf-command">启动命令</label><input id="cf-command" class="mono" data-bind="connField" data-k="command" value="${esc(d.command || "")}" placeholder="npx -y @zed-industries/claude-code-acp"></div>` : ""}
             ${authBlock}${presetBlock}
             ${prev?.check?.length ? `<div class="check-box"><div class="import-h"><b>配置检查</b>${prev.status === "testing" ? `<span class="faint small">检查中…</span>` : `<button class="link" data-act="connTest" data-v="${prev.id}">重新检查</button>`}</div>${checkList(prev)}</div>` : ""}
-            <details class="sec" ${d.prompt || d.envText || d.bin ? "open" : ""}><summary>高级设置</summary><div class="adv">
+            <details class="sec" ${d.prompt || d.bin || (!k.token && d.envText) ? "open" : ""}><summary>高级设置</summary><div class="adv">
               ${k.runtime ? `<div class="field"><label for="cf-bin">运行时路径</label><input id="cf-bin" class="mono" data-bind="connField" data-k="bin" value="${esc(d.bin || "")}" placeholder="${esc(k.runtime.detected || k.runtime.placeholder)}"></div>` : ""}
-              <div class="field"><label for="cf-prompt">自定义提示词</label><textarea id="cf-prompt" data-bind="connField" data-k="prompt" rows="3" placeholder="对这个 Agent 的所有角色生效">${esc(d.prompt || "")}</textarea></div>
-              <div class="field"><label for="cf-env">环境变量</label><textarea id="cf-env" class="mono" data-bind="connField" data-k="envText" rows="3" placeholder="KEY=value">${esc(d.envText || "")}</textarea></div>
-              ${k.token ? `<div class="field"><label>预设变量</label><pre class="env-preview">${esc(envText(injected))}\n${esc(k.token.envKey)}=••••••</pre></div>` : ""}
+              <div class="field"><label for="cf-prompt">自定义提示词</label><textarea id="cf-prompt" data-bind="connField" data-k="prompt" rows="3" placeholder="对这个 Agent 的所有角色生效">${esc(d.prompt || "")}</textarea><div class="hint">排在角色指令之前，和角色指令走同一种注入方式（Claude Code、Pi 是系统提示，Codex 是开发者指令，其他 Agent 附在任务说明末尾）。</div></div>
+              ${k.token ? "" : envField}
             </div></details>
           </div>
           <footer class="pdlg-f"><button class="btn ghost" data-act="connCancel">取消</button><button class="btn primary" data-act="connSave" ${d.saving ? "disabled" : ""}>${d.saving ? "保存中…" : editing ? "保存" : "创建"}</button></footer>
@@ -1553,7 +1669,7 @@
         return `<tr class="${m.on ? "" : "off"}">
           <td><label class="chk"><input type="checkbox" data-act="wsToggle" data-id="${r.id}" data-v="on" ${m.on ? "checked" : ""} ${c ? "" : "disabled"}> ${roleAv(r, "sm")} <span><b>${esc(r.name)}</b><span class="faint small">${c ? `${esc(c.name)} · ${esc(r.model || "默认模型")}` : "未绑定 Agent"}</span></span></label></td>
           <td><input type="radio" name="lead" data-act="wsLead" data-v="${r.id}" ${d.lead === r.id ? "checked" : ""} ${m.on && leadCapable(c) ? "" : "disabled"} title="${leadCapable(c) ? "" : "只有 Claude Code 或 Codex 能做主控"}" aria-label="${esc(r.name)} 作为主控"></td>
-          <td class="small muted">${c?.options?.controls ? (permWrites(r.session, c) ? "可修改文件" : "只读") : "—"}</td><td class="small muted">${esc(permLabel(r.session, c) || "—")}</td>
+          <td class="small muted">${esc(permLabel(r.session, c) || "—")}</td>
         </tr>`;
       }).join("");
       return `${topbar(d.id ? `<span class="set-crumb">工作区设置</span>` : "")}
@@ -1567,7 +1683,7 @@
             <div class="field" style="margin-top:12px"><label for="wsName">名称 <span class="faint">可选，默认用目录名</span></label><input id="wsName" data-bind="wsName" value="${esc(d.name)}"></div>
           </div>
           <div class="dsec">启用的角色与权限</div>
-          <div class="card"><table class="ws-table"><thead><tr><th>角色</th><th>主控</th><th>文件<small>由权限模式决定</small></th><th>权限模式<small>在角色里设置</small></th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="faint">还没有角色，先去「设置 → 角色」创建。</td></tr>`}</tbody></table></div>
+          <div class="card"><table class="ws-table"><thead><tr><th>角色</th><th>主控</th><th>权限模式<small>在角色里设置</small></th></tr></thead><tbody>${rows || `<tr><td colspan="3" class="faint">还没有角色，先去「设置 → 角色」创建。</td></tr>`}</tbody></table></div>
           <div class="set-next">${d.id ? `<button class="btn ghost danger" data-act="wsDelete" data-v="${d.id}">删除工作区</button>` : "<span></span>"}<span class="row-end"><button class="btn ghost" data-act="wsCancel">取消</button><button class="btn primary" data-act="wsSave">${d.id ? "保存" : "创建工作区"}</button></span></div>
         </div>`;
     }
@@ -1607,9 +1723,9 @@
           </div>
           ${problems.length ? `<div class="note warn" style="margin-top:12px">这些角色还不能运行：${esc(problems.join("、"))}。<button class="link" data-act="goSettingsRoles">去设置 →</button></div>` : ""}
           <div class="dsec">这个工作区的团队 <button class="link" data-act="wsEdit" data-v="${ws.id}">调整</button></div>
-          <div class="team-strip">${members.map(m => { const c = connOf(m.r?.connection); return `<div class="tm">${roleAv(m.r, "lg")}<span><b>${esc(m.r?.name || "已删除")}${m.role === ws.lead ? ` <span class="pill violet">主控</span>` : ""}</b><small>${esc(c?.name || "未绑定")} · ${esc(m.r?.model || c?.options?.model?.current || "默认模型")}</small><small>${permWrites(m.r?.session, c) ? "可修改文件" : "只读"}${permLabel(m.r?.session, c) ? ` · ${esc(permLabel(m.r?.session, c))}` : ""}${m.r?.skills?.length ? ` · ${m.r.skills.length} Skill` : ""}${m.r?.mcp?.length ? ` · ${m.r.mcp.length} MCP` : ""}</small></span></div>`; }).join("")}</div>
+          <div class="team-strip">${members.map(m => { const c = connOf(m.r?.connection); return `<div class="tm">${roleAv(m.r, "lg")}<span><b>${esc(m.r?.name || "已删除")}${m.role === ws.lead ? ` <span class="pill violet">主控</span>` : ""}</b><small>${esc(c?.name || "未绑定")} · ${esc(m.r?.model || c?.options?.model?.current || "默认模型")}</small><small>${[permLabel(m.r?.session, c), m.r?.skills?.length && `${m.r.skills.length} Skill`, m.r?.mcp?.length && `${m.r.mcp.length} MCP`].filter(Boolean).map(esc).join(" · ") || "Agent 默认权限"}</small></span></div>`; }).join("")}</div>
           <div class="dsec">任务记录 <span class="faint">${runs.length} 个</span></div>
-          <div class="card run-list">${runs.map(r => { const [l, t] = STATUS[r.status] || [r.status, "gray"]; return `<button class="run-row" data-act="openRun" data-v="${r.id}"><span class="grow"><b>${esc(r.goal)}</b><small>${new Date(r.createdAt).toLocaleString()}</small></span><span class="pill ${t}">${l}</span></button>`; }).join("") || `<p class="pv-empty">还没有任务。在上面写下第一个目标。</p>`}</div>
+          <div class="card run-list">${runs.map(r => { const [l, t] = STATUS[r.status] || [r.status, "gray"]; return `<button class="run-row" data-act="openRun" data-v="${r.id}"><span class="grow"><b>${esc(goalTitle(r.goal))}</b><small>${new Date(r.createdAt).toLocaleString()}</small></span><span class="pill ${t}">${l}</span></button>`; }).join("") || `<p class="pv-empty">还没有任务。在上面写下第一个目标。</p>`}</div>
         </div>`;
     }
 
@@ -1714,21 +1830,27 @@
       connType: v => {
         const k = kindOf(v), d = S.connDraft || {};
         const keep = d.name && d.name !== kindOf(d.kind)?.name;
-        S.connDraft = { kind: v, auth: k.auths?.[0]?.id || "", name: keep ? d.name : k.name, api: "openai-completions", prompt: d.prompt || "", envText: d.envText || "", endpoint: k.endpoints?.[0]?.id, newId: d.idTouched ? d.newId : "", idTouched: d.idTouched };
+        // Switching type swaps one preset's defaults for the other's; the person's own lines stay.
+        const old = Object.fromEntries(Object.keys(presetEnv(kindOf(d.kind), d.endpoint)).map(x => [x, null]));
+        S.connDraft = { kind: v, auth: k.auths?.[0]?.id || "", name: keep ? d.name : k.name, api: "openai-completions", prompt: d.prompt || "", envText: setEnvLines(d.envText, { ...old, ...presetEnv(k) }), endpoint: k.endpoints?.[0]?.id, newId: d.idTouched ? d.newId : "", idTouched: d.idTouched };
         renderScreen(); suggestId();
       },
-      connEdit: v => { const c = connOf(v); S.menu = null; S.railQuery = ""; S.connDraft = { ...c, envText: envText(c.env) }; renderScreen(); },
+      connEdit: v => { const c = connOf(v); S.menu = null; S.railQuery = ""; S.connDraft = { ...c, envText: envText({ ...presetEnv(kindOf(c.kind), c.endpoint), ...c.env }) }; renderScreen(); },
       connCancel: () => { S.connDraft = null; renderScreen(); },
       connBg: (v, el, e) => { if (e.target === el) SETUP_ACT.connCancel(); },
       connAuth: v => { S.connDraft.auth = v; renderScreen(); },
       connShowSource: () => { S.connDraft.showSource = true; renderScreen(); setTimeout(() => $("#cf-source")?.focus()); },
-      connEndpoint: v => { S.connDraft.endpoint = v; renderScreen(); },
+      connEndpoint: v => {
+        const d = S.connDraft, k = kindOf(d.kind);
+        const old = Object.fromEntries(Object.keys(endpointEnv(k, d.endpoint)).map(x => [x, null]));
+        d.envText = setEnvLines(d.envText, { ...old, ...endpointEnv(k, v) }); d.endpoint = v; renderScreen();
+      },
       connSave: async v => {
         const d = S.connDraft; d.saving = true; renderScreen();
         try {
           const c = await setupSave("connections", d);
           await loadSetup();
-          if (v === "test") { S.connDraft = { ...connOf(c.id), envText: envText(c.env) }; } else { S.connDraft = null; toast(`已保存 ${c.name}，正在检查配置`); }
+          if (v === "test") { S.connDraft = { ...connOf(c.id), envText: envText({ ...presetEnv(kindOf(c.kind), c.endpoint), ...c.env }) }; } else { S.connDraft = null; toast(`已保存 ${c.name}，正在检查配置`); }
           renderScreen();
           if (loginAuth(c) && !connOf(c.id)?.loggedIn) loginConn(c.id); else testConn(c.id);
         } catch (err) { d.saving = false; renderScreen(); toast(err.message); }
@@ -1820,7 +1942,22 @@
       $("#root").innerHTML = `<header class="hdr" id="hdr"></header><div class="tbar" id="tbar"></div><main class="main" id="main"></main><div id="modal"></div>`;
       S.mounted = null;
     }
-    function patch(id, html) { const el = document.getElementById(id); if (el && el.__h !== html) { el.innerHTML = html; el.__h = html; } }
+    // Replace a section's HTML, keeping the <details data-k> the person opened (or closed) open.
+    // Ticks the "last activity" note of running sessions without re-rendering the page.
+    function tickQuiet() {
+      document.querySelectorAll(".quiet-t[data-last]").forEach(el => {
+        const s = Math.round((Date.now() - +el.dataset.last) / 1000);
+        el.textContent = s >= 20 ? `${s < 120 ? `${s} 秒` : `${Math.floor(s / 60)} 分钟`}没有新输出，可能在思考或写较长的内容` : "";
+      });
+    }
+    setInterval(tickQuiet, 5000);
+    function patch(id, html) {
+      const el = document.getElementById(id);
+      if (!el || el.__h === html) return;
+      const open = new Map([...el.querySelectorAll("details[data-k]")].map(d => [d.dataset.k, d.open]));
+      el.innerHTML = html; el.__h = html;
+      if (open.size) el.querySelectorAll("details[data-k]").forEach(d => { if (open.has(d.dataset.k)) d.open = open.get(d.dataset.k); });
+    }
 
     function render() {
       if (S.screen !== "app") return;
@@ -1885,7 +2022,7 @@
       const tabs = [["board", "工作台"], ["audit", "审计与回放"], ["team", "团队与权限"]];
       return `<div class="tbar-in">
         <button class="link back" data-act="goHome">← ${esc(ws?.name || "工作区")}</button>
-        <span class="tb-title" title="${esc(full.run.goal)}">${esc(full.run.goal || "")}</span>${S.live ? "" : `<span class="chip demo" title="这个任务不在当前编排器进程里，只能查看">只读</span>`}
+        <span class="tb-title" title="${esc(goalTitle(full.run.goal))}">${esc(goalTitle(full.run.goal))}</span>${S.live ? "" : `<span class="chip demo" title="这个任务不在当前编排器进程里，只能查看">只读</span>`}
         <nav class="tabs" aria-label="任务视图">${tabs.map(([k, l]) => `<button class="tab ${S.page === k || (k === "board" && ["task", "agent"].includes(S.page)) ? "on" : ""}" data-act="nav" data-v="${k}">${l}${k === "board" && n ? `<span class="count" title="需要你处理">${n}</span>` : ""}</button>`).join("")}</nav>
       </div>`;
     }
@@ -1920,13 +2057,15 @@
       const r = st.run;
       if (!r.goal) return `<div class="card run skeleton">正在连接编排器…</div>`;
       const [label, tone] = runStatus(st);
+      const title = goalTitle(r.goal);
+      const long = r.goal.trim() !== title;
       const done = st.order.filter(id => st.tasks[id].status === "succeeded").length;
       const idx = r.mode === "goal" ? goalStageIndex(st) : stageIndex(st);
       const live = S.replay == null && S.live;
       const active = !["delivered", "accepted", "accepted_with_risk", "cancelled", "failed", "interrupted"].includes(r.status);
       const ctl = live && active ? `${r.status === "running" || r.paused ? `<button class="btn sm" data-act="${r.paused ? "resume" : "pause"}" title="暂停后不再启动新任务，进行中的尝试会继续">${r.paused ? "▶ 继续" : "Ⅱ 暂停"}</button>` : ""}<button class="btn sm ghost danger" data-act="cancelRun">取消</button>` : "";
       return `<article class="card run">
-        <div class="run-top"><div><span class="pill ${tone}">● ${label}</span><h1>${esc(r.goal)}</h1></div><div class="run-ctl">${ctl}</div></div>
+        <div class="run-top"><div><span class="pill ${tone}">● ${label}</span><h1 title="${esc(title)}">${esc(title)}</h1>${long ? `<button class="link goal-more" data-act="goalMore">${S.goalOpen ? "收起完整目标" : "查看完整目标"}</button>` : ""}${long && S.goalOpen ? `<div class="prose goal-full">${md(r.goal)}</div>` : ""}</div><div class="run-ctl">${ctl}</div></div>
         ${r.status === "failed" ? `<div class="note warn" style="margin-top:10px">${esc(r.error)}</div>` : ""}
         ${["interrupted", "failed"].includes(r.status) && S.replay == null ? `<div class="resume-row"><span>${r.status === "interrupted" ? "编排器重启时中断了。已完成的任务会保留，未完成的从原处继续。" : "可以从失败处继续。"}也可以点右侧的 Agent 进入对话，补充信息后再继续。</span><button class="btn primary sm" data-act="resumeRun">从中断处继续</button></div>` : ""}
         <div class="run-meta"><span>主控 <b>${esc(agentName("lead"))}</b></span><span>工作区 <b>${esc(wsNote(r))}</b></span><span>团队 <b>${team().length} 人</b></span><span>开始 <b>${clock(r.start)}</b></span><span>用时 <b>${dur(r.now - r.start)}</b></span><span>任务 <b>${done} / ${st.order.length || "—"}</b></span></div>
@@ -1963,6 +2102,7 @@
       </article>`;
     }
     function questionAsk(st, item, live) {
+      if (!item.task) return leadAsk(st, item, live);
       const t = st.tasks[item.task], q = t.question, draft = S.drafts[item.key];
       const downstream = st.order.filter(id => st.tasks[id].deps.includes(item.task));
       return askShell(st, item, {
@@ -1971,6 +2111,17 @@
         controls: `<div class="opts">${q.options.map(o => `<button class="opt ${draft === o ? "on" : ""}" data-act="pick" data-key="${item.key}" data-v="${esc(o)}" ${live ? "" : "disabled"}>${esc(o)}${o === item.recommend ? "<small>主控建议</small>" : ""}</button>`).join("")}</div>
           <textarea data-note="${item.key}" placeholder="补充说明（可选），会和回答一起发给 Agent" ${live ? "" : "disabled"}></textarea>
           <div class="ask-f"><button class="btn primary" data-act="answer" data-key="${item.key}" data-task="${item.task}" ${live ? "" : "disabled"}>提交回答</button><span class="small muted">回答会写入事件日志，并通过 ACP 发回会话 <code>${esc(t.attempts.at(-1)?.session || "")}</code>。${downstream.length ? `受影响的下游任务：${downstream.join("、")}。` : ""}</span></div>`
+      });
+    }
+    // A decision the lead handed to the person (janus.ask_user): it shapes the whole run, so it gets its own card.
+    function leadAsk(st, item, live) {
+      const draft = S.drafts[item.key], dis = live ? "" : "disabled";
+      return askShell(st, item, {
+        pill: "需要你决定", tone: "amber", agent: "lead", title: `主控请你决定：${esc(item.question)}`,
+        body: item.reason ? `<div class="route">为什么要你决定：${esc(item.reason)}</div>` : "",
+        controls: `${item.options.length ? `<div class="opts">${item.options.map(o => `<button class="opt ${draft === o ? "on" : ""}" data-act="pick" data-key="${item.key}" data-v="${esc(o)}" ${dis}>${esc(o)}${o === item.recommend ? "<small>主控建议</small>" : ""}</button>`).join("")}</div>` : ""}
+          <textarea data-note="${item.key}" placeholder="${item.options.length ? "补充说明（可选）" : "你的回答"}" ${dis}></textarea>
+          <div class="ask-f"><button class="btn primary" data-act="answer" data-key="${item.key}" data-task="" ${dis}>提交</button><span class="small muted">主控在等这个决定期间，会继续做不依赖它的工作。</span></div>`
       });
     }
     // ACP elicitation: a form (JSON Schema) or a link to finish elsewhere.
@@ -2057,22 +2208,29 @@
       const live = S.replay == null;
       const d = r.diagnosis;
       const seq = n => n ? `<button class="seq" data-act="seq" data-v="${n}">#${n}</button>` : "";
+      // "T1：text" from the orchestrator: show the task id as a tag.
+      const tagged = x => { const m = String(x).match(/^([A-Za-z][\w-]*)：([\s\S]*)$/); return m ? `<span class="who">${esc(m[1])}</span>${esc(m[2])}` : esc(x); };
+      const long = (r.summary || "").length > 360;
+      const open = S.resultOpen === r.seq;
       const actions = !r.accepted && live ? [...d.actions.map(([a, l]) => `<button class="btn sm" data-act="diag" data-v="${a}">${l}</button>`), `<button class="btn sm primary" data-act="diag" data-v="accept">${r.risks.length ? "核对后接受风险并验收" : "验收通过"}</button>`].join("") : "";
-      return `<div class="sec-h"><h2>交付结果</h2><span>每条结论都能追溯到事件</span></div>
-        <article class="card result">
-          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill green">已交付</span><span class="pill ${r.confidence === "高" ? "green" : "amber"}">置信度 ${r.confidence}</span>${r.accepted ? `<span class="pill green">✓ 你已于 ${clock(r.accepted)} 验收</span>` : ""}<button class="seq" data-act="seq" data-v="${r.seq}">#${r.seq}</button></div>
-          <h2>${esc(r.headline)}</h2><p>${esc(r.summary)}</p>
-          <div class="res-grid">
-            <div><h4>交付物</h4><ul>${r.deliverables.map(a => `<li><span><b>${esc(a.name)}</b> ${seq(a.seq)} <a class="link" href="/api/file?path=${encodeURIComponent(a.path)}" target="_blank">查看</a></span><span class="small muted">${esc(a.desc)}</span><span class="mono">${esc(a.path)}</span></li>`).join("")}</ul></div>
-            <div><h4>证据</h4><ul>${r.evidence.map(e => `<li><span>${esc(e.text)} ${seq(e.seq)}</span></li>`).join("")}</ul><p class="small muted" style="margin-top:8px">${esc(r.review)}</p></div>
-            <div><h4>风险与限制</h4><ul>${r.risks.length ? r.risks.map(x => `<li>⚠ ${esc(x)}</li>`).join("") : "<li>没有已知风险</li>"}</ul></div>
-          </div>
-          <div class="diag ${d.cat ? "warn" : ""}">
-            <h4>偏差诊断 · 如果结果不符合预期，问题最可能来自哪里</h4>
-            <div class="cats">${DIAG_CATS.map(([k, l]) => `<span class="${d.cat === k ? "hit" : ""}">${l}</span>`).join("")}</div>
+      const sec = (title, n, body) => `<div class="res-sec"><h4>${title}${n ? `<span class="n">${n}</span>` : ""}</h4><div>${body}</div></div>`;
+      const deliverables = r.deliverables.length ? `<ul>${r.deliverables.map(a => `<li><b>${esc(a.name)}</b> ${seq(a.seq)} <a class="link" href="/api/file?path=${encodeURIComponent(a.path)}" target="_blank">查看</a>${a.desc ? `<span class="sub">${esc(a.desc)}</span>` : ""}<span class="mono path" title="${esc(a.path)}">${esc(tilde(a.path))}</span></li>`).join("")}</ul>` : `<span class="none">没有记录交付物</span>`;
+      const evidence = `${r.evidence.length ? `<ul>${r.evidence.map(e => `<li>${tagged(e.text)} ${seq(e.seq)}</li>`).join("")}</ul>` : `<span class="none">没有结构化证据</span>`}${r.review ? `<span class="sub" style="margin-top:8px">${esc(r.review)}</span>` : ""}`;
+      const risks = r.risks.length ? `<ul>${r.risks.map(x => `<li class="risk">${tagged(x)}</li>`).join("")}</ul>` : `<span class="none">没有已知风险</span>`;
+      // Category chips only help once the orchestrator has blamed one of them.
+      const diag = d.cat || actions ? `<div class="diag ${d.cat || r.risks.length ? "warn" : ""}">
+            ${d.cat ? `<h4>偏差诊断 · 问题最可能来自哪里</h4><div class="cats">${DIAG_CATS.map(([k, l]) => `<span class="${d.cat === k ? "hit" : ""}">${l}</span>`).join("")}</div>` : ""}
             <b>${esc(d.title)}</b><p>${esc(d.text)} ${d.refs.filter(Boolean).map(seq).join(" ")}</p>
             ${actions ? `<div class="res-f">${actions}</div>` : ""}
-          </div>
+          </div>` : "";
+      return `<div class="sec-h"><h2>交付结果</h2><span>每条结论都能追溯到事件</span></div>
+        <article class="card result">
+          <div class="res-top"><span class="pill green">${r.partial ? "部分交付" : "已交付"}</span><span class="pill ${r.confidence === "高" ? "green" : "amber"}">置信度 ${esc(r.confidence)}</span>${r.accepted ? `<span class="pill green">✓ 你已于 ${clock(r.accepted)} 验收</span>` : ""}${seq(r.seq)}</div>
+          <h2>${r.partial ? "目标部分完成" : "目标已完成"}</h2>
+          <div class="prose${long && !open ? " clamp" : ""}">${md(r.summary)}</div>
+          ${long ? `<button class="link prose-more" data-act="resultMore" data-v="${r.seq}">${open ? "收起" : "展开全文"}</button>` : ""}
+          <div class="res-secs">${sec("交付物", r.deliverables.length, deliverables)}${sec("证据", r.evidence.length, evidence)}${sec("风险与限制", r.risks.length, risks)}</div>
+          ${diag}
           <div class="res-f"><button class="btn sm" data-act="copy">复制交付摘要</button><button class="btn sm" data-act="export">下载事件日志 (JSONL)</button><button class="btn sm ghost" data-act="nav" data-v="audit">在审计日志中逐条核对 →</button></div>
         </article>`;
     }
@@ -2102,6 +2260,15 @@
         <div class="card dag"><div class="dag-cols">${cols.map(c => `<div class="dag-col">${c.map(node).join("")}</div>`).join("")}</div></div>`;
     }
 
+    // How this member's tasks went in this run: "2/3 首次通过 · 验证没通过 1"
+    function runStats(st, agent) {
+      const mine = st.order.map(id => st.tasks[id]).filter(t => t.agent === agent && ["succeeded", "failed"].includes(t.status));
+      if (!mine.length) return "";
+      const vf = id => st.events.filter(e => e.type === "verification.failed" && e.task === id).length;
+      const first = mine.filter(t => t.status === "succeeded" && t.attempts.length === 1 && !vf(t.id)).length;
+      const vfail = mine.filter(t => vf(t.id)).length;
+      return `本次 ${first}/${mine.length} 首次通过${vfail ? ` · 验证没通过 ${vfail}` : ""}`;
+    }
     function agentsPanel(st) {
       const members = team();
       const active = members.filter(m => { const a = st.agents[m.id]; return a && !["idle"].includes(a.phase); }).length;
@@ -2118,12 +2285,15 @@
         else if (cur) line = `<b>${cur.id}</b> ${esc(cur.title)}${cur.status === "waiting_input" ? " · 等你回答" : cur.status === "waiting_approval" ? " · 等你审批" : a.note ? ` · ${esc(a.note)}` : ""}${cur.control === "human" ? " · 人工接管中" : ""}`;
         else if (next) line = next.status === "blocked" ? `${next.id} 等待 ${next.blockedBy} 修复` : `下一步 ${next.id} · 等待 ${next.deps.filter(d => st.tasks[d].status !== "succeeded").join("、") || "调度"}`;
         else line = mine.length ? "分配的任务都已完成" : st.order.length ? (st.run.mode === "goal" ? "主控没有给它派任务" : "本次计划没有分配任务") : "待命";
-        const meta = [phase, a.session ? short(a.session.split("/").pop(), 18) : null, a.beat ? `心跳 ${ago(a.beat, st.run.now)}` : null].filter(Boolean);
+        // The pill already names the phase; the heartbeat only matters while the agent works.
+        const meta = phase !== "idle" && a.beat ? [`心跳 ${ago(a.beat, st.run.now)}`] : [];
+        const rs = !m.lead && runStats(st, m.id);
+        if (rs) meta.push(rs);
         const sel = S.boardSel ? (S.boardSel.agents.includes(m.id) ? " hl" : " dim") : "";
         return `<div class="agent${sel}" data-act="agentChat" data-v="${m.id}" role="button" tabindex="0" title="查看 ${esc(m.name)} 的对话"><div class="agent-m">${avatar(m.id, "")}<div class="grow"><b>${esc(m.name)} <span class="chat-link">对话 →</span></b><span>${esc(m.role)} · ${esc(memberRt(m))}${m.model ? ` · ${esc(m.model)}` : ""}</span></div><span class="pill ${pt}">${pl}</span></div>
           <div class="agent-t">${line}</div>
           ${cur && cur.status === "running" && a.progress ? `<div class="bar"><i style="width:${a.progress}%"></i></div>` : ""}
-          <div class="agent-x">${meta.map(esc).join(" · ")}</div></div>`;
+          ${meta.length ? `<div class="agent-x">${meta.map(esc).join(" · ")}</div>` : ""}</div>`;
       }).join("");
       return `<article class="card panel"><div class="panel-h"><h3>Agent 状态</h3><span>${members.length} 个成员 · ${active} 个活跃</span></div>${rows}</article>`;
     }
@@ -2142,7 +2312,7 @@
         switch (e.type) {
           case "plan.proposed": plans++; break;
           case "result.submitted":
-            results.push({ ...base, key: "r" + e.seq, task: e.task, attempt: e.attempt, summary: d.summary || e.text, evidence: d.evidence || [], risks: d.risks || [] }); break;
+            results.push({ ...base, key: "r" + e.seq, task: e.task, attempt: e.attempt, summary: d.summary || e.text, evidence: d.evidence || [], risks: d.risks || [], checks: d.checks || [] }); break;
           case "context.handoff":
             handoffs.push({ ...base, key: "h" + e.seq, from: d.from, to: e.task, agent: e.to, summary: d.summary || "", artifacts: d.artifacts || [] }); break;
           case "attempt.started":
@@ -2165,6 +2335,10 @@
           case "review.approved": case "review.rejected":
             decisions.push({ ...base, key: "d" + e.seq, title: e.type === "review.approved" ? `评审通过${d.target ? ` ${d.target}` : ""}` : `评审驳回 ${d.target}`, text: (d.findings || []).map(f => `[${f.severity}] ${f.text}`).join("\n") || e.text, tasks: [e.task, d.target].filter(Boolean), agents: [e.actor], reject: e.type === "review.rejected" }); break;
           case "risk.accepted": decisions.push({ ...base, key: "d" + e.seq, title: "接受风险并验收", text: e.text }); break;
+          case "result.amended": decisions.push({ ...base, key: "d" + e.seq, title: `主控修订 ${e.task} 的结论`, text: d.text || e.text, tasks: [e.task], agents: ["lead"] }); break;
+          case "task.skipped_by_decision": if (e.actor === "lead") decisions.push({ ...base, key: "d" + e.seq, title: `主控取消 ${e.task}`, text: e.text, tasks: [e.task], agents: ["lead"] }); break;
+          case "task.reopened": if (e.actor === "lead") decisions.push({ ...base, key: "d" + e.seq, title: `主控重做 ${e.task}`, text: [d.instructions && `新说明：${d.instructions}`, d.accept && `新的验收标准：${d.accept.join("；")}`].filter(Boolean).join("\n") || e.text, tasks: [e.task], agents: ["lead"] }); break;
+          case "task.succeeded": if (d.acceptedBy === "lead") decisions.push({ ...base, key: "d" + e.seq, title: `主控接受 ${e.task} 的结果`, text: d.reason || e.text, tasks: [e.task], agents: ["lead"] }); break;
           case "user.message": {
             const dup = d.delivery === "prompt" && decisions.some(x => x.msg && x.to === e.to && x.text === d.text);
             if (!dup) decisions.push({ ...base, key: "d" + e.seq, title: `给 ${who(e.to).name} 的补充`, text: d.text || e.text, tasks: e.task ? [e.task] : [], agents: [e.to], msg: true, to: e.to });
@@ -2181,29 +2355,34 @@
       results.forEach(r => {
         r.usedBy = handoffs.filter(h => h.from === r.task && h.seq > r.seq && !results.some(x => x.task === r.task && x.seq > r.seq && x.seq < h.seq)).map(h => h.to);
         r.old = results.some(x => x.task === r.task && x.seq > r.seq);
+        r.amended = r.old ? [] : st.tasks[r.task]?.amendments || [];
       });
       const arts = st.artifacts.map(a => ({ ...a, key: "a" + a.seq, old: st.artifacts.some(x => x.task === a.task && x.kind === a.kind && x.kind !== "report" && x.seq > a.seq) || (a.kind === "report" && st.artifacts.some(x => x.task === a.task && x.kind === "report" && x.attempt > a.attempt)), usedBy: [...new Set(handoffs.filter(h => h.artifacts.includes(a.name)).map(h => h.to))] }));
       // Open items: anything that blocks someone until a person or an agent acts.
       const open = st.inbox.map(i => {
         const t = i.task && st.tasks[i.task];
-        const title = { plan: "计划等你确认", question: `${i.task} 的提问等你回答`, approval: `${i.task || who(i.agent).name} 请求你决定`, input: `${i.task || who(i.agent).name} 需要你${i.mode === "url" ? "打开链接" : "填写"}`, failed: `${i.task} 用完重试次数`, session: `${i.task || who(i.agent).name} 这一轮结束，等你的消息` }[i.kind] || "等你处理";
+        const title = { plan: "计划等你确认", question: i.task ? `${i.task} 的提问等你回答` : `主控请你决定：${short(i.question || "", 40)}`, approval: `${i.task || who(i.agent).name} 请求你决定`, input: `${i.task || who(i.agent).name} 需要你${i.mode === "url" ? "打开链接" : "填写"}`, failed: `${i.task} 用完重试次数`, session: `${i.task || who(i.agent).name} 这一轮结束，等你的消息` }[i.kind] || "等你处理";
         const text = i.kind === "question" ? t?.question?.question : i.kind === "approval" ? i.command : i.kind === "input" ? i.message : i.kind === "failed" ? i.error : i.kind === "plan" ? `${st.order.length} 个任务` : "";
-        return { key: "o" + i.seq + i.kind, seq: i.seq, title, text: text || "", tasks: i.task ? [i.task] : [], agents: [t?.agent || i.agent || "lead"], urgent: true };
+        return { key: "o" + i.seq + i.kind, seq: i.seq, title, text: text || i.reason || "", tasks: i.task ? [i.task] : [], agents: [t?.agent || i.agent || "lead"], urgent: true, you: true };
       });
-      // Goal mode: a collaborator's blocker stays open while its task is unfinished, and a question
-      // waits for the lead (who answers it with janus.reply), not for the person.
-      blockers.filter(b => !["succeeded", "failed", "cancelled"].includes(st.tasks[b.task]?.status)).forEach(b => open.push(b));
+      // Everything else that holds work up is the lead's to settle, not the person's: a collaborator's
+      // blocker or question, a failed task, a task waiting on a failed one. Shown so you can follow it.
+      const leads = x => open.push({ ...x, sub: x.sub || "主控在处理，不需要你操作" });
+      blockers.filter(b => !["succeeded", "failed", "cancelled", "skipped_by_decision"].includes(st.tasks[b.task]?.status)).forEach(b => leads({ ...b, urgent: false }));
       if (st.run.mode === "goal") st.order.map(id => st.tasks[id]).filter(t => t.status === "waiting_input" && t.question && t.question.answer == null && !st.inbox.some(i => i.key === t.question.key)).forEach(t => {
-        open.push({ key: "oq" + t.id + t.question.seq, seq: t.question.seq, title: `${t.id} 的提问等主控回答`, text: t.question.question || "", tasks: [t.id], agents: [t.agent, "lead"], sub: "主控会在看板上看到并回答" });
+        leads({ key: "oq" + t.id + t.question.seq, seq: t.question.seq, title: `${t.id} 问主控`, text: t.question.question || "", tasks: [t.id], agents: [t.agent, "lead"] });
+      });
+      if (st.run.mode === "goal") st.order.map(id => st.tasks[id]).filter(t => ["failed", "verification_failed"].includes(t.status) && t.delegated).forEach(t => {
+        leads({ key: "of" + t.id, seq: t.attempts.at(-1)?.seq, title: `${t.id} 失败，等主控决定`, text: t.error || (t.verificationFailures || []).join("；"), tasks: [t.id], agents: [t.agent, "lead"], sub: "主控可以重做、接受结果或取消" });
       });
       st.order.map(id => st.tasks[id]).filter(t => t.status === "blocked").forEach(t => {
-        const r = [...decisions].reverse().find(x => x.reject && x.tasks.includes(t.blockedBy));
-        open.push({ key: "ob" + t.id, seq: r?.seq, title: `${t.blockedBy} 按评审意见修复中`, text: r?.text || "", tasks: [t.blockedBy, t.id], agents: [st.tasks[t.blockedBy]?.agent, t.agent].filter(Boolean) });
+        leads({ key: "ob" + t.id, title: `${t.id} 等待 ${t.blockedBy}`, text: `依赖的 ${t.blockedBy} 没有完成，${t.id} 还不能开始。`, tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"] });
       });
-      // Once the run is over, a message still waiting can no longer reach anyone: mark it instead of listing it as open.
+      // Messages still on their way are shown in each session's pending tray, not here. Once the run
+      // is over, one that never arrived is marked on its decision card.
       const over = ["delivered", "accepted", "accepted_with_risk", "cancelled", "failed"].includes(st.run.status);
       if (over) Object.values(notes).flat().forEach(n => { const d = decisions.find(x => x.seq === n.seq); if (d) d.lost = true; });
-      else Object.entries(notes).forEach(([agent, list]) => list.forEach(n => open.push({ key: "on" + n.seq, seq: n.seq, title: `留给 ${who(agent).name} 的消息`, text: n.text, tasks: n.task ? [n.task] : [], agents: [agent], sub: n.delivery === "queued" ? "这一轮结束后送达" : "下次会话时带给它" })));
+      open.sort((x, y) => (y.you ? 1 : 0) - (x.you ? 1 : 0) || (y.seq || 0) - (x.seq || 0));
       return { open, results, arts, handoffs, decisions };
     }
     function shared(st, full) {
@@ -2221,33 +2400,34 @@
       };
       const by = id => `<span class="fact-by">${avatar(id)} ${esc(who(id).name)}</span>`;
       const lanes = [
-        { k: "open", title: "待决", items: f.open, empty: "没有卡住的事", render: x => card(x,
-          `<div class="fact-h">${x.tasks.map(tag).join("")}<b>${esc(x.title)}</b></div>${x.text ? `<p>${esc(short(x.text, 90))}</p>` : ""}${x.sub ? `<div class="fact-m">${esc(x.sub)}</div>` : ""}`,
-          `${x.text.length > 90 ? `<p class="pre">${esc(x.text)}</p>` : ""}<div class="fact-a">${x.tasks[0] ? `<button class="btn sm" data-act="task" data-v="${x.tasks[0]}">去处理</button>` : ""}${x.agents[0] ? `<button class="btn sm ghost" data-act="agentChat" data-v="${x.agents[0]}">和 ${esc(who(x.agents[0]).name)} 对话</button>` : ""}${seq(x.seq)}</div>`,
+        { k: "open", title: "待处理", items: f.open, empty: "没有卡住的事", render: x => card(x,
+          `<div class="fact-h"><span class="pill ${x.you ? "amber" : "gray"}">${x.you ? "等你决定" : "主控处理"}</span>${x.tasks.map(tag).join("")}<b>${esc(x.title)}</b></div>${x.text ? `<p>${esc(short(plain(x.text), 90))}</p>` : ""}${x.sub ? `<div class="fact-m">${esc(x.sub)}</div>` : ""}`,
+          `${x.text.length > 90 ? `<div class="prose fact-prose">${md(x.text)}</div>` : ""}<div class="fact-a">${x.tasks[0] ? `<button class="btn sm" data-act="task" data-v="${x.tasks[0]}">去处理</button>` : ""}${x.agents[0] ? `<button class="btn sm ghost" data-act="agentChat" data-v="${x.agents[0]}">和 ${esc(who(x.agents[0]).name)} 对话</button>` : ""}${seq(x.seq)}</div>`,
           x) },
         { k: "results", title: "结论", items: f.results, empty: "还没有任务交付结论", render: x => card(x,
-          `<div class="fact-h">${tag(x.task)}${by(x.by)}${x.old ? `<span class="fact-m">旧版本</span>` : ""}</div><p>${esc(short(x.summary, 90))}</p>
-           <div class="fact-m">${x.evidence.length} 条证据${x.risks.length ? ` · <span class="warn">${x.risks.length} 条风险</span>` : ""}${x.usedBy.length ? ` · 交给 ${x.usedBy.join("、")}` : ""}</div>`,
-          `${x.summary.length > 90 ? `<p class="pre">${esc(x.summary)}</p>` : ""}${x.evidence.length ? `<h5>证据</h5><ul>${x.evidence.map(v => `<li>${esc(v)}</li>`).join("")}</ul>` : ""}${x.risks.length ? `<h5>风险</h5><ul>${x.risks.map(v => `<li>⚠ ${esc(v)}</li>`).join("")}</ul>` : ""}<div class="fact-a"><button class="btn sm" data-act="task" data-v="${x.task}">任务详情</button><button class="btn sm ghost" data-act="agentChat" data-v="${x.by}">和 ${esc(who(x.by).name)} 对话</button>${seq(x.seq)}</div>`,
+          `<div class="fact-h">${tag(x.task)}${by(x.by)}${x.old ? `<span class="fact-m">旧版本</span>` : ""}${x.amended.length ? `<span class="fact-m warn">已被主控修订</span>` : ""}</div><p>${esc(short(plain(x.summary), 90))}</p>
+           <div class="fact-m">${x.checks.length ? `验收 ${x.checks.filter(c => c.passed).length}/${x.checks.length} · ` : ""}${x.evidence.length} 条证据${x.risks.length ? ` · <span class="warn">${x.risks.length} 条风险</span>` : ""}${x.usedBy.length ? ` · 交给 ${x.usedBy.join("、")}` : ""}</div>`,
+          `${x.summary.length > 90 ? `<div class="prose fact-prose">${md(x.summary)}</div>` : ""}${x.checks.length ? `<h5>验收</h5><ul>${x.checks.map(c => `<li>${c.passed ? "✓" : "✗"} ${esc(c.criterion)}：${mdInline(c.evidence || "")}</li>`).join("")}</ul>` : ""}${x.amended.length ? `<h5>主控的修订（以此为准）</h5><ul>${x.amended.map(v => `<li>${mdInline(v)}</li>`).join("")}</ul>` : ""}${x.evidence.length ? `<h5>证据</h5><ul>${x.evidence.map(v => `<li>${mdInline(v)}</li>`).join("")}</ul>` : ""}${x.risks.length ? `<h5>风险</h5><ul>${x.risks.map(v => `<li>⚠ ${mdInline(v)}</li>`).join("")}</ul>` : ""}<div class="fact-a"><button class="btn sm" data-act="task" data-v="${x.task}">任务详情</button><button class="btn sm ghost" data-act="agentChat" data-v="${x.by}">和 ${esc(who(x.by).name)} 对话</button>${seq(x.seq)}</div>`,
           { tasks: [x.task, ...x.usedBy], agents: [x.by, ...x.usedBy.map(id => st.tasks[id]?.agent)] }) },
         { k: "arts", title: "产物", items: f.arts, empty: "还没有产物", render: x => card(x,
           `<div class="fact-h">${tag(x.task)}<b class="mono">${esc(x.name)}</b></div><div class="fact-m">${esc(ART_KIND[x.kind] || x.kind)}${x.bytes != null ? ` · ${kb(x.bytes)}` : ""}${x.old ? " · 旧版本" : ""}${x.usedBy.length ? ` · 交给 ${x.usedBy.join("、")}` : ""}</div>`,
           `${x.desc ? `<p>${esc(x.desc)}</p>` : ""}<div class="fact-m">由 ${esc(who(x.by).name)} 在第 ${x.attempt} 次尝试中提交${x.hash ? ` · <span class="mono">${esc(x.hash)}</span>` : ""}</div><div class="fact-a"><a class="btn sm" href="/api/file?path=${encodeURIComponent(x.path)}" target="_blank" rel="noopener">打开</a>${seq(x.seq)}</div>`,
           { tasks: [x.task, ...x.usedBy], agents: [x.by] }) },
         { k: "handoffs", title: "交接", items: f.handoffs, empty: "还没有交接", render: x => card(x,
-          `<div class="fact-h">${tag(x.from)}<span class="arrow">→</span>${tag(x.to)}<span class="fact-by">${avatar(x.agent)} ${esc(who(x.agent).name)}</span></div><p>${esc(short(x.summary || "上游没有提交结论", 80))}</p>${x.artifacts.length ? `<div class="fact-m">带上 ${x.artifacts.length} 个产物</div>` : ""}`,
+          `<div class="fact-h">${tag(x.from)}<span class="arrow">→</span>${tag(x.to)}<span class="fact-by">${avatar(x.agent)} ${esc(who(x.agent).name)}</span></div><p>${esc(short(plain(x.summary || "上游没有提交结论"), 80))}</p>${x.artifacts.length ? `<div class="fact-m">带上 ${x.artifacts.length} 个产物</div>` : ""}`,
           `${x.artifacts.length ? `<ul>${x.artifacts.map(n => `<li class="mono">${esc(n)}</li>`).join("")}</ul>` : ""}<div class="fact-m">${clock(x.ts)} 注入 ${esc(who(x.agent).name)} 的新会话</div><div class="fact-a"><button class="btn sm" data-act="task" data-v="${x.to}">看 ${x.to} 收到了什么</button>${seq(x.seq)}</div>`,
           { tasks: [x.from, x.to], agents: [x.by, x.agent] }) },
         { k: "decisions", title: "决定", items: f.decisions, empty: "还没有决定", render: x => card(x,
-          `<div class="fact-h">${(x.tasks || []).slice(0, 2).map(tag).join("")}<b>${esc(x.title)}</b></div><p>${esc(short(x.text, 90))}</p><div class="fact-m">${esc(who(x.by).name)} · ${clock(x.ts)}${x.lost ? ` · <span class="warn">未送达</span>` : ""}</div>`,
-          `${x.text.length > 90 ? `<p class="pre">${esc(x.text)}</p>` : ""}<div class="fact-a">${x.agents?.[0] && x.agents[0] !== "user" ? `<button class="btn sm ghost" data-act="agentChat" data-v="${x.agents[0]}">和 ${esc(who(x.agents[0]).name)} 对话</button>` : ""}${seq(x.seq)}</div>`,
+          `<div class="fact-h">${(x.tasks || []).slice(0, 2).map(tag).join("")}<b>${esc(x.title)}</b></div><p>${esc(short(plain(x.text), 90))}</p><div class="fact-m">${esc(who(x.by).name)} · ${clock(x.ts)}${x.lost ? ` · <span class="warn">未送达</span>` : ""}</div>`,
+          `${x.text.length > 90 ? `<div class="prose fact-prose">${md(x.text)}</div>` : ""}<div class="fact-a">${x.agents?.[0] && x.agents[0] !== "user" ? `<button class="btn sm ghost" data-act="agentChat" data-v="${x.agents[0]}">和 ${esc(who(x.agents[0]).name)} 对话</button>` : ""}${seq(x.seq)}</div>`,
           { tasks: x.tasks || [], agents: x.agents || [] }) }
       ];
       const LIMIT = 5;
       const cols = lanes.map(l => {
-        const items = l.items.filter(pick).reverse();
+        // Newest first; the open lane keeps its own order (your decisions first).
+        const items = l.k === "open" ? l.items.filter(pick) : l.items.filter(pick).reverse();
         const all = S.boardMore[l.k], shown = all ? items : items.slice(0, LIMIT);
-        return `<div class="lane${l.k === "open" && items.length ? " lane-open" : ""}"><div class="lane-h"><b>${l.title}</b><span>${items.length}</span></div>
+        return `<div class="lane${l.k === "open" && items.length ? ` lane-open${items.some(x => x.you) ? " yours" : ""}` : ""}"><div class="lane-h"><b>${l.title}</b><span>${items.length}</span></div>
           ${items.length ? shown.map(l.render).join("") : `<p class="lane-e">${l.empty}</p>`}
           ${items.length > LIMIT ? `<button class="link lane-more" data-act="boardMore" data-v="${l.k}">${all ? "收起" : `还有 ${items.length - LIMIT} 条`}</button>` : ""}</div>`;
       });
@@ -2313,8 +2493,8 @@
           <div class="run-ctl"><button class="btn sm" data-act="auditTask" data-v="${t.id}">在审计日志中查看</button></div></div>
         <div class="detail"><div>
           ${sessionCard(st, t)}
-          <article class="card"><div class="card-h"><h3>验收标准</h3><span>完成必须附带证据</span></div>
-            <ul class="acc">${t.accept.map(a => `<li class="${done ? "ok" : ""}"><i>${done ? "✓" : "○"}</i>${esc(a)}</li>`).join("")}</ul>
+          <article class="card"><div class="card-h"><h3>验收标准</h3><span>执行者自己验证，逐条给出证据</span></div>
+            <ul class="acc">${t.accept.map((a, i) => { const c = (t.checks || [])[i]; const mark = c ? (c.passed ? "✓" : "✗") : "○"; return `<li class="${c ? (c.passed ? "ok" : "no") : ""}"><i>${mark}</i><span>${esc(a)}${c?.evidence ? `<br><span class="small muted">${mdInline(c.evidence)}</span>` : ""}</span></li>`; }).join("")}</ul>
             ${t.summary ? `<div class="route" style="margin-top:10px"><b>结构化结果：</b>${esc(t.summary)}<br>证据：${(t.evidence || []).map(esc).join("；")}</div>` : ""}
           </article>
           <article class="card"><div class="card-h"><h3>执行轨迹</h3><span>${evs.length} 条事件 · 按尝试分组</span></div>
@@ -2350,19 +2530,21 @@
     function chatItem(e) {
       const d = e.data || {};
       switch (e.type) {
-        case "attempt.started": return `<div class="chat-div">${e.task ? `${e.task} · ` : ""}尝试 ${e.attempt} · ${esc(d.runtime || "")}${d.config?.model ? ` · ${esc(d.config.model)}` : ""}${d.resumed ? " · 恢复了原会话" : ""}<details><summary>编排器发出的任务说明</summary><pre class="prompt">${esc(d.prompt)}</pre></details></div>`;
+        case "attempt.started": return `<div class="chat-div">${e.task ? `${e.task} · ` : ""}尝试 ${e.attempt} · ${esc(d.runtime || "")}${d.config?.model ? ` · ${esc(d.config.model)}` : ""}${d.resumed ? " · 恢复了原会话" : ""}<details data-k="p${e.seq}"><summary>编排器发出的任务说明</summary><pre class="prompt">${esc(d.prompt)}</pre></details></div>`;
         case "run.created": return `<div class="chat-div">${d.mode === "goal" ? "目标" : "规划"} · ${esc(d.goal || "")}</div>`;
         case "plan.revision_requested": return `<div class="chat-div">按你的意见重新规划</div>`;
         case "plan.proposed": return `<div class="chat-note green">◇ 提出了 ${(d.tasks || []).length} 个任务的计划</div>`;
         case "agent.message": {
           // The structured result block is for the orchestrator; in the chat it collapses to a label.
           const m = (d.text || "").match(/^([\s\S]*?)\s*```json\s*[\s\S]*?```\s*$/);
-          return `<div class="msg from-agent">${avatar(e.actor)}<div class="bubble">${esc(m ? m[1] : d.text)}${m ? `<span class="via">附结构化结果</span>` : ""}</div></div>`;
+          return `<div class="msg from-agent">${avatar(e.actor)}<div class="bubble md">${md(m ? m[1] : d.text)}${m ? `<span class="via">附结构化结果</span>` : ""}</div></div>`;
         }
         case "session.prompt": {
-          const label = { system: "主控上下文", context: "团队上下文", goal: "目标提示", followup: "继续提示" }[d.channel] || "Janus 提示";
-          return `<div class="chat-prompt"><div class="chat-prompt-h">→ ${label}<span class="via">Janus 发给 Agent</span></div><details><summary>查看内容</summary><pre>${esc(d.prompt || "")}</pre></details></div>`;
+          const label = d.channel === "instructions" ? `用户的长期要求 · ${d.via === "developer" ? "开发者指令" : d.via === "extension" ? "系统提示（Pi 扩展）" : "系统提示"}` : { system: "主控上下文", context: "团队上下文", goal: "目标提示", followup: "继续提示", fix: "验证没有通过 · 发回给它修复" }[d.channel] || "Janus 提示";
+          return `<div class="chat-prompt"><div class="chat-prompt-h">→ ${label}<span class="via">Janus 发给 Agent</span></div><details data-k="p${e.seq}"><summary>查看内容</summary><pre>${esc(d.prompt || "")}</pre></details></div>`;
         }
+        // Goal mode: a collaborator asks the lead, which answers on the board. Escalated ones get a card.
+        case "question.asked": return `<div class="chat-note amber">? 问主控：${esc(d.question || e.text)}${d.options?.length ? `（${esc(d.options.join(" / "))}）` : ""} · 主控会回答，不需要你处理</div>`;
         case "context.handoff": return `<div class="chat-note">⇄ 上游任务 ${esc(d.from || e.text)} 的结果已带入本次任务</div>`;
         case "board.posted": return `<div class="chat-note">${d.kind === "blocker" ? "⚠" : d.kind === "note" ? "·" : "↗"} 协作者写回看板：${esc(d.text || e.text)}</div>`;
         // A message with an id is drawn where it reached the agent: joined into the running turn
@@ -2381,12 +2563,10 @@
         case "message.delivered": {
           const ms = (d.ids || []).map(id => SHOWN?.msgs?.[id]).filter(Boolean);
           if (!d.ids) return `<div class="chat-note ${toneOf(e.type)}">${ICON[e.type] || "·"} ${esc(e.text)}</div>`;
-          return ms.map(m => userBubble(m, m.delivery === "next" ? "留言 · 在这次会话开始时带入" : "排队消息 · 上一轮结束后发送")).join("");
+          return ms.map(m => userBubble(m, m.delivery === "next" ? "留言 · 在这次会话开始时带入" : m.delivery === "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送")).join("");
         }
-        case "tool.started": return `<div class="chat-tool pending"><code>${esc(d.tool)}</code> ${esc(short(d.input || e.text, 120))}<span class="pill blue">等待返回</span></div>`;
-        case "tool.completed": return `<div class="chat-tool"><code>${esc(d.tool)}</code> ${esc(short(d.input || e.text, 120))}<div>→ ${esc(short(d.output || "", 240))}${d.status === "failed" ? ` <span class="pill red">失败</span>` : ""}</div></div>`;
-        case "tool.call": return `<div class="chat-tool"><code>${esc(d.tool)}</code> ${esc(short(d.input || e.text, 120))}${d.status === "failed" ? ` <span class="pill red">失败</span>` : ""}</div>`;
-        case "result.submitted": return `<div class="chat-note"><b>结构化结果：${esc(d.summary || e.text)}</b>${d.evidence?.length ? `<div>证据：${esc(d.evidence.join("；"))}</div>` : ""}${d.risks?.length ? `<div>风险：${esc(d.risks.join("；"))}</div>` : ""}</div>`;
+        case "tool.started": case "tool.completed": case "tool.call": return toolRow(e);
+        case "result.submitted": return `<div class="chat-result"><b>结构化结果：${esc(d.summary || e.text)}</b>${d.checks?.length ? `<ul class="acc">${d.checks.map(c => `<li class="${c.passed ? "ok" : "no"}"><i>${c.passed ? "✓" : "✗"}</i><span><b>${esc(c.criterion)}</b><br><span class="small muted">${mdInline(c.evidence || "")}</span></span></li>`).join("")}</ul>` : ""}${d.evidence?.length ? `<div class="small muted">证据：${esc(d.evidence.join("；"))}</div>` : ""}${d.risks?.length ? `<div class="small warn-t">风险：${esc(d.risks.join("；"))}</div>` : ""}</div>`;
         case "agent.status": return `<div class="chat-note amber">◌ ${esc(e.text)}</div>`;
         // A request still waiting is answered right here, with the same card as the inbox.
         case "approval.requested": case "input.requested": {
@@ -2397,20 +2577,72 @@
         default: return `<div class="chat-note ${toneOf(e.type)}">${ICON[e.type] || "·"} ${esc(who(e.actor).name)}：${esc(e.text)}</div>`;
       }
     }
+    // One row per tool call, readable at a glance, with the full input and output a click away.
+    // Janus's board tools are recorded twice (by Janus and by the agent): only Janus's record is
+    // shown, and a call that came back replaces its "waiting" row.
+    let CHAT_DONE = new Set();
+    const isBoardEcho = (e, d) => e.type === "tool.call" && (/^mcp\.janus\./.test(e.text || "") || /^mcp\.janus\./.test(d.tool || "") || /^\{"arguments"/.test(d.input || ""));
+    function janusLabel(tool, a, out) {
+      const ids = xs => (xs || []).join("、");
+      const first = String(out || "").split("\n")[0];
+      switch (tool) {
+        case "janus.orchestrate": return [`提交编排：${(a.tasks || []).map(t => `${t.id} ${t.title || ""} → ${who(t.assignee).name}`).join("；")}`, first];
+        case "janus.wait": return ["等待看板上的进展", first];
+        case "janus.reply": return [`回复 ${a.task}：${a.text || ""}`, first];
+        case "janus.retry": return [`重新执行 ${a.task}${a.instructions ? "（改了说明）" : ""}${a.accept ? "（改了验收标准）" : ""}`, first];
+        case "janus.accept": return [`接受 ${a.task} 的结果：${a.reason || ""}`, first];
+        case "janus.cancel": return [`取消 ${ids(a.tasks)}${a.reason ? `：${a.reason}` : ""}`, first];
+        case "janus.ask_user": return [`请你决定：${a.question || ""}`, first];
+        case "janus.team": return ["查看团队和任务状态", ""];
+        case "janus.board_post": return [`写回看板：${a.text || ""}`, ""];
+        default: return [tool, first];
+      }
+    }
+    function toolRow(e) {
+      const d = e.data || {};
+      if (isBoardEcho(e, d)) return "";
+      if (e.type === "tool.started" && CHAT_DONE.has(`${e.actor}:${d.callId}`)) return "";
+      const board = /^janus\./.test(d.tool || "");
+      const [label, result] = board ? janusLabel(d.tool, d.args || {}, d.output) : [d.input || e.text, d.output ? String(d.output).split("\n")[0] : ""];
+      const state = e.type === "tool.started" ? `<span class="pill blue">等待返回</span>` : d.status === "failed" ? `<span class="pill red">失败</span>` : "";
+      const full = board ? JSON.stringify(d.args ?? d.input ?? "", null, 2) : (d.input || e.text || "");
+      return `<details data-k="t${e.actor}:${d.callId || e.seq}" class="chat-tool${e.type === "tool.started" ? " pending" : ""}${board ? " board" : ""}"><summary><code>${esc(board ? "看板" : d.tool || "工具")}</code><span class="tl">${esc(label)}</span>${state}</summary>
+        ${result ? `<div class="tr">→ ${esc(short(result, 160))}</div>` : ""}
+        <pre>${esc(full)}${d.output ? `\n\n→ ${esc(d.output)}` : ""}</pre></details>`;
+    }
     const userBubble = (m, via) => `<div class="msg from-user"><div class="bubble">${esc(m.text)}<span class="via">${m.by === "lead" ? "主控 · " : ""}${via}</span></div></div>`;
     // Messages sent to this session that have not reached the agent yet, newest last.
     function pendingTray(target) {
       const st = SHOWN;
       if (!st?.msgs) return "";
       const agentOf = target.task ? st.tasks[target.task]?.agent : target.agent;
-      const list = Object.values(st.msgs).filter(m => !m.deliveredSeq && ["pending", "queued", "next"].includes(m.delivery)
+      const list = Object.values(st.msgs).filter(m => !m.deliveredSeq && ["pending", "queued", "next", "interrupt"].includes(m.delivery)
         && (target.task ? ((m.task || m.routedTask) === target.task || (!m.task && !m.routedTask && m.to === agentOf)) : m.to === target.agent));
       if (!list.length) return "";
-      const label = { pending: ["发送中…", "blue"], queued: ["排队 · 这一轮结束后发送", "amber"], next: ["留言 · 下次会话开始时带给它", "gray"] };
+      const label = { pending: ["发送中…", "blue"], queued: ["排队 · 这一轮结束后发送", "amber"], next: ["留言 · 下次会话开始时带给它", "gray"], interrupt: ["正在打断这一轮，马上送达", "blue"] };
       return `<div class="msg-tray"><div class="msg-tray-h">待发送 ${list.length}</div>${list.map(m => {
         const [l, tone] = label[m.delivery];
         return `<div class="msg-tray-i"><span class="pill ${tone}">${m.delivery === "pending" ? `<i class="spin"></i>` : ""}${l}</span><span class="msg-tray-t">${esc(m.text)}</span></div>`;
       }).join("")}</div>`;
+    }
+    // Long runs of tool calls fold into one line, keeping the latest few in view.
+    function chatBody(evs) {
+      CHAT_DONE = new Set(evs.filter(e => e.type === "tool.completed").map(e => `${e.actor}:${e.data?.callId}`));
+      const out = [];
+      let run = [], first = 0;
+      const flush = () => {
+        if (run.length > 4) out.push(`<details data-k="g${first}" class="tool-group"><summary>${run.length - 2} 个操作</summary>${run.slice(0, -2).join("")}</details>`, ...run.slice(-2));
+        else out.push(...run);
+        run = [];
+      };
+      for (const e of evs) {
+        const html = chatItem(e);
+        if (!html) continue;
+        if (["tool.call", "tool.started", "tool.completed"].includes(e.type)) { if (!run.length) first = e.seq; run.push(html); }
+        else { flush(); out.push(html); }
+      }
+      flush();
+      return out.join("");
     }
     // One conversation view for every session: a task's attempt, or everything one agent has done in this run.
     // `target` is { task } or { agent }; `open` says whether a session is running right now.
@@ -2434,8 +2666,12 @@
       } else {
         state = ["会话已结束", "gray"]; enabled = false; placeholder = live ? "这个会话已经结束" : "只读查看";
       }
-      return `<article class="card session"><div class="card-h"><h3>${esc(title)}</h3><span class="pill ${state[1]}">${state[0]}</span></div>
-        <div class="chat" id="chat">${evs.map(chatItem).join("") || `<p class="small muted">开始执行后，这里会实时显示对话、工具调用和你的消息。</p>`}</div>
+      // While the agent works on its own, how long since it last did something visible: a long
+      // silence usually means it is thinking or writing a large file, which only shows when done.
+      const last = evs.at(-1)?.ts || 0;
+      const quiet = open && live && !(human && idle) ? `<span class="quiet-t" data-last="${last}"></span>` : "";
+      return `<article class="card session"><div class="card-h"><h3>${esc(title)}</h3><span class="card-hr">${quiet}<span class="pill ${state[1]}">${state[0]}</span></span></div>
+        <div class="chat" id="chat">${chatBody(evs) || `<p class="small muted">开始执行后，这里会实时显示对话、工具调用和你的消息。</p>`}</div>
         ${pendingTray(target)}
         <div class="composer ${enabled ? "" : "off"}">
           <textarea id="sessInput" data-bind="sessDraft" data-key="${key}" ${attr} placeholder="${placeholder}" ${enabled ? "" : "disabled"}>${esc(S.drafts[key] || "")}</textarea>
@@ -2543,7 +2779,7 @@
         const [pl, pt] = AGENT_PHASE[a?.phase || "idle"];
         return `<article class="card member"><div class="member-h">${avatar(m.id, "lg")}<div class="grow"><b>${esc(m.name)}${m.lead ? " · 主控" : ""}</b><span>${esc(m.role)} · ${esc(memberRt(m))} · ACP</span></div><span class="pill ${pt}">${pl}</span></div>
           <p>${esc(m.desc)}</p>
-          <div class="kvs"><label>限制</label><span>${m.limits.map(esc).join("；")}</span><label>工作区策略</label><span>${WS_LABEL[m.ws]}</span><label>权限</label><span>${esc(m.limits?.[1] || "—")}</span><label>最大并发</label><span>1</span><label>Agent</label><span class="mono">${esc(memberRt(m))} · ${esc(m.model || "默认模型")}${m.effort ? ` · ${esc(m.effort)}` : ""}</span></div></article>`;
+          <div class="kvs"><label>工作区策略</label><span>${WS_LABEL[m.ws]}</span><label>权限</label><span>${esc(m.limits?.at(-1) || "—")}</span><label>最大并发</label><span>1</span><label>Agent</label><span class="mono">${esc(memberRt(m))} · ${esc(m.model || "默认模型")}${m.effort ? ` · ${esc(m.effort)}` : ""}</span></div></article>`;
       }).join("");
       return `<div class="page-h"><div><h1>团队与权限</h1><p>Agent 定义描述它能做什么；团队成员身份决定它在这个目录里以什么角色、什么权限工作。下面是这个 Run 创建时的团队快照。</p></div><div class="run-ctl"><button class="btn sm" data-act="editEnv">工作区设置</button></div></div>
         <div class="team-grid">${cards}</div>`;
@@ -2586,9 +2822,11 @@
       cancelRun: () => { if (confirm("取消后会结束所有进行中的 Agent 会话。继续吗？")) act({ type: "cancel" }); },
       pick: (v, el) => { S.drafts[el.dataset.key] = v; el.parentElement.querySelectorAll(".opt").forEach(o => o.classList.toggle("on", o === el)); },
       answer: (v, el) => {
-        const key = el.dataset.key, task = el.dataset.task, answer = S.drafts[key];
-        if (!answer) { toast("先选择一个选项。"); return; }
-        const note = document.querySelector(`[data-note="${key}"]`)?.value.trim() || "";
+        const key = el.dataset.key, task = el.dataset.task;
+        let note = document.querySelector(`[data-note="${key}"]`)?.value.trim() || "", answer = S.drafts[key];
+        // A free-form decision (no options) is answered with the text itself.
+        if (!answer && note && !task) { answer = note; note = ""; }
+        if (!answer) { toast(task ? "先选择一个选项。" : "先选择一个选项，或写下你的回答。"); return; }
         act({ type: "answer", key, task, answer, note });
       },
       approve: (v, el) => act({ type: "approve", key: el.dataset.key, task: el.dataset.task, agent: el.dataset.agent, allow: v === "1", option: el.dataset.option || null, label: el.dataset.label || "" }),
@@ -2609,9 +2847,11 @@
       resume: () => act({ type: "resume" }),
       extendBudget: () => act({ type: "extendBudget", minutes: 60 }),
       diag: () => act({ type: "accept" }),
+      goalMore: () => { S.goalOpen = !S.goalOpen; render(); },
+      resultMore: v => { S.resultOpen = S.resultOpen === +v ? null : +v; render(); },
       copy: () => {
-        const r = derive(S.events).result; if (!r) return;
-        const text = [r.headline, r.summary, "", "证据：", ...r.evidence.map(e => `- ${e.text}（事件 #${e.seq}）`), "", "风险：", ...(r.risks.length ? r.risks.map(x => "- " + x) : ["- 无"])].join("\n");
+        const st0 = derive(S.events), r = st0.result; if (!r) return;
+        const text = [`${r.partial ? "部分交付" : "已完成"}：${goalTitle(st0.run.goal)}`, r.summary, "", "证据：", ...r.evidence.map(e => `- ${e.text}（事件 #${e.seq}）`), "", "风险：", ...(r.risks.length ? r.risks.map(x => "- " + x) : ["- 无"])].join("\n");
         navigator.clipboard?.writeText(text).then(() => toast("已复制交付摘要。"), () => toast("浏览器不允许访问剪贴板。"));
       },
       export: download,
