@@ -53,7 +53,8 @@ jobs:
             [ "$(lipo -archs "$app/$f")" = arm64 ] || { echo "$f is not arm64"; exit 1; }
           done
           codesign --verify --strict "$app"
-          shasum -a 256 dist/Janus-*.dmg | tee dist/SHA256SUMS.txt
+          # Bare file names, so `shasum -a 256 -c SHA256SUMS.txt` works next to the download.
+          (cd dist && shasum -a 256 Janus-*.dmg | tee SHA256SUMS.txt)
 
       - uses: actions/upload-artifact@v4
         with:

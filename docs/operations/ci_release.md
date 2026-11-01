@@ -22,7 +22,7 @@
 1. 安装 Rust。运行环境 `macos-15` 是 Apple 芯片，构建出的都是 arm64。
 2. 运行编排器和应用的测试，任一失败就不发布。
 3. 执行 `macos/scripts/package.sh --version <标签去掉 v>`，得到 `dist/Janus.app` 和 `dist/Janus-<版本>.dmg`。
-4. 检查应用、服务和内置 Node.js 都是 arm64，校验签名，计算 SHA-256 写入 `SHA256SUMS.txt`。
+4. 检查应用、服务和内置 Node.js 都是 arm64，校验签名，计算 SHA-256 写入 `SHA256SUMS.txt`（只写文件名，下载后在同一目录执行 `shasum -a 256 -c SHA256SUMS.txt` 即可核对）。
 5. 上传为工作流产物，并创建同名的 GitHub Release（已存在时覆盖上传），附上 DMG 和校验和，发布说明包含首次打开的步骤。
 
 发布一个版本（版本号按日期，见[版本号](#versioning)）：
