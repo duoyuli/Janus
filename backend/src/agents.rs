@@ -17,6 +17,15 @@ use std::time::Duration;
 
 const CONNECTION: &str = "connection";
 const ROLE: &str = "role";
+/// The default roles' version; a Janus home seeded with an older one is upgraded once.
+const SEED_VERSION: i64 = 2;
+/// The first version's default roles: id, name, role and description, as it wrote them.
+const V1_ROLES: [(&str, &str, &str, &str); 4] = [
+    ("coordinator", "Lead", "主控", "理解目标、拆解任务、协调团队、最终验收"),
+    ("researcher", "Researcher", "调研", "阅读代码与资料，梳理现状和约束"),
+    ("implementer", "Implementer", "实现", "直接在工作目录中修改代码并补充测试"),
+    ("reviewer", "Reviewer", "评审", "独立检查变更，寻找风险与反例"),
+];
 const WORKSPACE: &str = "workspace";
 
 /// The only variables an agent inherits from the host: enough to find executables and render text.
@@ -404,11 +413,10 @@ impl App {
             id => id.to_string(),
         };
         let prev = self.db.get_config(CONNECTION, &id)?;
-        if let Some(p) = &prev {
-            if p["kind"] != kind {
+        if let Some(p) = &prev
+            && p["kind"] != kind {
                 bail!("不能修改已有 Provider 的类型");
             }
-        }
         let name = match str_of(body, "name") {
             "" => desc["name"].as_str().unwrap().to_string(),
             n => n.to_string(),
@@ -1152,11 +1160,10 @@ impl App {
             let mut entry = resolve_mcp(&m)?;
             let name = str_of(&entry, "name").to_string();
             let mut env = entry["env"].as_object().cloned().unwrap_or_default();
-            if env.is_empty() {
-                if let Some(prev) = old_secrets[&name].as_object() {
+            if env.is_empty()
+                && let Some(prev) = old_secrets[&name].as_object() {
                     env = prev.clone();
                 }
-            }
             entry["envKeys"] = json!(env.keys().collect::<Vec<_>>());
             entry.as_object_mut().unwrap().remove("env");
             secrets.insert(name, Value::Object(env));
@@ -1266,53 +1273,97 @@ impl App {
         Ok(())
     }
 
-    /// First start: a usable set of roles that only lacks agent bindings.
+    /// First start: a usable set of roles that only lacks agent bindings. A Janus home seeded by
+    /// an earlier version is upgraded once (`SEED_VERSION`): roles added since then are created,
+    /// and default roles nobody has written anything into get the new descriptions and
+    /// instructions. Everything else on a role (its agent, model, session, Skills, MCP and their
+    /// secrets) stays as it is, and a default role the person deleted stays deleted.
+    // @project-doc docs/domains/agents_and_roles.md#roles
     pub fn seed_roles(&self) -> Result<()> {
-        if self.db.get_config("meta", "seeded")?.is_some() {
-            return Ok(());
-        }
         let seeds = [
             (
                 "coordinator",
-                "Lead",
-                "主控",
-                "理解目标、拆解任务、协调团队、最终验收",
+                "产品主控",
+                "主控与交付",
+                "把产品目标拆成可执行任务，协调研究、PRD、开发和 QA，整合结果并完成最终验收",
                 "#5452e8",
                 "LD",
                 true,
+                "你是产品上线流程的主控。先把用户目标、约束、预算和周期整理成可执行的结果定义，再决定哪些工作需要协作。\n\n将目标拆成边界清楚的任务，给每项任务写完整背景、依赖和可核对的验收标准。研究、PRD 和实现可以并行时就并行；有信息依赖时用看板依赖串行。不要为了协作而协作。\n\n用看板持续读取进展、阻塞和结果。把上游结论和关键证据交给下游；发现结论不可靠时明确修订。收到任务结果后独立核对关键文件、行为和验收证据。最终交付时说明完成内容、证据、风险和仍需用户决定的事项。不要把猜测写成已验证事实。",
             ),
             (
                 "researcher",
-                "Researcher",
-                "调研",
-                "阅读代码与资料，梳理现状和约束",
+                "用户与市场研究员",
+                "用户与市场研究",
+                "研究用户、市场、竞品和约束，为 PRD 与决策提供可追溯证据",
                 "#7c3aed",
                 "RS",
                 false,
+                "你负责用户与市场研究。先明确目标用户、使用场景、要解决的问题和研究范围，再查找竞品、替代方案、价格、法规或技术约束。\n\n优先使用一手资料和当前可核对的来源。每条重要结论都记录来源、观察时间、原文要点和你的推断；明确区分事实、推断与待验证假设。不要用搜索摘要或单个案例代表整个市场。\n\n输出应能直接交给 PRD 角色使用：目标用户与痛点、竞品差异、机会与风险、需要验证的问题，以及对范围和优先级的建议。结束前逐条核对任务验收标准，并在结构化结果中给出证据。",
+            ),
+            (
+                "product-manager",
+                "PRD 产品经理",
+                "需求定义与 PRD",
+                "把研究和用户目标转成范围清楚、可实现、可验收的产品需求",
+                "#2563eb",
+                "PD",
+                false,
+                "你负责把用户目标和研究证据转成 PRD。先写清目标用户、核心问题、成功条件和明确不做的范围，再整理用户流程、功能清单、优先级、边界条件和异常路径。\n\n每条需求都要能被开发和 QA 直接理解。为关键行为写输入、输出、状态变化和验收标准；涉及定价、合规、隐私或外部服务时，标出依据、限制和待用户决定的事项。不要擅自补充未经证据支持的市场结论。\n\n交付前检查需求之间是否冲突、是否遗漏失败路径、是否与研究证据一致，并给开发和 QA 提供一份简洁的实施与验证清单。",
             ),
             (
                 "implementer",
-                "Implementer",
-                "实现",
-                "直接在工作目录中修改代码并补充测试",
+                "产品开发工程师",
+                "前后端实现",
+                "根据 PRD 实现前端、后端、接口和数据层，并用测试证明关键行为",
                 "#11845a",
                 "IM",
                 false,
+                "你负责产品开发。开始前阅读 PRD、相关代码、配置和已有测试，确认边界、依赖、运行方式和验收标准；不清楚的需求先通过看板提问。\n\n按现有项目约定实现最小完整闭环，保持接口、数据模型、错误处理和用户界面的一致性。不要为了完成表面功能绕过权限、凭据、校验或现有安全边界。优先复用已有组件和模式，避免无关重构。\n\n为关键行为补充有意义的测试，至少覆盖正常路径、边界条件和失败路径。结束前运行适合项目的验证，检查实际 diff、测试结果和遗留风险，并按验收标准逐条提交证据。不要 commit、push 或部署。",
             ),
             (
                 "reviewer",
-                "Reviewer",
-                "评审",
-                "独立检查变更，寻找风险与反例",
+                "QA 与复盘",
+                "质量验证与复盘",
+                "独立验证产品行为和实现质量，发现缺陷、风险与流程改进点",
                 "#b0670a",
                 "RV",
                 false,
+                "你负责 QA 和交付前复盘。先阅读 PRD、验收标准、变更 diff 和相关测试，再从真实用户流程出发验证功能。重点检查正常路径、边界条件、错误处理、数据一致性、权限与凭据、兼容性和回归风险。\n\n发现问题时给出稳定复现步骤、实际结果、预期结果、影响范围和证据；不要只写「有问题」。区分缺陷、需求歧义、环境限制和未验证风险。可以直接修复明确且局部的测试或代码问题，但不要扩大范围。\n\n完成验证后，按验收标准逐条报告通过或未通过，并列出仍需处理的风险。最后检查研究、PRD、实现和 QA 之间是否存在断裂，为主控提供可执行的收尾建议。不要把没有运行过的检查写成已通过。",
             ),
         ];
-        for (id, name, role, desc, color, init, lead) in seeds {
-            self.save_role(&json!({ "id": id, "name": name, "role": role, "desc": desc, "color": color, "init": init, "lead": lead }))?;
+        // `true` is what the first version wrote.
+        let version = self.db.get_config("meta", "seeded")?.map(|v| v.as_i64().unwrap_or(1));
+        if version.is_some_and(|v| v >= SEED_VERSION) {
+            return Ok(());
         }
-        self.db.put_config("meta", "seeded", &json!(true), now_ms())
+        for (id, name, role, desc, color, init, lead, prompt) in seeds {
+            let existing = self.db.get_config(ROLE, id)?;
+            let old = V1_ROLES.iter().find(|(old, ..)| *old == id);
+            // A first start creates every role; an upgrade creates only the ones added since,
+            // never one the person deleted.
+            if version.is_none() || (existing.is_none() && old.is_none()) {
+                self.save_role(&json!({ "id": id, "name": name, "role": role, "desc": desc, "color": color, "init": init, "lead": lead, "prompt": prompt }))?;
+                continue;
+            }
+            // An upgrade fills in a first-version default role nobody wrote into, and keeps the rest of it.
+            let (Some(mut r), Some((_, old_name, old_role, old_desc))) = (existing, old) else { continue };
+            let untouched = r["prompt"].as_str().unwrap_or_default().is_empty()
+                && [*old_desc, ""].contains(&r["desc"].as_str().unwrap_or_default());
+            if !untouched {
+                continue;
+            }
+            r["desc"] = json!(desc);
+            r["prompt"] = json!(prompt);
+            if r["name"] == *old_name {
+                r["name"] = json!(name);
+            }
+            if r["role"] == *old_role {
+                r["role"] = json!(role);
+            }
+            self.db.put_config(ROLE, id, &r, now_ms())?;
+        }
+        self.db.put_config("meta", "seeded", &json!(SEED_VERSION), now_ms())
     }
 
     // ------------------------------------------------------------------
@@ -1678,7 +1729,7 @@ fn claude_env_kept(k: &str) -> bool {
 /// Keep only the allowed keys; a referenced model catalog is copied into `home` and re-pointed there.
 fn sanitize_codex(text: &str, home: &Path) -> Result<String> {
     let mut t: toml::Table = text.parse().context("config.toml 不是有效的 TOML")?;
-    t.retain(|k, _| CODEX_KEEP.iter().any(|x| *x == k));
+    t.retain(|k, _| CODEX_KEEP.contains(&k));
     if let Some(path) = t
         .get("model_catalog_json")
         .and_then(|v| v.as_str())
@@ -1713,7 +1764,7 @@ fn sanitize_json(text: &str, keep: &[&str], what: &str) -> Result<String> {
 
 fn sanitize_toml(text: &str, keep: &[&str]) -> Result<String> {
     let mut t: toml::Table = text.parse().context("config.toml 不是有效的 TOML")?;
-    t.retain(|k, _| keep.iter().any(|x| *x == k));
+    t.retain(|k, _| keep.contains(&k));
     Ok(toml::to_string(&t)?)
 }
 
@@ -2141,7 +2192,7 @@ pub fn list_skills() -> Value {
 fn unique_skill_id(want: &str) -> Result<String> {
     let base = slug(want).unwrap_or_else(|| "skill".into());
     let root = skill_library();
-    Ok((1..1000)
+    (1..1000)
         .map(|i| {
             if i == 1 {
                 base.clone()
@@ -2150,7 +2201,7 @@ fn unique_skill_id(want: &str) -> Result<String> {
             }
         })
         .find(|id| !root.join(id).exists())
-        .context("没有可用的 Skill ID")?)
+        .context("没有可用的 Skill ID")
 }
 
 /// Write a new skill into the library from the editor.
@@ -2254,12 +2305,10 @@ pub fn project_skills(workspace: &Path) -> Vec<Value> {
             let p = e.path();
             if p.canonicalize()
                 .is_ok_and(|real| real.starts_with(workspace.canonicalize().unwrap_or_default()))
-            {
-                if let Some(mut s) = read_skill(&p, "项目") {
+                && let Some(mut s) = read_skill(&p, "项目") {
                     s["path"] = json!(format!("{rel}/{}", e.file_name().to_string_lossy()));
                     out.push(s);
                 }
-            }
         }
     }
     out
@@ -2394,5 +2443,71 @@ mod session_option_tests {
 
         // Pi: nothing declared.
         assert_eq!(session_options(&json!({ "configOptions": [] }))["controls"], json!([]));
+    }
+}
+
+#[cfg(test)]
+mod seed_tests {
+    use super::*;
+    use crate::orchestrator::{App, test_app};
+    use std::sync::Arc;
+
+    fn app(name: &str) -> (Arc<App>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("janus-seed-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        (test_app(&dir), dir)
+    }
+
+    fn role(app: &App, id: &str) -> Option<Value> {
+        app.db.get_config(ROLE, id).unwrap()
+    }
+
+    #[test]
+    fn a_first_start_seeds_every_default_role() {
+        let (app, dir) = app("fresh");
+        app.seed_roles().unwrap();
+        for id in ["coordinator", "researcher", "product-manager", "implementer", "reviewer"] {
+            assert!(!role(&app, id).unwrap()["prompt"].as_str().unwrap().is_empty(), "{id}");
+        }
+        // A deleted default role stays deleted on the next start.
+        app.db.delete_config(ROLE, "reviewer").unwrap();
+        app.seed_roles().unwrap();
+        assert!(role(&app, "reviewer").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An upgrade fills in the default roles nobody wrote into, keeps everything else on them,
+    /// leaves edited and deleted roles alone, adds the new role, and happens once.
+    #[test]
+    fn an_upgrade_fills_untouched_roles_and_keeps_bindings() {
+        let (app, dir) = app("upgrade");
+        app.db.put_config("meta", "seeded", &json!(true), now_ms()).unwrap();
+        let bound = json!({ "id": "implementer", "name": "Implementer", "role": "实现", "desc": "直接在工作目录中修改代码并补充测试", "prompt": "",
+            "connection": "codex", "model": "gpt-5", "session": { "mode": "full" }, "skills": ["s1"], "mcp": [{ "name": "db", "envKeys": ["TOKEN"] }], "lead": false, "color": "#11845a", "init": "IM" });
+        app.db.put_config(ROLE, "implementer", &bound, now_ms()).unwrap();
+        app.db.put_config(ROLE, "coordinator", &json!({ "id": "coordinator", "name": "我的主控", "role": "主控", "desc": "理解目标、拆解任务、协调团队、最终验收", "prompt": "", "lead": true }), now_ms()).unwrap();
+        app.db.put_config(ROLE, "researcher", &json!({ "id": "researcher", "name": "Researcher", "role": "调研", "desc": "阅读代码与资料，梳理现状和约束", "prompt": "只读代码", "lead": false }), now_ms()).unwrap();
+        app.seed_roles().unwrap();
+
+        let r = role(&app, "implementer").unwrap();
+        assert_eq!(r["name"], "产品开发工程师");
+        assert!(!r["prompt"].as_str().unwrap().is_empty());
+        for key in ["connection", "model", "session", "skills", "mcp", "color", "init"] {
+            assert_eq!(r[key], bound[key], "{key} is kept");
+        }
+        let lead = role(&app, "coordinator").unwrap();
+        assert_eq!(lead["name"], "我的主控", "a renamed role keeps its name");
+        assert_eq!(lead["role"], "主控与交付");
+        assert_eq!(role(&app, "researcher").unwrap()["prompt"], "只读代码", "an edited role is left alone");
+        assert!(role(&app, "reviewer").is_none(), "a deleted default role is not brought back");
+        assert!(role(&app, "product-manager").is_some(), "the role added since is created");
+        assert_eq!(app.db.get_config("meta", "seeded").unwrap(), Some(json!(SEED_VERSION)));
+
+        // Once upgraded, later starts change nothing.
+        app.db.delete_config(ROLE, "product-manager").unwrap();
+        app.seed_roles().unwrap();
+        assert!(role(&app, "product-manager").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

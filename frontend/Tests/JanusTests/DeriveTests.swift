@@ -117,6 +117,28 @@ private func goalRun() -> Log {
     #expect(s.tasks["T1"]?.status == "ready")
 }
 
+@Test func stalledTasksStayOpenUntilTheAgentMoves() {
+    var log = goalRun()
+    log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "idleMs": 600000])
+    var f = boardFacts(derive(log.events)) { $0 }
+    #expect(f.open.contains { $0.title == "T1 可能卡住了" && !$0.you })
+    log.add("tool.call", actor: "researcher", task: "T1", attempt: 1, data: ["tool": "read", "status": "completed"])
+    f = boardFacts(derive(log.events)) { $0 }
+    #expect(!f.open.contains { $0.title == "T1 可能卡住了" })
+    log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "idleMs": 600000])
+    log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "resolved": true])
+    f = boardFacts(derive(log.events)) { $0 }
+    #expect(!f.open.contains { $0.title == "T1 可能卡住了" }, "the backend saw the agent move again")
+    log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "loop", "repeats": 5])
+    log.add("attempt.started", to: "researcher", task: "T1", attempt: 2, data: ["session": "s2"])
+    f = boardFacts(derive(log.events)) { $0 }
+    #expect(!f.open.contains { $0.title == "T1 可能卡住了" }, "a new attempt starts clean")
+    log.add("task.stalled", to: "lead", task: "T1", attempt: 2, data: ["reason": "loop", "repeats": 5])
+    log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x"])
+    f = boardFacts(derive(log.events)) { $0 }
+    #expect(!f.open.contains { $0.title == "T1 可能卡住了" })
+}
+
 @Test func boardFactsLinkResultsToHandoffs() {
     var log = goalRun()
     log.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["a"], "risks": ["b"]])

@@ -496,11 +496,16 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     var f = BoardFacts()
     var notes: [String: [(seq: Int, text: String)]] = [:]
     var blockers: [(key: String, seq: Int, task: String, text: String, actor: String)] = []
+    // The watchdog's latest report per task, until the backend says the agent moved again, the
+    // agent itself acts, or a new attempt starts.
+    var stalls: [String: (seq: Int, text: String)] = [:]
     let recorded = st.events.contains { $0.type == "context.handoff" }
     var plans = 0
     for e in st.events {
         let d = e.data
+        if let task = e.task, stalls[task] != nil, e.actor == st.tasks[task]?.agent || e.type == "attempt.started" { stalls[task] = nil }
         switch e.type {
+        case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
         case "plan.proposed": plans += 1
         case "result.submitted":
             f.results.append(ResultFact(key: "r\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, task: e.task ?? "", summary: d["summary"].string ?? e.text, evidence: d["evidence"].strings, risks: d["risks"].strings, checks: Check.list(d["checks"])))
@@ -603,6 +608,9 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     // Everything else that holds work up is the lead's to settle, not the person's.
     let lead = "主控在处理，不需要你操作"
     let closed: Set<String> = ["succeeded", "failed", "cancelled", "skipped_by_decision"]
+    for (task, s) in stalls.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == "running" {
+        f.open.append(OpenFact(key: "os\(task)\(s.seq)", seq: s.seq, title: "\(task) 可能卡住了", text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead))
+    }
     for b in blockers where !closed.contains(st.tasks[b.task]?.status ?? "") {
         f.open.append(OpenFact(key: b.key, seq: b.seq, title: "\(b.task) 遇到阻塞", text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead))
     }

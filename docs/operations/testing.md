@@ -22,12 +22,13 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 | --- | --- |
 | `backend/src/db.rs` 的 `tests` | 操作去重、租约 fencing |
 | `backend/src/agents.rs` 的 `session_option_tests` | 各 Agent 声明的会话控制项如何解析为权限模式 |
+| `backend/src/agents.rs` 的 `seed_tests` | 默认角色的首次写入和旧版本升级：保留绑定，不恢复已删除的角色，只升级一次 |
 | `backend/src/adapters.rs` 的 `tests` | 版本切换与旧版本清理、从 `package.json` 的 `bin` 读取入口 |
 | `backend/src/config.rs` 的 `tests` | 日志时间格式 |
 | `backend/src/orchestrator.rs` 的 `tests` | 主控说明中的协作者名单 |
 | `backend/src/orchestrator.rs` 的 `flow_tests` | 端到端流程：启动真实的编排器 `App`，用脚本化 Agent 跑完整 Run |
 
-`flow_tests` 覆盖的流程包括：通过看板编排（先校验后执行、进展、提问与回答、交付）、主控结束后提问转给用户、重启后恢复看板并继续编排、审批和表单请求到达用户、任务在工作目录中运行并产生 diff、失败任务的重试与下游恢复、暂停、接受部分结果、重启后恢复失败和阻塞的任务、早期计划模式 Run 不能继续、按验收标准核对结果（原会话补一次，仍不行交给主控）、主控处理失败任务（接受、重试、取消、交给用户决定）、主控回复不等长回合、修订上游结论后下游以修订为准。
+`flow_tests` 覆盖的流程包括：通过看板编排（先校验后执行、进展、提问与回答、交付）、主控结束后提问转给用户、重启后恢复看板并继续编排、审批和表单请求到达用户、任务在工作目录中运行并产生 diff、失败任务的重试与下游恢复、暂停、接受部分结果、重启后恢复失败和阻塞的任务、早期计划模式 Run 不能继续、按验收标准核对结果（原会话补一次，仍不行交给主控）、主控处理失败任务（接受、重试、取消、交给用户决定）、主控回复不等长回合、修订上游结论后下游以修订为准、停滞检测（没有动静只报告一次、原地打转、等审批和用户打断后掌握会话的时间不算）。停滞检测的测试把 `Config.stall_after` 改成 1 秒。
 
 <a id="fake_agent"></a>
 ## 脚本化 Agent
@@ -40,7 +41,7 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 | `calls.log` | Agent 记录收到的会话设置（`session/new` 的 `_meta`、`set_config_option`）和主控收到的提示 |
 | `lead-go` | 目标模式主控在这个文件出现前一直工作，然后以文件内容作为最后回复结束 |
 
-`script.json` 中可用的结果：`ok`、`fail`、`cancelled`、`slow`、`write:<文件>`、`permission`（发出带三个选项的 `session/request_permission`）、`elicit`（发出带表单的 `elicitation/create`）、`ask`（以提问结束本轮，回答作为下一条提示）。
+`script.json` 中可用的结果：`ok`、`fail`、`cancelled`、`slow`、`write:<文件>`、`permission`（发出带三个选项的 `session/request_permission`）、`elicit`（发出带表单的 `elicitation/create`）、`loop`（给出结果前连续 5 次发出相同的工具调用）、`ask`（以提问结束本轮，回答作为下一条提示）。
 
 作为目标模式主控时，它先确认说明（`calls.log` 记 `brief ok`），再在收到 `/goal …` 后等待 `lead-go`。计数器保存在 `FAKE_DIR` 中，同一任务的多次尝试（不同进程）共用脚本进度。
 

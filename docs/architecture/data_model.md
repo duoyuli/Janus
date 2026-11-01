@@ -38,7 +38,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
-| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，以及 `meta` 中的一次性标记（例如 `seeded`） |
+| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，以及 `meta` 中的标记（例如默认角色的版本 `seeded`） |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
 | `commands` | `(run_id, command_id)` | 已处理的 Run 操作，用于按 `commandId` 去重 |
 | `leases` | `(run_id, name)` | Run 租约，防止两个 Janus 实例驱动同一个 Run |

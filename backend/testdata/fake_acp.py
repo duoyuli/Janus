@@ -4,8 +4,8 @@
 FAKE_DIR holds script.json, which maps a task id to the outcome of each successive prompt for it:
 "ok", "fail", "cancelled", "slow", "write:<file>", "unmet" (reports its first acceptance criterion
 unmet), "permission" (asks session/request_permission
-with three options), "elicit" (asks elicitation/create with a form) or "ask" (ends the turn with a
-question; the answer comes back as the next prompt). The last outcome repeats.
+with three options), "elicit" (asks elicitation/create with a form), "loop" (makes the same tool call five times
+before its result) or "ask" (ends the turn with a question; the answer comes back as the next prompt). The last outcome repeats.
 As a goal-mode lead it acknowledges the brief, then works on "/goal …" until FAKE_DIR/lead-go
 exists and ends with the text of that file.
 Session setup (session/new `_meta`, set_config_option) is appended to calls.log. Counters live in FAKE_DIR so the
@@ -146,6 +146,11 @@ def prompt(msg):
                        "requestedSchema": {"type": "object", "properties": {"name": {"type": "string", "title": "Name"}}, "required": ["name"]}})
         say(sid, result(sid, summary=f"{r['action']} {r.get('content', {}).get('name')}"))
         return {"stopReason": "end_turn"}
+    if outcome == "loop":
+        for i in range(5):
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                "sessionUpdate": "tool_call", "toolCallId": f"loop-{i}", "title": "cat missing.txt", "kind": "read",
+                "status": "completed", "rawInput": {"command": ["cat", "missing.txt"]}}}})
     if outcome == "unmet":
         say(sid, result(sid, unmet=True, summary=f"{task} 没有全部做到"))
         return {"stopReason": "end_turn"}

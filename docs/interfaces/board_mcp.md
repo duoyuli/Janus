@@ -111,6 +111,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `[没通过验收]` | `task.failed`（`reason: "verification"`） | 协作者在原会话补过一次，仍有标准没核对、没证据或自认没达到，逐条列出；提示用 `accept`、`retry` 或 `cancel` 处理 |
 | `[失败]` | `task.failed`（`reason: "attempts"`） | 用完尝试次数，需要主控决定 |
 | `[无法开始]` | `task.blocked` | 依赖失败；处理好依赖后会自动继续 |
+| `[停滞]` | `task.stalled` | 协作者很久没有动静，或连续重复同一个调用；提示继续等、`reply`、`retry` 或 `cancel` |
 | `[用户已回答]` | `question.answered`（不是主控回答的） | 用户在会话或应用中直接回答了协作者的提问，主控不要再回答 |
 | `[用户决定]` | `question.answered`（`ask_user` 的问题） | 用户对主控所提问题的回答 |
 | `[进展]` `[阻塞]` `[备注]` | `board.posted` | 协作者写回的内容 |

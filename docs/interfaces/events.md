@@ -114,6 +114,7 @@
 | `task.retry_scheduled` | 安排下一次尝试 |
 | `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks` |
 | `task.blocked` | 硬依赖失败；`data.dependency` |
+| `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
 | `task.cancel_requested` / `task.cancelled_by_dependency` | 因 `failFast` 上游失败而取消（只出现在旧 Run 中） |
 | `task.skipped_by_decision` | 跳过：用户接受部分结果时，或主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
 | `task.reopened` | 重试后任务重新开始；`data.reason` 是 `user.retry` 或 `lead.retry`（旧 Run 中还有 `review.rejected`）；主控重试时可能带新的 `data.instructions`、`data.accept`（旧 Run 中还有 `data.commands`） |

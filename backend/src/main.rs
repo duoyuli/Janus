@@ -314,14 +314,13 @@ async fn action(
         .as_str()
         .filter(|s| !s.trim().is_empty())
         .map(str::to_owned);
-    if let Some(command_id) = command_id.as_deref() {
-        if app.db.command_exists(&id, command_id).map_err(bad)? {
+    if let Some(command_id) = command_id.as_deref()
+        && app.db.command_exists(&id, command_id).map_err(bad)? {
             return Ok(
                 Json(json!({ "ok": true, "duplicate": true, "commandId": command_id }))
                     .into_response(),
             );
         }
-    }
     if let Some(expected) = body["expectedSequence"].as_i64() {
         let actual = app.db.max_seq(&id).map_err(bad)?;
         if expected != actual {
@@ -442,6 +441,7 @@ async fn main() -> Result<()> {
         cfg: Config {
             data_dir: home.clone(),
             agents_dir,
+            stall_after: orchestrator::STALL_AFTER,
         },
         tx,
         runs: Mutex::new(HashMap::new()),

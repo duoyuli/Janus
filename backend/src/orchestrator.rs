@@ -23,6 +23,10 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// How long a steering request may hold up the session loop before the message is queued instead.
 const STEER_TIMEOUT: Duration = Duration::from_secs(15);
 const RUN_BUDGET_MS: i64 = 6 * 60 * 60 * 1000;
+/// The watchdog tells the lead about an attempt whose session has shown no sign of work this long.
+pub const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
+/// The watchdog tells the lead about an attempt that made the same tool call this many times in a row.
+const LOOP_REPEAT: u32 = 5;
 
 pub fn now_ms() -> i64 {
     SystemTime::now()
@@ -310,6 +314,43 @@ pub struct Run {
     wake: Notify,
     /// A driver task (planning or execution) is alive for this run.
     driving: std::sync::atomic::AtomicBool,
+    /// The watchdog's view of each running attempt, by task id. Its own lock: session updates
+    /// touch it often, and nothing else is held while it is.
+    watch: StdMutex<HashMap<String, Watch>>,
+}
+
+/// What the watchdog knows about a running attempt: when its session last showed any sign of
+/// work, and the tool call it has been repeating.
+#[derive(Default)]
+struct Watch {
+    attempt: i64,
+    last_ms: i64,
+    /// This quiet spell was already reported; any sign of work starts a new one.
+    idle_noticed: bool,
+    /// The person holds the session (takeover or interrupt), so its silence is theirs.
+    human: bool,
+    /// Questions, approvals and forms of this attempt waiting on a person (`Held` guards).
+    waits: u32,
+    /// The last finished tool call (a hash of kind, title and input) and how often in a row.
+    call: u64,
+    repeats: u32,
+}
+
+/// While alive, the attempt waits on a person and the watchdog leaves it alone; dropping it
+/// starts the quiet clock again.
+struct Held<'a> {
+    run: &'a Run,
+    task: String,
+    attempt: i64,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        self.run.with_watch(&self.task, self.attempt, |w| {
+            w.waits = w.waits.saturating_sub(1);
+            w.last_ms = now_ms();
+        });
+    }
 }
 
 impl Run {
@@ -319,6 +360,25 @@ impl Run {
     fn task_mut<'a>(st: &'a mut RunState, id: &str) -> Option<&'a mut Task> {
         st.tasks.iter_mut().find(|t| t.def.id == id)
     }
+
+    /// Change what the watchdog knows about attempt `n` of `task`, if that attempt is running.
+    fn with_watch<T>(&self, task: &str, n: i64, f: impl FnOnce(&mut Watch) -> T) -> Option<T> {
+        self.watch.lock().unwrap().get_mut(task).filter(|w| w.attempt == n).map(f)
+    }
+
+    /// The attempt waits on a person until the returned guard is dropped.
+    fn held(&self, task: &str, n: i64) -> Held<'_> {
+        self.with_watch(task, n, |w| w.waits += 1);
+        Held { run: self, task: task.into(), attempt: n }
+    }
+
+    /// The person took over (or interrupted) the session, or handed it back.
+    fn set_human(&self, task: &str, n: i64, human: bool) {
+        self.with_watch(task, n, |w| {
+            w.human = human;
+            w.last_ms = now_ms();
+        });
+    }
 }
 
 pub struct Config {
@@ -327,6 +387,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Coding agent configs and credentials, kept in the user's home like ~/.lody: ~/.janus/agents.
     pub agents_dir: PathBuf,
+    /// How long an attempt may show no sign of work before the watchdog tells the lead.
+    pub stall_after: Duration,
 }
 
 pub struct App {
@@ -523,6 +585,7 @@ impl App {
             }),
             wake: Notify::new(),
             driving: Default::default(),
+            watch: Default::default(),
         });
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.launch(run, Phase::Start);
@@ -539,8 +602,8 @@ impl App {
                 Phase::Goal(resumed) => app.goal(&run, resumed).await,
             };
             run.driving.store(false, Ordering::SeqCst);
-            if let Err(err) = result {
-                if err.downcast_ref::<Cancelled>().is_none() && !run.st.lock().unwrap().cancelled {
+            if let Err(err) = result
+                && err.downcast_ref::<Cancelled>().is_none() && !run.st.lock().unwrap().cancelled {
                     app.emit(
                         &run,
                         ev("run.failed", "janus", format!("Run 失败：{err:#}"))
@@ -550,7 +613,6 @@ impl App {
                     // A failed run is rebuilt from its event log when the person continues it.
                     app.runs.lock().unwrap().remove(&run.id);
                 }
-            }
         });
     }
 
@@ -786,8 +848,82 @@ impl App {
                     }
                 }
             }
+            self.watchdog(run);
             let _ = tokio::time::timeout(Duration::from_secs(2), run.wake.notified()).await;
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Watchdog
+    // ------------------------------------------------------------------
+
+    /// Tell the lead about running attempts that show no sign of work: nothing from the session
+    /// for `stall_after`, while the agent is not waiting on a person (a question, an approval, a
+    /// form, a takeover). Each quiet spell is reported once. The watchdog only reports; the lead
+    /// decides whether to wait, redirect, retry or cancel.
+    // @project-doc docs/domains/run_lifecycle.md#watchdog
+    fn watchdog(&self, run: &Run) {
+        let now = now_ms();
+        let limit = self.cfg.stall_after.as_millis() as i64;
+        let due: Vec<(String, i64, i64)> = run
+            .watch
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .filter_map(|(task, w)| {
+                if w.human || w.waits > 0 {
+                    // Waiting on a person is not the agent's silence; the clock starts once they are done.
+                    w.last_ms = now;
+                    return None;
+                }
+                if w.idle_noticed || now - w.last_ms < limit {
+                    return None;
+                }
+                w.idle_noticed = true;
+                Some((task.clone(), w.attempt, now - w.last_ms))
+            })
+            .collect();
+        for (task, n, idle) in due {
+            self.emit(
+                run,
+                ev("task.stalled", "janus", format!("{task} 已有 {} 没有任何动静", span(idle)))
+                    .task(&task)
+                    .attempt(n)
+                    .to("lead")
+                    .data(json!({ "reason": "idle", "idleMs": idle })),
+            );
+        }
+    }
+
+    /// Count a finished tool call; every `LOOP_REPEAT` identical calls in a row, tell the lead.
+    // @project-doc docs/domains/run_lifecycle.md#watchdog
+    fn watch_call(&self, run: &Run, task: &str, kind: &str, title: &str, input: &str) {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::hash::DefaultHasher::new();
+        (kind, title, input).hash(&mut h);
+        let call = h.finish();
+        let (n, repeats) = {
+            let mut watch = run.watch.lock().unwrap();
+            let Some(w) = watch.get_mut(task) else { return };
+            if w.call == call {
+                w.repeats += 1;
+            } else {
+                w.call = call;
+                w.repeats = 1;
+            }
+            if w.repeats % LOOP_REPEAT != 0 {
+                return;
+            }
+            (w.attempt, w.repeats)
+        };
+        self.emit(
+            run,
+            ev("task.stalled", "janus", format!("{task} 连续 {repeats} 次做同样的调用：{}", short(title, 60)))
+                .task(task)
+                .attempt(n)
+                .to("lead")
+                .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
+        );
     }
 
     // ------------------------------------------------------------------
@@ -961,7 +1097,7 @@ impl App {
                     bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
                 }
                 if !ctl.human && !ctl.queued.is_empty() {
-                    let msgs: Vec<Msg> = ctl.queued.drain(..).collect();
+                    let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
                     let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
                     self.emit(run, ev("message.delivered", "janus", format!("这一轮结束，把你的 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
                     let texts: Vec<&str> = msgs.iter().map(|m| m.text.as_str()).collect();
@@ -1701,6 +1837,12 @@ impl App {
 
     async fn run_attempt(self: &Arc<Self>, run: &Arc<Run>, id: &str, n: i64, attempt_id: &str) {
         let result = self.attempt(run, id, n, attempt_id).await;
+        {
+            let mut watch = run.watch.lock().unwrap();
+            if watch.get(id).is_some_and(|w| w.attempt == n) {
+                watch.remove(id);
+            }
+        }
         let withdrawn: Vec<String> = {
             let mut st = run.st.lock().unwrap();
             st.live.remove(id);
@@ -1970,6 +2112,7 @@ impl App {
             st.live.insert(id.into(), steer_tx);
             st.live_agent.insert(agent.clone(), id.into());
         }
+        run.watch.lock().unwrap().insert(id.into(), Watch { attempt: n, last_ms: now_ms(), ..Default::default() });
         let mut ctl = Control {
             rx: steer_rx,
             steering: !conn.capabilities["_meta"]["lody"]["steering"].is_null(),
@@ -2052,6 +2195,7 @@ impl App {
                         }
                         Some(Steer::Release) => {
                             ctl.human = false;
+                            run.set_human(id, n, false);
                             self.emit(
                                 run,
                                 ev(
@@ -2110,6 +2254,7 @@ impl App {
                     self.escalate_open_questions(run);
                 }
                 // The question card and the session both reach the same agent; whichever you use first wins.
+                let _held = run.held(id, n);
                 tokio::select! {
                     answer = self.wait_for(run, &key) => {
                         let answer = answer?;
@@ -2131,6 +2276,7 @@ impl App {
                             Some(Steer::Finish) => { ctl.finish = true; "（直接以当前结果完成）".into() }
                             Some(_) => {
                                 ctl.human = true;
+                                run.set_human(id, n, true);
                                 self.emit(run, ev("control.taken", "user", format!("接管 {agent} 的会话")).task(id).attempt(n).to(&agent));
                                 "（转为人工接管，在会话中继续）".into()
                             }
@@ -2517,6 +2663,7 @@ impl App {
                     c.finish = true;
                 } else if !c.human {
                     c.human = true;
+                    run.set_human(task, n, true);
                 }
                 let text = if finish {
                     format!("停止 {agent} 这一轮，并以当前结果完成任务")
@@ -2535,6 +2682,7 @@ impl App {
             Steer::TakeOver => {
                 if !c.human {
                     c.human = true;
+                    run.set_human(task, n, true);
                     self.emit(
                         run,
                         ev(
@@ -2551,6 +2699,7 @@ impl App {
             Steer::Release => {
                 if c.human {
                     c.human = false;
+                    run.set_human(task, n, false);
                     self.emit(
                         run,
                         ev(
@@ -2596,6 +2745,17 @@ impl App {
         last_status: &mut i64,
         ctx: &Ctx<'_>,
     ) {
+        // Any update from the session (a chunk of text or thought, a tool's progress) is a sign of work.
+        if let (Some(task), Some(n)) = (ctx.task, ctx.attempt) {
+            let quiet = run.with_watch(task, n, |w| {
+                w.last_ms = now_ms();
+                std::mem::take(&mut w.idle_noticed)
+            });
+            // The board stops showing the stall once the agent moves again.
+            if quiet == Some(true) {
+                self.emit(run, ev("task.stalled", "janus", format!("{task} 又有动静了")).task(task).attempt(n).to("lead").data(json!({ "reason": "idle", "resolved": true })));
+            }
+        }
         match u["sessionUpdate"].as_str().unwrap_or("") {
             // Codex reports its /goal as session info: { goal: { objective, status } }, or null once cleared.
             "session_info_update" if ctx.goal && u["_meta"]["codex"].get("goal").is_some() => {
@@ -2635,9 +2795,11 @@ impl App {
                 let title = entry["title"].as_str().unwrap_or("工具调用").to_string();
                 if matches!(status.as_str(), "completed" | "failed") {
                     let entry = tools.remove(&id).unwrap();
+                    let kind = entry["kind"].as_str().unwrap_or("tool").to_string();
+                    let input = summarize_input(&entry["rawInput"], &title);
                     let mut e = ev("tool.call", ctx.agent, short(&title, 80)).data(json!({
-                        "tool": entry["kind"].as_str().unwrap_or("tool"),
-                        "input": summarize_input(&entry["rawInput"], &title),
+                        "tool": kind,
+                        "input": input,
                         "output": summarize_output(&entry),
                         "status": status,
                     }));
@@ -2648,6 +2810,9 @@ impl App {
                         e = e.attempt(n);
                     }
                     self.emit(run, e);
+                    if let Some(task) = ctx.task {
+                        self.watch_call(run, task, &kind, &title, &input);
+                    }
                 } else if now_ms() - *last_status > 1500 {
                     *last_status = now_ms();
                     let kind = entry["kind"].as_str().unwrap_or("");
@@ -2737,6 +2902,7 @@ impl App {
             e = e.task(task).attempt(n);
         }
         self.emit(run, e);
+        let _held = run.held(task, n);
         let wait = self.wait_for(run, &key);
         tokio::pin!(wait);
         loop {
@@ -2906,11 +3072,10 @@ impl App {
                 }
                 risks.extend(r.risks.iter().map(|x| format!("{}：{}", t.def.id, x)));
             }
-            if let Some(last) = st.tasks.last() {
-                if let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report") {
+            if let Some(last) = st.tasks.last()
+                && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report") {
                     deliverables.push(report.clone());
                 }
-            }
             // The lead reports how the goal went, in its last message.
             let summary = match &st.lead_done {
                 Some(Ok(text)) => lead_summary(text),
@@ -3034,10 +3199,8 @@ impl App {
                         json!({ "allow": allow, "option": a["option"] }),
                     )
                 } else {
-                    let action = match a["action"].as_str() {
-                        Some(x @ ("accept" | "decline")) => x,
-                        _ => "cancel",
-                    };
+                    // Anything but accept or decline is a cancel, for the agent and the record alike.
+                    let action = a["action"].as_str().filter(|x| ["accept", "decline"].contains(x)).unwrap_or("cancel");
                     let content = if a["content"].is_object() { a["content"].clone() } else { json!({}) };
                     (
                         "input.answered",
@@ -3320,6 +3483,7 @@ impl App {
             }),
             wake: Notify::new(),
             driving: Default::default(),
+            watch: Default::default(),
         });
 
         // The board's tasks are every orchestration the lead got accepted.
@@ -3379,12 +3543,10 @@ impl App {
                     })
                 });
             let succeeded = events
-                .iter()
-                .filter(|e| {
+                .iter().rfind(|e| {
                     e.task.as_deref() == Some(id.as_str())
                         && matches!(e.kind.as_str(), "task.succeeded" | "task.reopened")
                 })
-                .last()
                 .filter(|e| e.kind == "task.succeeded");
             let result = mine("result.submitted").last().and_then(|e| e.data.clone()).map(|d| {
                 let strings = |v: &Value| {
@@ -3405,14 +3567,12 @@ impl App {
                 .and_then(|e| e.data.as_ref().and_then(|d| d["session"].as_str().map(str::to_owned)));
             let last_task_event = events
                 .iter()
-                .filter(|e| e.task.as_deref() == Some(id.as_str()))
-                .filter(|e| {
+                .filter(|e| e.task.as_deref() == Some(id.as_str())).rfind(|e| {
                     matches!(
                         e.kind.as_str(),
                         "task.succeeded" | "task.failed" | "task.blocked" | "task.skipped_by_decision" | "task.reopened"
                     )
                 })
-                .last()
                 .map(|e| e.kind.as_str());
             let status = match last_task_event {
                 Some("task.succeeded") => "succeeded",
@@ -3433,11 +3593,10 @@ impl App {
                 done += 1;
             } else {
                 open += 1;
-                if status == "pending" && interrupted_attempt {
-                    if let Some(sid) = last_session {
+                if status == "pending" && interrupted_attempt
+                    && let Some(sid) = last_session {
                         run.st.lock().unwrap().resume_session.insert(id.clone(), sid);
                     }
-                }
             }
             let mut task = Task::new(def, agent);
             task.status = status;
@@ -4010,6 +4169,16 @@ fn board_entry(run: &Run, e: &Event) -> Option<String> {
             )
         }
         "approval.requested" | "input.requested" => format!("- [等用户] {task} · {name} 在等用户处理：{}", e.text),
+        "task.stalled" if d["resolved"] == true => return None,
+        "task.stalled" if d["reason"] == "loop" => format!(
+            "- [停滞] {task}「{title}」· {name} 连续 {} 次做同样的调用（{}），可能在原地打转。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消，或自己做。",
+            d["repeats"].as_i64().unwrap_or(LOOP_REPEAT as i64),
+            short(d["tool"].as_str().unwrap_or(""), 60)
+        ),
+        "task.stalled" => format!(
+            "- [停滞] {task}「{title}」· {name} 已有 {} 没有任何输出或工具调用。它可能在跑一条很久的命令，也可能卡住了。请判断：继续等；用 janus.reply 询问或补充指示；janus.retry 重做；janus.cancel 取消。",
+            span(d["idleMs"].as_i64().unwrap_or(0))
+        ),
         _ => return None,
     })
 }
@@ -4599,6 +4768,11 @@ fn goal_title(goal: &str) -> String {
     short(&line.trim_start_matches('#').replace("**", "").replace('`', ""), 40)
 }
 
+/// A duration in words: seconds under a minute, minutes after that.
+fn span(ms: i64) -> String {
+    if ms < 60_000 { format!("{} 秒", ms / 1000) } else { format!("{} 分钟", ms / 60_000) }
+}
+
 pub fn short(s: &str, n: usize) -> String {
     let s = s.trim();
     if s.chars().count() > n {
@@ -4714,6 +4888,7 @@ mod tests {
             }),
             wake: Notify::new(),
             driving: Default::default(),
+            watch: Default::default(),
         }
     }
 
@@ -4745,6 +4920,22 @@ pub fn to_base36(mut n: u64) -> String {
     String::from_utf8(out).unwrap()
 }
 
+/// An `App` over a fresh database in `dir`, for tests.
+#[cfg(test)]
+pub(crate) fn test_app(dir: &Path) -> Arc<App> {
+    let (tx, _) = broadcast::channel(4096);
+    Arc::new(App {
+        db: Db::open(&dir.join("janus.db")).unwrap(),
+        cfg: Config {
+            data_dir: dir.join("data"),
+            agents_dir: dir.join("agents"),
+            stall_after: STALL_AFTER,
+        },
+        tx,
+        runs: StdMutex::new(HashMap::new()),
+    })
+}
+
 /// End-to-end runs against a scripted ACP agent (testdata/fake_acp.py): each test drives one of
 /// the paths that used to leave a run stuck, and checks it either delivers or waits somewhere
 /// the person can act.
@@ -4769,19 +4960,6 @@ mod flow_tests {
         assert!(ok, "git {args:?}");
     }
 
-    fn app_at(dir: &Path) -> Arc<App> {
-        let (tx, _) = broadcast::channel(4096);
-        Arc::new(App {
-            db: Db::open(&dir.join("janus.db")).unwrap(),
-            cfg: Config {
-                data_dir: dir.join("data"),
-                agents_dir: dir.join("agents"),
-            },
-            tx,
-            runs: StdMutex::new(HashMap::new()),
-        })
-    }
-
     /// `members`: (role id, writable). The first one leads.
     // @project-doc docs/operations/testing.md#harness
     fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
@@ -4795,7 +4973,7 @@ mod flow_tests {
         std::fs::write(repo.join("README.md"), "test\n").unwrap();
         sh(&repo, &["add", "-A"]);
         sh(&repo, &["commit", "-q", "-m", "init"]);
-        let app = app_at(&dir);
+        let app = test_app(&dir);
         let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_acp.py");
         // What a check of the fake agent reads: whether a member writes follows from its mode.
         let modes: Vec<Value> = ["read-only", "ask", "agent", "full"].iter().map(|v| json!({ "value": v, "name": v })).collect();
@@ -4934,6 +5112,41 @@ mod flow_tests {
 
     fn task_event(evs: &[Event], kind: &str, task: &str) -> bool {
         evs.iter().any(|e| e.kind == kind && e.task.as_deref() == Some(task))
+    }
+
+    /// The watchdog tells the lead about a silent attempt (once per quiet spell) and one repeating
+    /// the same tool call, and leaves alone an attempt that waits on the person.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn watchdog_reports_stalled_tasks() {
+        let mut h = harness("watchdog", &[("lead", false), ("m1", true), ("m2", true)], json!({ "T1": ["slow"], "T2": ["loop"], "T3": ["permission"] }));
+        Arc::get_mut(&mut h.app).unwrap().cfg.stall_after = Duration::from_secs(1);
+        let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m2", json!({})), task("T3", "m2", json!({ "deps": ["T2"] }))])).await;
+        let stalled = |e: &[Event], t: &str, reason: &str| e.iter().filter(|e| e.kind == "task.stalled" && e.task.as_deref() == Some(t) && e.data.as_ref().unwrap()["reason"] == reason).count();
+        wait_until(&h.app, &run, "both stalls", |e| stalled(e, "T1", "idle") > 0 && stalled(e, "T2", "loop") > 0).await;
+        let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+        assert!(board.contains("[停滞] T1") && board.contains("没有任何输出或工具调用"), "{board}");
+        assert!(board.contains("[停滞] T2") && board.contains("连续 5 次") && board.contains("cat missing.txt"), "{board}");
+
+        // T3 waits on the person's approval: that silence is not the agent's.
+        wait_until(&h.app, &run, "T3 asks", |e| has(e, "approval.requested")).await;
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let evs = events(&h.app, &run);
+        assert_eq!(stalled(&evs, "T1", "idle"), 1, "one report per quiet spell");
+        assert_eq!(stalled(&evs, "T3", "idle"), 0, "waiting on the person is not a stall");
+        let req = evs.iter().find(|e| e.kind == "approval.requested").unwrap();
+        act(&h, &run, json!({ "type": "approve", "key": req.data.as_ref().unwrap()["key"], "task": "T3", "allow": true }));
+
+        // The person interrupts T1 and holds its session (no `control.taken`): the silence is theirs.
+        act(&h, &run, json!({ "type": "interrupt", "task": "T1" }));
+        wait_until(&h.app, &run, "T1 held", |e| task_event(e, "session.interrupted", "T1")).await;
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        assert_eq!(stalled(&events(&h.app, &run), "T1", "idle"), 1, "a session the person holds is not stalled");
+        let (text, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["T1"], "reason": "卡住了" })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "T3", |e| task_event(e, "task.succeeded", "T3")).await;
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
     }
 
     /// A failed verification goes to the lead instead of a fresh retry; the lead accepts, retries,
@@ -5285,7 +5498,7 @@ mod flow_tests {
         // The process goes away while the lead is still working.
         h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
         tokio::time::sleep(Duration::from_secs(3)).await;
-        let app2 = app_at(&h.dir);
+        let app2 = test_app(&h.dir);
         app2.recover().unwrap();
         app2.resume_run(&run).await.unwrap();
         let evs = events(&app2, &run);
@@ -5433,7 +5646,7 @@ mod flow_tests {
         // Simulate the process going away: stop the old driver without writing anything.
         h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
         tokio::time::sleep(Duration::from_secs(3)).await;
-        let app2 = app_at(&h.dir);
+        let app2 = test_app(&h.dir);
         app2.recover().unwrap();
         assert_eq!(status(&app2, &run), "interrupted");
         let r = app2.resume_run(&run).await.unwrap();

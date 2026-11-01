@@ -7,6 +7,7 @@
 - [创建 Run](#create_run)：修改 `create_run` 或快照内容时阅读。
 - [工作目录](#workspace_model)：涉及任务在哪里读写、diff 和 Git 时阅读。
 - [任务调度](#scheduling)、[一次尝试](#attempt)、[验证](#verification)、[重试与失败](#retry)：修改调度循环或尝试流程时阅读。
+- [停滞检测](#watchdog)：修改 `watchdog`、`watch_call`，或调整什么算「没有进展」时阅读。
 - [交付条件](#delivery_conditions)：修改 `execute` 的结果判断时阅读。
 - [Run 状态](#run_statuses)、[用户操作](#user_actions)、[中断与恢复](#recovery)、[早期计划模式的 Run](#early_plan_runs)。
 
@@ -126,6 +127,24 @@ Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件�
 | 单个 ACP 请求 | 30 分钟 |
 | 发送打断等控制指令 | 15 秒 |
 | Run 预算 | 6 小时，可用 `extendBudget` 追加 |
+
+<a id="watchdog"></a>
+### 停滞检测
+
+时间限制只在超时后才生效。为了更早发现卡住的协作者，调度循环每次唤醒（最多间隔 2 秒）都检查正在进行的尝试，发现以下两种情况时写入 `task.stalled` 事件：
+
+| 情况 | 判断 | `data.reason` |
+| --- | --- | --- |
+| 没有动静 | 尝试的会话 10 分钟（`STALL_AFTER`，即 `Config.stall_after`）没有发出任何更新：文本、思考、工具调用和工具进度都算 | `idle` |
+| 原地打转 | 连续 5 次（`LOOP_REPEAT`）完成同一个工具调用：类型、标题和输入摘要都相同 | `loop` |
+
+规则：
+
+- 等人的时间不算：尝试在等提问的回答、审批或表单（`Run::held` 返回的守卫存在期间），或会话被用户接管或打断（`Run::set_human`）时，计时从头开始。这些状态由尝试自己在内存中标记，停滞检测不读事件日志。
+- 同一段没有动静的时间只报告一次。会话再发出任何更新后重新计时，并写入一条 `data.resolved` 为 `true` 的 `task.stalled`，应用据此撤下「可能卡住了」，主控不会读到它。原地打转每满 5 次报告一次。
+- 只检查协作者的尝试，不检查主控会话。
+- 停滞检测只报告，不打断、不重试也不取消。主控在 `wait` 中读到 `[停滞]`，自己判断继续等、`reply`、`retry` 还是 `cancel`，见[目标模式与共享看板](goal_mode.md#failures_in_goal_mode)。
+- 计时状态只在内存中（`Run.watch`），重启后从头开始；`task.stalled` 不影响恢复。
 
 <a id="delivery_conditions"></a>
 ## 交付条件
