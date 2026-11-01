@@ -40,11 +40,11 @@ jobs:
         working-directory: backend
         run: cargo test --locked
       - name: Test macOS app
-        working-directory: macos
+        working-directory: frontend
         run: swift test
 
       - name: Package
-        run: macos/scripts/package.sh --version "${{ steps.v.outputs.version }}"
+        run: frontend/scripts/package.sh --version "${{ steps.v.outputs.version }}"
 
       - name: Check the app
         run: |

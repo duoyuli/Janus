@@ -2,7 +2,7 @@
 
 Janus 是一个本地优先的多 Agent 协作工作空间。它通过 ACP（Agent Client Protocol）连接 Codex、Claude Code、Grok、Pi 和其他兼容 ACP 的 Agent，让一个主控 Agent 带着一组协作者完成用户给出的目标，并把每一次会话、编排、审批、产物和交付都记录成可回放的事件。
 
-本仓库包含 Rust 编排器（`backend/`）、原生 macOS 应用（`macos/`）和单页 Web 工作台（`frontend/app.html`）。本文介绍 Janus 是什么、怎样在本机启动，以及其余文档的阅读顺序。
+本仓库包含 Rust 编排器（`backend/`）和 macOS 应用（`frontend/`）。本文介绍 Janus 是什么、怎样在本机启动，以及其余文档的阅读顺序。
 
 ## 核心概念
 
@@ -29,7 +29,7 @@ Janus 是一个本地优先的多 Agent 协作工作空间。它通过 ACP（Age
 
 #### 前置条件
 
-- Rust 工具链和 Cargo（edition 2024），以及 [just](https://github.com/casey/just)。
+- Rust 工具链和 Cargo（edition 2024）、Swift 6（Xcode 或命令行工具），以及 [just](https://github.com/casey/just)。
 - Node.js 22.19 或更高，以及随它安装的 npm；还需要 `git`。
 - 要使用的 Agent CLI，例如 `codex`、`claude`、`grok`。也可以配置自定义 ACP 启动命令。
 - 第一次使用某个 Agent 时需要网络，用来下载它的 ACP 适配器。
@@ -43,9 +43,11 @@ just install   # 编译并安装到 ~/.janus/bin/janus
 just start     # 以服务方式启动：登录后自动运行（macOS）；也可以用 just run 在前台运行
 ```
 
-开发时直接 `just dev`（从源码启动）。`just mac` 从源码运行 macOS 应用，`just dmg` 在本机打包。`just` 不带参数会列出全部命令。
+然后用 `just mac` 从源码运行应用，它会连接这个服务；`just dmg` 在本机打包出 `Janus.app` 和 DMG。开发时用 `just dev` 从源码启动服务。`just` 不带参数会列出全部命令。
 
-启动后打开 [http://127.0.0.1:7878](http://127.0.0.1:7878)，或打开 macOS 应用。首次使用按以下顺序配置：
+### 首次使用
+
+打开应用后按以下顺序配置：
 
 1. 在「设置 → Agents」中添加 Agent，并运行配置检查。它需要的 ACP 适配器会在这一步自动下载；以后可以在「设置 → ACP 适配器」检查更新、升级或回滚。
 2. 在「设置 → 角色」中为角色绑定 Agent，选择模型和权限模式。
@@ -62,7 +64,7 @@ just start     # 以服务方式启动：登录后自动运行（macOS）；也�
 
 | 分类 | 内容 |
 | --- | --- |
-| [架构](docs/architecture/index.md) | 组件与进程模型、存储布局、ACP 适配器管理、Web 工作台、macOS 应用 |
+| [架构](docs/architecture/index.md) | 组件与进程模型、存储布局、ACP 适配器管理、macOS 应用 |
 | [领域](docs/domains/index.md) | Run 生命周期、目标模式与共享看板、Agent / 角色 / 工作区与权限模式 |
 | [接口](docs/interfaces/index.md) | HTTP API、事件、看板 MCP 工具、ACP 集成、配置 |
 | [运维](docs/operations/index.md) | 部署方案、CI 与发布、运行手册、测试、安全边界 |

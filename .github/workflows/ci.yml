@@ -33,8 +33,8 @@ jobs:
       - name: Swift version
         run: swift --version
       - name: Build
-        working-directory: macos
+        working-directory: frontend
         run: swift build
       - name: Test
-        working-directory: macos
+        working-directory: frontend
         run: swift test

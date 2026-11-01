@@ -38,7 +38,7 @@
 适配器在第一次被需要时安装：
 
 1. 在「设置 → Agents」检查某个 Agent 时，第一步「ACP 适配器」调用 `ensure_adapter`。已安装就直接通过；没有安装就当场安装最新版本，安装完成后继续后面的检查。
-2. 也可以在「设置 → ACP 适配器」页面手动安装。
+2. 也可以在应用的「设置 → ACP 适配器」中手动安装。
 3. 创建 Run 或启动会话时如果适配器不存在，直接报错，提示去运行配置检查。会话不会在运行中途触发下载。
 
 <a id="install_steps"></a>
@@ -66,11 +66,11 @@
 
 | 操作 | 行为 |
 | --- | --- |
-| 检查更新 | npm 来源执行 `npm view <包> version`；Git 来源执行 `git ls-remote <仓库> HEAD`，取最新提交。结果保存在内存中，页面显示「有新版本」 |
+| 检查更新 | npm 来源执行 `npm view <包> version`；Git 来源执行 `git ls-remote <仓库> HEAD`，取最新提交。结果保存在内存中，应用显示「有新版本」 |
 | 升级 | 按[安装步骤](#install_steps)安装最新版本并设为当前版本 |
 | 切回 | 把 `current` 指向另一个已安装的版本，不需要下载 |
 
-页面「设置 → ACP 适配器」提供这三个操作，接口见 [HTTP API](../interfaces/http_api.md#adapters)。Git 来源只能安装默认分支的最新提交，npm 来源可以通过接口指定版本。
+应用的「设置 → ACP 适配器」提供这三个操作，接口见 [HTTP API](../interfaces/http_api.md#adapters)。Git 来源只能安装默认分支的最新提交，npm 来源可以通过接口指定版本。
 
 <a id="running_sessions"></a>
 ## 正在运行的会话
@@ -83,4 +83,4 @@
 <a id="api_shape"></a>
 ## 状态数据
 
-`GET /api/adapters` 为每个适配器返回：`current`（当前版本）、`versions`（已安装的版本及安装时间）、`latest` 和 `checkedAt`（上次检查的结果）、`updateAvailable`、`job`（进行中或上一次安装、检查的状态和结果）、`log`（安装日志的最后 15 行）。安装和检查在后台线程中执行，页面在有任务进行时每 1.5 秒刷新一次。
+`GET /api/adapters` 为每个适配器返回：`current`（当前版本）、`versions`（已安装的版本及安装时间）、`latest` 和 `checkedAt`（上次检查的结果）、`updateAvailable`、`job`（进行中或上一次安装、检查的状态和结果）、`log`（安装日志的最后 15 行）。安装和检查在后台线程中执行，应用在有任务进行时每 1.5 秒刷新一次。

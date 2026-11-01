@@ -47,8 +47,7 @@ Janus/
 │   │   ├── orchestrator.rs# Run、目标模式、看板、调度、验证、交付、恢复、集成测试
 │   │   └── db.rs          # SQLite
 │   └── testdata/fake_acp.py  # 测试用脚本化 ACP Agent
-├── frontend/app.html      # Web 工作台（单文件，无构建，release 构建时编进二进制）
-├── macos/                 # 原生 macOS 应用（SwiftUI，Swift Package）
+├── frontend/              # macOS 应用（SwiftUI，Swift Package）
 │   ├── Sources/Janus/     # Core/（JSON、API、服务进程、事件推导）和 UI/
 │   ├── Tests/JanusTests/  # Swift Testing 测试
 │   └── scripts/           # package.sh（打包 Janus.app 和 DMG）、make-icon.swift
@@ -57,7 +56,7 @@ Janus/
 └── .agents/skills/        # 项目 skill（.claude/skills 是指向它的符号链接）
 ```
 
-仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/deployment.md#layout)。`.gitignore` 只忽略构建输出：`backend/target/`、`macos/.build/` 和 `dist/`。
+仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/deployment.md#layout)。`.gitignore` 只忽略构建输出：`backend/target/`、`frontend/.build/`、`dist/` 和 `.DS_Store`。
 
 ## 常用命令
 

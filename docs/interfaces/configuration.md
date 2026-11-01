@@ -12,7 +12,7 @@
 | `JANUS_HOME` | 无 | `$HOME/.janus` | Janus home：数据、适配器、配置和日志，见[部署方案](../operations/deployment.md#layout) |
 | `JANUS_ADDR` | `addr` | `127.0.0.1:7878` | HTTP 监听地址；也是写进看板 MCP URL 的地址 |
 | `JANUS_NODE` | `node` | `node` | 运行 ACP 适配器的 Node 可执行文件；安装适配器前也用它检查 Node 版本 |
-| `JANUS_ROOT` | 无 | 编译时的仓库目录（`backend/` 的上一级） | 只用于开发：开发构建或设置了这个变量时，页面从 `$JANUS_ROOT/frontend/app.html` 读取；工作区目录选择器的默认目录是其中的 `examples/calc` |
+| `JANUS_ROOT` | 无 | 编译时的仓库目录（`backend/` 的上一级） | 只用于开发：新建第一个工作区时建议的示例目录是其中的 `examples/calc` |
 
 `config.toml` 示例：
 

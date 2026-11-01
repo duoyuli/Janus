@@ -62,12 +62,11 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 - 每个 `flow_tests` 测试给 `harness` 传唯一的 `name`。测试并行运行，名字相同的测试会共用并互相删除临时目录，造成随机失败。
 - 测试结束时删除临时目录。
 - 新增事件类型或改变流程时，在 `flow_tests` 中用脚本化 Agent 覆盖，不依赖真实 Agent。
-- 真实 Agent 的验证（例如 Codex 主控 + Pi 协作者）通过页面手动运行，结果不进入自动测试。
+- 真实 Agent 的验证（例如 Codex 主控 + Pi 协作者）通过应用手动运行，结果不进入自动测试。
 
 <a id="macos_app"></a>
 ## macOS 应用
 
-- `just test-mac`（`cd macos && swift test`）运行 `macos/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown、环境变量文本和 Plan 控制项过滤。`@Test` 宏插件只随 Xcode 提供，只装命令行工具时测试无法编译；CI 的 macOS 运行环境自带 Xcode。
-- 事件推导是 `frontend/app.html` 中 `derive` / `boardFacts` 的移植。修改其中一边时，可以把同一批 Run（`GET /api/runs/{id}`）分别交给两边推导，逐项比较任务状态、待处理、Agent 状态、消息和看板各栏。
+- `just test-mac`（`cd frontend && swift test`）运行 `frontend/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown、环境变量文本和 Plan 控制项过滤。`@Test` 宏插件只随 Xcode 提供，只装命令行工具时测试无法编译；CI 的 macOS 运行环境自带 Xcode。
 - 查看界面：设置 `JANUS_SNAPSHOT_DIR` 后，应用每 0.7 秒读取一次 `<目录>/cmd`，逐行执行 `open run:<id>`、`open home:<工作区>`、`open settings:<agents|roles|adapters>`、`page <board|audit|team|task:<id>|agent:<id>|replay:<seq>>`、`role <id>`、`workspace <id>`、`close-sheet`、`size <宽>x<高>`、`shot <名字>`，截图保存为 `<目录>/<名字>.png`。截的是应用自己的窗口，不需要屏幕录制权限。配合 `JANUS_HOME` 和 `JANUS_ADDR` 指向一份数据副本使用，不影响正在运行的 Janus。
 

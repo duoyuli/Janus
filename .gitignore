@@ -1,3 +1,7 @@
 backend/target/
-macos/.build/
+frontend/.build/
 dist/
+.DS_Store
+
+# Locally installed design skill (Apple HIG pages), not part of the repo
+.agents/skills/apple-design-skill/

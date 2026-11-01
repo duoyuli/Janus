@@ -25,7 +25,7 @@
 6. 申请 Run 租约（10 分钟）。
 7. 启动驱动任务，进入主控的目标会话（`goal`）。
 
-Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件的 `data.mode` 固定为 `goal`，`data.inPlace` 固定为 `true`，页面据此描述 Run。
+Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件的 `data.mode` 固定为 `goal`，`data.inPlace` 固定为 `true`，应用据此描述 Run。
 
 <a id="workspace_model"></a>
 ## 工作目录
@@ -169,7 +169,7 @@ Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件�
 - **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_lody/session/steer` 时）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/events.md#message_flow)。
 - **控制 Run**：`pause`、`resume`、`extendBudget`、`retry`、`acceptRisk`、`cancel`、`accept`、`resumeRun`。
 
-页面目前提供回答、审批、表单、会话介入、暂停 / 继续、追加预算、取消和验收；`retry` 和 `acceptRisk` 只能通过接口调用。
+应用目前提供回答、审批、表单、会话介入、暂停 / 继续、追加预算、取消（界面上叫「停止」）和验收；`retry` 和 `acceptRisk` 只能通过接口调用。
 
 <a id="recovery"></a>
 ## 中断与恢复
@@ -192,6 +192,6 @@ Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件�
 
 早期版本的 Run 采用「主控先出计划、用户确认、再按 DAG 执行」的流程，带评审返工和集成任务。这套流程已经移除（见 [ADR：先出计划、用户确认、再按 DAG 执行](../decisions/plan_first_flow.md)）：
 
-- 这些 Run 的事件仍保存在数据库中，页面照常显示它们的计划、任务、评审和交付。
+- 这些 Run 的事件仍保存在数据库中，应用照常显示它们的计划、任务、评审和交付。
 - 它们不能再「从中断处继续」，`resumeRun` 会提示用同样的目标新建 Run。判断依据是 `run.created` 事件的 `data.mode` 不是 `goal`。
-- 页面不再为它们显示计划确认、任务失败决策等卡片，因为对应的操作接口已经删除。
+- 应用不再为它们显示计划确认、任务失败决策等卡片，因为对应的操作接口已经删除。

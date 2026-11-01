@@ -1,6 +1,6 @@
 # 事件参考
 
-本文列出事件的结构和全部事件类型。事件是 Run 的唯一事实来源：页面、看板、恢复和导出都从事件读取。为什么这样设计见 [ADR：事件是唯一事实来源](../decisions/events_as_source_of_truth.md)。
+本文列出事件的结构和全部事件类型。事件是 Run 的唯一事实来源：应用、看板、恢复和导出都从事件读取。为什么这样设计见 [ADR：事件是唯一事实来源](../decisions/events_as_source_of_truth.md)。
 
 <a id="event_shape"></a>
 ## 结构
@@ -38,7 +38,7 @@
 - `text` 用于展示，程序逻辑只读 `type` 和 `data`。
 - 等待用户或主控处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键的前缀：`q-<task>-<n>-<轮>` 是任务提问，`req-<task 或 agent>-<n>-<时间>` 是审批或表单请求。早期计划模式的 Run 还有 `plan` 和 `plan-invalid`。
 
-新增或修改事件类型时，同步检查：页面的 `derive` 和 `boardFacts`（[Web 工作台](../architecture/frontend.md#event_derivation)）、macOS 应用 `Derive.swift` 中的同名函数（[macOS 应用](../architecture/macos_app.md#event_derivation)）、看板的 `board_entry`（[看板 MCP 工具](board_mcp.md#wait)）、恢复逻辑 `resume_run`。
+新增或修改事件类型时，同步检查：应用的 `derive` 和 `boardFacts`（`frontend/Sources/Janus/Core/Derive.swift`，见 [macOS 应用](../architecture/frontend.md#event_derivation)）、看板的 `board_entry`（[看板 MCP 工具](board_mcp.md#wait)）、恢复逻辑 `resume_run`。
 
 <a id="message_flow"></a>
 ## 消息的流转
@@ -133,7 +133,7 @@
 | 类型 | 说明 |
 | --- | --- |
 | `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置） |
-| `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 3 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，页面也能先看到它说的话 |
+| `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 3 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话 |
 | `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix`，`fix` 是把验证失败发回协作者的会话修复）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer` / `extension`） |
 | `tool.call` | 工具调用及其输入输出摘要 |
 | `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status` |
@@ -150,7 +150,7 @@
 | --- | --- |
 | `question.asked` | 任务提问；`data.key`、`data.question`、`data.options` |
 | `question.escalated` | 交给用户的决定：协作者的提问（带任务），或主控用 `ask_user` 提的问题（`actor` 为 `lead`，没有任务，另有 `data.question`、`data.options`、`data.recommend`）；`data.key`、`data.reason` |
-| `question.answered` | 提问被回答；`data.answer`、`data.via`（`lead`、`session` 或页面回答时省略） |
+| `question.answered` | 提问被回答；`data.answer`、`data.via`（`lead`、`session`；用户在请求卡片上回答时省略） |
 | `answer.delivered` | 回答已发回会话 |
 | `approval.requested` | Agent 请求审批；`data.key`、`data.options` |
 | `approval.granted` / `approval.denied` | 审批结果 |

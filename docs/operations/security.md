@@ -37,7 +37,7 @@
 - Claude Code 在 macOS 钥匙串中的登录信息，通过 `security` 命令读取。
 - 用户登录 shell 中导出的凭据变量：标准变量，以及配置文件中引用的变量（Codex 的 `env_key`、Pi 的 `apiKey`）。Janus 以交互式登录 shell 读取环境，与新开终端看到的一致。
 
-页面上的预览（`/api/local-config`）只列出会复制的文件和变量名，不显示值。
+应用中的预览（`/api/local-config`）只列出会复制的文件和变量名，不显示值。
 
 <a id="secrets"></a>
 ## 凭据保存
@@ -49,7 +49,7 @@
 | Janus home | `~/.janus/` | `0700` |
 
 - SQLite 和设置接口只记录凭据字段和变量的名字（`secretsSet`、`importedEnv`、`envKeys`），不返回值。
-- 登录日志返回给页面前，凭据值替换为 `<secret>`。
+- 登录日志返回给应用前，凭据值替换为 `<secret>`。
 - 切换认证方式时，新方式用不到的凭据被删除。
 
 不要把凭据写进 Agent 设置的「环境变量」文本：这些变量作为普通配置保存在 SQLite 中，并通过设置接口原样返回。
@@ -68,19 +68,19 @@
 - HTTP 服务没有鉴权。默认只监听 `127.0.0.1:7878`。
 - 把 `JANUS_ADDR` 改为非回环地址，会把设置、凭据名、运行记录、目录浏览和全部控制接口暴露给能访问该地址的任何客户端。
 - 看板 MCP 端点用每个 Run 的随机令牌区分 Run，防止其他 Run 和本机其他进程误用；它不是面向网络的认证机制。
-- `/api/file` 只返回 `~/.janus/artifacts/` 内的文件，Janus home 中的数据库和凭据不能通过它读取；`/api/fs` 可以列出本机任意目录，用于目录选择器。
+- `/api/file` 只返回 `~/.janus/artifacts/` 内的文件，Janus home 中的数据库和凭据不能通过它读取。选择目录用系统的文件夹选择框，服务不提供目录浏览接口。
 
 <a id="adapter_install"></a>
 ## 适配器安装
 
 - 适配器从 npm（`acp-extension-codex`、`acp-extension-claude`）和 GitHub（`LodyAI/acp-extension-grok`、`LodyAI/acp-extension-pi`）下载，Janus 不校验包的签名，信任边界与手动执行 `npm install` 相同。
 - 安装命令在 Janus 进程自己的环境中运行（`PATH`、npm 配置、代理），不是 Agent 的隔离环境。安装过程会执行包自带的安装脚本和构建脚本。
-- 来源写在代码中，页面和接口不能指定其他来源。
+- 来源写在代码中，应用和接口不能指定其他来源。
 
 <a id="skill_import"></a>
 ## Skill 导入
 
-- Agent 不读取用户自己的 Agent Skill 目录。Skill 只能在页面中新建，或从用户选择的目录复制一次进入 Janus Skill 库。
+- Agent 不读取用户自己的 Agent Skill 目录。Skill 只能在应用中新建，或从用户选择的目录复制一次进入 Janus Skill 库。
 - 复制时只复制普通文件，符号链接取其内容，不跟随到所选目录之外。
 - 工作目录中的项目 Skill 只有真实路径仍在工作目录内时才会列给 Agent。
 

@@ -33,9 +33,9 @@
 | 用户级数据 | `janus.db`、`agents/`、`secrets/`、`skills/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
 | 全局依赖 | `adapters/` | 第一次用到时下载，见 [ACP 适配器管理](../architecture/adapters.md) |
 | 配置与日志 | `config.toml`、`logs/` | 配置项见[配置](../interfaces/configuration.md#settings) |
-| 程序 | `bin/janus` | 页面已经编进二进制，不依赖仓库 |
+| 程序 | `bin/janus` | 服务的二进制，不依赖仓库 |
 
-仓库中的 `backend/target/`、`macos/.build/` 和 `dist/` 是构建输出，都在 `.gitignore` 中，运行时不会写入仓库。
+仓库中的 `backend/target/`、`frontend/.build/` 和 `dist/` 是构建输出，都在 `.gitignore` 中，运行时不会写入仓库。
 
 删除仓库不影响任何数据；删除 `~/.janus` 会丢失全部数据。理由见 [ADR：用户数据、依赖和日志都放在 Janus home](../decisions/user_home_layout.md)。
 
@@ -48,7 +48,7 @@
 2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 → 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
 3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 14 或更高。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js；要用的 Agent CLI（例如 `codex`、`claude`）仍需自己安装，Grok 和 Pi 的适配器从 GitHub 安装，还需要 `git`（macOS 第一次用到时会提示安装命令行工具）。
 
-应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/macos_app.md#server_process)。
+应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/frontend.md#server_process)。
 
 升级：下载新版本的 DMG 覆盖「应用程序」中的 Janus。应用在运行时会占用服务，覆盖前先退出应用。
 
@@ -63,7 +63,7 @@
 | `just dmg` | 构建 `dist/Janus.app` 和 `dist/Janus-<版本>.dmg` |
 | `just test-mac` | 运行应用的测试，需要 Xcode |
 
-`macos/scripts/package.sh` 只在 Apple 芯片的 Mac 上运行，依次：构建 release 服务、构建应用、下载 Node.js（`NODE_VERSION`，默认 24.22.0，按 nodejs.org 的 SHASUMS256.txt 校验，缓存在 `dist/cache/`）、生成图标、组装 `Janus.app`、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。发布由 CI 完成，见 [CI 与发布](ci_release.md)。
+`frontend/scripts/package.sh` 只在 Apple 芯片的 Mac 上运行，依次：构建 release 服务、构建应用、下载 Node.js（`NODE_VERSION`，默认 24.22.0，按 nodejs.org 的 SHASUMS256.txt 校验，缓存在 `dist/cache/`）、生成图标、组装 `Janus.app`、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。发布由 CI 完成，见 [CI 与发布](ci_release.md)。
 
 `Janus.app` 的内容：
 
@@ -80,7 +80,8 @@
 | --- | --- | --- |
 | Rust 工具链（`cargo`） | 编译 Janus | 支持 edition 2024 |
 | `just` | 执行构建和服务命令 | macOS 可用 `brew install just` |
-| Node.js | 运行 ACP 适配器，安装适配器 | 22.19 及以上（Pi 适配器的要求） |
+| Swift 6（Xcode 或命令行工具） | 编译 macOS 应用 | 测试需要 Xcode |
+| Node.js | 运行 ACP 适配器，安装适配器 | 22.19 及以上（Pi 适配器的要求）；安装包中的 Janus.app 自带，不需要另装 |
 | `npm`、`npx` | 安装适配器 | 随 Node.js 安装 |
 | `git` | 安装 Grok 和 Pi 适配器，检查工作目录 | |
 | Agent CLI | 被适配器启动 | 用到哪个装哪个：`codex`、`claude`、`grok`；Pi 不需要 |
@@ -96,7 +97,7 @@ just install
 
 `just install` 执行 `cargo build --release --locked`，把二进制安装到 `~/.janus/bin/janus`。安装时先写到临时文件再改名，不会把正在运行的服务替换成写了一半的文件。
 
-release 构建把 `frontend/app.html` 编进二进制，安装后的 Janus 不需要仓库。开发时用 `just dev`（等于 `cargo run`），页面直接读仓库里的文件，改完刷新即可。
+安装后的服务不需要仓库。开发时用 `just dev`（等于 `cargo run`）启动服务，用 `just mac` 从源码运行应用。
 
 <a id="run_as_service"></a>
 ## 启动
@@ -115,7 +116,7 @@ release 构建把 `frontend/app.html` 编进二进制，安装后的 Janus 不�
 - 标准输出和错误写入 `~/.janus/logs/janus.out.log`；Janus 自己的日志在 `~/.janus/logs/janus.log`。
 - `just plist` 只打印将要写入的配置，不安装。
 
-启动后打开 `http://127.0.0.1:7878`（或 `config.toml` 中配置的地址），按顺序配置 Agent、角色和工作区。第一次检查某个 Agent 时，它需要的 ACP 适配器会自动下载安装。
+启动后打开 Janus 应用（安装包中的 Janus.app，或从源码 `just mac`），它会连接这个服务，然后按顺序配置 Agent、角色和工作区。第一次检查某个 Agent 时，它需要的 ACP 适配器会自动下载安装。
 
 其他系统没有 launchd：用 `just run`，或者把 `~/.janus/bin/janus` 交给 systemd 用户服务等进程管理器，并给它设置包含 `node` 和 Agent CLI 的 `PATH`。
 
@@ -138,7 +139,7 @@ release 构建把 `frontend/app.html` 编进二进制，安装后的 Janus 不�
 | 停止服务并取消登录自启 | `just stop` |
 | 查看版本 | `~/.janus/bin/janus --version` |
 
-重启或停止时进行中的 Run 会中断，之后可以在页面上「从中断处继续」，见 [Run 生命周期](../domains/run_lifecycle.md#recovery)。
+重启或停止时进行中的 Run 会中断，之后可以在应用中「从中断处继续」，见 [Run 生命周期](../domains/run_lifecycle.md#recovery)。
 
 <a id="upgrade"></a>
 ## 升级

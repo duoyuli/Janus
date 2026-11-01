@@ -9,17 +9,15 @@
 
 - 请求和响应体都是 JSON（导出和文件读取除外）。
 - 处理失败时返回状态码和纯文本错误信息：参数或业务错误 400，资源不存在 404，状态冲突 409，看板令牌错误 403。
-- 错误信息是中文，直接用于页面提示。
+- 错误信息是中文，直接用于界面提示。
 
 <a id="routes"></a>
 ## 路由
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/` | Web 工作台（release 构建使用编进二进制的页面，开发构建读 `frontend/app.html`） |
 | GET | `/api/meta` | Agent 类型定义、本机 CLI 探测结果、数据目录、默认工作目录 |
 | GET | `/api/inspect?path=` | 检查目录：是否存在、是否 Git 仓库、当前分支、未提交改动数 |
-| GET | `/api/fs?path=&hidden=` | 目录选择器的目录列表 |
 | GET | `/api/local-config?kind=&source=` | 预览「复制本机配置」会复制哪些文件和变量，不含值 |
 | GET | `/api/agent-id?kind=&name=` | 根据类型和名字建议一个 Agent id |
 | GET | `/api/adapters` | ACP 适配器的安装状态、版本和进行中的任务 |
@@ -49,7 +47,7 @@
 `POST /api/setup/{kind}` 的 body 就是设置对象本身，带 `id` 表示更新，不带表示新建；返回保存后的对象。字段和校验规则见 [Agent、角色与工作区](../domains/agents_and_roles.md)。
 
 - 连接返回时不包含凭据字段的值。
-- 配置检查的进度写在连接对象上，页面轮询 `/api/setup` 读取。
+- 配置检查的进度写在连接对象上，应用轮询 `/api/setup` 读取。
 
 <a id="adapters"></a>
 ## ACP 适配器

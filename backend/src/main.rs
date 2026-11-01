@@ -9,7 +9,7 @@ use anyhow::Result;
 use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use orchestrator::{App, Config, NewRun, expand_home, git};
@@ -22,7 +22,8 @@ use std::sync::{Arc, Mutex};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-/// Project root: the checkout that holds frontend/ and examples/. Nothing is written here.
+/// Project root: the checkout that holds examples/ (the sample workspace offered on first use).
+/// Nothing is written here.
 fn root() -> PathBuf {
     std::env::var("JANUS_ROOT")
         .map(PathBuf::from)
@@ -69,17 +70,6 @@ fn lock_home(home: &std::path::Path) -> Result<()> {
 type ApiResult = Result<Response, (StatusCode, String)>;
 fn bad(err: anyhow::Error) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, format!("{err:#}"))
-}
-
-/// The page is built into the binary, so an installed (release) Janus serves the page it was built
-/// with and needs no checkout. A development build (`cargo run`), or `JANUS_ROOT` set explicitly,
-/// reads the file on disk instead: edits show on reload, without a rebuild.
-const APP_HTML: &str = include_str!("../../frontend/app.html");
-
-async fn index() -> Response {
-    let from_disk = cfg!(debug_assertions) || std::env::var_os("JANUS_ROOT").is_some();
-    let html = from_disk.then(|| std::fs::read_to_string(root().join("frontend/app.html")).ok()).flatten();
-    Html(html.unwrap_or_else(|| APP_HTML.to_string())).into_response()
 }
 
 async fn meta(State(app): State<Arc<App>>) -> Json<Value> {
@@ -147,12 +137,6 @@ async fn login_connection(State(app): State<Arc<App>>, UrlPath(id): UrlPath<Stri
 }
 
 #[derive(Deserialize)]
-struct FsQuery {
-    path: Option<String>,
-    hidden: Option<bool>,
-}
-
-#[derive(Deserialize)]
 struct PreviewQuery {
     kind: String,
     source: Option<String>,
@@ -171,7 +155,7 @@ async fn adapters(State(app): State<Arc<App>>) -> Json<Value> {
 }
 
 /// `install` (body: optional `version`), `check` for the newest version, or `use` an installed
-/// `version`. Installs and checks run in the background; the page polls `GET /api/adapters`.
+/// `version`. Installs and checks run in the background; the app polls `GET /api/adapters`.
 async fn adapter_action(
     State(app): State<Arc<App>>,
     UrlPath((id, action)): UrlPath<(String, String)>,
@@ -217,14 +201,6 @@ async fn import_skill(Json(body): Json<Value>) -> ApiResult {
 async fn delete_skill(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     app.delete_skill(&id).map_err(bad)?;
     Ok(Json(json!({ "ok": true })).into_response())
-}
-
-async fn fs_list(Query(q): Query<FsQuery>) -> ApiResult {
-    Ok(Json(
-        agents::list_dir(q.path.as_deref().unwrap_or(""), q.hidden.unwrap_or(false))
-            .map_err(bad)?,
-    )
-    .into_response())
 }
 
 #[derive(Deserialize)]
@@ -302,7 +278,7 @@ async fn stream(
     let backlog: Vec<_> = backlog.iter().map(to_sse).collect();
     let live = live.filter_map(move |msg| match msg {
         Ok(e) if e.run_id == id && e.seq > last => Some(to_sse(&e)),
-        // A lagged receiver tells the page to reload rather than silently skip events.
+        // A lagged receiver tells the app to reload rather than silently skip events.
         Err(_) => Some(Ok(SseEvent::default().event("lagged").data("{}"))),
         _ => None,
     });
@@ -476,10 +452,8 @@ async fn main() -> Result<()> {
 
     // @project-doc docs/interfaces/http_api.md#routes
     let router = Router::new()
-        .route("/", get(index))
         .route("/api/meta", get(meta))
         .route("/api/inspect", get(inspect))
-        .route("/api/fs", get(fs_list))
         .route("/api/local-config", get(local_preview))
         .route("/api/adapters", get(adapters))
         .route("/api/adapters/{id}/{action}", post(adapter_action))

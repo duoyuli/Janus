@@ -40,7 +40,7 @@ Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/se
 <a id="connection_check"></a>
 ## 配置检查
 
-`test_connection` 按顺序执行以下步骤，结果在页面上逐步显示：
+`test_connection` 按顺序执行以下步骤，结果在应用中逐步显示：
 
 1. **ACP 适配器**：内置运行时需要的适配器没有安装时，当场安装最新版本。自定义命令没有这一步。
 2. **运行时**：找到 CLI 和适配器入口。
@@ -72,11 +72,11 @@ Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话�
 
 Janus 不让任何 Agent 进入 Plan 模式。Plan 模式只出方案、不执行，而 Janus 的任务要真正完成；Codex 主控在 Plan 模式下还会跳过 `/goal` 的自动推进（日志为 `skipping goal continuation ... reason=PlanMode`），Run 会一直停在「目标进行中」。
 
-- `session_options` 把 id 含 `plan` 的控制项（`is_plan_toggle`，例如 Codex 的 `plan-mode` 是 on / off 下拉，Grok 的 `plan_mode` 是布尔开关）从 `controls` 中移到 `planToggles`，并从所有下拉控制项中去掉值为 `plan` 的选项（`is_plan_value`，例如 Claude Code 的 Plan 权限模式和旧版 Agent 的 `plan` session mode）。角色编辑器因此看不到这些选项；在这条规则之前检查过的 Agent，页面按同样规则过滤它保存的选项。
+- `session_options` 把 id 含 `plan` 的控制项（`is_plan_toggle`，例如 Codex 的 `plan-mode` 是 on / off 下拉，Grok 的 `plan_mode` 是布尔开关）从 `controls` 中移到 `planToggles`，并从所有下拉控制项中去掉值为 `plan` 的选项（`is_plan_value`，例如 Claude Code 的 Plan 权限模式和旧版 Agent 的 `plan` session mode）。角色编辑器因此看不到这些选项；在这条规则之前检查过的 Agent，应用按同样规则过滤它保存的选项。
 - `role_session` 丢弃角色中与 Plan 有关的值，旧角色里开着的 Plan 不再生效，保存角色时也会被清掉。
 - 打开会话时，`configure_session` 把仍处于开启状态的 Plan 控制项设为关闭值（`plan_off_value`：布尔为 `false`，下拉为 `off` 一类的选项）；下拉控制项的当前值是 `plan` 且角色没有指定时，改为第一个其他选项。关闭失败时会话以错误结束，不会带着 Plan 模式运行。
 
-Janus 不从权限模式推导成员「会修改文件 / 只读」：页面和主控收到的协作者名单都只显示 Agent 自己的权限模式名，实际能做什么由 Agent 按自己的模式执行，Janus 不做额外校验。设计取舍见 [ADR：权限交给 Agent 原生模式](../decisions/agent_native_permissions.md)。
+Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和主控收到的协作者名单都只显示 Agent 自己的权限模式名，实际能做什么由 Agent 按自己的模式执行，Janus 不做额外校验。设计取舍见 [ADR：权限交给 Agent 原生模式](../decisions/agent_native_permissions.md)。
 
 <a id="roles"></a>
 ## 角色
@@ -91,7 +91,7 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：页面和�
 | `skills` | Skill 库中的 Skill id |
 | `mcp` | stdio MCP 服务器：名称、命令、参数、环境变量名（值另存） |
 | `lead` | 是否可以担任主控 |
-| `color`、`init` | 页面上的颜色和缩写 |
+| `color`、`init` | 应用中的颜色和缩写 |
 
 规则：
 
@@ -131,19 +131,19 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：页面和�
 
 任务按 Run 快照中成员的 `role_id` 归到角色，主控不计入。统计按角色而不是按当时绑定的 Agent 归类，角色换过 Agent 或模型后，新旧数据会合在一起。
 
-角色列表在每个角色下显示这些数字；运行页的 Agent 状态面板显示每个协作者本次 Run 的「首次通过 / 已结束」和验证没通过的任务数。
+角色编辑器在标题下显示这些数字；运行页的 Agent 面板在每个协作者的悬停提示中显示本次 Run 的「首次通过 / 已结束」和验证没通过的任务数。
 
 <a id="member_snapshot"></a>
 ## 成员快照
 
 `team_for` 把工作区展开成 Run 的成员（`Member`），包括：角色字段、Agent 类型与名称、会话控制项、权限模式标签（例如「Agent · Plan 开启」）、模型标签（例如「GPT-6.1 Sol，推理强度 high（Agent 默认）」）、角色指令和 Provider 的自定义提示词、Skill 和 MCP。
 
-这些字段同时用于：打开会话时设置控制项、主控说明中的协作者名单、页面「团队与权限」标签页。
+这些字段同时用于：打开会话时设置控制项、主控说明中的协作者名单、应用的「团队与权限」页。
 
 <a id="skills"></a>
 ## Skill
 
-- **Janus Skill 库**：`$JANUS_HOME/skills/<id>/SKILL.md`，在页面中新建，或从用户选择的目录复制一次。复制时只复制普通文件，符号链接取其内容，不跟随到所选目录之外。Agent 不读取用户自己的 Agent Skill 目录。
+- **Janus Skill 库**：`$JANUS_HOME/skills/<id>/SKILL.md`，在应用中新建，或从用户选择的目录复制一次。复制时只复制普通文件，符号链接取其内容，不跟随到所选目录之外。Agent 不读取用户自己的 Agent Skill 目录。
 - **Run 快照**：Run 创建时，成员的 Skill 复制到 `~/.janus/runs/<run>/skills/`，提示中给出快照路径。
 - **项目 Skill**：工作目录中 `.agents/skills`、`.claude/skills`、`.codex/skills`、`.pi/skills`、`.janus/skills` 下的 Skill，只要真实路径仍在工作目录内，就会列在每个会话的提示中。
 

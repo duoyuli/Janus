@@ -14,7 +14,7 @@
 1. 仓库只放代码，运行时不向仓库写任何文件。
 2. 用户级数据（数据库、Agent 配置与凭据、Skill 库、产物、Skill 快照）、全局依赖（`adapters/`）、配置（`config.toml`）和日志（`logs/`）都在 Janus home（`JANUS_HOME`，默认 `~/.janus`）。
 3. 配置项按「环境变量 → `config.toml` → 默认值」读取。
-4. release 构建把页面编进二进制，安装到 `~/.janus/bin/janus` 后不依赖仓库；开发构建继续读仓库中的页面文件。
+4. 安装到 `~/.janus/bin/janus` 的服务和安装包中的 `Janus.app` 都不依赖仓库。
 5. `/api/file` 只能读取 `artifacts/`，因为 Janus home 里还有数据库和凭据。
 6. 现有数据一次性搬到新位置，数据库中的旧路径一并改写；代码中不保留旧布局的兼容逻辑。
 

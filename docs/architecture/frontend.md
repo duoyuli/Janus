@@ -1,51 +1,128 @@
-# Web 工作台
+# macOS 应用
 
-本文说明 `frontend/app.html` 的结构：页面如何从事件推导状态、怎样与后端通信，以及主要页面和请求卡片。后端接口见 [HTTP API](../interfaces/http_api.md)，事件含义见[事件参考](../interfaces/events.md)。
+本文说明 `frontend/` 中的 macOS 应用：它和 Janus 服务的关系、源码结构、怎样从事件推导界面状态、与服务同步的方式，以及主要页面和请求卡片。安装、打包和发布见[部署方案](../operations/deployment.md#macos_app)和 [CI 与发布](../operations/ci_release.md)，设计取舍见 [ADR：用原生 macOS 应用做展示层](../decisions/native_macos_app.md)。
 
 ## 形态
 
-- 单个 HTML 文件，内联 CSS 和 JavaScript，没有构建步骤和第三方依赖。
-- release 构建把文件编进二进制，安装后的 Janus 不需要仓库。开发构建（`just dev`）在每次请求 `/` 时从磁盘读取文件，修改后刷新页面即可生效，不需要重启后端。
-- 全局状态在对象 `S` 中。界面通过拼接 HTML 字符串渲染，事件处理通过 `data-act` 属性分派到 `ACT`（运行页）、`SETUP_ACT`（设置页）等表。
+- SwiftUI 应用，Swift Package（`frontend/Package.swift`）。只用系统框架，没有第三方依赖。
+- 只支持 Apple 芯片（arm64），最低 macOS 14。
+- 它是 Janus 唯一的界面：所有数据和操作都通过 [HTTP API](../interfaces/http_api.md) 读写，编排器不提供网页。
+- 安装包 `Janus.app` 里放着应用（`Contents/MacOS/Janus`）、Janus 服务（`Contents/MacOS/janus-server`，即 release 构建的 `janus`）和 Node.js（`Contents/Resources/node`），下载后不需要编译 Rust，也不需要安装 Node。
+
+<a id="server_process"></a>
+## 与 Janus 服务的关系
+
+`Backend`（`Core/Backend.swift`）在启动时决定用哪个服务：
+
+1. 读取 Janus 配置的地址：`JANUS_ADDR`，否则 `<Janus home>/config.toml` 的 `addr`，否则 `127.0.0.1:7878`，与服务自己的规则相同。
+2. 这个地址上有 Janus 应答 `GET /api/meta`，并且它的 `dataDir` 就是这个 Janus home（例如 `just start` 启动的 launchd 服务，或 `just dev`）时，直接连接它，不另起服务。端口上是别的程序，或是另一个 Janus home 的 Janus，都不算。
+3. `<Janus home>/janus.pid` 记录的进程还活着时，说明已有 Janus 在用这个 home，只是不在配置的地址上：从 `logs/janus.log` 最后一行「`http://<地址>  ·  home <目录>`」取得它的地址并连接。连不上时提示先退出那个 Janus，不再启动第二个（[单实例](../operations/deployment.md#single_instance)）。
+4. 否则启动服务程序：优先用应用包内的 `janus-server`，其次是 `JANUS_SERVER_BIN`，最后是 `just install` 安装的 `<Janus home>/bin/janus`。30 秒内没有应答、或服务退出时，启动页显示日志末尾，提供「重试」和「打开日志目录」。
+
+<a id="port_conflict"></a>
+### 端口被占用
+
+应用自己启动服务时，先按服务的方式（`SO_REUSEADDR`）试绑定配置的端口：
+
+- 端口空闲就用它。
+- 被占用时，依次试后面 20 个端口，都不行就由系统分配一个空闲端口。选中的地址通过 `JANUS_ADDR` 传给服务，服务写进看板 MCP 地址的也是它。
+- 检查和服务真正绑定之间端口仍可能被抢走：服务因 `Address already in use` 退出时，换下一个端口重试，最多 3 次。
+- 改用了其他端口时，侧栏底部的地址下显示原因，例如「端口 7878 被其他程序占用，改用 7879」。`config.toml` 不会被改写，下次启动仍先试配置的端口。
+
+### 应用启动的服务
+
+- 标准输出和错误追加到 `<Janus home>/logs/janus.out.log`，和服务方式运行时一样。
+- 从 Finder 打开的应用只有很短的 `PATH`，找不到 `git` 和 Agent CLI。应用用登录 shell（`$SHELL -ilc`）读取用户的 `PATH`，再补上 Homebrew、`~/.local/bin` 等常见位置，传给服务。
+- 包内的 Node.js 排在这个 `PATH` 的最前面，并设为 `JANUS_NODE`：ACP 适配器用它运行，`npm` / `npx` 安装适配器时也用它，Agent 进程继承同一个 `PATH`。用户自己设置了 `JANUS_NODE` 或 `config.toml` 的 `node` 时不覆盖。
+- 退出应用时停止服务（SIGTERM，3 秒后 SIGKILL）；被 `kill` 或 Ctrl-C 结束时也一样。还有进行中的 Run 时，退出前先确认，这些 Run 会中断，下次可以「从中断处继续」。
+- 连接的是别人启动的服务（launchd 服务）时，退出应用不影响它。
+
+<a id="source_layout"></a>
+## 源码结构
+
+```text
+frontend/
+├── Package.swift
+├── Info.plist                 # 应用包的 Info.plist 模板，版本号由打包脚本填入
+├── Sources/Janus/
+│   ├── App.swift              # 入口、菜单命令、AppDelegate（启动和停止服务）、启动页
+│   ├── Core/
+│   │   ├── JSON.swift         # 动态 JSON 值，事件和设置对象都按字段读取
+│   │   ├── API.swift          # HTTP 请求和 SSE 事件流
+│   │   ├── Backend.swift      # 找到或启动 Janus 服务
+│   │   ├── AppStore.swift     # Agents、角色、工作区、Run 列表、适配器、Skill 库，以及当前屏幕
+│   │   ├── RunModel.swift     # 打开的 Run：事件、订阅、操作、回放、草稿
+│   │   ├── Derive.swift       # derive / boardFacts：由事件推导界面状态
+│   │   ├── Format.swift       # 状态文字、事件图标与色调、时间和文本格式
+│   │   ├── Setup.swift        # 会话控制项、权限模式标签、环境变量文本
+│   │   └── Snapshots.swift    # 开发用：按命令保存窗口截图
+│   └── UI/                    # 侧栏、工作区首页、Run 各页面、设置窗口（Settings/）
+├── Tests/JanusTests/          # Swift Testing 测试
+└── scripts/                   # package.sh（打包，含下载 Node.js）、make-icon.swift（图标）
+```
 
 <a id="event_derivation"></a>
 ## 由事件推导状态
 
-运行页不保存自己的业务状态。`derive(events)` 从头遍历事件，推导出任务、Agent 状态、待处理事项（`inbox`）、回答、产物、阶段等，再交给各个视图渲染。
+运行页不保存自己的业务状态。`derive(events)`（`Core/Derive.swift`）从头遍历事件，推导出任务、Agent 状态、待处理事项（`inbox`）、回答、消息、产物和交付结果；`boardFacts` 由此生成共享看板的「待处理」「结论」「产物」「交接」「决定」。回放时把前 N 条事件交给同样的函数。
 
 这样做的约束：
 
-- 新增或修改事件类型时，必须同步更新 `derive` 中对应的分支，否则页面不会反映新状态。macOS 应用的 `Derive.swift` 是同一套规则的移植，要一起改，见 [macOS 应用](macos_app.md#event_derivation)。
-- 页面上的「决定」「交接」「待处理」等看板条目由 `boardFacts` 从事件生成，同样依赖事件类型和 `data` 字段。「待处理」分两类：用户要处理的事项（来自 `inbox`，标「等你决定」，排在前面）和主控在处理的事项（协作者的阻塞和提问、失败的任务、依赖失败的任务，标「主控处理」）。只有存在前一类时，这一栏才用警示底色。还在路上的消息只显示在各会话的「待发送」区，不进入这一栏。
-- 同一个待处理事项（按 `key`）在 `inbox` 中只保留一条。事项被回答、撤回（`decision.withdrawn`）或 Run 结束后，从「需要你处理」中移除或标记为过期。
+- 新增或修改事件类型时，必须同步更新 `derive` 中对应的分支，否则界面不会反映新状态；看板条目依赖 `boardFacts` 对事件类型和 `data` 字段的解释。检查清单见[事件参考](../interfaces/events.md)。
+- 缺少前提的事件（例如早期 Run 中没有记录尝试的 `attempt.failed`）被跳过，不中断推导。
+- 「待处理」分两类：用户要处理的事项（来自 `inbox`，标「等你决定」，排在前面）和主控在处理的事项（协作者的阻塞和提问、失败的任务、依赖失败的任务，标「主控处理」）。只有存在前一类时，这一栏才用警示色。还在路上的消息只显示在各会话的「待发送」区，不进入这一栏。
+- 同一个待处理事项（按 `key`）在 `inbox` 中只保留一条。事项被回答、撤回（`decision.withdrawn`）或 Run 结束后，从「需要你处理」中移除。
 
 <a id="server_sync"></a>
-## 与后端同步
+## 与服务同步
 
 | 场景 | 行为 |
 | --- | --- |
-| 打开 Run | `GET /api/runs/{id}` 取全部事件，再用 `EventSource` 订阅 `/api/runs/{id}/stream?after=<最后一个 seq>` |
-| 收到事件 | `seq` 必须正好是上一个加 1；出现缺口或收到 `lagged` 时，重新打开 Run |
-| 发送操作 | `act()` 自动附加 `commandId`（去重）和 `expectedSequence`（当前最后一个 `seq`）。返回 409 时刷新一次再重试 |
-| 中断的 Run | 发送 `resumeRun` 或 `message` 后重新连接 |
-| 回放 | 审计页可以按 `seq` 回放；回放期间不发送任何操作 |
+| 打开 Run | `GET /api/runs/{id}` 取全部事件，再订阅 `/api/runs/{id}/stream?after=<最后一个 seq>` |
+| 收到事件 | `seq` 必须正好是上一个加 1；出现缺口或收到 `lagged` 时重新读取整个 Run。一批事件到达后合并成一次推导（60 毫秒） |
+| 事件流断开 | 2 秒后重新读取并订阅，只要这个 Run 还开着 |
+| 发送操作 | 附加 `commandId`（去重）和 `expectedSequence`（当前最后一个 `seq`）；返回 409 时刷新一次再重试 |
+| 中断的 Run | `resumeRun` 或 `message` 成功后重新连接 |
+| 回放 | 审计页可以按 `seq` 回放；回放期间不发送任何操作。审计页顶部的系统不变量检查平时只显示一行结论，有不满足的项时自动展开 |
+| Run 状态变化 | 立即刷新侧栏的 Run 列表；平时每 5 秒刷新一次 |
+| Agent 检查、登录、适配器安装 | 在服务端后台进行，应用轮询直到结束 |
 
 <a id="screens"></a>
 ## 页面
 
-| 页面 | 地址参数 | 内容 |
-| --- | --- | --- |
-| 工作区首页 | `?ws=<id>` | 当前工作区、目标输入框、历史 Run |
-| 设置 | `?settings=agents` / `?settings=roles` / `?settings=adapters` | Agents（Provider 连接与配置检查）、角色（模型、权限、Skill、MCP，以及[执行统计](../domains/agents_and_roles.md#role_stats)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)） |
-| 工作区编辑 | 无 | 目录选择、成员、主控 |
-| 运行页 | `?run=<id>` | 工作台、审计与回放、团队与权限三个标签，以及任务页和 Agent 会话页 |
+| 位置 | 内容 |
+| --- | --- |
+| 侧栏 | 工作区（目录在悬停提示中）、当前工作区的任务记录（带状态）；底部是服务地址和打开设置窗口的按钮 |
+| 工作区首页 | 目标输入框（⌘↩ 交给主控；还没有任务时显示几个示例目标）、一行团队摘要、等你处理的 Run（等你决策、等你验收）。完整的 Run 列表在侧栏，团队成员的模型和权限在工作区设置 |
+| 工作区设置（表单） | 目录（系统的文件夹选择框）、启用的角色、主控 |
+| 运行页 | 工具栏切换「工作台 / 审计与回放 / 团队与权限」，并可复制交付摘要、导出事件日志（JSONL）。任务页和 Agent 页的工具栏左侧有返回按钮，此时分段控件不选中任何一项，点「工作台」也能返回 |
+| 任务页 / Agent 页 | 任务页左侧是会话、验收标准和折叠的执行轨迹；右侧一张概要卡片列出执行者、上游、下游和尝试，运行环境与分配理由折叠在其中，有产物时再显示产物。编排器发给 Agent 的任务说明在会话中每次尝试的开头展开查看。Agent 页是对话和它负责的任务 |
+| 设置窗口（⌘,） | 系统的设置窗口（SwiftUI `Settings`，`UI/Settings/SettingsView.swift`），工具栏切换三个面板，窗口标题跟随面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
 
-运行页的工作台包含阶段条、任务图（`dag`）、团队面板、共享看板和交付卡片。目标可能是一大段粘贴的说明，顶栏、Run 列表和运行卡片只显示它的第一行（`goalTitle`），完整目标在运行卡片中展开查看。交付卡片（`resultCard`）依次显示主控的总结、交付物、证据、风险与限制，以及验收操作；偏差分类只在编排器判定了某一类（`diagnosis.cat`）时显示。阶段条是「推进目标 / 协作 / 交付 / 验收」（`goalStages`）；早期计划模式的 Run 显示它们自己的「确认计划 / 执行 / 评审 / 交付 / 验收」。
+工作台包含运行卡片（阶段条「推进目标 / 协作 / 交付 / 验收」）、需要你处理、交付结果、任务图、共享看板和 Agent 面板，后四项有内容时才显示。共享看板只显示有内容的栏，按 Agent 或任务筛选收在标题右侧的「筛选」菜单中；完整的事件列表在「审计与回放」。目标可能是一大段粘贴的说明，标题和 Run 列表只显示它的第一行（`goalTitle`），完整目标在运行卡片中展开查看。交付结果依次显示主控的总结、交付物、证据、风险与限制（没有的项不显示），以及验收操作；偏差分类只在编排器判定了某一类（`diagnosis.cat`）时显示。早期计划模式的 Run 显示它们自己的「确认计划 / 执行 / 评审 / 交付 / 验收」。
+
+产物在单独的窗口中查看，先读 `/api/file`，不在产物目录中的交付物直接读本机文件。
+
+<a id="request_cards"></a>
+## 请求卡片
+
+所有需要用户处理的事项都用 `RequestCard`（`UI/Run/Requests.swift`）渲染为统一的卡片：
+
+| 卡片 | 来源 |
+| --- | --- |
+| 提问 | `question.escalated`（协作者的提问由主控转给用户） |
+| 主控请你决定 | 主控的 `ask_user`（`question.escalated`，没有任务）；没有选项时直接写回答 |
+| 审批 | `approval.requested`，按 Agent 给出的选项渲染按钮 |
+| 表单或链接 | `input.requested`，按 JSON Schema 渲染表单（单选、多选、文字、数字、开关，以及每题的「自己写回答」） |
+| 预算用完 | `run.budget_exhausted` |
+| 会话等待消息 | 人工接管中一轮结束 |
+
+卡片出现在工作台的「需要你处理」，也内联在对应的会话中，在任一位置处理都生效。
 
 <a id="session_messages"></a>
 ## 会话中的消息
 
-会话页按[消息的流转](../interfaces/events.md#message_flow)显示用户和主控发给 Agent 的消息：
+会话视图（`ChatCard`）按[消息的流转](../interfaces/events.md#message_flow)显示用户和主控发给 Agent 的消息：
 
 | 状态 | 显示位置 |
 | --- | --- |
@@ -54,41 +131,38 @@
 | 插入当前这一轮（`steer`） | 对话中 `message.routed` 的位置，用「插话」框显示 |
 | 作为新一轮（`prompt`） | 对话中 `message.routed` 的位置，普通消息气泡 |
 | 排队或留言后送达 | 对话中 `message.delivered` 的位置，即它真正进入会话的时刻 |
-
-`derive` 把带 `id` 的消息汇总在 `msgs` 中，`pendingTray` 渲染「待发送」区，主控打断这一轮后送达的消息显示为「正在打断这一轮，马上送达」。
+| 主控打断这一轮后送达 | 「待发送」区显示「正在打断这一轮，马上送达」 |
 
 会话中的其他内容：
 
-- Agent 的消息按轻量 Markdown 渲染（`md`）。
-- 每次工具调用一行（`toolRow`），点开看完整输入和输出。Janus 看板工具按用途显示，例如「提交编排：T1 … → Researcher」「回复 T2：…」，完整参数来自 `tool.started` / `tool.completed` 的 `data.args`。同一次调用返回后替换「等待返回」那一行；Agent 自己上报的同一次看板调用（`mcp.janus.*`）不重复显示。
-- 连续超过 4 次工具调用折叠为「N 个操作」，只露出最后两次（`chatBody`）。
-- 协作者问主控的问题显示为「问主控 · 主控会回答，不需要你处理」。没通过验收核对、发回会话补充的提示显示为「验证没有通过 · 发回给它修复」。结构化结果逐条显示验收标准的 ✓ / ✗ 和证据；任务页的验收标准也按最新结果标出每一条。
-- 看板「结论」中，被主控修订过的结论标「已被主控修订」，展开后先列修订；主控的修订、重做、取消、接受结果都记在「决定」中。
-- Agent 自主执行时，会话标题旁显示距离最后一次活动的时间（超过 20 秒才显示，`tickQuiet` 每 5 秒更新，不重新渲染页面）。Agent 长时间思考或写大段内容时，ACP 不会有任何更新，这行字用来区分「在工作」和「卡住」。
-- 对话区高度随窗口变化。重新渲染时，`patch` 保留带 `data-k` 的折叠块的展开状态。
-
-<a id="request_cards"></a>
-## 请求卡片
-
-所有需要用户处理的事项都通过 `askShell` 渲染为统一的卡片：
-
-| 卡片 | 来源 | 函数 |
-| --- | --- | --- |
-| 提问 | `question.escalated` | `questionAsk` |
-| 审批 | `approval.requested`，按 Agent 给出的选项渲染按钮 | `approvalAsk` |
-| 表单或链接 | `input.requested`，按 JSON Schema 渲染表单 | `inputAsk`、`schemaForm` |
-| 预算用完 | `run.budget_exhausted` | `budgetAsk` |
-| 会话等待消息 | 人工接管中一轮结束 | `sessionAsk` |
-| 主控请你决定 | 主控的 `ask_user`（`question.escalated`，没有任务） | `leadAsk`；没有选项时直接写回答 |
-
-会话页（`agentSession`）也会内联显示该会话中仍在等待的请求，用户在任一位置处理都生效。
+- Agent 的消息按轻量 Markdown 渲染（段落、列表、粗体、行内代码和本地文件链接）。
+- 每次工具调用一行，点开看完整输入和输出。Janus 看板工具按用途显示，例如「提交编排：T1 … → Researcher」「回复 T2：…」；同一次调用返回后替换「等待返回」那一行；Agent 自己上报的同一次看板调用（`mcp.janus.*`）不重复显示。连续超过 4 次工具调用折叠，只露出最后两次。
+- 协作者问主控的问题显示为「问主控 · 主控会回答，不需要你处理」。没通过验收核对、发回会话补充的提示显示为「验证没有通过 · 发回给它修复」。结构化结果逐条显示验收标准的 ✓ / ✗ 和证据。
+- Agent 自主执行超过 20 秒没有新输出时，标题旁显示「N 秒没有新输出」，每 5 秒更新，原因写在悬停提示中。Agent 长时间思考或写大段内容时，ACP 不会有任何更新，这行字用来区分「在工作」和「卡住」。
+- 输入框按会话状态提供插话、接管、打断、交还托管、以当前结果完成、留言或「发送并继续」，⌘↩ 发送。
 
 ## 角色权限编辑
 
-角色编辑器的「权限」区域只显示 Agent 声明的权限类控制项（`permSection`），其余控制项放在 `otherCtrls`。权限选项按 Agent 原生的名字和说明显示。页面不标注「可写」「只读」，角色列表和工作区只显示 Agent 自己的权限模式名（`permLabel`）。只有 Claude Code 和 Codex 的角色可以勾选「可以担任主控」（`leadCapable`）。规则见 [Agent、角色与工作区](../domains/agents_and_roles.md#permission_modes)。
+角色编辑器的「权限」区域只显示 Agent 声明的权限类控制项，其余控制项放在「会话选项」。权限选项按 Agent 原生的名字和说明显示，界面不标注「可写」「只读」，角色列表和工作区只显示 Agent 自己的权限模式名。Plan 类控制项和取值不显示。只有 Claude Code 和 Codex 的角色可以开启「可以担任主控」。规则见 [Agent、角色与工作区](../domains/agents_and_roles.md#permission_modes)。
 
-## 交互约束
+<a id="interaction"></a>
+## 交互约定
 
-- 重新渲染时，`renderScreen` 保存并恢复滚动位置，避免点击选项后页面跳回顶部。
-- Agent 写的文字（目标、交付总结）用 `md` 按轻量 Markdown 渲染：段落、列表、粗体、行内代码和链接。先转义再加标签；本地文件链接显示为代码，完整路径放在 `title` 中。看板卡片的摘要按长度截断，用 `plain` 去掉 Markdown 标记再显示，展开后用 `md` 显示全文。
-- 浏览器存储只用于记住上次打开的工作区（`localStorage` 的 `janus.ws`），读写都包在 `try` 中。
+按 Apple 人机界面指南（HIG）统一的做法，新增界面时沿用：
+
+- **菜单栏**：窗口里的命令在菜单栏都有对应项，不适用时禁用而不隐藏（`JanusCommands`，`App.swift`）。「文件」有新目标（⌘N）、新建工作区（⇧⌘N）、导出事件日志（⇧⌘E）；「显示」有工作台 / 审计与回放 / 团队与权限（⌘1 / ⌘2 / ⌘3）、返回工作台（⌘[）、刷新（⌘R）和显示 / 隐藏侧栏；「Run」菜单有暂停 / 继续（⇧⌘P）、从中断处继续、停止、复制交付摘要（⇧⌘C）和回到实时。
+- **Esc**：运行页先退出回放，再从任务页或 Agent 页回到工作台。表单 sheet 中 Esc 等于「取消」。
+- **停止 Run**：界面上 Run 级的 `cancel` 叫「停止」，状态显示「已停止」，避免和确认框的「取消」按钮混淆；任务级的取消仍叫「已取消」。
+- **确认框**：`confirm` 的「取消」按钮响应 Esc。会造成数据丢失的操作（删除、停止 Run）先确认，按钮文字带「…」。表单 sheet 有未保存的修改时，取消或 Esc 先问「放弃未保存的更改？」。
+- **不能执行时禁用并说明原因**：目标、回答、消息为空，或表单还有必填项时，提交按钮禁用，悬停提示或旁边的说明写出原因，不在点击后弹出提示。
+- **反馈**：底部的提示（`Toast`）只用于确认已完成的操作和报告请求失败，使用系统材质，VoiceOver 会朗读。
+- **颜色**：状态色（`Tone`）和品牌色 `Color.accent` 分别定义浅色和深色值，文字在卡片和对应色调的标签上都不低于 4.5:1。选中状态（选项、权限模式、Agent 类型）用系统强调色 `Color.accentColor`，并同时显示勾选图标，不只靠颜色区分。
+- **指针与辅助功能**：自定义的可点按区域（任务节点、Agent 行、看板卡片、选项）加 `.hoverable()` 悬停反馈；只有图标的按钮用 `Label` 加 `.labelStyle(.iconOnly)` 提供文字标签；隐藏标签的选择器、开关和输入框也要给出标签文字。
+- **做减法**：没有内容的区域不显示，不放「还没有…」占位文字（任务图、共享看板的各栏、交付结果中的交付物 / 证据 / 风险、「需要你处理」都是这样）。次要信息放进悬停提示或二级页面：运行卡片只显示用时和任务进度，主控、工作区和开始时间在「团队与权限」；Agent 面板每行只显示名字、状态和当前在做的事，角色、运行时、模型和心跳在悬停提示中。
+- **sheet 尺寸**：编辑器使用最小尺寸和理想尺寸，不写固定高度，窗口较小时也能完整显示。
+
+## 实现约束
+
+- 视图中的局部状态用 `Local`（`SwiftUI.State` 的别名）声明：新 SDK 中 `@State` 是宏，宏插件只随 Xcode 提供，只装命令行工具时无法编译。别名展开为同一个属性包装器，两种环境都能构建。
+- 带数字插值的界面文字用 `Text(verbatim:)` 或 `String(...)`，否则 SwiftUI 会按地区格式加千位分隔符（`#1,295`）。
+- 本地只用 `UserDefaults` 记住上次打开的工作区（`janus.ws`）和设置窗口的面板（`janus.settingsTab`）。

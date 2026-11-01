@@ -46,7 +46,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 约束：
 
 - `configs` 不保存凭据。Agent 的凭据在 `secrets.json`，角色 MCP 的环境变量值在 `secrets/roles/`，`configs` 中只记录变量名（`envKeys`）。
-- 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。页面用 `after` 参数从某个 `seq` 之后续读。
+- 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。应用用 `after` 参数从某个 `seq` 之后续读。
 - 租约有效期 10 分钟。持有者是 `janus-<pid>`；该进程已经不存在时，其他实例可以接管。
 
 <a id="snapshots"></a>

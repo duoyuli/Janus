@@ -1,7 +1,7 @@
 # ADR：权限交给 Agent 原生模式
 
 - 状态：已采纳（accepted），记录于 2026-10-30，2026-10-31 修订第 3 条，并增加第 7 条。取代早期角色上的「可以修改文件」「工具调用需要我批准」开关和能力标签。
-- 相关文档：[Agent、角色与工作区](../domains/agents_and_roles.md#permission_modes)、[ACP 集成](../interfaces/acp_integration.md#session_setup)、[Web 工作台](../architecture/frontend.md#request_cards)。
+- 相关文档：[Agent、角色与工作区](../domains/agents_and_roles.md#permission_modes)、[ACP 集成](../interfaces/acp_integration.md#session_setup)、[macOS 应用](../architecture/frontend.md#request_cards)。
 
 ## 背景
 
@@ -11,8 +11,8 @@
 
 1. 配置检查时读取 Agent 在 ACP 会话中声明的全部控制项，按类别和 id 识别其中的权限模式。
 2. 角色直接选择这些控制项的值，打开会话时原样设置。
-3. 是否修改文件不再是角色设置。2026-10-31 修订：Janus 也不再从权限模式推导「会修改文件 / 只读」，页面和主控收到的协作者名单都只给出 Agent 自己的权限模式名，由主控按模式本身理解。
-4. Janus 不根据权限模式拦截或校验任何操作；Agent 发出的审批和表单请求统一转给用户，在页面上用同一种卡片渲染。
+3. 是否修改文件不再是角色设置。2026-10-31 修订：Janus 也不再从权限模式推导「会修改文件 / 只读」，界面和主控收到的协作者名单都只给出 Agent 自己的权限模式名，由主控按模式本身理解。
+4. Janus 不根据权限模式拦截或校验任何操作；Agent 发出的审批和表单请求统一转给用户，在界面上用同一种卡片渲染。
 5. 删除能力标签；主控按职责、Agent、模型和权限模式分配工作。
 6. 旧角色的开关在启动时一次性换算成各 Agent 的原生模式。迁移完成后，换算代码已在 2026-10-30 的清理中删除。
 7. 例外：各 Agent 的 Plan 模式不提供给角色，打开会话时始终关闭（2026-10-31 增加）。Plan 模式只出方案不执行，Codex 主控在其中还会跳过 `/goal` 的自动推进，曾导致 Run 停在「目标进行中」。见 [不使用 Plan 模式](../domains/agents_and_roles.md#no_plan_mode)。

@@ -111,7 +111,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `[没通过验收]` | `task.failed`（`reason: "verification"`） | 协作者在原会话补过一次，仍有标准没核对、没证据或自认没达到，逐条列出；提示用 `accept`、`retry` 或 `cancel` 处理 |
 | `[失败]` | `task.failed`（`reason: "attempts"`） | 用完尝试次数，需要主控决定 |
 | `[无法开始]` | `task.blocked` | 依赖失败；处理好依赖后会自动继续 |
-| `[用户已回答]` | `question.answered`（不是主控回答的） | 用户在会话或页面上直接回答了协作者的提问，主控不要再回答 |
+| `[用户已回答]` | `question.answered`（不是主控回答的） | 用户在会话或应用中直接回答了协作者的提问，主控不要再回答 |
 | `[用户决定]` | `question.answered`（`ask_user` 的问题） | 用户对主控所提问题的回答 |
 | `[进展]` `[阻塞]` `[备注]` | `board.posted` | 协作者写回的内容 |
 | `[提问]` | `question.asked` | 问题和选项，需要用 `reply` 回答 |
@@ -182,7 +182,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 { "question": "部署到哪个环境？", "why": "需要用户的账号", "options": ["测试", "生产"], "recommend": "测试" }
 ```
 
-把只有用户能做的决定交给用户：写 `question.escalated`（`actor` 为 `lead`，没有任务，`data.key` 以 `q-lead-` 开头），页面在「需要你处理」中显示。工具立即返回，不等待；用户回答后，`wait` 返回 `[用户决定]`。主控会话结束时，未回答的问题被撤回。`question` 和 `why` 必填。技术选型和实现方式不应使用这个工具，见[谁来做决定](../domains/goal_mode.md#decision_ownership)。
+把只有用户能做的决定交给用户：写 `question.escalated`（`actor` 为 `lead`，没有任务，`data.key` 以 `q-lead-` 开头），应用在「需要你处理」中显示。工具立即返回，不等待；用户回答后，`wait` 返回 `[用户决定]`。主控会话结束时，未回答的问题被撤回。`question` 和 `why` 必填。技术选型和实现方式不应使用这个工具，见[谁来做决定](../domains/goal_mode.md#decision_ownership)。
 
 <a id="member_tools"></a>
 ## 协作者工具

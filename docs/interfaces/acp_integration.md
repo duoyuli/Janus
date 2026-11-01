@@ -110,7 +110,7 @@ Codex 在 `session_info_update` 的 `_meta.codex.goal` 中报告 `/goal` 的状�
 `session/request_permission` 和 `elicitation/create` 的处理（`user_request`）：
 
 1. 记录 `approval.requested` 或 `input.requested` 事件，带上 Agent 给出的选项或 JSON Schema。
-2. 等待用户在页面上处理（`approve` 或 `input` 操作）。
+2. 等待用户在应用中处理（`approve` 或 `input` 操作）。
 3. 按方法回复 Agent：
 
 | 方法 | 用户选择 | 回复 |

@@ -729,7 +729,7 @@ impl App {
         Ok(env)
     }
 
-    /// Start a configuration check in the background, so it finishes even if the page that asked goes away.
+    /// Start a configuration check in the background, so it finishes even if the app that asked goes away.
     pub fn start_check(self: &Arc<Self>, id: &str) -> Result<Value> {
         let mut c = self.connection(id)?;
         if c["status"] == "testing"
@@ -768,7 +768,7 @@ impl App {
         Ok(())
     }
 
-    /// Record one step of the check so the page can show progress while it runs.
+    /// Record one step of the check so the app can show progress while it runs.
     fn check_step(
         &self,
         id: &str,
@@ -1632,41 +1632,6 @@ pub fn session_label(session: &Value, conn: &Value) -> String {
     }
     parts.retain(|p| !p.is_empty());
     parts.join(" · ")
-}
-
-/// Directory listing for the folder picker. Browsers cannot hand a page the absolute path of a
-/// chosen folder, so the picker is served by the local backend instead.
-pub fn list_dir(path: &str, hidden: bool) -> Result<Value> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-    let dir = PathBuf::from(expand_home(if path.trim().is_empty() {
-        &home
-    } else {
-        path.trim()
-    }));
-    let dir = dir
-        .canonicalize()
-        .with_context(|| format!("目录不存在：{}", dir.display()))?;
-    let mut entries = vec![];
-    for e in std::fs::read_dir(&dir).with_context(|| format!("无法读取 {}", dir.display()))? {
-        let Ok(e) = e else { continue };
-        let name = e.file_name().to_string_lossy().to_string();
-        if (!hidden && name.starts_with('.')) || !e.path().is_dir() {
-            continue;
-        }
-        entries
-            .push(json!({ "name": name, "path": e.path(), "git": e.path().join(".git").exists() }));
-    }
-    entries.sort_by(|a, b| {
-        a["name"]
-            .as_str()
-            .unwrap()
-            .to_lowercase()
-            .cmp(&b["name"].as_str().unwrap().to_lowercase())
-    });
-    entries.truncate(500);
-    Ok(
-        json!({ "path": dir, "parent": dir.parent(), "home": home, "git": dir.join(".git").exists(), "entries": entries }),
-    )
 }
 
 // ----------------------------------------------------------------------

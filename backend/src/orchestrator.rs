@@ -601,7 +601,7 @@ impl App {
         };
         self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(json!({
             "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note, "kind": "live",
-            // Whether tasks change the directory itself: the page describes the run from this fact.
+            // Whether tasks change the directory itself: the app describes the run from this fact.
             "inPlace": true,
             "mode": "goal"
         })));
@@ -2789,7 +2789,7 @@ impl App {
         }
     }
 
-    /// Drop a pending decision nobody can act on any more, and tell the page to remove its card.
+    /// Drop a pending decision nobody can act on any more, and tell the app to remove its card.
     fn withdraw(&self, run: &Run, key: &str, task: &str, n: i64, text: &str) {
         run.st.lock().unwrap().waiters.remove(key);
         let mut e = ev("decision.withdrawn", "janus", text).data(json!({ "key": key }));
@@ -3490,7 +3490,7 @@ impl App {
             .unwrap()
             .insert(run_id.to_string(), run.clone());
         self.set_status(&run, "running");
-        // What each task came back as, so the page rebuilds the same state.
+        // What each task came back as, so the app rebuilds the same state.
         let restored: Vec<Value> = run
             .st
             .lock()
@@ -5357,7 +5357,7 @@ mod flow_tests {
         assert!(evs.iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")), "the change is kept as a diff");
         assert!(!has(&evs, "verification.failed"));
         let created = evs.iter().find(|e| e.kind == "run.created").unwrap();
-        assert_eq!(created.data.as_ref().unwrap()["inPlace"], true, "the page describes the run from this");
+        assert_eq!(created.data.as_ref().unwrap()["inPlace"], true, "the app describes the run from this");
         assert_eq!(created.data.as_ref().unwrap()["mode"], "goal");
         let _ = std::fs::remove_dir_all(&h.dir);
     }
