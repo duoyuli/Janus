@@ -156,8 +156,7 @@ struct BoardView: View {
                     RunCard(run: run, st: st)
                     InboxSection(run: run, st: st)
                     if st.result != nil { ResultCard(run: run, st: st) }
-                    TaskGraph(run: run, st: st)
-                    SharedBoard(run: run, st: st)
+                    ProgressBoard(run: run, st: st)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 AgentsPanel(run: run, st: st)
@@ -402,77 +401,6 @@ struct TaskTag: View {
     }
 }
 
-struct TaskGraph: View {
-    let run: RunModel
-    let st: RunState
-
-    var body: some View {
-        // Appears once the lead hands work to collaborators; before that there is nothing to draw.
-        if !st.order.isEmpty {
-            SectionHeader(title: "任务图")
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(columns.indices, id: \.self) { c in
-                        VStack(spacing: 10) {
-                            ForEach(columns[c], id: \.id) { t in node(t) }
-                        }
-                        .frame(width: 220)
-                        if c < columns.count - 1 { Image(systemName: "arrow.right").foregroundStyle(.tertiary).padding(.top, 30) }
-                    }
-                }
-                .padding(12)
-            }
-            .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
-        }
-    }
-
-    private var columns: [[TaskState]] {
-        var depth: [String: Int] = [:]
-        func dep(_ id: String, _ seen: Set<String> = []) -> Int {
-            if let d = depth[id] { return d }
-            guard let t = st.tasks[id], !seen.contains(id) else { return 0 }
-            let d = t.deps.isEmpty ? 0 : 1 + (t.deps.map { dep($0, seen.union([id])) }.max() ?? 0)
-            depth[id] = d
-            return d
-        }
-        var cols: [[TaskState]] = []
-        for id in st.order {
-            let d = dep(id)
-            while cols.count <= d { cols.append([]) }
-            if let t = st.tasks[id] { cols[d].append(t) }
-        }
-        return cols.filter { !$0.isEmpty }
-    }
-
-    private func node(_ t: TaskState) -> some View {
-        let (label, tone) = L.task(t.status)
-        let w = run.who(t.agent)
-        let dim = run.boardSel.map { !$0.tasks.contains(t.id) } ?? false
-        return Button { run.page = .task(t.id) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack { TaskTag(id: t.id); Spacer(); Pill(label, tone) }
-                Text(t.title).font(.callout.weight(.semibold)).lineLimit(3).multilineTextAlignment(.leading)
-                HStack(spacing: 5) {
-                    Avatar(initials: w.initials, color: w.color, size: 16)
-                    Text(w.name + (t.attempts.count > 1 ? " · 第 \(t.attempts.count) 次尝试" : "")).font(.caption).foregroundStyle(.secondary)
-                }
-                if t.status == "running" { Bar(value: t.progress) }
-                if t.status == "blocked" { Text(verbatim: "等待 \(t.blockedBy) 修复后复审").font(.caption).foregroundStyle(.secondary) }
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(tone.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(tone.color.opacity(0.35)))
-            .contentShape(Rectangle())
-            .hoverable(9)
-        }
-        .buttonStyle(.plain)
-        .opacity(dim ? 0.35 : 1)
-        .help("查看 \(t.id) 的执行详情")
-    }
-}
-
 struct AgentsPanel: View {
     let run: RunModel
     let st: RunState
@@ -509,7 +437,6 @@ struct AgentsPanel: View {
         var meta: [String] = []
         if phase != "idle", let beat = a?.beat, beat > 0 { meta.append("心跳 \(L.ago(beat, st.run.now))") }
         if !lead, let rs = runStats(id, mine) { meta.append(rs) }
-        let dim = run.boardSel.map { !$0.agents.contains(id) } ?? false
         return Button { run.page = .agent(id) } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
@@ -527,7 +454,6 @@ struct AgentsPanel: View {
             .hoverable(8)
         }
         .buttonStyle(.plain)
-        .opacity(dim ? 0.4 : 1)
         .help(([w.role, w.runtime, w.model].filter { !$0.isEmpty } + meta).joined(separator: " · ") + "\n点按查看 \(w.name) 的对话")
     }
 

@@ -171,3 +171,18 @@ private func goalRun() -> Log {
     #expect(ctrls[0]["options"].array.map { $0["value"].str } == ["ask"])
     #expect(Setup.permLabel([:], c) == "Ask")
 }
+
+/// The progress timeline draws each attempt from its start to its end.
+@Test func attemptsRecordWhenTheyEnd() {
+    var log = goalRun()
+    let start = derive(log.events).tasks["T1"]?.attempts.last
+    #expect(start?.end == nil)
+    log.add("attempt.failed", task: "T1", attempt: 1, data: ["error": "超时"])
+    let failed = derive(log.events)
+    #expect(failed.tasks["T1"]?.attempts.last?.end == log.events.last?.ts)
+    log.add("attempt.started", to: "researcher", task: "T1", attempt: 2, data: ["session": "s2"])
+    log.add("run.interrupted")
+    let s = derive(log.events)
+    #expect(s.tasks["T1"]?.attempts.count == 2)
+    #expect(s.tasks["T1"]?.attempts.last?.end == log.events.last?.ts)
+}

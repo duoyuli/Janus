@@ -37,10 +37,6 @@ final class RunModel {
     var forms: [String: JSON] = [:]
     var sessionDrafts: [String: String] = [:]
     // Board view state
-    var boardSel: (key: String, tasks: [String], agents: [String])?
-    var boardAgent = ""
-    var boardTask = ""
-    var boardMore: Set<String> = []
     var goalOpen = false
     var resultOpen = false
     // Audit view state

@@ -1,235 +1,117 @@
 import AppKit
 import SwiftUI
 
-/// The facts every agent can rely on, rebuilt from the event log: open items, conclusions,
-/// artifacts, handoffs and decisions. Selecting a card highlights the tasks and agents it involves.
-struct SharedBoard: View {
+/// The run's progress board: one timeline of how this run moved forward, rebuilt from the event
+/// log. Rows are agents, bars are task attempts (and tasks still waiting), marks are conclusions,
+/// artifacts, decisions, open items and handoffs at the moment they happened. A mark opens its
+/// event in the audit log, which is where details are read; a bar opens its task.
+// @project-doc docs/architecture/frontend.md#run_timeline
+struct ProgressBoard: View {
     let run: RunModel
     let st: RunState
-    private let limit = 5
 
     var body: some View {
         let f = boardFacts(st) { run.who($0).name }
-        let open = f.open.filter { pick(by: nil, agents: $0.agents, tasks: $0.tasks) }
-        let results = f.results.filter { pick(by: $0.by, agents: [], tasks: [$0.task] + $0.usedBy) }.reversed() as [ResultFact]
-        let arts = f.arts.filter { pick(by: $0.a.by, agents: [], tasks: [$0.a.task] + $0.usedBy) }.reversed() as [ArtFact]
-        let handoffs = f.handoffs.filter { pick(by: $0.by, agents: [$0.agent], tasks: [$0.from, $0.to]) }.reversed() as [HandoffFact]
-        let decisions = f.decisions.filter { pick(by: $0.by, agents: $0.agents, tasks: $0.tasks) }.reversed() as [DecisionFact]
-        let any = !(f.open.isEmpty && f.results.isEmpty && f.arts.isEmpty && f.handoffs.isEmpty && f.decisions.isEmpty)
-        let filtered = !run.boardAgent.isEmpty || !run.boardTask.isEmpty
-        // An empty board shows nothing; the full event list is on the audit page.
-        if any {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Text("共享看板").font(.title3.weight(.semibold))
-                    if filtered {
-                        Button { run.boardAgent = ""; run.boardTask = ""; run.boardSel = nil } label: {
-                            Label(filterText, systemImage: "xmark.circle.fill")
-                        }
-                        .buttonStyle(.bordered).controlSize(.small).help("清除筛选")
-                    }
+        let marks = timelineMarks(f)
+        let now = nowMs
+        let bars = attemptBars(now)
+        let queued = queuedBars
+        let rows = timelineRows(marks: marks, bars: bars + queued)
+        if !bars.isEmpty || !marks.isEmpty || !queued.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("进展").font(.title3.weight(.semibold))
+                    Text(verbatim: summary).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    if run.boardSel != nil { Button("取消高亮") { run.boardSel = nil }.buttonStyle(.link) }
-                    filterMenu
+                    Button("在审计日志中查看全部") { run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
+                        .buttonStyle(.link).font(.callout)
                 }
                 .padding(.top, 6)
-                if !open.isEmpty {
-                    lane("待处理", open.count, "open", yours: open.contains { $0.you }) {
-                        ForEach(shown(open, "open")) { x in openCard(x) }
+                Card(padding: 12) {
+                    RunTimeline(run: run, rows: rows, bars: bars, queued: queued, marks: marks, t0: st.run.start, now: now) { m in
+                        run.replay = nil
+                        run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""
+                        run.highlight = m.seq
+                        run.show(.audit)
                     }
                 }
-                // Only lanes with something in them; they share the width.
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 10, alignment: .top)], alignment: .leading, spacing: 10) {
-                    if !results.isEmpty { lane("结论", results.count, "results") { ForEach(shown(results, "results")) { x in resultCard(x) } } }
-                    if !arts.isEmpty { lane("产物", arts.count, "arts") { ForEach(shown(arts, "arts")) { x in artCard(x) } } }
-                    if !handoffs.isEmpty { lane("交接", handoffs.count, "handoffs") { ForEach(shown(handoffs, "handoffs")) { x in handoffCard(x) } } }
-                    if !decisions.isEmpty { lane("决定", decisions.count, "decisions") { ForEach(shown(decisions, "decisions")) { x in decisionCard(x) } } }
-                }
-                if filtered && open.isEmpty && results.isEmpty && arts.isEmpty && handoffs.isEmpty && decisions.isEmpty {
-                    Text("没有符合筛选的内容").font(.callout).foregroundStyle(.secondary)
-                }
             }
         }
     }
 
-    private var filterText: String {
-        [run.boardAgent.isEmpty ? nil : run.who(run.boardAgent).name, run.boardTask.isEmpty ? nil : run.boardTask].compactMap { $0 }.joined(separator: " · ")
+    /// "3 个任务 · 完成 2"
+    private var summary: String {
+        guard !st.order.isEmpty else { return "" }
+        let done = st.orderedTasks.filter { $0.status == "succeeded" }.count
+        return "\(st.order.count) 个任务 · 完成 \(done)"
     }
 
-    private var filterMenu: some View {
-        Menu {
-            Picker("Agent", selection: Binding(get: { run.boardAgent }, set: { run.boardAgent = $0; run.boardSel = nil })) {
-                Text("全部 Agent").tag("")
-                ForEach(run.team, id: \.self) { m in Text(m["name"].str).tag(m["id"].str) }
-            }
-            Picker("任务", selection: Binding(get: { run.boardTask }, set: { run.boardTask = $0; run.boardSel = nil })) {
-                Text("全部任务").tag("")
-                ForEach(st.order, id: \.self) { id in Text(verbatim: "\(id) \(L.short(st.tasks[id]?.title ?? "", 16))").tag(id) }
-            }
-        } label: { Label("筛选", systemImage: "line.3.horizontal.decrease.circle") }
-        .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help("按 Agent 或任务筛选")
+    private var nowMs: Double {
+        run.state.active && !run.isReplaying ? Swift.max(st.run.now, L.nowMs()) : st.run.now
     }
 
-    private func pick(by: String?, agents: [String], tasks: [String]) -> Bool {
-        (run.boardAgent.isEmpty || ([by].compactMap { $0 } + agents).contains(run.boardAgent)) && (run.boardTask.isEmpty || tasks.contains(run.boardTask))
+    /// Lead first, then the team in its order, then "你" when the person decided something; only
+    /// rows with something on them.
+    private func timelineRows(marks: [TimelineMark], bars: [TimelineBar]) -> [String] {
+        var ids = ["lead"] + run.team.map { $0["id"].str }.filter { $0 != "lead" }
+        if marks.contains(where: { $0.row == "user" }) { ids.append("user") }
+        let used = Set(marks.map(\.row) + marks.compactMap(\.to) + bars.map(\.row) + ["lead"])
+        return ids.filter { used.contains($0) }
     }
 
-    private func shown<T>(_ items: [T], _ lane: String) -> [T] { run.boardMore.contains(lane) ? items : Array(items.prefix(limit)) }
+    /// Where an actor's mark goes: its own row; the lead's for Janus and unknown actors.
+    private func row(_ actor: String) -> String {
+        if actor == "user" { return "user" }
+        return actor == "lead" || run.team.contains { $0["id"].str == actor } ? actor : "lead"
+    }
 
-    private func lane<C: View>(_ title: String, _ n: Int, _ k: String, yours: Bool = false, @ViewBuilder content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack { Text(title).font(.callout.weight(.semibold)); Text(verbatim: "\(n)").font(.caption).foregroundStyle(.secondary); Spacer() }
-            content()
-            if n > limit {
-                Button(run.boardMore.contains(k) ? "收起" : "还有 \(n - limit) 条") {
-                    if run.boardMore.contains(k) { run.boardMore.remove(k) } else { run.boardMore.insert(k) }
-                }
-                .buttonStyle(.link).font(.caption)
+    private func attemptBars(_ now: Double) -> [TimelineBar] {
+        var out: [TimelineBar] = []
+        for t in st.orderedTasks {
+            for a in t.attempts {
+                // A finished attempt keeps its own outcome; the running one shows the task's status.
+                let ended = ["succeeded", "failed", "rejected"].contains(a.status)
+                let status: String = a.end != nil && ended ? a.status : t.status
+                out.append(TimelineBar(id: "\(t.id)#\(a.n)", task: t.id, title: t.title, row: row(t.agent), start: a.start, end: a.end ?? now,
+                                       attempt: a.n, status: status, running: a.end == nil, note: ""))
             }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background((k == "open" ? (yours ? Tone.amber.color : Color.secondary) : Color.secondary).opacity(k == "open" ? 0.08 : 0.04), in: RoundedRectangle(cornerRadius: 10))
+        return out
     }
 
-
-    private func by(_ id: String) -> some View {
-        let w = run.who(id)
-        return HStack(spacing: 4) { Avatar(initials: w.initials, color: w.color, size: 15); Text(w.name).font(.caption).foregroundStyle(.secondary) }
-    }
-
-    /// A card that expands when selected and highlights what it involves.
-    private func fact<Head: View, More: View>(_ key: String, tasks: [String], agents: [String], old: Bool = false, urgent: Bool = false, @ViewBuilder head: () -> Head, @ViewBuilder more: () -> More) -> some View {
-        let on = run.boardSel?.key == key
-        let toggle = { run.boardSel = on ? nil : (key: key, tasks: tasks.filter { !$0.isEmpty }, agents: agents.filter { !$0.isEmpty }) }
-        return VStack(alignment: .leading, spacing: 6) {
-            head()
-            if on { Divider(); more() }
-        }
-        .padding(9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.card, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(on ? Color.accent : urgent ? Tone.amber.color.opacity(0.5) : Color.line.opacity(0.7)))
-        .opacity(old && !on ? 0.6 : 1)
-        .contentShape(Rectangle())
-        .hoverable(8)
-        .onTapGesture(perform: toggle)
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction(named: on ? "收起并取消高亮" : "展开并高亮相关任务", toggle)
-        .help(on ? "再次点按收起" : "点按展开，并高亮相关的任务和 Agent")
-    }
-
-    private func preview(_ text: String, _ n: Int = 90) -> some View {
-        Text(L.short(L.plain(text), n)).font(.callout).foregroundStyle(.primary.opacity(0.85))
-    }
-
-    private func full(_ text: String, _ n: Int = 90) -> some View {
-        Group { if text.count > n { MarkdownText(text: text, font: .callout) } }
-    }
-
-    private func openCard(_ x: OpenFact) -> some View {
-        fact(x.key, tasks: x.tasks, agents: x.agents, urgent: true) {
-            HStack(spacing: 6) {
-                Pill(x.you ? "等你决定" : "主控处理", x.you ? .amber : .gray)
-                ForEach(x.tasks, id: \.self) { TaskTag(id: $0) }
-                Text(x.title).font(.callout.weight(.semibold)).lineLimit(2)
-            }
-            if !x.text.isEmpty { preview(x.text) }
-            if !x.sub.isEmpty { Text(x.sub).font(.caption).foregroundStyle(.secondary) }
-        } more: {
-            full(x.text)
-            HStack {
-                if let t = x.tasks.first { Button("打开任务") { run.page = .task(t) } }
-                if let a = x.agents.first { Button(String("和 \(run.who(a).name) 对话")) { run.page = .agent(a) } }
-                SeqButton(seq: x.seq, run: run)
-            }
-            .controlSize(.small)
+    /// Tasks not started yet, drawn after "now" on their agent's row with what they wait for.
+    private var queuedBars: [TimelineBar] {
+        guard run.state.active || run.isReplaying else { return [] }
+        return st.orderedTasks.filter { $0.attempts.isEmpty && ["created", "pending", "ready", "assigned", "blocked"].contains($0.status) }.map { t in
+            let waiting = t.deps.filter { st.tasks[$0]?.status != "succeeded" }
+            let note = t.status == "blocked" ? "等待 \(t.blockedBy) 修复" : waiting.isEmpty ? "等待调度" : "等待 \(waiting.joined(separator: "、"))"
+            return TimelineBar(id: t.id, task: t.id, title: t.title, row: row(t.agent), start: 0, end: 0, attempt: 0, status: t.status, running: false, note: note)
         }
     }
 
-    private func resultCard(_ x: ResultFact) -> some View {
-        fact(x.key, tasks: [x.task] + x.usedBy, agents: [x.by] + x.usedBy.compactMap { st.tasks[$0]?.agent }, old: x.old) {
-            HStack(spacing: 6) {
-                TaskTag(id: x.task); by(x.by)
-                if x.old { Text("旧版本").font(.caption).foregroundStyle(.secondary) }
-                if !x.amended.isEmpty { Text("已被主控修订").font(.caption).foregroundStyle(Tone.amber.color) }
-            }
-            preview(x.summary)
-            Text([x.checks.isEmpty ? nil : "验收 \(x.checks.filter(\.passed).count)/\(x.checks.count)", "\(x.evidence.count) 条证据", x.risks.isEmpty ? nil : "\(x.risks.count) 条风险", x.usedBy.isEmpty ? nil : "交给 \(x.usedBy.joined(separator: "、"))"].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary)
-        } more: {
-            full(x.summary)
-            if !x.checks.isEmpty { list("验收", x.checks.map { "\($0.passed ? "✓" : "✗") \($0.criterion)：\($0.evidence)" }) }
-            if !x.amended.isEmpty { list("主控的修订（以此为准）", x.amended) }
-            if !x.evidence.isEmpty { list("证据", x.evidence) }
-            if !x.risks.isEmpty { list("风险", x.risks.map { "⚠ " + $0 }) }
-            HStack {
-                Button("任务详情") { run.page = .task(x.task) }
-                Button(String("和 \(run.who(x.by).name) 对话")) { run.page = .agent(x.by) }
-                SeqButton(seq: x.seq, run: run)
-            }
-            .controlSize(.small)
+    private func timelineMarks(_ f: BoardFacts) -> [TimelineMark] {
+        var out: [TimelineMark] = []
+        for x in f.results {
+            out.append(TimelineMark(id: x.key, seq: x.seq, ts: x.ts, row: row(x.by), kind: .result, title: "\(x.task)：\(L.short(L.plain(x.summary), 80))"))
         }
-    }
-
-    private func list(_ title: String, _ items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            ForEach(items.indices, id: \.self) { Text(MD.inline(items[$0])).font(.caption).textSelection(.enabled) }
+        for x in f.arts {
+            let ts = st.event(x.a.seq)?.ts ?? st.run.start
+            out.append(TimelineMark(id: "a\(x.a.seq)", seq: x.a.seq, ts: ts, row: row(x.a.by), kind: .artifact, title: "\(x.a.task)：\(x.a.name)"))
         }
-    }
-
-    private func artCard(_ x: ArtFact) -> some View {
-        let a = x.a
-        return fact("a\(a.seq)", tasks: [a.task] + x.usedBy, agents: [a.by], old: x.old) {
-            HStack(spacing: 6) { TaskTag(id: a.task); Text(a.name).font(.system(.callout, design: .monospaced).weight(.semibold)).lineLimit(1) }
-            Text([L.artKind[a.kind] ?? a.kind, a.bytes.map { L.kb($0) }, x.old ? "旧版本" : nil, x.usedBy.isEmpty ? nil : "交给 \(x.usedBy.joined(separator: "、"))"].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary)
-        } more: {
-            if !a.desc.isEmpty { Text(a.desc).font(.callout) }
-            Text(verbatim: "由 \(run.who(a.by).name) 在第 \(a.attempt) 次尝试中提交\(a.hash.isEmpty ? "" : " · \(a.hash)")").font(.caption).foregroundStyle(.secondary)
-            HStack { Button("打开") { ArtifactWindow.open(run: run, path: a.path, title: a.name) }; SeqButton(seq: a.seq, run: run) }.controlSize(.small)
+        for x in f.handoffs {
+            // From the agent that did the upstream work to the one that receives it.
+            let from = row(st.tasks[x.from]?.agent ?? x.by)
+            out.append(TimelineMark(id: x.key, seq: x.seq, ts: x.ts, row: from, kind: .handoff,
+                                    title: "\(x.from) → \(x.to)：\(L.short(L.plain(x.summary.isEmpty ? "上游没有提交结论" : x.summary), 80))", to: row(x.agent)))
         }
-    }
-
-    private func handoffCard(_ x: HandoffFact) -> some View {
-        fact(x.key, tasks: [x.from, x.to], agents: [x.by, x.agent]) {
-            HStack(spacing: 6) {
-                TaskTag(id: x.from); Image(systemName: "arrow.right").font(.caption); TaskTag(id: x.to); by(x.agent)
-            }
-            preview(x.summary.isEmpty ? "上游没有提交结论" : x.summary, 80)
-            if !x.artifacts.isEmpty { Text(verbatim: "带上 \(x.artifacts.count) 个产物").font(.caption).foregroundStyle(.secondary) }
-        } more: {
-            ForEach(x.artifacts, id: \.self) { Text($0).font(.system(.caption, design: .monospaced)) }
-            Text(verbatim: "\(L.clock(x.ts)) 注入 \(run.who(x.agent).name) 的新会话").font(.caption).foregroundStyle(.secondary)
-            HStack {
-                if x.to != "lead" { Button(String("看 \(x.to) 收到了什么")) { run.page = .task(x.to) } }
-                SeqButton(seq: x.seq, run: run)
-            }
-            .controlSize(.small)
+        for x in f.decisions {
+            out.append(TimelineMark(id: x.key, seq: x.seq, ts: x.ts, row: row(x.by), kind: .decision, title: "\(x.title)：\(L.short(L.plain(x.text), 80))"))
         }
-    }
-
-    private func decisionCard(_ x: DecisionFact) -> some View {
-        fact(x.key, tasks: x.tasks, agents: x.agents) {
-            HStack(spacing: 6) {
-                ForEach(x.tasks.prefix(2), id: \.self) { TaskTag(id: $0) }
-                Text(x.title).font(.callout.weight(.semibold)).lineLimit(2)
-            }
-            preview(x.text)
-            HStack(spacing: 4) {
-                Text(verbatim: "\(run.who(x.by).name) · \(L.clock(x.ts))").font(.caption).foregroundStyle(.secondary)
-                if x.lost { Text("· 未送达").font(.caption).foregroundStyle(Tone.amber.color) }
-            }
-        } more: {
-            full(x.text)
-            HStack {
-                if let a = x.agents.first, a != "user" { Button(String("和 \(run.who(a).name) 对话")) { run.page = .agent(a) } }
-                SeqButton(seq: x.seq, run: run)
-            }
-            .controlSize(.small)
+        for x in f.open {
+            guard let seq = x.seq, let e = st.event(seq) else { continue }
+            out.append(TimelineMark(id: x.key, seq: seq, ts: e.ts, row: row(x.agents.first ?? e.actor), kind: .open, title: x.title))
         }
+        return out
     }
 }
 

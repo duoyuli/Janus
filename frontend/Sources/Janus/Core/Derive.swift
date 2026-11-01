@@ -47,6 +47,8 @@ final class Attempt {
     var status: String
     let seq: Int
     var error: String?
+    /// When the attempt stopped running (succeeded, failed, cancelled, interrupted); nil while it runs.
+    var end: Double?
     init(n: Int, session: String, workspace: String, start: Double, status: String, seq: Int) {
         self.n = n; self.session = session; self.workspace = workspace; self.start = start; self.status = status; self.seq = seq
     }
@@ -199,7 +201,11 @@ func derive(_ events: [Event]) -> RunState {
         return a
     }
     func dropSess(_ id: String) { s.inbox.removeAll { $0.key == "sess-" + id } }
-    func endLive(_ t: TaskState?) { if let t { t.live = false; dropSess(t.id) } }
+    func endLive(_ t: TaskState?) {
+        guard let t else { return }
+        t.live = false; dropSess(t.id)
+        if let at = t.attempts.last, at.end == nil { at.end = s.run.now }
+    }
     func dropKey(_ k: String) { s.inbox.removeAll { $0.key == k } }
 
     for e in events {
@@ -259,7 +265,10 @@ func derive(_ events: [Event]) -> RunState {
             if let t, ["waiting_input", "waiting_approval"].contains(t.status) { t.status = "running" }
         case "run.cancelled":
             s.run.status = "cancelled"; s.inbox = []
-            for x in s.orderedTasks { x.live = false; if x.status != "succeeded" { x.status = "cancelled" } }
+            for x in s.orderedTasks {
+                x.live = false; if x.status != "succeeded" { x.status = "cancelled" }
+                if let at = x.attempts.last, at.end == nil { at.end = e.ts }
+            }
         case "run.paused": s.run.paused = true
         case "run.resumed": s.run.paused = false
         case "task.ready":
@@ -278,6 +287,7 @@ func derive(_ events: [Event]) -> RunState {
             if !t.delegated { s.inbox.append(InboxItem(kind: "failed", key: "verify-" + t.id, seq: e.seq, task: t.id, d: ["error": JSON(t.verificationFailures.joined(separator: "；"))])) }
         case "attempt.started":
             guard let t else { break }
+            if let prev = t.attempts.last, prev.end == nil { prev.end = e.ts }
             t.attempts.append(Attempt(n: e.attempt ?? t.attempts.count + 1, session: d["session"].str, workspace: d["workspace"].str, start: e.ts, status: "running", seq: e.seq))
             // Runs recorded before "inPlace" existed: an attempt in "工作目录 …" changed the directory itself.
             if s.run.inPlace == nil && d["workspace"].str.hasPrefix("工作目录 ") { s.run.inPlace = true }
@@ -359,7 +369,7 @@ func derive(_ events: [Event]) -> RunState {
         case "run.failed": s.run.status = "failed"; s.run.error = d["error"].string ?? e.text
         case "run.interrupted":
             s.run.status = "interrupted"; s.inbox = []
-            for x in s.orderedTasks { x.live = false }
+            for x in s.orderedTasks { x.live = false; if let at = x.attempts.last, at.end == nil { at.end = e.ts } }
             for a in s.agents.values { a.phase = "idle" }
         case "run.recovered":
             s.run.status = d["phase"].str
