@@ -25,11 +25,11 @@
 4. 检查两个可执行文件都包含 `arm64 x86_64`，校验签名，计算 SHA-256 写入 `SHA256SUMS.txt`。
 5. 上传为工作流产物，并创建同名的 GitHub Release（已存在时覆盖上传），附上 DMG 和校验和，发布说明包含首次打开的步骤。
 
-发布一个版本：
+发布一个版本（版本号按日期，见[版本号](#versioning)）：
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v2026.11.01
+git push origin v2026.11.01
 ```
 
 在 GitHub 的 Actions 页面手动运行 Release 工作流（填写版本号）只构建 DMG 并作为工作流产物上传，不创建 Release，用来试打包。
@@ -37,9 +37,9 @@ git push origin v0.2.0
 <a id="versioning"></a>
 ## 版本号
 
-- 安装包的版本取自标签（`v0.2.0` → `0.2.0`），写入 `Info.plist` 的 `CFBundleShortVersionString`；`CFBundleVersion` 是提交数。
-- 本地打包不指定 `--version` 时，使用 `backend/Cargo.toml` 的版本。
-- 服务的 `janus --version` 仍是 `Cargo.toml` 的版本；发布新版本时建议同时更新它。
+- 发布版本按日期命名：标签 `v<年>.<月>.<日>`，例如 `v2026.11.01`，安装包为 `Janus-2026.11.01.dmg`。同一天再发布时加序号：`v2026.11.01.2`。
+- 安装包的版本取自标签（去掉 `v`），写入 `Info.plist` 的 `CFBundleShortVersionString`；`CFBundleVersion` 是提交数，每次构建都递增。
+- 本地打包不指定 `--version` 时，使用 `backend/Cargo.toml` 的版本；服务的 `janus --version` 也是它，与发布的日期版本无关。
 
 <a id="signing"></a>
 ## 签名
