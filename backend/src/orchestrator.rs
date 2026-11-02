@@ -60,10 +60,6 @@ pub struct Member {
     pub role: String,
     #[serde(default)]
     pub desc: String,
-    #[serde(default)]
-    pub limits: Vec<String>,
-    #[serde(default)]
-    pub ws: String,
     pub runtime: String,
     #[serde(default)]
     pub lead: bool,
@@ -118,17 +114,12 @@ pub struct NewRun {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskDef {
     pub id: String,
-    /// "implement" when it changes files, "explore" otherwise.
-    #[serde(default)]
-    pub kind: String,
     pub title: String,
     #[serde(default)]
     pub desc: String,
     /// Tasks that must succeed before this one starts.
     #[serde(default)]
     pub deps: Vec<String>,
-    #[serde(default)]
-    pub write: bool,
     #[serde(default)]
     pub accept: Vec<String>,
     #[serde(default)]
@@ -286,8 +277,6 @@ struct RunState {
     /// Working in place: the working-tree diff last saved as an artifact, so a task that changed
     /// nothing does not repeat what an earlier one changed.
     last_diff: String,
-    /// The person accepted a partial result; the driver delivers what finished and stops.
-    accept_risk: bool,
     /// The lead's goal session ended: its last message, or why it failed.
     lead_done: Option<std::result::Result<String, String>>,
     /// Secret in this run's MCP URL, so only its lead reaches the team tools.
@@ -308,6 +297,8 @@ pub struct Run {
     pub team: Vec<Member>,
     git: bool,
     base_ref: String,
+    /// The workspace's shared material when the run was created (see `brief_section`).
+    brief: String,
     seq: AtomicI64,
     deadline_ms: AtomicI64,
     st: StdMutex<RunState>,
@@ -577,6 +568,7 @@ impl App {
             team,
             git: is_git && !base_ref.is_empty(),
             base_ref,
+            brief: ws["brief"].as_str().unwrap_or("").trim().to_string(),
             seq: AtomicI64::new(0),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
@@ -662,22 +654,20 @@ impl App {
             "非 Git 目录：任务直接在这个目录中执行，没有 diff".to_string()
         };
         self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(json!({
-            "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note, "kind": "live",
-            // Whether tasks change the directory itself: the app describes the run from this fact.
-            "inPlace": true,
+            "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note,
+            // Runs of the removed plan-first flow lack it, and cannot be continued (see `resume_run`).
             "mode": "goal"
         })));
         self.goal(run, false).await
     }
 
     /// The scheduling loop. It recomputes the run's status from the task graph on every pass and
-    /// only returns once the run is delivered (fully, or partially after the person accepted the
-    /// risk) or cancelled, so every later decision still has a driver to act on it.
+    /// only returns once the run is delivered or cancelled, so every later decision still has a driver to act on it.
     // @project-doc docs/domains/run_lifecycle.md#scheduling
     // @project-doc docs/domains/run_lifecycle.md#delivery_conditions
     async fn execute(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
         enum Outcome {
-            Deliver { partial: bool },
+            Deliver,
             /// Goal mode: the lead's session broke off; the person continues the run to restart it.
             LeadFailed(String),
             Budget,
@@ -716,7 +706,7 @@ impl App {
                     }
                 }
                 let mut starts = vec![];
-                if !st.paused && !over_budget && !st.accept_risk {
+                if !st.paused && !over_budget {
                     let mut busy: HashSet<String> = st
                         .tasks
                         .iter()
@@ -746,12 +736,10 @@ impl App {
                 // The lead decides what a failure means (it reads it on the board), so nothing
                 // waits for the person; the run ends once the lead is done and no task is running
                 // or can still start.
-                let outcome = if stalled && st.accept_risk {
-                    Outcome::Deliver { partial: true }
-                } else if let (true, Some(Err(err))) = (stalled, &st.lead_done) {
+                let outcome = if let (true, Some(Err(err))) = (stalled, &st.lead_done) {
                     Outcome::LeadFailed(err.clone())
                 } else if stalled && st.lead_done.is_some() {
-                    Outcome::Deliver { partial: false }
+                    Outcome::Deliver
                 } else if over_budget && !all_terminal {
                     Outcome::Budget
                 } else if stalled && st.paused {
@@ -817,8 +805,8 @@ impl App {
                 tokio::spawn(async move { app.run_attempt(&run, &id, n, &attempt_id).await });
             }
             match outcome {
-                Outcome::Deliver { partial } => {
-                    self.deliver(run, partial);
+                Outcome::Deliver => {
+                    self.deliver(run);
                     return Ok(());
                 }
                 Outcome::LeadFailed(err) => {
@@ -1226,7 +1214,7 @@ impl App {
 {team}
 
 和协作者协作，都通过 janus MCP 工具和共享看板：
-- janus.orchestrate：提交一份编排（一组任务：id、标题、给执行者的完整说明、执行者、依赖、是否修改文件、验收标准）。Janus 先校验，不通过会返回全部错误，改好再提交；通过后任务写入看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前的任务。
+- janus.orchestrate：提交一份编排（一组任务：id、标题、给执行者的完整说明、执行者、依赖、验收标准）。Janus 先校验，不通过会返回全部错误，改好再提交；通过后任务写入看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前的任务。
 - janus.wait：取回看板上的新消息并等待进展：任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，协作者的提问，以及用户的回答。每次最多等 45 秒，没有新消息就再调用。
 - janus.reply：回答协作者的提问，或给正在执行的协作者补充指示。消息会立即送达：协作者支持插话时插入当前这一轮，否则打断它当前这一轮后发送。
 - janus.retry：重新执行失败或已取消的任务，可以同时修改说明和验收标准。被它阻塞的任务会在它成功后自动继续，不需要重新编排。
@@ -1254,10 +1242,16 @@ impl App {
 - 任务派出去后，不要自己去改它负责的文件：要调整就用 janus.reply 告诉执行者；决定自己做，就先用 janus.cancel 取消它。
 - 协作者提问时会停下来等你，用 janus.reply 回答。
 - 协作者完成后，你要自己核对结果（读文件、运行测试），确认目标真正达成后再结束。
-- 不要 git commit、push 或部署。",
+- 不要 git commit、push 或部署。
+
+工作区共享资料：
+- 共享资料是用户为这个工作区维护的长期背景（产品定位、目标用户、约定、过去的决定、重要文件的位置），你和每个协作者都能看到。它和本次目标冲突时，以本次目标为准。
+- 已经写在共享资料里的事实，不要再派任务重新调研，也不要再问用户。
+- 结束时，如果这次确定了值得长期保留的新事实或改变了已有的事实，在最后一条回复的末尾加一个标题「## 建议更新共享资料」，下面每行一条，写成可以直接放进共享资料的完整陈述。只写新增或需要修改的内容，不要重复已有的；没有就不要写这个标题。是否采纳由用户决定。{brief}",
             cwd = run.cwd.display(),
             git = if run.git { "这是一个 Git 仓库。" } else { "这不是 Git 仓库，git 命令在这里不可用。" },
             team = team_lines(run),
+            brief = brief_section(&run.brief, "本次目标"),
         );
         if resumed {
             let st = run.st.lock().unwrap();
@@ -1401,9 +1395,8 @@ impl App {
         let tasks: Vec<Value> = defs
             .iter()
             .map(|d| json!({
-                "id": d.id, "kind": d.kind, "title": d.title, "desc": d.desc, "deps": d.deps,
-                "write": d.write, "accept": d.accept, "maxAttempts": d.max_attempts,
-                "agent": d.assignee, "delegated": true,
+                "id": d.id, "title": d.title, "desc": d.desc, "deps": d.deps,
+                "accept": d.accept, "maxAttempts": d.max_attempts, "agent": d.assignee,
             }))
             .collect();
         let n = {
@@ -3042,8 +3035,9 @@ impl App {
         Ok(())
     }
 
-    /// `partial`: the person accepted the risk; failed and skipped tasks are listed as risks.
-    fn deliver(&self, run: &Run, partial: bool) {
+    /// The lead's goal ended and nothing can still run: hand over its summary, with every task's
+    /// evidence and risks, and unfinished tasks listed as risks.
+    fn deliver(&self, run: &Run) {
         let result = {
             let st = run.st.lock().unwrap();
             let mut deliverables = vec![];
@@ -3053,7 +3047,7 @@ impl App {
                 let unfinished = match t.status {
                     "failed" => Some("失败"),
                     "cancelled" => Some("已取消"),
-                    "skipped_by_decision" => Some("按你的决定跳过"),
+                    "skipped_by_decision" => Some("被主控取消"),
                     _ => None,
                 };
                 if let Some(state) = unfinished {
@@ -3077,57 +3071,23 @@ impl App {
                     deliverables.push(report.clone());
                 }
             // The lead reports how the goal went, in its last message.
-            let summary = match &st.lead_done {
-                Some(Ok(text)) => lead_summary(text),
-                Some(Err(err)) => {
-                    risks.push(format!("主控的会话异常结束：{}", short(err, 200)));
-                    "主控没能完成目标，下面是协作者已完成的部分。".to_string()
-                }
-                None => String::new(),
+            let (text, suggestions) = match &st.lead_done {
+                Some(Ok(text)) => split_brief_suggestions(text),
+                _ => (String::new(), vec![]),
             };
-            let place_note = format!(" 改动直接在工作目录 {} 中，Janus 没有提交。", run.cwd.display());
             json!({
-                "headline": format!("{}：{}", if partial { "部分交付" } else { "已完成" }, goal_title(&run.goal)),
-                "partial": partial,
-                "summary": format!("{summary}{place_note}"),
-                "confidence": if risks.is_empty() { "高" } else { "中" },
+                "summary": format!("{} 改动直接在工作目录 {} 中，Janus 没有提交。", lead_summary(&text), run.cwd.display()),
+                "briefSuggestions": suggestions,
                 "deliverables": deliverables,
                 "evidence": evidence,
                 "risks": risks,
-                "review": "由主控自行核对协作者的结果。",
-                "diagnosis": if risks.is_empty() {
-                    json!({ "cat": null, "title": "没有已知偏差", "text": "所有任务都提交了结构化结果，没有报告风险。", "refs": [], "actions": [] })
-                } else {
-                    json!({ "cat": null, "title": format!("有 {} 条已知风险需要你判断", risks.len()), "text": "风险由各 Agent 在结构化结果中自行报告，或由编排器在校验时发现。请逐条核对证据后再验收。", "refs": [], "actions": [] })
-                }
             })
         };
-        if partial {
-            self.emit(
-                run,
-                ev(
-                    "run.delivered",
-                    "janus",
-                    "已按你的决定结束，交付已完成的部分",
-                )
-                .data(result),
-            );
-            self.emit(
-                run,
-                ev(
-                    "run.accepted_with_risk",
-                    "user",
-                    "用户接受部分结果和已知风险",
-                ),
-            );
-            self.set_status(run, "accepted_with_risk");
-        } else {
-            self.emit(
-                run,
-                ev("run.delivered", "janus", "主控完成了目标，交付结果已准备好").data(result),
-            );
-            self.set_status(run, "delivered");
-        }
+        self.emit(
+            run,
+            ev("run.delivered", "janus", "主控完成了目标，交付结果已准备好").data(result),
+        );
+        self.set_status(run, "delivered");
     }
 
     // ------------------------------------------------------------------
@@ -3275,32 +3235,6 @@ impl App {
                 self.set_status(run, "cancelled");
                 run.wake.notify_one();
             }
-            "retry" => {
-                {
-                    let mut st = run.st.lock().unwrap();
-                    if st.accept_risk {
-                        bail!("已经接受部分结果，不能再重试");
-                    }
-                    let t = Run::task_mut(&mut st, task).context("task missing")?;
-                    if !matches!(t.status, "failed" | "cancelled") {
-                        bail!("{task} 不在失败状态");
-                    }
-                    t.status = "pending";
-                    t.active_attempt = None;
-                    // A retry the person asks for gets a full attempt budget again.
-                    t.retry_base = t.attempts;
-                    t.amendments.clear();
-                }
-                self.set_status(run, "running");
-                self.emit(
-                    run,
-                    ev("task.reopened", "user", format!("要求重试 {task}"))
-                        .task(task)
-                        .data(json!({ "reason": "user.retry" })),
-                );
-                self.ensure_driver(run);
-                run.wake.notify_one();
-            }
             "message" | "interrupt" | "takeover" | "release" | "finish" => {
                 let agent = a["agent"].as_str().unwrap_or("");
                 let cmd = match kind {
@@ -3343,45 +3277,6 @@ impl App {
                         if agent.is_empty() { task } else { agent }
                     ),
                 }
-            }
-            "acceptRisk" => {
-                let skipped = {
-                    let mut st = run.st.lock().unwrap();
-                    if st
-                        .tasks
-                        .iter()
-                        .any(|t| matches!(t.status, "running" | "cancelling"))
-                    {
-                        bail!("仍有 Attempt 正在运行，清理完成后才能接受部分结果");
-                    }
-                    if st.accept_risk {
-                        bail!("已经接受部分结果");
-                    }
-                    let mut skipped = vec![];
-                    for t in st.tasks.iter_mut() {
-                        if !terminal_task_status(t.status) {
-                            t.status = "skipped_by_decision";
-                            skipped.push(t.def.id.clone());
-                        }
-                    }
-                    st.accept_risk = true;
-                    skipped
-                };
-                for id in &skipped {
-                    self.emit(
-                        run,
-                        ev(
-                            "task.skipped_by_decision",
-                            "user",
-                            format!("用户接受风险，跳过 {id}"),
-                        )
-                        .task(id)
-                        .data(json!({ "reason": a["reason"], "acceptedRisk": true })),
-                    );
-                }
-                // The driver delivers the finished part and stops (see execute).
-                self.ensure_driver(run);
-                run.wake.notify_one();
             }
             "accept" => {
                 self.emit(run, ev("risk.accepted", "user", "核对证据后验收通过"));
@@ -3475,6 +3370,7 @@ impl App {
             team,
             git: config["git"] == true && !base_ref.is_empty(),
             base_ref,
+            brief: config["workspace"]["brief"].as_str().unwrap_or("").trim().to_string(),
             seq: AtomicI64::new(self.db.max_seq(run_id)?),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
@@ -3920,7 +3816,6 @@ fn lead_tools() -> Value {
                                 "instructions": { "type": "string", "description": "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。" },
                                 "assignee": { "type": "string", "description": "协作者 id" },
                                 "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的任务 id" },
-                                "write": { "type": "boolean", "description": "这个任务会修改文件" },
                                 "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到和证据" }
                             }
                         }
@@ -4064,15 +3959,12 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
         if accept.is_empty() {
             errors.push(format!("{label}：缺少 accept：写出可核对的验收标准（做到什么、怎样算做到），执行者会逐条验证并给出证据"));
         }
-        let write = t["write"].as_bool().unwrap_or(false);
         ids.push(id.clone());
         defs.push(TaskDef {
             id,
-            kind: if write { "implement".into() } else { "explore".into() },
             title,
             desc: instructions,
             deps: strings(&t["deps"]),
-            write,
             accept,
             assignee,
             max_attempts: MAX_ATTEMPTS,
@@ -4247,6 +4139,46 @@ fn lead_summary(text: &str) -> String {
     short(text.trim(), 2000)
 }
 
+/// The workspace's shared material as a section of a prompt; nothing when the workspace has none.
+/// `wins` names what takes precedence when the two disagree.
+// @project-doc docs/domains/agents_and_roles.md#workspace_brief
+fn brief_section(brief: &str, wins: &str) -> String {
+    if brief.trim().is_empty() {
+        return String::new();
+    }
+    format!("\n\n工作区共享资料（用户维护的长期背景，与{wins}冲突时以{wins}为准）：\n{}\n", brief.trim())
+}
+
+/// The heading the lead puts its suggested additions to the shared material under (see `goal_brief`).
+const BRIEF_HEADING: &str = "建议更新共享资料";
+
+/// Splits the lead's last message into its summary and the lines it suggests adding to the
+/// workspace's shared material: the list under a `BRIEF_HEADING` heading, up to the next heading.
+// @project-doc docs/domains/agents_and_roles.md#workspace_brief
+fn split_brief_suggestions(text: &str) -> (String, Vec<String>) {
+    let lines: Vec<&str> = text.lines().collect();
+    let is_heading = |l: &str| {
+        let t = l.trim().trim_start_matches('#').trim().trim_end_matches(['：', ':']).replace("**", "");
+        t == BRIEF_HEADING
+    };
+    let Some(start) = lines.iter().position(|l| is_heading(l)) else {
+        return (text.to_string(), vec![]);
+    };
+    let end = lines[start + 1..].iter().position(|l| l.trim_start().starts_with('#')).map_or(lines.len(), |i| start + 1 + i);
+    let suggestions = lines[start + 1..end]
+        .iter()
+        .map(|l| {
+            let t = l.trim();
+            let t = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).unwrap_or(t);
+            let t = t.split_once(". ").filter(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).map_or(t, |(_, rest)| rest);
+            t.trim().to_string()
+        })
+        .filter(|l| !l.is_empty())
+        .collect();
+    let rest = [&lines[..start], &lines[end..]].concat().join("\n");
+    (rest, suggestions)
+}
+
 /// Agents that can lead: they pursue a goal on their own with `/goal`.
 pub fn lead_capable(kind: &str) -> bool {
     // Tests lead with the scripted custom agent.
@@ -4283,7 +4215,7 @@ fn task_prompt(
     let mut p = format!(
         "你是 Janus 团队中的 {name}（{role}），主控把一个任务交给了你。
 
-总目标：{goal}
+总目标：{goal}{brief}
 你的任务 {id}：{title}
 说明：{desc}
 最多尝试 {max_attempts} 次。
@@ -4299,17 +4231,14 @@ fn task_prompt(
         name = m.name,
         role = m.role,
         goal = run.goal,
+        brief = brief_section(&run.brief, "任务说明"),
         id = def.id,
         title = def.title,
         desc = def.desc,
         max_attempts = def.max_attempts,
         accept = def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n"),
         ws = workspace.display(),
-        wsnote = if def.write {
-            "你直接在项目的工作目录中工作，改动立即生效，其他成员也会看到。不要 git commit 或 push。"
-        } else {
-            "你直接在项目的工作目录中工作。这个任务只需要阅读和分析，不要修改文件。"
-        },
+        wsnote = "你直接在项目的工作目录中工作，改动立即生效，其他成员也会看到。不要 git commit 或 push。",
     );
     if !upstream.is_empty() {
         p.push_str(&format!("\n\n上游任务的结果：\n{}", upstream.join("\n")));
@@ -4371,12 +4300,6 @@ fn result_gaps(def: &TaskDef, result: &TaskResult) -> Vec<String> {
     let mut gaps = vec![];
     if result.summary.trim().is_empty() {
         gaps.push("结构化结果缺少 summary".to_string());
-    }
-    if def.accept.is_empty() {
-        if result.evidence.is_empty() {
-            gaps.push("没有可核对的 evidence".to_string());
-        }
-        return gaps;
     }
     for (i, criterion) in def.accept.iter().enumerate() {
         match result.checks.get(i) {
@@ -4762,12 +4685,6 @@ fn summarize_output(entry: &Value) -> String {
     }
 }
 
-/// A goal can be a long pasted brief: its first line, without Markdown marks, names it.
-fn goal_title(goal: &str) -> String {
-    let line = goal.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
-    short(&line.trim_start_matches('#').replace("**", "").replace('`', ""), 40)
-}
-
 /// A duration in words: seconds under a minute, minutes after that.
 fn span(ms: i64) -> String {
     if ms < 60_000 { format!("{} 秒", ms / 1000) } else { format!("{} 分钟", ms / 60_000) }
@@ -4812,6 +4729,27 @@ mod tests {
     }
 
     #[test]
+    fn task_prompts_carry_the_shared_material() {
+        let mut run = test_run(2);
+        let def = TaskDef { id: "T1".into(), title: "t".into(), desc: "d".into(), deps: vec![], accept: vec!["a".into()], assignee: run.team[1].id.clone(), max_attempts: 2 };
+        let m = run.team[1].clone();
+        assert!(!task_prompt(&run, &m, &def, Path::new("/tmp"), &[], None).contains("工作区共享资料"), "nothing when there is none");
+        run.brief = "目标用户是独立开发者".into();
+        let p = task_prompt(&run, &m, &def, Path::new("/tmp"), &[], None);
+        assert!(p.contains("工作区共享资料（用户维护的长期背景，与任务说明冲突时以任务说明为准）：\n目标用户是独立开发者"), "{p}");
+    }
+
+    #[test]
+    fn the_leads_suggestions_for_the_shared_material_are_split_off() {
+        let (rest, s) = split_brief_suggestions("完成了。\n\n### 建议更新共享资料：\n1. 定价页在 docs/pricing.md\n* 免费版限 3 个项目\n\n## 风险\n无");
+        assert_eq!(s, vec!["定价页在 docs/pricing.md", "免费版限 3 个项目"]);
+        assert_eq!(rest, "完成了。\n\n## 风险\n无");
+        let (rest, s) = split_brief_suggestions("完成了，没有新的事实。");
+        assert!(s.is_empty());
+        assert_eq!(rest, "完成了，没有新的事实。");
+    }
+
+    #[test]
     fn standing_instructions_pick_the_system_layer_when_there_is_one() {
         assert_eq!(instruction_channel("claude"), Channel::System);
         assert_eq!(instruction_channel("codex"), Channel::Developer);
@@ -4840,12 +4778,6 @@ mod tests {
         assert!(with_developer_instructions(spec(vec![]), "").env.is_empty());
     }
 
-    #[test]
-    fn goal_title_is_the_first_line() {
-        assert_eq!(goal_title("\n  ## 修 **bug**\n- 细节"), "修 bug");
-        assert_eq!(goal_title(&"长".repeat(50)), format!("{}…", "长".repeat(40)));
-    }
-
     fn test_run(team_size: usize) -> Run {
         Run {
             id: "r-test".into(),
@@ -4857,8 +4789,6 @@ mod tests {
                     name: format!("成员{i}"),
                     role: "测试".into(),
                     desc: String::new(),
-                    limits: vec![],
-                    ws: String::new(),
                     runtime: String::new(),
                     lead: i == 0,
                     color: String::new(),
@@ -4880,6 +4810,7 @@ mod tests {
                 .collect(),
             git: false,
             base_ref: String::new(),
+            brief: String::new(),
             seq: AtomicI64::new(0),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
@@ -5276,6 +5207,27 @@ mod flow_tests {
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
+    /// The workspace's shared material reaches the lead (tasks: `task_prompts_carry_the_shared_material`), and the lead's suggested
+    /// additions come back with the delivery, apart from its summary.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn shared_material_reaches_everyone_and_suggestions_come_back() {
+        let h = harness("brief", &[("lead", false), ("m1", false)], json!({}));
+        let mut ws = h.app.db.get_config("workspace", "ws").unwrap().unwrap();
+        ws["brief"] = json!("目标用户是独立开发者");
+        h.app.db.put_config("workspace", "ws", &ws, now_ms()).unwrap();
+        let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+        wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
+        std::fs::write(h.dir.join("fake/lead-go"), "做完了。\n\n## 建议更新共享资料\n- 定价页在 docs/pricing.md\n- 免费版限 3 个项目").unwrap();
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let evs = events(&h.app, &run);
+        let prompts: Vec<String> = evs.iter().filter(|e| e.kind == "session.prompt").map(|e| e.data.as_ref().unwrap()["prompt"].as_str().unwrap_or("").to_string()).collect();
+        assert!(prompts.iter().any(|p| p.contains("工作区共享资料（") && p.contains("目标用户是独立开发者")), "the lead sees it: {prompts:?}");
+        let d = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap();
+        assert_eq!(d["briefSuggestions"], json!(["定价页在 docs/pricing.md", "免费版限 3 个项目"]));
+        assert!(d["summary"].as_str().unwrap().starts_with("做完了。") && !d["summary"].as_str().unwrap().contains("建议更新"), "{d}");
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
     /// When the lead overrules a finished task's conclusion, tasks that build on it use the new one:
     /// a running one hears it at once, one that starts later gets it with the handoff.
     #[tokio::test(flavor = "multi_thread")]
@@ -5359,7 +5311,7 @@ mod flow_tests {
         assert!(h.app.run(&run).unwrap().st.lock().unwrap().tasks.is_empty());
 
         let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [
-            { "id": "T1", "title": "写笔记", "instructions": "在 notes.md 写笔记", "assignee": "m1", "write": true, "accept": ["notes.md 里有笔记"] },
+            { "id": "T1", "title": "写笔记", "instructions": "在 notes.md 写笔记", "assignee": "m1", "accept": ["notes.md 里有笔记"] },
             { "id": "T2", "title": "定名", "instructions": "给笔记定个名字", "assignee": "m2", "deps": ["T1"], "accept": ["给出一个名字"] }] })).await;
         assert!(!err, "{text}");
         let evs = events(&h.app, &run);
@@ -5559,7 +5511,7 @@ mod flow_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn tasks_work_in_the_workspace_directory() {
         let h = harness("inplace", &[("lead", false), ("m1", false)], json!({ "T1": ["write:notes.md"] }));
-        let run = start(&h, json!([task("T1", "m1", json!({ "write": true }))])).await;
+        let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
         wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
         finish_lead(&h);
         wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -5570,7 +5522,6 @@ mod flow_tests {
         assert!(evs.iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")), "the change is kept as a diff");
         assert!(!has(&evs, "verification.failed"));
         let created = evs.iter().find(|e| e.kind == "run.created").unwrap();
-        assert_eq!(created.data.as_ref().unwrap()["inPlace"], true, "the app describes the run from this");
         assert_eq!(created.data.as_ref().unwrap()["mode"], "goal");
         let _ = std::fs::remove_dir_all(&h.dir);
     }
@@ -5584,10 +5535,11 @@ mod flow_tests {
         wait_until(&h.app, &run, "blocked", |e| has(e, "task.blocked")).await;
         let evs = events(&h.app, &run);
         assert_eq!(evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).count(), 2, "two attempts per task");
-        assert!(has(&evs, "task.failed") && !has(&evs, "run.waiting_input"), "nothing waits for the person");
+        assert!(has(&evs, "task.failed"), "the task failed, and the run keeps going");
         let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
         assert!(board.contains("[失败] T1") && board.contains("[无法开始] T2"), "{board}");
-        act(&h, &run, json!({ "type": "retry", "task": "T1" }));
+        let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1" })).await;
+        assert!(!err, "{text}");
         wait_until(&h.app, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2"))).await;
         finish_lead(&h);
         wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -5619,23 +5571,6 @@ mod flow_tests {
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
-    /// Accepting the risk delivers what finished, even while the lead is still working.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn accept_risk_delivers_partially() {
-        let h = harness("accept", &[("lead", false), ("m1", false)], json!({ "T1": ["fail"] }));
-        let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m1", json!({ "deps": ["T1"] }))])).await;
-        wait_until(&h.app, &run, "blocked", |e| has(e, "task.blocked")).await;
-        act(&h, &run, json!({ "type": "acceptRisk", "reason": "test" }));
-        wait_until(&h.app, &run, "delivery", |e| has(e, "run.accepted_with_risk")).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        assert_eq!(status(&h.app, &run), "accepted_with_risk");
-        let evs = events(&h.app, &run);
-        let delivered = evs.iter().find(|e| e.kind == "run.delivered").expect("partial delivery");
-        assert_eq!(delivered.data.as_ref().unwrap()["partial"], true);
-        assert!(delivered.data.as_ref().unwrap()["risks"].as_array().unwrap().iter().any(|r| r.as_str().unwrap().contains("T1")));
-        let _ = std::fs::remove_dir_all(&h.dir);
-    }
-
     /// After a restart the board comes back with the same statuses (failed, blocked), and a retry
     /// still revives both.
     #[tokio::test(flavor = "multi_thread")]
@@ -5655,7 +5590,11 @@ mod flow_tests {
         let tasks = recovered.data.as_ref().unwrap()["tasks"].clone();
         assert_eq!(tasks[0]["status"], "failed", "{tasks}");
         assert_eq!(tasks[1]["status"], "blocked", "{tasks}");
-        app2.action(&r, &json!({ "type": "retry", "task": "T1" })).unwrap();
+        while r.st.lock().unwrap().mcp_token.is_empty() {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let (text, err) = tool(&app2, &run, "lead", "retry", json!({ "task": "T1" })).await;
+        assert!(!err, "{text}");
         wait_until(&app2, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2"))).await;
         finish_lead(&h);
         wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;

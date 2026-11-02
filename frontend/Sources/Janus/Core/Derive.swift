@@ -75,11 +75,9 @@ struct Question {
 
 final class TaskState {
     let id: String
-    var title, desc, agent, kind: String
+    var title, desc, agent: String
     var deps: [String]
     var accept: [String]
-    var candidates: [JSON]
-    var delegated: Bool
     var status = "pending"
     var attempts: [Attempt] = []
     var progress: Double = 0
@@ -95,19 +93,14 @@ final class TaskState {
     var amendments: [String] = []
     var summary = ""
     var evidence: [String] = []
-    var reason = ""
-    var overridden = false
 
     init(_ x: JSON) {
         id = x["id"].str
         title = x["title"].str
         desc = x["desc"].str
         agent = x["agent"].str
-        kind = x["kind"].str
         deps = x["deps"].strings
         accept = x["accept"].strings
-        candidates = x["candidates"].array
-        delegated = x["delegated"].bool ?? false
     }
 }
 
@@ -136,7 +129,7 @@ final class Msg {
     }
 }
 
-/// Something in front of the person (or, for `run_decision` and `failed`, of an old plan-mode run).
+/// Something in front of the person.
 struct InboxItem: Identifiable {
     let kind: String
     let key: String
@@ -154,13 +147,10 @@ struct RunInfo {
     var start: Double = 0
     var now: Double = 0
     var paused = false
-    var kind = ""
-    var mode = ""
     var cwd = ""
     var git = false
     var baseRef = ""
     var workspace = ""
-    var inPlace: Bool?
     var error = ""
 }
 
@@ -181,12 +171,11 @@ struct RunState {
     var msgs: [String: Msg] = [:]
     var result: RunResult?
     var events: [Event] = []
-    var lastPlanSeq: Int?
 
     var orderedTasks: [TaskState] { order.compactMap { tasks[$0] } }
     func event(_ seq: Int) -> Event? { seq >= 1 && seq <= events.count && events[seq - 1].seq == seq ? events[seq - 1] : events.first { $0.seq == seq } }
 
-    static let finished: Set<String> = ["delivered", "accepted", "accepted_with_risk", "cancelled", "failed", "interrupted"]
+    static let finished: Set<String> = ["delivered", "accepted", "cancelled", "failed", "interrupted"]
     var active: Bool { !run.goal.isEmpty && !Self.finished.contains(run.status) }
 }
 
@@ -215,28 +204,14 @@ func derive(_ events: [Event]) -> RunState {
         let d = e.data
         switch e.type {
         case "run.created":
-            s.run.status = d["mode"].str == "goal" ? "running" : "planning"
-            s.run.mode = d["mode"].string ?? "plan"
+            s.run.status = "running"
             s.run.goal = d["goal"].str
             s.run.start = e.ts
-            s.run.kind = d["kind"].str
             s.run.cwd = d["cwd"].str
             s.run.git = d["git"].truthy
             s.run.baseRef = d["baseRef"].str
             s.run.workspace = d["workspace"].str
-            s.run.inPlace = d["inPlace"].bool
             ag("lead").phase = "thinking"
-        case "plan.proposed":
-            s.tasks = [:]; s.order = []; s.lastPlanSeq = e.seq; dropKey("plan")
-            for x in d["tasks"].array { let nt = TaskState(x); nt.status = "created"; s.tasks[nt.id] = nt; s.order.append(nt.id) }
-            s.run.status = "awaiting_plan"
-            s.inbox.append(InboxItem(kind: "plan", key: "plan", seq: e.seq))
-            ag("lead").phase = "waiting_for_input"
-        case "plan.approved":
-            s.answers["plan"] = true; dropKey("plan"); s.run.status = "running"
-            for id in s.order { s.tasks[id]?.status = "pending" }
-            for (id, a) in d["overrides"].object { if let x = s.tasks[id] { x.agent = a.str; x.reason = "你在确认计划时改派"; x.overridden = true } }
-            ag("lead").phase = "coordinating"
         case "orchestration.accepted":
             for x in d["tasks"].array {
                 let nt = TaskState(x)
@@ -245,21 +220,10 @@ func derive(_ events: [Event]) -> RunState {
             }
             ag("lead").phase = "coordinating"
         case "goal.status": ag("lead").note = e.text
-        case "run.waiting_input":
-            s.run.status = "waiting_input"
-            let stuck = d["tasks"].exists ? d["tasks"].array.map { $0["id"].str }
-                : s.orderedTasks.filter { ["failed", "blocked", "verification_failed", "cancelled", "cancelled_by_dependency"].contains($0.status) }.map(\.id)
-            s.inbox.removeAll { $0.kind == "run_decision" }
-            if !stuck.isEmpty { s.inbox.append(InboxItem(kind: "run_decision", key: "run-decision", seq: e.seq, d: ["tasks": JSON(stuck)])) }
         case "run.budget_exhausted":
             s.run.status = "waiting_input"; s.inbox.removeAll { $0.kind == "budget" }
             s.inbox.append(InboxItem(kind: "budget", key: "budget", seq: e.seq, d: ["text": JSON(e.text)]))
         case "run.budget_extended": s.run.status = "running"; s.inbox.removeAll { $0.kind == "budget" }
-        case "plan.validation_exhausted":
-            s.run.status = "waiting_input"; s.inbox.removeAll { $0.kind == "plan_invalid" }
-            s.inbox.append(InboxItem(kind: "plan_invalid", key: "plan-invalid", seq: e.seq, d: ["text": JSON(e.text), "error": d["error"], "reason": d["reason"]]))
-            ag("lead").phase = "error"
-        case "plan.replan_requested": s.inbox.removeAll { $0.kind == "plan_invalid" }; s.run.status = "planning"; ag("lead").phase = "thinking"
         case "decision.withdrawn":
             dropKey(d["key"].str)
             if let t, ["waiting_input", "waiting_approval"].contains(t.status) { t.status = "running" }
@@ -275,22 +239,17 @@ func derive(_ events: [Event]) -> RunState {
             let ids = d["tasks"].exists ? d["tasks"].strings : [e.task].compactMap { $0 }
             for id in ids { s.tasks[id]?.status = "ready" }
         case "task.assigned": t?.status = "assigned"
-        case "task.blocked": t?.status = d["kind"].str == "rework" ? "waiting_review" : "blocked"; t?.blockedBy = d["dependency"].str
-        case "task.cancel_requested": t?.status = "cancelling"
-        case "task.cancelled_by_dependency": t?.status = "cancelled_by_dependency"; endLive(t)
+        case "task.blocked": t?.status = "blocked"; t?.blockedBy = d["dependency"].str
         case "task.skipped_by_decision": t?.status = "skipped_by_decision"; endLive(t)
         case "result.submitted": t?.checks = Check.list(d["checks"])
         case "verification.started": t?.status = "verifying"
         case "verification.failed":
             guard let t else { break }
             t.status = "verification_failed"; t.verificationFailures = d["failures"].strings
-            if !t.delegated { s.inbox.append(InboxItem(kind: "failed", key: "verify-" + t.id, seq: e.seq, task: t.id, d: ["error": JSON(t.verificationFailures.joined(separator: "；"))])) }
         case "attempt.started":
             guard let t else { break }
             if let prev = t.attempts.last, prev.end == nil { prev.end = e.ts }
             t.attempts.append(Attempt(n: e.attempt ?? t.attempts.count + 1, session: d["session"].str, workspace: d["workspace"].str, start: e.ts, status: "running", seq: e.seq))
-            // Runs recorded before "inPlace" existed: an attempt in "工作目录 …" changed the directory itself.
-            if s.run.inPlace == nil && d["workspace"].str.hasPrefix("工作目录 ") { s.run.inPlace = true }
             t.live = true; t.control = "auto"; t.turn = "running"; t.status = "running"; t.progress = 5
             let a = ag(t.agent); a.session = d["session"].string; a.phase = "thinking"; a.note = ""; a.progress = 5
         case "agent.status":
@@ -363,9 +322,8 @@ func derive(_ events: [Event]) -> RunState {
             if let t, t.status == "waiting_approval" { t.status = "running"; ag(t.agent).phase = "running_tool" }
         case "task.failed":
             guard let t else { break }
+            // The lead deals with a failure (it reads it on the board), so nothing waits for the person.
             t.status = "failed"; t.error = d["error"].str
-            // A task the lead orchestrated is the lead's to deal with: it reads the failure on the board.
-            if !t.delegated { s.inbox.append(InboxItem(kind: "failed", key: "fail-" + t.id, seq: e.seq, task: t.id, d: ["error": d["error"]])) }
         case "run.failed": s.run.status = "failed"; s.run.error = d["error"].string ?? e.text
         case "run.interrupted":
             s.run.status = "interrupted"; s.inbox = []
@@ -373,19 +331,10 @@ func derive(_ events: [Event]) -> RunState {
             for a in s.agents.values { a.phase = "idle" }
         case "run.recovered":
             s.run.status = d["phase"].str
-            if d["phase"].str == "awaiting_plan", let p = s.lastPlanSeq { s.inbox.append(InboxItem(kind: "plan", key: "plan", seq: p)) }
-            if d["tasks"].exists {
-                for x in d["tasks"].array {
-                    guard let rt = s.tasks[x["id"].str] else { continue }
-                    rt.status = x["status"].str; rt.blockedBy = x["blockedBy"].str; rt.live = false
-                    if rt.status == "failed" && !rt.delegated {
-                        s.inbox.append(InboxItem(kind: "failed", key: "fail-" + rt.id, seq: e.seq, task: rt.id, d: ["error": JSON(rt.attempts.last?.error ?? "重启前已用完重试次数")]))
-                    }
-                }
-            } else { for x in s.orderedTasks where x.status != "succeeded" { x.status = "pending" } }
-            if d["phase"].str == "planning" { ag("lead").phase = "thinking" }
-        case "plan.revision_requested":
-            dropKey("plan"); s.run.status = "planning"; s.tasks = [:]; s.order = []; ag("lead").phase = "thinking"
+            for x in d["tasks"].array {
+                guard let rt = s.tasks[x["id"].str] else { continue }
+                rt.status = x["status"].str; rt.blockedBy = x["blockedBy"].str; rt.live = false
+            }
         case "artifact.created":
             let a = Artifact(name: d["name"].str, kind: d["kind"].str, path: d["path"].str, desc: d["desc"].str, hash: d["hash"].str, bytes: d["bytes"].int, task: e.task ?? "", attempt: e.attempt ?? 0, seq: e.seq, by: e.actor)
             s.artifacts.append(a); t?.artifacts.append(a)
@@ -395,12 +344,6 @@ func derive(_ events: [Event]) -> RunState {
             if let at = t.attempts.last { at.status = "failed"; at.error = d["error"].str }
             t.status = "ready"
             let a = ag(t.agent); a.phase = "error"; a.note = d["error"].str; a.progress = nil
-        case "review.rejected":
-            if let target = s.tasks[d["target"].str] { target.attempts.last?.status = "rejected" }
-            guard let t else { break }
-            t.attempts.last?.status = "verdict"; endLive(t)
-            t.status = "blocked"; t.blockedBy = d["target"].str
-            let a = ag(e.actor); a.phase = "idle"; a.note = ""; a.progress = nil
         case "result.amended": t?.amendments.append(d["text"].str)
         case "session.prompt": if let t, d["channel"].str == "fix" { t.status = "running" }
         case "task.reopened":
@@ -410,20 +353,16 @@ func derive(_ events: [Event]) -> RunState {
             // Tasks held by this one's failure wait for it again instead of showing as stuck.
             for x in s.orderedTasks where x.status == "blocked" && x.blockedBy == t.id { x.status = "pending" }
             t.status = "ready"
-            s.inbox.removeAll { ["fail-" + t.id, "verify-" + t.id, "run-decision"].contains($0.key) }
-            if ["delivered", "accepted", "accepted_with_risk"].contains(s.run.status) { s.run.status = "running" }
+            if ["delivered", "accepted"].contains(s.run.status) { s.run.status = "running" }
         case "task.succeeded":
             guard let t else { break }
             t.status = "succeeded"; t.progress = 100; t.summary = d["summary"].str; t.evidence = d["evidence"].strings
             endLive(t)
             if let at = t.attempts.last, at.status == "running" { at.status = "succeeded" }
             let a = ag(t.agent); a.phase = t.agent == "lead" ? "coordinating" : "idle"; a.note = ""; a.progress = nil
-        case "fix.requested": s.answers[d["key"].str] = true
         case "run.delivered":
             s.run.status = "delivered"; s.result = RunResult(d: d, seq: e.seq)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
-        case "run.accepted_with_risk":
-            s.run.status = "accepted_with_risk"; s.inbox.removeAll { ["run_decision", "failed", "budget"].contains($0.kind) }
         case "risk.accepted": s.run.status = "accepted"; s.result?.accepted = e.ts
         default: break
         }
@@ -499,29 +438,15 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     // The watchdog's latest report per task, until the backend says the agent moved again, the
     // agent itself acts, or a new attempt starts.
     var stalls: [String: (seq: Int, text: String)] = [:]
-    let recorded = st.events.contains { $0.type == "context.handoff" }
-    var plans = 0
     for e in st.events {
         let d = e.data
         if let task = e.task, stalls[task] != nil, e.actor == st.tasks[task]?.agent || e.type == "attempt.started" { stalls[task] = nil }
         switch e.type {
         case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
-        case "plan.proposed": plans += 1
         case "result.submitted":
             f.results.append(ResultFact(key: "r\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, task: e.task ?? "", summary: d["summary"].string ?? e.text, evidence: d["evidence"].strings, risks: d["risks"].strings, checks: Check.list(d["checks"])))
         case "context.handoff":
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: d["from"].str, to: e.task ?? "", agent: e.to ?? "", summary: d["summary"].str, artifacts: d["artifacts"].strings))
-        case "attempt.started":
-            // Runs from before handoffs were recorded: the orchestrator injected every dependency's latest result here.
-            guard !recorded, !d["resumed"].truthy, let task = e.task else { break }
-            for dep in st.tasks[task]?.deps ?? [] {
-                let r = f.results.last { $0.task == dep && $0.seq < e.seq }
-                let arts = st.artifacts.filter { $0.task == dep && $0.seq < e.seq }.map(\.name)
-                f.handoffs.append(HandoffFact(key: "h\(e.seq)\(dep)", seq: e.seq, ts: e.ts, by: r?.by ?? st.tasks[dep]?.agent ?? "", from: dep, to: task, agent: e.to ?? "", summary: r?.summary ?? "", artifacts: arts))
-            }
-        case "plan.approved":
-            let ov = d["overrides"].object
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "确认计划\(plans > 1 ? "（第 \(plans) 版）" : "")", text: "\(st.order.count) 个任务\(ov.isEmpty ? "" : "，改派 " + ov.map { "\($0.key) → \(name($0.value.str))" }.joined(separator: "、"))", agents: ["lead"]))
         case "orchestration.accepted":
             let ts = d["tasks"].array
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控提交编排", text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : "（依赖 \(x["deps"].strings.joined(separator: "、"))）")" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
@@ -532,15 +457,10 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             let text = d["text"].string ?? e.text
             if d["kind"].str == "blocker" { blockers.append((key: "ob\(e.seq)", seq: e.seq, task: e.task ?? "", text: text, actor: e.actor)) }
             else { f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "\(d["kind"].str == "note" ? "备注" : "进展")：\(text)", artifacts: [])) }
-        case "plan.revision_requested":
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "要求重新规划", text: d["feedback"].string ?? e.text, agents: ["lead"]))
         case "question.answered":
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "回答 \(e.task ?? "") 的提问", text: d["answer"].str + (d["note"].truthy ? "；\(d["note"].str)" : ""), tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
         case "approval.granted", "approval.denied":
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == "approval.granted" ? "批准一次操作" : "拒绝一次操作", text: e.text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
-        case "review.approved", "review.rejected":
-            let fs = d["findings"].array.map { "[\($0["severity"].str)] \($0["text"].str)" }
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == "review.approved" ? "评审通过\(d["target"].truthy ? " \(d["target"].str)" : "")" : "评审驳回 \(d["target"].str)", text: fs.isEmpty ? e.text : fs.joined(separator: "\n"), tasks: [e.task, d["target"].string].compactMap { $0 }, agents: [e.actor]))
         case "risk.accepted":
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "接受风险并验收", text: e.text))
         case "result.amended":
@@ -585,11 +505,9 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         let who = i.task ?? name(i.agent ?? "")
         let title: String
         switch i.kind {
-        case "plan": title = "计划等你确认"
         case "question": title = i.task != nil ? "\(i.task!) 的提问等你回答" : "主控请你决定：\(L.short(i.d["question"].str, 40))"
         case "approval": title = "\(who) 请求你决定"
         case "input": title = "\(who) 需要你\(i.d["mode"].str == "url" ? "打开链接" : "填写")"
-        case "failed": title = "\(i.task ?? "") 用完重试次数"
         case "session": title = "\(who) 这一轮结束，等你的消息"
         default: title = "等你处理"
         }
@@ -598,8 +516,6 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "question": text = t?.question?.question ?? ""
         case "approval": text = i.d["command"].str
         case "input": text = i.d["message"].str
-        case "failed": text = i.d["error"].str
-        case "plan": text = "\(st.order.count) 个任务"
         default: text = ""
         }
         if text.isEmpty { text = i.d["reason"].str }
@@ -614,20 +530,18 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     for b in blockers where !closed.contains(st.tasks[b.task]?.status ?? "") {
         f.open.append(OpenFact(key: b.key, seq: b.seq, title: "\(b.task) 遇到阻塞", text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead))
     }
-    if st.run.mode == "goal" {
-        for t in st.orderedTasks where t.status == "waiting_input" {
-            guard let q = t.question, q.answer == nil, !st.inbox.contains(where: { $0.key == q.key }) else { continue }
-            f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: "\(t.id) 问主控", text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead))
-        }
-        for t in st.orderedTasks where ["failed", "verification_failed"].contains(t.status) && t.delegated {
-            f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: "\(t.id) 失败，等主控决定", text: t.error.isEmpty ? t.verificationFailures.joined(separator: "；") : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: "主控可以重做、接受结果或取消"))
-        }
+    for t in st.orderedTasks where t.status == "waiting_input" {
+        guard let q = t.question, q.answer == nil, !st.inbox.contains(where: { $0.key == q.key }) else { continue }
+        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: "\(t.id) 问主控", text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead))
+    }
+    for t in st.orderedTasks where ["failed", "verification_failed"].contains(t.status) {
+        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: "\(t.id) 失败，等主控决定", text: t.error.isEmpty ? t.verificationFailures.joined(separator: "；") : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: "主控可以重做、接受结果或取消"))
     }
     for t in st.orderedTasks where t.status == "blocked" {
         f.open.append(OpenFact(key: "ob\(t.id)", seq: nil, title: "\(t.id) 等待 \(t.blockedBy)", text: "依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。", tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead))
     }
     // Once the run is over, a message that never arrived is marked on its decision card.
-    if ["delivered", "accepted", "accepted_with_risk", "cancelled", "failed"].contains(st.run.status) {
+    if ["delivered", "accepted", "cancelled", "failed"].contains(st.run.status) {
         let lost = Set(notes.values.flatMap { $0.map(\.seq) })
         for i in f.decisions.indices where lost.contains(f.decisions[i].seq) { f.decisions[i].lost = true }
     }

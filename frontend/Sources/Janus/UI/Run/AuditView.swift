@@ -91,19 +91,18 @@ struct AuditView: View {
 
     private func invariants(_ events: [Event]) -> [(String, Bool, String)] {
         var active: [String: Int] = [:], numbers: [String: [Int]] = [:]
-        var overlap = 0, gaps = 0, noEvidence = 0, unsubmitted = 0, badQuestion = 0, badReview = 0, badActor = 0
+        var overlap = 0, gaps = 0, noEvidence = 0, unsubmitted = 0, badQuestion = 0, badActor = 0
         var submitted = Set<String>()
         for e in events {
             let task = e.task ?? ""
             if e.type == "attempt.started" { if active[task] != nil { overlap += 1 }; active[task] = e.attempt ?? 0; numbers[task, default: []].append(e.attempt ?? 0) }
-            if ["attempt.failed", "task.succeeded", "review.rejected"].contains(e.type) { active[task] = nil }
+            if ["attempt.failed", "task.succeeded"].contains(e.type) { active[task] = nil }
             if e.type == "result.submitted" { submitted.insert("\(task)#\(e.attempt ?? 0)") }
             if e.type == "task.succeeded" {
                 if !e.data["summary"].truthy || e.data["evidence"].array.isEmpty { noEvidence += 1 }
                 if !submitted.contains("\(task)#\(e.attempt ?? 0)") { unsubmitted += 1 }
             }
             if e.type == "question.asked" && !(e.data["question"].truthy && !e.data["options"].array.isEmpty) { badQuestion += 1 }
-            if e.type.hasPrefix("review.") && !(!e.data["refs"].array.isEmpty || e.data["findings"].array.allSatisfy { $0["ref"].truthy }) { badReview += 1 }
             if e.type.range(of: #"^(task\.(ready|assigned|succeeded|reopened|retry_scheduled)|attempt\.)"#, options: .regularExpression) != nil && e.actor != "janus" { badActor += 1 }
         }
         for ns in numbers.values { for (i, n) in ns.enumerated() where n != i + 1 { gaps += 1 } }
@@ -114,7 +113,6 @@ struct AuditView: View {
             ("任务状态只由编排器（Janus）改变", badActor == 0, "Agent 只提交进度与结果"),
             ("标记完成前已提交结构化结果和证据", noEvidence == 0 && unsubmitted == 0, "\(events.filter { $0.type == "task.succeeded" }.count) 次完成"),
             ("等待输入时附带可回答的问题", badQuestion == 0, "\(events.filter { $0.type == "question.asked" }.count) 个问题"),
-            ("评审结论引用了具体产物或证据", badReview == 0, "\(events.filter { $0.type.hasPrefix("review.") }.count) 次评审"),
         ]
     }
 }
@@ -126,8 +124,7 @@ struct TeamView: View {
     /// What the run does to its directory, from facts rather than the sentence recorded at creation.
     private func wsNote(_ r: RunInfo) -> String {
         if r.git { return r.workspace.isEmpty ? "Git 仓库，基线 \(String(r.baseRef.prefix(7)))" : r.workspace }
-        if r.inPlace == true { return "非 Git 目录：任务直接在这个目录中执行，没有 diff" }
-        return r.workspace
+        return "非 Git 目录：任务直接在这个目录中执行，没有 diff"
     }
 
     var body: some View {
@@ -161,7 +158,7 @@ struct TeamView: View {
                                 Pill(pl, pt)
                             }
                             if m["desc"].truthy { Text(m["desc"].str).font(.callout) }
-                            KV(rows: [("工作区策略", L.wsLabel[m["ws"].str] ?? "—"), ("权限", m["limits"].array.last?.str ?? "—"), ("最大并发", "1"),
+                            KV(rows: [("权限", m["permission"].truthy ? m["permission"].str : "Agent 没有权限模式"),
                                       ("Agent", "\(w.runtime) · \(w.model.isEmpty ? "默认模型" : w.model)\(m["effort"].truthy ? " · \(m["effort"].str)" : "")")])
                         }
                     }

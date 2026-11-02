@@ -6,9 +6,9 @@ enum Tone: String { case gray, blue, green, amber, red, violet }
 /// Labels and small formatting helpers.
 enum L {
     static let taskStatus: [String: (String, Tone)] = [
-        "created": ("待确认", .gray), "pending": ("等待依赖", .gray), "ready": ("就绪", .gray), "assigned": ("已分配", .blue), "running": ("执行中", .blue),
-        "waiting_input": ("等你回答", .amber), "waiting_approval": ("等你审批", .amber), "waiting_review": ("待评审", .violet),
-        "blocked": ("依赖失败", .amber), "cancelling": ("清理中", .amber), "cancelled_by_dependency": ("因依赖取消", .gray), "skipped_by_decision": ("按决定跳过", .gray),
+        "pending": ("等待依赖", .gray), "ready": ("就绪", .gray), "assigned": ("已分配", .blue), "running": ("执行中", .blue),
+        "waiting_input": ("等你回答", .amber), "waiting_approval": ("等你审批", .amber),
+        "blocked": ("依赖失败", .amber), "skipped_by_decision": ("主控取消", .gray),
         "verifying": ("核对中", .violet), "verification_failed": ("没通过验收", .red), "succeeded": ("已完成", .green), "failed": ("失败", .red), "cancelled": ("已取消", .gray),
     ]
     static func task(_ s: String) -> (String, Tone) { taskStatus[s] ?? (s, .gray) }
@@ -20,37 +20,35 @@ enum L {
     ]
     static func phase(_ s: String) -> (String, Tone) { agentPhase[s] ?? agentPhase["idle"]! }
 
-    static let attemptStatus: [String: (String, Tone)] = ["running": ("进行中", .blue), "succeeded": ("成功", .green), "failed": ("失败", .red), "rejected": ("被评审驳回", .red), "verdict": ("给出驳回意见", .amber)]
+    static let attemptStatus: [String: (String, Tone)] = ["running": ("进行中", .blue), "succeeded": ("成功", .green), "failed": ("失败", .red)]
 
     static let runListStatus: [String: (String, Tone)] = [
-        "planning": ("规划中", .blue), "awaiting_plan": ("等你确认计划", .amber), "waiting_input": ("等你决策", .amber), "running": ("执行中", .blue),
-        "delivered": ("已交付", .green), "accepted": ("已验收", .green), "accepted_with_risk": ("已接受风险", .amber), "failed": ("失败", .red),
+        "planning": ("主控启动中", .blue), "waiting_input": ("等你追加预算", .amber), "running": ("执行中", .blue),
+        "delivered": ("已交付", .green), "accepted": ("已验收", .green), "failed": ("失败", .red),
         "cancelled": ("已停止", .gray), "interrupted": ("已中断", .gray),
     ]
 
-    static let diagCats: [(String, String)] = [("input", "用户输入不足"), ("plan", "任务拆解不合理"), ("capability", "Agent 能力不匹配"), ("tool", "工具或环境不足"), ("data", "数据源缺失"), ("permission", "权限限制"), ("execution", "Agent 执行偏差"), ("review", "评审遗漏")]
-    static let wsLabel = ["shared_readonly": "共享只读目录", "readonly_commit": "只读，指定 commit", "isolated_worktree": "独立 worktree", "orchestrator": "主控工作区", "workspace": "直接在工作目录中"]
     static let artKind = ["report": "回复", "git_diff": "代码改动", "test_report": "测试结果"]
 
     static let icon: [String: String] = [
-        "run.created": "✦", "plan.proposed": "◇", "plan.approved": "✓", "run.cancelled": "■", "run.paused": "Ⅱ", "run.resumed": "▶",
+        "run.created": "✦", "run.cancelled": "■", "run.paused": "Ⅱ", "run.resumed": "▶",
         "task.ready": "▸", "task.assigned": "↗", "attempt.started": "▶", "attempt.failed": "✕", "task.retry_scheduled": "↻", "task.reopened": "↺",
-        "result.submitted": "⇪", "task.succeeded": "✓", "dependency.resolved": "⇢", "artifact.created": "▤", "artifact.handoff": "⇄", "context.handoff": "⇄",
+        "result.submitted": "⇪", "task.succeeded": "✓", "artifact.created": "▤", "context.handoff": "⇄",
         "question.asked": "?", "question.escalated": "⇡", "question.answered": "✎", "answer.delivered": "↩",
-        "approval.requested": "⚑", "input.requested": "✎", "input.answered": "↩", "approval.granted": "✓", "approval.denied": "✕", "review.rejected": "✕", "review.approved": "✓",
-        "run.delivered": "★", "run.waiting_input": "?", "run.budget_exhausted": "⌛", "run.accepted_with_risk": "⚠", "risk.accepted": "✓", "fix.requested": "↻", "task.failed": "✕",
-        "task.blocked": "⊘", "task.cancelled_by_dependency": "■", "task.skipped_by_decision": "→", "task.cancel_requested": "‖", "verification.started": "◌", "verification.failed": "✕",
-        "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "policy.violation": "⚠", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓",
-        "session.prompt": "→", "decision.summary": "◆", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩", "plan.validation_exhausted": "✕",
-        "plan.replan_requested": "✎", "verification.command_rejected": "⚠", "run.budget_extended": "⌛", "plan.revision_requested": "✎", "agent.message": "❝", "user.message": "✎",
+        "approval.requested": "⚑", "input.requested": "✎", "input.answered": "↩", "approval.granted": "✓", "approval.denied": "✕",
+        "run.delivered": "★", "run.budget_exhausted": "⌛", "risk.accepted": "✓", "task.failed": "✕",
+        "task.blocked": "⊘", "task.skipped_by_decision": "→", "verification.started": "◌", "verification.failed": "✕",
+        "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓",
+        "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
+        "run.budget_extended": "⌛", "agent.message": "❝", "user.message": "✎",
         "message.delivered": "↪", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
     ]
 
     private static let toneTable: [Tone: [String]] = [
-        .green: ["plan.approved", "task.succeeded", "review.approved", "approval.granted", "input.answered", "run.delivered", "risk.accepted"],
-        .amber: ["question.asked", "question.escalated", "approval.requested", "input.requested", "plan.proposed", "run.paused", "control.taken", "session.interrupted", "user.message"],
-        .red: ["attempt.failed", "review.rejected", "approval.denied", "run.cancelled", "task.failed", "run.failed", "run.interrupted", "policy.violation"],
-        .gray: ["agent.status", "tool.call", "tool.completed", "dependency.resolved", "task.ready"],
+        .green: ["task.succeeded", "approval.granted", "input.answered", "run.delivered", "risk.accepted"],
+        .amber: ["question.asked", "question.escalated", "approval.requested", "input.requested", "run.paused", "control.taken", "session.interrupted", "user.message"],
+        .red: ["attempt.failed", "approval.denied", "run.cancelled", "task.failed", "run.failed", "run.interrupted"],
+        .gray: ["agent.status", "tool.call", "tool.completed", "task.ready"],
         .blue: ["tool.started", "session.prompt"],
     ]
     static func tone(of type: String) -> Tone? { toneTable.first { $0.value.contains(type) }?.key }
@@ -58,11 +56,11 @@ enum L {
     /// Event categories for the feed and the audit filter.
     static func category(_ type: String) -> String {
         func m(_ p: String) -> Bool { type.range(of: p, options: .regularExpression) != nil }
-        if m(#"^(plan\.approved|question\.answered|input\.answered|approval\.(granted|denied)|review\.|risk\.|fix\.|run\.(paused|resumed|cancelled))"#) { return "decisions" }
+        if m(#"^(question\.answered|input\.answered|approval\.(granted|denied)|risk\.|run\.(paused|resumed|cancelled))"#) { return "decisions" }
         if m(#"^(question\.|approval\.requested|input\.requested|answer\.|user\.message|message\.delivered|control\.|session\.)"#) { return "messages" }
         if type == "agent.message" { return "progress" }
         if type.hasPrefix("artifact.") || type == "context.handoff" { return "artifacts" }
-        if m(#"^(agent\.status|tool\.|session\.prompt|decision\.summary)"#) { return "progress" }
+        if m(#"^(agent\.status|tool\.|session\.prompt)"#) { return "progress" }
         return "tasks"
     }
     static let categoryLabel: [(String, String)] = [("all", "全部"), ("tasks", "任务"), ("messages", "消息"), ("artifacts", "产物"), ("decisions", "决策"), ("progress", "进度与工具")]

@@ -137,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Quitting stops the server the app started; its running runs become interrupted and can be
         // resumed later. A server the app found running (the launchd service) keeps going.
         if model.backend.owned, let s = model.store,
-           s.runs.contains(where: { ["planning", "awaiting_plan", "running", "waiting_input"].contains($0["status"].str) }) {
+           s.runs.contains(where: { ["planning", "running", "waiting_input"].contains($0["status"].str) }) {
             if !confirm("退出 Janus？", "还有正在执行的任务。退出会停止 Janus 服务，这些任务会中断，下次打开后可以「从中断处继续」。", ok: "退出") { return .terminateCancel }
         }
         model.backend.stop()

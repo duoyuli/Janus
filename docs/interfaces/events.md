@@ -36,7 +36,7 @@
 
 - 事件只追加，不修改。写入 SQLite 后才广播。
 - `text` 用于展示，程序逻辑只读 `type` 和 `data`。
-- 等待用户或主控处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键的前缀：`q-<task>-<n>-<轮>` 是任务提问，`req-<task 或 agent>-<n>-<时间>` 是审批或表单请求。早期计划模式的 Run 还有 `plan` 和 `plan-invalid`。
+- 等待用户或主控处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键的前缀：`q-<task>-<n>-<轮>` 是任务提问，`q-lead-` 是主控用 `ask_user` 提的问题，`req-<task 或 agent>-<n>-<时间>` 是审批或表单请求。
 
 新增或修改事件类型时，同步检查：应用的 `derive` 和 `boardFacts`（`frontend/Sources/Janus/Core/Derive.swift`，见 [macOS 应用](../architecture/frontend.md#event_derivation)）、看板的 `board_entry`（[看板 MCP 工具](board_mcp.md#wait)）、恢复逻辑 `resume_run`。
 
@@ -58,7 +58,7 @@
 
 3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。
 
-重启后，没有 `steer` / `prompt` 也没有被送达的消息会恢复为留言，在 Agent 下一次会话时带入。早期 Run 的 `user.message` 没有 `id`，直接在 `delivery` 中记录去向。
+重启后，没有 `steer` / `prompt` 也没有被送达的消息会恢复为留言，在 Agent 下一次会话时带入。
 
 <a id="event_types"></a>
 ## 事件类型
@@ -67,9 +67,8 @@
 
 | 类型 | 说明 |
 | --- | --- |
-| `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`、`inPlace`、`mode` |
-| `run.delivered` | 交付；`data` 是交付结果：`headline`（「已完成：<目标第一行>」或「部分交付：<目标第一行>」）、`summary`、`deliverables`、`evidence`、`risks`、`review`、`confidence`、`diagnosis` |
-| `run.accepted_with_risk` | 用户接受部分结果后的交付 |
+| `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`（工作目录的一句话描述）、`mode`（固定为 `goal`） |
+| `run.delivered` | 交付；`data` 是交付结果：`summary`、`briefSuggestions`（主控建议写入工作区共享资料的条目，见[工作区共享资料](../domains/agents_and_roles.md#workspace_brief)）、`deliverables`、`evidence`、`risks` |
 | `risk.accepted` | 用户验收 |
 | `run.failed` | Run 失败；`data.error` |
 | `run.cancelled` | 用户取消 |
@@ -77,7 +76,6 @@
 | `run.recovered` | 从中断处继续 |
 | `run.paused` / `run.resumed` | 暂停 / 继续 |
 | `run.budget_exhausted` / `run.budget_extended` | 预算用完 / 追加预算 |
-| `run.waiting_input` | 等待用户决定（早期计划模式） |
 
 ### 主控与目标
 
@@ -88,15 +86,6 @@
 | `orchestration.accepted` | 编排通过校验；`data.tasks` 是写入看板的任务，恢复时据此重建看板 |
 | `orchestration.rejected` | 编排没有通过校验；`data.errors`、`data.submitted` |
 | `board.posted` | 协作者写回看板；`data.kind`（`progress` / `blocker` / `note`）、`data.text` |
-
-### 计划（早期计划模式，只出现在旧 Run 中）
-
-| 类型 | 说明 |
-| --- | --- |
-| `plan.proposed` | 计划提交给用户 |
-| `plan.validation_failed` / `plan.validation_exhausted` | 计划校验失败 / 多次失败后停止 |
-| `plan.revision_requested` / `plan.replan_requested` | 用户要求修改 / 重新规划 |
-| `plan.approved` / `plan.frozen` | 用户确认 / 计划冻结 |
 
 ### 任务与尝试
 
@@ -115,19 +104,15 @@
 | `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks` |
 | `task.blocked` | 硬依赖失败；`data.dependency` |
 | `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
-| `task.cancel_requested` / `task.cancelled_by_dependency` | 因 `failFast` 上游失败而取消（只出现在旧 Run 中） |
-| `task.skipped_by_decision` | 跳过：用户接受部分结果时，或主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
-| `task.reopened` | 重试后任务重新开始；`data.reason` 是 `user.retry` 或 `lead.retry`（旧 Run 中还有 `review.rejected`）；主控重试时可能带新的 `data.instructions`、`data.accept`（旧 Run 中还有 `data.commands`） |
-| `review.approved` / `review.rejected` | 评审结论（只出现在旧 Run 中） |
-| `policy.violation` | 只读任务修改了文件，改动被丢弃（只出现在使用独立 worktree 的旧 Run 中） |
+| `task.skipped_by_decision` | 主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
+| `task.reopened` | 主控重试后任务重新开始；`data.reason` 是 `lead.retry`，可能带新的 `data.instructions`、`data.accept` |
 
 ### 验证
 
 | 类型 | 说明 |
 | --- | --- |
-| `verification.started` | 开始核对结果；`data.accept`（旧 Run 中是 `data.policy`） |
+| `verification.started` | 开始核对结果；`data.accept` |
 | `verification.passed` / `verification.failed` | 核对结果；`data.checks`，失败时另有 `data.failures`（每条没核对、没证据或没达到的标准） |
-| `verification.command` / `verification.command_rejected` / `verification.command_unavailable` | 只出现在旧 Run 中：Janus 曾经执行主控指定的验证命令 |
 
 ### 会话
 

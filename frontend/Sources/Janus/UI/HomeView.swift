@@ -7,9 +7,9 @@ struct HomeView: View {
     let ws: JSON
 
     private let suggestions = [
-        ("除零保护", "给 divide 增加除零保护：除数为 0 时抛出 ValueError，并补充对应测试"),
-        ("新增函数", "为 calc 增加 subtract 和 multiply 两个函数，补测试，并在 README 中说明用法"),
-        ("代码调研", "阅读这个项目，整理代码结构和测试覆盖情况，给出三条改进建议"),
+        ("新功能上线", "为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明"),
+        ("竞品与定位", "调研这个产品的主要竞品和目标用户，整理定位差异和三个最值得做的机会，给出依据"),
+        ("发布前检查", "检查这个产品是否可以发布：核对主要用户流程、已知缺陷、回滚方式和发布说明，给出质量结论"),
     ]
 
     var body: some View {
@@ -23,7 +23,7 @@ struct HomeView: View {
         }
         let runs = store.runs(of: ws)
         // Runs waiting on the person; the full list is in the sidebar.
-        let waiting = runs.filter { ["waiting_input", "awaiting_plan", "delivered"].contains($0["status"].str) }
+        let waiting = runs.filter { ["waiting_input", "delivered"].contains($0["status"].str) }
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 OnboardingBar(store: store)
@@ -132,6 +132,7 @@ struct WorkspaceEditor: View {
     @Local private var path = ""
     @Local private var lead = ""
     @Local private var on: Set<String> = []
+    @Local private var brief = ""
     @Local private var inspect: JSON?
     @Local private var saving = false
 
@@ -156,6 +157,19 @@ struct WorkspaceEditor: View {
                     }
                     Text(inspectLine).font(.callout).foregroundStyle(inspect?["exists"].bool == false ? Tone.red.color : .secondary)
                     TextField("名称（可选，默认用目录名）", text: $name).textFieldStyle(.roundedBorder)
+
+                    Text("共享资料").font(.headline).padding(.top, 6)
+                    Text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次 Run 开始时交给主控和所有协作者，已经写在这里的事实不会再被重新调研或再问你。").font(.callout).foregroundStyle(.secondary)
+                    TextEditor(text: $brief)
+                        .font(.body)
+                        .frame(height: 140)
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(brief.count > Self.briefLimit ? Tone.red.color : Color.line))
+                        .accessibilityLabel("共享资料")
+                    HStack {
+                        if let saved = initial?.last, saved != brief, !isNew { Text("还没保存：保存后，之后的 Run 才会用到新的共享资料。").font(.caption).foregroundStyle(Tone.amber.color) }
+                        Spacer()
+                        Text(verbatim: "\(brief.count) / \(Self.briefLimit)").font(.caption).foregroundStyle(brief.count > Self.briefLimit ? Tone.red.color : .secondary)
+                    }
 
                     Text("启用的角色与主控").font(.headline).padding(.top, 6)
                     if store.roles.isEmpty { Note(text: "还没有角色，先去「设置 → 角色」创建。") }
@@ -198,7 +212,7 @@ struct WorkspaceEditor: View {
                 Spacer()
                 Button("取消") { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
                 Button(saving ? "正在保存…" : isNew ? "创建工作区" : "保存") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .disabled(saving || path.trimmingCharacters(in: .whitespaces).isEmpty || inspect?["exists"].bool == false)
+                    .disabled(saving || path.trimmingCharacters(in: .whitespaces).isEmpty || inspect?["exists"].bool == false || brief.count > Self.briefLimit)
             }
             .padding(16)
         }
@@ -221,13 +235,17 @@ struct WorkspaceEditor: View {
 
     /// Edits not saved yet, so Cancel and Esc ask before throwing them away.
     private var dirty: Bool { initial.map { $0 != snapshot } ?? false }
-    private var snapshot: [String] { [name, path, lead, on.sorted().joined(separator: ",")] }
+    private var snapshot: [String] { [name, path, lead, on.sorted().joined(separator: ","), brief] }
+    /// The backend's `BRIEF_LIMIT`: the shared material goes into every session's prompt.
+    static let briefLimit = 8000
     @Local private var initial: [String]?
 
     private func setup() {
-        defer { initial = snapshot }
+        // Opened with suggested lines already added: those count as unsaved edits.
+        defer { initial = Array(snapshot.dropLast()) + [store.workspace(original["id"].str)?["brief"].str ?? original["brief"].str] }
         let isNew = original["id"].str.isEmpty
         name = original["name"].str
+        brief = original["brief"].str
         path = original["path"].str
         if isNew && store.workspaces.isEmpty, let d = store.meta["defaultCwd"].string { path = d }
         let members = original["members"].array.map { $0["role"].str }
@@ -248,7 +266,7 @@ struct WorkspaceEditor: View {
     private func save() {
         saving = true
         let members = store.roles.map { $0["id"].str }.filter { on.contains($0) }.map { JSON.object(["role": JSON($0)]) }
-        let body: JSON = ["id": original["id"], "name": JSON(name), "path": JSON(path), "lead": JSON(lead), "members": .array(members)]
+        let body: JSON = ["id": original["id"], "name": JSON(name), "path": JSON(path), "lead": JSON(lead), "members": .array(members), "brief": JSON(brief)]
         Task {
             do {
                 let ws = try await store.save("workspaces", body)

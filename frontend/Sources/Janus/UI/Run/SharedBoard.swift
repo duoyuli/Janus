@@ -48,7 +48,7 @@ struct ProgressBoard: View {
         run.state.active && !run.isReplaying ? Swift.max(st.run.now, L.nowMs()) : st.run.now
     }
 
-    /// Tasks in the order they started, then the ones still waiting in plan order. A task that
+    /// Tasks in the order they started, then the ones still waiting in the order the lead gave them. A task that
     /// neither ran nor waits (cancelled or skipped before it started) stays as a row without a bar.
     private func timelineTasks(_ f: BoardFacts, _ now: Double) -> [TimelineTask] {
         let waits = run.state.active || run.isReplaying
@@ -57,11 +57,11 @@ struct ProgressBoard: View {
             var x = TimelineTask(id: t.id, title: t.title, agent: t.agent, status: t.status, deps: t.deps)
             for a in t.attempts {
                 // A finished attempt keeps its own outcome; the running one shows the task's status.
-                let ended = ["succeeded", "failed", "rejected"].contains(a.status)
+                let ended = ["succeeded", "failed"].contains(a.status)
                 x.bars.append(TimelineBar(id: "\(t.id)#\(a.n)", start: a.start, end: a.end ?? now, attempt: a.n,
                                           status: a.end != nil && ended ? a.status : t.status, running: a.end == nil))
             }
-            if t.attempts.isEmpty, waits, ["created", "pending", "ready", "assigned", "blocked"].contains(t.status) {
+            if t.attempts.isEmpty, waits, ["pending", "ready", "assigned", "blocked"].contains(t.status) {
                 let waiting = t.deps.filter { st.tasks[$0]?.status != "succeeded" }
                 x.waiting = t.status == "blocked" ? "等待 \(t.blockedBy) 修复" : waiting.isEmpty ? "等待调度" : "等待 \(waiting.joined(separator: "、"))"
             }

@@ -98,7 +98,7 @@ extension RunModel {
         guard let r = state.result else { return }
         let d = r.d
         let risks = d["risks"].strings
-        let text = (["\(d["partial"].truthy ? "部分交付" : "已完成")：\(L.goalTitle(state.run.goal))", d["summary"].str, "", "证据："]
+        let text = (["已完成：\(L.goalTitle(state.run.goal))", d["summary"].str, "", "证据："]
             + d["evidence"].array.map { "- \($0["text"].str)（事件 #\($0["seq"].str)）" }
             + ["", "风险："] + (risks.isEmpty ? ["- 无"] : risks.map { "- " + $0 })).joined(separator: "\n")
         copyText(text)
@@ -177,8 +177,8 @@ struct RunCard: View {
         let title = L.goalTitle(r.goal)
         let long = r.goal.trimmingCharacters(in: .whitespacesAndNewlines) != title
         let done = st.orderedTasks.filter { $0.status == "succeeded" }.count
-        let stages = r.mode == "goal" ? ["推进目标", "协作", "交付", "验收"] : ["确认计划", "执行", "评审", "交付", "验收"]
-        let idx = r.mode == "goal" ? goalStageIndex : stageIndex
+        let stages = ["推进目标", "协作", "交付", "验收"]
+        let idx = stageIndex
         let active = !RunState.finished.contains(r.status)
         Card(padding: 18) {
             HStack(alignment: .top) {
@@ -247,10 +247,8 @@ struct RunCard: View {
         if r.paused { return ("已暂停", .gray) }
         switch r.status {
         case "planning": return ("主控正在启动", .blue)
-        case "awaiting_plan": return ("等你确认计划", .amber)
         case "accepted": return ("已验收", .green)
-        case "accepted_with_risk": return ("已接受风险", .amber)
-        case "waiting_input": return ("等你决策", .amber)
+        case "waiting_input": return ("等你追加预算", .amber)
         case "delivered": return ("已交付 · 等你验收", .green)
         default: break
         }
@@ -258,22 +256,12 @@ struct RunCard: View {
         return ("团队执行中", .blue)
     }
 
-    private var goalStageIndex: Int {
+    private var stageIndex: Int {
         let r = st.run
         if r.status == "accepted" { return 4 }
-        if ["delivered", "accepted_with_risk"].contains(r.status) { return 3 }
-        if st.orderedTasks.contains(where: { !["succeeded", "failed", "cancelled"].contains($0.status) }) { return 1 }
+        if r.status == "delivered" { return 3 }
+        if st.orderedTasks.contains(where: { !["succeeded", "failed", "cancelled", "skipped_by_decision"].contains($0.status) }) { return 1 }
         return 0
-    }
-
-    private var stageIndex: Int {
-        let r = st.run.status
-        if ["idle", "planning", "awaiting_plan"].contains(r) { return 0 }
-        if r == "delivered" { return 4 }
-        if r == "accepted" { return 5 }
-        if st.orderedTasks.first(where: { $0.kind == "deliver" })?.attempts.isEmpty == false { return 3 }
-        if st.orderedTasks.first(where: { $0.kind == "review" })?.attempts.isEmpty == false { return 2 }
-        return 1
     }
 }
 
@@ -298,8 +286,8 @@ struct ResultCard: View {
     var body: some View {
         if let r = st.result {
             let d = r.d
-            let diag = d["diagnosis"]
             let risks = d["risks"].strings
+            let suggestions = d["briefSuggestions"].strings
             let deliverables = d["deliverables"].array
             let evidence = d["evidence"].array
             let long = d["summary"].str.count > 360
@@ -307,13 +295,12 @@ struct ResultCard: View {
             SectionHeader(title: "交付结果")
             Card(padding: 18, tint: Tone.green.color) {
                 HStack(spacing: 8) {
-                    Pill(d["partial"].truthy ? "部分交付" : "已交付", .green)
-                    Pill("置信度 \(d["confidence"].str)", d["confidence"].str == "高" ? .green : .amber)
+                    Pill("已交付", .green)
                     if let a = r.accepted { Pill("✓ 你已于 \(L.clock(a)) 验收", .green) }
                     SeqButton(seq: r.seq, run: run)
                     Spacer()
                 }
-                Text(d["partial"].truthy ? "目标部分完成" : "目标已完成").font(.title3.weight(.semibold))
+                Text("目标已完成").font(.title3.weight(.semibold))
                 MarkdownText(text: d["summary"].str, lineLimit: long && !run.resultOpen ? 8 : nil)
                 if long { Button(run.resultOpen ? "收起" : "展开全文") { run.resultOpen.toggle() }.buttonStyle(.link) }
                 Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 12) {
@@ -330,13 +317,12 @@ struct ResultCard: View {
                             }
                         }
                     } }
-                    if !evidence.isEmpty || d["review"].truthy { GridRow {
+                    if !evidence.isEmpty { GridRow {
                         section("证据", evidence.count)
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(evidence.indices, id: \.self) { i in
                                 HStack(alignment: .firstTextBaseline) { tagged(evidence[i]["text"].str); SeqButton(seq: evidence[i]["seq"].int, run: run) }
                             }
-                            if d["review"].truthy { Text(d["review"].str).font(.callout).foregroundStyle(.secondary) }
                         }
                     } }
                     if !risks.isEmpty { GridRow {
@@ -346,28 +332,15 @@ struct ResultCard: View {
                         }
                     } }
                 }
-                if diag["cat"].truthy || canAccept {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if diag["cat"].truthy {
-                            Text("偏差诊断 · 问题最可能来自哪里").font(.callout.weight(.semibold))
-                            FlowLayout(spacing: 6) { ForEach(L.diagCats, id: \.0) { c in Pill(c.1, diag["cat"].str == c.0 ? .red : .gray) } }
-                        }
-                        Text(diag["title"].str).fontWeight(.semibold)
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(diag["text"].str).font(.callout)
-                            ForEach(diag["refs"].array.compactMap(\.int), id: \.self) { SeqButton(seq: $0, run: run) }
-                        }
-                        if canAccept {
-                            HStack {
-                                ForEach(diag["actions"].array.indices, id: \.self) { i in
-                                    Button(diag["actions"][i][1].str) { Task { await run.act(["type": "accept"]) } }
-                                }
-                                Button(risks.isEmpty ? "验收通过" : "核对后接受风险并验收") { Task { await run.act(["type": "accept"]) } }.buttonStyle(.borderedProminent)
-                            }
-                        }
+                if !suggestions.isEmpty { BriefSuggestions(run: run, lines: suggestions) }
+                if canAccept {
+                    HStack {
+                        Text(risks.isEmpty ? "核对证据后验收。" : "有 \(risks.count) 条风险由 Agent 自己报告，或在核对结果时发现。请逐条核对证据后再验收。").font(.callout)
+                        Spacer()
+                        Button(risks.isEmpty ? "验收通过" : "核对后接受风险并验收") { Task { await run.act(["type": "accept"]) } }.buttonStyle(.borderedProminent)
                     }
                     .padding(12)
-                    .background((diag["cat"].truthy || !risks.isEmpty ? Tone.amber.color : Color.secondary).opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                    .background((risks.isEmpty ? Color.secondary : Tone.amber.color).opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
                 }
                 HStack {
                     Button("在审计日志中逐条核对") { run.show(.audit) }.buttonStyle(.link)
@@ -432,7 +405,7 @@ struct AgentsPanel: View {
         } else if let next {
             line = next.status == "blocked" ? "\(next.id) 等待 \(next.blockedBy) 修复" : "下一步 \(next.id) · 等待 \(next.deps.filter { st.tasks[$0]?.status != "succeeded" }.joined(separator: "、").isEmpty ? "调度" : next.deps.filter { st.tasks[$0]?.status != "succeeded" }.joined(separator: "、"))"
         } else {
-            line = !mine.isEmpty ? "分配的任务都已完成" : !st.order.isEmpty ? (st.run.mode == "goal" ? "主控没有给它派任务" : "本次计划没有分配任务") : "待命"
+            line = !mine.isEmpty ? "分配的任务都已完成" : !st.order.isEmpty ? "主控没有给它派任务" : "待命"
         }
         var meta: [String] = []
         if phase != "idle", let beat = a?.beat, beat > 0 { meta.append("心跳 \(L.ago(beat, st.run.now))") }
@@ -472,5 +445,42 @@ struct AgentsPanel: View {
         let first = ended.filter { $0.status == "succeeded" && $0.attempts.count == 1 && vf($0.id) == 0 }.count
         let vfail = ended.filter { vf($0.id) > 0 }.count
         return "本次 \(first)/\(ended.count) 首次通过\(vfail > 0 ? " · 验证没通过 \(vfail)" : "")"
+    }
+}
+
+/// What the lead suggests keeping in the workspace's shared material. Nothing is written until the
+/// person opens the workspace settings with the lines added and saves there.
+// @project-doc docs/domains/agents_and_roles.md#workspace_brief
+struct BriefSuggestions: View {
+    let run: RunModel
+    let lines: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("主控建议写入共享资料").font(.callout.weight(.semibold))
+            ForEach(lines.indices, id: \.self) { i in Text("· \(lines[i])").font(.callout).textSelection(.enabled) }
+            HStack {
+                Text("采纳后，之后在这个工作区的 Run 都会看到这些内容。").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if let ws = run.store.workspace(run.workspaceId) {
+                    Button("加入共享资料…") { run.store.editingWorkspace = Self.adding(lines, to: ws) }
+                        .disabled(run.isReplaying)
+                        .help("打开工作区设置，把这些内容加到共享资料末尾，确认后保存")
+                } else {
+                    Text("这个工作区已经删除").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    /// The workspace as the settings sheet opens it: its shared material with the lines appended.
+    static func adding(_ lines: [String], to ws: JSON) -> JSON {
+        var ws = ws
+        let current = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
+        let added = lines.map { "- " + $0 }.joined(separator: "\n")
+        ws["brief"] = JSON(current.isEmpty ? added : current + "\n" + added)
+        return ws
     }
 }

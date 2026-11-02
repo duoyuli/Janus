@@ -54,7 +54,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 Run 创建后不再读取最新的设置对象：
 
-- 团队成员、角色、模型、会话控制项、权限摘要、Skill 和 MCP 写入 `runs.config`。
+- 团队成员、角色、模型、会话控制项、权限摘要、Skill 和 MCP 写入 `runs.config`，工作区（含[共享资料](../domains/agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。
 - 成员的 Skill 复制到 `~/.janus/runs/<run>/skills/`，Agent 读的是快照路径，之后修改 Skill 库不影响已有 Run。
 - MCP 环境变量值在会话启动时从 `secrets/roles/` 读取。
 
@@ -79,5 +79,6 @@ Run 创建后不再读取最新的设置对象：
 
 - 早期版本建过 `plan_revisions` 表，当前代码不再读写它，已有数据库中的这张表保留原样。
 - 早期版本把适配器装在仓库的 `third_party/`，把产物、日志和 Skill 快照写在仓库的 `.janus/`。2026-10-30 这些内容已搬到 Janus home，数据库中的旧路径一并改写，见 [ADR：用户数据、依赖和日志都放在 Janus home](../decisions/user_home_layout.md)。
-- 早期计划模式 Run 的事件照常保存和显示，但不能再继续，见 [Run 生命周期](../domains/run_lifecycle.md#early_plan_runs)。
+- 早期计划模式 Run 的事件照常保存，应用只显示它们的会话、交付和审计日志，不能再继续，见 [Run 生命周期](../domains/run_lifecycle.md#early_plan_runs)。
+- 早期版本的成员快照中有 `limits` 和 `ws` 字段，早期的编排中有 `write` 和 `kind` 字段，当前代码读取时忽略它们。
 - 不再自动迁移更早的数据：产品改名前（Relay）的数据库和目录、旧版角色的读写开关、随机生成的 Agent id、保存在 SQLite 中的 MCP 凭据。

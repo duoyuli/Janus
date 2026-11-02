@@ -161,11 +161,9 @@ final class RunModel {
         guard let m = team.first(where: { $0["id"].str == id }) else {
             return Who(id: id, name: id, initials: "?", color: "#94a3b8", role: "", runtime: "", model: "", lead: false, m: .null)
         }
-        let presets = ["researcher": ("RS", "#5452e8"), "implementer": ("IM", "#11845a"), "reviewer": ("RV", "#b0670a"), "tester": ("QA", "#6d45c4"), "writer": ("WR", "#64748b")]
-        let p = presets[id]
         let name = m["name"].str
-        let initials = m["init"].truthy ? m["init"].str : p?.0 ?? (m["lead"].truthy ? "LD" : String(name.prefix(2)).uppercased())
-        let color = m["color"].truthy ? m["color"].str : p?.1 ?? "#64748b"
+        let initials = m["init"].truthy ? m["init"].str : m["lead"].truthy ? "LD" : String(name.prefix(2)).uppercased()
+        let color = m["color"].truthy ? m["color"].str : "#64748b"
         let rt = m["runtime_name"].truthy ? m["runtime_name"].str : store.connection(m["runtime"].str)?["name"].str ?? m["runtime"].str
         return Who(id: id, name: name, initials: initials, color: color, role: m["role"].str, runtime: rt, model: m["model"].str, lead: m["lead"].truthy, m: m)
     }

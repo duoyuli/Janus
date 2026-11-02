@@ -339,8 +339,7 @@ async fn action(
                 return Ok(Json(json!({ "ok": true })).into_response());
             }
             // Continuing, or simply talking to an agent, brings an interrupted run back.
-            // ("resume" is the older name of "resumeRun", kept for pages loaded before the rename.)
-            "resumeRun" | "resume" => {
+            "resumeRun" => {
                 app.resume_run(&id).await.map_err(bad)?;
                 return Ok(Json(json!({ "ok": true })).into_response());
             }

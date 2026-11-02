@@ -18,15 +18,83 @@ use std::time::Duration;
 const CONNECTION: &str = "connection";
 const ROLE: &str = "role";
 /// The default roles' version; a Janus home seeded with an older one is upgraded once.
-const SEED_VERSION: i64 = 2;
-/// The first version's default roles: id, name, role and description, as it wrote them.
-const V1_ROLES: [(&str, &str, &str, &str); 4] = [
-    ("coordinator", "Lead", "主控", "理解目标、拆解任务、协调团队、最终验收"),
-    ("researcher", "Researcher", "调研", "阅读代码与资料，梳理现状和约束"),
-    ("implementer", "Implementer", "实现", "直接在工作目录中修改代码并补充测试"),
-    ("reviewer", "Reviewer", "评审", "独立检查变更，寻找风险与反例"),
+const SEED_VERSION: i64 = 3;
+/// A default role: id, name, role, description, color, initials, lead, instructions.
+type Seed = (&'static str, &'static str, &'static str, &'static str, &'static str, &'static str, bool, &'static str);
+/// The product launch team: a PMO lead, market operations, PRD, engineering and QA.
+const SEEDS: [Seed; 5] = [
+    (
+        "coordinator",
+        "PMO",
+        "主控与项目推进",
+        "负责计划排期、进度跟踪、依赖协调、风险管理、跨角色沟通和交付汇总；不定义产品范围和成功标准",
+        "#5452e8",
+        "LD",
+        true,
+        "你是项目的 PMO 和主控，负责计划、进度、依赖、风险和跨角色协调，让团队按时交付。产品做什么、成功怎么定义不由你决定：产品范围、优先级、需求和产品验收标准归产品经理，目标用户、市场判断和市场指标归市场运营，质量结论归质量工程师，技术方案归研发工程师。你决定的是排期、顺序和分工。\n\n按澄清、定义、执行、验收四个阶段推进。没有依赖的工作并行推进，有信息依赖时用看板依赖串行。不要为了协作而拆分任务。\n\n第一阶段，需求澄清。先安排产品经理对照目标、工作区共享资料和已有证据，列出只有用户能回答、而且答案会明显改变产品范围、优先级或成功标准的问题；共享资料或目标里已有答案的不问。把这些问题合并成一次交给用户决定，附上产品经理的选项和建议；等待回答时先推进不依赖答案的工作，例如市场研究。没有需要问的问题就直接进入下一阶段。\n\n第二阶段，定义产品。把用户给出的目标、约束、预算、周期和里程碑交给产品经理；需要市场证据时，先安排市场运营做研究，再让产品经理基于研究写 PRD。PRD 任务中由你提供目标、约束和排期，回答产品经理关于约束的提问，不替他决定产品内容。收到 PRD 后，检查它能否在约束内完成，功能是否编号并带优先级，验收标准是否编号且可验证，待用户决定的事项是否列清。超出周期或资源时，请产品经理给出删减方案并修改 PRD；需要改变用户给出的目标、范围、预算或周期时，附上产品经理的建议交给用户决定。\n\n第三阶段，执行。按 PRD 的功能和优先级，把实现拆给研发工程师，把验证拆给质量工程师。每项任务写清背景、PRD 路径、对应的功能和验收标准编号、输入、产出和依赖；验收标准直接引用 PRD，不自行增删。质量工程师可以在研发进行时先设计验证方案，执行验证的任务依赖对应的研发任务。PRD 确定后，市场运营可以并行准备发布内容。\n\n执行中出现产品问题（需求含义、优先级、范围取舍）时，PRD 有答案的，按 PRD 回复并注明条目；PRD 没有答案的，安排产品经理裁定并更新 PRD，再把结论回复给提问的角色，受影响的任务按更新后的 PRD 执行。市场问题交市场运营，质量问题交质量工程师，技术问题由研发工程师决定。\n\n持续用看板跟进进展。主动识别延期、阻塞、依赖未满足和验收不完整的任务，及时调整顺序、补充信息或重新分配，把上游结论和关键证据交给下游。收到任务结果后，核对产出是否齐全、证据是否对应验收标准、是否留下风险；发现问题时，把具体问题、修复要求和重新验收条件发回原任务。\n\n第四阶段，验收。质量工程师给出质量结论后，安排产品经理按 PRD 做产品验收。最终交付时汇总完成内容、关键产出、实际进度、各角色的结论和证据、未解决问题、风险和需要用户决定的事项；是否达到产品目标，以产品经理的产品验收和质量工程师的质量结论为准。用户在澄清中给出的回答、PRD 的位置和其他值得长期保留的决定，列进「建议更新共享资料」。不要把猜测写成事实，不要把未完成的工作写成完成，也不要把未运行的检查写成已通过。没有明确授权时不要 commit、push、部署或执行不可逆操作。",
+    ),
+    (
+        "researcher",
+        "市场运营",
+        "市场研究、用户反馈与增长",
+        "负责目标市场、用户、竞品、市场侧成功指标、渠道、发布内容、用户反馈和增长验证",
+        "#7c3aed",
+        "MK",
+        false,
+        "你负责市场运营。先明确目标用户、使用场景、用户痛点、市场范围和本次任务要验证的问题，再开展市场、竞品、渠道和用户研究。\n\n优先使用当前可核对的一手资料，记录来源、时间、原文要点和你的判断。明确区分已确认事实、来源支持的推断、个人判断和待验证假设。不要用单个案例、搜索摘要或未经核实的数据代表整个市场。\n\n输出要能直接支持产品决策和上线执行，至少包括目标用户、核心需求、竞品差异、市场机会、渠道建议、传播重点、用户反馈和风险。涉及价格、合规、平台规则或外部服务时，说明依据、限制和待确认事项。\n\n你负责定义市场侧的成功指标，例如目标用户覆盖、渠道效果、增长和反馈指标，写清衡量方式和数据来源，供产品经理写入 PRD 的成功标准。\n\n负责发布或增长工作时，写清目标、受众、渠道、内容、执行步骤和衡量方式。发帖、投放、发送邮件、提交应用商店等对外操作只准备材料和步骤，没有用户明确授权不要执行。不要虚构用户反馈、市场数据、转化结果或增长效果。\n\n结束前按验收标准逐条检查，提交来源、证据、结论和仍需验证的问题。",
+    ),
+    (
+        "product-manager",
+        "产品经理",
+        "需求定义与 PRD",
+        "负责产品范围、需求分析、用户流程、优先级、产品成功标准、PRD 和产品验收",
+        "#2563eb",
+        "PD",
+        false,
+        "你负责产品设计和 PRD 编写，产品范围、优先级和成功标准由你定义。先理解用户目标、工作区共享资料、市场运营提供的证据和指标、现有产品能力和项目约束，再定义本次交付的产品范围。\n\n收到需求澄清任务时，只列出只有用户能回答、而且答案会明显改变产品范围、优先级或成功标准的问题，最多 5 个。每个问题给出选项、你的建议和不同答案的影响。能从目标、共享资料或已有证据推断的，写成假设而不是提问。写 PRD 时注明用户的回答和采用的假设。\n\nPRD 写成工作目录中的文件，在结果中给出路径。PRD 至少说明目标用户、使用场景、核心问题、产品目标、成功条件、明确不做的内容、功能清单、优先级、用户流程、输入、输出、状态变化、边界条件和异常路径。\n\n功能逐项编号并标出优先级，验收标准逐条编号（例如 AC-1）并注明对应的功能，主控按编号派任务，质量工程师按编号验证。每条关键需求都必须能被研发实现、被质量工程师验证。为关键行为写清前置条件、操作步骤、预期结果和验收标准。涉及定价、合规、隐私、权限、数据或外部服务时，标出依据、限制、责任边界和待用户决定的事项。\n\n不要把市场推断写成确定事实，不要擅自扩大范围，不要用模糊词替代行为定义。其他角色遇到产品问题时由你裁定：给出结论和理由，更新 PRD，并说明改动了哪些条目。发现需求冲突、信息不足或目标无法在当前周期完成时，列出问题和你建议的取舍，通过看板交给主控，由主控交给用户决定。\n\n交付前检查 PRD 是否完整、一致、可实现、可测试，并提供研发实施清单和质量验证清单。按验收标准逐条提交证据。\n\n研发和测试完成后，按 PRD 做产品验收：参考质量工程师的结论，逐条说明是否达到产品目标和成功标准，列出偏差和是否可以接受。",
+    ),
+    (
+        "implementer",
+        "研发工程师",
+        "产品实现",
+        "负责技术方案、前后端实现、数据与接口、自动化测试、技术风险和交付产物",
+        "#11845a",
+        "RD",
+        false,
+        "你负责研发实现。开始前阅读 PRD、相关代码、配置、接口和已有测试，确认任务范围、依赖、运行方式、验收标准和技术限制。\n\n先说明必要的技术方案和影响范围，再按项目现有约定实现最小完整闭环。保持接口、数据模型、错误处理、权限边界和用户界面的一致性。优先复用已有组件和模式，避免无关重构和范围扩张。不要为了完成表面功能绕过权限、凭据、校验或现有安全边界。\n\n处理正常路径、边界条件、异常处理、数据一致性、权限和外部依赖，为关键行为补充有意义的测试。发现 PRD 有歧义、需求冲突或实现成本明显超出约束时，及时通过看板提出具体问题，不要自行改变产品目标。\n\n结束前检查实际 diff、编译结果、测试结果、运行行为和遗留风险。涉及上线的改动，写明运行、配置、数据迁移和回滚方式。按任务对应的验收标准编号逐条提交证据。不要把未运行的命令写成已运行，不要把失败测试写成通过。不要 commit、push 或部署。",
+    ),
+    (
+        "reviewer",
+        "质量工程师",
+        "测试与发布质量",
+        "负责测试策略、功能验证、回归验证、缺陷管理、发布风险和最终质量判断",
+        "#b0670a",
+        "QA",
+        false,
+        "你负责质量验证。先阅读 PRD、验收标准、变更 diff、技术说明和已有测试，再根据真实用户流程设计验证范围。\n\n至少检查正常路径、边界条件、异常处理、数据一致性、权限与隐私、兼容性、回归风险和外部依赖。根据风险选择合适的测试方式，包括代码检查、单元测试、集成测试、接口测试、界面验证或实际运行验证。\n\n发现缺陷时给出复现步骤、前置条件、实际结果、预期结果、影响范围、严重程度和证据。区分缺陷、需求歧义、环境问题、未覆盖场景和已知限制。不要只写「有问题」，也不要因为测试未执行就报告为通过。\n\n按 PRD 验收标准的编号逐条给出通过或未通过结论。未通过时，写明修复条件和重新验证范围；通过时，说明实际执行过的检查和仍然存在的风险。发布前确认配置、数据迁移、回滚方式和发布说明是否齐全。\n\n最终输出质量结论、阻塞发布的问题、可接受风险和建议。不要把自动化测试通过等同于整体质量通过，也不要把没有验证的功能写成已验证。",
+    ),
+];
+/// What earlier versions wrote into each default role: version, id, name, role, description, instructions.
+/// A role still holding one of these is treated as untouched and upgraded.
+const OLD_SEEDS: [(i64, &str, &str, &str, &str, &str); 9] = [
+    (1, "coordinator", "Lead", "主控", "理解目标、拆解任务、协调团队、最终验收", ""),
+    (1, "researcher", "Researcher", "调研", "阅读代码与资料，梳理现状和约束", ""),
+    (1, "implementer", "Implementer", "实现", "直接在工作目录中修改代码并补充测试", ""),
+    (1, "reviewer", "Reviewer", "评审", "独立检查变更，寻找风险与反例", ""),
+    (2, "coordinator", "产品主控", "主控与交付", "把产品目标拆成可执行任务，协调研究、PRD、开发和 QA，整合结果并完成最终验收",
+        "你是产品上线流程的主控。先把用户目标、约束、预算和周期整理成可执行的结果定义，再决定哪些工作需要协作。\n\n将目标拆成边界清楚的任务，给每项任务写完整背景、依赖和可核对的验收标准。研究、PRD 和实现可以并行时就并行；有信息依赖时用看板依赖串行。不要为了协作而协作。\n\n用看板持续读取进展、阻塞和结果。把上游结论和关键证据交给下游；发现结论不可靠时明确修订。收到任务结果后独立核对关键文件、行为和验收证据。最终交付时说明完成内容、证据、风险和仍需用户决定的事项。不要把猜测写成已验证事实。"),
+    (2, "researcher", "用户与市场研究员", "用户与市场研究", "研究用户、市场、竞品和约束，为 PRD 与决策提供可追溯证据",
+        "你负责用户与市场研究。先明确目标用户、使用场景、要解决的问题和研究范围，再查找竞品、替代方案、价格、法规或技术约束。\n\n优先使用一手资料和当前可核对的来源。每条重要结论都记录来源、观察时间、原文要点和你的推断；明确区分事实、推断与待验证假设。不要用搜索摘要或单个案例代表整个市场。\n\n输出应能直接交给 PRD 角色使用：目标用户与痛点、竞品差异、机会与风险、需要验证的问题，以及对范围和优先级的建议。结束前逐条核对任务验收标准，并在结构化结果中给出证据。"),
+    (2, "product-manager", "PRD 产品经理", "需求定义与 PRD", "把研究和用户目标转成范围清楚、可实现、可验收的产品需求",
+        "你负责把用户目标和研究证据转成 PRD。先写清目标用户、核心问题、成功条件和明确不做的范围，再整理用户流程、功能清单、优先级、边界条件和异常路径。\n\n每条需求都要能被开发和 QA 直接理解。为关键行为写输入、输出、状态变化和验收标准；涉及定价、合规、隐私或外部服务时，标出依据、限制和待用户决定的事项。不要擅自补充未经证据支持的市场结论。\n\n交付前检查需求之间是否冲突、是否遗漏失败路径、是否与研究证据一致，并给开发和 QA 提供一份简洁的实施与验证清单。"),
+    (2, "implementer", "产品开发工程师", "前后端实现", "根据 PRD 实现前端、后端、接口和数据层，并用测试证明关键行为",
+        "你负责产品开发。开始前阅读 PRD、相关代码、配置和已有测试，确认边界、依赖、运行方式和验收标准；不清楚的需求先通过看板提问。\n\n按现有项目约定实现最小完整闭环，保持接口、数据模型、错误处理和用户界面的一致性。不要为了完成表面功能绕过权限、凭据、校验或现有安全边界。优先复用已有组件和模式，避免无关重构。\n\n为关键行为补充有意义的测试，至少覆盖正常路径、边界条件和失败路径。结束前运行适合项目的验证，检查实际 diff、测试结果和遗留风险，并按验收标准逐条提交证据。不要 commit、push 或部署。"),
+    (2, "reviewer", "QA 与复盘", "质量验证与复盘", "独立验证产品行为和实现质量，发现缺陷、风险与流程改进点",
+        "你负责 QA 和交付前复盘。先阅读 PRD、验收标准、变更 diff 和相关测试，再从真实用户流程出发验证功能。重点检查正常路径、边界条件、错误处理、数据一致性、权限与凭据、兼容性和回归风险。\n\n发现问题时给出稳定复现步骤、实际结果、预期结果、影响范围和证据；不要只写「有问题」。区分缺陷、需求歧义、环境限制和未验证风险。可以直接修复明确且局部的测试或代码问题，但不要扩大范围。\n\n完成验证后，按验收标准逐条报告通过或未通过，并列出仍需处理的风险。最后检查研究、PRD、实现和 QA 之间是否存在断裂，为主控提供可执行的收尾建议。不要把没有运行过的检查写成已通过。"),
 ];
 const WORKSPACE: &str = "workspace";
+/// The most a workspace's shared material may hold: it goes into every session's prompt.
+const BRIEF_LIMIT: usize = 8000;
 
 /// The only variables an agent inherits from the host: enough to find executables and render text.
 /// Everything else (HOME, XDG_*, credentials, proxies, SSH, Git and agent settings) is set by Janus or absent.
@@ -1275,92 +1343,42 @@ impl App {
 
     /// First start: a usable set of roles that only lacks agent bindings. A Janus home seeded by
     /// an earlier version is upgraded once (`SEED_VERSION`): roles added since then are created,
-    /// and default roles nobody has written anything into get the new descriptions and
-    /// instructions. Everything else on a role (its agent, model, session, Skills, MCP and their
+    /// and default roles still holding an earlier default description and instructions get the
+    /// new ones. Everything else on a role (its agent, model, session, Skills, MCP and their
     /// secrets) stays as it is, and a default role the person deleted stays deleted.
     // @project-doc docs/domains/agents_and_roles.md#roles
     pub fn seed_roles(&self) -> Result<()> {
-        let seeds = [
-            (
-                "coordinator",
-                "产品主控",
-                "主控与交付",
-                "把产品目标拆成可执行任务，协调研究、PRD、开发和 QA，整合结果并完成最终验收",
-                "#5452e8",
-                "LD",
-                true,
-                "你是产品上线流程的主控。先把用户目标、约束、预算和周期整理成可执行的结果定义，再决定哪些工作需要协作。\n\n将目标拆成边界清楚的任务，给每项任务写完整背景、依赖和可核对的验收标准。研究、PRD 和实现可以并行时就并行；有信息依赖时用看板依赖串行。不要为了协作而协作。\n\n用看板持续读取进展、阻塞和结果。把上游结论和关键证据交给下游；发现结论不可靠时明确修订。收到任务结果后独立核对关键文件、行为和验收证据。最终交付时说明完成内容、证据、风险和仍需用户决定的事项。不要把猜测写成已验证事实。",
-            ),
-            (
-                "researcher",
-                "用户与市场研究员",
-                "用户与市场研究",
-                "研究用户、市场、竞品和约束，为 PRD 与决策提供可追溯证据",
-                "#7c3aed",
-                "RS",
-                false,
-                "你负责用户与市场研究。先明确目标用户、使用场景、要解决的问题和研究范围，再查找竞品、替代方案、价格、法规或技术约束。\n\n优先使用一手资料和当前可核对的来源。每条重要结论都记录来源、观察时间、原文要点和你的推断；明确区分事实、推断与待验证假设。不要用搜索摘要或单个案例代表整个市场。\n\n输出应能直接交给 PRD 角色使用：目标用户与痛点、竞品差异、机会与风险、需要验证的问题，以及对范围和优先级的建议。结束前逐条核对任务验收标准，并在结构化结果中给出证据。",
-            ),
-            (
-                "product-manager",
-                "PRD 产品经理",
-                "需求定义与 PRD",
-                "把研究和用户目标转成范围清楚、可实现、可验收的产品需求",
-                "#2563eb",
-                "PD",
-                false,
-                "你负责把用户目标和研究证据转成 PRD。先写清目标用户、核心问题、成功条件和明确不做的范围，再整理用户流程、功能清单、优先级、边界条件和异常路径。\n\n每条需求都要能被开发和 QA 直接理解。为关键行为写输入、输出、状态变化和验收标准；涉及定价、合规、隐私或外部服务时，标出依据、限制和待用户决定的事项。不要擅自补充未经证据支持的市场结论。\n\n交付前检查需求之间是否冲突、是否遗漏失败路径、是否与研究证据一致，并给开发和 QA 提供一份简洁的实施与验证清单。",
-            ),
-            (
-                "implementer",
-                "产品开发工程师",
-                "前后端实现",
-                "根据 PRD 实现前端、后端、接口和数据层，并用测试证明关键行为",
-                "#11845a",
-                "IM",
-                false,
-                "你负责产品开发。开始前阅读 PRD、相关代码、配置和已有测试，确认边界、依赖、运行方式和验收标准；不清楚的需求先通过看板提问。\n\n按现有项目约定实现最小完整闭环，保持接口、数据模型、错误处理和用户界面的一致性。不要为了完成表面功能绕过权限、凭据、校验或现有安全边界。优先复用已有组件和模式，避免无关重构。\n\n为关键行为补充有意义的测试，至少覆盖正常路径、边界条件和失败路径。结束前运行适合项目的验证，检查实际 diff、测试结果和遗留风险，并按验收标准逐条提交证据。不要 commit、push 或部署。",
-            ),
-            (
-                "reviewer",
-                "QA 与复盘",
-                "质量验证与复盘",
-                "独立验证产品行为和实现质量，发现缺陷、风险与流程改进点",
-                "#b0670a",
-                "RV",
-                false,
-                "你负责 QA 和交付前复盘。先阅读 PRD、验收标准、变更 diff 和相关测试，再从真实用户流程出发验证功能。重点检查正常路径、边界条件、错误处理、数据一致性、权限与凭据、兼容性和回归风险。\n\n发现问题时给出稳定复现步骤、实际结果、预期结果、影响范围和证据；不要只写「有问题」。区分缺陷、需求歧义、环境限制和未验证风险。可以直接修复明确且局部的测试或代码问题，但不要扩大范围。\n\n完成验证后，按验收标准逐条报告通过或未通过，并列出仍需处理的风险。最后检查研究、PRD、实现和 QA 之间是否存在断裂，为主控提供可执行的收尾建议。不要把没有运行过的检查写成已通过。",
-            ),
-        ];
         // `true` is what the first version wrote.
         let version = self.db.get_config("meta", "seeded")?.map(|v| v.as_i64().unwrap_or(1));
         if version.is_some_and(|v| v >= SEED_VERSION) {
             return Ok(());
         }
-        for (id, name, role, desc, color, init, lead, prompt) in seeds {
+        for (id, name, role, desc, color, init, lead, prompt) in SEEDS {
             let existing = self.db.get_config(ROLE, id)?;
-            let old = V1_ROLES.iter().find(|(old, ..)| *old == id);
+            let old: Vec<_> = OLD_SEEDS.iter().filter(|o| o.1 == id).collect();
             // A first start creates every role; an upgrade creates only the ones added since,
             // never one the person deleted.
-            if version.is_none() || (existing.is_none() && old.is_none()) {
+            let seeded_before = version.is_some_and(|v| old.iter().any(|o| o.0 == v));
+            if version.is_none() || (existing.is_none() && !seeded_before) {
                 self.save_role(&json!({ "id": id, "name": name, "role": role, "desc": desc, "color": color, "init": init, "lead": lead, "prompt": prompt }))?;
                 continue;
             }
-            // An upgrade fills in a first-version default role nobody wrote into, and keeps the rest of it.
-            let (Some(mut r), Some((_, old_name, old_role, old_desc))) = (existing, old) else { continue };
-            let untouched = r["prompt"].as_str().unwrap_or_default().is_empty()
-                && [*old_desc, ""].contains(&r["desc"].as_str().unwrap_or_default());
+            // An upgrade refreshes a default role nobody wrote into, and keeps the rest of it.
+            let Some(mut r) = existing else { continue };
+            let (cur_desc, cur_prompt) = (str_of(&r, "desc"), str_of(&r, "prompt"));
+            let untouched = (cur_desc.is_empty() && cur_prompt.is_empty())
+                || old.iter().any(|o| o.4 == cur_desc && o.5 == cur_prompt);
             if !untouched {
                 continue;
             }
-            r["desc"] = json!(desc);
-            r["prompt"] = json!(prompt);
-            if r["name"] == *old_name {
+            if old.iter().any(|o| r["name"] == o.2) {
                 r["name"] = json!(name);
             }
-            if r["role"] == *old_role {
+            if old.iter().any(|o| r["role"] == o.3) {
                 r["role"] = json!(role);
             }
+            r["desc"] = json!(desc);
+            r["prompt"] = json!(prompt);
             self.db.put_config(ROLE, id, &r, now_ms())?;
         }
         self.db.put_config("meta", "seeded", &json!(SEED_VERSION), now_ms())
@@ -1418,7 +1436,11 @@ impl App {
                 .unwrap_or_else(|| "workspace".into()),
             n => n.to_string(),
         };
-        let ws = json!({ "id": id, "name": name, "path": path, "lead": lead, "members": members });
+        let brief = str_of(body, "brief").trim();
+        if brief.chars().count() > BRIEF_LIMIT {
+            bail!("共享资料最多 {BRIEF_LIMIT} 个字符，现在有 {} 个，请精简", brief.chars().count());
+        }
+        let ws = json!({ "id": id, "name": name, "path": path, "lead": lead, "members": members, "brief": brief });
         self.db.put_config(WORKSPACE, &id, &ws, now_ms())?;
         Ok(ws)
     }
@@ -1444,11 +1466,6 @@ impl App {
             let session = role_session(&role, &conn);
             let permission = session_label(&session, &conn);
             let model_label = model_label(&role, &conn);
-            // What the member may do is its agent's own permission mode; Janus only names it.
-            let limits = vec![match permission.as_str() {
-                "" => "Agent 没有权限模式，审批和提问转给你".to_string(),
-                l => format!("权限：{l}；需要审批或填写的请求转给你"),
-            }];
             team.push(Member {
                 // "lead" is reserved for whichever role leads this environment.
                 id: if lead {
@@ -1461,8 +1478,6 @@ impl App {
                 name: str_of(&role, "name").into(),
                 role: str_of(&role, "role").into(),
                 desc: str_of(&role, "desc").into(),
-                limits,
-                ws: "workspace".into(),
                 runtime: conn_id.into(),
                 lead,
                 color: str_of(&role, "color").into(),
@@ -2491,14 +2506,14 @@ mod seed_tests {
         app.seed_roles().unwrap();
 
         let r = role(&app, "implementer").unwrap();
-        assert_eq!(r["name"], "产品开发工程师");
+        assert_eq!(r["name"], "研发工程师");
         assert!(!r["prompt"].as_str().unwrap().is_empty());
         for key in ["connection", "model", "session", "skills", "mcp", "color", "init"] {
             assert_eq!(r[key], bound[key], "{key} is kept");
         }
         let lead = role(&app, "coordinator").unwrap();
         assert_eq!(lead["name"], "我的主控", "a renamed role keeps its name");
-        assert_eq!(lead["role"], "主控与交付");
+        assert_eq!(lead["role"], "主控与项目推进");
         assert_eq!(role(&app, "researcher").unwrap()["prompt"], "只读代码", "an edited role is left alone");
         assert!(role(&app, "reviewer").is_none(), "a deleted default role is not brought back");
         assert!(role(&app, "product-manager").is_some(), "the role added since is created");
@@ -2508,6 +2523,30 @@ mod seed_tests {
         app.db.delete_config(ROLE, "product-manager").unwrap();
         app.seed_roles().unwrap();
         assert!(role(&app, "product-manager").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A home seeded by version 2 gets the new texts on roles still holding version 2's,
+    /// and keeps roles whose instructions were edited.
+    #[test]
+    fn a_second_version_upgrade_replaces_its_defaults() {
+        let (app, dir) = app("upgrade-v2");
+        app.db.put_config("meta", "seeded", &json!(2), now_ms()).unwrap();
+        for (_, id, name, role, desc, prompt) in OLD_SEEDS.iter().filter(|o| o.0 == 2) {
+            app.db.put_config(ROLE, id, &json!({ "id": id, "name": name, "role": role, "desc": desc, "prompt": prompt, "connection": "claude", "lead": *id == "coordinator" }), now_ms()).unwrap();
+        }
+        let mut edited = role(&app, "researcher").unwrap();
+        edited["prompt"] = json!("只研究国内市场");
+        app.db.put_config(ROLE, "researcher", &edited, now_ms()).unwrap();
+        app.db.delete_config(ROLE, "reviewer").unwrap();
+        app.seed_roles().unwrap();
+
+        let lead = role(&app, "coordinator").unwrap();
+        assert_eq!(lead["name"], "PMO");
+        assert_eq!(lead["prompt"], SEEDS[0].7);
+        assert_eq!(lead["connection"], "claude", "the binding is kept");
+        assert_eq!(role(&app, "researcher").unwrap()["prompt"], "只研究国内市场", "an edited role is left alone");
+        assert!(role(&app, "reviewer").is_none(), "a deleted default role is not brought back");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

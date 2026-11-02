@@ -73,7 +73,7 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 1. 处理命令行参数（`--version`、`--help`）。读取配置项：Janus home（`JANUS_HOME`，默认 `~/.janus`，权限设为 `0700`）、监听地址和 Node 路径，见[配置](../interfaces/configuration.md#settings)。
 2. 打开 SQLite 并建表。
 3. `recover`：把上次未结束的尝试标记为中断，未结束的 Run 标记为 `interrupted`。
-4. `seed_roles`：首次启动时写入 5 个适用于产品上线流程的默认角色；旧版本升级时只执行一次：新增 PRD 产品经理，并补全仍是旧默认职责、没有指令的角色，见[角色](../domains/agents_and_roles.md#roles)；`reset_stale_checks`：重启前没跑完的配置检查改回「未检查」。
+4. `seed_roles`：首次启动时写入 5 个组成产品上线团队的默认角色；旧版本升级时只执行一次：新增旧版本没有的默认角色，并把仍是旧默认职责和指令的角色换成新版本，见[角色](../domains/agents_and_roles.md#roles)；`reset_stale_checks`：重启前没跑完的配置检查改回「未检查」。
 5. 注册路由并开始监听（`JANUS_ADDR`）。
 
 <a id="run_data_flow"></a>

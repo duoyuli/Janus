@@ -138,11 +138,9 @@ Content-Type: application/json
 | `finish` | `agent` 或 `task` | 以当前结果结束会话 |
 | `pause` / `resume` | 无 | 暂停时进行中的尝试继续完成，不再启动新任务 |
 | `extendBudget` | `minutes`（默认 60，范围 1 到 1440） | 追加预算；已超时则从现在算起 |
-| `retry` | `task` | 重试失败或取消的任务，重新给满尝试次数 |
-| `acceptRisk` | `reason` | 接受部分结果：跳过未结束的任务并交付。仍有尝试在运行时拒绝 |
 | `cancel` | 无 | 取消 Run，终止所有会话 |
 | `accept` | 无 | 验收；Run 不在运行时也可以执行 |
-| `resumeRun` | 无 | 从中断处继续；Run 正在运行时返回 409，早期计划模式的 Run 返回 400。旧名 `resume` 在 Run 不在运行时同样有效 |
+| `resumeRun` | 无 | 从中断处继续；Run 正在运行时返回 409，早期计划模式的 Run 返回 400 |
 
 `answer`、`approve`、`input` 需要对应的请求仍在等待，否则返回 400「没有等待中的决定」。
 

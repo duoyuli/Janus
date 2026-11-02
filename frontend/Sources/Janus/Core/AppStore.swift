@@ -50,7 +50,7 @@ final class AppStore {
         watchChecks()
         startRunPolling()
         if screen == nil {
-            if let live = runs.first(where: { ["planning", "awaiting_plan", "running"].contains($0["status"].str) }) { open(.run(live["id"].str)) }
+            if let live = runs.first(where: { ["planning", "running"].contains($0["status"].str) }) { open(.run(live["id"].str)) }
             else if let ws = currentWorkspace { open(.home(ws["id"].str)) }
             else { open(.newWorkspace) }
         }
@@ -252,7 +252,7 @@ final class AppStore {
     // MARK: Toast
 
     /// The draft a new-workspace sheet starts from.
-    static let blankWorkspace: JSON = ["id": "", "name": "", "path": "", "lead": "", "members": []]
+    static let blankWorkspace: JSON = ["id": "", "name": "", "path": "", "lead": "", "members": [], "brief": ""]
 
     func show(_ msg: String) {
         toast = msg

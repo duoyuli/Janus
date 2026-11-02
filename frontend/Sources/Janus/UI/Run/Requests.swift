@@ -19,8 +19,7 @@ struct RequestCard: View {
         }
     }
 
-    /// Kinds that still have a card; plan confirmations and old failure decisions belong to the
-    /// removed plan-first flow and have nothing left to answer them with.
+    /// Kinds that have a card.
     static let kinds: Set<String> = ["question", "approval", "input", "budget", "session"]
 }
 

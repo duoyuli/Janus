@@ -27,16 +27,16 @@ func taskSession(_ st: RunState, _ t: TaskState) -> SessionInfo {
 
 /// Everything one agent did in this run, and where a message to it goes right now.
 func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
-    let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && ["run.created", "plan.revision_requested", "plan.proposed"].contains(e.type)) }
+    let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && e.type == "run.created") }
     let open = st.orderedTasks.contains { $0.agent == id && $0.live } || (id == "lead" && ["planning", "running"].contains(st.run.status))
     var human = false, idle = false
     for e in evs {
         if e.type == "control.taken" || (e.type == "session.interrupted" && !e.data["finish"].truthy) { human = true }
-        if ["control.released", "attempt.started", "plan.proposed", "run.created", "plan.revision_requested"].contains(e.type) { human = false }
+        if ["control.released", "attempt.started", "run.created"].contains(e.type) { human = false }
         if e.type == "agent.status" && e.data["turn"].str == "idle" { idle = true }
         if ((e.type == "user.message" || e.type == "message.routed") && e.data["delivery"].str == "prompt") || ["control.released", "message.delivered", "attempt.started"].contains(e.type) { idle = false }
     }
-    let active = !["delivered", "accepted", "accepted_with_risk", "cancelled"].contains(st.run.status)
+    let active = !["delivered", "accepted", "cancelled"].contains(st.run.status)
     return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: ["interrupted", "failed"].contains(st.run.status), leave: active)
 }
 
@@ -211,9 +211,7 @@ struct ChatItem: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 DisclosureGroup("编排器发出的任务说明") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
-        case "run.created": divider("\(d["mode"].str == "goal" ? "目标" : "规划") · \(L.goalTitle(d["goal"].str))")
-        case "plan.revision_requested": divider("按你的意见重新规划")
-        case "plan.proposed": note("◇ 提出了 \(d["tasks"].array.count) 个任务的计划", .green)
+        case "run.created": divider("目标 · \(L.goalTitle(d["goal"].str))")
         case "agent.message":
             // The structured result block is for the orchestrator; in the chat it collapses to a label.
             let text = d["text"].str

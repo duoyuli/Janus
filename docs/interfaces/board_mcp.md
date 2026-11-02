@@ -59,7 +59,6 @@ URL 的主机和端口取 `JANUS_ADDR`。
       "instructions": "背景……需要做……注意……",
       "assignee": "implementer",
       "deps": [],
-      "write": true,
       "accept": ["空输入返回明确的错误", "新增测试覆盖空输入并通过"]
     }
   ]
@@ -73,7 +72,6 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `instructions` | string | 是 | 给执行者的完整说明。执行者看不到主控的对话 |
 | `assignee` | string | 是 | 协作者 id，不能是主控 |
 | `deps` | string[] | 否 | 必须先成功完成的任务 id，可以引用之前编排中的任务 |
-| `write` | boolean | 否 | 任务是否修改文件，默认 `false` |
 | `accept` | string[] | 是 | 可核对的验收标准，至少一条，见[验收标准](#acceptance_criteria) |
 
 成功时返回已写入看板的任务；失败时返回全部错误，一个任务都不启动。
@@ -90,7 +88,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 - 依赖必须存在，不能依赖自己，同批任务之间不能成环。
 - 每个任务至少有一条验收标准。
 
-通过校验的任务按固定策略执行：`kind` 为 `implement`（`write: true`）或 `explore`；最多尝试 `MAX_ATTEMPTS`（2）次；需要结构化结果。
+通过校验的任务按固定策略执行：最多尝试 `MAX_ATTEMPTS`（2）次，需要结构化结果。任务能否修改文件由执行者的 Agent 权限模式决定，编排中没有读写字段，见[权限交给 Agent 原生模式](../decisions/agent_native_permissions.md)。
 
 <a id="wait"></a>
 ### `wait`

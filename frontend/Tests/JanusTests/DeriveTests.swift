@@ -18,8 +18,8 @@ private func goalRun() -> Log {
     var log = Log()
     log.add("run.created", actor: "user", data: ["mode": "goal", "goal": "给 divide 增加除零保护\n细节……", "cwd": "/tmp/x", "git": true])
     log.add("orchestration.accepted", actor: "lead", data: ["tasks": [
-        ["id": "T1", "title": "调研", "agent": "researcher", "deps": [], "accept": ["列出调用方"], "delegated": true],
-        ["id": "T2", "title": "实现", "agent": "implementer", "deps": ["T1"], "accept": ["测试通过", "有除零保护"], "delegated": true],
+        ["id": "T1", "title": "调研", "agent": "researcher", "deps": [], "accept": ["列出调用方"]],
+        ["id": "T2", "title": "实现", "agent": "implementer", "deps": ["T1"], "accept": ["测试通过", "有除零保护"]],
     ]])
     log.add("task.ready", task: "T1")
     log.add("attempt.started", to: "researcher", task: "T1", attempt: 1, data: ["session": "s1", "workspace": "工作目录 /tmp/x"])
@@ -30,13 +30,11 @@ private func goalRun() -> Log {
     var log = goalRun()
     let s1 = derive(log.events)
     #expect(s1.run.status == "running")
-    #expect(s1.run.mode == "goal")
     #expect(s1.order == ["T1", "T2"])
     #expect(s1.tasks["T1"]?.status == "running")
     #expect(s1.tasks["T1"]?.live == true)
     #expect(s1.tasks["T2"]?.status == "pending")
     #expect(s1.agents["researcher"]?.phase == "thinking")
-    #expect(s1.run.inPlace == true)
 
     log.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"], "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"]])
@@ -67,13 +65,13 @@ private func goalRun() -> Log {
     #expect(s2.answers["a-1"] == "granted")
 }
 
-@Test func delegatedFailuresStayWithTheLead() {
+@Test func failuresStayWithTheLead() {
     var log = goalRun()
     log.add("verification.failed", task: "T1", data: ["failures": ["漏了验收标准"]])
     log.add("task.failed", task: "T1", data: ["error": "用完重试次数"])
     let s = derive(log.events)
     #expect(s.tasks["T1"]?.status == "failed")
-    // The lead orchestrated T1: the person is not asked.
+    // The lead deals with failures: the person is not asked.
     #expect(s.inbox.isEmpty)
     let f = boardFacts(s) { $0 }
     #expect(f.open.contains { $0.key == "ofT1" && !$0.you })
@@ -95,10 +93,10 @@ private func goalRun() -> Log {
 
 @Test func deliveryAndAcceptance() {
     var log = goalRun()
-    log.add("run.delivered", data: ["summary": "完成", "partial": false, "confidence": "高", "risks": [], "evidence": [], "deliverables": [], "diagnosis": ["actions": [], "refs": []]])
+    log.add("run.delivered", data: ["summary": "完成", "briefSuggestions": ["定价页在 docs/pricing.md"], "risks": [], "evidence": [], "deliverables": []])
     var s = derive(log.events)
     #expect(s.run.status == "delivered")
-    #expect(s.result?.d["confidence"] == "高")
+    #expect(s.result?.d["briefSuggestions"].strings == ["定价页在 docs/pricing.md"])
     log.add("risk.accepted", actor: "user")
     s = derive(log.events)
     #expect(s.run.status == "accepted")
@@ -207,4 +205,10 @@ private func goalRun() -> Log {
     let s = derive(log.events)
     #expect(s.tasks["T1"]?.attempts.count == 2)
     #expect(s.tasks["T1"]?.attempts.last?.end == log.events.last?.ts)
+}
+
+@Test func suggestedLinesAreAppendedToTheSharedMaterial() {
+    let ws: JSON = ["id": "w", "brief": "目标用户是独立开发者\n"]
+    #expect(BriefSuggestions.adding(["定价页在 docs/pricing.md"], to: ws)["brief"].str == "目标用户是独立开发者\n- 定价页在 docs/pricing.md")
+    #expect(BriefSuggestions.adding(["A", "B"], to: ["id": "w"])["brief"].str == "- A\n- B")
 }
