@@ -23,6 +23,7 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 | `backend/src/db.rs` 的 `tests` | 操作去重、租约 fencing |
 | `backend/src/agents.rs` 的 `session_option_tests` | 各 Agent 声明的会话控制项如何解析为权限模式 |
 | `backend/src/agents.rs` 的 `seed_tests` | 默认角色的首次写入和旧版本（v1、v2）升级：保留绑定，不改动编辑过的角色，不恢复已删除的角色，只升级一次 |
+| `backend/src/skill_sources.rs` 的 `tests` | GitHub 链接的各种写法；Skill key 在更新后保持不变；从本地 `file://` 仓库克隆、解析（隐藏目录、`node_modules`、符号链接、Skill 子目录）、挂载、更新、删除保护，没有 Skill 时不留下目录；远端有新提交时检测到更新、更新后清除；`ls-remote` 输出中分支和标签的选择。不访问网络 |
 | `backend/src/adapters.rs` 的 `tests` | 版本切换与旧版本清理、从 `package.json` 的 `bin` 读取入口 |
 | `backend/src/config.rs` 的 `tests` | 日志时间格式 |
 | `backend/src/orchestrator.rs` 的 `tests` | 主控说明中的协作者名单、任务提示中的共享资料、从主控回复中拆出「建议更新共享资料」 |
@@ -68,6 +69,6 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 <a id="macos_app"></a>
 ## macOS 应用
 
-- `just test-mac`（`cd frontend && swift test`）运行 `frontend/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown 文档的解析、Run 中 Markdown 文档的收集、环境变量文本和 Plan 控制项过滤。只装命令行工具时，`@Test` 宏插件在 `usr/lib/swift/host/plugins/testing` 下、不会自动加载，`just test-mac` 检测到这种情况会加上 `-plugin-path`；CI 的 macOS 运行环境自带 Xcode，直接运行 `swift test`。
-- 查看界面：设置 `JANUS_SNAPSHOT_DIR` 后，应用每 0.7 秒读取一次 `<目录>/cmd`，逐行执行 `open run:<id>`、`open home:<工作区>`、`open settings:<agents|roles|adapters>`、`page <board|audit|team|task:<id>|agent:<id>|replay:<seq>>`、`role <id>`、`workspace <id>`、`close-sheet`、`doc <路径>`（打开文档窗口）、`size <宽>x<高>`、`shot <名字>`，截图保存为 `<目录>/<名字>.png`。截的是应用自己的窗口，不需要屏幕录制权限。配合 `JANUS_HOME` 和 `JANUS_ADDR` 指向一份数据副本使用，不影响正在运行的 Janus。
+- `just test-mac`（`cd frontend && swift test`）运行 `frontend/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown 文档的解析、Run 中 Markdown 文档的收集、环境变量文本、Plan 控制项过滤，以及应用更新（`UpdaterTests`：版本号比较、只下载变化的部分、`update.json` 的读取、用 `codesign` 现场签一个最小应用包来检查签名校验、版本号不符和文件被改动后拒绝安装）。只装命令行工具时，`@Test` 宏插件在 `usr/lib/swift/host/plugins/testing` 下、不会自动加载，`just test-mac` 检测到这种情况会加上 `-plugin-path`；CI 的 macOS 运行环境自带 Xcode，直接运行 `swift test`。
+- 查看界面：设置 `JANUS_SNAPSHOT_DIR` 后，应用每 0.7 秒读取一次 `<目录>/cmd`，逐行执行 `open run:<id>`、`open home:<工作区>`、`open settings:<agents|roles|skills|adapters>`、`page <board|audit|team|task:<id>|agent:<id>|replay:<seq>>`、`role <id>`、`workspace <id>`、`close-sheet`、`doc <路径>`（打开文档窗口）、`size <宽>x<高>`、`shot <名字>`，截图保存为 `<目录>/<名字>.png`。截的是应用自己的窗口，不需要屏幕录制权限。配合 `JANUS_HOME` 和 `JANUS_ADDR` 指向一份数据副本使用，不影响正在运行的 Janus。
 

@@ -4591,11 +4591,15 @@ fn applied_label(opts: &Value, values: &Value) -> String {
 
 fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
+    // Symbolic links are skipped: a skill from a cloned repository could point anywhere.
     for e in std::fs::read_dir(from)?.flatten() {
         let (src, dst) = (e.path(), to.join(e.file_name()));
-        if src.is_dir() {
-            copy_dir(&src, &dst)?;
-        } else if src.is_file() {
+        let Ok(t) = e.file_type() else { continue };
+        if t.is_dir() {
+            if e.file_name() != ".git" {
+                copy_dir(&src, &dst)?;
+            }
+        } else if t.is_file() {
             std::fs::copy(&src, &dst)?;
         }
     }

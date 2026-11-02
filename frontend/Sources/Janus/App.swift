@@ -30,6 +30,9 @@ struct JanusCommands: Commands {
         let store = model.store
         let run = store?.run
         let onRun: Bool = { if case .run = store?.screen { return run != nil } else { return false } }()
+        CommandGroup(after: .appInfo) {
+            Button("检查更新…") { Task { await Updater.shared.check(manual: true) } }
+        }
         SidebarCommands()
         CommandGroup(replacing: .newItem) {
             Button("新目标") { model.newGoal() }.keyboardShortcut("n").disabled(store == nil)
@@ -117,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         Task { await model.start() }
+        Updater.shared.start()
         Snapshots.start(model)
         // Killed rather than quit (kill, Ctrl-C in a terminal): still stop the server it started.
         for sig in [SIGTERM, SIGINT] {
@@ -138,7 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Quitting stops the server the app started; its running runs become interrupted and can be
         // resumed later. A server the app found running (the launchd service) keeps going.
-        if model.backend.owned, let s = model.store,
+        // Installing an update: the person already agreed to quit.
+        if !Updater.shared.quitting, model.backend.owned, let s = model.store,
            s.runs.contains(where: { ["planning", "running", "waiting_input"].contains($0["status"].str) }) {
             if !confirm("退出 Janus？", "还有正在执行的任务。退出会停止 Janus 服务，这些任务会中断，下次打开后可以「从中断处继续」。", ok: "退出") { return .terminateCancel }
         }

@@ -50,13 +50,14 @@ frontend/
 │   │   ├── JSON.swift         # 动态 JSON 值，事件和设置对象都按字段读取
 │   │   ├── API.swift          # HTTP 请求和 SSE 事件流
 │   │   ├── Backend.swift      # 找到或启动 Janus 服务
-│   │   ├── AppStore.swift     # Agents、角色、工作区、Run 列表、适配器、Skill 库，以及当前屏幕
+│   │   ├── AppStore.swift     # Agents、角色、工作区、Run 列表、适配器、Skill 库和 Skill 来源，以及当前屏幕
 │   │   ├── RunModel.swift     # 打开的 Run：事件、订阅、操作、回放、草稿
 │   │   ├── Derive.swift       # derive / boardFacts：由事件推导界面状态
 │   │   ├── Format.swift       # 状态文字、事件图标与色调、时间和文本格式
 │   │   ├── Setup.swift        # 会话控制项、权限模式标签、环境变量文本
 │   │   ├── MarkdownDoc.swift  # Markdown 文档的块结构解析（MDDoc）
 │   │   ├── RunDocs.swift      # 收集一个 Run 交付、保存和提到的 Markdown 文件
+│   │   ├── Updater.swift      # 应用内更新：检查、按部分下载、校验签名、替换并重新打开
 │   │   └── Snapshots.swift    # 开发用：按命令保存窗口截图
 │   └── UI/                    # 侧栏、工作区首页、Run 各页面、设置窗口（Settings/）
 ├── Tests/JanusTests/          # Swift Testing 测试
@@ -94,14 +95,29 @@ frontend/
 
 | 位置 | 内容 |
 | --- | --- |
-| 侧栏 | 工作区（目录在悬停提示中）、当前工作区的任务记录（带状态）；底部是服务地址和打开设置窗口的按钮 |
+| 侧栏 | 顶部是当前工作区的下拉卡片（`WorkspacePicker`，名称和目录），点卡片任意位置打开菜单：选择工作区（进入它的首页，选当前的也一样）、新建工作区、工作区设置、在 Finder 中显示；在首页时卡片高亮。下面只列当前工作区的任务记录（带状态）。底部是[应用更新](#updates)、Skill 来源更新的提醒，服务地址和打开设置窗口的按钮 |
 | 工作区首页 | 目标输入框（⌘↩ 交给主控；还没有任务时显示几个产品上线流程的示例目标）、一行团队摘要、[共享资料](../domains/agents_and_roles.md#workspace_brief)（超过 6 行时折叠，可展开；没有时只显示标题和「添加…」，「添加… / 编辑…」打开工作区设置）、等你处理的 Run（等你追加预算、等你验收）。完整的 Run 列表在侧栏，团队成员的模型和权限在工作区设置 |
 | 工作区设置（表单） | 目录（系统的文件夹选择框）、名称、[共享资料](../domains/agents_and_roles.md#workspace_brief)（显示字数和上限，超过上限不能保存）、启用的角色、主控 |
 | 运行页 | 工具栏切换「工作台 / 审计与回放 / 团队与权限」，「文档」菜单列出这个 Run 的 Markdown 文档（见[文档查看](#markdown_viewer)），并可复制交付摘要、导出事件日志（JSONL）。任务页和 Agent 页的工具栏左侧有返回按钮，此时分段控件不选中任何一项，点「工作台」也能返回 |
 | 任务页 / Agent 页 | 任务页左侧是会话、验收标准和折叠的执行轨迹；右侧一张概要卡片列出执行者、上游、下游和尝试，运行环境折叠在其中，有产物时再显示产物。编排器发给 Agent 的任务说明在会话中每次尝试的开头展开查看。Agent 页是对话和它负责的任务 |
-| 设置窗口（⌘,） | 系统的设置窗口（SwiftUI `Settings`，`UI/Settings/SettingsView.swift`），工具栏切换三个面板，窗口标题跟随面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
+| 设置窗口（⌘,） | 系统的设置窗口（SwiftUI `Settings`，`UI/Settings/SettingsView.swift`），工具栏切换四个面板，窗口标题跟随面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
 
 工作台包含运行卡片（阶段条「推进目标 / 协作 / 交付 / 验收」）、需要你处理、交付结果、[进展](#run_timeline)和 Agent 面板，后四项有内容时才显示。目标可能是一大段粘贴的说明，标题和 Run 列表只显示它的第一行（`goalTitle`），完整目标在运行卡片中展开查看。交付结果依次显示主控的总结、交付物、证据、风险与限制（没有的项不显示）、主控建议写入共享资料的条目（`BriefSuggestions`，带「加入共享资料…」按钮），以及验收操作。
+
+<a id="updates"></a>
+## 应用内更新
+
+`Updater`（`Core/Updater.swift`）从 Info.plist 的 `JanusUpdateRepo`（`duoyuli/Janus`）的最新 GitHub Release 更新 Janus.app。只有打包出的 `.app` 会检查，`swift run` 不会。发布产物和签名见 [CI 与发布](../operations/ci_release.md#update_parts)。
+
+1. **检查**：启动 20 秒后检查一次，之后每 6 小时一次；菜单「Janus → 检查更新…」立即检查并用对话框告知结果。读取 `releases/latest` 的 `update.json`，版本号按点分数字比较，新版本要求的 macOS 更高时不提示。
+2. **提醒**：侧栏底部显示「Janus <版本> 可以更新」（`UpdateBadge`），点击后确认对话框给出下载大小、Node.js 是否沿用本机的、更新会中断正在执行的任务，以及发布说明。
+3. **下载**：`plan` 决定下载哪些部分：应用部分总是下载；Node.js 部分只在 `update.json` 的内容哈希与本机 `update-parts.json` 不同时下载。下载到 `~/.janus/updates/<版本>/`，逐个核对 SHA-256。
+4. **拼装与校验**：解开应用部分，Node.js 用下载的部分，或用 `cp -c` 克隆本机的（APFS 上不占额外空间），去掉隔离标记。然后用 Security 框架校验：签名完整（含嵌套代码，`kSecCSStrictValidate`），版本号与发布一致；当前应用有固定签名者时，还要满足当前应用的指定要求，否则拒绝安装。沿用的 Node.js 导致签名不符时，改为下载 Node.js 部分再试一次。
+5. **替换**：写出 `~/.janus/updates/install.sh` 并在后台启动，然后退出应用（跳过「还有正在执行的任务」的确认，确认已在第 2 步做过；退出照常停止应用启动的服务）。脚本等应用进程结束，把旧应用移到 `~/.janus/updates/previous/Janus.app`，移入新应用并 `open`，记录写在 `~/.janus/logs/update.log`。移入失败时放回旧应用。
+
+以下情况不能自动更新，侧栏给出原因：应用被 macOS 放在隔离位置运行（路径含 `AppTranslocation`，没有拖进「应用程序」就打开时会这样）、应用所在目录不可写、下载或校验失败。
+
+应用自己下载的文件不带 `com.apple.quarantine`，所以 Gatekeeper 不会像对浏览器下载的 DMG 那样要求在「隐私与安全性」中允许。设计取舍见 [ADR：应用内增量更新](../decisions/in_app_updates.md)。
 
 <a id="markdown_viewer"></a>
 ## 文档查看
@@ -177,7 +193,7 @@ frontend/
 
 按 Apple 人机界面指南（HIG）统一的做法，新增界面时沿用：
 
-- **菜单栏**：窗口里的命令在菜单栏都有对应项，不适用时禁用而不隐藏（`JanusCommands`，`App.swift`）。「文件」有新目标（⌘N）、新建工作区（⇧⌘N）、打开 Markdown 文件（⌘O）、导出事件日志（⇧⌘E）；「显示」有工作台 / 审计与回放 / 团队与权限（⌘1 / ⌘2 / ⌘3）、返回工作台（⌘[）、刷新（⌘R）和显示 / 隐藏侧栏；「Run」菜单有暂停 / 继续（⇧⌘P）、从中断处继续、停止、复制交付摘要（⇧⌘C）和回到实时。
+- **菜单栏**：窗口里的命令在菜单栏都有对应项，不适用时禁用而不隐藏（`JanusCommands`，`App.swift`）。「文件」有新目标（⌘N）、新建工作区（⇧⌘N）、打开 Markdown 文件（⌘O）、导出事件日志（⇧⌘E）；「显示」有工作台 / 审计与回放 / 团队与权限（⌘1 / ⌘2 / ⌘3）、返回工作台（⌘[）、刷新（⌘R）和显示 / 隐藏侧栏；「Janus」菜单有检查更新…；「Run」菜单有暂停 / 继续（⇧⌘P）、从中断处继续、停止、复制交付摘要（⇧⌘C）和回到实时。
 - **Esc**：运行页先退出回放，再从任务页或 Agent 页回到工作台。表单 sheet 中 Esc 等于「取消」。
 - **停止 Run**：界面上 Run 级的 `cancel` 叫「停止」，状态显示「已停止」，避免和确认框的「取消」按钮混淆；任务级的取消仍叫「已取消」。
 - **确认框**：`confirm` 的「取消」按钮响应 Esc。会造成数据丢失的操作（删除、停止 Run）先确认，按钮文字带「…」。表单 sheet 有未保存的修改时，取消或 Esc 先问「放弃未保存的更改？」。

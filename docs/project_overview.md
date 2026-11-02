@@ -44,6 +44,7 @@ Janus/
 │   │   ├── adapters.rs    # ACP 适配器的按需安装、升级与回滚
 │   │   ├── acp.rs         # ACP 客户端
 │   │   ├── agents.rs      # Agent、角色、工作区、Skill、会话控制项
+│   │   ├── skill_sources.rs # GitHub Skill 来源：拉取仓库、解析 Skill
 │   │   ├── orchestrator.rs# Run、目标模式、看板、调度、验证、交付、恢复、集成测试
 │   │   └── db.rs          # SQLite
 │   └── testdata/fake_acp.py  # 测试用脚本化 ACP Agent

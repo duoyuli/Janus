@@ -4,6 +4,7 @@ mod agents;
 mod config;
 mod db;
 mod orchestrator;
+mod skill_sources;
 
 use anyhow::Result;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -173,8 +174,29 @@ async fn adapter_action(
     Ok(Json(app.adapters()).into_response())
 }
 
-async fn skills() -> Json<Value> {
-    Json(agents::list_skills())
+async fn skills(State(app): State<Arc<App>>) -> Json<Value> {
+    Json(app.all_skills())
+}
+
+async fn skill_sources(State(app): State<Arc<App>>) -> Json<Value> {
+    Json(app.list_skill_sources())
+}
+
+async fn add_skill_source(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    Ok(Json(app.add_skill_source(body["url"].as_str().unwrap_or("")).await.map_err(bad)?).into_response())
+}
+
+async fn check_skill_sources(State(app): State<Arc<App>>) -> Json<Value> {
+    Json(app.check_skill_sources().await)
+}
+
+async fn update_skill_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    Ok(Json(app.update_skill_source(&id).await.map_err(bad)?).into_response())
+}
+
+async fn delete_skill_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    app.delete_skill_source(&id).map_err(bad)?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -448,6 +470,17 @@ async fn main() -> Result<()> {
     app.recover()?;
     app.seed_roles()?;
     app.reset_stale_checks()?;
+    // Skill sources: ask their remotes for news shortly after start, then every few hours.
+    {
+        let app = app.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            loop {
+                app.check_skill_sources().await;
+                tokio::time::sleep(skill_sources::CHECK_EVERY).await;
+            }
+        });
+    }
 
     // @project-doc docs/interfaces/http_api.md#routes
     let router = Router::new()
@@ -459,6 +492,10 @@ async fn main() -> Result<()> {
         .route("/api/skills", get(skills).post(create_skill))
         .route("/api/skills/import", post(import_skill))
         .route("/api/skills/{id}", delete(delete_skill))
+        .route("/api/skill-sources", get(skill_sources).post(add_skill_source))
+        .route("/api/skill-sources/check", post(check_skill_sources))
+        .route("/api/skill-sources/{id}", delete(delete_skill_source))
+        .route("/api/skill-sources/{id}/update", post(update_skill_source))
         .route("/api/agent-id", get(suggest_id))
         .route("/api/setup", get(setup))
         .route("/api/setup/{kind}", post(save))

@@ -40,9 +40,10 @@ final class API: Sendable {
         return try await send(req)
     }
 
-    func post(_ path: String, _ body: JSON = [:]) async throws -> JSON {
+    func post(_ path: String, _ body: JSON = [:], timeout: TimeInterval? = nil) async throws -> JSON {
         var req = URLRequest(url: url(path))
         req.httpMethod = "POST"
+        if let timeout { req.timeoutInterval = timeout }
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = body.data()
         return try await send(req)

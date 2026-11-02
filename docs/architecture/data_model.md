@@ -16,7 +16,10 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 │   ├── tmp/                          # TMPDIR
 │   └── secrets.json                  # Agent 的凭据字段，权限 0600
 ├── secrets/roles/<role-id>.json      # 角色 MCP 的环境变量值，权限 0600
-├── skills/<skill-id>/SKILL.md        # Janus Skill 库
+├── skills/<skill-id>/SKILL.md        # Janus Skill 库（自建的 Skill）
+├── skill-sources/<source-id>/        # GitHub Skill 来源
+│   ├── source.json                   # 仓库、ref、目录、提交、Skill 索引（key 与目录）、更新检查结果
+│   └── repo/                         # 仓库的浅克隆
 ├── adapters/<id>/                    # ACP 适配器，见 ACP 适配器管理
 ├── artifacts/<run>/<task>/           # 产物：回复和 diff
 ├── logs/<run>/                       # 每个 ACP 子进程的 stderr

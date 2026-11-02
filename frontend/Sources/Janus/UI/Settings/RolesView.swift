@@ -84,6 +84,8 @@ struct RoleEditor: View {
     @Local private var skillPick = false
     @Local private var skillQuery = ""
     @Local private var skillDraft: JSON?
+    @Local private var ghLink: String?
+    @Local private var ghAdding = false
     @Local private var mcpDraft: JSON?
     @Local private var saving = false
     @Local private var colors = false
@@ -233,10 +235,10 @@ struct RoleEditor: View {
 
     @ViewBuilder private var skills: some View {
         let lib = store.skills ?? []
-        let picked = r["skills"].strings.map { id in lib.first { $0["id"].str == id } ?? ["id": JSON(id), "name": JSON(id), "description": ""] }
+        let picked = r["skills"].strings.map { id in lib.first { $0["id"].str == id } ?? ["id": JSON(id), "name": JSON(id), "description": store.skills == nil ? "" : "找不到这个 Skill：来源已删除，或更新后仓库中没有了"] }
         section("Skills", count: picked.count, action: skillPick ? nil : ("添加", { skillPick = true }))
         ForEach(picked, id: \.self) { s in
-            mounted("sparkles", s["name"].str, s["description"].str) { r["skills"] = JSON(r["skills"].strings.filter { $0 != s["id"].str }) }
+            mounted("sparkles", s["name"].str, [s["sourceId"].truthy ? s["source"].str : "", s["description"].str].filter { !$0.isEmpty }.joined(separator: " · ")) { r["skills"] = JSON(r["skills"].strings.filter { $0 != s["id"].str }) }
         }
         if skillPick {
             VStack(alignment: .leading, spacing: 8) {
@@ -245,33 +247,43 @@ struct RoleEditor: View {
                     TextField("什么时候用，例如：评审代码变更时使用", text: Binding(get: { d["description"].str }, set: { skillDraft?["description"] = JSON($0) })).textFieldStyle(.roundedBorder)
                     TextEditor(text: Binding(get: { d["content"].str }, set: { skillDraft?["content"] = JSON($0) })).frame(height: 110).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     HStack { Spacer(); Button("取消") { skillDraft = nil }; Button("添加到 Skill 库") { createSkill() }.buttonStyle(.borderedProminent) }
+                } else if let link = ghLink {
+                    Text("粘贴 GitHub 仓库链接，Janus 会找出其中所有的 Skill，之后在设置的「Skill 库」中管理。").font(.caption).foregroundStyle(.secondary)
+                    TextField("https://github.com/owner/repo", text: Binding(get: { link }, set: { ghLink = $0 })).textFieldStyle(.roundedBorder).onSubmit(addSource).disabled(ghAdding)
+                    HStack {
+                        if ghAdding { ProgressView().controlSize(.small); Text("正在拉取仓库…").font(.callout).foregroundStyle(.secondary) }
+                        Spacer()
+                        Button("取消") { ghLink = nil }.disabled(ghAdding)
+                        Button("添加") { addSource() }.buttonStyle(.borderedProminent).disabled(ghAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
                 } else {
                     if !lib.isEmpty { TextField("搜索 Skill 库", text: $skillQuery).textFieldStyle(.roundedBorder) }
                     let q = skillQuery.lowercased()
-                    let list = lib.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str)".lowercased().contains(q) }
+                    let list = lib.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str) \($0["source"].str)".lowercased().contains(q) }
+                    let groups = Self.groups(list)
                     if store.skills == nil { Text("读取中…").foregroundStyle(.secondary) }
                     else if list.isEmpty { Text(lib.isEmpty ? "Skill 库还是空的" : "没有匹配的 Skill").font(.callout).foregroundStyle(.secondary) }
-                    ForEach(list, id: \.self) { s in
-                        let on = r["skills"].strings.contains(s["id"].str)
-                        Button {
-                            var set = r["skills"].strings
-                            if on { set.removeAll { $0 == s["id"].str } } else { set.append(s["id"].str) }
-                            r["skills"] = JSON(set)
-                        } label: {
-                            HStack(alignment: .top) {
-                                Image(systemName: on ? "checkmark.square.fill" : "square").foregroundStyle(on ? Color.accentColor : .secondary).accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 1) { Text(s["name"].str).fontWeight(.medium); Text(s["description"].str).font(.caption).foregroundStyle(.secondary) }
-                                Spacer()
+                    ForEach(groups, id: \.0) { g in
+                        if groups.count > 1 {
+                            let n = g.1.filter { r["skills"].strings.contains($0["id"].str) }.count
+                            HStack(spacing: 6) {
+                                Image(systemName: g.0 == "Janus" ? "tray.full" : "shippingbox").font(.caption).foregroundStyle(.secondary)
+                                Text(g.0 == "Janus" ? "Janus 自建" : g.0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                if n > 0 { Text("已选 \(n)").font(.caption).foregroundStyle(Color.accentColor) }
+                                if let src = store.skillSourceUpdates.first(where: { $0["repo"].str == g.0 }) {
+                                    Spacer()
+                                    if store.updatingSources.contains(src["id"].str) { ProgressView().controlSize(.mini) }
+                                    else { Button("有更新 · 更新") { Task { await store.updateSkillSources([src["id"].str]) } }.buttonStyle(.link).font(.caption) }
+                                }
                             }
-                            .contentShape(Rectangle())
-                            .hoverable(6)
+                            .padding(.top, 4)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(on ? .isSelected : [])
+                        ForEach(g.1, id: \.self) { s in pickRow(s) }
                     }
                     HStack {
                         Button("新建…") { skillDraft = ["name": "", "description": "", "content": ""] }.buttonStyle(.link)
                         Button("从文件夹导入…") { importSkill() }.buttonStyle(.link)
+                        Button("从 GitHub 添加…") { ghLink = "" }.buttonStyle(.link)
                         Spacer()
                         Button("完成") { skillPick = false }
                     }
@@ -279,6 +291,51 @@ struct RoleEditor: View {
             }
             .padding(10)
             .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    /// The library's own skills first, then each repository's, in the order they were added.
+    static func groups(_ list: [JSON]) -> [(String, [JSON])] {
+        var out: [(String, [JSON])] = []
+        for s in list {
+            let key = s["sourceId"].truthy ? s["source"].str : "Janus"
+            if let i = out.firstIndex(where: { $0.0 == key }) { out[i].1.append(s) } else { out.append((key, [s])) }
+        }
+        return out.sorted { ($0.0 == "Janus" ? 0 : 1) < ($1.0 == "Janus" ? 0 : 1) }
+    }
+
+    private func pickRow(_ s: JSON) -> some View {
+        let on = r["skills"].strings.contains(s["id"].str)
+        return Button {
+            var set = r["skills"].strings
+            if on { set.removeAll { $0 == s["id"].str } } else { set.append(s["id"].str) }
+            r["skills"] = JSON(set)
+        } label: {
+            HStack(alignment: .top) {
+                Image(systemName: on ? "checkmark.square.fill" : "square").foregroundStyle(on ? Color.accentColor : .secondary).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) { Text(s["name"].str).fontWeight(.medium); Text(s["description"].str).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .hoverable(6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func addSource() {
+        guard let link = ghLink?.trimmingCharacters(in: .whitespaces), !link.isEmpty, !ghAdding else { return }
+        ghAdding = true
+        Task {
+            defer { ghAdding = false }
+            do {
+                let src = try await store.api.post("/api/skill-sources", ["url": JSON(link)], timeout: 240)
+                ghLink = nil
+                skillQuery = ""
+                await store.loadSkills()
+                await store.loadSkillSources()
+                store.show("已添加 \(src["repo"].str)：找到 \(src["skills"].array.count) 个 Skill，勾选要给这个角色用的")
+            } catch { store.show(error.localizedDescription) }
         }
     }
 

@@ -17,21 +17,26 @@
 ├── agents/<agent-id>/        # 每个 Agent 的隔离配置目录、HOME、临时目录和凭据
 │   └── janus/                # Janus 为这个 Agent 生成的文件，例如 Pi 的长期要求扩展
 ├── secrets/roles/            # 角色 MCP 的环境变量值
-├── skills/                   # Janus Skill 库
+├── skills/                   # Janus Skill 库（自建的 Skill）
+├── skill-sources/<id>/       # GitHub Skill 来源：source.json 和仓库副本 repo/
 ├── adapters/<id>/            # ACP 适配器，按需下载，每个版本一个目录
 ├── artifacts/<run>/<task>/   # Run 的产物：回复和 diff
 ├── runs/<run>/skills/        # Run 创建时的 Skill 快照
+├── updates/                  # 应用内更新：<版本>/ 下载和拼装中的新版本，previous/ 上一个版本，install.sh 替换脚本
+├── signing/                  # 发布签名证书（只在执行 make-signing-cert.sh 的机器上）
 └── logs/
     ├── janus.log             # Janus 自己的日志
     ├── janus.out.log         # 以服务方式运行时进程的标准输出和错误
     ├── adapters/<id>.log     # 适配器的安装和升级记录
+    ├── update.log            # 应用内更新替换应用包的记录
     └── <run>/                # 每个 ACP 子进程的 stderr
 ```
 
 | 类别 | 位置 | 说明 |
 | --- | --- | --- |
-| 用户级数据 | `janus.db`、`agents/`、`secrets/`、`skills/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
+| 用户级数据 | `janus.db`、`agents/`、`secrets/`、`skills/`、`skill-sources/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
 | 全局依赖 | `adapters/` | 第一次用到时下载，见 [ACP 适配器管理](../architecture/adapters.md) |
+| 应用更新 | `updates/` | 只有最近一次的新版本和上一个版本，可以随时删除 |
 | 配置与日志 | `config.toml`、`logs/` | 配置项见[配置](../interfaces/configuration.md#settings) |
 | 程序 | `bin/janus` | 服务的二进制，不依赖仓库 |
 
@@ -50,7 +55,7 @@
 
 应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/frontend.md#server_process)。
 
-升级：下载新版本的 DMG 覆盖「应用程序」中的 Janus。应用在运行时会占用服务，覆盖前先退出应用。
+升级：有新版本时，侧栏底部显示「Janus <版本> 可以更新」，点击确认后应用下载更新、退出并重新打开，也可以在菜单「Janus → 检查更新…」中手动检查。应用内更新不需要再到「隐私与安全性」中允许，见[应用内更新](../architecture/frontend.md#updates)。应用不在可写的目录中（例如直接从 DMG 中运行）时不能自动更新，先把它拖进「应用程序」。
 
 ### 从源码构建
 
@@ -147,7 +152,7 @@ just install
 | 升级对象 | 做法 |
 | --- | --- |
 | Janus 本身（服务） | 更新仓库代码后执行 `just install`，再执行 `just restart` |
-| Janus 本身（macOS 应用） | 退出应用，用新版本的 DMG 覆盖「应用程序」中的 Janus |
+| Janus 本身（macOS 应用） | 点侧栏底部的「可以更新」，或菜单「Janus → 检查更新…」。上一个版本保留在 `~/.janus/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
 | ACP 适配器 | 在「设置 → ACP 适配器」中检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/adapters.md) |
 | Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → Agents」重新检查 |
 

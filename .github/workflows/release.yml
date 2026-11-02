@@ -43,6 +43,28 @@ jobs:
         working-directory: frontend
         run: swift test
 
+      # The self-signed certificate (frontend/scripts/make-signing-cert.sh) gives every release the
+      # same identity; without the secrets the app is signed ad hoc.
+      - name: Signing certificate
+        env:
+          P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+        run: |
+          [ -n "$P12" ] || { echo "No MACOS_SIGNING_P12 secret: signing ad hoc"; exit 0; }
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          kp="$(openssl rand -hex 16)"
+          echo "$P12" | base64 --decode >"$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$kp" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$kp" "$kc"
+          security import "$RUNNER_TEMP/signing.p12" -k "$kc" -P "$PASSWORD" -T /usr/bin/codesign >/dev/null
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kp" "$kc" >/dev/null
+          rm -f "$RUNNER_TEMP/signing.p12"
+          id="$(security find-identity -p codesigning "$kc" | awk 'NR==1 { print $2 }')"
+          [ -n "$id" ] || { echo "The certificate in MACOS_SIGNING_P12 has no code-signing identity"; exit 1; }
+          echo "JANUS_SIGN_IDENTITY=$id" >>"$GITHUB_ENV"
+          echo "JANUS_SIGN_KEYCHAIN=$kc" >>"$GITHUB_ENV"
+
       - name: Package
         run: frontend/scripts/package.sh --version "${{ steps.v.outputs.version }}"
 
@@ -52,15 +74,22 @@ jobs:
           for f in Contents/MacOS/Janus Contents/MacOS/janus-server Contents/Resources/node/bin/node; do
             [ "$(lipo -archs "$app/$f")" = arm64 ] || { echo "$f is not arm64"; exit 1; }
           done
-          codesign --verify --strict "$app"
+          codesign --verify --deep --strict "$app"
+          # The update parts put back together are the same signed app (what the in-app updater does).
+          t="$RUNNER_TEMP/parts"; rm -rf "$t"; mkdir -p "$t"
+          tar -xzf dist/Janus-*-app.tar.gz -C "$t"
+          tar -xzf dist/Janus-*-node.tar.gz -C "$t/Janus.app/Contents/Resources"
+          codesign --verify --deep --strict "$t/Janus.app"
           # Bare file names, so `shasum -a 256 -c SHA256SUMS.txt` works next to the download.
-          (cd dist && shasum -a 256 Janus-*.dmg | tee SHA256SUMS.txt)
+          (cd dist && shasum -a 256 Janus-*.dmg Janus-*.tar.gz update.json | tee SHA256SUMS.txt)
 
       - uses: actions/upload-artifact@v4
         with:
           name: Janus-${{ steps.v.outputs.version }}
           path: |
             dist/Janus-*.dmg
+            dist/Janus-*.tar.gz
+            dist/update.json
             dist/SHA256SUMS.txt
 
       - name: Publish release
@@ -69,9 +98,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          notes="下载 Janus-${{ steps.v.outputs.version }}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」。只支持 Apple 芯片（M 系列）的 Mac，macOS 14 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
+          notes="下载 Janus-${{ steps.v.outputs.version }}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」；之后的版本在应用内一键更新，不需要再次允许。只支持 Apple 芯片（M 系列）的 Mac，macOS 14 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/Janus-*.dmg dist/SHA256SUMS.txt --clobber
+            gh release upload "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --clobber
           else
-            gh release create "$tag" dist/Janus-*.dmg dist/SHA256SUMS.txt --title "Janus ${{ steps.v.outputs.version }}" --notes "$notes" --generate-notes
+            gh release create "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --title "Janus ${{ steps.v.outputs.version }}" --notes "$notes" --generate-notes
           fi

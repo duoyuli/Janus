@@ -49,23 +49,6 @@ struct Sidebar: View {
         let selection = Binding<Screen?>(get: { store.screen }, set: { if let s = $0 { store.open(s) } })
         let ws = store.currentWorkspace
         List(selection: selection) {
-            Section("工作区") {
-                ForEach(store.workspaces, id: \.self) { w in
-                    // The path is on the workspace's home page and in the tooltip.
-                    Label(w["name"].str, systemImage: "folder")
-                    .help(L.tilde(w["path"].str))
-                    .tag(Screen.home(w["id"].str))
-                    .contextMenu {
-                        Button("工作区设置…") { store.editingWorkspace = w }
-                        Button("在 Finder 中显示") { NSWorkspace.shared.open(URL(fileURLWithPath: w["path"].str)) }
-                    }
-                }
-                Button {
-                    store.editingWorkspace = AppStore.blankWorkspace
-                } label: { Label("新建工作区", systemImage: "plus") }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            }
             if let ws {
                 let runs = store.runs(of: ws)
                 Section("任务记录") {
@@ -85,6 +68,7 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .top, spacing: 0) { WorkspacePicker(store: store, current: ws) }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -97,6 +81,15 @@ struct Sidebar: View {
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                         .help("Agents、角色和 ACP 适配器（⌘,）")
+                }
+                UpdateBadge(updater: Updater.shared)
+                if !store.skillSourceUpdates.isEmpty {
+                    Button { store.openSettings("skills") } label: {
+                        Label("\(store.skillSourceUpdates.count) 个 Skill 来源有更新", systemImage: "arrow.down.circle")
+                            .font(.caption).foregroundStyle(Tone.blue.color)
+                    }
+                    .buttonStyle(.plain)
+                    .help(store.skillSourceUpdates.map { $0["repo"].str }.joined(separator: "、") + "：GitHub 上有新的提交，打开 Skill 库更新")
                 }
                 if let n = store.serverNotice { Text(n).font(.caption2).foregroundStyle(Tone.amber.color).fixedSize(horizontal: false, vertical: true) }
             }
@@ -152,5 +145,86 @@ struct NoWorkspaceView: View {
             .padding(24)
             .frame(maxWidth: 860)
         }
+    }
+}
+
+/// A new Janus in the sidebar: one click to update, the progress while it installs, or why it failed.
+struct UpdateBadge: View {
+    let updater: Updater
+
+    var body: some View {
+        switch updater.state {
+        case .available:
+            Button { updater.offer() } label: {
+                Label("Janus \(updater.latest?.version ?? "") 可以更新", systemImage: "arrow.down.app.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help("下载更新（\(ByteCountFormatter.string(fromByteCount: Int64(updater.downloadSize), countStyle: .file))），完成后自动重新打开")
+        case .working(let text):
+            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(text).font(.caption).foregroundStyle(.secondary) }
+        case .failed(let text) where updater.latest != nil:
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text).font(.caption2).foregroundStyle(Tone.red.color).fixedSize(horizontal: false, vertical: true)
+                Button("重试更新") { Task { await updater.install() } }.buttonStyle(.link).font(.caption)
+            }
+        default:
+            EmptyView()
+        }
+    }
+}
+
+/// The workspace in use, as a dropdown: the whole card opens the menu to pick a workspace (which
+/// opens its home page), create one, or set it up. Highlighted while its
+/// home page is shown. The sidebar below lists only this workspace's run history.
+// @project-doc docs/architecture/frontend.md#screens
+struct WorkspacePicker: View {
+    let store: AppStore
+    let current: JSON?
+
+    private var onHome: Bool {
+        if case .home(let id) = store.screen { return id == current?["id"].str }
+        return false
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(store.workspaces, id: \.self) { w in
+                Button { store.open(.home(w["id"].str)) } label: {
+                    if w["id"].str == current?["id"].str { Label(w["name"].str, systemImage: "checkmark") } else { Text(w["name"].str) }
+                }
+            }
+            if !store.workspaces.isEmpty { Divider() }
+            Button("新建工作区…") { store.editingWorkspace = AppStore.blankWorkspace }
+            if let current {
+                Button("工作区设置…") { store.editingWorkspace = current }
+                Button("在 Finder 中显示") { NSWorkspace.shared.open(URL(fileURLWithPath: current["path"].str)) }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "folder.fill").foregroundStyle(onHome ? Color.white : Color.accentColor)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(current?["name"].str ?? "选择工作区").fontWeight(.semibold).lineLimit(1)
+                    if let current {
+                        Text(L.tilde(current["path"].str)).font(.caption).lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(onHome ? Color.white.opacity(0.8) : Color.secondary)
+                    }
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold))
+                    .foregroundStyle(onHome ? Color.white.opacity(0.9) : Color.secondary)
+            }
+            .foregroundStyle(onHome ? Color.white : Color.primary)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(onHome ? Color.accentColor : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help("切换或新建工作区")
+        .accessibilityLabel("工作区：\(current?["name"].str ?? "未选择")")
+        .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 4)
     }
 }

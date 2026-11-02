@@ -6,8 +6,15 @@
 #
 # Janus.app is for Apple silicon only and is built on an Apple silicon Mac. Node.js (NODE_VERSION,
 # an official nodejs.org build checked against its SHASUMS256.txt) goes into
-# Contents/Resources/node, so ACP adapters need no Node on the Mac. The app is signed ad hoc: no Apple developer certificate is involved, so the
-# first launch of a downloaded copy has to be allowed in System Settings (docs/operations/deployment.md#macos_app).
+# Contents/Resources/node, so ACP adapters need no Node on the Mac.
+#
+# Signing: JANUS_SIGN_IDENTITY (a certificate's name or SHA-1 in the keychain, optionally from
+# JANUS_SIGN_KEYCHAIN) gives every release the same identity, so macOS keeps the app's permissions
+# across updates and the in-app updater can check an update comes from the same signer. Without it
+# the app is signed ad hoc (docs/operations/ci_release.md#signing).
+#
+# Besides the DMG, the update parts the in-app updater downloads (docs/operations/ci_release.md#update_parts):
+# Janus-<version>-app.tar.gz (the bundle without Node.js), Janus-<version>-node.tar.gz and update.json.
 # @project-doc docs/operations/deployment.md#macos_app
 set -euo pipefail
 
@@ -70,6 +77,12 @@ echo "==> Icon"
 swift "$root/frontend/scripts/make-icon.swift" "$work/AppIcon.iconset"
 iconutil -c icns -o "$work/AppIcon.icns" "$work/AppIcon.iconset"
 
+# What the bundled Node.js is, file by file: an update downloads Node.js only when this changes.
+node_hash="$(cd "$node_dir" && {
+  find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256
+  find . -type l | LC_ALL=C sort | while read -r l; do echo "link $l $(readlink "$l")"; done
+} | shasum -a 256 | cut -c1-64)"
+
 echo "==> Janus.app $version ($build)"
 app="$out/Janus.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -79,12 +92,32 @@ cp "$work/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 cp -R "$node_dir" "$app/Contents/Resources/node"
 sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" "$root/frontend/Info.plist" >"$app/Contents/Info.plist"
 printf 'APPL????' >"$app/Contents/PkgInfo"
-# Ad-hoc signatures, inner code first.
-codesign --force --sign - "$app/Contents/MacOS/janus-server"
-codesign --force --sign - "$app"
-codesign --verify --strict "$app"
+printf '{"version":"%s","node":"%s"}\n' "$version" "$node_hash" >"$app/Contents/Resources/update-parts.json"
+# Signatures, inner code first.
+identity="${JANUS_SIGN_IDENTITY:--}"
+sign=(codesign --force --sign "$identity")
+[ -n "${JANUS_SIGN_KEYCHAIN:-}" ] && sign+=(--keychain "$JANUS_SIGN_KEYCHAIN")
+"${sign[@]}" "$app/Contents/MacOS/janus-server"
+"${sign[@]}" "$app"
+codesign --verify --deep --strict "$app"
+codesign -dr - "$app" 2>&1 | sed -n 's/^designated => /==> designated requirement: /p'
 "$app/Contents/MacOS/janus-server" --version
 "$app/Contents/Resources/node/bin/node" --version
+
+echo "==> Update parts"
+# No AppleDouble files or extended attributes: the parts unpack to exactly the signed files.
+export COPYFILE_DISABLE=1
+app_part="Janus-$version-app.tar.gz"
+node_part="Janus-$version-node.tar.gz"
+tar --no-mac-metadata -czf "$out/$app_part" -C "$out" --exclude 'Janus.app/Contents/Resources/node' Janus.app
+tar --no-mac-metadata -czf "$out/$node_part" -C "$app/Contents/Resources" node
+part_json() { # name file content
+  printf '{"name":"%s","file":"%s","sha256":"%s","size":%s,"content":"%s"}' "$1" "$2" \
+    "$(shasum -a 256 "$out/$2" | cut -c1-64)" "$(stat -f %z "$out/$2")" "$3"
+}
+printf '{"version":"%s","build":%s,"minimumSystemVersion":"14.0","parts":[%s,%s]}\n' "$version" "$build" \
+  "$(part_json app "$app_part" "$version")" "$(part_json node "$node_part" "$node_hash")" >"$out/update.json"
+cat "$out/update.json"
 
 if [ "$make_dmg" = 1 ]; then
   echo "==> Janus-$version.dmg"

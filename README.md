@@ -10,6 +10,7 @@ Janus 是一个本地优先的多 Agent 协作工作空间。它通过 ACP（Age
 | --- | --- |
 | Agent（Provider 连接） | 一个可启动的编码 Agent，例如 Codex 或 Claude Code。每个 Agent 有独立的配置目录和凭据。 |
 | 角色 | 绑定一个 Agent，并指定名字、职责、模型、推理强度、权限模式、Skill 和 MCP。 |
+| Skill 库 | 角色可用的 Skill。可以在应用中新建、从本机文件夹导入，或在「设置 › Skill 库」粘贴 GitHub 仓库链接，自动找出仓库中的所有 Skill。 |
 | 工作区 | 一个本机目录，加上一组角色成员，其中一名是主控。 |
 | Run | 在工作区中提交的一个目标，从创建到交付、验收的全过程。 |
 | 主控 | 用 `/goal` 推进目标的 Agent，只能是 Claude Code 或 Codex。它决定自己做，还是通过编排交给协作者。 |

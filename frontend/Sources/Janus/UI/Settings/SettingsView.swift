@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The settings window (⌘,): a pane each for Agents, roles and ACP adapters. The window title
+/// The settings window (⌘,): a pane each for Agents, roles, the Skill library and ACP adapters. The window title
 /// follows the pane, and the last pane opened comes back.
 // @project-doc docs/architecture/frontend.md#screens
 struct SettingsView: View {
@@ -16,6 +16,9 @@ struct SettingsView: View {
                     RolesView(store: store)
                         .tabItem { Label("角色", systemImage: "person.2") }
                         .tag("roles")
+                    SkillsView(store: store)
+                        .tabItem { Label(store.skillSourceUpdates.isEmpty ? "Skill 库" : "Skill 库（\(store.skillSourceUpdates.count) 个更新）", systemImage: "sparkles") }
+                        .tag("skills")
                     AdaptersView(store: store)
                         .tabItem { Label("ACP 适配器", systemImage: "shippingbox") }
                         .tag("adapters")

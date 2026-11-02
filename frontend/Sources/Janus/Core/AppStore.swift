@@ -22,6 +22,8 @@ final class AppStore {
     var roleStats: JSON = .null
     var adapters: JSON = .null
     var skills: [JSON]?
+    /// GitHub repositories whose skills sit next to the library's own (Settings › Skill 库).
+    var skillSources: [JSON]?
     var screen: Screen?
     var toast: String?
     /// Why the server is not on its configured address (a taken port), if it is not.
@@ -47,6 +49,8 @@ final class AppStore {
         async let r: Void = loadRuns()
         _ = await (m, r)
         await loadSetup()
+        await loadSkillSources()
+        watchSkillSources()
         watchChecks()
         startRunPolling()
         if screen == nil {
@@ -77,6 +81,56 @@ final class AppStore {
 
     func loadSkills() async {
         skills = (try? await api.get("/api/skills"))?["skills"].array ?? []
+    }
+
+    func loadSkillSources() async {
+        skillSources = (try? await api.get("/api/skill-sources"))?["sources"].array ?? []
+    }
+
+    /// Sources whose remote has commits the local copy lacks (the server checks every few hours).
+    var skillSourceUpdates: [JSON] { (skillSources ?? []).filter { $0["updateAvailable"].truthy } }
+
+    /// Sources being fetched, so every screen shows the same progress.
+    var updatingSources: Set<String> = []
+
+    /// The server's own checks land in source.json; re-read them now and then so reminders show up.
+    private func watchSkillSources() {
+        polls["skillSources"]?.cancel()
+        polls["skillSources"] = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 600_000_000_000)
+                await self?.loadSkillSources()
+            }
+        }
+    }
+
+    /// Ask every remote now, instead of waiting for the server's next round.
+    func checkSkillSources() async {
+        do {
+            skillSources = try await api.post("/api/skill-sources/check", timeout: 240)["sources"].array
+            let n = skillSourceUpdates.count
+            show(n == 0 ? "所有 Skill 来源都是最新的" : "\(n) 个 Skill 来源有更新")
+        } catch { show(error.localizedDescription) }
+    }
+
+    /// Fetch the given sources again (all with updates when nil), then reload what lists skills.
+    func updateSkillSources(_ ids: [String]? = nil) async {
+        let ids = ids ?? skillSourceUpdates.map { $0["id"].str }
+        guard !ids.isEmpty else { return }
+        updatingSources.formUnion(ids)
+        var done: [JSON] = [], failed: [String] = []
+        for id in ids {
+            do { done.append(try await api.post("/api/skill-sources/\(id)/update", timeout: 240)) }
+            catch { failed.append("\(id)：\(error.localizedDescription)") }
+            updatingSources.remove(id)
+        }
+        await loadSkillSources()
+        await loadSkills()
+        if !failed.isEmpty { show("更新失败：\(failed.joined(separator: "；"))"); return }
+        let have = Set(done.flatMap { $0["skills"].array.map { $0["id"].str } })
+        let gone = Set(roles.flatMap { $0["skills"].strings }.filter { sid in ids.contains { sid.hasPrefix("\($0)/") } && !have.contains(sid) })
+        let what = done.count == 1 ? "\(done[0]["repo"].str)：\(done[0]["skills"].array.count) 个 Skill" : "\(done.count) 个来源"
+        show(gone.isEmpty ? "已更新 \(what)" : "已更新 \(what)，角色挂载的 \(gone.count) 个 Skill 已不在仓库中")
     }
 
     /// The sidebar keeps run statuses fresh while the window is open.

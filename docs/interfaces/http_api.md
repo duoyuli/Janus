@@ -22,10 +22,15 @@
 | GET | `/api/agent-id?kind=&name=` | 根据类型和名字建议一个 Agent id |
 | GET | `/api/adapters` | ACP 适配器的安装状态、版本和进行中的任务 |
 | POST | `/api/adapters/{id}/{action}` | 安装（`install`）、检查更新（`check`）或切换版本（`use`） |
-| GET | `/api/skills` | 列出 Janus Skill 库 |
+| GET | `/api/skills` | 列出全部 Skill：Janus 自建的，以及各来源的（带 `sourceId`、`source` 为 `owner/repo`） |
 | POST | `/api/skills` | 新建 Skill |
 | POST | `/api/skills/import` | 从目录复制 Skill，body：`{"path": "..."}` |
 | DELETE | `/api/skills/{id}` | 删除 Skill |
+| GET | `/api/skill-sources` | 列出 GitHub Skill 来源及每个来源的 Skill |
+| POST | `/api/skill-sources` | 添加来源：拉取仓库并解析 Skill，body：`{"url": "https://github.com/o/r"}`，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources) |
+| POST | `/api/skill-sources/check` | 立即检查所有来源的远端是否有新提交，返回与 GET 相同的列表，见[检测更新](../domains/agents_and_roles.md#skill_source_updates) |
+| POST | `/api/skill-sources/{id}/update` | 重新拉取来源 |
+| DELETE | `/api/skill-sources/{id}` | 删除来源；有角色挂载其中的 Skill 时返回错误 |
 | GET | `/api/setup` | 一次返回 `connections`、`roles`、`workspaces` |
 | POST | `/api/setup/{kind}` | 新建或更新设置对象，`kind` 是 `connections`、`roles` 或 `workspaces` |
 | DELETE | `/api/setup/{kind}/{id}` | 删除设置对象 |

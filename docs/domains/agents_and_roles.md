@@ -88,7 +88,7 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 | `model`、`effort` | 模型和推理强度；留空表示使用 Agent 默认值 |
 | `session` | 选定的会话控制项值，`{控制项 id: 值}` |
 | `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，Pi 通过 Janus 的扩展加入系统提示，其他 Agent 附在任务说明末尾，见 [ACP 集成](../interfaces/acp_integration.md#standing_instructions) |
-| `skills` | Skill 库中的 Skill id |
+| `skills` | Skill id：Janus 自建的 Skill 是 `<id>`，GitHub 来源中的 Skill 是 `<来源 id>/<key>`，见 [Skill](#skills) |
 | `mcp` | stdio MCP 服务器：名称、命令、参数、环境变量名（值另存） |
 | `lead` | 是否可以担任主控 |
 | `color`、`init` | 应用中的颜色和缩写 |
@@ -187,11 +187,36 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 <a id="skills"></a>
 ## Skill
 
-- **Janus Skill 库**：`$JANUS_HOME/skills/<id>/SKILL.md`，在应用中新建，或从用户选择的目录复制一次。复制时只复制普通文件，符号链接取其内容，不跟随到所选目录之外。Agent 不读取用户自己的 Agent Skill 目录。
-- **Run 快照**：Run 创建时，成员的 Skill 复制到 `~/.janus/runs/<run>/skills/`，提示中给出快照路径。
+角色可以挂载两类 Skill，它们在应用的「设置 › Skill 库」中管理，在角色编辑器中按来源分组勾选：
+
+- **Janus 自建**：`$JANUS_HOME/skills/<id>/SKILL.md`，在应用中新建，或从用户选择的目录复制一次。复制时只复制普通文件，符号链接取其内容，不跟随到所选目录之外。Agent 不读取用户自己的 Agent Skill 目录。
+- **GitHub 来源**：用户粘贴的仓库链接，Janus 拉取仓库并找出其中所有的 Skill，见 [Skill 来源](#skill_sources)。
+- **Run 快照**：Run 创建时，成员的 Skill 复制到 `~/.janus/runs/<run>/skills/<Skill id>/`（复制时跳过符号链接和 `.git`），提示中给出快照路径。之后修改、更新或删除来源，不影响已有 Run。
+- **保存角色**：`save_role` 只保留能找到 `SKILL.md` 的 Skill id（`App::skill_dir`），无效的 id 直接去掉。来源更新后不再存在的 Skill 仍留在角色上，Run 创建时跳过，角色编辑器把它标成「找不到这个 Skill」。
 - **项目 Skill**：工作目录中 `.agents/skills`、`.claude/skills`、`.codex/skills`、`.pi/skills`、`.janus/skills` 下的 Skill，只要真实路径仍在工作目录内，就会列在每个会话的提示中。
 
 提示只列出 Skill 的名字、描述和 `SKILL.md` 路径，由 Agent 自己决定是否读取。
+
+<a id="skill_sources"></a>
+### Skill 来源
+
+Skill 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 magpie 的资源库：添加一次链接，仓库中的所有 Skill 都可以给角色使用。实现在 `backend/src/skill_sources.rs`。
+
+- **链接格式**（`parse_github`）：`https://github.com/o/r`、`github.com/o/r`、`git@github.com:o/r.git`、`o/r`，以及 `…/tree/<ref>/<目录>` 和 `…/blob/<ref>/<目录>/SKILL.md`。`tree/` 后的第一段视为分支或标签，所以名字里带 `/` 的分支无法指定。其他网站的链接直接拒绝。
+- **拉取**：`git clone --depth 1`（指定了 ref 时加 `--branch`）到 `~/.janus/skill-sources/<来源 id>/` 下的临时目录，带 `GIT_TERMINAL_PROMPT=0`（私有仓库只能用本机已有的 git 凭据）和 `GIT_LFS_SKIP_SMUDGE=1`，180 秒超时。成功后替换 `repo/`，并把仓库、ref、目录、提交和 Skill 索引写进 `source.json`。拉取失败或找不到任何 Skill 时，新来源不保留，已有来源保持原样。
+- **解析**（`scan`）：从链接指定的目录开始，找所有含普通文件 `SKILL.md` 的目录，最深 8 层、最多 500 个。跳过 `.git`、`node_modules` 和符号链接；`.claude/skills` 这类隐藏目录照常查找；找到一个 Skill 后不再进入它的子目录。名称和描述来自 `SKILL.md` 的 front matter。
+- **Skill id**：`<来源 id>/<key>`。key 取 Skill 目录名（仓库根目录本身是 Skill 时取仓库名），重名时加 `-2`、`-3`。更新时同一目录保留原来的 key（`assign_keys`），所以角色上的选择不会因为仓库新增或删除了别的 Skill 而错位。
+- **更新**：重新拉取，Skill 跟随仓库的最新内容。只在用户点击时更新，有更新时会提醒，见[检测更新](#skill_source_updates)。同一时间只处理一个来源的拉取。
+- **删除**：有角色挂载这个来源中的 Skill 时不能删除。
+- **同一来源**：仓库、ref 和目录都相同的链接不能重复添加；同一仓库的不同目录可以分别添加。
+
+<a id="skill_source_updates"></a>
+#### 检测更新
+
+- **检查**（`check_skill_sources`）：对每个来源执行 `git ls-remote`，只读取远端 ref 指向的提交，不下载内容。没有指定 ref 时看 `HEAD`；指定了时依次找同名分支、同名标签（附注标签取它指向的提交）。远端提交与本地 `commit` 不同时，`source.json` 记 `updateAvailable: true` 和 `latest`；检查失败时记 `checkError`，不影响已有的 Skill。
+- **时机**：服务启动 30 秒后检查一次，之后每 6 小时一次（`CHECK_EVERY`）；用户也可以在 Skill 库中点「检查更新」（`POST /api/skill-sources/check`）。
+- **提醒**：应用启动时读取来源，之后每 10 分钟重读一次。有来源可以更新时，主窗口侧栏底部显示「N 个 Skill 来源有更新」（点击打开 Skill 库），设置的「Skill 库」标签带更新数量，Skill 库顶部列出这些来源并提供「全部更新」，每个来源标「有更新」和「更新」按钮，角色编辑器中该来源的分组旁也有「更新」。
+- **一键更新**：与手动更新相同，重新拉取后 `updateAvailable` 清零。更新后角色挂载的 Skill 不在仓库中时，应用提示数量。
 
 <a id="mcp"></a>
 ## MCP

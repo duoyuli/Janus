@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const CONNECTION: &str = "connection";
-const ROLE: &str = "role";
+pub(crate) const ROLE: &str = "role";
 /// The default roles' version; a Janus home seeded with an older one is upgraded once.
 const SEED_VERSION: i64 = 3;
 /// A default role: id, name, role, description, color, initials, lead, instructions.
@@ -311,7 +311,7 @@ fn login_kind(c: &Value) -> Option<&str> {
 }
 
 /// Lowercase ASCII words joined by `-`, or None when nothing usable is left (e.g. an all-Chinese name).
-fn slug(s: &str) -> Option<String> {
+pub(crate) fn slug(s: &str) -> Option<String> {
     let words: Vec<String> = s
         .split(|c: char| !c.is_ascii_alphanumeric())
         .filter(|w| !w.is_empty())
@@ -356,7 +356,7 @@ fn is_sandbox_var(k: &str) -> bool {
     ) || k.starts_with("JANUS_")
 }
 
-fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
+pub(crate) fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
     v[key].as_str().map(str::trim).unwrap_or("")
 }
 
@@ -1210,14 +1210,13 @@ impl App {
                 .to_uppercase(),
             i => i.to_string(),
         };
-        let library = skill_library();
         let skills: Vec<String> = body["skills"]
             .as_array()
             .cloned()
             .unwrap_or_default()
             .iter()
             .filter_map(|v| v.as_str())
-            .filter(|s| check_skill_id(s).is_ok() && library.join(s).join("SKILL.md").is_file())
+            .filter(|s| self.skill_dir(s).is_some())
             .map(str::to_owned)
             .collect();
         // MCP environment values are secrets: SQLite keeps the variable names, the values live in a 0600 file.
@@ -1495,10 +1494,7 @@ impl App {
                     .cloned()
                     .unwrap_or_default()
                     .iter()
-                    .filter_map(|id| {
-                        id.as_str()
-                            .and_then(|id| read_skill(&skill_library().join(id), "Janus"))
-                    })
+                    .filter_map(|id| id.as_str().and_then(|id| self.skill_info(id)))
                     .collect(),
                 mcp: role["mcp"].as_array().cloned().unwrap_or_default(),
                 mcp_env: self.role_secrets(str_of(&role, "id")),
@@ -2127,7 +2123,7 @@ pub fn skill_library() -> PathBuf {
     crate::config::settings().home.join("skills")
 }
 
-fn check_skill_id(id: &str) -> Result<()> {
+pub(crate) fn check_skill_id(id: &str) -> Result<()> {
     let ok = !id.is_empty()
         && id.len() <= 64
         && id
@@ -2140,7 +2136,7 @@ fn check_skill_id(id: &str) -> Result<()> {
 }
 
 /// A skill is a folder with SKILL.md; its front matter gives the name and the one-line description.
-fn read_skill(dir: &Path, source: &str) -> Option<Value> {
+pub(crate) fn read_skill(dir: &Path, source: &str) -> Option<Value> {
     let text = std::fs::read_to_string(dir.join("SKILL.md")).ok()?;
     let id = dir.file_name()?.to_string_lossy().to_string();
     let mut name = id.clone();
