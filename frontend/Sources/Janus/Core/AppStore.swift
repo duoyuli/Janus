@@ -99,6 +99,9 @@ final class AppStore {
                 let m = RunModel(id: id, store: self)
                 run = m
                 Task { await m.load() }
+            } else if screen != s, let m = run {
+                // Coming back to the open run: read it again rather than trust a stream that may have stopped.
+                Task { await m.load() }
             }
         } else if case .home(let ws) = s {
             rememberWorkspace(ws)

@@ -66,6 +66,8 @@ struct HomeView: View {
 
                 team(members)
 
+                sharedMaterial
+
                 if !waiting.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("等你处理").font(.headline)
@@ -115,6 +117,38 @@ struct HomeView: View {
             Button("管理团队…") { store.editingWorkspace = ws }.buttonStyle(.link)
         }
     }
+
+    /// The workspace's shared material, readable where goals start; editing stays in the workspace settings.
+    // @project-doc docs/domains/agents_and_roles.md#workspace_brief
+    @ViewBuilder private var sharedMaterial: some View {
+        let brief = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
+        let long = brief.split(separator: "\n", omittingEmptySubsequences: false).count > Self.previewLines || brief.count > 400
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("共享资料").font(.headline)
+                Text("每个 Run 开始时交给主控和协作者").font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Button(brief.isEmpty ? "添加…" : "编辑…") { store.editingWorkspace = ws }.buttonStyle(.link)
+            }
+            if brief.isEmpty {
+                Text("还没有共享资料。写下产品定位、目标用户、约定和重要文件的位置，之后的 Run 不必重新调研或再问你。")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Card {
+                    Text(brief)
+                        .lineLimit(briefExpanded || !long ? nil : Self.previewLines)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if long {
+                        Button(briefExpanded ? "收起" : "展开全部") { briefExpanded.toggle() }.buttonStyle(.link)
+                    }
+                }
+            }
+        }
+    }
+
+    @Local private var briefExpanded = false
+    private static let previewLines = 6
 
     private func start(_ problems: [String]) {
         let goal = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines)

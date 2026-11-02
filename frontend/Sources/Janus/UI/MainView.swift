@@ -31,7 +31,7 @@ struct MainView: View {
     @ViewBuilder private var detail: some View {
         switch store.screen {
         case .home(let id):
-            if let ws = store.workspace(id) { HomeView(store: store, ws: ws) } else { NoWorkspaceView(store: store) }
+            if let ws = store.workspace(id) { HomeView(store: store, ws: ws).id(id) } else { NoWorkspaceView(store: store) }
         case .run:
             if let run = store.run { RunView(run: run) }
         case .newWorkspace:

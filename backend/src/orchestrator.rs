@@ -300,6 +300,9 @@ pub struct Run {
     /// The workspace's shared material when the run was created (see `brief_section`).
     brief: String,
     seq: AtomicI64,
+    /// Held while an event takes its seq, is stored and broadcast, so the stream carries a
+    /// run's events in seq order; the app reads a gap as missed events and reloads the run.
+    emitting: StdMutex<()>,
     deadline_ms: AtomicI64,
     st: StdMutex<RunState>,
     wake: Notify,
@@ -447,6 +450,7 @@ impl App {
 
     // @project-doc docs/interfaces/events.md#event_shape
     fn emit(&self, run: &Run, e: Ev) -> i64 {
+        let _order = run.emitting.lock().unwrap_or_else(|p| p.into_inner());
         let seq = run.seq.fetch_add(1, Ordering::SeqCst) + 1;
         self.store(Event {
             run_id: run.id.clone(),
@@ -570,6 +574,7 @@ impl App {
             base_ref,
             brief: ws["brief"].as_str().unwrap_or("").trim().to_string(),
             seq: AtomicI64::new(0),
+            emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
                 status: "planning".into(),
@@ -3372,6 +3377,7 @@ impl App {
             base_ref,
             brief: config["workspace"]["brief"].as_str().unwrap_or("").trim().to_string(),
             seq: AtomicI64::new(self.db.max_seq(run_id)?),
+            emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
                 status: "running".into(),
@@ -4812,6 +4818,7 @@ mod tests {
             base_ref: String::new(),
             brief: String::new(),
             seq: AtomicI64::new(0),
+            emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
                 status: "planning".into(),
@@ -4830,6 +4837,32 @@ mod tests {
         let lines = team_lines(&run);
         assert!(lines.contains("- m1：成员1（测试）· 职责：独立检查变更，寻找风险与反例 · Agent "), "{lines}");
         assert!(!lines.contains("m0"), "the lead is not its own collaborator: {lines}");
+    }
+
+    /// Events written at the same time from several threads reach the stream in seq order;
+    /// the app treats a gap as missed events.
+    #[test]
+    fn concurrent_events_are_broadcast_in_seq_order() {
+        let dir = std::env::temp_dir().join(format!("janus-unit-emit-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = test_app(&dir);
+        let run = Arc::new(test_run(2));
+        let mut rx = app.tx.subscribe();
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (app, run) = (app.clone(), run.clone());
+                std::thread::spawn(move || {
+                    for _ in 0..50 {
+                        app.emit(&run, ev("board.posted", "m1", "进展"));
+                    }
+                })
+            })
+            .collect();
+        threads.into_iter().for_each(|t| t.join().unwrap());
+        let seqs: Vec<i64> = std::iter::from_fn(|| rx.try_recv().ok()).map(|e| e.seq).collect();
+        assert_eq!(seqs, (1..=400).collect::<Vec<_>>());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

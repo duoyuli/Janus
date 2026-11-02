@@ -89,14 +89,14 @@ final class RunModel {
                     guard let self else { return }
                     switch item {
                     case .lagged:
-                        await self.load()
+                        self.reload()
                         return
                     case .event(let j):
                         let e = Event(j)
                         let last = self.events.last?.seq ?? 0
                         if e.seq <= last { continue }
                         // A gap means something was missed: read the whole run again.
-                        if e.seq != last + 1 { await self.load(); return }
+                        if e.seq != last + 1 { self.reload(); return }
                         self.events.append(e)
                         self.scheduleDerive()
                     }
@@ -105,8 +105,14 @@ final class RunModel {
             // The stream ended (server restarted, network): try again shortly while the run is open.
             guard let self, !Task.isCancelled else { return }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            if !Task.isCancelled, self.store.run === self { await self.load() }
+            if !Task.isCancelled, self.store.run === self { self.reload() }
         }
+    }
+
+    /// Read the whole run again from outside the stream task: `load` cancels `streamTask`, so
+    /// awaiting it from inside that task would cancel its own request and never resubscribe.
+    private func reload() {
+        Task { [weak self] in await self?.load() }
     }
 
     /// Events arrive in bursts; derive once per burst.
