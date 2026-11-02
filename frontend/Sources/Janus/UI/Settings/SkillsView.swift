@@ -17,7 +17,7 @@ struct SkillsView: View {
         let own = (store.skills ?? []).filter { !$0["sourceId"].truthy }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("粘贴 GitHub 仓库链接，Janus 会拉取仓库并找出其中所有的 Skill（含 SKILL.md 的文件夹）。之后在角色里选择，角色启动的 Agent 就能使用它们。").font(.callout).foregroundStyle(.secondary)
+                Text("粘贴 GitHub 仓库链接，Janus 会拉取仓库并发现其中所有的 Skill（含 SKILL.md 的文件夹）。之后在角色里选择，角色启动的 Agent 就能使用它们。").font(.callout).foregroundStyle(.secondary)
                 HStack {
                     TextField("https://github.com/owner/repo 或 …/tree/main/skills", text: $link)
                         .textFieldStyle(.roundedBorder)
