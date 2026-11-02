@@ -26,8 +26,17 @@ mac:
     cd frontend && swift run Janus
 
 # macOS 应用的测试（Swift Testing，需要安装 Xcode）
+# 只装了命令行工具时，Swift Testing 的宏插件在 plugins/testing 下，需要显式加载
 test-mac:
-    cd frontend && swift test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd frontend
+    clt=/Library/Developer/CommandLineTools
+    if [ "$(xcode-select -p)" = "$clt" ] && [ -d "$clt/usr/lib/swift/host/plugins/testing" ]; then
+        swift test -Xswiftc -plugin-path -Xswiftc "$clt/usr/lib/swift/host/plugins/testing"
+    else
+        swift test
+    fi
 
 # 构建 dist/Janus.app（原生界面 + 内置服务和 Node.js，不打 DMG）
 app:

@@ -46,6 +46,9 @@ struct RunView: View {
                 .accessibilityValue(inboxCount == 0 ? "" : "\(inboxCount) 项需要你处理")
             }
             ToolbarItem {
+                DocumentsMenu(run: run)
+            }
+            ToolbarItem {
                 Menu {
                     Button("复制交付摘要") { run.copySummary() }.disabled(run.state.result == nil)
                     Button("导出事件日志…") { run.exportLog() }
@@ -53,6 +56,8 @@ struct RunView: View {
                 .help("复制交付摘要或导出事件日志")
             }
         }
+        // Links to local Markdown files in agent prose open in Janus.
+        .environment(\.openURL, OpenURLAction { DocLinks.handle($0) })
         .onExitCommand {
             // Esc leaves replay first, then a task or agent page.
             if run.isReplaying { run.replay = nil } else if run.page.isDetail { run.show(.board) }
@@ -80,6 +85,41 @@ struct RunView: View {
         }
     }
 
+}
+
+/// The run's Markdown files, one click from anywhere in the run: deliverables, artifacts, and
+/// documents the agents wrote or mentioned.
+// @project-doc docs/architecture/frontend.md#markdown_viewer
+struct DocumentsMenu: View {
+    let run: RunModel
+
+    var body: some View {
+        Menu {
+            let docs = run.documents()
+            if docs.isEmpty { Text("还没有 Markdown 文档") }
+            ForEach([RunDocs.Source.deliverable, .artifact, .mentioned], id: \.self) { source in
+                let group = docs.filter { $0.source == source }
+                if !group.isEmpty {
+                    Section(Self.title[source] ?? "") {
+                        ForEach(group, id: \.path) { d in
+                            Button(Self.label(d.path, cwd: run.state.run.cwd)) { ArtifactWindow.open(run: run, path: d.path, title: (d.path as NSString).lastPathComponent) }
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("打开其他 Markdown 文件…") { ArtifactWindow.choose() }
+        } label: { Label("文档", systemImage: "doc.richtext") }
+        .help("查看这个 Run 交付、保存或提到的 Markdown 文档")
+    }
+
+    static let title: [RunDocs.Source: String] = [.deliverable: "交付物", .artifact: "任务产物", .mentioned: "Agent 写过或提到的文档"]
+
+    /// Inside the run's directory, the path from there; elsewhere, the path with ~.
+    static func label(_ path: String, cwd: String) -> String {
+        let dir = cwd.hasSuffix("/") ? cwd : cwd + "/"
+        return !cwd.isEmpty && path.hasPrefix(dir) ? String(path.dropFirst(dir.count)) : L.tilde(path)
+    }
 }
 
 extension RunModel {

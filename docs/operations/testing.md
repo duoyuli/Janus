@@ -68,6 +68,6 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 <a id="macos_app"></a>
 ## macOS 应用
 
-- `just test-mac`（`cd frontend && swift test`）运行 `frontend/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown、环境变量文本和 Plan 控制项过滤。`@Test` 宏插件只随 Xcode 提供，只装命令行工具时测试无法编译；CI 的 macOS 运行环境自带 Xcode。
-- 查看界面：设置 `JANUS_SNAPSHOT_DIR` 后，应用每 0.7 秒读取一次 `<目录>/cmd`，逐行执行 `open run:<id>`、`open home:<工作区>`、`open settings:<agents|roles|adapters>`、`page <board|audit|team|task:<id>|agent:<id>|replay:<seq>>`、`role <id>`、`workspace <id>`、`close-sheet`、`size <宽>x<高>`、`shot <名字>`，截图保存为 `<目录>/<名字>.png`。截的是应用自己的窗口，不需要屏幕录制权限。配合 `JANUS_HOME` 和 `JANUS_ADDR` 指向一份数据副本使用，不影响正在运行的 Janus。
+- `just test-mac`（`cd frontend && swift test`）运行 `frontend/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown 文档的解析、Run 中 Markdown 文档的收集、环境变量文本和 Plan 控制项过滤。只装命令行工具时，`@Test` 宏插件在 `usr/lib/swift/host/plugins/testing` 下、不会自动加载，`just test-mac` 检测到这种情况会加上 `-plugin-path`；CI 的 macOS 运行环境自带 Xcode，直接运行 `swift test`。
+- 查看界面：设置 `JANUS_SNAPSHOT_DIR` 后，应用每 0.7 秒读取一次 `<目录>/cmd`，逐行执行 `open run:<id>`、`open home:<工作区>`、`open settings:<agents|roles|adapters>`、`page <board|audit|team|task:<id>|agent:<id>|replay:<seq>>`、`role <id>`、`workspace <id>`、`close-sheet`、`doc <路径>`（打开文档窗口）、`size <宽>x<高>`、`shot <名字>`，截图保存为 `<目录>/<名字>.png`。截的是应用自己的窗口，不需要屏幕录制权限。配合 `JANUS_HOME` 和 `JANUS_ADDR` 指向一份数据副本使用，不影响正在运行的 Janus。
 

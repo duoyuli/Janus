@@ -129,11 +129,9 @@ struct HomeView: View {
                 Text("每个 Run 开始时交给主控和协作者").font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 Button(brief.isEmpty ? "添加…" : "编辑…") { store.editingWorkspace = ws }.buttonStyle(.link)
+                    .help("产品定位、目标用户、约定、重要文件的位置：写下后，之后的 Run 不必重新调研或再问你")
             }
-            if brief.isEmpty {
-                Text("还没有共享资料。写下产品定位、目标用户、约定和重要文件的位置，之后的 Run 不必重新调研或再问你。")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            } else {
+            if !brief.isEmpty {
                 Card {
                     Text(brief)
                         .lineLimit(briefExpanded || !long ? nil : Self.previewLines)

@@ -6,7 +6,7 @@ import SwiftUI
 /// recording rights (docs/operations/testing.md#macos_app).
 ///
 ///     open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
-///     role <id> | agent-edit <id> | close-sheet | size <w>x<h> | shot <name>
+///     role <id> | agent-edit <id> | close-sheet | doc <path> | size <w>x<h> | shot <name>
 @MainActor
 enum Snapshots {
     static func start(_ model: AppModel) {
@@ -51,6 +51,7 @@ enum Snapshots {
         case "role": store.editingRole = store.role(arg)
         case "workspace": store.editingWorkspace = store.workspace(arg)
         case "close-sheet": store.editingRole = nil; store.editingWorkspace = nil
+        case "doc": ArtifactWindow.open(path: arg, api: store.api)
         case "size":
             let wh = arg.split(separator: "x").compactMap { Double($0) }
             if wh.count == 2, let w = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) {

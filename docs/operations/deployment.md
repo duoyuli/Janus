@@ -61,7 +61,7 @@
 | `just mac` | 从源码运行应用（连接已在运行的 Janus，否则启动 `~/.janus/bin/janus`） |
 | `just app` | 构建 `dist/Janus.app`，本机架构 |
 | `just dmg` | 构建 `dist/Janus.app` 和 `dist/Janus-<版本>.dmg` |
-| `just test-mac` | 运行应用的测试，需要 Xcode |
+| `just test-mac` | 运行应用的测试，需要 Xcode 或命令行工具 |
 
 `frontend/scripts/package.sh` 只在 Apple 芯片的 Mac 上运行，依次：构建 release 服务、构建应用、下载 Node.js（`NODE_VERSION`，默认 24.22.0，按 nodejs.org 的 SHASUMS256.txt 校验，缓存在 `dist/cache/`）、生成图标、组装 `Janus.app`、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。发布由 CI 完成，见 [CI 与发布](ci_release.md)。
 

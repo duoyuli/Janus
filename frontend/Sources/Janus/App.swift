@@ -34,6 +34,8 @@ struct JanusCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("新目标") { model.newGoal() }.keyboardShortcut("n").disabled(store == nil)
             Button("新建工作区…") { store?.editingWorkspace = AppStore.blankWorkspace }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(store == nil)
+            Divider()
+            Button("打开 Markdown 文件…") { ArtifactWindow.choose() }.keyboardShortcut("o")
         }
         CommandGroup(replacing: .importExport) {
             Button("导出事件日志…") { run?.exportLog() }.keyboardShortcut("e", modifiers: [.command, .shift]).disabled(!onRun)

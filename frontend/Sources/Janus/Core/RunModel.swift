@@ -47,6 +47,9 @@ final class RunModel {
     var highlight: Int?
 
     @ObservationIgnored private var streamTask: Task<Void, Never>?
+    /// Markdown files found in the events so far, and how many events were scanned.
+    @ObservationIgnored private var docScan: [String: RunDocs.Doc] = [:]
+    @ObservationIgnored private var docScanned = 0
     @ObservationIgnored private var deriveTask: Task<Void, Never>?
 
     init(id: String, store: AppStore) {
@@ -63,6 +66,8 @@ final class RunModel {
             let data = try await api.get("/api/runs/\(id)")
             runJSON = data["run"]
             events = data["events"].array.map(Event.init)
+            docScan = [:]
+            docScanned = 0
             live = data["live"].bool ?? false
             state = derive(events)
             if let r = replay, r > events.count { replay = nil }
@@ -107,6 +112,15 @@ final class RunModel {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             if !Task.isCancelled, self.store.run === self { self.reload() }
         }
+    }
+
+    /// The run's Markdown files that exist now, for the 文档 menu; scans only events not seen yet.
+    func documents() -> [RunDocs.Doc] {
+        if docScanned < events.count {
+            RunDocs.scan(events[docScanned...], cwd: state.run.cwd, into: &docScan)
+            docScanned = events.count
+        }
+        return RunDocs.existing(docScan)
     }
 
     /// Read the whole run again from outside the stream task: `load` cancels `streamTask`, so
