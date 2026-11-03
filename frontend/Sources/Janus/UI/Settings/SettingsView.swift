@@ -19,6 +19,9 @@ struct SettingsView: View {
                     SkillsView(store: store)
                         .tabItem { Label(store.skillSourceUpdates.isEmpty ? "Skill 库" : "Skill 库（\(store.skillSourceUpdates.count) 个更新）", systemImage: "sparkles") }
                         .tag("skills")
+                    McpView(store: store)
+                        .tabItem { Label(store.mcpSourceUpdates.isEmpty ? "MCP 库" : "MCP 库（\(store.mcpSourceUpdates.count) 个更新）", systemImage: "wrench.and.screwdriver") }
+                        .tag("mcp")
                     AdaptersView(store: store)
                         .tabItem { Label("ACP 适配器", systemImage: "shippingbox") }
                         .tag("adapters")

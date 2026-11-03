@@ -10,7 +10,7 @@ use crate::acp::{AcpConn, Incoming, RuntimeSpec};
 use crate::orchestrator::{App, Member, expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -322,6 +322,26 @@ pub(crate) fn slug(s: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// The board MCP's name is reserved. A name whose slug is `janus` would become that name once
+/// the library normalizes it, so those variants are reserved too.
+pub(crate) fn reserved_mcp_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case("janus") || slug(name).is_some_and(|s| s == "janus")
+}
+
+/// Refuse a member whose MCP servers the board would collide with: a name that normalizes to
+/// `janus`, or two servers with one name (a hand-written one and a library resource, or two
+/// resources). Run snapshots carry these definitions, so resuming checks them again.
+pub(crate) fn check_mcp_names(role_name: &str, mcp: &[Value]) -> Result<()> {
+    if let Some(name) = mcp.iter().map(|m| str_of(m, "name")).find(|n| reserved_mcp_name(n)) {
+        bail!("角色「{role_name}」的 MCP 名称 {name} 与看板 MCP 的保留名 janus 冲突，请换一个名字");
+    }
+    let mut seen = HashSet::new();
+    if let Some(dup) = mcp.iter().map(|m| str_of(m, "name")).find(|n| !seen.insert(*n)) {
+        bail!("角色「{role_name}」的 MCP 名称重复：{dup}，请移除资源库或手工 MCP 中的同名服务器");
+    }
+    Ok(())
+}
+
 pub fn check_agent_id(id: &str) -> Result<()> {
     let ok = !id.is_empty()
         && id.len() <= 40
@@ -367,7 +387,7 @@ fn new_id(prefix: &str) -> String {
     )
 }
 
-fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut f = std::fs::OpenOptions::new()
@@ -1236,10 +1256,32 @@ impl App {
             secrets.insert(name, Value::Object(env));
             mcp.push(entry);
         }
+        // Library resources the role mounts; a ref to a resource an update removed is dropped,
+        // the way a Skill that no longer has SKILL.md leaves the role on save.
+        let mut mcp_refs: Vec<String> = vec![];
+        for id in body["mcpRefs"].as_array().cloned().unwrap_or_default() {
+            let Some(id) = id.as_str() else { continue };
+            if !mcp_refs.iter().any(|x| x == id) && self.mcp_resource(id).is_some() {
+                mcp_refs.push(id.to_string());
+            }
+        }
+        let mut names: Vec<String> = mcp.iter().map(|m| str_of(m, "name").to_string()).collect();
+        for id in &mcp_refs {
+            if let Some(r) = self.mcp_resource(id) {
+                names.push(str_of(&r, "name").to_string());
+            }
+        }
+        if let Some(name) = names.iter().find(|n| reserved_mcp_name(n)) {
+            bail!("MCP 名称 {name} 与看板 MCP 的保留名 janus 冲突，请换一个名字");
+        }
+        let mut seen = HashSet::new();
+        if let Some(dup) = names.iter().find(|n| !seen.insert((*n).clone())) {
+            bail!("MCP 名称重复：{dup}。资源库和手工 MCP 不能有同名服务器，请移除其中一个");
+        }
         self.write_role_secrets(&id, &Value::Object(secrets))?;
         let role = json!({
             "id": id, "name": name, "role": str_of(body, "role"), "desc": str_of(body, "desc"),
-            "prompt": body["prompt"].as_str().unwrap_or("").trim(), "skills": skills, "mcp": mcp,
+            "prompt": body["prompt"].as_str().unwrap_or("").trim(), "skills": skills, "mcp": mcp, "mcpRefs": mcp_refs,
             "connection": connection, "model": str_of(body, "model"), "effort": str_of(body, "effort"),
             "session": session,
             "lead": body["lead"].as_bool().unwrap_or(false),
@@ -1465,7 +1507,19 @@ impl App {
             let session = role_session(&role, &conn);
             let permission = session_label(&session, &conn);
             let model_label = model_label(&role, &conn);
-            team.push(Member {
+            // The role's hand-written servers, then the library resources it mounts. Definitions
+            // are snapshotted; the values are read when a session opens (`attach_mcp_secrets`).
+            let mut mcp = role["mcp"].as_array().cloned().unwrap_or_default();
+            let mut mcp_refs = vec![];
+            for id in role["mcpRefs"].as_array().cloned().unwrap_or_default() {
+                let Some(id) = id.as_str() else { continue };
+                if let Some(info) = self.mcp_info(id) {
+                    mcp_refs.push(id.to_string());
+                    mcp.push(info);
+                }
+            }
+            check_mcp_names(str_of(&role, "name"), &mcp)?;
+            let mut member = Member {
                 // "lead" is reserved for whichever role leads this environment.
                 id: if lead {
                     "lead".into()
@@ -1496,11 +1550,15 @@ impl App {
                     .iter()
                     .filter_map(|id| id.as_str().and_then(|id| self.skill_info(id)))
                     .collect(),
-                mcp: role["mcp"].as_array().cloned().unwrap_or_default(),
-                mcp_env: self.role_secrets(str_of(&role, "id")),
+                mcp,
+                mcp_refs,
+                mcp_env: json!({}),
+                mcp_headers: json!({}),
                 role_id: str_of(&role, "id").into(),
                 runtime_name: str_of(&conn, "name").into(),
-            });
+            };
+            self.attach_mcp_secrets(&mut member);
+            team.push(member);
         }
         if !team.iter().any(|m| m.lead) {
             bail!("执行环境没有主控");
@@ -2336,6 +2394,9 @@ fn resolve_mcp(m: &Value) -> Result<Value> {
     {
         bail!("MCP 名称只能包含字母、数字、- 和 _：{name}");
     }
+    if reserved_mcp_name(&name) {
+        bail!("MCP 名称 {name} 规范化后是 janus，保留给 Janus 看板，请换一个名字");
+    }
     let (command, args) = match (&m["args"], str_of(&m, "command")) {
         (Value::Array(a), cmd) => (
             cmd.to_string(),
@@ -2375,7 +2436,7 @@ fn resolve_mcp(m: &Value) -> Result<Value> {
             _ => json!({}),
         },
     };
-    Ok(json!({ "name": name, "command": expand_home(&command), "args": args, "env": env }))
+    Ok(json!({ "name": name, "transport": "stdio", "command": expand_home(&command), "args": args, "env": env }))
 }
 
 #[cfg(test)]

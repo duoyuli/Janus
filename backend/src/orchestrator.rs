@@ -95,13 +95,21 @@ pub struct Member {
     pub role_prompt: String,
     #[serde(default)]
     pub skills: Vec<Value>,
+    /// The MCP servers this member opens with: the role's own hand-written ones, then the
+    /// resources it mounts from the MCP library. Their values never appear here.
     #[serde(default)]
     pub mcp: Vec<Value>,
+    /// The MCP library resources the role mounted (`<source id>/<key>`), for the record.
+    #[serde(default)]
+    pub mcp_refs: Vec<String>,
     #[serde(default)]
     pub role_id: String,
     /// MCP environment values by server name. Never serialized, so they stay out of the run record.
     #[serde(skip)]
     pub mcp_env: Value,
+    /// HTTP header values by server name, for library resources reached by URL. Never serialized.
+    #[serde(skip)]
+    pub mcp_headers: Value,
 }
 
 #[derive(Deserialize)]
@@ -2030,7 +2038,7 @@ impl App {
             };
             let session = match previous {
                 Some(old) if conn.capabilities["loadSession"] == true => {
-                    match conn.request("session/load", json!({ "sessionId": old, "cwd": workspace, "mcpServers": mcp_servers(&member).into_iter().chain(board.iter().cloned()).collect::<Vec<_>>(), "_meta": with_system_prompt(session_meta(&format!("janus-{}", member.id), &session_values(&member)), system) })).await {
+                    match conn.request("session/load", json!({ "sessionId": old, "cwd": workspace, "mcpServers": mcp_servers(&member, conn.capabilities["mcpCapabilities"]["http"] == true).into_iter().chain(board.iter().cloned()).collect::<Vec<_>>(), "_meta": with_system_prompt(session_meta(&format!("janus-{}", member.id), &session_values(&member)), system) })).await {
                         Ok(r) => {
                             // The reload replays history as updates; it is already in the event log.
                             // Updates can trail the response, so wait until the agent goes quiet.
@@ -3355,8 +3363,18 @@ impl App {
                     || r["name"] == m.name.as_str()
             });
             if let Some(r) = role {
-                m.mcp_env = self.role_secrets_of(r["id"].as_str().unwrap_or(""));
+                let id = r["id"].as_str().unwrap_or("");
+                if !id.is_empty() {
+                    m.role_id = id.to_string();
+                }
             }
+            // A snapshot can predate the MCP name checks. Restoring it must not bring back a
+            // server the board reserves or two servers with one name; refuse before anything
+            // runs and leave the run where it was.
+            crate::agents::check_mcp_names(&m.name, &m.mcp)
+                .with_context(|| format!("这个 Run 的 MCP 快照无法恢复（角色「{}」）", m.name))?;
+            // Values are read afresh: a changed or removed value reaches resumed sessions.
+            self.attach_mcp_secrets(m);
             self.spec_for(&m.runtime)?;
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
@@ -4379,16 +4397,52 @@ fn parse_result(text: &str) -> TaskResult {
 // Helpers
 // ----------------------------------------------------------------------
 
-/// Open a session with the role's stdio MCP servers, in ACP's `McpServer` shape.
-fn mcp_servers(m: &Member) -> Vec<Value> {
+/// The values a server declares, by name, from a skipped map. Only the keys the entry carries
+/// are passed, so a value left over from an older manifest does not reach the agent.
+fn named_values(entry: &Value, keys: &str, values: &Value) -> Vec<Value> {
+    let name = entry["name"].as_str().unwrap_or("");
+    let saved = &values[name];
+    let mut out = vec![];
+    match entry[keys].as_array() {
+        Some(keys) => {
+            for k in keys.iter().filter_map(Value::as_str) {
+                if let Some(v) = saved[k].as_str().filter(|v| !v.is_empty()) {
+                    out.push(json!({ "name": k, "value": v }));
+                }
+            }
+        }
+        // Older entries did not record their key names; pass whatever was saved.
+        None => {
+            for (k, v) in saved.as_object().into_iter().flatten() {
+                if let Some(v) = v.as_str().filter(|v| !v.is_empty()) {
+                    out.push(json!({ "name": k, "value": v }));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Open a session with the member's MCP servers, in ACP's `McpServer` shape: stdio servers from
+/// the role and the library, plus library resources reached over streamable HTTP. Agents that
+/// declare no HTTP support (Pi) get only the stdio ones; their session still opens.
+fn mcp_servers(m: &Member, http: bool) -> Vec<Value> {
     m.mcp
         .iter()
+        .filter(|s| s["name"].as_str().is_some_and(|n| !n.is_empty()))
+        .filter(|s| http || s["transport"].as_str() != Some("http"))
         .map(|s| {
-            let env = &m.mcp_env[s["name"].as_str().unwrap_or("")];
-            json!({
-                "name": s["name"], "command": s["command"], "args": s["args"],
-                "env": env.as_object().map(|e| e.iter().map(|(k, v)| json!({ "name": k, "value": v })).collect::<Vec<_>>()).unwrap_or_default(),
-            })
+            if s["transport"].as_str() == Some("http") {
+                json!({
+                    "type": "http", "name": s["name"], "url": s["url"],
+                    "headers": named_values(s, "headerKeys", &m.mcp_headers),
+                })
+            } else {
+                json!({
+                    "name": s["name"], "command": s["command"], "args": s["args"],
+                    "env": named_values(s, "envKeys", &m.mcp_env),
+                })
+            }
         })
         .collect()
 }
@@ -4410,7 +4464,7 @@ async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceiver<Incoming>
 }
 
 async fn new_session(conn: &AcpConn, cwd: &Path, m: &Member, extra: &[Value], system: Option<&str>) -> Result<Value> {
-    let mut servers = mcp_servers(m);
+    let mut servers = mcp_servers(m, conn.capabilities["mcpCapabilities"]["http"] == true);
     servers.extend_from_slice(extra);
     let meta = with_system_prompt(session_meta(&format!("janus-{}", m.id), &session_values(m)), system);
     let r = conn
@@ -4739,6 +4793,33 @@ mod tests {
     }
 
     #[test]
+    fn mcp_servers_use_declared_keys_and_keep_values_out_of_the_snapshot() {
+        let mut m = member_with("claude", "", "");
+        m.mcp = vec![
+            json!({ "name": "local", "command": "node", "args": ["local.js"], "envKeys": ["LOCAL_TOKEN"] }),
+            json!({ "name": "docs", "transport": "http", "url": "https://example.com/mcp", "headerKeys": ["Authorization"] }),
+        ];
+        m.mcp_env = json!({ "local": { "LOCAL_TOKEN": "env-secret", "UNDECLARED": "x" }, "docs": { "LEFTOVER": "y" } });
+        m.mcp_headers = json!({ "docs": { "Authorization": "Bearer header-secret", "UNDECLARED": "z" } });
+
+        let all = mcp_servers(&m, true);
+        assert_eq!(all[0]["name"], "local");
+        assert_eq!(all[0]["env"], json!([{ "name": "LOCAL_TOKEN", "value": "env-secret" }]), "only declared keys");
+        assert_eq!(all[1]["type"], "http");
+        assert_eq!(all[1]["url"], "https://example.com/mcp");
+        assert_eq!(all[1]["headers"], json!([{ "name": "Authorization", "value": "Bearer header-secret" }]));
+
+        // An Agent without HTTP MCP support still opens with the stdio servers.
+        let stdio_only = mcp_servers(&m, false);
+        assert_eq!(stdio_only.len(), 1);
+        assert_eq!(stdio_only[0]["name"], "local");
+
+        let snapshot = serde_json::to_string(&m).unwrap();
+        assert!(!snapshot.contains("env-secret") && !snapshot.contains("header-secret"), "values stay out of the run record: {snapshot}");
+        assert!(snapshot.contains("LOCAL_TOKEN") && snapshot.contains("Authorization"), "definitions and key names remain");
+    }
+
+    #[test]
     fn task_prompts_carry_the_shared_material() {
         let mut run = test_run(2);
         let def = TaskDef { id: "T1".into(), title: "t".into(), desc: "d".into(), deps: vec![], accept: vec!["a".into()], assignee: run.team[1].id.clone(), max_attempts: 2 };
@@ -4814,8 +4895,10 @@ mod tests {
                     role_prompt: String::new(),
                     skills: vec![],
                     mcp: vec![],
+                    mcp_refs: vec![],
                     role_id: String::new(),
                     mcp_env: Value::Null,
+                    mcp_headers: Value::Null,
                 })
                 .collect(),
             git: false,
@@ -5635,6 +5718,106 @@ mod flow_tests {
         wait_until(&app2, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2"))).await;
         finish_lead(&h);
         wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// A run snapshot written before the MCP name checks existed cannot be resumed into a
+    /// session that collides with the board's `janus` name or has two servers of one name. The
+    /// refusal leaves the run interrupted and starts nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn resume_refuses_snapshots_with_conflicting_mcp_names() {
+        let h = harness("resume-mcp", &[("lead", false), ("m1", false)], json!({}));
+        let insert = |id: &str, mcp: Value| {
+            let config = json!({ "team": [{
+                "id": "lead", "name": "lead", "role": "lead", "runtime": "fake", "lead": true, "mcp": mcp
+            }] });
+            h.app.db.insert_run(id, "测试目标", &h.repo.to_string_lossy(), &config, now_ms()).unwrap();
+            h.app.store(Event {
+                run_id: id.into(), seq: 1, ts: now_ms(), kind: "run.created".into(), actor: "user".into(),
+                to: None, task: None, attempt: None, text: "创建目标".into(),
+                data: Some(json!({ "goal": "测试目标", "mode": "goal" })),
+            });
+            h.app.db.set_run_status(id, "interrupted").unwrap();
+        };
+
+        insert("r-reserved", json!([{ "name": "janus", "command": "run" }]));
+        let err = h.app.resume_run("r-reserved").await.err().expect("reserved name is refused");
+        let text = format!("{err:#}");
+        assert!(text.contains("janus") && text.contains("lead"), "{text}");
+        assert_eq!(status(&h.app, "r-reserved"), "interrupted", "the run stays where it was");
+        assert!(h.app.run("r-reserved").is_none(), "no live run was created");
+        assert!(!has(&events(&h.app, "r-reserved"), "run.recovered"), "recovery never started");
+
+        let dup = json!([
+            { "name": "fetch", "command": "run" },
+            { "name": "fetch", "mcpId": "acme/tools/fetch" }
+        ]);
+        insert("r-dup", dup);
+        let err = h.app.resume_run("r-dup").await.err().expect("a duplicate name is refused");
+        let text = format!("{err:#}");
+        assert!(text.contains("重复") && text.contains("fetch"), "{text}");
+        assert_eq!(status(&h.app, "r-dup"), "interrupted");
+        assert!(h.app.run("r-dup").is_none());
+        assert!(!has(&events(&h.app, "r-dup"), "run.recovered"));
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// End to end through a run: a role mounts a library resource of each transport next to its
+    /// own server, and the agent's `session/new` carries all three with their values, while the
+    /// run record holds none of them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn library_mcp_reaches_the_session_with_its_values() {
+        let h = harness("mcp-session", &[("lead", false)], json!({}));
+        let upstream = h.dir.join("upstream");
+        std::fs::create_dir_all(&upstream).unwrap();
+        std::fs::write(
+            upstream.join("mcp.json"),
+            r#"{"mcpServers": {
+                "fetch": {"command": "uvx", "args": ["mcp-server-fetch"], "env": {"FETCH_TOKEN": "lib-env-secret"}},
+                "docs": {"type": "http", "url": "https://example.com/mcp", "headers": {"Authorization": "Bearer lib-header-secret"}}
+            }}"#,
+        )
+        .unwrap();
+        sh(&upstream, &["init", "-q"]);
+        sh(&upstream, &["add", "-A"]);
+        sh(&upstream, &["commit", "-q", "-m", "init"]);
+        let at = crate::skill_sources::RepoAt { repo: "acme/tools".into(), git_ref: String::new(), path: String::new() };
+        h.app.add_mcp_source_at(at, &format!("file://{}", upstream.display())).await.unwrap();
+        h.app
+            .save_role(&json!({
+                "id": "lead", "name": "lead", "role": "测试", "connection": "fake",
+                "mcpRefs": ["acme-tools/fetch", "acme-tools/docs"],
+                "mcp": [{ "name": "local", "command": "node local.js", "envText": "LOCAL_TOKEN=role-env-secret" }]
+            }))
+            .unwrap();
+
+        let run = h.app.create_run(NewRun { goal: "带上 MCP".into(), workspace: "ws".into() }).await.unwrap();
+        let calls = h.dir.join("fake/calls.log");
+        let mut line = String::new();
+        for _ in 0..100 {
+            if let Some(l) = std::fs::read_to_string(&calls).unwrap_or_default().lines().find(|l| l.starts_with("mcp ")) {
+                line = l.to_string();
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let servers: Vec<Value> = serde_json::from_str(line.strip_prefix("mcp ").expect("the lead opened a session")).unwrap();
+        let by = |name: &str| servers.iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name} in {servers:?}")).clone();
+        assert_eq!(by("local")["env"], json!([{ "name": "LOCAL_TOKEN", "value": "role-env-secret" }]));
+        assert_eq!(by("fetch")["command"], "uvx");
+        assert_eq!(by("fetch")["env"], json!([{ "name": "FETCH_TOKEN", "value": "lib-env-secret" }]));
+        assert_eq!(by("docs")["type"], "http");
+        assert_eq!(by("docs")["url"], "https://example.com/mcp");
+        assert_eq!(by("docs")["headers"], json!([{ "name": "Authorization", "value": "Bearer lib-header-secret" }]));
+        assert_eq!(by("janus")["type"], "http", "the board is attached next to them");
+
+        let record = serde_json::to_string(&h.app.db.runs().unwrap().into_iter().find(|r| r["id"] == run.as_str()).unwrap()).unwrap()
+            + &serde_json::to_string(&events(&h.app, &run)).unwrap();
+        for secret in ["role-env-secret", "lib-env-secret", "lib-header-secret"] {
+            assert!(!record.contains(secret), "the run record and its events hold no values: {secret}");
+        }
+        assert!(record.contains("acme-tools/fetch"), "the mounted resources are recorded");
+        h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 

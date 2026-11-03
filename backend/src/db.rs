@@ -259,6 +259,26 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Every run that is not over, from the whole table. `runs` is the app's newest-50 page, so
+    /// an old interrupted or failed run past that page must not be missed by checks on runs that
+    /// may still open a session (for example a resumed run reading a mounted MCP resource).
+    pub fn runs_may_use_mcp(&self) -> Result<Vec<Value>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, config, status FROM runs
+             WHERE status NOT IN ('delivered', 'accepted', 'accepted_with_risk', 'cancelled')
+             ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "config": serde_json::from_str::<Value>(&r.get::<_, String>(1)?).unwrap_or(Value::Null),
+                "status": r.get::<_, String>(2)?,
+            }))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn unfinished_runs(&self) -> Result<Vec<String>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare("SELECT id FROM runs WHERE status NOT IN ('delivered', 'accepted', 'accepted_with_risk', 'cancelled', 'failed', 'interrupted')")?;

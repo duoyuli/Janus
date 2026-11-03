@@ -15,10 +15,14 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 │   ├── root/                         # Agent 进程的 HOME 和 XDG 目录
 │   ├── tmp/                          # TMPDIR
 │   └── secrets.json                  # Agent 的凭据字段，权限 0600
-├── secrets/roles/<role-id>.json      # 角色 MCP 的环境变量值，权限 0600
+├── secrets/roles/<role-id>.json      # 角色手工 MCP 的环境变量值，权限 0600
+├── secrets/mcp/<source-id>/<key>.json # MCP 资源库服务器的环境变量和 HTTP header 值，权限 0600
 ├── skills/<skill-id>/SKILL.md        # Janus Skill 库（自建的 Skill）
 ├── skill-sources/<source-id>/        # GitHub Skill 来源
 │   ├── source.json                   # 仓库、ref、目录、提交、Skill 索引（key 与目录）、更新检查结果
+│   └── repo/                         # 仓库的浅克隆
+├── mcp-sources/<source-id>/          # GitHub MCP 来源
+│   ├── source.json                   # 仓库、ref、目录、提交、服务器索引、解析警告、更新检查结果
 │   └── repo/                         # 仓库的浅克隆
 ├── adapters/<id>/                    # ACP 适配器，见 ACP 适配器管理
 ├── artifacts/<run>/<task>/           # 产物：回复和 diff
@@ -48,7 +52,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 约束：
 
-- `configs` 不保存凭据。Agent 的凭据在 `secrets.json`，角色 MCP 的环境变量值在 `secrets/roles/`，`configs` 中只记录变量名（`envKeys`）。
+- `configs` 不保存凭据。Agent 的凭据在 `secrets.json`，角色手工 MCP 的环境变量值在 `secrets/roles/`，MCP 资源库服务器的环境变量和 HTTP header 值在 `secrets/mcp/`，`configs` 中只记录变量名（`envKeys`、`headerKeys`）。
 - 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。应用用 `after` 参数从某个 `seq` 之后续读。
 - 租约有效期 10 分钟。持有者是 `janus-<pid>`；该进程已经不存在时，其他实例可以接管。
 
@@ -59,7 +63,7 @@ Run 创建后不再读取最新的设置对象：
 
 - 团队成员、角色、模型、会话控制项、权限摘要、Skill 和 MCP 写入 `runs.config`，工作区（含[共享资料](../domains/agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。
 - 成员的 Skill 复制到 `~/.janus/runs/<run>/skills/`，Agent 读的是快照路径，之后修改 Skill 库不影响已有 Run。
-- MCP 环境变量值在会话启动时从 `secrets/roles/` 读取。
+- 成员的 MCP 定义包含手工 MCP 和 `mcpRefs` 展开的资源库服务器。快照只保存名称、命令、地址和 `envKeys` / `headerKeys`；值在会话启动时从 `secrets/roles/` 和 `secrets/mcp/` 读取，`Member.mcp_env` / `mcp_headers` 不序列化，所以 `runs.config` 和事件中没有值。
 
 恢复 Run 时，团队从 `runs.config` 重建，任务状态从事件日志重建，见 [Run 生命周期](../domains/run_lifecycle.md#recovery)。
 

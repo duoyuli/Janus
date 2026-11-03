@@ -35,7 +35,8 @@ struct RolesView: View {
     private func row(_ r: JSON) -> some View {
         let c = store.connection(r["connection"].str)
         let k = c.flatMap { store.kind($0["kind"].str) }
-        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? "提示词" : "", r["skills"].array.isEmpty ? "" : "\(r["skills"].array.count) Skill", r["mcp"].array.isEmpty ? "" : "\(r["mcp"].array.count) MCP"].filter { !$0.isEmpty }
+        let mcpCount = r["mcp"].array.count + r["mcpRefs"].strings.count
+        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? "提示词" : "", r["skills"].array.isEmpty ? "" : "\(r["skills"].array.count) Skill", mcpCount == 0 ? "" : "\(mcpCount) MCP"].filter { !$0.isEmpty }
         return Button { store.editingRole = r } label: {
             HStack(spacing: 12) {
                 Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
@@ -87,6 +88,10 @@ struct RoleEditor: View {
     @Local private var ghLink: String?
     @Local private var ghAdding = false
     @Local private var mcpDraft: JSON?
+    @Local private var mcpPick = false
+    @Local private var mcpQuery = ""
+    @Local private var mcpLink: String?
+    @Local private var mcpAdding = false
     @Local private var saving = false
     @Local private var colors = false
 
@@ -209,7 +214,10 @@ struct RoleEditor: View {
         }
         .frame(minWidth: 620, idealWidth: 680, minHeight: 480, idealHeight: 760)
         .onAppear { r = original }
-        .task { if store.skills == nil { await store.loadSkills() } }
+        .task {
+            if store.skills == nil { await store.loadSkills() }
+            if store.mcpSources == nil { await store.loadMcpSources() }
+        }
     }
 
     private func bind(_ k: String) -> Binding<String> {
@@ -385,7 +393,11 @@ struct RoleEditor: View {
 
     @ViewBuilder private var mcp: some View {
         let list = r["mcp"].array
-        section("MCP", count: list.count, action: mcpDraft == nil ? ("添加", { mcpDraft = ["name": "", "command": "", "envText": ""] }) : nil)
+        let refs = r["mcpRefs"].strings
+        let picked = refs.map { id in
+            store.mcpResource(id) ?? ["id": JSON(id), "key": JSON(id), "title": JSON(id), "sourceId": "", "missing": true]
+        }
+        section("MCP", count: list.count + picked.count, action: mcpPick || mcpDraft != nil ? nil : ("添加", { mcpPick = true; Task { await store.loadMcpSources() } }))
         ForEach(list.indices, id: \.self) { i in
             let m = list[i]
             let cmd = ([m["command"].str] + m["args"].strings).joined(separator: " ")
@@ -393,6 +405,12 @@ struct RoleEditor: View {
                 var l = r["mcp"].array; l.remove(at: i); r["mcp"] = .array(l)
             }
         }
+        ForEach(picked, id: \.self) { s in
+            mounted("wrench.and.screwdriver", mcpName(s), mcpDetail(s)) {
+                r["mcpRefs"] = JSON(r["mcpRefs"].strings.filter { $0 != s["id"].str })
+            }
+        }
+        if mcpPick { mcpPicker() }
         if let d = mcpDraft {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -401,6 +419,7 @@ struct RoleEditor: View {
                 }
                 TextField("环境变量 KEY=value，每行一个", text: Binding(get: { d["envText"].str }, set: { mcpDraft?["envText"] = JSON($0) }), axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...5).font(.system(.body, design: .monospaced))
                 HStack {
+                    Button("从 MCP 库选择…") { mcpDraft = nil; mcpPick = true; Task { await store.loadMcpSources() } }.buttonStyle(.link)
                     Spacer()
                     Button("取消") { mcpDraft = nil }
                     Button("添加") { addMcp(d) }.buttonStyle(.borderedProminent)
@@ -411,8 +430,118 @@ struct RoleEditor: View {
         }
     }
 
+    /// The library's servers, grouped by source, with their credential state and a way to add a
+    /// repository without leaving the role editor.
+    @ViewBuilder private func mcpPicker() -> some View {
+        let lib = store.mcpSources ?? []
+        VStack(alignment: .leading, spacing: 8) {
+            if let link = mcpLink {
+                Text("粘贴 GitHub 仓库链接，Janus 会读取其中的 mcp.json / .mcp.json。导入后在设置的「MCP 库」里管理。").font(.caption).foregroundStyle(.secondary)
+                TextField("https://github.com/owner/repo", text: Binding(get: { link }, set: { mcpLink = $0 })).textFieldStyle(.roundedBorder).onSubmit(addMcpSource).disabled(mcpAdding)
+                HStack {
+                    if mcpAdding { ProgressView().controlSize(.small); Text("正在拉取仓库…").font(.callout).foregroundStyle(.secondary) }
+                    Spacer()
+                    Button("取消") { mcpLink = nil }.disabled(mcpAdding)
+                    Button("导入") { addMcpSource() }.buttonStyle(.borderedProminent).disabled(mcpAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            } else {
+                if !lib.isEmpty { TextField("搜索 MCP 库", text: $mcpQuery).textFieldStyle(.roundedBorder) }
+                if store.mcpSources == nil { Text("读取中…").foregroundStyle(.secondary) }
+                else if lib.isEmpty { Text("MCP 库还是空的。从 GitHub 导入，或者手工添加一个服务器。").font(.callout).foregroundStyle(.secondary) }
+                ForEach(lib, id: \.self) { src in
+                    let q = mcpQuery.lowercased()
+                    let servers = src["servers"].array.filter { q.isEmpty || "\($0["title"].str) \($0["description"].str)".lowercased().contains(q) }
+                    if !servers.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "shippingbox").font(.caption).foregroundStyle(.secondary)
+                            Text(src["repo"].str).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            if let update = store.mcpSourceUpdates.first(where: { $0["id"].str == src["id"].str }) {
+                                Spacer()
+                                if store.updatingMcpSources.contains(update["id"].str) { ProgressView().controlSize(.mini) }
+                                else { Button("有更新 · 更新") { Task { await store.updateMcpSources([update["id"].str]) } }.buttonStyle(.link).font(.caption) }
+                            }
+                        }
+                        .padding(.top, 4)
+                        ForEach(servers, id: \.self) { mcpPickRow($0) }
+                    }
+                }
+                HStack {
+                    Button("手工添加…") { mcpPick = false; mcpDraft = ["name": "", "command": "", "envText": ""] }.buttonStyle(.link)
+                    Button("从 GitHub 导入…") { mcpLink = "" }.buttonStyle(.link)
+                    Spacer()
+                    Button("完成") { mcpPick = false }
+                }
+            }
+            Text("环境变量和 HTTP header 的值在设置的「MCP 库」里设置；值不会存进角色或 Run 记录。").font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func mcpPickRow(_ s: JSON) -> some View {
+        let on = r["mcpRefs"].strings.contains(s["id"].str)
+        let http = s["transport"].str == "http"
+        let missing = s["envKeys"].strings.count - s["envSet"].strings.count + s["headerKeys"].strings.count - s["headerSet"].strings.count
+        return Button {
+            var set = r["mcpRefs"].strings
+            if on { set.removeAll { $0 == s["id"].str } } else { set.append(s["id"].str) }
+            r["mcpRefs"] = JSON(set)
+        } label: {
+            HStack(alignment: .top) {
+                Image(systemName: on ? "checkmark.square.fill" : "square").foregroundStyle(on ? Color.accentColor : .secondary).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(mcpName(s)).fontWeight(.medium)
+                        Pill(http ? "HTTP" : "stdio", http ? .blue : .gray)
+                        if missing > 0 { Pill("\(missing) 个值未设置", .amber) }
+                    }
+                    if s["description"].truthy { Text(s["description"].str).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                    Text([s["manifest"].str, mcpCreds(s)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary).lineLimit(1)
+                }
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .hoverable(6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func mcpName(_ s: JSON) -> String { s["title"].truthy ? s["title"].str : s["key"].str }
+
+    private func mcpCreds(_ s: JSON) -> String {
+        let env = s["envKeys"].strings
+        let headers = s["headerKeys"].strings
+        var parts: [String] = []
+        if !env.isEmpty { parts.append("环境变量 \(s["envSet"].strings.count)/\(env.count)") }
+        if !headers.isEmpty { parts.append("Header \(s["headerSet"].strings.count)/\(headers.count)") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func mcpDetail(_ s: JSON) -> String {
+        if s["missing"].truthy { return "找不到这个 MCP：来源已删除，或更新后仓库中没有了。保存角色时会移除它" }
+        let what = s["transport"].str == "http" ? "HTTP" : "stdio"
+        return [s["source"].str, what, mcpCreds(s), s["description"].str].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private func addMcpSource() {
+        guard let link = mcpLink?.trimmingCharacters(in: .whitespaces), !link.isEmpty, !mcpAdding else { return }
+        mcpAdding = true
+        Task {
+            defer { mcpAdding = false }
+            do {
+                let src = try await store.api.post("/api/mcp-sources", ["url": JSON(link)], timeout: 240)
+                mcpLink = nil
+                mcpQuery = ""
+                await store.loadMcpSources()
+                store.show("已导入 \(src["repo"].str)：找到 \(src["servers"].array.count) 个 MCP，勾选要给这个角色用的")
+            } catch { store.show(error.localizedDescription) }
+        }
+    }
+
     private func addMcp(_ d: JSON) {
         guard d["name"].str.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { store.show("名称只能包含字母、数字、- 和 _。"); return }
+        guard d["name"].str.lowercased() != "janus" else { store.show("名称 janus 保留给 Janus 看板，请换一个名字。"); return }
         let cmd = d["command"].str.trimmingCharacters(in: .whitespaces)
         guard !cmd.isEmpty else { store.show("请填写启动命令。"); return }
         r["mcp"] = .array(r["mcp"].array + [["name": d["name"], "command": JSON(cmd), "envText": d["envText"]]])

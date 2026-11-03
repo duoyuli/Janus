@@ -31,6 +31,12 @@
 | POST | `/api/skill-sources/check` | 立即检查所有来源的远端是否有新提交，返回与 GET 相同的列表，见[检测更新](../domains/agents_and_roles.md#skill_source_updates) |
 | POST | `/api/skill-sources/{id}/update` | 重新拉取来源 |
 | DELETE | `/api/skill-sources/{id}` | 删除来源；有角色挂载其中的 Skill 时返回错误 |
+| GET | `/api/mcp-sources` | 列出 GitHub MCP 来源及每个来源的服务器，见 [MCP 来源](#mcp_sources) |
+| POST | `/api/mcp-sources` | 添加来源：拉取仓库并解析 `mcp.json` / `.mcp.json`，body：`{"url": "https://github.com/o/r"}` |
+| POST | `/api/mcp-sources/check` | 立即检查所有来源的远端是否有新提交，返回与 GET 相同的列表 |
+| POST | `/api/mcp-sources/{id}/update` | 重新拉取来源，返回更新后的来源 |
+| DELETE | `/api/mcp-sources/{id}` | 删除来源；有角色挂载其中的 MCP，或未结束（`planning`、`running`、`waiting_input`、`interrupted`、`failed`）的 Run 还在使用时返回错误 |
+| POST | `/api/mcp-sources/{id}/servers/{key}/secrets` | 设置或清除一个资源的环境变量和 HTTP header 值，见[资源凭据](#mcp_secrets) |
 | GET | `/api/setup` | 一次返回 `connections`、`roles`、`workspaces` |
 | POST | `/api/setup/{kind}` | 新建或更新设置对象，`kind` 是 `connections`、`roles` 或 `workspaces` |
 | DELETE | `/api/setup/{kind}/{id}` | 删除设置对象 |
@@ -53,6 +59,34 @@
 
 - 连接返回时不包含凭据字段的值。
 - 配置检查的进度写在连接对象上，应用轮询 `/api/setup` 读取。
+
+<a id="mcp_sources"></a>
+## MCP 来源
+
+`GET /api/mcp-sources` 返回 `{ "sources": [...], "root": "<来源目录>" }`。每个来源包含 `id`、`url`、`repo`、`ref`、`path`、`commit`、`updatedAt`、`checkedAt`、`latest`、`updateAvailable`、`checkError`、`warnings`，以及 `servers`。服务器字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `id`、`sourceId`、`key` | 资源 id 是 `<sourceId>/<key>`，角色用它挂载 |
+| `name`、`title` | ACP 中的服务器名称（即 key）和 manifest 中的原名 |
+| `manifest` | 定义所在的文件，相对仓库 |
+| `transport` | `stdio` 或 `http` |
+| `command`、`args`、`url` | 启动命令或 HTTP 地址 |
+| `envKeys`、`headerKeys` | manifest 声明的变量名 |
+| `envSet`、`headerSet` | 其中已经有值的变量名 |
+| `description` | manifest 中的说明 |
+
+解析、更新和删除规则见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)。`source.json` 和响应都不含变量值。
+
+<a id="mcp_secrets"></a>
+### 资源凭据
+
+`POST /api/mcp-sources/{id}/servers/{key}/secrets` 的 body 是 `{"env": {...}, "headers": {...}}`，两个字段都可省略：
+
+- 非空字符串写入 `<JANUS_HOME>/secrets/mcp/<来源 id>/<key>.json`（`0600`）。
+- 空字符串删除该变量；没有提到的变量保持原值。
+- 来源或资源不存在时返回 400。
+- 响应是这个资源在库中的条目，只带 `envKeys`、`headerKeys`、`envSet`、`headerSet`，不返回值。
 
 <a id="adapters"></a>
 ## ACP 适配器

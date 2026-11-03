@@ -45,10 +45,11 @@
 | 内容 | 位置 | 权限 |
 | --- | --- | --- |
 | Agent 的凭据字段、复制来的凭据变量 | `~/.janus/agents/<id>/secrets.json` | `0600` |
-| 角色 MCP 的环境变量值 | `~/.janus/secrets/roles/<role-id>.json` | `0600` |
+| 角色手工 MCP 的环境变量值 | `~/.janus/secrets/roles/<role-id>.json` | `0600` |
+| MCP 资源库的环境变量和 HTTP header 值 | `~/.janus/secrets/mcp/<来源 id>/<key>.json` | `0600` |
 | Janus home | `~/.janus/` | `0700` |
 
-- SQLite 和设置接口只记录凭据字段和变量的名字（`secretsSet`、`importedEnv`、`envKeys`），不返回值。
+- SQLite、`source.json`、Run 快照和设置接口只记录凭据字段和变量的名字（`secretsSet`、`importedEnv`、`envKeys`、`headerKeys`、`envSet`、`headerSet`），不返回值。
 - 登录日志返回给应用前，凭据值替换为 `<secret>`。
 - 切换认证方式时，新方式用不到的凭据被删除。
 
@@ -84,6 +85,15 @@
 - 复制时只复制普通文件，符号链接取其内容，不跟随到所选目录之外。
 - 工作目录中的项目 Skill 只有真实路径仍在工作目录内时才会列给 Agent。
 - GitHub 来源的仓库是第三方内容。Janus 只克隆和读取，不执行仓库中的任何文件；解析和 Run 快照都不跟随符号链接，克隆时不下载 Git LFS 内容、不弹出凭据输入。Skill 的内容会作为说明交给 Agent，是否可信由用户在添加来源和挂载到角色时判断。
+
+<a id="mcp_sources"></a>
+## MCP 来源
+
+- GitHub 来源的仓库是第三方内容。Janus 只克隆和读取其中的 `mcp.json` / `.mcp.json`，不执行仓库中的任何文件；解析不跟随符号链接，克隆时不下载 Git LFS 内容、不弹出凭据输入。
+- manifest 中的 `command`、`args`、`url` 会原样交给 Agent，由 Agent 在会话中启动或连接。是否信任一个来源、是否把其中的服务器挂到角色，由用户在导入和挂载时判断。
+- manifest 声明的 `env` / `headers` 值写到 `secrets/mcp/`（`0600`）。接口只返回变量名和 `envSet` / `headerSet`；`source.json`、SQLite、日志和 Run 快照不保存值。删除来源时一并删除这些值。
+- 资源库中的 HTTP 服务器需要 Agent 支持 HTTP MCP。Agent 没有声明该能力时，Janus 不把 http 服务器放进会话。
+- 删除来源有保护：角色仍挂载其中的服务器，或有 `planning`、`running`、`waiting_input`、`interrupted`、`failed` 的 Run 快照还引用它时，接口返回错误。
 
 <a id="app_updates"></a>
 ## 应用更新的来源

@@ -134,10 +134,19 @@ pub fn scan(repo: &Path, start: &Path) -> Vec<String> {
         }
     }
     let mut out = vec![];
-    if std::fs::symlink_metadata(start).is_ok_and(|m| m.is_dir()) {
+    if std::fs::symlink_metadata(start).is_ok_and(|m| m.is_dir()) && inside(repo, start) {
         walk(repo, start, 0, &mut out);
     }
     out
+}
+
+/// Whether `start` really lies inside `repo`. The link's folder is joined onto the clone, and a
+/// symbolic link among its parent folders could otherwise lead the scan out of the clone.
+pub(crate) fn inside(repo: &Path, start: &Path) -> bool {
+    match (repo.canonicalize(), start.canonicalize()) {
+        (Ok(r), Ok(s)) => s.starts_with(r),
+        _ => false,
+    }
 }
 
 /// Give each skill folder a key: the one it had before when its folder is unchanged, else its
@@ -180,7 +189,7 @@ fn assign_keys(repo_name: &str, found: &[String], before: &[Value]) -> Vec<Value
     out
 }
 
-async fn git_in(cwd: &Path, args: &[&str]) -> Result<String> {
+pub(crate) async fn git_in(cwd: &Path, args: &[&str]) -> Result<String> {
     let mut cmd = tokio::process::Command::new("git");
     cmd.args(args)
         .current_dir(cwd)

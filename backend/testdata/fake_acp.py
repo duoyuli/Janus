@@ -8,7 +8,8 @@ with three options), "elicit" (asks elicitation/create with a form), "loop" (mak
 before its result) or "ask" (ends the turn with a question; the answer comes back as the next prompt). The last outcome repeats.
 As a goal-mode lead it acknowledges the brief, then works on "/goal …" until FAKE_DIR/lead-go
 exists and ends with the text of that file.
-Session setup (session/new `_meta`, set_config_option) is appended to calls.log. Counters live in FAKE_DIR so the
+Session setup (session/new `_meta` and `mcpServers`, set_config_option) is appended to calls.log; it
+declares HTTP MCP support. Counters live in FAKE_DIR so the
 script carries across the separate processes of separate attempts.
 """
 
@@ -172,11 +173,12 @@ for line in sys.stdin:
         continue
     try:
         if method == "initialize":
-            res = {"protocolVersion": 1, "agentInfo": {"name": "fake"}, "agentCapabilities": {}}
+            res = {"protocolVersion": 1, "agentInfo": {"name": "fake"}, "agentCapabilities": {"mcpCapabilities": {"http": True}}}
         elif method == "session/new":
             seed = (msg["params"].get("_meta") or {}).get("lody", {}).get("sessionConfig", {}).get("configOptionValues")
             if seed is not None:
                 log("seed " + json.dumps(seed, sort_keys=True))
+            log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
         elif method == "session/set_config_option":
             CONFIG[msg["params"]["configId"]] = msg["params"]["value"]

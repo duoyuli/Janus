@@ -24,6 +24,8 @@ final class AppStore {
     var skills: [JSON]?
     /// GitHub repositories whose skills sit next to the library's own (Settings › Skill 库).
     var skillSources: [JSON]?
+    /// GitHub repositories whose MCP server definitions roles can mount (Settings › MCP 库).
+    var mcpSources: [JSON]?
     var screen: Screen?
     var toast: String?
     /// Why the server is not on its configured address (a taken port), if it is not.
@@ -50,7 +52,9 @@ final class AppStore {
         _ = await (m, r)
         await loadSetup()
         await loadSkillSources()
+        await loadMcpSources()
         watchSkillSources()
+        watchMcpSources()
         watchChecks()
         startRunPolling()
         if screen == nil {
@@ -133,6 +137,63 @@ final class AppStore {
         show(gone.isEmpty ? "已更新 \(what)" : "已更新 \(what)，角色挂载的 \(gone.count) 个 Skill 已不在仓库中")
     }
 
+    func loadMcpSources() async {
+        mcpSources = (try? await api.get("/api/mcp-sources"))?["sources"].array ?? []
+    }
+
+    /// Sources whose remote has commits the local copy lacks (the server checks every few hours).
+    var mcpSourceUpdates: [JSON] { (mcpSources ?? []).filter { $0["updateAvailable"].truthy } }
+
+    /// MCP sources being fetched, so the library and the role editor show the same progress.
+    var updatingMcpSources: Set<String> = []
+
+    private func watchMcpSources() {
+        polls["mcpSources"]?.cancel()
+        polls["mcpSources"] = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 600_000_000_000)
+                await self?.loadMcpSources()
+            }
+        }
+    }
+
+    /// Ask every MCP remote now, instead of waiting for the server's next round.
+    func checkMcpSources() async {
+        do {
+            mcpSources = try await api.post("/api/mcp-sources/check", timeout: 240)["sources"].array
+            let n = mcpSourceUpdates.count
+            show(n == 0 ? "所有 MCP 来源都是最新的" : "\(n) 个 MCP 来源有更新")
+        } catch { show(error.localizedDescription) }
+    }
+
+    /// Fetch the given MCP sources again (all with updates when nil), then reload what lists them.
+    func updateMcpSources(_ ids: [String]? = nil) async {
+        let ids = ids ?? mcpSourceUpdates.map { $0["id"].str }
+        guard !ids.isEmpty else { return }
+        updatingMcpSources.formUnion(ids)
+        var done: [JSON] = [], failed: [String] = []
+        for id in ids {
+            do { done.append(try await api.post("/api/mcp-sources/\(id)/update", timeout: 240)) }
+            catch { failed.append("\(id)：\(error.localizedDescription)") }
+            updatingMcpSources.remove(id)
+        }
+        await loadMcpSources()
+        await loadSetup()
+        if !failed.isEmpty { show("更新失败：\(failed.joined(separator: "；"))"); return }
+        let have = Set(done.flatMap { $0["servers"].array.map { $0["id"].str } })
+        let gone = Set(roles.flatMap { $0["mcpRefs"].strings }.filter { rid in ids.contains { rid.hasPrefix("\($0)/") } && !have.contains(rid) })
+        let what = done.count == 1 ? "\(done[0]["repo"].str)：\(done[0]["servers"].array.count) 个 MCP" : "\(done.count) 个来源"
+        show(gone.isEmpty ? "已更新 \(what)" : "已更新 \(what)，角色挂载的 \(gone.count) 个 MCP 已不在仓库中")
+    }
+
+    /// A library resource by `<source>/<key>`, as the role editor shows it.
+    func mcpResource(_ id: String) -> JSON? {
+        for s in mcpSources ?? [] {
+            if let r = s["servers"].array.first(where: { $0["id"].str == id }) { return r }
+        }
+        return nil
+    }
+
     /// The sidebar keeps run statuses fresh while the window is open.
     private func startRunPolling() {
         polls["runs"]?.cancel()
@@ -209,7 +270,7 @@ final class AppStore {
     static let roleColors = ["#c96442", "#7b6cc2", "#3f7d5b", "#b5852b", "#2f7f8c", "#b04d6d", "#5f6b7a", "#8a6a4f"]
 
     func newRole(connection: String = "") {
-        editingRole = ["id": "", "name": "新角色", "role": "", "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "skills": [], "mcp": []]
+        editingRole = ["id": "", "name": "新角色", "role": "", "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "skills": [], "mcp": [], "mcpRefs": []]
     }
 
     @discardableResult

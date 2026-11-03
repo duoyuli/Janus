@@ -89,14 +89,16 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 | `session` | 选定的会话控制项值，`{控制项 id: 值}` |
 | `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，Pi 通过 Janus 的扩展加入系统提示，其他 Agent 附在任务说明末尾，见 [ACP 集成](../interfaces/acp_integration.md#standing_instructions) |
 | `skills` | Skill id：Janus 自建的 Skill 是 `<id>`，GitHub 来源中的 Skill 是 `<来源 id>/<key>`，见 [Skill](#skills) |
-| `mcp` | stdio MCP 服务器：名称、命令、参数、环境变量名（值另存） |
+| `mcp` | 手工 MCP 服务器，固定为 stdio：名称、命令、参数、环境变量名（值另存） |
+| `mcpRefs` | 从 MCP 资源库挂载的服务器，每项是 `<来源 id>/<key>`，见 [MCP 来源](#mcp_library) |
 | `lead` | 是否可以担任主控 |
 | `color`、`init` | 应用中的颜色和缩写 |
 
 规则：
 
 - 保存时，`session` 中只保留与 Agent 声明的控制项匹配的值（`role_session`）。Agent 还没检查过、没有控制项时，先保留字符串和布尔值。
-- MCP 名称只能包含字母、数字、`-` 和 `_`。环境变量值写入 `secrets/roles/<role-id>.json`（`0600`），SQLite 只记录变量名。
+- MCP 名称只能包含字母、数字、`-` 和 `_`，名称 `janus` 保留给看板 MCP。手工 MCP 和资源库 MCP 不能同名；保存角色和创建 Run 时都会检查。手工 MCP 的环境变量值写入 `secrets/roles/<role-id>.json`（`0600`），SQLite 只记录变量名。
+- 保存角色时，`mcpRefs` 只保留当前资源库中存在的资源；来源更新后消失的资源在下次保存时去掉（与 Skill 相同）。创建 Run 时同样跳过找不到的资源。
 - 被工作区使用的角色不能删除。
 - 首次启动时写入 5 个默认角色，组成产品上线团队，见[默认角色](#product_launch_roles)。它们都还没有绑定 Agent，职责和角色指令已经填写。
 - 默认角色有版本（`SEED_VERSION`，记在 `meta.seeded`）。用旧版本初始化的 Janus home 升级时只执行一次：
@@ -204,7 +206,7 @@ Skill 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 ma
 
 - **链接格式**（`parse_github`）：`https://github.com/o/r`、`github.com/o/r`、`git@github.com:o/r.git`、`o/r`，以及 `…/tree/<ref>/<目录>` 和 `…/blob/<ref>/<目录>/SKILL.md`。`tree/` 后的第一段视为分支或标签，所以名字里带 `/` 的分支无法指定。其他网站的链接直接拒绝。
 - **拉取**：`git clone --depth 1`（指定了 ref 时加 `--branch`）到 `~/.janus/skill-sources/<来源 id>/` 下的临时目录，带 `GIT_TERMINAL_PROMPT=0`（私有仓库只能用本机已有的 git 凭据）和 `GIT_LFS_SKIP_SMUDGE=1`，180 秒超时。成功后替换 `repo/`，并把仓库、ref、目录、提交和 Skill 索引写进 `source.json`。拉取失败或找不到任何 Skill 时，新来源不保留，已有来源保持原样。
-- **解析**（`scan`）：从链接指定的目录开始，找所有含普通文件 `SKILL.md` 的目录，最深 8 层、最多 500 个。跳过 `.git`、`node_modules` 和符号链接；`.claude/skills` 这类隐藏目录照常查找；找到一个 Skill 后不再进入它的子目录。名称和描述来自 `SKILL.md` 的 front matter。
+- **解析**（`scan`）：从链接指定的目录开始，找所有含普通文件 `SKILL.md` 的目录，最深 8 层、最多 500 个。跳过 `.git`、`node_modules` 和符号链接；`.claude/skills` 这类隐藏目录照常查找；找到一个 Skill 后不再进入它的子目录。链接指定的目录解析符号链接后必须仍在克隆目录内，否则视为没有 Skill。名称和描述来自 `SKILL.md` 的 front matter。
 - **Skill id**：`<来源 id>/<key>`。key 取 Skill 目录名（仓库根目录本身是 Skill 时取仓库名），重名时加 `-2`、`-3`。更新时同一目录保留原来的 key（`assign_keys`），所以角色上的选择不会因为仓库新增或删除了别的 Skill 而错位。
 - **更新**：重新拉取，Skill 跟随仓库的最新内容。只在用户点击时更新，有更新时会提醒，见[检测更新](#skill_source_updates)。同一时间只处理一个来源的拉取。
 - **删除**：有角色挂载这个来源中的 Skill 时不能删除。
@@ -218,8 +220,33 @@ Skill 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 ma
 - **提醒**：应用启动时读取来源，之后每 10 分钟重读一次。有来源可以更新时，主窗口侧栏底部显示「N 个 Skill 来源有更新」（点击打开 Skill 库），设置的「Skill 库」标签带更新数量，Skill 库顶部列出这些来源并提供「全部更新」，每个来源标「有更新」和「更新」按钮，角色编辑器中该来源的分组旁也有「更新」。
 - **一键更新**：与手动更新相同，重新拉取后 `updateAvailable` 清零。更新后角色挂载的 Skill 不在仓库中时，应用提示数量。
 
+<a id="mcp_library"></a>
+### MCP 来源
+
+MCP 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 magpie 的资源库：添加一次链接，仓库中的 MCP 服务器定义就可以给角色使用。实现在 `backend/src/mcp_sources.rs`。
+
+- **链接格式**：与 Skill 来源共用 `parse_github`，支持 `https://github.com/o/r`、`github.com/o/r`、`git@github.com:o/r.git`、`o/r`，以及 `…/tree/<ref>/<目录>`。其他网站的链接直接拒绝。
+- **拉取**：`git clone --depth 1`（指定了 ref 时加 `--branch`）到 `~/.janus/mcp-sources/<来源 id>/` 下的临时目录，带 `GIT_TERMINAL_PROMPT=0` 和 `GIT_LFS_SKIP_SMUDGE=1`，180 秒超时。成功后替换 `repo/`，并把仓库、ref、目录、提交、服务器索引和解析警告写进 `source.json`。拉取失败或一个可用服务器都没有找到时，新来源不保留，已有来源保持原样。
+- **解析**（`scan`）：从链接指定的目录开始，找所有 `mcp.json` 和 `.mcp.json`，最深 8 层、最多 500 个服务器。跳过 `.git`、`node_modules` 和符号链接；链接指定的目录解析符号链接后必须仍在克隆目录内。每个文件接受 Claude 的 `mcpServers`、VS Code 的 `servers`，或一个带 `name` 的单独服务器对象。
+- **传输**：有 `command` 的是 stdio；`type` 为 `http` / `streamable-http`，或只有 `url` 的是 streamable HTTP，地址必须以 `http://` 或 `https://` 开头。SSE 传输不支持，解析时给出警告并跳过。服务器名规范化（`slug`）后是 `janus` 的名称（如 `janus`、`Janus`、`janus!`、`janus_`）保留给看板 MCP，解析时跳过并写入警告。
+- **资源 id**：`<来源 id>/<key>`。key 取服务器名称的 slug，重名时加 `-2`、`-3`。更新时同一 manifest 中同名条目保留原来的 key（`assign_keys`），已有条目的 key 先保留，新条目再从剩下的名字中取，所以角色上的选择不会因为仓库新增或删除了别的服务器而错位，也不会出现两个服务器同一个 id。
+- **凭据**：manifest 中 `env` / `headers` 的值在添加和更新时写入 `secrets/mcp/<来源 id>/<key>.json`（目录 `0700`，文件 `0600`）。已经保存的值优先，更新仓库不会覆盖；更新后消失的服务器保留旧值，供已经开始的 Run 使用；删除来源时一并删除。`source.json`、SQLite、设置接口和 Run 快照都只保存变量名（`envKeys`、`headerKeys`）和是否设置（`envSet`、`headerSet`），不保存值。
+- **更新**：重新拉取，服务器定义跟随仓库。只在用户点击时更新；检测更新（`check_mcp_sources`）用 `git ls-remote`，服务启动 45 秒后检查一次、之后每 6 小时一次，应用也可以点「检查更新」。有更新的来源在设置的「MCP 库」标签和列表中标出，并可一键更新。
+- **删除**：有角色挂载这个来源中的服务器时不能删除；有 `planning`、`running`、`waiting_input`、`interrupted` 或 `failed` 的 Run 快照还引用这个来源时也不能删除，等 Run 结束或删除后再删。检查覆盖全部 Run（`runs_may_use_mcp`），不只应用显示的最新 50 个，所以较早的中断或失败 Run 同样会阻止删除。`delivered`、`accepted` 和 `cancelled` 的 Run 已结束，不再阻止删除。
+- **同一来源**：仓库、ref 和目录都相同的链接不能重复添加；同一仓库的不同目录可以分别添加。
+
 <a id="mcp"></a>
 ## MCP
 
-- 角色配置的 MCP 是 stdio 服务器，在 `session/new` 的 `mcpServers` 中传给 Agent，环境变量值在此时从 `secrets/roles/` 读取。
+角色可以挂载两类 MCP 服务器，打开会话时一起放进 `session/new`（恢复时 `session/load`）的 `mcpServers`：
+
+- **手工 MCP**：角色自己的 `mcp` 字段，固定为 stdio 服务器：名称、命令、参数和环境变量名。环境变量的值写入 `secrets/roles/<role-id>.json`（`0600`）。
+- **资源库 MCP**：角色 `mcpRefs` 中的 `<来源 id>/<key>`，来自 [MCP 来源](#mcp_library)。stdio 和 streamable HTTP 都支持，环境变量和 HTTP header 的值写入 `secrets/mcp/<来源 id>/<key>.json`（`0600`）。
+
+运行时规则：
+
+- `team_for` 先放手工 MCP，再放资源库 MCP。定义随 Run 快照保存，值不进入快照；会话启动时由 `attach_mcp_secrets` 从两个 secrets 目录读取，所以中断后继续的会话也会读到最新保存的值。
+- 只注入服务器声明的变量名（`envKeys`、`headerKeys`），secrets 中多余的键和空值不会传给 Agent。
+- 手工 MCP 与资源库 MCP 不能同名；保存角色和创建 Run 时都会报错。名称规范化后是 `janus` 的服务器与看板 MCP 冲突：资源库在解析时跳过，手工 MCP 在保存角色时拒绝，创建 Run 时再检查一次已保存的角色。
+- Agent 没有声明 HTTP MCP 能力时（例如 Pi），会话只带 stdio 服务器，资源库中的 http 服务器被跳过，会话仍能打开。
 - 目标模式下，Janus 还会附加自己的 HTTP 看板服务（名称 `janus`），见[看板 MCP 工具](../interfaces/board_mcp.md)。

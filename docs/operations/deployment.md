@@ -16,9 +16,11 @@
 ├── janus.db                  # SQLite：Agent、角色、工作区、Run、事件
 ├── agents/<agent-id>/        # 每个 Agent 的隔离配置目录、HOME、临时目录和凭据
 │   └── janus/                # Janus 为这个 Agent 生成的文件，例如 Pi 的长期要求扩展
-├── secrets/roles/            # 角色 MCP 的环境变量值
+├── secrets/roles/            # 角色手工 MCP 的环境变量值
+├── secrets/mcp/<id>/         # MCP 资源库服务器的环境变量和 HTTP header 值
 ├── skills/                   # Janus Skill 库（自建的 Skill）
 ├── skill-sources/<id>/       # GitHub Skill 来源：source.json 和仓库副本 repo/
+├── mcp-sources/<id>/         # GitHub MCP 来源：source.json 和仓库副本 repo/
 ├── adapters/<id>/            # ACP 适配器，按需下载，每个版本一个目录
 ├── artifacts/<run>/<task>/   # Run 的产物：回复和 diff
 ├── runs/<run>/skills/        # Run 创建时的 Skill 快照
@@ -34,7 +36,7 @@
 
 | 类别 | 位置 | 说明 |
 | --- | --- | --- |
-| 用户级数据 | `janus.db`、`agents/`、`secrets/`、`skills/`、`skill-sources/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
+| 用户级数据 | `janus.db`、`agents/`、`secrets/`、`skills/`、`skill-sources/`、`mcp-sources/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
 | 全局依赖 | `adapters/` | 第一次用到时下载，见 [ACP 适配器管理](../architecture/adapters.md) |
 | 应用更新 | `updates/` | 只有最近一次的新版本和上一个版本，可以随时删除 |
 | 配置与日志 | `config.toml`、`logs/` | 配置项见[配置](../interfaces/configuration.md#settings) |
