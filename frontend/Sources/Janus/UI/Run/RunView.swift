@@ -229,6 +229,7 @@ struct RunCard: View {
                         Button(run.goalOpen ? "收起完整目标" : "查看完整目标") { run.goalOpen.toggle() }.buttonStyle(.link)
                         if run.goalOpen { MarkdownText(text: r.goal).padding(.top, 4) }
                     }
+                    StoredImages(paths: r.images, size: 64)
                 }
                 Spacer()
                 if run.canAct && active {

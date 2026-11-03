@@ -179,27 +179,222 @@ struct Bar: View {
     }
 }
 
-/// A text field that grows with its content, sent with ⌘↩.
+/// A text field that grows with its content, sent with ⌘↩. Given `images`, it also takes
+/// images: ⌘V pastes a screenshot or image files copied in Finder, images can be dropped on it,
+/// and the paperclip picks files. They show as thumbnails above the text until sent.
 struct Composer: View {
     @Binding var text: String
+    var images: Binding<[PastedImage]>? = nil
     var placeholder: String
     var disabled = false
     var minHeight: CGFloat = 60
     var onSubmit: () -> Void
+    @Local private var height: CGFloat = 0
+
     var body: some View {
-        TextField(placeholder, text: $text, axis: .vertical)
-            .textFieldStyle(.plain)
-            .lineLimit(3...12)
-            .frame(minHeight: minHeight, alignment: .topLeading)
-            .padding(10)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.line))
-            .disabled(disabled)
-            .accessibilityLabel(placeholder)
-            .onKeyPress(.return, phases: .down) { press in
-                if press.modifiers.contains(.command) { onSubmit(); return .handled }
-                return .ignored
+        VStack(alignment: .leading, spacing: 8) {
+            if let images, !images.wrappedValue.isEmpty { AttachmentStrip(images: images) }
+            HStack(alignment: .bottom, spacing: 6) {
+                ZStack(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(placeholder).foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                    ComposerField(text: $text, height: $height, disabled: disabled, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
+                        .frame(height: max(minHeight, min(max(height, 18), 240)))
+                        .accessibilityLabel(placeholder)
+                }
+                if let images {
+                    Button { pick(into: images) } label: { Image(systemName: "paperclip") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .disabled(disabled || images.wrappedValue.count >= Attach.maxImages)
+                        .help("添加图片（也可以直接 ⌘V 粘贴截图，或把图片拖进来）")
+                        .accessibilityLabel("添加图片")
+                }
             }
+        }
+        .padding(10)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.line))
+        .opacity(disabled ? 0.6 : 1)
+    }
+
+    private func add(_ new: [PastedImage], to images: Binding<[PastedImage]>) {
+        let room = Attach.maxImages - images.wrappedValue.count
+        images.wrappedValue.append(contentsOf: new.prefix(max(0, room)))
+        if new.count > room { NSSound.beep() }
+    }
+
+    private func pick(into images: Binding<[PastedImage]>) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.message = "选择要附上的图片"
+        guard panel.runModal() == .OK else { return }
+        add(panel.urls.compactMap { Attach.prepare(try? Data(contentsOf: $0), name: $0.lastPathComponent) }, to: images)
+    }
+}
+
+/// Thumbnails of the images about to be sent, each with a way to take it out.
+struct AttachmentStrip: View {
+    @Binding var images: [PastedImage]
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(images) { img in
+                    ZStack(alignment: .topTrailing) {
+                        Thumb(image: NSImage(data: img.data), size: 56).help(img.name)
+                        Button { images.removeAll { $0.id == img.id } } label: {
+                            Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.6))
+                        }
+                        .buttonStyle(.plain).offset(x: 5, y: -5).help("移除这张图片").accessibilityLabel("移除 \(img.name)")
+                    }
+                }
+            }
+            .padding(.top, 5).padding(.trailing, 5)
+        }
+    }
+}
+
+/// A square image preview; a click opens the file when there is one.
+struct Thumb: View {
+    let image: NSImage?
+    var size: CGFloat = 56
+    var body: some View {
+        Group {
+            if let image { Image(nsImage: image).resizable().aspectRatio(contentMode: .fit).padding(2) }
+            else { Image(systemName: "photo").foregroundStyle(.secondary) }
+        }
+        .frame(width: size, height: size)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
+    }
+}
+
+/// Images stored with a run (a goal's, a message's), shown small; a click opens one in Preview.
+struct StoredImages: View {
+    let paths: [String]
+    var size: CGFloat = 72
+    var body: some View {
+        if !paths.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(paths, id: \.self) { p in
+                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: p)) } label: { Thumb(image: NSImage(contentsOfFile: p), size: size) }
+                        .buttonStyle(.plain).help("在预览中打开").accessibilityLabel("图片 \((p as NSString).lastPathComponent)")
+                }
+            }
+        }
+    }
+}
+
+/// The editable text of a `Composer`: an NSTextView, so that paste and drop can take images
+/// (a SwiftUI text field only takes text), with ⌘↩ to send.
+struct ComposerField: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var height: CGFloat
+    var disabled: Bool
+    var onImages: (([PastedImage]) -> Void)?
+    var onSubmit: () -> Void
+
+    final class TextView: NSTextView {
+        var onImages: (([PastedImage]) -> Void)?
+        var onSubmit: () -> Void = {}
+
+        override func keyDown(with event: NSEvent) {
+            // Return (36) or Enter (76) with ⌘ sends; anything else edits as usual.
+            if [36, 76].contains(event.keyCode), event.modifierFlags.contains(.command) { onSubmit(); return }
+            super.keyDown(with: event)
+        }
+
+        override func paste(_ sender: Any?) {
+            if takeImages(from: .general) { return }
+            pasteAsPlainText(sender)
+        }
+
+        /// What ⌘V does with a pasteboard holding images; false leaves it to the text paste.
+        @discardableResult
+        func takeImages(from pb: NSPasteboard) -> Bool {
+            guard let onImages, isEditable else { return false }
+            let images = Attach.images(from: pb)
+            if images.isEmpty { return false }
+            onImages(images)
+            return true
+        }
+
+        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            if onImages != nil, isEditable, Attach.hasImages(sender.draggingPasteboard) { return .copy }
+            return super.draggingEntered(sender)
+        }
+
+        override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+            if onImages != nil, isEditable, Attach.hasImages(sender.draggingPasteboard) { return .copy }
+            return super.draggingUpdated(sender)
+        }
+
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            if let onImages, isEditable, Attach.hasImages(sender.draggingPasteboard) {
+                let images = Attach.images(from: sender.draggingPasteboard)
+                if !images.isEmpty { onImages(images); return true }
+            }
+            return super.performDragOperation(sender)
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: ComposerField
+        init(_ parent: ComposerField) { self.parent = parent }
+        func textDidChange(_ n: Notification) {
+            guard let tv = n.object as? NSTextView else { return }
+            parent.text = tv.string
+            measure(tv)
+        }
+        func measure(_ tv: NSTextView) {
+            guard let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            lm.ensureLayout(for: tc)
+            let h = ceil(lm.usedRect(for: tc).height)
+            if abs(h - parent.height) > 0.5 { DispatchQueue.main.async { self.parent.height = h } }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        let tv = TextView()
+        tv.delegate = context.coordinator
+        tv.isRichText = false
+        tv.importsGraphics = false
+        tv.allowsUndo = true
+        tv.drawsBackground = false
+        tv.font = .systemFont(ofSize: NSFont.systemFontSize)
+        tv.textColor = .labelColor
+        tv.textContainerInset = .zero
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        tv.registerForDraggedTypes([.fileURL, .png, .tiff])
+        scroll.documentView = tv
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let tv = scroll.documentView as? TextView else { return }
+        if tv.string != text { tv.string = text }
+        tv.isEditable = !disabled
+        tv.isSelectable = !disabled
+        tv.onImages = onImages
+        tv.onSubmit = onSubmit
+        context.coordinator.measure(tv)
     }
 }
 

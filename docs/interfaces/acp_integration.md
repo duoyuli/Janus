@@ -44,9 +44,9 @@ Janus 读取的 Agent 能力：
 | Janus → Agent | `session/load` | 恢复中断前的会话；历史回放的更新被丢弃，期间 Agent 的请求一律拒绝 |
 | Janus → Agent | `session/set_config_option` | 设置模型、推理强度和其他会话控制项 |
 | Janus → Agent | `session/set_mode` | 为通过 session modes 声明的控制项设置模式 |
-| Janus → Agent | `session/prompt` | 发送一轮提示 |
+| Janus → Agent | `session/prompt` | 发送一轮提示：一个文字块；Agent 声明了 `promptCapabilities.image` 时，后面附上文字点名的图片块，见[图片附件](../domains/run_lifecycle.md#attachments) |
 | Janus → Agent | `session/cancel`（通知） | 打断当前一轮 |
-| Janus → Agent | `_lody/session/steer` | 把用户消息插入正在进行的一轮，返回 `outcome: "injected"` 表示成功；15 秒超时 |
+| Janus → Agent | `_lody/session/steer` | 把用户消息插入正在进行的一轮，内容块与 `session/prompt` 相同；返回 `outcome: "injected"` 表示成功；15 秒超时 |
 | Agent → Janus | `session/update`（通知） | 流式输出（`agent_message_chunk`）、工具调用（`tool_call`、`tool_call_update`）、会话信息（`session_info_update`） |
 | Agent → Janus | `session/request_permission` | 审批请求，转给用户 |
 | Agent → Janus | `elicitation/create` | 表单或链接请求，转给用户 |

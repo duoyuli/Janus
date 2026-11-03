@@ -24,6 +24,7 @@
 ├── adapters/<id>/            # ACP 适配器，按需下载，每个版本一个目录
 ├── artifacts/<run>/<task>/   # Run 的产物：回复和 diff
 ├── runs/<run>/skills/        # Run 创建时的 Skill 快照
+├── runs/<run>/attachments/   # 随目标和消息粘贴的图片
 ├── updates/                  # 应用内更新：<版本>/ 下载和拼装中的新版本，previous/ 上一个版本，install.sh 替换脚本
 ├── signing/                  # 发布签名证书（只在执行 make-signing-cert.sh 的机器上）
 └── logs/

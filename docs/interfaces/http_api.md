@@ -117,10 +117,25 @@ Content-Type: application/json
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `goal` | 是 | 目标，不能为空 |
+| `goal` | 是 | 目标，不能为空；带 `images` 时可以为空 |
 | `workspace` | 是 | 工作区 id |
+| `images` | 否 | 随目标粘贴的图片，见[图片](#images) |
 
 返回 `{"id": "<run id>"}`。校验规则见 [Run 生命周期](../domains/run_lifecycle.md#create_run)。
+
+<a id="images"></a>
+### 图片
+
+`POST /api/runs` 和 `message` 操作都可以带 `images`：
+
+```json
+{ "images": [{ "data": "<base64，也可以是 data URL>", "name": "截图.png", "mimeType": "image/png" }] }
+```
+
+- 类型按文件头识别，支持 PNG、JPEG、GIF、WebP，`mimeType` 只作参考。每张最多 10 MB，一次最多 10 张，否则返回 400，不保存任何图片。
+- 带图片时 `goal` 或 `text` 可以为空。
+- 请求体上限是 160 MB。
+- 保存位置、Agent 收到的形式和事件字段见[图片附件](../domains/run_lifecycle.md#attachments)。
 
 ### 详情
 
@@ -170,7 +185,7 @@ Content-Type: application/json
 | `answer` | `key`、`task`、`answer`、`note` | 回答提问；回答主控用 `ask_user` 提的问题时 `task` 为空 |
 | `approve` | `key`、`task`、`allow`、`option`、`label` | 处理审批请求，`option` 是 Agent 给出的 `optionId` |
 | `input` | `key`、`task`、`action`、`content` | 处理表单请求，`action` 是 `accept`、`decline` 或 `cancel` |
-| `message` | `text`，`agent` 或 `task` | 给会话发消息；Run 已中断时先恢复 |
+| `message` | `text`、`images`（可选，见[图片](#images)），`agent` 或 `task` | 给会话发消息，`text` 和 `images` 至少有一个；Run 已中断时先恢复 |
 | `interrupt` | `agent` 或 `task` | 打断当前一轮 |
 | `takeover` | `agent` 或 `task` | 接管会话，Agent 每轮结束后等用户消息 |
 | `release` | `agent` 或 `task` | 交还托管 |

@@ -9,11 +9,19 @@ use crate::agents::{ROLE, check_skill_id, list_skills, read_skill, slug, str_of}
 use crate::orchestrator::{App, now_ms};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
-/// Sources are cloned and swapped one at a time, so two updates never race on one folder.
-static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One lock per folder. A source's own folder serializes its fetch, the recording of a check and
+/// its deletion, so different sources never wait for each other; the sources root serializes
+/// adding, so two adds of one link cannot both pass the duplicate check. Keyed by path, so two
+/// Janus homes (or tests running in parallel) never share a lock.
+pub(crate) fn folder_lock(dir: &Path) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: LazyLock<std::sync::Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> = LazyLock::new(Default::default);
+    LOCKS.lock().unwrap().entry(dir.to_path_buf()).or_default().clone()
+}
 
 /// How deep a skill folder may sit in a repository, and how many one repository may bring.
 const MAX_DEPTH: usize = 8;
@@ -308,7 +316,7 @@ impl App {
     }
 
     pub(crate) async fn add_source_at(&self, at: RepoAt, clone_url: &str) -> Result<Value> {
-        let _guard = SYNC.lock().await;
+        let _adding = folder_lock(&self.skill_sources_root()).lock_owned().await;
         if let Some(s) = self.sources().into_iter().find(|s| {
             s["repo"].as_str().is_some_and(|r| r.eq_ignore_ascii_case(&at.repo)) && s["ref"] == at.git_ref.as_str() && s["path"] == at.path.as_str()
         }) {
@@ -325,6 +333,7 @@ impl App {
             "id": id, "url": at.url(), "repo": at.repo, "ref": at.git_ref, "path": at.path,
             "cloneUrl": clone_url, "addedAt": now_ms(), "skills": [],
         });
+        let _guard = folder_lock(&root.join(&id)).lock_owned().await;
         std::fs::create_dir_all(root.join(&id))?;
         match self.sync(src).await {
             Ok(v) => Ok(v),
@@ -337,7 +346,8 @@ impl App {
 
     /// Fetch the source again: its skills follow the repository, keys stay with their folders.
     pub async fn update_skill_source(&self, id: &str) -> Result<Value> {
-        let _guard = SYNC.lock().await;
+        check_skill_id(id)?;
+        let _guard = folder_lock(&self.skill_sources_root().join(id)).lock_owned().await;
         let src = self.read_source(id).context("没有这个来源")?;
         self.sync(src).await
     }
@@ -354,7 +364,7 @@ impl App {
             let dir = self.skill_sources_root().join(&id);
             let answer = git_in(&dir, &["ls-remote", "--", &url, &target]).await;
             // Record under the lock, on top of whatever an update wrote meanwhile.
-            let _guard = SYNC.lock().await;
+            let _guard = folder_lock(&dir).lock_owned().await;
             let Some(mut now) = self.read_source(&id) else { continue };
             now["checkedAt"] = json!(now_ms());
             match answer.map(|out| remote_head(&out, &git_ref)) {
@@ -426,6 +436,11 @@ impl App {
     }
 
     pub fn delete_skill_source(&self, id: &str) -> Result<()> {
+        check_skill_id(id)?;
+        // A fetch in progress would write the source back after it is gone.
+        let Ok(_guard) = folder_lock(&self.skill_sources_root().join(id)).try_lock_owned() else {
+            bail!("这个来源正在拉取，完成后再删除")
+        };
         let src = self.read_source(id).context("没有这个来源")?;
         let prefix = format!("{id}/");
         let users: Vec<String> = self

@@ -63,6 +63,7 @@ Run 创建后不再读取最新的设置对象：
 
 - 团队成员、角色、模型、会话控制项、权限摘要、Skill 和 MCP 写入 `runs.config`，工作区（含[共享资料](../domains/agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。
 - 成员的 Skill 复制到 `~/.janus/runs/<run>/skills/`，Agent 读的是快照路径，之后修改 Skill 库不影响已有 Run。
+- 随目标粘贴的图片保存在 `~/.janus/runs/<run>/attachments/`，路径列表写入 `runs.config.goalImages`，从中断处继续时主控说明里仍有这些图片，见[图片附件](../domains/run_lifecycle.md#attachments)。
 - 成员的 MCP 定义包含手工 MCP 和 `mcpRefs` 展开的资源库服务器。快照只保存名称、命令、地址和 `envKeys` / `headerKeys`；值在会话启动时从 `secrets/roles/` 和 `secrets/mcp/` 读取，`Member.mcp_env` / `mcp_headers` 不序列化，所以 `runs.config` 和事件中没有值。
 
 恢复 Run 时，团队从 `runs.config` 重建，任务状态从事件日志重建，见 [Run 生命周期](../domains/run_lifecycle.md#recovery)。

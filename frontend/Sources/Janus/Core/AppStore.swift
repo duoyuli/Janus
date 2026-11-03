@@ -31,6 +31,8 @@ final class AppStore {
     /// Why the server is not on its configured address (a taken port), if it is not.
     var serverNotice: String?
     var goalDraft = ""
+    /// Images pasted into the goal, sent with it.
+    var goalImages: [PastedImage] = []
     /// Workspace edited in the sheet (nil id for a new one).
     var editingWorkspace: JSON?
     /// Role edited in the sheet (empty id for a new one).
@@ -285,10 +287,11 @@ final class AppStore {
         await loadSetup()
     }
 
-    func createRun(goal: String, workspace: String) async {
+    func createRun(goal: String, workspace: String, images: [PastedImage] = []) async {
         do {
-            let r = try await api.post("/api/runs", ["goal": JSON(goal), "workspace": JSON(workspace)])
+            let r = try await api.post("/api/runs", ["goal": JSON(goal), "workspace": JSON(workspace), "images": .array(images.map(\.json))], timeout: images.isEmpty ? nil : 120)
             goalDraft = ""
+            goalImages = []
             await loadRuns()
             open(.run(r["id"].str))
         } catch { show("创建失败：\(error.localizedDescription)") }

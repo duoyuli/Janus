@@ -1,6 +1,7 @@
 mod acp;
 mod adapters;
 mod agents;
+mod attachments;
 mod config;
 mod db;
 mod mcp_sources;
@@ -557,6 +558,8 @@ async fn main() -> Result<()> {
         .route("/api/runs/{id}/actions", post(action))
         .route("/api/runs/{id}/export", get(export))
         .route("/mcp/{run}/{token}/{who}", post(mcp).get(mcp_stream))
+        // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).
+        .layer(axum::extract::DefaultBodyLimit::max(160 * 1024 * 1024))
         .with_state(app);
 
     let addr = &config::settings().addr;

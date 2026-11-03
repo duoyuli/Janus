@@ -9,14 +9,11 @@
 
 use crate::agents::{ROLE, check_skill_id, reserved_mcp_name, slug, str_of, write_private};
 use crate::orchestrator::{App, Member, now_ms};
-use crate::skill_sources::{RepoAt, git_in, parse_github, remote_head};
+use crate::skill_sources::{RepoAt, folder_lock, git_in, parse_github, remote_head};
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-
-/// Sources are cloned and swapped one at a time, so two updates never race on one folder.
-static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// How deep a manifest may sit in a repository, and how many servers one repository may bring.
 const MAX_DEPTH: usize = 8;
@@ -479,7 +476,8 @@ impl App {
     }
 
     pub(crate) async fn add_mcp_source_at(&self, at: RepoAt, clone_url: &str) -> Result<Value> {
-        let _guard = SYNC.lock().await;
+        // Locks as Skill sources do (`folder_lock`): the root while adding, each source on its own.
+        let _adding = folder_lock(&self.mcp_sources_root()).lock_owned().await;
         if let Some(s) = self.mcp_source_list().into_iter().find(|s| {
             s["repo"].as_str().is_some_and(|r| r.eq_ignore_ascii_case(&at.repo))
                 && s["ref"] == at.git_ref.as_str()
@@ -502,6 +500,7 @@ impl App {
             "id": id, "url": at.url(), "repo": at.repo, "ref": at.git_ref, "path": at.path,
             "cloneUrl": clone_url, "addedAt": now_ms(), "servers": [], "warnings": [],
         });
+        let _guard = folder_lock(&root.join(&id)).lock_owned().await;
         std::fs::create_dir_all(root.join(&id))?;
         match self.sync_mcp_source(src).await {
             Ok(v) => Ok(v),
@@ -515,7 +514,8 @@ impl App {
     /// Fetch the source again: its servers follow the repository, keys stay with their entries,
     /// and values already saved by the person win over the manifest's.
     pub async fn update_mcp_source(&self, id: &str) -> Result<Value> {
-        let _guard = SYNC.lock().await;
+        check_skill_id(id)?;
+        let _guard = folder_lock(&self.mcp_sources_root().join(id)).lock_owned().await;
         let src = self.read_mcp_source(id).context("没有这个来源")?;
         self.sync_mcp_source(src).await
     }
@@ -530,7 +530,7 @@ impl App {
             let dir = self.mcp_sources_root().join(&id);
             let answer = git_in(&dir, &["ls-remote", "--", &url, &target]).await;
             // Record under the lock, on top of whatever an update wrote meanwhile.
-            let _guard = SYNC.lock().await;
+            let _guard = folder_lock(&dir).lock_owned().await;
             let Some(mut now) = self.read_mcp_source(&id) else { continue };
             now["checkedAt"] = json!(now_ms());
             match answer.map(|out| remote_head(&out, &git_ref)) {
@@ -635,6 +635,12 @@ impl App {
     }
 
     pub fn delete_mcp_source(&self, id: &str) -> Result<()> {
+        check_skill_id(id)?;
+        // A fetch in progress would write source.json and the manifest's values back after the
+        // source and its secrets are gone.
+        let Ok(_guard) = folder_lock(&self.mcp_sources_root().join(id)).try_lock_owned() else {
+            bail!("这个来源正在拉取，完成后再删除")
+        };
         let src = self.read_mcp_source(id).context("没有这个来源")?;
         let prefix = format!("{id}/");
         let users: Vec<String> = self
@@ -974,6 +980,39 @@ mod tests {
                 app.add_mcp_source_at(at(), &url).await.unwrap();
             }
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Each source has its own lock: a source being fetched cannot be deleted, while another
+    /// source updates and deletes as usual.
+    #[tokio::test]
+    async fn a_source_being_fetched_blocks_only_its_own_deletion() {
+        let dir = std::env::temp_dir().join(format!("janus-mcp-locks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let upstream = dir.join("upstream");
+        manifest(&upstream.join("a"), r#"{"mcpServers":{"fetch":{"command":"uvx"}}}"#);
+        manifest(&upstream.join("b"), r#"{"mcpServers":{"search":{"command":"search-mcp"}}}"#);
+        sh(&upstream, &["init", "-q"]);
+        commit(&upstream, "init");
+
+        let app = test_app(&dir);
+        let url = format!("file://{}", upstream.display());
+        let at = |path: &str| RepoAt { repo: "acme/tools".into(), git_ref: String::new(), path: path.into() };
+        let a = app.add_mcp_source_at(at("a"), &url).await.unwrap()["id"].as_str().unwrap().to_string();
+        let b = app.add_mcp_source_at(at("b"), &url).await.unwrap()["id"].as_str().unwrap().to_string();
+
+        // Hold a's lock the way a fetch of a does.
+        let held = folder_lock(&app.mcp_sources_root().join(&a)).lock_owned().await;
+        let err = app.delete_mcp_source(&a).unwrap_err().to_string();
+        assert!(err.contains("正在拉取"), "{err}");
+        assert!(app.read_mcp_source(&a).is_some(), "a is still there");
+        // b is not held up by a.
+        tokio::time::timeout(Duration::from_secs(30), app.update_mcp_source(&b)).await.expect("b does not wait for a").unwrap();
+        app.delete_mcp_source(&b).unwrap();
+
+        drop(held);
+        app.delete_mcp_source(&a).unwrap();
+        assert!(app.list_mcp_sources()["sources"].as_array().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

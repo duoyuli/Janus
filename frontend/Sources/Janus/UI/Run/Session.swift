@@ -90,7 +90,7 @@ struct ChatCard: View {
             PendingTray(st: st, target: target)
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
-                Composer(text: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44) { send("message") }
+                Composer(text: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44) { send("message") }
                 HStack { Spacer(); buttons }
             }
             .padding(12)
@@ -100,7 +100,7 @@ struct ChatCard: View {
     }
 
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
-        let ph = "给 Agent 发消息，⌘↩ 发送"
+        let ph = "给 Agent 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送"
         if info.open && live {
             if info.human {
                 if info.idle {
@@ -123,7 +123,7 @@ struct ChatCard: View {
         Group {
             if primary {
                 Button(label) { send(act == "sessSend" ? "message" : act) }.buttonStyle(.borderedProminent)
-                    .disabled(draft.isEmpty).help(draft.isEmpty ? "先写下要发送的内容" : "⌘↩")
+                    .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? "先写下要发送的内容，或者粘贴图片" : "⌘↩")
             }
             else if danger { Button(label, role: .destructive) { send(act) } }
             else { Button(label) { send(act) } }
@@ -131,6 +131,7 @@ struct ChatCard: View {
     }
 
     private var draft: String { (run.sessionDrafts[target.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var images: [PastedImage] { run.sessionImages[target.key] ?? [] }
 
     private func send(_ type: String) {
         if type == "finish" && !confirm("用当前产出完成这个任务？", "任务里已有的改动会照常记录成 diff。", ok: "完成", destructive: false) { return }
@@ -138,9 +139,12 @@ struct ChatCard: View {
         body["type"] = JSON(type)
         if type == "message" {
             let text = draft
-            guard !text.isEmpty else { return }
+            let images = images
+            guard !text.isEmpty || !images.isEmpty else { return }
             body["text"] = JSON(text)
+            if !images.isEmpty { body["images"] = .array(images.map(\.json)) }
             run.sessionDrafts[target.key] = ""
+            run.sessionImages[target.key] = []
         }
         Task { await run.act(body) }
     }
@@ -211,7 +215,9 @@ struct ChatItem: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 DisclosureGroup("编排器发出的任务说明") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
-        case "run.created": divider("目标 · \(L.goalTitle(d["goal"].str))")
+        case "run.created":
+            divider("目标 · \(L.goalTitle(d["goal"].str))")
+            StoredImages(paths: Attach.paths(d), size: 56)
         case "agent.message":
             // The structured result block is for the orchestrator; in the chat it collapses to a label.
             let text = d["text"].str
@@ -236,16 +242,16 @@ struct ChatItem: View {
         case "board.posted": note("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)", nil)
         case "user.message":
             let via = ["steer": "已插入正在进行的这一轮", "queued": "这一轮结束后发送", "prompt": "作为新一轮发送", "next": "下次会话时带给它"][d["delivery"].str] ?? ""
-            userBubble(d["text"].str, via: via, insert: false)
+            userBubble(d["text"].str, images: Attach.paths(d), via: via, insert: false)
         case "message.routed":
             if let m = st.msgs[d["id"].str] {
-                if d["delivery"].str == "steer" { userBubble(m.text, via: "\(m.by == "lead" ? "主控插话" : "插话") · 已插入正在进行的这一轮", insert: true) }
-                else { userBubble(m.text, via: (m.by == "lead" ? "主控 · " : "") + "作为新的一轮发送", insert: false) }
+                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? "主控插话" : "插话") · 已插入正在进行的这一轮", insert: true) }
+                else { userBubble(m.text, images: m.images, via: (m.by == "lead" ? "主控 · " : "") + "作为新的一轮发送", insert: false) }
             }
         case "message.delivered":
             if d["ids"].exists {
                 ForEach(d["ids"].strings.compactMap { st.msgs[$0] }, id: \.id) { m in
-                    userBubble(m.text, via: (m.by == "lead" ? "主控 · " : "") + (m.delivery == "next" ? "留言 · 在这次会话开始时带入" : m.delivery == "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送"), insert: false)
+                    userBubble(m.text, images: m.images, via: (m.by == "lead" ? "主控 · " : "") + (m.delivery == "next" ? "留言 · 在这次会话开始时带入" : m.delivery == "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送"), insert: false)
                 }
             } else { note("\(L.icon[e.type] ?? "·") \(e.text)", L.tone(of: e.type)) }
         case "result.submitted":
@@ -286,12 +292,14 @@ struct ChatItem: View {
         }
     }
 
-    private func userBubble(_ text: String, via: String, insert: Bool) -> some View {
-        HStack {
+    private func userBubble(_ text: String, images: [String] = [], via: String, insert: Bool) -> some View {
+        let words = images.isEmpty ? text : Attach.visibleText(text)
+        return HStack {
             Spacer(minLength: 60)
             VStack(alignment: .trailing, spacing: 4) {
                 if insert { Text("↪ " + via).font(.caption.weight(.semibold)).foregroundStyle(Color.accent) }
-                Text(text).textSelection(.enabled)
+                StoredImages(paths: images)
+                if !words.isEmpty { Text(words).textSelection(.enabled) }
                 if !insert && !via.isEmpty { Text(via).font(.caption).foregroundStyle(.secondary) }
             }
             .padding(10)

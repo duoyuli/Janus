@@ -208,8 +208,8 @@ Skill 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 ma
 - **拉取**：`git clone --depth 1`（指定了 ref 时加 `--branch`）到 `~/.janus/skill-sources/<来源 id>/` 下的临时目录，带 `GIT_TERMINAL_PROMPT=0`（私有仓库只能用本机已有的 git 凭据）和 `GIT_LFS_SKIP_SMUDGE=1`，180 秒超时。成功后替换 `repo/`，并把仓库、ref、目录、提交和 Skill 索引写进 `source.json`。拉取失败或找不到任何 Skill 时，新来源不保留，已有来源保持原样。
 - **解析**（`scan`）：从链接指定的目录开始，找所有含普通文件 `SKILL.md` 的目录，最深 8 层、最多 500 个。跳过 `.git`、`node_modules` 和符号链接；`.claude/skills` 这类隐藏目录照常查找；找到一个 Skill 后不再进入它的子目录。链接指定的目录解析符号链接后必须仍在克隆目录内，否则视为没有 Skill。名称和描述来自 `SKILL.md` 的 front matter。
 - **Skill id**：`<来源 id>/<key>`。key 取 Skill 目录名（仓库根目录本身是 Skill 时取仓库名），重名时加 `-2`、`-3`。更新时同一目录保留原来的 key（`assign_keys`），所以角色上的选择不会因为仓库新增或删除了别的 Skill 而错位。
-- **更新**：重新拉取，Skill 跟随仓库的最新内容。只在用户点击时更新，有更新时会提醒，见[检测更新](#skill_source_updates)。同一时间只处理一个来源的拉取。
-- **删除**：有角色挂载这个来源中的 Skill 时不能删除。
+- **更新**：重新拉取，Skill 跟随仓库的最新内容。只在用户点击时更新，有更新时会提醒，见[检测更新](#skill_source_updates)。每个来源一把锁（`folder_lock`，按来源目录区分）：同一来源的拉取、检查结果的写入和删除依次进行，不同来源互不等待；添加来源另用来源根目录的锁，同一链接同时添加两次时只有一次成功。
+- **删除**：有角色挂载这个来源中的 Skill 时不能删除；这个来源正在拉取时也不能删除，提示稍后再删。
 - **同一来源**：仓库、ref 和目录都相同的链接不能重复添加；同一仓库的不同目录可以分别添加。
 
 <a id="skill_source_updates"></a>
@@ -232,7 +232,7 @@ MCP 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 magp
 - **资源 id**：`<来源 id>/<key>`。key 取服务器名称的 slug，重名时加 `-2`、`-3`。更新时同一 manifest 中同名条目保留原来的 key（`assign_keys`），已有条目的 key 先保留，新条目再从剩下的名字中取，所以角色上的选择不会因为仓库新增或删除了别的服务器而错位，也不会出现两个服务器同一个 id。
 - **凭据**：manifest 中 `env` / `headers` 的值在添加和更新时写入 `secrets/mcp/<来源 id>/<key>.json`（目录 `0700`，文件 `0600`）。已经保存的值优先，更新仓库不会覆盖；更新后消失的服务器保留旧值，供已经开始的 Run 使用；删除来源时一并删除。`source.json`、SQLite、设置接口和 Run 快照都只保存变量名（`envKeys`、`headerKeys`）和是否设置（`envSet`、`headerSet`），不保存值。
 - **更新**：重新拉取，服务器定义跟随仓库。只在用户点击时更新；检测更新（`check_mcp_sources`）用 `git ls-remote`，服务启动 45 秒后检查一次、之后每 6 小时一次，应用也可以点「检查更新」。有更新的来源在设置的「MCP 库」标签和列表中标出，并可一键更新。
-- **删除**：有角色挂载这个来源中的服务器时不能删除；有 `planning`、`running`、`waiting_input`、`interrupted` 或 `failed` 的 Run 快照还引用这个来源时也不能删除，等 Run 结束或删除后再删。检查覆盖全部 Run（`runs_may_use_mcp`），不只应用显示的最新 50 个，所以较早的中断或失败 Run 同样会阻止删除。`delivered`、`accepted` 和 `cancelled` 的 Run 已结束，不再阻止删除。
+- **删除**：有角色挂载这个来源中的服务器时不能删除；这个来源正在拉取时不能删除（锁与 Skill 来源相同，每个来源一把），否则拉取结束后会把 `source.json` 和凭据写回；有 `planning`、`running`、`waiting_input`、`interrupted` 或 `failed` 的 Run 快照还引用这个来源时也不能删除，等 Run 结束或删除后再删。检查覆盖全部 Run（`runs_may_use_mcp`），不只应用显示的最新 50 个，所以较早的中断或失败 Run 同样会阻止删除。`delivered`、`accepted` 和 `cancelled` 的 Run 已结束，不再阻止删除。
 - **同一来源**：仓库、ref 和目录都相同的链接不能重复添加；同一仓库的不同目录可以分别添加。
 
 <a id="mcp"></a>

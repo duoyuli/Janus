@@ -52,6 +52,15 @@ enum Snapshots {
         case "workspace": store.editingWorkspace = store.workspace(arg)
         case "close-sheet": store.editingRole = nil; store.editingWorkspace = nil
         case "doc": ArtifactWindow.open(path: arg, api: store.api)
+        case "paste":
+            // Paste an image file into the first composer of the key window, through the same
+            // handler as ⌘V, from a pasteboard of its own (the person's clipboard is untouched).
+            let pb = NSPasteboard(name: .init("janus-snapshot-paste"))
+            pb.clearContents()
+            pb.writeObjects([URL(fileURLWithPath: arg) as NSURL])
+            let wins = NSApp.windows.filter { $0.isVisible && $0.contentView != nil }
+            func find(_ v: NSView) -> ComposerField.TextView? { (v as? ComposerField.TextView) ?? v.subviews.lazy.compactMap(find).first }
+            if let v = (wins.first(where: { $0.isKeyWindow }) ?? wins.first)?.contentView.flatMap(find) { v.takeImages(from: pb) }
         case "size":
             let wh = arg.split(separator: "x").compactMap { Double($0) }
             if wh.count == 2, let w = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) {

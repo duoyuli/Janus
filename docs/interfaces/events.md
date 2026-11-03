@@ -67,7 +67,7 @@
 
 | 类型 | 说明 |
 | --- | --- |
-| `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`（工作目录的一句话描述）、`mode`（固定为 `goal`） |
+| `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`（工作目录的一句话描述）、`mode`（固定为 `goal`）、`images`（随目标粘贴的图片，见[图片附件](../domains/run_lifecycle.md#attachments)） |
 | `run.delivered` | 交付；`data` 是交付结果：`summary`、`briefSuggestions`（主控建议写入工作区共享资料的条目，见[工作区共享资料](../domains/agents_and_roles.md#workspace_brief)）、`deliverables`、`evidence`、`risks` |
 | `risk.accepted` | 用户验收 |
 | `run.failed` | Run 失败；`data.error` |
@@ -124,7 +124,7 @@
 | `tool.call` | 工具调用及其输入输出摘要 |
 | `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status` |
 | `tool.completed` | Janus MCP 工具返回；`data.callId`、`data.tool`、`data.input`、`data.args`、`data.output`、`data.status` |
-| `user.message` | 用户或主控发出一条消息，发出时立即记录；`data.id`、`data.text`，`data.delivery` 为 `pending`，见[消息的流转](#message_flow) |
+| `user.message` | 用户或主控发出一条消息，发出时立即记录；`data.id`、`data.text`，`data.delivery` 为 `pending`，见[消息的流转](#message_flow)。带图片时 `data.images` 列出图片，`data.text` 末尾有点名图片的 `[附图 N] <路径>` 行，应用显示缩略图并隐藏这些行 |
 | `message.routed` | 会话决定这条消息怎么进入；`data.id`、`data.delivery`（`steer` / `queued` / `interrupt` / `prompt` / `next`） |
 | `message.delivered` | 等待中的消息送达：排队的消息在一轮结束后作为新一轮发送，留言在下次会话开始时带入；`data.ids` |
 | `session.interrupted` | 用户打断了一轮 |

@@ -112,10 +112,13 @@ pub struct Member {
     pub mcp_headers: Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct NewRun {
     pub goal: String,
     pub workspace: String,
+    /// Images pasted with the goal: `[{data (base64), name}]`, see `attachments`.
+    #[serde(default)]
+    pub images: Vec<Value>,
 }
 
 /// A task on the board, as the lead orchestrated it (see `validate_orchestration`).
@@ -307,6 +310,8 @@ pub struct Run {
     base_ref: String,
     /// The workspace's shared material when the run was created (see `brief_section`).
     brief: String,
+    /// Images pasted with the goal, as `attachments::save` stored them (kept in the run's config).
+    goal_images: Vec<Value>,
     seq: AtomicI64,
     /// Held while an event takes its seq, is stored and broadcast, so the stream carries a
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
@@ -528,7 +533,7 @@ impl App {
     // @project-doc docs/domains/run_lifecycle.md#create_run
     // @project-doc docs/domains/run_lifecycle.md#workspace_model
     pub async fn create_run(self: &Arc<Self>, req: NewRun) -> Result<String> {
-        if req.goal.trim().is_empty() {
+        if req.goal.trim().is_empty() && req.images.is_empty() {
             bail!("目标不能为空");
         }
         let ws = self.workspace(&req.workspace)?;
@@ -557,10 +562,15 @@ impl App {
         };
         let id = format!("r{}", to_base36(now_ms() as u64));
         self.snapshot_skills(&id, &mut team)?;
-        let config = json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws });
+        let goal_images = crate::attachments::save(&self.cfg.data_dir, &id, &req.images)?;
+        let goal = match req.goal.trim() {
+            "" => "按附图完成".to_string(),
+            g => g.to_string(),
+        };
+        let config = json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
         self.db.insert_run(
             &id,
-            req.goal.trim(),
+            &goal,
             &cwd.to_string_lossy(),
             &config,
             now_ms(),
@@ -575,12 +585,13 @@ impl App {
         }
         let run = Arc::new(Run {
             id: id.clone(),
-            goal: req.goal.trim().into(),
+            goal,
             cwd,
             team,
             git: is_git && !base_ref.is_empty(),
             base_ref,
             brief: ws["brief"].as_str().unwrap_or("").trim().to_string(),
+            goal_images,
             seq: AtomicI64::new(0),
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
@@ -668,6 +679,7 @@ impl App {
         };
         self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(json!({
             "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note,
+            "images": run.goal_images,
             // Runs of the removed plan-first flow lack it, and cannot be continued (see `resume_run`).
             "mode": "goal"
         })));
@@ -1278,6 +1290,13 @@ impl App {
                 if tasks.is_empty() { "之前没有交给协作者的任务。".to_string() } else { format!("看板上之前的任务：\n{}\n未完成的任务会重新开始。", tasks.join("\n")) }
             ));
         }
+        if !run.goal_images.is_empty() {
+            p.push_str(&format!(
+                "\n\n用户随目标附了 {} 张图片，它们是目标的一部分，开始前先用读取图片的工具查看：\n{}\n需要协作者参考这些图片时，把路径写进任务说明。",
+                run.goal_images.len(),
+                crate::attachments::lines(&run.goal_images)
+            ));
+        }
         let lead = run.team.iter().find(|m| m.lead);
         if let Some(lead) = lead {
             p.push_str(&role_extras(lead, &run.cwd));
@@ -1480,7 +1499,7 @@ impl App {
                 task_status_label(status)
             ));
         }
-        let msg = self.post_message(run, "lead", &agent, task, &format!("{LEAD_REPLY}{text}"));
+        let msg = self.post_message(run, "lead", &agent, task, &format!("{LEAD_REPLY}{text}"), &[]);
         match live {
             Some(tx) => {
                 tx.send(Steer::Redirect(msg)).map_err(|_| format!("{task} 的会话刚刚结束"))?;
@@ -1655,7 +1674,7 @@ impl App {
         };
         self.emit(run, ev("result.amended", "lead", format!("主控修订 {task} 的结论：{}", short(text, 60))).task(task).data(json!({ "text": text })));
         for (id, agent, tx) in &running {
-            let msg = self.post_message(run, "lead", agent, id, &format!("{LEAD_REPLY}上游任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"));
+            let msg = self.post_message(run, "lead", agent, id, &format!("{LEAD_REPLY}上游任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"), &[]);
             let _ = tx.send(Steer::Redirect(msg));
         }
         let mut out = format!("已修订 {task} 的结论。");
@@ -1759,10 +1778,15 @@ impl App {
     /// Messages left for an agent while it had no open session, handed over with its next prompt.
     /// Record a message the moment it is sent, before any session has picked it up.
     // @project-doc docs/interfaces/events.md#message_flow
-    fn post_message(&self, run: &Run, actor: &str, to: &str, task: &str, text: &str) -> Msg {
+    fn post_message(&self, run: &Run, actor: &str, to: &str, task: &str, text: &str, images: &[Value]) -> Msg {
         static NEXT: AtomicI64 = AtomicI64::new(0);
         let id = format!("m{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
-        let mut e = ev("user.message", actor, short(text, 80)).to(to).data(json!({ "id": id, "text": text, "delivery": "pending" }));
+        let mut data = json!({ "id": id, "text": text, "delivery": "pending" });
+        if !images.is_empty() {
+            data["images"] = json!(images);
+        }
+        let label = if images.is_empty() { short(text, 80) } else { format!("{}（附 {} 张图片）", short(text.lines().next().unwrap_or(""), 60), images.len()) };
+        let mut e = ev("user.message", actor, label).to(to).data(data);
         if !task.is_empty() {
             e = e.task(task);
         }
@@ -2498,7 +2522,7 @@ impl App {
         // for a person to decide on a permission request does not count against the agent.
         let prompt = conn.request_timeout(
             "session/prompt",
-            json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": text }] }),
+            json!({ "sessionId": sid, "prompt": crate::attachments::prompt_blocks(&self.cfg.data_dir, text, takes_images(conn)) }),
             None,
         );
         tokio::pin!(prompt);
@@ -2633,7 +2657,7 @@ impl App {
                 // agent may itself be waiting for us (for example on a permission request).
                 let injected = c.steering
                     && conn
-                        .request_timeout("_lody/session/steer", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": m.text }], "steerId": m.id }), Some(STEER_TIMEOUT))
+                        .request_timeout("_lody/session/steer", json!({ "sessionId": sid, "prompt": crate::attachments::prompt_blocks(&self.cfg.data_dir, &m.text, takes_images(conn)), "steerId": m.id }), Some(STEER_TIMEOUT))
                         .await
                         .is_ok_and(|r| r["outcome"] == "injected");
                 self.route_message(run, agent, task, n, &m.id, if injected { "steer" } else { "queued" });
@@ -2644,7 +2668,7 @@ impl App {
             Steer::Redirect(m) => {
                 let injected = c.steering
                     && conn
-                        .request_timeout("_lody/session/steer", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": m.text }], "steerId": m.id }), Some(STEER_TIMEOUT))
+                        .request_timeout("_lody/session/steer", json!({ "sessionId": sid, "prompt": crate::attachments::prompt_blocks(&self.cfg.data_dir, &m.text, takes_images(conn)), "steerId": m.id }), Some(STEER_TIMEOUT))
                         .await
                         .is_ok_and(|r| r["outcome"] == "injected");
                 if injected {
@@ -3253,16 +3277,20 @@ impl App {
                 let cmd = match kind {
                     "message" => {
                         let text = a["text"].as_str().unwrap_or("").trim().to_string();
-                        if text.is_empty() {
+                        let images = a["images"].as_array().cloned().unwrap_or_default();
+                        if text.is_empty() && images.is_empty() {
                             bail!("消息不能为空");
                         }
+                        // Pasted images are stored with the run; the text names each one.
+                        let images = crate::attachments::save(&self.cfg.data_dir, &run.id, &images)?;
+                        let text = crate::attachments::with_lines(&text, &images);
                         // Shown the moment it is sent; its session routes it once it can.
                         let to = if agent.is_empty() {
                             run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.agent.clone()).unwrap_or_default()
                         } else {
                             agent.to_string()
                         };
-                        Steer::Message(self.post_message(run, "user", &to, task, &text))
+                        Steer::Message(self.post_message(run, "user", &to, task, &text, &images))
                     }
                     "interrupt" => Steer::Interrupt,
                     "takeover" => Steer::TakeOver,
@@ -3394,6 +3422,7 @@ impl App {
             git: config["git"] == true && !base_ref.is_empty(),
             base_ref,
             brief: config["workspace"]["brief"].as_str().unwrap_or("").trim().to_string(),
+            goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
             seq: AtomicI64::new(self.db.max_seq(run_id)?),
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
@@ -4423,6 +4452,11 @@ fn named_values(entry: &Value, keys: &str, values: &Value) -> Vec<Value> {
     out
 }
 
+/// Whether the agent declared image input (`promptCapabilities.image`) when it started.
+fn takes_images(conn: &AcpConn) -> bool {
+    conn.capabilities["promptCapabilities"]["image"] == true
+}
+
 /// Open a session with the member's MCP servers, in ACP's `McpServer` shape: stdio servers from
 /// the role and the library, plus library resources reached over streamable HTTP. Agents that
 /// declare no HTTP support (Pi) get only the stdio ones; their session still opens.
@@ -4873,6 +4907,7 @@ mod tests {
         Run {
             id: "r-test".into(),
             goal: "测试目标".into(),
+            goal_images: vec![],
             cwd: PathBuf::from("/tmp"),
             team: (0..team_size)
                 .map(|i| Member {
@@ -5089,7 +5124,7 @@ mod flow_tests {
     /// Start a run and play its lead: submit `tasks` as one orchestration through the board.
     /// The scripted lead keeps working until `finish_lead`.
     async fn start(h: &Harness, tasks: Value) -> String {
-        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into() }).await.unwrap();
+        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
         for _ in 0..100 {
             if h.app.run(&run).is_some_and(|r| !r.st.lock().unwrap().mcp_token.is_empty()) {
                 break;
@@ -5205,7 +5240,7 @@ mod flow_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn lead_resolves_failed_tasks() {
         let h = harness("resolve", &[("lead", false), ("m1", true), ("m2", true)], json!({ "T1": ["unmet"], "T2": ["ok"], "T3": ["slow", "ok"], "T4": ["ok"] }));
-        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into() }).await.unwrap();
+        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
         for _ in 0..100 {
             if h.app.run(&run).is_some_and(|r| !r.st.lock().unwrap().mcp_token.is_empty()) {
                 break;
@@ -5389,7 +5424,7 @@ mod flow_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn goal_mode_orchestrates_through_the_board() {
         let h = harness("goal", &[("lead", false), ("m1", true), ("m2", true)], json!({ "T1": ["write:notes.md"], "T2": ["ask", "ok"] }));
-        let run = h.app.create_run(NewRun { goal: "写一份笔记".into(), workspace: "ws".into() }).await.unwrap();
+        let run = h.app.create_run(NewRun { goal: "写一份笔记".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
         let calls = h.dir.join("fake/calls.log");
         for _ in 0..100 {
             if std::fs::read_to_string(&calls).unwrap_or_default().contains("goal 写一份笔记") {
@@ -5515,7 +5550,7 @@ mod flow_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn questions_left_by_the_lead_go_to_the_person() {
         let h = harness("goal-left", &[("lead", false), ("m1", true)], json!({ "T1": ["ask", "ok"] }));
-        let run = h.app.create_run(NewRun { goal: "定个名字".into(), workspace: "ws".into() }).await.unwrap();
+        let run = h.app.create_run(NewRun { goal: "定个名字".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
         for _ in 0..100 {
             if h.app.run(&run).is_some_and(|r| !r.st.lock().unwrap().mcp_token.is_empty()) {
                 break;
@@ -5547,7 +5582,7 @@ mod flow_tests {
         let h = harness("goal-resume", &[("lead", false), ("m1", true)], json!({}));
         // Left over from earlier work: not this run's change.
         std::fs::write(h.repo.join("leftover.txt"), "old\n").unwrap();
-        let run = h.app.create_run(NewRun { goal: "两步完成".into(), workspace: "ws".into() }).await.unwrap();
+        let run = h.app.create_run(NewRun { goal: "两步完成".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
         let calls = h.dir.join("fake/calls.log");
         let lead_started = |n: usize| {
             let calls = calls.clone();
@@ -5671,7 +5706,7 @@ mod flow_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn pause_keeps_running_status() {
         let h = harness("pause", &[("lead", false), ("m1", false)], json!({}));
-        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into() }).await.unwrap();
+        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
         for _ in 0..100 {
             if h.app.run(&run).is_some_and(|r| !r.st.lock().unwrap().mcp_token.is_empty()) {
                 break;
@@ -5791,7 +5826,7 @@ mod flow_tests {
             }))
             .unwrap();
 
-        let run = h.app.create_run(NewRun { goal: "带上 MCP".into(), workspace: "ws".into() }).await.unwrap();
+        let run = h.app.create_run(NewRun { goal: "带上 MCP".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
         let calls = h.dir.join("fake/calls.log");
         let mut line = String::new();
         for _ in 0..100 {
@@ -5817,6 +5852,63 @@ mod flow_tests {
             assert!(!record.contains(secret), "the run record and its events hold no values: {secret}");
         }
         assert!(record.contains("acme-tools/fetch"), "the mounted resources are recorded");
+        h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// Pasted images reach the agent: the goal's go into the lead's brief, a message's into the
+    /// turn it joins, each as an image block with its path named in the text. They are stored
+    /// with the run, and the events carry the paths, not the bytes.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn pasted_images_reach_the_agent() {
+        use base64::Engine;
+        let h = harness("images", &[("lead", false)], json!({}));
+        let png = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR-goal");
+        let shot = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR-message");
+        let run = h
+            .app
+            .create_run(NewRun { goal: "照着图改".into(), workspace: "ws".into(), images: vec![json!({ "data": png, "name": "设计稿.png" })] })
+            .await
+            .unwrap();
+        let calls = h.dir.join("fake/calls.log");
+        let logged = |what: &'static str, n: usize| {
+            let calls = calls.clone();
+            async move {
+                for _ in 0..100 {
+                    if std::fs::read_to_string(&calls).unwrap_or_default().matches(what).count() >= n {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                panic!("{what} ×{n} not in {}", std::fs::read_to_string(&calls).unwrap_or_default());
+            }
+        };
+        logged("goal 照着图改", 1).await;
+        let evs = events(&h.app, &run);
+        let created = evs.iter().find(|e| e.kind == "run.created").unwrap().data.clone().unwrap();
+        let goal_image = created["images"][0]["path"].as_str().unwrap().to_string();
+        assert!(goal_image.contains(&format!("/runs/{run}/attachments/")), "{goal_image}");
+        assert_eq!(std::fs::read(&goal_image).unwrap(), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR-goal");
+        let brief = evs.iter().find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "context")).unwrap();
+        assert!(brief.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains(&format!("[附图 1] {goal_image}")), "the brief names the goal's image");
+        assert!(std::fs::read_to_string(&calls).unwrap().contains(&format!("images image/png:{}", png.len())), "the brief carries it as an image block");
+
+        // A message with an image and no words: queued while the goal turn runs, then its own turn.
+        act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "", "images": [{ "data": shot, "name": "报错.png" }] }));
+        let evs = events(&h.app, &run);
+        let sent = evs.iter().find(|e| e.kind == "user.message").unwrap();
+        let d = sent.data.as_ref().unwrap();
+        let path = d["images"][0]["path"].as_str().unwrap();
+        assert!(d["text"].as_str().unwrap().contains(&format!("[附图 1] {path}")), "{d}");
+        assert_eq!(d["images"][0]["name"], "报错.png");
+        assert!(!serde_json::to_string(&evs).unwrap().contains(&shot), "events hold paths, not bytes");
+        std::fs::write(h.dir.join("fake/lead-go"), "看过了").unwrap();
+        logged("images image/png", 2).await;
+        assert!(std::fs::read_to_string(&calls).unwrap().contains(&format!("images image/png:{}", shot.len())));
+
+        // Not an image: refused, nothing recorded.
+        let bad = h.app.action(&h.app.run(&run).unwrap(), &json!({ "type": "message", "agent": "lead", "text": "x", "images": [{ "data": "aGVsbG8=" }] }));
+        assert!(bad.is_err());
         h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
         let _ = std::fs::remove_dir_all(&h.dir);
     }

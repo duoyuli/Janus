@@ -41,7 +41,7 @@ struct HomeView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), placeholder: "说出你想要的结果，⌘↩ 交给主控", minHeight: 96) { start(problems) }
+                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: "说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给主控", minHeight: 96) { start(problems) }
                     HStack {
                         // Examples only help before the first run.
                         if runs.isEmpty {
@@ -50,7 +50,7 @@ struct HomeView: View {
                             }
                         }
                         Spacer()
-                        let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
                         Button("交给主控") { start(problems) }
                             .buttonStyle(.borderedProminent)
                             .disabled(!problems.isEmpty || empty)
@@ -150,8 +150,9 @@ struct HomeView: View {
 
     private func start(_ problems: [String]) {
         let goal = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !goal.isEmpty, problems.isEmpty else { return }
-        Task { await store.createRun(goal: goal, workspace: ws["id"].str) }
+        let images = store.goalImages
+        guard !goal.isEmpty || !images.isEmpty, problems.isEmpty else { return }
+        Task { await store.createRun(goal: goal, workspace: ws["id"].str, images: images) }
     }
 }
 

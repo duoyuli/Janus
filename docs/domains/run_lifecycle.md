@@ -5,6 +5,7 @@
 ## 导航
 
 - [创建 Run](#create_run)：修改 `create_run` 或快照内容时阅读。
+- [图片附件](#attachments)：修改 `backend/src/attachments.rs`、目标或消息的图片、提示中的图片块时阅读。
 - [工作目录](#workspace_model)：涉及任务在哪里读写、diff 和 Git 时阅读。
 - [任务调度](#scheduling)、[一次尝试](#attempt)、[验证](#verification)、[重试与失败](#retry)：修改调度循环或尝试流程时阅读。
 - [停滞检测](#watchdog)：修改 `watchdog`、`watch_call`，或调整什么算「没有进展」时阅读。
@@ -18,17 +19,28 @@
 
 `App::create_run` 依次执行：
 
-1. 目标不能为空，工作区和工作目录必须存在。
+1. 目标不能为空（只附了图片时目标记为「按附图完成」），工作区和工作目录必须存在。
 2. 为每个成员构建运行环境（`spec_for`），缺少 CLI 或适配器没有安装时直接报错。
 3. 主控必须是 Claude Code 或 Codex（`lead_capable`）。
 4. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线。
-5. 写入 Run 快照，复制 Skill，见[数据模型与存储](../architecture/data_model.md#snapshots)。
+5. 写入 Run 快照，复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/data_model.md#snapshots)和[图片附件](#attachments)。
 6. 申请 Run 租约（10 分钟）。
 7. 启动驱动任务，进入主控的目标会话（`goal`）。
 
 Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件的 `data.mode` 固定为 `goal`，`resume_run` 据此拒绝继续早期版本的 Run。
 
 Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#workspace_brief)，之后修改工作区的共享资料不影响这个 Run，从中断处继续时也使用快照中的版本。
+
+<a id="attachments"></a>
+## 图片附件
+
+用户可以在目标和发给会话的消息里粘贴图片。实现在 `backend/src/attachments.rs`，接口见 [HTTP API](../interfaces/http_api.md#images)。
+
+- **保存**：图片随请求以 base64 上传，按文件头识别类型（PNG、JPEG、GIF、WebP，声明的类型不作数），每张最多 10 MB，一次最多 10 张；任何一张不合格时整条请求拒绝，不保存任何文件。文件写入 `~/.janus/runs/<run>/attachments/`，和这个 Run 的 Skill 快照放在一起。
+- **点名**：Agent 收到的文字中，每张图片单独占一行 `[附图 N] <路径>`。消息只有图片时，文字是「用户发来了 N 张图片，请先查看：」加这些行。目标的图片写进主控说明，并提示主控把路径写进任务说明，方便协作者参考。
+- **发送**：每次 `session/prompt` 和 `_lody/session/steer` 发出前，`prompt_blocks` 找出文字点名的附件，在 Agent 声明了 `promptCapabilities.image` 时作为 ACP 图片块附在文字后面。只读取 `runs/*/attachments/` 下的文件，所以文字里看起来像附图行的内容不能让 Janus 发出任意文件。Agent 没有声明这项能力时只收到路径，由 Agent 自己打开文件。目前 Claude 适配器声明了这项能力，Codex 适配器没有声明，Codex 用自己的看图工具读取路径。
+- **跟随消息流转**：图片行就是消息文字的一部分，所以插话、排队、留言、交还托管和中断后恢复的消息都带着它们，不需要另外处理。
+- **事件**：`run.created` 和 `user.message` 的 `data.images` 列出保存的图片（`path`、`mimeType`、`name`、`size`），事件只记录路径，不包含图片数据。
 
 <a id="workspace_model"></a>
 ## 工作目录

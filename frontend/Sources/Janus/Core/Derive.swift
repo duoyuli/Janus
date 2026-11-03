@@ -120,12 +120,14 @@ final class Msg {
     let to: String
     let task: String?
     let seq: Int
+    /// Stored paths of the images sent with it; `text` still names them (see `Attach.visibleText`).
+    var images: [String] = []
     var delivery: String
     var routedTask: String?
     var routedSeq: Int?
     var deliveredSeq: Int?
-    init(id: String, text: String, by: String, to: String, task: String?, seq: Int) {
-        self.id = id; self.text = text; self.by = by; self.to = to; self.task = task; self.seq = seq; delivery = "pending"
+    init(id: String, text: String, by: String, to: String, task: String?, seq: Int, images: [String] = []) {
+        self.id = id; self.text = text; self.by = by; self.to = to; self.task = task; self.seq = seq; self.images = images; delivery = "pending"
     }
 }
 
@@ -144,6 +146,8 @@ struct InboxItem: Identifiable {
 struct RunInfo {
     var status = "idle"
     var goal = ""
+    /// Stored paths of the images pasted with the goal.
+    var images: [String] = []
     var start: Double = 0
     var now: Double = 0
     var paused = false
@@ -206,6 +210,7 @@ func derive(_ events: [Event]) -> RunState {
         case "run.created":
             s.run.status = "running"
             s.run.goal = d["goal"].str
+            s.run.images = Attach.paths(d)
             s.run.start = e.ts
             s.run.cwd = d["cwd"].str
             s.run.git = d["git"].truthy
@@ -275,7 +280,7 @@ func derive(_ events: [Event]) -> RunState {
             if let t { t.control = "auto"; t.turn = "running"; dropSess(t.id) } else if let to = e.to { dropSess(to) }
         case "user.message":
             if let id = d["id"].string {
-                s.msgs[id] = Msg(id: id, text: d["text"].str, by: e.actor, to: e.to ?? "", task: e.task, seq: e.seq)
+                s.msgs[id] = Msg(id: id, text: d["text"].str, by: e.actor, to: e.to ?? "", task: e.task, seq: e.seq, images: Attach.paths(d))
                 break
             }
             if let t, d["delivery"].str == "prompt" { t.turn = "running"; dropSess(t.id); ag(t.agent).phase = "thinking" }
@@ -475,7 +480,9 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "task.succeeded":
             if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控接受 \(e.task ?? "") 的结果", text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "user.message":
-            let text = d["text"].string ?? e.text
+            let images = Attach.paths(d).count
+            let words = Attach.visibleText(d["text"].string ?? e.text)
+            let text = images == 0 ? words : [words, "（附 \(images) 张图片）"].filter { !$0.isEmpty }.joined(separator: " ")
             let dup = d["delivery"].str == "prompt" && f.decisions.contains { $0.msg && $0.to == e.to && $0.text == text }
             if !dup { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "给 \(name(e.to ?? "")) 的补充", text: text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }, msg: true, to: e.to)) }
             if !d["id"].exists, ["next", "queued"].contains(d["delivery"].str) { notes[e.to ?? "", default: []].append((seq: e.seq, text: text)) }

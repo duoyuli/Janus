@@ -36,6 +36,8 @@ final class RunModel {
     var notes: [String: String] = [:]
     var forms: [String: JSON] = [:]
     var sessionDrafts: [String: String] = [:]
+    /// Images pasted into each session's composer, by the same key as the drafts.
+    var sessionImages: [String: [PastedImage]] = [:]
     // Board view state
     var goalOpen = false
     var resultOpen = false
