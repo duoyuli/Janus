@@ -32,14 +32,14 @@ URL 的主机和端口取 `JANUS_ADDR`。
 <a id="tool_annotations"></a>
 ## 工具标注
 
-所有工具都带 MCP 工具标注：`team`、`wait`、`board_post` 标为只读，`orchestrate`、`reply`、`retry`、`accept`、`amend`、`cancel`、`ask_user` 标为非破坏性操作。标注的作用是避免 Codex 把调用看板当作需要用户审批的操作。
+所有工具都带 MCP 工具标注：`team`、`wait`、`task_detail`、`board_post`、`peers` 标为只读，`orchestrate`、`reply`、`retry`、`accept`、`amend`、`cancel`、`ask_user` 标为非破坏性操作。标注的作用是避免 Codex 把调用看板当作需要用户审批的操作。
 
 工具调用的错误以 `isError: true` 的文本内容返回，不使用 JSON-RPC 错误。
 
 <a id="lead_tools"></a>
 ## 主控工具
 
-`who` 为 `lead` 时，`tools/list` 返回以下九个工具。
+`who` 为 `lead` 时，`tools/list` 返回以下十个工具。
 
 ### `team`
 
@@ -104,7 +104,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | 标记 | 来源事件 | 内容 |
 | --- | --- | --- |
 | `[开始]` | `attempt.started` | 任务、执行者、第几次尝试 |
-| `[完成]` | `task.succeeded` | 摘要、逐条验收（✓ / ✗、标准、证据）、证据、风险、产物路径 |
+| `[完成]` | `task.succeeded` | 摘要、逐条验收（✓ / ✗、标准、证据）、证据、风险、产物路径。超过限额的部分删去，并提示用 `task_detail` 查看，见[完成消息的限额](#inline_budget) |
 | `[尝试失败]` | `attempt.failed` | 失败原因，还会重试 |
 | `[没通过验收]` | `task.failed`（`reason: "verification"`） | 协作者在原会话补过一次，仍有标准没核对、没证据或自认没达到，逐条列出；提示用 `accept`、`retry` 或 `cancel` 处理 |
 | `[失败]` | `task.failed`（`reason: "attempts"`） | 用完尝试次数，需要主控决定 |
@@ -113,10 +113,18 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `[用户已回答]` | `question.answered`（不是主控回答的） | 用户在会话或应用中直接回答了协作者的提问，主控不要再回答 |
 | `[用户决定]` | `question.answered`（`ask_user` 的问题） | 用户对主控所提问题的回答 |
 | `[进展]` `[阻塞]` `[备注]` | `board.posted` | 协作者写回的内容 |
+| `[冲突]` | `task.conflict` | 两个同时执行的任务改了同一批文件，提示主控确认分工 |
 | `[提问]` | `question.asked` | 问题和选项，需要用 `reply` 回答 |
 | `[等用户]` | `approval.requested`、`input.requested` | 协作者在等用户审批或填写 |
 
 除 `[用户决定]` 外，只有带任务 id、且任务在看板上的事件才会返回。
+
+主控的 Agent 支持插话时，需要主控处理的消息还会直接推送进它的会话，推送过的消息算作已读，不再由 `wait` 返回，见[看板推送](../domains/goal_mode.md#board_push)。
+
+<a id="inline_budget"></a>
+#### 完成消息的限额
+
+`[完成]` 消息让主控能决定下一步，完整结果留在 `task_detail` 中，长 Run 不会把主控的上下文占满：摘要最多 300 个字符，每条验收的标准 60 个、证据 160 个字符，证据和风险各列前 3 条（每条 160 个字符）并注明总数。有删节时末尾提示「完整结果用 janus.task_detail 查看」。交给下游任务的上游摘要同样最多 300 个字符。
 
 ### `reply`
 
@@ -174,6 +182,15 @@ URL 的主机和端口取 `JANUS_ADDR`。
 
 取消任务：还没开始的不再开始，执行中的会话被停止，依赖它们的任务一并取消（都记为 `task.skipped_by_decision`，`actor` 为 `lead`，连带取消的在 `data.dependency` 记录原因）。已完成的任务不受影响。取消后可以用 `retry` 恢复。
 
+<a id="task_detail"></a>
+### `task_detail`
+
+```json
+{ "task": "T2" }
+```
+
+按 id 返回一个任务的全部信息：执行者和状态、说明、验收标准、上游和下游任务（带状态）、完整结果（逐条验收、证据、风险）、主控的修订、最近一次没通过验收或尝试失败的原因、改过的文件、产物，以及看板上的进展、阻塞、提问、回答和冲突。主控可以顺着上下游的 id 继续查看相关任务。任务不存在时返回错误。
+
 <a id="ask_user_tool"></a>
 ### `ask_user`
 
@@ -186,7 +203,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 <a id="member_tools"></a>
 ## 协作者工具
 
-`who` 为任务 id 时，`tools/list` 只返回 `board_post`。
+`who` 为任务 id 时，`tools/list` 返回 `board_post` 和 `peers`。
 
 ### `board_post`
 
@@ -200,6 +217,15 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `text` | 是 | 写到看板的内容 |
 
 写入 `board.posted` 事件后立即返回，不等待回答。需要主控做决定才能继续时，协作者应在结构化结果的 `question` 字段提问并结束本轮。
+
+<a id="peers"></a>
+### `peers`
+
+```json
+{ "task": "T1" }
+```
+
+不带 `task` 时返回看板上的其他任务：状态、和调用者的关系（你的上游、依赖你、和你改了同一批文件），正在执行的任务改过的文件，以及最近 5 条其他任务写回看板的内容。带 `task` 时返回那个任务的全部信息，与主控的 [`task_detail`](#task_detail) 相同，例如上游任务的完整证据和主控的修订。
 
 <a id="acceptance_criteria"></a>
 ## 验收标准

@@ -2,12 +2,15 @@
 """A scripted ACP agent for orchestrator tests.
 
 FAKE_DIR holds script.json, which maps a task id to the outcome of each successive prompt for it:
-"ok", "fail", "cancelled", "slow", "write:<file>", "unmet" (reports its first acceptance criterion
+"ok", "fail", "cancelled", "slow", "write:<file>", "edit:<file>" (reports an edit of the file with ACP
+`locations`, then stays busy for two seconds so tasks overlap), "unmet" (reports its first acceptance criterion
 unmet), "permission" (asks session/request_permission
 with three options), "elicit" (asks elicitation/create with a form), "loop" (makes the same tool call five times
 before its result) or "ask" (ends the turn with a question; the answer comes back as the next prompt). The last outcome repeats.
 As a goal-mode lead it acknowledges the brief, then works on "/goal …" until FAKE_DIR/lead-go
 exists and ends with the text of that file.
+With a `steer` file in FAKE_DIR it declares Lody steering: a `_lody/session/steer` that arrives during
+a prompt is logged ("steer <text>"), answered "injected" and followed by `_lody/session/steer_applied`.
 Session setup (session/new `_meta` and `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
 script carries across the separate processes of separate attempts.
@@ -87,7 +90,7 @@ def ask_client(method, params):
 
 
 def wait_cancel(seconds):
-    """Sleep, but stop early when the client sends session/cancel."""
+    """Sleep, but stop early when the client sends session/cancel. Steering joins meanwhile."""
     import time
     end = time.time() + seconds
     while time.time() < end:
@@ -96,8 +99,14 @@ def wait_cancel(seconds):
             line = sys.stdin.readline()
             if not line:
                 sys.exit(0)
-            if json.loads(line).get("method") == "session/cancel":
+            msg = json.loads(line)
+            if msg.get("method") == "session/cancel":
                 return True
+            if msg.get("method") == "_lody/session/steer" and "id" in msg:
+                p = msg["params"]
+                log("steer " + " ".join(b.get("text", "") for b in p["prompt"]).replace("\n", " "))
+                send({"jsonrpc": "2.0", "id": msg["id"], "result": {"outcome": "injected"}})
+                send({"jsonrpc": "2.0", "method": "_lody/session/steer_applied", "params": {"sessionId": p["sessionId"], "steerId": p.get("steerId")}})
     return False
 
 
@@ -130,6 +139,15 @@ def prompt(msg):
         return {"stopReason": "cancelled"}
     if outcome == "slow":
         if wait_cancel(60):
+            return {"stopReason": "cancelled"}
+    if outcome.startswith("edit:"):
+        name = outcome.split(":", 1)[1]
+        with open(name, "a") as f:
+            f.write(f"{task}\n")
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "tool_call", "toolCallId": f"edit-{task}", "title": f"Edit {name}", "kind": "edit",
+            "status": "completed", "locations": [{"path": os.path.join(os.getcwd(), name)}], "rawInput": {"file_path": name}}}})
+        if wait_cancel(2):
             return {"stopReason": "cancelled"}
     if outcome.startswith("write:"):
         name = outcome.split(":", 1)[1]
@@ -173,7 +191,10 @@ for line in sys.stdin:
         continue
     try:
         if method == "initialize":
-            res = {"protocolVersion": 1, "agentInfo": {"name": "fake"}, "agentCapabilities": {"mcpCapabilities": {"http": True}, "promptCapabilities": {"image": True}}}
+            caps = {"mcpCapabilities": {"http": True}, "promptCapabilities": {"image": True}}
+            if os.path.exists(os.path.join(DIR, "steer")):
+                caps["_meta"] = {"lody": {"steering": {"version": 1, "transport": "request"}}}
+            res = {"protocolVersion": 1, "agentInfo": {"name": "fake"}, "agentCapabilities": caps}
         elif method == "session/new":
             seed = (msg["params"].get("_meta") or {}).get("lody", {}).get("sessionConfig", {}).get("configOptionValues")
             if seed is not None:

@@ -25,12 +25,12 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 | `backend/src/agents.rs` 的 `seed_tests` | 默认角色的首次写入和旧版本（v1、v2）升级：保留绑定，不改动编辑过的角色，不恢复已删除的角色，只升级一次 |
 | `backend/src/skill_sources.rs` 的 `tests` | GitHub 链接的各种写法；Skill key 在更新后保持不变；从本地 `file://` 仓库克隆、解析（隐藏目录、`node_modules`、符号链接、Skill 子目录）、挂载、更新、删除保护，没有 Skill 时不留下目录；远端有新提交时检测到更新、更新后清除；`ls-remote` 输出中分支和标签的选择。不访问网络 |
 | `backend/src/mcp_sources.rs` 的 `tests` | 两种常见 manifest 写法（`mcpServers`、`servers`、单个服务器对象）、SSE 拒绝、key 在更新后保持不变（新条目不占用已有条目的 key）；链接目录经由符号链接指向克隆之外时不解析；从本地 `file://` 仓库克隆、解析（跳过 `node_modules`）、挂载；值只写 `secrets/mcp/`（`0600`），API、`source.json` 和 Run 快照不含值；更新后保存的值优先、消失的服务器保留旧值；角色挂载、手工 MCP 保留、同名拒绝；保留名 `janus` 及其规范化变体（`Janus`、`janus!` 等）在解析时跳过，旧来源中的 `janus` key 在更新时替换，手工 MCP 名称 `janus_` 在保存角色时拒绝；未结束 Run（`planning`、`running`、`waiting_input`、`interrupted`、`failed`）阻止删除，`delivered`、`accepted`、`cancelled` 不阻止；正在拉取的来源不能删除，其他来源照常更新和删除；凭据设置与清除。不访问网络 |
-| `backend/src/adapters.rs` 的 `tests` | 版本切换与旧版本清理、从 `package.json` 的 `bin` 读取入口 |
+| `backend/src/adapters.rs` 的 `tests` | 版本切换与旧版本清理、从 `package.json` 的 `bin` 读取入口、来源改变后旧来源的版本仍能启动并被识别为需要替换 |
 | `backend/src/config.rs` 的 `tests` | 日志时间格式 |
-| `backend/src/orchestrator.rs` 的 `tests` | 主控说明中的协作者名单、任务提示中的共享资料、从主控回复中拆出「建议更新共享资料」 |
+| `backend/src/orchestrator.rs` 的 `tests` | 主控说明中的协作者名单、任务提示中的共享资料、从主控回复中拆出「建议更新共享资料」、从 `_meta.codex` 和 `_meta.lody` 读取目标状态、完成消息的删节、从工具调用识别改过的文件 |
 | `backend/src/orchestrator.rs` 的 `flow_tests` | 端到端流程：启动真实的编排器 `App`，用脚本化 Agent 跑完整 Run |
 
-`flow_tests` 覆盖的流程包括：通过看板编排（先校验后执行、进展、提问与回答、交付）、主控结束后提问转给用户、重启后恢复看板并继续编排、审批和表单请求到达用户、任务在工作目录中运行并产生 diff、主控重试失败任务后下游恢复、暂停、重启后恢复失败和阻塞的任务、早期计划模式 Run 不能继续、按验收标准核对结果（原会话补一次，仍不行交给主控）、主控处理失败任务（接受、重试、取消、交给用户决定）、主控回复不等长回合、修订上游结论后下游以修订为准、停滞检测（没有动静只报告一次、原地打转、等审批和用户打断后掌握会话的时间不算）、工作区共享资料进入主控说明，主控的建议条目与交付摘要分开、角色的手工 MCP 和资源库中 stdio / HTTP 两种 MCP 连同值一起进入 `session/new`，Run 记录和事件中没有值、MCP 名称冲突的旧快照拒绝恢复。停滞检测的测试把 `Config.stall_after` 改成 1 秒。
+`flow_tests` 覆盖的流程包括：通过看板编排（先校验后执行、进展、提问与回答、交付）、主控结束后提问转给用户、重启后恢复看板并继续编排、审批和表单请求到达用户、任务在工作目录中运行并产生 diff、主控重试失败任务后下游恢复、暂停、重启后恢复失败和阻塞的任务、早期计划模式 Run 不能继续、按验收标准核对结果（原会话补一次，仍不行交给主控）、主控处理失败任务（接受、重试、取消、交给用户决定）、主控回复不等长回合、修订上游结论后下游以修订为准、停滞检测（没有动静只报告一次、原地打转、等审批和用户打断后掌握会话的时间不算）、工作区共享资料进入主控说明，主控的建议条目与交付摘要分开、角色的手工 MCP 和资源库中 stdio / HTTP 两种 MCP 连同值一起进入 `session/new`，Run 记录和事件中没有值、MCP 名称冲突的旧快照拒绝恢复、看板推送进支持插话的主控（推送过的消息不再由 `wait` 返回）、插话被 Agent 读到后记为送达、两个任务同时改同一个文件（报告给主控、提醒双方、`task_detail` 和 `peers` 中可见）、主控没有动静时报告给用户。停滞检测的测试把 `Config.stall_after` 改成 1 秒。
 
 <a id="fake_agent"></a>
 ## 脚本化 Agent
@@ -42,8 +42,9 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 | `script.json` | 任务 id → 每次提示的结果列表，最后一个结果重复使用 |
 | `calls.log` | Agent 记录收到的会话设置（`session/new` 的 `_meta` 和 `mcpServers`、`set_config_option`）和主控收到的提示 |
 | `lead-go` | 目标模式主控在这个文件出现前一直工作，然后以文件内容作为最后回复结束 |
+| `steer` | 存在时声明 Lody 插话：一轮进行中收到的 `_lody/session/steer` 记入 `calls.log`（`steer <内容>`），回复 `injected`，再发出 `_lody/session/steer_applied` |
 
-`script.json` 中可用的结果：`ok`、`fail`、`cancelled`、`slow`、`write:<文件>`、`permission`（发出带三个选项的 `session/request_permission`）、`elicit`（发出带表单的 `elicitation/create`）、`loop`（给出结果前连续 5 次发出相同的工具调用）、`ask`（以提问结束本轮，回答作为下一条提示）。
+`script.json` 中可用的结果：`ok`、`fail`、`cancelled`、`slow`、`write:<文件>`、`edit:<文件>`（写文件并上报一次带 `locations` 的 `edit` 工具调用，再忙 2 秒，让并行的任务重叠）、`permission`（发出带三个选项的 `session/request_permission`）、`elicit`（发出带表单的 `elicitation/create`）、`loop`（给出结果前连续 5 次发出相同的工具调用）、`ask`（以提问结束本轮，回答作为下一条提示）。
 
 作为目标模式主控时，它先确认说明（`calls.log` 记 `brief ok`），再在收到 `/goal …` 后等待 `lead-go`。计数器保存在 `FAKE_DIR` 中，同一任务的多次尝试（不同进程）共用脚本进度。
 
@@ -70,6 +71,6 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 <a id="macos_app"></a>
 ## macOS 应用
 
-- `just test-mac`（`cd frontend && swift test`）运行 `frontend/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown 文档的解析、Run 中 Markdown 文档的收集、环境变量文本、Plan 控制项过滤、MCP 凭据的已设置/已清除状态（清除后不回退到旧的 `envSet` / `headerSet`），以及应用更新（`UpdaterTests`：版本号比较、只下载变化的部分、`update.json` 的读取、用 `codesign` 现场签一个最小应用包来检查签名校验、版本号不符和文件被改动后拒绝安装）。只装命令行工具时，`@Test` 宏插件在 `usr/lib/swift/host/plugins/testing` 下、不会自动加载，`just test-mac` 检测到这种情况会加上 `-plugin-path`；CI 的 macOS 运行环境自带 Xcode，直接运行 `swift test`。
+- `just test-mac`（`cd frontend && swift test`）运行 `frontend/Tests/JanusTests` 中的 Swift Testing 测试：事件推导、看板事实、JSON、Markdown 文档的解析、Run 中 Markdown 文档的收集、主控卡住和改了同一个文件的待处理事项、插话被读到后不重复显示、环境变量文本、Plan 控制项过滤、MCP 凭据的已设置/已清除状态（清除后不回退到旧的 `envSet` / `headerSet`），以及应用更新（`UpdaterTests`：版本号比较、只下载变化的部分、`update.json` 的读取、用 `codesign` 现场签一个最小应用包来检查签名校验、版本号不符和文件被改动后拒绝安装）。只装命令行工具时，`@Test` 宏插件在 `usr/lib/swift/host/plugins/testing` 下、不会自动加载，`just test-mac` 检测到这种情况会加上 `-plugin-path`；CI 的 macOS 运行环境自带 Xcode，直接运行 `swift test`。
 - 查看界面：设置 `JANUS_SNAPSHOT_DIR` 后，应用每 0.7 秒读取一次 `<目录>/cmd`，逐行执行 `open run:<id>`、`open home:<工作区>`、`open settings:<agents|roles|skills|mcp|adapters>`、`page <board|audit|team|task:<id>|agent:<id>|replay:<seq>>`、`role <id>`、`workspace <id>`、`close-sheet`、`doc <路径>`（打开文档窗口）、`paste <图片路径>`（把图片交给当前窗口第一个输入框的粘贴处理，使用私有剪贴板）、`size <宽>x<高>`、`shot <名字>`，截图保存为 `<目录>/<名字>.png`。截的是应用自己的窗口，不需要屏幕录制权限。配合 `JANUS_HOME` 和 `JANUS_ADDR` 指向一份数据副本使用，不影响正在运行的 Janus。
 

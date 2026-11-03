@@ -715,6 +715,9 @@ impl App {
         {
             override_env(&mut env, k, v.as_str().unwrap_or(""));
         }
+        // A setting of the agent's own (its env or a preset's) wins over the defaults below.
+        let configured = |k: &str| env.iter().any(|(name, _)| name == k);
+        let model_discovery_set = configured("CLAUDE_ACP_MODEL_DISCOVERY");
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
         let base = str_of(&c, "base").to_string();
         let mut program = crate::config::settings().node.clone();
@@ -741,6 +744,16 @@ impl App {
             }
             "claude" => {
                 set("CLAUDE_CONFIG_DIR", home);
+                // Janus reads a returned turn as the agent's answer. A command or subagent Claude
+                // Code sends to the background would end the turn before the work is done.
+                // @project-doc docs/interfaces/acp_integration.md#background_tasks
+                set("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1".into());
+                // The adapter would list a custom endpoint's own models (`/v1/models`) instead of
+                // Claude Code's, dropping the aliases roles were saved with (`opus` resolved through
+                // ANTHROPIC_DEFAULT_OPUS_MODEL); keep Claude Code's list unless the agent asks.
+                if !model_discovery_set {
+                    set("CLAUDE_ACP_MODEL_DISCOVERY", "off".into());
+                }
                 if let Some(b) = bin("claude") {
                     set("CLAUDE_CODE_EXECUTABLE", b);
                 }

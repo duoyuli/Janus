@@ -443,11 +443,17 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     // The watchdog's latest report per task, until the backend says the agent moved again, the
     // agent itself acts, or a new attempt starts.
     var stalls: [String: (seq: Int, text: String)] = [:]
+    // The lead's own stall goes to the person: nobody else watches the lead.
+    var leadStall: (seq: Int, text: String)?
+    // Two running tasks that edited the same files.
+    var conflicts: [(seq: Int, task: String, other: String, paths: [String])] = []
     for e in st.events {
         let d = e.data
         if let task = e.task, stalls[task] != nil, e.actor == st.tasks[task]?.agent || e.type == "attempt.started" { stalls[task] = nil }
         switch e.type {
         case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
+        case "lead.stalled": leadStall = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text)
+        case "task.conflict": if let task = e.task { conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings)) }
         case "result.submitted":
             f.results.append(ResultFact(key: "r\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, task: e.task ?? "", summary: d["summary"].string ?? e.text, evidence: d["evidence"].strings, risks: d["risks"].strings, checks: Check.list(d["checks"])))
         case "context.handoff":
@@ -528,9 +534,15 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         if text.isEmpty { text = i.d["reason"].str }
         f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true))
     }
+    if let ls = leadStall, st.active {
+        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: "主控可能卡住了", text: ls.text, tasks: [], agents: ["lead"], you: true, sub: "可以在主控的会话里发消息、打断并接管，或者继续等"))
+    }
     // Everything else that holds work up is the lead's to settle, not the person's.
     let lead = "主控在处理，不需要你操作"
     let closed: Set<String> = ["succeeded", "failed", "cancelled", "skipped_by_decision"]
+    for c in conflicts where st.tasks[c.task]?.status == "running" || st.tasks[c.other]?.status == "running" {
+        f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: "\(c.task) 和 \(c.other) 改了同一个文件", text: c.paths.joined(separator: "、"), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead))
+    }
     for (task, s) in stalls.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == "running" {
         f.open.append(OpenFact(key: "os\(task)\(s.seq)", seq: s.seq, title: "\(task) 可能卡住了", text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead))
     }

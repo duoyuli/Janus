@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Event types a session shows.
-let sessionTypes: Set<String> = ["attempt.started", "session.prompt", "context.handoff", "board.posted", "agent.message", "user.message", "message.routed", "message.delivered", "tool.call", "tool.started", "tool.completed", "question.asked", "question.answered", "approval.requested", "approval.granted", "approval.denied", "input.requested", "input.answered", "control.taken", "control.released", "session.interrupted", "result.submitted", "attempt.failed"]
+let sessionTypes: Set<String> = ["attempt.started", "session.prompt", "context.handoff", "board.posted", "task.conflict", "agent.message", "user.message", "message.routed", "message.delivered", "tool.call", "tool.started", "tool.completed", "question.asked", "question.answered", "approval.requested", "approval.granted", "approval.denied", "input.requested", "input.answered", "control.taken", "control.released", "session.interrupted", "result.submitted", "attempt.failed"]
 
 func isSessionEvent(_ e: Event) -> Bool { sessionTypes.contains(e.type) || (e.type == "agent.status" && e.data["turn"].str == "idle") }
 
@@ -22,7 +22,8 @@ struct SessionInfo {
 }
 
 func taskSession(_ st: RunState, _ t: TaskState) -> SessionInfo {
-    SessionInfo(evs: st.events.filter { $0.task == t.id && isSessionEvent($0) }, open: t.live, human: t.control == "human", idle: t.turn == "idle", resume: ["interrupted", "failed"].contains(st.run.status), leave: false)
+    // A conflict is recorded on the task whose edit found it; the other task's session shows it too.
+    SessionInfo(evs: st.events.filter { ($0.task == t.id || ($0.type == "task.conflict" && $0.data["other"].str == t.id)) && isSessionEvent($0) }, open: t.live, human: t.control == "human", idle: t.turn == "idle", resume: ["interrupted", "failed"].contains(st.run.status), leave: false)
 }
 
 /// Everything one agent did in this run, and where a message to it goes right now.
@@ -201,6 +202,10 @@ struct ChatItem: View {
         case "message.routed":
             guard st.msgs[e.data["id"].str] != nil else { return false }
             return ["steer", "prompt"].contains(e.data["delivery"].str)
+        // A steered message is shown where it was inserted; applying it only updates that bubble.
+        case "message.delivered":
+            guard e.data["ids"].exists else { return true }
+            return e.data["ids"].strings.contains { st.msgs[$0].map { $0.delivery != "steer" } ?? false }
         default: return true
         }
     }
@@ -229,7 +234,7 @@ struct ChatItem: View {
         case "session.prompt":
             let label = d["channel"].str == "instructions"
                 ? "用户的长期要求 · \(d["via"].str == "developer" ? "开发者指令" : d["via"].str == "extension" ? "系统提示（Pi 扩展）" : "系统提示")"
-                : ["system": "主控上下文", "context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复"][d["channel"].str] ?? "Janus 提示"
+                : ["system": "主控上下文", "context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮"][d["channel"].str] ?? "Janus 提示"
             VStack(alignment: .leading, spacing: 4) {
                 HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text("Janus 发给 Agent").font(.caption).foregroundStyle(.secondary) }
                 DisclosureGroup("查看内容") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
@@ -240,17 +245,18 @@ struct ChatItem: View {
         case "question.asked": note("? 问主控：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : "（\(d["options"].strings.joined(separator: " / "))）") · 主控会回答，不需要你处理", .amber)
         case "context.handoff": note("⇄ 上游任务 \(d["from"].string ?? e.text) 的结果已带入本次任务", nil)
         case "board.posted": note("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)", nil)
+        case "task.conflict": note("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时改了 \(d["paths"].strings.joined(separator: "、"))，已告诉主控", .amber)
         case "user.message":
             let via = ["steer": "已插入正在进行的这一轮", "queued": "这一轮结束后发送", "prompt": "作为新一轮发送", "next": "下次会话时带给它"][d["delivery"].str] ?? ""
             userBubble(d["text"].str, images: Attach.paths(d), via: via, insert: false)
         case "message.routed":
             if let m = st.msgs[d["id"].str] {
-                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? "主控插话" : "插话") · 已插入正在进行的这一轮", insert: true) }
+                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? "主控插话" : "插话") · \(m.deliveredSeq != nil ? "Agent 已读到" : "已插入这一轮，当前操作结束后读到")", insert: true) }
                 else { userBubble(m.text, images: m.images, via: (m.by == "lead" ? "主控 · " : "") + "作为新的一轮发送", insert: false) }
             }
         case "message.delivered":
             if d["ids"].exists {
-                ForEach(d["ids"].strings.compactMap { st.msgs[$0] }, id: \.id) { m in
+                ForEach(d["ids"].strings.compactMap { st.msgs[$0] }.filter { $0.delivery != "steer" }, id: \.id) { m in
                     userBubble(m.text, images: m.images, via: (m.by == "lead" ? "主控 · " : "") + (m.delivery == "next" ? "留言 · 在这次会话开始时带入" : m.delivery == "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送"), insert: false)
                 }
             } else { note("\(L.icon[e.type] ?? "·") \(e.text)", L.tone(of: e.type)) }

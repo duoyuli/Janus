@@ -32,7 +32,7 @@ Janus 读取的 Agent 能力：
 | `agentInfo.name`、`agentInfo.version` | 配置检查中显示 |
 | `mcpCapabilities.http` | 为 `true` 时，目标模式下的协作者会话接入看板 MCP 服务 |
 | `loadSession` | 为 `true` 时，重启后恢复的任务尝试用 `session/load` 重新打开原会话 |
-| `_meta.lody.steering` | 存在时，用户消息通过 `_lody/session/steer` 插入正在进行的一轮 |
+| `_meta.lody.steering` | 存在时，用户的消息、主控的回复、看板推送和冲突提醒通过 `_lody/session/steer` 插入正在进行的一轮，见[插话](#steering) |
 
 <a id="methods"></a>
 ## 使用的方法
@@ -46,7 +46,8 @@ Janus 读取的 Agent 能力：
 | Janus → Agent | `session/set_mode` | 为通过 session modes 声明的控制项设置模式 |
 | Janus → Agent | `session/prompt` | 发送一轮提示：一个文字块；Agent 声明了 `promptCapabilities.image` 时，后面附上文字点名的图片块，见[图片附件](../domains/run_lifecycle.md#attachments) |
 | Janus → Agent | `session/cancel`（通知） | 打断当前一轮 |
-| Janus → Agent | `_lody/session/steer` | 把用户消息插入正在进行的一轮，内容块与 `session/prompt` 相同；返回 `outcome: "injected"` 表示成功；15 秒超时 |
+| Janus → Agent | `_lody/session/steer` | 把消息插入正在进行的一轮，内容块与 `session/prompt` 相同，`steerId` 是消息 id；返回 `outcome: "injected"` 表示成功；15 秒超时 |
+| Agent → Janus | `_lody/session/steer_applied`（通知） | 插入的消息已经进入模型的输入，带 `steerId` |
 | Agent → Janus | `session/update`（通知） | 流式输出（`agent_message_chunk`）、工具调用（`tool_call`、`tool_call_update`）、会话信息（`session_info_update`） |
 | Agent → Janus | `session/request_permission` | 审批请求，转给用户 |
 | Agent → Janus | `elicitation/create` | 表单或链接请求，转给用户 |
@@ -102,7 +103,32 @@ Skill、MCP 和权限模式不属于长期要求，它们按各 Agent 自己的�
 <a id="goal_status"></a>
 ## Codex 的目标状态
 
-Codex 在 `session_info_update` 的 `_meta.codex.goal` 中报告 `/goal` 的状态（例如 `active`、`paused`、`complete`）。Janus 把状态变化记为 `goal.status` 事件；状态为 `active` 时，即使 `session/prompt` 已经返回，也继续跟随会话的输出。
+Codex 在 `session_info_update` 中报告 `/goal` 的状态（例如 `active`、`paused`、`complete`）：npm 版适配器写在 `_meta.codex.goal`，仓库版适配器写在 `_meta.lody.goal`，两处 Janus 都读。Janus 把状态变化记为 `goal.status` 事件；状态为 `active` 时，即使 `session/prompt` 已经返回，也继续跟随会话的输出。
+
+<a id="steering"></a>
+## 插话
+
+Agent 声明了 `_meta.lody.steering` 时，会话正在进行的一轮可以插入消息（`steer_turn`）：
+
+1. Janus 发出 `_lody/session/steer`，`steerId` 是消息 id。返回 `outcome: "injected"` 时记 `message.routed`（`delivery: "steer"`）。
+2. Agent 在下一个安全点把消息交给模型：Codex 立即读到；Claude Code 在当前工具调用结束后读到。读到时 Agent 发出 `_lody/session/steer_applied`，Janus 记 `message.delivered`（`data.applied: true`），见[消息的流转](events.md#message_flow)。
+3. Agent 拒绝（例如这一轮正在结束）或没有声明插话时，用户的消息排队到这一轮结束；主控的回复打断这一轮后立即发送。
+
+主控跟随进行中的目标（`session/prompt` 已经返回、目标仍是 `active`）时没有可以等待的一轮：插不进去的消息立即作为新的一轮发送，不等目标结束。
+
+Codex 和 Claude Code 只有仓库版适配器支持插话，见[适配器清单](../architecture/adapters.md#catalog)。
+
+<a id="background_tasks"></a>
+## Claude Code 会话的环境默认值
+
+Janus 为 Claude Code 及基于它的预设设置两个环境变量，保持 Janus 依赖的行为（`spec_for`）：
+
+| 变量 | 值 | 原因 |
+| --- | --- | --- |
+| `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` | `1` | Janus 把返回的一轮当作 Agent 的回答。仓库版适配器允许 Claude Code 把命令或子 Agent 放到后台，这一轮会在工作完成之前返回 |
+| `CLAUDE_ACP_MODEL_DISCOVERY` | `off`，Agent 自己的环境变量设置了它时不覆盖 | 使用自定义接入点（`ANTHROPIC_BASE_URL`）时，仓库版适配器改为列出接入点自己的模型（`/v1/models`），不再提供 `opus`、`sonnet` 等别名；已保存的角色用的是别名，预设通过 `ANTHROPIC_DEFAULT_OPUS_MODEL` 等变量决定别名对应的模型 |
+
+仓库版 Claude Code 适配器不再提供 `dontAsk` 权限模式。选了这个模式的角色会以 Agent 当前的模式运行（实际生效的模式记在 `agent.status` 的 `data.config` 中），需要在角色设置中重新选择。
 
 <a id="user_request_replies"></a>
 ## 用户请求的回复

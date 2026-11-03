@@ -74,8 +74,8 @@
 <a id="adapter_install"></a>
 ## 适配器安装
 
-- 适配器从 npm（`acp-extension-codex`、`acp-extension-claude`）和 GitHub（`LodyAI/acp-extension-grok`、`LodyAI/acp-extension-pi`）下载，Janus 不校验包的签名，信任边界与手动执行 `npm install` 相同。
-- 安装命令在 Janus 进程自己的环境中运行（`PATH`、npm 配置、代理），不是 Agent 的隔离环境。安装过程会执行包自带的安装脚本和构建脚本。
+- 适配器从 GitHub（`LodyAI/acp-extension-codex`、`LodyAI/acp-extension-claude`、`LodyAI/acp-extension-grok`、`LodyAI/acp-extension-pi`）的默认分支下载，依赖从 npm 安装，Janus 不校验提交或包的签名，信任边界与手动执行 `git clone`、`npm install` 相同。
+- 安装命令在 Janus 进程自己的环境中运行（`PATH`、npm 配置、代理），不是 Agent 的隔离环境。安装过程会执行包自带的安装脚本和构建脚本；有构建脚本时连同开发依赖一起安装，构建后再删去开发依赖。
 - 来源写在代码中，应用和接口不能指定其他来源。
 
 <a id="skill_import"></a>

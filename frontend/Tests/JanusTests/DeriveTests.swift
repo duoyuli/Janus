@@ -137,6 +137,32 @@ private func goalRun() -> Log {
     #expect(!f.open.contains { $0.title == "T1 可能卡住了" })
 }
 
+@Test func leadStallsAndConflictsOpenOnTheBoard() {
+    var log = goalRun()
+    log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "idleMs": 600000])
+    log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"]])
+    var f = boardFacts(derive(log.events)) { $0 }
+    #expect(f.open.contains { $0.title == "主控可能卡住了" && $0.you }, "nobody but the person watches the lead")
+    #expect(f.open.contains { $0.title == "T1 和 T2 改了同一个文件" && $0.text == "calc.py" && !$0.you })
+    log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "resolved": true])
+    log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x"])
+    f = boardFacts(derive(log.events)) { $0 }
+    #expect(!f.open.contains { $0.title == "主控可能卡住了" })
+    #expect(!f.open.contains { $0.title.contains("改了同一个文件") }, "neither task is running any more")
+}
+
+@Test func aSteeredMessageIsShownOnceAndMarkedRead() {
+    var log = goalRun()
+    log.add("user.message", actor: "user", to: "lead", data: ["id": "m1", "text": "先看 T1", "delivery": "pending"])
+    log.add("message.routed", actor: "janus", to: "lead", data: ["id": "m1", "delivery": "steer"])
+    var st = derive(log.events)
+    #expect(st.msgs["m1"]?.deliveredSeq == nil)
+    log.add("message.delivered", actor: "janus", to: "lead", data: ["ids": ["m1"], "applied": true])
+    st = derive(log.events)
+    #expect(st.msgs["m1"]?.deliveredSeq != nil)
+    #expect(!ChatItem.visible(log.events.last!, st: st), "applying it only updates the inserted bubble")
+}
+
 @Test func boardFactsLinkResultsToHandoffs() {
     var log = goalRun()
     log.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["a"], "risks": ["b"]])

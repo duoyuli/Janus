@@ -33,7 +33,7 @@ Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/se
 1. 沙箱变量：`HOME`、XDG 目录、`TMPDIR` 等，指向 `~/.janus/agents/<id>/` 下的隔离目录。
 2. 类型的默认变量（`fixedEnv`，预设还有所选接入点的 `env`），例如 DeepSeek 预设的 `ANTHROPIC_BASE_URL` 和各档模型，Grok 的 `GROK_DISABLE_AUTOUPDATER=1`。
 3. 用户在 Agent 上填写的环境变量，以及「复制本机配置」带来的变量。值为空（`KEY=`）表示去掉这个变量。沙箱变量不能在这里改写。
-4. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和凭据（如预设 token 对应的 `ANTHROPIC_AUTH_TOKEN`）。
+4. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和凭据（如预设 token 对应的 `ANTHROPIC_AUTH_TOKEN`）。Claude Code 还有两项默认值：`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，以及 Agent 自己没有设置时的 `CLAUDE_ACP_MODEL_DISCOVERY=off`，原因见 [Claude Code 会话的环境默认值](../interfaces/acp_integration.md#background_tasks)。
 
 编辑页把第 2 步的默认值直接填进环境变量框，用户可以逐项修改；切换接入点时只替换该接入点的变量，用户自己加的行保留。保存后这些值成为 Agent 自己的配置，之后预设的默认值变化不会影响已经填写的项。
 

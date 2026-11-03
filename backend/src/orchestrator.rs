@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -27,6 +27,15 @@ const RUN_BUDGET_MS: i64 = 6 * 60 * 60 * 1000;
 pub const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
 /// The watchdog tells the lead about an attempt that made the same tool call this many times in a row.
 const LOOP_REPEAT: u32 = 5;
+/// The lead's own entry in the watchdog's map. Task ids cannot contain `@`.
+const LEAD_WATCH: &str = "@lead";
+/// Board events that need the lead are gathered this long before they go into its session, so
+/// a burst arrives as one message.
+const PUSH_SETTLE: Duration = Duration::from_secs(2);
+/// How much of a result the board inlines; the rest is one `task_detail` call away.
+const INLINE_SUMMARY: usize = 300;
+const INLINE_ITEM: usize = 160;
+const INLINE_ITEMS: usize = 3;
 
 pub fn now_ms() -> i64 {
     SystemTime::now()
@@ -194,6 +203,9 @@ struct Control {
     interrupted: bool,
     finish: bool,
     queued: Vec<Msg>,
+    /// Messages steered into the running turn, until the agent says it applied them
+    /// (`_lody/session/steer_applied`).
+    steered: HashSet<String>,
 }
 
 /// How long an agent's text may sit unshown after its last chunk.
@@ -295,8 +307,20 @@ struct RunState {
     /// The goal status the lead's agent last reported (Codex keeps working between prompts while
     /// its goal is active).
     goal_status: Option<String>,
-    /// The last event the lead has seen on the board through `wait`.
+    /// The last event the lead has seen on the board, through `wait` or pushed into its session.
     lead_cursor: i64,
+    /// The lead is inside `wait`, which hands it the board itself.
+    lead_waiting: bool,
+    /// The lead's open session id, for recording what Janus pushes into it.
+    lead_session: Option<String>,
+    /// Sessions (task ids, or "lead") whose agent can take a message into the running turn.
+    /// Only they get board pushes and conflict notices: queued until the turn ends, a notice
+    /// would arrive after the fact.
+    steerable: HashSet<String>,
+    /// Files each task has edited (relative to the workspace), from its tool calls.
+    touched: HashMap<String, BTreeSet<String>>,
+    /// Conflicts already reported: (task, other task, file), the two tasks in sorted order.
+    conflicts: HashSet<(String, String, String)>,
     /// Each pause point is announced once, until the run moves on.
     budget_notified: bool,
 }
@@ -321,6 +345,8 @@ pub struct Run {
     wake: Notify,
     /// A driver task (planning or execution) is alive for this run.
     driving: std::sync::atomic::AtomicBool,
+    /// Something the lead should hear about reached the board (see `push_board`).
+    lead_nudge: Notify,
     /// The watchdog's view of each running attempt, by task id. Its own lock: session updates
     /// touch it often, and nothing else is held while it is.
     watch: StdMutex<HashMap<String, Watch>>,
@@ -465,7 +491,7 @@ impl App {
     fn emit(&self, run: &Run, e: Ev) -> i64 {
         let _order = run.emitting.lock().unwrap_or_else(|p| p.into_inner());
         let seq = run.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        self.store(Event {
+        let event = Event {
             run_id: run.id.clone(),
             seq,
             ts: now_ms(),
@@ -476,7 +502,12 @@ impl App {
             attempt: e.attempt,
             text: e.text,
             data: e.data,
-        });
+        };
+        let nudge = needs_lead(&event);
+        self.store(event);
+        if nudge {
+            run.lead_nudge.notify_one();
+        }
         seq
     }
 
@@ -601,6 +632,7 @@ impl App {
             }),
             wake: Notify::new(),
             driving: Default::default(),
+            lead_nudge: Notify::new(),
             watch: Default::default(),
         });
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
@@ -873,7 +905,8 @@ impl App {
     /// Tell the lead about running attempts that show no sign of work: nothing from the session
     /// for `stall_after`, while the agent is not waiting on a person (a question, an approval, a
     /// form, a takeover). Each quiet spell is reported once. The watchdog only reports; the lead
-    /// decides whether to wait, redirect, retry or cancel.
+    /// decides whether to wait, redirect, retry or cancel. The lead's own session is watched the
+    /// same way and reported to the person (`lead.stalled`): nobody above the lead would notice.
     // @project-doc docs/domains/run_lifecycle.md#watchdog
     fn watchdog(&self, run: &Run) {
         let now = now_ms();
@@ -897,6 +930,10 @@ impl App {
             })
             .collect();
         for (task, n, idle) in due {
+            if task == LEAD_WATCH {
+                self.emit(run, ev("lead.stalled", "janus", format!("主控已有 {} 没有任何动静", span(idle))).to("user").data(json!({ "reason": "idle", "idleMs": idle })));
+                continue;
+            }
             self.emit(
                 run,
                 ev("task.stalled", "janus", format!("{task} 已有 {} 没有任何动静", span(idle)))
@@ -929,6 +966,10 @@ impl App {
             }
             (w.attempt, w.repeats)
         };
+        if task == LEAD_WATCH {
+            self.emit(run, ev("lead.stalled", "janus", format!("主控连续 {repeats} 次做同样的调用：{}", short(title, 60))).to("user").data(json!({ "reason": "loop", "tool": title, "repeats": repeats })));
+            return;
+        }
         self.emit(
             run,
             ev("task.stalled", "janus", format!("{task} 连续 {repeats} 次做同样的调用：{}", short(title, 60)))
@@ -966,6 +1007,8 @@ impl App {
         }
         self.set_status(run, "running");
         let (app, r) = (self.clone(), run.clone());
+        tokio::spawn(async move { app.push_loop(&r).await });
+        let (app, r) = (self.clone(), run.clone());
         tokio::spawn(async move {
             let outcome = app.lead_goal(&r, resumed).await;
             if r.st.lock().unwrap().cancelled {
@@ -990,9 +1033,65 @@ impl App {
             };
             r.st.lock().unwrap().lead_done = Some(done);
             app.escalate_open_questions(&r);
+            r.lead_nudge.notify_one();
             r.wake.notify_one();
         });
         self.execute(run).await
+    }
+
+    /// While the lead's session lasts: whenever the board gets something the lead has to act on,
+    /// wait a moment for more, then push it all into the lead's running turn (`push_board`).
+    async fn push_loop(&self, run: &Run) {
+        loop {
+            run.lead_nudge.notified().await;
+            {
+                let st = run.st.lock().unwrap();
+                if st.cancelled || st.lead_done.is_some() {
+                    return;
+                }
+            }
+            tokio::time::sleep(PUSH_SETTLE).await;
+            self.push_board(run);
+        }
+    }
+
+    /// The lead hears about questions, failures, stalls, blockers, conflicts and the person's
+    /// answers while it works on something else, instead of only on its next `wait`. Everything
+    /// new on the board since it last looked goes in as one message steered into its turn, and
+    /// counts as seen. Only for a lead whose agent takes steering: queued until its turn ends,
+    /// the message would hide those entries from `wait` in the meantime. Nothing is pushed while
+    /// the lead is inside `wait`, which hands it the same entries.
+    // @project-doc docs/domains/goal_mode.md#board_push
+    fn push_board(&self, run: &Run) {
+        let (tx, cursor, sid) = {
+            let st = run.st.lock().unwrap();
+            if st.lead_waiting || !st.steerable.contains("lead") {
+                return;
+            }
+            (st.live.get("lead").cloned(), st.lead_cursor, st.lead_session.clone())
+        };
+        let (Some(tx), Some(sid)) = (tx, sid) else { return };
+        let events = self.db.events(&run.id, cursor).unwrap_or_default();
+        if !events.iter().any(needs_lead) {
+            return;
+        }
+        let entries: Vec<String> = events.iter().filter_map(|e| board_entry(run, e)).collect();
+        let last = events.last().map(|e| e.seq).unwrap_or(cursor);
+        {
+            let mut st = run.st.lock().unwrap();
+            if st.lead_waiting || st.lead_cursor != cursor {
+                return;
+            }
+            st.lead_cursor = last;
+        }
+        if entries.is_empty() {
+            return;
+        }
+        let text = format!("[Janus 看板推送] 看板上有需要你处理的新消息。它们已经算作读过，不会再出现在 janus.wait 里：\n{}", entries.join("\n"));
+        static NEXT: AtomicI64 = AtomicI64::new(0);
+        let id = format!("push{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+        self.record_session_prompt(run, &Ctx { agent: "lead", task: None, attempt: None, goal: false }, &sid, "board", &text);
+        let _ = tx.send(Steer::Message(Msg { id, text }));
     }
 
     /// Goal mode: once the lead's session has ended nobody reads the board, so a collaborator's
@@ -1070,6 +1169,7 @@ impl App {
                 interrupted: false,
                 finish: false,
                 queued: vec![],
+                steered: HashSet::new(),
             };
             let brief = format!("{}{}", self.goal_brief(run, resumed), self.take_notes(run, "lead"));
             let claude = lead.kind == "claude";
@@ -1084,6 +1184,14 @@ impl App {
             .await
             .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
             self.emit(run, ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" }).data(json!({ "phase": "thinking", "session": sid, "config": applied, "mode": "goal" })));
+            {
+                let mut st = run.st.lock().unwrap();
+                st.lead_session = Some(sid.clone());
+                if ctl.steering {
+                    st.steerable.insert("lead".into());
+                }
+            }
+            run.watch.lock().unwrap().insert(LEAD_WATCH.into(), Watch { attempt: 0, last_ms: now_ms(), ..Default::default() });
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
             if !claude {
@@ -1112,7 +1220,7 @@ impl App {
                 if !ctl.human && !ctl.queued.is_empty() {
                     let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
                     let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                    self.emit(run, ev("message.delivered", "janus", format!("这一轮结束，把你的 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
+                    self.emit(run, ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
                     let texts: Vec<&str> = msgs.iter().map(|m| m.text.as_str()).collect();
                     prompt = format!("{}\n\n请结合这些信息继续推进目标：{}", texts.join("\n\n"), run.goal);
                     continue;
@@ -1128,6 +1236,7 @@ impl App {
                             }
                             Some(Steer::Release) => {
                                 ctl.human = false;
+                                run.set_human(LEAD_WATCH, 0, false);
                                 self.emit(run, ev("control.released", "user", "交还托管：主控继续推进目标").to("lead"));
                                 prompt = format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal);
                                 if !ctl.queued.is_empty() {
@@ -1150,10 +1259,13 @@ impl App {
             }
         }
         .await;
+        run.watch.lock().unwrap().remove(LEAD_WATCH);
         let (conn, stale) = {
             let mut st = run.st.lock().unwrap();
             st.live.remove("lead");
             st.live_agent.remove("lead");
+            st.steerable.remove("lead");
+            st.lead_session = None;
             let stale: Vec<String> = st.waiters.keys().filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-")).cloned().collect();
             (st.conns.remove("lead"), stale)
         };
@@ -1240,7 +1352,8 @@ impl App {
 
 和协作者协作，都通过 janus MCP 工具和共享看板：
 - janus.orchestrate：提交一份编排（一组任务：id、标题、给执行者的完整说明、执行者、依赖、验收标准）。Janus 先校验，不通过会返回全部错误，改好再提交；通过后任务写入看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前的任务。
-- janus.wait：取回看板上的新消息并等待进展：任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，协作者的提问，以及用户的回答。每次最多等 45 秒，没有新消息就再调用。
+- janus.wait：取回看板上的新消息并等待进展：任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，协作者的提问，以及用户的回答。每次最多等 45 秒，没有新消息就再调用。完成消息只有摘要，结果太长时会注明有删节。
+- janus.task_detail：按 id 查看一个任务的全部信息：说明、完整结果、修订、改过的文件、看板上的问答，以及它的上游和下游任务。
 - janus.reply：回答协作者的提问，或给正在执行的协作者补充指示。消息会立即送达：协作者支持插话时插入当前这一轮，否则打断它当前这一轮后发送。
 - janus.retry：重新执行失败或已取消的任务，可以同时修改说明和验收标准。被它阻塞的任务会在它成功后自动继续，不需要重新编排。
 - janus.accept：执行者自认没有完全达到标准、但你核对后认为结果可以接受时，接受这个结果，让依赖它的任务继续。
@@ -1248,6 +1361,8 @@ impl App {
 - janus.cancel：取消不再需要的任务（执行中的会被停止），依赖它的任务一并取消。
 - janus.ask_user：把只有用户能做的决定交给用户，答案会出现在 janus.wait 里。
 - janus.team：查看协作者和看板上所有任务的当前状态。
+
+你在做别的事情时，看板上需要你处理的消息（协作者的提问、失败、停滞、阻塞、两个任务改了同一个文件，以及用户的回答）会由 Janus 以「[Janus 看板推送]」开头直接插进你的会话，不需要等下一次 janus.wait；推送过的消息不会再出现在 janus.wait 里。收到后先处理会卡住别人的事（回答提问、处理失败），再继续手上的工作。
 
 谁来做决定：
 - 技术选型、实现方式、方案取舍、协作者提出的这类问题，由你直接决定并说明理由，不要问用户。
@@ -1263,7 +1378,7 @@ impl App {
 
 协作要点：
 - 协作者看不到你的对话，任务说明要写清背景、具体要做什么和验收标准。
-- 每个协作者同一时间只做一个任务，派给同一人的任务会排队；会改同一批文件的任务要用依赖串行。
+- 每个协作者同一时间只做一个任务，派给同一人的任务会排队；会改同一批文件的任务要用依赖串行。两个同时执行的任务改了同一个文件时，看板上会出现「[冲突]」，你来确认分工。
 - 任务派出去后，不要自己去改它负责的文件：要调整就用 janus.reply 告诉执行者；决定自己做，就先用 janus.cancel 取消它。
 - 协作者提问时会停下来等你，用 janus.reply 回答。
 - 协作者完成后，你要自己核对结果（读文件、运行测试），确认目标真正达成后再结束。
@@ -1345,7 +1460,7 @@ impl App {
                 "protocolVersion": req["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和任务状态。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要主控注意的事，用 board_post 写回看板。" },
+                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和任务状态，task_detail 查看某个任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要主控注意的事，用 board_post 写回看板；用 peers 查看其他任务的状态、改过的文件和完整结果。" },
             }),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
@@ -1362,7 +1477,9 @@ impl App {
                     (true, "amend") => self.board_amend(&run, args),
                     (true, "cancel") => self.board_cancel(&run, args),
                     (true, "ask_user") => self.board_ask_user(&run, args),
+                    (true, "task_detail") => self.task_detail(&run, args["task"].as_str().unwrap_or("").trim()),
                     (false, "board_post") => self.board_post(&run, who, args),
+                    (false, "peers") => self.board_peers(&run, who, args),
                     _ => Err(format!("没有这个工具：{name}")),
                 };
                 match out {
@@ -1448,6 +1565,13 @@ impl App {
 
     /// Board entries for the lead since it last looked, waiting up to the given time for some.
     async fn board_wait(&self, run: &Run, args: &Value) -> String {
+        run.st.lock().unwrap().lead_waiting = true;
+        let out = self.board_wait_inner(run, args).await;
+        run.st.lock().unwrap().lead_waiting = false;
+        out
+    }
+
+    async fn board_wait_inner(&self, run: &Run, args: &Value) -> String {
         let limit = Duration::from_secs(args["timeout_sec"].as_u64().unwrap_or(40).clamp(1, 45));
         let until = tokio::time::Instant::now() + limit;
         loop {
@@ -1755,6 +1879,133 @@ impl App {
         Ok("已交给用户决定。用户回答后会出现在 janus.wait 的结果里；在那之前继续做不依赖这个决定的工作。".into())
     }
 
+    /// Everything the board knows about one task, by id: what the board messages and handoffs only
+    /// summarise. Its upstream and downstream tasks are named, so a caller can follow the chain
+    /// one task at a time.
+    // @project-doc docs/interfaces/board_mcp.md#task_detail
+    fn task_detail(&self, run: &Run, task: &str) -> std::result::Result<String, String> {
+        let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
+        let st = run.st.lock().unwrap();
+        let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
+            return Err(format!("看板上没有任务 {task}"));
+        };
+        let name = |agent: &str| run.member(agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.to_string());
+        let label = |id: &str| format!("{id}（{}）", st.tasks.iter().find(|x| x.def.id == id).map(|x| task_status_label(x.status)).unwrap_or("不在看板上"));
+        let mine = |e: &&Event| e.task.as_deref() == Some(task);
+        let mut out = vec![
+            format!("任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次", t.def.title, name(&t.agent), t.agent, task_status_label(t.status), t.attempts),
+            format!("说明：{}", t.def.desc),
+            format!("验收标准：\n{}", t.def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")),
+        ];
+        let downstream: Vec<String> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).map(|x| label(&x.def.id)).collect();
+        if !t.def.deps.is_empty() {
+            out.push(format!("上游：{}", t.def.deps.iter().map(|d| label(d)).collect::<Vec<_>>().join("、")));
+        }
+        if !downstream.is_empty() {
+            out.push(format!("下游：{}", downstream.join("、")));
+        }
+        if let Some(r) = &t.result {
+            out.push(format!("结果：{}", r.summary));
+            for c in &r.checks {
+                out.push(format!("  {} {}：{}", if c.passed { "✓" } else { "✗" }, c.criterion, c.evidence));
+            }
+            if !r.evidence.is_empty() {
+                out.push(format!("证据：\n{}", r.evidence.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")));
+            }
+            if !r.risks.is_empty() {
+                out.push(format!("风险：\n{}", r.risks.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")));
+            }
+        }
+        if !t.amendments.is_empty() {
+            out.push(format!("主控的修订（以此为准）：{}", t.amendments.join("；")));
+        }
+        if let Some(v) = st.last_verification.get(task).filter(|_| t.status != "succeeded") {
+            out.push(format!("最近一次没通过验收核对：\n{v}"));
+        }
+        if let Some(e) = events.iter().rev().filter(mine).find(|e| e.kind == "attempt.failed").filter(|_| t.status != "succeeded") {
+            out.push(format!("最近一次尝试失败：{}", e.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or(&e.text)));
+        }
+        if let Some(files) = st.touched.get(task).filter(|f| !f.is_empty()) {
+            out.push(format!("改过的文件：{}", files.iter().cloned().collect::<Vec<_>>().join("、")));
+        }
+        let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
+        if !arts.is_empty() {
+            out.push(format!("产物：{}", arts.join("、")));
+        }
+        // A conflict is recorded on the task whose edit found it; both sides see it here.
+        let theirs = |e: &&Event| e.kind == "task.conflict" && e.data.as_ref().is_some_and(|d| d["other"] == task);
+        let talk: Vec<String> = events
+            .iter()
+            .filter(|e| mine(e) || theirs(e))
+            .filter_map(|e| {
+                let mut d = e.data.clone().unwrap_or_default();
+                if theirs(&e) {
+                    d["other"] = json!(e.task.clone().unwrap_or_default());
+                }
+                match e.kind.as_str() {
+                    "board.posted" => Some(format!("- [{}] {}", match d["kind"].as_str() { Some("blocker") => "阻塞", Some("note") => "备注", _ => "进展" }, d["text"].as_str().unwrap_or(&e.text))),
+                    "question.asked" => Some(format!("- [提问] {}", d["question"].as_str().unwrap_or(&e.text))),
+                    "question.answered" => Some(format!("- [回答] {}", d["answer"].as_str().unwrap_or(&e.text))),
+                    "task.conflict" => Some(format!("- [冲突] 和 {} 同时改了 {}", d["other"].as_str().unwrap_or("?"), d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、"))),
+                    _ => None,
+                }
+            })
+            .collect();
+        if !talk.is_empty() {
+            out.push(format!("看板记录：\n{}", talk.join("\n")));
+        }
+        Ok(out.join("\n"))
+    }
+
+    /// A collaborator's view of the rest of the board: the other tasks, how they relate to its
+    /// own (upstream, downstream, the same files) and what they wrote back lately. With `task`,
+    /// the full detail of that one.
+    // @project-doc docs/interfaces/board_mcp.md#peers
+    fn board_peers(&self, run: &Run, me: &str, args: &Value) -> std::result::Result<String, String> {
+        if let Some(t) = args["task"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+            return self.task_detail(run, t);
+        }
+        let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
+        let st = run.st.lock().unwrap();
+        let deps: Vec<String> = st.tasks.iter().find(|t| t.def.id == me).map(|t| t.def.deps.clone()).unwrap_or_default();
+        let my_files = st.touched.get(me).cloned().unwrap_or_default();
+        let lines: Vec<String> = st
+            .tasks
+            .iter()
+            .filter(|t| t.def.id != me)
+            .map(|t| {
+                let mut tags = vec![];
+                if deps.contains(&t.def.id) {
+                    tags.push("你的上游".to_string());
+                }
+                if t.def.deps.iter().any(|d| d == me) {
+                    tags.push("依赖你".to_string());
+                }
+                let theirs = st.touched.get(&t.def.id).cloned().unwrap_or_default();
+                let common: Vec<String> = theirs.intersection(&my_files).cloned().collect();
+                if !common.is_empty() {
+                    tags.push(format!("和你都改了 {}", common.join("、")));
+                } else if t.status == "running" && !theirs.is_empty() {
+                    tags.push(format!("改过 {}", theirs.iter().take(5).cloned().collect::<Vec<_>>().join("、")));
+                }
+                let who = run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent);
+                format!("- {}「{}」· {who} · {}{}", t.def.id, t.def.title, task_status_label(t.status), if tags.is_empty() { String::new() } else { format!(" · {}", tags.join(" · ")) })
+            })
+            .collect();
+        let posts: Vec<String> = events
+            .iter()
+            .filter(|e| e.kind == "board.posted" && e.task.as_deref() != Some(me))
+            .rev()
+            .take(5)
+            .map(|e| format!("- {}：{}", e.task.as_deref().unwrap_or("?"), short(e.data.as_ref().and_then(|d| d["text"].as_str()).unwrap_or(&e.text), INLINE_ITEM)))
+            .collect();
+        Ok(format!(
+            "看板上的其他任务：\n{}\n\n最近写回看板的内容：\n{}\n\n要看某个任务的完整说明、结果和修订，传 task 再调用一次。",
+            if lines.is_empty() { "（没有）".into() } else { lines.join("\n") },
+            if posts.is_empty() { "（没有）".into() } else { posts.join("\n") }
+        ))
+    }
+
     /// A collaborator writes progress, a blocker or a note to the board while it works.
     fn board_post(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<String, String> {
         let text = args["text"].as_str().unwrap_or("").trim();
@@ -1877,6 +2128,7 @@ impl App {
             let mut st = run.st.lock().unwrap();
             st.live.remove(id);
             st.live_agent.retain(|_, task| task != id);
+            st.steerable.remove(id);
             // Questions, permission requests and forms of this attempt can no longer be answered.
             let prefixes = [format!("q-{id}-{n}-"), format!("req-{id}-{n}-")];
             let keys: Vec<String> = st
@@ -2007,7 +2259,7 @@ impl App {
                 let files: Vec<String> = u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
                 let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
                 let amended = if u.amendments.is_empty() { String::new() } else { format!("\n  主控修订了这个结论，以修订为准：{}", u.amendments.join("；")) };
-                let line = format!("- {} {}（{}，状态 {}）：{}{amended}\n  产物：{}", u.def.id, u.def.title, u.agent, u.status, r.summary, if files.is_empty() { "无".into() } else { files.join("，") });
+                let line = format!("- {} {}（{}，状态 {}）：{}{amended}\n  产物：{}", u.def.id, u.def.title, u.agent, u.status, short(&r.summary, INLINE_SUMMARY), if files.is_empty() { "无".into() } else { files.join("，") });
                 let handoff = json!({ "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary, "artifacts": names, "risks": r.risks.len(), "amendments": u.amendments });
                 (line, handoff)
             }).unzip();
@@ -2018,6 +2270,14 @@ impl App {
                 handoffs,
                 self.db_last_error(&run.id, id),
             )
+        };
+        let peers: Vec<String> = {
+            let st = run.st.lock().unwrap();
+            st.tasks
+                .iter()
+                .filter(|t| t.status == "running" && t.def.id != id)
+                .map(|t| format!("- {}「{}」· {}", t.def.id, t.def.title, run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent)))
+                .collect()
         };
         let member = run.member(&agent).context("member missing")?.clone();
         let standing = standing_instructions(&member);
@@ -2095,7 +2355,7 @@ impl App {
         } else {
             format!(
                 "{}{}",
-                task_prompt(run, &member, &def, &workspace, &upstream, last_error.as_deref()),
+                task_prompt(run, &member, &def, &workspace, &upstream, &peers, conn.capabilities["mcpCapabilities"]["http"] == true, last_error.as_deref()),
                 self.take_notes(run, &agent)
             )
         };
@@ -2150,7 +2410,11 @@ impl App {
             interrupted: false,
             finish: false,
             queued: vec![],
+            steered: HashSet::new(),
         };
+        if ctl.steering {
+            run.st.lock().unwrap().steerable.insert(id.into());
+        }
         let mut next = Some(prompt);
         let mut text = String::new();
         let mut round = 0;
@@ -2520,12 +2784,12 @@ impl App {
     ) -> Result<String> {
         // The turn's own deadline replaces the ACP request timeout, so that time spent waiting
         // for a person to decide on a permission request does not count against the agent.
-        let prompt = conn.request_timeout(
-            "session/prompt",
-            json!({ "sessionId": sid, "prompt": crate::attachments::prompt_blocks(&self.cfg.data_dir, text, takes_images(conn)) }),
-            None,
-        );
-        tokio::pin!(prompt);
+        let send = |text: &str| {
+            let params = json!({ "sessionId": sid, "prompt": crate::attachments::prompt_blocks(&self.cfg.data_dir, text, takes_images(conn)) });
+            let conn = conn.clone();
+            Box::pin(async move { conn.request_timeout("session/prompt", params, None).await })
+        };
+        let mut prompt = send(text);
         let mut deadline = limit.map(|l| tokio::time::Instant::now() + l);
         let mut out = String::new();
         let mut flushed = 0usize;
@@ -2568,6 +2832,8 @@ impl App {
                             Incoming::Notification { method, params } => {
                                 if method == "session/update" {
                                     self.on_update(run, &params["update"], &mut out, &mut flushed, &mut tools, &mut last_status, ctx);
+                                } else {
+                                    self.on_ext(run, &method, &params, ctl.as_deref_mut(), ctx);
                                 }
                             }
                             Incoming::Request { id, method, .. } => {
@@ -2606,12 +2872,29 @@ impl App {
                         None => return Err(Cancelled.into()),
                         Some(cmd) => self.steer_turn(run, conn, sid, c, cmd, ctx).await?,
                     }
+                    // Following an active goal there is no prompt in flight to wait for: what
+                    // could not join the agent's own turn goes in now as a prompt of its own,
+                    // instead of waiting until the goal settles.
+                    if following && !c.human && !c.queued.is_empty() {
+                        let msgs: Vec<Msg> = std::mem::take(&mut c.queued);
+                        let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
+                        let mut e = ev("message.delivered", "janus", format!("目标仍在进行，把 {} 条消息立即发给 {}", msgs.len(), ctx.agent)).to(ctx.agent).data(json!({ "ids": ids }));
+                        if let (Some(t), Some(n)) = (ctx.task, ctx.attempt) {
+                            e = e.task(t).attempt(n);
+                        }
+                        self.emit(run, e);
+                        self.flush_message(run, &out, &mut flushed, ctx);
+                        prompt = send(&msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n"));
+                        following = false;
+                    }
                 }
                 msg = rx.recv() => match msg {
                     None | Some(Incoming::Closed) => bail!("Agent 进程意外退出"),
                     Some(Incoming::Notification { method, params }) => {
                         if method == "session/update" {
                             self.on_update(run, &params["update"], &mut out, &mut flushed, &mut tools, &mut last_status, ctx);
+                        } else {
+                            self.on_ext(run, &method, &params, ctl.as_deref_mut(), ctx);
                         }
                         if following && !goal_active() {
                             self.flush_message(run, &out, &mut flushed, ctx);
@@ -2636,6 +2919,7 @@ impl App {
     }
 
     /// Apply one session command while a turn is running.
+    // @project-doc docs/interfaces/acp_integration.md#steering
     async fn steer_turn(
         &self,
         run: &Run,
@@ -2661,7 +2945,9 @@ impl App {
                         .await
                         .is_ok_and(|r| r["outcome"] == "injected");
                 self.route_message(run, agent, task, n, &m.id, if injected { "steer" } else { "queued" });
-                if !injected {
+                if injected {
+                    c.steered.insert(m.id);
+                } else {
                     c.queued.push(m);
                 }
             }
@@ -2673,6 +2959,7 @@ impl App {
                         .is_ok_and(|r| r["outcome"] == "injected");
                 if injected {
                     self.route_message(run, agent, task, n, &m.id, "steer");
+                    c.steered.insert(m.id);
                 } else {
                     // Stop the turn; the message is the next turn, sent as soon as this one returns.
                     // Under takeover the person decides when the agent goes on, so it waits there.
@@ -2693,7 +2980,7 @@ impl App {
                     c.finish = true;
                 } else if !c.human {
                     c.human = true;
-                    run.set_human(task, n, true);
+                    run.set_human(watch_key(ctx), n, true);
                 }
                 let text = if finish {
                     format!("停止 {agent} 这一轮，并以当前结果完成任务")
@@ -2712,7 +2999,7 @@ impl App {
             Steer::TakeOver => {
                 if !c.human {
                     c.human = true;
-                    run.set_human(task, n, true);
+                    run.set_human(watch_key(ctx), n, true);
                     self.emit(
                         run,
                         ev(
@@ -2729,7 +3016,7 @@ impl App {
             Steer::Release => {
                 if c.human {
                     c.human = false;
-                    run.set_human(task, n, false);
+                    run.set_human(watch_key(ctx), n, false);
                     self.emit(
                         run,
                         ev(
@@ -2765,6 +3052,70 @@ impl App {
         self.emit(run, e);
     }
 
+    /// A collaborator's tool call edited these files. Another task running at the same time that
+    /// edited one of them is a conflict: both work in the same directory and may overwrite each
+    /// other. The lead hears about it on the board (`task.conflict`); a collaborator whose agent
+    /// takes steering gets a notice in its running turn. Each file is reported once per pair.
+    // @project-doc docs/domains/goal_mode.md#conflicts
+    fn record_edits(&self, run: &Run, task: &str, paths: &[String]) {
+        let found: Vec<(String, Vec<String>)> = {
+            let mut st = run.st.lock().unwrap();
+            st.touched.entry(task.into()).or_default().extend(paths.iter().cloned());
+            let shared: Vec<(String, Vec<String>)> = st
+                .tasks
+                .iter()
+                .filter(|t| t.status == "running" && t.def.id != task)
+                .filter_map(|t| {
+                    let theirs = st.touched.get(&t.def.id)?;
+                    let common: Vec<String> = paths.iter().filter(|p| theirs.contains(*p)).cloned().collect();
+                    (!common.is_empty()).then(|| (t.def.id.clone(), common))
+                })
+                .collect();
+            shared
+                .into_iter()
+                .filter_map(|(other, common)| {
+                    let (a, b) = if task < other.as_str() { (task.to_string(), other.clone()) } else { (other.clone(), task.to_string()) };
+                    let fresh: Vec<String> = common.into_iter().filter(|p| st.conflicts.insert((a.clone(), b.clone(), p.clone()))).collect();
+                    (!fresh.is_empty()).then_some((other, fresh))
+                })
+                .collect()
+        };
+        for (other, files) in found {
+            let list = files.join("、");
+            self.emit(run, ev("task.conflict", "janus", format!("{task} 和 {other} 都改了 {}", short(&list, 80))).task(task).to("lead").data(json!({ "other": other, "paths": files })));
+            for (me, them) in [(task, other.as_str()), (other.as_str(), task)] {
+                let tx = {
+                    let st = run.st.lock().unwrap();
+                    st.steerable.contains(me).then(|| st.live.get(me).cloned()).flatten()
+                };
+                let Some(tx) = tx else { continue };
+                let who = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == them).and_then(|t| run.member(&t.agent)).map(|m| m.name.clone()).unwrap_or_default();
+                static NEXT: AtomicI64 = AtomicI64::new(0);
+                let id = format!("conflict{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+                let text = format!("[Janus 提醒] 任务 {them}（{who}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时用 janus.board_post 写一条 blocker 告诉主控。");
+                let _ = tx.send(Steer::Message(Msg { id, text }));
+            }
+        }
+    }
+
+    /// Agent notifications outside `session/update`. `_lody/session/steer_applied` says the
+    /// agent took a steered message into the model's input: the moment it actually arrived.
+    // @project-doc docs/interfaces/events.md#message_flow
+    fn on_ext(&self, run: &Run, method: &str, params: &Value, ctl: Option<&mut Control>, ctx: &Ctx<'_>) {
+        if method != "_lody/session/steer_applied" {
+            return;
+        }
+        let Some(id) = params["steerId"].as_str() else { return };
+        if !ctl.is_some_and(|c| c.steered.remove(id)) {
+            return;
+        }
+        let mut e = ev("message.delivered", "janus", format!("{} 已经读到插入的消息", ctx.agent)).to(ctx.agent).data(json!({ "ids": [id], "applied": true }));
+        if let (Some(t), Some(n)) = (ctx.task, ctx.attempt) {
+            e = e.task(t).attempt(n);
+        }
+        self.emit(run, e);
+    }
+
     fn on_update(
         &self,
         run: &Run,
@@ -2776,20 +3127,25 @@ impl App {
         ctx: &Ctx<'_>,
     ) {
         // Any update from the session (a chunk of text or thought, a tool's progress) is a sign of work.
-        if let (Some(task), Some(n)) = (ctx.task, ctx.attempt) {
-            let quiet = run.with_watch(task, n, |w| {
-                w.last_ms = now_ms();
-                std::mem::take(&mut w.idle_noticed)
-            });
-            // The board stops showing the stall once the agent moves again.
-            if quiet == Some(true) {
-                self.emit(run, ev("task.stalled", "janus", format!("{task} 又有动静了")).task(task).attempt(n).to("lead").data(json!({ "reason": "idle", "resolved": true })));
-            }
+        let key = watch_key(ctx);
+        let n = ctx.attempt.unwrap_or(0);
+        let quiet = run.with_watch(key, n, |w| {
+            w.last_ms = now_ms();
+            std::mem::take(&mut w.idle_noticed)
+        });
+        // The board (or, for the lead, the person) stops seeing the stall once the agent moves again.
+        if quiet == Some(true) {
+            match ctx.task {
+                Some(task) => self.emit(run, ev("task.stalled", "janus", format!("{task} 又有动静了")).task(task).attempt(n).to("lead").data(json!({ "reason": "idle", "resolved": true }))),
+                None => self.emit(run, ev("lead.stalled", "janus", "主控又有动静了").to("user").data(json!({ "reason": "idle", "resolved": true }))),
+            };
         }
+        // The /goal state comes as session info, { goal: { objective, status } } or null once
+        // cleared: under `_meta.codex` from the npm Codex adapter, `_meta.lody` from the Lody ones.
+        let goal_meta = ["codex", "lody"].into_iter().find_map(|k| u["_meta"][k].get("goal"));
         match u["sessionUpdate"].as_str().unwrap_or("") {
-            // Codex reports its /goal as session info: { goal: { objective, status } }, or null once cleared.
-            "session_info_update" if ctx.goal && u["_meta"]["codex"].get("goal").is_some() => {
-                let goal = &u["_meta"]["codex"]["goal"];
+            "session_info_update" if ctx.goal && goal_meta.is_some() => {
+                let goal = goal_meta.unwrap();
                 let status = goal["status"].as_str().map(str::to_owned);
                 run.st.lock().unwrap().goal_status = status.clone();
                 self.emit(run, ev("goal.status", ctx.agent, match status.as_deref() {
@@ -2816,6 +3172,7 @@ impl App {
                     "rawOutput",
                     "content",
                     "status",
+                    "locations",
                 ] {
                     if !u[key].is_null() {
                         entry[key] = u[key].clone();
@@ -2827,12 +3184,17 @@ impl App {
                     let entry = tools.remove(&id).unwrap();
                     let kind = entry["kind"].as_str().unwrap_or("tool").to_string();
                     let input = summarize_input(&entry["rawInput"], &title);
-                    let mut e = ev("tool.call", ctx.agent, short(&title, 80)).data(json!({
+                    let edited = if status == "completed" { edited_paths(&entry, &run.cwd) } else { vec![] };
+                    let mut data = json!({
                         "tool": kind,
                         "input": input,
                         "output": summarize_output(&entry),
                         "status": status,
-                    }));
+                    });
+                    if !edited.is_empty() {
+                        data["paths"] = json!(edited);
+                    }
+                    let mut e = ev("tool.call", ctx.agent, short(&title, 80)).data(data);
                     if let Some(t) = ctx.task {
                         e = e.task(t);
                     }
@@ -2840,8 +3202,12 @@ impl App {
                         e = e.attempt(n);
                     }
                     self.emit(run, e);
-                    if let Some(task) = ctx.task {
-                        self.watch_call(run, task, &kind, &title, &input);
+                    // The lead polls the board on purpose; only its other calls can go in circles.
+                    if ctx.task.is_some() || !title.contains("janus") {
+                        self.watch_call(run, key, &kind, &title, &input);
+                    }
+                    if let (Some(task), false) = (ctx.task, edited.is_empty()) {
+                        self.record_edits(run, task, &edited);
                     }
                 } else if now_ms() - *last_status > 1500 {
                     *last_status = now_ms();
@@ -2932,7 +3298,7 @@ impl App {
             e = e.task(task).attempt(n);
         }
         self.emit(run, e);
-        let _held = run.held(task, n);
+        let _held = run.held(watch_key(ctx), n);
         let wait = self.wait_for(run, &key);
         tokio::pin!(wait);
         loop {
@@ -3270,6 +3636,7 @@ impl App {
                 }
                 self.emit(run, ev("run.cancelled", "user", "取消这个目标"));
                 self.set_status(run, "cancelled");
+                run.lead_nudge.notify_one();
                 run.wake.notify_one();
             }
             "message" | "interrupt" | "takeover" | "release" | "finish" => {
@@ -3432,6 +3799,7 @@ impl App {
             }),
             wake: Notify::new(),
             driving: Default::default(),
+            lead_nudge: Notify::new(),
             watch: Default::default(),
         });
 
@@ -3938,6 +4306,12 @@ fn lead_tools() -> Value {
             "annotations": board_act()
         },
         {
+            "name": "task_detail",
+            "description": "查看看板上一个任务的全部信息：说明、验收标准、完整结果（逐条验收、证据、风险）、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
+            "inputSchema": { "type": "object", "required": ["task"], "properties": { "task": { "type": "string" } } },
+            "annotations": board_read()
+        },
+        {
             "name": "ask_user",
             "description": "把只有用户能做的决定交给用户：需求有多种理解且结果明显不同、需要用户的账号或付费资源、不可逆的操作。技术选型和实现方式由你自己决定，不要用这个工具。不会等待：用户的回答出现在 janus.wait 里。",
             "inputSchema": {
@@ -3967,6 +4341,11 @@ fn member_tools() -> Value {
                 "text": { "type": "string" }
             }
         },
+        "annotations": board_read()
+    }, {
+        "name": "peers",
+        "description": "查看看板上其他任务：状态、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的任务改过的文件，以及最近写回看板的内容。传 task 查看某个任务的完整说明、结果和主控的修订，例如上游任务的证据。",
+        "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
         "annotations": board_read()
     }])
 }
@@ -4060,6 +4439,65 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
 
 /// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
 // @project-doc docs/interfaces/board_mcp.md#wait
+/// Board events the lead has to act on, pushed into its session as they come (`push_board`).
+fn needs_lead(e: &Event) -> bool {
+    let d = e.data.as_ref();
+    let field = |k: &str| d.map(|d| d[k].clone()).unwrap_or_default();
+    match e.kind.as_str() {
+        "question.asked" | "task.failed" | "task.blocked" | "task.conflict" => true,
+        "task.stalled" => field("resolved") != true,
+        "board.posted" => field("kind") == "blocker",
+        // The person's answer to the lead's own question, or to a collaborator's in its session.
+        "question.answered" => field("key").as_str().is_some_and(|k| k.starts_with("q-lead-")) || field("via") != "lead",
+        _ => false,
+    }
+}
+
+/// Where the watchdog keeps a session: its task, or the lead's own entry.
+fn watch_key<'a>(ctx: &Ctx<'a>) -> &'a str {
+    match ctx.task {
+        Some(t) => t,
+        None if ctx.agent == "lead" => LEAD_WATCH,
+        None => "",
+    }
+}
+
+/// The files a finished tool call changed, relative to the workspace: its ACP `locations`, or the
+/// path in its input. Only edits count (`edit`, `delete`, `move`), not reads.
+fn edited_paths(entry: &Value, cwd: &Path) -> Vec<String> {
+    if !matches!(entry["kind"].as_str(), Some("edit" | "delete" | "move")) {
+        return vec![];
+    }
+    let mut raw: Vec<String> = entry["locations"].as_array().into_iter().flatten().filter_map(|l| l["path"].as_str().map(str::to_owned)).collect();
+    if raw.is_empty() {
+        let input = &entry["rawInput"];
+        raw.extend(["file_path", "filePath", "path", "notebook_path"].iter().filter_map(|k| input[*k].as_str().map(str::to_owned)));
+        if let Some(changes) = input["changes"].as_object() {
+            raw.extend(changes.keys().cloned());
+        }
+    }
+    let mut out: Vec<String> = vec![];
+    for p in raw {
+        let path = Path::new(&p);
+        let rel = path.strip_prefix(cwd).map(|r| r.to_string_lossy().to_string()).unwrap_or(p.clone());
+        if !rel.is_empty() && !out.contains(&rel) {
+            out.push(rel);
+        }
+    }
+    out
+}
+
+/// The first few items of a list, each clipped, and whether anything was left out.
+fn inline_list(items: &[String]) -> (String, bool) {
+    let shown: Vec<String> = items.iter().take(INLINE_ITEMS).map(|x| short(x, INLINE_ITEM)).collect();
+    let clipped = items.len() > INLINE_ITEMS || items.iter().take(INLINE_ITEMS).any(|x| x.chars().count() > INLINE_ITEM);
+    let mut text = shown.join("；");
+    if items.len() > INLINE_ITEMS {
+        text.push_str(&format!("；等共 {} 条", items.len()));
+    }
+    (text, clipped)
+}
+
 fn board_entry(run: &Run, e: &Event) -> Option<String> {
     let d = e.data.clone().unwrap_or_default();
     // The person's answer to a decision the lead handed them (`ask_user`).
@@ -4077,19 +4515,33 @@ fn board_entry(run: &Run, e: &Event) -> Option<String> {
     let name = who(&agent);
     Some(match e.kind.as_str() {
         "attempt.started" => format!("- [开始] {task}「{title}」· {name} 第 {} 次尝试", e.attempt.unwrap_or(1)),
+        // Inlined up to a budget: enough to decide what to do next; the full result stays one
+        // `task_detail` call away, so a long run does not fill the lead's context.
         "task.succeeded" => {
             let st = run.st.lock().unwrap();
             let t = st.tasks.iter().find(|t| t.def.id == task)?;
             let r = t.result.clone().unwrap_or_default();
             let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
-            let checks: Vec<String> = r.checks.iter().map(|c| format!("{} {}：{}", if c.passed { "✓" } else { "✗" }, c.criterion, c.evidence)).collect();
+            let checks: Vec<String> = r.checks.iter().map(|c| format!("{} {}：{}", if c.passed { "✓" } else { "✗" }, short(&c.criterion, 60), short(&c.evidence, INLINE_ITEM))).collect();
+            let (evidence, more_evidence) = inline_list(&r.evidence);
+            let (risks, more_risks) = inline_list(&r.risks);
+            let clipped = more_evidence || more_risks || r.summary.chars().count() > INLINE_SUMMARY || r.checks.iter().any(|c| c.evidence.chars().count() > INLINE_ITEM);
             format!(
-                "- [完成] {task}「{title}」· {name}：{}{}{}{}{}",
-                r.summary,
+                "- [完成] {task}「{title}」· {name}：{}{}{}{}{}{}",
+                short(&r.summary, INLINE_SUMMARY),
                 if checks.is_empty() { String::new() } else { format!("\n  验收：{}", checks.join("；")) },
-                if r.evidence.is_empty() { String::new() } else { format!("\n  证据：{}", r.evidence.join("；")) },
-                if r.risks.is_empty() { String::new() } else { format!("\n  风险：{}", r.risks.join("；")) },
-                if arts.is_empty() { String::new() } else { format!("\n  产物：{}", arts.join("、")) }
+                if evidence.is_empty() { String::new() } else { format!("\n  证据：{evidence}") },
+                if risks.is_empty() { String::new() } else { format!("\n  风险：{risks}") },
+                if arts.is_empty() { String::new() } else { format!("\n  产物：{}", arts.join("、")) },
+                if clipped { format!("\n  （有删节，完整结果用 janus.task_detail 查看 {task}）") } else { String::new() }
+            )
+        }
+        "task.conflict" => {
+            let files: Vec<String> = d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+            format!(
+                "- [冲突] {task} 和 {} 同时在改 {}。它们直接在同一个目录里工作，可能覆盖彼此的改动：确认分工，用 janus.reply 告诉其中一方先停下或怎样配合；之后会改同一批文件的任务用依赖串行。",
+                d["other"].as_str().unwrap_or("?"),
+                files.join("、")
             )
         }
         "attempt.failed" => format!("- [尝试失败] {task}「{title}」· {name} 第 {} 次：{}", e.attempt.unwrap_or(1), d["error"].as_str().unwrap_or(&e.text)),
@@ -4257,12 +4709,15 @@ fn working_diff(cwd: &Path) -> String {
     diff
 }
 
+#[allow(clippy::too_many_arguments)]
 fn task_prompt(
     run: &Run,
     m: &Member,
     def: &TaskDef,
     workspace: &Path,
     upstream: &[String],
+    peers: &[String],
+    board: bool,
     last_error: Option<&str>,
 ) -> String {
     let mut p = format!(
@@ -4294,7 +4749,13 @@ fn task_prompt(
         wsnote = "你直接在项目的工作目录中工作，改动立即生效，其他成员也会看到。不要 git commit 或 push。",
     );
     if !upstream.is_empty() {
-        p.push_str(&format!("\n\n上游任务的结果：\n{}", upstream.join("\n")));
+        p.push_str(&format!("\n\n上游任务的结果（摘要）：\n{}", upstream.join("\n")));
+    }
+    if !peers.is_empty() {
+        p.push_str(&format!("\n\n现在同时在这个目录里工作的其他任务：\n{}\n改它们可能也在改的文件前，先读最新内容。", peers.join("\n")));
+    }
+    if board {
+        p.push_str("\n\n共享看板（janus MCP 工具）：有进展或阻塞时用 janus.board_post 写回；用 janus.peers 查看其他任务的状态和改过的文件，传 task 查看某个任务（例如上游）的完整结果和主控的修订。两个任务改了同一个文件时，Janus 会提醒双方。");
     }
     if let Some(err) = last_error {
         p.push_str(&format!("\n\n上一次尝试失败：{err}。请避开同样的问题。"));
@@ -4858,9 +5319,9 @@ mod tests {
         let mut run = test_run(2);
         let def = TaskDef { id: "T1".into(), title: "t".into(), desc: "d".into(), deps: vec![], accept: vec!["a".into()], assignee: run.team[1].id.clone(), max_attempts: 2 };
         let m = run.team[1].clone();
-        assert!(!task_prompt(&run, &m, &def, Path::new("/tmp"), &[], None).contains("工作区共享资料"), "nothing when there is none");
+        assert!(!task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None).contains("工作区共享资料"), "nothing when there is none");
         run.brief = "目标用户是独立开发者".into();
-        let p = task_prompt(&run, &m, &def, Path::new("/tmp"), &[], None);
+        let p = task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None);
         assert!(p.contains("工作区共享资料（用户维护的长期背景，与任务说明冲突时以任务说明为准）：\n目标用户是独立开发者"), "{p}");
     }
 
@@ -4901,6 +5362,36 @@ mod tests {
         let out = with_developer_instructions(spec(vec![]), "规则");
         assert_eq!(out.env, vec![("CODEX_CONFIG".to_string(), r#"{"developer_instructions":"规则"}"#.to_string())]);
         assert!(with_developer_instructions(spec(vec![]), "").env.is_empty());
+    }
+
+    /// The Lody adapters report /goal under `_meta.lody`, the npm Codex one under `_meta.codex`.
+    #[test]
+    fn goal_status_comes_from_either_adapter() {
+        let dir = std::env::temp_dir().join(format!("janus-goal-meta-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = test_app(&dir);
+        let run = test_run(1);
+        let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
+        let (mut out, mut flushed, mut tools, mut last) = (String::new(), 0, HashMap::new(), 0);
+        for (key, status) in [("codex", "active"), ("lody", "complete")] {
+            let u = json!({ "sessionUpdate": "session_info_update", "_meta": { key: { "goal": { "objective": "x", "status": status } } } });
+            app.on_update(&run, &u, &mut out, &mut flushed, &mut tools, &mut last, &ctx);
+            assert_eq!(run.st.lock().unwrap().goal_status.as_deref(), Some(status));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn long_results_are_clipped_on_the_board() {
+        let items: Vec<String> = (0..5).map(|i| format!("证据{i}")).collect();
+        let (text, clipped) = inline_list(&items);
+        assert!(clipped && text.contains("证据2") && !text.contains("证据3") && text.ends_with("等共 5 条"), "{text}");
+        let (text, clipped) = inline_list(&items[..2]);
+        assert!(!clipped && text == "证据0；证据1");
+        let edit = json!({ "kind": "edit", "locations": [{ "path": "/w/src/a.rs" }, { "path": "/w/src/a.rs" }] });
+        assert_eq!(edited_paths(&edit, Path::new("/w")), ["src/a.rs"]);
+        assert!(edited_paths(&json!({ "kind": "read", "locations": [{ "path": "/w/a" }] }), Path::new("/w")).is_empty());
+        assert_eq!(edited_paths(&json!({ "kind": "edit", "rawInput": { "file_path": "/w/b.md" } }), Path::new("/w")), ["b.md"]);
     }
 
     fn test_run(team_size: usize) -> Run {
@@ -4948,6 +5439,7 @@ mod tests {
             }),
             wake: Notify::new(),
             driving: Default::default(),
+            lead_nudge: Notify::new(),
             watch: Default::default(),
         }
     }
@@ -5453,7 +5945,10 @@ mod flow_tests {
         let list = |who: &str| json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }).to_string() + who;
         let _ = list;
         let tools = h.app.mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.unwrap().unwrap();
-        assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 9);
+        assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 10);
+        let member = h.app.mcp(&run, &token, "T1", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.unwrap().unwrap();
+        let names: Vec<&str> = member["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+        assert_eq!(names, ["board_post", "peers"]);
         assert!(h.app.mcp(&run, "wrong", "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err());
         assert!(h.app.mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await.unwrap().is_none());
 
@@ -5658,6 +6153,87 @@ mod flow_tests {
         assert!(t2.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("下一个任务注意测试"), "the note is in T2's prompt");
         finish_lead(&h);
         wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// A lead whose agent takes steering hears about a collaborator's question while it works,
+    /// without calling `wait`: one board push steered into its turn, recorded in its session and
+    /// counted as seen. A message the person steers in is marked delivered once the agent says it
+    /// applied it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn board_events_are_pushed_into_a_steerable_lead() {
+        let h = harness("push", &[("lead", false), ("m1", true)], json!({ "T1": ["ask", "ok"] }));
+        std::fs::write(h.dir.join("fake/steer"), "").unwrap();
+        let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+        let calls = h.dir.join("fake/calls.log");
+        for _ in 0..100 {
+            let log = std::fs::read_to_string(&calls).unwrap_or_default();
+            if log.contains("steer [Janus 看板推送]") && log.contains("[提问] T1") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let log = std::fs::read_to_string(&calls).unwrap_or_default();
+        assert!(log.contains("steer [Janus 看板推送]") && log.contains("[提问] T1"), "{log}");
+        let evs = events(&h.app, &run);
+        assert!(evs.iter().any(|e| e.kind == "session.prompt" && e.to.as_deref() == Some("lead") && e.data.as_ref().is_some_and(|d| d["channel"] == "board")));
+        let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+        assert!(!board.contains("[提问]"), "a pushed entry does not come again: {board}");
+
+        // The person steers into the lead's turn: routed at once, delivered when applied.
+        act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "先处理 T1 的提问" }));
+        let id = events(&h.app, &run).into_iter().rev().find(|e| e.kind == "user.message").unwrap().data.unwrap()["id"].as_str().unwrap().to_string();
+        let with = |e: &Event, kind: &str| e.kind == kind && e.data.as_ref().is_some_and(|d| d["id"] == id.as_str() || d["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id.as_str())));
+        wait_until(&h.app, &run, "steered and applied", |e| e.iter().any(|e| with(e, "message.routed") && e.data.as_ref().unwrap()["delivery"] == "steer") && e.iter().any(|e| with(e, "message.delivered") && e.data.as_ref().unwrap()["applied"] == true)).await;
+
+        let (text, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T1", "text": "alpha" })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// Two tasks running at once edit the same file: the lead reads a conflict on the board, both
+    /// collaborators that take steering get a notice, and the files stay recallable per task.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn conflicting_edits_reach_the_lead_and_both_sides() {
+        let h = harness("conflict", &[("lead", false), ("m1", true), ("m2", true)], json!({ "T1": ["edit:shared.txt"], "T2": ["edit:shared.txt"] }));
+        std::fs::write(h.dir.join("fake/steer"), "").unwrap();
+        let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m2", json!({}))])).await;
+        wait_until(&h.app, &run, "conflict", |e| has(e, "task.conflict")).await;
+        let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+        assert!(board.contains("[冲突]") && board.contains("shared.txt"), "{board}");
+        wait_until(&h.app, &run, "both done", |e| task_event(e, "task.succeeded", "T1") && task_event(e, "task.succeeded", "T2")).await;
+        let notices = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap().matches("steer [Janus 提醒]").count();
+        assert_eq!(notices, 2, "each side hears about the other");
+        assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind == "task.conflict").count(), 1, "one report per file and pair");
+
+        let (detail, err) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
+        assert!(!err && detail.contains("改过的文件：shared.txt") && detail.contains("[冲突] 和 T2"), "{detail}");
+        let (peers, err) = tool(&h.app, &run, "T2", "peers", json!({})).await;
+        assert!(!err && peers.contains("T1") && peers.contains("和你都改了 shared.txt"), "{peers}");
+        let (full, _) = tool(&h.app, &run, "T2", "peers", json!({ "task": "T1" })).await;
+        assert!(full.contains("验收标准"), "{full}");
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// A lead that shows no sign of work is reported to the person, once, and the report is
+    /// withdrawn when it moves again.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_silent_lead_is_reported_to_the_person() {
+        let mut h = harness("leadstall", &[("lead", false), ("m1", true)], json!({}));
+        Arc::get_mut(&mut h.app).unwrap().cfg.stall_after = Duration::from_secs(1);
+        let run = h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
+        let stalls = |e: &[Event], resolved: bool| e.iter().filter(|e| e.kind == "lead.stalled" && e.to.as_deref() == Some("user") && (e.data.as_ref().unwrap()["resolved"] == true) == resolved).count();
+        wait_until(&h.app, &run, "lead stall", |e| stalls(e, false) > 0).await;
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        assert_eq!(stalls(&events(&h.app, &run), false), 1, "one report per quiet spell");
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        assert_eq!(stalls(&events(&h.app, &run), true), 1, "withdrawn once the lead moves");
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 

@@ -155,7 +155,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 - 等人的时间不算：尝试在等提问的回答、审批或表单（`Run::held` 返回的守卫存在期间），或会话被用户接管或打断（`Run::set_human`）时，计时从头开始。这些状态由尝试自己在内存中标记，停滞检测不读事件日志。
 - 同一段没有动静的时间只报告一次。会话再发出任何更新后重新计时，并写入一条 `data.resolved` 为 `true` 的 `task.stalled`，应用据此撤下「可能卡住了」，主控不会读到它。原地打转每满 5 次报告一次。
-- 只检查协作者的尝试，不检查主控会话。
+- 主控会话按同样的规则检查（`LEAD_WATCH`），结果写 `lead.stalled`，`to` 为 `user`：主控之上没有别人会发现它卡住。应用在「需要你处理」中显示「主控可能卡住了」，再有动静时撤下。主控调用 Janus 看板工具不计入原地打转，反复 `wait` 是正常的。
 - 停滞检测只报告，不打断、不重试也不取消。主控在 `wait` 中读到 `[停滞]`，自己判断继续等、`reply`、`retry` 还是 `cancel`，见[目标模式与共享看板](goal_mode.md#failures_in_goal_mode)。
 - 计时状态只在内存中（`Run.watch`），重启后从头开始；`task.stalled` 不影响恢复。
 
@@ -195,7 +195,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 用户通过 `POST /api/runs/{id}/actions` 操作 Run，参数见 [HTTP API](../interfaces/http_api.md#run_actions)：
 
 - **回答与审批**：`answer`、`approve`、`input`。
-- **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_lody/session/steer` 时）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/events.md#message_flow)。
+- **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_lody/session/steer` 时，见[插话](../interfaces/acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/events.md#message_flow)。
 - **控制 Run**：`pause`、`resume`、`extendBudget`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
 
 任务的重试、接受和取消由主控通过看板处理，用户不直接操作任务；用户可以给主控发消息提出要求。

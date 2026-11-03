@@ -11,7 +11,9 @@
 //! ```
 //!
 //! A new version is built in a staging directory and only becomes `current` once its entry file
-//! exists, so a failed install leaves the working one alone. Sessions start from the resolved
+//! exists, so a failed install leaves the working one alone. Each version records the source it
+//! came from; a version from an older source (Codex and Claude came from npm until their steering
+//! support moved to the repositories) still runs, and the next check replaces it. Sessions start from the resolved
 //! version directory, so an upgrade never pulls files from under a running agent. The previous
 //! version is kept for rolling back; older ones are removed.
 
@@ -25,7 +27,9 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, LazyLock, Mutex};
 
 pub enum Source {
-    /// Published on npm under this package name.
+    /// Published on npm under this package name. No built-in adapter uses it right now; it stays
+    /// for adapters whose releases are complete on npm.
+    #[allow(dead_code)]
     Npm(&'static str),
     /// Built from the default branch of this repository.
     Git(&'static str),
@@ -41,8 +45,10 @@ pub struct AdapterDef {
 
 // @project-doc docs/architecture/adapters.md#catalog
 pub const ADAPTERS: &[AdapterDef] = &[
-    AdapterDef { id: "codex", name: "Codex", package: "acp-extension-codex", source: Source::Npm("acp-extension-codex") },
-    AdapterDef { id: "claude", name: "Claude Code", package: "acp-extension-claude", source: Source::Npm("acp-extension-claude") },
+    // npm stops at older releases (codex 1.1.2, claude 0.54.3) without `_lody/session/steer`; the
+    // repositories carry it, so a message reaches a running turn instead of waiting for its end.
+    AdapterDef { id: "codex", name: "Codex", package: "acp-extension-codex", source: Source::Git("https://github.com/LodyAI/acp-extension-codex") },
+    AdapterDef { id: "claude", name: "Claude Code", package: "acp-extension-claude", source: Source::Git("https://github.com/LodyAI/acp-extension-claude") },
     AdapterDef { id: "grok", name: "Grok", package: "acp-extension-grok", source: Source::Git("https://github.com/LodyAI/acp-extension-grok") },
     AdapterDef { id: "pi", name: "Pi", package: "acp-extension-pi", source: Source::Git("https://github.com/LodyAI/acp-extension-pi") },
 ];
@@ -54,6 +60,27 @@ pub fn for_base(base: &str) -> Option<&'static AdapterDef> {
 
 fn def(id: &str) -> Result<&'static AdapterDef> {
     ADAPTERS.iter().find(|a| a.id == id).ok_or_else(|| anyhow!("没有这个 ACP 适配器：{id}"))
+}
+
+/// The source a version was installed from, as recorded in its `.janus-adapter.json`.
+fn source_label(source: &Source) -> String {
+    match source {
+        Source::Npm(pkg) => format!("npm:{pkg}"),
+        Source::Git(repo) => format!("git:{repo}"),
+    }
+}
+
+// @project-doc docs/architecture/adapters.md#source_change
+/// Whether an installed version came from the adapter's current source. Versions installed
+/// before the source was recorded are told apart by their layout: an npm install is a wrapper
+/// package with the adapter under node_modules, a git install is the checkout itself.
+fn from_source(d: &AdapterDef, dir: &Path) -> bool {
+    let meta: Value = std::fs::read_to_string(dir.join(".janus-adapter.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    if let Some(src) = meta["source"].as_str() {
+        return src == source_label(&d.source);
+    }
+    let npm_layout = dir.join("node_modules").join(d.package).join("package.json").is_file() && !dir.join(".git").exists();
+    matches!(d.source, Source::Npm(_)) == npm_layout
 }
 
 /// What is going on with one adapter right now: an install or update check in progress, or how
@@ -124,7 +151,8 @@ impl App {
                     "current": current, "versions": versions,
                     "latest": newest, "checkedAt": checked,
                     // A git version is `<package.json version>-<commit>`; the check only knows the commit.
-                    "updateAvailable": match (&current, newest.as_str(), &d.source) {
+                    // A version from an older source is always due for replacement.
+                    "updateAvailable": self.adapter_current(d.id).is_some_and(|dir| !from_source(d, &dir)) || match (&current, newest.as_str(), &d.source) {
                         (Some(c), Some(n), Source::Git(_)) => !c.ends_with(&format!("-{n}")),
                         (Some(c), Some(n), Source::Npm(_)) => c != n,
                         _ => false,
@@ -179,10 +207,18 @@ impl App {
 
     // @project-doc docs/architecture/adapters.md#on_demand
     /// Install the adapter now unless it is there already; for the connection check, which an
-    /// agent needs to pass before it is used.
+    /// agent needs to pass before it is used. A version from an older source is replaced; if that
+    /// fails, the old version stays current and keeps working.
     pub fn ensure_adapter(&self, id: &str) -> Result<Option<String>> {
-        if self.adapter_current(id).is_some() {
-            return Ok(None);
+        let d = def(id)?;
+        if let Some(dir) = self.adapter_current(id) {
+            if from_source(d, &dir) {
+                return Ok(None);
+            }
+            begin(id, "install")?;
+            let r = self.install_adapter(id, None);
+            finish(id, r.as_ref().map(|v| format!("已从新的来源安装 {v}")).map_err(|e| anyhow!("{e:#}")));
+            return Ok(r.ok());
         }
         begin(id, "install")?;
         let r = self.install_adapter(id, None);
@@ -255,11 +291,15 @@ impl App {
                                 logged(Command::new("npx").args(["--yes", pm, "run", "build"]).current_dir(&staging), &log_path)?;
                             }
                         }
+                        // The build needs the dev dependencies (tsc, bundlers); running needs only
+                        // the rest, so they are pruned once the build is done.
+                        _ if pkg["scripts"]["build"].is_string() => {
+                            logged(Command::new("npm").args(["install", "--no-audit", "--no-fund"]).current_dir(&staging), &log_path)?;
+                            logged(Command::new("npm").args(["run", "build"]).current_dir(&staging), &log_path)?;
+                            logged(Command::new("npm").args(["prune", "--omit=dev", "--no-audit", "--no-fund"]).current_dir(&staging), &log_path)?;
+                        }
                         _ => {
                             logged(Command::new("npm").args(["install", "--omit=dev", "--no-audit", "--no-fund"]).current_dir(&staging), &log_path)?;
-                            if pkg["scripts"]["build"].is_string() {
-                                logged(Command::new("npm").args(["run", "build"]).current_dir(&staging), &log_path)?;
-                            }
                         }
                     }
                     let sha = run_text(Command::new("git").args(["rev-parse", "--short=7", "HEAD"]).current_dir(&staging))?.trim().to_string();
@@ -277,7 +317,7 @@ impl App {
             }
         };
         let target = dir.join(&v);
-        if target.join(".janus-adapter.json").is_file() {
+        if target.join(".janus-adapter.json").is_file() && from_source(d, &target) {
             // Already installed: keep that copy, just make it current.
             let _ = std::fs::remove_dir_all(&staging);
         } else {
@@ -289,7 +329,7 @@ impl App {
             let _ = std::fs::remove_dir_all(&target);
             std::fs::write(
                 staging.join(".janus-adapter.json"),
-                serde_json::to_vec_pretty(&json!({ "id": id, "version": v, "ref": reference, "installedAt": now_ms() }))?,
+                serde_json::to_vec_pretty(&json!({ "id": id, "version": v, "ref": reference, "source": source_label(&d.source), "installedAt": now_ms() }))?,
             )?;
             std::fs::rename(&staging, &target)?;
         }
@@ -301,12 +341,12 @@ impl App {
     }
 }
 
-/// The adapter's script inside an installed (or staged) version directory, from its package.json `bin`.
+/// The adapter's script inside an installed (or staged) version directory, from its package.json
+/// `bin`. Found by the directory's layout rather than the adapter's source, so a version installed
+/// from an earlier source keeps running until it is replaced.
 fn entry_in(d: &AdapterDef, dir: &Path) -> Result<PathBuf> {
-    let pkg_dir = match d.source {
-        Source::Npm(pkg) => dir.join("node_modules").join(pkg),
-        Source::Git(_) => dir.to_path_buf(),
-    };
+    let npm = dir.join("node_modules").join(d.package);
+    let pkg_dir = if npm.join("package.json").is_file() && !dir.join(".git").exists() { npm } else { dir.to_path_buf() };
     let pkg: Value = serde_json::from_str(&std::fs::read_to_string(pkg_dir.join("package.json")).with_context(|| format!("{} 的适配器缺少 package.json", d.name))?)?;
     let rel = match &pkg["bin"] {
         Value::String(s) => s.clone(),
@@ -430,6 +470,34 @@ mod tests {
         std::fs::write(pkg.join("package.json"), r#"{ "bin": { "acp-extension-claude": "./dist/index.js" }, "main": "dist/lib.js" }"#).unwrap();
         std::fs::write(pkg.join("dist/index.js"), "").unwrap();
         assert_eq!(entry_in(def("claude").unwrap(), &dir).unwrap(), pkg.join("dist/index.js"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Claude used to come from npm and now builds from its repository: an npm version installed
+    /// earlier still starts, and is recognised as due for replacement; a recorded source decides.
+    #[test]
+    fn versions_from_an_earlier_source_still_run_and_are_replaced() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-source-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let d = def("claude").unwrap();
+        let npm = dir.join("0.54.3");
+        let pkg = npm.join("node_modules").join("acp-extension-claude");
+        std::fs::create_dir_all(pkg.join("dist")).unwrap();
+        std::fs::write(npm.join("package.json"), r#"{ "name": "janus-adapter", "private": true }"#).unwrap();
+        std::fs::write(pkg.join("package.json"), r#"{ "bin": { "acp-extension-claude": "dist/index.js" } }"#).unwrap();
+        std::fs::write(pkg.join("dist/index.js"), "").unwrap();
+        std::fs::write(npm.join(".janus-adapter.json"), r#"{ "version": "0.54.3", "ref": "0.54.3" }"#).unwrap();
+        assert_eq!(entry_in(d, &npm).unwrap(), pkg.join("dist/index.js"), "the old layout still starts");
+        assert!(!from_source(d, &npm), "an npm version is not from the repository");
+
+        let git = dir.join("0.79.0-abc1234");
+        std::fs::create_dir_all(git.join("dist")).unwrap();
+        std::fs::create_dir_all(git.join(".git")).unwrap();
+        std::fs::write(git.join("package.json"), r#"{ "name": "acp-extension-claude", "bin": { "acp-extension-claude": "dist/index.js" } }"#).unwrap();
+        std::fs::write(git.join("dist/index.js"), "").unwrap();
+        std::fs::write(git.join(".janus-adapter.json"), format!(r#"{{ "source": "{}" }}"#, source_label(&d.source))).unwrap();
+        assert_eq!(entry_in(d, &git).unwrap(), git.join("dist/index.js"));
+        assert!(from_source(d, &git));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

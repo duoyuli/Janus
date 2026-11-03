@@ -42,11 +42,12 @@ enum L {
         "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
         "run.budget_extended": "⌛", "agent.message": "❝", "user.message": "✎",
         "message.delivered": "↪", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
+        "task.conflict": "⚠", "lead.stalled": "⏳", "task.stalled": "⏳",
     ]
 
     private static let toneTable: [Tone: [String]] = [
         .green: ["task.succeeded", "approval.granted", "input.answered", "run.delivered", "risk.accepted"],
-        .amber: ["question.asked", "question.escalated", "approval.requested", "input.requested", "run.paused", "control.taken", "session.interrupted", "user.message"],
+        .amber: ["question.asked", "question.escalated", "approval.requested", "input.requested", "run.paused", "control.taken", "session.interrupted", "user.message", "task.conflict", "lead.stalled", "task.stalled"],
         .red: ["attempt.failed", "approval.denied", "run.cancelled", "task.failed", "run.failed", "run.interrupted"],
         .gray: ["agent.status", "tool.call", "tool.completed", "task.ready"],
         .blue: ["tool.started", "session.prompt"],

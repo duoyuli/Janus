@@ -50,13 +50,15 @@
 
    | `delivery` | 含义 | 何时出现 |
    | --- | --- | --- |
-   | `steer` | 已插入正在进行的这一轮 | Agent 支持 `_lody/session/steer` 且插入成功 |
+   | `steer` | 已插入正在进行的这一轮 | Agent 支持 `_lody/session/steer` 且插入成功，见[插话](acp_integration.md#steering) |
    | `queued` | 排队，这一轮结束后作为新一轮发送 | 用户的消息，Agent 不支持插话或插入失败；Agent 正在等用户处理请求；用户接管着会话时主控发来的消息（交还托管时送达） |
    | `interrupt` | 打断正在进行的这一轮，立即作为新一轮发送 | 主控的 `reply`，Agent 不支持插话或插入失败 |
    | `prompt` | 直接作为新的一轮发送 | 人工接管中一轮已结束、正在等消息时；或在等待提问回答时发送 |
    | `next` | 留言，下次会话开始时带给它 | 这个 Agent 当前没有会话 |
 
-3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。
+3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。`steer` 的消息在 Agent 发来 `_lody/session/steer_applied` 时写 `message.delivered`，`data.applied` 为 `true`，表示消息已经进入模型的输入。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。主控跟随进行中的目标时，插不进去的消息立即作为新的一轮发送，写 `message.delivered`，不等目标结束。
+
+Janus 自己发给会话的两种消息也走插话，但不记 `user.message`：看板推送记为 `session.prompt`（`channel: "board"`），见[看板推送](../domains/goal_mode.md#board_push)；冲突提醒随 `task.conflict` 发出，见[同时改同一个文件](../domains/goal_mode.md#conflicts)。
 
 重启后，没有 `steer` / `prompt` 也没有被送达的消息会恢复为留言，在 Agent 下一次会话时带入。
 
@@ -81,8 +83,9 @@
 
 | 类型 | 说明 |
 | --- | --- |
-| `goal.status` | Codex 报告的 `/goal` 状态变化 |
+| `goal.status` | Agent 报告的 `/goal` 状态变化，见 [Codex 的目标状态](acp_integration.md#goal_status) |
 | `lead.failed` | 主控会话异常结束；`data.error` |
+| `lead.stalled` | 停滞检测发现主控会话没有进展，`to` 为 `user`。`data.reason` 是 `idle`（`data.idleMs`）或 `loop`（`data.tool`、`data.repeats`）；主控再有动静时写一条 `data.resolved: true` 的 `lead.stalled`，见[停滞检测](../domains/run_lifecycle.md#watchdog) |
 | `orchestration.accepted` | 编排通过校验；`data.tasks` 是写入看板的任务，恢复时据此重建看板 |
 | `orchestration.rejected` | 编排没有通过校验；`data.errors`、`data.submitted` |
 | `board.posted` | 协作者写回看板；`data.kind`（`progress` / `blocker` / `note`）、`data.text` |
@@ -104,6 +107,7 @@
 | `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks` |
 | `task.blocked` | 硬依赖失败；`data.dependency` |
 | `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
+| `task.conflict` | 两个同时执行的任务改了同一批文件；`task` 是发现冲突的一方，`to` 为 `lead`，`data.other` 是另一个任务，`data.paths` 是相对工作目录的文件，见[同时改同一个文件](../domains/goal_mode.md#conflicts) |
 | `task.skipped_by_decision` | 主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
 | `task.reopened` | 主控重试后任务重新开始；`data.reason` 是 `lead.retry`，可能带新的 `data.instructions`、`data.accept` |
 
@@ -120,13 +124,13 @@
 | --- | --- |
 | `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置） |
 | `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 3 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话 |
-| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix`，`fix` 是把验证失败发回协作者的会话修复）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer` / `extension`） |
-| `tool.call` | 工具调用及其输入输出摘要 |
+| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix` / `board`，`fix` 是把验证失败发回协作者的会话修复，`board` 是插入主控会话的看板推送）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer` / `extension`） |
+| `tool.call` | 工具调用及其输入输出摘要；改了文件的调用（`edit`、`delete`、`move`）另有 `data.paths`，是相对工作目录的文件 |
 | `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status` |
 | `tool.completed` | Janus MCP 工具返回；`data.callId`、`data.tool`、`data.input`、`data.args`、`data.output`、`data.status` |
 | `user.message` | 用户或主控发出一条消息，发出时立即记录；`data.id`、`data.text`，`data.delivery` 为 `pending`，见[消息的流转](#message_flow)。带图片时 `data.images` 列出图片，`data.text` 末尾有点名图片的 `[附图 N] <路径>` 行，应用显示缩略图并隐藏这些行 |
 | `message.routed` | 会话决定这条消息怎么进入；`data.id`、`data.delivery`（`steer` / `queued` / `interrupt` / `prompt` / `next`） |
-| `message.delivered` | 等待中的消息送达：排队的消息在一轮结束后作为新一轮发送，留言在下次会话开始时带入；`data.ids` |
+| `message.delivered` | 等待中的消息送达：排队的消息在一轮结束后作为新一轮发送，留言在下次会话开始时带入；`data.ids`。插入的消息被 Agent 读到时另有 `data.applied: true` |
 | `session.interrupted` | 用户打断了一轮 |
 | `control.taken` / `control.released` | 接管 / 交还 |
 
