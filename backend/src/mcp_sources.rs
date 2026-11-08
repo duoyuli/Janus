@@ -9,7 +9,7 @@
 
 use crate::agents::{ROLE, check_skill_id, reserved_mcp_name, slug, str_of, write_private};
 use crate::orchestrator::{App, Member, now_ms};
-use crate::skill_sources::{RepoAt, folder_lock, git_in, parse_github, remote_head};
+use crate::skill_sources::{RepoAt, check_source, clone_fresh, folder_lock, mark_fetched, parse_github, swap_checkout};
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
@@ -523,26 +523,7 @@ impl App {
     /// Ask every source's remote for its current commit, without fetching anything.
     pub async fn check_mcp_sources(&self) -> Value {
         for src in self.mcp_source_list() {
-            let id = str_of(&src, "id").to_string();
-            let git_ref = str_of(&src, "ref").to_string();
-            let target = if git_ref.is_empty() { "HEAD".to_string() } else { git_ref.clone() };
-            let url = str_of(&src, "cloneUrl").to_string();
-            let dir = self.mcp_sources_root().join(&id);
-            let answer = git_in(&dir, &["ls-remote", "--", &url, &target]).await;
-            // Record under the lock, on top of whatever an update wrote meanwhile.
-            let _guard = folder_lock(&dir).lock_owned().await;
-            let Some(mut now) = self.read_mcp_source(&id) else { continue };
-            now["checkedAt"] = json!(now_ms());
-            match answer.map(|out| remote_head(&out, &git_ref)) {
-                Ok(Some(sha)) => {
-                    now["updateAvailable"] = json!(now["commit"].as_str().is_some_and(|c| !c.is_empty() && c != sha));
-                    now["latest"] = json!(sha);
-                    now["checkError"] = json!("");
-                }
-                Ok(None) => now["checkError"] = json!(format!("远端没有 {target}")),
-                Err(e) => now["checkError"] = json!(format!("{e:#}")),
-            }
-            let _ = std::fs::write(dir.join("source.json"), serde_json::to_string_pretty(&now).unwrap_or_default());
+            check_source(&self.mcp_sources_root().join(str_of(&src, "id")), &src).await;
         }
         self.list_mcp_sources()
     }
@@ -550,19 +531,8 @@ impl App {
     async fn sync_mcp_source(&self, mut src: Value) -> Result<Value> {
         let id = str_of(&src, "id").to_string();
         let dir = self.mcp_sources_root().join(&id);
-        let fresh = dir.join(format!(".repo-{}", now_ms()));
-        let _ = std::fs::remove_dir_all(&fresh);
-        let fresh_s = fresh.to_string_lossy().to_string();
-        let mut args = vec!["clone", "--depth", "1", "--quiet", "--no-tags"];
-        let git_ref = str_of(&src, "ref").to_string();
-        if !git_ref.is_empty() {
-            args.extend(["--branch", git_ref.as_str()]);
-        }
-        let url = str_of(&src, "cloneUrl").to_string();
-        args.extend(["--", url.as_str(), fresh_s.as_str()]);
-        let result: Result<(Value, Vec<(String, FoundServer)>)> = async {
-            git_in(&dir, &args).await.context("拉取仓库失败")?;
-            let commit = git_in(&fresh, &["rev-parse", "HEAD"]).await.unwrap_or_default();
+        let (fresh, commit) = clone_fresh(&dir, &src).await?;
+        let result: Result<(Value, Vec<(String, FoundServer)>)> = (|| {
             let (found, warnings) = scan(&fresh, &fresh.join(str_of(&src, "path")));
             if found.is_empty() {
                 let why = warnings
@@ -576,15 +546,9 @@ impl App {
             let items = assign_keys(&found, &before);
             src["servers"] = json!(entries(&items));
             src["warnings"] = json!(warnings);
-            src["commit"] = json!(commit);
-            src["updatedAt"] = json!(now_ms());
-            src["checkedAt"] = json!(now_ms());
-            src["latest"] = json!(commit);
-            src["updateAvailable"] = json!(false);
-            src["checkError"] = json!("");
+            mark_fetched(&mut src, &commit);
             Ok((src.clone(), items))
-        }
-        .await;
+        })();
         let (src, items) = match result {
             Ok(s) => s,
             Err(e) => {
@@ -593,14 +557,7 @@ impl App {
             }
         };
         // Swap the checkout in, then record it and the manifest's values (existing ones win).
-        let repo = dir.join("repo");
-        let old = dir.join(".repo-old");
-        let _ = std::fs::remove_dir_all(&old);
-        if repo.exists() {
-            std::fs::rename(&repo, &old)?;
-        }
-        std::fs::rename(&fresh, &repo)?;
-        let _ = std::fs::remove_dir_all(&old);
+        swap_checkout(&dir, &fresh)?;
         self.merge_manifest_secrets(&id, &items)?;
         std::fs::write(dir.join("source.json"), serde_json::to_string_pretty(&src)?)?;
         let mut out = src;

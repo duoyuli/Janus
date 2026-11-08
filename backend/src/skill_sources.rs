@@ -197,6 +197,76 @@ fn assign_keys(repo_name: &str, found: &[String], before: &[Value]) -> Vec<Value
     out
 }
 
+/// Ask a source's remote for its current commit without fetching, and record the answer in the
+/// source's `source.json` under its folder lock, on top of whatever an update wrote meanwhile.
+/// Shared by the Skill and MCP libraries; `dir` is the source's folder.
+pub(crate) async fn check_source(dir: &Path, src: &Value) {
+    let git_ref = str_of(src, "ref").to_string();
+    let target = if git_ref.is_empty() { "HEAD".to_string() } else { git_ref.clone() };
+    let url = str_of(src, "cloneUrl").to_string();
+    let answer = git_in(dir, &["ls-remote", "--", &url, &target]).await;
+    let _guard = folder_lock(dir).lock_owned().await;
+    let file = dir.join("source.json");
+    let Some(mut now) = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
+        return;
+    };
+    now["checkedAt"] = json!(now_ms());
+    match answer.map(|out| remote_head(&out, &git_ref)) {
+        Ok(Some(sha)) => {
+            now["updateAvailable"] = json!(now["commit"].as_str().is_some_and(|c| !c.is_empty() && c != sha));
+            now["latest"] = json!(sha);
+            now["checkError"] = json!("");
+        }
+        Ok(None) => now["checkError"] = json!(format!("远端没有 {target}")),
+        Err(e) => now["checkError"] = json!(format!("{e:#}")),
+    }
+    let _ = std::fs::write(file, serde_json::to_string_pretty(&now).unwrap_or_default());
+}
+
+/// Shallow-clone a source's repository into a fresh folder beside its checkout. Returns the folder
+/// and the commit; the folder is removed again if the clone fails.
+pub(crate) async fn clone_fresh(dir: &Path, src: &Value) -> Result<(PathBuf, String)> {
+    let fresh = dir.join(format!(".repo-{}", now_ms()));
+    let _ = std::fs::remove_dir_all(&fresh);
+    let fresh_s = fresh.to_string_lossy().to_string();
+    let mut args = vec!["clone", "--depth", "1", "--quiet", "--no-tags"];
+    let git_ref = str_of(src, "ref").to_string();
+    if !git_ref.is_empty() {
+        args.extend(["--branch", git_ref.as_str()]);
+    }
+    let url = str_of(src, "cloneUrl").to_string();
+    args.extend(["--", url.as_str(), fresh_s.as_str()]);
+    if let Err(e) = git_in(dir, &args).await.context("拉取仓库失败") {
+        let _ = std::fs::remove_dir_all(&fresh);
+        return Err(e);
+    }
+    let commit = git_in(&fresh, &["rev-parse", "HEAD"]).await.unwrap_or_default();
+    Ok((fresh, commit))
+}
+
+/// Record a completed fetch at `commit` in a source.
+pub(crate) fn mark_fetched(src: &mut Value, commit: &str) {
+    src["commit"] = json!(commit);
+    src["updatedAt"] = json!(now_ms());
+    src["checkedAt"] = json!(now_ms());
+    src["latest"] = json!(commit);
+    src["updateAvailable"] = json!(false);
+    src["checkError"] = json!("");
+}
+
+/// Make a fresh clone the source's checkout (`<dir>/repo`), dropping the previous one.
+pub(crate) fn swap_checkout(dir: &Path, fresh: &Path) -> Result<()> {
+    let repo = dir.join("repo");
+    let old = dir.join(".repo-old");
+    let _ = std::fs::remove_dir_all(&old);
+    if repo.exists() {
+        std::fs::rename(&repo, &old)?;
+    }
+    std::fs::rename(fresh, &repo)?;
+    let _ = std::fs::remove_dir_all(&old);
+    Ok(())
+}
+
 pub(crate) async fn git_in(cwd: &Path, args: &[&str]) -> Result<String> {
     let mut cmd = tokio::process::Command::new("git");
     cmd.args(args)
@@ -357,45 +427,15 @@ impl App {
     /// whether it differs from the local copy. Returns the sources as listed.
     pub async fn check_skill_sources(&self) -> Value {
         for src in self.sources() {
-            let id = str_of(&src, "id").to_string();
-            let git_ref = str_of(&src, "ref").to_string();
-            let target = if git_ref.is_empty() { "HEAD".to_string() } else { git_ref.clone() };
-            let url = str_of(&src, "cloneUrl").to_string();
-            let dir = self.skill_sources_root().join(&id);
-            let answer = git_in(&dir, &["ls-remote", "--", &url, &target]).await;
-            // Record under the lock, on top of whatever an update wrote meanwhile.
-            let _guard = folder_lock(&dir).lock_owned().await;
-            let Some(mut now) = self.read_source(&id) else { continue };
-            now["checkedAt"] = json!(now_ms());
-            match answer.map(|out| remote_head(&out, &git_ref)) {
-                Ok(Some(sha)) => {
-                    now["updateAvailable"] = json!(now["commit"].as_str().is_some_and(|c| !c.is_empty() && c != sha));
-                    now["latest"] = json!(sha);
-                    now["checkError"] = json!("");
-                }
-                Ok(None) => now["checkError"] = json!(format!("远端没有 {target}")),
-                Err(e) => now["checkError"] = json!(format!("{e:#}")),
-            }
-            let _ = std::fs::write(dir.join("source.json"), serde_json::to_string_pretty(&now).unwrap_or_default());
+            check_source(&self.skill_sources_root().join(str_of(&src, "id")), &src).await;
         }
         self.list_skill_sources()
     }
 
     async fn sync(&self, mut src: Value) -> Result<Value> {
         let dir = self.skill_sources_root().join(str_of(&src, "id"));
-        let fresh = dir.join(format!(".repo-{}", now_ms()));
-        let _ = std::fs::remove_dir_all(&fresh);
-        let fresh_s = fresh.to_string_lossy().to_string();
-        let mut args = vec!["clone", "--depth", "1", "--quiet", "--no-tags"];
-        let git_ref = str_of(&src, "ref").to_string();
-        if !git_ref.is_empty() {
-            args.extend(["--branch", git_ref.as_str()]);
-        }
-        let url = str_of(&src, "cloneUrl").to_string();
-        args.extend(["--", url.as_str(), fresh_s.as_str()]);
-        let result: Result<Value> = async {
-            git_in(&dir, &args).await.context("拉取仓库失败")?;
-            let commit = git_in(&fresh, &["rev-parse", "HEAD"]).await.unwrap_or_default();
+        let (fresh, commit) = clone_fresh(&dir, &src).await?;
+        let result: Result<Value> = (|| {
             let found = scan(&fresh, &fresh.join(str_of(&src, "path")));
             if found.is_empty() {
                 bail!("这个位置没有找到任何 SKILL.md");
@@ -403,15 +443,9 @@ impl App {
             let name = str_of(&src, "repo").rsplit('/').next().unwrap_or("skill").to_string();
             let before = src["skills"].as_array().cloned().unwrap_or_default();
             src["skills"] = json!(assign_keys(&name, &found, &before));
-            src["commit"] = json!(commit);
-            src["updatedAt"] = json!(now_ms());
-            src["checkedAt"] = json!(now_ms());
-            src["latest"] = json!(commit);
-            src["updateAvailable"] = json!(false);
-            src["checkError"] = json!("");
+            mark_fetched(&mut src, &commit);
             Ok(src.clone())
-        }
-        .await;
+        })();
         let src = match result {
             Ok(s) => s,
             Err(e) => {
@@ -420,14 +454,7 @@ impl App {
             }
         };
         // Swap the checkout in, then record it.
-        let repo = dir.join("repo");
-        let old = dir.join(".repo-old");
-        let _ = std::fs::remove_dir_all(&old);
-        if repo.exists() {
-            std::fs::rename(&repo, &old)?;
-        }
-        std::fs::rename(&fresh, &repo)?;
-        let _ = std::fs::remove_dir_all(&old);
+        swap_checkout(&dir, &fresh)?;
         std::fs::write(dir.join("source.json"), serde_json::to_string_pretty(&src)?)?;
         let skills = self.source_skills(&src);
         let mut out = src;
