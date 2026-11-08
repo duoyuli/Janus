@@ -1421,7 +1421,7 @@ impl App {
 
     /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
     fn mcp_server(&self, run: &Run, who: &str) -> Value {
-        let token = run.st.lock().unwrap().mcp_token.clone();
+        let token = session_token(&run.st.lock().unwrap().mcp_token, who);
         json!({ "type": "http", "name": "janus", "url": format!("http://{}/mcp/{}/{}/{}", janus_addr(), run.id, token, who), "headers": [] })
     }
 
@@ -1430,7 +1430,10 @@ impl App {
     // @project-doc docs/interfaces/board_mcp.md#transport
     pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, who: &str, req: Value) -> Result<Option<Value>> {
         let run = self.run(run_id).context("这个 Run 不在运行")?;
-        if run.st.lock().unwrap().mcp_token != token || token.is_empty() {
+        // The URL's token is bound to its `who`, so a collaborator cannot rename itself to `lead`
+        // or to another task: only the session Janus started holds the token for that name.
+        let run_token = run.st.lock().unwrap().mcp_token.clone();
+        if run_token.is_empty() || token != session_token(&run_token, who) {
             bail!("token 不对");
         }
         let Some(id) = req.get("id").cloned() else {
@@ -4170,6 +4173,13 @@ fn janus_addr() -> String {
     crate::config::settings().addr.clone()
 }
 
+// @project-doc docs/interfaces/board_mcp.md#transport
+/// The token in one session's MCP URL: derived from the run's secret and the session's `who`, so
+/// it only opens the board as that member.
+fn session_token(run_token: &str, who: &str) -> String {
+    Sha256::digest(format!("{run_token}\0{who}").as_bytes())[..16].iter().map(|x| format!("{x:02x}")).collect()
+}
+
 fn random_token() -> String {
     use std::io::Read;
     let mut b = [0u8; 16];
@@ -5903,7 +5913,7 @@ mod flow_tests {
     }
 
     async fn tool(app: &Arc<App>, run: &str, who: &str, name: &str, args: Value) -> (String, bool) {
-        let token = app.run(run).unwrap().st.lock().unwrap().mcp_token.clone();
+        let token = session_token(&app.run(run).unwrap().st.lock().unwrap().mcp_token, who);
         let req = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": args } });
         let r = app.mcp(run, &token, who, req).await.unwrap().unwrap();
         (r["result"]["content"][0]["text"].as_str().unwrap_or("").to_string(), r["result"]["isError"] == true)
@@ -5941,15 +5951,19 @@ mod flow_tests {
         }));
 
         // The board's MCP surface, and its token.
-        let token = h.app.run(&run).unwrap().st.lock().unwrap().mcp_token.clone();
-        let list = |who: &str| json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }).to_string() + who;
-        let _ = list;
+        let secret = h.app.run(&run).unwrap().st.lock().unwrap().mcp_token.clone();
+        let token = session_token(&secret, "lead");
+        let member_token = session_token(&secret, "T1");
         let tools = h.app.mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.unwrap().unwrap();
         assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 10);
-        let member = h.app.mcp(&run, &token, "T1", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.unwrap().unwrap();
+        let member = h.app.mcp(&run, &member_token, "T1", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.unwrap().unwrap();
         let names: Vec<&str> = member["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
         assert_eq!(names, ["board_post", "peers"]);
         assert!(h.app.mcp(&run, "wrong", "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err());
+        // A collaborator's URL renamed to the lead, or to another task, is refused.
+        assert!(h.app.mcp(&run, &member_token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err());
+        assert!(h.app.mcp(&run, &member_token, "T2", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err());
+        assert!(h.app.mcp(&run, &secret, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err());
         assert!(h.app.mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await.unwrap().is_none());
 
         // Validation first: every problem at once, and nothing starts.

@@ -70,6 +70,7 @@
 - 把 `JANUS_ADDR` 改为非回环地址，会把设置、凭据名、运行记录、目录浏览和全部控制接口暴露给能访问该地址的任何客户端。
 - 看板 MCP 端点用每个 Run 的随机令牌区分 Run，防止其他 Run 和本机其他进程误用；它不是面向网络的认证机制。
 - `/api/file` 只返回 `~/.janus/artifacts/` 内的文件，Janus home 中的数据库和凭据不能通过它读取。选择目录用系统的文件夹选择框，服务不提供目录浏览接口。
+- 看板 MCP 的 URL 中的令牌由 Run 的随机密钥和 `who` 派生，每个会话只能以自己的身份访问看板，见[看板 MCP 工具](../interfaces/board_mcp.md#transport)。
 
 <a id="adapter_install"></a>
 ## 适配器安装
