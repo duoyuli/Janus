@@ -68,7 +68,9 @@ enum Attach {
             return images.compactMap { prepare(try? Data(contentsOf: $0), name: $0.lastPathComponent) }
         }
         // Text wins: a spreadsheet or a rich document puts a picture of the text next to it.
-        if pb.string(forType: .string) != nil { return [] }
+        // A lone link does not count: browsers put the image's URL on the pasteboard for
+        // "Copy Image", and the person means the picture.
+        if takesText(pb) { return [] }
         for (type, ext) in [(NSPasteboard.PasteboardType.png, "png"), (NSPasteboard.PasteboardType("public.jpeg"), "jpg"), (.tiff, "png")] {
             if let d = pb.data(forType: type), let img = prepare(d, name: "粘贴的图片.\(ext)") { return [img] }
         }
@@ -80,7 +82,16 @@ enum Attach {
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
             return urls.allSatisfy { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }
         }
-        return pb.string(forType: .string) == nil && pb.availableType(from: [.png, .tiff, NSPasteboard.PasteboardType("public.jpeg")]) != nil
+        return !takesText(pb) && pb.availableType(from: [.png, .tiff, NSPasteboard.PasteboardType("public.jpeg")]) != nil
+    }
+
+    /// Whether the pasteboard's text is content the person meant to paste. Empty text and a
+    /// lone link are not: they accompany an image copied from a browser.
+    private static func takesText(_ pb: NSPasteboard) -> Bool {
+        guard let s = pb.string(forType: .string) else { return false }
+        let text = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return false }
+        return text.range(of: #"^[a-zA-Z][a-zA-Z0-9+.-]*://\S+$"#, options: .regularExpression) == nil
     }
 
     /// The person's words of a message, without the lines Janus added to name its images

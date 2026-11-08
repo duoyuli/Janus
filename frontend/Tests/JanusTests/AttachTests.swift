@@ -79,6 +79,35 @@ private func board() -> NSPasteboard { NSPasteboard(name: .init("janus-test-\(UU
     #expect(!Attach.hasImages(other) && Attach.images(from: other).isEmpty)
 }
 
+@Test func anImageCopiedWithItsLinkStillPastesAsAnImage() {
+    let browser = board()
+    browser.clearContents()
+    browser.setData(png(10, 10), forType: .png)
+    browser.setString("https://example.com/picture.png", forType: .string)
+    #expect(Attach.hasImages(browser))
+    #expect(Attach.images(from: browser).count == 1)
+}
+
+/// ⌘V only reaches a text view when Edit > Paste is available, and the standard text view
+/// turns Paste off for an image-only clipboard. The composer must keep it on.
+@Test @MainActor func anImageOnlyClipboardKeepsCommandVPasteAvailable() {
+    let pb = board()
+    pb.clearContents()
+    pb.setData(png(10, 10), forType: .png)
+
+    let tv = ComposerField.TextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+    tv.isEditable = true
+    tv.pasteboard = pb
+    var got: [PastedImage] = []
+    tv.onImages = { got = $0 }
+
+    let item = NSMenuItem(title: "Paste", action: #selector(NSTextView.paste(_:)), keyEquivalent: "v")
+    #expect(tv.validateMenuItem(item))
+    #expect(tv.validateUserInterfaceItem(item))
+    tv.paste(nil)
+    #expect(got.count == 1)
+}
+
 @Test func theLinesNamingImagesAreHidden() {
     #expect(Attach.visibleText("看看这个报错\n\n附图：\n[附图 1] /h/runs/r/attachments/1.png\n[附图 2] /h/runs/r/attachments/2.png") == "看看这个报错")
     #expect(Attach.visibleText("用户发来了 1 张图片，请先查看：\n[附图 1] /h/runs/r/attachments/1.png") == "")

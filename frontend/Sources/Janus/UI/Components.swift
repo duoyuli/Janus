@@ -300,6 +300,8 @@ struct ComposerField: NSViewRepresentable {
     final class TextView: NSTextView {
         var onImages: (([PastedImage]) -> Void)?
         var onSubmit: () -> Void = {}
+        /// Where ⌘V and Edit > Paste read from; a test gives it a pasteboard of its own.
+        var pasteboard: NSPasteboard = .general
 
         override func keyDown(with event: NSEvent) {
             // Return (36) or Enter (76) with ⌘ sends; anything else edits as usual.
@@ -308,8 +310,24 @@ struct ComposerField: NSViewRepresentable {
         }
 
         override func paste(_ sender: Any?) {
-            if takeImages(from: .general) { return }
+            if takeImages(from: pasteboard) { return }
             pasteAsPlainText(sender)
+        }
+
+        /// A text view alone refuses an image-only pasteboard, which leaves the Edit > Paste
+        /// item disabled, so ⌘V never reaches `paste(_:)`. This field does take images.
+        override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+            if takesImages(item) { return true }
+            return super.validateUserInterfaceItem(item)
+        }
+
+        override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+            if takesImages(item) { return true }
+            return super.validateMenuItem(item)
+        }
+
+        private func takesImages(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action == #selector(paste(_:)) && onImages != nil && isEditable && Attach.hasImages(pasteboard)
         }
 
         /// What ⌘V does with a pasteboard holding images; false leaves it to the text paste.
