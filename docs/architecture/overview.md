@@ -59,6 +59,8 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/acp.rs` | 最小 ACP 客户端：启动子进程、`initialize`、请求与通知收发、超时 |
 | `backend/src/agents.rs` | `App` 的设置部分：Agent 连接、运行环境、配置检查与登录、角色、工作区、Skill、会话控制项解析 |
 | `backend/src/orchestrator.rs` | `App` 的运行部分：Run 驱动、主控目标会话、看板 MCP、调度、尝试、验证、交付、用户操作、恢复，以及集成测试 |
+| `backend/src/teamwork.rs` | 编排中的团队结构：任务负责的文件（`owns`）和独立验证（`verifies`）的校验、协作者提示中的对应段落、主控说明中「团队怎么组织」一节 |
+| `backend/src/status.rs` | Run、任务、尝试和 Agent 阶段的状态枚举；Run 和任务的合法转移集中在 `can_transition_to` |
 | `backend/src/skill_sources.rs` | `App` 的 Skill 来源部分：解析 GitHub 链接、克隆、查找 Skill、更新与删除，以及按 id 找到 Skill（自建或来源） |
 | `backend/src/db.rs` | SQLite 表结构与读写 |
 | `backend/testdata/fake_acp.py` | 测试用的脚本化 ACP Agent |

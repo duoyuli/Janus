@@ -86,7 +86,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `goal.status` | Agent 报告的 `/goal` 状态变化，见 [Codex 的目标状态](acp_integration.md#goal_status) |
 | `lead.failed` | 主控会话异常结束；`data.error` |
 | `lead.stalled` | 停滞检测发现主控会话没有进展，`to` 为 `user`。`data.reason` 是 `idle`（`data.idleMs`）或 `loop`（`data.tool`、`data.repeats`）；主控再有动静时写一条 `data.resolved: true` 的 `lead.stalled`，见[停滞检测](../domains/run_lifecycle.md#watchdog) |
-| `orchestration.accepted` | 编排通过校验；`data.tasks` 是写入看板的任务，恢复时据此重建看板 |
+| `orchestration.accepted` | 编排通过校验；`data.tasks` 是写入看板的任务（含 `owns`、`verifies`，验证任务的 `deps` 已包含被验证的任务），恢复时据此重建看板 |
 | `orchestration.rejected` | 编排没有通过校验；`data.errors`、`data.submitted` |
 | `board.posted` | 协作者写回看板；`data.kind`（`progress` / `blocker` / `note`）、`data.text` |
 

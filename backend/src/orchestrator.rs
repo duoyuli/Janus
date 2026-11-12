@@ -147,6 +147,12 @@ pub struct TaskDef {
     pub assignee: String,
     #[serde(default = "default_max_attempts", rename = "maxAttempts")]
     pub max_attempts: i64,
+    /// Files and directories the task may change (see `teamwork`).
+    #[serde(default)]
+    pub owns: Vec<String>,
+    /// The task this one independently verifies (see `teamwork`).
+    #[serde(default)]
+    pub verifies: Option<String>,
 }
 
 fn default_max_attempts() -> i64 {
@@ -1397,7 +1403,7 @@ impl App {
 {team}
 
 和协作者协作，都通过 janus MCP 工具和共享看板：
-- janus.orchestrate：提交一份编排（一组任务：id、标题、给执行者的完整说明、执行者、依赖、验收标准）。Janus 先校验，不通过会返回全部错误，改好再提交；通过后任务写入看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前的任务。
+- janus.orchestrate：提交一份编排（一组任务：id、标题、给执行者的完整说明、执行者、依赖、验收标准，以及可选的负责文件 owns 和独立验证 verifies）。Janus 先校验，不通过会返回全部错误，改好再提交；通过后任务写入看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前的任务。
 - janus.wait：取回看板上的新消息并等待进展：任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，协作者的提问，以及用户的回答。每次最多等 45 秒，没有新消息就再调用。完成消息只有摘要，结果太长时会注明有删节。
 - janus.task_detail：按 id 查看一个任务的全部信息：说明、完整结果、修订、改过的文件、看板上的问答，以及它的上游和下游任务。
 - janus.reply：回答协作者的提问，或给正在执行的协作者补充指示。消息会立即送达：协作者支持插话时插入当前这一轮，否则打断它当前这一轮后发送。
@@ -1430,6 +1436,8 @@ impl App {
 - 协作者完成后，你要自己核对结果（读文件、运行测试），确认目标真正达成后再结束。
 - 不要 git commit、push 或部署。
 
+{teamwork}
+
 工作区共享资料：
 - 共享资料是用户为这个工作区维护的长期背景（产品定位、目标用户、约定、过去的决定、重要文件的位置），你和每个协作者都能看到。它和本次目标冲突时，以本次目标为准。
 - 已经写在共享资料里的事实，不要再派任务重新调研，也不要再问用户。
@@ -1438,6 +1446,7 @@ impl App {
             git = if run.git { "这是一个 Git 仓库。" } else { "这不是 Git 仓库，git 命令在这里不可用。" },
             team = team_lines(run),
             brief = brief_section(&run.brief, "本次目标"),
+            teamwork = crate::teamwork::lead_guide(),
         );
         if resumed {
             let st = run.st.lock().unwrap();
@@ -1580,8 +1589,8 @@ impl App {
     fn board_orchestrate(&self, run: &Run, args: &Value) -> std::result::Result<String, String> {
         let defs = {
             let st = run.st.lock().unwrap();
-            let existing: Vec<String> = st.tasks.iter().map(|t| t.def.id.clone()).collect();
-            validate_orchestration(run, &existing, args)
+            let board: Vec<(TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (t.def.clone(), t.status)).collect();
+            validate_orchestration(run, &board, args)
         };
         let defs = match defs {
             Ok(defs) => defs,
@@ -1595,6 +1604,7 @@ impl App {
             .map(|d| json!({
                 "id": d.id, "title": d.title, "desc": d.desc, "deps": d.deps,
                 "accept": d.accept, "maxAttempts": d.max_attempts, "agent": d.assignee,
+                "owns": d.owns, "verifies": d.verifies,
             }))
             .collect();
         let n = {
@@ -1761,6 +1771,10 @@ impl App {
         let reason = args["reason"].as_str().unwrap_or("").trim();
         if reason.is_empty() {
             return Err("reason 不能为空：写明你核对了什么，为什么没达到的部分不影响目标".into());
+        }
+        let refused = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).and_then(|t| crate::teamwork::accept_refused(&t.def));
+        if let Some(why) = refused {
+            return Err(why);
         }
         let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
         let mine = |kind: &str| events.iter().rev().find(|e| e.kind == kind && e.task.as_deref() == Some(task));
@@ -2334,13 +2348,15 @@ impl App {
         n: i64,
         attempt_id: &str,
     ) -> Result<()> {
-        let (def, agent, upstream, handoffs, last_error) = {
+        let (def, agent, upstream, handoffs, last_error, team_note) = {
             let st = run.st.lock().unwrap();
             let t = st
                 .tasks
                 .iter()
                 .find(|t| t.def.id == id)
                 .context("task missing")?;
+            let verified = t.def.verifies.as_deref().and_then(|v| st.tasks.iter().find(|x| x.def.id == v)).map(|x| &x.def);
+            let team_note = crate::teamwork::task_section(&t.def, verified);
             let (upstream, handoffs): (Vec<String>, Vec<Value>) = t.def.deps.iter().filter_map(|d| st.tasks.iter().find(|x| &x.def.id == d)).map(|u| {
                 let r = u.result.clone().unwrap_or_default();
                 let files: Vec<String> = u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
@@ -2356,6 +2372,7 @@ impl App {
                 upstream,
                 handoffs,
                 self.db_last_error(&run.id, id),
+                team_note,
             )
         };
         let peers: Vec<String> = {
@@ -2441,7 +2458,7 @@ impl App {
             )
         } else {
             format!(
-                "{}{}",
+                "{}{team_note}{}",
                 task_prompt(run, &member, &def, &workspace, &upstream, &peers, conn.capabilities["mcpCapabilities"]["http"] == true, last_error.as_deref()),
                 self.take_notes(run, &agent)
             )
@@ -4363,7 +4380,9 @@ fn lead_tools() -> Value {
                                 "instructions": { "type": "string", "description": "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。" },
                                 "assignee": { "type": "string", "description": "协作者 id" },
                                 "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的任务 id" },
-                                "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到和证据" }
+                                "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到和证据" },
+                                "owns": { "type": "array", "items": { "type": "string" }, "description": "这个任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的任务不能重叠" },
+                                "verifies": { "type": "string", "description": "独立验证：被验证任务的 id。交给另一个协作者，自动在被验证的任务完成后开始，只检查不改文件" }
                             }
                         }
                     }
@@ -4479,8 +4498,9 @@ fn member_tools() -> Value {
 /// Check an orchestration the lead submitted, against the team and the tasks already on the
 /// board. Every problem is reported at once, so one round of fixes is enough.
 // @project-doc docs/interfaces/board_mcp.md#orchestration_validation
-fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::result::Result<Vec<TaskDef>, Vec<String>> {
+fn validate_orchestration(run: &Run, board: &[(TaskDef, TaskStatus)], args: &Value) -> std::result::Result<Vec<TaskDef>, Vec<String>> {
     let mut errors = vec![];
+    let existing: Vec<String> = board.iter().map(|(d, _)| d.id.clone()).collect();
     let Some(items) = args["tasks"].as_array().filter(|a| !a.is_empty()) else {
         return Err(vec!["tasks 必须是非空数组".into()]);
     };
@@ -4517,6 +4537,8 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
         if accept.is_empty() {
             errors.push(format!("{label}：缺少 accept：写出可核对的验收标准（做到什么、怎样算做到），执行者会逐条验证并给出证据"));
         }
+        let owns = crate::teamwork::read_owns(&t["owns"], &label, &mut errors);
+        let verifies = t["verifies"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
         ids.push(id.clone());
         defs.push(TaskDef {
             id,
@@ -4526,6 +4548,8 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
             accept,
             assignee,
             max_attempts: MAX_ATTEMPTS,
+            owns,
+            verifies,
         });
     }
     for d in &defs {
@@ -4540,10 +4564,7 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
     // Only the new tasks can form a cycle: the board's earlier tasks never depend on them.
     let mut indegree: HashMap<&str, usize> = defs.iter().map(|d| (d.id.as_str(), 0)).collect();
     for d in &defs {
-        for dep in d.deps.iter().filter(|x| ids.contains(x)) {
-            let _ = dep;
-            *indegree.get_mut(d.id.as_str()).unwrap() += 1;
-        }
+        *indegree.get_mut(d.id.as_str()).unwrap() += d.deps.iter().filter(|x| ids.contains(x)).count();
     }
     let mut queue: Vec<&str> = indegree.iter().filter(|(_, n)| **n == 0).map(|(id, _)| *id).collect();
     let mut seen = 0;
@@ -4559,6 +4580,9 @@ fn validate_orchestration(run: &Run, existing: &[String], args: &Value) -> std::
     }
     if seen != defs.len() && errors.is_empty() {
         errors.push("依赖之间有环".into());
+    }
+    if errors.is_empty() {
+        crate::teamwork::check(&mut defs, board, &mut errors);
     }
     if errors.is_empty() { Ok(defs) } else { Err(errors) }
 }
@@ -4633,10 +4657,10 @@ fn board_entry(run: &Run, e: &Event) -> Option<String> {
     }
     let task = e.task.as_deref()?;
     let who = |agent: &str| run.member(agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.to_string());
-    let (agent, title) = {
+    let (agent, title, verifies) = {
         let st = run.st.lock().unwrap();
         let t = st.tasks.iter().find(|t| t.def.id == task)?;
-        (t.agent.clone(), t.def.title.clone())
+        (t.agent.clone(), t.def.title.clone(), t.def.verifies.clone())
     };
     let name = who(&agent);
     Some(match e.kind.as_str() {
@@ -4671,6 +4695,11 @@ fn board_entry(run: &Run, e: &Event) -> Option<String> {
             )
         }
         "attempt.failed" => format!("- [尝试失败] {task}「{title}」· {name} 第 {} 次：{}", e.attempt.unwrap_or(1), d["error"].as_str().unwrap_or(&e.text)),
+        "task.failed" if d["reason"] == "verification" && verifies.is_some() => format!(
+            "- [验证没通过] {task} · {name} 独立验证 {} 时发现问题：\n{}\n  不能用 janus.accept 放行：派修复任务和新的验证任务，或者 janus.cancel 取消 {task} 并写明理由。",
+            verifies.as_deref().unwrap_or_default(),
+            verification_output(run, task)
+        ),
         "task.failed" if d["reason"] == "verification" => format!(
             "- [没通过验收] {task}「{title}」· {name} 补过一次仍没有满足验收标准：\n{}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
             verification_output(run, task)
@@ -5428,7 +5457,7 @@ mod tests {
     #[test]
     fn task_prompts_carry_the_shared_material() {
         let mut run = test_run(2);
-        let def = TaskDef { id: "T1".into(), title: "t".into(), desc: "d".into(), deps: vec![], accept: vec!["a".into()], assignee: run.team[1].id.clone(), max_attempts: 2 };
+        let def = TaskDef { id: "T1".into(), title: "t".into(), desc: "d".into(), deps: vec![], accept: vec!["a".into()], assignee: run.team[1].id.clone(), max_attempts: 2, owns: vec![], verifies: None };
         let m = run.team[1].clone();
         assert!(!task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None).contains("工作区共享资料"), "nothing when there is none");
         run.brief = "目标用户是独立开发者".into();
@@ -6009,6 +6038,46 @@ mod flow_tests {
         wait_until(&h.app, &run, "C started", |e| task_event(e, "attempt.started", "C")).await;
         let started = events(&h.app, &run).into_iter().find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("C")).unwrap();
         assert!(started.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("主控修订了这个结论，以修订为准：改用经典 8 邻域规则"));
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// Team structure in an orchestration: tasks that may run together cannot own the same files;
+    /// a verification task goes to someone else, waits for the work, is told what to check, and
+    /// its failure cannot be accepted away.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn verifiers_check_others_work_and_cannot_be_waved_through() {
+        let h = harness("verifier", &[("lead", false), ("m1", true), ("m2", true)], json!({ "V1": ["unmet"] }));
+        let run = start(&h, json!([task("T0", "m1", json!({}))])).await;
+
+        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [
+            task("T1", "m1", json!({ "owns": ["src"] })), task("T2", "m2", json!({ "owns": ["src/main.rs"] })),
+            task("V0", "m1", json!({ "verifies": "T1" }))] })).await;
+        assert!(err && text.contains("T1 和 T2") && text.contains("V0") && text.contains("另一个协作者"), "{text}");
+
+        let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [
+            task("T1", "m1", json!({ "owns": ["src"], "accept": ["src 里有新函数"] })),
+            task("V1", "m2", json!({ "verifies": "T1", "accept": ["测试通过"] }))] })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "V1 failed", |e| task_event(e, "task.failed", "V1")).await;
+        let evs = events(&h.app, &run);
+        let at = |kind: &str, task: &str| evs.iter().position(|e| e.kind == kind && e.task.as_deref() == Some(task)).unwrap();
+        assert!(at("task.succeeded", "T1") < at("attempt.started", "V1"), "the verifier waits for the work");
+        let prompt = |task: &str| -> String {
+            evs.iter().find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(task)).and_then(|e| e.data.as_ref()?["prompt"].as_str().map(str::to_owned)).unwrap_or_default()
+        };
+        assert!(prompt("T1").contains("你负责的文件：src"), "{}", prompt("T1"));
+        assert!(prompt("V1").contains("独立验证者") && prompt("V1").contains("- src 里有新函数"), "{}", prompt("V1"));
+
+        let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+        assert!(board.contains("[验证没通过] V1") && board.contains("验证 T1"), "{board}");
+        let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "V1", "reason": "我看过了" })).await;
+        assert!(err && text.contains("不能直接接受"), "{text}");
+        assert!(!task_event(&events(&h.app, &run), "task.succeeded", "V1"));
+        let (_, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["V1"], "reason": "改由主控核对" })).await;
+        assert!(!err);
+
         finish_lead(&h);
         wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
         let _ = std::fs::remove_dir_all(&h.dir);

@@ -60,7 +60,16 @@ URL 的主机和端口取 `JANUS_ADDR`。
       "instructions": "背景……需要做……注意……",
       "assignee": "implementer",
       "deps": [],
-      "accept": ["空输入返回明确的错误", "新增测试覆盖空输入并通过"]
+      "accept": ["空输入返回明确的错误", "新增测试覆盖空输入并通过"],
+      "owns": ["src/parser"]
+    },
+    {
+      "id": "V1",
+      "title": "验证解析器",
+      "instructions": "独立核对 T1 的改动……",
+      "assignee": "reviewer",
+      "accept": ["运行解析器的测试并给出命令和输出"],
+      "verifies": "T1"
     }
   ]
 }
@@ -74,6 +83,8 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `assignee` | string | 是 | 协作者 id，不能是主控 |
 | `deps` | string[] | 否 | 必须先成功完成的任务 id，可以引用之前编排中的任务 |
 | `accept` | string[] | 是 | 可核对的验收标准，至少一条，见[验收标准](#acceptance_criteria) |
+| `owns` | string[] | 否 | 这个任务负责修改的文件或目录，相对工作目录，目录包含其下所有文件。见[团队结构](../domains/goal_mode.md#team_structure) |
+| `verifies` | string | 否 | 被验证任务的 id（同批或之前编排的任务）。这个任务是它的独立验证，见[团队结构](../domains/goal_mode.md#team_structure) |
 
 成功时返回已写入看板的任务；失败时返回全部错误，一个任务都不启动。
 
@@ -88,6 +99,11 @@ URL 的主机和端口取 `JANUS_ADDR`。
 - `assignee` 必须是协作者。
 - 依赖必须存在，不能依赖自己，同批任务之间不能成环。
 - 每个任务至少有一条验收标准。
+- `owns` 是工作目录内的相对路径，不能是绝对路径，不能含 `..`。
+- 可能同时执行的两个任务（彼此都不在对方的上游，比较对象是同批任务和看板上未结束的任务）`owns` 不能重叠：同一路径，或一个是另一个所在的目录。
+- `verifies` 指向的任务存在、不是它自己、执行者不同；验证任务不能写 `owns`；Janus 把被验证的任务加入它的依赖，加入后不能成环。
+
+`owns` 和 `verifies` 的检查在 `teamwork::check` 中，前面的基本检查都通过后才执行。
 
 通过校验的任务按固定策略执行：最多尝试 `MAX_ATTEMPTS`（2）次，需要结构化结果。任务能否修改文件由执行者的 Agent 权限模式决定，编排中没有读写字段，见[权限交给 Agent 原生模式](../decisions/agent_native_permissions.md)。
 
@@ -107,6 +123,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `[开始]` | `attempt.started` | 任务、执行者、第几次尝试 |
 | `[完成]` | `task.succeeded` | 摘要、逐条验收（✓ / ✗、标准、证据）、证据、风险、产物路径。超过限额的部分删去，并提示用 `task_detail` 查看，见[完成消息的限额](#inline_budget) |
 | `[尝试失败]` | `attempt.failed` | 失败原因，还会重试 |
+| `[验证没通过]` | 验证任务的 `task.failed`（`reason: "verification"`） | 验证者在原会话补过一次，仍有标准没达到，逐条列出；提示派修复任务和新的验证任务，或用 `cancel` 取消验证，不能用 `accept` |
 | `[没通过验收]` | `task.failed`（`reason: "verification"`） | 协作者在原会话补过一次，仍有标准没核对、没证据或自认没达到，逐条列出；提示用 `accept`、`retry` 或 `cancel` 处理 |
 | `[失败]` | `task.failed`（`reason: "attempts"`） | 用完尝试次数，需要主控决定 |
 | `[无法开始]` | `task.blocked` | 依赖失败；处理好依赖后会自动继续 |
@@ -157,7 +174,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 { "task": "T1", "reason": "我打开页面核对过，移动端触控那一条不影响这次的目标" }
 ```
 
-接受一个没通过验收核对的任务的结果：用它最后提交的结构化结果把任务标记为完成（`task.succeeded`，`actor` 为 `lead`，`data.acceptedBy: "lead"`），没达到的部分和 `reason` 记为风险。只对 `task.failed` 的 `reason` 为 `verification` 的任务有效。
+接受一个没通过验收核对的任务的结果：用它最后提交的结构化结果把任务标记为完成（`task.succeeded`，`actor` 为 `lead`，`data.acceptedBy: "lead"`），没达到的部分和 `reason` 记为风险。只对 `task.failed` 的 `reason` 为 `verification` 的任务有效，对验证任务（带 `verifies`）无效：验证没通过要靠修复后重新验证，或者用 `cancel` 留下取消的理由（`teamwork::accept_refused`）。
 
 <a id="amend_tool"></a>
 ### `amend`
