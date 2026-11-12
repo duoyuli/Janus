@@ -55,6 +55,7 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | --- | --- |
 | `backend/src/main.rs` | 命令行参数、启动顺序、HTTP 路由与处理函数 |
 | `backend/src/config.rs` | Janus home、配置项（环境变量与 `config.toml`）、Janus 日志 |
+| `backend/src/git_probe.rs` | 只读 Git 查询的共用入口：设置 `GIT_OPTIONAL_LOCKS=0`，不与同一工作目录中 Agent 的 git 操作抢 `index.lock`。和 HEAD 比较用 `git diff-index`，因为 `git diff` 不受这个变量控制，仍会刷新索引 |
 | `backend/src/adapters.rs` | `App` 的适配器部分：清单、按需安装、检查更新、升级与回滚 |
 | `backend/src/acp.rs` | 最小 ACP 客户端：启动子进程、`initialize`、请求与通知收发、超时 |
 | `backend/src/agents.rs` | `App` 的设置部分：Agent 连接、运行环境、配置检查与登录、角色、工作区、Skill、会话控制项解析 |

@@ -4,6 +4,7 @@
 
 use crate::acp::{AcpConn, Incoming};
 use crate::db::{Db, Event};
+use crate::git_probe;
 use crate::status::{AgentPhase, AttemptStatus, RunStatus, TaskStatus};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -3486,7 +3487,7 @@ impl App {
         }
         st.last_diff = diff.clone();
         drop(st);
-        let stat = out(&["diff", "--shortstat", "HEAD"]).trim().to_string();
+        let stat = out(&["diff-index", "--shortstat", "HEAD"]).trim().to_string();
         let new_files = untracked.lines().count();
         let desc = [
             (!stat.is_empty()).then_some(stat),
@@ -4846,9 +4847,7 @@ pub fn lead_capable(kind: &str) -> bool {
 }
 
 fn git_out(cwd: &Path, args: &[&str]) -> String {
-    std::process::Command::new("git")
-        .args(args)
-        .current_dir(cwd)
+    git_probe::read_only(cwd, args)
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default()
@@ -4856,7 +4855,9 @@ fn git_out(cwd: &Path, args: &[&str]) -> String {
 
 /// What the working tree differs from HEAD by, untracked files included.
 fn working_diff(cwd: &Path) -> String {
-    let mut diff = git_out(cwd, &["diff", "HEAD"]);
+    // `diff-index`, not `diff`: porcelain `git diff` refreshes the index even with optional locks
+    // off (see `git_probe`).
+    let mut diff = git_out(cwd, &["diff-index", "-p", "HEAD"]);
     let untracked = git_out(cwd, &["ls-files", "--others", "--exclude-standard"]);
     if !untracked.trim().is_empty() {
         diff.push_str(&format!("\n# 未跟踪的新文件\n{untracked}"));
@@ -5295,10 +5296,9 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Read-only git query (see `git_probe::read_only`); not for commands that write the repository.
 pub async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
-    let out = tokio::process::Command::new("git")
-        .args(args)
-        .current_dir(cwd)
+    let out = tokio::process::Command::from(git_probe::read_only(cwd, args))
         .output()
         .await?;
     if !out.status.success() {

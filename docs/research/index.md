@@ -10,6 +10,7 @@
 
 - [2026-11-10 多 Agent 协作与 Agent Team 进展](multi_agent_collaboration_2026_11_10.md)：Anthropic、OpenAI、Microsoft、Nous Research、PagerDuty、CrowdStrike 的本周进展，以及按 P0 / P1 / P2 分级的借鉴建议。阅读时机：评估是否引入显式中断、成本账本、证据分级、安全审查模板或紧急停止。
 - [2026-11-11 X 直接抓取补充](multi_agent_collaboration_2026_11_11.md)：用 OpenCLI 读 X 后补充的 Antigravity `/swarm`、Anthropic 1,000-Agent 实验、并行小队论文和 Claude Code 动态工作流；修正上一份的结论，并新增验证者模式等建议。阅读时机：评估公开看板的规模化验证、验证者角色、子任务拆分或可保存的编排模板。
+- [2026-11-12 多 Agent 协作与 Agent Team 进展](multi_agent_collaboration_2026_11_12.md)：1,000 个 Agent 的启动瓶颈与 Git 索引锁经验、多 Agent 成本仍缺可见性、规则要变成机制；给出只读 Git 探测、启动并发上限和 CI 门禁的建议。阅读时机：评估会话启动并发、只读 Git 探测或 CI 合并检查。
 
 ## 约定
 

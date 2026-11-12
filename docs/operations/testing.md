@@ -26,6 +26,7 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 | `backend/src/skill_sources.rs` 的 `tests` | GitHub 链接的各种写法；Skill key 在更新后保持不变；从本地 `file://` 仓库克隆、解析（隐藏目录、`node_modules`、符号链接、Skill 子目录）、挂载、更新、删除保护，没有 Skill 时不留下目录；远端有新提交时检测到更新、更新后清除；`ls-remote` 输出中分支和标签的选择。不访问网络 |
 | `backend/src/mcp_sources.rs` 的 `tests` | 两种常见 manifest 写法（`mcpServers`、`servers`、单个服务器对象）、SSE 拒绝、key 在更新后保持不变（新条目不占用已有条目的 key）；链接目录经由符号链接指向克隆之外时不解析；从本地 `file://` 仓库克隆、解析（跳过 `node_modules`）、挂载；值只写 `secrets/mcp/`（`0600`），API、`source.json` 和 Run 快照不含值；更新后保存的值优先、消失的服务器保留旧值；角色挂载、手工 MCP 保留、同名拒绝；保留名 `janus` 及其规范化变体（`Janus`、`janus!` 等）在解析时跳过，旧来源中的 `janus` key 在更新时替换，手工 MCP 名称 `janus_` 在保存角色时拒绝；未结束 Run（`planning`、`running`、`waiting_input`、`interrupted`、`failed`）阻止删除，`delivered`、`accepted`、`cancelled` 不阻止；正在拉取的来源不能删除，其他来源照常更新和删除；凭据设置与清除。不访问网络 |
 | `backend/src/adapters.rs` 的 `tests` | 版本切换与旧版本清理、从 `package.json` 的 `bin` 读取入口、来源改变后旧来源的版本仍能启动并被识别为需要替换 |
+| `backend/src/git_probe.rs` 的 `tests` | 只读 Git 探测不刷新索引，输出与普通 `git status` 一致；记录 diff 用的 `diff-index` 不改写索引、输出与 `git diff HEAD` 一致，而 `git diff` 即使经过只读入口也会改写索引 |
 | `backend/src/config.rs` 的 `tests` | 日志时间格式 |
 | `backend/src/orchestrator.rs` 的 `tests` | 主控说明中的协作者名单、任务提示中的共享资料、从主控回复中拆出「建议更新共享资料」、从 `_meta.codex` 和 `_meta.lody` 读取目标状态、完成消息的删节、从工具调用识别改过的文件 |
 | `backend/src/orchestrator.rs` 的 `flow_tests` | 端到端流程：启动真实的编排器 `App`，用脚本化 Agent 跑完整 Run |

@@ -4,6 +4,7 @@ mod agents;
 mod attachments;
 mod config;
 mod db;
+mod git_probe;
 mod mcp_sources;
 mod orchestrator;
 mod skill_sources;
