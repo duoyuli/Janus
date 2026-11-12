@@ -299,7 +299,9 @@ async fn create_run(State(app): State<Arc<App>>, Json(req): Json<NewRun>) -> Api
     Ok(Json(json!({ "id": id })).into_response())
 }
 
-async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+/// One run and its events; with `after`, only the events past that seq, so a client that already
+/// holds the rest (the app's inbox) reads just what is new.
+async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<After>) -> ApiResult {
     let run = app
         .db
         .runs()
@@ -307,7 +309,7 @@ async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> A
         .into_iter()
         .find(|r| r["id"] == id.as_str())
         .ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
-    let events = app.db.events(&id, 0).map_err(bad)?;
+    let events = app.db.events(&id, q.after.unwrap_or(0).max(0)).map_err(bad)?;
     Ok(
         Json(json!({ "run": run, "events": events, "live": app.run(&id).is_some() }))
             .into_response(),

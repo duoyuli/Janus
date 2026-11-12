@@ -4,6 +4,7 @@ import SwiftUI
 
 /// Where the main window is.
 enum Screen: Hashable {
+    case inbox                 // what every run waits on the person for
     case home(String)          // workspace id
     case run(String)           // run id
     case newWorkspace
@@ -38,6 +39,8 @@ final class AppStore {
     /// Role edited in the sheet (empty id for a new one).
     var editingRole: JSON?
     private(set) var run: RunModel?
+    /// What every run is waiting on the person for, across workspaces.
+    let inbox = InboxModel()
 
     @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var toastTask: Task<Void, Never>?
@@ -58,9 +61,11 @@ final class AppStore {
         watchSkillSources()
         watchMcpSources()
         watchChecks()
+        await inbox.refresh(self)
         startRunPolling()
         if screen == nil {
-            if let live = runs.first(where: { ["planning", "running"].contains($0["status"].str) }) { open(.run(live["id"].str)) }
+            // Start from what needs the person, not from watching a run work.
+            if !inbox.open.isEmpty || runs.contains(where: { Inbox.active.contains($0["status"].str) }) { open(.inbox) }
             else if let ws = currentWorkspace { open(.home(ws["id"].str)) }
             else { open(.newWorkspace) }
         }
@@ -203,6 +208,7 @@ final class AppStore {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 await self?.loadRuns()
+                if let self { await self.inbox.refresh(self) }
             }
         }
     }

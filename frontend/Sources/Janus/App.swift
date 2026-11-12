@@ -20,9 +20,23 @@ struct JanusApp: App {
         MenuBarExtra {
             StatusMenu(model: delegate.model)
         } label: {
-            Image(systemName: "circle.hexagongrid")
-                .accessibilityLabel("Janus")
+            MenuBarLabel(model: delegate.model)
         }
+    }
+}
+
+/// The menu bar icon carries the number of things waiting on the person, so there is no need to
+/// open the window to check on runs that are just working.
+struct MenuBarLabel: View {
+    let model: AppModel
+
+    var body: some View {
+        let n = model.store?.inbox.open.count ?? 0
+        HStack(spacing: 3) {
+            Image(systemName: n > 0 ? "tray.full" : "circle.hexagongrid")
+            if n > 0 { Text("\(n)") }
+        }
+        .accessibilityLabel(n > 0 ? "Janus，\(n) 项等你处理" : "Janus")
     }
 }
 
@@ -34,7 +48,9 @@ struct StatusMenu: View {
 
     var body: some View {
         let store = model.store
-        let active = store?.runs.filter { ["planning", "running", "waiting_input"].contains($0["status"].str) }.count ?? 0
+        let waiting = store?.inbox.open.count ?? 0
+        let active = store?.runs.filter { Inbox.active.contains($0["status"].str) }.count ?? 0
+        Button(waiting > 0 ? "收件箱：\(waiting) 项等你处理" : "收件箱：没有等你处理的事") { show(); store?.open(.inbox) }.disabled(store == nil)
         Button("打开 Janus") { show() }
         if active > 0 { Text("\(active) 个 Run 正在进行") }
         Divider()

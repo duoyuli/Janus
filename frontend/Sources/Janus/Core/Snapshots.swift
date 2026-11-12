@@ -5,8 +5,9 @@ import SwiftUI
 /// `<dir>/cmd` and saves pictures of its own window, so screens can be checked without screen
 /// recording rights (docs/operations/testing.md#macos_app).
 ///
-///     open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
+///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
 ///     role <id> | agent-edit <id> | close-sheet | doc <path> | size <w>x<h> | shot <name>
+///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
 @MainActor
 enum Snapshots {
     static func start(_ model: AppModel) {
@@ -34,6 +35,7 @@ enum Snapshots {
         case "open":
             switch kv.first {
             case "run": store.open(.run(kv.last ?? ""))
+            case "inbox": store.open(.inbox)
             case "home": store.open(.home(kv.last ?? ""))
             case "settings": store.openSettings(kv.last ?? "agents")
             default: break
@@ -51,6 +53,20 @@ enum Snapshots {
         case "role": store.editingRole = store.role(arg)
         case "workspace": store.editingWorkspace = store.workspace(arg)
         case "close-sheet": store.editingRole = nil; store.editingWorkspace = nil; store.showingSettings = false
+        case "snooze-first":
+            if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
+        case "wake-all": for e in store.inbox.later { store.inbox.wake(e.key) }
+        case "close-window": NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.close()
+        case "state":
+            // What the inbox and the menu bar show, for checks that a picture cannot make.
+            let entries = { (xs: [InboxEntry]) in JSON.array(xs.map { ["key": JSON($0.key), "title": JSON($0.title), "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle)] }) }
+            let j: JSON = [
+                "screen": JSON(String(describing: store.screen)), "settings": JSON(store.showingSettings),
+                "open": entries(store.inbox.open), "later": entries(store.inbox.later),
+                "dock": JSON(NSApp.activationPolicy() == .regular),
+                "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
+            ]
+            try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))
         case "doc": ArtifactWindow.open(path: arg, api: store.api)
         case "paste":
             // Paste an image file into the first composer of the key window, through the same

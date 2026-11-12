@@ -386,6 +386,9 @@ struct OpenFact: Identifiable {
     let agents: [String]
     let you: Bool
     var sub: String = ""
+    /// For the person's items: the request kind (`question`, `approval`, `input`, `budget`,
+    /// `session`) or `lead_stall`, so the inbox knows which can wait.
+    var kind: String = ""
     var id: String { key }
 }
 
@@ -522,6 +525,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "approval": title = "\(who) 请求你决定"
         case "input": title = "\(who) 需要你\(i.d["mode"].str == "url" ? "打开链接" : "填写")"
         case "session": title = "\(who) 这一轮结束，等你的消息"
+        case "budget": title = "Run 达到预算，等你追加或停止"
         default: title = "等你处理"
         }
         var text: String
@@ -529,13 +533,14 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "question": text = t?.question?.question ?? ""
         case "approval": text = i.d["command"].str
         case "input": text = i.d["message"].str
+        case "budget": text = i.d["text"].str
         default: text = ""
         }
         if text.isEmpty { text = i.d["reason"].str }
-        f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true))
+        f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, kind: i.kind))
     }
     if let ls = leadStall, st.active {
-        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: "主控可能卡住了", text: ls.text, tasks: [], agents: ["lead"], you: true, sub: "可以在主控的会话里发消息、打断并接管，或者继续等"))
+        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: "主控可能卡住了", text: ls.text, tasks: [], agents: ["lead"], you: true, sub: "可以在主控的会话里发消息、打断并接管，或者继续等", kind: "lead_stall"))
     }
     // Everything else that holds work up is the lead's to settle, not the person's.
     let lead = "主控在处理，不需要你操作"

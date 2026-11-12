@@ -46,7 +46,7 @@
 | GET | `/api/stats/roles` | 最近的 Run 中各角色的任务统计，见[角色的执行统计](../domains/agents_and_roles.md#role_stats) |
 | GET | `/api/runs` | Run 列表 |
 | POST | `/api/runs` | 创建 Run |
-| GET | `/api/runs/{id}` | Run 详情和全部事件 |
+| GET | `/api/runs/{id}?after=` | Run 详情；带 `after` 时只返回该 `seq` 之后的事件 |
 | GET | `/api/runs/{id}/stream?after=` | SSE 事件流 |
 | POST | `/api/runs/{id}/actions` | Run 操作 |
 | GET | `/api/runs/{id}/export` | 导出事件为 NDJSON |
@@ -144,6 +144,8 @@ Content-Type: application/json
 ```json
 { "run": { "id": "...", "goal": "...", "cwd": "...", "status": "...", "config": {} }, "events": [], "live": true }
 ```
+
+带 `?after=<seq>` 时 `events` 只包含 `seq` 大于该值的事件，应用[收件箱](../architecture/frontend.md#inbox)用它增量读取正在进行的 Run。不带时返回全部事件。
 
 `live` 表示 Run 当前在内存中运行。`live` 为 `false` 的 Run 只能执行 `accept`、`resumeRun` 和 `message`。
 

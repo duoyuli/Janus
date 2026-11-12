@@ -42,6 +42,8 @@ struct MainView: View {
 
     @ViewBuilder private var detail: some View {
         switch store.screen {
+        case .inbox:
+            InboxView(store: store)
         case .home(let id):
             if let ws = store.workspace(id) { HomeView(store: store, ws: ws).id(id) } else { NoWorkspaceView(store: store) }
         case .run:
@@ -61,6 +63,13 @@ struct Sidebar: View {
         let selection = Binding<Screen?>(get: { store.screen }, set: { if let s = $0 { store.open(s) } })
         let ws = store.currentWorkspace
         List(selection: selection) {
+            Section {
+                let n = store.inbox.open.count
+                Label("收件箱", systemImage: "tray")
+                    .badge(n)
+                    .accessibilityValue(n == 0 ? "" : "\(n) 项等你处理")
+                    .tag(Screen.inbox)
+            }
             if let ws {
                 let runs = store.runs(of: ws)
                 Section("任务记录") {
