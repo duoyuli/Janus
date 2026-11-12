@@ -397,11 +397,21 @@ pub(crate) fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
     v[key].as_str().map(str::trim).unwrap_or("")
 }
 
+/// A fresh id from the clock. Two objects created within the same millisecond (a script, an
+/// import) would otherwise get the same id and the second save would overwrite the first, so the
+/// value only ever goes up.
 fn new_id(prefix: &str) -> String {
-    format!(
-        "{prefix}{}",
-        crate::orchestrator::to_base36(now_ms() as u64)
-    )
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = now_ms() as u64;
+    let mut last = LAST.load(Ordering::SeqCst);
+    loop {
+        let next = now.max(last + 1);
+        match LAST.compare_exchange(last, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return format!("{prefix}{}", crate::orchestrator::to_base36(next)),
+            Err(seen) => last = seen,
+        }
+    }
 }
 
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -2558,6 +2568,16 @@ mod session_option_tests {
 
         // Pi: nothing declared.
         assert_eq!(session_options(&json!({ "configOptions": [] }))["controls"], json!([]));
+    }
+}
+
+#[cfg(test)]
+mod new_id_tests {
+    /// Objects created in the same millisecond still get distinct ids.
+    #[test]
+    fn ids_made_together_differ() {
+        let ids: std::collections::HashSet<String> = (0..500).map(|_| super::new_id("r")).collect();
+        assert_eq!(ids.len(), 500);
     }
 }
 
