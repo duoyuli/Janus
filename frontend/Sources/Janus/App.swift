@@ -14,7 +14,41 @@ struct JanusApp: App {
         .defaultSize(width: 1320, height: 860)
         .commands { JanusCommands(model: delegate.model) }
 
+        // Janus stays in the menu bar, next to the clock and battery; the Dock icon and the app's
+        // menus show only while one of its windows is open (see `AppDelegate.followWindows`).
         // Settings are a page inside the main window (⌘,), not a window of their own.
+        MenuBarExtra {
+            StatusMenu(model: delegate.model)
+        } label: {
+            Image(systemName: "circle.hexagongrid")
+                .accessibilityLabel("Janus")
+        }
+    }
+}
+
+/// The menu under Janus's menu bar icon: the way back to the window, and what the Dock and the
+/// app menu used to offer.
+struct StatusMenu: View {
+    let model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        let store = model.store
+        let active = store?.runs.filter { ["planning", "running", "waiting_input"].contains($0["status"].str) }.count ?? 0
+        Button("打开 Janus") { show() }
+        if active > 0 { Text("\(active) 个 Run 正在进行") }
+        Divider()
+        Button("新目标") { show(); model.newGoal() }.disabled(store == nil)
+        Button("设置…") { show(); store?.openSettings(store?.settingsTab ?? "agents") }.disabled(store == nil)
+        Button("检查更新…") { Task { await Updater.shared.check(manual: true) } }
+        Button("打开 Janus 日志") { model.openLogs() }
+        Divider()
+        Button("退出 Janus") { NSApp.terminate(nil) }.keyboardShortcut("q")
+    }
+
+    private func show() {
+        openWindow(id: "main")
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -116,8 +150,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Run as a regular app also when started outside a bundle (`swift run`).
+        // The main window opens at launch, so start with the Dock icon and the menus.
         NSApp.setActivationPolicy(.regular)
+        followWindows()
         NSApp.activate(ignoringOtherApps: true)
         Task { await model.start() }
         Updater.shared.start()
@@ -136,8 +171,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var signals: [DispatchSourceSignal] = []
+    private var windowObservers: [NSObjectProtocol] = []
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// While a Janus window is open, Janus is a regular app (Dock icon, its menus in the menu bar);
+    /// once the last one closes it only keeps its menu bar icon. The menu bar icon's own window
+    /// cannot become main, so it does not count.
+    private func followWindows() {
+        let center = NotificationCenter.default
+        let update: @Sendable (Notification) -> Void = { note in
+            MainActor.assumeIsolated {
+                let closing = note.name == NSWindow.willCloseNotification ? note.object as? NSWindow : nil
+                let open = NSApp.windows.contains { $0 !== closing && $0.isVisible && $0.canBecomeMain }
+                let policy: NSApplication.ActivationPolicy = open ? .regular : .accessory
+                guard NSApp.activationPolicy() != policy else { return }
+                NSApp.setActivationPolicy(policy)
+                if open { NSApp.activate(ignoringOtherApps: true) }
+            }
+        }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification] {
+            windowObservers.append(center.addObserver(forName: name, object: nil, queue: .main, using: update))
+        }
+    }
+
+    /// Closing the window keeps Janus in the menu bar; it quits from there (or ⌘Q).
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Quitting stops the server the app started; its running runs become interrupted and can be

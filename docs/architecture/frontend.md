@@ -110,7 +110,7 @@ frontend/
 
 `Updater`（`Core/Updater.swift`）从 Info.plist 的 `JanusUpdateRepo`（`duoyuli/Janus`）的最新 GitHub Release 更新 Janus.app。只有打包出的 `.app` 会检查，`swift run` 不会。发布产物和签名见 [CI 与发布](../operations/ci_release.md#update_parts)。
 
-1. **检查**：启动 20 秒后检查一次，之后每 6 小时一次；菜单「Janus → 检查更新…」立即检查并用对话框告知结果。读取 `releases/latest` 的 `update.json`，版本号按点分数字比较，新版本要求的 macOS 更高时不提示。
+1. **检查**：启动 20 秒后检查一次，之后每 6 小时一次；菜单栏图标菜单中的「检查更新…」立即检查并用对话框告知结果。读取 `releases/latest` 的 `update.json`，版本号按点分数字比较，新版本要求的 macOS 更高时不提示。
 2. **提醒**：侧栏底部显示「Janus <版本> 可以更新」（`UpdateBadge`），点击后确认对话框给出下载大小、Node.js 是否沿用本机的、更新会中断正在执行的任务，以及发布说明。
 3. **下载**：`plan` 决定下载哪些部分：应用部分总是下载；Node.js 部分只在 `update.json` 的内容哈希与本机 `update-parts.json` 不同时下载。下载到 `~/.janus/updates/<版本>/`，逐个核对 SHA-256。
 4. **拼装与校验**：解开应用部分，Node.js 用下载的部分，或用 `cp -c` 克隆本机的（APFS 上不占额外空间），去掉隔离标记。然后用 Security 框架校验：签名完整（含嵌套代码，`kSecCSStrictValidate`），版本号与发布一致；当前应用有固定签名者时，还要满足当前应用的指定要求，否则拒绝安装。沿用的 Node.js 导致签名不符时，改为下载 Node.js 部分再试一次。
