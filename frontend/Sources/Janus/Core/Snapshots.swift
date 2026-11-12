@@ -50,7 +50,7 @@ enum Snapshots {
             }
         case "role": store.editingRole = store.role(arg)
         case "workspace": store.editingWorkspace = store.workspace(arg)
-        case "close-sheet": store.editingRole = nil; store.editingWorkspace = nil
+        case "close-sheet": store.editingRole = nil; store.editingWorkspace = nil; store.showingSettings = false
         case "doc": ArtifactWindow.open(path: arg, api: store.api)
         case "paste":
             // Paste an image file into the first composer of the key window, through the same

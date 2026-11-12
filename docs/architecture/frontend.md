@@ -59,7 +59,7 @@ frontend/
 │   │   ├── RunDocs.swift      # 收集一个 Run 交付、保存和提到的 Markdown 文件
 │   │   ├── Updater.swift      # 应用内更新：检查、按部分下载、校验签名、替换并重新打开
 │   │   └── Snapshots.swift    # 开发用：按命令保存窗口截图
-│   └── UI/                    # 侧栏、工作区首页、Run 各页面、设置窗口（Settings/）
+│   └── UI/                    # 侧栏、工作区首页、Run 各页面、设置页（Settings/）
 ├── Tests/JanusTests/          # Swift Testing 测试
 └── scripts/                   # package.sh（打包，含下载 Node.js）、make-icon.swift（图标）
 ```
@@ -101,7 +101,7 @@ frontend/
 | 工作区设置（表单） | 目录（系统的文件夹选择框）、名称、[共享资料](../domains/agents_and_roles.md#workspace_brief)（显示字数和上限，超过上限不能保存）、启用的角色、主控 |
 | 运行页 | 工具栏切换「工作台 / 审计与回放 / 团队与权限」，「文档」菜单列出这个 Run 的 Markdown 文档（见[文档查看](#markdown_viewer)），并可复制交付摘要、导出事件日志（JSONL）。任务页和 Agent 页的工具栏左侧有返回按钮，此时分段控件不选中任何一项，点「工作台」也能返回 |
 | 任务页 / Agent 页 | 任务页左侧是会话、验收标准和折叠的执行轨迹；右侧一张概要卡片列出执行者、上游、下游和尝试，运行环境折叠在其中，有产物时再显示产物。编排器发给 Agent 的任务说明在会话中每次尝试的开头展开查看。Agent 页是对话和它负责的任务 |
-| 设置窗口（⌘,） | 系统的设置窗口（SwiftUI `Settings`，`UI/Settings/SettingsView.swift`），工具栏切换五个面板，窗口标题跟随面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、MCP 库（导入 GitHub 来源、检查更新、重新拉取、删除，浏览 stdio / HTTP 服务器和挂载它的角色，按变量名设置或清除凭据，清除成功后立即显示「未设置」，见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。角色编辑器可以按来源勾选 MCP 库中的服务器，也可以手工添加 stdio 服务器；来源里消失的资源标为找不到，保存时移除。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
+| 设置页（⌘,） | 覆盖整个主窗口的页面（`UI/Settings/SettingsView.swift`，`AppStore.showingSettings`），不另开窗口。顶部是标题和「完成」（Esc），点「完成」回到打开设置前的页面，页面状态不变。标签切换五个面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、MCP 库（导入 GitHub 来源、检查更新、重新拉取、删除，浏览 stdio / HTTP 服务器和挂载它的角色，按变量名设置或清除凭据，清除成功后立即显示「未设置」，见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。角色编辑器可以按来源勾选 MCP 库中的服务器，也可以手工添加 stdio 服务器；来源里消失的资源标为找不到，保存时移除。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
 
 工作台包含运行卡片（阶段条「推进目标 / 协作 / 交付 / 验收」）、需要你处理、交付结果、[进展](#run_timeline)和 Agent 面板，后四项有内容时才显示。目标可能是一大段粘贴的说明，标题和 Run 列表只显示它的第一行（`goalTitle`），完整目标在运行卡片中展开查看。交付结果依次显示主控的总结、交付物、证据、风险与限制（没有的项不显示）、主控建议写入共享资料的条目（`BriefSuggestions`，带「加入共享资料…」按钮），以及验收操作。
 

@@ -231,16 +231,16 @@ final class AppStore {
     }
     func rememberWorkspace(_ id: String) { UserDefaults.standard.set(id, forKey: "janus.ws") }
 
-    /// The settings window's pane: Agents, roles or ACP adapters. The last one opened comes back.
+    /// The settings page's pane: Agents, roles, libraries or ACP adapters. The last one opened comes back.
     var settingsTab: String = UserDefaults.standard.string(forKey: "janus.settingsTab") ?? "agents" {
         didSet { UserDefaults.standard.set(settingsTab, forKey: "janus.settingsTab") }
     }
-    /// Shows the settings window; set by the main window, which has SwiftUI's openSettings action.
-    @ObservationIgnored var presentSettings: () -> Void = {}
+    /// The settings page covers the main window; closing it shows the screen underneath again.
+    var showingSettings = false
 
     func openSettings(_ tab: String) {
         settingsTab = tab
-        presentSettings()
+        showingSettings = true
     }
     var currentWorkspace: JSON? { workspace(currentWorkspaceId) ?? workspaces.first }
 

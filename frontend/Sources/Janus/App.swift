@@ -14,10 +14,7 @@ struct JanusApp: App {
         .defaultSize(width: 1320, height: 860)
         .commands { JanusCommands(model: delegate.model) }
 
-        // Agents, roles and adapters: the standard settings window (⌘,), one pane each.
-        Settings {
-            SettingsView(model: delegate.model)
-        }
+        // Settings are a page inside the main window (⌘,), not a window of their own.
     }
 }
 
@@ -32,6 +29,9 @@ struct JanusCommands: Commands {
         let onRun: Bool = { if case .run = store?.screen { return run != nil } else { return false } }()
         CommandGroup(after: .appInfo) {
             Button("检查更新…") { Task { await Updater.shared.check(manual: true) } }
+        }
+        CommandGroup(replacing: .appSettings) {
+            Button("设置…") { store?.openSettings(store?.settingsTab ?? "agents") }.keyboardShortcut(",").disabled(store == nil)
         }
         SidebarCommands()
         CommandGroup(replacing: .newItem) {

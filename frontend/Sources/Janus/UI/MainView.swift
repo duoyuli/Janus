@@ -5,9 +5,22 @@ import SwiftUI
 struct MainView: View {
     let store: AppStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        ZStack {
+            split
+            // Settings take over the whole window instead of opening another one; closing them
+            // shows the screen that was there, unchanged.
+            if store.showingSettings {
+                SettingsView(store: store)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    .transition(.opacity)
+            }
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: store.showingSettings)
+    }
+
+    private var split: some View {
         NavigationSplitView {
             Sidebar(store: store)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
@@ -25,7 +38,6 @@ struct MainView: View {
         .sheet(isPresented: Binding(get: { store.editingWorkspace != nil }, set: { if !$0 { store.editingWorkspace = nil } })) {
             if let ws = store.editingWorkspace { WorkspaceEditor(store: store, original: ws) }
         }
-        .onAppear { store.presentSettings = { openSettings() } }
     }
 
     @ViewBuilder private var detail: some View {
@@ -77,7 +89,7 @@ struct Sidebar: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .help("Janus 服务地址")
                     Spacer()
-                    SettingsLink { Label("设置", systemImage: "gearshape") }
+                    Button { store.openSettings(store.settingsTab) } label: { Label("设置", systemImage: "gearshape") }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                         .help("Agents、角色和 ACP 适配器（⌘,）")
