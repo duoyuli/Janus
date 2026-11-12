@@ -148,7 +148,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 { "task": "T1", "instructions": "可选，新的完整说明", "accept": ["可选，新的验收标准"] }
 ```
 
-重新执行失败、已取消或被主控取消的任务，重新给满尝试次数（`task.reopened`，`reason: "lead.retry"`，改过的说明和验收标准记在 `data.instructions`、`data.accept`，恢复时按它们重建任务）。`accept` 不能是空数组。被它阻塞的任务在它成功后自动继续。
+重新执行失败、已取消或被主控取消的任务，重新给满尝试次数（`task.reopened`，`reason: "lead.retry"`，改过的说明和验收标准记在 `data.instructions`、`data.accept`，恢复时按它们重建任务）。`accept` 不能是空数组。被它阻塞的任务在它成功后自动继续；因取消它而被连带取消的任务（`cancel` 的 `data.dependency` 指向它）一并恢复（`task.reopened`，`reason: "upstream.retry"`），主控点名取消的任务不恢复。
 
 <a id="accept_tool"></a>
 ### `accept`
@@ -181,7 +181,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 { "tasks": ["T3"], "reason": "改由主控自己完成" }
 ```
 
-取消任务：还没开始的不再开始，执行中的会话被停止，依赖它们的任务一并取消（都记为 `task.skipped_by_decision`，`actor` 为 `lead`，连带取消的在 `data.dependency` 记录原因）。已完成的任务不受影响。取消后可以用 `retry` 恢复。
+取消任务：还没开始的不再开始，执行中的会话被停止，依赖它们的任务一并取消（都记为 `task.skipped_by_decision`，`actor` 为 `lead`，连带取消的在 `data.dependency` 记录原因）。已完成的任务不受影响。取消后可以用 `retry` 恢复，连带取消的下游会随它恢复。
 
 <a id="task_detail"></a>
 ### `task_detail`

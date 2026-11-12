@@ -61,11 +61,13 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 | --- | --- | --- |
 | `pending` | 等待依赖完成或等待执行者空闲 | 否 |
 | `running` | 有一次尝试在进行 | 否 |
-| `blocked` | 依赖失败，无法开始；依赖重试成功后自动回到 `pending` | 否 |
+| `blocked` | 依赖失败，无法开始；所有依赖都不再是失败状态（被重试或接受）后自动回到 `pending` | 否 |
 | `succeeded` | 成功 | 是 |
 | `failed` | 用完尝试次数 | 是 |
 | `cancelled` | Run 被取消时正在执行 | 是 |
-| `skipped_by_decision` | 被主控取消（`cancel`） | 是 |
+| `skipped_by_decision` | 被主控取消（`cancel`）；连带取消的任务随上游的 `retry` 回到 `pending` | 是 |
+
+这 7 个是调度器写出的状态（`TaskStatus`，`backend/src/status.rs`），合法转移集中在 `TaskStatus::can_transition_to`。应用另外从事件推导几个只用于显示的状态，它们不参与调度：`ready`（`task.ready`）、`assigned`（`task.assigned`）、`verifying`（`verification.started`）、`verification_failed`（`verification.failed`）、`waiting_input`（`question.asked` / `input.requested`）、`waiting_approval`（`approval.requested`）。重启恢复时以看板重建出的 7 个状态为准。
 
 ### 启动条件
 
@@ -76,7 +78,9 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 - 执行者当前没有别的任务在执行。每个成员同一时间只做一个任务，派给同一人的任务排队。
 - Run 没有暂停、没有取消，也没有超出预算。
 
-依赖失败（失败、取消、阻塞或被跳过）时，下游任务变为 `blocked`（`task.blocked`）。
+依赖失败（失败、取消、阻塞或被跳过）时，下游任务变为 `blocked`（`task.blocked`）。有多个依赖失败时，处理好一个后任务仍保持 `blocked`，并再写一条 `task.blocked` 指向还没处理的依赖。
+
+尝试结束、主控 `cancel` / `retry` / `accept` 都会改任务状态。尝试结束时，确认这次尝试仍是任务当前的尝试（`active_attempt`）和写入结果在同一把锁内完成；主控已经取消或重试了这个任务时，这次尝试的结果按过期处理（`attempt.late_result`），尝试记录标为 `cancelled`，不会覆盖主控的决定。
 
 <a id="attempt"></a>
 ## 一次尝试
@@ -162,13 +166,13 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 <a id="delivery_conditions"></a>
 ## 交付条件
 
-调度循环每次唤醒都重新判断结果。「没有可执行任务」指没有任务在执行，也没有任务满足启动条件。
+调度循环每次唤醒都重新判断结果。「没有可执行任务」指没有任务在执行，也没有 `pending` 任务的依赖已全部成功。因暂停或预算而没有启动的任务仍算可执行：主控在暂停期间结束时，Run 等用户继续，不会丢下这些任务直接交付。
 
 | 条件 | 结果 |
 | --- | --- |
 | 没有可执行任务，且主控会话异常结束 | Run 失败（`run.failed`），可以从中断处继续 |
 | 没有可执行任务，且主控目标已结束 | 交付（`run.delivered`），摘要取主控最后一条回复 |
-| 超出预算，且还有未结束的任务 | 等待用户追加预算（`run.budget_exhausted`） |
+| 超出预算，且还有未结束的任务 | 等待用户追加预算（`run.budget_exhausted`）。每次进入等待都写一条：回到运行后主控再加任务、又超出预算时会再次提醒 |
 | 用户暂停，且没有任务在执行 | 暂停 |
 | 其他 | 继续运行 |
 
@@ -183,10 +187,12 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 | `running` | 运行中；暂停时状态也保持 `running` |
 | `waiting_input` | 超出预算，等待用户追加预算或取消 |
 | `delivered` | 已交付，等待验收 |
-| `accepted` | 用户核对后验收 |
+| `accepted` | 用户核对后验收。只能从 `delivered` 进入，之后不再变化 |
 | `cancelled` | 用户取消 |
 | `failed` | Run 失败，例如主控会话异常结束 |
 | `interrupted` | 编排器重启时 Run 还未结束 |
+
+状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning`、`running` 和 `waiting_input` 可以暂停、继续或追加预算；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；`cancelled` 状态会同时置位 `cancelled` 标记。
 
 
 <a id="user_actions"></a>
@@ -210,7 +216,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 重新申请租约，从 `runs.config` 重建团队，从事件日志重建任务：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务。已成功的任务保留结果，失败和阻塞的任务保持原状态，未完成的任务重新开始；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。
+- 从所有 `orchestration.accepted` 事件重建看板任务。已成功的任务保留结果（主控 `accept` 的任务取 `task.succeeded` 中带接受理由的结果和风险），失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。
 - 快照中的 MCP 定义按当前规则重新校验（`check_mcp_names`）：名称规范化后是看板保留名 `janus`，或同一成员有两个同名服务器时，恢复被拒绝并说明原因，Run 保持原来的 `interrupted` 或 `failed` 状态，不会启动任何会话。
 - 排队但还没送达的消息保留下来。
 - 主控以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。

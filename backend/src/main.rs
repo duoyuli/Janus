@@ -7,6 +7,7 @@ mod db;
 mod mcp_sources;
 mod orchestrator;
 mod skill_sources;
+mod status;
 
 use anyhow::Result;
 use axum::extract::{Path as UrlPath, Query, State};

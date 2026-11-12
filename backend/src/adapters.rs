@@ -84,10 +84,31 @@ fn from_source(d: &AdapterDef, dir: &Path) -> bool {
 }
 
 /// What is going on with one adapter right now: an install or update check in progress, or how
-/// the last one ended. Kept in memory; the log file has the full output.
+/// the last one ended. Kept in memory; the log file has the full output. A restart leaves no job
+/// at all, so there is no stale "running" to clear.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum JobState {
+    #[default]
+    Idle,
+    Running,
+    Ok,
+    Error,
+}
+
+impl JobState {
+    fn as_str(self) -> &'static str {
+        match self {
+            JobState::Idle => "idle",
+            JobState::Running => "running",
+            JobState::Ok => "ok",
+            JobState::Error => "error",
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct Job {
-    state: &'static str,
+    state: JobState,
     action: String,
     detail: String,
     started: i64,
@@ -143,7 +164,7 @@ impl App {
                     })
                     .collect();
                 versions.sort_by_key(|v| std::cmp::Reverse(v["installedAt"].as_i64().unwrap_or(0)));
-                let job = jobs.get(d.id).map(|j| json!({ "state": j.state, "action": j.action, "detail": j.detail, "started": j.started, "ended": j.ended }));
+                let job = jobs.get(d.id).map(|j| json!({ "state": j.state.as_str(), "action": j.action, "detail": j.detail, "started": j.started, "ended": j.ended }));
                 let (newest, checked) = latest.get(d.id).cloned().map(|(v, t)| (json!(v), json!(t))).unwrap_or((Value::Null, Value::Null));
                 json!({
                     "id": d.id, "name": d.name, "package": d.package,
@@ -193,7 +214,7 @@ impl App {
     /// Make an installed version current again (roll back, or forward).
     pub fn use_adapter_version(&self, id: &str, version: &str) -> Result<()> {
         def(id)?;
-        if JOBS.lock().unwrap().get(id).is_some_and(|j| j.state == "running") {
+        if JOBS.lock().unwrap().get(id).is_some_and(|j| j.state == JobState::Running) {
             bail!("{id} 的适配器正在安装，等它结束后再切换");
         }
         let dir = self.adapters_dir().join(id);
@@ -415,10 +436,10 @@ fn logged(cmd: &mut Command, log: &Path) -> Result<()> {
 
 fn begin(id: &str, action: &str) -> Result<()> {
     let mut jobs = JOBS.lock().unwrap();
-    if jobs.get(id).is_some_and(|j| j.state == "running") {
+    if jobs.get(id).is_some_and(|j| j.state == JobState::Running) {
         bail!("{id} 的适配器已经在{}中", if action == "install" { "安装" } else { "处理" });
     }
-    jobs.insert(id.to_string(), Job { state: "running", action: action.into(), detail: String::new(), started: now_ms(), ended: 0 });
+    jobs.insert(id.to_string(), Job { state: JobState::Running, action: action.into(), detail: String::new(), started: now_ms(), ended: 0 });
     Ok(())
 }
 
@@ -427,8 +448,8 @@ fn finish(id: &str, r: Result<String>) {
     if let Some(j) = jobs.get_mut(id) {
         j.ended = now_ms();
         match r {
-            Ok(detail) => (j.state, j.detail) = ("ok", detail),
-            Err(err) => (j.state, j.detail) = ("error", format!("{err:#}")),
+            Ok(detail) => (j.state, j.detail) = (JobState::Ok, detail),
+            Err(err) => (j.state, j.detail) = (JobState::Error, format!("{err:#}")),
         }
     }
 }

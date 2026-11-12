@@ -18,7 +18,7 @@ struct HomeView: View {
             guard let r else { return "已删除的角色" }
             let c = store.connection(r["connection"].str)
             if c == nil { return "\(r["name"].str)（未绑定 Agent）" }
-            if c?["status"].str != "ok" { return "\(r["name"].str)（Agent 未测试通过）" }
+            if c?["phase"].str != "ok" { return "\(r["name"].str)（Agent 未测试通过或未登录）" }
             return nil
         }
         let runs = store.runs(of: ws)

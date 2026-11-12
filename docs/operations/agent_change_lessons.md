@@ -83,5 +83,6 @@ CI 只运行 `cargo test`。`cargo fmt --check` 和 `cargo clippy -D warnings` �
 <a id="cleanup_log"></a>
 ## 清理记录
 
+- 2026-11-08：Run、Task、Attempt、Agent 阶段、适配器任务的状态改为枚举，Run 和 Task 的合法转移集中声明（`backend/src/status.rs`）；连接检查和库源检查各自收敛为一个状态值。检查失败时不再保留上一次的「有更新」。应用更新的进度改为枚举，不解析文字。
 - 2026-11-08：修复 J-01，看板 MCP 的 URL 令牌改为由 Run 密钥和 `who` 派生（`session_token`），协作者不能改名为主控或其他任务，测试补上反例；删除测试中的占位变量。新增本文，合并前检查同步写入 `AGENTS.md`。
 - 2026-11-08：Skill 和 MCP 资源库的远端检查、浅克隆、检出替换提取为 `skill_sources.rs` 中的 `check_source`、`clone_fresh`、`mark_fetched`、`swap_checkout`，两个模块共用（L-07）。审查了两个资源库的 Git 调用：只接受 GitHub 链接，ref 和路径拒绝 `..` 与前导 `-`，未发现注入问题。

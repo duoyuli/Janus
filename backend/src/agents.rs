@@ -310,6 +310,23 @@ fn login_kind(c: &Value) -> Option<&str> {
     }
 }
 
+/// One value for the UI to switch on, instead of combining `status` with `login` and `loggedIn`.
+/// The order is the order a person has to clear them: log in, then test the configuration.
+pub(crate) fn connection_phase(c: &Value) -> &'static str {
+    if c["login"]["state"] == "running" {
+        "logging_in"
+    } else if login_kind(c).is_some() && c["loggedIn"].as_bool() != Some(true) {
+        "logged_out"
+    } else {
+        match c["status"].as_str() {
+            Some("testing") => "testing",
+            Some("ok") => "ok",
+            Some("error") => "error",
+            _ => "untested",
+        }
+    }
+}
+
 /// Lowercase ASCII words joined by `-`, or None when nothing usable is left (e.g. an all-Chinese name).
 pub(crate) fn slug(s: &str) -> Option<String> {
     let words: Vec<String> = s
@@ -462,6 +479,7 @@ impl App {
             if !c["login"].is_null() {
                 c["loginLog"] = json!(self.redact(&id, &tail(&dir.join("login.log"), 12)));
             }
+            c["phase"] = json!(connection_phase(c));
         }
         Ok(out)
     }
@@ -2455,6 +2473,18 @@ fn resolve_mcp(m: &Value) -> Result<Value> {
 #[cfg(test)]
 mod session_option_tests {
     use super::*;
+
+    #[test]
+    fn a_connection_has_one_phase() {
+        let codex = |status: &str, login: &str, logged_in: bool| {
+            json!({ "base": "codex", "auth": "chatgpt", "status": status, "login": { "state": login }, "loggedIn": logged_in })
+        };
+        assert_eq!(connection_phase(&codex("ok", "done", true)), "ok");
+        assert_eq!(connection_phase(&codex("ok", "running", false)), "logging_in");
+        assert_eq!(connection_phase(&codex("ok", "done", false)), "logged_out");
+        assert_eq!(connection_phase(&codex("error", "done", true)), "error");
+        assert_eq!(connection_phase(&json!({ "base": "openai", "auth": "key", "status": "untested" })), "untested");
+    }
 
     #[test]
     fn preset_variables_are_defaults_the_agent_settings_override() {

@@ -233,6 +233,15 @@ private func goalRun() -> Log {
     #expect(s.tasks["T1"]?.attempts.last?.end == log.events.last?.ts)
 }
 
+/// The scheduler's seven states plus the six the app derives for display; a new one must get a
+/// label (and a line in docs/domains/run_lifecycle.md) rather than fall back to its raw name.
+@Test func everyTaskStatusHasALabel() {
+    let scheduler = ["pending", "running", "blocked", "succeeded", "failed", "cancelled", "skipped_by_decision"]
+    let derived = ["ready", "assigned", "verifying", "verification_failed", "waiting_input", "waiting_approval"]
+    #expect(Set(L.taskStatus.keys) == Set(scheduler + derived))
+    for s in scheduler + derived { #expect(L.taskStatus[s] != nil, "\(s)") }
+}
+
 @Test func suggestedLinesAreAppendedToTheSharedMaterial() {
     let ws: JSON = ["id": "w", "brief": "目标用户是独立开发者\n"]
     #expect(BriefSuggestions.adding(["定价页在 docs/pricing.md"], to: ws)["brief"].str == "目标用户是独立开发者\n- 定价页在 docs/pricing.md")

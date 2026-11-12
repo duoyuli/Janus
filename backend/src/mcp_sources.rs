@@ -639,6 +639,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::orchestrator::test_app;
+    use crate::status::RunStatus;
     use serde_json::json;
 
     #[test]
@@ -924,16 +925,16 @@ mod tests {
             .unwrap();
 
         // waiting_input is not over: the person may still extend the budget and continue the run.
-        for status in ["planning", "running", "waiting_input", "interrupted", "failed"] {
+        for status in [RunStatus::Planning, RunStatus::Running, RunStatus::WaitingInput, RunStatus::Interrupted, RunStatus::Failed] {
             app.db.set_run_status("r-wait", status).unwrap();
             let err = app.delete_mcp_source(&id).unwrap_err().to_string();
-            assert!(err.contains("r-wait"), "{status}: {err}");
+            assert!(err.contains("r-wait"), "{}: {err}", status.as_str());
         }
         // Finished runs keep the old behaviour: the source can go.
-        for status in ["delivered", "accepted", "cancelled"] {
+        for status in [RunStatus::Delivered, RunStatus::Accepted, RunStatus::Cancelled] {
             app.db.set_run_status("r-wait", status).unwrap();
             app.delete_mcp_source(&id).unwrap();
-            if status != "cancelled" {
+            if status != RunStatus::Cancelled {
                 app.add_mcp_source_at(at(), &url).await.unwrap();
             }
         }
@@ -996,9 +997,9 @@ mod tests {
         for i in 1..=55 {
             let run = format!("r-new-{i}");
             app.db.insert_run(&run, "新目标", &dir.to_string_lossy(), &json!({}), base + i).unwrap();
-            app.db.set_run_status(&run, "delivered").unwrap();
+            app.db.set_run_status(&run, RunStatus::Delivered).unwrap();
         }
-        app.db.set_run_status("r-old", "interrupted").unwrap();
+        app.db.set_run_status("r-old", RunStatus::Interrupted).unwrap();
         assert!(
             !app.db.runs().unwrap().iter().any(|r| r["id"] == "r-old"),
             "the app's newest-50 page does not show the old run"
@@ -1007,7 +1008,7 @@ mod tests {
         assert!(err.contains("r-old"), "an old resumable run still blocks deletion: {err}");
 
         // Once it ends it no longer holds the source.
-        app.db.set_run_status("r-old", "delivered").unwrap();
+        app.db.set_run_status("r-old", RunStatus::Delivered).unwrap();
         app.delete_mcp_source(&id).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -94,4 +94,4 @@ Codex 和 Claude Code 的适配器原来从 npm 安装。npm 上的版本停在 
 <a id="api_shape"></a>
 ## 状态数据
 
-`GET /api/adapters` 为每个适配器返回：`current`（当前版本）、`versions`（已安装的版本及安装时间）、`latest` 和 `checkedAt`（上次检查的结果）、`updateAvailable`、`job`（进行中或上一次安装、检查的状态和结果）、`log`（安装日志的最后 15 行）。安装和检查在后台线程中执行，应用在有任务进行时每 1.5 秒刷新一次。
+`GET /api/adapters` 为每个适配器返回：`current`（当前版本）、`versions`（已安装的版本及安装时间）、`latest` 和 `checkedAt`（上次检查的结果）、`updateAvailable`、`job`（进行中或上一次安装、检查的状态和结果）、`log`（安装日志的最后 15 行）。`job.state` 是 `running`、`ok` 或 `error`；任务只在内存中，进程重启后没有遗留的「进行中」。安装和检查在后台线程中执行，应用在有任务进行时每 1.5 秒刷新一次。

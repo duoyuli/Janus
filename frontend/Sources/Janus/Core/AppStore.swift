@@ -250,7 +250,7 @@ final class AppStore {
     func connection(_ id: String) -> JSON? { connections.first { $0["id"].str == id } }
     func role(_ id: String) -> JSON? { roles.first { $0["id"].str == id } }
     func workspace(_ id: String) -> JSON? { workspaces.first { $0["id"].str == id } }
-    var okConnections: [JSON] { connections.filter { $0["status"].str == "ok" } }
+    var okConnections: [JSON] { connections.filter { $0["phase"].str == "ok" } }
     var boundRoles: [JSON] { roles.filter { $0["connection"].truthy && connection($0["connection"].str) != nil } }
     func runs(of ws: JSON) -> [JSON] {
         runs.filter { r in

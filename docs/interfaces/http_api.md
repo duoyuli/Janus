@@ -190,10 +190,10 @@ Content-Type: application/json
 | `takeover` | `agent` 或 `task` | 接管会话，Agent 每轮结束后等用户消息 |
 | `release` | `agent` 或 `task` | 交还托管 |
 | `finish` | `agent` 或 `task` | 以当前结果结束会话 |
-| `pause` / `resume` | 无 | 暂停时进行中的尝试继续完成，不再启动新任务 |
-| `extendBudget` | `minutes`（默认 60，范围 1 到 1440） | 追加预算；已超时则从现在算起 |
-| `cancel` | 无 | 取消 Run，终止所有会话 |
-| `accept` | 无 | 验收；Run 不在运行时也可以执行 |
+| `pause` / `resume` | 无 | 暂停时进行中的尝试继续完成，不再启动新任务。只在 `planning`、`running`、`waiting_input` 时有效 |
+| `extendBudget` | `minutes`（默认 60，范围 1 到 1440） | 追加预算；已超时则从现在算起。只在 `planning`、`running`、`waiting_input` 时有效 |
+| `cancel` | 无 | 取消 Run，终止所有会话。`accepted`、`cancelled` 等已结束的 Run 返回错误 |
+| `accept` | 无 | 验收，只对 `delivered` 的 Run 有效；Run 不在运行时也可以执行 |
 | `resumeRun` | 无 | 从中断处继续；Run 正在运行时返回 409，早期计划模式的 Run 返回 400 |
 
 `answer`、`approve`、`input` 需要对应的请求仍在等待，否则返回 400「没有等待中的决定」。

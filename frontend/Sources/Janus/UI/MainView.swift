@@ -161,8 +161,8 @@ struct UpdateBadge: View {
             }
             .buttonStyle(.plain)
             .help("下载更新（\(ByteCountFormatter.string(fromByteCount: Int64(updater.downloadSize), countStyle: .file))），完成后自动重新打开")
-        case .working(let text):
-            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(text).font(.caption).foregroundStyle(.secondary) }
+        case .downloading, .verifying, .relaunching:
+            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(updater.state.workingText ?? "").font(.caption).foregroundStyle(.secondary) }
         case .failed(let text) where updater.latest != nil:
             VStack(alignment: .leading, spacing: 2) {
                 Text(text).font(.caption2).foregroundStyle(Tone.red.color).fixedSize(horizontal: false, vertical: true)

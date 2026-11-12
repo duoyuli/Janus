@@ -1,6 +1,7 @@
 //! SQLite fact store. Events are the source of truth; `runs`, `attempts` and `artifacts`
 //! are indexes kept alongside them so the scheduler and UI can query without replaying.
 
+use crate::status::{AttemptStatus, RunStatus};
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -135,10 +136,10 @@ impl Db {
         Ok(())
     }
 
-    pub fn set_run_status(&self, id: &str, status: &str) -> Result<()> {
+    pub fn set_run_status(&self, id: &str, status: RunStatus) -> Result<()> {
         self.0.lock().unwrap().execute(
             "UPDATE runs SET status = ?2 WHERE id = ?1",
-            params![id, status],
+            params![id, status.as_str()],
         )?;
         Ok(())
     }
@@ -222,8 +223,8 @@ impl Db {
         now: i64,
     ) -> Result<()> {
         self.0.lock().unwrap().execute(
-            "INSERT OR REPLACE INTO attempts (run_id, task, n, agent, runtime, status, started_at) VALUES (?1, ?2, ?3, ?4, ?5, 'starting', ?6)",
-            params![run_id, task, n, agent, runtime, now],
+            "INSERT OR REPLACE INTO attempts (run_id, task, n, agent, runtime, status, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![run_id, task, n, agent, runtime, AttemptStatus::Starting.as_str(), now],
         )?;
         Ok(())
     }
@@ -233,7 +234,7 @@ impl Db {
         run_id: &str,
         task: &str,
         n: i64,
-        status: &str,
+        status: AttemptStatus,
         session: Option<&str>,
         workspace: Option<&str>,
         error: Option<&str>,
@@ -244,7 +245,7 @@ impl Db {
                session = COALESCE(?5, session), workspace = COALESCE(?6, workspace),
                error = COALESCE(?7, error), ended_at = COALESCE(?8, ended_at)
              WHERE run_id = ?1 AND task = ?2 AND n = ?3",
-            params![run_id, task, n, status, session, workspace, error, ended],
+            params![run_id, task, n, status.as_str(), session, workspace, error, ended],
         )?;
         Ok(())
     }

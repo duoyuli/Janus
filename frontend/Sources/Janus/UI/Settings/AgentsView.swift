@@ -152,10 +152,17 @@ struct ConnectionRow: View {
     /// The auth method's own `login` flag says whether Janus drives an account login (Codex ChatGPT, Grok xAI).
     private var loginAuth: JSON? { store.kind(c["kind"].str)?["auths"].array.first { $0["id"].str == c["auth"].str && $0["login"].truthy } }
 
+    /// The backend's single `phase` combines the check status with the account login, so the
+    /// label cannot disagree with the buttons below it.
     private var status: (String, Tone) {
-        if c["status"].str == "testing" { return ("检查中…", .blue) }
-        if loginAuth != nil && !c["loggedIn"].truthy { return c["login"]["state"].str == "running" ? ("等待登录", .amber) : ("未登录", .amber) }
-        return ["ok": ("可用", Tone.green), "error": ("失败", .red), "untested": ("未测试", .gray)][c["status"].str] ?? ("未测试", .gray)
+        switch c["phase"].str {
+        case "logging_in": return ("等待登录", .amber)
+        case "logged_out": return ("未登录", .amber)
+        case "testing": return ("检查中…", .blue)
+        case "ok": return ("可用", .green)
+        case "error": return ("失败", .red)
+        default: return ("未测试", .gray)
+        }
     }
 
     private func sub(_ k: JSON?) -> String {

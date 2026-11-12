@@ -105,11 +105,11 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `attempt.late_result` | 过期尝试的结果被忽略 |
 | `task.retry_scheduled` | 安排下一次尝试 |
 | `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks` |
-| `task.blocked` | 硬依赖失败；`data.dependency` |
+| `task.blocked` | 硬依赖失败；`data.dependency`。一个依赖处理好后仍有别的依赖失败时再写一条，指向那个依赖 |
 | `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
 | `task.conflict` | 两个同时执行的任务改了同一批文件；`task` 是发现冲突的一方，`to` 为 `lead`，`data.other` 是另一个任务，`data.paths` 是相对工作目录的文件，见[同时改同一个文件](../domains/goal_mode.md#conflicts) |
 | `task.skipped_by_decision` | 主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
-| `task.reopened` | 主控重试后任务重新开始；`data.reason` 是 `lead.retry`，可能带新的 `data.instructions`、`data.accept` |
+| `task.reopened` | 任务重新开始。`data.reason` 是 `lead.retry`（主控重试，`actor` 为 `lead`，可能带新的 `data.instructions`、`data.accept`）或 `upstream.retry`（因上游被取消而连带取消的任务，随上游的重试恢复，`actor` 为 `janus`，`data.upstream` 是上游任务） |
 
 ### 验证
 

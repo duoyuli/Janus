@@ -210,17 +210,31 @@ pub(crate) async fn check_source(dir: &Path, src: &Value) {
     let Some(mut now) = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else {
         return;
     };
+    record_check(&mut now, &git_ref, &target, answer);
+    let _ = std::fs::write(file, serde_json::to_string_pretty(&now).unwrap_or_default());
+}
+
+/// Write one check's answer into a source. A failed check clears the last known update, so the
+/// UI shows the error instead of a stale「有更新」.
+fn record_check(now: &mut Value, git_ref: &str, target: &str, answer: Result<String>) {
     now["checkedAt"] = json!(now_ms());
-    match answer.map(|out| remote_head(&out, &git_ref)) {
+    match answer.map(|out| remote_head(&out, git_ref)) {
         Ok(Some(sha)) => {
             now["updateAvailable"] = json!(now["commit"].as_str().is_some_and(|c| !c.is_empty() && c != sha));
             now["latest"] = json!(sha);
             now["checkError"] = json!("");
         }
-        Ok(None) => now["checkError"] = json!(format!("远端没有 {target}")),
-        Err(e) => now["checkError"] = json!(format!("{e:#}")),
+        Ok(None) => {
+            now["updateAvailable"] = json!(false);
+            now["latest"] = json!("");
+            now["checkError"] = json!(format!("远端没有 {target}"));
+        }
+        Err(e) => {
+            now["updateAvailable"] = json!(false);
+            now["latest"] = json!("");
+            now["checkError"] = json!(format!("{e:#}"));
+        }
     }
-    let _ = std::fs::write(file, serde_json::to_string_pretty(&now).unwrap_or_default());
 }
 
 /// Shallow-clone a source's repository into a fresh folder beside its checkout. Returns the folder
@@ -515,6 +529,21 @@ mod tests {
         assert_eq!(remote_head(out, "main").as_deref(), Some("bbb"));
         assert_eq!(remote_head(out, "v1").as_deref(), Some("ddd"), "an annotated tag is peeled");
         assert_eq!(remote_head(out, "gone"), None);
+    }
+
+    #[test]
+    fn a_failed_check_clears_a_stale_update() {
+        let mut src = json!({ "commit": "aaa", "latest": "bbb", "updateAvailable": true, "checkError": "" });
+        record_check(&mut src, "", "HEAD", Err(anyhow::anyhow!("offline")));
+        assert_eq!(src["updateAvailable"], false);
+        assert_eq!(src["latest"], "");
+        assert!(src["checkError"].as_str().unwrap().contains("offline"));
+        assert!(src["checkedAt"].as_i64().unwrap() > 0);
+
+        record_check(&mut src, "", "HEAD", Ok("aaa\tHEAD\n".into()));
+        assert_eq!(src["updateAvailable"], false);
+        assert_eq!(src["latest"], "aaa");
+        assert_eq!(src["checkError"], "");
     }
 
     #[test]

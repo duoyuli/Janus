@@ -73,6 +73,7 @@ frontend/
 
 - 新增或修改事件类型时，必须同步更新 `derive` 中对应的分支，否则界面不会反映新状态；看板条目依赖 `boardFacts` 对事件类型和 `data` 字段的解释。检查清单见[事件参考](../interfaces/events.md)。
 - 缺少前提的事件（例如引用了看板上没有的任务）被跳过，不中断推导。早期计划模式 Run 的计划、评审等事件不再推导，这些 Run 只显示会话、交付和审计日志，见[早期版本的 Run](../domains/run_lifecycle.md#early_plan_runs)。
+- 任务的后端状态只有 7 个（`TaskStatus`，见[任务状态](../domains/run_lifecycle.md#scheduling)）；`derive` 另外推导 `ready`、`assigned`、`verifying`、`verification_failed`、`waiting_input`、`waiting_approval` 等只用于显示的状态。
 - 「待处理」分两类：用户要处理的事项（来自 `inbox`，以及主控可能卡住，标「等你决定」，排在前面）和主控在处理的事项（协作者的阻塞和提问、两个任务改了同一个文件、可能卡住的任务、失败的任务、依赖失败的任务，标「主控处理」）。可能卡住的任务来自 `task.stalled`，收到 `data.resolved: true`、执行它的 Agent 再有任何事件、新的尝试开始或任务不再执行时移除。主控可能卡住来自 `lead.stalled`，收到 `data.resolved: true` 或 Run 结束时移除。改了同一个文件来自 `task.conflict`，两个任务都不再执行时移除。只有存在前一类时，这一栏才用警示色。还在路上的消息只显示在各会话的「待发送」区，不进入这一栏。
 - 同一个待处理事项（按 `key`）在 `inbox` 中只保留一条。事项被回答、撤回（`decision.withdrawn`）或 Run 结束后，从「需要你处理」中移除。
 
@@ -114,6 +115,8 @@ frontend/
 3. **下载**：`plan` 决定下载哪些部分：应用部分总是下载；Node.js 部分只在 `update.json` 的内容哈希与本机 `update-parts.json` 不同时下载。下载到 `~/.janus/updates/<版本>/`，逐个核对 SHA-256。
 4. **拼装与校验**：解开应用部分，Node.js 用下载的部分，或用 `cp -c` 克隆本机的（APFS 上不占额外空间），去掉隔离标记。然后用 Security 框架校验：签名完整（含嵌套代码，`kSecCSStrictValidate`），版本号与发布一致；当前应用有固定签名者时，还要满足当前应用的指定要求，否则拒绝安装。沿用的 Node.js 导致签名不符时，改为下载 Node.js 部分再试一次。
 5. **替换**：写出 `~/.janus/updates/install.sh` 并在后台启动，然后退出应用（跳过「还有正在执行的任务」的确认，确认已在第 2 步做过；退出照常停止应用启动的服务）。脚本等应用进程结束，把旧应用移到 `~/.janus/updates/previous/Janus.app`，移入新应用并 `open`，记录写在 `~/.janus/logs/update.log`。移入失败时放回旧应用。
+
+更新过程的状态是 `Updater.State`：`idle`、`checking`、`upToDate`、`available`、`downloading`、`verifying`、`relaunching`、`failed`。侧栏只按状态显示，不再解析进度文字。
 
 以下情况不能自动更新，侧栏给出原因：应用被 macOS 放在隔离位置运行（路径含 `AppTranslocation`，没有拖进「应用程序」就打开时会这样）、应用所在目录不可写、下载或校验失败。
 

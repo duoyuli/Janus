@@ -51,6 +51,8 @@ Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/se
 
 第 5 步读到的控制项是角色编辑器的选项来源。Agent 升级后控制项变化时，重新检查即可刷新。
 
+`GET /api/connections` 为每个连接额外返回 `phase`，应用只按这一个值显示状态，不再自己组合 `status`、`login.state` 和 `loggedIn`。取值依次为 `logging_in`（登录命令正在运行）、`logged_out`（需要账号登录但本机没有 `auth.json`）、`testing`、`ok`、`error`、`untested`。
+
 <a id="permission_modes"></a>
 ## 会话控制项与权限模式
 
@@ -215,7 +217,7 @@ Skill 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 ma
 <a id="skill_source_updates"></a>
 #### 检测更新
 
-- **检查**（`check_skill_sources`）：对每个来源执行 `git ls-remote`，只读取远端 ref 指向的提交，不下载内容。没有指定 ref 时看 `HEAD`；指定了时依次找同名分支、同名标签（附注标签取它指向的提交）。远端提交与本地 `commit` 不同时，`source.json` 记 `updateAvailable: true` 和 `latest`；检查失败时记 `checkError`，不影响已有的 Skill。
+- **检查**（`check_skill_sources`）：对每个来源执行 `git ls-remote`，只读取远端 ref 指向的提交，不下载内容。没有指定 ref 时看 `HEAD`；指定了时依次找同名分支、同名标签（附注标签取它指向的提交）。远端提交与本地 `commit` 不同时，`source.json` 记 `updateAvailable: true` 和 `latest`；检查失败时记 `checkError` 并清掉上一次的 `updateAvailable` 和 `latest`，界面显示错误而不是旧的「有更新」，不影响已有的 Skill。
 - **时机**：服务启动 30 秒后检查一次，之后每 6 小时一次（`CHECK_EVERY`）；用户也可以在 Skill 库中点「检查更新」（`POST /api/skill-sources/check`）。
 - **提醒**：应用启动时读取来源，之后每 10 分钟重读一次。有来源可以更新时，主窗口侧栏底部显示「N 个 Skill 来源有更新」（点击打开 Skill 库），设置的「Skill 库」标签带更新数量，Skill 库顶部列出这些来源并提供「全部更新」，每个来源标「有更新」和「更新」按钮，角色编辑器中该来源的分组旁也有「更新」。
 - **一键更新**：与手动更新相同，重新拉取后 `updateAvailable` 清零。更新后角色挂载的 Skill 不在仓库中时，应用提示数量。

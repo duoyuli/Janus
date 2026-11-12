@@ -20,10 +20,30 @@ import Security
 final class Updater {
     static let shared = Updater()
 
+    /// The update's own progress, with each step a case instead of a string the UI parses.
     enum State: Equatable {
         case idle, checking, upToDate, available
-        case working(String)
+        case downloading(part: String, index: Int, count: Int, size: String)
+        case verifying
+        case relaunching
         case failed(String)
+
+        var isWorking: Bool {
+            switch self {
+            case .downloading, .verifying, .relaunching: true
+            default: false
+            }
+        }
+
+        /// What the sidebar shows while installing.
+        var workingText: String? {
+            switch self {
+            case .downloading(let part, let index, let count, let size): "正在下载 \(part)（\(index)/\(count)，\(size)）…"
+            case .verifying: "正在校验新版本…"
+            case .relaunching: "正在重新打开…"
+            default: nil
+            }
+        }
     }
 
     struct Part: Equatable {
@@ -99,7 +119,7 @@ final class Updater {
             if manual { info("从源码运行的 Janus 不检查更新", "安装包里的 Janus.app 才会在应用内更新。") }
             return
         }
-        if case .working = state { return }
+        if state.isWorking { return }
         state = .checking
         do {
             let rel = try await Self.fetchLatest(repo: repo)
@@ -200,7 +220,7 @@ final class Updater {
             try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
             var parts = Self.plan(r, installedNode: installed)
             try await fetch(parts, into: stage)
-            state = .working("正在校验新版本…")
+            state = .verifying
             var app = try await Self.assemble(r, parts: parts, stage: stage, current: bundle)
             if (try? await Self.verify(app, like: bundle, version: r.version)) == nil, !parts.contains(where: { $0.name == "node" }),
                let node = r.parts.first(where: { $0.name == "node" }) {
@@ -210,7 +230,7 @@ final class Updater {
                 app = try await Self.assemble(r, parts: parts, stage: stage, current: bundle)
             }
             try await Self.verify(app, like: bundle, version: r.version)
-            state = .working("正在重新打开…")
+            state = .relaunching
             try relaunch(into: app)
         } catch {
             state = .failed("更新失败：\(error.localizedDescription)")
@@ -220,7 +240,7 @@ final class Updater {
     private func fetch(_ parts: [Part], into stage: URL) async throws {
         for (i, p) in parts.enumerated() {
             let size = ByteCountFormatter.string(fromByteCount: Int64(p.size), countStyle: .file)
-            state = .working("正在下载 \(p.name == "node" ? "Node.js" : "Janus")（\(i + 1)/\(parts.count)，\(size)）…")
+            state = .downloading(part: p.name == "node" ? "Node.js" : "Janus", index: i + 1, count: parts.count, size: size)
             guard let url = p.url else { throw UpdateError("缺少 \(p.file) 的下载地址") }
             var req = URLRequest(url: url)
             req.timeoutInterval = 120

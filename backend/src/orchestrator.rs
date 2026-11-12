@@ -4,6 +4,7 @@
 
 use crate::acp::{AcpConn, Incoming};
 use crate::db::{Db, Event};
+use crate::status::{AgentPhase, AttemptStatus, RunStatus, TaskStatus};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -152,23 +153,11 @@ fn default_max_attempts() -> i64 {
     MAX_ATTEMPTS
 }
 
-fn terminal_task_status(status: &str) -> bool {
-    matches!(
-        status,
-        "succeeded" | "failed" | "cancelled" | "skipped_by_decision"
-    )
-}
-
 impl TaskDef {
-    fn dep_failed(&self, statuses: &HashMap<String, &'static str>) -> Option<String> {
+    fn dep_failed(&self, statuses: &HashMap<String, TaskStatus>) -> Option<String> {
         self.deps
             .iter()
-            .find(|id| {
-                matches!(
-                    statuses.get(*id),
-                    Some(&"failed") | Some(&"cancelled") | Some(&"blocked") | Some(&"skipped_by_decision")
-                )
-            })
+            .find(|id| statuses.get(*id).is_some_and(|s| s.failed_dependency()))
             .cloned()
     }
 }
@@ -247,7 +236,7 @@ struct Check {
 struct Task {
     def: TaskDef,
     agent: String,
-    status: &'static str,
+    status: TaskStatus,
     attempts: i64,
     result: Option<TaskResult>,
     /// The failed dependency a blocked task waits on.
@@ -259,6 +248,9 @@ struct Task {
     retry_base: i64,
     /// The lead's corrections to this task's conclusion, handed on with it (`result.amended`).
     amendments: Vec<String>,
+    /// The upstream task whose cancellation dropped this one (`task.skipped_by_decision` with a
+    /// `dependency`); retrying that task brings this one back.
+    skipped_because: Option<String>,
 }
 
 impl Task {
@@ -266,7 +258,7 @@ impl Task {
         Task {
             def,
             agent,
-            status: "pending",
+            status: TaskStatus::Pending,
             attempts: 0,
             result: None,
             blocked_by: None,
@@ -275,13 +267,33 @@ impl Task {
             active_attempt: None,
             retry_base: 0,
             amendments: vec![],
+            skipped_because: None,
         }
+    }
+
+    /// Move to `to`; an illegal step is a scheduler bug, so tests stop on it and a release
+    /// build records it instead of silently accepting it.
+    fn set_status(&mut self, to: TaskStatus) {
+        if !self.status.can_transition_to(to) {
+            crate::config::log(format!(
+                "janus: task {}: illegal status {:?} -> {:?}",
+                self.def.id, self.status, to
+            ));
+        }
+        debug_assert!(
+            self.status.can_transition_to(to),
+            "task {}: {:?} -> {:?}",
+            self.def.id,
+            self.status,
+            to
+        );
+        self.status = to;
     }
 }
 
 #[derive(Default)]
 struct RunState {
-    status: String,
+    status: RunStatus,
     paused: bool,
     cancelled: bool,
     tasks: Vec<Task>,
@@ -321,8 +333,6 @@ struct RunState {
     touched: HashMap<String, BTreeSet<String>>,
     /// Conflicts already reported: (task, other task, file), the two tasks in sorted order.
     conflicts: HashSet<(String, String, String)>,
-    /// Each pause point is announced once, until the run moves on.
-    budget_notified: bool,
 }
 
 pub struct Run {
@@ -518,8 +528,33 @@ impl App {
         let _ = self.tx.send(event);
     }
 
-    fn set_status(&self, run: &Run, status: &str) {
-        run.st.lock().unwrap().status = status.into();
+    /// The only place a run's lifecycle state changes. `RunStatus` states the legal moves;
+    /// cancelling also records the flag the schedulers check.
+    fn set_status(&self, run: &Run, status: RunStatus) {
+        {
+            let mut st = run.st.lock().unwrap();
+            if !st.status.can_transition_to(status) {
+                crate::config::log(format!(
+                    "janus: run {}: illegal status {:?} -> {:?}",
+                    run.id, st.status, status
+                ));
+            }
+            debug_assert!(
+                st.status.can_transition_to(status),
+                "run {}: {:?} -> {:?}",
+                run.id,
+                st.status,
+                status
+            );
+            st.status = status;
+            if status == RunStatus::Cancelled {
+                st.cancelled = true;
+            }
+            // Pausing only makes sense while work can still start; a finished Run is not paused.
+            if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
+                st.paused = false;
+            }
+        }
         let _ = self.db.set_run_status(&run.id, status);
     }
 
@@ -627,7 +662,7 @@ impl App {
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
-                status: "planning".into(),
+                status: RunStatus::Planning,
                 ..Default::default()
             }),
             wake: Notify::new(),
@@ -657,7 +692,7 @@ impl App {
                         ev("run.failed", "janus", format!("Run 失败：{err:#}"))
                             .data(json!({ "error": format!("{err:#}") })),
                     );
-                    app.set_status(&run, "failed");
+                    app.set_status(&run, RunStatus::Failed);
                     // A failed run is rebuilt from its event log when the person continues it.
                     app.runs.lock().unwrap().remove(&run.id);
                 }
@@ -738,28 +773,36 @@ impl App {
             let over_budget = now_ms() > run.deadline_ms.load(Ordering::SeqCst);
             let (starts, blocked, outcome) = {
                 let mut st = run.st.lock().unwrap();
-                let statuses: HashMap<String, &'static str> = st
+                let statuses: HashMap<String, TaskStatus> = st
                     .tasks
                     .iter()
                     .map(|t| (t.def.id.clone(), t.status))
                     .collect();
                 let succeeded: HashSet<String> = statuses
                     .iter()
-                    .filter_map(|(id, status)| (*status == "succeeded").then_some(id.clone()))
+                    .filter_map(|(id, status)| (*status == TaskStatus::Succeeded).then_some(id.clone()))
                     .collect();
                 let mut blocked = vec![];
-                for t in st.tasks.iter_mut().filter(|t| t.status == "pending") {
+                for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
                     if let Some(dep) = t.def.dep_failed(&statuses) {
-                        t.status = "blocked";
+                        t.set_status(TaskStatus::Blocked);
                         t.blocked_by = Some(dep.clone());
                         blocked.push((t.def.id.clone(), dep));
                     }
                 }
-                // A blocked task starts again once its failed dependency was retried and succeeded.
-                for t in st.tasks.iter_mut() {
-                    if t.status == "blocked" && t.blocked_by.as_ref().is_some_and(|b| succeeded.contains(b)) {
-                        t.status = "pending";
-                        t.blocked_by = None;
+                // A blocked task waits again once none of its dependencies is failed any more (the
+                // lead retried or accepted them); one still failed keeps it blocked, and is named.
+                for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Blocked) {
+                    match t.def.dep_failed(&statuses) {
+                        None => {
+                            t.set_status(TaskStatus::Pending);
+                            t.blocked_by = None;
+                        }
+                        Some(dep) if t.blocked_by.as_ref() != Some(&dep) => {
+                            t.blocked_by = Some(dep.clone());
+                            blocked.push((t.def.id.clone(), dep));
+                        }
+                        Some(_) => {}
                     }
                 }
                 let mut starts = vec![];
@@ -767,13 +810,13 @@ impl App {
                     let mut busy: HashSet<String> = st
                         .tasks
                         .iter()
-                        .filter(|t| t.status == "running")
+                        .filter(|t| t.status == TaskStatus::Running)
                         .map(|t| t.agent.clone())
                         .collect();
-                    for t in st.tasks.iter_mut().filter(|t| t.status == "pending") {
+                    for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
                         if t.def.deps.iter().all(|d| succeeded.contains(d)) && !busy.contains(&t.agent) {
                             busy.insert(t.agent.clone());
-                            t.status = "running";
+                            t.set_status(TaskStatus::Running);
                             t.attempts += 1;
                             let attempt_id =
                                 format!("{}-{}-{}-{}", run.id, t.def.id, t.attempts, now_ms());
@@ -787,19 +830,22 @@ impl App {
                         }
                     }
                 }
-                let active = st.tasks.iter().any(|t| t.status == "running");
-                let stalled = !active && starts.is_empty();
-                let all_terminal = st.tasks.iter().all(|t| terminal_task_status(t.status));
+                let active = st.tasks.iter().any(|t| t.status == TaskStatus::Running);
+                // A task that could start but for a pause or the budget is still work to do: the
+                // run waits for the person instead of delivering without it.
+                let runnable = st.tasks.iter().any(|t| t.status == TaskStatus::Pending && t.def.deps.iter().all(|d| succeeded.contains(d)));
+                let finished = !active && !runnable;
+                let all_terminal = st.tasks.iter().all(|t| t.status.terminal());
                 // The lead decides what a failure means (it reads it on the board), so nothing
                 // waits for the person; the run ends once the lead is done and no task is running
                 // or can still start.
-                let outcome = if let (true, Some(Err(err))) = (stalled, &st.lead_done) {
+                let outcome = if let (true, Some(Err(err))) = (finished, &st.lead_done) {
                     Outcome::LeadFailed(err.clone())
-                } else if stalled && st.lead_done.is_some() {
+                } else if finished && st.lead_done.is_some() {
                     Outcome::Deliver
                 } else if over_budget && !all_terminal {
                     Outcome::Budget
-                } else if stalled && st.paused {
+                } else if !active && starts.is_empty() && st.paused {
                     Outcome::Paused
                 } else {
                     Outcome::Running
@@ -871,10 +917,10 @@ impl App {
                     bail!("主控的会话异常结束：{err}");
                 }
                 Outcome::Budget => {
-                    let announce =
-                        !std::mem::replace(&mut run.st.lock().unwrap().budget_notified, true);
-                    if announce {
-                        self.set_status(run, "waiting_input");
+                    // Announced each time the run comes to wait on the budget, including when the
+                    // lead adds work after the run went back to running.
+                    if run.st.lock().unwrap().status != RunStatus::WaitingInput {
+                        self.set_status(run, RunStatus::WaitingInput);
                         self.emit(
                             run,
                             ev(
@@ -887,9 +933,9 @@ impl App {
                     }
                 }
                 Outcome::Running | Outcome::Paused => {
-                    let status = run.st.lock().unwrap().status.clone();
-                    if status != "running" {
-                        self.set_status(run, "running");
+                    let status = run.st.lock().unwrap().status;
+                    if status != RunStatus::Running {
+                        self.set_status(run, RunStatus::Running);
                     }
                 }
             }
@@ -1005,7 +1051,7 @@ impl App {
                 st.mcp_token = random_token();
             }
         }
-        self.set_status(run, "running");
+        self.set_status(run, RunStatus::Running);
         let (app, r) = (self.clone(), run.clone());
         tokio::spawn(async move { app.push_loop(&r).await });
         let (app, r) = (self.clone(), run.clone());
@@ -1111,7 +1157,7 @@ impl App {
             .unwrap()
             .tasks
             .iter()
-            .filter(|t| t.status == "running")
+            .filter(|t| t.status == TaskStatus::Running)
             .map(|t| t.def.id.clone())
             .collect();
         for e in events.iter().filter(|e| e.kind == "question.asked") {
@@ -1183,7 +1229,7 @@ impl App {
             })
             .await
             .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-            self.emit(run, ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" }).data(json!({ "phase": "thinking", "session": sid, "config": applied, "mode": "goal" })));
+            self.emit(run, ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" }).data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied, "mode": "goal" })));
             {
                 let mut st = run.st.lock().unwrap();
                 st.lead_session = Some(sid.clone());
@@ -1226,7 +1272,7 @@ impl App {
                     continue;
                 }
                 if ctl.human && !ctl.finish {
-                    self.emit(run, ev("agent.status", "lead", "这一轮已结束，等待你的消息（人工接管中）").data(json!({ "phase": "waiting_for_input", "turn": "idle" })));
+                    self.emit(run, ev("agent.status", "lead", "这一轮已结束，等待你的消息（人工接管中）").data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })));
                     loop {
                         match ctl.rx.recv().await {
                             None => return Err(Cancelled.into()),
@@ -1586,7 +1632,7 @@ impl App {
             if !entries.is_empty() {
                 return format!("看板上的新消息：\n{}", entries.join("\n"));
             }
-            let open = run.st.lock().unwrap().tasks.iter().any(|t| !terminal_task_status(t.status));
+            let open = run.st.lock().unwrap().tasks.iter().any(|t| !t.status.terminal());
             if !open {
                 return "看板上没有新消息，也没有在执行或等待的任务。".into();
             }
@@ -1618,12 +1664,12 @@ impl App {
             self.resolve(run, &key, json!({ "answer": text, "note": "" })).map_err(|e| format!("{e:#}"))?;
             return Ok(format!("已回答 {task} 的提问，{agent} 会接着做。"));
         }
-        let status = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.status).unwrap_or("");
-        if live.is_none() && terminal_task_status(status) {
+        let status = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.status).unwrap_or(TaskStatus::Pending);
+        if live.is_none() && status.terminal() {
             // A reply to a finished task would otherwise wait for whatever this agent does next.
             return Err(format!(
                 "{task} 已经结束（{}），{agent} 没有在做这个任务，消息不会送达。需要它继续做事，请用 janus.retry 重新执行 {task}，或用 janus.orchestrate 新建任务。",
-                task_status_label(status)
+                status.label()
             ));
         }
         let msg = self.post_message(run, "lead", &agent, task, &format!("{LEAD_REPLY}{text}"), &[]);
@@ -1654,12 +1700,13 @@ impl App {
             let Some(t) = Run::task_mut(&mut st, task) else {
                 return Err(format!("看板上没有任务 {task}"));
             };
-            if !matches!(t.status, "failed" | "cancelled" | "skipped_by_decision") {
-                return Err(format!("{task} 现在是「{}」，只能重试失败或已取消的任务", task_status_label(t.status)));
+            if !matches!(t.status, TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::SkippedByDecision) {
+                return Err(format!("{task} 现在是「{}」，只能重试失败或已取消的任务", t.status.label()));
             }
-            t.status = "pending";
+            t.set_status(TaskStatus::Pending);
             t.active_attempt = None;
             t.retry_base = t.attempts;
+            t.skipped_because = None;
             // A new run of the task brings a new conclusion; earlier corrections were about the old one.
             t.amendments.clear();
             if let Some(i) = instructions {
@@ -1667,6 +1714,22 @@ impl App {
             }
             if let Some(a) = &accept {
                 t.def.accept = a.clone();
+            }
+        }
+        // Tasks the lead's `cancel` dropped only because of this one come back with it (and theirs
+        // with them); a task the lead cancelled by name stays cancelled.
+        let mut revived: Vec<(String, String)> = vec![];
+        {
+            let mut st = run.st.lock().unwrap();
+            let mut queue = vec![task.to_string()];
+            while let Some(up) = queue.pop() {
+                for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::SkippedByDecision && t.skipped_because.as_deref() == Some(up.as_str())) {
+                    t.set_status(TaskStatus::Pending);
+                    t.skipped_because = None;
+                    t.retry_base = t.attempts;
+                    revived.push((t.def.id.clone(), up.clone()));
+                    queue.push(t.def.id.clone());
+                }
             }
         }
         let mut data = json!({ "reason": "lead.retry" });
@@ -1677,8 +1740,18 @@ impl App {
             data["accept"] = json!(a);
         }
         self.emit(run, ev("task.reopened", "lead", format!("主控要求重新执行 {task}")).task(task).data(data));
+        for (id, up) in &revived {
+            self.emit(run, ev("task.reopened", "janus", format!("{up} 重新执行，因它取消的 {id} 恢复等待")).task(id).data(json!({ "reason": "upstream.retry", "upstream": up })));
+        }
         run.wake.notify_one();
-        Ok(format!("{task} 会重新执行，依赖它的任务会在它成功后继续。"))
+        if revived.is_empty() {
+            Ok(format!("{task} 会重新执行，依赖它的任务会在它成功后继续。"))
+        } else {
+            Ok(format!(
+                "{task} 会重新执行，依赖它的任务会在它成功后继续；因它被取消的 {} 也恢复了。",
+                revived.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")
+            ))
+        }
     }
 
     /// The lead accepts a result that failed only its verification (for example a command that
@@ -1702,20 +1775,19 @@ impl App {
         let error = failed.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or("验证失败").to_string();
         result.risks.push(format!("{error}；主控接受了结果：{reason}"));
         {
-            let st = run.st.lock().unwrap();
-            if st.tasks.iter().find(|t| t.def.id == task).map(|t| t.status) != Some("failed") {
+            // Checked and settled in one step, so a retry or cancel in between is not overwritten.
+            let mut st = run.st.lock().unwrap();
+            let Some(t) = Run::task_mut(&mut st, task).filter(|t| t.status == TaskStatus::Failed) else {
                 return Err(format!("{task} 已经不在失败状态"));
-            }
+            };
+            t.set_status(TaskStatus::Succeeded);
+            t.result = Some(result.clone());
         }
         let seq = self.emit(run, ev("task.succeeded", "lead", format!("主控接受 {task} 的结果：{}", short(reason, 60))).task(task).attempt(submitted.attempt.unwrap_or(0)).data(json!({
             "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "acceptedBy": "lead", "reason": reason
         })));
-        {
-            let mut st = run.st.lock().unwrap();
-            let t = Run::task_mut(&mut st, task).unwrap();
-            t.status = "succeeded";
+        if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), task) {
             t.succeeded_seq = Some(seq);
-            t.result = Some(result);
         }
         run.wake.notify_one();
         Ok(format!("已接受 {task} 的结果，依赖它的任务会继续。"))
@@ -1787,8 +1859,8 @@ impl App {
             let Some(t) = Run::task_mut(&mut st, task) else {
                 return Err(format!("看板上没有任务 {task}"));
             };
-            if t.status != "succeeded" {
-                return Err(format!("{task} 现在是「{}」，只能修订已完成任务的结论；还在执行的任务用 janus.reply", task_status_label(t.status)));
+            if t.status != TaskStatus::Succeeded {
+                return Err(format!("{task} 现在是「{}」，只能修订已完成任务的结论；还在执行的任务用 janus.reply", t.status.label()));
             }
             t.amendments.push(text.to_string());
             let downstream: Vec<&Task> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).collect();
@@ -1796,7 +1868,7 @@ impl App {
                 .iter()
                 .filter_map(|x| st.live.get(&x.def.id).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone())))
                 .collect();
-            let done: Vec<String> = downstream.iter().filter(|x| x.status == "succeeded").map(|x| x.def.id.clone()).collect();
+            let done: Vec<String> = downstream.iter().filter(|x| x.status == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect();
             (running, done)
         };
         self.emit(run, ev("result.amended", "lead", format!("主控修订 {task} 的结论：{}", short(text, 60))).task(task).data(json!({ "text": text })));
@@ -1832,11 +1904,12 @@ impl App {
             let mut queue: Vec<(String, Option<String>)> = wanted.iter().map(|id| (id.clone(), None)).collect();
             while let Some((id, because)) = queue.pop() {
                 let t = Run::task_mut(&mut st, &id).unwrap();
-                if matches!(t.status, "succeeded" | "skipped_by_decision") || dropped.iter().any(|(d, _)| d == &id) {
+                if matches!(t.status, TaskStatus::Succeeded | TaskStatus::SkippedByDecision) || dropped.iter().any(|(d, _)| d == &id) {
                     continue;
                 }
-                t.status = "skipped_by_decision";
+                t.set_status(TaskStatus::SkippedByDecision);
                 t.active_attempt = None;
+                t.skipped_because = because.clone();
                 dropped.push((id.clone(), because));
                 for d in st.tasks.iter().filter(|x| x.def.deps.contains(&id)) {
                     queue.push((d.def.id.clone(), Some(id.clone())));
@@ -1893,10 +1966,10 @@ impl App {
             return Err(format!("看板上没有任务 {task}"));
         };
         let name = |agent: &str| run.member(agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.to_string());
-        let label = |id: &str| format!("{id}（{}）", st.tasks.iter().find(|x| x.def.id == id).map(|x| task_status_label(x.status)).unwrap_or("不在看板上"));
+        let label = |id: &str| format!("{id}（{}）", st.tasks.iter().find(|x| x.def.id == id).map(|x| x.status.label()).unwrap_or("不在看板上"));
         let mine = |e: &&Event| e.task.as_deref() == Some(task);
         let mut out = vec![
-            format!("任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次", t.def.title, name(&t.agent), t.agent, task_status_label(t.status), t.attempts),
+            format!("任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次", t.def.title, name(&t.agent), t.agent, t.status.label(), t.attempts),
             format!("说明：{}", t.def.desc),
             format!("验收标准：\n{}", t.def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")),
         ];
@@ -1922,10 +1995,10 @@ impl App {
         if !t.amendments.is_empty() {
             out.push(format!("主控的修订（以此为准）：{}", t.amendments.join("；")));
         }
-        if let Some(v) = st.last_verification.get(task).filter(|_| t.status != "succeeded") {
+        if let Some(v) = st.last_verification.get(task).filter(|_| t.status != TaskStatus::Succeeded) {
             out.push(format!("最近一次没通过验收核对：\n{v}"));
         }
-        if let Some(e) = events.iter().rev().filter(mine).find(|e| e.kind == "attempt.failed").filter(|_| t.status != "succeeded") {
+        if let Some(e) = events.iter().rev().filter(mine).find(|e| e.kind == "attempt.failed").filter(|_| t.status != TaskStatus::Succeeded) {
             out.push(format!("最近一次尝试失败：{}", e.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or(&e.text)));
         }
         if let Some(files) = st.touched.get(task).filter(|f| !f.is_empty()) {
@@ -1988,11 +2061,11 @@ impl App {
                 let common: Vec<String> = theirs.intersection(&my_files).cloned().collect();
                 if !common.is_empty() {
                     tags.push(format!("和你都改了 {}", common.join("、")));
-                } else if t.status == "running" && !theirs.is_empty() {
+                } else if t.status == TaskStatus::Running && !theirs.is_empty() {
                     tags.push(format!("改过 {}", theirs.iter().take(5).cloned().collect::<Vec<_>>().join("、")));
                 }
                 let who = run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent);
-                format!("- {}「{}」· {who} · {}{}", t.def.id, t.def.title, task_status_label(t.status), if tags.is_empty() { String::new() } else { format!(" · {}", tags.join(" · ")) })
+                format!("- {}「{}」· {who} · {}{}", t.def.id, t.def.title, t.status.label(), if tags.is_empty() { String::new() } else { format!(" · {}", tags.join(" · ")) })
             })
             .collect();
         let posts: Vec<String> = events
@@ -2164,12 +2237,41 @@ impl App {
         if let Err(err) = result {
             let msg = format!("{err:#}");
             let verification = err.downcast_ref::<VerificationFailed>().is_some();
-            let (current, cancelled) = {
-                let st = run.st.lock().unwrap();
-                let t = st.tasks.iter().find(|t| t.def.id == id);
-                (t.and_then(|t| t.active_attempt.as_deref()) == Some(attempt_id), st.cancelled)
+            // Decide under one lock whether this attempt still owns its task, and settle the task
+            // in the same step: a cancel or retry by the lead in between must not be overwritten.
+            enum Next {
+                Late,
+                Cancelled,
+                Retry,
+                Failed,
+            }
+            let (next, max_attempts) = {
+                let mut st = run.st.lock().unwrap();
+                let cancelled = st.cancelled;
+                match Run::task_mut(&mut st, id).filter(|t| t.active_attempt.as_deref() == Some(attempt_id)) {
+                    None => (Next::Late, 0),
+                    Some(t) => {
+                        t.active_attempt = None;
+                        let next = if cancelled {
+                            Next::Cancelled
+                        } else if !verification && t.attempts - t.retry_base < t.def.max_attempts {
+                            Next::Retry
+                        } else {
+                            Next::Failed
+                        };
+                        match next {
+                            Next::Cancelled if t.status == TaskStatus::Running => t.set_status(TaskStatus::Cancelled),
+                            Next::Retry => t.set_status(TaskStatus::Pending),
+                            Next::Failed => t.set_status(TaskStatus::Failed),
+                            _ => {}
+                        }
+                        (next, t.def.max_attempts)
+                    }
+                }
             };
-            if !current {
+            if matches!(next, Next::Late) {
+                // The lead cancelled or retried the task while this attempt was ending.
+                let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, None, None, Some(&msg), Some(now_ms()));
                 self.emit(
                     run,
                     ev(
@@ -2185,19 +2287,12 @@ impl App {
             }
             // Only a cancelled run counts as cancellation. Anything else, including an agent
             // ending its own turn as cancelled, is a failed attempt.
-            if cancelled {
-                let mut st = run.st.lock().unwrap();
-                let t = Run::task_mut(&mut st, id).unwrap();
-                t.active_attempt = None;
-                if t.status == "running" {
-                    t.status = "cancelled";
-                }
-            }
+            let cancelled = matches!(next, Next::Cancelled);
             let _ = self.db.update_attempt(
                 &run.id,
                 id,
                 n,
-                if cancelled { "cancelled" } else { "failed" },
+                if cancelled { AttemptStatus::Cancelled } else { AttemptStatus::Failed },
                 None,
                 None,
                 Some(&msg),
@@ -2211,18 +2306,7 @@ impl App {
                         .attempt(n)
                         .data(json!({ "error": msg })),
                 );
-                let (retry, max_attempts) = {
-                    let mut st = run.st.lock().unwrap();
-                    let t = Run::task_mut(&mut st, id).unwrap();
-                    t.status = if !verification && t.attempts - t.retry_base < t.def.max_attempts {
-                        "pending"
-                    } else {
-                        "failed"
-                    };
-                    t.active_attempt = None;
-                    (t.status == "pending", t.def.max_attempts)
-                };
-                if retry {
+                if matches!(next, Next::Retry) {
                     self.emit(run, ev("task.retry_scheduled", "janus", format!("按重试策略为 {id} 创建第 {} 次尝试", n + 1)).task(id).data(json!({
                         "next": n + 1, "strategy": "新建 ACP 会话，注入任务说明、上游结果和上次失败原因"
                     })));
@@ -2278,7 +2362,7 @@ impl App {
             let st = run.st.lock().unwrap();
             st.tasks
                 .iter()
-                .filter(|t| t.status == "running" && t.def.id != id)
+                .filter(|t| t.status == TaskStatus::Running && t.def.id != id)
                 .map(|t| format!("- {}「{}」· {}", t.def.id, t.def.title, run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent)))
                 .collect()
         };
@@ -2366,7 +2450,7 @@ impl App {
             &run.id,
             id,
             n,
-            "running",
+            AttemptStatus::Running,
             Some(&sid),
             Some(&workspace.to_string_lossy()),
             None,
@@ -2477,7 +2561,7 @@ impl App {
                             "这一轮已结束，等待你的消息（人工接管中）",
                         )
                         .task(id)
-                        .data(json!({ "phase": "waiting_for_input", "turn": "idle" })),
+                        .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
                     match ctl.rx.recv().await {
                         None => return Err(Cancelled.into()),
@@ -2621,16 +2705,22 @@ impl App {
         self.check_aborted(run, id, &mut ctl)?;
         self.record_changes(run, id, n, &agent, &workspace)?;
 
-        let current = run
-            .st
-            .lock()
-            .unwrap()
-            .tasks
-            .iter()
-            .find(|t| t.def.id == id)
-            .and_then(|t| t.active_attempt.as_deref())
-            == Some(attempt_id);
+        // Settle the task in the same step as checking that this attempt still owns it, so a cancel
+        // by the lead in between is not overwritten by a success.
+        let current = {
+            let mut st = run.st.lock().unwrap();
+            match Run::task_mut(&mut st, id).filter(|t| t.active_attempt.as_deref() == Some(attempt_id)) {
+                Some(t) => {
+                    t.set_status(TaskStatus::Succeeded);
+                    t.result = Some(result.clone());
+                    t.active_attempt = None;
+                    true
+                }
+                None => false,
+            }
+        };
         if !current {
+            let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, None, None, None, Some(now_ms()));
             self.emit(
                 run,
                 ev(
@@ -2657,20 +2747,15 @@ impl App {
                 "summary": result.summary, "evidence": result.evidence
             })),
         );
-        {
-            let mut st = run.st.lock().unwrap();
-            let t = Run::task_mut(&mut st, id).unwrap();
-            t.status = "succeeded";
+        if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), id) {
             t.succeeded_seq = Some(seq);
-            t.result = Some(result);
-            t.active_attempt = None;
         }
         // The event above is the fact; a failed bookkeeping write must not turn it into a retry.
         if let Err(err) = self.db.update_attempt(
             &run.id,
             id,
             n,
-            "succeeded",
+            AttemptStatus::Succeeded,
             None,
             None,
             None,
@@ -3067,7 +3152,7 @@ impl App {
             let shared: Vec<(String, Vec<String>)> = st
                 .tasks
                 .iter()
-                .filter(|t| t.status == "running" && t.def.id != task)
+                .filter(|t| t.status == TaskStatus::Running && t.def.id != task)
                 .filter_map(|t| {
                     let theirs = st.touched.get(&t.def.id)?;
                     let common: Vec<String> = paths.iter().filter(|p| theirs.contains(*p)).cloned().collect();
@@ -3216,10 +3301,10 @@ impl App {
                     *last_status = now_ms();
                     let kind = entry["kind"].as_str().unwrap_or("");
                     let phase = match kind {
-                        "read" | "search" | "fetch" => "reading_files",
-                        "edit" | "delete" | "move" => "editing",
-                        _ if title.contains("test") || title.contains("测试") => "running_test",
-                        _ => "running_tool",
+                        "read" | "search" | "fetch" => AgentPhase::ReadingFiles,
+                        "edit" | "delete" | "move" => AgentPhase::Editing,
+                        _ if title.contains("test") || title.contains("测试") => AgentPhase::RunningTest,
+                        _ => AgentPhase::RunningTool,
                     };
                     let mut e = ev("agent.status", ctx.agent, short(&title, 80))
                         .data(json!({ "phase": phase }));
@@ -3451,9 +3536,11 @@ impl App {
             let mut risks = vec![];
             for t in &st.tasks {
                 let unfinished = match t.status {
-                    "failed" => Some("失败"),
-                    "cancelled" => Some("已取消"),
-                    "skipped_by_decision" => Some("被主控取消"),
+                    TaskStatus::Pending | TaskStatus::Running => Some("没有执行"),
+                    TaskStatus::Blocked => Some("依赖失败，没有执行"),
+                    TaskStatus::Failed => Some("失败"),
+                    TaskStatus::Cancelled => Some("已取消"),
+                    TaskStatus::SkippedByDecision => Some("被主控取消"),
                     _ => None,
                 };
                 if let Some(state) = unfinished {
@@ -3493,7 +3580,7 @@ impl App {
             run,
             ev("run.delivered", "janus", "主控完成了目标，交付结果已准备好").data(result),
         );
-        self.set_status(run, "delivered");
+        self.set_status(run, RunStatus::Delivered);
     }
 
     // ------------------------------------------------------------------
@@ -3589,6 +3676,10 @@ impl App {
                 let pause = kind == "pause";
                 {
                     let mut st = run.st.lock().unwrap();
+                    // Pausing or resuming a finished Run would leave `paused` set with nothing to drive.
+                    if !matches!(st.status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
+                        bail!("Run 现在是「{}」，不能{}", st.status, if pause { "暂停" } else { "继续" });
+                    }
                     st.paused = pause;
                 }
                 self.emit(
@@ -3607,12 +3698,15 @@ impl App {
                 run.wake.notify_one();
             }
             "extendBudget" => {
+                let status = run.st.lock().unwrap().status;
+                if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
+                    bail!("Run 现在是「{status}」，不能追加预算");
+                }
                 let minutes = a["minutes"].as_i64().unwrap_or(60).clamp(1, 24 * 60);
                 let added = minutes * 60 * 1000;
                 // Counted from now when the budget already ran out, so one extension is enough.
                 let deadline = run.deadline_ms.load(Ordering::SeqCst).max(now_ms()) + added;
                 run.deadline_ms.store(deadline, Ordering::SeqCst);
-                run.st.lock().unwrap().budget_notified = false;
                 self.emit(
                     run,
                     ev(
@@ -3622,14 +3716,19 @@ impl App {
                     )
                     .data(json!({ "minutes": minutes, "addedMs": added })),
                 );
-                self.set_status(run, "running");
+                if status == RunStatus::WaitingInput {
+                    self.set_status(run, RunStatus::Running);
+                }
                 self.ensure_driver(run);
                 run.wake.notify_one();
             }
             "cancel" => {
+                let status = run.st.lock().unwrap().status;
+                if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput | RunStatus::Delivered) {
+                    bail!("Run 现在是「{status}」，不能停止");
+                }
                 let conns: Vec<Arc<AcpConn>> = {
                     let mut st = run.st.lock().unwrap();
-                    st.cancelled = true;
                     st.waiters.clear();
                     st.live.clear();
                     st.conns.drain().map(|(_, c)| c).collect()
@@ -3638,7 +3737,7 @@ impl App {
                     tokio::spawn(async move { c.kill().await });
                 }
                 self.emit(run, ev("run.cancelled", "user", "取消这个目标"));
-                self.set_status(run, "cancelled");
+                self.set_status(run, RunStatus::Cancelled);
                 run.lead_nudge.notify_one();
                 run.wake.notify_one();
             }
@@ -3690,8 +3789,14 @@ impl App {
                 }
             }
             "accept" => {
+                // Only a delivered run has results to accept; accepting earlier would be undone
+                // by the scheduler the moment it next ran.
+                let status = run.st.lock().unwrap().status;
+                if status != RunStatus::Delivered {
+                    bail!("Run 现在是「{status}」，只有已交付的 Run 可以验收");
+                }
                 self.emit(run, ev("risk.accepted", "user", "核对证据后验收通过"));
-                self.set_status(run, "accepted");
+                self.set_status(run, RunStatus::Accepted);
             }
             _ => bail!("未知操作：{kind}"),
         }
@@ -3706,7 +3811,7 @@ impl App {
             .find(|r| r["id"] == run_id)
             .map(|r| r["status"].clone())
             .context("run not found")?;
-        if status != "delivered" {
+        if status.as_str() != Some("delivered") {
             bail!("只有已交付的 Run 可以验收");
         }
         let seq = self.db.max_seq(run_id)? + 1;
@@ -3722,7 +3827,7 @@ impl App {
             text: "核对证据后验收通过".into(),
             data: None,
         });
-        self.db.set_run_status(run_id, "accepted")
+        self.db.set_run_status(run_id, RunStatus::Accepted)
     }
 
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
@@ -3739,7 +3844,10 @@ impl App {
             .into_iter()
             .find(|r| r["id"] == run_id)
             .context("run not found")?;
-        if !matches!(row["status"].as_str(), Some("interrupted") | Some("failed")) {
+        if !matches!(
+            row["status"].as_str().and_then(RunStatus::parse),
+            Some(RunStatus::Interrupted | RunStatus::Failed)
+        ) {
             bail!("只有中断或失败的任务可以继续");
         }
         let events = self.db.events(run_id, 0)?;
@@ -3797,7 +3905,7 @@ impl App {
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
-                status: "running".into(),
+                status: RunStatus::Running,
                 ..Default::default()
             }),
             wake: Notify::new(),
@@ -3868,7 +3976,9 @@ impl App {
                         && matches!(e.kind.as_str(), "task.succeeded" | "task.reopened")
                 })
                 .filter(|e| e.kind == "task.succeeded");
-            let result = mine("result.submitted").last().and_then(|e| e.data.clone()).map(|d| {
+            // A result the lead accepted carries the risks of that acceptance in its own event.
+            let accepted = succeeded.and_then(|e| e.data.clone()).filter(|d| d["acceptedBy"] == "lead");
+            let result = accepted.or_else(|| mine("result.submitted").last().and_then(|e| e.data.clone())).map(|d| {
                 let strings = |v: &Value| {
                     v.as_array()
                         .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
@@ -3894,12 +4004,14 @@ impl App {
                     )
                 })
                 .map(|e| e.kind.as_str());
+            // Everything unfinished restarts from `pending`: the sessions and open requests of a
+            // restart are gone, so a task that was waiting on a person cannot stay waiting.
             let status = match last_task_event {
-                Some("task.succeeded") => "succeeded",
-                Some("task.failed") => "failed",
-                Some("task.blocked") => "blocked",
-                Some("task.skipped_by_decision") => "skipped_by_decision",
-                _ => "pending",
+                Some("task.succeeded") => TaskStatus::Succeeded,
+                Some("task.failed") => TaskStatus::Failed,
+                Some("task.blocked") => TaskStatus::Blocked,
+                Some("task.skipped_by_decision") => TaskStatus::SkippedByDecision,
+                _ => TaskStatus::Pending,
             };
             // What a blocked task waits on: its failed dependency.
             let blocked_by = events
@@ -3909,20 +4021,24 @@ impl App {
                 .and_then(|e| e.data.as_ref())
                 .and_then(|d| d["dependency"].as_str())
                 .map(str::to_owned);
-            if status == "succeeded" {
+            if status == TaskStatus::Succeeded {
                 done += 1;
             } else {
                 open += 1;
-                if status == "pending" && interrupted_attempt
+                if status == TaskStatus::Pending && interrupted_attempt
                     && let Some(sid) = last_session {
                         run.st.lock().unwrap().resume_session.insert(id.clone(), sid);
                     }
             }
             let mut task = Task::new(def, agent);
+            // Rebuilding the board, not a transition: the event log already decided this state.
             task.status = status;
             task.attempts = attempts;
             task.result = result;
             task.blocked_by = blocked_by;
+            task.skipped_because = (status == TaskStatus::SkippedByDecision)
+                .then(|| mine("task.skipped_by_decision").last().and_then(|e| e.data.as_ref()?["dependency"].as_str().map(str::to_owned)))
+                .flatten();
             task.succeeded_seq = succeeded.map(|e| e.seq);
             task.artifacts = artifacts;
             task.retry_base = retry_base;
@@ -3968,7 +4084,7 @@ impl App {
             .lock()
             .unwrap()
             .insert(run_id.to_string(), run.clone());
-        self.set_status(&run, "running");
+        self.set_status(&run, RunStatus::Running);
         // What each task came back as, so the app rebuilds the same state.
         let restored: Vec<Value> = run
             .st
@@ -3997,7 +4113,7 @@ impl App {
                 &run_id,
                 &task,
                 n,
-                "interrupted",
+                AttemptStatus::Interrupted,
                 None,
                 None,
                 Some("编排器重启"),
@@ -4010,7 +4126,7 @@ impl App {
                 run_id: run_id.clone(), seq, ts: now_ms(), kind: "run.interrupted".into(), actor: "janus".into(), to: None, task: None, attempt: None,
                 text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(), data: None,
             });
-            self.db.set_run_status(&run_id, "interrupted")?;
+            self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
         }
         Ok(())
     }
@@ -4230,7 +4346,7 @@ fn lead_tools() -> Value {
         },
         {
             "name": "orchestrate",
-            "description": "提交一份编排：一组交给协作者的任务。Janus 先校验（执行者是协作者、id 不重复、依赖存在且无环、验证命令合规），不通过时返回全部错误且不执行任何任务；通过后写入共享看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前提交的任务。",
+            "description": "提交一份编排：一组交给协作者的任务。Janus 先校验（执行者是协作者、id 不重复、依赖存在且无环、可能同时执行的任务负责的文件不重叠、验证者不是被验证任务的执行者），不通过时返回全部错误且不执行任何任务；通过后写入共享看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前提交的任务。",
             "inputSchema": {
                 "type": "object",
                 "required": ["tasks"],
@@ -4801,21 +4917,6 @@ fn extract_json(text: &str) -> Option<Value> {
             .ok()
             .filter(Value::is_object)
     })
-}
-
-/// Programs a verification command may run without side effects; also allowed inside a pipeline.
-/// A task status as the lead and the person read it.
-fn task_status_label(status: &str) -> &'static str {
-    match status {
-        "pending" => "等待开始",
-        "running" => "执行中",
-        "succeeded" => "已完成",
-        "failed" => "失败",
-        "blocked" => "依赖失败",
-        "cancelled" => "已取消",
-        "skipped_by_decision" => "主控已取消",
-        _ => "未知状态",
-    }
 }
 
 /// What keeps a result from passing: no summary, an acceptance criterion with no check or no
@@ -5444,7 +5545,7 @@ mod tests {
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
-                status: "planning".into(),
+                status: RunStatus::Planning,
                 ..Default::default()
             }),
             wake: Notify::new(),
@@ -5778,9 +5879,10 @@ mod flow_tests {
         assert!(!err && text.contains("T3") && text.contains("T4"), "{text}");
         wait_until(&h.app, &run, "T4 dropped", |e| task_event(e, "task.skipped_by_decision", "T4")).await;
         let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T3", "instructions": "换个做法再做一次", "accept": ["换了做法"] })).await;
-        assert!(!err, "{text}");
-        let (_, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T4" })).await;
-        assert!(!err);
+        assert!(!err && text.contains("因它被取消的 T4 也恢复了"), "{text}");
+        // T4 was dropped only because of T3, so it came back with it.
+        let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T4" })).await;
+        assert!(err && text.contains("等待开始"), "{text}");
         wait_until(&h.app, &run, "T3 and T4 after retry", |e| task_event(e, "task.succeeded", "T3") && task_event(e, "task.succeeded", "T4")).await;
         let reopened = events(&h.app, &run).into_iter().find(|e| e.kind == "task.reopened" && e.task.as_deref() == Some("T3")).unwrap();
         assert_eq!(reopened.data.as_ref().unwrap()["instructions"], "换个做法再做一次");
@@ -6316,6 +6418,72 @@ mod flow_tests {
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
+    /// The run's own state follows the board: a lead that finishes while work is paused does not
+    /// deliver without it; acceptance only follows delivery; a task with two failed dependencies
+    /// stays blocked until both are settled; running out of budget is announced again when the
+    /// lead adds work later; what never ran is listed as a risk.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn run_state_follows_the_board() {
+        let h = harness("runstate", &[("lead", false), ("m1", false), ("m2", false), ("m3", false)], json!({ "A": ["fail"], "B": ["fail"] }));
+        let run = start(&h, json!([task("A", "m1", json!({})), task("B", "m2", json!({})), task("C", "m3", json!({ "deps": ["A", "B"] }))])).await;
+        wait_until(&h.app, &run, "A and B failed", |e| task_event(e, "task.failed", "A") && task_event(e, "task.failed", "B")).await;
+        wait_until(&h.app, &run, "C blocked", |e| task_event(e, "task.blocked", "C")).await;
+        let r = h.app.run(&run).unwrap();
+        assert!(h.app.action(&r, &json!({ "type": "accept" })).is_err(), "nothing delivered yet");
+
+        // A is accepted; C still waits on B and says so.
+        let blocked_on = |dep: &str| events(&h.app, &run).iter().any(|e| e.kind == "task.blocked" && e.task.as_deref() == Some("C") && e.data.as_ref().is_some_and(|d| d["dependency"] == dep));
+        let first = if blocked_on("A") { "A" } else { "B" };
+        let other = if first == "A" { "B" } else { "A" };
+        std::fs::write(h.dir.join("fake/script.json"), json!({}).to_string()).unwrap();
+        let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": first })).await;
+        assert!(!err, "{text}");
+        wait_until(&h.app, &run, "C blocked on the other one", |_| blocked_on(other)).await;
+        assert!(!task_event(&events(&h.app, &run), "attempt.started", "C"));
+
+        // Out of budget: announced; back to running once nothing is left; announced again when
+        // the lead adds work.
+        let r = h.app.run(&run).unwrap();
+        r.deadline_ms.store(now_ms() - 1, Ordering::SeqCst);
+        r.wake.notify_one();
+        wait_until(&h.app, &run, "budget", |e| has(e, "run.budget_exhausted")).await;
+        act(&h, &run, json!({ "type": "extendBudget", "minutes": 1 }));
+        let (_, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": [other, "C"] })).await;
+        assert!(!err);
+        r.deadline_ms.store(now_ms() - 1, Ordering::SeqCst);
+        r.wake.notify_one();
+        wait_until(&h.app, &run, "running again", |_| status(&h.app, &run) == "running").await;
+        let (_, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("D", "m1", json!({}))] })).await;
+        assert!(!err);
+        wait_until(&h.app, &run, "budget again", |e| e.iter().filter(|e| e.kind == "run.budget_exhausted").count() == 2).await;
+        assert_eq!(status(&h.app, &run), "waiting_input");
+
+        // Paused with D still to run: the lead finishing does not deliver it away.
+        act(&h, &run, json!({ "type": "extendBudget", "minutes": 60 }));
+        act(&h, &run, json!({ "type": "pause" }));
+        let (_, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("E", "m2", json!({}))] })).await;
+        assert!(!err);
+        finish_lead(&h);
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let evs = events(&h.app, &run);
+        assert!(!has(&evs, "run.delivered") && !task_event(&evs, "attempt.started", "E"), "paused work is not delivered away");
+        act(&h, &run, json!({ "type": "resume" }));
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        assert!(task_event(&events(&h.app, &run), "task.succeeded", "E"));
+        let delivered = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap();
+        let risks = delivered.data.unwrap()["risks"].to_string();
+        assert!(risks.contains(&format!("{other}：被主控取消")), "{risks}");
+
+        // After acceptance nothing reopens the run.
+        act(&h, &run, json!({ "type": "accept" }));
+        assert_eq!(status(&h.app, &run), "accepted");
+        let r = h.app.run(&run).unwrap();
+        assert!(h.app.action(&r, &json!({ "type": "extendBudget", "minutes": 5 })).is_err());
+        assert!(h.app.action(&r, &json!({ "type": "cancel" })).is_err());
+        assert_eq!(status(&h.app, &run), "accepted");
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
     /// After a restart the board comes back with the same statuses (failed, blocked), and a retry
     /// still revives both.
     #[tokio::test(flavor = "multi_thread")]
@@ -6362,7 +6530,7 @@ mod flow_tests {
                 to: None, task: None, attempt: None, text: "创建目标".into(),
                 data: Some(json!({ "goal": "测试目标", "mode": "goal" })),
             });
-            h.app.db.set_run_status(id, "interrupted").unwrap();
+            h.app.db.set_run_status(id, RunStatus::Interrupted).unwrap();
         };
 
         insert("r-reserved", json!([{ "name": "janus", "command": "run" }]));
@@ -6509,7 +6677,7 @@ mod flow_tests {
         let h = harness("oldplan", &[("lead", false), ("m1", false)], json!({}));
         h.app.db.insert_run("rold", "旧目标", &h.repo.to_string_lossy(), &json!({ "team": [] }), now_ms()).unwrap();
         h.app.store(Event { run_id: "rold".into(), seq: 1, ts: now_ms(), kind: "run.created".into(), actor: "user".into(), to: None, task: None, attempt: None, text: "创建目标".into(), data: Some(json!({ "goal": "旧目标" })) });
-        h.app.db.set_run_status("rold", "interrupted").unwrap();
+        h.app.db.set_run_status("rold", RunStatus::Interrupted).unwrap();
         let err = h.app.resume_run("rold").await.err().expect("refused");
         assert!(err.to_string().contains("已经移除"), "{err}");
         let _ = std::fs::remove_dir_all(&h.dir);

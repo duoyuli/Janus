@@ -151,7 +151,7 @@ Pi 只支持 stdio MCP，不接入看板。它照常执行任务，通过结构�
 
 - 摘要取主控最后一条 `agent.message`，去掉末尾的 JSON 块和「建议更新共享资料」一节，最长 2000 个字符，后面附上「改动直接在工作目录中，Janus 没有提交」。
 - 「建议更新共享资料」一节的条目单独放在 `briefSuggestions` 中，由用户决定是否写入工作区，见[工作区共享资料](agents_and_roles.md#workspace_brief)。
-- 证据和风险从看板上各任务的结构化结果汇总；失败、已取消和被主控取消的任务也列为风险。
+- 证据和风险从看板上各任务的结构化结果汇总；失败、已取消、被主控取消、因依赖失败没有执行的任务也列为风险。
 - 主控会话异常结束时不交付，Run 失败，见[失败处理](#failures_in_goal_mode)。
 
 设计取舍见 [ADR：主控以 /goal 推进目标](../decisions/goal_mode_lead.md) 和 [ADR：通过 MCP 看板协作](../decisions/board_over_mcp.md)。

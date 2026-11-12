@@ -61,8 +61,10 @@ struct SkillsView: View {
                         Button(s["repo"].str) { if let u = URL(string: s["url"].str) { NSWorkspace.shared.open(u) } }
                             .buttonStyle(.link).fontWeight(.semibold).help(s["url"].str)
                         Pill("\(s["skills"].array.count) Skill")
-                        if s["updateAvailable"].truthy { Pill("有更新", .blue).help("GitHub 上的最新提交是 \(String(s["latest"].str.prefix(7)))") }
-                        else if s["checkError"].truthy { Pill("检查失败", .amber).help(s["checkError"].str) }
+                        // A failed check wins: it also clears `updateAvailable`, but an old reply
+                        // must never hide why the last check did not finish.
+                        if s["checkError"].truthy { Pill("检查失败", .amber).help(s["checkError"].str) }
+                        else if s["updateAvailable"].truthy { Pill("有更新", .blue).help("GitHub 上的最新提交是 \(String(s["latest"].str.prefix(7)))") }
                     }
                     Text(([where_, s["commit"].truthy ? String(s["commit"].str.prefix(7)) : "", s["updatedAt"].truthy ? "\(L.dateTime(s["updatedAt"].double ?? 0)) 拉取" : "", s["checkedAt"].truthy ? "\(L.dateTime(s["checkedAt"].double ?? 0)) 检查" : ""].filter { !$0.isEmpty }).joined(separator: " · "))
                         .font(.caption).foregroundStyle(.secondary)
