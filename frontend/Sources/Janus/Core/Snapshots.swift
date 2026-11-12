@@ -89,7 +89,8 @@ enum Snapshots {
             let url = URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "shot" : arg).png")
             // The window server's picture of our own window is what is really on screen;
             // cacheDisplay is the fallback and loses translucent fills.
-            if let cg = windowImage(w.windowNumber) {
+            // Without screen recording rights the window server may hand back a blank picture.
+            if let cg = windowImage(w.windowNumber), !blank(cg) {
                 try? NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])?.write(to: url)
             } else if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) {
                 v.cacheDisplay(in: v.bounds, to: rep)
@@ -97,6 +98,16 @@ enum Snapshots {
             }
         default: break
         }
+    }
+
+    /// A picture of one flat colour: what the window server returns when it may not show the window.
+    private static func blank(_ cg: CGImage) -> Bool {
+        let rep = NSBitmapImageRep(cgImage: cg)
+        guard rep.pixelsWide > 0, rep.pixelsHigh > 0, let first = rep.colorAt(x: 0, y: 0) else { return true }
+        for y in stride(from: 0, to: rep.pixelsHigh, by: max(1, rep.pixelsHigh / 40)) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: max(1, rep.pixelsWide / 40)) where rep.colorAt(x: x, y: y) != first { return false }
+        }
+        return true
     }
 
     /// CGWindowListCreateImage, looked up at run time: it is deprecated, and this development aid
