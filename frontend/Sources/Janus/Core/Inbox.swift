@@ -19,6 +19,10 @@ struct InboxEntry: Identifiable, Equatable {
     let canWait: Bool
     /// A run that stopped (interrupted or failed): the person may decide to leave it.
     let canSettle: Bool
+    /// Answers in one click, right in the inbox (`OpenFact.actions`).
+    var actions: [QuickAction] = []
+    /// What it is (`OpenFact.kind`, or `delivered` / `interrupted` / `failed` for a run's own row).
+    var kind = ""
     var id: String { key }
 }
 
@@ -39,7 +43,9 @@ enum Inbox {
                 title: f.title, text: f.text, sub: f.sub,
                 ts: f.seq.flatMap { state.event($0)?.ts } ?? run["createdAt"].double ?? 0,
                 canWait: f.kind == "lead_stall" || (f.kind == "question" && f.tasks.isEmpty),
-                canSettle: false
+                canSettle: false,
+                actions: f.actions,
+                kind: f.kind
             )
         }
     }
@@ -50,7 +56,7 @@ enum Inbox {
         let id = row["id"].str
         let at = row["createdAt"].double ?? 0
         func entry(_ what: String, _ title: String, _ sub: String, wait: Bool, settle: Bool) -> InboxEntry {
-            InboxEntry(key: "\(id)/\(what)", run: id, goal: row["goal"].str, workspace: workspace, title: title, text: "", sub: sub, ts: at, canWait: wait, canSettle: settle)
+            InboxEntry(key: "\(id)/\(what)", run: id, goal: row["goal"].str, workspace: workspace, title: title, text: "", sub: sub, ts: at, canWait: wait, canSettle: settle, kind: what)
         }
         switch row["status"].str {
         case "delivered": return [entry("delivered", "已交付，等你验收", "核对证据和风险后验收", wait: true, settle: false)]
@@ -114,6 +120,24 @@ final class InboxModel {
         let keys = Set(out.map(\.key))
         if snoozed.keys.contains(where: { !keys.contains($0) }) { snoozed = snoozed.filter { keys.contains($0.key) } }
         if settled.contains(where: { !keys.contains($0) }) { settled = settled.filter { keys.contains($0) } }
+        Notifier.shared.update(open)
+    }
+
+    /// Requests answered from the inbox, until the next refresh shows them gone.
+    private(set) var answering: Set<String> = []
+
+    /// Answer a request with one of its quick actions, as the run page would.
+    func act(_ e: InboxEntry, _ a: QuickAction, store: AppStore) async {
+        answering.insert(e.key)
+        var body = a.body
+        body["commandId"] = JSON(UUID().uuidString)
+        do {
+            _ = try await store.api.post("/api/runs/\(e.run)/actions", body)
+        } catch {
+            store.show(error.localizedDescription)
+        }
+        await refresh(store)
+        answering.remove(e.key)
     }
 
     func snooze(_ key: String, until: Date) { snoozed[key] = until.timeIntervalSince1970 * 1000 }

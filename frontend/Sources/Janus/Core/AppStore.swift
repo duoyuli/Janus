@@ -217,6 +217,11 @@ final class AppStore {
 
     func open(_ s: Screen) {
         if case .run(let id) = s {
+            // The sidebar follows: a run opened from the inbox, a notification or another
+            // workspace's page shows its own workspace's runs around it.
+            if let ws = runs.first(where: { $0["id"].str == id })?["config"]["workspace"]["id"].string, !ws.isEmpty, ws != currentWorkspaceId {
+                rememberWorkspace(ws)
+            }
             if run?.id != id {
                 run?.close()
                 let m = RunModel(id: id, store: self)

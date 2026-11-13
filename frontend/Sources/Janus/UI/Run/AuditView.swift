@@ -133,7 +133,7 @@ struct TeamView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("团队与权限").font(.title2.weight(.semibold))
+                        Text("团队与权限").font(.display(.title2))
                         Text("这个 Run 创建时的团队快照。").font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()

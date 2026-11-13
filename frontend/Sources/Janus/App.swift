@@ -29,6 +29,7 @@ struct JanusApp: App {
 /// open the window to check on runs that are just working.
 struct MenuBarLabel: View {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let n = model.store?.inbox.open.count ?? 0
@@ -37,6 +38,15 @@ struct MenuBarLabel: View {
             if n > 0 { Text("\(n)") }
         }
         .accessibilityLabel(n > 0 ? "Janus，\(n) 项等你处理" : "Janus")
+        // The label lives as long as the app, so it is where a notification click finds a way
+        // to open the window.
+        .onAppear {
+            Notifier.shared.onOpen = { run in
+                openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+                model.store?.open(.run(run))
+            }
+        }
     }
 }
 
@@ -250,7 +260,7 @@ struct StartupView: View {
                 .frame(width: 64, height: 64)
                 .background(Color.accent, in: RoundedRectangle(cornerRadius: 16))
             if case .failed(let err) = model.backend.phase {
-                Text("Janus 服务没有启动").font(.title2.weight(.semibold))
+                Text("Janus 服务没有启动").font(.display(.title2))
                 ScrollView {
                     Text(err).font(.system(.callout, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -259,7 +269,7 @@ struct StartupView: View {
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 HStack {
                     Button("打开日志目录") { model.openLogs() }
-                    Button("重试") { Task { await model.retry() } }.buttonStyle(.borderedProminent)
+                    Button("重试") { Task { await model.retry() } }.buttonStyle(.primary)
                 }
             } else {
                 ProgressView().controlSize(.small)

@@ -8,8 +8,13 @@ import SwiftUI
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
 ///     role <id> | agent-edit <id> | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
+///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
+///     inbox-act <entry>:<action> (clicks a quick answer in the inbox, by position from 0) | density detail|normal|summary | draft <task or agent> <text>
 @MainActor
 enum Snapshots {
+    /// The window `shot` pictures when set: the first visible one whose title starts with it.
+    private static var target: String?
+
     static func start(_ model: AppModel) {
         guard let dir = ProcessInfo.processInfo.environment["JANUS_SNAPSHOT_DIR"], !dir.isEmpty else { return }
         let cmd = URL(fileURLWithPath: dir).appendingPathComponent("cmd")
@@ -57,6 +62,8 @@ enum Snapshots {
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
         case "wake-all": for e in store.inbox.later { store.inbox.wake(e.key) }
         case "close-window": NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.close()
+        // Look at both appearances without changing the system's.
+        case "appearance": NSApp.appearance = arg == "light" ? NSAppearance(named: .aqua) : arg == "dark" ? NSAppearance(named: .darkAqua) : nil
         case "state":
             // What the inbox and the menu bar show, for checks that a picture cannot make.
             let entries = { (xs: [InboxEntry]) in JSON.array(xs.map { ["key": JSON($0.key), "title": JSON($0.title), "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle)] }) }
@@ -68,6 +75,19 @@ enum Snapshots {
             ]
             try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))
         case "doc": ArtifactWindow.open(path: arg, api: store.api)
+        case "window": target = arg.isEmpty ? nil : arg
+        case "density": UserDefaults.standard.set(arg, forKey: "janus.chatDensity")
+        // Type into a session's composer: `draft <task or agent> <text>`.
+        case "draft":
+            let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            if let run = store.run, let who = p.first { run.sessionDrafts["sess-" + who] = p.count > 1 ? p[1] : "" }
+        case "inbox-act":
+            let n = kv.compactMap { Int($0) }
+            let open = store.inbox.open
+            if n.count == 2, n[0] < open.count, n[1] < open[n[0]].actions.count { await store.inbox.act(open[n[0]], open[n[0]].actions[n[1]], store: store) }
+        // The review window for a task's latest diff, in the open run.
+        case "review":
+            if let run = store.run, let a = run.state.artifacts.last(where: { $0.task == arg && $0.kind == "git_diff" }) { DiffWindow.open(run: run, artifact: a) }
         case "paste":
             // Paste an image file into the first composer of the key window, through the same
             // handler as ⌘V, from a pasteboard of its own (the person's clipboard is untouched).
@@ -85,7 +105,8 @@ enum Snapshots {
         case "shot":
             // A sheet is its own window; picture the frontmost one.
             let wins = NSApp.windows.filter { $0.isVisible && $0.contentView != nil }
-            guard let w = wins.first(where: { $0.isSheet }) ?? wins.first(where: { $0.isKeyWindow }) ?? wins.first, let v = w.contentView else { return }
+            let named = target.flatMap { t in wins.first { $0.title.hasPrefix(t) } }
+            guard let w = named ?? wins.first(where: { $0.isSheet }) ?? wins.first(where: { $0.isKeyWindow }) ?? wins.first, let v = w.contentView else { return }
             let url = URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "shot" : arg).png")
             // The window server's picture of our own window is what is really on screen;
             // cacheDisplay is the fallback and loses translucent fills.

@@ -24,7 +24,7 @@ struct SkillsView: View {
                         .onSubmit(add)
                         .disabled(adding)
                     Button(adding ? "正在拉取…" : "添加") { add() }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.primary)
                         .disabled(adding || link.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 if adding { Note(text: "正在克隆仓库并查找 Skill，较大的仓库可能需要一分钟。") }
@@ -72,7 +72,7 @@ struct SkillsView: View {
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
                 if s["updateAvailable"].truthy {
-                    Button("更新") { update(id) }.buttonStyle(.borderedProminent).disabled(busy).help("拉取最新内容，Skill 跟随仓库更新")
+                    Button("更新") { update(id) }.buttonStyle(.primary).disabled(busy).help("拉取最新内容，Skill 跟随仓库更新")
                 } else {
                     Button("重新拉取") { update(id) }.disabled(busy).help("重新拉取仓库")
                 }
@@ -110,7 +110,7 @@ struct SkillsView: View {
             .disabled(checking || busy)
             if !updates.isEmpty {
                 Button(updates.count == 1 ? "更新" : "全部更新（\(updates.count)）") { Task { await store.updateSkillSources() } }
-                    .buttonStyle(.borderedProminent).disabled(busy)
+                    .buttonStyle(.primary).disabled(busy)
             }
         }
         .padding(10)

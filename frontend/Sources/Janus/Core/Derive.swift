@@ -93,6 +93,11 @@ final class TaskState {
     var amendments: [String] = []
     var summary = ""
     var evidence: [String] = []
+    /// Files the task owns: from its orchestration, plus what it claimed while working.
+    var owns: [String] = []
+    var verifies = ""
+    /// Where the finished result disagrees with what the task left in the workspace.
+    var traceGaps: [String] = []
 
     init(_ x: JSON) {
         id = x["id"].str
@@ -101,6 +106,8 @@ final class TaskState {
         agent = x["agent"].str
         deps = x["deps"].strings
         accept = x["accept"].strings
+        owns = x["owns"].strings
+        verifies = x["verifies"].str
     }
 }
 
@@ -350,10 +357,11 @@ func derive(_ events: [Event]) -> RunState {
             t.status = "ready"
             let a = ag(t.agent); a.phase = "error"; a.note = d["error"].str; a.progress = nil
         case "result.amended": t?.amendments.append(d["text"].str)
+        case "task.claimed": if let t { t.owns += d["paths"].strings.filter { !t.owns.contains($0) } }
         case "session.prompt": if let t, d["channel"].str == "fix" { t.status = "running" }
         case "task.reopened":
             guard let t else { break }
-            t.amendments = []
+            t.amendments = []; t.traceGaps = []
             if let ins = d["instructions"].string, !ins.isEmpty { t.desc = ins }
             // Tasks held by this one's failure wait for it again instead of showing as stuck.
             for x in s.orderedTasks where x.status == "blocked" && x.blockedBy == t.id { x.status = "pending" }
@@ -362,6 +370,7 @@ func derive(_ events: [Event]) -> RunState {
         case "task.succeeded":
             guard let t else { break }
             t.status = "succeeded"; t.progress = 100; t.summary = d["summary"].str; t.evidence = d["evidence"].strings
+            if d["acceptedBy"].str != "lead" { t.traceGaps = d["traceGaps"].strings }
             endLive(t)
             if let at = t.attempts.last, at.status == "running" { at.status = "succeeded" }
             let a = ag(t.agent); a.phase = t.agent == "lead" ? "coordinating" : "idle"; a.note = ""; a.progress = nil
@@ -389,7 +398,18 @@ struct OpenFact: Identifiable {
     /// For the person's items: the request kind (`question`, `approval`, `input`, `budget`,
     /// `session`) or `lead_stall`, so the inbox knows which can wait.
     var kind: String = ""
+    /// Choices that answer the request in one click, where it is a plain choice: an approval's
+    /// options, or a question's options. A form or a free-form answer has none.
+    var actions: [QuickAction] = []
     var id: String { key }
+}
+
+/// One click that settles a request: the body of `POST /api/runs/{id}/actions`.
+struct QuickAction: Equatable {
+    let label: String
+    var help = ""
+    var prominent = false
+    let body: JSON
 }
 
 struct ResultFact: Identifiable {
@@ -448,15 +468,19 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     var stalls: [String: (seq: Int, text: String)] = [:]
     // The lead's own stall goes to the person: nobody else watches the lead.
     var leadStall: (seq: Int, text: String)?
-    // Two running tasks that edited the same files.
-    var conflicts: [(seq: Int, task: String, other: String, paths: [String])] = []
+    // Two running tasks that edited the same files, or one that edited files the other owns.
+    var conflicts: [(seq: Int, task: String, other: String, paths: [String], owned: Bool)] = []
+    // Finished results that disagree with what their task left in the workspace.
+    var gaps: [String: (seq: Int, gaps: [String])] = [:]
     for e in st.events {
         let d = e.data
         if let task = e.task, stalls[task] != nil, e.actor == st.tasks[task]?.agent || e.type == "attempt.started" { stalls[task] = nil }
         switch e.type {
         case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
         case "lead.stalled": leadStall = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text)
-        case "task.conflict": if let task = e.task { conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings)) }
+        case "task.conflict": if let task = e.task { conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy)) }
+        case "task.claimed":
+            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "认领：\(d["paths"].strings.joined(separator: "、"))", artifacts: []))
         case "result.submitted":
             f.results.append(ResultFact(key: "r\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, task: e.task ?? "", summary: d["summary"].string ?? e.text, evidence: d["evidence"].strings, risks: d["risks"].strings, checks: Check.list(d["checks"])))
         case "context.handoff":
@@ -478,15 +502,18 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "risk.accepted":
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "接受风险并验收", text: e.text))
         case "result.amended":
+            if let task = e.task { gaps[task] = nil }
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控修订 \(e.task ?? "") 的结论", text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
         case "task.skipped_by_decision":
             if e.actor == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控取消 \(e.task ?? "")", text: e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "task.reopened":
+            if let task = e.task { gaps[task] = nil }
             if e.actor == "lead" {
                 let parts = [d["instructions"].truthy ? "新说明：\(d["instructions"].str)" : nil, d["accept"].truthy ? "新的验收标准：\(d["accept"].strings.joined(separator: "；"))" : nil].compactMap { $0 }
                 f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控重做 \(e.task ?? "")", text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
             }
         case "task.succeeded":
+            if let task = e.task { gaps[task] = d["traceGaps"].strings.isEmpty ? nil : (seq: e.seq, gaps: d["traceGaps"].strings) }
             if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控接受 \(e.task ?? "") 的结果", text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "user.message":
             let images = Attach.paths(d).count
@@ -518,13 +545,28 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     // Open items: anything that blocks someone until a person or an agent acts.
     for i in st.inbox {
         let t = i.task.flatMap { st.tasks[$0] }
-        let who = i.task ?? name(i.agent ?? "")
+        // Who asks, by name, as the request cards say it; the task goes in the line below.
+        let who = name(t?.agent ?? i.agent ?? "")
         let title: String
+        var actions: [QuickAction] = []
         switch i.kind {
-        case "question": title = i.task != nil ? "\(i.task!) 的提问等你回答" : "主控请你决定：\(L.short(i.d["question"].str, 40))"
-        case "approval": title = "\(who) 请求你决定"
-        case "input": title = "\(who) 需要你\(i.d["mode"].str == "url" ? "打开链接" : "填写")"
-        case "session": title = "\(who) 这一轮结束，等你的消息"
+        case "question" where i.task != nil:
+            title = L.cn(who, "的提问等你回答")
+            actions = (t?.question?.options ?? []).map { o in
+                QuickAction(label: o, prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": JSON(i.task ?? ""), "answer": JSON(o), "note": ""])
+            }
+        case "question":
+            title = "主控请你决定：\(L.short(i.d["question"].str, 40))"
+            actions = i.d["options"].strings.map { o in
+                QuickAction(label: o, help: o == i.d["recommend"].str ? "主控建议" : "", prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": "", "answer": JSON(o), "note": ""])
+            }
+        case "approval":
+            title = L.cn(who, "请求你决定")
+            actions = L.permissionOptions(i.d["options"]).map { o in
+                QuickAction(label: o.label, help: o.help, prominent: o.kind == "allow_once", body: ["type": "approve", "key": JSON(i.key), "task": JSON(i.task ?? ""), "agent": JSON(i.agent ?? ""), "allow": JSON(o.kind.hasPrefix("allow")), "option": o.id.isEmpty ? .null : JSON(o.id), "label": JSON(o.name)])
+            }
+        case "input": title = L.cn(who, "需要你\(i.d["mode"].str == "url" ? "打开链接" : "填写")")
+        case "session": title = L.cn(who, "这一轮结束，等你的消息")
         case "budget": title = "Run 达到预算，等你追加或停止"
         default: title = "等你处理"
         }
@@ -537,7 +579,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         default: text = ""
         }
         if text.isEmpty { text = i.d["reason"].str }
-        f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, kind: i.kind))
+        f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, sub: t.map { "\($0.id) · \($0.title)" } ?? "", kind: i.kind, actions: actions))
     }
     if let ls = leadStall, st.active {
         f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: "主控可能卡住了", text: ls.text, tasks: [], agents: ["lead"], you: true, sub: "可以在主控的会话里发消息、打断并接管，或者继续等", kind: "lead_stall"))
@@ -545,24 +587,35 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     // Everything else that holds work up is the lead's to settle, not the person's.
     let lead = "主控在处理，不需要你操作"
     let closed: Set<String> = ["succeeded", "failed", "cancelled", "skipped_by_decision"]
-    for c in conflicts where st.tasks[c.task]?.status == "running" || st.tasks[c.other]?.status == "running" {
-        f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: "\(c.task) 和 \(c.other) 改了同一个文件", text: c.paths.joined(separator: "、"), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead))
+    // A shared edit that an overstep already covers is the same fact: keep the overstep.
+    let covered = { (c: (seq: Int, task: String, other: String, paths: [String], owned: Bool)) in
+        !c.owned && conflicts.contains { o in o.owned && Set([o.task, o.other]) == Set([c.task, c.other]) && Set(c.paths).isSubset(of: Set(o.paths)) }
+    }
+    for c in conflicts where !covered(c) && (c.owned ? st.tasks[c.task]?.status == "running" : (st.tasks[c.task]?.status == "running" || st.tasks[c.other]?.status == "running")) {
+        let title = c.owned ? "\(c.task) 改了 \(c.other) 负责的文件" : "\(c.task) 和 \(c.other) 改了同一个文件"
+        f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: "、"), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+    }
+    // Until the lead redoes or corrects the task, or the run is handed over.
+    if !["delivered", "accepted", "cancelled"].contains(st.run.status) {
+        for (task, g) in gaps.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == "succeeded" {
+            f.open.append(OpenFact(key: "og\(g.seq)", seq: g.seq, title: "\(task) 的结果和工作目录对不上", text: g.gaps.joined(separator: "\n"), tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "trace"))
+        }
     }
     for (task, s) in stalls.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == "running" {
-        f.open.append(OpenFact(key: "os\(task)\(s.seq)", seq: s.seq, title: "\(task) 可能卡住了", text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead))
+        f.open.append(OpenFact(key: "os\(task)\(s.seq)", seq: s.seq, title: "\(task) 可能卡住了", text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "stall"))
     }
     for b in blockers where !closed.contains(st.tasks[b.task]?.status ?? "") {
-        f.open.append(OpenFact(key: b.key, seq: b.seq, title: "\(b.task) 遇到阻塞", text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead))
+        f.open.append(OpenFact(key: b.key, seq: b.seq, title: "\(b.task) 遇到阻塞", text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead, kind: "blocker"))
     }
     for t in st.orderedTasks where t.status == "waiting_input" {
         guard let q = t.question, q.answer == nil, !st.inbox.contains(where: { $0.key == q.key }) else { continue }
-        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: "\(t.id) 问主控", text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead))
+        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: "\(t.id) 问主控", text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "lead_question"))
     }
     for t in st.orderedTasks where ["failed", "verification_failed"].contains(t.status) {
-        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: "\(t.id) 失败，等主控决定", text: t.error.isEmpty ? t.verificationFailures.joined(separator: "；") : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: "主控可以重做、接受结果或取消"))
+        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: "\(t.id) 失败，等主控决定", text: t.error.isEmpty ? t.verificationFailures.joined(separator: "；") : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: "主控可以重做、接受结果或取消", kind: "failed"))
     }
     for t in st.orderedTasks where t.status == "blocked" {
-        f.open.append(OpenFact(key: "ob\(t.id)", seq: nil, title: "\(t.id) 等待 \(t.blockedBy)", text: "依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。", tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead))
+        f.open.append(OpenFact(key: "ob\(t.id)", seq: nil, title: "\(t.id) 等待 \(t.blockedBy)", text: "依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。", tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "blocked"))
     }
     // Once the run is over, a message that never arrived is marked on its decision card.
     if ["delivered", "accepted", "cancelled", "failed"].contains(st.run.status) {

@@ -11,14 +11,19 @@ struct RolesView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("决定谁用什么模型、带什么指令和工具做事。").font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("新建角色") { store.newRole() }.buttonStyle(.borderedProminent)
+                    Button("新建角色") { store.newRole() }.buttonStyle(.primary)
                 }
-                if store.okConnections.isEmpty { Note(text: "还没有可用的 Agent。可以先编辑角色，但要在 Agents 里测试通过后才能运行。", tone: .amber) }
+                if store.okConnections.isEmpty {
+                    HStack {
+                        Note(text: "还没有测试通过的 Agent。可以先编辑角色，测试通过后才能运行。", tone: .amber)
+                        Button("去测试") { store.openSettings("agents") }
+                    }
+                }
                 if store.roles.isEmpty {
                     Card(padding: 20) {
-                        Text("还没有角色").font(.title3.weight(.semibold))
+                        Text("还没有角色").font(.display(.title3))
                         Text("角色决定谁做什么。先建一个主控，再建几个负责具体工作的成员。").foregroundStyle(.secondary)
-                        Button("新建角色") { store.newRole() }.buttonStyle(.borderedProminent)
+                        Button("新建角色") { store.newRole() }.buttonStyle(.primary)
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -120,7 +125,7 @@ struct RoleEditor: View {
                     .padding(12)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r["id"].truthy ? "编辑角色" : "新建角色").font(.title3.weight(.semibold))
+                    Text(r["id"].truthy ? "编辑角色" : "新建角色").font(.display(.title3))
                     if let line = RolesView.statLine(store.roleStats["roles"][r["id"].str], runs: store.roleStats["runs"].int ?? 0) {
                         Text(line).font(.caption).foregroundStyle(.secondary).help("首次通过：第一次尝试就完成，且验证一次通过")
                     }
@@ -206,7 +211,7 @@ struct RoleEditor: View {
                 if r["id"].truthy { Button("删除…", role: .destructive) { remove() } }
                 Spacer()
                 Button("取消") { if r == original || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
-                Button(saving ? "正在保存…" : r["id"].truthy ? "保存" : "创建") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Button(saving ? "正在保存…" : r["id"].truthy ? "保存" : "创建") { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
                     .disabled(saving || r["name"].str.trimmingCharacters(in: .whitespaces).isEmpty)
                     .help(r["name"].str.trimmingCharacters(in: .whitespaces).isEmpty ? "先填写名称" : "")
             }
@@ -254,7 +259,7 @@ struct RoleEditor: View {
                     TextField("名称，例如 code-review", text: Binding(get: { d["name"].str }, set: { skillDraft?["name"] = JSON($0) })).textFieldStyle(.roundedBorder)
                     TextField("什么时候用，例如：评审代码变更时使用", text: Binding(get: { d["description"].str }, set: { skillDraft?["description"] = JSON($0) })).textFieldStyle(.roundedBorder)
                     TextEditor(text: Binding(get: { d["content"].str }, set: { skillDraft?["content"] = JSON($0) })).frame(height: 110).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
-                    HStack { Spacer(); Button("取消") { skillDraft = nil }; Button("添加到 Skill 库") { createSkill() }.buttonStyle(.borderedProminent) }
+                    HStack { Spacer(); Button("取消") { skillDraft = nil }; Button("添加到 Skill 库") { createSkill() }.buttonStyle(.primary) }
                 } else if let link = ghLink {
                     Text("粘贴 GitHub 仓库链接，Janus 会找出其中所有的 Skill，之后在设置的「Skill 库」中管理。").font(.caption).foregroundStyle(.secondary)
                     TextField("https://github.com/owner/repo", text: Binding(get: { link }, set: { ghLink = $0 })).textFieldStyle(.roundedBorder).onSubmit(addSource).disabled(ghAdding)
@@ -262,7 +267,7 @@ struct RoleEditor: View {
                         if ghAdding { ProgressView().controlSize(.small); Text("正在拉取仓库…").font(.callout).foregroundStyle(.secondary) }
                         Spacer()
                         Button("取消") { ghLink = nil }.disabled(ghAdding)
-                        Button("添加") { addSource() }.buttonStyle(.borderedProminent).disabled(ghAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
+                        Button("添加") { addSource() }.buttonStyle(.primary).disabled(ghAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 } else {
                     if !lib.isEmpty { TextField("搜索 Skill 库", text: $skillQuery).textFieldStyle(.roundedBorder) }
@@ -422,7 +427,7 @@ struct RoleEditor: View {
                     Button("从 MCP 库选择…") { mcpDraft = nil; mcpPick = true; Task { await store.loadMcpSources() } }.buttonStyle(.link)
                     Spacer()
                     Button("取消") { mcpDraft = nil }
-                    Button("添加") { addMcp(d) }.buttonStyle(.borderedProminent)
+                    Button("添加") { addMcp(d) }.buttonStyle(.primary)
                 }
             }
             .padding(10)
@@ -442,7 +447,7 @@ struct RoleEditor: View {
                     if mcpAdding { ProgressView().controlSize(.small); Text("正在拉取仓库…").font(.callout).foregroundStyle(.secondary) }
                     Spacer()
                     Button("取消") { mcpLink = nil }.disabled(mcpAdding)
-                    Button("导入") { addMcpSource() }.buttonStyle(.borderedProminent).disabled(mcpAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("导入") { addMcpSource() }.buttonStyle(.primary).disabled(mcpAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             } else {
                 if !lib.isEmpty { TextField("搜索 MCP 库", text: $mcpQuery).textFieldStyle(.roundedBorder) }
@@ -708,9 +713,9 @@ struct AdaptersView: View {
                 }
                 Spacer()
                 if !a["current"].truthy {
-                    Button("安装") { Task { await store.adapterAction(id, "install") } }.buttonStyle(.borderedProminent).disabled(running)
+                    Button("安装") { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running)
                 } else {
-                    if a["updateAvailable"].truthy { Button(String("升级到 \(a["latest"].str)")) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.borderedProminent).disabled(running) }
+                    if a["updateAvailable"].truthy { Button(String("升级到 \(a["latest"].str)")) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running) }
                     Button("检查更新") { Task { await store.adapterAction(id, "check") } }.disabled(running)
                 }
             }

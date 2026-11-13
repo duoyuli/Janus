@@ -10,7 +10,7 @@ struct RunView: View {
         Group {
             if let err = run.loadError, !run.loaded {
                 VStack(spacing: 12) {
-                    Text("打不开这个任务").font(.title2.weight(.semibold))
+                    Text("打不开这个任务").font(.display(.title2))
                     Text(err).foregroundStyle(.secondary)
                     Button("重试") { Task { await run.load() } }
                 }
@@ -176,7 +176,7 @@ struct ReplayBar: View {
             Button { run.replay = min(n, pos + 1) } label: { Label("下一条事件", systemImage: "chevron.right") }
                 .labelStyle(.iconOnly).help("下一条事件（→）").keyboardShortcut(.rightArrow, modifiers: [])
             Text(e.map { "第 \(pos) / \(n) 条 · \(L.clock($0.ts)) · \(run.who($0.actor).name)：\(L.short($0.text, 40))" } ?? "").font(.caption).lineLimit(1).frame(width: 340, alignment: .leading)
-            Button("回到实时") { run.replay = nil }.buttonStyle(.borderedProminent).help("退出回放（Esc）")
+            Button("回到实时") { run.replay = nil }.buttonStyle(.primary).help("退出回放（Esc）")
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(Tone.violet.color.opacity(0.1))
@@ -191,16 +191,18 @@ struct BoardView: View {
     var body: some View {
         let st = run.shown
         ScrollView {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 14) {
-                    RunCard(run: run, st: st)
-                    InboxSection(run: run, st: st)
-                    if st.result != nil { ResultCard(run: run, st: st) }
-                    ProgressBoard(run: run, st: st)
+            // The lead's conversation is the run: the goal, how it is being pursued and what it
+            // asks. What the team is doing sits beside it; what waits on the person, above it.
+            VStack(alignment: .leading, spacing: 18) {
+                RunCard(run: run, st: st)
+                InboxSection(run: run, st: st)
+                if st.result != nil { ResultCard(run: run, st: st) }
+                AdaptiveColumns(side: 340, minMain: 480, spacing: 18) {
+                    ChatCard(run: run, st: st, title: "主控", info: agentSession(st, "lead"), target: .agent("lead"))
+                        .frame(height: 640)
+                    RunInspector(run: run, st: st)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                AgentsPanel(run: run, st: st)
-                    .frame(width: 300)
+                ProgressBoard(run: run, st: st)
             }
             .padding(20)
         }
@@ -224,7 +226,7 @@ struct RunCard: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Pill(label, tone)
-                    Text(title.isEmpty ? "正在连接编排器…" : title).font(.title2.weight(.semibold)).textSelection(.enabled)
+                    Text(title.isEmpty ? "正在连接编排器…" : title).font(.display(.title2)).textSelection(.enabled)
                     if long {
                         Button(run.goalOpen ? "收起完整目标" : "查看完整目标") { run.goalOpen.toggle() }.buttonStyle(.link)
                         if run.goalOpen { MarkdownText(text: r.goal).padding(.top, 4) }
@@ -247,7 +249,7 @@ struct RunCard: View {
                 HStack {
                     Text(verbatim: "\(r.status == "interrupted" ? "编排器重启时中断了。已完成的任务会保留，未完成的从原处继续。" : "可以从失败处继续。")也可以点右侧的 Agent 进入对话，补充信息后再继续。").font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("从中断处继续") { Task { await run.act(["type": "resumeRun"]) } }.buttonStyle(.borderedProminent)
+                    Button("从中断处继续") { Task { await run.act(["type": "resumeRun"]) } }.buttonStyle(.primary)
                 }
                 .padding(10)
                 .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
@@ -257,17 +259,30 @@ struct RunCard: View {
                 meta("用时", L.dur(r.now - r.start)).help("开始于 \(L.clock(r.start))")
                 if !st.order.isEmpty { meta("任务", "\(done) / \(st.order.count)") }
             }
-            HStack(spacing: 6) {
+            // A progress indicator, not controls: dots on a line, nothing that looks pressable.
+            HStack(spacing: 0) {
                 ForEach(Array(stages.enumerated()), id: \.offset) { i, s in
-                    Text(i < idx ? "✓ \(s)" : s)
-                        .font(.callout.weight(i == idx ? .semibold : .regular))
-                        .foregroundStyle(i < idx ? Tone.green.color : i == idx ? Color.accent : .secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(i == idx ? Color.accent.opacity(0.1) : i < idx ? Tone.green.color.opacity(0.08) : Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7))
-                        .accessibilityLabel("\(s)，\(i < idx ? "已完成" : i == idx ? "当前阶段" : "未开始")")
+                    if i > 0 {
+                        Rectangle().fill(i <= idx ? Color.secondary.opacity(0.6) : Color.line).frame(height: 1.5).frame(maxWidth: .infinity)
+                            .padding(.horizontal, 6)
+                    }
+                    HStack(spacing: 6) {
+                        ZStack {
+                            Circle().fill(i < idx ? Color.secondary.opacity(0.7) : i == idx ? Color.accent : .clear).frame(width: 14, height: 14)
+                                .shadow(color: i == idx && active ? Color.accent.opacity(0.7) : .clear, radius: 5)
+                            Circle().strokeBorder(i < idx ? Color.clear : i == idx ? Color.accent : Color.secondary.opacity(0.5), lineWidth: 1.5).frame(width: 14, height: 14)
+                            if i < idx { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.white) }
+                        }
+                        Text(s)
+                            .font(.callout.weight(i == idx ? .semibold : .regular))
+                            .foregroundStyle(i < idx ? Color.primary : i == idx ? Color.accent : .secondary)
+                            .fixedSize()
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(s)，\(i < idx ? "已完成" : i == idx ? "当前阶段" : "未开始")")
                 }
             }
+            .padding(.top, 2)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("阶段")
         }
@@ -341,7 +356,7 @@ struct ResultCard: View {
                     SeqButton(seq: r.seq, run: run)
                     Spacer()
                 }
-                Text("目标已完成").font(.title3.weight(.semibold))
+                Text("目标已完成").font(.display(.title3))
                 MarkdownText(text: d["summary"].str, lineLimit: long && !run.resultOpen ? 8 : nil)
                 if long { Button(run.resultOpen ? "收起" : "展开全文") { run.resultOpen.toggle() }.buttonStyle(.link) }
                 Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 12) {
@@ -378,7 +393,7 @@ struct ResultCard: View {
                     HStack {
                         Text(risks.isEmpty ? "核对证据后验收。" : "有 \(risks.count) 条风险由 Agent 自己报告，或在核对结果时发现。请逐条核对证据后再验收。").font(.callout)
                         Spacer()
-                        Button(risks.isEmpty ? "验收通过" : "核对后接受风险并验收") { Task { await run.act(["type": "accept"]) } }.buttonStyle(.borderedProminent)
+                        Button(risks.isEmpty ? "验收通过" : "核对后接受风险并验收") { Task { await run.act(["type": "accept"]) } }.buttonStyle(.primary)
                     }
                     .padding(12)
                     .background((risks.isEmpty ? Color.secondary : Tone.amber.color).opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
@@ -411,7 +426,9 @@ struct TaskTag: View {
         Text(id).font(.system(size: 11, weight: .semibold, design: .monospaced))
             .lineLimit(1).truncationMode(.middle)
             .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+            .foregroundStyle(Color.accent)
+            .background(Color.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accent.opacity(0.25), lineWidth: 0.5))
     }
 }
 
@@ -422,9 +439,15 @@ struct AgentsPanel: View {
     var body: some View {
         let members = run.team
         let active = members.filter { phase($0["id"].str, lead: $0["lead"].truthy) != "idle" }.count
-        Card(padding: 12) {
-            HStack { Text("Agent").font(.headline); Spacer(); if active > 0 { Text(verbatim: "\(active) 个在工作").font(.caption).foregroundStyle(.secondary) } }
-            ForEach(members, id: \.self) { m in row(m["id"].str, lead: m["lead"].truthy) }
+        VStack(alignment: .leading, spacing: 8) {
+            if active > 0 { Text(verbatim: "\(active) 个在工作").font(.caption).foregroundStyle(.secondary) }
+            // Rows divided by hairlines: no boxes inside the box.
+            VStack(spacing: 0) {
+                ForEach(Array(members.enumerated()), id: \.offset) { i, m in
+                    if i > 0 { Divider().padding(.leading, 42) }
+                    row(m["id"].str, lead: m["lead"].truthy)
+                }
+            }
         }
     }
 
@@ -453,17 +476,20 @@ struct AgentsPanel: View {
         if !lead, let rs = runStats(id, mine) { meta.append(rs) }
         return Button { run.page = .agent(id) } label: {
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    Avatar(initials: w.initials, color: w.color, size: 26)
-                    Text(w.name).font(.callout.weight(.semibold))
-                    Spacer()
-                    Pill(pl, pt)
+                HStack(spacing: 10) {
+                    Avatar(initials: w.initials, color: w.color, size: 30)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text(w.name).font(.callout.weight(.semibold))
+                            Spacer()
+                            Pill(pl, pt)
+                        }
+                        Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
                 }
-                Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                if let cur, cur.status == "running", let p = a?.progress, p > 0 { Bar(value: p) }
+                if let cur, cur.status == "running", let p = a?.progress, p > 0 { Bar(value: p).padding(.leading, 40) }
             }
-            .padding(8)
-            .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.vertical, 9).padding(.horizontal, 4)
             .contentShape(Rectangle())
             .hoverable(8)
         }
@@ -523,5 +549,92 @@ struct BriefSuggestions: View {
         let added = lines.map { "- " + $0 }.joined(separator: "\n")
         ws["brief"] = JSON(current.isEmpty ? added : current + "\n" + added)
         return ws
+    }
+}
+
+/// Beside the lead's conversation: the team's work, one view at a time. Tasks (click one to open
+/// it), changes (each task's latest diff, to review), files the run produced, and the team.
+// @project-doc docs/architecture/frontend.md#run_page
+struct RunInspector: View {
+    let run: RunModel
+    let st: RunState
+    @AppStorage("janus.inspectorTab") private var tab = "tasks"
+
+    var body: some View {
+        let diffs = latest(st.artifacts.filter { $0.kind == "git_diff" })
+        let files = latest(st.artifacts.filter { $0.kind != "git_diff" })
+        Card(padding: 12) {
+            Picker("查看", selection: $tab) {
+                Text(verbatim: "任务 \(st.order.count)").tag("tasks")
+                Text(verbatim: "改动 \(diffs.count)").tag("changes")
+                Text(verbatim: "产物 \(files.count)").tag("files")
+                Text("团队").tag("team")
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    switch tab {
+                    case "changes": artifacts(diffs, empty: "还没有任务改过文件。")
+                    case "files": artifacts(files, empty: "还没有产物。")
+                    case "team": AgentsPanel(run: run, st: st)
+                    default: tasks
+                    }
+                }
+            }
+        }
+        .frame(height: 640)
+    }
+
+    @ViewBuilder private var tasks: some View {
+        if st.orderedTasks.isEmpty { Text("主控还没有派出任务。").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
+        ForEach(Array(st.orderedTasks.enumerated()), id: \.element.id) { i, t in
+            if i > 0 { Divider() }
+            let (label, tone) = L.task(t.status)
+            let w = run.who(t.agent)
+            Button { run.show(.task(t.id)) } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: RunTimeline.statusSymbol(tone)).foregroundStyle(tone.color).font(.system(size: 13)).frame(width: 16).padding(.top, 2)
+                        .accessibilityLabel(label)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(t.title).font(.callout.weight(.medium)).lineLimit(2).multilineTextAlignment(.leading)
+                        HStack(spacing: 5) {
+                            TaskTag(id: t.id)
+                            Avatar(initials: w.initials, color: w.color, size: 14)
+                            Text(verbatim: "\(w.name) · \(label)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .hoverable(6)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private func artifacts(_ list: [Artifact], empty: String) -> some View {
+        if list.isEmpty { Text(empty).font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
+        ForEach(Array(list.enumerated()), id: \.element.seq) { i, a in
+            if i > 0 { Divider() }
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) { TaskTag(id: a.task); Text(a.name).font(.callout.weight(.medium)).lineLimit(1) }
+                    if !a.desc.isEmpty { Text(a.desc).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                }
+                Spacer()
+                Button(a.kind == "git_diff" ? "审阅" : "查看") {
+                    if a.kind == "git_diff" { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) }
+                }
+                .buttonStyle(.link)
+            }
+            .padding(.vertical, 8)
+        }
+    }
+
+    /// The newest artifact of each task and name kind: an older attempt's diff is history.
+    private func latest(_ xs: [Artifact]) -> [Artifact] {
+        var seen = Set<String>()
+        return xs.sorted { $0.seq > $1.seq }.filter { seen.insert("\($0.task)/\($0.kind)/\($0.kind == "git_diff" ? "" : $0.name)").inserted }
     }
 }

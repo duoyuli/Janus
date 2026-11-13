@@ -14,22 +14,18 @@ struct HomeView: View {
 
     var body: some View {
         let members = ws["members"].array.map { m in (m, store.role(m["role"].str)) }
-        let problems = members.compactMap { m, r -> String? in
-            guard let r else { return "已删除的角色" }
-            let c = store.connection(r["connection"].str)
-            if c == nil { return "\(r["name"].str)（未绑定 Agent）" }
-            if c?["phase"].str != "ok" { return "\(r["name"].str)（Agent 未测试通过或未登录）" }
-            return nil
-        }
+        let problems = Self.problems(members.map(\.1), connection: store.connection)
         let runs = store.runs(of: ws)
         // Runs waiting on the person; the full list is in the sidebar.
-        let waiting = runs.filter { ["waiting_input", "delivered"].contains($0["status"].str) }
+        // The same as the inbox and the sidebar: any run with something waiting on the person.
+        let waiting = runs.filter { r in store.inbox.open.contains { $0.run == r["id"].str } }
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                OnboardingBar(store: store)
+                // The workspace's own problems below say the same, more precisely.
+                if problems.isEmpty { OnboardingBar(store: store) }
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(ws["name"].str).font(.largeTitle.weight(.semibold))
+                        Text(ws["name"].str).font(.display(.largeTitle))
                         Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).help(ws["path"].str).textSelection(.enabled)
                     }
                     Spacer()
@@ -52,15 +48,16 @@ struct HomeView: View {
                         Spacer()
                         let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
                         Button("交给主控") { start(problems) }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.primary)
                             .disabled(!problems.isEmpty || empty)
                             .help(!problems.isEmpty ? "还有角色不能运行" : empty ? "先写下你想要的结果" : "⌘↩")
                     }
                 }
-                if !problems.isEmpty {
+                // One line per cause, with the place that fixes it.
+                ForEach(problems, id: \.text) { p in
                     HStack {
-                        Note(text: "这些角色还不能运行：\(problems.joined(separator: "、"))。", tone: .amber)
-                        Button("打开角色设置") { store.openSettings("roles") }
+                        Note(text: p.text, tone: .amber)
+                        Button(p.action) { store.openSettings(p.tab) }
                     }
                 }
 
@@ -106,13 +103,13 @@ struct HomeView: View {
                 ForEach(members.indices, id: \.self) { i in
                     let r = members[i].1
                     Avatar(initials: r?["init"].str ?? "?", color: r?["color"].str ?? "#64748b", size: 22)
-                        .overlay(RoundedRectangle(cornerRadius: 22 * 0.28).strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                        .overlay(RoundedRectangle(cornerRadius: 22 * 0.28).strokeBorder(Color.page, lineWidth: 1.5))
                         .help(r?["name"].str ?? "已删除的角色")
                 }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: "、"))
-            Text(verbatim: "\(members.count) 个角色\(lead.map { " · 主控 \($0["name"].str)" } ?? "")").font(.callout).foregroundStyle(.secondary)
+            Text(verbatim: "\(members.count) 个角色\(lead.map { $0["name"].str == "主控" ? " · 有主控" : " · 主控：\($0["name"].str)" } ?? "")").font(.callout).foregroundStyle(.secondary)
             Spacer()
             Button("管理团队…") { store.editingWorkspace = ws }.buttonStyle(.link)
         }
@@ -148,7 +145,29 @@ struct HomeView: View {
     @Local private var briefExpanded = false
     private static let previewLines = 6
 
-    private func start(_ problems: [String]) {
+    struct Problem { let text, action, tab: String }
+
+    /// Why the workspace's roles cannot run, grouped by cause: an Agent that has not passed its
+    /// test is one problem however many roles use it.
+    static func problems(_ roles: [JSON?], connection: (String) -> JSON?) -> [Problem] {
+        var out: [Problem] = []
+        let deleted = roles.filter { $0 == nil }.count
+        if deleted > 0 { out.append(Problem(text: "工作区里有 \(deleted) 个角色已被删除，请在工作区设置中移除或换成别的角色。", action: "打开角色设置", tab: "roles")) }
+        let unbound = roles.compactMap { $0 }.filter { connection($0["connection"].str) == nil }.map { $0["name"].str }
+        if !unbound.isEmpty { out.append(Problem(text: L.cn(unbound.joined(separator: "、"), "还没有选择 Agent。"), action: "打开角色设置", tab: "roles")) }
+        var untested: [(String, [String])] = []
+        for r in roles.compactMap({ $0 }) {
+            guard let c = connection(r["connection"].str), c["phase"].str != "ok" else { continue }
+            let name = c["name"].str
+            if let i = untested.firstIndex(where: { $0.0 == name }) { untested[i].1.append(r["name"].str) } else { untested.append((name, [r["name"].str])) }
+        }
+        for (agent, names) in untested {
+            out.append(Problem(text: "Agent「\(agent)」还没有测试通过或未登录，" + L.cn(names.joined(separator: "、"), "因此不能运行。"), action: "去测试", tab: "agents"))
+        }
+        return out
+    }
+
+    private func start(_ problems: [Problem]) {
         let goal = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = store.goalImages
         guard !goal.isEmpty || !images.isEmpty, problems.isEmpty else { return }
@@ -173,7 +192,7 @@ struct WorkspaceEditor: View {
         let isNew = original["id"].str.isEmpty
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(isNew ? "新建工作区" : "工作区设置 · \(original["name"].str)").font(.title2.weight(.semibold))
+                Text(isNew ? "新建工作区" : "工作区设置 · \(original["name"].str)").font(.display(.title2))
                 Spacer()
             }
             .padding(20)
@@ -244,7 +263,7 @@ struct WorkspaceEditor: View {
                 }
                 Spacer()
                 Button("取消") { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
-                Button(saving ? "正在保存…" : isNew ? "创建工作区" : "保存") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Button(saving ? "正在保存…" : isNew ? "创建工作区" : "保存") { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
                     .disabled(saving || path.trimmingCharacters(in: .whitespaces).isEmpty || inspect?["exists"].bool == false || brief.count > Self.briefLimit)
             }
             .padding(16)

@@ -33,35 +33,18 @@ struct TaskView: View {
                             Pill(label, tone)
                             if t.attempts.count > 1 { Pill("第 \(t.attempts.count) 次尝试") }
                         }
-                        Text(t.title).font(.title2.weight(.semibold)).textSelection(.enabled)
+                        Text(t.title).font(.display(.title2)).textSelection(.enabled)
                         if !t.desc.isEmpty { Text(t.desc).foregroundStyle(.secondary).textSelection(.enabled) }
+                        let structure = [t.owns.isEmpty ? nil : "负责 \(t.owns.joined(separator: "、"))", t.verifies.isEmpty ? nil : "独立验证 \(t.verifies)"].compactMap { $0 }
+                        if !structure.isEmpty { Text(verbatim: structure.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                     }
                     Spacer()
                     Button("在审计日志中查看") { run.auditCat = "all"; run.auditTask = t.id; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
                 }
-                HStack(alignment: .top, spacing: 16) {
+                AdaptiveColumns(side: 330) {
                     VStack(alignment: .leading, spacing: 14) {
                         ChatCard(run: run, st: st, title: "会话", info: taskSession(st, t), target: .task(t.id))
                             .frame(height: 560)
-                        if !t.accept.isEmpty || !t.summary.isEmpty {
-                            Card {
-                                Text("验收标准").font(.headline)
-                                ForEach(t.accept.indices, id: \.self) { i in
-                                    let c = i < t.checks.count ? t.checks[i] : nil
-                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                        Text(c.map { $0.passed ? "✓" : "✗" } ?? "○").fontWeight(.bold).foregroundStyle(c.map { $0.passed ? Tone.green.color : Tone.red.color } ?? .secondary)
-                                            .accessibilityLabel(c.map { $0.passed ? "通过" : "没通过" } ?? "未核对")
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(t.accept[i])
-                                            if let ev = c?.evidence, !ev.isEmpty { Text(MD.inline(ev)).font(.caption).foregroundStyle(.secondary) }
-                                        }
-                                    }
-                                }
-                                if !t.summary.isEmpty {
-                                    Note(text: "结构化结果：\(t.summary)\(t.evidence.isEmpty ? "" : "\n证据：\(t.evidence.joined(separator: "；"))")")
-                                }
-                            }
-                        }
                         // The full trace is long and repeats the audit log; it stays folded until asked for.
                         if !evs.isEmpty {
                             Card {
@@ -75,6 +58,30 @@ struct TaskView: View {
                     }
                     .frame(maxWidth: .infinity)
                     VStack(alignment: .leading, spacing: 14) {
+                        // What the task came back with, first: where it disagrees with the workspace,
+                        // then each criterion with its evidence.
+                        if !t.accept.isEmpty || !t.summary.isEmpty {
+                            Card {
+                                Text("验收标准").font(.headline)
+                                if !t.traceGaps.isEmpty {
+                                    Note(text: "和工作目录对不上：\n\(t.traceGaps.map { "· \($0)" }.joined(separator: "\n"))", tone: .amber)
+                                }
+                                ForEach(t.accept.indices, id: \.self) { i in
+                                    let c = i < t.checks.count ? t.checks[i] : nil
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Text(c.map { $0.passed ? "✓" : "✗" } ?? "○").fontWeight(.bold).foregroundStyle(c.map { $0.passed ? Tone.green.color : Tone.red.color } ?? .secondary)
+                                            .accessibilityLabel(c.map { $0.passed ? "通过" : "没通过" } ?? "未核对")
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(t.accept[i])
+                                            if let ev = c?.evidence, !ev.isEmpty { Text(MD.inline(ev)).font(.caption).foregroundStyle(.secondary) }
+                                        }
+                                    }
+                                }
+                                if !t.summary.isEmpty {
+                                    Note(text: "结果：\(t.summary)\(t.evidence.isEmpty ? "" : "\n证据：\(t.evidence.joined(separator: "；"))")")
+                                }
+                            }
+                        }
                         Card {
                             KV(rows: [("执行者", "\(w.name)\(w.role.isEmpty ? "" : "（\(w.role)）")")])
                             depRow("上游", t.deps, st)
@@ -115,7 +122,7 @@ struct TaskView: View {
                                 HStack { Text("产物").font(.headline); Text(verbatim: "\(t.artifacts.count)").font(.caption).foregroundStyle(.secondary) }
                                 ForEach(t.artifacts, id: \.seq) { a in
                                     VStack(alignment: .leading, spacing: 2) {
-                                        HStack { Text(a.name).fontWeight(.semibold); Spacer(); Button("查看") { ArtifactWindow.open(run: run, path: a.path, title: a.name) }.buttonStyle(.link) }
+                                        HStack { Text(a.name).fontWeight(.semibold); Spacer(); Button(a.kind == "git_diff" ? "审阅" : "查看") { if a.kind == "git_diff" { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) } }.buttonStyle(.link) }
                                         if !a.desc.isEmpty { Text(a.desc).font(.caption).foregroundStyle(.secondary) }
                                     }
                                     .help("\(L.tilde(a.path)) · 尝试 \(a.attempt) · sha256 \(a.hash)…")
@@ -123,7 +130,6 @@ struct TaskView: View {
                             }
                         }
                     }
-                    .frame(width: 330)
                 }
             }
             .padding(20)

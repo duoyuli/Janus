@@ -11,13 +11,28 @@ struct TimelineMark: Identifiable {
     let title: String
     /// Who made it ("user", "lead" or an agent id).
     var by = ""
+    /// For an open item: what it is (`OpenFact.kind`), so each kind has its own glyph.
+    var what = ""
+    /// For an open item: it waits on the person, not the lead.
+    var you = false
+
+    /// Open items, by kind: glyph and name. The person's are red, the lead's amber.
+    static let openKinds: [String: (String, String)] = [
+        "approval": ("hand.raised.fill", "等你审批"), "input": ("square.and.pencil", "等你填写"),
+        "question": ("questionmark.bubble.fill", "等你决定"), "session": ("text.bubble.fill", "等你的消息"),
+        "budget": ("hourglass.bottomhalf.filled", "预算用完"), "lead_stall": ("hourglass", "主控可能卡住"),
+        "conflict": ("arrow.triangle.merge", "同时改了一个文件"), "overstep": ("arrow.right.to.line", "越界"),
+        "trace": ("doc.badge.ellipsis", "结果和工作目录对不上"), "stall": ("hourglass", "可能卡住"),
+        "blocker": ("exclamationmark.octagon.fill", "阻塞"), "lead_question": ("questionmark.circle.fill", "问主控"),
+        "failed": ("xmark.octagon.fill", "失败"), "blocked": ("pause.circle.fill", "等依赖"),
+    ]
 
     var symbol: String {
         switch kind {
         case .result: return "checkmark.seal.fill"
         case .artifact: return "doc.fill"
         case .decision: return by == "user" ? "person.crop.circle.fill" : "diamond.fill"
-        case .open: return "exclamationmark.triangle.fill"
+        case .open: return Self.openKinds[what]?.0 ?? "exclamationmark.triangle.fill"
         }
     }
     var tone: Tone {
@@ -25,7 +40,7 @@ struct TimelineMark: Identifiable {
         case .result: return .green
         case .artifact: return .blue
         case .decision: return .violet
-        case .open: return .amber
+        case .open: return you ? .red : .amber
         }
     }
     var kindName: String {
@@ -33,7 +48,7 @@ struct TimelineMark: Identifiable {
         case .result: return "结论"
         case .artifact: return "产物"
         case .decision: return "决定"
-        case .open: return "待处理"
+        case .open: return Self.openKinds[what]?.1 ?? "待处理"
         }
     }
 }
@@ -70,7 +85,9 @@ struct TimeScale {
     private(set) var k: CGFloat = 0
     static let breakW: CGFloat = 36
 
-    init(spans: [(Double, Double)], width: CGFloat, lead: CGFloat, trail: CGFloat) {
+    /// `untilLast`: the last span ends where it ends (a live run's "now"), not padded out to a
+    /// minimum width, so nothing but empty space follows "now".
+    init(spans: [(Double, Double)], width: CGFloat, lead: CGFloat, trail: CGFloat, untilLast: Bool = false) {
         let iv = spans.map { ($0.0, Swift.max($0.0, $0.1)) }.sorted { $0.0 < $1.0 }
         guard let lo = iv.first?.0, let hi = iv.map(\.1).max() else { return }
         let threshold = Swift.max(180_000, (hi - lo) * 0.08)
@@ -82,7 +99,7 @@ struct TimeScale {
         // A lone moment still gets some room.
         let active0 = merged.reduce(0) { $0 + ($1.1 - $1.0) }
         let minDur = Swift.max(20_000, active0 * 0.06)
-        for i in merged.indices where merged[i].1 - merged[i].0 < minDur {
+        for i in merged.indices where merged[i].1 - merged[i].0 < minDur && !(untilLast && i == merged.count - 1 && merged[i].1 > merged[i].0) {
             let room = i + 1 < merged.count ? merged[i + 1].0 - merged[i].0 : .infinity
             merged[i].1 = merged[i].0 + Swift.min(minDur, room)
         }
@@ -168,7 +185,7 @@ struct RunTimeline: View {
         for t in tasks { for m in [t.result].compactMap({ $0 }) + t.artifacts { spans.append((m.ts, m.ts)) } }
         for m in milestones { spans.append((m.ts, m.ts)) }
         if live || queued { spans.append((now, now)) }
-        return TimeScale(spans: spans, width: w, lead: 12, trail: queued ? 132 : 56)
+        return TimeScale(spans: spans, width: w, lead: 12, trail: queued ? 132 : 56, untilLast: live)
     }
 
     private func rowTop(_ i: Int) -> CGFloat { axisH + laneH + CGFloat(i) * rowH }
@@ -180,6 +197,7 @@ struct RunTimeline: View {
             Color.clear.frame(height: axisH)
             if !milestones.isEmpty {
                 Label("决定与待处理", systemImage: "diamond")
+                    .help("◆ 决定 · 红色：等你处理 · 橙色：主控在处理。悬停图标看是什么，点按打开")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(height: laneH, alignment: .center)
             }
@@ -301,7 +319,8 @@ struct RunTimeline: View {
 
     @ViewBuilder private func row(_ t: TimelineTask, _ i: Int, _ s: TimeScale, _ w: CGFloat) -> some View {
         let y = rowTop(i) + (rowH - 22) / 2
-        let color = Color(hex: run.who(t.agent).color)
+        let who = run.who(t.agent)
+        let color = Color(hex: Avatar.neutral.contains(who.color.lowercased()) ? Avatar.slate : who.color)
         ForEach(t.bars) { b in
             let x0 = s.x(b.start), x1 = Swift.max(s.x(b.end), x0 + 4)
             attemptBar(t, b, color: color, width: x1 - x0).offset(x: x0, y: y)
@@ -329,18 +348,20 @@ struct RunTimeline: View {
     private func attemptBar(_ t: TimelineTask, _ b: TimelineBar, color: Color, width: CGFloat) -> some View {
         let (label, tone) = L.task(b.status)
         let failed = tone == .red
-        let fill = failed ? Tone.red.color : color
+        // Work in progress is the one thing in signal cyan; finished work is its agent's tone.
+        let fill = failed ? Tone.red.color : b.running ? Color.accent : color
         let dur = L.dur(b.end - b.start)
         let text = b.running ? "进行中" : b.attempt == 1 ? dur : width > 130 ? "第 \(b.attempt) 次 · \(dur)" : "第 \(b.attempt) 次"
         return Button { run.show(.task(t.id)) } label: {
+            // A finished attempt is a solid bar in its agent's color; one still running is its outline.
             Text(verbatim: text)
-                .font(.caption2.weight(.medium).monospacedDigit())
-                .foregroundStyle(width > 64 ? Color.primary : .clear)
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(width > 64 ? (b.running ? fill : .white) : .clear)
                 .lineLimit(1)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 7)
                 .frame(width: width, height: 22, alignment: .leading)
-                .background(fill.opacity(b.running ? 0.14 : 0.26), in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(fill.opacity(0.8), style: StrokeStyle(lineWidth: 1, dash: b.running ? [4, 2] : [])))
+                .background(b.running ? AnyShapeStyle(fill.opacity(0.14)) : AnyShapeStyle(LinearGradient(colors: [fill, fill.opacity(0.75)], startPoint: .leading, endPoint: .trailing)), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(b.running ? fill.opacity(0.9) : .white.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: b.running ? [4, 2] : [])))
                 .contentShape(Rectangle())
                 .hoverable(5)
         }

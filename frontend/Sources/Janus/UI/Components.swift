@@ -22,12 +22,49 @@ extension Color {
         })
     }
 
-    /// Clay accent: the Janus brand color. Darker in light mode and lighter in dark mode so text in
-    /// it stays above 4.5:1 on cards and on its own tinted pill.
-    static let accent = Color(light: "#a5482a", dark: "#e8875f")
-    static let card = Color(nsColor: .controlBackgroundColor)
-    static let soft = Color(nsColor: .underPageBackgroundColor)
-    static let line = Color(nsColor: .separatorColor)
+    // The Janus palette: cool slate surfaces, near-black (or near-white) for primary actions,
+    // and one signal cyan used sparingly: the current stage, "now", links. Depth comes from
+    // tone and hairlines, not from tinted panels or shadows (docs/architecture/frontend.md#design_tokens).
+
+    /// Signal cyan: links, the current stage, "now", work in progress.
+    static let accent = Color(light: "#0757c2", dark: "#4cc2ff")
+    /// Primary actions: ink on the page, and the text on it.
+    static let ink = Color(light: "#15181d", dark: "#eef1f5")
+    static let onInk = Color(light: "#ffffff", dark: "#0a0e13")
+    /// The content area behind the cards.
+    static let page = Color(light: "#f3f5f8", dark: "#0a0e13")
+    static let card = Color(light: "#ffffff", dark: "#121821")
+    static let soft = Color(light: "#eef1f5", dark: "#0e131a")
+    static let line = Color(light: "#e1e6ec", dark: "#1f2836")
+    /// The sidebar: one step off the page, in the same cool family as the cards.
+    static let sidebar = Color(light: "#e9edf2", dark: "#0f141b")
+}
+
+extension Font {
+    /// Page and section titles: the system serif (New York; Songti for Chinese), the one place
+    /// the type has a voice. Everything else stays in the system sans.
+    static func display(_ style: Font.TextStyle) -> Font { .system(style, design: .serif).weight(.semibold) }
+}
+
+/// The primary action: ink-filled, so it is the darkest (or brightest) thing on the screen
+/// without spending the accent color.
+struct PrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.controlSize) private var size
+    func makeBody(configuration: Configuration) -> some View {
+        let small = size == .small || size == .mini
+        configuration.label
+            .font(small ? .callout.weight(.medium) : .body.weight(.medium))
+            .foregroundStyle(Color.onInk)
+            .padding(.horizontal, small ? 9 : 12).padding(.vertical, small ? 3 : 5)
+            .background(Color.ink.opacity(configuration.isPressed ? 0.78 : 1), in: RoundedRectangle(cornerRadius: 7))
+            .opacity(enabled ? 1 : 0.32)
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+extension ButtonStyle where Self == PrimaryButtonStyle {
+    static var primary: PrimaryButtonStyle { PrimaryButtonStyle() }
 }
 
 extension Tone {
@@ -35,26 +72,31 @@ extension Tone {
         switch self {
         case .gray: return Color(nsColor: .secondaryLabelColor)
         case .blue: return .accent
-        case .green: return Color(light: "#0b6e47", dark: "#3fc28a")
-        case .amber: return Color(light: "#865606", dark: "#e0a33a")
-        case .red: return Color(light: "#ad2f43", dark: "#f0697d")
-        case .violet: return Color(light: "#6d45c4", dark: "#a989f0")
+        case .green: return Color(light: "#087049", dark: "#3ddc97")
+        case .amber: return Color(light: "#8a5800", dark: "#f5b544")
+        case .red: return Color(light: "#c0283f", dark: "#ff6b81")
+        case .violet: return Color(light: "#6a42d6", dark: "#a78bfa")
         }
     }
 }
 
+/// A status or a short label: a colored dot and quiet text on a neutral capsule, so a screen of
+/// them reads as information, not as a field of colors.
 struct Pill: View {
     let text: String
     var tone: Tone = .gray
     init(_ text: String, _ tone: Tone = .gray) { self.text = text; self.tone = tone }
     var body: some View {
-        Text(text)
-            .font(.system(size: 11, weight: .semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 7).padding(.vertical, 2.5)
-            .foregroundStyle(tone.color)
-            .background(tone.color.opacity(0.13), in: Capsule())
-            .fixedSize()
+        HStack(spacing: 5) {
+            if tone != .gray { Circle().fill(tone.color).frame(width: 6, height: 6).accessibilityHidden(true) }
+            Text(text)
+        }
+        .font(.system(size: 11, weight: .medium).monospacedDigit())
+        .lineLimit(1)
+        .padding(.horizontal, 7).padding(.vertical, 2.5)
+        .foregroundStyle(Color.primary.opacity(0.75))
+        .background(Color.secondary.opacity(0.1), in: Capsule())
+        .fixedSize()
     }
 }
 
@@ -73,12 +115,24 @@ struct Avatar: View {
     let initials: String
     let color: String
     var size: CGFloat = 22
+
+    /// The slate a role gets when it has no color of its own.
+    static let neutral: Set<String> = ["", "#64748b", "#94a3b8"]
+    static let slate = "#5b6675"
+    /// The lead's tile when its role has no color: the one colored member of a team.
+    static let lead = "#0b6bcb"
+
     var body: some View {
-        Text(initials)
-            .font(.system(size: size * 0.4, weight: .bold))
+        let base = Color(hex: Self.neutral.contains(color.lowercased()) ? Self.slate : color)
+        // Two CJK characters crowd a small tile; one reads at a glance.
+        let cjk = initials.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
+        let text = cjk && size < 34 ? String(initials.prefix(1)) : initials
+        Text(text)
+            .font(.system(size: size * (text.count == 1 ? 0.5 : 0.4), weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(Color(hex: color), in: RoundedRectangle(cornerRadius: size * 0.28))
+            .background(base, in: RoundedRectangle(cornerRadius: size * 0.3))
+            .accessibilityHidden(true)
     }
 }
 
@@ -90,8 +144,9 @@ struct Card<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) { content }
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(tint.map { $0.opacity(0.07) } ?? Color.card, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(tint.map { $0.opacity(0.35) } ?? Color.line.opacity(0.6)))
+            // A card that needs attention says so with its outline only; its surface stays neutral.
+            .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(tint.map { $0.opacity(0.5) } ?? Color.line))
     }
 }
 
@@ -100,8 +155,8 @@ struct SectionHeader: View {
     var sub: String = ""
     var count: Int?
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(title).font(.title3.weight(.semibold))
+        HStack(alignment: .center, spacing: 8) {
+            Text(title).font(.display(.title3))
             if let count { Pill("\(count)", .amber) }
             Spacer()
             if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary) }
@@ -214,7 +269,8 @@ struct Composer: View {
             }
         }
         .padding(10)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
+        // An inset well: darker than a card, so typing reads as going into the system.
+        .background(Color.soft, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.line))
         .opacity(disabled ? 0.6 : 1)
     }
@@ -473,5 +529,40 @@ struct Toast: View {
             .accessibilityAddTraits(.isStaticText)
             .onAppear { AccessibilityNotification.Announcement(text).post() }
             .onChange(of: text) { AccessibilityNotification.Announcement(text).post() }
+    }
+}
+
+/// A main column with a side column beside it when the window is wide enough, and below it when
+/// not, so the main column never gets squeezed into a strip.
+struct AdaptiveColumns: Layout {
+    var side: CGFloat = 300
+    var minMain: CGFloat = 540
+    var spacing: CGFloat = 16
+
+    private func wide(_ width: CGFloat) -> Bool { width >= minMain + spacing + side }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let w = proposal.width ?? (minMain + spacing + side)
+        if wide(w) {
+            let m = subviews[0].sizeThatFits(.init(width: w - side - spacing, height: nil))
+            let s = subviews[1].sizeThatFits(.init(width: side, height: nil))
+            return CGSize(width: w, height: max(m.height, s.height))
+        }
+        let m = subviews[0].sizeThatFits(.init(width: w, height: nil))
+        let s = subviews[1].sizeThatFits(.init(width: w, height: nil))
+        return CGSize(width: w, height: m.height + spacing + s.height)
+    }
+
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        if wide(b.width) {
+            subviews[0].place(at: b.origin, proposal: .init(width: b.width - side - spacing, height: nil))
+            subviews[1].place(at: CGPoint(x: b.maxX - side, y: b.minY), proposal: .init(width: side, height: nil))
+        } else {
+            let m = subviews[0].sizeThatFits(.init(width: b.width, height: nil))
+            subviews[0].place(at: b.origin, proposal: .init(width: b.width, height: nil))
+            subviews[1].place(at: CGPoint(x: b.minX, y: b.minY + m.height + spacing), proposal: .init(width: b.width, height: nil))
+        }
     }
 }

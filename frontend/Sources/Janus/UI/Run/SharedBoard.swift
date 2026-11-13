@@ -17,8 +17,8 @@ struct ProgressBoard: View {
         let milestones = milestoneMarks(f)
         if !tasks.isEmpty || !milestones.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("进展").font(.title3.weight(.semibold))
+                HStack(alignment: .center) {
+                    Text("进展").font(.display(.title3))
                     Text(verbatim: summary).font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("在审计日志中查看全部") { run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
@@ -84,7 +84,7 @@ struct ProgressBoard: View {
         }
         for x in f.open {
             guard let seq = x.seq, let e = st.event(seq) else { continue }
-            out.append(TimelineMark(id: x.key, seq: seq, ts: e.ts, kind: .open, title: x.title, by: x.agents.first ?? e.actor))
+            out.append(TimelineMark(id: x.key, seq: seq, ts: e.ts, kind: .open, title: x.title, by: x.agents.first ?? e.actor, what: x.kind, you: x.you))
         }
         return out
     }

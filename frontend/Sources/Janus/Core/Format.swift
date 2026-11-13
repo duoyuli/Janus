@@ -42,7 +42,7 @@ enum L {
         "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
         "run.budget_extended": "⌛", "agent.message": "❝", "user.message": "✎",
         "message.delivered": "↪", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
-        "task.conflict": "⚠", "lead.stalled": "⏳", "task.stalled": "⏳",
+        "task.conflict": "⚠", "lead.stalled": "⏳", "task.stalled": "⏳", "task.claimed": "⚐",
     ]
 
     private static let toneTable: [Tone: [String]] = [
@@ -73,19 +73,35 @@ enum L {
         f.dateFormat = "HH:mm:ss"
         return f.string(from: Date(timeIntervalSince1970: ms / 1000))
     }
-    static func dateTime(_ ms: Double) -> String {
+    /// A moment in the app's own words, whatever the system language: 今天 20:16, 昨天 09:05,
+    /// 11月12日 20:16, or with the year when it is not this year.
+    static func dateTime(_ ms: Double, now: Date = Date()) -> String {
+        let date = Date(timeIntervalSince1970: ms / 1000)
+        let cal = Calendar(identifier: .gregorian)
         let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f.string(from: Date(timeIntervalSince1970: ms / 1000))
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "HH:mm"
+        let time = f.string(from: date)
+        if cal.isDate(date, inSameDayAs: now) { return "今天 \(time)" }
+        if let y = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(date, inSameDayAs: y) { return "昨天 \(time)" }
+        if let t = cal.date(byAdding: .day, value: 1, to: now), cal.isDate(date, inSameDayAs: t) { return "明天 \(time)" }
+        f.dateFormat = cal.component(.year, from: date) == cal.component(.year, from: now) ? "M月d日 HH:mm" : "yyyy年M月d日 HH:mm"
+        return f.string(from: date)
     }
     static func dur(_ ms: Double) -> String {
         let s = max(0, Int((ms / 1000).rounded()))
-        return s < 60 ? "\(s) 秒" : "\(s / 60) 分 \(String(format: "%02d", s % 60)) 秒"
+        if ms < 1000 { return "不到 1 秒" }
+        if s < 60 { return "\(s) 秒" }
+        if s < 3600 { return "\(s / 60) 分 \(String(format: "%02d", s % 60)) 秒" }
+        return "\(s / 3600) 小时 \(s % 3600 / 60) 分"
     }
     static func ago(_ ts: Double, _ now: Double) -> String {
         let s = max(0, Int(((now - ts) / 1000).rounded()))
-        return s < 60 ? "\(s)s 前" : "\(s / 60) 分钟前"
+        if s < 10 { return "刚刚" }
+        if s < 60 { return "\(s) 秒前" }
+        if s < 3600 { return "\(s / 60) 分钟前" }
+        if s < 86400 { return "\(s / 3600) 小时前" }
+        return dateTime(ts, now: Date(timeIntervalSince1970: now / 1000))
     }
     static func nowMs() -> Double { Date().timeIntervalSince1970 * 1000 }
 
@@ -106,6 +122,36 @@ enum L {
         let first = g.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
         return plain(first).trimmingCharacters(in: .whitespaces)
     }
+    /// An agent's permission options in the app's words, by their ACP `kind`; the agent's own
+    /// wording stays in the help. Without options, approve or reject this once.
+    struct PermissionOption { let id, name, kind, label, help: String }
+    static func permissionOptions(_ options: JSON) -> [PermissionOption] {
+        let list = options.array.isEmpty ? [["optionId": "", "name": "", "kind": "allow_once"], ["optionId": "", "name": "", "kind": "reject_once"]] as [JSON] : options.array
+        let words = ["allow_once": "允许一次", "allow_always": "始终允许", "reject_once": "拒绝", "reject_always": "始终拒绝"]
+        let notes = ["allow_always": "之后同类操作不再询问", "reject_always": "之后同类操作直接拒绝"]
+        return list.map { o in
+            let kind = o["kind"].str
+            let name = o["name"].truthy ? o["name"].str : o["optionId"].str
+            let label = words[kind] ?? name
+            let help = [notes[kind], name.isEmpty || name == label ? nil : "Agent 的原话：\(name)"].compactMap { $0 }.joined(separator: "。")
+            return PermissionOption(id: o["optionId"].str, name: name.isEmpty ? label : name, kind: kind, label: label, help: help)
+        }
+    }
+
+    /// Two pieces of a sentence joined the Chinese way: a space only where Chinese meets Latin
+    /// letters or digits (「Codex 请求你决定」, 「实现者请求你决定」).
+    static func cn(_ a: String, _ b: String) -> String {
+        let latin = { (c: Character?) in c.map { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? false }
+        return latin(a.last) || latin(b.first) ? "\(a) \(b)" : a + b
+    }
+
+    /// Paths inside the workspace written relative to it, as the agent's own interface shows them.
+    static func inWorkspace(_ text: String, _ cwd: String) -> String {
+        guard !cwd.isEmpty else { return text }
+        let root = cwd.hasSuffix("/") ? String(cwd.dropLast()) : cwd
+        return text.replacingOccurrences(of: root + "/", with: "")
+    }
+
     static func short(_ t: String, _ n: Int = 26) -> String { t.count > n ? String(t.prefix(n)) + "…" : t }
     static func kb(_ n: Int?) -> String {
         guard let n else { return "" }

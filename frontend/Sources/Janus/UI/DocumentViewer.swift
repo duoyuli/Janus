@@ -154,7 +154,7 @@ struct MarkdownDocumentView: View {
                 DocLinks.handle(url, from: file) { id in withAnimation { proxy.scrollTo(id, anchor: .top) } }
             })
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Color.card)
     }
 }
 

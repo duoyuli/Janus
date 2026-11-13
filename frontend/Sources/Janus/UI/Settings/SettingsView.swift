@@ -10,7 +10,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("设置").font(.title2.weight(.semibold))
+                Text("设置").font(.display(.title2))
                 Spacer()
                 Button("完成") { store.showingSettings = false }
                     .keyboardShortcut(.cancelAction)

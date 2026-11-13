@@ -13,11 +13,12 @@ struct MainView: View {
             // shows the screen that was there, unchanged.
             if store.showingSettings {
                 SettingsView(store: store)
-                    .background(Color(nsColor: .windowBackgroundColor))
+                    .background(Color.page)
                     .transition(.opacity)
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: store.showingSettings)
+        .tint(Color.accent)
     }
 
     private var split: some View {
@@ -28,6 +29,7 @@ struct MainView: View {
             ZStack(alignment: .bottom) {
                 detail
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.page)
                 if let t = store.toast {
                     Toast(text: t) { store.toast = nil }
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
@@ -75,28 +77,34 @@ struct Sidebar: View {
                 Section("任务记录") {
                     if runs.isEmpty { Text("还没有任务").foregroundStyle(.secondary).font(.callout) }
                     ForEach(runs, id: \.self) { r in
-                        let (label, tone) = L.runListStatus[r["status"].str] ?? (r["status"].str, .gray)
+                        // A run waiting on the person says so, with how many, like the inbox.
+                        let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
+                        let (label, tone) = waiting > 0 ? ("等你处理", Tone.amber) : L.runListStatus[r["status"].str] ?? (r["status"].str, .gray)
                         HStack(spacing: 8) {
                             Circle().fill(tone.color).frame(width: 7, height: 7).accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(L.goalTitle(r["goal"].str)).lineLimit(1)
-                                Text(verbatim: "\(label) · \(L.dateTime(r["createdAt"].double ?? 0))").font(.caption).foregroundStyle(.secondary)
+                                Text(verbatim: "\(label) · \(L.dateTime(r["createdAt"].double ?? 0))").font(.caption).foregroundStyle(waiting > 0 ? tone.color : .secondary)
                             }
                         }
+                        .badge(waiting)
+                        .accessibilityValue(waiting == 0 ? label : "\(waiting) 项等你处理")
                         .tag(Screen.run(r["id"].str))
                     }
                 }
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Color.sidebar.ignoresSafeArea())
         .safeAreaInset(edge: .top, spacing: 0) { WorkspacePicker(store: store, current: ws) }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Circle().fill(Tone.green.color).frame(width: 6, height: 6).accessibilityHidden(true)
-                    Text(verbatim: "\(store.api.base.host ?? ""):\(String(store.api.base.port ?? 80))")
+                    Text("服务已连接")
                         .font(.caption).foregroundStyle(.secondary)
-                        .help("Janus 服务地址")
+                        .help("Janus 服务地址：\(store.api.base.host ?? ""):\(String(store.api.base.port ?? 80))")
                     Spacer()
                     Button { store.openSettings(store.settingsTab) } label: { Label("设置", systemImage: "gearshape") }
                         .labelStyle(.iconOnly)
@@ -142,7 +150,7 @@ struct OnboardingBar: View {
                         Button(next.0) {
                             if next.2 == "workspace" { store.editingWorkspace = AppStore.blankWorkspace } else { store.openSettings(next.2) }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.primary)
                     }
                 }
             }
@@ -157,10 +165,10 @@ struct NoWorkspaceView: View {
             VStack(alignment: .leading, spacing: 16) {
                 OnboardingBar(store: store)
                 Card {
-                    Text("还没有工作区").font(.title3.weight(.semibold))
+                    Text("还没有工作区").font(.display(.title3))
                     Text("工作区指定任务在哪个目录执行、由哪些角色参与。").foregroundStyle(.secondary)
                     Button("新建工作区") { store.editingWorkspace = AppStore.blankWorkspace }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.primary)
                 }
             }
             .padding(24)

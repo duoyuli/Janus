@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Event types a session shows.
-let sessionTypes: Set<String> = ["attempt.started", "session.prompt", "context.handoff", "board.posted", "task.conflict", "agent.message", "user.message", "message.routed", "message.delivered", "tool.call", "tool.started", "tool.completed", "question.asked", "question.answered", "approval.requested", "approval.granted", "approval.denied", "input.requested", "input.answered", "control.taken", "control.released", "session.interrupted", "result.submitted", "attempt.failed"]
+let sessionTypes: Set<String> = ["agent.thought", "agent.plan", "session.controls", "session.control", "session.commands", "session.usage", "attempt.started", "session.prompt", "context.handoff", "board.posted", "task.conflict", "agent.message", "user.message", "message.routed", "message.delivered", "tool.call", "tool.started", "tool.completed", "question.asked", "question.answered", "approval.requested", "approval.granted", "approval.denied", "input.requested", "input.answered", "control.taken", "control.released", "session.interrupted", "result.submitted", "attempt.failed"]
 
 func isSessionEvent(_ e: Event) -> Bool { sessionTypes.contains(e.type) || (e.type == "agent.status" && e.data["turn"].str == "idle") }
 
@@ -49,6 +49,10 @@ struct ChatCard: View {
     let title: String
     let info: SessionInfo
     let target: SessionTarget
+    /// How much of the agent's work to show: every tool call (`detail`), long runs of them folded
+    /// (`normal`), or only what was said, asked and delivered (`summary`). One choice for all
+    /// conversations, remembered on this Mac.
+    @AppStorage("janus.chatDensity") private var density = "normal"
 
     var body: some View {
         let live = run.canAct
@@ -58,10 +62,23 @@ struct ChatCard: View {
                 Text(title).font(.headline)
                 Spacer()
                 if info.open && live && !(info.human && info.idle) { QuietNote(last: info.evs.last?.ts ?? 0) }
+                if let u = SessionView.usage(info.evs) {
+                    Text(verbatim: u.percent.map { "上下文 \($0)%" } ?? "\(SessionView.tokens(u.tokens ?? 0)) tokens")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .help([u.used.map { "上下文已用 \(SessionView.tokens($0))" }, u.size.map { "共 \(SessionView.tokens($0))" }, u.tokens.map { "上一轮 \(SessionView.tokens($0)) tokens" }].compactMap { $0 }.joined(separator: " · "))
+                }
+                Picker("显示", selection: $density) {
+                    Text("详细").tag("detail")
+                    Text("普通").tag("normal")
+                    Text("摘要").tag("summary")
+                }
+                .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
+                .help("详细：每次工具调用都显示；普通：连续的工具调用折叠；摘要：只看对话、请求和结果")
                 Pill(state, tone)
             }
             .padding(12)
             Divider()
+            PlanStrip(steps: SessionView.plan(info.evs))
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
@@ -69,8 +86,11 @@ struct ChatCard: View {
                     ForEach(groups) { g in
                         switch g.kind {
                         case .item(let e): ChatItem(run: run, st: st, e: e, done: done)
+                        case .messages(let es): ChatItem(run: run, st: st, e: es[0], done: done, more: Array(es.dropFirst()))
                         case .tools(let es):
-                            if es.count > 4 {
+                            if density == "summary" {
+                                Text(verbatim: "· \(es.count) 个操作").font(.caption).foregroundStyle(.tertiary)
+                            } else if density == "normal" && es.count > 4 {
                                 DisclosureGroup(String("\(es.count - 2) 个操作")) {
                                     VStack(alignment: .leading, spacing: 6) { ForEach(es.dropLast(2)) { ToolRow(run: run, e: $0) } }
                                 }
@@ -91,8 +111,13 @@ struct ChatCard: View {
             PendingTray(st: st, target: target)
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
+                if enabled { Suggestions(run: run, draft: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), commands: SessionView.commands(info.evs)) }
                 Composer(text: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44) { send("message") }
-                HStack { Spacer(); buttons }
+                HStack {
+                    if info.open && live { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
+                    Spacer()
+                    buttons
+                }
             }
             .padding(12)
         }
@@ -123,10 +148,11 @@ struct ChatCard: View {
     private func btn(_ act: String, _ label: String, _ primary: Bool = false, danger: Bool = false) -> some View {
         Group {
             if primary {
-                Button(label) { send(act == "sessSend" ? "message" : act) }.buttonStyle(.borderedProminent)
+                Button(label) { send(act == "sessSend" ? "message" : act) }.buttonStyle(.primary)
                     .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? "先写下要发送的内容，或者粘贴图片" : "⌘↩")
             }
-            else if danger { Button(label, role: .destructive) { send(act) } }
+            // ⌘. stops the turn, as it stops a running command elsewhere on the Mac.
+            else if danger { Button(label, role: .destructive) { send(act) }.keyboardShortcut(".", modifiers: .command).help("⌘.") }
             else { Button(label) { send(act) } }
         }
     }
@@ -151,9 +177,11 @@ struct ChatCard: View {
     }
 
     // Long runs of tool calls fold into one line, keeping the latest few in view.
-    struct Group1: Identifiable { enum Kind { case item(Event), tools([Event]) }; let id: Int; let kind: Kind }
+    struct Group1: Identifiable { enum Kind { case item(Event), messages([Event]), tools([Event]) }; let id: Int; let kind: Kind }
 
-    private var done: Set<String> { Set(info.evs.filter { $0.type == "tool.completed" }.map { "\($0.actor):\($0.data["callId"].str)" }) }
+    /// Calls that came back: Janus's board tools (`tool.completed`) and the agent's own (`tool.call`
+    /// with the id its running row had).
+    private var done: Set<String> { Set(info.evs.filter { $0.type == "tool.completed" || ($0.type == "tool.call" && $0.data["callId"].truthy) }.map { "\($0.actor):\($0.data["callId"].str)" }) }
 
     private var groups: [Group1] {
         var out: [Group1] = []
@@ -166,8 +194,16 @@ struct ChatCard: View {
                 run.append(e)
             } else {
                 if !ChatItem.visible(e, st: st) { continue }
+                // The summary keeps what was said, asked and delivered; Janus's own prompts,
+                // status lines and the agent's thinking stay in the other views.
+                if density == "summary" && ["session.prompt", "agent.status", "agent.thought"].contains(e.type) { continue }
                 flush()
-                out.append(Group1(id: e.seq, kind: .item(e)))
+                // Text streams in pieces; pieces in a row from one agent read as one message.
+                if e.type == "agent.message", let last = out.last, case .messages(let es) = last.kind, es[0].actor == e.actor, es[0].attempt == e.attempt {
+                    out[out.count - 1] = Group1(id: last.id, kind: .messages(es + [e]))
+                    continue
+                }
+                out.append(Group1(id: e.seq, kind: e.type == "agent.message" ? .messages([e]) : .item(e)))
             }
         }
         flush()
@@ -194,11 +230,23 @@ struct ChatItem: View {
     let st: RunState
     let e: Event
     let done: Set<String>
+    /// Further pieces of the same agent message, streamed after `e`.
+    var more: [Event] = []
 
     /// Items that render nothing (messages shown where they were routed, unknown messages).
     static func visible(_ e: Event, st: RunState) -> Bool {
         switch e.type {
         case "user.message": return !e.data["id"].exists
+        // Shown beside the conversation (plan, controls, commands, usage), not in it.
+        case "agent.plan", "session.controls", "session.commands", "session.usage": return false
+        // Stepping on another task's files says more than "both edited it": show only that.
+        case "task.conflict":
+            guard !e.data["owned"].truthy else { return true }
+            let pair: Set<String> = [e.task ?? "", e.data["other"].str]
+            let paths = Set(e.data["paths"].strings)
+            return !st.events.contains { x in
+                x.type == "task.conflict" && x.data["owned"].truthy && [x.task ?? "", x.data["other"].str] == pair && paths.isSubset(of: Set(x.data["paths"].strings))
+            }
         case "message.routed":
             guard st.msgs[e.data["id"].str] != nil else { return false }
             return ["steer", "prompt"].contains(e.data["delivery"].str)
@@ -225,16 +273,24 @@ struct ChatItem: View {
             StoredImages(paths: Attach.paths(d), size: 56)
         case "agent.message":
             // The structured result block is for the orchestrator; in the chat it collapses to a label.
-            let text = d["text"].str
+            // The result itself shows as its own line (`result.submitted`).
+            // Pieces keep their own whitespace (code blocks may be cut anywhere): join them as they came.
+            let text = ([e] + more).map { $0.data["text"].str }.joined()
             let r = text.range(of: #"\s*```json\s*[\s\S]*?```\s*$"#, options: .regularExpression)
-            bubble(agent: e.actor) {
-                MarkdownText(text: r.map { String(text[..<$0.lowerBound]) } ?? text)
-                if r != nil { Text("附结构化结果").font(.caption).foregroundStyle(.secondary) }
+            let words = (r.map { String(text[..<$0.lowerBound]) } ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !words.isEmpty { bubble(agent: e.actor) { MarkdownText(text: words) } }
+        case "agent.thought":
+            DisclosureGroup {
+                Text(d["text"].str).font(.callout).italic().foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 2)
+            } label: {
+                Text(verbatim: "思考 · \(L.short(d["text"].str.replacingOccurrences(of: "\n", with: " "), 60))").font(.caption).foregroundStyle(.secondary)
             }
+        case "session.control":
+            note("\(d["failed"].truthy ? "⚠" : "↺") \(e.text)", d["failed"].truthy ? .amber : nil)
         case "session.prompt":
             let label = d["channel"].str == "instructions"
                 ? "用户的长期要求 · \(d["via"].str == "developer" ? "开发者指令" : d["via"].str == "extension" ? "系统提示（Pi 扩展）" : "系统提示")"
-                : ["system": "主控上下文", "context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮"][d["channel"].str] ?? "Janus 提示"
+                : ["system": "主控上下文", "context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮", "goal_check": "目标确认 · 主控停下了，目标还标着进行中"][d["channel"].str] ?? "Janus 提示"
             VStack(alignment: .leading, spacing: 4) {
                 HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text("Janus 发给 Agent").font(.caption).foregroundStyle(.secondary) }
                 DisclosureGroup("查看内容") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
@@ -245,7 +301,9 @@ struct ChatItem: View {
         case "question.asked": note("? 问主控：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : "（\(d["options"].strings.joined(separator: " / "))）") · 主控会回答，不需要你处理", .amber)
         case "context.handoff": note("⇄ 上游任务 \(d["from"].string ?? e.text) 的结果已带入本次任务", nil)
         case "board.posted": note("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)", nil)
-        case "task.conflict": note("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时改了 \(d["paths"].strings.joined(separator: "、"))，已告诉主控", .amber)
+        case "task.conflict" where d["owned"].truthy:
+            note("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: "、"))。已提醒 \(e.task ?? "") 不要再改，并告诉主控", .amber)
+        case "task.conflict": note("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时在改 \(d["paths"].strings.joined(separator: "、"))。已提醒双方先读最新内容，并告诉主控", .amber)
         case "user.message":
             let via = ["steer": "已插入正在进行的这一轮", "queued": "这一轮结束后发送", "prompt": "作为新一轮发送", "next": "下次会话时带给它"][d["delivery"].str] ?? ""
             userBubble(d["text"].str, images: Attach.paths(d), via: via, insert: false)
@@ -260,15 +318,25 @@ struct ChatItem: View {
                     userBubble(m.text, images: m.images, via: (m.by == "lead" ? "主控 · " : "") + (m.delivery == "next" ? "留言 · 在这次会话开始时带入" : m.delivery == "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送"), insert: false)
                 }
             } else { note("\(L.icon[e.type] ?? "·") \(e.text)", L.tone(of: e.type)) }
+        // One line in the conversation; each criterion is a click away (and on the task page).
         case "result.submitted":
             let checks = Check.list(d["checks"])
-            VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: "结构化结果：\(d["summary"].string ?? e.text)").font(.callout.weight(.semibold))
-                ForEach(checks.indices, id: \.self) { i in CheckRow(c: checks[i]) }
-                if !d["evidence"].array.isEmpty { Text(verbatim: "证据：\(d["evidence"].strings.joined(separator: "；"))").font(.caption).foregroundStyle(.secondary) }
-                if !d["risks"].array.isEmpty { Text(verbatim: "风险：\(d["risks"].strings.joined(separator: "；"))").font(.caption).foregroundStyle(Tone.amber.color) }
+            let passed = checks.filter(\.passed).count
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(checks.indices, id: \.self) { i in CheckRow(c: checks[i]) }
+                    if !d["evidence"].array.isEmpty { Text(verbatim: "证据：\(d["evidence"].strings.joined(separator: "；"))").font(.caption).foregroundStyle(.secondary) }
+                    if !d["risks"].array.isEmpty { Text(verbatim: "风险：\(d["risks"].strings.joined(separator: "；"))").font(.caption).foregroundStyle(Tone.amber.color) }
+                }
+                .padding(.top, 4)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(verbatim: "⇪ 提交结果：\(d["summary"].string ?? e.text)").font(.callout.weight(.semibold)).lineLimit(2)
+                    if !checks.isEmpty { Pill("\(passed)/\(checks.count) 通过", passed == checks.count ? .green : .amber) }
+                    if !d["risks"].array.isEmpty { Pill("\(d["risks"].array.count) 个风险", .amber) }
+                }
             }
-            .padding(10)
+            .padding(8)
             .background(Tone.green.color.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
         case "agent.status": note("◌ \(e.text)", .amber)
         // A request still waiting is answered right here, with the same card as the inbox.
@@ -337,23 +405,34 @@ struct ToolRow: View {
 
     static func hidden(_ e: Event, done: Set<String>) -> Bool {
         let d = e.data
-        let echo = e.type == "tool.call" && (e.text.hasPrefix("mcp.janus.") || d["tool"].str.hasPrefix("mcp.janus.") || d["input"].str.hasPrefix("{\"arguments\""))
+        // Codex names them `mcp.janus.*`, Claude Code `mcp__janus__*`; Janus's own record is the one shown.
+        let mcp = { (s: String) in s.hasPrefix("mcp.janus.") || s.hasPrefix("mcp__janus__") }
+        let echo = ["tool.call", "tool.started"].contains(e.type) && !d["tool"].str.hasPrefix("janus.") && (mcp(e.text) || mcp(d["tool"].str) || d["input"].str.hasPrefix("{\"arguments\""))
         return echo || (e.type == "tool.started" && done.contains("\(e.actor):\(d["callId"].str)"))
     }
 
     var body: some View {
         let d = e.data
         let board = d["tool"].str.hasPrefix("janus.")
-        let (label, result) = board ? janusLabel(d["tool"].str, d["args"], d["output"].str) : (d["input"].truthy ? d["input"].str : e.text, d["output"].str.split(separator: "\n").first.map(String.init) ?? "")
+        // Older records put the ACP status where an output was missing; it is not an output.
+        let raw = ["completed", "failed", "pending", "in_progress"].contains(d["output"].str) ? "" : d["output"].str
+        let output = L.inWorkspace(raw, run.state.run.cwd)
+        // The first line that says something: not a Markdown fence around the output.
+        let firstLine = output.split(separator: "\n").map(String.init).first { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") && !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+        let (label, result) = board ? janusLabel(d["tool"].str, d["args"], output) : (d["input"].truthy ? d["input"].str : e.text, firstLine)
         let full = board ? d["args"].or(d["input"]).pretty() : (d["input"].truthy ? d["input"].str : e.text)
         DisclosureGroup {
-            CodeBlock(text: full + (d["output"].truthy ? "\n\n→ \(d["output"].str)" : ""), maxHeight: 300)
+            CodeBlock(text: full + (output.isEmpty ? "" : "\n\n→ \(output)"), maxHeight: 300)
+            ForEach(Array(d["diffs"].array.enumerated()), id: \.offset) { _, x in
+                InlineDiff(path: L.tilde(x["path"].str), old: x["old"].str, new: x["new"].str)
+            }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(board ? "看板" : (d["tool"].truthy ? d["tool"].str : "工具")).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 4).background((board ? Color.accent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
                     Text(label).font(.callout).lineLimit(1).truncationMode(.tail)
-                    if e.type == "tool.started" { Pill("等待返回", .blue) } else if d["status"].str == "failed" { Pill("失败", .red) }
+                    if e.type == "tool.started" { Pill(d["live"].truthy ? "进行中" : "等待返回", .blue) } else if d["status"].str == "failed" { Pill("失败", .red) }
+                    if !d["diffs"].array.isEmpty { Text(verbatim: "改了 \(d["diffs"].array.count) 个文件").font(.caption).foregroundStyle(.secondary) }
                 }
                 if !result.isEmpty { Text("→ " + L.short(result, 160)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
@@ -428,17 +507,23 @@ struct AgentView: View {
         let st = run.shown
         let w = run.who(agentId)
         let tasks = st.orderedTasks.filter { $0.agent == agentId }
+        // A page of its own that scrolls, like the task page: content taller than the window
+        // must not push the window's layout around.
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Avatar(initials: w.initials, color: w.color, size: 34)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(w.name).font(.title2.weight(.semibold))
+                    Text(w.name).font(.display(.title2))
                     Text([w.role, w.runtime, w.model].filter { !$0.isEmpty }.joined(separator: " · ")).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
-            HStack(alignment: .top, spacing: 16) {
+            AdaptiveColumns(side: 300) {
+                // A fixed height like the task page: the conversation scrolls inside its card,
+                // not the page around it.
                 ChatCard(run: run, st: st, title: "对话", info: agentSession(st, agentId), target: .agent(agentId))
+                    .frame(height: 640)
                 Card(padding: 12) {
                     HStack { Text("负责的任务").font(.headline); Spacer(); Text(verbatim: "\(tasks.count) 个").font(.caption).foregroundStyle(.secondary) }
                     if tasks.isEmpty { Text(agentId == "lead" ? "主控负责规划和协调。" : "还没有分配任务。").font(.callout).foregroundStyle(.secondary) }
@@ -451,9 +536,10 @@ struct AgentView: View {
                         }
                     }
                 }
-                .frame(width: 300)
             }
         }
         .padding(20)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
     }
 }

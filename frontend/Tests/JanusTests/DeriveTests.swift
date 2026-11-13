@@ -151,6 +151,34 @@ private func goalRun() -> Log {
     #expect(!f.open.contains { $0.title.contains("改了同一个文件") }, "neither task is running any more")
 }
 
+@Test func tracesOpenOnTheBoardUntilTheLeadActs() {
+    var log = goalRun()
+    log.add("task.claimed", actor: "researcher", to: "lead", task: "T1", data: ["paths": ["notes.md"]])
+    log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"], "owned": true])
+    var st = derive(log.events)
+    #expect(st.tasks["T1"]?.owns == ["notes.md"], "a claim adds to what the task owns")
+    var f = boardFacts(st) { $0 }
+    #expect(f.open.contains { $0.title == "T1 改了 T2 负责的文件" && $0.text == "calc.py" && !$0.you })
+    #expect(f.handoffs.contains { $0.summary == "认领：notes.md" })
+    // The same edit also seen as both tasks editing one file: the overstep says it all.
+    log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"]])
+    f = boardFacts(derive(log.events)) { $0 }
+    #expect(f.open.filter { $0.tasks.contains("T2") && $0.text == "calc.py" }.count == 1)
+    #expect(f.open.first { $0.text == "calc.py" }?.kind == "overstep")
+    let shared = derive(log.events).events.last!
+    #expect(!ChatItem.visible(shared, st: derive(log.events)), "the conversation shows one line, not two")
+    log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x", "traceGaps": ["改了负责范围（notes.md）以外的文件：calc.py"]])
+    st = derive(log.events)
+    f = boardFacts(st) { $0 }
+    #expect(!f.open.contains { $0.title.contains("负责的文件") }, "the task that stepped over stopped")
+    #expect(st.tasks["T1"]?.traceGaps.count == 1)
+    #expect(f.open.contains { $0.title == "T1 的结果和工作目录对不上" && $0.text.contains("calc.py") })
+    log.add("result.amended", actor: "lead", task: "T1", data: ["text": "calc.py 的改动由 T2 负责"])
+    #expect(!boardFacts(derive(log.events)) { $0 }.open.contains { $0.title.contains("对不上") }, "the lead corrected it")
+    log.add("task.reopened", actor: "lead", task: "T1", data: ["reason": "lead.retry"])
+    #expect(derive(log.events).tasks["T1"]?.traceGaps.isEmpty == true)
+}
+
 @Test func aSteeredMessageIsShownOnceAndMarkedRead() {
     var log = goalRun()
     log.add("user.message", actor: "user", to: "lead", data: ["id": "m1", "text": "先看 T1", "delivery": "pending"])

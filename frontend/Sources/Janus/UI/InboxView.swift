@@ -25,6 +25,7 @@ struct InboxView: View {
                     Card(padding: 4) {
                         ForEach(open) { e in
                             row(e, now: inbox.now)
+                            quick(e)
                             if e != open.last { Divider() }
                         }
                     }
@@ -85,8 +86,25 @@ struct InboxView: View {
         .navigationTitle("收件箱")
     }
 
+    /// What kind of thing it is, at a glance: red holds an agent up, the rest can wait.
+    static func badge(_ e: InboxEntry) -> (String, Tone) {
+        switch e.kind {
+        case "delivered": return ("checkmark.seal.fill", .green)
+        case "interrupted": return ("pause.circle.fill", .gray)
+        case "failed": return ("xmark.octagon.fill", .red)
+        default: return (TimelineMark.openKinds[e.kind]?.0 ?? "exclamationmark.circle.fill", e.canWait ? .amber : .red)
+        }
+    }
+
     private func row(_ e: InboxEntry, now: Double) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        let (symbol, tone) = Self.badge(e)
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tone.color)
+                .frame(width: 30, height: 30)
+                .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
             summary(e, now: now)
             Spacer()
             if e.canWait {
@@ -103,16 +121,36 @@ struct InboxView: View {
                 Button("标记已处理") { store.inbox.settle(e.key) }
                     .help("不再提醒这个 Run；它保持现在的状态，仍可以在任务记录中打开")
             }
-            Button("去处理") { store.open(.run(e.run)) }.buttonStyle(.borderedProminent)
+            if e.actions.isEmpty {
+                Button("去处理") { store.open(.run(e.run)) }.buttonStyle(.primary)
+            } else {
+                Button("详情") { store.open(.run(e.run)) }.help("打开这个 Run，看完整的请求")
+            }
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
+        .padding(.horizontal, 10).padding(.vertical, 12)
+    }
+
+    /// A plain choice is answered right here: the agent waiting on it goes on at once.
+    @ViewBuilder private func quick(_ e: InboxEntry) -> some View {
+        if !e.actions.isEmpty {
+            let busy = store.inbox.answering.contains(e.key)
+            HStack(spacing: 8) {
+                ForEach(e.actions.indices, id: \.self) { i in
+                    let a = e.actions[i]
+                    let b = Button(a.label) { Task { await store.inbox.act(e, a, store: store) } }.disabled(busy).help(a.help)
+                    if a.prominent { b.buttonStyle(.primary) } else { b.buttonStyle(.bordered) }
+                }
+                if busy { ProgressView().controlSize(.small) }
+            }
+            .padding(.leading, 52).padding(.trailing, 10).padding(.bottom, 12)
+        }
     }
 
     private func summary(_ e: InboxEntry, now: Double) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(e.title).font(.body.weight(.medium)).lineLimit(2)
             if !e.text.isEmpty { Text(e.text).font(.callout).foregroundStyle(.secondary).lineLimit(2) }
-            Text(verbatim: [e.workspace, L.goalTitle(e.goal), e.ts > 0 ? L.ago(e.ts, now) : ""].filter { !$0.isEmpty }.joined(separator: " · "))
+            Text(verbatim: [e.workspace, L.goalTitle(e.goal), e.sub, e.ts > 0 ? L.ago(e.ts, now) : ""].filter { !$0.isEmpty }.joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
     }

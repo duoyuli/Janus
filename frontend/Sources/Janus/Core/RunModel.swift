@@ -185,7 +185,9 @@ final class RunModel {
         }
         let name = m["name"].str
         let initials = m["init"].truthy ? m["init"].str : m["lead"].truthy ? "LD" : String(name.prefix(2)).uppercased()
-        let color = m["color"].truthy ? m["color"].str : "#64748b"
+        // A role without a color of its own is slate; the lead's is the one colored tile.
+        let own = m["color"].str
+        let color = Avatar.neutral.contains(own.lowercased()) ? (m["lead"].truthy ? Avatar.lead : Avatar.slate) : own
         let rt = m["runtime_name"].truthy ? m["runtime_name"].str : store.connection(m["runtime"].str)?["name"].str ?? m["runtime"].str
         return Who(id: id, name: name, initials: initials, color: color, role: m["role"].str, runtime: rt, model: m["model"].str, lead: m["lead"].truthy, m: m)
     }

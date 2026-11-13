@@ -27,7 +27,7 @@ struct McpView: View {
                         .onSubmit(add)
                         .disabled(adding)
                     Button(adding ? "正在拉取…" : "导入") { add() }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.primary)
                         .disabled(adding || link.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 if adding { Note(text: "正在克隆仓库并查找 MCP 定义，较大的仓库可能需要一分钟。") }
@@ -79,7 +79,7 @@ struct McpView: View {
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
                 if s["updateAvailable"].truthy {
-                    Button("更新") { update(id) }.buttonStyle(.borderedProminent).disabled(busy).help("拉取最新定义；已保存的凭据保留")
+                    Button("更新") { update(id) }.buttonStyle(.primary).disabled(busy).help("拉取最新定义；已保存的凭据保留")
                 } else {
                     Button("重新拉取") { update(id) }.disabled(busy).help("重新拉取仓库")
                 }
@@ -160,7 +160,7 @@ struct McpView: View {
             .disabled(checking || busy)
             if !updates.isEmpty {
                 Button(updates.count == 1 ? "更新" : "全部更新（\(updates.count)）") { Task { await store.updateMcpSources() } }
-                    .buttonStyle(.borderedProminent).disabled(busy)
+                    .buttonStyle(.primary).disabled(busy)
             }
         }
         .padding(10)
@@ -258,7 +258,7 @@ struct McpSecretsEditor: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("MCP 凭据 · \(name)").font(.title3.weight(.semibold))
+                    Text("MCP 凭据 · \(name)").font(.display(.title3))
                     Text("值只写入 Janus home 的 secrets，接口和 Run 记录只看到变量名。留空表示不修改。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -284,7 +284,7 @@ struct McpSecretsEditor: View {
             HStack {
                 Spacer()
                 Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(saving ? "正在保存…" : "保存") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(saving)
+                Button(saving ? "正在保存…" : "保存") { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction).disabled(saving)
             }
             .padding(14)
         }

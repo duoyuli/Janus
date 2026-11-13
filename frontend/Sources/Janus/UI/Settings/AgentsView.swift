@@ -11,11 +11,11 @@ struct AgentsView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("每个 Agent 在独立的进程和配置目录里运行，不影响你本机的 Agent。").font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("添加 Agent") { editing = newDraft(store.connections.isEmpty ? "codex" : "claude") }.buttonStyle(.borderedProminent)
+                    Button("添加 Agent") { editing = newDraft(store.connections.isEmpty ? "codex" : "claude") }.buttonStyle(.primary)
                 }
                 if store.connections.isEmpty {
                     Card(padding: 20) {
-                        Text("还没有接入 Agent").font(.title3.weight(.semibold))
+                        Text("还没有接入 Agent").font(.display(.title3))
                         Text("把你本机已经在用的 Agent 迁移过来，配置和凭据会一并复制。").foregroundStyle(.secondary)
                         HStack {
                             ForEach(["codex", "claude", "pi", "grok"].compactMap { store.kind($0) }, id: \.self) { k in
@@ -253,7 +253,7 @@ struct ConnectionEditor: View {
                 HStack(spacing: 10) {
                     Avatar(initials: k["init"].str, color: k["color"].str, size: 34)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(editing ? "编辑 \(prev?["name"].str ?? k["name"].str)" : "添加 Agent").font(.title3.weight(.semibold))
+                        Text(editing ? "编辑 \(prev?["name"].str ?? k["name"].str)" : "添加 Agent").font(.display(.title3))
                         Text(k["desc"].str).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -266,7 +266,7 @@ struct ConnectionEditor: View {
                     Spacer()
                     Button("取消") { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
                     Button("保存并检查") { save(test: true) }.disabled(saving).help("保存并检查运行时、凭据、启动、会话和一次真实回复")
-                    Button(saving ? "正在保存…" : editing ? "保存" : "创建") { save(test: false) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(saving)
+                    Button(saving ? "正在保存…" : editing ? "保存" : "创建") { save(test: false) }.buttonStyle(.primary).keyboardShortcut(.defaultAction).disabled(saving)
                 }
                 .padding(14)
             }
