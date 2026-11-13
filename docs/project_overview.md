@@ -46,7 +46,10 @@ Janus/
 │   │   ├── agents.rs      # Agent、角色、工作区、Skill、会话控制项
 │   │   ├── skill_sources.rs # GitHub Skill 来源：拉取仓库、解析 Skill
 │   │   ├── orchestrator.rs# Run、目标模式、看板、调度、验证、交付、恢复、集成测试
-│   │   ├── teamwork.rs    # 编排的团队结构：负责的文件、独立验证
+│   │   ├── teamwork.rs    # 编排的团队结构：负责的文件、认领、独立验证
+│   │   ├── goal_settle.rs # 主控的目标一直不自己结束时：问主控，确认后由 Janus 清除目标
+│   │   ├── acp_view.rs    # ACP 会话更新转成事件：思考、计划、斜杠命令、控制项、用量、工具调用的 diff，`@路径` 文件引用
+│   │   ├── traces.rs      # 任务在工作目录里留下的痕迹：改过的文件、diff 范围、结果对账、过期标记
 │   │   ├── status.rs      # Run、任务、尝试和 Agent 阶段的状态与合法转移
 │   │   ├── git_probe.rs   # 只读 Git 查询：不抢 index.lock
 │   │   └── db.rs          # SQLite

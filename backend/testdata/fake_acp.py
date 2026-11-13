@@ -6,7 +6,12 @@ FAKE_DIR holds script.json, which maps a task id to the outcome of each successi
 `locations`, then stays busy for two seconds so tasks overlap), "unmet" (reports its first acceptance criterion
 unmet), "permission" (asks session/request_permission
 with three options), "elicit" (asks elicitation/create with a form), "loop" (makes the same tool call five times
-before its result) or "ask" (ends the turn with a question; the answer comes back as the next prompt). The last outcome repeats.
+before its result), "ask" (ends the turn with a question; the answer comes back as the next prompt) or "rich" (thinks,
+publishes a plan and its slash commands, runs a tool that stays in progress for a moment and then reports a file diff,
+reports its context usage and switches its own mode; the prompt response carries token usage). The last outcome repeats.
+session/set_mode is logged ("mode <id>"), and the resource links of each prompt ("links <name>…").
+With a `goal-sticky` file the lead reports its /goal active and never clears it; Janus's ask whether
+it is done is answered "GOAL_DONE" with the lead-go text, and `_lody/session/goal` clear is logged ("goal clear").
 As a goal-mode lead it acknowledges the brief, then works on "/goal …" until FAKE_DIR/lead-go
 exists and ends with the text of that file.
 With a `steer` file in FAKE_DIR it declares Lody steering: a `_lody/session/steer` that arrives during
@@ -117,8 +122,18 @@ def prompt(msg):
         log("brief " + ("janus.orchestrate" in text and "ok" or "missing") + (" resumed" if "这是从中断处继续" in text else ""))
         say(sid, "已了解")
         return {"stopReason": "end_turn"}
+    if text.startswith("[Janus] 你的这一轮已经结束"):
+        # Janus asks whether a goal that never settled is done.
+        log("goal check")
+        say(sid, "GOAL_DONE\n" + open(os.path.join(DIR, "lead-go")).read())
+        return {"stopReason": "end_turn"}
     if text.startswith("/goal "):
         log("goal " + text[len("/goal "):])
+        sticky = os.path.exists(os.path.join(DIR, "goal-sticky"))
+        if sticky:
+            # Like Claude Code whose own check never runs: the goal is reported active and stays so.
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                "sessionUpdate": "session_info_update", "_meta": {"lody": {"goal": {"objective": text[6:], "status": "active"}}}}}})
         import time
         go = os.path.join(DIR, "lead-go")
         while not os.path.exists(go):
@@ -170,6 +185,28 @@ def prompt(msg):
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                 "sessionUpdate": "tool_call", "toolCallId": f"loop-{i}", "title": "cat missing.txt", "kind": "read",
                 "status": "completed", "rawInput": {"command": ["cat", "missing.txt"]}}}})
+    if outcome == "rich":
+        def upd(u):
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}})
+        upd({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "先看看 pay.js "}})
+        upd({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "再改。"}})
+        upd({"sessionUpdate": "plan", "entries": [{"content": "读代码", "status": "completed", "priority": "high"},
+                                                   {"content": "改 pay.js", "status": "in_progress", "priority": "high"}]})
+        upd({"sessionUpdate": "available_commands_update", "availableCommands": [{"name": "compact", "description": "压缩上下文"},
+                                                                                  {"name": "review", "description": "审查改动", "input": {"hint": "要审查什么"}}]})
+        upd({"sessionUpdate": "tool_call", "toolCallId": "rich-1", "title": "Edit pay.js", "kind": "edit", "status": "in_progress",
+             "rawInput": {"file_path": "pay.js"}})
+        import time
+        time.sleep(1.5)
+        with open("pay.js", "a") as f:
+            f.write("sdk()\n")
+        upd({"sessionUpdate": "tool_call_update", "toolCallId": "rich-1", "status": "completed",
+             "locations": [{"path": os.path.join(os.getcwd(), "pay.js")}],
+             "content": [{"type": "diff", "path": os.path.join(os.getcwd(), "pay.js"), "oldText": "a\n", "newText": "a\nsdk()\n"}]})
+        upd({"sessionUpdate": "usage_update", "used": 52000, "size": 200000})
+        upd({"sessionUpdate": "current_mode_update", "currentModeId": "agent"})
+        say(sid, result(sid))
+        return {"stopReason": "end_turn", "usage": {"inputTokens": 1200, "outputTokens": 300, "totalTokens": 1500}}
     if outcome == "unmet":
         say(sid, result(sid, unmet=True, summary=f"{task} 没有全部做到"))
         return {"stopReason": "end_turn"}
@@ -205,10 +242,21 @@ for line in sys.stdin:
             CONFIG[msg["params"]["configId"]] = msg["params"]["value"]
             log(f"set {msg['params']['configId']} {json.dumps(msg['params']['value'])}")
             res = {"configOptions": config_options()}
+        elif method == "_lody/session/goal":
+            log(f"goal {msg['params']['action']}")
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": msg["params"]["sessionId"], "update": {
+                "sessionUpdate": "session_info_update", "_meta": {"lody": {"goal": None}}}}})
+            res = {}
+        elif method == "session/set_mode":
+            log(f"mode {msg['params']['modeId']}")
+            res = {}
         elif method == "session/prompt":
             images = [b for b in msg["params"]["prompt"] if b.get("type") == "image"]
             if images:
                 log("images " + " ".join(f'{b["mimeType"]}:{len(b["data"])}' for b in images))
+            links = [b for b in msg["params"]["prompt"] if b.get("type") == "resource_link"]
+            if links:
+                log("links " + " ".join(b["name"] for b in links))
             res = prompt(msg)
         else:
             res = {}

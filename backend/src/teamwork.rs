@@ -37,9 +37,13 @@ pub fn read_owns(v: &Value, label: &str, errors: &mut Vec<String>) -> Vec<String
 }
 
 /// Two owned paths cover a common file: the same path, or one is a directory holding the other.
-fn overlaps(a: &str, b: &str) -> bool {
-    let under = |x: &str, dir: &str| x.len() > dir.len() && x.starts_with(dir) && x.as_bytes()[dir.len()] == b'/';
-    a == b || under(a, b) || under(b, a)
+pub fn overlaps(a: &str, b: &str) -> bool {
+    covers(a, b) || covers(b, a)
+}
+
+/// `path` is `owned` or lies under it.
+pub fn covers(owned: &str, path: &str) -> bool {
+    path.strip_prefix(owned).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Check the team structure of the new tasks against each other and against the open tasks
@@ -78,18 +82,7 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
     // no longer changing anything.
     let open: Vec<&TaskDef> = board.iter().filter(|(_, s)| !s.terminal()).map(|(d, _)| d).chain(new.iter()).collect();
     let deps: HashMap<&str, &[String]> = all.iter().map(|(id, d)| (*id, d.deps.as_slice())).collect();
-    let upstream = |id: &str| -> HashSet<String> {
-        let mut seen = HashSet::new();
-        let mut todo = vec![id.to_string()];
-        while let Some(x) = todo.pop() {
-            for d in deps.get(x.as_str()).copied().unwrap_or_default() {
-                if seen.insert(d.clone()) {
-                    todo.push(d.clone());
-                }
-            }
-        }
-        seen
-    };
+    let upstream = |id: &str| upstream_of(id, &deps);
     let ups: HashMap<&str, HashSet<String>> = open.iter().map(|d| (d.id.as_str(), upstream(&d.id))).collect();
     // The dependency a verifier gets on its task must not close a loop.
     for d in new.iter().filter(|d| d.verifies.as_deref().is_some_and(|t| t != d.id && upstream(t).contains(&d.id))) {
@@ -115,6 +108,49 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
             }
         }
     }
+}
+
+/// Every task upstream of `id`, following dependencies transitively.
+fn upstream_of(id: &str, deps: &HashMap<&str, &[String]>) -> HashSet<String> {
+    let mut seen = HashSet::new();
+    let mut todo = vec![id.to_string()];
+    while let Some(x) = todo.pop() {
+        for d in deps.get(x.as_str()).copied().unwrap_or_default() {
+            if seen.insert(d.clone()) {
+                todo.push(d.clone());
+            }
+        }
+    }
+    seen
+}
+
+/// The open task, other than `me`, that owns `path` and may be running alongside `me`: neither
+/// is upstream of the other. A task upstream or downstream works before or after `me`, and a
+/// finished task's ownership has lapsed, so changing its files is not stepping on anyone.
+pub fn owner_of<'a>(path: &str, me: &str, board: &[(&'a TaskDef, TaskStatus)]) -> Option<&'a str> {
+    let deps: HashMap<&str, &[String]> = board.iter().map(|(d, _)| (d.id.as_str(), d.deps.as_slice())).collect();
+    let mine = upstream_of(me, &deps);
+    board
+        .iter()
+        .filter(|(d, s)| d.id != me && !s.terminal() && !mine.contains(&d.id))
+        .filter(|(d, _)| !upstream_of(&d.id, &deps).contains(me))
+        .find(|(d, _)| d.owns.iter().any(|o| overlaps(o, path)))
+        .map(|(d, _)| d.id.as_str())
+}
+
+/// A collaborator claims `paths` while it works (`janus.claim`): ownership taken when the work
+/// shows what it needs, not only what the lead guessed up front. It lapses when the task ends,
+/// as all ownership does. Refused for a verifier, which changes no files, and for a path an
+/// open task that may run alongside owns. Returns the paths not already the task's own.
+pub fn claim(me: &TaskDef, paths: &[String], board: &[(&TaskDef, TaskStatus)]) -> Result<Vec<String>, String> {
+    if me.verifies.is_some() {
+        return Err(format!("{} 是验证任务，只检查不改文件，不能认领文件", me.id));
+    }
+    let taken: Vec<String> = paths.iter().filter_map(|p| owner_of(p, &me.id, board).map(|o| format!("{p} 归 {o} 负责"))).collect();
+    if !taken.is_empty() {
+        return Err(format!("不能认领：{}。需要改这些文件时，用 janus.board_post 写一条 blocker 请主控协调", taken.join("；")));
+    }
+    Ok(paths.iter().filter(|p| !me.owns.iter().any(|o| covers(o, p))).cloned().collect())
 }
 
 /// What a collaborator's task prompt adds for the team structure: the files it owns, or, for a
@@ -153,6 +189,8 @@ pub fn lead_guide() -> &'static str {
     "团队怎么组织：
 - 先估计规模：一个人能在一轮里做完、或者步骤彼此紧密依赖的工作，你自己做；能按文件、模块或问题干净切开的，才分给协作者。同时执行的任务一般不超过协作者人数，每个任务的产出是一处可以单独核对的改动。
 - 每个任务的说明写清三件事：负责什么、不能碰什么、做到什么算完成。会改文件的任务用 owns 列出它负责的文件或目录（相对工作目录，目录包含其下所有文件）；可能同时执行的任务 owns 不能重叠，Janus 校验时会拒绝重叠的编排。
+- 协作者开始改文件前可以用 janus.claim 认领 owns 以外的文件，你会在看板上看到 [认领]；同时进行的任务改了别人负责的文件，看板上是 [越界]。
+- 任务完成时 Janus 会拿结果和它在工作目录里留下的改动对账：没改负责的文件、改了范围以外的文件、验证者改了文件，都会在 [完成] 条目下列为「痕迹核对」。以工作目录的现状为准，不要只看结果摘要。
 - 重要的改动安排独立验证：再提交一个任务，verifies 写被验证任务的 id，交给另一个协作者。验证任务自动在被验证的任务完成后开始，只检查不改文件，验收标准要求它给出实际运行的命令和输出。验证没通过时不能用 janus.accept 放行：派修复任务和新的验证任务，或者 janus.cancel 取消验证并写明理由。没有第二个协作者时，你自己核对。"
 }
 
@@ -229,6 +267,32 @@ mod tests {
         assert!(errors(&mut [def("V1", "m2", &[], &[], Some("T1"))], &board).is_empty());
         assert!(accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1"))).is_some_and(|x| x.contains("janus.orchestrate")));
         assert!(accept_refused(&def("T1", "m1", &[], &[], None)).is_none());
+    }
+
+    #[test]
+    fn a_file_belongs_to_an_open_task_that_may_run_alongside() {
+        let (a, b, c, d) = (def("A", "m1", &[], &["src"], None), def("B", "m2", &[], &[], None), def("C", "m3", &["A"], &["docs"], None), def("D", "m1", &[], &["lib.rs"], None));
+        let board = [(&a, TaskStatus::Running), (&b, TaskStatus::Running), (&c, TaskStatus::Pending), (&d, TaskStatus::Succeeded)];
+        assert_eq!(owner_of("src/main.rs", "B", &board), Some("A"));
+        assert_eq!(owner_of("src", "B", &board), Some("A"), "a whole directory touches A's files");
+        assert_eq!(owner_of("src/main.rs", "A", &board), None, "its own files");
+        assert_eq!(owner_of("docs/x.md", "A", &board), None, "C runs after A: not alongside");
+        assert_eq!(owner_of("docs/x.md", "B", &board), Some("C"), "pending but unordered with B");
+        assert_eq!(owner_of("lib.rs", "B", &board), None, "a finished task's ownership has lapsed");
+        assert_eq!(owner_of("srcx/a.rs", "B", &board), None);
+    }
+
+    #[test]
+    fn claims_take_free_files_and_are_refused_for_taken_ones() {
+        let (a, mut b, v) = (def("A", "m1", &[], &["src"], None), def("B", "m2", &[], &["docs"], None), def("V", "m3", &[], &[], Some("A")));
+        let board = [(&a, TaskStatus::Running), (&b, TaskStatus::Running), (&v, TaskStatus::Pending)];
+        assert_eq!(claim(&b, &["README.md".into(), "docs/a.md".into()], &board).unwrap(), vec!["README.md"], "docs/a.md is already B's");
+        let e = claim(&b, &["src/a.rs".into(), "x".into()], &board).unwrap_err();
+        assert!(e.contains("src/a.rs 归 A 负责") && e.contains("blocker"), "{e}");
+        assert!(claim(&v, &["y".into()], &board).unwrap_err().contains("验证任务"));
+        b.owns.clear();
+        let done = [(&a, TaskStatus::Succeeded)];
+        assert_eq!(claim(&b, &["src/a.rs".into()], &done).unwrap(), vec!["src/a.rs"], "A is done");
     }
 
     #[test]

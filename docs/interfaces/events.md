@@ -83,7 +83,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 
 | 类型 | 说明 |
 | --- | --- |
-| `goal.status` | Agent 报告的 `/goal` 状态变化，见 [Codex 的目标状态](acp_integration.md#goal_status) |
+| `goal.status` | Agent 报告的 `/goal` 状态变化，见 [Codex 的目标状态](acp_integration.md#goal_status)；主控向 Janus 确认完成后由 Janus 结束目标时，`actor` 为 `janus`，`data.by` 为 `janus`，见[目标不自己结束时](../domains/goal_mode.md#goal_settle) |
 | `lead.failed` | 主控会话异常结束；`data.error` |
 | `lead.stalled` | 停滞检测发现主控会话没有进展，`to` 为 `user`。`data.reason` 是 `idle`（`data.idleMs`）或 `loop`（`data.tool`、`data.repeats`）；主控再有动静时写一条 `data.resolved: true` 的 `lead.stalled`，见[停滞检测](../domains/run_lifecycle.md#watchdog) |
 | `orchestration.accepted` | 编排通过校验；`data.tasks` 是写入看板的任务（含 `owns`、`verifies`，验证任务的 `deps` 已包含被验证的任务），恢复时据此重建看板 |
@@ -97,17 +97,18 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `task.assigned` | 任务分配给执行者 |
 | `task.ready` | 依赖满足，可以启动 |
 | `attempt.launch_requested` / `attempt.started` | 请求启动 / 尝试开始 |
-| `context.handoff` | 上游结果交给下游；`data.amendments` 是主控对上游结论的修订 |
+| `context.handoff` | 上游结果交给下游；`data.amendments` 是主控对上游结论的修订，`data.files` 是上游改过的文件，`data.stale` 是上游完成后又被别的任务改过的文件（`[{path, by}]`），见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
 | `result.amended` | 主控修订已完成任务的结论（`janus.amend`）；`data.text` |
 | `result.submitted` | 尝试提交结构化结果；`data.summary`、`data.checks`（逐条验收：`criterion`、`passed`、`evidence`）、`data.evidence`、`data.risks` |
 | `artifact.created` | 保存产物；`data.name`、`data.kind`、`data.path`、`data.hash`、`data.bytes` |
 | `attempt.failed` | 尝试失败；`data.error` |
 | `attempt.late_result` | 过期尝试的结果被忽略 |
 | `task.retry_scheduled` | 安排下一次尝试 |
-| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks` |
+| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks`。协作者完成的 `task.succeeded` 带 `data.traceGaps`：结果和工作目录对不上的地方，没有时为空数组，见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
 | `task.blocked` | 硬依赖失败；`data.dependency`。一个依赖处理好后仍有别的依赖失败时再写一条，指向那个依赖 |
 | `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
-| `task.conflict` | 两个同时执行的任务改了同一批文件；`task` 是发现冲突的一方，`to` 为 `lead`，`data.other` 是另一个任务，`data.paths` 是相对工作目录的文件，见[同时改同一个文件](../domains/goal_mode.md#conflicts) |
+| `task.conflict` | 两个同时执行的任务改了同一批文件；`task` 是发现冲突的一方，`to` 为 `lead`，`data.other` 是另一个任务，`data.paths` 是相对工作目录的文件。`data.owned` 为 `true` 时，是 `task` 改了 `data.other` 负责的文件（越界）。见[同时改同一个文件](../domains/goal_mode.md#conflicts) |
+| `task.claimed` | 协作者用 `claim` 认领文件；`actor` 是执行者，`to` 为 `lead`，`data.paths` 是新认领的路径，恢复时并入任务的 `owns`，见[团队结构](../domains/goal_mode.md#team_structure) |
 | `task.skipped_by_decision` | 主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
 | `task.reopened` | 任务重新开始。`data.reason` 是 `lead.retry`（主控重试，`actor` 为 `lead`，可能带新的 `data.instructions`、`data.accept`）或 `upstream.retry`（因上游被取消而连带取消的任务，随上游的重试恢复，`actor` 为 `janus`，`data.upstream` 是上游任务） |
 
@@ -123,10 +124,16 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | 类型 | 说明 |
 | --- | --- |
 | `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置） |
-| `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 3 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话 |
-| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix` / `board`，`fix` 是把验证失败发回协作者的会话修复，`board` 是插入主控会话的看板推送）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer` / `extension`） |
-| `tool.call` | 工具调用及其输入输出摘要；改了文件的调用（`edit`、`delete`、`move`）另有 `data.paths`，是相对工作目录的文件 |
-| `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status` |
+| `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 1 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话。每段保留原样的空白和换行（可能在代码块中间切开），按顺序直接拼接就是原文；主控的交付摘要取它最后连续的几段拼起来 |
+| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix` / `board` / `goal_check`，`goal_check` 是问主控目标是否已经完成，见[目标不自己结束时](../domains/goal_mode.md#goal_settle)，`fix` 是把验证失败发回协作者的会话修复，`board` 是插入主控会话的看板推送）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer` / `extension`） |
+| `tool.call` | 工具调用及其输入输出摘要，`data.callId`，文件改动在 `data.diffs`（`data.output`，没有输出时为空；早期记录在这里写的是 ACP 状态，应用不显示），状态在 `data.status`；改了文件的调用（`edit`、`delete`、`move`）另有 `data.paths`，是相对工作目录的文件 |
+| `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status`。Agent 自己的工具调用开始时也记一条（`data.live` 为 `true`，没有 `args`），完成后由同一 `callId` 的 `tool.call` 替换 |
+| `agent.thought` | Agent 的思考；`data.text`，见[会话中能看到什么](acp_integration.md#session_view) |
+| `agent.plan` | Agent 的计划；`data.entries`（`content`、`status`、`priority`） |
+| `session.controls` | 会话提供的选项和当前值：`data.model`、`data.effort`（`id`、`current`、`options`）、`data.controls`（其他控制项）；会话打开时和选项变化时各记一条 |
+| `session.control` | 一个控制项切换了：`data.id`、`data.value`、`data.via`（`mode` / `config`）；用户切换的 `data.by` 为 `user`，失败的 `data.failed` 为 `true`。见[会话中切换控制项](acp_integration.md#session_controls) |
+| `session.commands` | Agent 提供的斜杠命令；`data.commands`（`name`、`description`、`hint`） |
+| `session.usage` | 上下文用量（`data.used`、`data.size`）或一轮的 token 数（`data.inputTokens`、`data.outputTokens`、`data.totalTokens`） |
 | `tool.completed` | Janus MCP 工具返回；`data.callId`、`data.tool`、`data.input`、`data.args`、`data.output`、`data.status` |
 | `user.message` | 用户或主控发出一条消息，发出时立即记录；`data.id`、`data.text`，`data.delivery` 为 `pending`，见[消息的流转](#message_flow)。带图片时 `data.images` 列出图片，`data.text` 末尾有点名图片的 `[附图 N] <路径>` 行，应用显示缩略图并隐藏这些行 |
 | `message.routed` | 会话决定这条消息怎么进入；`data.id`、`data.delivery`（`steer` / `queued` / `interrupt` / `prompt` / `next`） |

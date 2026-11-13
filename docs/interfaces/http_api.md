@@ -50,6 +50,7 @@
 | GET | `/api/runs/{id}/stream?after=` | SSE 事件流 |
 | POST | `/api/runs/{id}/actions` | Run 操作 |
 | GET | `/api/runs/{id}/export` | 导出事件为 NDJSON |
+| GET | `/api/runs/{id}/files?q=` | <a id="run_files"></a>Run 工作目录中路径包含 `q` 的文件（Git 跟踪的和未被忽略的未跟踪文件，最多 20 个，文件名以 `q` 开头的在前），供输入框的 `@` 菜单使用；返回 `{"files": [...]}` |
 | POST | `/mcp/{run}/{token}/{who}` | 看板 MCP 服务 |
 
 <a id="setup"></a>
@@ -187,7 +188,8 @@ Content-Type: application/json
 | `answer` | `key`、`task`、`answer`、`note` | 回答提问；回答主控用 `ask_user` 提的问题时 `task` 为空 |
 | `approve` | `key`、`task`、`allow`、`option`、`label` | 处理审批请求，`option` 是 Agent 给出的 `optionId` |
 | `input` | `key`、`task`、`action`、`content` | 处理表单请求，`action` 是 `accept`、`decline` 或 `cancel` |
-| `message` | `text`、`images`（可选，见[图片](#images)），`agent` 或 `task` | 给会话发消息，`text` 和 `images` 至少有一个；Run 已中断时先恢复 |
+| `message` | `text`、`images`（可选，见[图片](#images)），`agent` 或 `task` | 给会话发消息，`text` 和 `images` 至少有一个；Run 已中断时先恢复。`text` 中的 `@路径` 作为文件引用交给 Agent，见 [ACP 集成](acp_integration.md#methods) |
+| `control` | `id`、`value`、`via`（`mode` / `config`，默认 `config`），`agent` 或 `task` | 切换打开着的会话的模型、推理强度或模式；`id` 或 `value` 为空时拒绝；会话没有打开时报错。见[会话中切换控制项](acp_integration.md#session_controls) |
 | `interrupt` | `agent` 或 `task` | 打断当前一轮 |
 | `takeover` | `agent` 或 `task` | 接管会话，Agent 每轮结束后等用户消息 |
 | `release` | `agent` 或 `task` | 交还托管 |

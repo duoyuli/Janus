@@ -42,13 +42,13 @@ Janus 读取的 Agent 能力：
 | Janus → Agent | `initialize` | 握手 |
 | Janus → Agent | `session/new` | 打开会话，带 `cwd`、`mcpServers`、`_meta` |
 | Janus → Agent | `session/load` | 恢复中断前的会话；历史回放的更新被丢弃，期间 Agent 的请求一律拒绝 |
-| Janus → Agent | `session/set_config_option` | 设置模型、推理强度和其他会话控制项 |
+| Janus → Agent | `session/set_config_option` | 设置模型、推理强度和其他会话控制项；会话进行中用户也可以切换，见[会话中切换控制项](#session_controls) |
 | Janus → Agent | `session/set_mode` | 为通过 session modes 声明的控制项设置模式 |
-| Janus → Agent | `session/prompt` | 发送一轮提示：一个文字块；Agent 声明了 `promptCapabilities.image` 时，后面附上文字点名的图片块，见[图片附件](../domains/run_lifecycle.md#attachments) |
+| Janus → Agent | `session/prompt` | 发送一轮提示：一个文字块；Agent 声明了 `promptCapabilities.image` 时，后面附上文字点名的图片块，见[图片附件](../domains/run_lifecycle.md#attachments)；文字里以 `@路径` 提到的工作区文件，每个附一个 `resource_link` 块（`file://` 绝对路径，`name` 是相对路径），ACP 要求所有 Agent 都支持这种块 |
 | Janus → Agent | `session/cancel`（通知） | 打断当前一轮 |
 | Janus → Agent | `_lody/session/steer` | 把消息插入正在进行的一轮，内容块与 `session/prompt` 相同，`steerId` 是消息 id；返回 `outcome: "injected"` 表示成功；15 秒超时 |
 | Agent → Janus | `_lody/session/steer_applied`（通知） | 插入的消息已经进入模型的输入，带 `steerId` |
-| Agent → Janus | `session/update`（通知） | 流式输出（`agent_message_chunk`）、工具调用（`tool_call`、`tool_call_update`）、会话信息（`session_info_update`） |
+| Agent → Janus | `session/update`（通知） | 流式输出（`agent_message_chunk`）、思考（`agent_thought_chunk`）、工具调用（`tool_call`、`tool_call_update`）、计划（`plan`）、斜杠命令（`available_commands_update`）、模式和选项的变化（`current_mode_update`、`config_option_update`）、用量（`usage_update`）、会话信息（`session_info_update`），见[会话中能看到什么](#session_view) |
 | Agent → Janus | `session/request_permission` | 审批请求，转给用户 |
 | Agent → Janus | `elicitation/create` | 表单或链接请求，转给用户 |
 
@@ -72,6 +72,8 @@ Janus 读取的 Agent 能力：
 
 - `lody.sessionConfig` 让只在会话开始时接受权限模式的 Agent（例如 Grok）按角色的选择打开会话。不读取它的 Agent 会忽略。
 - `systemPrompt.append` 只在 Claude Code 的会话中设置：主控会话放主控说明和用户的长期要求，协作者会话只放长期要求（见下一节）。`session/load` 恢复会话时同样带上。只追加，不替换 Claude Code 自带的系统提示。
+
+Claude Code 的会话另外带 `_meta.claudeCode.options.allowedTools: ["mcp__janus"]`：Janus 自己的看板工具（只读写这个 Run 的看板）不用审批。没有它时，Claude Code 在默认模式下每次协作者写进展都会请用户批准（真实运行中发现）。Codex 通过工具的只读标注得到同样的效果。角色选择的权限模式对其他所有工具照常生效。
 
 <a id="standing_instructions"></a>
 ## 用户的长期要求
@@ -99,6 +101,32 @@ Skill、MCP 和权限模式不属于长期要求，它们按各 Agent 自己的�
 3. Plan 模式：开启着的 Plan 控制项设为关闭值（布尔为 `false`，Codex 的下拉为 `off`）；当前值为 `plan` 的下拉控制项改为第一个其他选项。规则见 [不使用 Plan 模式](../domains/agents_and_roles.md#no_plan_mode)。
 
 实际生效的设置记录在 `agent.status` 事件的 `data.config` 中。
+
+<a id="session_view"></a>
+## 会话中能看到什么
+
+Janus 把会话的更新转成事件（`acp_view.rs`），应用照着显示，让人在 Janus 里看到的和直接用这个 coding agent 时一样：
+
+| ACP 更新 | 事件 | 说明 |
+| --- | --- | --- |
+| `agent_message_chunk` | `agent.message` | 回复文字。连续的片段在 1 秒没有新内容、下一次工具调用或这一轮结束时写入一条，应用把同一个 Agent 连续的几条合成一个气泡 |
+| `agent_thought_chunk` | `agent.thought` | 思考，和回复同时写入，应用中默认折叠 |
+| `tool_call`（还没完成） | `tool.started` | 进行中的工具调用，`data.live` 为 `true`；完成后由同一 `callId` 的 `tool.call` 替换 |
+| `tool_call_update`（完成或失败） | `tool.call` | 带 `data.callId`；内容里的文件改动（`diff`）记在 `data.diffs`（`path`、`old`、`new`，每一边最多约 12000 字节） |
+| `plan` | `agent.plan` | 计划的全部条目（`content`、`status`、`priority`）；和上一份相同时不记录 |
+| `available_commands_update` | `session.commands` | 斜杠命令（`name` 不带 `/`、`description`、`hint`）；和上一份相同时不记录 |
+| `current_mode_update` | `session.control` | Agent 自己切换了模式 |
+| `config_option_update` | `session.controls` | 选项变了，记录整份新的选项 |
+| `usage_update`；`session/prompt` 返回的 `usage` | `session.usage` | 上下文用量（`used`、`size`）；一轮的 token 数（`inputTokens`、`outputTokens`、`totalTokens`） |
+
+会话打开时，Janus 还把它提供的选项（模型、推理强度、其他下拉控制项，按 `agents::session_options` 整理，当前值是应用角色设置之后的值）记为一条 `session.controls`。
+
+Janus 仍然声明不提供文件读写和终端（`clientCapabilities.fs`、`terminal` 都是 `false`）：Agent 直接在工作目录里读写、运行命令，输出随工具调用回来。
+
+<a id="session_controls"></a>
+## 会话中切换控制项
+
+会话打开期间，用户可以在会话卡片中切换 Agent 提供的模型、推理强度和模式（`control` 操作，见 [Run 操作](http_api.md#run_actions)）。Janus 把它交给这个会话（`Steer::Control`），无论 Agent 正在执行一轮、还是在人工接管中等待消息：来源是 session modes 的调用 `session/set_mode`，其他调用 `session/set_config_option`。成功后记一条 `session.control`（`data.by` 为 `user`）；返回了新的选项时，再记一条 `session.controls`。失败时 `session.control` 的 `data.failed` 为 `true`，会话照常继续。Plan 类的选项和值不在可选范围内，规则见 [不使用 Plan 模式](../domains/agents_and_roles.md#no_plan_mode)。
 
 <a id="goal_status"></a>
 ## Codex 的目标状态

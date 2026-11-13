@@ -1,15 +1,18 @@
 mod acp;
+mod acp_view;
 mod adapters;
 mod agents;
 mod attachments;
 mod config;
 mod db;
 mod git_probe;
+mod goal_settle;
 mod mcp_sources;
 mod orchestrator;
 mod skill_sources;
 mod status;
 mod teamwork;
+mod traces;
 
 use anyhow::Result;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -316,6 +319,20 @@ async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Quer
     )
 }
 
+/// Files in a run's workspace whose path contains `q`, for the `@` menu of the composer.
+// @project-doc docs/interfaces/http_api.md#run_files
+async fn run_files(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<FileQuery>) -> ApiResult {
+    let run = app.db.runs().map_err(bad)?.into_iter().find(|r| r["id"] == id.as_str()).ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
+    let cwd = std::path::PathBuf::from(run["cwd"].as_str().unwrap_or_default());
+    let files = acp_view::workspace_files(&cwd, q.q.as_deref().unwrap_or(""), 20);
+    Ok(Json(json!({ "files": files })).into_response())
+}
+
+#[derive(Deserialize)]
+struct FileQuery {
+    q: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct After {
     after: Option<i64>,
@@ -500,6 +517,7 @@ async fn main() -> Result<()> {
             data_dir: home.clone(),
             agents_dir,
             stall_after: orchestrator::STALL_AFTER,
+            goal_settle: goal_settle::SETTLE,
         },
         tx,
         runs: Mutex::new(HashMap::new()),
@@ -562,6 +580,7 @@ async fn main() -> Result<()> {
         .route("/api/runs/{id}/stream", get(stream))
         .route("/api/runs/{id}/actions", post(action))
         .route("/api/runs/{id}/export", get(export))
+        .route("/api/runs/{id}/files", get(run_files))
         .route("/mcp/{run}/{token}/{who}", post(mcp).get(mcp_stream))
         // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).
         .layer(axum::extract::DefaultBodyLimit::max(160 * 1024 * 1024))

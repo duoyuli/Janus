@@ -33,7 +33,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 <a id="tool_annotations"></a>
 ## 工具标注
 
-所有工具都带 MCP 工具标注：`team`、`wait`、`task_detail`、`board_post`、`peers` 标为只读，`orchestrate`、`reply`、`retry`、`accept`、`amend`、`cancel`、`ask_user` 标为非破坏性操作。标注的作用是避免 Codex 把调用看板当作需要用户审批的操作。
+所有工具都带 MCP 工具标注：`team`、`wait`、`task_detail`、`board_post`、`claim`、`peers` 标为只读，`orchestrate`、`reply`、`retry`、`accept`、`amend`、`cancel`、`ask_user` 标为非破坏性操作。标注的作用是避免 Codex 把调用看板当作需要用户审批的操作。
 
 工具调用的错误以 `isError: true` 的文本内容返回，不使用 JSON-RPC 错误。
 
@@ -121,7 +121,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | 标记 | 来源事件 | 内容 |
 | --- | --- | --- |
 | `[开始]` | `attempt.started` | 任务、执行者、第几次尝试 |
-| `[完成]` | `task.succeeded` | 摘要、逐条验收（✓ / ✗、标准、证据）、证据、风险、产物路径。超过限额的部分删去，并提示用 `task_detail` 查看，见[完成消息的限额](#inline_budget) |
+| `[完成]` | `task.succeeded` | 摘要、逐条验收（✓ / ✗、标准、证据）、证据、风险、产物路径，以及结果和工作目录对不上的「痕迹核对」（`data.traceGaps`，见[工作目录里的痕迹](../domains/goal_mode.md#traces)）。超过限额的部分删去，并提示用 `task_detail` 查看，见[完成消息的限额](#inline_budget) |
 | `[尝试失败]` | `attempt.failed` | 失败原因，还会重试 |
 | `[验证没通过]` | 验证任务的 `task.failed`（`reason: "verification"`） | 验证者在原会话补过一次，仍有标准没达到，逐条列出；提示派修复任务和新的验证任务，或用 `cancel` 取消验证，不能用 `accept` |
 | `[没通过验收]` | `task.failed`（`reason: "verification"`） | 协作者在原会话补过一次，仍有标准没核对、没证据或自认没达到，逐条列出；提示用 `accept`、`retry` 或 `cancel` 处理 |
@@ -132,6 +132,8 @@ URL 的主机和端口取 `JANUS_ADDR`。
 | `[用户决定]` | `question.answered`（`ask_user` 的问题） | 用户对主控所提问题的回答 |
 | `[进展]` `[阻塞]` `[备注]` | `board.posted` | 协作者写回的内容 |
 | `[冲突]` | `task.conflict` | 两个同时执行的任务改了同一批文件，提示主控确认分工 |
+| `[越界]` | `task.conflict`（`data.owned: true`） | 任务改了另一个可能同时执行的任务负责的文件，已提醒它停下，提示主控确认分工 |
+| `[认领]` | `task.claimed` | 协作者认领了要改的文件 |
 | `[提问]` | `question.asked` | 问题和选项，需要用 `reply` 回答 |
 | `[等用户]` | `approval.requested`、`input.requested` | 协作者在等用户审批或填写 |
 
@@ -221,7 +223,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 <a id="member_tools"></a>
 ## 协作者工具
 
-`who` 为任务 id 时，`tools/list` 返回 `board_post` 和 `peers`。
+`who` 为任务 id 时，`tools/list` 返回 `board_post`、`claim` 和 `peers`。主控调用 `claim` 返回「没有这个工具」：主控用 `owns` 分配文件。
 
 ### `board_post`
 
@@ -236,6 +238,19 @@ URL 的主机和端口取 `JANUS_ADDR`。
 
 写入 `board.posted` 事件后立即返回，不等待回答。需要主控做决定才能继续时，协作者应在结构化结果的 `question` 字段提问并结束本轮。
 
+<a id="claim"></a>
+### `claim`
+
+```json
+{ "paths": ["docs", "README.md"] }
+```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `paths` | 是 | 相对工作目录的文件或目录，目录包含其下所有文件；规则与 `owns` 相同，绝对路径和 `..` 被拒绝 |
+
+开始改负责范围以外的文件前认领它们（`teamwork::claim`）。不是自己负责的路径并入任务的 `owns`，写 `task.claimed`（`data.paths` 为新认领的路径），到任务结束为止有效；全部已归自己负责时返回提示，不写事件。拒绝的情况：路径归另一个可能同时执行的未结束任务负责（返回负责的任务，要求写 blocker 请主控协调）；调用者是验证任务。规则见[团队结构](../domains/goal_mode.md#team_structure)。
+
 <a id="peers"></a>
 ### `peers`
 
@@ -243,7 +258,7 @@ URL 的主机和端口取 `JANUS_ADDR`。
 { "task": "T1" }
 ```
 
-不带 `task` 时返回看板上的其他任务：状态、和调用者的关系（你的上游、依赖你、和你改了同一批文件），正在执行的任务改过的文件，以及最近 5 条其他任务写回看板的内容。带 `task` 时返回那个任务的全部信息，与主控的 [`task_detail`](#task_detail) 相同，例如上游任务的完整证据和主控的修订。
+不带 `task` 时返回看板上的其他任务：状态、未结束任务负责的文件、和调用者的关系（你的上游、依赖你、和你改了同一批文件），正在执行的任务改过的文件，已完成任务完成后又被改过的文件，以及最近 5 条其他任务写回看板的内容。带 `task` 时返回那个任务的全部信息，与主控的 [`task_detail`](#task_detail) 相同，例如上游任务的完整证据和主控的修订。
 
 <a id="acceptance_criteria"></a>
 ## 验收标准
