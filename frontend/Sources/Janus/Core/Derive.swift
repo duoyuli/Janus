@@ -475,6 +475,8 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     for e in st.events {
         let d = e.data
         if let task = e.task, stalls[task] != nil, e.actor == st.tasks[task]?.agent || e.type == "attempt.started" { stalls[task] = nil }
+        // A loop report has no backend "resolved" event; the lead moving again is the resolution.
+        if leadStall != nil, e.actor == "lead" { leadStall = nil }
         switch e.type {
         case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
         case "lead.stalled": leadStall = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text)

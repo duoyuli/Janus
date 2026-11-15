@@ -151,6 +151,17 @@ private func goalRun() -> Log {
     #expect(!f.open.contains { $0.title.contains("改了同一个文件") }, "neither task is running any more")
 }
 
+/// A repeated-call report has no explicit resolution: the lead doing anything again closes it.
+@Test func aLeadStallClearsWhenTheLeadMovesAgain() {
+    var log = goalRun()
+    log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "loop", "tool": "Read", "repeats": 5])
+    var f = boardFacts(derive(log.events)) { $0 }
+    #expect(f.open.contains { $0.title == "主控可能卡住了" && $0.you })
+    log.add("agent.message", actor: "lead", text: "换个办法")
+    f = boardFacts(derive(log.events)) { $0 }
+    #expect(!f.open.contains { $0.title == "主控可能卡住了" })
+}
+
 @Test func tracesOpenOnTheBoardUntilTheLeadActs() {
     var log = goalRun()
     log.add("task.claimed", actor: "researcher", to: "lead", task: "T1", data: ["paths": ["notes.md"]])

@@ -79,7 +79,7 @@ frontend/
 - 新增或修改事件类型时，必须同步更新 `derive` 中对应的分支，否则界面不会反映新状态；看板条目依赖 `boardFacts` 对事件类型和 `data` 字段的解释。检查清单见[事件参考](../interfaces/events.md)。
 - 缺少前提的事件（例如引用了看板上没有的任务）被跳过，不中断推导。早期计划模式 Run 的计划、评审等事件不再推导，这些 Run 只显示会话、交付和审计日志，见[早期版本的 Run](../domains/run_lifecycle.md#early_plan_runs)。
 - 任务的后端状态只有 7 个（`TaskStatus`，见[任务状态](../domains/run_lifecycle.md#scheduling)）；`derive` 另外推导 `ready`、`assigned`、`verifying`、`verification_failed`、`waiting_input`、`waiting_approval` 等只用于显示的状态。
-- 「待处理」分两类：用户要处理的事项（来自 `inbox`，以及主控可能卡住，标「等你决定」，排在前面）和主控在处理的事项（协作者的阻塞和提问、两个任务改了同一个文件、任务改了别的任务负责的文件、结果和工作目录对不上、可能卡住的任务、失败的任务、依赖失败的任务，标「主控处理」）。可能卡住的任务来自 `task.stalled`，收到 `data.resolved: true`、执行它的 Agent 再有任何事件、新的尝试开始或任务不再执行时移除。主控可能卡住来自 `lead.stalled`，收到 `data.resolved: true` 或 Run 结束时移除。改了同一个文件来自 `task.conflict`，两个任务都不再执行时移除；越界（`data.owned`）在越界的任务不再执行时移除。结果和工作目录对不上来自 `task.succeeded` 的 `data.traceGaps`，主控重做（`task.reopened`）、修订结论（`result.amended`）或 Run 交付、验收、取消后移除。协作者的认领（`task.claimed`）作为看板上的一条传递记录显示。只有存在前一类时，这一栏才用警示色。还在路上的消息只显示在各会话的「待发送」区，不进入这一栏。
+- 「待处理」分两类：用户要处理的事项（来自 `inbox`，以及主控可能卡住，标「等你决定」，排在前面）和主控在处理的事项（协作者的阻塞和提问、两个任务改了同一个文件、任务改了别的任务负责的文件、结果和工作目录对不上、可能卡住的任务、失败的任务、依赖失败的任务，标「主控处理」）。可能卡住的任务来自 `task.stalled`，收到 `data.resolved: true`、执行它的 Agent 再有任何事件、新的尝试开始或任务不再执行时移除。主控可能卡住来自 `lead.stalled`，收到 `data.resolved: true`、主控再有任何事件或 Run 结束时移除。改了同一个文件来自 `task.conflict`，两个任务都不再执行时移除；越界（`data.owned`）在越界的任务不再执行时移除。结果和工作目录对不上来自 `task.succeeded` 的 `data.traceGaps`，主控重做（`task.reopened`）、修订结论（`result.amended`）或 Run 交付、验收、取消后移除。协作者的认领（`task.claimed`）作为看板上的一条传递记录显示。只有存在前一类时，这一栏才用警示色。还在路上的消息只显示在各会话的「待发送」区，不进入这一栏。
 - 同一个待处理事项（按 `key`）在 `inbox` 中只保留一条。事项被回答、撤回（`decision.withdrawn`）或 Run 结束后，从「需要你处理」中移除。
 
 <a id="server_sync"></a>
