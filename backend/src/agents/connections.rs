@@ -83,7 +83,7 @@ impl App {
             "" => match str_of(body, "newId") {
                 "" => self.suggest_agent_id(kind, str_of(body, "name"))?,
                 wanted => {
-                    check_agent_id(wanted)?;
+                    check_id(wanted)?;
                     if self.db.get_config(CONNECTION, wanted)?.is_some()
                         || self.agent_dir(wanted).exists()
                     {
@@ -92,7 +92,10 @@ impl App {
                     wanted.to_string()
                 }
             },
-            id => id.to_string(),
+            id => {
+                check_id(id)?;
+                id.to_string()
+            }
         };
         let prev = self.db.get_config(CONNECTION, &id)?;
         if let Some(p) = &prev
@@ -234,7 +237,7 @@ impl App {
             } else {
                 format!("{base}-{n}")
             };
-            if check_agent_id(&id).is_ok() && !taken(&id)? {
+            if check_id(&id).is_ok() && !taken(&id)? {
                 return Ok(id);
             }
         }
@@ -245,6 +248,8 @@ impl App {
     }
 
     pub fn delete_connection(&self, id: &str) -> Result<()> {
+        // The id names the folder removed below.
+        check_id(id)?;
         let busy = self
             .runs
             .lock()

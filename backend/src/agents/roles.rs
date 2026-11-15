@@ -15,7 +15,10 @@ impl App {
         }
         let id = match str_of(body, "id") {
             "" => new_id("r"),
-            id => id.to_string(),
+            id => {
+                check_id(id)?;
+                id.to_string()
+            }
         };
         let connection = str_of(body, "connection");
         // The session controls this role chose, checked against what its agent declares.
@@ -102,33 +105,34 @@ impl App {
         }) {
             bail!("工作区「{}」正在使用这个角色，请先移除", str_of(ws, "name"));
         }
-        let _ = std::fs::remove_file(self.role_secrets_path(id));
+        let _ = std::fs::remove_file(self.role_secrets_path(id)?);
         self.db.delete_config(ROLE, id)
     }
 
-    pub(super) fn role_secrets_path(&self, id: &str) -> PathBuf {
-        self.cfg
+    /// Where a role's own MCP values live. The id names the file, so it must be a valid id.
+    pub(super) fn role_secrets_path(&self, id: &str) -> Result<PathBuf> {
+        check_id(id)?;
+        Ok(self
+            .cfg
             .agents_dir
             .parent()
             .unwrap_or(&self.cfg.agents_dir)
             .join("secrets")
             .join("roles")
-            .join(format!("{id}.json"))
+            .join(format!("{id}.json")))
     }
 
-    pub fn role_secrets_of(&self, id: &str) -> Value {
-        self.role_secrets(id)
-    }
-
-    pub(super) fn role_secrets(&self, id: &str) -> Value {
-        std::fs::read_to_string(self.role_secrets_path(id))
+    /// A role's own MCP values; none for a role without any (or an invalid id).
+    pub(crate) fn role_secrets(&self, id: &str) -> Value {
+        self.role_secrets_path(id)
             .ok()
+            .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_else(|| json!({}))
     }
 
     pub(super) fn write_role_secrets(&self, id: &str, secrets: &Value) -> Result<()> {
-        let path = self.role_secrets_path(id);
+        let path = self.role_secrets_path(id)?;
         if secrets.as_object().is_none_or(|m| {
             m.values()
                 .all(|v| v.as_object().is_none_or(|e| e.is_empty()))
@@ -301,6 +305,41 @@ mod seed_tests {
         app.db.delete_config(ROLE, "reviewer").unwrap();
         app.seed_roles().unwrap();
         assert!(role(&app, "reviewer").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::*;
+    use crate::orchestrator::test_app;
+
+    /// Ids name files under Janus home: one that could leave its folder is refused when a role or a
+    /// workspace is saved, and deleting a role by such an id touches nothing outside.
+    #[test]
+    fn ids_that_could_leave_their_folder_are_refused() {
+        let dir = std::env::temp_dir().join(format!("janus-ids-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = test_app(&dir);
+        // `secrets/roles/../../outside.json` is this file.
+        let outside = dir.join("outside.json");
+        std::fs::write(&outside, "keep").unwrap();
+        for bad in ["../../outside", "a/b", "Upper", "-lead", "x".repeat(41).as_str()] {
+            let err = app.save_role(&json!({ "id": bad, "name": "R" })).unwrap_err().to_string();
+            assert!(err.contains("不合法"), "role id {bad}: {err}");
+            let err = app.save_workspace(&json!({ "id": bad, "name": "W", "path": dir.to_string_lossy() })).unwrap_err().to_string();
+            assert!(err.contains("不合法"), "workspace id {bad}: {err}");
+        }
+        assert!(app.delete_role("../../outside").is_err());
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep", "nothing outside the secrets folder is removed");
+        // An agent's id names the folder its deletion removes.
+        let err = app.save_connection(&json!({ "id": "../x", "kind": "custom", "name": "A", "command": "true" })).unwrap_err().to_string();
+        assert!(err.contains("不合法"), "{err}");
+        assert!(app.delete_connection("..").is_err());
+        assert!(outside.exists(), "deleting an agent never leaves the agents folder");
+        // A valid id is kept as given.
+        assert_eq!(app.save_role(&json!({ "id": "my-role", "name": "R" })).unwrap()["id"], "my-role");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -447,7 +447,7 @@ impl App {
     /// `secrets/roles`, and library resources from `secrets/mcp`. Both maps are skipped by
     /// serialization, so they never enter the run record.
     pub fn attach_mcp_secrets(&self, m: &mut Member) {
-        let mut env = self.role_secrets_of(&m.role_id);
+        let mut env = self.role_secrets(&m.role_id);
         if !env.is_object() {
             env = json!({});
         }

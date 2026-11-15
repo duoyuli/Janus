@@ -111,7 +111,9 @@ pub(crate) fn slug(s: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
-pub fn check_agent_id(id: &str) -> Result<()> {
+/// The ids of agents, roles and workspaces: they name folders and files under Janus home, so only
+/// lowercase letters, digits and `-`, starting with a letter or digit.
+pub fn check_id(id: &str) -> Result<()> {
     let ok = !id.is_empty()
         && id.len() <= 40
         && id
@@ -122,7 +124,7 @@ pub fn check_agent_id(id: &str) -> Result<()> {
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
     if !ok {
-        bail!("ID 只能用小写字母、数字和 -，并以字母或数字开头（它也是配置目录的名字）");
+        bail!("ID「{id}」不合法：只能用小写字母、数字和 -，并以字母或数字开头");
     }
     Ok(())
 }

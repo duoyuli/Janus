@@ -25,7 +25,7 @@
 | J-05 | 高 | 已确认 | Run 只保存 Provider ID，后续任务重新读取当前 Provider 配置 | `backend/src/orchestrator.rs:1480` |
 | J-06 | 中高 | 已确认 | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
 | J-07 | 中高 | 已确认 | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
-| J-08 | 中高 | 已确认 | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
+| J-08 | 中高 |  已修复  | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
 | J-09 | 中 | 已确认 | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
 | J-10 | 中 | 已确认 | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
 | J-11 | 中 | 已确认 | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
@@ -115,6 +115,8 @@
 证据：[agents.rs:371](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:371)、[agents.rs:384](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:384)、[agents.rs:449](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:449)、[agents.rs:1108](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:1108)、[agents.rs:1181](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:1181)。
 
 建议：所有创建、更新和删除入口统一校验 ID。校验应拒绝路径分隔符、`.`、`..` 和超出允许长度的值。文件路径拼接后还应检查路径仍位于对应根目录内。
+
+处理（2026-11-15）：Agent、角色和工作区的 id 统一由 `check_id` 校验（小写字母、数字和 `-`，以字母或数字开头，最长 40 个字符）：保存时校验客户端给出的 id，删除 Agent 前校验，角色密钥文件的路径由 `role_secrets_path` 校验后才拼出。测试 `ids_that_could_leave_their_folder_are_refused` 覆盖 `../`、`/`、大写和超长的 id，并确认删除不会碰到目录之外的文件。
 
 ### J-09：PID 文件不能严格保证单实例
 

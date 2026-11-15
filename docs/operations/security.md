@@ -55,6 +55,11 @@
 
 不要把凭据写进 Agent 设置的「环境变量」文本：这些变量作为普通配置保存在 SQLite 中，并通过设置接口原样返回。
 
+<a id="setup_ids"></a>
+## 设置对象的 id
+
+Agent、角色和工作区的 id 是 Janus home 中目录和文件的名字（`agents/<id>/`、`secrets/roles/<id>.json`），由 `check_id` 校验：只能用小写字母、数字和 `-`，以字母或数字开头，最长 40 个字符。保存时校验客户端给出的 id，删除 Agent 前、拼出角色密钥文件的路径前也会校验，所以接口请求不能让 Janus 在这些目录之外写入或删除文件。
+
 <a id="workspace_access"></a>
 ## 工作目录访问
 

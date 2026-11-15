@@ -22,7 +22,10 @@ impl App {
         let path = path.canonicalize()?;
         let id = match str_of(body, "id") {
             "" => new_id("w"),
-            id => id.to_string(),
+            id => {
+                check_id(id)?;
+                id.to_string()
+            }
         };
         let mut members = vec![];
         for m in body["members"].as_array().cloned().unwrap_or_default() {
