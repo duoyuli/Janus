@@ -138,16 +138,22 @@ extension RunModel {
         guard let r = state.result else { return }
         let d = r.d
         let risks = d["risks"].strings
+        var lines: [String] = ["已完成：\(L.goalTitle(state.run.goal))", d["summary"].str, "", "证据："]
+        lines += d["evidence"].array.map { e -> String in "- \(e["text"].str)（事件 #\(e["seq"].str)）" }
         // Per task: how many criteria passed, the evidence methods, who verified it independently.
-        let acceptance = deliveryAcceptance(state).map { a in
-            let verified = a.verifications.map { v in "\(v.task) \(v.passed ? "通过" : "未确认（\(v.label)）")" }
-            return "- \(a.task)：通过 \(a.summary.passed)/\(a.summary.criteria) · 证据：\(a.summary.countsText)" + (verified.isEmpty ? "" : " · 独立验证：\(verified.joined(separator: "、"))")
+        let acceptance = deliveryAcceptance(state)
+        if !acceptance.isEmpty {
+            lines += ["", "逐条验收："]
+            for a in acceptance {
+                let verified: [String] = a.verifications.map { v in v.passed ? "\(v.task) 通过" : "\(v.task) 未确认（\(v.label)）" }
+                var line = "- \(a.task)：通过 \(a.summary.passed)/\(a.summary.criteria) · 证据：\(a.summary.countsText)"
+                if !verified.isEmpty { line += " · 独立验证：" + verified.joined(separator: "、") }
+                lines.append(line)
+            }
         }
-        let text = (["已完成：\(L.goalTitle(state.run.goal))", d["summary"].str, "", "证据："]
-            + d["evidence"].array.map { "- \($0["text"].str)（事件 #\($0["seq"].str)）" }
-            + (acceptance.isEmpty ? [] : ["", "逐条验收："] + acceptance)
-            + ["", "风险："] + (risks.isEmpty ? ["- 无"] : risks.map { "- " + $0 })).joined(separator: "\n")
-        copyText(text)
+        lines += ["", "风险："]
+        lines += risks.isEmpty ? ["- 无"] : risks.map { "- " + $0 }
+        copyText(lines.joined(separator: "\n"))
         store.show("已复制交付摘要")
     }
 

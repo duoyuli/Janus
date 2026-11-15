@@ -158,8 +158,9 @@ struct TaskUsageCard: View {
         guard !models.isEmpty else { return }
         let query = models.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         guard let j = try? await run.store.api.get("/api/prices?models=\(query)") else { return }
-        prices = j["prices"].object.compactMapValues(UsagePrice.init)
-        pricesAt = j["fetchedAt"].double.map { Date(timeIntervalSince1970: $0 / 1000) }
+        let found: [String: UsagePrice] = j["prices"].object.compactMapValues { UsagePrice($0) }
+        prices = found
+        if let ms = j["fetchedAt"].double { pricesAt = Date(timeIntervalSince1970: ms / 1000) }
     }
 }
 

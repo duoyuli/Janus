@@ -6926,7 +6926,15 @@ mod flow_tests {
     }
 
     async fn tool(app: &Arc<App>, run: &str, who: &str, name: &str, args: Value) -> (String, bool) {
-        let token = session_token(&app.run(run).unwrap().st.lock().unwrap().mcp_token, who);
+        // A run that was just started or resumed gets its board token when its lead starts.
+        let r = app.run(run).unwrap();
+        for _ in 0..600 {
+            if !r.st.lock().unwrap().mcp_token.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let token = session_token(&r.st.lock().unwrap().mcp_token, who);
         let req = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": args } });
         let r = app.mcp(run, &token, who, req).await.unwrap().unwrap();
         (r["result"]["content"][0]["text"].as_str().unwrap_or("").to_string(), r["result"]["isError"] == true)
