@@ -1478,7 +1478,14 @@ impl App {
                 }
             }
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
-            self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
+            // A loaded session may not return its options. Keep the controls already in the
+            // event log instead of replacing them with an empty list.
+            let has_controls = controls["model"].is_object()
+                || controls["mode"].is_object()
+                || controls["controls"].as_array().is_some_and(|a| !a.is_empty());
+            if has_controls {
+                self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
+            }
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
@@ -7141,6 +7148,10 @@ mod flow_tests {
             })
         })
         .await;
+        assert!(
+            events(&h.app, &run).iter().filter(|e| e.kind == "session.controls").count() >= 2,
+            "the reopened session offers its model and controls"
+        );
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 

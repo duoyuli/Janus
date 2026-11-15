@@ -123,7 +123,7 @@ Janus 仍然声明不提供文件读写和终端（`clientCapabilities.fs`、`te
 <a id="session_controls"></a>
 ## 会话中切换控制项
 
-会话打开期间，用户可以在会话卡片中切换 Agent 提供的模型、推理强度和模式（`control` 操作，见 [Run 操作](http_api.md#run_actions)）。Janus 把它交给这个会话（`Steer::Control`），无论 Agent 正在执行一轮、还是在人工接管中等待消息：来源是 session modes 的调用 `session/set_mode`，其他调用 `session/set_config_option`。成功后记一条 `session.control`（`data.by` 为 `user`）；返回了新的选项时，再记一条 `session.controls`。失败时 `session.control` 的 `data.failed` 为 `true`，会话照常继续。Plan 类的选项和值不在可选范围内，规则见 [不使用 Plan 模式](../domains/agents_and_roles.md#no_plan_mode)。
+会话打开期间，用户可以在会话卡片中切换 Agent 提供的模型、推理强度和模式（`control` 操作，见 [Run 操作](http_api.md#run_actions)）。Janus 把它交给这个会话（`Steer::Control`），无论 Agent 正在执行一轮、还是在人工接管中等待消息：来源是 session modes 的调用 `session/set_mode`，其他调用 `session/set_config_option`。成功后记一条 `session.control`（`data.by` 为 `user`）；返回了新的选项时，再记一条 `session.controls`。失败时 `session.control` 的 `data.failed` 为 `true`，会话照常继续。Plan 类的选项和值不在可选范围内，规则见 [不使用 Plan 模式](../domains/agents_and_roles.md#no_plan_mode)。恢复的历史会话沿用事件中最后一次 `session.controls`；重新打开的会话返回了选项时以新的为准。
 
 <a id="goal_status"></a>
 ## 目标状态

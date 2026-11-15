@@ -117,7 +117,7 @@ struct ChatCard: View {
                 if enabled { Suggestions(run: run, draft: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), commands: SessionView.commands(info.evs)) }
                 Composer(text: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44) { send("message") }
                 HStack {
-                    if info.open && live { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
+                    if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
                     Spacer()
                     buttons
                 }
