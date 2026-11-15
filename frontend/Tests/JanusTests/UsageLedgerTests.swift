@@ -2,6 +2,12 @@ import Foundation
 import Testing
 @testable import Janus
 
+/// The store the tests' run models point at. `RunModel.store` is unowned, as the app's store lives as
+/// long as the app; a store made inside a test would be freed while a view's `.task` (the task
+/// bill's price lookup) can still reach it, so the tests share one that is never freed. Its API
+/// points at a closed port, so nothing leaves the machine.
+@MainActor let testStore = AppStore(api: API(base: URL(string: "http://127.0.0.1:9")!))
+
 /// Builds an event log the way the orchestrator records one.
 private struct Log {
     var events: [Event] = []
@@ -183,7 +189,7 @@ private struct Log {
     log.add("run.created", actor: "user", data: ["goal": "g"])
     log.start("T1", "m1", session: "s1")
     for n in [700, 1400, 2100] { log.turn("m1", "T1", ["totalTokens": JSON(n)]) }
-    let run = RunModel(id: "usage-replay", store: AppStore(api: API(base: URL(string: "http://127.0.0.1:9")!)))
+    let run = RunModel(id: "usage-replay", store: testStore)
     run.events = log.events
     run.replay = log.events.count
     #expect(run.usage.run.tokens.total == 4200)

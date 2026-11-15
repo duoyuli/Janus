@@ -136,7 +136,7 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     // T2 opened a session and reported nothing: the run is partial and says so.
     add("attempt.started", actor: "implementer", task: "T2", attempt: 1, data: ["session": "s2"])
 
-    let store = AppStore(api: API(base: URL(string: "http://127.0.0.1:9")!))
+    let store = testStore
     let run = RunModel(id: "render", store: store)
     run.runJSON = ["config": ["team": [
         ["id": "lead", "name": "主控", "lead": true],
