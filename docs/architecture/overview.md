@@ -5,7 +5,7 @@
 <a id="principles"></a>
 ## 设计原则
 
-`backend/src/orchestrator.rs` 的模块注释定下了分工：
+`backend/src/orchestrator.rs` 的模块注释定下了分工（它的子模块各管 `App` 的一部分，见[模块划分](#modules)）：
 
 - **主控 Agent 决定做什么**：目标模式下，主控决定是否协作、怎么拆分任务。
 - **编排器决定何时做、由谁做**：只有编排器改变任务状态，并按依赖调度。
@@ -59,7 +59,18 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/adapters.rs` | `App` 的适配器部分：清单、按需安装、检查更新、升级与回滚 |
 | `backend/src/acp.rs` | 基于官方 `agent-client-protocol` SDK 的 ACP 客户端：启动子进程、`initialize`、请求与通知收发、超时 |
 | `backend/src/agents.rs` | `App` 的设置部分：Agent 连接、运行环境、配置检查与登录、角色、工作区、Skill、会话控制项解析 |
-| `backend/src/orchestrator.rs` | `App` 的运行部分：Run 驱动、主控目标会话、看板 MCP、调度、尝试、验证、交付、用户操作、恢复，以及集成测试（较新的在 `orchestrator/flow_tests/` 下） |
+| `backend/src/orchestrator.rs` | `App` 的运行部分的核心：Run、任务和尝试的内存状态，事件的写入与广播，等待者和状态转移；子模块如下 |
+| `backend/src/orchestrator/lifecycle.rs` | 创建和驱动 Run：调度循环、停滞检测、交付 |
+| `backend/src/orchestrator/lead.rs` | 主控：目标会话、交付后的对话、主控说明和推送进会话的看板消息 |
+| `backend/src/orchestrator/board.rs` | 看板 MCP：鉴权、主控和协作者的工具调用、角色统计 |
+| `backend/src/orchestrator/board_tools.rs` | 看板提供和输出的内容：工具定义、编排校验、主控读到的看板消息 |
+| `backend/src/orchestrator/messages.rs` | 用户和主控发给会话的消息：记录、插入正在进行的一轮或排队 |
+| `backend/src/orchestrator/attempts.rs` | 任务的一次尝试：会话、结果核对、改动和产物 |
+| `backend/src/orchestrator/turn.rs` | ACP 会话中的一轮提示：把更新转成事件、插话、控制项和 Agent 的请求 |
+| `backend/src/orchestrator/session.rs` | 为成员打开 ACP 会话：MCP 服务器、系统提示和角色要求的控制项 |
+| `backend/src/orchestrator/prompts.rs` | 发给会话的说明和任务提示，以及结构化结果的解析 |
+| `backend/src/orchestrator/actions.rs` | 用户操作、验收归档的交付、重启后的恢复与继续 |
+| `backend/src/orchestrator/tests.rs`、`flow_tests.rs`、`flow_tests/` | 编排器的单元测试和端到端流程测试 |
 | `backend/src/teamwork.rs` | 编排中的团队结构：任务负责的文件（`owns`）和独立验证（`verifies`）的校验、协作者的认领、谁负责某个文件、协作者提示中的对应段落、主控说明中「团队怎么组织」一节 |
 | `backend/src/goal_settle.rs` | 主控的 `/goal` 一直不自己结束时：会话安静一段时间后问主控，确认完成后通过 `_session/goal` 清除目标 |
 | `backend/src/acp_view.rs` | ACP 会话中人能看到的部分：把思考、计划、斜杠命令、模式和选项变化、用量、工具调用的 diff 转成事件；会话打开时的选项；消息里 `@路径` 的文件引用；`@` 菜单的文件列表 |
@@ -74,7 +85,7 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/testdata/fake_acp.py` | 测试用的脚本化 ACP Agent |
 | `frontend/` | macOS 应用（Swift Package），结构见 [macOS 应用](frontend.md#source_layout) |
 
-`agents.rs`、`adapters.rs`、`skill_sources.rs` 和 `orchestrator.rs` 都在 `impl App` 上添加方法；`App` 结构体定义在 `orchestrator.rs`。
+`agents.rs`、`adapters.rs`、`skill_sources.rs` 和 `orchestrator` 的各个子模块都在 `impl App` 上添加方法；`App` 结构体定义在 `orchestrator.rs`。
 
 <a id="startup"></a>
 ## 启动顺序
