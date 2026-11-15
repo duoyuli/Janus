@@ -49,6 +49,7 @@ frontend/
 │   ├── Core/
 │   │   ├── JSON.swift         # 动态 JSON 值，事件和设置对象都按字段读取
 │   │   ├── API.swift          # HTTP 请求和 SSE 事件流
+│   │   ├── Appearance.swift   # 应用自己的外观：跟随系统、浅色或深色，记在本机
 │   │   ├── Backend.swift      # 找到或启动 Janus 服务
 │   │   ├── AppStore.swift     # Agents、角色、工作区、Run 列表、适配器、Skill 库和 Skill 来源、MCP 库和 MCP 来源，以及当前屏幕
 │   │   ├── RunModel.swift     # 打开的 Run：事件、订阅、操作、回放、草稿
@@ -63,7 +64,7 @@ frontend/
 │   │   ├── RunDocs.swift      # 收集一个 Run 交付、保存和提到的 Markdown 文件
 │   │   ├── Updater.swift      # 应用内更新：检查、按部分下载、校验签名、替换并重新打开
 │   │   └── Snapshots.swift    # 开发用：按命令保存窗口截图
-│   └── UI/                    # 侧栏、工作区首页、Run 各页面、diff 审阅窗口、设置页（Settings/）
+│   └── UI/                    # 侧栏、工作区首页、Run 各页面、diff 审阅窗口、设置浮层（Settings/）
 ├── Tests/JanusTests/          # Swift Testing 测试
 └── scripts/                   # package.sh（打包，含下载 Node.js）、make-icon.swift（图标）
 ```
@@ -101,19 +102,19 @@ frontend/
 | 位置 | 内容 |
 | --- | --- |
 | 收件箱 | 所有 Run 中等你处理的事，最新的在前，可以去处理、推迟或标记已处理；推迟的和进行中的 Run 分别收在两个默认收起的分组中。见[收件箱](#inbox) |
-| 侧栏 | 顶部是当前工作区的下拉卡片（`WorkspacePicker`，名称和目录），点卡片任意位置打开菜单：选择工作区（进入它的首页，选当前的也一样）、新建工作区、工作区设置、在 Finder 中显示；在首页时卡片高亮。列表最上面是[收件箱](#inbox)，带等你处理的数量；下面只列当前工作区的任务记录（带状态），有事等你处理的 Run 显示「等你处理」和数量，圆点用警示色。底部是[应用更新](#updates)、Skill 来源更新的提醒，「服务已连接」（悬停显示服务地址）和打开设置页的按钮 |
+| 侧栏 | 最上面是「全局」下的[收件箱](#inbox)，带等你处理的数量，和下面的工作区分开：它汇总所有工作区，不属于当前工作区。分隔线下面是「工作区」下的当前工作区卡片（`WorkspacePicker`，名称和目录），点卡片任意位置打开菜单：选择工作区（进入它的首页，选当前的也一样）、新建工作区、工作区设置、在 Finder 中显示；在首页时卡片高亮。下面只列当前工作区的任务记录（带状态），有事等你处理的 Run 显示「等你处理」和数量，圆点用警示色。底部是[应用更新](#updates)、Skill 来源更新的提醒，「服务已连接」（悬停显示服务地址）和打开设置页的按钮 |
 | 工作区首页 | 目标输入框（⌘↩ 交给主控；还没有任务时显示几个产品上线流程的示例目标）、角色不能运行时按原因各写一行并给出去处（同一个 Agent 没测试通过只写一次，列出受影响的角色，「去测试」打开设置的 Agents；这时不再显示「开始使用 Janus」引导条）、一行团队摘要、[共享资料](../domains/agents_and_roles.md#workspace_brief)（超过 6 行时折叠，可展开；没有时只显示标题和「添加…」，「添加… / 编辑…」打开工作区设置）、等你处理的 Run（等你追加预算、等你验收）。完整的 Run 列表在侧栏，团队成员的模型和权限在工作区设置 |
 | 工作区设置（表单） | 目录（系统的文件夹选择框）、名称、[共享资料](../domains/agents_and_roles.md#workspace_brief)（显示字数和上限，超过上限不能保存）、启用的角色、主控 |
 | 运行页 | 工具栏切换「工作台 / 审计与回放 / 团队与权限」，「文档」菜单列出这个 Run 的 Markdown 文档（见[文档查看](#markdown_viewer)），并可复制交付摘要、导出事件日志（JSONL）。任务页和 Agent 页的工具栏左侧有返回按钮，此时分段控件不选中任何一项，点「工作台」也能返回 |
 | 任务页 / Agent 页 | 任务页标题下列出它负责的文件（编排的 `owns` 加上认领的）和它独立验证的任务；左侧是会话和折叠的执行轨迹；右侧最上面是验收标准（结果和工作目录对不上时，最先用警示色列出，然后是每条标准和证据、结果摘要），下面一张概要卡片列出执行者、上游、下游和尝试，运行环境折叠在其中，有产物时再显示产物。编排器发给 Agent 的任务说明在会话中每次尝试的开头展开查看。Agent 页是对话和它负责的任务 |
-| 设置页（⌘,） | 覆盖整个主窗口的页面（`UI/Settings/SettingsView.swift`，`AppStore.showingSettings`），不另开窗口。顶部是标题和「完成」（Esc），点「完成」回到打开设置前的页面，页面状态不变。标签切换五个面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、MCP 库（导入 GitHub 来源、检查更新、重新拉取、删除，浏览 stdio / HTTP 服务器和挂载它的角色，按变量名设置或清除凭据，清除成功后立即显示「未设置」，见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。角色编辑器可以按来源勾选 MCP 库中的服务器，也可以手工添加 stdio 服务器；来源里消失的资源标为找不到，保存时移除。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
+| 设置（⌘,） | 浮在主界面中央的面板（`UI/Settings/SettingsView.swift`，`AppStore.showingSettings`），不另开窗口：后面是压暗的主界面，点空白处或 Esc 关闭，关闭后回到打开设置前的页面，页面状态不变。左侧列出五个分类，右侧是选中的面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、MCP 库（导入 GitHub 来源、检查更新、重新拉取、删除，浏览 stdio / HTTP 服务器和挂载它的角色，按变量名设置或清除凭据，清除成功后立即显示「未设置」，见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。左侧面板底部是外观选择（系统、浅色或深色，记在本机）。角色编辑器可以按来源勾选 MCP 库中的服务器，也可以手工添加 stdio 服务器；来源里消失的资源标为找不到，保存时移除。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
 
 <a id="run_page"></a>工作台以主控的对话为中心，从上到下依次是：运行卡片（「推进目标 / 协作 / 交付 / 验收」的步骤指示）、需要你处理、交付结果、主控的对话和它旁边的检查器、[进展](#run_timeline)，没有内容的部分不显示。主控的对话（`ChatCard`，`target: .agent("lead")`）和 Agent 页的对话是同一个，可以直接插话、接管。检查器（`RunInspector`）分四个页签，上次选的页签会记住：任务（点按打开任务页）、改动（每个任务最新的 diff，点「审阅」打开 [diff 审阅](#diff_review)）、产物（其他文件）、团队（各 Agent 在做什么）。窗口窄时检查器移到对话下方。目标可能是一大段粘贴的说明，标题和 Run 列表只显示它的第一行（`goalTitle`），完整目标在运行卡片中展开查看。交付结果依次显示主控的总结、交付物、证据、风险与限制（没有的项不显示）、主控建议写入共享资料的条目（`BriefSuggestions`，带「加入共享资料…」按钮），以及验收操作。
 
 <a id="inbox"></a>
 ## 收件箱
 
-收件箱（`Screen.inbox`，`UI/InboxView.swift`，`Core/Inbox.swift`）汇总所有工作区、所有 Run 中等用户处理的事。有等处理的事或有进行中的 Run 时，应用启动后先打开收件箱，而不是某个 Run 的实时页面。侧栏顶部的「收件箱」和菜单栏图标（`MenuBarLabel`）显示数量，菜单栏图标菜单的第一项也打开收件箱。
+收件箱（`Screen.inbox`，`UI/InboxView.swift`，`Core/Inbox.swift`）汇总所有工作区、所有 Run 中等用户处理的事。有等处理的事或有进行中的 Run 时，应用启动后先打开收件箱，而不是某个 Run 的实时页面。侧栏最上面「全局」下的「收件箱」和菜单栏图标（`MenuBarLabel`）显示数量，菜单栏图标菜单的第一项也打开收件箱。
 
 - **来源**：进行中（`planning`、`running`、`waiting_input`）的 Run，用 `GET /api/runs/{id}?after=<seq>` 只读新事件，在本地累积后用 `derive` 和 `boardFacts` 推导，取 `you: true` 的待处理事项。条目和 Run 页「需要你处理」出自同一份推导，两处一致。已交付的 Run 产生「等你验收」，已中断和失败的 Run 产生「可以从中断处继续」，这几种只看 Run 列表的状态。和 Run 列表一起每 5 秒刷新一次。
 - **就地回答**：只是选择题的请求直接在收件箱里回答，按钮发出和 Run 页相同的操作（`OpenFact.actions`、`InboxModel.act`）：审批按 Agent 给的选项显示，文字按 `kind` 统一为「允许一次 / 始终允许 / 拒绝 / 始终拒绝」（`L.permissionOptions`，Agent 的原话和「始终」的影响在悬停提示中）；主控交来的决定和协作者转来的提问按选项显示，主控建议的那项突出。表单、自由回答和其他请求仍是「去处理」。
@@ -285,4 +286,4 @@ frontend/
 
 - 视图中的局部状态用 `Local`（`SwiftUI.State` 的别名）声明：新 SDK 中 `@State` 是宏，宏插件只随 Xcode 提供，只装命令行工具时无法编译。别名展开为同一个属性包装器，两种环境都能构建。
 - 带数字插值的界面文字用 `Text(verbatim:)` 或 `String(...)`，否则 SwiftUI 会按地区格式加千位分隔符（`#1,295`）。
-- 本地只用 `UserDefaults` 记住上次打开的工作区（`janus.ws`）、设置页的面板（`janus.settingsTab`）、会话的显示档位（`janus.chatDensity`）、工作台检查器的页签（`janus.inspectorTab`），以及收件箱的推迟和已处理记录（`janus.inbox.snoozed`、`janus.inbox.settled`）。
+- 本地只用 `UserDefaults` 记住上次打开的工作区（`janus.ws`）、设置浮层打开的面板（`janus.settingsTab`）、应用外观（`janus.appearance`）、会话的显示档位（`janus.chatDensity`）、工作台检查器的页签（`janus.inspectorTab`），以及收件箱的推迟和已处理记录（`janus.inbox.snoozed`、`janus.inbox.settled`）。

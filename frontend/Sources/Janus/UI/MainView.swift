@@ -9,11 +9,10 @@ struct MainView: View {
     var body: some View {
         ZStack {
             split
-            // Settings take over the whole window instead of opening another one; closing them
-            // shows the screen that was there, unchanged.
+            // Settings float over the window in a centered panel instead of opening another one;
+            // closing them shows the screen that was there, unchanged.
             if store.showingSettings {
                 SettingsView(store: store)
-                    .background(Color.page)
                     .transition(.opacity)
             }
         }
@@ -65,13 +64,6 @@ struct Sidebar: View {
         let selection = Binding<Screen?>(get: { store.screen }, set: { if let s = $0 { store.open(s) } })
         let ws = store.currentWorkspace
         List(selection: selection) {
-            Section {
-                let n = store.inbox.open.count
-                Label("收件箱", systemImage: "tray")
-                    .badge(n)
-                    .accessibilityValue(n == 0 ? "" : "\(n) 项等你处理")
-                    .tag(Screen.inbox)
-            }
             if let ws {
                 let runs = store.runs(of: ws)
                 Section("任务记录") {
@@ -97,7 +89,16 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(Color.sidebar.ignoresSafeArea())
-        .safeAreaInset(edge: .top, spacing: 0) { WorkspacePicker(store: store, current: ws) }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                sidebarLabel("全局")
+                InboxButton(store: store)
+                Rectangle().fill(Color.line).frame(height: 1).padding(.top, 6)
+                sidebarLabel("工作区").padding(.top, 2)
+                WorkspacePicker(store: store, current: ws)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -124,6 +125,17 @@ struct Sidebar: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
         }
+    }
+
+    /// A section label above the global inbox and the workspace card, like the sidebar's own
+    /// headers: the inbox is personal and spans every workspace, the card is the one open.
+    private func sidebarLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+            .padding(.bottom, 3)
     }
 }
 
@@ -200,6 +212,42 @@ struct UpdateBadge: View {
         default:
             EmptyView()
         }
+    }
+}
+
+/// The global inbox: everything across workspaces that waits on the person. It sits above the
+/// workspace card because it is personal and spans every workspace, not part of the one open.
+struct InboxButton: View {
+    let store: AppStore
+
+    private var on: Bool {
+        if case .inbox = store.screen { return true }
+        return false
+    }
+
+    var body: some View {
+        let n = store.inbox.open.count
+        Button { store.open(.inbox) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "tray")
+                    .frame(width: 18)
+                    .foregroundStyle(on ? Color.accent : Color.secondary)
+                Text("收件箱").fontWeight(on ? .semibold : .regular)
+                Spacer(minLength: 4)
+                if n > 0 { Pill("\(n)", .amber) }
+            }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(on ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .hoverable(8)
+        .help("所有工作区中需要你处理的事")
+        .accessibilityLabel(n > 0 ? "收件箱，所有工作区，\(n) 项等你处理" : "收件箱，所有工作区")
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .padding(.horizontal, 10)
     }
 }
 

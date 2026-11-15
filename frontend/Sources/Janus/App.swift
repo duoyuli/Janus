@@ -16,7 +16,7 @@ struct JanusApp: App {
 
         // Janus stays in the menu bar, next to the clock and battery; the Dock icon and the app's
         // menus show only while one of its windows is open (see `AppDelegate.followWindows`).
-        // Settings are a page inside the main window (⌘,), not a window of their own.
+        // Settings are a panel over the main window (⌘,), not a window of their own.
         MenuBarExtra {
             StatusMenu(model: delegate.model)
         } label: {
@@ -176,7 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // The main window opens at launch, so start with the Dock icon and the menus.
+        // The appearance chosen in settings outlives the session; the window opens at launch, so
+        // start with the Dock icon and the menus.
+        Appearance.saved.apply()
         NSApp.setActivationPolicy(.regular)
         followWindows()
         NSApp.activate(ignoringOtherApps: true)
