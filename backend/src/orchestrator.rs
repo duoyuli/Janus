@@ -576,18 +576,22 @@ impl App {
             data: e.data,
         };
         let nudge = needs_lead(&event);
-        self.store(event);
-        if nudge {
+        if self.store(event) && nudge {
             run.lead_nudge.notify_one();
         }
         seq
     }
 
-    fn store(&self, event: Event) {
+    /// Write an event, then broadcast it. The log is the source of truth: an event that could not
+    /// be written is not broadcast either, so the app never shows what a reload would not find.
+    /// Its `seq` stays unused.
+    fn store(&self, event: Event) -> bool {
         if let Err(err) = self.db.insert_event(&event) {
             crate::config::log(format!("janus: failed to persist event {}#{}: {err:#}", event.run_id, event.seq));
+            return false;
         }
         let _ = self.tx.send(event);
+        true
     }
 
     /// The only place a run's lifecycle state changes. `RunStatus` states the legal moves;

@@ -21,7 +21,7 @@
 | J-01 | 高 | 已确认 | MCP 的 `who` 没有绑定到发放 URL 的会话，协作者可以请求主控工具 | `backend/src/orchestrator.rs:1058` |
 | J-02 | 高 | 已确认 | Agent 的 `envText` 原值写入 SQLite，并通过设置接口返回 | `backend/src/agents.rs:396` |
 | J-03 | 高 |  已修复  | `commandId` 的检查、操作和记录不是原子流程 | `backend/src/main.rs:333` |
-| J-04 | 高 | 已确认 | 事件持久化失败后仍然广播，事实来源与页面状态可能分离 | `backend/src/orchestrator.rs:390` |
+| J-04 | 高 |  已修复  | 事件持久化失败后仍然广播，事实来源与页面状态可能分离 | `backend/src/orchestrator.rs:390` |
 | J-05 | 高 | 已确认 | Run 只保存 Provider ID，后续任务重新读取当前 Provider 配置 | `backend/src/orchestrator.rs:1480` |
 | J-06 | 中高 |  已修复  | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
 | J-07 | 中高 | 已确认 | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
@@ -77,6 +77,8 @@
 证据：[orchestrator.rs:390](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:390)、[orchestrator.rs:391](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:391)、[orchestrator.rs:394](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:394)、[orchestrator.rs:397](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:397)。事件文档要求事件写入 SQLite 后再广播，见[事件参考](/Users/duoyu/Data/dev/agent/Janus/docs/interfaces/events.md:35)。
 
 建议：让事件写入失败向驱动任务传播，并在失败时停止继续推进。只有数据库提交成功后才广播。需要同时更新事件和索引状态时，使用同一个 SQLite 事务，避免事件日志和查询索引出现不同结果。
+
+处理（2026-11-15）：`App::store` 只在写入成功后广播，写入失败时只记日志，事件的 `seq` 留空；应用遇到缺口时重新读取一次整个 Run，不会显示日志中没有的事件。测试 `an_event_that_was_not_written_is_not_broadcast`。
 
 ### J-05：Run 没有冻结 Provider 运行时配置
 

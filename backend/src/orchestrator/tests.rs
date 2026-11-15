@@ -221,6 +221,7 @@ fn concurrent_events_are_broadcast_in_seq_order() {
     std::fs::create_dir_all(&dir).unwrap();
     let app = test_app(&dir);
     let run = Arc::new(test_run(2));
+    app.db.insert_run(&run.id, &run.goal, "/tmp", &json!({}), 1).unwrap();
     let mut rx = app.tx.subscribe();
     let threads: Vec<_> = (0..8)
         .map(|_| {
@@ -235,5 +236,24 @@ fn concurrent_events_are_broadcast_in_seq_order() {
     threads.into_iter().for_each(|t| t.join().unwrap());
     let seqs: Vec<i64> = std::iter::from_fn(|| rx.try_recv().ok()).map(|e| e.seq).collect();
     assert_eq!(seqs, (1..=400).collect::<Vec<_>>());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An event the database refused is not broadcast: what the app sees is always in the log.
+#[test]
+fn an_event_that_was_not_written_is_not_broadcast() {
+    let dir = std::env::temp_dir().join(format!("janus-store-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let app = test_app(&dir);
+    app.db.insert_run("r1", "g", "/tmp", &json!({}), 1).unwrap();
+    let mut rx = app.tx.subscribe();
+    let event = |text: &str| Event { run_id: "r1".into(), seq: 1, ts: 1, kind: "run.created".into(), actor: "user".into(), to: None, task: None, attempt: None, text: text.into(), data: None };
+    assert!(app.store(event("written")));
+    assert_eq!(rx.try_recv().unwrap().text, "written");
+    // The same seq again: the database refuses it, and nobody hears of it.
+    assert!(!app.store(event("refused")));
+    assert!(rx.try_recv().is_err(), "a refused event is not broadcast");
+    assert_eq!(app.db.events("r1", 0).unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
