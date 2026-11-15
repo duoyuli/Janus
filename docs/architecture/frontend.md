@@ -59,13 +59,15 @@ frontend/
 │   │   ├── SessionView.swift  # 从会话事件读出计划、控制项、斜杠命令、用量，输入框的补全
 │   │   ├── Derive.swift       # derive / boardFacts：由事件推导界面状态
 │   │   ├── Acceptance.swift   # 验收证据：check 的证据方法、证据汇总、交付中每个任务的验收记录
+│   │   ├── UsageLedger.swift  # 用量账本：从事件推导 Run、任务、成员、尝试的 token、费用和时长
+│   │   ├── UsageBill.swift    # 账单：任务账单（由账本得到）和按时间段的账单（读 /api/usage）
 │   │   ├── Format.swift       # 状态文字、事件图标与色调、时间和文本格式
 │   │   ├── Setup.swift        # 会话控制项、权限模式标签、环境变量文本
 │   │   ├── MarkdownDoc.swift  # Markdown 文档的块结构解析（MDDoc）
 │   │   ├── RunDocs.swift      # 收集一个 Run 交付、保存和提到的 Markdown 文件
 │   │   ├── Updater.swift      # 应用内更新：检查、按部分下载、校验签名、替换并重新打开
 │   │   └── Snapshots.swift    # 开发用：按命令保存窗口截图
-│   └── UI/                    # 侧栏、工作区首页、Run 各页面（UI/Run/，含验收证据 Evidence.swift）、diff 审阅窗口、设置浮层（Settings/）
+│   └── UI/                    # 侧栏、工作区首页、Run 各页面（UI/Run/，含验收证据 Evidence.swift、用量与账单 Usage.swift）、diff 审阅窗口、设置浮层（Settings/，含用量账单 UsageBillView.swift）
 ├── Tests/JanusTests/          # Swift Testing 测试
 └── scripts/                   # package.sh（打包，含下载 Node.js）、make-icon.swift（图标）
 ```
@@ -96,6 +98,28 @@ frontend/
 - **审计**：审计日志在选中 `result.submitted`、`verification.passed` / `verification.failed`、`task.succeeded` 时，除了原始 JSON，还列出逐条 checks 及其方法；会话里的「提交结果」点开后每条也带方法（`CheckRow`）。进展时间线的结论标记在悬停提示和无障碍标签里带上方法计数，详情在任务页和审计日志。
 - **汇总数字**：`EvidenceSummary` 只统计已有字段（验收标准数、通过数、五类方法计数、未说明条数、不合法条数），不改变 `derive` 推导的任务状态，也不新增事件类型。交付里的记录直接读后端写下的汇总（`EvidenceSummary(recorded:)`）。
 
+<a id="usage_ledger"></a>
+## 用量账本
+
+Run 的用量汇总是从事件算出的只读账本：后端是 `ledger`（`backend/src/usage.rs`），应用是 `usageLedger`（`Core/UsageLedger.swift`，在 `derive` 时写入 `RunState.usage`），两边同一口径，用同一份用例 `backend/testdata/usage_cases.json` 测试（`UsageLedgerTests`）。它不改变调度、预算、任务状态机、事件写入或交付条件，不新增事件类型。口径见[用量口径](../interfaces/events.md#usage_accounting)：每一轮的 token 都相加，Agent 按模型上报时以模型行为准（含子 Agent）；上下文快照只显示最近值、峰值和比例，永远不计入 token；费用取 Agent 上报的原值并保留币种，不按 token 估算。
+
+- **范围与数字**：Run、主控、协作者小计、每个任务、每个成员、每次尝试和每个会话都从同一段事件聚合，每个范围带同一组字段（token 及其输入、缓存读取、缓存写入、输出，轮数、上下文、费用、时长、完整性）；缺失的计数保持缺失。耗时是墙钟时长，等待用户、审批或表单的时间单独写成「其中等待你」，不冒充 Agent 执行时间。
+- **完整性**：`未上报`、`完整`、`部分上报`，和应用里的胶囊标签一致。缺失的数字一律写「未上报」，不写 0；范围里还没有任何会话（例如任务还没开始）写「未开始」，和「未上报」分开。
+- **Run 页**：工作台运行卡片里的 `UsageSection`（`UI/Run/Usage.swift`）显示 Run 的 token、构成（输入、缓存读取、缓存写入、输出）、费用、耗时（含等待你的时间）和上下文快照，以及主控与协作者小计；展开「任务与成员明细」后按任务（token、耗时，没开始的任务写「未开始」）和成员（token、会话数）列出同样的数字，点按跳到对应页面，卡片最后一行是只读提醒。会话卡片标题栏的上下文用量读的是同一次 `session.usage` 快照，标为「本会话」「上一轮」。
+- **任务页**：任务的用量是一张账单，见[用量账单](#usage_bill)。
+- **交付与看板**：Run 结果页的交付结果卡片显示一行 `用量 … · 费用 … · 耗时 …（墙钟）`；`run.delivered` 的 `usage` 字段是同一行的后端版本。看板 `team` 的用量段有同样的 Run 摘要和构成、主控与协作者小计、每个任务一行、上下文和提醒（`board_lines`），`task_detail` 给出任务的总量、每次尝试和每个成员按模型的用量（`task_lines`）。
+- **提醒**：默认阈值是 Run 累计 50 万 token、单个任务占 Run 的 60% 且 Run 不少于 5 万 token、5 个以上协作者 30 分钟没有任何任务成功、有 10 万 token 却没有任何费用上报。阈值在后端 `backend/src/usage.rs` 和 `Core/UsageLedger.swift` 各有一份，修改时两处同步。提醒只写文字，数据不完整时前缀「提醒（按已上报数据）」，不进收件箱，也不暂停、取消、重试或追加预算（`usageReminders`）。
+- **回放与恢复**：账本是这段事件的纯函数，回放位置用前 N 条事件各自算（`RunModel.usage`），重启、历史 Run 和同一位置的重复计算得到同一组数字。Run 被取消时这个 Run 里仍在跑的尝试、任务被取消时这个任务仍在跑的尝试记「已取消」，已上报的用量照常计入；过期尝试（`attempt.late_result`）记「已过期但仍计入」。
+
+<a id="usage_bill"></a>
+## 用量账单
+
+账单用收据的样式列出一段用量花在了谁、哪个模型上（`UsageReceipt`，`UI/Run/Usage.swift`；数据在 `Core/UsageBill.swift`）。从上到下：标题和它覆盖的范围、Token 总量（大号数字为 K / M / B 三位有效数字，下面是完整数字和 Agent 上报的费用）、统计行、按付费方分组的模型、Token 总量与输入 / 缓存读取 / 缓存写入 / 输出和缓存命中率、附加的分节，最后是说明。所有数字都是可选中的文字，VoiceOver 按「标签：值」读出；虚线只是装饰。
+
+- **任务账单**：任务页右侧最上面的卡片（`TaskUsageCard`）。由这个 Run 的账本得到（`UsageBill.task`、`UsageLedger.bill(ofTask:)`），所以随事件实时更新，回放时显示回放位置的账单。统计行是数据完整性、尝试次数、请求轮数、会话数、耗时（含等待你）和上下文；分组是做过这个任务的成员，每个成员下按模型列出（模型来自 Agent 按模型的上报，或成员会话当时的模型，都没有时写「未知模型」）；最后一节是每次尝试的结局、token、用时和结束原因。任务还没有会话时只写「未开始」。
+- **时间段账单**：设置里的「用量账单」（`UsageBillView`，`UI/Settings/UsageBillView.swift`）。区间可选近 7 天、近 30 天、本月、上月，按本机日历算整天，选择记在本机；内容来自 `GET /api/usage`（见 [HTTP API](../interfaces/http_api.md#usage_bill)），按 Agent（Codex、Claude Code 等）再按模型列出，统计 Run 数、请求轮数、会话数、活跃天数和活跃日均。「复制账单」把同样的内容复制成纯文本。
+- 费用只列 Agent 上报的金额，不按 token 估算；没有上报 token 的会话数写在说明里，不计入数字。
+
 <a id="server_sync"></a>
 ## 与服务同步
 
@@ -120,8 +144,8 @@ frontend/
 | 工作区首页 | 目标输入框（⌘↩ 交给主控；还没有任务时显示几个产品上线流程的示例目标）、角色不能运行时按原因各写一行并给出去处（同一个 Agent 没测试通过只写一次，列出受影响的角色，「去测试」打开设置的 Agents；这时不再显示「开始使用 Janus」引导条）、一行团队摘要、[共享资料](../domains/agents_and_roles.md#workspace_brief)（超过 6 行时折叠，可展开；没有时只显示标题和「添加…」，「添加… / 编辑…」打开工作区设置）、等你处理的 Run（等你追加预算、等你验收）。完整的 Run 列表在侧栏，团队成员的模型和权限在工作区设置 |
 | 工作区设置（表单） | 目录（系统的文件夹选择框）、名称、[共享资料](../domains/agents_and_roles.md#workspace_brief)（显示字数和上限，超过上限不能保存）、启用的角色、主控 |
 | 运行页 | 工具栏切换「工作台 / 审计与回放 / 团队与权限」，「文档」菜单列出这个 Run 的 Markdown 文档（见[文档查看](#markdown_viewer)），并可复制交付摘要、导出事件日志（JSONL）。任务页和 Agent 页的工具栏左侧有返回按钮，此时分段控件不选中任何一项，点「工作台」也能返回 |
-| 任务页 / Agent 页 | 任务页标题下列出它负责的文件（编排的 `owns` 加上认领的）和它独立验证的任务；左侧是会话和折叠的执行轨迹；右侧最上面是验收标准（结果和工作目录对不上时，最先用警示色列出，然后是每条标准的证据方法和完整证据、只提醒不阻断的项、执行者提交的其他证据、独立验证、风险、结果摘要，见[验收证据](#evidence_methods)），下面一张概要卡片列出执行者、上游、下游和尝试，运行环境折叠在其中，有产物时再显示产物。编排器发给 Agent 的任务说明在会话中每次尝试的开头展开查看。Agent 页是对话和它负责的任务 |
-| 设置（⌘,） | 浮在主界面中央的面板（`UI/Settings/SettingsView.swift`，`AppStore.showingSettings`），不另开窗口：后面是压暗的主界面，点空白处或 Esc 关闭，关闭后回到打开设置前的页面，页面状态不变。左侧列出五个分类，右侧是选中的面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、MCP 库（导入 GitHub 来源、检查更新、重新拉取、删除，浏览 stdio / HTTP 服务器和挂载它的角色，按变量名设置或清除凭据，清除成功后立即显示「未设置」，见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）。左侧面板底部是外观选择（系统、浅色或深色，记在本机）。角色编辑器可以按来源勾选 MCP 库中的服务器，也可以手工添加 stdio 服务器；来源里消失的资源标为找不到，保存时移除。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
+| 任务页 / Agent 页 | 任务页标题下列出它负责的文件（编排的 `owns` 加上认领的）和它独立验证的任务；左侧是会话和折叠的执行轨迹；右侧最上面是这个任务的[用量账单](#usage_bill)，然后是验收标准（结果和工作目录对不上时，最先用警示色列出，然后是每条标准的证据方法和完整证据、只提醒不阻断的项、执行者提交的其他证据、独立验证、风险、结果摘要，见[验收证据](#evidence_methods)），下面一张概要卡片列出执行者、上游、下游和尝试，运行环境折叠在其中，有产物时再显示产物。编排器发给 Agent 的任务说明在会话中每次尝试的开头展开查看。Agent 页是对话和它负责的任务 |
+| 设置（⌘,） | 浮在主界面中央的面板（`UI/Settings/SettingsView.swift`，`AppStore.showingSettings`），不另开窗口：后面是压暗的主界面，点空白处或 Esc 关闭，关闭后回到打开设置前的页面，页面状态不变。左侧列出六个分类，右侧是选中的面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、MCP 库（导入 GitHub 来源、检查更新、重新拉取、删除，浏览 stdio / HTTP 服务器和挂载它的角色，按变量名设置或清除凭据，清除成功后立即显示「未设置」，见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）、用量账单（按时间段汇总所有 Run 的用量，见[用量账单](#usage_bill)）。左侧面板底部是外观选择（系统、浅色或深色，记在本机）。角色编辑器可以按来源勾选 MCP 库中的服务器，也可以手工添加 stdio 服务器；来源里消失的资源标为找不到，保存时移除。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
 
 <a id="run_page"></a>工作台以主控的对话为中心，从上到下依次是：运行卡片（「推进目标 / 协作 / 交付 / 验收」的步骤指示）、需要你处理、交付结果、主控的对话和它旁边的检查器、[进展](#run_timeline)，没有内容的部分不显示。主控的对话（`ChatCard`，`target: .agent("lead")`）和 Agent 页的对话是同一个，可以直接插话、接管。Run 交付后主控的会话仍保留为常规对话：可以直接写下一轮任务，或用 `/goal` 设置新的目标。服务重启后会话不在内存中，第一次发送消息会重新打开主控会话（能加载原会话就加载，否则新建会话并带上目标、交付摘要和最近的对话）。检查器（`RunInspector`）分四个页签，上次选的页签会记住：任务（点按打开任务页）、改动（每个任务最新的 diff，点「审阅」打开 [diff 审阅](#diff_review)）、产物（其他文件）、团队（各 Agent 在做什么）。窗口窄时检查器移到对话下方。目标可能是一大段粘贴的说明，标题和 Run 列表只显示它的第一行（`goalTitle`），完整目标在运行卡片中展开查看。交付结果依次显示主控的总结、交付物、证据、逐条验收（每个任务的通过数、证据方法、各自的标准与完整证据、独立验证、痕迹核对和风险）、风险与限制（没有的项不显示）、主控建议写入共享资料的条目（`BriefSuggestions`，带「加入共享资料…」按钮），以及验收操作。
 

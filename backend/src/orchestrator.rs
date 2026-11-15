@@ -1843,6 +1843,24 @@ impl App {
         Ok(Some(json!({ "jsonrpc": "2.0", "id": id, "result": result })))
     }
 
+    /// The run's usage ledger, from its events (rules live in `usage`). Read-only: a failure to
+    /// read the log gives an empty ledger, never an error, so nothing a person or the lead does
+    /// depends on usage being available.
+    fn usage(&self, run: &Run) -> crate::usage::Ledger {
+        match self.db.events(&run.id, 0) {
+            Ok(events) => crate::usage::ledger(&events),
+            Err(err) => {
+                crate::config::log(format!("janus: usage of {} unavailable: {err:#}", run.id));
+                crate::usage::ledger(&[])
+            }
+        }
+    }
+
+    /// Agent ids to display names, for the usage text. Empty when the run is gone (history).
+    fn usage_names(run: &Run) -> crate::usage::Names {
+        run.team.iter().map(|m| (m.id.clone(), m.name.clone())).collect()
+    }
+
     fn board_team(&self, run: &Run) -> String {
         let st = run.st.lock().unwrap();
         let tasks: Vec<String> = st
@@ -1850,10 +1868,12 @@ impl App {
             .iter()
             .map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status, t.def.title))
             .collect();
+        drop(st);
         format!(
-            "协作者：\n{}\n\n看板上的任务：\n{}",
+            "协作者：\n{}\n\n看板上的任务：\n{}\n\n用量（只读，缺失写「未上报」而不是 0）：\n{}",
             team_lines(run),
-            if tasks.is_empty() { "（还没有）".into() } else { tasks.join("\n") }
+            if tasks.is_empty() { "（还没有）".into() } else { tasks.join("\n") },
+            self.usage(run).board_lines(&Self::usage_names(run))
         )
     }
 
@@ -2257,6 +2277,9 @@ impl App {
     // @project-doc docs/interfaces/board_mcp.md#task_detail
     fn task_detail(&self, run: &Run, task: &str) -> std::result::Result<String, String> {
         let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
+        // The usage ledger is read-only and never a reason to fail: a task without usage still
+        // answers, saying 「未上报」.
+        let usage = crate::usage::ledger(&events);
         let st = run.st.lock().unwrap();
         let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
             return Err(format!("看板上没有任务 {task}"));
@@ -2267,8 +2290,9 @@ impl App {
         let mut out = vec![
             format!("任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次", t.def.title, name(&t.agent), t.agent, t.status.label(), t.attempts),
             format!("说明：{}", t.def.desc),
-            format!("验收标准：\n{}", t.def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")),
         ];
+        out.extend(usage.task_lines(task, &Self::usage_names(run)));
+        out.push(format!("验收标准：\n{}", t.def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")));
         if !t.def.owns.is_empty() {
             out.push(format!("负责的文件：{}", t.def.owns.join("、")));
         }
@@ -4103,6 +4127,8 @@ impl App {
         let result = {
             // Where a finished task's result disagreed with the workspace, from its own event.
             let events = self.db.events(&run.id, 0).unwrap_or_default();
+            // The same ledger the Run page and the board read; usage is never required to deliver.
+            let usage = crate::usage::ledger(&events).delivery_line();
             let trace_gaps = |id: &str| -> Vec<String> {
                 events
                     .iter()
@@ -4184,6 +4210,7 @@ impl App {
                 "deliverables": deliverables,
                 "evidence": evidence,
                 "acceptance": acceptance,
+                "usage": usage,
                 "risks": risks,
             })
         };
@@ -6469,6 +6496,7 @@ mod flow_tests {
 
     // Newer flows live in their own files under `orchestrator/flow_tests/`, so this file stops growing.
     mod evidence;
+    mod usage;
 
     struct Harness {
         app: Arc<App>,

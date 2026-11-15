@@ -26,6 +26,8 @@ final class RunModel {
     var replay: Int? { didSet { replayState = replay.map { n in derive(Array(events.prefix(n))) } } }
     private(set) var replayState: RunState?
     var shown: RunState { replayState ?? state }
+    /// The usage ledger at the shown position: the live run, or the replayed prefix.
+    var usage: UsageLedger { shown.usage }
     var isReplaying: Bool { replay != nil }
     /// Actions are possible: a live run, not replaying.
     var canAct: Bool { live && replay == nil }

@@ -46,10 +46,12 @@
 | GET | `/api/stats/roles` | 最近的 Run 中各角色的任务统计，见[角色的执行统计](../domains/agents_and_roles.md#role_stats) |
 | GET | `/api/runs` | Run 列表 |
 | POST | `/api/runs` | 创建 Run |
-| GET | `/api/runs/{id}?after=` | Run 详情；带 `after` 时只返回该 `seq` 之后的事件 |
+| GET | `/api/usage?from=&to=&offset=` | 一段时间里所有 Run 的用量账单，见[用量账单](#usage_bill) |
+| GET | `/api/runs/{id}?after=` | Run 详情；带 `after` 时只返回该 `seq` 之后的事件，见[详情](#run_detail) |
 | GET | `/api/runs/{id}/stream?after=` | SSE 事件流 |
 | POST | `/api/runs/{id}/actions` | Run 操作 |
 | GET | `/api/runs/{id}/export` | 导出事件为 NDJSON |
+| GET | `/api/runs/{id}/usage` | 这个 Run 的用量账本，见[用量账本](#run_usage) |
 | GET | `/api/runs/{id}/files?q=` | <a id="run_files"></a>Run 工作目录中路径包含 `q` 的文件（Git 跟踪的和未被忽略的未跟踪文件，最多 20 个，文件名以 `q` 开头的在前），供输入框的 `@` 菜单使用；返回 `{"files": [...]}` |
 | POST | `/mcp/{run}/{token}/{who}` | 看板 MCP 服务 |
 
@@ -138,17 +140,50 @@ Content-Type: application/json
 - 请求体上限是 160 MB。
 - 保存位置、Agent 收到的形式和事件字段见[图片附件](../domains/run_lifecycle.md#attachments)。
 
+<a id="run_detail"></a>
 ### 详情
 
 `GET /api/runs/{id}` 返回：
 
 ```json
-{ "run": { "id": "...", "goal": "...", "cwd": "...", "status": "...", "config": {} }, "events": [], "live": true }
+{
+  "run": { "id": "rmwhyr31u", "goal": "...", "cwd": "...", "status": "running", "config": {} },
+  "events": [],
+  "live": true
+}
 ```
 
-带 `?after=<seq>` 时 `events` 只包含 `seq` 大于该值的事件，应用[收件箱](../architecture/frontend.md#inbox)用它增量读取正在进行的 Run。不带时返回全部事件。
+带 `?after=<seq>` 时 `events` 只包含 `seq` 大于该值的事件，应用[收件箱](../architecture/frontend.md#inbox)用它增量读取正在进行的 Run，所以这个接口只读新事件，不做别的计算。不带时返回全部事件。
 
 `live` 表示 Run 当前在内存中运行。`live` 为 `false` 的 Run 只能执行 `accept`、`resumeRun` 和 `message`。
+
+<a id="run_usage"></a>
+### 用量账本
+
+`GET /api/runs/{id}/usage` 按这个 Run 的全部事件算出只读的用量账本（`backend/src/usage.rs`），Run 不存在时返回 404：
+
+```json
+{
+  "text": "用量：15,400 tokens（部分上报） · 费用：未上报 · 耗时 3 分 12 秒（墙钟）",
+  "run": {
+    "id": "run",
+    "tokens": { "total": 15400, "input": 12000, "output": 3400, "cachedRead": null, "cachedWrite": null, "thought": null },
+    "turns": 6,
+    "context": { "used": 52000, "peak": 61000, "size": 200000, "reports": 3 },
+    "cost": { "lines": [], "reportedSessions": 0, "missingSessions": 4 },
+    "durationMs": 192000,
+    "waitMs": null,
+    "sessions": 4,
+    "reportedSessions": 2,
+    "missingSessions": 2,
+    "completeness": "partial"
+  },
+  "lead": {}, "collaborators": {}, "tasks": [], "members": [], "attempts": [], "sessions": [],
+  "reminders": []
+}
+```
+
+`run`、`lead`、`collaborators` 是 Run、主控和协作者小计三个范围，`tasks`、`members`、`attempts`、`sessions` 是其余四个维度；`text` 是一行摘要，`reminders` 是只读提醒的文字。`tokens` 的每一项是 `null` 或数字；`completeness` 是 `missing`、`complete`、`partial`；`cost.lines` 为空表示「未上报」，每条带 `currency`（空字符串表示未标注）、`amount` 和 `sessions`；`durationMs`、`waitMs` 没有记录时是 `null`，不是 0。规则见[用量口径](events.md#usage_accounting)。应用自己按同一口径从事件推导，不调用这个接口。
 
 <a id="sse"></a>
 ### 事件流
@@ -201,6 +236,31 @@ Content-Type: application/json
 | `resumeRun` | 无 | 从中断处继续；Run 正在运行时返回 409，早期计划模式的 Run 返回 400 |
 
 `answer`、`approve`、`input` 需要对应的请求仍在等待，否则返回 400「没有等待中的决定」。
+
+<a id="usage_bill"></a>
+## 用量账单
+
+`GET /api/usage?from=<毫秒>&to=<毫秒>&offset=<分钟>` 汇总 `[from, to)` 里所有 Run 的用量（`backend/src/bill.rs`），供设置里的「用量账单」使用。`offset` 是用户时区相对 UTC 的分钟数，用来按用户的日期算活跃天数；区间不在 1 毫秒到 400 天之间时返回 400。
+
+```json
+{
+  "from": 1760000000000, "to": 1762592000000,
+  "runs": 12, "turns": 3192, "sessions": 40, "unreportedSessions": 3,
+  "activeDays": 21, "days": 30,
+  "tokens": { "total": 6450000000, "input": 200000000, "output": 21400000, "cachedRead": 6228600000, "cachedWrite": null, "thought": null },
+  "cacheHitRate": 0.97,
+  "cost": { "lines": [{ "currency": "USD", "amount": 12.5, "sessions": 4 }], "reportedSessions": 4, "missingSessions": 36 },
+  "agents": [
+    { "id": "codex", "name": "Codex", "tokens": {}, "turns": 2900, "cost": {},
+      "models": [{ "model": "gpt-6-astra", "tokens": {}, "turns": 2500 }] }
+  ]
+}
+```
+
+- 只读有 `session.usage` 落在区间里的 Run（按 `events_type_ts` 索引查找），对每个 Run 用和 Run 账本相同的规则，只计区间里的轮次；费用取每个会话在区间结束时的累计减去区间开始时的累计。
+- `agents` 按成员的运行时（Run 快照里团队成员的 `runtime` 和 `runtime_name`，例如 Codex、Claude Code）归集，每个 Agent 下按模型列出，token 多的在前。
+- `turns` 是上报了 token 的轮数；`sessions` 是区间里有活动的会话，`unreportedSessions` 是其中没有上报 token 的。`cacheHitRate` 是缓存读取占输入、缓存读取和缓存写入之和的比例，Agent 没有上报缓存读取时为 `null`。
+- 费用只有 Agent 上报的金额，不按 token 估算。
 
 <a id="files"></a>
 ## 产物读取

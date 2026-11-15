@@ -62,6 +62,9 @@ struct TaskView: View {
                     }
                     .frame(maxWidth: .infinity)
                     VStack(alignment: .leading, spacing: 14) {
+                        // What this task and each of its attempts used, from the same events as the run
+                        // card; a task with no session says so instead of showing 0.
+                        TaskUsageCard(run: run, st: st, task: t)
                         // What the task came back with, first: where it disagrees with the workspace,
                         // then each criterion with its evidence method and the whole evidence. What the
                         // executor added, the independent verification, the risks and the reminders stay

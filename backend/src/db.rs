@@ -58,6 +58,7 @@ impl Db {
                data TEXT,
                PRIMARY KEY (run_id, seq)
              );
+             CREATE INDEX IF NOT EXISTS events_type_ts ON events (type, ts);
              CREATE TABLE IF NOT EXISTS attempts (
                run_id TEXT NOT NULL REFERENCES runs(id),
                task TEXT NOT NULL,
@@ -185,6 +186,21 @@ impl Db {
                     .get::<_, Option<String>>(9)?
                     .and_then(|s| serde_json::from_str(&s).ok()),
             })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The runs with usage reported in `[from, to)` and their configs, oldest first, for a bill over
+    /// a period (`events_type_ts` keeps this from reading every event).
+    pub fn runs_with_usage(&self, from: i64, to: i64) -> Result<Vec<(String, Value)>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, config FROM runs WHERE id IN
+               (SELECT DISTINCT run_id FROM events WHERE type = 'session.usage' AND ts >= ?1 AND ts < ?2)
+             ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map(params![from, to], |r| {
+            Ok((r.get::<_, String>(0)?, serde_json::from_str::<Value>(&r.get::<_, String>(1)?).unwrap_or(Value::Null)))
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }

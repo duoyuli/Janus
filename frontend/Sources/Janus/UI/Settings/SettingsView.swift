@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The settings panel (⌘,): a floating card in the middle of the window, a pane each for Agents,
-/// roles, the Skill and MCP libraries and ACP adapters. Clicking the dimmed area or pressing Esc
+/// roles, the Skill and MCP libraries, ACP adapters and the usage bill. Clicking the dimmed area or pressing Esc
 /// closes it and shows the screen underneath unchanged; the last pane opened comes back next time.
 /// The bottom of the sidebar picks the app's appearance.
 // @project-doc docs/architecture/frontend.md#screens
@@ -50,6 +50,7 @@ struct SettingsView: View {
                 nav("skills", "Skill 库", "sparkles", updates: store.skillSourceUpdates.count)
                 nav("mcp", "MCP 库", "wrench.and.screwdriver", updates: store.mcpSourceUpdates.count)
                 nav("adapters", "ACP 适配器", "shippingbox")
+                nav("usage", "用量账单", "list.bullet.rectangle")
             }
             .padding(.horizontal, 8)
             Spacer(minLength: 16)
@@ -98,6 +99,7 @@ struct SettingsView: View {
         case "skills": SkillsView(store: store)
         case "mcp": McpView(store: store)
         case "adapters": AdaptersView(store: store)
+        case "usage": UsageBillView(store: store)
         default: AgentsView(store: store)
         }
     }

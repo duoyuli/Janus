@@ -1,0 +1,124 @@
+[
+  {
+    "name": "per-turn numbers that grow are all added",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user", "data": { "goal": "g" } },
+      { "seq": 2, "ts": 1000, "type": "agent.status", "actor": "lead", "data": { "phase": "thinking", "session": "lead-1" } },
+      { "seq": 3, "ts": 2000, "type": "session.usage", "actor": "lead", "data": { "inputTokens": 15687, "outputTokens": 24, "cachedReadTokens": 0, "totalTokens": 15711 } },
+      { "seq": 4, "ts": 3000, "type": "session.usage", "actor": "lead", "data": { "inputTokens": 107327, "outputTokens": 8565, "cachedReadTokens": 2854016, "totalTokens": 2969908 } },
+      { "seq": 5, "ts": 4000, "type": "session.usage", "actor": "lead", "data": { "inputTokens": 117502, "outputTokens": 536, "cachedReadTokens": 4736, "totalTokens": 122774 } },
+      { "seq": 6, "ts": 5000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "s1" } },
+      { "seq": 7, "ts": 6000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "totalTokens": 1000 } },
+      { "seq": 8, "ts": 7000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "totalTokens": 2500 } },
+      { "seq": 9, "ts": 8000, "type": "task.succeeded", "actor": "m1", "task": "T1", "attempt": 1, "data": { "summary": "done" } }
+    ],
+    "expect": {
+      "runTotal": 3111893,
+      "completeness": "完整",
+      "summary": "用量：3,111,893 tokens（完整） · 费用：未上报 · 耗时 8 秒（墙钟）",
+      "tasks": { "T1": 3500 },
+      "attempts": { "T1#1": "成功" },
+      "reminders": 2
+    }
+  },
+  {
+    "name": "quota rows by model count the subagents",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user", "data": { "goal": "g" } },
+      { "seq": 2, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "s1" } },
+      { "seq": 3, "ts": 2000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": {
+        "inputTokens": 1200, "outputTokens": 300, "cachedReadTokens": 5000, "cachedWriteTokens": 100, "totalTokens": 6600,
+        "models": [
+          { "model": "opus", "inputTokens": 1200, "outputTokens": 300, "cachedReadTokens": 5000, "cachedWriteTokens": 100, "totalTokens": 6600 },
+          { "model": "haiku", "inputTokens": 800, "outputTokens": 100, "totalTokens": 900 }
+        ] } },
+      { "seq": 4, "ts": 3000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "used": 61000, "size": 200000, "cost": { "amount": 0.25, "currency": "USD" } } }
+    ],
+    "expect": {
+      "runTotal": 7500,
+      "completeness": "完整",
+      "summary": "用量：7,500 tokens（完整） · 费用：0.25 USD · 耗时 3 秒（墙钟）",
+      "tasks": { "T1": 7500 },
+      "attempts": { "T1#1": "未完成" },
+      "reminders": 0
+    }
+  },
+  {
+    "name": "a session that only reports context is unreported",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user", "data": { "goal": "g" } },
+      { "seq": 2, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "s1" } },
+      { "seq": 3, "ts": 2000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "totalTokens": 900 } },
+      { "seq": 4, "ts": 3000, "type": "attempt.started", "actor": "janus", "to": "m2", "task": "T2", "attempt": 1, "data": { "session": "s2" } },
+      { "seq": 5, "ts": 4000, "type": "session.usage", "actor": "m2", "task": "T2", "attempt": 1, "data": { "used": 18000, "size": 200000 } }
+    ],
+    "expect": {
+      "runTotal": 900,
+      "completeness": "部分上报",
+      "summary": "用量：900 tokens（部分上报） · 费用：未上报 · 耗时 4 秒（墙钟）",
+      "tasks": { "T1": 900, "T2": null },
+      "attempts": { "T1#1": "未完成", "T2#1": "未完成" },
+      "reminders": 0
+    }
+  },
+  {
+    "name": "nothing reported is words, not zero",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user", "data": { "goal": "g" } },
+      { "seq": 2, "ts": 1500, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "s1" } },
+      { "seq": 3, "ts": 65000, "type": "run.cancelled", "actor": "user", "data": {} }
+    ],
+    "expect": {
+      "runTotal": null,
+      "completeness": "未上报",
+      "summary": "用量：未上报 · 费用：未上报 · 耗时 1 分 05 秒（墙钟）",
+      "tasks": { "T1": null },
+      "attempts": { "T1#1": "已取消" },
+      "reminders": 0
+    }
+  },
+  {
+    "name": "cost keeps what came before a reset and never mixes currencies",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user", "data": { "goal": "g" } },
+      { "seq": 2, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "s1" } },
+      { "seq": 3, "ts": 2000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "cost": { "amount": 0.1, "currency": "USD" } } },
+      { "seq": 4, "ts": 3000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "cost": { "amount": 0.3, "currency": "USD" } } },
+      { "seq": 5, "ts": 4000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "cost": { "amount": 0, "currency": "USD" } } },
+      { "seq": 6, "ts": 5000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "cost": { "amount": 0.05, "currency": "USD" } } },
+      { "seq": 7, "ts": 6000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "cost": { "amount": 0.2, "currency": "USD" } } },
+      { "seq": 8, "ts": 7000, "type": "attempt.started", "actor": "janus", "to": "m2", "task": "T2", "attempt": 1, "data": { "session": "s2" } },
+      { "seq": 9, "ts": 8000, "type": "session.usage", "actor": "m2", "task": "T2", "attempt": 1, "data": { "cost": { "amount": 40, "currency": "credits" } } },
+      { "seq": 10, "ts": 9000, "type": "session.usage", "actor": "m2", "task": "T2", "attempt": 1, "data": { "totalTokens": 1200 } }
+    ],
+    "expect": {
+      "runTotal": 1200,
+      "completeness": "部分上报",
+      "summary": "用量：1,200 tokens（部分上报） · 费用：0.5 USD + 40 credits（币种或口径不同，未合并） · 耗时 9 秒（墙钟）",
+      "tasks": { "T1": null, "T2": 1200 },
+      "reminders": 0
+    }
+  },
+  {
+    "name": "cancels end only what was still running",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user", "data": { "goal": "g" } },
+      { "seq": 2, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "s1" } },
+      { "seq": 3, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m2", "task": "T2", "attempt": 1, "data": { "session": "s2" } },
+      { "seq": 4, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m3", "task": "T3", "attempt": 1, "data": { "session": "s3" } },
+      { "seq": 5, "ts": 2000, "type": "attempt.failed", "actor": "m3", "task": "T3", "attempt": 1, "data": { "error": "脚本失败" } },
+      { "seq": 6, "ts": 3000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "totalTokens": 1500 } },
+      { "seq": 7, "ts": 4000, "type": "task.skipped_by_decision", "actor": "lead", "task": "T1", "data": { "reason": "不需要了" } },
+      { "seq": 8, "ts": 9000, "type": "run.cancelled", "actor": "user", "data": {} },
+      { "seq": 9, "ts": 9100, "type": "attempt.failed", "actor": "m2", "task": "T2", "attempt": 1, "data": { "error": "连接已关闭" } }
+    ],
+    "expect": {
+      "runTotal": 1500,
+      "completeness": "部分上报",
+      "summary": "用量：1,500 tokens（部分上报） · 费用：未上报 · 耗时 9 秒（墙钟）",
+      "tasks": { "T1": 1500, "T2": null, "T3": null },
+      "attempts": { "T1#1": "已取消", "T2#1": "已取消", "T3#1": "失败" },
+      "reminders": 0
+    }
+  }
+]

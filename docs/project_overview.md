@@ -51,11 +51,13 @@ Janus/
 │   │   ├── goal_settle.rs # 主控的目标一直不自己结束时：问主控，确认后由 Janus 清除目标
 │   │   ├── acp_view.rs    # ACP 会话更新转成事件：思考、计划、斜杠命令、控制项、用量、工具调用的 diff，`@路径` 文件引用
 │   │   ├── evidence.rs    # 验收证据：证据方法、结果核对、证据汇总
+│   │   ├── usage.rs       # Run 级用量账本：从事件日志只读聚合 Run、任务、成员、尝试和会话的 token、费用与耗时
+│   │   ├── bill.rs        # 按时间段的用量账单：跨 Run 按 Agent 和模型汇总
 │   │   ├── traces.rs      # 任务在工作目录里留下的痕迹：改过的文件、diff 范围、结果对账、过期标记
 │   │   ├── status.rs      # Run、任务、尝试和 Agent 阶段的状态与合法转移
 │   │   ├── git_probe.rs   # 只读 Git 查询：不抢 index.lock
 │   │   └── db.rs          # SQLite
-│   └── testdata/fake_acp.py  # 测试用脚本化 ACP Agent
+│   └── testdata/          # fake_acp.py（测试用脚本化 ACP Agent）、usage_cases.json（前后端共用的用量用例）
 ├── frontend/              # macOS 应用（SwiftUI，Swift Package）
 │   ├── Sources/Janus/     # Core/（JSON、API、服务进程、事件推导）和 UI/
 │   ├── Tests/JanusTests/  # Swift Testing 测试

@@ -26,6 +26,26 @@ enum SessionView {
         /// Tokens of the last turn.
         var tokens: Int?
         var percent: Int? { if let used, let size, size > 0 { return min(100, used * 100 / size) } else { return nil } }
+
+        /// This session's context, labelled: `本会话 上下文 26%` / `本会话 上下文 52,000 / 200,000`.
+        /// It is a snapshot of one session, never part of the run's token total.
+        var contextLabel: String? {
+            guard let used else { return nil }
+            guard let percent else { return "本会话 上下文 \(usageNum(used))" }
+            return "本会话 上下文 \(percent)%"
+        }
+
+        /// The last turn's tokens, labelled: `上一轮 1,500 tokens`.
+        var turnLabel: String? {
+            guard let tokens else { return nil }
+            return "上一轮 \(usageNum(tokens)) tokens"
+        }
+
+        /// Both labels in the words the run page uses, for the help text and the ledger.
+        var labels: String? {
+            let parts = [contextLabel, turnLabel].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }
     }
 
     /// The latest plan, if the agent published one.

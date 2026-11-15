@@ -11,6 +11,11 @@ with three options), "elicit" (asks elicitation/create with a form), "loop" (mak
 before its result), "ask" (ends the turn with a question; the answer comes back as the next prompt) or "rich" (thinks,
 publishes a plan and its slash commands, runs a tool that stays in progress for a moment and then reports a file diff,
 reports its context usage and switches its own mode; the prompt response carries token usage). The last outcome repeats.
+Usage outcomes (for the read-only ledger): "usage" reports three context snapshots and a cost, and its prompt response
+carries 1200 input / 300 output / 1500 total for the main loop plus `_meta.quota.model_usage` rows for the main model
+(1500) and a subagent (500), the shape the Claude Code and Codex adapters send; "usage-quiet" reports a context snapshot
+but no token usage at all; "usage-turns" asks a question in the first turn (1000 tokens) and reports 2500 for the
+answered turn: per-turn numbers that grow, which add up to 3500.
 session/set_mode is logged ("mode <id>"), and the resource links of each prompt ("links <name>…").
 With a `goal-sticky` file the lead reports its /goal active and never clears it; Janus's ask whether
 it is done is answered "GOAL_DONE" with the lead-go text, and `_session/goal` clear is logged ("goal clear").
@@ -41,6 +46,19 @@ def send(msg):
 def say(sid, text):
     send({"jsonrpc": "2.0", "method": "session/update", "params": {
         "sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}})
+
+
+def snapshot(sid, used, size, cost=None):
+    """A context snapshot (`usage_update`); `cost` is the agent's own cumulative session cost."""
+    update = {"sessionUpdate": "usage_update", "used": used, "size": size}
+    if cost:
+        update["cost"] = cost
+    send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": update}})
+
+
+def tokens(total):
+    """A prompt response's token usage, split so both sides can be checked."""
+    return {"inputTokens": total * 4 // 5, "outputTokens": total - total * 4 // 5, "totalTokens": total}
 
 
 CRITERIA = {}  # session id -> acceptance criteria from the task prompt
@@ -166,6 +184,32 @@ def prompt(msg):
     if c:
         CRITERIA[sid] = [line[2:].strip() for line in c.group(1).splitlines() if line.startswith("- ")]
     outcome = next_outcome(task)
+    if outcome in ("usage", "usage-quiet", "usage-turns"):
+        if outcome == "usage-quiet":
+            # Context only: this session never reports tokens, so its usage stays 「未上报」.
+            snapshot(sid, 18000, 200000)
+            say(sid, result(sid))
+            return {"stopReason": "end_turn"}
+        if outcome == "usage":
+            # The same snapshot twice, then a bigger one: only the latest and the peak are shown.
+            snapshot(sid, 52000, 200000)
+            snapshot(sid, 52000, 200000)
+            snapshot(sid, 61000, 200000, {"amount": 0.25, "currency": "USD"})
+            say(sid, result(sid))
+            # `usage` is the main loop only; the quota rows by model also count a subagent.
+            quota = {"model_usage": [
+                {"model": "main", "token_count": {"totalTokens": 1500, "inputTokens": 1000, "cachedInputTokens": 200,
+                                                  "cachedWriteTokens": 0, "outputTokens": 300, "reasoningOutputTokens": 0}},
+                {"model": "subagent", "token_count": {"totalTokens": 500, "inputTokens": 400, "cachedInputTokens": 0,
+                                                      "cachedWriteTokens": 0, "outputTokens": 100, "reasoningOutputTokens": 0}},
+            ]}
+            return {"stopReason": "end_turn", "usage": tokens(1500), "_meta": {"quota": quota}}
+        # Two turns in one session: the first asks a question, the answered turn reports its own, larger number.
+        if "你的问题已得到回答" in text:
+            say(sid, result(sid, summary=f"{task} 按回答完成"))
+            return {"stopReason": "end_turn", "usage": tokens(2500)}
+        say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
+        return {"stopReason": "end_turn", "usage": tokens(1000)}
     if outcome == "fail":
         raise RuntimeError("scripted failure")
     if outcome == "cancelled":

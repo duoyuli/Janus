@@ -3,6 +3,7 @@ mod acp_view;
 mod adapters;
 mod agents;
 mod attachments;
+mod bill;
 mod config;
 mod db;
 mod evidence;
@@ -14,6 +15,7 @@ mod skill_sources;
 mod status;
 mod teamwork;
 mod traces;
+mod usage;
 
 use anyhow::Result;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -320,6 +322,34 @@ async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Quer
     )
 }
 
+/// The run's read-only usage ledger over its whole event log (`backend/src/usage.rs`). A run always
+/// has its `run.created` event, so no events means no such run.
+// @project-doc docs/interfaces/http_api.md#run_usage
+async fn get_usage(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    let events = app.db.events(&id, 0).map_err(bad)?;
+    if events.is_empty() {
+        return Err((StatusCode::NOT_FOUND, "run not found".into()));
+    }
+    Ok(Json(usage::ledger(&events)).into_response())
+}
+
+#[derive(Deserialize)]
+struct Period {
+    from: i64,
+    to: i64,
+    /// The person's time zone in minutes east of UTC, so active days are their days.
+    offset: Option<i64>,
+}
+
+/// The usage bill over a period, across runs (`backend/src/bill.rs`).
+async fn usage_bill(State(app): State<Arc<App>>, Query(p): Query<Period>) -> ApiResult {
+    const MAX_DAYS: i64 = 400;
+    if p.to <= p.from || p.to - p.from > MAX_DAYS * 24 * 60 * 60 * 1000 {
+        return Err((StatusCode::BAD_REQUEST, format!("区间要在 1 毫秒到 {MAX_DAYS} 天之间")));
+    }
+    Ok(Json(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0)).map_err(bad)?).into_response())
+}
+
 /// Files in a run's workspace whose path contains `q`, for the `@` menu of the composer.
 // @project-doc docs/interfaces/http_api.md#run_files
 async fn run_files(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<FileQuery>) -> ApiResult {
@@ -576,11 +606,13 @@ async fn main() -> Result<()> {
         .route("/api/connections/{id}/login", post(login_connection))
         .route("/api/file", get(file))
         .route("/api/stats/roles", get(role_stats))
+        .route("/api/usage", get(usage_bill))
         .route("/api/runs", get(list_runs).post(create_run))
         .route("/api/runs/{id}", get(get_run))
         .route("/api/runs/{id}/stream", get(stream))
         .route("/api/runs/{id}/actions", post(action))
         .route("/api/runs/{id}/export", get(export))
+        .route("/api/runs/{id}/usage", get(get_usage))
         .route("/api/runs/{id}/files", get(run_files))
         .route("/mcp/{run}/{token}/{who}", post(mcp).get(mcp_stream))
         // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).

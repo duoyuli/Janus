@@ -176,6 +176,9 @@ struct RunState {
     var msgs: [String: Msg] = [:]
     var result: RunResult?
     var events: [Event] = []
+    /// The read-only usage ledger for exactly these events, so a replayed prefix gets its own
+    /// numbers (docs/architecture/frontend.md#usage_ledger).
+    var usage = UsageLedger.empty
 
     var orderedTasks: [TaskState] { order.compactMap { tasks[$0] } }
     func event(_ seq: Int) -> Event? { seq >= 1 && seq <= events.count && events[seq - 1].seq == seq ? events[seq - 1] : events.first { $0.seq == seq } }
@@ -391,6 +394,7 @@ func derive(_ events: [Event]) -> RunState {
         default: break
         }
     }
+    s.usage = usageLedger(events)
     return s
 }
 

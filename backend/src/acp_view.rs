@@ -75,10 +75,49 @@ pub fn event_for(u: &Value, turn: &mut Turn) -> Option<Shown> {
     }
 }
 
-/// The tokens a finished turn used, from the `session/prompt` response.
+/// The tokens one finished turn used, from the `session/prompt` response. ACP's `usage` is the
+/// work of this prompt alone (the Claude Code and Codex adapters start it again at every prompt),
+/// so the usage ledger adds the turns of a session up. `_meta.quota.model_usage`, which both
+/// adapters send in the same shape, also counts subagents and compaction that `usage` leaves out;
+/// its rows are kept per model as `models` and the ledger prefers them
+/// (docs/interfaces/events.md#usage_accounting).
+// @project-doc docs/interfaces/events.md#usage_accounting
 pub fn prompt_usage(res: &Value) -> Option<Shown> {
-    let u = res.get("usage").filter(|u| u.is_object())?;
-    Some(("session.usage", String::new(), json!({ "inputTokens": u["inputTokens"], "outputTokens": u["outputTokens"], "totalTokens": u["totalTokens"], "cachedReadTokens": u["cachedReadTokens"] })))
+    let usage = res.get("usage").filter(|u| u.is_object());
+    let models: Vec<Value> = res
+        .pointer("/_meta/quota/model_usage")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            let mut counts = token_counts(row.get("token_count").filter(|c| c.is_object())?);
+            counts["model"] = row["model"].clone();
+            Some(counts)
+        })
+        .collect();
+    if usage.is_none() && models.is_empty() {
+        return None;
+    }
+    let mut data = token_counts(usage.unwrap_or(&Value::Null));
+    if !models.is_empty() {
+        data["models"] = json!(models);
+    }
+    Some(("session.usage", String::new(), data))
+}
+
+/// One block of token counts under the ACP names; a count the agent did not report stays `null`.
+/// `_meta.quota` spells cache reads `cachedInputTokens`, cache writes `cachedWriteTokens` (Claude
+/// Code) or `cacheWriteInputTokens` (Codex), and reasoning `reasoningOutputTokens`.
+fn token_counts(c: &Value) -> Value {
+    let pick = |names: &[&str]| names.iter().map(|n| &c[*n]).find(|v| v.is_number()).cloned().unwrap_or(Value::Null);
+    json!({
+        "inputTokens": pick(&["inputTokens"]),
+        "outputTokens": pick(&["outputTokens"]),
+        "totalTokens": pick(&["totalTokens"]),
+        "cachedReadTokens": pick(&["cachedReadTokens", "cachedInputTokens"]),
+        "cachedWriteTokens": pick(&["cachedWriteTokens", "cacheWriteInputTokens"]),
+        "thoughtTokens": pick(&["thoughtTokens", "reasoningOutputTokens"]),
+    })
 }
 
 /// A tool call the agent just started, shown while it runs; `input` is its summary.
@@ -186,8 +225,40 @@ mod tests {
         assert_eq!(t.thought, "想一想");
         let (kind, _, data) = event_for(&json!({ "sessionUpdate": "current_mode_update", "currentModeId": "plan" }), &mut t).unwrap();
         assert_eq!((kind, &data["value"]), ("session.control", &json!("plan")));
+    }
+
+    #[test]
+    fn prompt_usage_keeps_every_count_and_the_quota_by_model() {
         assert!(prompt_usage(&json!({ "stopReason": "end_turn" })).is_none());
-        assert_eq!(prompt_usage(&json!({ "usage": { "inputTokens": 10, "outputTokens": 2, "totalTokens": 12 } })).unwrap().2["totalTokens"], 12);
+        assert!(prompt_usage(&json!({ "stopReason": "end_turn", "usage": null })).is_none(), "Codex sends null when it has no count");
+        let (kind, _, data) = prompt_usage(&json!({ "usage": { "inputTokens": 10, "outputTokens": 2, "totalTokens": 12 } })).unwrap();
+        assert_eq!(kind, "session.usage");
+        assert_eq!((data["totalTokens"].as_i64(), data["cachedWriteTokens"].is_null()), (Some(12), true), "a missing count is null, not 0");
+        assert!(data.get("models").is_none());
+        // The Claude Code adapter: `usage` is the main loop; the quota rows add a subagent.
+        let claude = json!({
+            "stopReason": "end_turn",
+            "usage": { "inputTokens": 1200, "outputTokens": 300, "cachedReadTokens": 5000, "cachedWriteTokens": 100, "totalTokens": 6600 },
+            "_meta": { "quota": {
+                "token_count": { "totalTokens": 6600, "inputTokens": 1200, "cachedInputTokens": 5000, "cachedWriteTokens": 100, "outputTokens": 300, "reasoningOutputTokens": 0 },
+                "model_usage": [
+                    { "model": "claude-opus", "token_count": { "totalTokens": 6600, "inputTokens": 1200, "cachedInputTokens": 5000, "cachedWriteTokens": 100, "outputTokens": 300, "reasoningOutputTokens": 0 } },
+                    { "model": "claude-haiku", "token_count": { "totalTokens": 900, "inputTokens": 800, "cachedInputTokens": 0, "cachedWriteTokens": 0, "outputTokens": 100, "reasoningOutputTokens": 0 } }
+                ]
+            } }
+        });
+        let (_, _, data) = prompt_usage(&claude).unwrap();
+        assert_eq!((data["cachedReadTokens"].as_i64(), data["cachedWriteTokens"].as_i64()), (Some(5000), Some(100)));
+        assert_eq!(data["models"].as_array().unwrap().len(), 2);
+        assert_eq!((data["models"][1]["model"].as_str(), data["models"][1]["totalTokens"].as_i64()), (Some("claude-haiku"), Some(900)));
+        assert_eq!(data["models"][0]["cachedReadTokens"].as_i64(), Some(5000), "cachedInputTokens is read as cache reads");
+        // Codex spells cache writes and reasoning its own way; `usage` may be null while the quota has rows.
+        let codex = json!({ "usage": null, "_meta": { "quota": { "token_count": null, "model_usage": [
+            { "model": "gpt-5", "token_count": { "totalTokens": 3000, "inputTokens": 500, "cachedInputTokens": 2000, "cacheWriteInputTokens": 0, "outputTokens": 500, "reasoningOutputTokens": 200 } }
+        ] } } });
+        let (_, _, data) = prompt_usage(&codex).unwrap();
+        assert!(data["totalTokens"].is_null());
+        assert_eq!((data["models"][0]["thoughtTokens"].as_i64(), data["models"][0]["cachedWriteTokens"].as_i64()), (Some(200), Some(0)));
     }
 
     #[test]

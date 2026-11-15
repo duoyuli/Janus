@@ -66,9 +66,11 @@ struct ChatCard: View {
                 Spacer()
                 if info.open && live && !(info.human && info.idle) { QuietNote(last: info.evs.last?.ts ?? 0) }
                 if let u = SessionView.usage(info.evs) {
-                    Text(verbatim: u.percent.map { "上下文 \($0)%" } ?? "\(SessionView.tokens(u.tokens ?? 0)) tokens")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        .help([u.used.map { "上下文已用 \(SessionView.tokens($0))" }, u.size.map { "共 \(SessionView.tokens($0))" }, u.tokens.map { "上一轮 \(SessionView.tokens($0)) tokens" }].compactMap { $0 }.joined(separator: " · "))
+                    // This session's own numbers, labelled: `本会话 上下文 26% · 上一轮 1,500 tokens`.
+                    // They stay apart from the run's cumulative total on the run card.
+                    Text(verbatim: u.labels ?? u.percent.map { "上下文 \($0)%" } ?? "\(SessionView.tokens(u.tokens ?? 0)) tokens")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+                        .help([u.used.map { "上下文已用 \(SessionView.tokens($0))" }, u.size.map { "共 \(SessionView.tokens($0))" }, u.tokens.map { "上一轮 \(SessionView.tokens($0)) tokens" }].compactMap { $0 }.joined(separator: " · ") + "\n本会话的数字不计入 Run 累计用量")
                 }
                 Picker("显示", selection: $density) {
                     Text("详细").tag("detail")

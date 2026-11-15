@@ -36,3 +36,29 @@ import Testing
     #expect(L.cn("Codex", "请求你决定") == "Codex 请求你决定")
     #expect(L.cn("主控、实现者", "还没有选择 Agent。") == "主控、实现者还没有选择 Agent。")
 }
+
+/// Usage numbers keep their state: a reported 0 is written as 0, a missing number as words, and
+/// amounts are shown as reported.
+@Test func usageNumbersKeepTheirState() {
+    #expect(usageNum(15400) == "15,400")
+    #expect(usageNum(999) == "999" && usageNum(0) == "0")
+    #expect(usageMoney(0.25) == "0.25" && usageMoney(5) == "5" && usageMoney(0.12345) == "0.1235")
+    #expect(usagePercent(0.26) == "26%")
+
+    var zero = UsageScope(id: "run")
+    zero.tokens = UsageTokens(total: 0)
+    zero.completeness = .complete
+    #expect(zero.tokensText == "0 tokens（完整）")
+    #expect(zero.breakdown == nil, "parts of 0 are not listed")
+
+    let missing = UsageScope(id: "run")
+    #expect(missing.tokensText == "未上报")
+    #expect(missing.costText == "费用：未上报")
+    #expect(missing.costDetail == "未上报")
+    #expect(missing.durationText == "没有时长记录")
+    #expect(missing.contextDetail == nil)
+    // An empty ledger keeps the words, so the run card cannot show "0 tokens".
+    #expect(UsageLedger.empty.summaryLine == "用量：未上报 · 费用：未上报 · 耗时 没有时长记录")
+    #expect(UsageLedger.empty.deliveryLine == "用量 未上报 · 费用：未上报 · 耗时 没有时长记录")
+    #expect(UsageLedger.empty.remindersLine == nil)
+}

@@ -260,11 +260,12 @@ struct RunCard: View {
                 .padding(10)
                 .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
-            // Team, workspace and start time are on the 团队与权限 page.
+            // Team, workspace and start time are on the 团队与权限 page. The wall-clock time is
+            // in the usage section below, from the same events.
             HStack(spacing: 16) {
-                meta("用时", L.dur(r.now - r.start)).help("开始于 \(L.clock(r.start))")
                 if !st.order.isEmpty { meta("任务", "\(done) / \(st.order.count)") }
             }
+            UsageSection(run: run, st: st)
             // A progress indicator, not controls: dots on a line, nothing that looks pressable.
             HStack(spacing: 0) {
                 ForEach(Array(stages.enumerated()), id: \.offset) { i, s in
@@ -368,6 +369,9 @@ struct ResultCard: View {
                 Text("目标已完成").font(.display(.title3))
                 MarkdownText(text: d["summary"].str, lineLimit: long && !run.resultOpen ? 8 : nil)
                 if long { Button(run.resultOpen ? "收起" : "展开全文") { run.resultOpen.toggle() }.buttonStyle(.link) }
+                // The same one-line summary as the board and the task page: tokens with their
+                // completeness, the cost state, the wall-clock time — never an estimate.
+                Text(verbatim: st.usage.deliveryLine).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                 Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 12) {
                     if !deliverables.isEmpty { GridRow {
                         section("交付物", deliverables.count)

@@ -54,6 +54,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 - `configs` 不保存凭据。Agent 的凭据在 `secrets.json`，角色手工 MCP 的环境变量值在 `secrets/roles/`，MCP 资源库服务器的环境变量和 HTTP header 值在 `secrets/mcp/`，`configs` 中只记录变量名（`envKeys`、`headerKeys`）。
 - 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。应用用 `after` 参数从某个 `seq` 之后续读。
+- `events` 另有索引 `events_type_ts (type, ts)`，按时间段的用量账单用它找出区间里有 `session.usage` 的 Run，不必读全部事件（[用量账单](../interfaces/http_api.md#usage_bill)）。
 - 租约有效期 10 分钟。持有者是 `janus-<pid>`；该进程已经不存在时，其他实例可以接管。
 
 <a id="snapshots"></a>

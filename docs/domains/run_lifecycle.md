@@ -181,6 +181,8 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 任务失败不会让 Run 停下来等用户。主控结束时还有协作者在等主控回答的，提问转给用户，见[目标模式与共享看板](goal_mode.md#question_routing)。
 
+交付时 `run.delivered` 的 `data.usage` 是一行用量摘要（token 及完整性、费用状态、墙钟时长），和 Run 页、`team`、`GET /api/runs/{id}/usage` 读同一份账本，见[用量口径](../interfaces/events.md#usage_accounting)。用量不是交付条件：没有会话上报 token、费用缺失或口径未知时，摘要写「未上报」「部分上报」「口径未知」，Run 照常交付。
+
 交付后主控的会话不结束，而是保留为常规对话：用户可以直接写下一轮任务，或用 `/goal` 设置新的目标。此时主控不再接收看板推送；它在对话中通过看板提交的新任务会重新启动调度循环，完成后再次交付。服务重启或会话退出后，第一次给主控发消息会重新打开会话：能 `session/load` 就恢复原会话，否则新建会话，并带上目标、交付摘要和最近的对话。已验收的 Run 也按同样方式恢复，继续工作或再次交付时重新打开。
 
 <a id="run_statuses"></a>
@@ -209,6 +211,8 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 - **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_session/steering` 时，见[插话](../interfaces/acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/events.md#message_flow)。
 - **控制 Run**：`pause`、`resume`、`extendBudget`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
 
+取消 Run（`run.cancelled`）和取消任务（`task.skipped_by_decision`）在用量账本里的范围不同：前者把取消时刻仍在跑的所有尝试记「已取消」，备注「Run 被取消」；后者只影响那个任务的尝试，备注「主控取消了这个任务」，同一个 Run 里其他任务的尝试保持「未完成」。两者都不改动取消前已经结束的尝试（失败、验证没通过、过期保持原状态），已经上报的用量照常计入。Janus 不为这两类取消写尝试级事件，杀连接后可能还有一条失败事件，也不算真的失败。见[用量口径](../interfaces/events.md#usage_accounting)。
+
 任务的重试、接受和取消由主控通过看板处理，用户不直接操作任务；用户可以给主控发消息提出要求。
 
 <a id="recovery"></a>
@@ -227,6 +231,8 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 - 主控以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。
 
 `run.failed` 之后同样可以从中断处继续。已交付的 Run 在重启后仍可验收（`accept`），不需要恢复。
+
+用量账本不存数据库表，重启后从事件重算，所以恢复前后的数字相同；取消、失败和过期尝试的用量也照常从事件里读回，见[用量口径](../interfaces/events.md#usage_accounting)。
 
 <a id="early_plan_runs"></a>
 ## 早期版本的 Run
