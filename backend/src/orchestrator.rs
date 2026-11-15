@@ -50,6 +50,7 @@ use session::*;
 use prompts::*;
 pub use lead::lead_capable;
 pub use session::session_meta;
+pub use actions::{ActionRefused, ActionReply};
 pub use turn::cancelled_reply;
 
 /// Attempts per delegated task before it fails and the lead decides what to do next.

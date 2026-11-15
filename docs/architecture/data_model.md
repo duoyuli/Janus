@@ -47,7 +47,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
 | `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，以及 `meta` 中的标记（例如默认角色的版本 `seeded`） |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
-| `commands` | `(run_id, command_id)` | 已处理的 Run 操作，用于按 `commandId` 去重 |
+| `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入，失败时删除，用于按 `commandId` 只执行一次 |
 | `leases` | `(run_id, name)` | Run 租约，防止两个 Janus 实例驱动同一个 Run |
 
 约束：

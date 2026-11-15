@@ -215,10 +215,10 @@ Content-Type: application/json
 | 字段 | 说明 |
 | --- | --- |
 | `type` | 操作类型，见下表 |
-| `commandId` | 可选。同一个 Run 内重复的 `commandId` 直接返回 `{"ok": true, "duplicate": true}`，不再执行 |
+| `commandId` | 可选。同一个 Run 内每个 `commandId` 只执行一次：执行前先占用（`claim_command`），之后带同一个 id 的请求，包括同时到达的，返回 `{"ok": true, "duplicate": true, "commandId": ...}` 且不再执行；操作失败时释放这个 id，可以带它重试 |
 | `expectedSequence` | 可选。与 Run 当前最大 `seq` 不一致时返回 409，客户端应刷新后重试 |
 
-成功返回 `{"ok": true}`。
+成功返回 `{"ok": true}`。Run 不存在时返回 404；Run 当前的状态不允许这个操作时返回 409（`expectedSequence` 不一致、Run 已中断而操作要求它正在运行、Run 正在运行却要求从中断处继续）；其他错误返回 400。处理逻辑在 `App::request_action`。
 
 | `type` | 其他字段 | 说明 |
 | --- | --- | --- |

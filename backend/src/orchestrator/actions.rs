@@ -4,6 +4,56 @@
 use super::*;
 
 impl App {
+    /// A person's action on a run, as the HTTP API receives it. With a `commandId` it acts at most
+    /// once: the id is claimed before anything happens, a second request with it is a duplicate,
+    /// and an action that fails gives the id back so it can be retried. `expectedSequence`, when
+    /// given, must still be the run's last event. A run that is not live can be accepted,
+    /// resumed, or talked to (which resumes it).
+    // @project-doc docs/interfaces/http_api.md#run_actions
+    pub async fn request_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<ActionReply, ActionRefused> {
+        if self.db.run(run_id).map_err(ActionRefused::Invalid)?.is_none() {
+            return Err(ActionRefused::NotFound);
+        }
+        let command = body["commandId"].as_str().filter(|s| !s.trim().is_empty());
+        if let Some(id) = command
+            && !self.db.claim_command(run_id, id, &json!({ "type": body["type"] }), now_ms()).map_err(ActionRefused::Invalid)?
+        {
+            return Ok(ActionReply::Duplicate);
+        }
+        let done = self.dispatch_action(run_id, body).await;
+        if done.is_err()
+            && let Some(id) = command
+            && let Err(err) = self.db.release_command(run_id, id)
+        {
+            crate::config::log(format!("janus: could not release command {id} of {run_id}: {err:#}"));
+        }
+        done.map(|()| ActionReply::Done)
+    }
+
+    async fn dispatch_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<(), ActionRefused> {
+        if let Some(expected) = body["expectedSequence"].as_i64() {
+            let actual = self.db.max_seq(run_id).map_err(ActionRefused::Invalid)?;
+            if expected != actual {
+                return Err(ActionRefused::Conflict(format!("状态已变化：expectedSequence={expected}，当前为 {actual}")));
+            }
+        }
+        let kind = body["type"].as_str().unwrap_or("");
+        let run = match self.run(run_id) {
+            // The run is live (a failed driver removes its run, see `launch`): nothing to resume.
+            Some(_) if kind == "resumeRun" => return Err(ActionRefused::Conflict("这个 Run 正在进行，不需要从中断处继续".into())),
+            Some(run) => run,
+            None => match kind {
+                // Acceptance needs no live agents, so it also works for runs delivered before a restart.
+                "accept" => return self.accept_archived(run_id).map_err(ActionRefused::Invalid),
+                "resumeRun" => return self.resume_run(run_id).await.map(|_| ()).map_err(ActionRefused::Invalid),
+                // Talking to an agent brings an interrupted run back first.
+                "message" => self.resume_run(run_id).await.map_err(ActionRefused::Invalid)?,
+                _ => return Err(ActionRefused::Conflict("这个任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into())),
+            },
+        };
+        self.action(&run, body).map_err(ActionRefused::Invalid)
+    }
+
     // @project-doc docs/interfaces/http_api.md#run_actions
     pub fn action(self: &Arc<Self>, run: &Arc<Run>, a: &Value) -> Result<()> {
         let kind = a["type"].as_str().unwrap_or("");
@@ -572,4 +622,19 @@ impl App {
         }
         Ok(())
     }
+}
+
+/// What a request to act on a run came to.
+pub enum ActionReply {
+    Done,
+    /// A request with a `commandId` that was already claimed: nothing was done again.
+    Duplicate,
+}
+
+/// Why a request to act on a run was turned down.
+pub enum ActionRefused {
+    NotFound,
+    /// The run's state does not allow it now.
+    Conflict(String),
+    Invalid(anyhow::Error),
 }

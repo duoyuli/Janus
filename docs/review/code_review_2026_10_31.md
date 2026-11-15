@@ -20,7 +20,7 @@
 | --- | --- | --- | --- | --- |
 | J-01 | 高 | 已确认 | MCP 的 `who` 没有绑定到发放 URL 的会话，协作者可以请求主控工具 | `backend/src/orchestrator.rs:1058` |
 | J-02 | 高 | 已确认 | Agent 的 `envText` 原值写入 SQLite，并通过设置接口返回 | `backend/src/agents.rs:396` |
-| J-03 | 高 | 已确认 | `commandId` 的检查、操作和记录不是原子流程 | `backend/src/main.rs:333` |
+| J-03 | 高 |  已修复  | `commandId` 的检查、操作和记录不是原子流程 | `backend/src/main.rs:333` |
 | J-04 | 高 | 已确认 | 事件持久化失败后仍然广播，事实来源与页面状态可能分离 | `backend/src/orchestrator.rs:390` |
 | J-05 | 高 | 已确认 | Run 只保存 Provider ID，后续任务重新读取当前 Provider 配置 | `backend/src/orchestrator.rs:1480` |
 | J-06 | 中高 |  已修复  | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
@@ -65,6 +65,8 @@
 触发条件：两个请求同时使用相同 `commandId`，或者第一个请求执行 `app.action` 后、写入 `commands` 前进程退出。
 
 建议：把操作声明、执行中、成功、失败和可重试状态放入数据库状态机，并按 Run 串行化操作。对可重复的操作使用数据库原子认领；对不可重复的操作，恢复时必须能够判断操作是否已经产生事实事件。应增加并发请求和崩溃恢复测试。
+
+处理（2026-11-15）：操作的处理移到 `App::request_action`：带 `commandId` 的请求先占用这个 id（`claim_command`，主键冲突即重复），再执行；执行失败时释放（`release_command`），可以重试。验收和从中断处继续这两条原来不记录 id 的路径也走同一流程。测试 `a_command_id_acts_once_and_a_failed_action_can_be_retried` 让两个带同一 id 的请求同时到达，确认只执行一次。
 
 ### J-04：事件持久化失败后仍然向前端广播
 

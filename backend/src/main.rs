@@ -25,7 +25,7 @@ use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use orchestrator::{App, Config, NewRun, expand_home, git};
+use orchestrator::{ActionRefused, ActionReply, App, Config, NewRun, expand_home, git};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -437,72 +437,14 @@ async fn mcp_stream() -> StatusCode {
     StatusCode::METHOD_NOT_ALLOWED
 }
 
-async fn action(
-    State(app): State<Arc<App>>,
-    UrlPath(id): UrlPath<String>,
-    Json(body): Json<Value>,
-) -> ApiResult {
-    let command_id = body["commandId"]
-        .as_str()
-        .filter(|s| !s.trim().is_empty())
-        .map(str::to_owned);
-    if let Some(command_id) = command_id.as_deref()
-        && app.db.command_exists(&id, command_id).map_err(bad)? {
-            return Ok(
-                Json(json!({ "ok": true, "duplicate": true, "commandId": command_id }))
-                    .into_response(),
-            );
-        }
-    if let Some(expected) = body["expectedSequence"].as_i64() {
-        let actual = app.db.max_seq(&id).map_err(bad)?;
-        if expected != actual {
-            return Err((
-                StatusCode::CONFLICT,
-                format!("状态已变化：expectedSequence={expected}，当前为 {actual}"),
-            ));
-        }
+async fn action(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Json(body): Json<Value>) -> ApiResult {
+    match app.request_action(&id, &body).await {
+        Ok(ActionReply::Done) => Ok(Json(json!({ "ok": true })).into_response()),
+        Ok(ActionReply::Duplicate) => Ok(Json(json!({ "ok": true, "duplicate": true, "commandId": body["commandId"] })).into_response()),
+        Err(ActionRefused::NotFound) => Err((StatusCode::NOT_FOUND, "run not found".into())),
+        Err(ActionRefused::Conflict(why)) => Err((StatusCode::CONFLICT, why)),
+        Err(ActionRefused::Invalid(err)) => Err(bad(err)),
     }
-    let run = match app.run(&id) {
-        Some(run) => run,
-        None => match body["type"].as_str().unwrap_or("") {
-            // Acceptance needs no live agents, so it also works for runs delivered before a restart.
-            "accept" => {
-                app.accept_archived(&id).map_err(bad)?;
-                return Ok(Json(json!({ "ok": true })).into_response());
-            }
-            // Continuing, or simply talking to an agent, brings an interrupted run back.
-            "resumeRun" => {
-                app.resume_run(&id).await.map_err(bad)?;
-                return Ok(Json(json!({ "ok": true })).into_response());
-            }
-            "message" => app.resume_run(&id).await.map_err(bad)?,
-            _ => {
-                return Err((
-                    StatusCode::CONFLICT,
-                    "这个任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
-                ));
-            }
-        },
-    };
-    if body["type"] == "resumeRun" {
-        // The run is live (a failed driver removes its run, see launch), so there is nothing to resume.
-        return Err((
-            StatusCode::CONFLICT,
-            "这个 Run 正在进行，不需要从中断处继续".into(),
-        ));
-    }
-    app.action(&run, &body).map_err(bad)?;
-    if let Some(command_id) = command_id {
-        app.db
-            .record_command(
-                &id,
-                &command_id,
-                &json!({ "accepted": true, "type": body["type"] }),
-                orchestrator::now_ms(),
-            )
-            .map_err(bad)?;
-    }
-    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 async fn export(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {

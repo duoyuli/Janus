@@ -357,32 +357,20 @@ impl Db {
         Ok(())
     }
 
-    pub fn record_command(
-        &self,
-        run_id: &str,
-        command_id: &str,
-        result: &Value,
-        now: i64,
-    ) -> Result<bool> {
+    /// Claim a command id for a run before acting on it. Only the first claim of one id succeeds,
+    /// so two requests carrying it cannot both act.
+    pub fn claim_command(&self, run_id: &str, command_id: &str, request: &Value, now: i64) -> Result<bool> {
         let changed = self.0.lock().unwrap().execute(
             "INSERT OR IGNORE INTO commands (run_id, command_id, result, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![run_id, command_id, result.to_string(), now],
+            params![run_id, command_id, request.to_string(), now],
         )?;
         Ok(changed == 1)
     }
 
-    pub fn command_exists(&self, run_id: &str, command_id: &str) -> Result<bool> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .query_row(
-                "SELECT 1 FROM commands WHERE run_id = ?1 AND command_id = ?2",
-                params![run_id, command_id],
-                |_| Ok(true),
-            )
-            .optional()?
-            .unwrap_or(false))
+    /// Give a claimed command id back after its action failed, so a retry can act.
+    pub fn release_command(&self, run_id: &str, command_id: &str) -> Result<()> {
+        self.0.lock().unwrap().execute("DELETE FROM commands WHERE run_id = ?1 AND command_id = ?2", params![run_id, command_id])?;
+        Ok(())
     }
 
     pub fn acquire_lease(
@@ -493,19 +481,14 @@ mod tests {
     }
 
     #[test]
-    fn command_recording_is_idempotent() {
+    fn a_command_id_is_claimed_once_until_it_is_released() {
         let (db, path) = temp_db("commands");
         db.insert_run("r1", "test", "/tmp", &json!({}), 1).unwrap();
-        assert!(!db.command_exists("r1", "c1").unwrap());
-        assert!(
-            db.record_command("r1", "c1", &json!({ "ok": true }), 2)
-                .unwrap()
-        );
-        assert!(db.command_exists("r1", "c1").unwrap());
-        assert!(
-            !db.record_command("r1", "c1", &json!({ "ok": true }), 3)
-                .unwrap()
-        );
+        assert!(db.claim_command("r1", "c1", &json!({ "type": "pause" }), 2).unwrap());
+        assert!(!db.claim_command("r1", "c1", &json!({ "type": "pause" }), 3).unwrap(), "a second claim of one id fails");
+        assert!(db.claim_command("r1", "c2", &json!({ "type": "pause" }), 3).unwrap());
+        db.release_command("r1", "c1").unwrap();
+        assert!(db.claim_command("r1", "c1", &json!({ "type": "pause" }), 4).unwrap(), "a released id can be claimed again");
         let _ = std::fs::remove_file(path);
     }
 
