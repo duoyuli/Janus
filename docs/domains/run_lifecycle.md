@@ -178,6 +178,8 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 任务失败不会让 Run 停下来等用户。主控结束时还有协作者在等主控回答的，提问转给用户，见[目标模式与共享看板](goal_mode.md#question_routing)。
 
+交付后主控的会话不结束，而是保留为常规对话：用户可以直接写下一轮任务，或用 `/goal` 设置新的目标。此时主控不再接收看板推送；它在对话中通过看板提交的新任务会重新启动调度循环，完成后再次交付。服务重启或会话退出后，已交付的 Run 只读。
+
 <a id="run_statuses"></a>
 ## Run 状态
 
@@ -187,12 +189,12 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 | `running` | 运行中；暂停时状态也保持 `running` |
 | `waiting_input` | 超出预算，等待用户追加预算或取消 |
 | `delivered` | 已交付，等待验收 |
-| `accepted` | 用户核对后验收。只能从 `delivered` 进入，之后不再变化 |
+| `accepted` | 用户核对后验收。只能从 `delivered` 进入；继续下指令或设置新目标时重新打开 |
 | `cancelled` | 用户取消 |
 | `failed` | Run 失败，例如主控会话异常结束 |
 | `interrupted` | 编排器重启时 Run 还未结束 |
 
-状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning`、`running` 和 `waiting_input` 可以暂停、继续或追加预算；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；`cancelled` 状态会同时置位 `cancelled` 标记。
+状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning`、`running` 和 `waiting_input` 可以暂停、继续或追加预算；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；已验收的 Run 在会话里继续工作或再次交付时重新打开；`cancelled` 状态会同时置位 `cancelled` 标记。
 
 
 <a id="user_actions"></a>

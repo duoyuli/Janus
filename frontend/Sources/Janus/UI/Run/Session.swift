@@ -19,11 +19,13 @@ struct SessionInfo {
     var idle: Bool
     var resume: Bool
     var leave: Bool
+    /// The lead's first goal is done, but its session is still open for a regular conversation.
+    var converse: Bool
 }
 
 func taskSession(_ st: RunState, _ t: TaskState) -> SessionInfo {
     // A conflict is recorded on the task whose edit found it; the other task's session shows it too.
-    SessionInfo(evs: st.events.filter { ($0.task == t.id || ($0.type == "task.conflict" && $0.data["other"].str == t.id)) && isSessionEvent($0) }, open: t.live, human: t.control == "human", idle: t.turn == "idle", resume: ["interrupted", "failed"].contains(st.run.status), leave: false)
+    SessionInfo(evs: st.events.filter { ($0.task == t.id || ($0.type == "task.conflict" && $0.data["other"].str == t.id)) && isSessionEvent($0) }, open: t.live, human: t.control == "human", idle: t.turn == "idle", resume: ["interrupted", "failed"].contains(st.run.status), leave: false, converse: false)
 }
 
 /// Everything one agent did in this run, and where a message to it goes right now.
@@ -38,7 +40,8 @@ func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
         if ((e.type == "user.message" || e.type == "message.routed") && e.data["delivery"].str == "prompt") || ["control.released", "message.delivered", "attempt.started"].contains(e.type) { idle = false }
     }
     let active = !["delivered", "accepted", "cancelled"].contains(st.run.status)
-    return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: ["interrupted", "failed"].contains(st.run.status), leave: active)
+    let converse = id == "lead" && ["delivered", "accepted"].contains(st.run.status)
+    return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: ["interrupted", "failed"].contains(st.run.status), leave: active, converse: converse)
 }
 
 /// One conversation view for every session.
@@ -138,6 +141,14 @@ struct ChatCard: View {
         }
         if info.resume {
             return ("已中断", .gray, AnyView(HStack { Button("从中断处继续") { Task { await run.act(["type": "resumeRun"]) } }; btn("sessSend", "发送并继续", true) }), "补充信息或直接写「继续」，发送后从中断处恢复", true)
+        }
+        if info.converse && live {
+            // The first goal is done; the same session now takes ordinary prompts. A slash command
+            // starts a new goal and Janus follows it again.
+            return ("可以继续对话", .gray, AnyView(btn("sessSend", "发送", true)), "写下接下来要做的，或用 /goal 设置新的目标", true)
+        }
+        if info.converse {
+            return ("对话已结束", .gray, AnyView(EmptyView()), "只读查看", false)
         }
         if info.leave && live {
             return ("当前没有会话", .gray, AnyView(btn("sessSend", "留言", true)), "留言会在它下一次会话开始时带给它", true)

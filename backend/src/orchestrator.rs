@@ -1079,8 +1079,20 @@ impl App {
                     Err(format!("{err:#}"))
                 }
             };
-            r.st.lock().unwrap().lead_done = Some(done);
-            app.escalate_open_questions(&r);
+            // The lead sets this when its first goal completes, while the session stays open for
+            // conversation. Do not replace the delivered summary with a later chat reply.
+            let first = {
+                let mut st = r.st.lock().unwrap();
+                if st.lead_done.is_none() {
+                    st.lead_done = Some(done);
+                    true
+                } else {
+                    false
+                }
+            };
+            if first {
+                app.escalate_open_questions(&r);
+            }
             r.lead_nudge.notify_one();
             r.wake.notify_one();
         });
@@ -1094,6 +1106,7 @@ impl App {
             run.lead_nudge.notified().await;
             {
                 let st = run.st.lock().unwrap();
+                // Delivery ends automatic board pushes; the session then only answers the person.
                 if st.cancelled || st.lead_done.is_some() {
                     return;
                 }
@@ -1254,7 +1267,12 @@ impl App {
                 self.record_session_prompt(run, &ctx, &sid, "system", &brief);
             }
             let mut prompt = format!("/goal {}", goal_condition(&run.goal));
+            let mut delivered = false;
             loop {
+                // A slash command starts a new goal; a message sent while one is active belongs
+                // to that goal's turn. Both complete through the same branch below.
+                let goal_turn = prompt.trim_start().starts_with("/goal ")
+                    || run.st.lock().unwrap().goal_status.as_deref() == Some("active");
                 self.record_session_prompt(
                     run,
                     &ctx,
@@ -1271,7 +1289,12 @@ impl App {
                     let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
                     self.emit(run, ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
                     let texts: Vec<&str> = msgs.iter().map(|m| m.text.as_str()).collect();
-                    prompt = format!("{}\n\n请结合这些信息继续推进目标：{}", texts.join("\n\n"), run.goal);
+                    let next = texts.join("\n\n");
+                    prompt = if delivered {
+                        next
+                    } else {
+                        format!("{next}\n\n请结合这些信息继续推进目标：{}", run.goal)
+                    };
                     continue;
                 }
                 if ctl.human && !ctl.finish {
@@ -1310,7 +1333,39 @@ impl App {
                         continue;
                     }
                 }
-                return Ok(text);
+                if !delivered {
+                    // The goal is complete. Delivery can happen while this session stays open:
+                    // the person may write the next task or set a new goal with a slash command.
+                    delivered = true;
+                    run.watch.lock().unwrap().remove(LEAD_WATCH);
+                    {
+                        let mut st = run.st.lock().unwrap();
+                        // A goal that was ended by hand must not make the next chat turn follow it.
+                        st.goal_status = None;
+                        st.lead_done = Some(Ok(text.clone()));
+                    }
+                    run.lead_nudge.notify_one();
+                    run.wake.notify_one();
+                    // The run is delivered; a collaborator still waiting on the board now waits on
+                    // the person, as it did when the lead's session ended.
+                    self.escalate_open_questions(run);
+                    self.emit(run, ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标").data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })));
+                } else if goal_turn {
+                    // A new goal in the conversation is a new result: deliver it like the first one.
+                    run.st.lock().unwrap().lead_done = Some(Ok(text.clone()));
+                    run.wake.notify_one();
+                    if !run.driving.load(Ordering::SeqCst) {
+                        self.deliver(run);
+                    }
+                }
+                ctl.human = false;
+                ctl.finish = false;
+                ctl.interrupted = false;
+                run.set_human(LEAD_WATCH, 0, false);
+                let Some(next) = self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? else {
+                    return Ok(text);
+                };
+                prompt = next;
             }
         }
         .await;
@@ -1327,10 +1382,53 @@ impl App {
         for key in stale {
             self.withdraw(run, &key, "", 0, "主控的会话已结束，撤回这个请求");
         }
+        run.lead_nudge.notify_one();
         if let Some(conn) = conn {
             conn.kill().await;
         }
         result
+    }
+
+    /// After the first goal, the lead session is a regular conversation: wait for the person's
+    /// next task (or `/goal`), answer the agent's requests on the way, and give up if it exits.
+    async fn wait_for_lead_message(
+        &self,
+        run: &Run,
+        conn: &AcpConn,
+        rx: &mut mpsc::UnboundedReceiver<Incoming>,
+        sid: &str,
+        ctl: &mut Control,
+        ctx: &Ctx<'_>,
+    ) -> Result<Option<String>> {
+        loop {
+            tokio::select! {
+                cmd = ctl.rx.recv() => match cmd {
+                    None => return Err(Cancelled.into()),
+                    Some(Steer::Message(m)) => {
+                        self.route_message(run, "lead", "", 0, &m.id, "prompt");
+                        return Ok(Some(m.text));
+                    }
+                    Some(Steer::Control(id, value, via)) => {
+                        if let Err(err) = self.set_control(run, conn, sid, &id, &value, &via, ctx).await {
+                            self.show(run, ("session.control", format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": id, "failed": true })), ctx);
+                        }
+                    }
+                    Some(Steer::Finish) => return Ok(None),
+                    Some(Steer::TakeOver | Steer::Interrupt | Steer::Release | Steer::Redirect(_)) => {}
+                },
+                msg = rx.recv() => match msg {
+                    None | Some(Incoming::Closed) => return Err(anyhow!("Agent 进程已退出")),
+                    Some(Incoming::Request { id, method, .. }) => {
+                        if is_user_request(&method) {
+                            conn.respond(id, cancelled_reply(&method)).await?;
+                        } else {
+                            conn.respond_error(id, "janus does not implement this client method").await?;
+                        }
+                    }
+                    Some(Incoming::Notification { .. }) => {}
+                }
+            }
+        }
     }
 
     /// Starts the adapter so the standing instructions reach the agent's system layer.
@@ -1583,7 +1681,7 @@ impl App {
     }
 
     /// Validate an orchestration and, if it holds, put its tasks on the board for the scheduler.
-    fn board_orchestrate(&self, run: &Run, args: &Value) -> std::result::Result<String, String> {
+    fn board_orchestrate(self: &Arc<Self>, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
         let defs = {
             let st = run.st.lock().unwrap();
             let board: Vec<(TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (t.def.clone(), t.status)).collect();
@@ -1612,6 +1710,8 @@ impl App {
             st.tasks.len()
         };
         self.emit(run, ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个任务写入看板，开始执行", defs.len())).data(json!({ "tasks": tasks, "total": n })));
+        // After delivery the scheduler has returned; new work written in a conversation starts it again.
+        self.ensure_driver(run);
         run.wake.notify_one();
         Ok(format!(
             "编排已通过校验并开始执行：{}。用 janus.wait 取回进展和结果。",
@@ -1695,7 +1795,7 @@ impl App {
 
     /// The lead runs a failed or cancelled task again, optionally with new instructions or
     /// acceptance criteria. Tasks blocked on it start once it succeeds.
-    fn board_retry(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+    fn board_retry(self: &Arc<Self>, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
         let task = args["task"].as_str().unwrap_or("").trim();
         let instructions = args["instructions"].as_str().map(str::trim).filter(|s| !s.is_empty());
         let accept: Option<Vec<String>> = args["accept"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect());
@@ -1750,6 +1850,7 @@ impl App {
         for (id, up) in &revived {
             self.emit(run, ev("task.reopened", "janus", format!("{up} 重新执行，因它取消的 {id} 恢复等待")).task(id).data(json!({ "reason": "upstream.retry", "upstream": up })));
         }
+        self.ensure_driver(run);
         run.wake.notify_one();
         if revived.is_empty() {
             Ok(format!("{task} 会重新执行，依赖它的任务会在它成功后继续。"))
@@ -6705,6 +6806,84 @@ mod flow_tests {
         assert!(t2.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("下一个任务注意测试"), "the note is in T2's prompt");
         finish_lead(&h);
         wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// After delivery the lead session stays open: the person's next instruction runs as an
+    /// ordinary turn in the same session, without creating another run.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_delivered_goal_stays_open_for_the_next_instruction() {
+        let h = harness("converse", &[("lead", false), ("m1", false)], json!({ "T1": ["ok"] }));
+        let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+        wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+
+        act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "再看看 README" }));
+        wait_until(&h.app, &run, "follow-up prompt", |evs| {
+            evs.iter().any(|e| {
+                e.kind == "session.prompt"
+                    && e.data.as_ref().is_some_and(|d| {
+                        d["channel"] == "followup"
+                            && d["prompt"].as_str().is_some_and(|t| t.contains("再看看 README"))
+                    })
+            })
+        })
+        .await;
+        let evs = events(&h.app, &run);
+        assert!(
+            evs.iter().any(|e| e.kind == "user.message" && e.data.as_ref().is_some_and(|d| d["text"].as_str().is_some_and(|t| t.contains("再看看 README")))),
+            "the message is shown in the same session"
+        );
+        assert_eq!(evs.iter().filter(|e| e.kind == "run.created").count(), 1, "no new run");
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// Acceptance does not close the conversation: the person may still give it another task.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_accepted_goal_still_takes_instructions() {
+        let h = harness("converse-accepted", &[("lead", false), ("m1", false)], json!({ "T1": ["ok"] }));
+        let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+        wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        act(&h, &run, json!({ "type": "accept" }));
+        wait_until(&h.app, &run, "accepted", |e| has(e, "risk.accepted")).await;
+
+        act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "再补一份说明" }));
+        wait_until(&h.app, &run, "follow-up prompt", |evs| {
+            evs.iter().any(|e| {
+                e.kind == "session.prompt"
+                    && e.data.as_ref().is_some_and(|d| {
+                        d["channel"] == "followup"
+                            && d["prompt"].as_str().is_some_and(|t| t.contains("再补一份说明"))
+                    })
+            })
+        })
+        .await;
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
+
+    /// A slash command after delivery sets the next goal in the same session.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_delivered_goal_takes_a_new_slash_command() {
+        let h = harness("converse-goal", &[("lead", false), ("m1", false)], json!({ "T1": ["ok"] }));
+        let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+        wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+        finish_lead(&h);
+        wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+
+        act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "/goal 新目标" }));
+        wait_until(&h.app, &run, "new goal prompt", |evs| {
+            evs.iter().any(|e| {
+                e.kind == "session.prompt"
+                    && e.data.as_ref().is_some_and(|d| {
+                        d["channel"] == "goal" && d["prompt"].as_str().is_some_and(|t| t.contains("新目标"))
+                    })
+            })
+        })
+        .await;
+        assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind == "run.created").count(), 1, "no new run");
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 

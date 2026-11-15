@@ -59,3 +59,17 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(!ToolRow.hidden(call("tool.started", "调用 janus.wait，等待返回", "janus.wait"), done: []), "Janus's own record stays")
     #expect(!ToolRow.hidden(call("tool.call", "Read calc.py", "read"), done: []))
 }
+
+/// After delivery the lead's session is a regular conversation, not a closed one; other agents stay
+/// closed.
+@Test func aDeliveredLeadStaysInConversation() {
+    var st = RunState()
+    st.run.goal = "目标"
+    st.run.status = "delivered"
+    #expect(agentSession(st, "lead").converse)
+    #expect(!agentSession(st, "m1").converse)
+    st.run.status = "accepted"
+    #expect(agentSession(st, "lead").converse)
+    st.run.status = "cancelled"
+    #expect(!agentSession(st, "lead").converse)
+}

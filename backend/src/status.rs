@@ -77,6 +77,8 @@ impl RunStatus {
                 | (Running, WaitingInput | Delivered | Failed | Cancelled | Interrupted)
                 | (WaitingInput, Running | Delivered | Failed | Cancelled | Interrupted)
                 | (Delivered, Accepted | Running | Failed | Cancelled | Interrupted)
+                // Continuing an accepted run (a new task or goal in its session) reopens it.
+                | (Accepted, Running | Delivered)
                 // Resuming rebuilds the run from its event log; the new driver starts running.
                 | (Failed, Running)
                 | (Interrupted, Running)
@@ -286,12 +288,13 @@ mod tests {
         assert!(RunStatus::Delivered.can_transition_to(RunStatus::Accepted));
         assert!(RunStatus::Delivered.can_transition_to(RunStatus::Running), "a retry reopens delivery");
         assert!(!RunStatus::Cancelled.can_transition_to(RunStatus::Running));
-        assert!(!RunStatus::Accepted.can_transition_to(RunStatus::Delivered));
+        assert!(RunStatus::Accepted.can_transition_to(RunStatus::Delivered), "a new goal delivers again");
+        assert!(RunStatus::Accepted.can_transition_to(RunStatus::Running), "new work reopens it");
         assert!(!RunStatus::Planning.can_transition_to(RunStatus::Accepted));
-        // Only a delivered run is accepted, and nothing follows acceptance.
+        // Only a delivered run is accepted.
         assert!(!RunStatus::Running.can_transition_to(RunStatus::Accepted));
         assert!(!RunStatus::WaitingInput.can_transition_to(RunStatus::Accepted));
-        assert!([RunStatus::Running, RunStatus::Cancelled, RunStatus::Interrupted, RunStatus::Failed].iter().all(|to| !RunStatus::Accepted.can_transition_to(*to)));
+        assert!([RunStatus::Cancelled, RunStatus::Interrupted, RunStatus::Failed].iter().all(|to| !RunStatus::Accepted.can_transition_to(*to)));
         assert!(RunStatus::Running.can_transition_to(RunStatus::Running));
     }
 

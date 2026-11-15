@@ -66,7 +66,15 @@ struct Sidebar: View {
         List(selection: selection) {
             if let ws {
                 let runs = store.runs(of: ws)
-                Section("任务记录") {
+                Section {
+                    // A finished run no longer needs a session to start the next one: the
+                    // workspace home is where a new goal is written.
+                    Button { store.open(.home(ws["id"].str)) } label: {
+                        Label("新建任务", systemImage: "plus.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accent)
+                    .help("新建任务：打开工作区，写下目标并交给主控")
                     if runs.isEmpty { Text("还没有任务").foregroundStyle(.secondary).font(.callout) }
                     ForEach(runs, id: \.self) { r in
                         // A run waiting on the person says so, with how many, like the inbox.
@@ -83,6 +91,8 @@ struct Sidebar: View {
                         .accessibilityValue(waiting == 0 ? label : "\(waiting) 项等你处理")
                         .tag(Screen.run(r["id"].str))
                     }
+                } header: {
+                    Text("任务记录")
                 }
             }
         }

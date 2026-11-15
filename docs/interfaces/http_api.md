@@ -188,7 +188,7 @@ Content-Type: application/json
 | `answer` | `key`、`task`、`answer`、`note` | 回答提问；回答主控用 `ask_user` 提的问题时 `task` 为空 |
 | `approve` | `key`、`task`、`allow`、`option`、`label` | 处理审批请求，`option` 是 Agent 给出的 `optionId` |
 | `input` | `key`、`task`、`action`、`content` | 处理表单请求，`action` 是 `accept`、`decline` 或 `cancel` |
-| `message` | `text`、`images`（可选，见[图片](#images)），`agent` 或 `task` | 给会话发消息，`text` 和 `images` 至少有一个；Run 已中断时先恢复。`text` 中的 `@路径` 作为文件引用交给 Agent，见 [ACP 集成](acp_integration.md#methods) |
+| `message` | `text`、`images`（可选，见[图片](#images)），`agent` 或 `task` | 给会话发消息，`text` 和 `images` 至少有一个；Run 已中断时先恢复。已交付的 Run 只要主控会话还在，就作为普通一轮执行；服务重启后会话结束，不能恢复已交付的 Run。`text` 中的 `@路径` 作为文件引用交给 Agent，见 [ACP 集成](acp_integration.md#methods) |
 | `control` | `id`、`value`、`via`（`mode` / `config`，默认 `config`），`agent` 或 `task` | 切换打开着的会话的模型、推理强度或模式；`id` 或 `value` 为空时拒绝；会话没有打开时报错。见[会话中切换控制项](acp_integration.md#session_controls) |
 | `interrupt` | `agent` 或 `task` | 打断当前一轮 |
 | `takeover` | `agent` 或 `task` | 接管会话，Agent 每轮结束后等用户消息 |
