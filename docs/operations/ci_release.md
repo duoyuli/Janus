@@ -9,7 +9,7 @@
 
 | 任务 | 运行环境 | 内容 |
 | --- | --- | --- |
-| Orchestrator | `macos-15` | `cargo test --locked`（Rust 编排器的全部测试，含 `flow_tests`） |
+| Orchestrator | `macos-15` | `cargo clippy --all-targets --locked -- -D warnings`（没有诊断才通过），然后 `cargo test --locked`（Rust 编排器的全部测试，含 `flow_tests`） |
 | macOS app | `macos-15` | `swift build`、`swift test`（应用的构建和 Swift Testing 测试） |
 
 两项都在 macOS 上运行：编排器的测试需要 `git` 和 `python3`，应用的测试需要 Xcode，运行环境都自带。

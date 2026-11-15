@@ -8,7 +8,7 @@
 满足以下全部条件才合并。不满足的项写进提交说明并说明原因，不能静默跳过。
 
 1. `just test` 通过，并且新行为有测试。测试要走真实的鉴权、校验和持久化路径，不能直接读内部状态绕过它们（见 [L-03](#l03)）。
-2. `cargo clippy --all-targets -- -D warnings` 的诊断数量不比合并前多。新代码不新增 `#[allow(...)]`，确有必要时在旁边写明理由。
+2. `cargo clippy --all-targets -- -D warnings` 没有诊断，CI 中执行。新代码不新增 `#[allow(...)]`，确有必要时在旁边写明理由。
 3. 一个提交只做一件事。提交说明里的条目超过三项、或者涉及互不相关的功能时，拆开提交（见 [L-04](#l04)）。
 4. 不往 `orchestrator.rs`、`agents.rs` 这类超过 2000 行的文件里继续堆新功能；新功能放进新模块，旧文件只留调用（见 [L-04](#l04)）。
 5. 扩大信任边界的改动（新的下载来源、执行第三方脚本、新的网络监听、读写用户目录、改变凭据的存放）要先写 ADR，并更新[安全边界](security.md)（见 [L-05](#l05)）。
@@ -74,7 +74,7 @@ CI 只运行 `cargo test`。`cargo fmt --check` 和 `cargo clippy -D warnings` �
 
 清理中发现但没有在当次处理的问题。处理后从本节删除，并在清理记录中注明。
 
-- `cargo fmt --check` 和 `cargo clippy -D warnings` 不通过，也不在 CI 中（[L-02](#l02)）。需要决定是否采用 rustfmt（或配置行宽），以及是否把 clippy 加进 CI。
+- `cargo fmt --check` 不通过，也不在 CI 中（[L-02](#l02)）。需要决定是否采用 rustfmt（或配置行宽）。
 - [代码审查报告](../review/code_review_2026_10_31.md)中 J-03（`commandId` 去重非原子）、J-06（Run 列表 `LIMIT 50`）、J-09（PID 文件锁非原子）在 2026-11-08 抽查时仍存在；其余条目尚未逐项复核。J-02 已在[安全边界](security.md#secrets)中写成接受的风险。
 - 默认工作目录 `defaultCwd` 指向仓库内的 `examples/calc`（`backend/src/main.rs`）。Run 在工作目录中原地修改，等于让 Agent 改仓库内容，和「运行时不向仓库写任何文件」冲突。2026-11-08 发现该子模块的 `README.md` 和 `.agents/skills/calc-conventions/SKILL.md` 已被删除（11 月 1 日前后，未恢复，由用户决定）。
 

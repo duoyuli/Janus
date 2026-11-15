@@ -3,7 +3,7 @@
 //! and every change is written to SQLite as an event before anything else happens.
 
 use crate::acp::{AcpConn, Incoming};
-use crate::db::{Db, Event};
+use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verification};
 use crate::git_probe;
 use crate::status::{AgentPhase, AttemptStatus, RunStatus, TaskStatus};
@@ -491,6 +491,32 @@ struct Ctx<'a> {
     /// The lead's goal session: a prompt that returns while the agent's goal is still active
     /// does not end the turn; the session is followed until the goal settles.
     goal: bool,
+}
+
+/// The open ACP session a prompt turn runs in: its connection, its incoming messages and its id.
+struct PromptSession<'a> {
+    conn: &'a Arc<AcpConn>,
+    rx: &'a mut mpsc::UnboundedReceiver<Incoming>,
+    sid: &'a str,
+}
+
+/// A control the person switches in an open session (`set_control`).
+struct ControlChange<'a> {
+    id: &'a str,
+    value: &'a Value,
+    /// `mode` for an ACP session mode, else a config option.
+    via: &'a str,
+}
+
+/// A file an attempt produced, saved under the run's artifacts (`save_artifact`).
+struct NewArtifact<'a> {
+    task: &'a str,
+    attempt: i64,
+    agent: &'a str,
+    name: &'a str,
+    kind: &'a str,
+    bytes: &'a [u8],
+    desc: &'a str,
 }
 
 impl App {
@@ -1252,7 +1278,7 @@ impl App {
                 // Codex has no slot for extra instructions: the brief goes in first, as context.
                 let ack = format!("{brief}\n\n以上是背景信息。现在只回复“已了解”，不要开始工作，目标会在下一条消息里给出。");
                 self.record_session_prompt(run, &ctx, &sid, "context", &ack);
-                self.stream_prompt(run, &conn, &mut rx, &sid, &ack, &Ctx { goal: false, ..ctx }, Some(&mut ctl), Some(STARTUP_TIMEOUT)).await?;
+                self.stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &ack, &Ctx { goal: false, ..ctx }, Some(&mut ctl), Some(STARTUP_TIMEOUT)).await?;
             } else {
                 // Claude receives the brief through session/new's systemPrompt.append. Record it
                 // explicitly so the session view shows the same context the model receives.
@@ -1272,7 +1298,7 @@ impl App {
                     if prompt.starts_with("/goal ") { "goal" } else { "followup" },
                     &prompt,
                 );
-                let text = self.stream_prompt(run, &conn, &mut rx, &sid, &prompt, &ctx, Some(&mut ctl), None).await?;
+                let text = self.stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &prompt, &ctx, Some(&mut ctl), None).await?;
                 if let Some(reason) = goal_refused(&text) {
                     bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
                 }
@@ -1312,7 +1338,7 @@ impl App {
                             }
                             Some(Steer::Finish) => ctl.finish = true,
                             Some(Steer::Control(id, value, via)) => {
-                                if let Err(err) = self.set_control(run, &conn, &sid, &id, &value, &via, &ctx).await {
+                                if let Err(err) = self.set_control(run, &conn, &sid, ControlChange { id: &id, value: &value, via: &via }, &ctx).await {
                                     self.show(run, ("session.control", format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": id, "failed": true })), &ctx);
                                 }
                                 continue;
@@ -1502,7 +1528,7 @@ impl App {
                 let goal_turn = next.trim_start().starts_with("/goal ")
                     || run.st.lock().unwrap().goal_status.as_deref() == Some("active");
                 self.record_session_prompt(run, &ctx, &sid, if next.starts_with("/goal ") { "goal" } else { "followup" }, &next);
-                let text = self.stream_prompt(run, &conn, &mut rx, &sid, &next, &ctx, Some(&mut ctl), None).await?;
+                let text = self.stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &next, &ctx, Some(&mut ctl), None).await?;
                 if let Some(reason) = goal_refused(&text) {
                     self.emit(run, ev("session.prompt", "janus", format!("主控没有把它当作新的目标：{reason}")).to("lead"));
                 }
@@ -1584,7 +1610,7 @@ impl App {
                         return Ok(Some(m.text));
                     }
                     Some(Steer::Control(id, value, via)) => {
-                        if let Err(err) = self.set_control(run, conn, sid, &id, &value, &via, ctx).await {
+                        if let Err(err) = self.set_control(run, conn, sid, ControlChange { id: &id, value: &value, via: &via }, ctx).await {
                             self.show(run, ("session.control", format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": id, "failed": true })), ctx);
                         }
                     }
@@ -2667,7 +2693,7 @@ impl App {
             };
             if matches!(next, Next::Late) {
                 // The lead cancelled or retried the task while this attempt was ending.
-                let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, None, None, Some(&msg), Some(now_ms()));
+                let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, AttemptUpdate { error: Some(&msg), ended: Some(now_ms()), ..Default::default() });
                 self.emit(
                     run,
                     ev(
@@ -2684,16 +2710,7 @@ impl App {
             // Only a cancelled run counts as cancellation. Anything else, including an agent
             // ending its own turn as cancelled, is a failed attempt.
             let cancelled = matches!(next, Next::Cancelled);
-            let _ = self.db.update_attempt(
-                &run.id,
-                id,
-                n,
-                if cancelled { AttemptStatus::Cancelled } else { AttemptStatus::Failed },
-                None,
-                None,
-                Some(&msg),
-                Some(now_ms()),
-            );
+            let _ = self.db.update_attempt(&run.id, id, n, if cancelled { AttemptStatus::Cancelled } else { AttemptStatus::Failed }, AttemptUpdate { error: Some(&msg), ended: Some(now_ms()), ..Default::default() });
             if !cancelled {
                 self.emit(
                     run,
@@ -2854,16 +2871,7 @@ impl App {
                 self.take_notes(run, &agent)
             )
         };
-        self.db.update_attempt(
-            &run.id,
-            id,
-            n,
-            AttemptStatus::Running,
-            Some(&sid),
-            Some(&workspace.to_string_lossy()),
-            None,
-            None,
-        )?;
+        self.db.update_attempt(&run.id, id, n, AttemptStatus::Running, AttemptUpdate { session: Some(&sid), workspace: Some(&workspace.to_string_lossy()), ..Default::default() })?;
         self.emit(run, ev("attempt.started", "janus", format!("启动 {id} 第 {n} 次尝试 · {}", spec.name)).task(id).attempt(n).to(&agent).data(json!({
             "attemptId": attempt_id, "session": sid, "workspace": format!("工作目录 {}", workspace.display()), "path": workspace, "runtime": spec.name, "kind": spec.kind, "agentInfo": conn.agent_info,
             "config": applied, "enforcement": enforcement(&applied), "prompt": prompt, "resumed": resumed
@@ -2921,16 +2929,7 @@ impl App {
             let mut result = loop {
                 if let Some(p) = next.take() {
                     text = self
-                        .stream_prompt(
-                            run,
-                            &conn,
-                            &mut rx,
-                            &sid,
-                            &p,
-                            &ctx,
-                            Some(&mut ctl),
-                            Some(ATTEMPT_TIMEOUT),
-                        )
+                        .stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &p, &ctx, Some(&mut ctl), Some(ATTEMPT_TIMEOUT))
                         .await?;
                     let suffix = if round == 0 {
                         String::new()
@@ -2940,16 +2939,7 @@ impl App {
                     round += 1;
                     // A turn stopped before it said anything (an interrupt) leaves no report.
                     if !text.trim().is_empty() {
-                        self.save_artifact(
-                            run,
-                            id,
-                            n,
-                            &agent,
-                            &format!("{id}-a{n}-report{suffix}.md"),
-                            "report",
-                            text.as_bytes(),
-                            "Agent 这一轮的最终回复",
-                        )?;
+                        self.save_artifact(run, NewArtifact { task: id, attempt: n, agent: &agent, name: &format!("{id}-a{n}-report{suffix}.md"), kind: "report", bytes: text.as_bytes(), desc: "Agent 这一轮的最终回复" })?;
                     }
                 }
                 if ctl.finish {
@@ -3001,7 +2991,7 @@ impl App {
                         }
                         Some(Steer::Finish) => ctl.finish = true,
                         Some(Steer::Control(cid, value, via)) => {
-                            if let Err(err) = self.set_control(run, &conn, &sid, &cid, &value, &via, &ctx).await {
+                            if let Err(err) = self.set_control(run, &conn, &sid, ControlChange { id: &cid, value: &value, via: &via }, &ctx).await {
                                 self.show(run, ("session.control", format!("切换 {cid} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": cid, "failed": true })), &ctx);
                             }
                         }
@@ -3141,7 +3131,7 @@ impl App {
             }
         };
         if !current {
-            let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, None, None, None, Some(now_ms()));
+            let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, AttemptUpdate { ended: Some(now_ms()), ..Default::default() });
             self.emit(
                 run,
                 ev(
@@ -3175,16 +3165,7 @@ impl App {
             t.succeeded_seq = Some(seq);
         }
         // The event above is the fact; a failed bookkeeping write must not turn it into a retry.
-        if let Err(err) = self.db.update_attempt(
-            &run.id,
-            id,
-            n,
-            AttemptStatus::Succeeded,
-            None,
-            None,
-            None,
-            Some(now_ms()),
-        ) {
+        if let Err(err) = self.db.update_attempt(&run.id, id, n, AttemptStatus::Succeeded, AttemptUpdate { ended: Some(now_ms()), ..Default::default() }) {
             crate::config::log(format!("janus: failed to record attempt {id}#{n}: {err:#}"));
         }
         Ok(())
@@ -3248,7 +3229,7 @@ impl App {
         if !failures.is_empty() {
             let message = failures.join("；");
             run.st.lock().unwrap().last_verification.insert(id.to_string(), failures.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n"));
-            self.db.insert_verification(&run.id, id, n, attempt_id, "failed", &json!({ "attemptId": attempt_id, "failures": failures }), now_ms())?;
+            self.db.insert_verification(&VerificationRow { run_id: &run.id, task: id, attempt: n, attempt_id, status: "failed", details: &json!({ "attemptId": attempt_id, "failures": failures }), created_at: now_ms() })?;
             self.emit(
                 run,
                 ev("verification.failed", "janus", format!("{id} 没有通过验收核对：{}", short(&message, 120)))
@@ -3258,7 +3239,7 @@ impl App {
             );
             return Err(VerificationFailed(message).into());
         }
-        self.db.insert_verification(&run.id, id, n, attempt_id, "passed", &json!({ "attemptId": attempt_id, "checks": result.checks }), now_ms())?;
+        self.db.insert_verification(&VerificationRow { run_id: &run.id, task: id, attempt: n, attempt_id, status: "passed", details: &json!({ "attemptId": attempt_id, "checks": result.checks }), created_at: now_ms() })?;
         self.emit(
             run,
             ev("verification.passed", "janus", format!("{id} 通过验收核对"))
@@ -3290,14 +3271,14 @@ impl App {
     async fn stream_prompt(
         &self,
         run: &Run,
-        conn: &Arc<AcpConn>,
-        rx: &mut mpsc::UnboundedReceiver<Incoming>,
-        sid: &str,
+        session: &mut PromptSession<'_>,
         text: &str,
         ctx: &Ctx<'_>,
         mut ctl: Option<&mut Control>,
         limit: Option<Duration>,
     ) -> Result<String> {
+        let PromptSession { conn, rx, sid } = session;
+        let (conn, sid) = (*conn, *sid);
         // The turn's own deadline replaces the ACP request timeout, so that time spent waiting
         // for a person to decide on a permission request does not count against the agent.
         let send = |text: &str| {
@@ -3595,7 +3576,7 @@ impl App {
                 }
             }
             Steer::Control(id, value, via) => {
-                if let Err(err) = self.set_control(run, conn, sid, &id, &value, &via, ctx).await {
+                if let Err(err) = self.set_control(run, conn, sid, ControlChange { id: &id, value: &value, via: &via }, ctx).await {
                     self.show(run, ("session.control", format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": id, "failed": true })), ctx);
                 }
             }
@@ -3885,7 +3866,8 @@ impl App {
     /// Switch one of the session's controls while it is open: an ACP session mode, or a config
     /// option (the model, the effort, a permission mode). The agent's answer is the new state.
     // @project-doc docs/interfaces/acp_integration.md#session_controls
-    async fn set_control(&self, run: &Run, conn: &AcpConn, sid: &str, id: &str, value: &Value, via: &str, ctx: &Ctx<'_>) -> Result<()> {
+    async fn set_control(&self, run: &Run, conn: &AcpConn, sid: &str, change: ControlChange<'_>, ctx: &Ctx<'_>) -> Result<()> {
+        let ControlChange { id, value, via } = change;
         if via == "mode" {
             conn.request("session/set_mode", json!({ "sessionId": sid, "modeId": value })).await?;
             self.show(run, ("session.control", format!("你把模式切换为 {}", value.as_str().unwrap_or_default()), json!({ "id": id, "value": value, "via": "mode", "by": "user" })), ctx);
@@ -4071,20 +4053,11 @@ impl App {
         .flatten()
         .collect::<Vec<_>>()
         .join(" · ");
-        self.save_artifact(run, id, n, agent, &format!("{id}-a{n}.diff"), "git_diff", diff.as_bytes(), &desc)
+        self.save_artifact(run, NewArtifact { task: id, attempt: n, agent, name: &format!("{id}-a{n}.diff"), kind: "git_diff", bytes: diff.as_bytes(), desc: &desc })
     }
 
-    fn save_artifact(
-        &self,
-        run: &Run,
-        task: &str,
-        n: i64,
-        agent: &str,
-        name: &str,
-        kind: &str,
-        bytes: &[u8],
-        desc: &str,
-    ) -> Result<()> {
+    fn save_artifact(&self, run: &Run, artifact: NewArtifact<'_>) -> Result<()> {
+        let NewArtifact { task, attempt: n, agent, name, kind, bytes, desc } = artifact;
         let dir = self.cfg.data_dir.join("artifacts").join(&run.id).join(task);
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(name);
@@ -4093,17 +4066,7 @@ impl App {
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
-        self.db.insert_artifact(
-            &run.id,
-            task,
-            n,
-            name,
-            kind,
-            &path.to_string_lossy(),
-            &sha,
-            bytes.len() as i64,
-            now_ms(),
-        )?;
+        self.db.insert_artifact(&ArtifactRow { run_id: &run.id, task, attempt: n, name, kind, path: &path.to_string_lossy(), sha256: &sha, bytes: bytes.len() as i64, created_at: now_ms() })?;
         let seq = self.emit(run, ev("artifact.created", agent, format!("提交产物 {name}")).task(task).attempt(n).data(json!({
             "name": name, "kind": kind, "desc": desc, "path": path, "hash": &sha[..12], "bytes": bytes.len()
         })));
@@ -4790,16 +4753,7 @@ impl App {
 
     pub fn recover(&self) -> Result<()> {
         for (run_id, task, n) in self.db.orphaned_attempts()? {
-            self.db.update_attempt(
-                &run_id,
-                &task,
-                n,
-                AttemptStatus::Interrupted,
-                None,
-                None,
-                Some("编排器重启"),
-                Some(now_ms()),
-            )?;
+            self.db.update_attempt(&run_id, &task, n, AttemptStatus::Interrupted, AttemptUpdate { error: Some("编排器重启"), ended: Some(now_ms()), ..Default::default() })?;
         }
         for run_id in self.db.unfinished_runs()? {
             let seq = self.db.max_seq(&run_id)? + 1;

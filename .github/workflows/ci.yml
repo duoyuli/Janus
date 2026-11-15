@@ -1,4 +1,4 @@
-# Every push to main and every pull request: orchestrator tests and the macOS app's build and tests.
+# Every push to main and every pull request: orchestrator lints and tests, and the macOS app's build and tests.
 # See docs/operations/ci_release.md.
 name: CI
 
@@ -13,14 +13,19 @@ concurrency:
 
 jobs:
   backend:
-    name: Orchestrator (cargo test)
+    name: Orchestrator (cargo clippy + test)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
+      - name: Clippy
+        working-directory: backend
+        run: cargo clippy --all-targets --locked -- -D warnings
       - name: Test
         working-directory: backend
         run: cargo test --locked

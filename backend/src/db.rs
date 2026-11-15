@@ -30,6 +30,39 @@ pub struct Event {
 
 pub struct Db(Mutex<Connection>);
 
+/// What changed about an attempt besides its status: whichever of these are known now.
+#[derive(Default)]
+pub struct AttemptUpdate<'a> {
+    pub session: Option<&'a str>,
+    pub workspace: Option<&'a str>,
+    pub error: Option<&'a str>,
+    pub ended: Option<i64>,
+}
+
+/// One row of `artifacts`.
+pub struct ArtifactRow<'a> {
+    pub run_id: &'a str,
+    pub task: &'a str,
+    pub attempt: i64,
+    pub name: &'a str,
+    pub kind: &'a str,
+    pub path: &'a str,
+    pub sha256: &'a str,
+    pub bytes: i64,
+    pub created_at: i64,
+}
+
+/// One row of `verifications`: how an attempt's result check went.
+pub struct VerificationRow<'a> {
+    pub run_id: &'a str,
+    pub task: &'a str,
+    pub attempt: i64,
+    pub attempt_id: &'a str,
+    pub status: &'a str,
+    pub details: &'a Value,
+    pub created_at: i64,
+}
+
 impl Db {
     // @project-doc docs/architecture/data_model.md#sqlite_tables
     pub fn open(path: &Path) -> Result<Db> {
@@ -245,17 +278,8 @@ impl Db {
         Ok(())
     }
 
-    pub fn update_attempt(
-        &self,
-        run_id: &str,
-        task: &str,
-        n: i64,
-        status: AttemptStatus,
-        session: Option<&str>,
-        workspace: Option<&str>,
-        error: Option<&str>,
-        ended: Option<i64>,
-    ) -> Result<()> {
+    pub fn update_attempt(&self, run_id: &str, task: &str, n: i64, status: AttemptStatus, update: AttemptUpdate<'_>) -> Result<()> {
+        let AttemptUpdate { session, workspace, error, ended } = update;
         self.0.lock().unwrap().execute(
             "UPDATE attempts SET status = ?4,
                session = COALESCE(?5, session), workspace = COALESCE(?6, workspace),
@@ -303,38 +327,18 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    pub fn insert_artifact(
-        &self,
-        run_id: &str,
-        task: &str,
-        attempt: i64,
-        name: &str,
-        kind: &str,
-        path: &str,
-        sha256: &str,
-        bytes: i64,
-        now: i64,
-    ) -> Result<()> {
+    pub fn insert_artifact(&self, a: &ArtifactRow<'_>) -> Result<()> {
         self.0.lock().unwrap().execute(
             "INSERT INTO artifacts (run_id, task, attempt, name, kind, path, sha256, bytes, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![run_id, task, attempt, name, kind, path, sha256, bytes, now],
+            params![a.run_id, a.task, a.attempt, a.name, a.kind, a.path, a.sha256, a.bytes, a.created_at],
         )?;
         Ok(())
     }
 
-    pub fn insert_verification(
-        &self,
-        run_id: &str,
-        task: &str,
-        attempt: i64,
-        attempt_id: &str,
-        status: &str,
-        details: &Value,
-        now: i64,
-    ) -> Result<()> {
+    pub fn insert_verification(&self, v: &VerificationRow<'_>) -> Result<()> {
         self.0.lock().unwrap().execute(
             "INSERT OR REPLACE INTO verifications (run_id, task, attempt, attempt_id, status, details, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![run_id, task, attempt, attempt_id, status, details.to_string(), now],
+            params![v.run_id, v.task, v.attempt, v.attempt_id, v.status, v.details.to_string(), v.created_at],
         )?;
         Ok(())
     }
