@@ -21,7 +21,7 @@ just start     # 以服务方式启动（macOS）；或 just run 在前台运行
 3. 新建工作区：选择目录，添加成员，指定一名 Claude Code 或 Codex 角色为主控。
 4. 在工作区首页输入目标，交给主控。
 
-`examples/calc/` 可以作为第一个工作区。
+想先试一下时，可以把仓库里的 `examples/calc/` 复制到仓库之外（例如 `cp -R examples/calc ~/calc`），用复制出来的目录作为第一个工作区：任务直接在工作目录中修改文件，不要让 Run 改到仓库本身。
 
 <a id="restart"></a>
 ## 重启

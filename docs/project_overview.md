@@ -65,7 +65,7 @@ Janus/
 │   ├── Tests/JanusTests/  # Swift Testing 测试
 │   └── scripts/           # package.sh（打包 Janus.app 和 DMG）、make-icon.swift
 ├── .github/workflows/     # CI（测试）和 Release（打包 DMG 并发布）
-├── examples/calc/         # 最小示例工作区（自带 .git）
+├── examples/calc/         # 最小示例项目（自带 .git），用作工作区前复制到仓库之外
 └── .agents/skills/        # 项目 skill（.claude/skills 是指向它的符号链接）
 ```
 

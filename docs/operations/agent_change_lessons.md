@@ -15,7 +15,7 @@
 6. 已知的高影响审查问题（`docs/review/` 和本文的未解决项）要么在合并前修复，要么在[安全边界](security.md)中写成明确接受的风险。新功能不能排在未处理的高影响问题之前（见 [L-01](#l01)）。
 7. 删掉不用的代码，不用 `let _ = x;`、`#[allow(dead_code)]` 或注释掉来「保留」它（见 [L-06](#l06)）。
 8. 新功能和已有功能的流程相同时，提取共用函数，不复制代码（见 [L-07](#l07)）。
-9. Run 和测试不得修改仓库内的文件，工作目录不指向仓库内部（见[未解决项](#open_items)中的 `defaultCwd`）。
+9. Run 和测试不得修改仓库内的文件，工作目录不指向仓库内部。
 
 <a id="lessons"></a>
 ## 经验教训
@@ -76,7 +76,6 @@ CI 只运行 `cargo test`。`cargo fmt --check` 和 `cargo clippy -D warnings` �
 
 - `cargo fmt --check` 不通过，也不在 CI 中（[L-02](#l02)）。需要决定是否采用 rustfmt（或配置行宽）。
 - [代码审查报告](../review/code_review_2026_10_31.md)中 J-03（`commandId` 去重非原子）、J-06（Run 列表 `LIMIT 50`）、J-09（PID 文件锁非原子）在 2026-11-08 抽查时仍存在；其余条目尚未逐项复核。J-02 已在[安全边界](security.md#secrets)中写成接受的风险。
-- 默认工作目录 `defaultCwd` 指向仓库内的 `examples/calc`（`backend/src/main.rs`）。Run 在工作目录中原地修改，等于让 Agent 改仓库内容，和「运行时不向仓库写任何文件」冲突。2026-11-08 发现该子模块的 `README.md` 和 `.agents/skills/calc-conventions/SKILL.md` 已被删除（11 月 1 日前后，未恢复，由用户决定）。
 
 <a id="cleanup_log"></a>
 ## 清理记录

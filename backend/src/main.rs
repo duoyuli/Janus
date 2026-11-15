@@ -35,14 +35,6 @@ use std::sync::{Arc, Mutex};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-/// Project root: the checkout that holds examples/ (the sample workspace offered on first use).
-/// Nothing is written here.
-fn root() -> PathBuf {
-    std::env::var("JANUS_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".."))
-}
-
 /// Janus home (~/.janus): every user-level thing Janus keeps. Owner-only,
 /// since it holds credentials.
 fn janus_home() -> Result<PathBuf> {
@@ -123,7 +115,6 @@ async fn meta(State(app): State<Arc<App>>) -> Json<Value> {
         },
         "dataDir": app.cfg.data_dir,
         "agentsDir": app.cfg.agents_dir,
-        "defaultCwd": root().join("examples/calc").canonicalize().ok(),
         "db": app.cfg.agents_dir.parent().map(|h| h.join("janus.db")),
     }))
 }

@@ -80,7 +80,7 @@ just start     # 以服务方式启动：登录后自动运行（macOS）；也�
 
 仓库只放代码。Janus 的数据、适配器、配置和日志都在 `~/.janus`，详见[部署方案](docs/operations/deployment.md)。
 
-`examples/calc/` 是一个最小示例工作区，可以用 `python3 -m unittest discover -s examples/calc` 验证。
+`examples/calc/` 是一个最小示例项目。任务直接在工作目录中修改文件，用作工作区前先把它复制到仓库之外（例如 `cp -R examples/calc ~/calc`）。可以用 `python3 -m unittest discover -s examples/calc` 验证。
 
 ## 文档
 

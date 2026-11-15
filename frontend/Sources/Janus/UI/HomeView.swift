@@ -204,9 +204,6 @@ struct WorkspaceEditor: View {
                         TextField("/path/to/your/repo", text: $path).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
                         Button("选择文件夹…") { pickFolder() }
                     }
-                    if let def = store.meta["defaultCwd"].string, !def.isEmpty {
-                        Button("示例项目 examples/calc") { path = def }.buttonStyle(.link)
-                    }
                     Text(inspectLine).font(.callout).foregroundStyle(inspect?["exists"].bool == false ? Tone.red.color : .secondary)
                     TextField("名称（可选，默认用目录名）", text: $name).textFieldStyle(.roundedBorder)
 
@@ -299,7 +296,6 @@ struct WorkspaceEditor: View {
         name = original["name"].str
         brief = original["brief"].str
         path = original["path"].str
-        if isNew && store.workspaces.isEmpty, let d = store.meta["defaultCwd"].string { path = d }
         let members = original["members"].array.map { $0["role"].str }
         on = Set(isNew ? store.roles.filter { $0["connection"].truthy }.map { $0["id"].str } : members)
         lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0["lead"].truthy && Setup.leadCapable(store.connection($0["connection"].str)) }?["id"].str ?? ""

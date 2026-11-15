@@ -80,7 +80,7 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 The repository holds code only. Janus data, adapters, configuration, and logs live in `~/.janus`; see [Deployment](docs/operations/deployment.md).
 
-`examples/calc/` is a minimal example workspace. Verify it with `python3 -m unittest discover -s examples/calc`.
+`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace, since tasks edit files in place. Verify it with `python3 -m unittest discover -s examples/calc`.
 
 ## Documentation
 
