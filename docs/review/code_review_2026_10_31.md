@@ -14,21 +14,23 @@
 
 工程质量检查尚未通过：`cargo fmt --check` 失败，`cargo clippy --all-targets -- -D warnings` 报告 22 项诊断。当前审查没有修改业务代码，也没有修改 `examples/calc` 的已有未提交内容。
 
+2026-11-15 逐项复核了全部条目，表中的「状态」是复核后的结论，各条末尾的「处理」写明做了什么。
+
 ## 问题总览
 
 | 编号 | 影响 | 状态 | 问题 | 位置 |
 | --- | --- | --- | --- | --- |
-| J-01 | 高 | 已确认 | MCP 的 `who` 没有绑定到发放 URL 的会话，协作者可以请求主控工具 | `backend/src/orchestrator.rs:1058` |
-| J-02 | 高 | 已确认 | Agent 的 `envText` 原值写入 SQLite，并通过设置接口返回 | `backend/src/agents.rs:396` |
+| J-01 | 高 |  已修复  | MCP 的 `who` 没有绑定到发放 URL 的会话，协作者可以请求主控工具 | `backend/src/orchestrator.rs:1058` |
+| J-02 | 高 |  已接受的风险  | Agent 的 `envText` 原值写入 SQLite，并通过设置接口返回 | `backend/src/agents.rs:396` |
 | J-03 | 高 |  已修复  | `commandId` 的检查、操作和记录不是原子流程 | `backend/src/main.rs:333` |
 | J-04 | 高 |  已修复  | 事件持久化失败后仍然广播，事实来源与页面状态可能分离 | `backend/src/orchestrator.rs:390` |
-| J-05 | 高 | 已确认 | Run 只保存 Provider ID，后续任务重新读取当前 Provider 配置 | `backend/src/orchestrator.rs:1480` |
+| J-05 | 高 |  按设计  | Run 只保存 Provider ID，后续任务重新读取当前 Provider 配置 | `backend/src/orchestrator.rs:1480` |
 | J-06 | 中高 |  已修复  | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
-| J-07 | 中高 | 已确认 | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
+| J-07 | 中高 |  按设计  | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
 | J-08 | 中高 |  已修复  | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
 | J-09 | 中 |  已修复  | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
 | J-10 | 中 |  已修复  | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
-| J-11 | 中 | 已确认 | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
+| J-11 | 中 |  部分修复  | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
 
 ## 详细问题
 
@@ -44,6 +46,8 @@
 
 建议：为每个 Agent 会话生成独立的不可转移 token，并在服务端保存 token、Run、成员、任务和 ACP 会话之间的绑定。服务端根据绑定结果决定工具集合，不再信任 URL 中的 `who`。至少应增加「协作者 token 不能列出主控工具」和「协作者不能操作其他任务」的测试。
 
+处理（2026-11-15）：2026-11-08 修复：看板 MCP 的 URL 令牌由 Run 密钥和 `who` 派生（`session_token`），协作者不能改名为主控或其他任务，测试带反例。
+
 ### J-02：`envText` 的值进入 SQLite 和设置接口响应
 
 影响：高。用户把 API Key 或其他秘密写入 Agent 环境变量文本后，值会进入 `configs.data`，并由连接列表和保存接口返回。
@@ -53,6 +57,8 @@
 证据：[agents.rs:396](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:396)、[agents.rs:397](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:397)、[agents.rs:464](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:464)。这与[安全边界文档](/Users/duoyu/Data/dev/agent/Janus/docs/operations/security.md:51)中「设置接口不返回凭据值」的约定不一致。
 
 建议：在入口处解析环境变量后，只允许明确的非秘密配置进入 SQLite。对秘密变量使用独立的 `0600` 文件，并在列表、保存和错误响应中只返回变量名和是否已设置。不能只依赖页面提示用户不要填写凭据，因为 HTTP 接口仍然接受该输入。
+
+处理（2026-11-15）：写成[安全边界](../operations/security.md#secrets)中明确接受的风险。
 
 ### J-03：`commandId` 去重不是原子操作
 
@@ -90,6 +96,8 @@
 
 建议：创建 Run 时保存不可变的 Provider 运行时快照、适配器版本和必要的秘密引用。后续任务只读取快照。若产品需要允许 Provider 动态更新，应把它作为显式的 Run 变更并记录事件，而不是隐式使用最新配置。
 
+处理（2026-11-15）：Run 快照冻结的是角色要求的东西（成员、模型、会话控制项、权限、Skill、MCP）；怎样连上 Agent（启动命令、凭据、环境变量）属于 Agent 的设置，凭据也不能写进快照，所以每次打开会话时按当前设置读取。这一分工写进了[数据模型与存储](../architecture/data_model.md#snapshots)。
+
 ### J-06：Run 查询固定限制为 50 条
 
 影响：中高。数据库中超过 50 条 Run 后，较早的 Run 不能通过详情接口找到，也不能正常恢复或验收。
@@ -111,6 +119,8 @@
 证据：[orchestrator.rs:285](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:285)、[orchestrator.rs:930](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:930)、[orchestrator.rs:2987](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2987)。
 
 建议：在 Run 创建事件或数据库字段中保存绝对截止时间。恢复时沿用该时间，追加预算时显式更新并记录事件。主控和协作者启动、提示、验证和等待用户请求时，都应使用同一个剩余预算，并在超时后终止会话或进入可恢复状态。
+
+处理（2026-11-15）：Run 预算限制的是 Run 在没有人关注时能持续启动新工作多久。服务重启后 Run 不会自己继续，要用户点「从中断处继续」，这时重新计 6 小时是用户的决定；主控会话的停滞由停滞检测报告给用户。这一规则写进了 [Run 生命周期](../domains/run_lifecycle.md)。
 
 ### J-08：连接和角色 ID 更新入口没有统一校验
 
@@ -155,6 +165,8 @@
 验证事实：`cargo fmt --manifest-path backend/Cargo.toml -- --check` 报告格式差异；`cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings` 报告 22 项诊断，包含嵌套条件、过多参数、无必要的 `?`、集合处理和迭代器用法问题。
 
 建议：先运行 `cargo fmt` 统一格式，再按模块修复 Clippy。对确实承载跨层上下文的函数，优先引入结构体参数或拆分职责，不要用大量 `#[allow]` 消除质量门禁。
+
+处理（2026-11-15）：Clippy 已经没有诊断，并在 CI 中执行（`cargo clippy --all-targets -- -D warnings`）。`cargo fmt --check` 仍未采用，是否采用 rustfmt 见[经验教训](../operations/agent_change_lessons.md#open_items)。
 
 ## 修复顺序
 

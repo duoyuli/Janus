@@ -75,11 +75,11 @@ CI 只运行 `cargo test`。`cargo fmt --check` 和 `cargo clippy -D warnings` �
 清理中发现但没有在当次处理的问题。处理后从本节删除，并在清理记录中注明。
 
 - `cargo fmt --check` 不通过，也不在 CI 中（[L-02](#l02)）。需要决定是否采用 rustfmt（或配置行宽）。
-- [代码审查报告](../review/code_review_2026_10_31.md)中 J-03（`commandId` 去重非原子）、J-06（Run 列表 `LIMIT 50`）、J-09（PID 文件锁非原子）在 2026-11-08 抽查时仍存在；其余条目尚未逐项复核。J-02 已在[安全边界](security.md#secrets)中写成接受的风险。
 
 <a id="cleanup_log"></a>
 ## 清理记录
 
+- 2026-11-15（基础债治理）：删除对旧数据的兼容代码（默认角色的版本升级、旧适配器包的替换、早期计划模式 Run、没有 `role_id` 或早于 MCP 名称检查的快照、旧事件形状），`task.succeeded` 带完整结论；Clippy 清零并进 CI（L-02 只剩 rustfmt）；`orchestrator.rs`（7700 行）和 `agents.rs`（2500 行）按职责拆成子模块，规则 4 改为所有文件的行数上限；[代码审查报告](../review/code_review_2026_10_31.md)逐项复核：修复 J-03、J-04、J-06、J-08、J-09、J-10，J-05、J-07 按设计并写进文档，J-02 是接受的风险；删除指向仓库内的默认工作目录 `defaultCwd`。
 - 2026-11-15：所有适配器改为 npm（Codex、Claude Code、Grok、Pi），删除 Git 来源、提交版本号和按目录结构识别来源的逻辑；插话和目标的扩展方法改为 `_session/steering`、`_session/goal` 和 `_meta.jetbrains.air.goal`。L-05（适配器从默认分支构建、不锁定提交）不再存在。
 - 2026-11-08：Run、Task、Attempt、Agent 阶段、适配器任务的状态改为枚举，Run 和 Task 的合法转移集中声明（`backend/src/status.rs`）；连接检查和库源检查各自收敛为一个状态值。检查失败时不再保留上一次的「有更新」。应用更新的进度改为枚举，不解析文字。
 - 2026-11-08：修复 J-01，看板 MCP 的 URL 令牌改为由 Run 密钥和 `who` 派生（`session_token`），协作者不能改名为主控或其他任务，测试补上反例；删除测试中的占位变量。新增本文，合并前检查同步写入 `AGENTS.md`。
