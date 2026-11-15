@@ -25,7 +25,7 @@ struct Check: Hashable {
     let criterion: String
     let passed: Bool
     let evidence: String
-    /// The method the check named; older checks and checks that left it out have none.
+    /// The method the check named, if it named one.
     let method: EvidenceMethod?
     /// A `method` value outside the allowed set, kept exactly as recorded so it is shown, not guessed.
     let badMethod: String?
@@ -89,7 +89,7 @@ struct EvidenceSummary: Hashable {
     var reminders: [String] = []
 
     init(accept: [String], checks: [Check]) {
-        criteria = accept.isEmpty ? checks.count : accept.count
+        criteria = accept.count
         passed = checks.prefix(criteria).filter(\.passed).count
         methods = EvidenceMethod.allCases.compactMap { m in
             let n = checks.filter { $0.method == m }.count
@@ -197,14 +197,7 @@ extension DeliveryAcceptance {
     }
 }
 
-/// The per-task acceptance of a delivery: the record `run.delivered` carries, or, for a delivery
-/// written before that record existed, what the event log says about each finished task.
+/// The per-task acceptance record `run.delivered` carries.
 func deliveryAcceptance(_ st: RunState) -> [DeliveryAcceptance] {
-    let recorded = st.result?.d["acceptance"].array.compactMap(DeliveryAcceptance.init) ?? []
-    if !recorded.isEmpty { return recorded }
-    return st.orderedTasks.filter { $0.status == "succeeded" }.map { t in
-        DeliveryAcceptance(task: t.id, title: t.title, status: t.status, summary: EvidenceSummary(accept: t.accept, checks: t.checks),
-                           checks: t.checks, verifications: st.verifiers(of: t.id).map(VerificationRecord.init),
-                           traceGaps: t.traceGaps, risks: t.risks)
-    }
+    st.result?.d["acceptance"].array.compactMap(DeliveryAcceptance.init) ?? []
 }

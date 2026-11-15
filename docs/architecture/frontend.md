@@ -80,7 +80,7 @@ frontend/
 这样做的约束：
 
 - 新增或修改事件类型时，必须同步更新 `derive` 中对应的分支，否则界面不会反映新状态；看板条目依赖 `boardFacts` 对事件类型和 `data` 字段的解释。检查清单见[事件参考](../interfaces/events.md)。
-- 缺少前提的事件（例如引用了看板上没有的任务）被跳过，不中断推导。早期计划模式 Run 的计划、评审等事件不再推导，这些 Run 只显示会话、交付和审计日志，见[早期版本的 Run](../domains/run_lifecycle.md#early_plan_runs)。
+- 缺少前提的事件（例如引用了看板上没有的任务）被跳过，不中断推导。
 - 任务的后端状态只有 7 个（`TaskStatus`，见[任务状态](../domains/run_lifecycle.md#scheduling)）；`derive` 另外推导 `ready`、`assigned`、`verifying`、`verification_failed`、`waiting_input`、`waiting_approval` 等只用于显示的状态。
 - 「待处理」分两类：用户要处理的事项（来自 `inbox`，以及主控可能卡住，标「等你决定」，排在前面）和主控在处理的事项（协作者的阻塞和提问、两个任务改了同一个文件、任务改了别的任务负责的文件、结果和工作目录对不上、可能卡住的任务、失败的任务、依赖失败的任务，标「主控处理」）。可能卡住的任务来自 `task.stalled`，收到 `data.resolved: true`、执行它的 Agent 再有任何事件、新的尝试开始或任务不再执行时移除。主控可能卡住来自 `lead.stalled`，收到 `data.resolved: true`、主控再有任何事件或 Run 结束时移除。改了同一个文件来自 `task.conflict`，两个任务都不再执行时移除；越界（`data.owned`）在越界的任务不再执行时移除。结果和工作目录对不上来自 `task.succeeded` 的 `data.traceGaps`，主控重做（`task.reopened`）、修订结论（`result.amended`）或 Run 交付、验收、取消后移除。协作者的认领（`task.claimed`）作为看板上的一条传递记录显示。只有存在前一类时，这一栏才用警示色。还在路上的消息只显示在各会话的「待发送」区，不进入这一栏。
 - 同一个待处理事项（按 `key`）在 `inbox` 中只保留一条。事项被回答、撤回（`decision.withdrawn`）或 Run 结束后，从「需要你处理」中移除。
@@ -93,8 +93,8 @@ frontend/
 - **方法写成文字**：`test` 显示「测试」、`command` 显示「命令」、`inspection` 显示「检查」、`reasoning` 显示「推理判断」、`unverified` 显示「未核实」；没有 `method` 的旧结果显示「未说明」；不是允许值的原样写成「方法「vibes」不合法（未说明）」（`Check.methodLabel`、`MethodTag`）。颜色和图标只作辅助，深色模式下和 VoiceOver 读到的都是这些文字。
 - **逐条、完整**：每条验收标准一行，显示 ✓ / ○ / ✗、证据方法、标准原文和完整 evidence，不截断，也不只取第一条；结果里多出来的 check 同样保留（`CriterionCheck.rows`）。evidence 可选中复制，行上的无障碍标签读出通过与否、方法、标准和证据。
 - **分组**：执行者的 checks、执行者提交的其他 `evidence`、独立验证（`verifies` 指向这个任务的其它任务及其 checks，`RunState.verifiers(of:)`，任务页和交付共用 `VerificationList`）、`traceGaps`、风险（`RiskList`）和执行者自己报告的提醒分开显示。「提醒（不影响是否通过）」列出 `reasoning`、`unverified` 和「未说明」的项（`EvidenceSummary.reminders`），不会被渲染成失败。
-- **来源**：`result.submitted` 提供 checks、evidence 和风险；`task.succeeded` 带着结论的 `checks`，主控 `accept` 时还带接受的风险；`verification.*` 重复它核对过的 `checks`。推导时先记 `result.submitted`，`task.succeeded` 有 `checks` 时以其为准，没有时保留已提交的内容，所以回放、重启和恢复后方法和证据不丢。旧事件没有 `method` 时按原样显示「未说明」，不当作 `reasoning`，也不因此在界面上判失败。
-- **交付**：`run.delivered` 的 `acceptance` 按任务给出验收总数、通过数、方法计数、全部 checks、`verifications`、`traceGaps` 和 `risks`，Run 结果页据此显示「逐条验收」，复制交付摘要也带每个任务的通过数和方法计数（`deliveryAcceptance`、`DeliveryTaskView`）。没有 `acceptance` 的旧交付从任务的推导结果补出同样的信息。
+- **来源**：`result.submitted` 提供这次提交的 checks、evidence 和风险；`task.succeeded` 带着结论的完整结果（摘要、evidence、风险、`checks`），任务成功后以它为准，所以回放、重启和恢复后方法和证据不丢；`verification.*` 重复它核对过的 `checks`。没有 `method` 的 check 显示「未说明」，不当作 `reasoning`，也不因此在界面上判失败。
+- **交付**：`run.delivered` 的 `acceptance` 按任务给出验收总数、通过数、方法计数、全部 checks、`verifications`、`traceGaps` 和 `risks`，Run 结果页据此显示「逐条验收」，复制交付摘要也带每个任务的通过数和方法计数（`deliveryAcceptance`、`DeliveryTaskView`）。
 - **审计**：审计日志在选中 `result.submitted`、`verification.passed` / `verification.failed`、`task.succeeded` 时，除了原始 JSON，还列出逐条 checks 及其方法；会话里的「提交结果」点开后每条也带方法（`CheckRow`）。进展时间线的结论标记在悬停提示和无障碍标签里带上方法计数，详情在任务页和审计日志。
 - **汇总数字**：`EvidenceSummary` 只统计已有字段（验收标准数、通过数、五类方法计数、未说明条数、不合法条数），不改变 `derive` 推导的任务状态，也不新增事件类型。交付里的记录直接读后端写下的汇总（`EvidenceSummary(recorded:)`）。
 

@@ -747,9 +747,7 @@ impl App {
         };
         self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(json!({
             "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note,
-            "images": run.goal_images,
-            // Runs of the removed plan-first flow lack it, and cannot be continued (see `resume_run`).
-            "mode": "goal"
+            "images": run.goal_images
         })));
         self.goal(run, false).await
     }
@@ -1238,7 +1236,7 @@ impl App {
             })
             .await
             .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-            self.emit(run, ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" }).data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied, "mode": "goal" })));
+            self.emit(run, ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" }).data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied })));
             {
                 let mut st = run.st.lock().unwrap();
                 st.lead_session = Some(sid.clone());
@@ -2123,7 +2121,7 @@ impl App {
                 .into_iter()
                 .flatten()
                 .filter(|m| m["lead"] != true)
-                .filter_map(|m| Some((m["id"].as_str()?.to_string(), m["role_id"].as_str().filter(|x| !x.is_empty()).or(m["id"].as_str())?.to_string())))
+                .filter_map(|m| Some((m["id"].as_str()?.to_string(), m["role_id"].as_str()?.to_string())))
                 .collect();
             let events = self.db.events(run_id, 0)?;
             for stat in task_outcomes(&events).into_values() {
@@ -3167,9 +3165,9 @@ impl App {
             .attempt(n)
             .data(json!({
                 "attemptId": attempt_id,
-                "summary": result.summary, "evidence": result.evidence, "traceGaps": gaps,
-                // The checks and their evidence methods stay with the task's conclusion, so the
-                // app, the delivery and a resumed run read them from one place.
+                // The conclusion carries the whole result, so the app, the delivery and a resumed
+                // run read it from this one event.
+                "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "traceGaps": gaps,
                 "checks": result.checks, "acceptance": Summary::of(&def.accept, &result.checks)
             })),
         );
@@ -4505,40 +4503,16 @@ impl App {
             bail!("只有中断、失败、已交付或已验收的任务可以继续");
         }
         let events = self.db.events(run_id, 0)?;
-        let goal_mode = events
-            .iter()
-            .find(|e| e.kind == "run.created")
-            .and_then(|e| e.data.as_ref())
-            .is_some_and(|d| d["mode"] == "goal");
-        if !goal_mode {
-            bail!("这是早期「先出计划再执行」模式的 Run，这种模式已经移除，只能查看记录。请用同样的目标新建一个 Run");
-        }
         let config = &row["config"];
         let mut team: Vec<Member> =
             serde_json::from_value(config["team"].clone()).context("这个任务的团队记录无法读取")?;
-        let roles = self.roles()?;
         for m in team.iter_mut() {
-            let role = roles.iter().find(|r| {
-                (!m.role_id.is_empty() && r["id"] == m.role_id.as_str())
-                    || r["name"] == m.name.as_str()
-            });
-            if let Some(r) = role {
-                let id = r["id"].as_str().unwrap_or("");
-                if !id.is_empty() {
-                    m.role_id = id.to_string();
-                }
-            }
             // A conversation only needs the lead. A collaborator's adapter may have changed or
             // been removed since the run; its task will report that if new work uses it.
             if conversation && !m.lead {
                 self.attach_mcp_secrets(m);
                 continue;
             }
-            // A snapshot can predate the MCP name checks. Restoring it must not bring back a
-            // server the board reserves or two servers with one name; refuse before anything
-            // runs and leave the run where it was.
-            crate::agents::check_mcp_names(&m.name, &m.mcp)
-                .with_context(|| format!("这个 Run 的 MCP 快照无法恢复（角色「{}」）", m.name))?;
             // Values are read afresh: a changed or removed value reaches resumed sessions.
             self.attach_mcp_secrets(m);
             self.spec_for(&m.runtime)?;
@@ -4640,9 +4614,10 @@ impl App {
                         && matches!(e.kind.as_str(), "task.succeeded" | "task.reopened")
                 })
                 .filter(|e| e.kind == "task.succeeded");
-            // A result the lead accepted carries the risks of that acceptance in its own event.
-            let accepted = succeeded.and_then(|e| e.data.clone()).filter(|d| d["acceptedBy"] == "lead");
-            let result = accepted.or_else(|| mine("result.submitted").last().and_then(|e| e.data.clone())).map(|d| {
+            // A finished task's conclusion carries its whole result; an unfinished one has the last
+            // result it submitted.
+            let concluded = succeeded.and_then(|e| e.data.clone());
+            let result = concluded.or_else(|| mine("result.submitted").last().and_then(|e| e.data.clone())).map(|d| {
                 let strings = |v: &Value| {
                     v.as_array()
                         .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
@@ -4652,8 +4627,6 @@ impl App {
                     summary: d["summary"].as_str().unwrap_or("").to_string(),
                     evidence: strings(&d["evidence"]),
                     risks: strings(&d["risks"]),
-                    // Results recorded before checks were kept here have none; older checks keep
-                    // their evidence methods, and their absence stays 「未说明」.
                     checks: checks_from(&d),
                     ..Default::default()
                 }
@@ -5779,29 +5752,16 @@ fn parse_result(text: &str) -> TaskResult {
 // ----------------------------------------------------------------------
 
 /// The values a server declares, by name, from a skipped map. Only the keys the entry carries
-/// are passed, so a value left over from an older manifest does not reach the agent.
+/// are passed, so a value no longer in the manifest does not reach the agent.
 fn named_values(entry: &Value, keys: &str, values: &Value) -> Vec<Value> {
-    let name = entry["name"].as_str().unwrap_or("");
-    let saved = &values[name];
-    let mut out = vec![];
-    match entry[keys].as_array() {
-        Some(keys) => {
-            for k in keys.iter().filter_map(Value::as_str) {
-                if let Some(v) = saved[k].as_str().filter(|v| !v.is_empty()) {
-                    out.push(json!({ "name": k, "value": v }));
-                }
-            }
-        }
-        // Older entries did not record their key names; pass whatever was saved.
-        None => {
-            for (k, v) in saved.as_object().into_iter().flatten() {
-                if let Some(v) = v.as_str().filter(|v| !v.is_empty()) {
-                    out.push(json!({ "name": k, "value": v }));
-                }
-            }
-        }
-    }
-    out
+    let saved = &values[entry["name"].as_str().unwrap_or("")];
+    entry[keys]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|k| saved[k].as_str().filter(|v| !v.is_empty()).map(|v| json!({ "name": k, "value": v })))
+        .collect()
 }
 
 /// Whether the agent declared image input (`promptCapabilities.image`) when it started.
@@ -6631,7 +6591,7 @@ mod flow_tests {
         let mut conn = h.app.db.get_config("connection", "fake").unwrap().unwrap();
         conn["options"]["controls"].as_array_mut().unwrap().push(json!({ "id": "plan_mode", "name": "Plan", "type": "boolean", "via": "config", "current": false, "permission": true, "options": [] }));
         h.app.db.put_config("connection", "fake", &conn, now_ms()).unwrap();
-        // The agent starts in Plan mode and an older role still asks for it: Janus switches it off.
+        // The agent starts in Plan mode and the role asks for it: Janus switches it off.
         std::fs::write(h.dir.join("fake/plan-on"), "").unwrap();
         let mut role = h.app.db.get_config("role", "m1").unwrap().unwrap();
         role["session"] = json!({ "mode": "full", "plan_mode": true });
@@ -7249,7 +7209,7 @@ mod flow_tests {
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
-    /// A delivered run whose live session is gone (a restart, or an older version) reopens when
+    /// A delivered run whose live session is gone (after a restart) reopens when
     /// the person writes to it.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_historical_delivered_run_reopens_for_chat() {
@@ -7560,8 +7520,6 @@ mod flow_tests {
         assert_eq!(started.data.as_ref().unwrap()["path"], json!(h.repo.canonicalize().unwrap()));
         assert!(evs.iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")), "the change is kept as a diff");
         assert!(!has(&evs, "verification.failed"));
-        let created = evs.iter().find(|e| e.kind == "run.created").unwrap();
-        assert_eq!(created.data.as_ref().unwrap()["mode"], "goal");
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
@@ -7706,47 +7664,6 @@ mod flow_tests {
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 
-    /// A run snapshot written before the MCP name checks existed cannot be resumed into a
-    /// session that collides with the board's `janus` name or has two servers of one name. The
-    /// refusal leaves the run interrupted and starts nothing.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn resume_refuses_snapshots_with_conflicting_mcp_names() {
-        let h = harness("resume-mcp", &[("lead", false), ("m1", false)], json!({}));
-        let insert = |id: &str, mcp: Value| {
-            let config = json!({ "team": [{
-                "id": "lead", "name": "lead", "role": "lead", "runtime": "fake", "lead": true, "mcp": mcp
-            }] });
-            h.app.db.insert_run(id, "测试目标", &h.repo.to_string_lossy(), &config, now_ms()).unwrap();
-            h.app.store(Event {
-                run_id: id.into(), seq: 1, ts: now_ms(), kind: "run.created".into(), actor: "user".into(),
-                to: None, task: None, attempt: None, text: "创建目标".into(),
-                data: Some(json!({ "goal": "测试目标", "mode": "goal" })),
-            });
-            h.app.db.set_run_status(id, RunStatus::Interrupted).unwrap();
-        };
-
-        insert("r-reserved", json!([{ "name": "janus", "command": "run" }]));
-        let err = h.app.resume_run("r-reserved").await.err().expect("reserved name is refused");
-        let text = format!("{err:#}");
-        assert!(text.contains("janus") && text.contains("lead"), "{text}");
-        assert_eq!(status(&h.app, "r-reserved"), "interrupted", "the run stays where it was");
-        assert!(h.app.run("r-reserved").is_none(), "no live run was created");
-        assert!(!has(&events(&h.app, "r-reserved"), "run.recovered"), "recovery never started");
-
-        let dup = json!([
-            { "name": "fetch", "command": "run" },
-            { "name": "fetch", "mcpId": "acme/tools/fetch" }
-        ]);
-        insert("r-dup", dup);
-        let err = h.app.resume_run("r-dup").await.err().expect("a duplicate name is refused");
-        let text = format!("{err:#}");
-        assert!(text.contains("重复") && text.contains("fetch"), "{text}");
-        assert_eq!(status(&h.app, "r-dup"), "interrupted");
-        assert!(h.app.run("r-dup").is_none());
-        assert!(!has(&events(&h.app, "r-dup"), "run.recovered"));
-        let _ = std::fs::remove_dir_all(&h.dir);
-    }
-
     /// End to end through a run: a role mounts a library resource of each transport next to its
     /// own server, and the agent's `session/new` carries all three with their values, while the
     /// run record holds none of them.
@@ -7860,18 +7777,6 @@ mod flow_tests {
         let bad = h.app.action(&h.app.run(&run).unwrap(), &json!({ "type": "message", "agent": "lead", "text": "x", "images": [{ "data": "aGVsbG8=" }] }));
         assert!(bad.is_err());
         h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
-        let _ = std::fs::remove_dir_all(&h.dir);
-    }
-
-    /// A run from the removed plan-first flow can be read but not continued.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn plan_runs_are_read_only() {
-        let h = harness("oldplan", &[("lead", false), ("m1", false)], json!({}));
-        h.app.db.insert_run("rold", "旧目标", &h.repo.to_string_lossy(), &json!({ "team": [] }), now_ms()).unwrap();
-        h.app.store(Event { run_id: "rold".into(), seq: 1, ts: now_ms(), kind: "run.created".into(), actor: "user".into(), to: None, task: None, attempt: None, text: "创建目标".into(), data: Some(json!({ "goal": "旧目标" })) });
-        h.app.db.set_run_status("rold", RunStatus::Interrupted).unwrap();
-        let err = h.app.resume_run("rold").await.err().expect("refused");
-        assert!(err.to_string().contains("已经移除"), "{err}");
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 

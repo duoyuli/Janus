@@ -36,7 +36,7 @@ impl std::fmt::Display for RunStatus {
 }
 
 impl RunStatus {
-    /// Read a status the database or an older record wrote.
+    /// Read a status the database wrote.
     pub fn parse(s: &str) -> Option<Self> {
         Some(match s {
             "planning" => RunStatus::Planning,

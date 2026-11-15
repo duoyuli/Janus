@@ -10,7 +10,7 @@
 - [任务调度](#scheduling)、[一次尝试](#attempt)、[验证](#verification)、[重试与失败](#retry)：修改调度循环或尝试流程时阅读。
 - [停滞检测](#watchdog)：修改 `watchdog`、`watch_call`，或调整什么算「没有进展」时阅读。
 - [交付条件](#delivery_conditions)：修改 `execute` 的结果判断时阅读。
-- [Run 状态](#run_statuses)、[用户操作](#user_actions)、[中断与恢复](#recovery)、[早期版本的 Run](#early_plan_runs)。
+- [Run 状态](#run_statuses)、[用户操作](#user_actions)、[中断与恢复](#recovery)。
 
 每个 Run 都以主控用 `/goal` 推进目标开始，任务全部来自主控的编排，见[目标模式与共享看板](goal_mode.md)。调度循环（`execute`）只负责执行看板上的任务并判断何时交付。
 
@@ -27,7 +27,7 @@
 6. 申请 Run 租约（10 分钟）。
 7. 启动驱动任务，进入主控的目标会话（`goal`）。
 
-Run id 是 `r` 加当前毫秒时间戳的 base36 编码。`run.created` 事件的 `data.mode` 固定为 `goal`，`resume_run` 据此拒绝继续早期版本的 Run。
+Run id 是 `r` 加当前毫秒时间戳的 base36 编码。
 
 Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#workspace_brief)，之后修改工作区的共享资料不影响这个 Run，从中断处继续时也使用快照中的版本。
 
@@ -50,7 +50,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 - 非 Git 目录中也可以修改文件，但没有 diff 产物。
 - Janus 不替任务提交，也不推送。
 
-早期版本为每个写任务创建独立 worktree，并有集成任务和只读快照，这部分代码已经移除。取舍见 [ADR：任务直接在工作目录中运行](../decisions/in_place_workspaces.md)。
+不使用独立的 worktree，取舍见 [ADR：任务直接在工作目录中运行](../decisions/in_place_workspaces.md)。
 
 <a id="scheduling"></a>
 ## 任务调度
@@ -107,7 +107,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 ```
 
 - `checks` 按验收标准的顺序逐条给出，验证方式由 Agent 自己决定。
-- `method` 可选，说明这条依据的类型：`test`、`command`、`inspection`、`reasoning`、`unverified`，含义见[证据方法](../interfaces/events.md#evidence_methods)。旧结果和省略它的结果没有方法，解析、恢复、核对和展示都按「未说明」处理，不当作 `reasoning`，也不因此判失败；存在但不是允许值时，原样保留在结果里并由核对报错，不会静默换成合法方法。证据方法由 `backend/src/evidence.rs` 解析和汇总，结构化结果的读取（`parse_result`）、事件里结果的重建和恢复（`resume_run`）都用同一段逻辑。
+- `method` 可选，说明这条依据的类型：`test`、`command`、`inspection`、`reasoning`、`unverified`，含义见[证据方法](../interfaces/events.md#evidence_methods)。省略它的结果没有方法，解析、恢复、核对和展示都按「未说明」处理，不当作 `reasoning`，也不因此判失败；存在但不是允许值时，原样保留在结果里并由核对报错，不会静默换成合法方法。证据方法由 `backend/src/evidence.rs` 解析和汇总，结构化结果的读取（`parse_result`）、事件里结果的重建和恢复（`resume_run`）都用同一段逻辑。
 - 没有 JSON 块时，摘要取回复第一行，并记一条风险「Agent 没有按约定返回结构化结果」。
 - `question` 不为空表示 Agent 在提问：`{"text": "问题", "options": ["A", "B"], "recommend": "A"}`。回答作为下一轮提示发回同一个会话。同一次尝试最多连续提问 4 轮。提问由谁回答见[提问的流转](goal_mode.md#question_routing)。
 
@@ -225,7 +225,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 重新申请租约，从 `runs.config` 重建团队，从事件日志重建任务：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务。已成功的任务保留结果，包括 `checks` 和每条的证据方法（取自 `task.succeeded`，主控 `accept` 的任务取被接受的 `result.submitted`，并保留接受理由和风险），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；旧结果没有方法时仍显示「未说明」。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。
+- 从所有 `orchestration.accepted` 事件重建看板任务。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、证据、风险、`checks` 及每条的证据方法，主控 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。
 - 快照中的 MCP 定义按当前规则重新校验（`check_mcp_names`）：名称规范化后是看板保留名 `janus`，或同一成员有两个同名服务器时，恢复被拒绝并说明原因，Run 保持原来的 `interrupted` 或 `failed` 状态，不会启动任何会话。
 - 排队但还没送达的消息保留下来。
 - 主控以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。
@@ -233,11 +233,3 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 `run.failed` 之后同样可以从中断处继续。已交付的 Run 在重启后仍可验收（`accept`），不需要恢复。
 
 用量账本不存数据库表，重启后从事件重算，所以恢复前后的数字相同；取消、失败和过期尝试的用量也照常从事件里读回，见[用量口径](../interfaces/events.md#usage_accounting)。
-
-<a id="early_plan_runs"></a>
-## 早期版本的 Run
-
-早期版本的 Run 采用「主控先出计划、用户确认、再按 DAG 执行」的流程，带评审返工、集成任务和独立 worktree（见 [ADR：先出计划、用户确认、再按 DAG 执行](../decisions/plan_first_flow.md)）。这套流程和它在应用中的显示都已删除：
-
-- 它们的事件仍保存在数据库中，应用可以打开这些 Run，查看目标、主控和协作者的会话、交付结果和审计日志，但不再显示计划、评审和任务卡片。
-- 它们不能「从中断处继续」，`resumeRun` 会提示用同样的目标新建 Run。判断依据是 `run.created` 事件的 `data.mode` 不是 `goal`。

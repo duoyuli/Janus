@@ -1,7 +1,8 @@
 # ADR：先出计划、用户确认、再按 DAG 执行
 
 - 状态：已取代（superseded）。被 [ADR：主控以 /goal 推进目标](goal_mode_lead.md) 取代，记录于 2026-10-30。
-- 相关文档：[Run 生命周期](../domains/run_lifecycle.md#early_plan_runs)。
+- 相关文档：[Run 生命周期](../domains/run_lifecycle.md)。
+- 2026-11-15：这套流程的 Run 不再保留只读支持，`run.created` 也不再记 `mode`；项目处于早期，不保留对旧数据的兼容。
 
 ## 背景
 

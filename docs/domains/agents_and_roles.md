@@ -60,7 +60,7 @@ Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话�
 
 - `category` 为 `model` 的控制项是模型，`thought_level` 是推理强度。
 - 其余 `select` 和 `boolean` 类型的控制项都是会话控制项（`controls`）。
-- 旧版 Agent 用 ACP session modes 报告模式时，转换成 id 为 `mode` 的控制项。
+- 用 ACP session modes 报告模式的 Agent，模式转换成 id 为 `mode` 的控制项。
 
 一个控制项满足以下任一条件时，被视为权限模式（`permission: true`），在角色编辑器的「权限」区域显示：
 
@@ -75,7 +75,7 @@ Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话�
 Janus 不让任何 Agent 进入 Plan 模式。Plan 模式只出方案、不执行，而 Janus 的任务要真正完成；Codex 主控在 Plan 模式下还会跳过 `/goal` 的自动推进（日志为 `skipping goal continuation ... reason=PlanMode`），Run 会一直停在「目标进行中」。
 
 - `session_options` 把 id 含 `plan` 的控制项（`is_plan_toggle`，例如 Codex 的 `plan-mode` 是 on / off 下拉，Grok 的 `plan_mode` 是布尔开关）从 `controls` 中移到 `planToggles`，并从所有下拉控制项中去掉值为 `plan` 的选项（`is_plan_value`，例如 Claude Code 的 Plan 权限模式和旧版 Agent 的 `plan` session mode）。角色编辑器因此看不到这些选项；在这条规则之前检查过的 Agent，应用按同样规则过滤它保存的选项。
-- `role_session` 丢弃角色中与 Plan 有关的值，旧角色里开着的 Plan 不再生效，保存角色时也会被清掉。
+- `role_session` 丢弃角色中与 Plan 有关的值：保存角色时清掉，启动会话时也不使用。
 - 打开会话时，`configure_session` 把仍处于开启状态的 Plan 控制项设为关闭值（`plan_off_value`：布尔为 `false`，下拉为 `off` 一类的选项）；下拉控制项的当前值是 `plan` 且角色没有指定时，改为第一个其他选项。关闭失败时会话以错误结束，不会带着 Plan 模式运行。
 
 Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和主控收到的协作者名单都只显示 Agent 自己的权限模式名，实际能做什么由 Agent 按自己的模式执行，Janus 不做额外校验。设计取舍见 [ADR：权限交给 Agent 原生模式](../decisions/agent_native_permissions.md)。
@@ -99,15 +99,11 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 规则：
 
 - 保存时，`session` 中只保留与 Agent 声明的控制项匹配的值（`role_session`）。Agent 还没检查过、没有控制项时，先保留字符串和布尔值。
-- MCP 名称只能包含字母、数字、`-` 和 `_`，名称 `janus` 保留给看板 MCP。手工 MCP 和资源库 MCP 不能同名；保存角色和创建 Run 时都会检查。手工 MCP 的环境变量值写入 `secrets/roles/<role-id>.json`（`0600`），SQLite 只记录变量名。
+- MCP 名称只能包含字母、数字、`-` 和 `_`，名称 `janus` 保留给看板 MCP。手工 MCP 和资源库 MCP 不能同名；保存角色和创建 Run 时都会检查（`check_mcp_names`）。手工 MCP 的环境变量值写入 `secrets/roles/<role-id>.json`（`0600`），SQLite 只记录变量名。
 - 保存角色时，`mcpRefs` 只保留当前资源库中存在的资源；来源更新后消失的资源在下次保存时去掉（与 Skill 相同）。创建 Run 时同样跳过找不到的资源。
 - 被工作区使用的角色不能删除。
 - 首次启动时写入 5 个默认角色，组成产品上线团队，见[默认角色](#product_launch_roles)。它们都还没有绑定 Agent，职责和角色指令已经填写。
-- 默认角色有版本（`SEED_VERSION`，记在 `meta.seeded`）。用旧版本初始化的 Janus home 升级时只执行一次：
-  - 新增旧版本没有的默认角色。用户删掉的默认角色不会恢复。
-  - 职责和角色指令仍是某个旧版本的默认值（或都为空）的默认角色，换成新的职责和指令；名字和角色名仍是旧默认值时一并更新。旧默认值记在 `OLD_SEEDS`。
-  - Agent 绑定、模型、会话控制项、Skill、MCP、颜色、缩写和密钥保持不变；改过职责或指令的角色不改动。
-  - 修改默认角色的文字时，把上一版的值加进 `OLD_SEEDS` 并提高 `SEED_VERSION`，否则已有的 home 不会更新。
+- 默认角色只写入一次（`seed_roles`，写入后记 `meta.seeded`）：之后删除或修改的默认角色保持用户的修改，修改代码中的默认角色（`SEEDS`）只影响新的 Janus home。
 
 <a id="product_launch_roles"></a>
 ### 默认角色：产品上线团队

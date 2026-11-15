@@ -41,7 +41,7 @@ Codex、Claude Code 和 Grok 的适配器自带对应的 CLI，用户不需要�
 
 适配器在第一次被需要时安装：
 
-1. 在「设置 → Agents」检查某个 Agent 时，第一步「ACP 适配器」调用 `ensure_adapter`。已安装就直接通过；没有安装就当场安装最新版本，安装完成后继续后面的检查。当前版本来自另一个包时，从现在的包安装并切换，见[来源变化后的版本](#source_change)。
+1. 在「设置 → Agents」检查某个 Agent 时，第一步「ACP 适配器」调用 `ensure_adapter`。已安装就直接通过；没有安装就当场安装最新版本，安装完成后继续后面的检查。
 2. 也可以在应用的「设置 → ACP 适配器」中手动安装。
 3. 创建 Run 或启动会话时如果适配器不存在，直接报错，提示去运行配置检查。会话不会在运行中途触发下载。
 
@@ -69,15 +69,6 @@ Codex、Claude Code 和 Grok 的适配器自带对应的 CLI，用户不需要�
 | 切回 | 把 `current` 指向另一个已安装的版本，不需要下载 |
 
 应用的「设置 → ACP 适配器」提供这三个操作，接口见 [HTTP API](../interfaces/http_api.md#adapters)。安装接口可以指定版本。
-
-<a id="source_change"></a>
-## 来源变化后的版本
-
-适配器的包可能改变。每个版本在 `.janus-adapter.json` 中记录包名（`matches_package` 据此判断）；没有记录包名的旧版本下一次检查或升级时被替换。
-
-- 旧包装的版本照常启动，正在运行和之后启动的会话都不受影响。
-- `GET /api/adapters` 对它返回 `updateAvailable: true`，应用显示「有新版本」，升级即从现在的包安装。
-- 下一次配置检查（`ensure_adapter`）自动从现在的包安装并切换；安装失败时保留旧版本，检查继续。
 
 <a id="running_sessions"></a>
 ## 正在运行的会话

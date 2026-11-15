@@ -1,9 +1,8 @@
 //! Acceptance evidence: the method behind each check, the rules that decide whether a result
 //! passes, and the summary the board, `task_detail` and the delivery show.
 //!
-//! A check may name how it was verified (`method`). Results written before the field existed name
-//! no method: they stay readable, are shown as 「未说明」 and are never read as `reasoning` or as a
-//! failure. A value outside [`Method::ALL`] is kept as written in `Check::method_error` and fails
+//! A check may name how it was verified (`method`). A check that names none is shown as
+//! 「未说明」 and is never read as `reasoning` or as a failure. A value outside [`Method::ALL`] is kept as written in `Check::method_error` and fails
 //! the result check, so a typo cannot pass as an allowed method.
 //!
 //! `reasoning`, `unverified` and a missing method only produce [`Summary::reminders`]: they are
@@ -77,7 +76,7 @@ pub struct Check {
     pub criterion: String,
     pub passed: bool,
     pub evidence: String,
-    /// The evidence method the agent named; older results and results that leave it out have none.
+    /// The evidence method the agent named, if it named one.
     pub method: Option<Method>,
     /// A `method` value outside the allowed set, kept exactly as written so it is neither mapped
     /// onto an allowed method nor lost when the check is recorded again.
@@ -164,7 +163,7 @@ pub struct Summary {
     pub passed: usize,
     /// Checks per method, in [`Method::ALL`] order; methods nobody used are left out.
     pub methods: Vec<MethodCount>,
-    /// Checks that named no method: older results, or an agent that left it out.
+    /// Checks that named no method.
     pub unspecified: usize,
     /// `method` values outside the allowed set, each with the criterion it belongs to.
     pub invalid: Vec<String>,
@@ -174,10 +173,9 @@ pub struct Summary {
 }
 
 impl Summary {
-    /// Summarise `checks` for a task whose acceptance criteria are `accept`. A task recorded
-    /// before criteria existed counts its checks instead.
+    /// Summarise `checks` for a task whose acceptance criteria are `accept`.
     pub fn of(accept: &[String], checks: &[Check]) -> Summary {
-        let criteria = if accept.is_empty() { checks.len() } else { accept.len() };
+        let criteria = accept.len();
         let mut s = Summary {
             criteria,
             passed: checks.iter().take(criteria).filter(|c| c.passed).count(),
@@ -269,7 +267,7 @@ pub struct TaskAcceptance {
 
 /// What keeps a result from passing: no summary, an acceptance criterion with no check or no
 /// evidence, a check the agent itself reports unmet, or a `method` that is not allowed. A missing
-/// method is not a gap: older results have none and only get a reminder.
+/// method is not a gap, only a reminder.
 pub fn gaps(accept: &[String], summary: &str, checks: &[Check]) -> Vec<String> {
     let mut gaps = vec![];
     if summary.trim().is_empty() {
@@ -335,7 +333,7 @@ mod tests {
         assert_eq!(c.method, None);
         assert_eq!(c.method_error, None);
         assert_eq!(c.method_label(), "未说明");
-        // The event of an older result keeps its old shape: no `method` field is added.
+        // A check without a method is recorded without the field.
         assert!(serde_json::to_value(&c).unwrap().get("method").is_none());
 
         let s = Summary::of(&accept(2), &[c, check("标准2", Some("test"), "cargo test 通过")]);
@@ -395,7 +393,7 @@ mod tests {
             check("读过代码", Some("inspection"), "读了 evidence.rs"),
             check("推断不影响", Some("reasoning"), "调用方只有这一处"),
             check("环境缺失", Some("unverified"), "本机没有 Xcode"),
-            check("旧的结果", None, "看起来没问题"),
+            check("没写方法", None, "看起来没问题"),
         ];
         let s = Summary::of(&accept(6), &checks);
         assert!(gaps(&accept(6), "完成", &checks).is_empty(), "reminders never fail the result");
@@ -410,13 +408,5 @@ mod tests {
         assert_eq!(lines[1], "通过：6 条");
         assert!(lines[2].starts_with("证据：测试 1 条"), "{lines:?}");
         assert!(lines[3].starts_with("提醒（不影响是否通过）："), "{lines:?}");
-    }
-
-    #[test]
-    fn a_task_without_criteria_counts_its_checks() {
-        // Older runs recorded tasks without acceptance criteria.
-        let s = Summary::of(&[], &[check("旧标准", Some("test"), "跑过")]);
-        assert_eq!((s.criteria, s.passed), (1, 1));
-        assert_eq!(Summary::of(&[], &[]).counts(), "没有记录");
     }
 }

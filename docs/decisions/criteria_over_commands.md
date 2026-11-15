@@ -23,5 +23,5 @@
 ## 后果
 
 - 编排缺少验收标准时被退回。
-- 旧 Run 的 `orchestration.accepted` 中的 `verification.commands` 在恢复时被忽略；`verification.command*` 事件只出现在旧 Run 中。
+- 编排中不再有 `verification.commands`，也没有 `verification.command*` 事件。
 - 角色的执行统计中，「验证没通过」指没通过验收核对。

@@ -69,7 +69,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 
 | 类型 | 说明 |
 | --- | --- |
-| `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`（工作目录的一句话描述）、`mode`（固定为 `goal`）、`images`（随目标粘贴的图片，见[图片附件](../domains/run_lifecycle.md#attachments)） |
+| `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`（工作目录的一句话描述）、`images`（随目标粘贴的图片，见[图片附件](../domains/run_lifecycle.md#attachments)） |
 | `run.delivered` | 交付；`data` 是交付结果：`summary`、`briefSuggestions`（主控建议写入工作区共享资料的条目，见[工作区共享资料](../domains/agents_and_roles.md#workspace_brief)）、`deliverables`、`evidence`（每个任务的全部证据，`text` 以任务 id 开头）、`acceptance`（每个任务的验收记录：验收总数、通过数、证据方法计数、`checks`、独立验证、`traceGaps` 和 `risks`，见[证据方法](#evidence_methods)）、`usage`（一行用量摘要，和 Run 页、看板读同一份账本，见[用量口径](#usage_accounting)）、`risks` |
 | `risk.accepted` | 用户验收 |
 | `run.failed` | Run 失败；`data.error` |
@@ -104,7 +104,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `attempt.failed` | 尝试失败；`data.error` |
 | `attempt.late_result` | 过期尝试的结果被忽略 |
 | `task.retry_scheduled` | 安排下一次尝试 |
-| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。`task.succeeded` 另带 `data.checks`（逐条验收及其 `method`）和 `data.acceptance`（验收总数、通过数、证据方法计数、提醒），恢复时据此重建结果；主控用 `accept` 接受结果时，`actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks`，`data.checks` 来自被接受的那次 `result.submitted`。协作者完成的 `task.succeeded` 带 `data.traceGaps`：结果和工作目录对不上的地方，没有时为空数组，见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
+| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。`task.succeeded` 带完整的结论：`data.summary`、`data.evidence`、`data.risks`、`data.checks`（逐条验收及其 `method`）和 `data.acceptance`（验收总数、通过数、证据方法计数、提醒），恢复和应用都从它读回结果；主控用 `accept` 接受结果时，`actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`，`data.checks` 来自被接受的那次 `result.submitted`，`data.risks` 末尾加上没通过核对的原因和接受理由。协作者完成的 `task.succeeded` 带 `data.traceGaps`：结果和工作目录对不上的地方，没有时为空数组，见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
 | `task.blocked` | 硬依赖失败；`data.dependency`。一个依赖处理好后仍有别的依赖失败时再写一条，指向那个依赖 |
 | `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
 | `task.conflict` | 两个同时执行的任务改了同一批文件；`task` 是发现冲突的一方，`to` 为 `lead`，`data.other` 是另一个任务，`data.paths` 是相对工作目录的文件。`data.owned` 为 `true` 时，是 `task` 改了 `data.other` 负责的文件（越界）。见[同时改同一个文件](../domains/goal_mode.md#conflicts) |
@@ -133,7 +133,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `unverified` | 证据缺失、无法复现或暂时无法核实 |
 
 - 方法只说明依据的类型，不代表结论一定真实：Agent 仍可能把推理写成 `test`，关键结果由主控自己核对。
-- 没有 `method` 是旧结果和省略该字段的结果，显示为「未说明」，不当作 `reasoning`，也不因此判失败。
+- 没有 `method` 的 check 显示为「未说明」，不当作 `reasoning`，也不因此判失败。
 - `method` 存在时必须是上表中的值。其他值原样记录在 `result.submitted` 和 `verification.failed` 的 `data.checks` 中，`evidence::gaps` 报出「不是允许值」并让这次核对失败，不会静默换成合法方法。
 - `reasoning`、`unverified` 和没有方法只产生提醒（`data.acceptance.reminders`），不阻断任务。
 - `data.acceptance` 的结构（`verification.*`、`task.succeeded` 和 `run.delivered` 的 `acceptance` 条目）：`criteria`（验收标准总数）、`passed`（通过数）、`methods`（`method`、`label`、`count` 的数组，按上表顺序）、`unspecified`（没有方法的条数）、`invalid`（不合法的值）、`reminders`（要主控注意的提醒）。交付中的条目另有 `task`、`title`、`status`、`label`、`checks`、`verifications`、`traceGaps`、`risks`。
@@ -145,7 +145,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置） |
 | `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 1 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话。每段保留原样的空白和换行（可能在代码块中间切开），按顺序直接拼接就是原文；主控的交付摘要取它最后连续的几段拼起来 |
 | `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix` / `board` / `goal_check`，`goal_check` 是问主控目标是否已经完成，见[目标不自己结束时](../domains/goal_mode.md#goal_settle)，`fix` 是把验证失败发回协作者的会话修复，`board` 是插入主控会话的看板推送）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer`） |
-| `tool.call` | 工具调用及其输入输出摘要，`data.callId`，文件改动在 `data.diffs`（`data.output`，没有输出时为空；早期记录在这里写的是 ACP 状态，应用不显示），状态在 `data.status`；改了文件的调用（`edit`、`delete`、`move`）另有 `data.paths`，是相对工作目录的文件 |
+| `tool.call` | 工具调用及其输入输出摘要，`data.callId`，文件改动在 `data.diffs`（`data.output`，没有输出时为空），状态在 `data.status`；改了文件的调用（`edit`、`delete`、`move`）另有 `data.paths`，是相对工作目录的文件 |
 | `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status`。Agent 自己的工具调用开始时也记一条（`data.live` 为 `true`，没有 `args`），完成后由同一 `callId` 的 `tool.call` 替换 |
 | `agent.thought` | Agent 的思考；`data.text`，见[会话中能看到什么](acp_integration.md#session_view) |
 | `agent.plan` | Agent 的计划；`data.entries`（`content`、`status`、`priority`） |

@@ -82,12 +82,3 @@ Run 创建后不再读取最新的设置对象：
 目标模式下，diff 的比较基准从 Run 开始时的工作目录状态算起，Run 之前就存在的改动不会算到任务头上。
 
 产物只能通过 `GET /api/file` 读取，且路径必须位于 `~/.janus/artifacts/` 内，见 [HTTP API](../interfaces/http_api.md#files)。
-
-<a id="legacy_data"></a>
-## 早期版本留下的数据
-
-- 早期版本建过 `plan_revisions` 表，当前代码不再读写它，已有数据库中的这张表保留原样。
-- 早期版本把适配器装在仓库的 `third_party/`，把产物、日志和 Skill 快照写在仓库的 `.janus/`。2026-10-30 这些内容已搬到 Janus home，数据库中的旧路径一并改写，见 [ADR：用户数据、依赖和日志都放在 Janus home](../decisions/user_home_layout.md)。
-- 早期计划模式 Run 的事件照常保存，应用只显示它们的会话、交付和审计日志，不能再继续，见 [Run 生命周期](../domains/run_lifecycle.md#early_plan_runs)。
-- 早期版本的成员快照中有 `limits` 和 `ws` 字段，早期的编排中有 `write` 和 `kind` 字段，当前代码读取时忽略它们。
-- 不再自动迁移更早的数据：产品改名前（Relay）的数据库和目录、旧版角色的读写开关、随机生成的 Agent id、保存在 SQLite 中的 MCP 凭据。

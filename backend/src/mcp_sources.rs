@@ -224,11 +224,9 @@ pub fn assign_keys(found: &[FoundServer], before: &[Value]) -> Vec<(String, Foun
         .map(|server| {
             let (i, key) = before.iter().enumerate().find_map(|(i, b)| {
                 let key = b["key"].as_str()?;
-                // A key recorded before the reserved-name check existed is replaced, not carried on.
                 (!used_previous.contains(&i)
                     && b["manifest"] == server.manifest.as_str()
                     && b["title"] == server.title.as_str()
-                    && !reserved_mcp_name(key)
                     && !taken.iter().any(|t| t == key))
                 .then(|| (i, key.to_string()))
             })?;
@@ -895,10 +893,6 @@ mod tests {
             headers: vec![],
             description: String::new(),
         };
-        // A source recorded before this check may have key janus; an update replaces it.
-        let legacy = json!([{ "manifest": "mcp.json", "title": "fetch", "key": "janus" }]);
-        let items = assign_keys(&[server("fetch")], legacy.as_array().unwrap());
-        assert_eq!(items[0].0, "fetch", "a legacy reserved key is never reused");
         let items = assign_keys(&[server("janus_mcp")], &[]);
         assert_eq!(items[0].0, "janus-mcp");
         assert!(!reserved_mcp_name(&items[0].0));
@@ -1017,68 +1011,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[tokio::test]
-    async fn reserved_names_cannot_be_mounted_by_a_role_or_a_run() {
+    /// The board's own name, and the names that normalise to it, are refused on a role.
+    #[test]
+    fn reserved_names_cannot_be_used_by_a_role() {
         let dir = std::env::temp_dir().join(format!("janus-mcp-reserved-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let upstream = dir.join("upstream");
-        manifest(&upstream, r#"{"mcpServers":{"fetch":{"command":"uvx","args":["mcp-server-fetch"]}}}"#);
-        sh(&upstream, &["init", "-q"]);
-        commit(&upstream, "init");
-
+        std::fs::create_dir_all(&dir).unwrap();
         let app = test_app(&dir);
-        let url = format!("file://{}", upstream.display());
-        let at = || RepoAt { repo: "acme/tools".into(), git_ref: String::new(), path: String::new() };
-        let src = app.add_mcp_source_at(at(), &url).await.unwrap();
-        let id = src["id"].as_str().unwrap().to_string();
-
-        // Simulate a source.json written before the reserved-name check existed.
-        let mut src = source_json(&app, &id);
-        src["servers"] = json!([{
-            "key": "janus", "name": "janus", "title": "janus!", "manifest": "mcp.json",
-            "transport": "stdio", "command": "run", "args": [], "url": "",
-            "envKeys": [], "headerKeys": [], "description": ""
-        }]);
-        std::fs::write(
-            app.mcp_sources_root().join(&id).join("source.json"),
-            serde_json::to_string_pretty(&src).unwrap(),
-        )
-        .unwrap();
-        assert!(app.mcp_resource(&format!("{id}/janus")).is_some());
-
-        let err = app
-            .save_role(&json!({ "id": "r", "name": "审查", "mcpRefs": [format!("{id}/janus")], "mcp": [] }))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("janus"), "role save refuses the mounted resource: {err}");
-
-        // Runtime defence: a role stored before the check is refused when the team is built.
-        app.db
-            .put_config("connection", "fake", &json!({ "id": "fake", "kind": "custom", "base": "custom", "name": "Fake", "command": "true" }), now_ms())
-            .unwrap();
-        app.db
-            .put_config(ROLE, "r2", &json!({
-                "id": "r2", "name": "旧角色", "connection": "fake", "mcpRefs": [format!("{id}/janus")], "mcp": []
-            }), now_ms())
-            .unwrap();
-        app.db
-            .put_config("workspace", "ws", &json!({
-                "id": "ws", "name": "ws", "path": dir.to_string_lossy(), "lead": "r2", "members": [{ "role": "r2" }]
-            }), now_ms())
-            .unwrap();
-        let ws = app.db.get_config("workspace", "ws").unwrap().unwrap();
-        let err = app.team_for(&ws).unwrap_err().to_string();
-        assert!(err.contains("janus"), "building the run team refuses it: {err}");
-
-        // Hand-written names get the same normalized check.
-        let err = app
-            .save_role(&json!({ "id": "r3", "name": "R3", "mcp": [{ "name": "janus_", "command": "node x.js" }] }))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("janus"), "hand-written janus_ is refused: {err}");
-
-        app.db.delete_config("workspace", "ws").unwrap();
-        app.db.delete_config(ROLE, "r2").unwrap();
+        for name in ["janus", "janus_", "JANUS"] {
+            let err = app
+                .save_role(&json!({ "id": "r3", "name": "R3", "mcp": [{ "name": name, "command": "node x.js" }] }))
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("janus"), "{name} is refused: {err}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

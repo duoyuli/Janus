@@ -72,17 +72,6 @@ fn def(id: &str) -> Result<&'static AdapterDef> {
         .ok_or_else(|| anyhow!("没有这个 ACP 适配器：{id}"))
 }
 
-// @project-doc docs/architecture/adapters.md#source_change
-/// Whether an installed version is the package the adapter currently names. A version installed
-/// before the package was recorded is replaced by the next check or upgrade.
-fn matches_package(d: &AdapterDef, dir: &Path) -> bool {
-    let meta: Value = std::fs::read_to_string(dir.join(".janus-adapter.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    meta["package"].as_str() == Some(d.package)
-}
-
 /// What is going on with one adapter right now: an install or update check in progress, or how
 /// the last one ended. Kept in memory; the log file has the full output. A restart leaves no job
 /// at all, so there is no stale "running" to clear.
@@ -138,17 +127,6 @@ impl App {
         link.canonicalize().ok().filter(|p| p.is_dir())
     }
 
-    /// The npm package of the installed version, used to keep an older adapter working until the
-    /// person upgrades it.
-    pub fn adapter_package(&self, id: &str) -> Option<String> {
-        let dir = self.adapter_current(id)?;
-        let meta: Value = serde_json::from_str(
-            &std::fs::read_to_string(dir.join(".janus-adapter.json")).ok()?,
-        )
-        .ok()?;
-        meta["package"].as_str().map(str::to_owned)
-    }
-
     // @project-doc docs/architecture/adapters.md#running_sessions
     /// The script a session of this adapter runs, from the version that is current now.
     pub fn adapter_entry(&self, id: &str) -> Result<PathBuf> {
@@ -195,8 +173,7 @@ impl App {
                     "source": json!({ "kind": "npm", "package": d.package }),
                     "current": current, "versions": versions,
                     "latest": newest, "checkedAt": checked,
-                    // A version from another package is always due for replacement.
-                    "updateAvailable": self.adapter_current(d.id).is_some_and(|dir| !matches_package(d, &dir)) || match (&current, newest.as_str()) {
+                    "updateAvailable": match (&current, newest.as_str()) {
                         (Some(c), Some(n)) => c != n,
                         _ => false,
                     },
@@ -262,23 +239,11 @@ impl App {
 
     // @project-doc docs/architecture/adapters.md#on_demand
     /// Install the adapter now unless it is there already; for the connection check, which an
-    /// agent needs to pass before it is used. A version from another package is replaced; if that
-    /// fails, the old version stays current and keeps working.
+    /// agent needs to pass before it is used.
     pub fn ensure_adapter(&self, id: &str) -> Result<Option<String>> {
-        let d = def(id)?;
-        if let Some(dir) = self.adapter_current(id) {
-            if matches_package(d, &dir) {
-                return Ok(None);
-            }
-            begin(id, "install")?;
-            let r = self.install_adapter(id, None);
-            finish(
-                id,
-                r.as_ref()
-                    .map(|v| format!("已从新的来源安装 {v}"))
-                    .map_err(|e| anyhow!("{e:#}")),
-            );
-            return Ok(r.ok());
+        def(id)?;
+        if self.adapter_current(id).is_some() {
+            return Ok(None);
         }
         begin(id, "install")?;
         let r = self.install_adapter(id, None);
@@ -382,7 +347,7 @@ impl App {
             }
         };
         let target = dir.join(&v);
-        if target.join(".janus-adapter.json").is_file() && matches_package(d, &target) {
+        if target.join(".janus-adapter.json").is_file() {
             // Already installed: keep that copy, just make it current.
             let _ = std::fs::remove_dir_all(&staging);
         } else {
@@ -623,25 +588,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A version recorded with another package is due for replacement; the current package is not.
-    #[test]
-    fn versions_from_another_package_are_replaced() {
-        let dir = std::env::temp_dir().join(format!("janus-adapter-source-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let d = def("claude").unwrap();
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join(".janus-adapter.json"),
-            r#"{ "version": "0.54.3", "package": "old-adapter" }"#,
-        )
-        .unwrap();
-        assert!(!matches_package(d, &dir), "an old package is replaced");
-        std::fs::write(
-            dir.join(".janus-adapter.json"),
-            format!(r#"{{ "version": "0.107.0", "package": "{}" }}"#, d.package),
-        )
-        .unwrap();
-        assert!(matches_package(d, &dir));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }

@@ -360,7 +360,7 @@ struct ResultCard: View {
             let deliverables = d["deliverables"].array
             let evidence = d["evidence"].array
             // Every task's acceptance record: totals, method counts, all checks, the independent
-            // verification, the trace gaps and the risks. Older deliveries are read from the tasks.
+            // verification, the trace gaps and the risks.
             let acceptance = deliveryAcceptance(st)
             let long = d["summary"].str.count > 360
             let canAccept = r.accepted == nil && !run.isReplaying

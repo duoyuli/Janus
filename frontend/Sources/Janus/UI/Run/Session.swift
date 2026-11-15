@@ -427,9 +427,7 @@ struct ToolRow: View {
     var body: some View {
         let d = e.data
         let board = d["tool"].str.hasPrefix("janus.")
-        // Older records put the ACP status where an output was missing; it is not an output.
-        let raw = ["completed", "failed", "pending", "in_progress"].contains(d["output"].str) ? "" : d["output"].str
-        let output = L.inWorkspace(raw, run.state.run.cwd)
+        let output = L.inWorkspace(d["output"].str, run.state.run.cwd)
         // The first line that says something: not a Markdown fence around the output.
         let firstLine = output.split(separator: "\n").map(String.init).first { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") && !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
         let (label, result) = board ? janusLabel(d["tool"].str, d["args"], output) : (d["input"].truthy ? d["input"].str : e.text, firstLine)

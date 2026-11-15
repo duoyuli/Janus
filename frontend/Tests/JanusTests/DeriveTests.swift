@@ -37,7 +37,7 @@ private func goalRun() -> Log {
     #expect(s1.agents["researcher"]?.phase == "thinking")
 
     log.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"], "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
-    log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"]])
+    log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"], "risks": [], "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
     let s2 = derive(log.events)
     #expect(s2.tasks["T1"]?.status == "succeeded")
     #expect(s2.tasks["T1"]?.checks.first?.passed == true)
@@ -295,10 +295,10 @@ private func goalRun() -> Log {
         #expect(c.method?.rawValue == raw)
         #expect(c.methodLabel == label)
     }
-    // A result written before the field existed: readable, shown as 未说明, never as reasoning.
-    let old = Check(["criterion": "标准1", "passed": true, "evidence": "看起来没问题"])
-    #expect(old.method == nil && old.badMethod == nil)
-    #expect(old.methodLabel == "未说明")
+    // A check that names no method: shown as 未说明, never as reasoning.
+    let none = Check(["criterion": "标准1", "passed": true, "evidence": "看起来没问题"])
+    #expect(none.method == nil && none.badMethod == nil)
+    #expect(none.methodLabel == "未说明")
     // An illegal value is kept as recorded and never mapped onto an allowed method.
     let bad = Check(["criterion": "标准1", "passed": true, "method": "vibes", "evidence": "看着没问题"])
     #expect(bad.method == nil)
@@ -330,10 +330,10 @@ private func goalRun() -> Log {
         Check(["criterion": "跑过测试", "passed": true, "method": "test", "evidence": "cargo test"]),
         Check(["criterion": "推断不影响", "passed": true, "method": "reasoning", "evidence": "调用方只有这一处"]),
         Check(["criterion": "本机没有 Xcode", "passed": true, "method": "unverified", "evidence": "本机没有 Xcode"]),
-        Check(["criterion": "旧的结果", "passed": true, "evidence": "看起来没问题"]),
+        Check(["criterion": "没写方法", "passed": true, "evidence": "看起来没问题"]),
         Check(["criterion": "写错方法", "passed": true, "method": "vibes", "evidence": "看着没问题"]),
     ]
-    let s = EvidenceSummary(accept: ["跑过测试", "推断不影响", "本机没有 Xcode", "旧的结果", "写错方法"], checks: checks)
+    let s = EvidenceSummary(accept: ["跑过测试", "推断不影响", "本机没有 Xcode", "没写方法", "写错方法"], checks: checks)
     #expect(s.criteria == 5 && s.passed == 5, "reminders do not change how many passed")
     #expect(s.unspecified == 1)
     #expect(s.invalid == 1)
@@ -343,8 +343,6 @@ private func goalRun() -> Log {
     #expect(s.reminders.contains { $0.contains("没有说明证据方法") })
     #expect(s.methods.map(\.method) == ["test", "reasoning", "unverified"], "counts keep the five methods' order: \(s.methods)")
     #expect(s.countsText == "测试 1 条、推理判断 1 条、未核实 1 条、未说明 1 条、方法不合法 1 条", "\(s.countsText)")
-    // A task recorded before criteria existed counts its checks.
-    #expect(EvidenceSummary(accept: [], checks: [checks[0]]).criteria == 1)
     #expect(EvidenceSummary(accept: [], checks: []).countsText == "没有记录")
 }
 
@@ -366,14 +364,17 @@ private func goalRun() -> Log {
         ],
     ])
     log.add("task.succeeded", task: "T2", attempt: 1, data: [
-        "summary": "加了保护", "evidence": ["calc.py:12", "docs/calc.md"], "traceGaps": [],
+        "summary": "加了保护", "evidence": ["calc.py:12", "docs/calc.md"], "risks": ["没有覆盖负数"], "traceGaps": [],
         "checks": [["criterion": "测试通过", "passed": true, "method": "test", "evidence": "cargo test 通过"]],
     ])
     log.add("result.submitted", actor: "reviewer", task: "V1", attempt: 1, data: [
         "summary": "复现了", "evidence": ["python3 calc.py"],
         "checks": [["criterion": "复现行为", "passed": true, "method": "command", "evidence": "python3 calc.py → 除零提示"]],
     ])
-    log.add("task.succeeded", task: "V1", attempt: 1, data: ["summary": "复现了", "evidence": ["python3 calc.py"]])
+    log.add("task.succeeded", task: "V1", attempt: 1, data: [
+        "summary": "复现了", "evidence": ["python3 calc.py"], "risks": [],
+        "checks": [["criterion": "复现行为", "passed": true, "method": "command", "evidence": "python3 calc.py → 除零提示"]],
+    ])
     let st = derive(log.events)
     let t2 = st.tasks["T2"]
     #expect(t2?.checks.count == 1 && t2?.checks[0].method == .test, "the conclusion's checks and methods are kept")
@@ -382,11 +383,6 @@ private func goalRun() -> Log {
     #expect(st.verifiers(of: "T2").map(\.id) == ["V1"])
     #expect(st.verifiers(of: "T2").first?.checks.first?.methodLabel == "命令")
     #expect(st.verifiers(of: "T1").isEmpty)
-    // An older conclusion has no checks of its own: what the submission said is not cleared.
-    var old = goalRun()
-    old.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: ["summary": "三处", "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
-    old.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "三处"])
-    #expect(derive(old.events).tasks["T1"]?.checks.first?.methodLabel == "未说明")
 }
 
 /// The delivery's per-task record keeps every check with its method, the independent verification,
@@ -422,24 +418,4 @@ private func goalRun() -> Log {
     #expect(a.verifications.first?.passed == false && a.verifications.first?.label == "失败", "a failed verification is shown apart from the executor's checks")
     #expect(a.traceGaps.count == 1 && a.risks == ["旧版本没有回归测试"])
     #expect(a.summary.reminders.count == 1)
-
-    // A delivery recorded before the record existed: the same information from the tasks.
-    var old = goalRun()
-    old.add("orchestration.accepted", actor: "lead", data: ["tasks": [
-        ["id": "T1", "title": "调研", "agent": "researcher", "deps": [], "accept": ["列出调用方"]],
-        ["id": "V1", "title": "验证", "agent": "reviewer", "deps": ["T1"], "accept": ["复现"], "verifies": "T1"],
-    ]])
-    old.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: [
-        "summary": "三处", "evidence": ["a", "b"], "risks": ["没有覆盖边界"],
-        "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]],
-    ])
-    old.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "三处", "evidence": ["a", "b"], "traceGaps": ["没有改动"]])
-    old.add("task.succeeded", task: "V1", attempt: 1, data: ["summary": "确认了"])
-    old.add("run.delivered", data: ["summary": "完成", "evidence": [], "risks": []])
-    let fallback = try #require(deliveryAcceptance(derive(old.events)).first)
-    #expect(fallback.task == "T1" && fallback.summary.passed == 1)
-    #expect(fallback.summary.countsText == "未说明 1 条", "an old check with no method is 未说明, not a failure: \(fallback.summary.countsText)")
-    #expect(fallback.summary.reminders.count == 1)
-    #expect(fallback.verifications.map(\.task) == ["V1"] && fallback.verifications[0].passed)
-    #expect(fallback.traceGaps == ["没有改动"] && fallback.risks == ["没有覆盖边界"])
 }

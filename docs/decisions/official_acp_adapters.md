@@ -14,7 +14,7 @@ Codex、Claude Code 和 Grok 的适配器此前从 GitHub 仓库的默认分支�
 3. npm 安装统一带 `--ignore-scripts`，安装和升级不执行包自带的生命周期脚本。
 4. 不再要求用户安装 `codex`、`claude` 或 `grok`：官方包自带 CLI；Agent 设置中填写的二进制路径作为覆盖传给适配器。
 5. 插话改用 `_session/steering`（能力 `_meta.steering.supported`，空闲时 `idleBehavior: "promptRequired"`），清除目标改用 `_session/goal`，目标状态读 `_meta.jetbrains.air.goal`。Janus 在 `initialize` 中声明 AIR 客户端。
-6. 适配器版本目录按包名记录；旧包安装的版本在下一次检查或升级时被替换。
+6. 适配器版本目录记录包名。（2026-11-15：替换旧包安装版本的兼容逻辑已删除，安装过的版本就是当前的包。）
 
 ## 取舍
 

@@ -378,11 +378,8 @@ func derive(_ events: [Event]) -> RunState {
         case "task.succeeded":
             guard let t else { break }
             t.status = "succeeded"; t.progress = 100; t.summary = d["summary"].str; t.evidence = d["evidence"].strings
-            // The conclusion keeps the checks, their methods and — when the lead accepted the
-            // result — the risks of that acceptance. Older conclusions have none: keep what the
-            // submitted result said instead of clearing it.
-            if !d["checks"].array.isEmpty { t.checks = Check.list(d["checks"]) }
-            if !d["risks"].array.isEmpty { t.risks = d["risks"].strings }
+            // The conclusion carries the whole result: its checks with their methods and its risks.
+            t.checks = Check.list(d["checks"]); t.risks = d["risks"].strings
             if d["acceptedBy"].str != "lead" { t.traceGaps = d["traceGaps"].strings }
             endLive(t)
             if let at = t.attempts.last, at.status == "running" { at.status = "succeeded" }

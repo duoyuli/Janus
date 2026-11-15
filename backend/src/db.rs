@@ -283,7 +283,7 @@ impl Db {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, config, status FROM runs
-             WHERE status NOT IN ('delivered', 'accepted', 'accepted_with_risk', 'cancelled')
+             WHERE status NOT IN ('delivered', 'accepted', 'cancelled')
              ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -298,7 +298,7 @@ impl Db {
 
     pub fn unfinished_runs(&self) -> Result<Vec<String>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id FROM runs WHERE status NOT IN ('delivered', 'accepted', 'accepted_with_risk', 'cancelled', 'failed', 'interrupted')")?;
+        let mut stmt = conn.prepare("SELECT id FROM runs WHERE status NOT IN ('delivered', 'accepted', 'cancelled', 'failed', 'interrupted')")?;
         let rows = stmt.query_map([], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
