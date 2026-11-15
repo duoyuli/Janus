@@ -63,6 +63,18 @@ pub struct VerificationRow<'a> {
     pub created_at: i64,
 }
 
+/// A `runs` row as the API and the orchestrator read it.
+fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    Ok(serde_json::json!({
+        "id": r.get::<_, String>(0)?,
+        "goal": r.get::<_, String>(1)?,
+        "cwd": r.get::<_, String>(2)?,
+        "config": serde_json::from_str::<Value>(&r.get::<_, String>(3)?).unwrap_or(Value::Null),
+        "status": r.get::<_, String>(4)?,
+        "createdAt": r.get::<_, i64>(5)?,
+    }))
+}
+
 impl Db {
     // @project-doc docs/architecture/data_model.md#sqlite_tables
     pub fn open(path: &Path) -> Result<Db> {
@@ -246,20 +258,22 @@ impl Db {
         )?)
     }
 
+    /// The newest 50 runs, for the app's list and the role statistics.
     pub fn runs(&self) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare("SELECT id, goal, cwd, config, status, created_at FROM runs ORDER BY created_at DESC LIMIT 50")?;
-        let rows = stmt.query_map([], |r| {
-            Ok(serde_json::json!({
-                "id": r.get::<_, String>(0)?,
-                "goal": r.get::<_, String>(1)?,
-                "cwd": r.get::<_, String>(2)?,
-                "config": serde_json::from_str::<Value>(&r.get::<_, String>(3)?).unwrap_or(Value::Null),
-                "status": r.get::<_, String>(4)?,
-                "createdAt": r.get::<_, i64>(5)?,
-            }))
-        })?;
+        let rows = stmt.query_map([], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// One run by id, however old it is.
+    pub fn run(&self, id: &str) -> Result<Option<Value>> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .query_row("SELECT id, goal, cwd, config, status, created_at FROM runs WHERE id = ?1", params![id], run_row)
+            .optional()?)
     }
 
     pub fn start_attempt(
@@ -462,6 +476,20 @@ mod tests {
         let path = std::env::temp_dir().join(format!("janus-{name}-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         (Db::open(&path).unwrap(), path)
+    }
+
+    /// The app's list stops at the newest 50 runs; a run by id is found however old it is.
+    #[test]
+    fn a_run_past_the_newest_fifty_is_still_found() {
+        let (db, path) = temp_db("run-lookup");
+        for i in 0..60 {
+            db.insert_run(&format!("r{i}"), "test", "/tmp", &json!({}), i).unwrap();
+        }
+        assert_eq!(db.runs().unwrap().len(), 50);
+        assert!(!db.runs().unwrap().iter().any(|r| r["id"] == "r0"), "the oldest is not on the list");
+        assert_eq!(db.run("r0").unwrap().unwrap()["createdAt"], 0);
+        assert!(db.run("nope").unwrap().is_none());
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

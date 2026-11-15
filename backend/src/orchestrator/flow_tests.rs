@@ -1263,7 +1263,7 @@ async fn library_mcp_reaches_the_session_with_its_values() {
     assert_eq!(by("docs")["headers"], json!([{ "name": "Authorization", "value": "Bearer lib-header-secret" }]));
     assert_eq!(by("janus")["type"], "http", "the board is attached next to them");
 
-    let record = serde_json::to_string(&h.app.db.runs().unwrap().into_iter().find(|r| r["id"] == run.as_str()).unwrap()).unwrap()
+    let record = serde_json::to_string(&h.app.db.run(&run).unwrap().unwrap()).unwrap()
         + &serde_json::to_string(&events(&h.app, &run)).unwrap();
     for secret in ["role-env-secret", "lib-env-secret", "lib-header-secret"] {
         assert!(!record.contains(secret), "the run record and its events hold no values: {secret}");

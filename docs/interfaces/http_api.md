@@ -44,7 +44,7 @@
 | POST | `/api/connections/{id}/login` | 启动 Codex 或 Grok 的账号登录 |
 | GET | `/api/file?path=` | 读取产物文本 |
 | GET | `/api/stats/roles` | 最近的 Run 中各角色的任务统计，见[角色的执行统计](../domains/agents_and_roles.md#role_stats) |
-| GET | `/api/runs` | Run 列表 |
+| GET | `/api/runs` | 最近创建的 50 个 Run；更早的 Run 仍可按 id 读取详情、继续和验收 |
 | POST | `/api/runs` | 创建 Run |
 | GET | `/api/usage?from=&to=&offset=` | 一段时间里所有 Run 的用量账单，见[用量账单](#usage_bill) |
 | GET | `/api/prices?models=` | 模型的 API 价格（来自 models.dev），见[模型价格](#prices) |

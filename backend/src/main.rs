@@ -309,13 +309,7 @@ async fn create_run(State(app): State<Arc<App>>, Json(req): Json<NewRun>) -> Api
 /// One run and its events; with `after`, only the events past that seq, so a client that already
 /// holds the rest (the app's inbox) reads just what is new.
 async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<After>) -> ApiResult {
-    let run = app
-        .db
-        .runs()
-        .map_err(bad)?
-        .into_iter()
-        .find(|r| r["id"] == id.as_str())
-        .ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
+    let run = app.db.run(&id).map_err(bad)?.ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
     let events = app.db.events(&id, q.after.unwrap_or(0).max(0)).map_err(bad)?;
     Ok(
         Json(json!({ "run": run, "events": events, "live": app.run(&id).is_some() }))
@@ -384,7 +378,7 @@ fn price_reply(table: Option<&prices::Table>, models: &str) -> Value {
 /// Files in a run's workspace whose path contains `q`, for the `@` menu of the composer.
 // @project-doc docs/interfaces/http_api.md#run_files
 async fn run_files(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<FileQuery>) -> ApiResult {
-    let run = app.db.runs().map_err(bad)?.into_iter().find(|r| r["id"] == id.as_str()).ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
+    let run = app.db.run(&id).map_err(bad)?.ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
     let cwd = std::path::PathBuf::from(run["cwd"].as_str().unwrap_or_default());
     let files = acp_view::workspace_files(&cwd, q.q.as_deref().unwrap_or(""), 20);
     Ok(Json(json!({ "files": files })).into_response())

@@ -228,13 +228,7 @@ impl App {
     }
 
     pub fn accept_archived(&self, run_id: &str) -> Result<()> {
-        let status = self
-            .db
-            .runs()?
-            .into_iter()
-            .find(|r| r["id"] == run_id)
-            .map(|r| r["status"].clone())
-            .context("run not found")?;
+        let status = self.db.run(run_id)?.map(|r| r["status"].clone()).context("run not found")?;
         if status.as_str() != Some("delivered") {
             bail!("只有已交付的 Run 可以验收");
         }
@@ -262,12 +256,7 @@ impl App {
         if let Some(run) = self.run(run_id) {
             return Ok(run);
         }
-        let row = self
-            .db
-            .runs()?
-            .into_iter()
-            .find(|r| r["id"] == run_id)
-            .context("run not found")?;
+        let row = self.db.run(run_id)?.context("run not found")?;
         let previous = row["status"].as_str().and_then(RunStatus::parse);
         // Delivered and accepted runs reopen as a conversation; interrupted and failed runs
         // rebuild the board and continue the goal.

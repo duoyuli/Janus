@@ -23,7 +23,7 @@
 | J-03 | 高 | 已确认 | `commandId` 的检查、操作和记录不是原子流程 | `backend/src/main.rs:333` |
 | J-04 | 高 | 已确认 | 事件持久化失败后仍然广播，事实来源与页面状态可能分离 | `backend/src/orchestrator.rs:390` |
 | J-05 | 高 | 已确认 | Run 只保存 Provider ID，后续任务重新读取当前 Provider 配置 | `backend/src/orchestrator.rs:1480` |
-| J-06 | 中高 | 已确认 | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
+| J-06 | 中高 |  已修复  | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
 | J-07 | 中高 | 已确认 | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
 | J-08 | 中高 |  已修复  | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
 | J-09 | 中 | 已确认 | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
@@ -95,6 +95,8 @@
 证据：[db.rs:199](/Users/duoyu/Data/dev/agent/Janus/backend/src/db.rs:199)、[main.rs:265](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:265)、[orchestrator.rs:2903](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2903)、[orchestrator.rs:2938](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2938)。
 
 建议：增加 `get_run(id)` 数据库方法。列表接口单独保留分页或数量限制，详情、恢复和验收使用按 ID 查询。
+
+处理（2026-11-15）：列表仍只返回最近的 50 个 Run（应用的侧栏和角色统计用它），按 id 的读取改用 `Db::run`：详情、工作目录文件、验收归档的交付和从中断处继续都不受这个范围限制。测试 `a_run_past_the_newest_fifty_is_still_found`。
 
 ### J-07：Run 预算不持久化，主控会话没有 Run 级截止时间
 
