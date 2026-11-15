@@ -59,6 +59,8 @@ struct MainView: View {
 
 struct Sidebar: View {
     let store: AppStore
+    /// How many task records are shown; the rest wait behind「展示更多」, in steps of ten.
+    @Local private var shownRuns = 10
 
     var body: some View {
         let selection = Binding<Screen?>(get: { store.screen }, set: { if let s = $0 { store.open(s) } })
@@ -66,45 +68,39 @@ struct Sidebar: View {
         List(selection: selection) {
             if let ws {
                 let runs = store.runs(of: ws)
-                Section {
-                    ForEach(runs, id: \.self) { r in
-                        // A run waiting on the person says so, with how many, like the inbox.
-                        let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
-                        let (label, tone) = waiting > 0 ? ("等你处理", Tone.amber) : L.runListStatus[r["status"].str] ?? (r["status"].str, .gray)
-                        HStack(spacing: 8) {
-                            Circle().fill(tone.color).frame(width: 7, height: 7).accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(L.goalTitle(r["goal"].str)).lineLimit(1)
-                                Text(verbatim: "\(label) · \(L.dateTime(r["createdAt"].double ?? 0))").font(.caption).foregroundStyle(waiting > 0 ? tone.color : .secondary)
-                            }
+                ForEach(runs.prefix(shownRuns), id: \.self) { r in
+                    // A run waiting on the person says so, with how many, like the inbox.
+                    let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
+                    let (label, tone) = waiting > 0 ? ("等你处理", Tone.amber) : L.runListStatus[r["status"].str] ?? (r["status"].str, .gray)
+                    HStack(spacing: 8) {
+                        Circle().fill(tone.color).frame(width: 7, height: 7).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(L.goalTitle(r["goal"].str)).lineLimit(1)
+                            Text(verbatim: "\(label) · \(L.dateTime(r["createdAt"].double ?? 0))").font(.caption).foregroundStyle(waiting > 0 ? tone.color : .secondary)
                         }
-                        .badge(waiting)
-                        .accessibilityValue(waiting == 0 ? label : "\(waiting) 项等你处理")
-                        .tag(Screen.run(r["id"].str))
                     }
-                } header: {
-                    // A finished run no longer needs a session to start the next one: the
-                    // workspace home is where a new goal is written. A quiet plus in the
-                    // header keeps the entry out of the list of runs.
-                    HStack(spacing: 6) {
-                        Text("任务记录")
-                        Spacer(minLength: 6)
-                        Button { store.open(.home(ws["id"].str)) } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .semibold))
-                                .frame(width: 18, height: 18)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .hoverable(5)
-                        .help("新建任务：打开工作区，写下目标并交给主控")
-                        .accessibilityLabel("新建任务")
+                    .badge(waiting)
+                    .accessibilityValue(waiting == 0 ? label : "\(waiting) 项等你处理")
+                    .tag(Screen.run(r["id"].str))
+                }
+                if runs.count > shownRuns {
+                    Button { shownRuns = min(shownRuns + 10, runs.count) } label: {
+                        Text("展示更多")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 15)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .hoverable(6)
+                    .help("再显示 10 个任务记录")
                 }
             }
         }
         .listStyle(.sidebar)
+        // A new workspace starts from its latest ten again.
+        .onChange(of: ws?["id"].str) { shownRuns = 10 }
         .scrollContentBackground(.hidden)
         .background(Color.sidebar.ignoresSafeArea())
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -114,6 +110,7 @@ struct Sidebar: View {
                 Rectangle().fill(Color.line).frame(height: 1).padding(.top, 6)
                 sidebarLabel("工作区").padding(.top, 2)
                 WorkspacePicker(store: store, current: ws)
+                if let ws { taskHistoryHeader(ws) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -143,6 +140,32 @@ struct Sidebar: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
         }
+    }
+
+    /// The task history's heading and a quiet plus that opens the workspace home, where a new
+    /// goal is written. It stays above the list, so the list needs no section header and the
+    /// disclosure chevron that comes with one.
+    private func taskHistoryHeader(_ ws: JSON) -> some View {
+        HStack(spacing: 6) {
+            Text("任务记录")
+            Spacer(minLength: 6)
+            Button { store.open(.home(ws["id"].str)) } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .hoverable(5)
+            .help("新建任务：打开工作区，写下目标并交给主控")
+            .accessibilityLabel("新建任务")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 20)
+        .padding(.top, 10)
+        .padding(.bottom, 3)
     }
 
     /// A section label above the global inbox and the workspace card, like the sidebar's own
