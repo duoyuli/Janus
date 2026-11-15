@@ -66,6 +66,7 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/evidence.rs` | 验收证据：check 的证据方法、结果核对（`gaps`）、证据汇总（`Summary`）和交付中每个任务的验收记录 |
 | `backend/src/usage.rs` | Run 级用量账本：从事件日志实时派生的只读汇总，覆盖 Run、任务、成员、尝试和单个会话；每轮的 token 相加并按模型归集，上下文快照不计入，缺失如实标注，不改调度、预算和交付 |
 | `backend/src/bill.rs` | 按时间段的用量账单：跨 Run 按 Agent 和模型汇总区间里的 token 和上报的费用 |
+| `backend/src/prices.rs` | 模型价格：每天从 models.dev 同步，每个模型取厂商的 API 价格，给账单估算花费 |
 | `backend/src/traces.rs` | 任务在工作目录里留下的痕迹：每个任务改过的文件和每个文件最后的修改者、diff 产物的范围、结果与痕迹的对账、完成后又被改过的文件 |
 | `backend/src/status.rs` | Run、任务、尝试和 Agent 阶段的状态枚举；Run 和任务的合法转移集中在 `can_transition_to` |
 | `backend/src/skill_sources.rs` | `App` 的 Skill 来源部分：解析 GitHub 链接、克隆、查找 Skill、更新与删除，以及按 id 找到 Skill（自建或来源） |

@@ -176,6 +176,8 @@ struct UsageModelLine: Equatable, Identifiable {
     var model: String
     var tokens = UsageTokens()
     var turns = 0
+    /// USD at the model's list price; nil when it has none.
+    var estimate: Double?
     var id: String { model }
 }
 
@@ -187,6 +189,8 @@ struct UsageBillGroup: Equatable, Identifiable {
     var turns = 0
     var cost = UsageCost()
     var models: [UsageModelLine] = []
+    /// The priced models' estimates added up; nil when none has a price.
+    var estimate: Double?
 
     mutating func spend(_ s: UsageSpend) {
         tokens.add(s.tokens)

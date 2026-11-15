@@ -49,6 +49,7 @@ just start     # 以服务方式启动（macOS）；或 just run 在前台运行
 | 协作者没有看板工具 | Agent 是否声明 `mcpCapabilities.http`；Pi 不支持，属预期行为 |
 | 某次尝试失败 | `~/.janus/logs/<run>/<task>-a<n>.log` 是该子进程的 stderr；事件 `attempt.failed` 的 `data.error` 是失败原因 |
 | 发出的消息没进对话 | 看输入框上方的「待发送」区：「发送中」表示会话还没处理到它，「排队」表示要等这一轮结束，「留言」表示这个 Agent 当前没有会话 |
+| 用量账单只有 token、没有金额 | 价格还没有从 models.dev 同步：在「设置 → 用量账单」点「同步价格」，失败原因在 `~/.janus/logs/janus.log`（`model prices not synced`），常见是没有网络或代理挡住了 `models.dev`。说明里列出的「没有价格」的模型，是 models.dev 上找不到的模型名，见 [ADR：按 models.dev 的价格估算用量](../decisions/model_prices.md) |
 | 界面不更新 | SSE 断开或缓冲溢出时应用会自动重新读取 Run；仍无变化时用 ⌘R 刷新 |
 | macOS 应用打不开，提示无法验证开发者 | 安装包没有用 Apple 证书签名：到「系统设置 → 隐私与安全性」点「仍要打开」，见[部署方案](deployment.md#macos_app) |
 | macOS 应用停在「Janus 服务没有启动」 | 启动页显示的是 `~/.janus/logs/janus.out.log` 的末尾。端口被占用时应用会自动换端口（见 [macOS 应用](../architecture/frontend.md#port_conflict)），所以多半是另一个用同一 Janus home 的 Janus 还在运行却连不上，先退出它（`just stop`）再点「重试」 |

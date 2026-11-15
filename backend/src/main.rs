@@ -11,6 +11,7 @@ mod git_probe;
 mod goal_settle;
 mod mcp_sources;
 mod orchestrator;
+mod prices;
 mod skill_sources;
 mod status;
 mod teamwork;
@@ -347,7 +348,37 @@ async fn usage_bill(State(app): State<Arc<App>>, Query(p): Query<Period>) -> Api
     if p.to <= p.from || p.to - p.from > MAX_DAYS * 24 * 60 * 60 * 1000 {
         return Err((StatusCode::BAD_REQUEST, format!("区间要在 1 毫秒到 {MAX_DAYS} 天之间")));
     }
-    Ok(Json(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0)).map_err(bad)?).into_response())
+    let prices = prices::current(&config::settings().home);
+    Ok(Json(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0), prices.as_deref()).map_err(bad)?).into_response())
+}
+
+#[derive(Deserialize)]
+struct PriceQuery {
+    /// Model names, comma separated, as the sessions name them.
+    models: Option<String>,
+}
+
+/// List prices of the given models from the synced models.dev list (`backend/src/prices.rs`), so
+/// the app can price a task's bill; `null` for a model without a price.
+// @project-doc docs/interfaces/http_api.md#prices
+async fn get_prices(Query(q): Query<PriceQuery>) -> ApiResult {
+    Ok(Json(price_reply(prices::current(&config::settings().home).as_deref(), q.models.as_deref().unwrap_or(""))).into_response())
+}
+
+/// Download the models.dev list now instead of waiting for the daily sync.
+async fn sync_prices() -> ApiResult {
+    let table = prices::sync(config::settings().home.clone(), true).await.map_err(bad)?;
+    Ok(Json(price_reply(Some(&table), "")).into_response())
+}
+
+fn price_reply(table: Option<&prices::Table>, models: &str) -> Value {
+    let found: serde_json::Map<String, Value> = models
+        .split(',')
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(|m| (m.to_string(), json!(table.and_then(|t| t.get(m)))))
+        .collect();
+    json!({ "source": prices::SOURCE, "fetchedAt": table.map(|t| t.fetched_at), "count": table.map_or(0, |t| t.models.len()), "prices": found })
 }
 
 /// Files in a run's workspace whose path contains `q`, for the `@` menu of the composer.
@@ -579,6 +610,20 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Model prices: check every hour, download models.dev's list again once a day.
+    {
+        let home = home.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            loop {
+                if let Err(err) = prices::sync(home.clone(), false).await {
+                    config::log(format!("janus: model prices not synced: {err:#}"));
+                }
+                tokio::time::sleep(prices::CHECK_EVERY).await;
+            }
+        });
+    }
+
     // @project-doc docs/interfaces/http_api.md#routes
     let router = Router::new()
         .route("/api/meta", get(meta))
@@ -607,6 +652,8 @@ async fn main() -> Result<()> {
         .route("/api/file", get(file))
         .route("/api/stats/roles", get(role_stats))
         .route("/api/usage", get(usage_bill))
+        .route("/api/prices", get(get_prices))
+        .route("/api/prices/sync", post(sync_prices))
         .route("/api/runs", get(list_runs).post(create_run))
         .route("/api/runs/{id}", get(get_run))
         .route("/api/runs/{id}/stream", get(stream))

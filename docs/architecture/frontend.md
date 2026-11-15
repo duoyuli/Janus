@@ -114,11 +114,11 @@ Run 的用量汇总是从事件算出的只读账本：后端是 `ledger`（`bac
 <a id="usage_bill"></a>
 ## 用量账单
 
-账单用收据的样式列出一段用量花在了谁、哪个模型上（`UsageReceipt`，`UI/Run/Usage.swift`；数据在 `Core/UsageBill.swift`）。从上到下：标题和它覆盖的范围、Token 总量（大号数字为 K / M / B 三位有效数字，下面是完整数字和 Agent 上报的费用）、统计行、按付费方分组的模型、Token 总量与输入 / 缓存读取 / 缓存写入 / 输出和缓存命中率、附加的分节，最后是说明。所有数字都是可选中的文字，VoiceOver 按「标签：值」读出；虚线只是装饰。
+账单用收据的样式列出一段用量花在了谁、哪个模型上（`UsageReceipt`，`UI/Run/Usage.swift`；数据在 `Core/UsageBill.swift`）。从上到下：标题和它覆盖的范围、大号的金额（有价格时是按 models.dev API 价格的估算，标「非账单」；没有价格时是 K / M / B 三位有效数字的 Token 总量，下面是完整数字和 Agent 上报的费用）、统计行、按付费方分组的模型、Token 总量与输入 / 缓存读取 / 缓存写入 / 输出和缓存命中率、附加的分节，最后是说明。所有数字都是可选中的文字，VoiceOver 按「标签：值」读出；虚线只是装饰。
 
-- **任务账单**：任务页右侧最上面的卡片（`TaskUsageCard`）。由这个 Run 的账本得到（`UsageBill.task`、`UsageLedger.bill(ofTask:)`），所以随事件实时更新，回放时显示回放位置的账单。统计行是数据完整性、尝试次数、请求轮数、会话数、耗时（含等待你）和上下文；分组是做过这个任务的成员，每个成员下按模型列出（模型来自 Agent 按模型的上报，或成员会话当时的模型，都没有时写「未知模型」）；最后一节是每次尝试的结局、token、用时和结束原因。任务还没有会话时只写「未开始」。
-- **时间段账单**：设置里的「用量账单」（`UsageBillView`，`UI/Settings/UsageBillView.swift`）。区间可选近 7 天、近 30 天、本月、上月，按本机日历算整天，选择记在本机；内容来自 `GET /api/usage`（见 [HTTP API](../interfaces/http_api.md#usage_bill)），按 Agent（Codex、Claude Code 等）再按模型列出，统计 Run 数、请求轮数、会话数、活跃天数和活跃日均。「复制账单」把同样的内容复制成纯文本。
-- 费用只列 Agent 上报的金额，不按 token 估算；没有上报 token 的会话数写在说明里，不计入数字。
+- **任务账单**：任务页右侧最上面的卡片（`TaskUsageCard`）。由这个 Run 的账本得到（`UsageBill.task`、`UsageLedger.bill(ofTask:)`），所以随事件实时更新，回放时显示回放位置的账单；账单里的模型用 `GET /api/prices` 查价格后由应用估算（`UsageBill.priced`，和后端同一个公式）。统计行是数据完整性、尝试次数、请求轮数、会话数、耗时（含等待你）和上下文；分组是做过这个任务的成员，每个成员下按模型列出（模型来自 Agent 按模型的上报，或成员会话当时的模型，都没有时写「未知模型」）；最后一节是每次尝试的结局、token、用时和结束原因。任务还没有会话时只写「未开始」。
+- **时间段账单**：设置里的「用量账单」（`UsageBillView`，`UI/Settings/UsageBillView.swift`）。区间可选近 7 天、近 30 天、本月、上月，按本机日历算整天，选择记在本机；内容来自 `GET /api/usage`（见 [HTTP API](../interfaces/http_api.md#usage_bill)），按 Agent（Codex、Claude Code 等）再按模型列出，统计 Run 数、请求轮数、会话数、活跃天数和活跃日均。「复制账单」把同样的内容复制成纯文本，「同步价格」立即从 models.dev 下载价格。
+- 每个付费方和模型在有价格时显示估算金额，旁边是 token；没有价格的只显示 token，轮数写在说明里。Agent 上报的费用另列在付费方名字旁边和金额下方，不和估算相加。没有上报 token 的会话数写在说明里，不计入数字。
 
 <a id="server_sync"></a>
 ## 与服务同步

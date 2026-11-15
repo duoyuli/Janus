@@ -105,6 +105,14 @@
 - 当前应用是 ad-hoc 签名时没有签名者可以要求，只依靠 HTTPS 和 SHA-256，信任程度与手动下载 DMG 相同。
 - 替换脚本只移动应用包、打开新应用，不使用管理员权限；应用所在目录不可写时放弃更新。
 
+<a id="model_prices"></a>
+## 模型价格的来源
+
+- 价格只来自 `https://models.dev/api.json`，来源写在代码中（`backend/src/prices.rs`），接口不能指定其他地址。
+- 下载用系统的 `curl`，只允许 HTTPS，限时 120 秒、限 64 MB，在 Janus 进程自己的环境中运行（`PATH`、代理）。内容只当 JSON 数据解析，不执行任何部分；每个价格必须是非负的有限数。
+- 解析后的表写到 `~/.janus/prices/models.json`，整体替换；下载或解析失败时保留原来的表。
+- 价格只用于账单上的估算，标明不是账单；不写进事件，不影响预算、调度、交付或 Agent 的会话。被篡改的价格最多让估算不对。决策见 [ADR：按 models.dev 的价格估算用量](../decisions/model_prices.md)。
+
 <a id="scope_limits"></a>
 ## 适用范围
 

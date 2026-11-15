@@ -181,15 +181,17 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
         "activeDays": 21, "days": 30,
         "tokens": ["total": 6_450_000_000, "input": 200_000_000, "output": 21_400_000, "cachedRead": 6_228_600_000],
         "cost": ["lines": [["currency": "USD", "amount": 12.5, "sessions": 4]], "reportedSessions": 4, "missingSessions": 36],
+        "estimate": ["amount": 6389.62, "unpricedTurns": 12, "unpricedModels": ["qwen3.8-27b-mlx"], "fetchedAt": 1_762_580_000_000],
         "agents": [
-            ["id": "codex", "name": "Codex", "turns": 2900, "tokens": ["total": 5_900_000_000], "cost": ["lines": [], "reportedSessions": 0, "missingSessions": 30],
-             "models": [["model": "gpt-6-astra", "turns": 2500, "tokens": ["total": 5_100_000_000]], ["model": "gpt-6.1-sol", "turns": 400, "tokens": ["total": 800_000_000]]]],
+            ["id": "codex", "name": "Codex", "turns": 2900, "tokens": ["total": 5_900_000_000], "cost": ["lines": [], "reportedSessions": 0, "missingSessions": 30], "estimate": 5213.22,
+             "models": [["model": "gpt-6-astra", "turns": 2500, "tokens": ["total": 5_100_000_000], "estimate": 4418.29], ["model": "gpt-6.1-sol", "turns": 400, "tokens": ["total": 800_000_000], "estimate": 794.93]]],
             ["id": "claude", "name": "Claude Code", "turns": 292, "tokens": ["total": 550_000_000], "cost": ["lines": [["currency": "USD", "amount": 12.5, "sessions": 4]], "reportedSessions": 4, "missingSessions": 6],
              "models": [["model": "claude-opus-5-5", "turns": 250, "tokens": ["total": 500_000_000]], ["model": "claude-haiku-5-5", "turns": 42, "tokens": ["total": 50_000_000]]]],
         ],
     ]
     let bill = UsageBill.period(period, issued: Date(timeIntervalSince1970: 1_762_590_000))
-    #expect(bill.headline == "6.45B" && bill.totalRows.last?.value == "97%", "\(bill.headline) \(bill.totalRows)")
+    #expect(bill.headline == "$6,389.62" && bill.totalRows.last?.value == "97%", "\(bill.headline) \(bill.totalRows)")
+    #expect(bill.notes.first?.contains("models.dev") == true && bill.notes.contains { $0.contains("12 轮没有价格") })
     let periodCard = try render("period-bill-light.png", dark: false, Card(padding: 22) { UsageReceipt(bill: bill) }.frame(width: 520))
     #expect(periodCard > 10_000)
     #expect(runCard > 10_000 && runCardDark > 10_000 && taskCard > 10_000, "the cards drew: \(runCard)/\(runCardDark)/\(taskCard) bytes")

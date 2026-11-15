@@ -6,6 +6,7 @@
 //! See `docs/interfaces/http_api.md#usage_bill`.
 
 use crate::db::Db;
+use crate::prices::{Estimate, Table};
 use crate::usage::{self, BillGroup, Cost, Tokens};
 use anyhow::Result;
 use serde::Serialize;
@@ -34,12 +35,14 @@ pub struct PeriodBill {
     pub cache_hit_rate: Option<f64>,
     pub cost: Cost,
     pub agents: Vec<BillGroup>,
+    /// What the tokens would cost at models.dev list prices; `None` before prices were synced.
+    pub estimate: Option<Estimate>,
 }
 
-/// The bill of `[from, to)` (milliseconds). `offset_minutes` is the person's time zone, east of
-/// UTC, so active days are their days.
+/// The bill of `[from, to)` (milliseconds), priced with `prices` when there are any. `offset_minutes`
+/// is the person's time zone, east of UTC, so active days are their days.
 // @project-doc docs/interfaces/http_api.md#usage_bill
-pub fn period(db: &Db, from: i64, to: i64, offset_minutes: i64) -> Result<PeriodBill> {
+pub fn period(db: &Db, from: i64, to: i64, offset_minutes: i64, prices: Option<&Table>) -> Result<PeriodBill> {
     let mut bill = PeriodBill { from, to, days: ((to - from + DAY_MS - 1) / DAY_MS) as usize, ..Default::default() };
     let mut days: HashSet<i64> = HashSet::new();
     for (run, config) in db.runs_with_usage(from, to)? {
@@ -74,6 +77,7 @@ pub fn period(db: &Db, from: i64, to: i64, offset_minutes: i64) -> Result<Period
         bill.runs += usize::from(counted);
     }
     BillGroup::sort(&mut bill.agents);
+    bill.estimate = prices.map(|t| t.price(&mut bill.agents));
     bill.active_days = days.len();
     bill.cache_hit_rate = bill.tokens.cache_hit_rate();
     Ok(bill)
@@ -140,7 +144,8 @@ mod tests {
         db.insert_run("r2", "g", "/tmp", &team(), 0).unwrap();
         db.insert_event(&Event { run_id: "r2".into(), ..ev(1, 0, "session.usage", "lead", None, None, json!({ "totalTokens": 77 })) }).unwrap();
 
-        let bill = period(&db, day, 8 * day, 0).unwrap();
+        let bill = period(&db, day, 8 * day, 0, None).unwrap();
+        assert!(bill.estimate.is_none(), "no prices synced yet");
         assert_eq!((bill.runs, bill.days, bill.active_days, bill.turns), (1, 7, 2, 2));
         assert_eq!(bill.tokens.total, Some(1600), "one lead turn and one turn by two models; the turns outside are left out");
         assert_eq!((bill.sessions, bill.unreported_sessions), (3, 1), "m2 opened a session and reported nothing");
@@ -154,10 +159,18 @@ mod tests {
         assert!((bill.cache_hit_rate.unwrap() - 1100.0 / 1380.0).abs() < 1e-9, "{:?}", bill.cache_hit_rate);
 
         // A later period starts from the running cost reached before it, and a time zone moves days.
-        let late = period(&db, 3 * day + 35, 8 * day, 0).unwrap();
+        let late = period(&db, 3 * day + 35, 8 * day, 0, None).unwrap();
         assert!((late.cost.lines[0].amount - 0.3).abs() < 1e-9, "0.8 reached in it minus 0.5 before it: {:?}", late.cost);
         assert_eq!(late.tokens.total, None, "no turn in it");
-        assert_eq!(period(&db, day, 8 * day, 23 * 60).unwrap().active_days, 2);
+        assert_eq!(period(&db, day, 8 * day, 23 * 60, None).unwrap().active_days, 2);
+        // With prices, each model line is priced at its list price and the rest are counted.
+        let table = Table::from_models_dev(&json!({ "anthropic": { "models": { "opus": { "cost": { "input": 5, "output": 25, "cache_read": 0.5 } } } } }), 1);
+        let priced = period(&db, day, 8 * day, 0, Some(&table)).unwrap();
+        let e = priced.estimate.unwrap();
+        let opus = (100.0 * 5.0 + 100.0 * 25.0 + 300.0 * 0.5) / 1e6;
+        assert!((e.amount - opus).abs() < 1e-12, "{e:?}");
+        assert_eq!((e.unpriced_turns, e.unpriced_models.len()), (2, 2), "gpt-6 and haiku have no price here: {e:?}");
+        assert_eq!(priced.agents[1].estimate, Some(opus));
         let _ = std::fs::remove_file(path);
     }
 }

@@ -47,6 +47,8 @@
 | GET | `/api/runs` | Run 列表 |
 | POST | `/api/runs` | 创建 Run |
 | GET | `/api/usage?from=&to=&offset=` | 一段时间里所有 Run 的用量账单，见[用量账单](#usage_bill) |
+| GET | `/api/prices?models=` | 模型的 API 价格（来自 models.dev），见[模型价格](#prices) |
+| POST | `/api/prices/sync` | 立即从 models.dev 同步价格 |
 | GET | `/api/runs/{id}?after=` | Run 详情；带 `after` 时只返回该 `seq` 之后的事件，见[详情](#run_detail) |
 | GET | `/api/runs/{id}/stream?after=` | SSE 事件流 |
 | POST | `/api/runs/{id}/actions` | Run 操作 |
@@ -250,9 +252,10 @@ Content-Type: application/json
   "tokens": { "total": 6450000000, "input": 200000000, "output": 21400000, "cachedRead": 6228600000, "cachedWrite": null, "thought": null },
   "cacheHitRate": 0.97,
   "cost": { "lines": [{ "currency": "USD", "amount": 12.5, "sessions": 4 }], "reportedSessions": 4, "missingSessions": 36 },
+  "estimate": { "amount": 6389.62, "unpricedTurns": 12, "unpricedModels": ["qwen3.8-27b-mlx"], "source": "https://models.dev/api.json", "fetchedAt": 1762580000000 },
   "agents": [
-    { "id": "codex", "name": "Codex", "tokens": {}, "turns": 2900, "cost": {},
-      "models": [{ "model": "gpt-6-astra", "tokens": {}, "turns": 2500 }] }
+    { "id": "codex", "name": "Codex", "tokens": {}, "turns": 2900, "cost": {}, "estimate": 5213.22,
+      "models": [{ "model": "gpt-6-astra", "tokens": {}, "turns": 2500, "estimate": 4418.29 }] }
   ]
 }
 ```
@@ -260,7 +263,28 @@ Content-Type: application/json
 - 只读有 `session.usage` 落在区间里的 Run（按 `events_type_ts` 索引查找），对每个 Run 用和 Run 账本相同的规则，只计区间里的轮次；费用取每个会话在区间结束时的累计减去区间开始时的累计。
 - `agents` 按成员的运行时（Run 快照里团队成员的 `runtime` 和 `runtime_name`，例如 Codex、Claude Code）归集，每个 Agent 下按模型列出，token 多的在前。
 - `turns` 是上报了 token 的轮数；`sessions` 是区间里有活动的会话，`unreportedSessions` 是其中没有上报 token 的。`cacheHitRate` 是缓存读取占输入、缓存读取和缓存写入之和的比例，Agent 没有上报缓存读取时为 `null`。
-- 费用只有 Agent 上报的金额，不按 token 估算。
+- `cost` 只有 Agent 上报的金额。`estimate` 是按 models.dev 的 API 价格算出的估算（美元），同步过价格后才有，否则为 `null`；每个 Agent 和模型的 `estimate` 是各自的部分，没有价格的模型为 `null`，它们的轮数和名字列在 `unpricedTurns`、`unpricedModels`。估算不计长上下文的加价，不是账单。
+
+<a id="prices"></a>
+## 模型价格
+
+`GET /api/prices?models=<模型,模型>` 按会话里的模型名（逗号分隔）查 models.dev 的 API 价格，供应用给任务账单估算（`backend/src/prices.rs`）：
+
+```json
+{
+  "source": "https://models.dev/api.json",
+  "fetchedAt": 1794769184902,
+  "count": 2450,
+  "prices": {
+    "codex/gpt-6-astra": { "input": 10.0, "output": 50.0, "cacheRead": 1.0, "cacheWrite": 12.5, "provider": "openai", "official": true },
+    "nonexistent-model": null
+  }
+}
+```
+
+- 价格是美元 / 百万 token。`official` 为 `true` 表示取自模型系列的厂商（例如 `gpt` 取 OpenAI），`false` 表示厂商没有列出、取多数提供方的价格；没有价格时为 `null`。
+- 查找时取模型名最后一个 `/` 之后的部分、小写、去掉 `[1m]` 之类的后缀。
+- 还没有同步过时 `fetchedAt` 为 `null`、`count` 为 0。`POST /api/prices/sync` 立即下载并返回同样的结构（`prices` 为空）。同步的时机、来源和选价规则见 [ADR：按 models.dev 的价格估算用量](../decisions/model_prices.md)。
 
 <a id="files"></a>
 ## 产物读取

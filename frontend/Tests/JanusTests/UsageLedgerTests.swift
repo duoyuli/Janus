@@ -206,3 +206,26 @@ private struct Log {
     #expect(l.remindersLine?.hasPrefix("提醒（按已上报数据）：") == true)
     #expect(usageLedger(Array(log.events.prefix(4))).remindersLine == nil)
 }
+
+/// A task's bill is priced per model at list prices, the same formula as the backend: cache prices
+/// the list leaves out are the input price, a total alone is not priced, and the rest is counted.
+@Test func usageBillsArePricedPerModel() throws {
+    let astra = try #require(UsagePrice(["input": 10, "output": 50, "cacheRead": 1, "cacheWrite": nil]))
+    let t = UsageTokens(total: 2_300_000, input: 1_000_000, output: 100_000, cachedRead: 1_000_000, cachedWrite: 200_000)
+    #expect(abs((astra.cost(t) ?? 0) - 18) < 1e-9, "10 + 5 + 1 + 2 (a write at the input price)")
+    #expect(astra.cost(UsageTokens(total: 5)) == nil)
+    #expect(UsagePrice(["input": 1]) == nil, "no output price, no price")
+
+    let bill = UsageBill(title: "任务用量账单", tokens: UsageTokens(total: 2_000_010), groupsTitle: "成员 / 模型", groups: [
+        UsageBillGroup(id: "m1", name: "实现者", models: [
+            UsageModelLine(model: "gpt-6-astra", tokens: UsageTokens(total: 2_000_000, input: 2_000_000, output: 0), turns: 3),
+            UsageModelLine(model: "mystery", tokens: UsageTokens(total: 10, input: 10), turns: 2),
+        ]),
+    ])
+    #expect(bill.headline == "2M" && bill.headlineCaption == "TOKEN 总量", "unpriced, the headline is tokens")
+    let priced = bill.priced(with: ["gpt-6-astra": astra], fetchedAt: nil)
+    #expect(priced.headline == "$20.00" && priced.headlineCaption.contains("models.dev"))
+    #expect(priced.groups[0].estimate == 20 && priced.groups[0].models[1].estimate == nil)
+    #expect(priced.notes.contains { $0.contains("2 轮没有价格（mystery）") }, "\(priced.notes)")
+    #expect(usageUSD(6389.624) == "$6,389.62" && usageUSD(0.004) == "<$0.01" && usageUSD(0) == "$0.00")
+}

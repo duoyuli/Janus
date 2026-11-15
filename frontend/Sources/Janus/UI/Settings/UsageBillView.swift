@@ -10,11 +10,12 @@ struct UsageBillView: View {
     @AppStorage("janus.usagePeriod") private var period: UsagePeriod = .days30
     @Local private var bill: UsageBill?
     @Local private var failure: String?
+    @Local private var syncing = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("按时间段汇总所有 Run 里 Agent 上报的 token：每一轮都计入，按 Agent 和模型分开。费用只列 Agent 自己上报的金额。")
+                Text("按时间段汇总所有 Run 里 Agent 上报的 token：每一轮都计入，按 Agent 和模型分开。金额按 models.dev 的 API 价格估算，Janus 每天同步一次价格；Agent 自己上报的费用另列。")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Picker("区间", selection: $period) {
@@ -24,6 +25,9 @@ struct UsageBillView: View {
                     .labelsHidden()
                     .frame(maxWidth: 360)
                     Spacer()
+                    Button(syncing ? "正在同步价格…" : "同步价格") { Task { await syncPrices() } }
+                        .disabled(syncing)
+                        .help("立即从 models.dev 下载最新的模型价格")
                     if let bill {
                         Button("复制账单") {
                             NSPasteboard.general.clearContents()
@@ -45,6 +49,17 @@ struct UsageBillView: View {
             .padding(20)
         }
         .task(id: period) { await load() }
+    }
+
+    private func syncPrices() async {
+        syncing = true
+        defer { syncing = false }
+        do {
+            _ = try await store.api.post("/api/prices/sync", [:])
+            await load()
+        } catch {
+            store.show("同步价格失败：\(error.localizedDescription)")
+        }
     }
 
     private func load() async {

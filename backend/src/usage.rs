@@ -275,6 +275,8 @@ pub struct ModelLine {
     pub model: String,
     pub tokens: Tokens,
     pub turns: usize,
+    /// USD at the model's list price (`prices::Table::price`); `None` when not priced.
+    pub estimate: Option<f64>,
 }
 
 /// Who paid in a bill: a member, in a task's bill, or an Agent, in a period's bill. Its models are
@@ -288,6 +290,8 @@ pub struct BillGroup {
     pub turns: usize,
     pub cost: Cost,
     pub models: Vec<ModelLine>,
+    /// The priced models' estimates added up; `None` when none of them has a price.
+    pub estimate: Option<f64>,
 }
 
 impl BillGroup {

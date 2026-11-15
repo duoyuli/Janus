@@ -53,6 +53,7 @@ Janus/
 │   │   ├── evidence.rs    # 验收证据：证据方法、结果核对、证据汇总
 │   │   ├── usage.rs       # Run 级用量账本：从事件日志只读聚合 Run、任务、成员、尝试和会话的 token、费用与耗时
 │   │   ├── bill.rs        # 按时间段的用量账单：跨 Run 按 Agent 和模型汇总
+│   │   ├── prices.rs      # 模型价格：从 models.dev 同步，给账单估算花费
 │   │   ├── traces.rs      # 任务在工作目录里留下的痕迹：改过的文件、diff 范围、结果对账、过期标记
 │   │   ├── status.rs      # Run、任务、尝试和 Agent 阶段的状态与合法转移
 │   │   ├── git_probe.rs   # 只读 Git 查询：不抢 index.lock

@@ -132,11 +132,16 @@ struct TaskUsageCard: View {
     let run: RunModel
     let st: RunState
     let task: TaskState
+    /// List prices of the bill's models, from the backend's models.dev table.
+    @Local private var prices: [String: UsagePrice] = [:]
+    @Local private var pricesAt: Date?
 
     var body: some View {
+        let bill = UsageBill.task(task, ledger: st.usage, name: { run.who($0).name })
+        let models = Set(bill?.groups.flatMap { $0.models.map(\.model) } ?? []).sorted()
         Card {
-            if let bill = UsageBill.task(task, ledger: st.usage, name: { run.who($0).name }) {
-                UsageReceipt(bill: bill)
+            if let bill {
+                UsageReceipt(bill: pricesAt == nil && prices.isEmpty ? bill : bill.priced(with: prices, fetchedAt: pricesAt))
             } else {
                 Text("用量").font(.headline)
                 Text("未开始（这个任务还没有会话）").font(.callout).foregroundStyle(.secondary)
@@ -145,6 +150,16 @@ struct TaskUsageCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(task.id) 的用量账单")
+        .task(id: models) { await loadPrices(models) }
+    }
+
+    /// Ask the backend for the models' list prices; without them the bill shows tokens only.
+    private func loadPrices(_ models: [String]) async {
+        guard !models.isEmpty else { return }
+        let query = models.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        guard let j = try? await run.store.api.get("/api/prices?models=\(query)") else { return }
+        prices = j["prices"].object.compactMapValues(UsagePrice.init)
+        pricesAt = j["fetchedAt"].double.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 }
 
@@ -160,7 +175,7 @@ struct UsageReceipt: View {
             ForEach(bill.meta) { ReceiptRow(line: $0) }
             ReceiptRule()
             VStack(spacing: 3) {
-                Text("TOKEN 总量").font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
+                Text(bill.headlineCaption).font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(bill.headline).font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
                     .help(bill.tokens.total.map { "\(usageNum($0)) tokens" } ?? "没有会话上报 token")
                 Text(bill.headlineDetail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -175,7 +190,7 @@ struct UsageReceipt: View {
                 HStack {
                     Text(bill.groupsTitle)
                     Spacer()
-                    Text("TOKEN")
+                    Text(bill.priced ? "估算 · TOKEN" : "TOKEN")
                 }
                 .font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
                 ForEach(bill.groups) { g in ReceiptGroup(group: g) }
@@ -210,22 +225,42 @@ private struct ReceiptGroup: View {
                     Text(verbatim: UsageScope(cost: group.cost).costDetail).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Text(group.tokens.total.map(usageCompact) ?? "未上报").font(.callout.weight(.bold)).monospacedDigit()
-                    .help(group.tokens.total.map { "\(usageNum($0)) tokens · \(group.turns) 轮" } ?? "没有上报 token")
+                ReceiptAmount(estimate: group.estimate, tokens: group.tokens, turns: group.turns, bold: true)
             }
             ForEach(group.models) { m in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("•").foregroundStyle(.secondary).accessibilityHidden(true)
                     Text(m.model).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 8)
-                    Text(m.tokens.total.map(usageCompact) ?? "未上报").font(.caption).monospacedDigit()
-                        .help(m.tokens.total.map { "\(usageNum($0)) tokens · \(m.turns) 轮" } ?? "")
+                    ReceiptAmount(estimate: m.estimate, tokens: m.tokens, turns: m.turns, bold: false)
                 }
                 .padding(.leading, 6)
                 .accessibilityElement(children: .combine)
             }
         }
         .textSelection(.enabled)
+    }
+}
+
+/// A payer's or a model's amount: the estimate with the tokens beside it when priced, else the tokens.
+private struct ReceiptAmount: View {
+    let estimate: Double?
+    let tokens: UsageTokens
+    let turns: Int
+    let bold: Bool
+
+    var body: some View {
+        let compact = tokens.total.map(usageCompact) ?? "未上报"
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let estimate {
+                Text(compact).font(.caption2).foregroundStyle(.secondary)
+                Text(usageUSD(estimate)).font(bold ? .callout.weight(.bold) : .caption)
+            } else {
+                Text(compact).font(bold ? .callout.weight(.bold) : .caption)
+            }
+        }
+        .monospacedDigit()
+        .help(tokens.total.map { "\(usageNum($0)) tokens · \(turns) 轮" } ?? "没有上报 token")
     }
 }
 
