@@ -42,7 +42,7 @@ Janus/
 │   │   ├── main.rs        # 启动、HTTP 路由
 │   │   ├── config.rs      # Janus home、配置项、Janus 日志
 │   │   ├── adapters.rs    # ACP 适配器的按需安装、升级与回滚
-│   │   ├── acp.rs         # ACP 客户端
+│   │   ├── acp.rs         # ACP 客户端（官方 agent-client-protocol SDK）
 │   │   ├── agents.rs      # Agent、角色、工作区、Skill、会话控制项
 │   │   ├── skill_sources.rs # GitHub Skill 来源：拉取仓库、解析 Skill
 │   │   ├── orchestrator.rs# Run、目标模式、看板、调度、验证、交付、恢复、集成测试

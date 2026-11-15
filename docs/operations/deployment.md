@@ -54,7 +54,7 @@
 
 1. 在 GitHub Release 中下载 `Janus-<版本>.dmg`，打开后把 Janus 拖进「应用程序」。
 2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 → 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
-3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 14 或更高。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js；要用的 Agent CLI（例如 `codex`、`claude`）仍需自己安装，Grok 和 Pi 的适配器从 GitHub 安装，还需要 `git`（macOS 第一次用到时会提示安装命令行工具）。
+3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 14 或更高。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js。Codex、Claude Code 和 Grok 的适配器在第一次使用时从 npm 下载，并自带对应的 CLI；Pi 适配器会启动本机的 `pi` 命令，需要先安装 Pi。
 
 应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/frontend.md#server_process)。
 
@@ -89,12 +89,12 @@
 | Rust 工具链（`cargo`） | 编译 Janus | 支持 edition 2024 |
 | `just` | 执行构建和服务命令 | macOS 可用 `brew install just` |
 | Swift 6（Xcode 或命令行工具） | 编译 macOS 应用 | 测试需要 Xcode |
-| Node.js | 运行 ACP 适配器，安装适配器 | 22.19 及以上（Pi 适配器的要求）；安装包中的 Janus.app 自带，不需要另装 |
+| Node.js | 运行 ACP 适配器，安装适配器 | 22.19 及以上；安装包中的 Janus.app 自带，不需要另装 |
 | `npm`、`npx` | 安装适配器 | 随 Node.js 安装 |
-| `git` | 安装 Grok 和 Pi 适配器，检查工作目录 | |
-| Agent CLI | 被适配器启动 | 用到哪个装哪个：`codex`、`claude`、`grok`；Pi 不需要 |
+| `git` | 检查工作目录 | |
+| Agent CLI | Pi 和自定义命令类型的 Agent | 内置适配器自带 Codex、Claude Code 和 Grok 的 CLI；Pi 需要本机的 `pi` 命令 |
 
-安装和检查适配器更新需要访问 npm 和 GitHub。
+安装和检查适配器更新需要访问 npm。
 
 <a id="install"></a>
 ## 安装

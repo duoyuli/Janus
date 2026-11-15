@@ -5,7 +5,7 @@
 
 ## 背景
 
-早期角色有三项 Janus 自定义的设置：是否可以修改文件、工具调用是否需要用户批准、是否可以担任主控，另有一组能力标签。Janus 再把前两项换算成各 Agent 的固定模式。用户指出这套设计有问题：在 ACP 里每个 Agent 的权限都不一样，例如 Codex 的 Read-only / Agent / Auto review / Full access，Claude Code 的 Manual / Accept edits / Plan / Auto / Bypass，Grok 的每次询问 / 自动 / 始终允许，应该充分利用每个 Agent 自己的特性，参照 lody.ai 的做法。随后用户进一步要求：不要再有「可以修改文件」这种权限，完全走 Agent 本身的权限；权限交给各个 Agent 去执行，Janus 不做任何校验；能力标签从所有地方删除。
+早期角色有三项 Janus 自定义的设置：是否可以修改文件、工具调用是否需要用户批准、是否可以担任主控，另有一组能力标签。Janus 再把前两项换算成各 Agent 的固定模式。用户指出这套设计有问题：在 ACP 里每个 Agent 的权限都不一样，例如 Codex 的 Read-only / Agent / Auto review / Full access，Claude Code 的 Manual / Accept edits / Plan / Auto / Bypass，Grok 的每次询问 / 自动 / 始终允许，应该充分利用每个 Agent 自己的特性。随后用户进一步要求：不要再有「可以修改文件」这种权限，完全走 Agent 本身的权限；权限交给各个 Agent 去执行，Janus 不做任何校验；能力标签从所有地方删除。
 
 ## 决策
 

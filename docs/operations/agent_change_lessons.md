@@ -74,15 +74,14 @@ CI 只运行 `cargo test`。`cargo fmt --check` 和 `cargo clippy -D warnings` �
 
 清理中发现但没有在当次处理的问题。处理后从本节删除，并在清理记录中注明。
 
-- 适配器从 `LodyAI/*` 仓库默认分支的最新提交构建，不锁定提交（[L-05](#l05)）。需要决定是否锁定提交或改回发布版。
 - `cargo fmt --check` 和 `cargo clippy -D warnings` 不通过，也不在 CI 中（[L-02](#l02)）。需要决定是否采用 rustfmt（或配置行宽），以及是否把 clippy 加进 CI。
 - [代码审查报告](../review/code_review_2026_10_31.md)中 J-03（`commandId` 去重非原子）、J-06（Run 列表 `LIMIT 50`）、J-09（PID 文件锁非原子）在 2026-11-08 抽查时仍存在；其余条目尚未逐项复核。J-02 已在[安全边界](security.md#secrets)中写成接受的风险。
-- `Source::Npm` 已无使用者，靠 `#[allow(dead_code)]` 保留（[L-06](#l06)）。它和旧 npm 版本的识别逻辑（`from_source`、`entry_in`）相关，等旧版本都被替换后一起删除。
 - 默认工作目录 `defaultCwd` 指向仓库内的 `examples/calc`（`backend/src/main.rs`）。Run 在工作目录中原地修改，等于让 Agent 改仓库内容，和「运行时不向仓库写任何文件」冲突。2026-11-08 发现该子模块的 `README.md` 和 `.agents/skills/calc-conventions/SKILL.md` 已被删除（11 月 1 日前后，未恢复，由用户决定）。
 
 <a id="cleanup_log"></a>
 ## 清理记录
 
+- 2026-11-15：所有适配器改为 npm（Codex、Claude Code、Grok、Pi），删除 Git 来源、提交版本号和按目录结构识别来源的逻辑；插话和目标的扩展方法改为 `_session/steering`、`_session/goal` 和 `_meta.jetbrains.air.goal`。L-05（适配器从默认分支构建、不锁定提交）不再存在。
 - 2026-11-08：Run、Task、Attempt、Agent 阶段、适配器任务的状态改为枚举，Run 和 Task 的合法转移集中声明（`backend/src/status.rs`）；连接检查和库源检查各自收敛为一个状态值。检查失败时不再保留上一次的「有更新」。应用更新的进度改为枚举，不解析文字。
 - 2026-11-08：修复 J-01，看板 MCP 的 URL 令牌改为由 Run 密钥和 `who` 派生（`session_token`），协作者不能改名为主控或其他任务，测试补上反例；删除测试中的占位变量。新增本文，合并前检查同步写入 `AGENTS.md`。
 - 2026-11-08：Skill 和 MCP 资源库的远端检查、浅克隆、检出替换提取为 `skill_sources.rs` 中的 `check_source`、`clone_fresh`、`mark_fetched`、`swap_checkout`，两个模块共用（L-07）。审查了两个资源库的 Git 调用：只接受 GitHub 链接，ref 和路径拒绝 `..` 与前导 `-`，未发现注入问题。

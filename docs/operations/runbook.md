@@ -38,7 +38,7 @@ just start     # 以服务方式启动（macOS）；或 just run 在前台运行
 
 | 现象 | 检查 |
 | --- | --- |
-| 配置检查停在「ACP 适配器」 | `~/.janus/logs/adapters/<id>.log` 的最后几行；常见原因是没有网络、`node` 版本太旧、找不到 `npm` / `git`。在「设置 → ACP 适配器」可以重试 |
+| 配置检查停在「ACP 适配器」 | `~/.janus/logs/adapters/<id>.log` 的最后几行；常见原因是没有网络、`node` 版本太旧、找不到 `npm`。在「设置 → ACP 适配器」可以重试 |
 | 配置检查停在「运行时」 | Agent CLI 是否在 `PATH` 中，或在 Agent 设置中填写二进制路径。以服务方式运行时，`PATH` 来自执行 `just start` 的终端 |
 | 配置检查停在「启动 Agent」 | 检查日志 `~/.janus/agents/<id>/test.log`（账号登录的日志是同目录的 `login.log`）；60 秒内没有完成握手通常是适配器或 Node 版本问题，可以在「设置 → ACP 适配器」切回上一个版本 |
 | 配置检查停在「打开会话」或「试运行」 | 凭据或模型配置错误；提示中会带上 Agent 返回的认证错误 |

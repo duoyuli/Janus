@@ -50,13 +50,13 @@
 
    | `delivery` | 含义 | 何时出现 |
    | --- | --- | --- |
-   | `steer` | 已插入正在进行的这一轮 | Agent 支持 `_lody/session/steer` 且插入成功，见[插话](acp_integration.md#steering) |
+   | `steer` | 已插入正在进行的这一轮 | Agent 支持 `_session/steering` 且插入成功，见[插话](acp_integration.md#steering) |
    | `queued` | 排队，这一轮结束后作为新一轮发送 | 用户的消息，Agent 不支持插话或插入失败；Agent 正在等用户处理请求；用户接管着会话时主控发来的消息（交还托管时送达） |
    | `interrupt` | 打断正在进行的这一轮，立即作为新一轮发送 | 主控的 `reply`，Agent 不支持插话或插入失败 |
    | `prompt` | 直接作为新的一轮发送 | 人工接管中一轮已结束、正在等消息时；或在等待提问回答时发送 |
    | `next` | 留言，下次会话开始时带给它 | 这个 Agent 当前没有会话 |
 
-3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。`steer` 的消息在 Agent 发来 `_lody/session/steer_applied` 时写 `message.delivered`，`data.applied` 为 `true`，表示消息已经进入模型的输入。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。主控跟随进行中的目标时，插不进去的消息立即作为新的一轮发送，写 `message.delivered`，不等目标结束。
+3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。`steer` 的消息在 `_session/steering` 返回 `injected` 时写 `message.delivered`，`data.applied` 为 `true`，表示消息已经进入模型的输入。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。主控跟随进行中的目标时，插不进去的消息立即作为新的一轮发送，写 `message.delivered`，不等目标结束。
 
 Janus 自己发给会话的两种消息也走插话，但不记 `user.message`：看板推送记为 `session.prompt`（`channel: "board"`），见[看板推送](../domains/goal_mode.md#board_push)；冲突提醒随 `task.conflict` 发出，见[同时改同一个文件](../domains/goal_mode.md#conflicts)。
 

@@ -11,12 +11,12 @@ publishes a plan and its slash commands, runs a tool that stays in progress for 
 reports its context usage and switches its own mode; the prompt response carries token usage). The last outcome repeats.
 session/set_mode is logged ("mode <id>"), and the resource links of each prompt ("links <name>…").
 With a `goal-sticky` file the lead reports its /goal active and never clears it; Janus's ask whether
-it is done is answered "GOAL_DONE" with the lead-go text, and `_lody/session/goal` clear is logged ("goal clear").
+it is done is answered "GOAL_DONE" with the lead-go text, and `_session/goal` clear is logged ("goal clear").
 As a goal-mode lead it acknowledges the brief, then works on "/goal …" until FAKE_DIR/lead-go
 exists and ends with the text of that file.
-With a `steer` file in FAKE_DIR it declares Lody steering: a `_lody/session/steer` that arrives during
-a prompt is logged ("steer <text>"), answered "injected" and followed by `_lody/session/steer_applied`.
-Session setup (session/new `_meta` and `mcpServers`, set_config_option) and the image blocks of each
+With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
+a prompt is logged ("steer <text>") and answered "injected".
+Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
 script carries across the separate processes of separate attempts.
 """
@@ -107,11 +107,10 @@ def wait_cancel(seconds):
             msg = json.loads(line)
             if msg.get("method") == "session/cancel":
                 return True
-            if msg.get("method") == "_lody/session/steer" and "id" in msg:
+            if msg.get("method") == "_session/steering" and "id" in msg:
                 p = msg["params"]
                 log("steer " + " ".join(b.get("text", "") for b in p["prompt"]).replace("\n", " "))
                 send({"jsonrpc": "2.0", "id": msg["id"], "result": {"outcome": "injected"}})
-                send({"jsonrpc": "2.0", "method": "_lody/session/steer_applied", "params": {"sessionId": p["sessionId"], "steerId": p.get("steerId")}})
     return False
 
 
@@ -133,7 +132,7 @@ def prompt(msg):
         if sticky:
             # Like Claude Code whose own check never runs: the goal is reported active and stays so.
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
-                "sessionUpdate": "session_info_update", "_meta": {"lody": {"goal": {"objective": text[6:], "status": "active"}}}}}})
+                "sessionUpdate": "session_info_update", "_meta": {"jetbrains": {"air": {"goal": {"objective": text[6:], "status": "active"}}}}}}})
         import time
         go = os.path.join(DIR, "lead-go")
         while not os.path.exists(go):
@@ -229,23 +228,20 @@ for line in sys.stdin:
     try:
         if method == "initialize":
             caps = {"mcpCapabilities": {"http": True}, "promptCapabilities": {"image": True}}
-            if os.path.exists(os.path.join(DIR, "steer")):
-                caps["_meta"] = {"lody": {"steering": {"version": 1, "transport": "request"}}}
             res = {"protocolVersion": 1, "agentInfo": {"name": "fake"}, "agentCapabilities": caps}
+            if os.path.exists(os.path.join(DIR, "steer")):
+                res["_meta"] = {"steering": {"supported": True}}
         elif method == "session/new":
-            seed = (msg["params"].get("_meta") or {}).get("lody", {}).get("sessionConfig", {}).get("configOptionValues")
-            if seed is not None:
-                log("seed " + json.dumps(seed, sort_keys=True))
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
         elif method == "session/set_config_option":
             CONFIG[msg["params"]["configId"]] = msg["params"]["value"]
             log(f"set {msg['params']['configId']} {json.dumps(msg['params']['value'])}")
             res = {"configOptions": config_options()}
-        elif method == "_lody/session/goal":
+        elif method == "_session/goal":
             log(f"goal {msg['params']['action']}")
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": msg["params"]["sessionId"], "update": {
-                "sessionUpdate": "session_info_update", "_meta": {"lody": {"goal": None}}}}})
+                "sessionUpdate": "session_info_update", "_meta": {"jetbrains": {"air": {"goal": None}}}}}})
             res = {}
         elif method == "session/set_mode":
             log(f"mode {msg['params']['modeId']}")

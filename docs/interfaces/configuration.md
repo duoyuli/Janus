@@ -23,7 +23,7 @@ node = "/opt/homebrew/bin/node"
 
 `JANUS_ADDR` 改成非回环地址会把全部接口暴露出去，见[安全边界](../operations/security.md#network_exposure)。
 
-安装适配器时调用的 `npm`、`npx` 和 `git` 从 Janus 进程的 `PATH` 中查找。
+安装适配器时调用的 `npm` 从 Janus 进程的 `PATH` 中查找。
 
 <a id="compile_time"></a>
 ## 编译期常量

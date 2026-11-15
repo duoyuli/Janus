@@ -293,10 +293,18 @@ struct SchemaForm: View {
     }
 
     private func customFor(_ k: String, _ p: JSON, _ names: [String]) -> String? {
-        if p["_meta"]["lody"]["elicitation"]["customAnswerFor"].truthy { return p["_meta"]["lody"]["elicitation"]["customAnswerFor"].str }
-        if k.hasSuffix("_custom") {
-            let base = String(k.dropLast(7))
-            if names.contains(base) { return base }
+        let custom = p["_meta"]["jetbrains"]["air"]["customAnswer"]
+        if custom.truthy {
+            let marked = custom["questionId"].str
+            if !marked.isEmpty { return marked }
+            let codex = p["_meta"]["codex"]["questionId"].str
+            if !codex.isEmpty { return codex }
+        }
+        for suffix in ["_custom", "_note"] {
+            if k.hasSuffix(suffix) {
+                let base = String(k.dropLast(suffix.count))
+                if names.contains(base) { return base }
+            }
         }
         return nil
     }

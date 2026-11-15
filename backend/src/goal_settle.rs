@@ -4,7 +4,7 @@
 //! custom endpoint without the small model it uses). The lead then says it is done and stops,
 //! while its goal stays "active" and the run never delivers. So once the lead's turn has
 //! returned and its session has been quiet for a while with no tool running, Janus asks it
-//! directly; a lead that confirms gets its goal cleared through `_lody/session/goal`, and the run
+//! directly; a lead that confirms gets its goal cleared through `_session/goal`, and the run
 //! goes on to delivery. A lead that is not done goes on working; after a few asks the watchdog
 //! is left to tell the person.
 // @project-doc docs/domains/goal_mode.md#goal_settle

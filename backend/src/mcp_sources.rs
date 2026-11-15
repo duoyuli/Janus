@@ -182,9 +182,9 @@ fn parse_server(rel: &str, name: &str, def: &Value) -> Result<FoundServer> {
     Ok(server)
 }
 
-/// A JSON object of scalar values, as ordered string pairs.
+/// A JSON object of scalar values, as string pairs sorted by key.
 fn pairs(def: &Value, field: &str) -> Vec<(String, String)> {
-    def[field]
+    let mut pairs: Vec<(String, String)> = def[field]
         .as_object()
         .map(|o| {
             o.iter()
@@ -203,7 +203,11 @@ fn pairs(def: &Value, field: &str) -> Vec<(String, String)> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // serde_json keeps insertion order when `preserve_order` is enabled by a dependency;
+    // sorting keeps manifests, session requests and logs in the same order either way.
+    pairs.sort();
+    pairs
 }
 
 /// Give each manifest entry a key: the one it had before when its manifest and name are unchanged,
@@ -656,7 +660,7 @@ mod tests {
         let fs = found.iter().find(|s| s.title == "filesystem").unwrap();
         assert_eq!(fs.transport, "stdio");
         assert_eq!(fs.args, ["-y", "@mcp/fs", "."]);
-        // serde_json keeps object keys sorted without the preserve_order feature.
+        // `pairs` sorts by key, whatever serde_json's map order is.
         assert_eq!(fs.env, vec![("EMPTY".into(), "".into()), ("ROOT".into(), "/tmp".into())]);
         let docs = found.iter().find(|s| s.title == "docs").unwrap();
         assert_eq!(docs.transport, "http");

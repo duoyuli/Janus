@@ -201,9 +201,6 @@ struct Control {
     interrupted: bool,
     finish: bool,
     queued: Vec<Msg>,
-    /// Messages steered into the running turn, until the agent says it applied them
-    /// (`_lody/session/steer_applied`).
-    steered: HashSet<String>,
 }
 
 /// How long an agent's text may sit unshown after its last chunk.
@@ -436,7 +433,7 @@ pub struct Config {
     /// Janus home (~/.janus): the database, ACP adapters (adapters/), run data (artifacts/,
     /// logs/, runs/) and everything else that belongs to this machine's user, not to a checkout.
     pub data_dir: PathBuf,
-    /// Coding agent configs and credentials, kept in the user's home like ~/.lody: ~/.janus/agents.
+    /// Coding agent configs and credentials, kept in the user's Janus home: ~/.janus/agents.
     pub agents_dir: PathBuf,
     /// How long an attempt may show no sign of work before the watchdog tells the lead.
     pub stall_after: Duration,
@@ -1215,12 +1212,11 @@ impl App {
             }
             let mut ctl = Control {
                 rx: steer_rx,
-                steering: !conn.capabilities["_meta"]["lody"]["steering"].is_null(),
+                steering: conn.steering,
                 human: false,
                 interrupted: false,
                 finish: false,
                 queued: vec![],
-                steered: HashSet::new(),
             };
             let brief = format!("{}{}", self.goal_brief(run, resumed), self.take_notes(run, "lead"));
             let claude = lead.kind == "claude";
@@ -1342,14 +1338,8 @@ impl App {
         if text.is_empty() {
             return Ok(spec);
         }
-        match channel {
-            Channel::Developer => spec = with_developer_instructions(spec, text),
-            Channel::Extension => {
-                let ext = self.pi_standing_extension(&spec.id)?;
-                spec.args.extend(["-e".to_string(), ext.to_string_lossy().into_owned()]);
-                spec.env.push(("JANUS_STANDING_INSTRUCTIONS".into(), text.into()));
-            }
-            _ => {}
+        if channel == &Channel::Developer {
+            spec = with_developer_instructions(spec, text);
         }
         Ok(spec)
     }
@@ -1359,7 +1349,6 @@ impl App {
         let via = match channel {
             Channel::System => "system",
             Channel::Developer => "developer",
-            Channel::Extension => "extension",
             Channel::Prompt => return,
         };
         if text.is_empty() {
@@ -2502,7 +2491,7 @@ impl App {
             };
             let session = match previous {
                 Some(old) if conn.capabilities["loadSession"] == true => {
-                    match conn.request("session/load", json!({ "sessionId": old, "cwd": workspace, "mcpServers": mcp_servers(&member, conn.capabilities["mcpCapabilities"]["http"] == true).into_iter().chain(board.iter().cloned()).collect::<Vec<_>>(), "_meta": with_system_prompt(session_meta(&format!("janus-{}", member.id), &session_values(&member)), system) })).await {
+                    match conn.request("session/load", json!({ "sessionId": old, "cwd": workspace, "mcpServers": mcp_servers(&member, conn.capabilities["mcpCapabilities"]["http"] == true).into_iter().chain(board.iter().cloned()).collect::<Vec<_>>(), "_meta": with_system_prompt(session_meta(), system) })).await {
                         Ok(r) => {
                             // The reload replays history as updates; it is already in the event log.
                             // Updates can trail the response, so wait until the agent goes quiet.
@@ -2586,12 +2575,11 @@ impl App {
         run.watch.lock().unwrap().insert(id.into(), Watch { attempt: n, last_ms: now_ms(), ..Default::default() });
         let mut ctl = Control {
             rx: steer_rx,
-            steering: !conn.capabilities["_meta"]["lody"]["steering"].is_null(),
+            steering: conn.steering,
             human: false,
             interrupted: false,
             finish: false,
             queued: vec![],
-            steered: HashSet::new(),
         };
         if ctl.steering {
             run.st.lock().unwrap().steerable.insert(id.into());
@@ -3053,8 +3041,6 @@ impl App {
                             Incoming::Notification { method, params } => {
                                 if method == "session/update" {
                                     self.on_update(run, &params["update"], &mut out, &mut flushed, &mut turn, ctx);
-                                } else {
-                                    self.on_ext(run, &method, &params, ctl.as_deref_mut(), ctx);
                                 }
                             }
                             Incoming::Request { id, method, .. } => {
@@ -3081,7 +3067,7 @@ impl App {
                     if let Some(from) = asked_at.take()
                         && let Some(summary) = crate::goal_settle::confirmed(&out[from..])
                     {
-                        let _ = conn.request_timeout("_lody/session/goal", json!({ "sessionId": sid, "action": "clear" }), Some(STEER_TIMEOUT)).await;
+                        let _ = conn.request_timeout("_session/goal", json!({ "sessionId": sid, "action": "clear" }), Some(STEER_TIMEOUT)).await;
                         run.st.lock().unwrap().goal_status = None;
                         self.emit(run, ev("goal.status", "janus", "主控确认目标已完成，Janus 结束了目标").data(json!({ "status": null, "by": "janus" })));
                         return Ok(if summary.is_empty() { out[..from].to_string() } else { summary });
@@ -3129,8 +3115,6 @@ impl App {
                         heard = tokio::time::Instant::now();
                         if method == "session/update" {
                             self.on_update(run, &params["update"], &mut out, &mut flushed, &mut turn, ctx);
-                        } else {
-                            self.on_ext(run, &method, &params, ctl.as_deref_mut(), ctx);
                         }
                         if following && !goal_active() {
                             self.flush_thought(run, &mut turn.thought, ctx);
@@ -3155,6 +3139,34 @@ impl App {
         }
     }
 
+    /// Put a message into the turn that is already running, through the agreed
+    /// `_session/steering` extension. `promptRequired` keeps an idle session's input here, so the
+    /// normal prompt flow still owns the next turn.
+    async fn steer_into_turn(&self, run: &Run, conn: &AcpConn, sid: &str, text: &str) -> bool {
+        conn.request_timeout(
+            "_session/steering",
+            json!({
+                "sessionId": sid,
+                "prompt": self.prompt_blocks(run, conn, text),
+                "_meta": { "steering": { "idleBehavior": "promptRequired" } }
+            }),
+            Some(STEER_TIMEOUT),
+        )
+        .await
+        .is_ok_and(|r| r["outcome"] == "injected")
+    }
+
+    /// The agent took a steered message into the running turn.
+    fn delivered_steer(&self, run: &Run, ctx: &Ctx<'_>, id: &str) {
+        let mut e = ev("message.delivered", "janus", format!("{} 已经读到插入的消息", ctx.agent))
+            .to(ctx.agent)
+            .data(json!({ "ids": [id], "applied": true }));
+        if let (Some(t), Some(n)) = (ctx.task, ctx.attempt) {
+            e = e.task(t).attempt(n);
+        }
+        self.emit(run, e);
+    }
+
     /// Apply one session command while a turn is running.
     // @project-doc docs/interfaces/acp_integration.md#steering
     async fn steer_turn(
@@ -3173,30 +3185,29 @@ impl App {
         );
         match cmd {
             Steer::Message(m) => {
-                // Lody steering joins the running turn; without it the message waits for the turn to end.
-                // A short timeout: while this waits, the session loop answers nothing else, and the
-                // agent may itself be waiting for us (for example on a permission request).
+                // Mid-turn steering joins the running turn; without it the message waits for the
+                // turn to end. A short timeout: while this waits, the session loop answers nothing
+                // else, and the agent may itself be waiting for us (for example on a permission
+                // request).
                 let injected = c.steering
-                    && conn
-                        .request_timeout("_lody/session/steer", json!({ "sessionId": sid, "prompt": self.prompt_blocks(run, conn, &m.text), "steerId": m.id }), Some(STEER_TIMEOUT))
-                        .await
-                        .is_ok_and(|r| r["outcome"] == "injected");
+                    && self
+                        .steer_into_turn(run, conn, sid, &m.text)
+                        .await;
                 self.route_message(run, agent, task, n, &m.id, if injected { "steer" } else { "queued" });
                 if injected {
-                    c.steered.insert(m.id);
+                    self.delivered_steer(run, ctx, &m.id);
                 } else {
                     c.queued.push(m);
                 }
             }
             Steer::Redirect(m) => {
                 let injected = c.steering
-                    && conn
-                        .request_timeout("_lody/session/steer", json!({ "sessionId": sid, "prompt": self.prompt_blocks(run, conn, &m.text), "steerId": m.id }), Some(STEER_TIMEOUT))
-                        .await
-                        .is_ok_and(|r| r["outcome"] == "injected");
+                    && self
+                        .steer_into_turn(run, conn, sid, &m.text)
+                        .await;
                 if injected {
                     self.route_message(run, agent, task, n, &m.id, "steer");
-                    c.steered.insert(m.id);
+                    self.delivered_steer(run, ctx, &m.id);
                 } else {
                     // Stop the turn; the message is the next turn, sent as soon as this one returns.
                     // Under takeover the person decides when the agent goes on, so it waits there.
@@ -3372,24 +3383,6 @@ impl App {
         let _ = tx.send(Steer::Message(Msg { id, text: text.to_string() }));
     }
 
-    /// Agent notifications outside `session/update`. `_lody/session/steer_applied` says the
-    /// agent took a steered message into the model's input: the moment it actually arrived.
-    // @project-doc docs/interfaces/events.md#message_flow
-    fn on_ext(&self, run: &Run, method: &str, params: &Value, ctl: Option<&mut Control>, ctx: &Ctx<'_>) {
-        if method != "_lody/session/steer_applied" {
-            return;
-        }
-        let Some(id) = params["steerId"].as_str() else { return };
-        if !ctl.is_some_and(|c| c.steered.remove(id)) {
-            return;
-        }
-        let mut e = ev("message.delivered", "janus", format!("{} 已经读到插入的消息", ctx.agent)).to(ctx.agent).data(json!({ "ids": [id], "applied": true }));
-        if let (Some(t), Some(n)) = (ctx.task, ctx.attempt) {
-            e = e.task(t).attempt(n);
-        }
-        self.emit(run, e);
-    }
-
     fn on_update(
         &self,
         run: &Run,
@@ -3414,8 +3407,8 @@ impl App {
             };
         }
         // The /goal state comes as session info, { goal: { objective, status } } or null once
-        // cleared: under `_meta.codex` from the npm Codex adapter, `_meta.lody` from the Lody ones.
-        let goal_meta = ["codex", "lody"].into_iter().find_map(|k| u["_meta"][k].get("goal"));
+        // cleared, under the AIR metadata both official adapters use.
+        let goal_meta = u["_meta"]["jetbrains"]["air"].get("goal");
         match u["sessionUpdate"].as_str().unwrap_or("") {
             "session_info_update" if ctx.goal && goal_meta.is_some() => {
                 let goal = goal_meta.unwrap();
@@ -4493,8 +4486,6 @@ enum Channel {
     System,
     /// Codex: `developer_instructions` in the adapter's `CODEX_CONFIG`.
     Developer,
-    /// Pi: a prompt section added by a Janus extension the adapter loads with `-e`.
-    Extension,
     /// Everyone else: a block in the first prompt of the session.
     Prompt,
 }
@@ -4503,7 +4494,6 @@ fn instruction_channel(kind: &str) -> Channel {
     match kind {
         "claude" => Channel::System,
         "codex" => Channel::Developer,
-        "pi" => Channel::Extension,
         _ => Channel::Prompt,
     }
 }
@@ -5440,7 +5430,7 @@ async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceiver<Incoming>
 async fn new_session(conn: &AcpConn, cwd: &Path, m: &Member, extra: &[Value], system: Option<&str>) -> Result<Value> {
     let mut servers = mcp_servers(m, conn.capabilities["mcpCapabilities"]["http"] == true);
     servers.extend_from_slice(extra);
-    let meta = with_system_prompt(session_meta(&format!("janus-{}", m.id), &session_values(m)), system);
+    let meta = with_system_prompt(session_meta(), system);
     let r = conn
         .request(
             "session/new",
@@ -5453,18 +5443,14 @@ async fn new_session(conn: &AcpConn, cwd: &Path, m: &Member, extra: &[Value], sy
     Ok(r)
 }
 
-/// Lody's session seed: some agents (Grok) only take a permission mode when the session starts,
-/// and scope it to a stable client identifier. Agents that do not read it ignore it.
+/// Claude Code gets Janus's own board tools allowed without asking (`mcp__janus`): they only read
+/// and write the run's board, and in its default mode Claude Code would otherwise ask the person
+/// every time a collaborator posts progress. Codex reads the tools' read-only annotations for the
+/// same effect. Nothing else changes what the role's mode allows.
 // @project-doc docs/interfaces/acp_integration.md#session_meta
-/// Claude Code also gets Janus's own board tools allowed without asking (`allowedTools`, the
-/// `mcp__janus` server): they only read and write the run's board, and in its default mode Claude
-/// Code would otherwise ask the person every time a collaborator posts progress. Codex reads the
-/// tools' read-only annotations for the same effect. Nothing else changes what the role's mode allows.
-pub fn session_meta(client: &str, values: &Value) -> Value {
+pub fn session_meta() -> Value {
     json!({
-        "clientIdentifier": client,
-        "lody": { "sessionConfig": { "version": 1, "configOptionValues": values } },
-        "claudeCode": { "options": { "allowedTools": ["mcp__janus"] } },
+        "claudeCode": { "options": { "settings": { "permissions": { "allow": ["mcp__janus"] } } } },
     })
 }
 
@@ -5823,7 +5809,7 @@ mod tests {
     fn standing_instructions_pick_the_system_layer_when_there_is_one() {
         assert_eq!(instruction_channel("claude"), Channel::System);
         assert_eq!(instruction_channel("codex"), Channel::Developer);
-        assert_eq!(instruction_channel("pi"), Channel::Extension);
+        assert_eq!(instruction_channel("pi"), Channel::Prompt);
         assert_eq!(instruction_channel("grok"), Channel::Prompt);
         let m = member_with("codex", "用中文回答", "只报有依据的问题");
         let text = standing_instructions(&m);
@@ -5832,7 +5818,7 @@ mod tests {
         // Only agents without a system layer get the rules in their prompt.
         assert!(prompt_instructions(&m).is_empty());
         assert!(prompt_instructions(&member_with("grok", "", "只报有依据的问题")).contains("<standing_instructions>"));
-        assert!(prompt_instructions(&member_with("pi", "", "只报有依据的问题")).is_empty());
+        assert!(prompt_instructions(&member_with("pi", "", "只报有依据的问题")).contains("<standing_instructions>"));
     }
 
     #[test]
@@ -5875,22 +5861,24 @@ mod tests {
     /// Claude Code is told to allow Janus's board tools, and only those, without asking.
     #[test]
     fn claude_sessions_allow_only_the_board_tools() {
-        let meta = session_meta("janus-m1", &json!({ "mode": "default" }));
-        assert_eq!(meta["claudeCode"]["options"]["allowedTools"], json!(["mcp__janus"]));
-        assert_eq!(meta["lody"]["sessionConfig"]["configOptionValues"]["mode"], "default", "the role's own mode is untouched");
+        let meta = session_meta();
+        assert_eq!(
+            meta["claudeCode"]["options"]["settings"]["permissions"]["allow"],
+            json!(["mcp__janus"])
+        );
     }
 
-    /// The Lody adapters report /goal under `_meta.lody`, the npm Codex one under `_meta.codex`.
+    /// Both official adapters report /goal under `_meta.jetbrains.air`.
     #[test]
-    fn goal_status_comes_from_either_adapter() {
+    fn goal_status_comes_from_the_air_metadata() {
         let dir = std::env::temp_dir().join(format!("janus-goal-meta-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let app = test_app(&dir);
         let run = test_run(1);
         let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
         let (mut out, mut flushed, mut turn) = (String::new(), 0, crate::acp_view::Turn::default());
-        for (key, status) in [("codex", "active"), ("lody", "complete")] {
-            let u = json!({ "sessionUpdate": "session_info_update", "_meta": { key: { "goal": { "objective": "x", "status": status } } } });
+        for status in ["active", "complete"] {
+            let u = json!({ "sessionUpdate": "session_info_update", "_meta": { "jetbrains": { "air": { "goal": { "objective": "x", "status": status } } } } });
             app.on_update(&run, &u, &mut out, &mut flushed, &mut turn, &ctx);
             assert_eq!(run.st.lock().unwrap().goal_status.as_deref(), Some(status));
         }
@@ -6199,7 +6187,6 @@ mod flow_tests {
         assert_eq!(started.data.as_ref().unwrap()["config"]["controls"]["mode"], "full");
         assert!(started.data.as_ref().unwrap()["config"]["controls"].get("plan_mode").is_none(), "plan mode is not a role choice");
         let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
-        assert!(calls.contains(r#"seed {"mode": "full"}"#), "{calls}");
         assert!(calls.contains("set mode \"full\"") && calls.contains("set plan_mode false"), "{calls}");
         assert!(!calls.contains("set plan_mode true"), "{calls}");
         let _ = std::fs::remove_dir_all(&h.dir);

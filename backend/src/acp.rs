@@ -1,18 +1,29 @@
-//! Minimal ACP client: JSON-RPC 2.0 over the agent's stdio, one JSON object per line.
-//! Janus is the ACP client; Lody's adapters (acp-extension-codex / acp-extension-pi) are the agents.
+//! ACP client built on the official `agent-client-protocol` SDK: JSON-RPC 2.0 over the agent's
+//! stdio, one JSON object per line. Janus is the ACP client; the ACP adapters and custom
+//! commands are the agents.
+//!
+//! The SDK owns framing, request ids, response routing and cancellation. Janus still starts the
+//! subprocess itself, because an agent must see only `RuntimeSpec.env` (nothing inherited), run in
+//! the Run's workspace and write stderr to its own log file.
 
+use agent_client_protocol::{
+    Agent, ByteStreams, Client, Error as AcpError, RawJsonRpcId, Responder, UntypedMessage, V1,
+    is_connection_terminated, is_incoming_transport_closed,
+};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 const ACP_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// The wire id of an incoming ACP request, as the SDK saw it.
+pub type RequestId = RawJsonRpcId;
 
 #[derive(Clone, Debug)]
 pub struct RuntimeSpec {
@@ -33,22 +44,26 @@ pub enum Incoming {
         params: Value,
     },
     Request {
-        id: Value,
+        id: RequestId,
         method: String,
         params: Value,
     },
     Closed,
 }
 
-type Pending = Arc<StdMutex<HashMap<u64, oneshot::Sender<Result<Value, Value>>>>>;
+/// Responses are sent by the orchestrator later, so the SDK's responder is parked here until then.
+type Pending = Arc<StdMutex<HashMap<RequestId, Responder<Value, V1>>>>;
+type Connection = agent_client_protocol::v1::ConnectionTo<Agent>;
 
 pub struct AcpConn {
-    stdin: Mutex<ChildStdin>,
+    cx: Connection,
     child: Mutex<Child>,
-    next: AtomicU64,
     pending: Pending,
+    task: StdMutex<Option<tokio::task::JoinHandle<()>>>,
     pub agent_info: Value,
     pub capabilities: Value,
+    /// The agent accepts `_session/steering` mid-turn (top-level `_meta.steering`).
+    pub steering: bool,
 }
 
 impl AcpConn {
@@ -83,72 +98,119 @@ impl AcpConn {
             .with_context(|| format!("启动 {} 失败", spec.name))?;
         let stdin = child.stdin.take().context("no stdin")?;
         let stdout = child.stdout.take().context("no stdout")?;
+
         let pending: Pending = Arc::default();
         let (tx, rx) = mpsc::unbounded_channel();
-
-        let reader_pending = pending.clone();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let Ok(msg) = serde_json::from_str::<Value>(&line) else {
-                    continue;
-                };
-                let method = msg.get("method").and_then(Value::as_str).map(str::to_owned);
-                match (msg.get("id"), method) {
-                    (Some(id), Some(method)) => {
-                        let _ = tx.send(Incoming::Request {
-                            id: id.clone(),
-                            method,
-                            params: msg["params"].clone(),
+        let (ready_tx, ready_rx) = oneshot::channel();
+        let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
+        let request_tx = tx.clone();
+        let notification_tx = tx.clone();
+        let handler_pending = pending.clone();
+        let task = tokio::spawn(async move {
+            let result = Client
+                .v1()
+                .name("janus")
+                .on_receive_notification(
+                    async move |msg: UntypedMessage, _cx| {
+                        let _ = notification_tx.send(Incoming::Notification {
+                            method: msg.method,
+                            params: msg.params,
                         });
-                    }
-                    (Some(id), None) => {
-                        let waiter = id
-                            .as_u64()
-                            .and_then(|id| reader_pending.lock().unwrap().remove(&id));
-                        if let Some(waiter) = waiter {
-                            let _ = waiter.send(match msg.get("error") {
-                                Some(err) => Err(err.clone()),
-                                None => Ok(msg["result"].clone()),
-                            });
+                        Ok::<(), AcpError>(())
+                    },
+                    agent_client_protocol::on_receive_notification!(),
+                )
+                .on_receive_request(
+                    async move |msg: UntypedMessage, responder: Responder<Value, V1>, _cx| {
+                        // The person may answer much later, so hand the responder to the
+                        // orchestrator instead of answering inside the dispatch loop.
+                        let id = responder.raw_id().clone();
+                        handler_pending
+                            .lock()
+                            .unwrap()
+                            .insert(id.clone(), responder);
+                        if request_tx
+                            .send(Incoming::Request {
+                                id: id.clone(),
+                                method: msg.method,
+                                params: msg.params,
+                            })
+                            .is_err()
+                        {
+                            handler_pending.lock().unwrap().remove(&id);
+                        }
+                        Ok::<(), AcpError>(())
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_with(transport, async move |cx| {
+                    let init = cx
+                        .send_request(UntypedMessage::new(
+                            "initialize",
+                            json!({
+                                "protocolVersion": 1,
+                                // Forms and links an agent asks the person to fill in or open (AskUserQuestion, MCP input,
+                                // plan feedback) are rendered in the inbox next to permission requests.
+                                "clientCapabilities": {
+                                    "fs": { "readTextFile": false, "writeTextFile": false },
+                                    "terminal": false,
+                                    "elicitation": { "form": {}, "url": {} },
+                                    // AIR clients get the goal extension and the AIR tool-call report.
+                                    "_meta": { "jetbrains": { "air": {} } }
+                                },
+                                "clientInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") }
+                            }),
+                        )?)
+                        .block_task()
+                        .await;
+                    match init {
+                        Ok(response) => {
+                            let _ = ready_tx.send(Ok((cx, response)));
+                            // The connection lives until the orchestrator kills the session.
+                            std::future::pending::<()>().await;
+                            Ok(())
+                        }
+                        Err(err) => {
+                            let _ = ready_tx.send(Err(err.to_string()));
+                            Err(err)
                         }
                     }
-                    (None, Some(method)) => {
-                        let _ = tx.send(Incoming::Notification {
-                            method,
-                            params: msg["params"].clone(),
-                        });
-                    }
-                    _ => {}
-                }
-            }
-            reader_pending.lock().unwrap().clear();
+                })
+                .await;
+            // Every way the session ends reaches the orchestrator as Incoming::Closed; a request
+            // still waiting on the connection fails with the SDK's transport error.
+            drop(result);
             let _ = tx.send(Incoming::Closed);
         });
 
-        let mut conn = AcpConn {
-            stdin: Mutex::new(stdin),
-            child: Mutex::new(child),
-            next: AtomicU64::new(1),
-            pending,
-            agent_info: Value::Null,
-            capabilities: Value::Null,
+        let (cx, init) = match tokio::time::timeout(ACP_REQUEST_TIMEOUT, ready_rx).await {
+            Ok(Ok(Ok(ready))) => ready,
+            Ok(Ok(Err(message))) => {
+                task.abort();
+                bail!("{} 的 ACP initialize 失败：{message}", spec.name);
+            }
+            Ok(Err(_)) => {
+                task.abort();
+                bail!("{} 的 ACP initialize 失败：连接已结束", spec.name);
+            }
+            Err(_) => {
+                task.abort();
+                bail!(
+                    "{} 的 ACP initialize 失败：超过 {} 分钟没有响应",
+                    spec.name,
+                    ACP_REQUEST_TIMEOUT.as_secs() / 60
+                );
+            }
         };
-        let init = conn
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": 1,
-                    // Forms and links an agent asks the person to fill in or open (AskUserQuestion, MCP input,
-                    // plan feedback) are rendered in the inbox next to permission requests.
-                    "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false, "elicitation": { "form": {}, "url": {} } },
-                    "clientInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") }
-                }),
-            )
-            .await
-            .with_context(|| format!("{} 的 ACP initialize 失败", spec.name))?;
-        conn.agent_info = init["agentInfo"].clone();
-        conn.capabilities = init["agentCapabilities"].clone();
+        let conn = AcpConn {
+            cx,
+            child: Mutex::new(child),
+            pending,
+            task: StdMutex::new(Some(task)),
+            agent_info: init["agentInfo"].clone(),
+            capabilities: init["agentCapabilities"].clone(),
+            steering: init["_meta"]["steering"]["supported"] == true,
+        };
         Ok((Arc::new(conn), rx))
     }
 
@@ -165,66 +227,50 @@ impl AcpConn {
         params: Value,
         timeout: Option<std::time::Duration>,
     ) -> Result<Value> {
-        let id = self.next.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(id, tx);
-        if let Err(err) = self
-            .write(json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
-            .await
-        {
-            self.pending.lock().unwrap().remove(&id);
-            return Err(err);
-        }
+        let sent = self.cx.send_request(UntypedMessage::new(method, params)?);
         let waited = match timeout {
-            Some(limit) => tokio::time::timeout(limit, rx).await.map_err(|_| limit),
-            None => Ok(rx.await),
+            Some(limit) => tokio::time::timeout(limit, sent.block_task())
+                .await
+                .map_err(|_| limit),
+            None => Ok(sent.block_task().await),
         };
         match waited {
-            Err(limit) => {
-                self.pending.lock().unwrap().remove(&id);
-                Err(anyhow!("{method}: ACP 请求超时（{} 秒）", limit.as_secs()))
-            }
-            Ok(result) => match result {
-                Ok(Ok(result)) => Ok(result),
-                Ok(Err(err)) => {
-                    let detail = err["data"]["details"]
-                        .as_str()
-                        .or(err["message"].as_str())
-                        .unwrap_or("unknown error");
-                    bail!("{method}: {detail}")
-                }
-                Err(_) => Err(anyhow!("{method}: Agent 进程已退出")),
-            },
+            Err(limit) => Err(anyhow!("{method}: ACP 请求超时（{} 秒）", limit.as_secs())),
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(err)) => Err(request_error(method, err)),
         }
     }
 
-    pub async fn respond(&self, id: Value, result: Value) -> Result<()> {
-        self.write(json!({ "jsonrpc": "2.0", "id": id, "result": result }))
-            .await
+    pub async fn respond(&self, id: RequestId, result: Value) -> Result<()> {
+        if let Some(responder) = self.pending.lock().unwrap().remove(&id) {
+            responder
+                .respond(result)
+                .map_err(|err| anyhow!("回应 ACP 请求失败：{err}"))?;
+        }
+        Ok(())
     }
 
-    pub async fn respond_error(&self, id: Value, message: &str) -> Result<()> {
-        self.write(
-            json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": message } }),
-        )
-        .await
-    }
-
-    async fn write(&self, msg: Value) -> Result<()> {
-        let mut line = serde_json::to_vec(&msg)?;
-        line.push(b'\n');
-        let mut stdin = self.stdin.lock().await;
-        stdin.write_all(&line).await?;
-        stdin.flush().await?;
+    pub async fn respond_error(&self, id: RequestId, message: &str) -> Result<()> {
+        if let Some(responder) = self.pending.lock().unwrap().remove(&id) {
+            let mut err = AcpError::method_not_found();
+            err.message = message.to_string();
+            responder
+                .respond_with_error(err)
+                .map_err(|err| anyhow!("回应 ACP 请求失败：{err}"))?;
+        }
         Ok(())
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        self.write(json!({ "jsonrpc": "2.0", "method": method, "params": params }))
-            .await
+        self.cx
+            .send_notification(UntypedMessage::new(method, params)?)?;
+        Ok(())
     }
 
     pub async fn kill(&self) {
+        if let Some(task) = self.task.lock().unwrap().take() {
+            task.abort();
+        }
         let mut child = self.child.lock().await;
         #[cfg(unix)]
         if let Some(pid) = child.id() {
@@ -241,4 +287,27 @@ impl AcpConn {
             let _ = child.wait().await;
         }
     }
+}
+
+impl Drop for AcpConn {
+    fn drop(&mut self) {
+        if let Ok(slot) = self.task.get_mut()
+            && let Some(task) = slot.take()
+        {
+            task.abort();
+        }
+    }
+}
+
+fn request_error(method: &str, err: AcpError) -> anyhow::Error {
+    if is_incoming_transport_closed(&err) || is_connection_terminated(&err) {
+        return anyhow!("{method}: Agent 进程已退出");
+    }
+    let detail = err
+        .data
+        .as_ref()
+        .and_then(|data| data["details"].as_str())
+        .or_else(|| (!err.message.is_empty()).then_some(err.message.as_str()))
+        .unwrap_or("unknown error");
+    anyhow!("{method}: {detail}")
 }

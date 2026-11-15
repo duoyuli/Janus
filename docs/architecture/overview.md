@@ -25,15 +25,15 @@ Rust 编排器（backend/，axum + tokio）
   ├── HTTP 服务：设置、Run、操作、事件流、产物读取
   ├── 编排器 App：Run 驱动、调度、尝试、验证、交付、恢复
   ├── 共享看板 MCP 服务：/mcp/{run}/{token}/{who}
-  ├── ACP 客户端：JSON-RPC 2.0 over stdio
+  ├── ACP 客户端（官方 agent-client-protocol SDK）：JSON-RPC 2.0 over stdio
   └── SQLite：配置、Run、事件、尝试、产物
   │  stdio（每个会话一个子进程）
   ▼
 ACP 适配器（~/.janus/adapters/，按需安装）
-  ├── acp-extension-codex   → Codex CLI
-  ├── acp-extension-claude  → Claude Code
-  ├── acp-extension-grok    → Grok CLI
-  ├── acp-extension-pi      → Pi
+  ├── @agentclientprotocol/codex-acp         → Codex CLI
+  ├── @agentclientprotocol/claude-agent-acp  → Claude Code
+  ├── @xai-official/grok                     → Grok CLI
+  ├── pi-acp                                 → Pi
   └── 自定义 ACP 命令
   │
   ▼
@@ -57,11 +57,11 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/config.rs` | Janus home、配置项（环境变量与 `config.toml`）、Janus 日志 |
 | `backend/src/git_probe.rs` | 只读 Git 查询的共用入口：设置 `GIT_OPTIONAL_LOCKS=0`，不与同一工作目录中 Agent 的 git 操作抢 `index.lock`。和 HEAD 比较用 `git diff-index`，因为 `git diff` 不受这个变量控制，仍会刷新索引 |
 | `backend/src/adapters.rs` | `App` 的适配器部分：清单、按需安装、检查更新、升级与回滚 |
-| `backend/src/acp.rs` | 最小 ACP 客户端：启动子进程、`initialize`、请求与通知收发、超时 |
+| `backend/src/acp.rs` | 基于官方 `agent-client-protocol` SDK 的 ACP 客户端：启动子进程、`initialize`、请求与通知收发、超时 |
 | `backend/src/agents.rs` | `App` 的设置部分：Agent 连接、运行环境、配置检查与登录、角色、工作区、Skill、会话控制项解析 |
 | `backend/src/orchestrator.rs` | `App` 的运行部分：Run 驱动、主控目标会话、看板 MCP、调度、尝试、验证、交付、用户操作、恢复，以及集成测试 |
 | `backend/src/teamwork.rs` | 编排中的团队结构：任务负责的文件（`owns`）和独立验证（`verifies`）的校验、协作者的认领、谁负责某个文件、协作者提示中的对应段落、主控说明中「团队怎么组织」一节 |
-| `backend/src/goal_settle.rs` | 主控的 `/goal` 一直不自己结束时：会话安静一段时间后问主控，确认完成后通过 `_lody/session/goal` 清除目标 |
+| `backend/src/goal_settle.rs` | 主控的 `/goal` 一直不自己结束时：会话安静一段时间后问主控，确认完成后通过 `_session/goal` 清除目标 |
 | `backend/src/acp_view.rs` | ACP 会话中人能看到的部分：把思考、计划、斜杠命令、模式和选项变化、用量、工具调用的 diff 转成事件；会话打开时的选项；消息里 `@路径` 的文件引用；`@` 菜单的文件列表 |
 | `backend/src/traces.rs` | 任务在工作目录里留下的痕迹：每个任务改过的文件和每个文件最后的修改者、diff 产物的范围、结果与痕迹的对账、完成后又被改过的文件 |
 | `backend/src/status.rs` | Run、任务、尝试和 Agent 阶段的状态枚举；Run 和任务的合法转移集中在 `can_transition_to` |

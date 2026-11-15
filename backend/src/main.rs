@@ -39,7 +39,7 @@ fn root() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".."))
 }
 
-/// Janus home (~/.janus, like Lody's ~/.lody): every user-level thing Janus keeps. Owner-only,
+/// Janus home (~/.janus): every user-level thing Janus keeps. Owner-only,
 /// since it holds credentials.
 fn janus_home() -> Result<PathBuf> {
     let dir = config::settings().home.clone();

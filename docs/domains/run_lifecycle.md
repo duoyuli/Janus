@@ -38,7 +38,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 - **保存**：图片随请求以 base64 上传，按文件头识别类型（PNG、JPEG、GIF、WebP，声明的类型不作数），每张最多 10 MB，一次最多 10 张；任何一张不合格时整条请求拒绝，不保存任何文件。文件写入 `~/.janus/runs/<run>/attachments/`，和这个 Run 的 Skill 快照放在一起。
 - **点名**：Agent 收到的文字中，每张图片单独占一行 `[附图 N] <路径>`。消息只有图片时，文字是「用户发来了 N 张图片，请先查看：」加这些行。目标的图片写进主控说明，并提示主控把路径写进任务说明，方便协作者参考。
-- **发送**：每次 `session/prompt` 和 `_lody/session/steer` 发出前，`prompt_blocks` 找出文字点名的附件，在 Agent 声明了 `promptCapabilities.image` 时作为 ACP 图片块附在文字后面。只读取 `runs/*/attachments/` 下的文件，所以文字里看起来像附图行的内容不能让 Janus 发出任意文件。Agent 没有声明这项能力时只收到路径，由 Agent 自己打开文件。目前 Claude 适配器声明了这项能力，Codex 适配器没有声明，Codex 用自己的看图工具读取路径。
+- **发送**：每次 `session/prompt` 和 `_session/steering` 发出前，`prompt_blocks` 找出文字点名的附件，在 Agent 声明了 `promptCapabilities.image` 时作为 ACP 图片块附在文字后面。只读取 `runs/*/attachments/` 下的文件，所以文字里看起来像附图行的内容不能让 Janus 发出任意文件。官方 Claude、Codex 和 Grok 适配器都声明了这项能力；其他 Agent 没有声明时只收到路径，由 Agent 自己打开文件。
 - **跟随消息流转**：图片行就是消息文字的一部分，所以插话、排队、留言、交还托管和中断后恢复的消息都带着它们，不需要另外处理。
 - **事件**：`run.created` 和 `user.message` 的 `data.images` 列出保存的图片（`path`、`mimeType`、`name`、`size`），事件只记录路径，不包含图片数据。
 
@@ -201,7 +201,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 用户通过 `POST /api/runs/{id}/actions` 操作 Run，参数见 [HTTP API](../interfaces/http_api.md#run_actions)：
 
 - **回答与审批**：`answer`、`approve`、`input`。
-- **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_lody/session/steer` 时，见[插话](../interfaces/acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/events.md#message_flow)。
+- **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_session/steering` 时，见[插话](../interfaces/acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/events.md#message_flow)。
 - **控制 Run**：`pause`、`resume`、`extendBudget`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
 
 任务的重试、接受和取消由主控通过看板处理，用户不直接操作任务；用户可以给主控发消息提出要求。

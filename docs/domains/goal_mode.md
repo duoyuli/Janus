@@ -40,7 +40,7 @@
 
 所以跟随会话期间，主控这一轮已经返回、没有正在执行的工具调用、会话安静超过 `goal_settle`（90 秒）时，Janus 直接问主控（`goal_settle.rs`，记为 `session.prompt`，`channel: "goal_check"`）：
 
-- 回复第一行是 `GOAL_DONE`：主控确认目标已完成。Janus 用 `_lody/session/goal`（`action: "clear"`）清除 Agent 的目标，记一条 `goal.status`（`actor` 为 `janus`，`data.by` 为 `janus`），主控会话结束。交付摘要取主控的这条回复，去掉开头的标记。
+- 回复第一行是 `GOAL_DONE`：主控确认目标已完成。Janus 用 `_session/goal`（`action: "clear"`）清除 Agent 的目标，记一条 `goal.status`（`actor` 为 `janus`，`data.by` 为 `janus`），主控会话结束。交付摘要取主控的这条回复，去掉开头的标记。
 - 其他回复：主控说明还差什么，继续推进，Janus 接着跟随。一段跟随中最多问 3 次，之后交给[停滞检测](run_lifecycle.md#watchdog)报告给用户。
 
 <a id="lead_brief"></a>

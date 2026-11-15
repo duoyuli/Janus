@@ -5,10 +5,10 @@
 <a id="transport"></a>
 ## 传输
 
-- JSON-RPC 2.0 over stdio，每行一个 JSON 对象（`backend/src/acp.rs`）。
-- 每个会话一个子进程，工作目录是 Run 的工作目录，stderr 写入 `~/.janus/logs/<run>/` 下的日志文件。适配器本身怎样安装和选版本见 [ACP 适配器管理](../architecture/adapters.md)。
+- JSON-RPC 2.0 over stdio，每行一个 JSON 对象。帧、请求 id、响应路由和取消由官方 Rust SDK [`agent-client-protocol`](https://github.com/agentclientprotocol/rust-sdk) 处理（稳定 v1）；`backend/src/acp.rs` 负责启动子进程、`initialize`，并把 SDK 收到的通知和请求交给编排器。
+- 每个会话一个子进程：环境变量只来自 Janus 构造的 `RuntimeSpec.env`，不继承 Janus 自己的环境；工作目录是 Run 的工作目录，stderr 写入 `~/.janus/logs/<run>/` 下的日志文件。适配器本身怎样安装和选版本见 [ACP 适配器管理](../architecture/adapters.md)。
 - 子进程在自己的进程组中运行，结束会话时整组终止。
-- 单个请求默认 30 分钟超时；进程退出时，所有未完成的请求以「Agent 进程已退出」失败。
+- 单个请求默认 30 分钟超时；进程退出时，所有未完成的请求以「Agent 进程已退出」失败，会话随后收到结束信号。
 
 <a id="initialize"></a>
 ## initialize
@@ -19,11 +19,12 @@ Janus 声明的客户端能力：
 {
   "fs": { "readTextFile": false, "writeTextFile": false },
   "terminal": false,
-  "elicitation": { "form": {}, "url": {} }
+  "elicitation": { "form": {}, "url": {} },
+  "_meta": { "jetbrains": { "air": {} } }
 }
 ```
 
-Janus 不代 Agent 读写文件或运行终端，Agent 用自己的工具直接操作工作目录。`elicitation` 表示 Janus 可以处理表单和链接两种表单请求。
+Janus 不代 Agent 读写文件或运行终端，Agent 用自己的工具直接操作工作目录。`elicitation` 表示 Janus 可以处理表单和链接两种表单请求。声明 AIR 客户端后，官方适配器会提供目标状态（`_meta.jetbrains.air.goal`）。
 
 Janus 读取的 Agent 能力：
 
@@ -32,7 +33,8 @@ Janus 读取的 Agent 能力：
 | `agentInfo.name`、`agentInfo.version` | 配置检查中显示 |
 | `mcpCapabilities.http` | 为 `true` 时，目标模式下的协作者会话接入看板 MCP 服务 |
 | `loadSession` | 为 `true` 时，重启后恢复的任务尝试用 `session/load` 重新打开原会话 |
-| `_meta.lody.steering` | 存在时，用户的消息、主控的回复、看板推送和冲突提醒通过 `_lody/session/steer` 插入正在进行的一轮，见[插话](#steering) |
+| `_meta.steering.supported` | 为 `true` 时，用户的消息、主控的回复、看板推送和冲突提醒通过 `_session/steering` 插入正在进行的一轮，见[插话](#steering) |
+| `_meta.jetbrains.air.goal.controlMethod` | 清除目标时调用的方法，官方适配器为 `_session/goal` |
 
 <a id="methods"></a>
 ## 使用的方法
@@ -46,8 +48,8 @@ Janus 读取的 Agent 能力：
 | Janus → Agent | `session/set_mode` | 为通过 session modes 声明的控制项设置模式 |
 | Janus → Agent | `session/prompt` | 发送一轮提示：一个文字块；Agent 声明了 `promptCapabilities.image` 时，后面附上文字点名的图片块，见[图片附件](../domains/run_lifecycle.md#attachments)；文字里以 `@路径` 提到的工作区文件，每个附一个 `resource_link` 块（`file://` 绝对路径，`name` 是相对路径），ACP 要求所有 Agent 都支持这种块 |
 | Janus → Agent | `session/cancel`（通知） | 打断当前一轮 |
-| Janus → Agent | `_lody/session/steer` | 把消息插入正在进行的一轮，内容块与 `session/prompt` 相同，`steerId` 是消息 id；返回 `outcome: "injected"` 表示成功；15 秒超时 |
-| Agent → Janus | `_lody/session/steer_applied`（通知） | 插入的消息已经进入模型的输入，带 `steerId` |
+| Janus → Agent | `_session/steering` | 把消息插入正在进行的一轮，内容块与 `session/prompt` 相同，带 `_meta.steering.idleBehavior: "promptRequired"`；返回 `outcome: "injected"` 表示成功；15 秒超时 |
+| Janus → Agent | `_session/goal` | 清除主控的目标（`action: "clear"`），见 [目标状态](#goal_status) |
 | Agent → Janus | `session/update`（通知） | 流式输出（`agent_message_chunk`）、思考（`agent_thought_chunk`）、工具调用（`tool_call`、`tool_call_update`）、计划（`plan`）、斜杠命令（`available_commands_update`）、模式和选项的变化（`current_mode_update`、`config_option_update`）、用量（`usage_update`）、会话信息（`session_info_update`），见[会话中能看到什么](#session_view) |
 | Agent → Janus | `session/request_permission` | 审批请求，转给用户 |
 | Agent → Janus | `elicitation/create` | 表单或链接请求，转给用户 |
@@ -59,21 +61,17 @@ Janus 读取的 Agent 能力：
 
 ```json
 {
-  "clientIdentifier": "janus-<成员 id>",
-  "lody": {
-    "sessionConfig": {
-      "version": 1,
-      "configOptionValues": { "<控制项 id>": "<值>" }
+  "claudeCode": {
+    "options": {
+      "settings": { "permissions": { "allow": ["mcp__janus"] } }
     }
   },
   "systemPrompt": { "append": "<主控说明和用户的长期要求>" }
 }
 ```
 
-- `lody.sessionConfig` 让只在会话开始时接受权限模式的 Agent（例如 Grok）按角色的选择打开会话。不读取它的 Agent 会忽略。
+- `claudeCode.options` 原样交给官方 Claude Code 适配器。`settings.permissions.allow` 让 Janus 自己的看板工具（只读写这个 Run 的看板）不用审批；没有它时，Claude Code 在默认模式下每次协作者写进展都会请用户批准（真实运行中发现）。Codex 通过工具的只读标注得到同样的效果。角色选择的权限模式对其他所有工具照常生效。其他 Agent 忽略这段 `_meta`。
 - `systemPrompt.append` 只在 Claude Code 的会话中设置：主控会话放主控说明和用户的长期要求，协作者会话只放长期要求（见下一节）。`session/load` 恢复会话时同样带上。只追加，不替换 Claude Code 自带的系统提示。
-
-Claude Code 的会话另外带 `_meta.claudeCode.options.allowedTools: ["mcp__janus"]`：Janus 自己的看板工具（只读写这个 Run 的看板）不用审批。没有它时，Claude Code 在默认模式下每次协作者写进展都会请用户批准（真实运行中发现）。Codex 通过工具的只读标注得到同样的效果。角色选择的权限模式对其他所有工具照常生效。
 
 <a id="standing_instructions"></a>
 ## 用户的长期要求
@@ -84,10 +82,9 @@ Provider 的「自定义提示词」和角色的「指令」是用户给这个�
 | --- | --- | --- |
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
 | Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_developer_instructions`） |
-| Pi | 系统提示分段 | Pi 的适配器没有系统提示入口，但会把启动参数 `-e <扩展>` 交给 Pi。Janus 在 `agents/<id>/janus/standing-instructions.js` 写入一个扩展，它在 `before_agent_start` 中把环境变量 `JANUS_STANDING_INSTRUCTIONS` 的内容加为系统提示的 `standing_instructions` 分段（`pi_standing_extension`、`with_standing`）。只加分段，不替换 Pi 自己的提示，适配器自己的扩展也能看到这个改动 |
-| 其他（Grok、自定义命令） | 任务说明 | 没有系统提示入口，用 `<standing_instructions>` 块附在每次任务说明的末尾 |
+| 其他（Grok、Pi、自定义命令） | 任务说明 | 没有系统提示入口，用 `<standing_instructions>` 块附在每次任务说明的末尾 |
 
-走系统提示或开发者指令时，Janus 记一条 `session.prompt` 事件（`channel` 为 `instructions`，`via` 为 `system`、`developer` 或 `extension`），会话页可以展开查看。
+走系统提示或开发者指令时，Janus 记一条 `session.prompt` 事件（`channel` 为 `instructions`，`via` 为 `system` 或 `developer`），会话页可以展开查看。
 
 Skill、MCP 和权限模式不属于长期要求，它们按各 Agent 自己的机制生效。
 
@@ -129,34 +126,29 @@ Janus 仍然声明不提供文件读写和终端（`clientCapabilities.fs`、`te
 会话打开期间，用户可以在会话卡片中切换 Agent 提供的模型、推理强度和模式（`control` 操作，见 [Run 操作](http_api.md#run_actions)）。Janus 把它交给这个会话（`Steer::Control`），无论 Agent 正在执行一轮、还是在人工接管中等待消息：来源是 session modes 的调用 `session/set_mode`，其他调用 `session/set_config_option`。成功后记一条 `session.control`（`data.by` 为 `user`）；返回了新的选项时，再记一条 `session.controls`。失败时 `session.control` 的 `data.failed` 为 `true`，会话照常继续。Plan 类的选项和值不在可选范围内，规则见 [不使用 Plan 模式](../domains/agents_and_roles.md#no_plan_mode)。
 
 <a id="goal_status"></a>
-## Codex 的目标状态
+## 目标状态
 
-Codex 在 `session_info_update` 中报告 `/goal` 的状态（例如 `active`、`paused`、`complete`）：npm 版适配器写在 `_meta.codex.goal`，仓库版适配器写在 `_meta.lody.goal`，两处 Janus 都读。Janus 把状态变化记为 `goal.status` 事件；状态为 `active` 时，即使 `session/prompt` 已经返回，也继续跟随会话的输出。
+官方 Codex 和 Claude Code 适配器在 `session_info_update` 中报告 `/goal` 的状态（例如 `active`、`paused`、`complete`），写在 `_meta.jetbrains.air.goal`，只在客户端声明了 AIR 时发送。Janus 把状态变化记为 `goal.status` 事件；状态为 `active` 时，即使 `session/prompt` 已经返回，也继续跟随会话的输出。主控确认完成后，Janus 用 `_session/goal`（`action: "clear"`）清除目标。
 
 <a id="steering"></a>
 ## 插话
 
-Agent 声明了 `_meta.lody.steering` 时，会话正在进行的一轮可以插入消息（`steer_turn`）：
+Agent 声明了 `_meta.steering.supported` 时，会话正在进行的一轮可以插入消息（`steer_turn`）：
 
-1. Janus 发出 `_lody/session/steer`，`steerId` 是消息 id。返回 `outcome: "injected"` 时记 `message.routed`（`delivery: "steer"`）。
-2. Agent 在下一个安全点把消息交给模型：Codex 立即读到；Claude Code 在当前工具调用结束后读到。读到时 Agent 发出 `_lody/session/steer_applied`，Janus 记 `message.delivered`（`data.applied: true`），见[消息的流转](events.md#message_flow)。
+1. Janus 发出 `_session/steering`，内容是消息的文字和 `@路径` 引用块，并带 `_meta.steering.idleBehavior: "promptRequired"`。返回 `outcome: "injected"` 时记 `message.routed`（`delivery: "steer"`）和 `message.delivered`（`data.applied: true`）。
+2. Agent 在下一个安全点把消息交给模型：Codex 立即读到；Claude Code 在当前工具调用结束后读到。这次插入已经成功时，不再另发通知。
 3. Agent 拒绝（例如这一轮正在结束）或没有声明插话时，用户的消息排队到这一轮结束；主控的回复打断这一轮后立即发送。
 
 主控跟随进行中的目标（`session/prompt` 已经返回、目标仍是 `active`）时没有可以等待的一轮：插不进去的消息立即作为新的一轮发送，不等目标结束。
 
-Codex 和 Claude Code 只有仓库版适配器支持插话，见[适配器清单](../architecture/adapters.md#catalog)。
+`idleBehavior: "promptRequired"` 表示没有正在进行的一轮时不替客户端开始新一轮：Agent 返回 `promptRequired`，Janus 把消息留在队列里，按正常的 `session/prompt` 流程发送，完成和用量仍归那一轮。
 
 <a id="background_tasks"></a>
 ## Claude Code 会话的环境默认值
 
-Janus 为 Claude Code 及基于它的预设设置两个环境变量，保持 Janus 依赖的行为（`spec_for`）：
+Janus 为 Claude Code 及基于它的预设设置 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`：Janus 把返回的一轮当作 Agent 的回答，而 Claude Code 允许把命令或子 Agent 放到后台，这一轮会在工作完成之前返回。
 
-| 变量 | 值 | 原因 |
-| --- | --- | --- |
-| `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` | `1` | Janus 把返回的一轮当作 Agent 的回答。仓库版适配器允许 Claude Code 把命令或子 Agent 放到后台，这一轮会在工作完成之前返回 |
-| `CLAUDE_ACP_MODEL_DISCOVERY` | `off`，Agent 自己的环境变量设置了它时不覆盖 | 使用自定义接入点（`ANTHROPIC_BASE_URL`）时，仓库版适配器改为列出接入点自己的模型（`/v1/models`），不再提供 `opus`、`sonnet` 等别名；已保存的角色用的是别名，预设通过 `ANTHROPIC_DEFAULT_OPUS_MODEL` 等变量决定别名对应的模型 |
-
-仓库版 Claude Code 适配器不再提供 `dontAsk` 权限模式。选了这个模式的角色会以 Agent 当前的模式运行（实际生效的模式记在 `agent.status` 的 `data.config` 中），需要在角色设置中重新选择。
+官方 Claude Code 适配器不提供 `dontAsk` 权限模式。选了这个模式的角色会以 Agent 当前的模式运行（实际生效的模式记在 `agent.status` 的 `data.config` 中），需要在角色设置中重新选择。
 
 <a id="user_request_replies"></a>
 ## 用户请求的回复

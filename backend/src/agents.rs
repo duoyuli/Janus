@@ -1,6 +1,6 @@
 //! Setup objects: agent connections → roles → execution environments.
 //!
-//! A connection is one coding agent (Codex / Claude Code / Pi) reached through a Lody ACP
+//! A connection is one coding agent (Codex / Claude Code / Grok / Pi) reached through an ACP
 //! adapter. Each connection owns an isolated home under `~/.janus/agents/<id>/home` that is
 //! handed to the agent as CODEX_HOME / CLAUDE_CONFIG_DIR / PI_CODING_AGENT_DIR, so neither
 //! the user's own `~/.codex`, `~/.claude`, `~/.pi` nor their shell credentials leak in.
@@ -111,7 +111,7 @@ const HOST_ENV: &[&str] = &[
     "TZ",
 ];
 
-/// Provider types, laid out like Lody's "New provider" dialog: built-in runtimes, presets that
+/// Provider types for the "New provider" dialog: built-in runtimes, presets that
 /// route a built-in runtime through another vendor, and any ACP agent started by a custom command.
 // @project-doc docs/domains/agents_and_roles.md#providers
 pub fn kinds() -> Value {
@@ -169,7 +169,7 @@ pub fn kinds() -> Value {
         },
         {
             "id": "pi", "group": "builtin", "base": "pi", "name": "Pi", "desc": "Pi 编码 Agent", "color": "#0e7490", "init": "PI",
-            "isolation": "PI_CODING_AGENT_DIR", "runtime": Value::Null,
+            "isolation": "PI_CODING_AGENT_DIR", "runtime": runtime("pi"),
             "auths": [
                 { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.pi/agent" }] },
                 { "id": "provider", "label": "OpenAI 兼容服务", "desc": "",
@@ -217,6 +217,13 @@ fn preset_env(desc: &Value, c: &Value) -> Vec<(String, String)> {
         .flat_map(|m| m.iter())
         .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
         .collect()
+}
+
+/// The runtime binary the person chose for this agent, if any. The built-in adapters ship their
+/// own CLI, so an empty value means "use the bundled one" rather than "look on PATH".
+fn configured_bin(c: &Value) -> Option<String> {
+    let bin = str_of(c, "bin");
+    (!bin.trim().is_empty()).then(|| expand_home(bin.trim()))
 }
 
 /// A configured variable replaces any default of the same name; an empty value removes it.
@@ -724,10 +731,6 @@ impl App {
             .join("home")
             .to_string_lossy()
             .to_string();
-        let bin = |cmd: &str| match str_of(&c, "bin") {
-            "" => which(cmd),
-            b => Some(expand_home(b)),
-        };
         // Sandbox first, then a preset's defaults, then the variables configured on this agent (which
         // override the defaults; an empty value unsets one), then its isolation and credentials, so
         // nothing the user typed can point the agent back at the host's own directories.
@@ -743,9 +746,6 @@ impl App {
         {
             override_env(&mut env, k, v.as_str().unwrap_or(""));
         }
-        // A setting of the agent's own (its env or a preset's) wins over the defaults below.
-        let configured = |k: &str| env.iter().any(|(name, _)| name == k);
-        let model_discovery_set = configured("CLAUDE_ACP_MODEL_DISCOVERY");
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
         let base = str_of(&c, "base").to_string();
         let mut program = crate::config::settings().node.clone();
@@ -753,10 +753,10 @@ impl App {
         let adapter = match base.as_str() {
             "codex" => {
                 set("CODEX_HOME", home);
-                set(
-                    "CODEX_PATH",
-                    bin("codex").context("找不到 codex 可执行文件，请填写运行时二进制路径")?,
-                );
+                // The adapter bundles the Codex CLI. A path chosen on the agent overrides it.
+                if let Some(b) = configured_bin(&c) {
+                    set("CODEX_PATH", b);
+                }
                 if c["auth"] == "apikey" {
                     set("OPENAI_API_KEY", secret("apiKey"));
                     if !str_of(&c, "baseUrl").is_empty() {
@@ -776,13 +776,8 @@ impl App {
                 // Code sends to the background would end the turn before the work is done.
                 // @project-doc docs/interfaces/acp_integration.md#background_tasks
                 set("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1".into());
-                // The adapter would list a custom endpoint's own models (`/v1/models`) instead of
-                // Claude Code's, dropping the aliases roles were saved with (`opus` resolved through
-                // ANTHROPIC_DEFAULT_OPUS_MODEL); keep Claude Code's list unless the agent asks.
-                if !model_discovery_set {
-                    set("CLAUDE_ACP_MODEL_DISCOVERY", "off".into());
-                }
-                if let Some(b) = bin("claude") {
+                // The adapter ships its own Claude CLI. A path chosen on the agent overrides it.
+                if let Some(b) = configured_bin(&c) {
                     set("CLAUDE_CODE_EXECUTABLE", b);
                 }
                 match (desc["group"].as_str(), str_of(&c, "auth")) {
@@ -796,11 +791,8 @@ impl App {
                 crate::adapters::for_base(&base)
             }
             "grok" => {
+                // The official CLI keeps its native binary and configuration under GROK_HOME.
                 set("GROK_HOME", home);
-                set(
-                    "GROK_PATH",
-                    bin("grok").context("找不到 grok 可执行文件，请填写运行时二进制路径")?,
-                );
                 if c["auth"] == "apikey" {
                     set("XAI_API_KEY", secret("apiKey"));
                 }
@@ -808,8 +800,9 @@ impl App {
             }
             "pi" => {
                 set("PI_CODING_AGENT_DIR", home);
-                if c["auth"] == "provider" {
-                    args.extend(["--provider".to_string(), "janus".to_string()]);
+                // pi-acp runs the pi CLI; a path chosen on the agent overrides the one on PATH.
+                if let Some(b) = configured_bin(&c) {
+                    set("PI_ACP_PI_COMMAND", b);
                 }
                 crate::adapters::for_base(&base)
             }
@@ -827,8 +820,9 @@ impl App {
         };
         let mut full = vec![];
         if let Some(adapter) = adapter {
-            let adapter = self.adapter_entry(adapter.id)?;
-            full.push(adapter.to_string_lossy().to_string());
+            let entry = self.adapter_entry(adapter.id)?;
+            full.push(entry.to_string_lossy().to_string());
+            full.extend(adapter.args.iter().map(|a| a.to_string()));
         }
         full.extend(args);
         Ok(RuntimeSpec {
@@ -1066,7 +1060,7 @@ impl App {
                     return Err(err);
                 }
             };
-            let program = spec.env.iter().find(|(k, _)| k.ends_with("_PATH") || k == "CLAUDE_CODE_EXECUTABLE").map(|(_, v)| v.clone()).unwrap_or_else(|| spec.program.clone());
+            let program = spec.args.first().cloned().unwrap_or_else(|| spec.program.clone());
             self.check_step(id, &mut steps, "运行时", Some(true), program);
 
             let (cred_ok, cred) = self.credential_check(&c0);
@@ -1091,7 +1085,7 @@ impl App {
 
             let result: Result<Value> = async {
                 self.check_step(id, &mut steps, "打开会话", None, "读取模型列表…".into());
-                let session = match tokio::time::timeout(Duration::from_secs(60), conn.request("session/new", json!({ "cwd": probe, "mcpServers": [], "_meta": crate::orchestrator::session_meta("janus-probe", &json!({})) }))).await {
+                let session = match tokio::time::timeout(Duration::from_secs(60), conn.request("session/new", json!({ "cwd": probe, "mcpServers": [], "_meta": crate::orchestrator::session_meta() }))).await {
                     Ok(r) => r,
                     Err(_) => Err(anyhow!("60 秒内没有打开会话")),
                 };
@@ -1182,31 +1176,28 @@ impl App {
         Ok(c)
     }
 
-    /// Codex ChatGPT login into the connection's own CODEX_HOME. `codex login` opens the browser itself.
+    /// Codex ChatGPT login through the adapter's bundled CLI, into the connection's own
+    /// CODEX_HOME. `codex login` opens the browser itself.
     pub fn start_login(self: &Arc<Self>, id: &str) -> Result<()> {
         let mut c = self.connection(id)?;
-        let (bin_env, home_env, args): (&str, &str, &[&str]) = match login_kind(&c) {
-            Some("codex") => ("CODEX_PATH", "CODEX_HOME", &["login"]),
-            Some("grok") => ("GROK_PATH", "GROK_HOME", &["login", "--device-auth"]),
+        let (home_env, login_args): (&str, &[&str]) = match login_kind(&c) {
+            Some("codex") => ("CODEX_HOME", &["cli", "login"]),
+            Some("grok") => ("GROK_HOME", &["login", "--device-auth"]),
             _ => bail!("这个 Provider 的认证方式不需要登录"),
         };
         if c["login"]["state"] == "running" {
             return Ok(());
         }
         let spec = self.spec_for(id)?;
-        let program = spec
-            .env
-            .iter()
-            .find(|(k, _)| k == bin_env)
-            .map(|(_, v)| v.clone())
-            .unwrap();
+        let entry = spec.args.first().context("ACP 适配器没有入口文件")?;
         let dir = self.agent_dir(id);
         let log = std::fs::File::create(dir.join("login.log"))?;
-        let mut cmd = tokio::process::Command::new(program);
+        let mut cmd = tokio::process::Command::new(&spec.program);
         cmd.env_clear();
         let mut child = cmd
             .envs(spec.env.iter().cloned())
-            .args(args)
+            .arg(entry)
+            .args(login_args)
             .env(home_env, dir.join("home"))
             .env("GROK_DISABLE_AUTOUPDATER", "1")
             .stdin(std::process::Stdio::null())
@@ -1386,18 +1377,6 @@ impl App {
 
     /// Claude Code runs `/goal` only in a workspace it trusts. The lead's agent has its own
     /// config directory, so record the trust there (never in the user's own Claude config).
-    /// The Pi extension that puts the person's standing instructions into Pi's system prompt.
-    /// Pi's ACP adapter has no system prompt slot but loads extensions passed with `-e`; the text
-    /// itself travels in `JANUS_STANDING_INSTRUCTIONS`. Written into this agent's isolated directory.
-    pub fn pi_standing_extension(&self, id: &str) -> Result<PathBuf> {
-        let file = self.agent_dir(id).join("janus").join("standing-instructions.js");
-        if std::fs::read_to_string(&file).ok().as_deref() != Some(PI_STANDING_EXTENSION) {
-            std::fs::create_dir_all(file.parent().unwrap())?;
-            std::fs::write(&file, PI_STANDING_EXTENSION)?;
-        }
-        Ok(file)
-    }
-
     pub fn trust_claude_workspace(&self, id: &str, path: &Path) -> Result<()> {
         let file = self.agent_dir(id).join("home").join(".claude.json");
         let mut cfg: Value = std::fs::read_to_string(&file)
@@ -1905,17 +1884,6 @@ pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
     }
     Ok(())
 }
-
-// A prompt section, not a replacement: Pi keeps its own prompt and other extensions see the change.
-const PI_STANDING_EXTENSION: &str = r#"// Written by Janus. Adds the person's standing instructions to Pi's system prompt.
-export default function (pi) {
-  const text = process.env.JANUS_STANDING_INSTRUCTIONS;
-  if (!text) return;
-  pi.on("before_agent_start", (event) => {
-    event.systemPromptOptions.sections.standing_instructions = text;
-  });
-}
-"#;
 
 fn local_source(base: &str, source: &str) -> PathBuf {
     let default = match base {
