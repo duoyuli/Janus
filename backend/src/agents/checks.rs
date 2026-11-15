@@ -188,7 +188,7 @@ impl App {
                 match installed {
                     Ok(Some(v)) => self.check_step(id, &mut steps, "ACP 适配器", Some(true), format!("已安装 {} {v}", adapter.package)),
                     Ok(None) => {
-                        let v = self.adapter_entry(adapter.id).ok().and_then(|p| p.ancestors().find(|a| a.join(".janus-adapter.json").is_file()).and_then(|a| a.file_name().map(|n| n.to_string_lossy().to_string()))).unwrap_or_default();
+                        let v = self.adapter_version(adapter.id).unwrap_or_default();
                         self.check_step(id, &mut steps, "ACP 适配器", Some(true), format!("{} {v}", adapter.package));
                     }
                     Err(err) => {

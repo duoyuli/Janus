@@ -78,7 +78,7 @@ fn standing_instructions_pick_the_system_layer_when_there_is_one() {
 
 #[test]
 fn developer_instructions_merge_into_codex_config() {
-    let spec = |env: Vec<(String, String)>| crate::acp::RuntimeSpec { id: "c".into(), kind: "codex".into(), name: "Codex".into(), program: "node".into(), args: vec![], env };
+    let spec = |env: Vec<(String, String)>| crate::acp::RuntimeSpec { id: "c".into(), kind: "codex".into(), name: "Codex".into(), program: "node".into(), args: vec![], env, pin: None };
     let gw = r#"{"model_provider":"janus"}"#.to_string();
     let out = with_developer_instructions(spec(vec![("CODEX_CONFIG".into(), gw)]), "规则");
     let cfg: Value = serde_json::from_str(&out.env[0].1).unwrap();

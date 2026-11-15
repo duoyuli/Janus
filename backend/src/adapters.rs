@@ -108,6 +108,37 @@ static JOBS: LazyLock<Mutex<HashMap<String, Job>>> = LazyLock::new(Default::defa
 /// The newest version npm offers, from the last check: (version, checked at).
 static LATEST: LazyLock<Mutex<HashMap<String, (String, i64)>>> = LazyLock::new(Default::default);
 
+/// Version directories that sessions run from, and how many: `prune` never removes one of them.
+static IN_USE: LazyLock<Mutex<HashMap<PathBuf, usize>>> = LazyLock::new(Default::default);
+
+/// Held by a session started from an adapter version, for as long as it runs (`RuntimeSpec::pin`):
+/// the version's files stay while a session still needs them, however many upgrades come.
+#[derive(Debug)]
+pub struct VersionPin(PathBuf);
+
+impl VersionPin {
+    fn new(dir: PathBuf) -> Arc<VersionPin> {
+        *IN_USE.lock().unwrap().entry(dir.clone()).or_default() += 1;
+        Arc::new(VersionPin(dir))
+    }
+}
+
+impl Drop for VersionPin {
+    fn drop(&mut self) {
+        let mut used = IN_USE.lock().unwrap();
+        if let Some(n) = used.get_mut(&self.0) {
+            *n -= 1;
+            if *n == 0 {
+                used.remove(&self.0);
+            }
+        }
+    }
+}
+
+fn in_use(dir: &Path) -> bool {
+    dir.canonicalize().is_ok_and(|d| IN_USE.lock().unwrap().contains_key(&d))
+}
+
 impl App {
     fn adapters_dir(&self) -> PathBuf {
         self.cfg.data_dir.join("adapters")
@@ -128,8 +159,9 @@ impl App {
     }
 
     // @project-doc docs/architecture/adapters.md#running_sessions
-    /// The script a session of this adapter runs, from the version that is current now.
-    pub fn adapter_entry(&self, id: &str) -> Result<PathBuf> {
+    /// The script a session of this adapter runs, and a pin that keeps its version installed
+    /// while the session holds it.
+    pub fn adapter_entry(&self, id: &str) -> Result<(PathBuf, Arc<VersionPin>)> {
         let d = def(id)?;
         let dir = self.adapter_current(id).ok_or_else(|| {
             anyhow!(
@@ -137,7 +169,12 @@ impl App {
                 d.name
             )
         })?;
-        entry_in(d, &dir)
+        Ok((entry_in(d, &dir)?, VersionPin::new(dir)))
+    }
+
+    /// The version `current` points to, if the adapter is installed.
+    pub fn adapter_version(&self, id: &str) -> Option<String> {
+        self.adapter_current(id).and_then(|d| d.file_name().map(|n| n.to_string_lossy().to_string()))
     }
 
     /// Every adapter with its installed versions, the newest known version and the current job.
@@ -413,7 +450,7 @@ fn switch_current(dir: &Path, version: &str) -> Result<()> {
 fn prune(dir: &Path, current: &str, previous: Option<&str>) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().to_string();
-        if name == "current" || name == current || Some(name.as_str()) == previous {
+        if name == "current" || name == current || Some(name.as_str()) == previous || in_use(&e.path()) {
             continue;
         }
         let stale_staging = name.starts_with(".staging-") || name.starts_with(".current-");
@@ -569,6 +606,26 @@ mod tests {
             ["1.1.0", "1.2.0", "current"],
             "the previous version stays for rolling back"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A version a session still runs from survives the clean-up, however old it is, and goes
+    /// once that session ends.
+    #[test]
+    fn a_version_in_use_is_not_pruned() {
+        let dir = std::env::temp_dir().join(format!("janus-adapters-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for v in ["1.0.0", "1.1.0", "1.2.0"] {
+            std::fs::create_dir_all(dir.join(v)).unwrap();
+            std::fs::write(dir.join(v).join(".janus-adapter.json"), "{}").unwrap();
+        }
+        let session = VersionPin::new(dir.join("1.0.0").canonicalize().unwrap());
+        prune(&dir, "1.2.0", Some("1.1.0"));
+        assert!(dir.join("1.0.0").is_dir(), "a running session keeps its version");
+        drop(session);
+        prune(&dir, "1.2.0", Some("1.1.0"));
+        assert!(!dir.join("1.0.0").exists(), "once the session ends the version goes");
+        assert!(dir.join("1.1.0").is_dir() && dir.join("1.2.0").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

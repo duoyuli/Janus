@@ -27,7 +27,7 @@
 | J-07 | 中高 | 已确认 | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
 | J-08 | 中高 |  已修复  | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
 | J-09 | 中 |  已修复  | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
-| J-10 | 中 | 已确认 | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
+| J-10 | 中 |  已修复  | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
 | J-11 | 中 | 已确认 | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
 
 ## 详细问题
@@ -145,6 +145,8 @@
 证据：[adapters.rs:332](/Users/duoyu/Data/dev/agent/Janus/backend/src/adapters.rs:332)、[adapters.rs:340](/Users/duoyu/Data/dev/agent/Janus/backend/src/adapters.rs:340)。
 
 建议：启动会话时记录适配器版本，清理时保留仍被进程引用的目录。也可以采用延迟清理，并在确认没有活动会话后删除。
+
+处理（2026-11-15）：每个会话从 `adapter_entry` 拿到它所在版本目录的 `VersionPin`，由连接持有到会话结束；`prune` 跳过仍被持有的版本。测试 `a_version_in_use_is_not_pruned`。
 
 ### J-11：格式化和 Clippy 质量门禁失败
 

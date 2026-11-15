@@ -36,6 +36,8 @@ pub struct RuntimeSpec {
     /// The complete environment. Nothing is inherited from Janus's own process: an agent sees
     /// only these variables, so the user's shell setup, credentials and agent settings cannot leak in.
     pub env: Vec<(String, String)>,
+    /// The adapter version the session runs from, kept installed while the session lives.
+    pub pin: Option<Arc<crate::adapters::VersionPin>>,
 }
 
 pub enum Incoming {
@@ -64,6 +66,8 @@ pub struct AcpConn {
     pub capabilities: Value,
     /// The agent accepts `_session/steering` mid-turn (top-level `_meta.steering`).
     pub steering: bool,
+    /// Keeps the adapter version this session was started from (`RuntimeSpec::pin`).
+    _pin: Option<Arc<crate::adapters::VersionPin>>,
 }
 
 impl AcpConn {
@@ -210,6 +214,7 @@ impl AcpConn {
             agent_info: init["agentInfo"].clone(),
             capabilities: init["agentCapabilities"].clone(),
             steering: init["_meta"]["steering"]["supported"] == true,
+            _pin: spec.pin.clone(),
         };
         Ok((Arc::new(conn), rx))
     }

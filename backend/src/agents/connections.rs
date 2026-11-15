@@ -383,10 +383,12 @@ impl App {
             k => bail!("未知的 Agent 类型 {k}"),
         };
         let mut full = vec![];
+        let mut pin = None;
         if let Some(adapter) = adapter {
-            let entry = self.adapter_entry(adapter.id)?;
+            let (entry, version) = self.adapter_entry(adapter.id)?;
             full.push(entry.to_string_lossy().to_string());
             full.extend(adapter.args.iter().map(|a| a.to_string()));
+            pin = Some(version);
         }
         full.extend(args);
         Ok(RuntimeSpec {
@@ -396,6 +398,7 @@ impl App {
             program,
             args: full,
             env,
+            pin,
         })
     }
 
