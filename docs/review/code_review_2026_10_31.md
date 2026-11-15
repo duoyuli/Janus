@@ -26,7 +26,7 @@
 | J-06 | 中高 |  已修复  | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
 | J-07 | 中高 | 已确认 | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
 | J-08 | 中高 |  已修复  | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
-| J-09 | 中 | 已确认 | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
+| J-09 | 中 |  已修复  | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
 | J-10 | 中 | 已确认 | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
 | J-11 | 中 | 已确认 | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
 
@@ -133,6 +133,8 @@
 证据：[main.rs:48](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:48)、[main.rs:51](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:51)、[main.rs:65](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:65)。
 
 建议：在 macOS 上使用 `flock` 或等效的内核文件锁，并把 PID 作为诊断信息而不是互斥机制。启动失败或进程退出后由文件锁自动释放。
+
+处理（2026-11-15）：`lock_home` 改为对 `janus.pid` 加独占的系统文件锁（`File::try_lock`），拿到锁后再写入进程号，锁随进程释放；不再读取进程号判断。测试 `one_janus_per_home`。
 
 ### J-10：适配器清理可能删除仍在使用的旧版本
 

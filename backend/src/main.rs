@@ -57,27 +57,54 @@ fn janus_home() -> Result<PathBuf> {
 }
 
 /// One Janus per home: a second one would mark the first one's running runs as interrupted on
-/// startup (`recover`) and drive the same database. `<home>/janus.pid` names the owner while it lives.
+/// startup (`recover`) and drive the same database. The lock is an exclusive OS lock on
+/// `<home>/janus.pid`, taken atomically and released when the process ends however it ends; the
+/// file also names the owner's pid, which the app reads to find a running Janus. Keep the
+/// returned file for as long as the process runs.
 // @project-doc docs/operations/deployment.md#single_instance
-fn lock_home(home: &std::path::Path) -> Result<()> {
-    let file = home.join("janus.pid");
-    let me = std::process::id();
-    if let Some(pid) = std::fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<u32>().ok()) {
-        let alive = pid != me
-            && std::process::Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .stderr(std::process::Stdio::null())
-                .status()
-                .is_ok_and(|s| s.success());
-        if alive {
+fn lock_home(home: &std::path::Path) -> Result<std::fs::File> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(home.join("janus.pid"))?;
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let owner = std::fs::read_to_string(home.join("janus.pid")).unwrap_or_default();
             anyhow::bail!(
-                "另一个 Janus（pid {pid}）正在使用 {}。先停止它（以服务方式运行时执行 just stop），或用另一个 JANUS_HOME 启动",
+                "另一个 Janus（pid {}）正在使用 {}。先停止它（以服务方式运行时执行 just stop），或用另一个 JANUS_HOME 启动",
+                owner.trim(),
                 home.display()
             );
         }
+        Err(std::fs::TryLockError::Error(err)) => return Err(err.into()),
     }
-    std::fs::write(&file, me.to_string())?;
-    Ok(())
+    file.set_len(0)?;
+    write!(file, "{}", std::process::id())?;
+    Ok(file)
+}
+
+#[cfg(test)]
+mod lock_tests {
+    /// A second holder of one home is refused while the first lives; the lock goes with its holder.
+    #[test]
+    fn one_janus_per_home() {
+        let home = std::env::temp_dir().join(format!("janus-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let first = super::lock_home(&home).unwrap();
+        assert_eq!(std::fs::read_to_string(home.join("janus.pid")).unwrap(), std::process::id().to_string());
+        let err = super::lock_home(&home).unwrap_err().to_string();
+        assert!(err.contains("另一个 Janus"), "{err}");
+        assert_eq!(std::fs::read_to_string(home.join("janus.pid")).unwrap(), std::process::id().to_string(), "the refused one does not overwrite the owner");
+        drop(first);
+        // Other tests spawn processes meanwhile: a child forked in that moment holds the descriptor
+        // until its exec closes it, so the release can take an instant to show.
+        let again = (0..100).find_map(|_| super::lock_home(&home).ok().or_else(|| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            None
+        }));
+        assert!(again.is_some(), "the lock is released with its holder");
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }
 
 type ApiResult = Result<Response, (StatusCode, String)>;
@@ -503,7 +530,7 @@ async fn main() -> Result<()> {
         None => {}
     }
     let home = janus_home()?;
-    lock_home(&home)?;
+    let _home_lock = lock_home(&home)?;
     let db_path = home.join("janus.db");
     let db = db::Db::open(&db_path)?;
     let (tx, _) = tokio::sync::broadcast::channel(4096);
