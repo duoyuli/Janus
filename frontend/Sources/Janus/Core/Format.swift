@@ -28,8 +28,6 @@ enum L {
         "cancelled": ("已停止", .gray), "interrupted": ("已中断", .gray),
     ]
 
-    static let artKind = ["report": "回复", "git_diff": "代码改动", "test_report": "测试结果"]
-
     static let icon: [String: String] = [
         "run.created": "✦", "run.cancelled": "■", "run.paused": "Ⅱ", "run.resumed": "▶",
         "task.ready": "▸", "task.assigned": "↗", "attempt.started": "▶", "attempt.failed": "✕", "task.retry_scheduled": "↻", "task.reopened": "↺",

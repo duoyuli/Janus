@@ -41,7 +41,7 @@ private struct Log {
         let want = c["expect"]
         #expect(l.run.tokens.total == want["runTotal"].int, "\(name): run total")
         #expect(l.run.completeness.label == want["completeness"].str, "\(name): completeness")
-        #expect(l.summaryLine == want["summary"].str, "\(name): \(l.summaryLine)")
+        #expect("用量：\(l.runLine)" == want["summary"].str, "\(name): \(l.runLine)")
         for (task, total) in want["tasks"].object {
             #expect(l.task(task)?.tokens.total == total.int, "\(name): task \(task)")
         }

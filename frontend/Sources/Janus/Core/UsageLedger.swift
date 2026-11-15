@@ -309,11 +309,11 @@ struct UsageLedger: Equatable {
     func task(_ id: String) -> UsageScope? { tasks.first { $0.id == id } }
     func attempts(of task: String) -> [UsageAttempt] { attempts.filter { $0.task == task } }
 
-    /// `用量：… · 费用：… · 耗时 …`, the line `team` reads.
-    var summaryLine: String { "用量：\(runLine)" }
+    /// The run's tokens, cost and wall-clock time in one line: the backend's ledger line after
+    /// 「用量：」 (`Ledger::summary_line`), which the shared cases compare.
+    var runLine: String { "\(run.tokensText) · \(run.costText) · 耗时 \(run.durationText)" }
     /// `用量 … · 费用：… · 耗时 …`, the delivery's line.
     var deliveryLine: String { "用量 \(runLine)" }
-    private var runLine: String { "\(run.tokensText) · \(run.costText) · 耗时 \(run.durationText)" }
 
     /// The reminders in one line, prefixed when the numbers are not complete.
     var remindersLine: String? {
