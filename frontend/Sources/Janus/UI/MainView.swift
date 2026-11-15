@@ -92,7 +92,7 @@ struct Sidebar: View {
                         Button { store.open(.home(ws["id"].str)) } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 11, weight: .semibold))
-                                .frame(width: 16, height: 16)
+                                .frame(width: 18, height: 18)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
