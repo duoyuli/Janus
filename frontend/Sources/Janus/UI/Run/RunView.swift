@@ -138,8 +138,14 @@ extension RunModel {
         guard let r = state.result else { return }
         let d = r.d
         let risks = d["risks"].strings
+        // Per task: how many criteria passed, the evidence methods, who verified it independently.
+        let acceptance = deliveryAcceptance(state).map { a in
+            let verified = a.verifications.map { v in "\(v.task) \(v.passed ? "通过" : "未确认（\(v.label)）")" }
+            return "- \(a.task)：通过 \(a.summary.passed)/\(a.summary.criteria) · 证据：\(a.summary.countsText)" + (verified.isEmpty ? "" : " · 独立验证：\(verified.joined(separator: "、"))")
+        }
         let text = (["已完成：\(L.goalTitle(state.run.goal))", d["summary"].str, "", "证据："]
             + d["evidence"].array.map { "- \($0["text"].str)（事件 #\($0["seq"].str)）" }
+            + (acceptance.isEmpty ? [] : ["", "逐条验收："] + acceptance)
             + ["", "风险："] + (risks.isEmpty ? ["- 无"] : risks.map { "- " + $0 })).joined(separator: "\n")
         copyText(text)
         store.show("已复制交付摘要")
@@ -346,6 +352,9 @@ struct ResultCard: View {
             let suggestions = d["briefSuggestions"].strings
             let deliverables = d["deliverables"].array
             let evidence = d["evidence"].array
+            // Every task's acceptance record: totals, method counts, all checks, the independent
+            // verification, the trace gaps and the risks. Older deliveries are read from the tasks.
+            let acceptance = deliveryAcceptance(st)
             let long = d["summary"].str.count > 360
             let canAccept = r.accepted == nil && !run.isReplaying
             SectionHeader(title: "交付结果")
@@ -379,6 +388,12 @@ struct ResultCard: View {
                             ForEach(evidence.indices, id: \.self) { i in
                                 HStack(alignment: .firstTextBaseline) { tagged(evidence[i]["text"].str); SeqButton(seq: evidence[i]["seq"].int, run: run) }
                             }
+                        }
+                    } }
+                    if !acceptance.isEmpty { GridRow {
+                        section("逐条验收", acceptance.count)
+                        VStack(alignment: .leading, spacing: 12) {
+                            ForEach(acceptance) { record in DeliveryTaskView(record: record) }
                         }
                     } }
                     if !risks.isEmpty { GridRow {

@@ -4,6 +4,7 @@
 
 use crate::acp::{AcpConn, Incoming};
 use crate::db::{Db, Event};
+use crate::evidence::{Check, Summary, TaskAcceptance, Verification};
 use crate::git_probe;
 use crate::status::{AgentPhase, AttemptStatus, RunStatus, TaskStatus};
 use anyhow::{Context, Result, anyhow, bail};
@@ -226,17 +227,10 @@ struct TaskResult {
     summary: String,
     evidence: Vec<String>,
     risks: Vec<String>,
-    /// The agent's own check of each acceptance criterion, in order.
+    /// The agent's own check of each acceptance criterion, in order; `evidence::Check` carries the
+    /// method behind each one.
     checks: Vec<Check>,
     question: Option<Value>,
-}
-
-/// One acceptance criterion as the agent verified it, by whatever means it judged right.
-#[derive(Clone, Debug, Default, Serialize)]
-struct Check {
-    criterion: String,
-    passed: bool,
-    evidence: String,
 }
 
 struct Task {
@@ -1701,7 +1695,7 @@ impl App {
 
 验收标准（任务的 accept）：
 - 每个任务都要写可核对的验收标准：做到什么、怎样算做到。写结果和行为（「点击格子能翻开并显示周围雷数」「新增测试覆盖空输入并通过」），不要写成某条具体命令。
-- 怎么验证由执行者自己判断，它会逐条给出是否达到和证据。需要特定的验证方式时，写进标准或说明里，作为要求而不是唯一的检查。
+- 怎么验证由执行者自己判断，它会逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）。方法只说明依据的类型，不代表结果是真实的：推理判断、未核实和没有说明方法的项会作为提醒出现在完成消息里，关键结果由你自己核对。需要特定的验证方式时，写进标准或说明里，作为要求而不是唯一的检查。
 - 执行者自认没有达到、或漏了某条标准时，Janus 会让它在原会话里补一次；仍然不行才交给你：结果其实可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改说明和标准）；不需要了 → janus.cancel。
 - 执行者的证据是它的说法。关键的结果由你自己核对（读代码、运行、看实际表现），改了代码的目标在结束前安排独立评审。
 
@@ -2066,7 +2060,14 @@ impl App {
         };
         let d = submitted.data.clone().unwrap_or_default();
         let strings = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default() };
-        let mut result = TaskResult { summary: d["summary"].as_str().unwrap_or("").to_string(), evidence: strings(&d["evidence"]), risks: strings(&d["risks"]), ..Default::default() };
+        let mut result = TaskResult {
+            summary: d["summary"].as_str().unwrap_or("").to_string(),
+            evidence: strings(&d["evidence"]),
+            risks: strings(&d["risks"]),
+            // The accepted result keeps the checks, so its evidence methods are still shown.
+            checks: checks_from(&d),
+            ..Default::default()
+        };
         let error = failed.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or("验证失败").to_string();
         result.risks.push(format!("{error}；主控接受了结果：{reason}"));
         {
@@ -2079,7 +2080,7 @@ impl App {
             t.result = Some(result.clone());
         }
         let seq = self.emit(run, ev("task.succeeded", "lead", format!("主控接受 {task} 的结果：{}", short(reason, 60))).task(task).attempt(submitted.attempt.unwrap_or(0)).data(json!({
-            "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "acceptedBy": "lead", "reason": reason
+            "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "checks": result.checks, "acceptedBy": "lead", "reason": reason
         })));
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), task) {
             t.succeeded_seq = Some(seq);
@@ -2284,13 +2285,32 @@ impl App {
         if let Some(r) = &t.result {
             out.push(format!("结果：{}", r.summary));
             for c in &r.checks {
-                out.push(format!("  {} {}：{}", if c.passed { "✓" } else { "✗" }, c.criterion, c.evidence));
+                out.push(format!("  {}", c.line()));
             }
+            let evidence = Summary::of(&t.def.accept, &r.checks);
+            out.push(format!("证据汇总：\n{}", evidence.lines().iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("\n")));
             if !r.evidence.is_empty() {
                 out.push(format!("证据：\n{}", r.evidence.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")));
             }
             if !r.risks.is_empty() {
                 out.push(format!("风险：\n{}", r.risks.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")));
+            }
+        }
+        // Those who verified this task independently: their own conclusion, kept apart from the
+        // evidence the executor reported.
+        for v in st.tasks.iter().filter(|v| v.def.verifies.as_deref() == Some(task)) {
+            out.push(format!("独立验证 {}：{}", v.def.id, v.status.label()));
+            if let Some(r) = &v.result {
+                out.push(format!("  {}", r.summary));
+                for c in &r.checks {
+                    out.push(format!("  {}", c.line()));
+                }
+                if !r.evidence.is_empty() {
+                    out.push(format!("  独立证据：\n{}", r.evidence.iter().map(|x| format!("  - {x}")).collect::<Vec<_>>().join("\n")));
+                }
+            }
+            if let Some(f) = st.last_verification.get(&v.def.id).filter(|_| v.status != TaskStatus::Succeeded) {
+                out.push(format!("  没通过核对：\n{f}"));
             }
         }
         if !t.amendments.is_empty() {
@@ -3123,7 +3143,10 @@ impl App {
             .attempt(n)
             .data(json!({
                 "attemptId": attempt_id,
-                "summary": result.summary, "evidence": result.evidence, "traceGaps": gaps
+                "summary": result.summary, "evidence": result.evidence, "traceGaps": gaps,
+                // The checks and their evidence methods stay with the task's conclusion, so the
+                // app, the delivery and a resumed run read them from one place.
+                "checks": result.checks, "acceptance": Summary::of(&def.accept, &result.checks)
             })),
         );
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), id) {
@@ -3176,8 +3199,9 @@ impl App {
     }
 
     /// Janus does not run commands of its own to verify a task. The agent verifies each acceptance
-    /// criterion in whatever way it judges right and reports it; Janus checks that every criterion
-    /// was answered, with evidence, and that none was reported unmet.
+    /// criterion in whatever way it judges right and reports it, with the method it used; Janus
+    /// checks that every criterion was answered, with evidence, that the method is allowed, and
+    /// that none was reported unmet.
     // @project-doc docs/domains/run_lifecycle.md#verification
     async fn verify_result(
         &self,
@@ -3195,7 +3219,10 @@ impl App {
                 .attempt(n)
                 .data(json!({ "attemptId": attempt_id, "accept": def.accept })),
         );
-        let failures = result_gaps(def, result);
+        let failures = crate::evidence::gaps(&def.accept, &result.summary, &result.checks);
+        // The numbers and the weaker evidence that only warrants a reminder, recorded with the
+        // verdict so the app and a resumed run do not have to rebuild them differently.
+        let summary = Summary::of(&def.accept, &result.checks);
         if !failures.is_empty() {
             let message = failures.join("；");
             run.st.lock().unwrap().last_verification.insert(id.to_string(), failures.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n"));
@@ -3205,7 +3232,7 @@ impl App {
                 ev("verification.failed", "janus", format!("{id} 没有通过验收核对：{}", short(&message, 120)))
                     .task(id)
                     .attempt(n)
-                    .data(json!({ "attemptId": attempt_id, "failures": failures, "checks": result.checks })),
+                    .data(json!({ "attemptId": attempt_id, "failures": failures, "checks": result.checks, "acceptance": summary })),
             );
             return Err(VerificationFailed(message).into());
         }
@@ -3215,7 +3242,7 @@ impl App {
             ev("verification.passed", "janus", format!("{id} 通过验收核对"))
                 .task(id)
                 .attempt(n)
-                .data(json!({ "attemptId": attempt_id, "checks": result.checks })),
+                .data(json!({ "attemptId": attempt_id, "checks": result.checks, "acceptance": summary })),
         );
         Ok(())
     }
@@ -4070,13 +4097,28 @@ impl App {
     }
 
     /// The lead's goal ended and nothing can still run: hand over its summary, with every task's
-    /// evidence and risks, and unfinished tasks listed as risks.
+    /// evidence, acceptance record, independent verification, trace gaps and risks, and unfinished
+    /// tasks listed as risks.
     fn deliver(&self, run: &Run) {
         let result = {
+            // Where a finished task's result disagreed with the workspace, from its own event.
+            let events = self.db.events(&run.id, 0).unwrap_or_default();
+            let trace_gaps = |id: &str| -> Vec<String> {
+                events
+                    .iter()
+                    .rev()
+                    .find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some(id))
+                    .and_then(|e| e.data.as_ref()?["traceGaps"].as_array().cloned())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|g| g.as_str().map(str::to_owned))
+                    .collect()
+            };
             let st = run.st.lock().unwrap();
             let mut deliverables = vec![];
             let mut evidence = vec![];
             let mut risks = vec![];
+            let mut acceptance = vec![];
             for t in &st.tasks {
                 let unfinished = match t.status {
                     TaskStatus::Pending | TaskStatus::Running => Some("没有执行"),
@@ -4095,12 +4137,37 @@ impl App {
                         deliverables.push(a.clone());
                     }
                 }
-                if let Some(e) = r.evidence.first() {
-                    evidence.push(
-                        json!({ "text": format!("{}：{}", t.def.id, e), "seq": t.succeeded_seq }),
-                    );
+                // Every piece of evidence the task reported, not only the first.
+                for e in &r.evidence {
+                    evidence.push(json!({ "text": format!("{}：{}", t.def.id, e), "seq": t.succeeded_seq }));
                 }
                 risks.extend(r.risks.iter().map(|x| format!("{}：{}", t.def.id, x)));
+                // Who checked this task independently, and how that went. A verifier that did not
+                // pass stays visible as a risk of the task it was meant to confirm.
+                let verifications: Vec<Verification> = st
+                    .tasks
+                    .iter()
+                    .filter(|v| v.def.verifies.as_deref() == Some(t.def.id.as_str()))
+                    .map(|v| {
+                        let passed = v.status == TaskStatus::Succeeded;
+                        if !passed {
+                            risks.push(format!("{}：独立验证 {} 的状态是 {}，结论没有得到确认", t.def.id, v.def.id, v.status.label()));
+                        }
+                        let vr = v.result.clone().unwrap_or_default();
+                        Verification { task: v.def.id.clone(), status: v.status.as_str(), label: v.status.label(), passed, summary: vr.summary, checks: vr.checks, evidence: vr.evidence, risks: vr.risks }
+                    })
+                    .collect();
+                acceptance.push(TaskAcceptance {
+                    task: t.def.id.clone(),
+                    title: t.def.title.clone(),
+                    status: t.status.as_str(),
+                    label: t.status.label(),
+                    summary: Summary::of(&t.def.accept, &r.checks),
+                    checks: r.checks.clone(),
+                    verifications,
+                    trace_gaps: trace_gaps(&t.def.id),
+                    risks: r.risks.clone(),
+                });
             }
             if let Some(last) = st.tasks.last()
                 && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report") {
@@ -4116,6 +4183,7 @@ impl App {
                 "briefSuggestions": suggestions,
                 "deliverables": deliverables,
                 "evidence": evidence,
+                "acceptance": acceptance,
                 "risks": risks,
             })
         };
@@ -4557,6 +4625,9 @@ impl App {
                     summary: d["summary"].as_str().unwrap_or("").to_string(),
                     evidence: strings(&d["evidence"]),
                     risks: strings(&d["risks"]),
+                    // Results recorded before checks were kept here have none; older checks keep
+                    // their evidence methods, and their absence stays 「未说明」.
+                    checks: checks_from(&d),
                     ..Default::default()
                 }
             });
@@ -4970,7 +5041,7 @@ fn lead_tools() -> Value {
                                 "instructions": { "type": "string", "description": "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。" },
                                 "assignee": { "type": "string", "description": "协作者 id" },
                                 "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的任务 id" },
-                                "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到和证据" },
+                                "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）" },
                                 "owns": { "type": "array", "items": { "type": "string" }, "description": "这个任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的任务不能重叠" },
                                 "verifies": { "type": "string", "description": "独立验证：被验证任务的 id。交给另一个协作者，自动在被验证的任务完成后开始，只检查不改文件" }
                             }
@@ -5042,7 +5113,7 @@ fn lead_tools() -> Value {
         },
         {
             "name": "task_detail",
-            "description": "查看看板上一个任务的全部信息：说明、验收标准、完整结果（逐条验收、证据、风险）、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
+            "description": "查看看板上一个任务的全部信息：说明、验收标准、完整结果（逐条验收及其证据方法、全部证据、风险、证据汇总）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
             "inputSchema": { "type": "object", "required": ["task"], "properties": { "task": { "type": "string" } } },
             "annotations": board_read()
         },
@@ -5275,21 +5346,53 @@ fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let t = st.tasks.iter().find(|t| t.def.id == task)?;
             let r = t.result.clone().unwrap_or_default();
             let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
-            let checks: Vec<String> = r.checks.iter().map(|c| format!("{} {}：{}", if c.passed { "✓" } else { "✗" }, short(&c.criterion, 60), short(&c.evidence, INLINE_ITEM))).collect();
+            let checks: Vec<String> = r.checks.iter().map(|c| short(&c.line(), 60 + INLINE_ITEM)).collect();
             let (evidence, more_evidence) = inline_list(&r.evidence);
             let (risks, more_risks) = inline_list(&r.risks);
-            let clipped = more_evidence || more_risks || r.summary.chars().count() > INLINE_SUMMARY || r.checks.iter().any(|c| c.evidence.chars().count() > INLINE_ITEM);
+            let totals = Summary::of(&t.def.accept, &r.checks);
+            let (reminders, more_reminders) = inline_list(&totals.reminders);
+            // Who checked this task independently, once they are done: their verdict is separate
+            // from the executor's own evidence.
+            let verifiers: Vec<String> = st
+                .tasks
+                .iter()
+                .filter(|v| v.def.verifies.as_deref() == Some(task) && v.status.terminal())
+                .map(|v| format!("{} {}", v.def.id, v.status.label()))
+                .collect();
+            let clipped = more_evidence
+                || more_risks
+                || more_reminders
+                || r.summary.chars().count() > INLINE_SUMMARY
+                || r.checks.iter().any(|c| c.line().chars().count() > 60 + INLINE_ITEM);
             let gaps: Vec<&str> = d["traceGaps"].as_array().into_iter().flatten().filter_map(|g| g.as_str()).collect();
-            format!(
-                "- [完成] {task}「{title}」· {name}：{}{}{}{}{}{}{}",
-                short(&r.summary, INLINE_SUMMARY),
-                if checks.is_empty() { String::new() } else { format!("\n  验收：{}", checks.join("；")) },
-                if evidence.is_empty() { String::new() } else { format!("\n  证据：{evidence}") },
-                if risks.is_empty() { String::new() } else { format!("\n  风险：{risks}") },
-                if arts.is_empty() { String::new() } else { format!("\n  产物：{}", arts.join("、")) },
-                if gaps.is_empty() { String::new() } else { format!("\n  痕迹核对（结果和工作目录对不上）：{}。以工作目录的现状为准核对；需要返工用 janus.retry，结论要更正用 janus.amend。", gaps.join("；")) },
-                if clipped { format!("\n  （有删节，完整结果用 janus.task_detail 查看 {task}）") } else { String::new() }
-            )
+            let mut msg = format!("- [完成] {task}「{title}」· {name}：{}", short(&r.summary, INLINE_SUMMARY));
+            msg.push_str(&format!("\n  验收标准：{} 条，通过 {} 条", totals.criteria, totals.passed));
+            msg.push_str(&format!("\n  证据：{}", totals.counts()));
+            if !reminders.is_empty() {
+                msg.push_str(&format!("\n  提醒（不影响是否通过）：{reminders}"));
+            }
+            if !checks.is_empty() {
+                msg.push_str(&format!("\n  逐条验收：{}", checks.join("；")));
+            }
+            if !evidence.is_empty() {
+                msg.push_str(&format!("\n  证据：{evidence}"));
+            }
+            if !verifiers.is_empty() {
+                msg.push_str(&format!("\n  独立验证：{}", verifiers.join("、")));
+            }
+            if !risks.is_empty() {
+                msg.push_str(&format!("\n  风险：{risks}"));
+            }
+            if !arts.is_empty() {
+                msg.push_str(&format!("\n  产物：{}", arts.join("、")));
+            }
+            if !gaps.is_empty() {
+                msg.push_str(&format!("\n  痕迹核对（结果和工作目录对不上）：{}。以工作目录的现状为准核对；需要返工用 janus.retry，结论要更正用 janus.amend。", gaps.join("；")));
+            }
+            if clipped {
+                msg.push_str(&format!("\n  （有删节，完整结果用 janus.task_detail 查看 {task}）"));
+            }
+            msg
         }
         "task.conflict" if d["owned"] == true => format!(
             "- [越界] {task}「{title}」· {name} 改了 {} 负责的 {}，两个任务可能同时在改。Janus 已提醒 {task} 不要再改：确认分工，用 janus.reply 告诉它怎样配合；确实要它改，就让负责的一方先完成，或者取消并重新编排。",
@@ -5530,7 +5633,7 @@ fn task_prompt(
 验收标准：
 {accept}
 
-结束前逐条验证这些标准，验证方式由你判断：运行测试、启动程序看实际表现、读代码推理、对比输出，选能真正证明结果的方式，而不是只确认文件存在。在结果的 checks 中按顺序逐条写明是否达到和证据（做了什么、看到了什么）。没有达到的如实写 passed: false 并说明原因；标准本身不合理或在当前环境无法验证时，在 question 中请主控调整。
+结束前逐条验证这些标准，验证方式由你判断：运行测试、启动程序看实际表现、读代码推理、对比输出，选能真正证明结果的方式，而不是只确认文件存在。在结果的 checks 中按顺序逐条写明是否达到、证据（做了什么、看到了什么）和可选的 method：test（运行自动化测试）、command（运行命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或自我判断）、unverified（证据缺失、无法复现或暂时无法核实）。method 只说明依据的类型，不代替证据；无法核实时如实写 unverified，不要写成 test。没有达到的如实写 passed: false 并说明原因；标准本身不合理或在当前环境无法验证时，在 question 中请主控调整。
 
 工作目录：{ws}
 {wsnote}
@@ -5562,7 +5665,7 @@ fn task_prompt(
     p.push_str(
         "\n\n如果缺少超出你授权的关键决定，不要猜：在结果 JSON 的 question 字段写清问题和选项，然后结束本轮，主控会回答你。
 完成后，回复的最后必须是一个 ```json 代码块：
-{\"summary\":\"一句话结果\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
+{\"summary\":\"一句话结果\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"method\":\"test\",\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
 question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"你建议的选项\"}",
     );
     p.push_str(&role_extras(m, workspace));
@@ -5592,22 +5695,10 @@ fn extract_json(text: &str) -> Option<Value> {
     })
 }
 
-/// What keeps a result from passing: no summary, an acceptance criterion with no check or no
-/// evidence, or one the agent itself reports unmet. Tasks without criteria (older runs) need evidence.
-fn result_gaps(def: &TaskDef, result: &TaskResult) -> Vec<String> {
-    let mut gaps = vec![];
-    if result.summary.trim().is_empty() {
-        gaps.push("结构化结果缺少 summary".to_string());
-    }
-    for (i, criterion) in def.accept.iter().enumerate() {
-        match result.checks.get(i) {
-            None => gaps.push(format!("没有核对第 {} 条验收标准「{criterion}」", i + 1)),
-            Some(c) if !c.passed => gaps.push(format!("自认没有达到「{criterion}」：{}", if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() })),
-            Some(c) if c.evidence.trim().is_empty() => gaps.push(format!("「{criterion}」没有给出证据")),
-            Some(_) => {}
-        }
-    }
-    gaps
+/// Read the checks of a result recorded in an event, with their evidence methods; results written
+/// before the field existed keep their checks and report 「未说明」.
+fn checks_from(d: &Value) -> Vec<Check> {
+    d["checks"].as_array().map(|a| a.iter().map(Check::from_json).collect()).unwrap_or_default()
 }
 
 /// The person ended the attempt from the session: keep a structured result if the agent gave one.
@@ -5644,18 +5735,7 @@ fn parse_result(text: &str) -> TaskResult {
                 .unwrap_or_else(|| first_line(text)),
             evidence: strings(&v["evidence"]),
             risks: strings(&v["risks"]),
-            checks: v["checks"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .map(|c| Check {
-                            criterion: c["criterion"].as_str().unwrap_or("").to_string(),
-                            passed: c["passed"].as_bool().unwrap_or(false),
-                            evidence: c["evidence"].as_str().unwrap_or("").to_string(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            checks: v["checks"].as_array().map(|a| a.iter().map(Check::from_json).collect()).unwrap_or_default(),
             question: Some(v["question"].clone())
                 .filter(|q| q.is_object() || q.as_str().is_some_and(|s| !s.is_empty())),
         },
@@ -6387,6 +6467,9 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
 mod flow_tests {
     use super::*;
 
+    // Newer flows live in their own files under `orchestrator/flow_tests/`, so this file stops growing.
+    mod evidence;
+
     struct Harness {
         app: Arc<App>,
         dir: PathBuf,
@@ -6805,6 +6888,12 @@ mod flow_tests {
 
         finish_lead(&h);
         wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+        // The delivery says a verifier that did not pass did not confirm the task.
+        let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+        let t1 = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T1").unwrap().clone();
+        assert_eq!(t1["verifications"][0]["task"], "V1", "{t1}");
+        assert_eq!(t1["verifications"][0]["passed"], false, "a cancelled verifier is not a pass: {t1}");
+        assert!(d["risks"].as_array().unwrap().iter().any(|r| r.as_str().is_some_and(|r| r.contains("独立验证 V1"))), "{d}");
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 

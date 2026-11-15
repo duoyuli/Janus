@@ -72,6 +72,18 @@ struct AuditView: View {
                                 Spacer()
                                 Button("回放到这里") { run.replay = e.seq; run.page = .board }.controlSize(.small).help("把工作台回放到第 \(e.seq) 条事件时的状态")
                             }
+                            // A result event opened here shows each criterion with its evidence
+                            // method and evidence, so the log does not have to be read as raw JSON.
+                            if run.highlight == e.seq, !e.data["checks"].array.isEmpty,
+                               ["result.submitted", "verification.passed", "verification.failed", "task.succeeded"].contains(e.type) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("逐条验收").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                    ForEach(CriterionCheck.rows(accept: [], checks: Check.list(e.data["checks"]))) { row in
+                                        CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
+                                    }
+                                }
+                                .padding(.leading, 50)
+                            }
                             if run.highlight == e.seq {
                                 Text(e.raw.pretty()).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                                     .padding(8).frame(maxWidth: .infinity, alignment: .leading)

@@ -70,7 +70,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | 类型 | 说明 |
 | --- | --- |
 | `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`（工作目录的一句话描述）、`mode`（固定为 `goal`）、`images`（随目标粘贴的图片，见[图片附件](../domains/run_lifecycle.md#attachments)） |
-| `run.delivered` | 交付；`data` 是交付结果：`summary`、`briefSuggestions`（主控建议写入工作区共享资料的条目，见[工作区共享资料](../domains/agents_and_roles.md#workspace_brief)）、`deliverables`、`evidence`、`risks` |
+| `run.delivered` | 交付；`data` 是交付结果：`summary`、`briefSuggestions`（主控建议写入工作区共享资料的条目，见[工作区共享资料](../domains/agents_and_roles.md#workspace_brief)）、`deliverables`、`evidence`（每个任务的全部证据，`text` 以任务 id 开头）、`acceptance`（每个任务的验收记录：验收总数、通过数、证据方法计数、`checks`、独立验证、`traceGaps` 和 `risks`，见[证据方法](#evidence_methods)）、`risks` |
 | `risk.accepted` | 用户验收 |
 | `run.failed` | Run 失败；`data.error` |
 | `run.cancelled` | 用户取消 |
@@ -99,12 +99,12 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `attempt.launch_requested` / `attempt.started` | 请求启动 / 尝试开始 |
 | `context.handoff` | 上游结果交给下游；`data.amendments` 是主控对上游结论的修订，`data.files` 是上游改过的文件，`data.stale` 是上游完成后又被别的任务改过的文件（`[{path, by}]`），见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
 | `result.amended` | 主控修订已完成任务的结论（`janus.amend`）；`data.text` |
-| `result.submitted` | 尝试提交结构化结果；`data.summary`、`data.checks`（逐条验收：`criterion`、`passed`、`evidence`）、`data.evidence`、`data.risks` |
+| `result.submitted` | 尝试提交结构化结果；`data.summary`、`data.checks`（逐条验收：`criterion`、`passed`、`evidence`，可选的 `method` 见[证据方法](#evidence_methods)）、`data.evidence`、`data.risks` |
 | `artifact.created` | 保存产物；`data.name`、`data.kind`、`data.path`、`data.hash`、`data.bytes` |
 | `attempt.failed` | 尝试失败；`data.error` |
 | `attempt.late_result` | 过期尝试的结果被忽略 |
 | `task.retry_scheduled` | 安排下一次尝试 |
-| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。主控用 `accept` 接受结果时，`task.succeeded` 的 `actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks`。协作者完成的 `task.succeeded` 带 `data.traceGaps`：结果和工作目录对不上的地方，没有时为空数组，见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
+| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。`task.succeeded` 另带 `data.checks`（逐条验收及其 `method`）和 `data.acceptance`（验收总数、通过数、证据方法计数、提醒），恢复时据此重建结果；主控用 `accept` 接受结果时，`actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`、`data.risks`，`data.checks` 来自被接受的那次 `result.submitted`。协作者完成的 `task.succeeded` 带 `data.traceGaps`：结果和工作目录对不上的地方，没有时为空数组，见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
 | `task.blocked` | 硬依赖失败；`data.dependency`。一个依赖处理好后仍有别的依赖失败时再写一条，指向那个依赖 |
 | `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
 | `task.conflict` | 两个同时执行的任务改了同一批文件；`task` 是发现冲突的一方，`to` 为 `lead`，`data.other` 是另一个任务，`data.paths` 是相对工作目录的文件。`data.owned` 为 `true` 时，是 `task` 改了 `data.other` 负责的文件（越界）。见[同时改同一个文件](../domains/goal_mode.md#conflicts) |
@@ -117,7 +117,26 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | 类型 | 说明 |
 | --- | --- |
 | `verification.started` | 开始核对结果；`data.accept` |
-| `verification.passed` / `verification.failed` | 核对结果；`data.checks`，失败时另有 `data.failures`（每条没核对、没证据或没达到的标准） |
+| `verification.passed` / `verification.failed` | 核对结果；`data.checks`、`data.acceptance`（验收总数、通过数、证据方法计数和提醒，见[证据方法](#evidence_methods)），失败时另有 `data.failures`（每条没核对、没证据、没达到或方法不合法的标准） |
+
+<a id="evidence_methods"></a>
+### 证据方法
+
+每条 `check` 可以带可选的 `method`，说明这条验收结论的依据是什么：
+
+| `method` | 含义 |
+| --- | --- |
+| `test` | 运行自动化测试得到的结果 |
+| `command` | 运行命令、脚本或检查工具得到的结果 |
+| `inspection` | 检查代码、文件、界面或实际状态得到的结果 |
+| `reasoning` | 根据推理或自我判断得到的结果 |
+| `unverified` | 证据缺失、无法复现或暂时无法核实 |
+
+- 方法只说明依据的类型，不代表结论一定真实：Agent 仍可能把推理写成 `test`，关键结果由主控自己核对。
+- 没有 `method` 是旧结果和省略该字段的结果，显示为「未说明」，不当作 `reasoning`，也不因此判失败。
+- `method` 存在时必须是上表中的值。其他值原样记录在 `result.submitted` 和 `verification.failed` 的 `data.checks` 中，`evidence::gaps` 报出「不是允许值」并让这次核对失败，不会静默换成合法方法。
+- `reasoning`、`unverified` 和没有方法只产生提醒（`data.acceptance.reminders`），不阻断任务。
+- `data.acceptance` 的结构（`verification.*`、`task.succeeded` 和 `run.delivered` 的 `acceptance` 条目）：`criteria`（验收标准总数）、`passed`（通过数）、`methods`（`method`、`label`、`count` 的数组，按上表顺序）、`unspecified`（没有方法的条数）、`invalid`（不合法的值）、`reminders`（要主控注意的提醒）。交付中的条目另有 `task`、`title`、`status`、`label`、`checks`、`verifications`、`traceGaps`、`risks`。
 
 ### 会话
 

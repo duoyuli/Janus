@@ -66,7 +66,12 @@ struct ProgressBoard: View {
                 x.waiting = t.status == "blocked" ? "等待 \(t.blockedBy) 修复" : waiting.isEmpty ? "等待调度" : "等待 \(waiting.joined(separator: "、"))"
             }
             if let r = f.results.last(where: { $0.task == t.id }) {
-                x.result = TimelineMark(id: r.key, seq: r.seq, ts: r.ts, kind: .result, title: L.short(L.plain(r.summary), 120), by: r.by)
+                // The mark itself stays small; its tooltip and VoiceOver label carry the evidence
+                // methods. Each check with its evidence is on the task page, the delivery and the
+                // audit log.
+                let evidence = EvidenceSummary(accept: t.accept, checks: r.checks)
+                let counts = r.checks.isEmpty ? "" : " · 证据 \(evidence.countsText)"
+                x.result = TimelineMark(id: r.key, seq: r.seq, ts: r.ts, kind: .result, title: L.short(L.plain(r.summary), 120) + counts, by: r.by)
             }
             x.artifacts = f.arts.filter { $0.a.task == t.id && !$0.old }.map { a in
                 TimelineMark(id: "a\(a.a.seq)", seq: a.a.seq, ts: st.event(a.a.seq)?.ts ?? st.run.start, kind: .artifact, title: a.a.name, by: a.a.by)

@@ -31,14 +31,6 @@ struct Event: Identifiable, Hashable {
     }
 }
 
-struct Check: Hashable {
-    let criterion: String
-    let passed: Bool
-    let evidence: String
-    init(_ j: JSON) { criterion = j["criterion"].str; passed = j["passed"].bool ?? false; evidence = j["evidence"].str }
-    static func list(_ j: JSON) -> [Check] { j.array.map(Check.init) }
-}
-
 final class Attempt {
     let n: Int
     let session: String
@@ -93,6 +85,8 @@ final class TaskState {
     var amendments: [String] = []
     var summary = ""
     var evidence: [String] = []
+    /// The risks the executor reported with its result.
+    var risks: [String] = []
     /// Files the task owns: from its orchestration, plus what it claimed while working.
     var owns: [String] = []
     var verifies = ""
@@ -188,6 +182,10 @@ struct RunState {
 
     static let finished: Set<String> = ["delivered", "accepted", "cancelled", "failed", "interrupted"]
     var active: Bool { !run.goal.isEmpty && !Self.finished.contains(run.status) }
+
+    /// The tasks that verify `task` independently; their conclusion is shown apart from the
+    /// evidence the executor reported.
+    func verifiers(of task: String) -> [TaskState] { orderedTasks.filter { $0.verifies == task } }
 }
 
 // @project-doc docs/architecture/frontend.md#event_derivation
@@ -247,17 +245,24 @@ func derive(_ events: [Event]) -> RunState {
             }
         case "run.paused": s.run.paused = true
         case "run.resumed": s.run.paused = false
+        case "result.submitted":
+            t?.checks = Check.list(d["checks"])
+            t?.risks = d["risks"].strings
+        case "verification.started": t?.status = "verifying"
+        // The checks and their methods the backend checked; `task.succeeded` repeats them with the
+        // conclusion, so a replayed or resumed run still shows them from one place.
+        case "verification.passed", "verification.failed":
+            guard let t else { break }
+            if !d["checks"].array.isEmpty { t.checks = Check.list(d["checks"]) }
+            if e.type == "verification.failed" {
+                t.status = "verification_failed"; t.verificationFailures = d["failures"].strings
+            }
         case "task.ready":
             let ids = d["tasks"].exists ? d["tasks"].strings : [e.task].compactMap { $0 }
             for id in ids { s.tasks[id]?.status = "ready" }
         case "task.assigned": t?.status = "assigned"
         case "task.blocked": t?.status = "blocked"; t?.blockedBy = d["dependency"].str
         case "task.skipped_by_decision": t?.status = "skipped_by_decision"; endLive(t)
-        case "result.submitted": t?.checks = Check.list(d["checks"])
-        case "verification.started": t?.status = "verifying"
-        case "verification.failed":
-            guard let t else { break }
-            t.status = "verification_failed"; t.verificationFailures = d["failures"].strings
         case "attempt.started":
             guard let t else { break }
             if let prev = t.attempts.last, prev.end == nil { prev.end = e.ts }
@@ -370,6 +375,11 @@ func derive(_ events: [Event]) -> RunState {
         case "task.succeeded":
             guard let t else { break }
             t.status = "succeeded"; t.progress = 100; t.summary = d["summary"].str; t.evidence = d["evidence"].strings
+            // The conclusion keeps the checks, their methods and — when the lead accepted the
+            // result — the risks of that acceptance. Older conclusions have none: keep what the
+            // submitted result said instead of clearing it.
+            if !d["checks"].array.isEmpty { t.checks = Check.list(d["checks"]) }
+            if !d["risks"].array.isEmpty { t.risks = d["risks"].strings }
             if d["acceptedBy"].str != "lead" { t.traceGaps = d["traceGaps"].strings }
             endLive(t)
             if let at = t.attempts.last, at.status == "running" { at.status = "succeeded" }

@@ -99,7 +99,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 ```json
 {
   "summary": "一句话结果",
-  "checks": [{ "criterion": "验收标准原文", "passed": true, "evidence": "怎么验证的、看到了什么" }],
+  "checks": [{ "criterion": "验收标准原文", "passed": true, "method": "test", "evidence": "怎么验证的、看到了什么" }],
   "evidence": ["其他可核对的证据"],
   "risks": ["已知风险，没有就留空数组"],
   "question": null
@@ -107,16 +107,19 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 ```
 
 - `checks` 按验收标准的顺序逐条给出，验证方式由 Agent 自己决定。
+- `method` 可选，说明这条依据的类型：`test`、`command`、`inspection`、`reasoning`、`unverified`，含义见[证据方法](../interfaces/events.md#evidence_methods)。旧结果和省略它的结果没有方法，解析、恢复、核对和展示都按「未说明」处理，不当作 `reasoning`，也不因此判失败；存在但不是允许值时，原样保留在结果里并由核对报错，不会静默换成合法方法。证据方法由 `backend/src/evidence.rs` 解析和汇总，结构化结果的读取（`parse_result`）、事件里结果的重建和恢复（`resume_run`）都用同一段逻辑。
 - 没有 JSON 块时，摘要取回复第一行，并记一条风险「Agent 没有按约定返回结构化结果」。
 - `question` 不为空表示 Agent 在提问：`{"text": "问题", "options": ["A", "B"], "recommend": "A"}`。回答作为下一轮提示发回同一个会话。同一次尝试最多连续提问 4 轮。提问由谁回答见[提问的流转](goal_mode.md#question_routing)。
 
 <a id="verification"></a>
 ## 验证
 
-结果提交后，Janus 核对结果（`verify_result` / `result_gaps`，`verification.*` 事件）。Janus 不运行任何验证命令，验证由协作者按验收标准自己完成，见[验收标准](../interfaces/board_mcp.md#acceptance_criteria)。核对的内容：
+结果提交后，Janus 核对结果（`verify_result` / `evidence::gaps`，`verification.*` 事件）。Janus 不运行任何验证命令，验证由协作者按验收标准自己完成，见[验收标准](../interfaces/board_mcp.md#acceptance_criteria)。核对的内容：
 
 - `summary` 不能为空。
 - 每条验收标准都有对应的 check（按顺序），check 有证据，且没有 `passed: false`。
+- check 给出 `method` 时必须是允许的值；其他值作为「不是允许值」的失败项报出，不会被改成合法方法。
+- `reasoning`、`unverified` 和没有 `method` 只记提醒，不阻断：提醒随核对结果记录在 `verification.*` 和 `task.succeeded` 的 `data.acceptance` 中，看板的完成消息、`task_detail` 和交付都显示。
 
 验证没通过时，同一次尝试中按以下顺序处理：
 
@@ -218,7 +221,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 重新申请租约，从 `runs.config` 重建团队，从事件日志重建任务：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务。已成功的任务保留结果（主控 `accept` 的任务取 `task.succeeded` 中带接受理由的结果和风险），失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。
+- 从所有 `orchestration.accepted` 事件重建看板任务。已成功的任务保留结果，包括 `checks` 和每条的证据方法（取自 `task.succeeded`，主控 `accept` 的任务取被接受的 `result.submitted`，并保留接受理由和风险），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；旧结果没有方法时仍显示「未说明」。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。
 - 快照中的 MCP 定义按当前规则重新校验（`check_mcp_names`）：名称规范化后是看板保留名 `janus`，或同一成员有两个同名服务器时，恢复被拒绝并说明原因，Run 保持原来的 `interrupted` 或 `failed` 状态，不会启动任何会话。
 - 排队但还没送达的消息保留下来。
 - 主控以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。

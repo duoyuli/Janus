@@ -4,7 +4,9 @@
 FAKE_DIR holds script.json, which maps a task id to the outcome of each successive prompt for it:
 "ok", "fail", "cancelled", "slow", "write:<file>", "edit:<file>" (reports an edit of the file with ACP
 `locations`, then stays busy for two seconds so tasks overlap), "unmet" (reports its first acceptance criterion
-unmet), "permission" (asks session/request_permission
+unmet), "methods" (reports every criterion with the next evidence method in test, command, inspection,
+reasoning, unverified, and three pieces of task-level evidence), "badmethod" (reports the first criterion as met with
+`method: "vibes"`, which the result check must refuse), "permission" (asks session/request_permission
 with three options), "elicit" (asks elicitation/create with a form), "loop" (makes the same tool call five times
 before its result), "ask" (ends the turn with a question; the answer comes back as the next prompt) or "rich" (thinks,
 publishes a plan and its slash commands, runs a tool that stays in progress for a moment and then reports a file diff,
@@ -44,11 +46,28 @@ def say(sid, text):
 CRITERIA = {}  # session id -> acceptance criteria from the task prompt
 
 
-def result(sid=None, unmet=False, **fields):
+METHODS = ["test", "command", "inspection", "reasoning", "unverified"]
+METHOD_EVIDENCE = {
+    "test": "运行 cargo test，全部通过",
+    "command": "运行 just status，输出正常",
+    "inspection": "读了 backend/src/evidence.rs 的解析逻辑",
+    "reasoning": "根据调用方推断不会影响其他路径",
+    "unverified": "本机没有 Xcode，暂时无法核实界面",
+}
+
+
+def result(sid=None, unmet=False, methods=None, **fields):
     """A structured result; every acceptance criterion of the session's task is checked (the first
-    one reported unmet when `unmet`)."""
-    checks = [{"criterion": c, "passed": not (unmet and i == 0), "evidence": "fake check" if not (unmet and i == 0) else "没做到"}
-              for i, c in enumerate(CRITERIA.get(sid, []))]
+    one reported unmet when `unmet`). `methods` gives each check the next evidence method."""
+    checks = []
+    for i, c in enumerate(CRITERIA.get(sid, [])):
+        failed = unmet and i == 0
+        method = methods[i % len(methods)] if methods else None
+        check = {"criterion": c, "passed": not failed,
+                 "evidence": "没做到" if failed else METHOD_EVIDENCE.get(method, "fake check")}
+        if method:
+            check["method"] = method
+        checks.append(check)
     body = {"summary": "完成", "checks": checks, "evidence": ["fake evidence"], "risks": [], "question": None}
     body.update(fields)
     return "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```"
@@ -208,6 +227,16 @@ def prompt(msg):
         return {"stopReason": "end_turn", "usage": {"inputTokens": 1200, "outputTokens": 300, "totalTokens": 1500}}
     if outcome == "unmet":
         say(sid, result(sid, unmet=True, summary=f"{task} 没有全部做到"))
+        return {"stopReason": "end_turn"}
+    if outcome == "methods":
+        say(sid, result(sid, methods=METHODS, summary=f"{task} 用不同方法核对",
+                      evidence=["运行 cargo test 通过", "运行 just status 正常", "手工核对界面输出"]))
+        return {"stopReason": "end_turn"}
+    if outcome == "badmethod":
+        checks = [{"criterion": c, "passed": True, "evidence": "看着没问题", "method": "vibes"}
+                  for c in CRITERIA.get(sid, [])]
+        body = {"summary": f"{task} 按感觉完成", "checks": checks, "evidence": ["看着没问题"], "risks": [], "question": None}
+        say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
         return {"stopReason": "end_turn"}
     if outcome == "ask":
         say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))

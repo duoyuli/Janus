@@ -24,6 +24,10 @@ struct TaskView: View {
         let evs = st.events.filter { e in e.task == t.id || e.data["target"].str == t.id || e.data["tasks"].strings.contains(t.id) || e.data["unlocked"].strings.contains(t.id) }
         let lastStart = evs.last { $0.type == "attempt.started" }?.data ?? .null
         let w = run.who(t.agent)
+        // The evidence summary is a display grouping of what the events recorded; whether the task
+        // passed stays with `task.succeeded` / `verification.*`.
+        let summary = EvidenceSummary(accept: t.accept, checks: t.checks)
+        let verifiers = st.verifiers(of: t.id)
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
@@ -59,26 +63,57 @@ struct TaskView: View {
                     .frame(maxWidth: .infinity)
                     VStack(alignment: .leading, spacing: 14) {
                         // What the task came back with, first: where it disagrees with the workspace,
-                        // then each criterion with its evidence.
-                        if !t.accept.isEmpty || !t.summary.isEmpty {
+                        // then each criterion with its evidence method and the whole evidence. What the
+                        // executor added, the independent verification, the risks and the reminders stay
+                        // apart from each other.
+                        if !t.accept.isEmpty || !t.checks.isEmpty || !t.summary.isEmpty {
                             Card {
-                                Text("验收标准").font(.headline)
+                                HStack(spacing: 8) {
+                                    Text("验收标准").font(.headline)
+                                    Spacer()
+                                    if summary.criteria > 0 {
+                                        Text(verbatim: "\(summary.criteria) 条 · 通过 \(summary.passed) 条").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
                                 if !t.traceGaps.isEmpty {
                                     Note(text: "和工作目录对不上：\n\(t.traceGaps.map { "· \($0)" }.joined(separator: "\n"))", tone: .amber)
                                 }
-                                ForEach(t.accept.indices, id: \.self) { i in
-                                    let c = i < t.checks.count ? t.checks[i] : nil
-                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                        Text(c.map { $0.passed ? "✓" : "✗" } ?? "○").fontWeight(.bold).foregroundStyle(c.map { $0.passed ? Tone.green.color : Tone.red.color } ?? .secondary)
-                                            .accessibilityLabel(c.map { $0.passed ? "通过" : "没通过" } ?? "未核对")
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(t.accept[i])
-                                            if let ev = c?.evidence, !ev.isEmpty { Text(MD.inline(ev)).font(.caption).foregroundStyle(.secondary) }
+                                // One row per criterion, and every check is kept even when it names no criterion.
+                                ForEach(CriterionCheck.rows(accept: t.accept, checks: t.checks)) { row in
+                                    CheckLine(n: row.n, criterion: row.criterion, check: row.check)
+                                }
+                                if !t.checks.isEmpty {
+                                    Text(verbatim: "证据：\(summary.countsText)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                                }
+                                EvidenceReminders(reminders: summary.reminders)
+                                if !t.verificationFailures.isEmpty {
+                                    Note(text: "最近一次核对没有通过：\n\(t.verificationFailures.map { "· \($0)" }.joined(separator: "\n"))", tone: .red)
+                                }
+                                if !t.evidence.isEmpty {
+                                    Divider()
+                                    Text("执行者提交的其他证据").font(.callout).foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        ForEach(t.evidence.indices, id: \.self) { i in
+                                            Text(MD.inline(t.evidence[i])).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                         }
                                     }
                                 }
+                                if !verifiers.isEmpty {
+                                    Divider()
+                                    Text("独立验证").font(.callout).foregroundStyle(.secondary)
+                                    VerificationList(records: verifiers.map(VerificationRecord.init))
+                                }
+                                if !t.risks.isEmpty {
+                                    Divider()
+                                    Text("风险（执行者报告）").font(.callout).foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 3) { RiskList(risks: t.risks) }
+                                }
                                 if !t.summary.isEmpty {
-                                    Note(text: "结果：\(t.summary)\(t.evidence.isEmpty ? "" : "\n证据：\(t.evidence.joined(separator: "；"))")")
+                                    Divider()
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text("结果").font(.callout).foregroundStyle(.secondary)
+                                        Text(MD.inline(t.summary)).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                    }
                                 }
                             }
                         }
@@ -190,7 +225,11 @@ struct TimelineRow: View {
         case "attempt.failed": Note(text: d["error"].str, tone: .red)
         case "task.retry_scheduled": Note(text: "重试策略：\(d["strategy"].str)")
         case "artifact.created": Note(text: "\(d["desc"].str)\n\(L.tilde(d["path"].str)) · sha256 \(d["hash"].str)…")
-        case "result.submitted": if !d["risks"].array.isEmpty { Note(text: "风险：\(d["risks"].strings.joined(separator: "；"))", tone: .amber) }
+        case "result.submitted":
+            ForEach(CriterionCheck.rows(accept: [], checks: Check.list(d["checks"]))) { row in
+                CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
+            }
+            if !d["risks"].array.isEmpty { Note(text: "风险：\(d["risks"].strings.joined(separator: "；"))", tone: .amber) }
         case "approval.requested": CodeBlock(text: "$ \(d["command"].str)")
         default: EmptyView()
         }

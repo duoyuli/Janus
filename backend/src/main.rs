@@ -5,6 +5,7 @@ mod agents;
 mod attachments;
 mod config;
 mod db;
+mod evidence;
 mod git_probe;
 mod goal_settle;
 mod mcp_sources;

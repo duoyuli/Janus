@@ -401,13 +401,9 @@ struct ChatItem: View {
 struct CheckRow: View {
     let c: Check
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(c.passed ? "✓" : "✗").foregroundStyle(c.passed ? Tone.green.color : Tone.red.color).fontWeight(.bold)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(c.criterion).font(.callout.weight(.medium))
-                if !c.evidence.isEmpty { Text(MD.inline(c.evidence)).font(.caption).foregroundStyle(.secondary) }
-            }
-        }
+        // The method is shown as text here too; the conversation only shows it, the task page
+        // groups it and the delivery repeats it per task.
+        CheckLine(n: nil, criterion: c.criterion, check: c, dense: true)
     }
 }
 
