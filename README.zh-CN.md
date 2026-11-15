@@ -1,0 +1,101 @@
+<div align="center">
+
+# Janus
+
+*始于构想，淬于交锋*
+
+<sub>本地优先 · 多智能体 · 可回放</sub>
+
+[English](README.md) · [中文](README.zh-CN.md)
+
+</div>
+
+> 门有两面。一面向前，望向尚未建成之物；一面向后，审视必须成立之事。
+
+Janus 是一个本地优先的多智能体协作工作空间。它通过 ACP（Agent Client Protocol）把 Codex、Claude Code、Grok、Pi 和其他兼容 ACP 的 Agent 连接成一支团队：主控 Agent 掌握方向，协作者承担工作，验收在共享看板上公开完成。每一次会话、编排、审批、产物和交付，都会写成可回放的事件。
+
+## 名字
+
+Janus 是罗马神话中的门神，也是开端与转换之神。他有两张面孔：一张朝向未来，那里是创造；一张回望过去，那里是审视。门既是通道，也是关口——未经审视的交付，不算完成。
+
+这个名字把这层意象写成工程目标：让不同模型、不同上下文、不同气质的 Agent 组成同一张网络，围绕同一个问题工作。创造接受质疑，留下的才被交付。
+
+## 为什么是 Janus
+
+- **本地优先。** 仓库只放代码。Run、适配器、配置、产物和日志都留在 `~/.janus`，留在工作发生的机器上。
+- **一个主控，多种心智。** 主控 Agent 对目标负责，决定自己做还是交给协作者；协作者带来不同的模型，也带来不同的盲区。
+- **默认可回放。** 每一次会话、编排、审批、产物和交付都写成事件，Run 可以被检查、恢复，而不是靠记忆重建。
+- **原生权限。** 每个 Agent 保留它原本的权限模型，Janus 不再叠加一套开关或并行的审批层。
+
+## 核心概念
+
+| 概念 | 说明 |
+| --- | --- |
+| Agent（Provider 连接） | 一个可启动的编码 Agent，例如 Codex 或 Claude Code。每个 Agent 有独立的配置目录和凭据。 |
+| 角色 | 绑定一个 Agent，并指定名字、职责、模型、推理强度、权限模式、Skill 和 MCP。 |
+| Skill 库 | 角色可用的 Skill。可以在应用中新建、从本机文件夹导入，或在「设置 › Skill 库」粘贴 GitHub 仓库链接，自动找出仓库中的所有 Skill。 |
+| 工作区 | 一个本机目录，加上一组角色成员，其中一名是主控。 |
+| Run | 在工作区中提交的一个目标，从创建到交付、验收的全过程。 |
+| 主控 | 用 `/goal` 推进目标的 Agent，只能是 Claude Code 或 Codex。它决定自己做，还是通过编排交给协作者。 |
+| 编排与共享看板 | 主控提交的一组任务（执行者、依赖、验收标准）。Janus 先校验再执行，任务进展、阻塞和提问都写在共享看板上。 |
+
+## 快速开始
+
+### 用 macOS 应用（推荐）
+
+1. 在 [GitHub Releases](https://github.com/duoyuli/Janus/releases) 下载 `Janus-<版本>.dmg`，把 Janus 拖进「应用程序」。
+2. 第一次打开时，macOS 会提示无法验证开发者（安装包没有用 Apple 证书签名）：到「系统设置 → 隐私与安全性」点「仍要打开」。
+3. 需要 Apple 芯片（M 系列）的 Mac、macOS 14 以上。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node。Codex、Claude Code 和 Grok 的适配器自带对应的 CLI；Pi 适配器需要本机的 `pi` 命令。
+
+应用自带 Janus 服务，打开即用；如果你已经用 `just start` 运行了 Janus，应用会直接连接它。详见[部署方案](docs/operations/deployment.md#macos_app)。
+
+### 从源码运行
+
+#### 前置条件
+
+- Rust 工具链和 Cargo（edition 2024）、Swift 6（Xcode 或命令行工具），以及 [just](https://github.com/casey/just)。
+- Node.js 22.19 或更高，以及随它安装的 npm。
+- Pi 需要本机的 `pi` 命令；自定义命令类型的 Agent 需要它自己的启动命令。内置适配器自带 Codex、Claude Code 和 Grok 的 CLI。
+- 第一次使用某个 Agent 时需要网络，用来下载它的 ACP 适配器。
+
+#### 安装并启动
+
+在仓库根目录：
+
+```sh
+just install   # 编译并安装到 ~/.janus/bin/janus
+just start     # 以服务方式启动：登录后自动运行（macOS）；也可以用 just run 在前台运行
+```
+
+然后用 `just mac` 从源码运行应用，它会连接这个服务；`just dmg` 在本机打包出 `Janus.app` 和 DMG。开发时用 `just dev` 从源码启动服务。`just` 不带参数会列出全部命令。
+
+### 首次使用
+
+打开应用后按以下顺序配置：
+
+1. 在「设置 → Agents」中添加 Agent，并运行配置检查。它需要的 ACP 适配器会在这一步自动下载；以后可以在「设置 → ACP 适配器」检查更新、升级或回滚。
+2. 在「设置 → 角色」中为角色绑定 Agent，选择模型和权限模式。
+3. 新建工作区：选择目录，添加成员，并指定一名 Claude Code 或 Codex 角色为主控。
+4. 在工作区首页输入目标，交给主控。
+
+仓库只放代码。Janus 的数据、适配器、配置和日志都在 `~/.janus`，详见[部署方案](docs/operations/deployment.md)。
+
+`examples/calc/` 是一个最小示例工作区，可以用 `python3 -m unittest discover -s examples/calc` 验证。
+
+## 文档
+
+工程文档从 [docs/index.md](docs/index.md) 开始，按用途分为五类：
+
+| 分类 | 内容 |
+| --- | --- |
+| [架构](docs/architecture/index.md) | 组件与进程模型、存储布局、ACP 适配器管理、macOS 应用 |
+| [领域](docs/domains/index.md) | Run 生命周期、目标模式与共享看板、Agent / 角色 / 工作区与权限模式 |
+| [接口](docs/interfaces/index.md) | HTTP API、事件、看板 MCP 工具、ACP 集成、配置 |
+| [运维](docs/operations/index.md) | 部署方案、CI 与发布、运行手册、测试、安全边界 |
+| [决策](docs/decisions/index.md) | 架构决策记录（ADR） |
+
+在本仓库工作的编码 Agent 先读 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 指向同一文件）。
+
+## 适用范围
+
+Janus 适合在一台机器上组织多个编码 Agent 完成开发、调研、审查、文档和验证工作。它是单机、单用户的实验性工具：任务直接修改所选目录，服务没有鉴权，也没有操作系统级沙箱。投入真实项目前，请先阅读[安全边界](docs/operations/security.md)。

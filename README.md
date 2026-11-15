@@ -1,78 +1,101 @@
-# Janus
+<div align="center">
 
-Janus 是一个本地优先的多 Agent 协作工作空间。它通过 ACP（Agent Client Protocol）连接 Codex、Claude Code、Grok、Pi 和其他兼容 ACP 的 Agent，让一个主控 Agent 带着一组协作者完成用户给出的目标，并把每一次会话、编排、审批、产物和交付都记录成可回放的事件。
+# Janus (Joint Adversarial Network for Unified Software)
 
-本仓库包含 Rust 编排器（`backend/`）和 macOS 应用（`frontend/`）。本文介绍 Janus 是什么、怎样在本机启动，以及其余文档的阅读顺序。
+*Creation challenged, Perfection forged.*
 
-## 核心概念
+<sub>Local-first · Multi-agent · Replayable</sub>
 
-| 概念 | 说明 |
+[English](README.md) · [中文](README.zh-CN.md)
+
+</div>
+
+> A gate has two faces. One looks forward, to what can be built. The other looks back, at what must hold.
+
+Janus is a local-first multi-agent workspace. Through the Agent Client Protocol (ACP), it connects Codex, Claude Code, Grok, Pi, and other ACP-compatible agents into a single team: one lead agent sets the direction, collaborators carry the work, and acceptance is decided in the open. Every session, orchestration step, approval, artifact, and delivery is recorded as a replayable event.
+
+## The name
+
+Janus is the Roman god of gates, beginnings, and transitions. He is shown with two faces: one turned toward the future, where work is created; one turned toward the past, where work is examined. The gate is both passage and threshold — a delivery is not real until it has survived scrutiny.
+
+**Joint Adversarial Network for Unified Software** turns that image into an engineering goal: a network of heterogeneous agents, each with a different model, context, and temperament, working on the same problem. Creation is challenged. What survives is delivered.
+
+*Creation challenged, Perfection forged.* is the same idea in one line.
+
+## Why Janus
+
+- **Local by design.** The repository holds code only. Runs, adapters, configuration, artifacts, and logs stay in `~/.janus`, on the machine where the work happens.
+- **One lead, many minds.** A lead agent owns the goal and chooses what to do itself and what to delegate. Collaborators bring different models — and different blind spots.
+- **Replayable by default.** Every session, orchestration step, approval, artifact, and delivery is written as an event, so a run can be inspected and resumed rather than reconstructed from memory.
+- **Native permissions.** Each agent keeps the permission model it was built with. Janus does not add a second switchboard or a parallel approval layer.
+
+## Core concepts
+
+| Concept | What it means |
 | --- | --- |
-| Agent（Provider 连接） | 一个可启动的编码 Agent，例如 Codex 或 Claude Code。每个 Agent 有独立的配置目录和凭据。 |
-| 角色 | 绑定一个 Agent，并指定名字、职责、模型、推理强度、权限模式、Skill 和 MCP。 |
-| Skill 库 | 角色可用的 Skill。可以在应用中新建、从本机文件夹导入，或在「设置 › Skill 库」粘贴 GitHub 仓库链接，自动找出仓库中的所有 Skill。 |
-| 工作区 | 一个本机目录，加上一组角色成员，其中一名是主控。 |
-| Run | 在工作区中提交的一个目标，从创建到交付、验收的全过程。 |
-| 主控 | 用 `/goal` 推进目标的 Agent，只能是 Claude Code 或 Codex。它决定自己做，还是通过编排交给协作者。 |
-| 编排与共享看板 | 主控提交的一组任务（执行者、依赖、验收标准）。Janus 先校验再执行，任务进展、阻塞和提问都写在共享看板上。 |
+| Agent (provider connection) | A launchable coding agent, such as Codex or Claude Code. Each agent has its own configuration directory and credentials. |
+| Role | Binds an agent and defines its name, responsibilities, model, reasoning effort, permission mode, skills, and MCP. |
+| Skill library | Skills available to roles. Create them in the app, import a local folder, or paste a GitHub repository URL under Settings › Skill Library to discover every skill in the repository. |
+| Workspace | A local directory plus a set of role members, one of whom is the lead. |
+| Run | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
+| Lead agent | The agent that drives the goal with `/goal`. It can be Claude Code or Codex, and decides whether to work directly or delegate through orchestration. |
+| Orchestration and shared board | The set of tasks submitted by the lead (assignee, dependencies, acceptance criteria). Janus validates them before execution; progress, blockers, and questions are written to the shared board. |
 
-## 快速开始
+## Quick start
 
-### 用 macOS 应用（推荐）
+### The macOS app (recommended)
 
-1. 在 [GitHub Releases](https://github.com/duoyuli/Janus/releases) 下载 `Janus-<版本>.dmg`，把 Janus 拖进「应用程序」。
-2. 第一次打开时，macOS 会提示无法验证开发者（安装包没有用 Apple 证书签名）：到「系统设置 → 隐私与安全性」点「仍要打开」。
-3. 需要 Apple 芯片（M 系列）的 Mac、macOS 14 以上。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node。Codex、Claude Code 和 Grok 的适配器自带对应的 CLI；Pi 适配器需要本机的 `pi` 命令。
+1. Download `Janus-<version>.dmg` from [GitHub Releases](https://github.com/duoyuli/Janus/releases) and drag Janus into Applications.
+2. On first launch, macOS may say the developer cannot be verified (the package is not signed with an Apple certificate). Open System Settings → Privacy & Security and choose Open Anyway.
+3. Requires an Apple silicon Mac (M series) and macOS 14 or later. The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex, Claude Code, and Grok adapters bundle their CLIs; the Pi adapter uses the local `pi` command.
 
-应用自带 Janus 服务，打开即用；如果你已经用 `just start` 运行了 Janus，应用会直接连接它。详见[部署方案](docs/operations/deployment.md#macos_app)。
+The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/deployment.md#macos_app).
 
-### 从源码运行
+### From source
 
-#### 前置条件
+#### Prerequisites
 
-- Rust 工具链和 Cargo（edition 2024）、Swift 6（Xcode 或命令行工具），以及 [just](https://github.com/casey/just)。
-- Node.js 22.19 或更高，以及随它安装的 npm。
-- Pi 需要本机的 `pi` 命令；自定义命令类型的 Agent 需要它自己的启动命令。内置适配器自带 Codex、Claude Code 和 Grok 的 CLI。
-- 第一次使用某个 Agent 时需要网络，用来下载它的 ACP 适配器。
+- The Rust toolchain and Cargo (edition 2024), Swift 6 (Xcode or the Command Line Tools), and [just](https://github.com/casey/just).
+- Node.js 22.19 or later, and the npm that ships with it.
+- Pi requires the local `pi` command; agents of the custom-command type need their own launch command. Built-in adapters bundle the Codex, Claude Code, and Grok CLIs.
+- The first use of an agent needs network access to download its ACP adapter.
 
-#### 安装并启动
+#### Install and start
 
-在仓库根目录：
+From the repository root:
 
 ```sh
-just install   # 编译并安装到 ~/.janus/bin/janus
-just start     # 以服务方式启动：登录后自动运行（macOS）；也可以用 just run 在前台运行
+just install   # build and install to ~/.janus/bin/janus
+just start     # run as a service: starts automatically at login (macOS); just run runs it in the foreground
 ```
 
-然后用 `just mac` 从源码运行应用，它会连接这个服务；`just dmg` 在本机打包出 `Janus.app` 和 DMG。开发时用 `just dev` 从源码启动服务。`just` 不带参数会列出全部命令。
+Then `just mac` runs the app from source and connects it to this service; `just dmg` builds `Janus.app` and a DMG locally. For development, `just dev` starts the service from source. Running `just` without arguments lists every command.
 
-### 首次使用
+### First run
 
-打开应用后按以下顺序配置：
+1. Add an agent under Settings → Agents and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back under Settings → ACP Adapters.
+2. Bind roles to agents under Settings → Roles, and choose a model and permission mode.
+3. Create a workspace: choose a directory, add members, and name a Claude Code or Codex role as the lead.
+4. Enter a goal on the workspace home page and hand it to the lead.
 
-1. 在「设置 → Agents」中添加 Agent，并运行配置检查。它需要的 ACP 适配器会在这一步自动下载；以后可以在「设置 → ACP 适配器」检查更新、升级或回滚。
-2. 在「设置 → 角色」中为角色绑定 Agent，选择模型和权限模式。
-3. 新建工作区：选择目录，添加成员，并指定一名 Claude Code 或 Codex 角色为主控。
-4. 在工作区首页输入目标，交给主控。
+The repository holds code only. Janus data, adapters, configuration, and logs live in `~/.janus`; see [Deployment](docs/operations/deployment.md).
 
-仓库只放代码。Janus 的数据、适配器、配置和日志都在 `~/.janus`，详见[部署方案](docs/operations/deployment.md)。
+`examples/calc/` is a minimal example workspace. Verify it with `python3 -m unittest discover -s examples/calc`.
 
-`examples/calc/` 是一个最小示例工作区，可以用 `python3 -m unittest discover -s examples/calc` 验证。
+## Documentation
 
-## 文档
+Engineering documentation starts at [docs/index.md](docs/index.md) and is organized into five areas:
 
-工程文档从 [docs/index.md](docs/index.md) 开始，按用途分为五类：
-
-| 分类 | 内容 |
+| Area | Contents |
 | --- | --- |
-| [架构](docs/architecture/index.md) | 组件与进程模型、存储布局、ACP 适配器管理、macOS 应用 |
-| [领域](docs/domains/index.md) | Run 生命周期、目标模式与共享看板、Agent / 角色 / 工作区与权限模式 |
-| [接口](docs/interfaces/index.md) | HTTP API、事件、看板 MCP 工具、ACP 集成、配置 |
-| [运维](docs/operations/index.md) | 部署方案、CI 与发布、运行手册、测试、安全边界 |
-| [决策](docs/decisions/index.md) | 架构决策记录（ADR） |
+| [Architecture](docs/architecture/index.md) | Components and process model, storage layout, ACP adapter management, macOS app |
+| [Domains](docs/domains/index.md) | Run lifecycle, goal mode and shared board, agents / roles / workspaces and permission modes |
+| [Interfaces](docs/interfaces/index.md) | HTTP API, events, board MCP tools, ACP integration, configuration |
+| [Operations](docs/operations/index.md) | Deployment, CI and releases, runbook, testing, security boundaries |
+| [Decisions](docs/decisions/index.md) | Architecture decision records (ADRs) |
 
-在本仓库工作的编码 Agent 先读 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 指向同一文件）。
+Agents working in this repository should read [AGENTS.md](AGENTS.md) first (`CLAUDE.md` points to the same file).
 
-## 适用范围
+## Scope
 
-Janus 适合在本机组织多个编码 Agent 协作完成开发、调研、审查、文档和验证工作。它是单机、单用户的实验性工具：任务直接修改所选目录，服务没有鉴权，也没有操作系统级沙箱。投入真实项目前，请先阅读[安全边界](docs/operations/security.md)。
+Janus is built for one machine and one person: organizing multiple coding agents to develop, research, review, document, and verify work. Tasks modify the directory you choose, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/security.md) before pointing it at a real project.
