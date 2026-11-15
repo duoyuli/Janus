@@ -142,13 +142,17 @@ struct ChatCard: View {
         if info.resume {
             return ("已中断", .gray, AnyView(HStack { Button("从中断处继续") { Task { await run.act(["type": "resumeRun"]) } }; btn("sessSend", "发送并继续", true) }), "补充信息或直接写「继续」，发送后从中断处恢复", true)
         }
-        if info.converse && live {
-            // The first goal is done; the same session now takes ordinary prompts. A slash command
-            // starts a new goal and Janus follows it again.
-            return ("可以继续对话", .gray, AnyView(btn("sessSend", "发送", true)), "写下接下来要做的，或用 /goal 设置新的目标", true)
-        }
         if info.converse {
-            return ("对话已结束", .gray, AnyView(EmptyView()), "只读查看", false)
+            // The first goal is done; the same session now takes ordinary prompts. A slash command
+            // starts a new goal and Janus follows it again. A historical run has no session yet,
+            // so sending the first message reopens it.
+            return (
+                live ? "可以继续对话" : "可以恢复对话",
+                .gray,
+                AnyView(btn("sessSend", "发送", true)),
+                live ? "写下接下来要做的，或用 /goal 设置新的目标" : "写下任务，发送后恢复主控会话",
+                true
+            )
         }
         if info.leave && live {
             return ("当前没有会话", .gray, AnyView(btn("sessSend", "留言", true)), "留言会在它下一次会话开始时带给它", true)

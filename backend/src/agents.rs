@@ -747,6 +747,13 @@ impl App {
             override_env(&mut env, k, v.as_str().unwrap_or(""));
         }
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
+        // An adapter installed before the official packages still starts the CLI it was given.
+        let legacy = |base: &str| {
+            crate::adapters::for_base(base).is_some_and(|d| {
+                self.adapter_package(d.id)
+                    .is_some_and(|package| package != d.package)
+            })
+        };
         let base = str_of(&c, "base").to_string();
         let mut program = crate::config::settings().node.clone();
         let mut args = vec![];
@@ -755,6 +762,8 @@ impl App {
                 set("CODEX_HOME", home);
                 // The adapter bundles the Codex CLI. A path chosen on the agent overrides it.
                 if let Some(b) = configured_bin(&c) {
+                    set("CODEX_PATH", b);
+                } else if legacy(&base) && let Some(b) = which("codex") {
                     set("CODEX_PATH", b);
                 }
                 if c["auth"] == "apikey" {
@@ -779,6 +788,8 @@ impl App {
                 // The adapter ships its own Claude CLI. A path chosen on the agent overrides it.
                 if let Some(b) = configured_bin(&c) {
                     set("CLAUDE_CODE_EXECUTABLE", b);
+                } else if legacy(&base) && let Some(b) = which("claude") {
+                    set("CLAUDE_CODE_EXECUTABLE", b);
                 }
                 match (desc["group"].as_str(), str_of(&c, "auth")) {
                     (Some("preset"), _) => {
@@ -793,6 +804,9 @@ impl App {
             "grok" => {
                 // The official CLI keeps its native binary and configuration under GROK_HOME.
                 set("GROK_HOME", home);
+                if legacy(&base) && let Some(b) = which("grok") {
+                    set("GROK_PATH", b);
+                }
                 if c["auth"] == "apikey" {
                     set("XAI_API_KEY", secret("apiKey"));
                 }

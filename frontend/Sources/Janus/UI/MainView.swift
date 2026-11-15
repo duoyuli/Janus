@@ -67,15 +67,6 @@ struct Sidebar: View {
             if let ws {
                 let runs = store.runs(of: ws)
                 Section {
-                    // A finished run no longer needs a session to start the next one: the
-                    // workspace home is where a new goal is written.
-                    Button { store.open(.home(ws["id"].str)) } label: {
-                        Label("新建任务", systemImage: "plus.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accent)
-                    .help("新建任务：打开工作区，写下目标并交给主控")
-                    if runs.isEmpty { Text("还没有任务").foregroundStyle(.secondary).font(.callout) }
                     ForEach(runs, id: \.self) { r in
                         // A run waiting on the person says so, with how many, like the inbox.
                         let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
@@ -92,7 +83,24 @@ struct Sidebar: View {
                         .tag(Screen.run(r["id"].str))
                     }
                 } header: {
-                    Text("任务记录")
+                    // A finished run no longer needs a session to start the next one: the
+                    // workspace home is where a new goal is written. A quiet plus in the
+                    // header keeps the entry out of the list of runs.
+                    HStack(spacing: 6) {
+                        Text("任务记录")
+                        Spacer(minLength: 6)
+                        Button { store.open(.home(ws["id"].str)) } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .semibold))
+                                .frame(width: 16, height: 16)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .hoverable(5)
+                        .help("新建任务：打开工作区，写下目标并交给主控")
+                        .accessibilityLabel("新建任务")
+                    }
                 }
             }
         }

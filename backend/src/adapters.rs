@@ -138,6 +138,17 @@ impl App {
         link.canonicalize().ok().filter(|p| p.is_dir())
     }
 
+    /// The npm package of the installed version, used to keep an older adapter working until the
+    /// person upgrades it.
+    pub fn adapter_package(&self, id: &str) -> Option<String> {
+        let dir = self.adapter_current(id)?;
+        let meta: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join(".janus-adapter.json")).ok()?,
+        )
+        .ok()?;
+        meta["package"].as_str().map(str::to_owned)
+    }
+
     // @project-doc docs/architecture/adapters.md#running_sessions
     /// The script a session of this adapter runs, from the version that is current now.
     pub fn adapter_entry(&self, id: &str) -> Result<PathBuf> {
