@@ -43,7 +43,8 @@ Janus/
 │   │   ├── config.rs      # Janus home、配置项、Janus 日志
 │   │   ├── adapters.rs    # ACP 适配器的按需安装、升级与回滚
 │   │   ├── acp.rs         # ACP 客户端（官方 agent-client-protocol SDK）
-│   │   ├── agents.rs      # Agent、角色、工作区、Skill、会话控制项
+│   │   ├── agents.rs      # 设置对象的公共部分
+│   │   ├── agents/        # Agent 类型、连接、配置检查、角色、工作区、会话控制项、复制本机配置、Skill 与 MCP 挂载
 │   │   ├── skill_sources.rs # GitHub Skill 来源：拉取仓库、解析 Skill
 │   │   ├── orchestrator.rs# Run 的状态和 App 的核心（事件、等待者、状态转移）
 │   │   ├── orchestrator/  # App 的运行部分：lifecycle、lead、board、board_tools、messages、attempts、turn、session、prompts、actions，以及测试

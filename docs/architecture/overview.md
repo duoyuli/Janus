@@ -58,7 +58,15 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/git_probe.rs` | 只读 Git 查询的共用入口：设置 `GIT_OPTIONAL_LOCKS=0`，不与同一工作目录中 Agent 的 git 操作抢 `index.lock`。和 HEAD 比较用 `git diff-index`，因为 `git diff` 不受这个变量控制，仍会刷新索引 |
 | `backend/src/adapters.rs` | `App` 的适配器部分：清单、按需安装、检查更新、升级与回滚 |
 | `backend/src/acp.rs` | 基于官方 `agent-client-protocol` SDK 的 ACP 客户端：启动子进程、`initialize`、请求与通知收发、超时 |
-| `backend/src/agents.rs` | `App` 的设置部分：Agent 连接、运行环境、配置检查与登录、角色、工作区、Skill、会话控制项解析 |
+| `backend/src/agents.rs` | `App` 的设置部分的公共部分：设置对象的类型名、命令拆分、id 与 slug 等共用函数；子模块如下 |
+| `backend/src/agents/catalog.rs` | Agent 类型、登录方式和环境变量预设 |
+| `backend/src/agents/connections.rs` | Agent 连接的保存与删除、隔离目录和密钥、会话的启动命令和沙箱环境 |
+| `backend/src/agents/checks.rs` | 配置检查（适配器、运行时、凭据、会话、试运行）和账号登录 |
+| `backend/src/agents/roles.rs` | 角色、角色手工 MCP 的密钥、MCP 名称检查、首次启动写入的默认角色 |
+| `backend/src/agents/workspaces.rs` | 工作区和由工作区组成的 Run 团队 |
+| `backend/src/agents/session_options.rs` | 会话控制项的解析、角色保存的值、Plan 模式不运行的规则 |
+| `backend/src/agents/local_config.rs` | 「复制本机配置」：把本机 Agent 的设置复制到隔离目录 |
+| `backend/src/agents/extensions.rs` | 角色挂载的扩展：Janus Skill 库、项目 Skill、资源库 MCP |
 | `backend/src/orchestrator.rs` | `App` 的运行部分的核心：Run、任务和尝试的内存状态，事件的写入与广播，等待者和状态转移；子模块如下 |
 | `backend/src/orchestrator/lifecycle.rs` | 创建和驱动 Run：调度循环、停滞检测、交付 |
 | `backend/src/orchestrator/lead.rs` | 主控：目标会话、交付后的对话、主控说明和推送进会话的看板消息 |
