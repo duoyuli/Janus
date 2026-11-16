@@ -1649,9 +1649,9 @@ async fn restart_restores_failed_and_blocked() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// End to end through a run: a role mounts a library resource of each transport next to its
-/// own server, and the agent's `session/new` carries all three with their values, while the
-/// run record holds none of them.
+/// End to end through a run: a role uses library servers imported from a source and added by
+/// hand, and the agent's `session/new` carries them with their values, while the run record and
+/// its events hold none of the values. A skill the custom agent can't load is recorded as skipped.
 #[tokio::test(flavor = "multi_thread")]
 async fn library_mcp_reaches_the_session_with_its_values() {
     let h = harness("mcp-session", &[("lead", false)], json!({}));
@@ -1668,14 +1668,20 @@ async fn library_mcp_reaches_the_session_with_its_values() {
     sh(&upstream, &["init", "-q"]);
     sh(&upstream, &["add", "-A"]);
     sh(&upstream, &["commit", "-q", "-m", "init"]);
-    let at = crate::skill_sources::RepoAt { repo: "acme/tools".into(), git_ref: String::new(), path: String::new() };
-    h.app.add_mcp_source_at(at, &format!("file://{}", upstream.display())).await.unwrap();
+    let at = crate::library::RepoAt { repo: "acme/tools".into(), git_ref: String::new(), path: String::new() };
+    let source = h.app.add_source_at(at, &format!("file://{}", upstream.display())).await.unwrap();
+    let paths = ["mcp.json#fetch".to_string(), "mcp.json#docs".to_string()];
+    let imported = h.app.import_from_source(source["id"].as_str().unwrap(), &paths).await.unwrap();
+    let local = h
+        .app
+        .save_mcp(None, &json!({ "name": "local", "command": "node local.js", "vars": [{ "name": "LOCAL_TOKEN", "value": "own-env-secret" }] }))
+        .await
+        .unwrap();
+    let skill =
+        h.app.create_skill(&json!({ "name": "notes", "description": "记笔记", "content": "写下来。" })).await.unwrap();
+    let ids: Vec<&str> = imported.iter().chain([&local, &skill]).map(|i| i.id.as_str()).collect();
     h.app
-        .save_role(&json!({
-            "id": "lead", "name": "lead", "role": "测试", "connection": "fake",
-            "mcpRefs": ["acme-tools/fetch", "acme-tools/docs"],
-            "mcp": [{ "name": "local", "command": "node local.js", "envText": "LOCAL_TOKEN=role-env-secret" }]
-        }))
+        .save_role(&json!({ "id": "lead", "name": "lead", "role": "测试", "connection": "fake", "resources": ids }))
         .unwrap();
 
     let run = h
@@ -1697,7 +1703,7 @@ async fn library_mcp_reaches_the_session_with_its_values() {
     let by = |name: &str| {
         servers.iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name} in {servers:?}")).clone()
     };
-    assert_eq!(by("local")["env"], json!([{ "name": "LOCAL_TOKEN", "value": "role-env-secret" }]));
+    assert_eq!(by("local")["env"], json!([{ "name": "LOCAL_TOKEN", "value": "own-env-secret" }]));
     assert_eq!(by("fetch")["command"], "uvx");
     assert_eq!(by("fetch")["env"], json!([{ "name": "FETCH_TOKEN", "value": "lib-env-secret" }]));
     assert_eq!(by("docs")["type"], "http");
@@ -1705,12 +1711,23 @@ async fn library_mcp_reaches_the_session_with_its_values() {
     assert_eq!(by("docs")["headers"], json!([{ "name": "Authorization", "value": "Bearer lib-header-secret" }]));
     assert_eq!(by("janus")["type"], "http", "the board is attached next to them");
 
-    let record = serde_json::to_string(&h.app.db.run(&run).unwrap().unwrap()).unwrap()
-        + &serde_json::to_string(&events(&h.app, &run)).unwrap();
-    for secret in ["role-env-secret", "lib-env-secret", "lib-header-secret"] {
+    wait_until(&h.app, &run, "the lead's session record", |e| has(e, "agent.status")).await;
+    let evs = events(&h.app, &run);
+    let status = evs.iter().find(|e| e.kind == "agent.status").unwrap().data.clone().unwrap();
+    let via: Vec<(String, String)> = status["config"]["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["name"].as_str().unwrap().to_string(), r["via"].as_str().unwrap().to_string()))
+        .collect();
+    assert!(via.contains(&("notes".into(), "skipped".into())), "a custom agent loads no skills: {via:?}");
+    assert!(via.contains(&("docs".into(), "mcpServers".into())), "{via:?}");
+    let record =
+        serde_json::to_string(&h.app.db.run(&run).unwrap().unwrap()).unwrap() + &serde_json::to_string(&evs).unwrap();
+    for secret in ["own-env-secret", "lib-env-secret", "lib-header-secret"] {
         assert!(!record.contains(secret), "the run record and its events hold no values: {secret}");
     }
-    assert!(record.contains("acme-tools/fetch"), "the mounted resources are recorded");
+    assert!(record.contains(&local.id), "the items the member uses are pinned in the run");
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

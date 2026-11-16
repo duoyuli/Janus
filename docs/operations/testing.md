@@ -23,8 +23,8 @@ macOS 应用的测试见 [macOS 应用](#macos_app)。
 | `backend/src/db.rs` 的 `tests` | 操作去重、租约 fencing |
 | `backend/src/agents/session_options.rs` 的 `session_option_tests` | 各 Agent 声明的会话控制项如何解析为权限模式 |
 | `backend/src/agents/roles.rs` 的 `seed_tests` | 默认角色只在首次启动时写入，删掉的默认角色之后不会恢复 |
-| `backend/src/skill_sources.rs` 的 `tests` | GitHub 链接的各种写法；Skill key 在更新后保持不变；从本地 `file://` 仓库克隆、解析（隐藏目录、`node_modules`、符号链接、Skill 子目录）、挂载、更新、删除保护，没有 Skill 时不留下目录；远端有新提交时检测到更新、更新后清除；`ls-remote` 输出中分支和标签的选择。不访问网络 |
-| `backend/src/mcp_sources.rs` 的 `tests` | 两种常见 manifest 写法（`mcpServers`、`servers`、单个服务器对象）、SSE 拒绝、key 在更新后保持不变（新条目不占用已有条目的 key）；链接目录经由符号链接指向克隆之外时不解析；从本地 `file://` 仓库克隆、解析（跳过 `node_modules`）、挂载；值只写 `secrets/mcp/`（`0600`），API、`source.json` 和 Run 快照不含值；更新后保存的值优先、消失的服务器保留旧值；角色挂载、手工 MCP 保留、同名拒绝；保留名 `janus` 及其规范化变体（`Janus`、`janus!` 等）在解析时跳过，手工 MCP 名称 `janus`、`janus_`、`JANUS` 在保存角色时拒绝；未结束 Run（`planning`、`running`、`waiting_input`、`interrupted`、`failed`）阻止删除，`delivered`、`accepted`、`cancelled` 不阻止；正在拉取的来源不能删除，其他来源照常更新和删除；凭据设置与清除。不访问网络 |
+| `backend/src/library/` 的测试 | 内容哈希与去重、只存目录自己的文件（不跟随指向外部的链接，跳过隐藏文件和 `node_modules`）、清理不用的内容；`SKILL.md` 的名字转换和 front matter 改写；粘贴配置的三种写法、SSE、保留名 `janus`；ACP 条目只带声明过的非空值；资源包按运行时摆放，Agent 改资源包不影响存储；Claude Code 走插件、Codex 走 `additionalRoots`、自定义命令只有 MCP、Codex 不放 SSE；GitHub 链接的写法和 `ls-remote` 的分支、标签选择 |
+| `backend/src/library/tests.rs` | 编辑器新建与编辑、名字唯一和导入时自动加后缀；本机目录复制与刷新；MCP 的值只在 `0600` 的值文件中，资源、列表、数据库都没有，留空保留旧值；被角色使用的资源不能删除，删除时一并删除值；从本地 `file://` 仓库添加来源（隐藏目录、`node_modules`、符号链接、Skill 子目录）、按选择导入、检测到更新、更新后内容跟随仓库而保存的值不变、仓库删掉的资源保留并标出、有资源时不能删除来源。不访问网络 |
 | `backend/src/adapters.rs` 的 `tests` | 版本切换与旧版本清理、从 `package.json` 的 `bin` 读取入口 |
 | `backend/src/git_probe.rs` 的 `tests` | 只读 Git 探测不刷新索引，输出与普通 `git status` 一致；记录 diff 用的 `diff-index` 不改写索引、输出与 `git diff HEAD` 一致，而 `git diff` 即使经过只读入口也会改写索引 |
 | `backend/src/config.rs` 的 `tests` | 日志时间格式 |

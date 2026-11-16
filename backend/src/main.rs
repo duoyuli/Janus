@@ -9,10 +9,9 @@ mod db;
 mod evidence;
 mod git_probe;
 mod goal_settle;
-mod mcp_sources;
+mod library;
 mod orchestrator;
 mod prices;
-mod skill_sources;
 mod status;
 mod teamwork;
 mod traces;
@@ -198,59 +197,81 @@ async fn adapter_action(
     Ok(Json(app.adapters()).into_response())
 }
 
-async fn skills(State(app): State<Arc<App>>) -> Json<Value> {
-    Json(app.all_skills())
-}
-
-async fn skill_sources(State(app): State<Arc<App>>) -> Json<Value> {
-    Json(app.list_skill_sources())
-}
-
-async fn add_skill_source(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
-    Ok(Json(app.add_skill_source(body["url"].as_str().unwrap_or("")).await.map_err(bad)?).into_response())
-}
-
-async fn check_skill_sources(State(app): State<Arc<App>>) -> Json<Value> {
-    Json(app.check_skill_sources().await)
-}
-
-async fn update_skill_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    Ok(Json(app.update_skill_source(&id).await.map_err(bad)?).into_response())
-}
-
-async fn delete_skill_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    app.delete_skill_source(&id).map_err(bad)?;
+fn ok() -> ApiResult {
     Ok(Json(json!({ "ok": true })).into_response())
 }
 
-async fn mcp_sources(State(app): State<Arc<App>>) -> Json<Value> {
-    Json(app.list_mcp_sources())
+fn reply<T: serde::Serialize>(v: anyhow::Result<T>) -> ApiResult {
+    Ok(Json(v.map_err(bad)?).into_response())
 }
 
-async fn add_mcp_source(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
-    Ok(Json(app.add_mcp_source(body["url"].as_str().unwrap_or("")).await.map_err(bad)?).into_response())
+// @project-doc docs/interfaces/http_api.md#library
+async fn library(State(app): State<Arc<App>>) -> ApiResult {
+    reply(app.library_view())
 }
 
-async fn check_mcp_sources(State(app): State<Arc<App>>) -> Json<Value> {
-    Json(app.check_mcp_sources().await)
+async fn library_item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    reply(app.item_view(&id))
 }
 
-async fn update_mcp_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    Ok(Json(app.update_mcp_source(&id).await.map_err(bad)?).into_response())
+async fn delete_library_item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    app.delete_item(&id).await.map_err(bad)?;
+    ok()
 }
 
-async fn delete_mcp_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    app.delete_mcp_source(&id).map_err(bad)?;
-    Ok(Json(json!({ "ok": true })).into_response())
+async fn refresh_library_item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    reply(app.refresh_item(&id).await)
 }
 
-/// Set or clear one resource's values. The reply lists the keys, never the values.
-async fn mcp_resource_secrets(
+async fn create_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.create_skill(&body).await)
+}
+
+async fn edit_skill(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.edit_skill(&id, &body).await)
+}
+
+async fn import_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.import_skill_folder(body["path"].as_str().unwrap_or("")).await)
+}
+
+async fn create_mcp(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.save_mcp(None, &body).await)
+}
+
+async fn edit_mcp(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.save_mcp(Some(&id), &body).await)
+}
+
+async fn import_mcp(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.import_mcp_config(body["text"].as_str().unwrap_or("")).await)
+}
+
+async fn add_source(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.add_source(body["url"].as_str().unwrap_or("")).await)
+}
+
+async fn check_sources(State(app): State<Arc<App>>) -> ApiResult {
+    reply(app.check_sources().await)
+}
+
+async fn import_from_source(
     State(app): State<Arc<App>>,
-    UrlPath((id, key)): UrlPath<(String, String)>,
+    UrlPath(id): UrlPath<String>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    Ok(Json(app.write_mcp_secret(&format!("{id}/{key}"), &body).map_err(bad)?).into_response())
+    let paths: Vec<String> =
+        body["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+    reply(app.import_from_source(&id, &paths).await)
+}
+
+async fn update_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    reply(app.update_source(&id).await)
+}
+
+async fn delete_source(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    app.delete_source(&id).await.map_err(bad)?;
+    ok()
 }
 
 #[derive(Deserialize)]
@@ -262,19 +283,6 @@ struct SuggestQuery {
 async fn suggest_id(State(app): State<Arc<App>>, Query(q): Query<SuggestQuery>) -> ApiResult {
     Ok(Json(json!({ "id": app.suggest_agent_id(&q.kind, q.name.as_deref().unwrap_or("")).map_err(bad)? }))
         .into_response())
-}
-
-async fn create_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
-    Ok(Json(app.create_skill(&body).map_err(bad)?).into_response())
-}
-
-async fn import_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
-    Ok(Json(app.import_skill(body["path"].as_str().unwrap_or("")).map_err(bad)?).into_response())
-}
-
-async fn delete_skill(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    app.delete_skill(&id).map_err(bad)?;
-    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -513,29 +521,21 @@ async fn main() -> Result<()> {
         runs: Mutex::new(HashMap::new()),
         adapter_state: Default::default(),
         prices: Default::default(),
+        library: Default::default(),
     });
     app.recover()?;
     app.seed_roles()?;
     app.reset_stale_checks()?;
-    // Skill sources: ask their remotes for news shortly after start, then every few hours.
+    // Library sources: ask their remotes for news shortly after start, then every few hours.
     {
         let app = app.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             loop {
-                app.check_skill_sources().await;
-                tokio::time::sleep(skill_sources::CHECK_EVERY).await;
-            }
-        });
-    }
-    // MCP sources: same cadence, on their own loop so a slow Skill check never delays them.
-    {
-        let app = app.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(45)).await;
-            loop {
-                app.check_mcp_sources().await;
-                tokio::time::sleep(mcp_sources::CHECK_EVERY).await;
+                if let Err(err) = app.check_sources().await {
+                    config::log(format!("janus: library sources not checked: {err:#}"));
+                }
+                tokio::time::sleep(library::CHECK_EVERY).await;
             }
         });
     }
@@ -561,18 +561,20 @@ async fn main() -> Result<()> {
         .route("/api/local-config", get(local_preview))
         .route("/api/adapters", get(adapters))
         .route("/api/adapters/{id}/{action}", post(adapter_action))
-        .route("/api/skills", get(skills).post(create_skill))
-        .route("/api/skills/import", post(import_skill))
-        .route("/api/skills/{id}", delete(delete_skill))
-        .route("/api/skill-sources", get(skill_sources).post(add_skill_source))
-        .route("/api/skill-sources/check", post(check_skill_sources))
-        .route("/api/skill-sources/{id}", delete(delete_skill_source))
-        .route("/api/skill-sources/{id}/update", post(update_skill_source))
-        .route("/api/mcp-sources", get(mcp_sources).post(add_mcp_source))
-        .route("/api/mcp-sources/check", post(check_mcp_sources))
-        .route("/api/mcp-sources/{id}", delete(delete_mcp_source))
-        .route("/api/mcp-sources/{id}/update", post(update_mcp_source))
-        .route("/api/mcp-sources/{id}/servers/{key}/secrets", post(mcp_resource_secrets))
+        .route("/api/library", get(library))
+        .route("/api/library/items/{id}", get(library_item).delete(delete_library_item))
+        .route("/api/library/items/{id}/refresh", post(refresh_library_item))
+        .route("/api/library/skills", post(create_skill))
+        .route("/api/library/skills/import", post(import_skill))
+        .route("/api/library/skills/{id}", axum::routing::put(edit_skill))
+        .route("/api/library/mcp", post(create_mcp))
+        .route("/api/library/mcp/import", post(import_mcp))
+        .route("/api/library/mcp/{id}", axum::routing::put(edit_mcp))
+        .route("/api/library/sources", post(add_source))
+        .route("/api/library/sources/check", post(check_sources))
+        .route("/api/library/sources/{id}", delete(delete_source))
+        .route("/api/library/sources/{id}/import", post(import_from_source))
+        .route("/api/library/sources/{id}/update", post(update_source))
         .route("/api/agent-id", get(suggest_id))
         .route("/api/setup", get(setup))
         .route("/api/setup/{kind}", post(save))

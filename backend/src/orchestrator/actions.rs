@@ -339,11 +339,8 @@ impl App {
             // A conversation only needs the lead. A collaborator's adapter may have changed or
             // been removed since the run; its task will report that if new work uses it.
             if conversation && !m.lead {
-                self.attach_mcp_secrets(m);
                 continue;
             }
-            // Values are read afresh: a changed or removed value reaches resumed sessions.
-            self.attach_mcp_secrets(m);
             self.spec_for(&m.runtime)?;
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();

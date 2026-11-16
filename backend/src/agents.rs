@@ -9,8 +9,8 @@
 //! The child modules each add one part: `catalog` (agent kinds and presets), `connections`
 //! (saving agents, their homes and the sandboxed launch), `checks` (connection checks and
 //! sign-in), `roles`, `workspaces`, `session_options` (a session's controls and the no-plan
-//! rule), `local_config` (copying this machine's agent setup) and `extensions` (Skills and MCP
-//! servers mounted on a role).
+//! rule) and `local_config` (copying this machine's agent setup). The skills and MCP servers a
+//! role uses are the library's (`crate::library`).
 
 use crate::acp::{AcpConn, Incoming, RuntimeSpec};
 use crate::orchestrator::{App, Member, expand_home, now_ms};
@@ -25,7 +25,6 @@ use std::time::Duration;
 mod catalog;
 mod checks;
 mod connections;
-mod extensions;
 mod local_config;
 mod roles;
 mod session_options;
@@ -33,13 +32,8 @@ mod workspaces;
 
 pub use catalog::kinds;
 use catalog::*;
-pub use extensions::project_skills;
-use extensions::*;
-pub(crate) use extensions::{check_skill_id, read_skill};
 pub use local_config::local_preview;
 use local_config::*;
-pub(crate) use roles::reserved_mcp_name;
-use roles::*;
 use session_options::*;
 pub use session_options::{is_plan_value, model_label, plan_off_value, session_label, session_options};
 use workspaces::*;
@@ -166,7 +160,7 @@ pub(crate) fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
 /// A fresh id from the clock. Two objects created within the same millisecond (a script, an
 /// import) would otherwise get the same id and the second save would overwrite the first, so the
 /// value only ever goes up.
-fn new_id(prefix: &str) -> String {
+pub(crate) fn new_id(prefix: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static LAST: AtomicU64 = AtomicU64::new(0);
     let now = now_ms() as u64;

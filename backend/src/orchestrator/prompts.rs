@@ -3,52 +3,6 @@
 
 use super::*;
 
-/// What a member brings beyond the task: its role's instructions and skills, then its provider's prompt.
-pub(super) fn role_extras(m: &Member, workspace: &Path) -> String {
-    let mut p = String::new();
-    let project = crate::agents::project_skills(workspace);
-    if !project.is_empty() {
-        let list: Vec<String> = project
-            .iter()
-            .map(|s| {
-                format!(
-                    "- {}：{}（{}/SKILL.md）",
-                    s["name"].as_str().unwrap_or(""),
-                    s["description"].as_str().unwrap_or(""),
-                    s["path"].as_str().unwrap_or("")
-                )
-            })
-            .collect();
-        p.push_str(&format!(
-            "\n\n这个项目自带以下 skill（路径相对于工作目录）。相关时先读取它的 SKILL.md：\n{}",
-            list.join("\n")
-        ));
-    }
-    if !m.skills.is_empty() {
-        let list: Vec<String> = m
-            .skills
-            .iter()
-            .map(|s| {
-                format!(
-                    "- {}：{}（完整说明：{}/SKILL.md）",
-                    s["name"].as_str().unwrap_or(""),
-                    s["description"].as_str().unwrap_or(""),
-                    s["path"].as_str().unwrap_or("")
-                )
-            })
-            .collect();
-        p.push_str(&format!(
-            "\n\n你可以使用以下 skill。当任务与某个 skill 相关时，先读取它的 SKILL.md，再按其中的说明执行：\n{}",
-            list.join("\n")
-        ));
-    }
-    if !m.mcp.is_empty() {
-        let names: Vec<&str> = m.mcp.iter().filter_map(|x| x["name"].as_str()).collect();
-        p.push_str(&format!("\n\n这个会话已经接入以下 MCP 服务器，可以直接调用它们提供的工具：{}", names.join("、")));
-    }
-    p
-}
-
 /// Where a member's standing instructions reach the model. They hold for the whole session and
 /// outrank the task text, so they go in the system layer wherever the agent offers one.
 // @project-doc docs/interfaces/acp_integration.md#standing_instructions
@@ -174,7 +128,6 @@ pub(super) fn task_prompt(
 {\"summary\":\"一句话结果\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"method\":\"test\",\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
 question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"你建议的选项\"}",
     );
-    p.push_str(&role_extras(m, &run.cwd));
     p.push_str(&prompt_instructions(m));
     p
 }

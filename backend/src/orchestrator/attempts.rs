@@ -162,16 +162,17 @@ impl App {
         let opened = tokio::time::timeout(STARTUP_TIMEOUT, async {
             let mut resumed = false;
             // Collaborators write progress and blockers to the shared board. The board is an HTTP
-            // MCP server; agents that only take stdio servers (Pi) work without it and report
-            // through their result and questions.
+            // MCP server; a custom agent that only takes stdio servers works without it and
+            // reports through its result and questions.
             let board: Vec<Value> = if conn.capabilities["mcpCapabilities"]["http"] == true {
                 vec![self.mcp_server(run, id)]
             } else {
                 vec![]
             };
+            let opening = self.opening(run, &member, &conn.capabilities, board, system);
             let session = match previous {
                 Some(old) if conn.capabilities["loadSession"] == true => {
-                    match conn.request("session/load", json!({ "sessionId": old, "cwd": workspace, "mcpServers": mcp_servers(&member, conn.capabilities["mcpCapabilities"]["http"] == true).into_iter().chain(board.iter().cloned()).collect::<Vec<_>>(), "_meta": with_system_prompt(session_meta(), system) })).await {
+                    match conn.request("session/load", opening.load_params(&old, &workspace)).await {
                         Ok(r) => {
                             // The reload replays history as updates; it is already in the event log.
                             // Updates can trail the response, so wait until the agent goes quiet.
@@ -181,12 +182,13 @@ impl App {
                             r["sessionId"] = json!(old);
                             r
                         }
-                        Err(_) => new_session(&conn, &workspace, &member, &board, system).await?,
+                        Err(_) => new_session(&conn, &workspace, &opening).await?,
                     }
                 }
-                _ => new_session(&conn, &workspace, &member, &board, system).await?,
+                _ => new_session(&conn, &workspace, &opening).await?,
             };
-            let applied = configure_session(&conn, &session, &member).await?;
+            let mut applied = configure_session(&conn, &session, &member).await?;
+            applied["resources"] = json!(opening.resources);
             Ok::<_, anyhow::Error>((session, applied, resumed))
         })
         .await

@@ -22,21 +22,21 @@
 | GET | `/api/agent-id?kind=&name=` | 根据类型和名字建议一个 Agent id |
 | GET | `/api/adapters` | ACP 适配器的安装状态、版本和进行中的任务 |
 | POST | `/api/adapters/{id}/{action}` | 安装（`install`）、检查更新（`check`）或切换版本（`use`） |
-| GET | `/api/skills` | 列出全部 Skill：Janus 自建的，以及各来源的（带 `sourceId`、`source` 为 `owner/repo`） |
-| POST | `/api/skills` | 新建 Skill |
-| POST | `/api/skills/import` | 从目录复制 Skill，body：`{"path": "..."}` |
-| DELETE | `/api/skills/{id}` | 删除 Skill |
-| GET | `/api/skill-sources` | 列出 GitHub Skill 来源及每个来源的 Skill |
-| POST | `/api/skill-sources` | 添加来源：拉取仓库并解析 Skill，body：`{"url": "https://github.com/o/r"}`，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources) |
-| POST | `/api/skill-sources/check` | 立即检查所有来源的远端是否有新提交，返回与 GET 相同的列表，见[检测更新](../domains/agents_and_roles.md#skill_source_updates) |
-| POST | `/api/skill-sources/{id}/update` | 重新拉取来源 |
-| DELETE | `/api/skill-sources/{id}` | 删除来源；有角色挂载其中的 Skill 时返回错误 |
-| GET | `/api/mcp-sources` | 列出 GitHub MCP 来源及每个来源的服务器，见 [MCP 来源](#mcp_sources) |
-| POST | `/api/mcp-sources` | 添加来源：拉取仓库并解析 `mcp.json` / `.mcp.json`，body：`{"url": "https://github.com/o/r"}` |
-| POST | `/api/mcp-sources/check` | 立即检查所有来源的远端是否有新提交，返回与 GET 相同的列表 |
-| POST | `/api/mcp-sources/{id}/update` | 重新拉取来源，返回更新后的来源 |
-| DELETE | `/api/mcp-sources/{id}` | 删除来源；有角色挂载其中的 MCP，或未结束（`planning`、`running`、`waiting_input`、`interrupted`、`failed`）的 Run 还在使用时返回错误 |
-| POST | `/api/mcp-sources/{id}/servers/{key}/secrets` | 设置或清除一个资源的环境变量和 HTTP header 值，见[资源凭据](#mcp_secrets) |
+| GET | `/api/library` | 资源库：全部资源和 Git 来源，见[资源库](#library) |
+| GET | `/api/library/items/{id}` | 一项资源；Skill 带 `content`（`SKILL.md` 全文） |
+| DELETE | `/api/library/items/{id}` | 删除资源；有角色使用时返回错误 |
+| POST | `/api/library/items/{id}/refresh` | 从原目录重新复制一个从本机目录导入的 Skill |
+| POST | `/api/library/skills` | 新建 Skill，body：`{"name", "description", "content"}` |
+| PUT | `/api/library/skills/{id}` | 编辑在 Janus 中新建的 Skill，body 同上 |
+| POST | `/api/library/skills/import` | 从本机目录复制 Skill，body：`{"path": "..."}` |
+| POST | `/api/library/mcp` | 新建 MCP 服务器，body 见[资源库](#library) |
+| PUT | `/api/library/mcp/{id}` | 修改 MCP 服务器，body 同上 |
+| POST | `/api/library/mcp/import` | 导入粘贴的 MCP 配置，body：`{"text": "..."}`，返回 `{"items", "warnings"}` |
+| POST | `/api/library/sources` | 添加 Git 来源：拉取并列出可导入的内容，body：`{"url": "https://github.com/o/r"}` |
+| POST | `/api/library/sources/check` | 立即检查所有来源的远端是否有新提交，返回 `{"sources"}` |
+| POST | `/api/library/sources/{id}/import` | 导入来源中的内容，body：`{"paths": [...]}` |
+| POST | `/api/library/sources/{id}/update` | 重新拉取来源，更新从它导入的资源，返回 `{"source", "updated", "missing"}` |
+| DELETE | `/api/library/sources/{id}` | 删除来源；资源库中还有来自它的资源时返回错误 |
 | GET | `/api/setup` | 一次返回 `connections`、`roles`、`workspaces` |
 | POST | `/api/setup/{kind}` | 新建或更新设置对象，`kind` 是 `connections`、`roles` 或 `workspaces` |
 | DELETE | `/api/setup/{kind}/{id}` | 删除设置对象 |
@@ -65,33 +65,26 @@
 - 连接返回时不包含凭据字段的值。
 - 配置检查的进度写在连接对象上，应用轮询 `/api/setup` 读取。
 
-<a id="mcp_sources"></a>
-## MCP 来源
+<a id="library"></a>
+## 资源库
 
-`GET /api/mcp-sources` 返回 `{ "sources": [...], "root": "<来源目录>" }`。每个来源包含 `id`、`url`、`repo`、`ref`、`path`、`commit`、`updatedAt`、`checkedAt`、`latest`、`updateAvailable`、`checkError`、`warnings`，以及 `servers`。服务器字段：
+规则见[资源库](../domains/resource_library.md)。所有响应都不含 MCP 的值。
+
+`GET /api/library` 返回 `{ "items": [...], "sources": [...] }`。资源的字段：
 
 | 字段 | 含义 |
 | --- | --- |
-| `id`、`sourceId`、`key` | 资源 id 是 `<sourceId>/<key>`，角色用它挂载 |
-| `name`、`title` | ACP 中的服务器名称（即 key）和 manifest 中的原名 |
-| `manifest` | 定义所在的文件，相对仓库 |
-| `transport` | `stdio` 或 `http` |
-| `command`、`args`、`url` | 启动命令或 HTTP 地址 |
-| `envKeys`、`headerKeys` | manifest 声明的变量名 |
-| `envSet`、`headerSet` | 其中已经有值的变量名 |
-| `description` | manifest 中的说明 |
+| `id`、`kind`、`name`、`description`、`revision`、`updatedAt` | 见[资源](../domains/resource_library.md#model) |
+| `origin` | `{"type": "created"}`、`{"type": "folder", "path"}` 或 `{"type": "git", "source", "path"}` |
+| `server` | MCP 才有：`{"transport": "stdio", "command", "args", "envKeys"}`，或 `{"transport": "http" \| "sse", "url", "headerKeys"}` |
+| `vars` | MCP 才有：`[{"name", "set"}]`，每个变量是否已有值 |
+| `roles` | 使用它的角色 `[{"id", "name"}]` |
+| `support` | `[{"runtime", "support": {"state": "yes" \| "no" \| "depends", "why"}}]`，Claude Code、Codex、自定义命令各一项 |
+| `source` | Git 来源导入的才有：`{"url", "inSource"}`，`inSource` 为 `false` 表示来源最近一次拉取时已经没有它 |
 
-解析、更新和删除规则见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)。`source.json` 和响应都不含变量值。
+来源的字段：`id`、`url`、`repo`、`gitRef`、`path`、`commit`、`fetchedAt`、`latest`、`checkError`、`checkedAt`、`warnings`、`offers`（`[{"kind", "path", "name", "description"}]`）、`updateAvailable`、`imported`（`[{"path", "item", "name"}]`）。
 
-<a id="mcp_secrets"></a>
-### 资源凭据
-
-`POST /api/mcp-sources/{id}/servers/{key}/secrets` 的 body 是 `{"env": {...}, "headers": {...}}`，两个字段都可省略：
-
-- 非空字符串写入 `<JANUS_HOME>/secrets/mcp/<来源 id>/<key>.json`（`0600`）。
-- 空字符串删除该变量；没有提到的变量保持原值。
-- 来源或资源不存在时返回 400。
-- 响应是这个资源在库中的条目，只带 `envKeys`、`headerKeys`、`envSet`、`headerSet`，不返回值。
+MCP 服务器的 body：`{"name", "description", "transport": "stdio" | "http" | "sse", "command", "args", "url", "vars": [{"name", "value"}]}`。stdio 服务器的 `command` 可以是整行命令（不带 `args` 时按 shell 规则拆分）；`vars` 是环境变量（stdio）或 HTTP header（http、sse），`value` 为空表示保留已保存的值，列表中没有的变量连同值一起删除。
 
 <a id="adapters"></a>
 ## ACP 适配器

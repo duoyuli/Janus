@@ -82,19 +82,16 @@ impl App {
             let session = role_session(&role, &conn);
             let permission = session_label(&session, &conn);
             let model_label = model_label(&role, &conn);
-            // The role's hand-written servers, then the library resources it mounts. Definitions
-            // are snapshotted; the values are read when a session opens (`attach_mcp_secrets`).
-            let mut mcp = role["mcp"].as_array().cloned().unwrap_or_default();
-            let mut mcp_refs = vec![];
-            for id in role["mcpRefs"].as_array().cloned().unwrap_or_default() {
-                let Some(id) = id.as_str() else { continue };
-                if let Some(info) = self.mcp_info(id) {
-                    mcp_refs.push(id.to_string());
-                    mcp.push(info);
-                }
-            }
-            check_mcp_names(str_of(&role, "name"), &mcp)?;
-            let mut member = Member {
+            // The library items the role uses, pinned as they are now. Values are read when a
+            // session opens; an item deleted since the role was saved is left out.
+            let resources: Vec<crate::library::Item> = role["resources"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter_map(|id| self.item(id).ok())
+                .collect();
+            team.push(Member {
                 // "lead" is reserved for whichever role leads this environment.
                 id: if lead {
                     "lead".into()
@@ -118,22 +115,10 @@ impl App {
                 kind: Runtime::of(str_of(&conn, "base"))?,
                 prompt: str_of(&conn, "prompt").into(),
                 role_prompt: str_of(&role, "prompt").into(),
-                skills: role["skills"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|id| id.as_str().and_then(|id| self.skill_info(id)))
-                    .collect(),
-                mcp,
-                mcp_refs,
-                mcp_env: json!({}),
-                mcp_headers: json!({}),
+                resources,
                 role_id: str_of(&role, "id").into(),
                 runtime_name: str_of(&conn, "name").into(),
-            };
-            self.attach_mcp_secrets(&mut member);
-            team.push(member);
+            });
         }
         if !team.iter().any(|m| m.lead) {
             bail!("执行环境没有主控");

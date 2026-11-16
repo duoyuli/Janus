@@ -15,14 +15,12 @@
 ├── config.toml               # 用户配置，可选
 ├── janus.db                  # SQLite：Agent、角色、工作区、Run、事件
 ├── agents/<agent-id>/        # 每个 Agent 的隔离配置目录、HOME、临时目录和凭据
-├── secrets/roles/            # 角色手工 MCP 的环境变量值
-├── secrets/mcp/<id>/         # MCP 资源库服务器的环境变量和 HTTP header 值
-├── skills/                   # Janus Skill 库（自建的 Skill）
-├── skill-sources/<id>/       # GitHub Skill 来源：source.json 和仓库副本 repo/
-├── mcp-sources/<id>/         # GitHub MCP 来源：source.json 和仓库副本 repo/
+├── secrets/library/          # 资源库 MCP 服务器的环境变量和 HTTP header 值
+├── library/store/            # 资源库 Skill 的内容，按内容寻址
+├── library/sources/<id>/     # 资源库 Git 来源的仓库副本 repo/
 ├── adapters/<id>/            # ACP 适配器，按需下载，每个版本一个目录
 ├── artifacts/<run>/<task>/   # Run 的产物：回复和 diff
-├── runs/<run>/skills/        # Run 创建时的 Skill 快照
+├── runs/<run>/members/<member>/bundle/  # 成员的资源包：Run 创建时复制的 Skill
 ├── runs/<run>/attachments/   # 随目标和消息粘贴的图片
 ├── prices/models.json        # 从 models.dev 同步的模型价格，每天更新，账单估算用
 ├── updates/                  # 应用内更新：<版本>/ 下载和拼装中的新版本，previous/ 上一个版本，install.sh 替换脚本
@@ -37,7 +35,7 @@
 
 | 类别 | 位置 | 说明 |
 | --- | --- | --- |
-| 用户级数据 | `janus.db`、`agents/`、`secrets/`、`skills/`、`skill-sources/`、`mcp-sources/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
+| 用户级数据 | `janus.db`、`agents/`、`secrets/`、`library/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
 | 全局依赖 | `adapters/` | 第一次用到时下载，见 [ACP 适配器管理](../architecture/adapters.md) |
 | 应用更新 | `updates/` | 只有最近一次的新版本和上一个版本，可以随时删除 |
 | 价格数据 | `prices/` | 从 models.dev 同步的模型价格，可以随时删除，下次同步时重新下载，见 [ADR：按 models.dev 的价格估算用量](../decisions/model_prices.md) |

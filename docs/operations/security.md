@@ -43,11 +43,10 @@
 | 内容 | 位置 | 权限 |
 | --- | --- | --- |
 | Agent 的凭据字段、复制来的凭据变量 | `~/.janus/agents/<id>/secrets.json` | `0600` |
-| 角色手工 MCP 的环境变量值 | `~/.janus/secrets/roles/<role-id>.json` | `0600` |
-| MCP 资源库的环境变量和 HTTP header 值 | `~/.janus/secrets/mcp/<来源 id>/<key>.json` | `0600` |
+| 资源库 MCP 服务器的环境变量和 HTTP header 值 | `~/.janus/secrets/library/<资源 id>.json`（目录 `0700`） | `0600` |
 | Janus home | `~/.janus/` | `0700` |
 
-- SQLite、`source.json`、Run 快照和设置接口只记录凭据字段和变量的名字（`secretsSet`、`importedEnv`、`envKeys`、`headerKeys`、`envSet`、`headerSet`），不返回值。
+- SQLite、Run 快照、事件和设置接口只记录凭据字段和变量的名字（`secretsSet`、`importedEnv`、`envKeys`、`headerKeys`，以及资源库的 `vars[].set`），不返回值。MCP 的值只在打开会话时读取，放进 `mcpServers` 交给 Agent。
 - 登录日志返回给应用前，凭据值替换为 `<secret>`。
 - 切换认证方式时，新方式用不到的凭据被删除。
 
@@ -56,7 +55,7 @@
 <a id="setup_ids"></a>
 ## 设置对象的 id
 
-Agent、角色和工作区的 id 是 Janus home 中目录和文件的名字（`agents/<id>/`、`secrets/roles/<id>.json`），由 `check_id` 校验：只能用小写字母、数字和 `-`，以字母或数字开头，最长 40 个字符。保存时校验客户端给出的 id，删除 Agent 前、拼出角色密钥文件的路径前也会校验，所以接口请求不能让 Janus 在这些目录之外写入或删除文件。
+Agent、角色、工作区和资源库中的 id 会成为 Janus home 中目录和文件的名字（`agents/<id>/`、`secrets/library/<id>.json`、`library/sources/<id>/`），由 `check_id` 校验：只能用小写字母、数字和 `-`，以字母或数字开头，最长 40 个字符。保存时校验客户端给出的 id，删除 Agent、角色和拼出资源库的路径前也会校验，所以接口请求不能让 Janus 在这些目录之外写入或删除文件。
 
 <a id="workspace_access"></a>
 ## 工作目录访问
@@ -83,22 +82,16 @@ Agent、角色和工作区的 id 是 Janus home 中目录和文件的名字（`a
 - 安装命令在 Janus 进程自己的环境中运行（`PATH`、npm 配置、代理），不是 Agent 的隔离环境。
 - 来源写在代码中，应用和接口不能指定其他来源。
 
-<a id="skill_import"></a>
-## Skill 导入
+<a id="library"></a>
+## 资源库
 
-- Agent 不读取用户自己的 Agent Skill 目录。Skill 只能在应用中新建，或从用户选择的目录复制一次进入 Janus Skill 库。
-- 复制时只复制普通文件，符号链接取其内容，不跟随到所选目录之外。
-- 工作目录中的项目 Skill 只有真实路径仍在工作目录内时才会列给 Agent。
-- GitHub 来源的仓库是第三方内容。Janus 只克隆和读取，不执行仓库中的任何文件；解析和 Run 快照都不跟随符号链接，克隆时不下载 Git LFS 内容、不弹出凭据输入。Skill 的内容会作为说明交给 Agent，是否可信由用户在添加来源和挂载到角色时判断。
+规则见[资源库](../domains/resource_library.md)。
 
-<a id="mcp_sources"></a>
-## MCP 来源
-
-- GitHub 来源的仓库是第三方内容。Janus 只克隆和读取其中的 `mcp.json` / `.mcp.json`，不执行仓库中的任何文件；解析不跟随符号链接，克隆时不下载 Git LFS 内容、不弹出凭据输入。
-- manifest 中的 `command`、`args`、`url` 会原样交给 Agent，由 Agent 在会话中启动或连接。是否信任一个来源、是否把其中的服务器挂到角色，由用户在导入和挂载时判断。
-- manifest 声明的 `env` / `headers` 值写到 `secrets/mcp/`（`0600`）。接口只返回变量名和 `envSet` / `headerSet`；`source.json`、SQLite、日志和 Run 快照不保存值。删除来源时一并删除这些值。
-- 资源库中的 HTTP 服务器需要 Agent 支持 HTTP MCP。Agent 没有声明该能力时，Janus 不把 http 服务器放进会话。
-- 删除来源有保护：角色仍挂载其中的服务器，或有 `planning`、`running`、`waiting_input`、`interrupted`、`failed` 的 Run 快照还引用它时，接口返回错误。
+- **不碰 Agent 自己的配置**：资源只在会话启动时通过 `session/new` / `session/load` 的 `mcpServers`、`_meta` 和进程环境变量交给 Agent，不写用户的 `~/.claude`、`~/.codex`，也不写 Janus 隔离目录中的 Agent 配置。Agent 不读取用户自己的 Agent Skill 目录：Skill 只能在应用中新建、从用户选择的目录复制，或从 Git 来源导入。
+- **复制本机目录**：只复制普通文件；符号链接只在指向所选目录内部时读取，不跟随到目录之外；跳过隐藏文件（例如 `.env`、`.git`）和 `node_modules`；单个 Skill 最多 2000 个文件、20MB。
+- **Git 来源是第三方内容**：只支持 GitHub 链接。Janus 只克隆和读取其中的 `SKILL.md`、`mcp.json` / `.mcp.json`，不执行仓库中的任何文件；扫描不跟随符号链接，克隆时不下载 Git LFS 内容、不弹出凭据输入。Skill 的内容会作为说明交给 Agent，服务器的 `command`、`args`、`url` 原样交给 Agent 启动或连接；是否可信，由用户在导入和给角色选择时判断。
+- **资源包是副本**：Run 创建时 Skill 复制到成员自己的资源包。Codex 的 `additionalRoots` 会把资源包加入会话的文件访问范围，Agent 改动资源包只影响这个成员，不影响资源库和其他成员。
+- **凭据**：粘贴的配置和 manifest 中写的值保存到 `secrets/library/`（`0600`）；来源更新不覆盖已保存的值。删除资源时一并删除它的值。
 
 <a id="app_updates"></a>
 ## 应用更新的来源

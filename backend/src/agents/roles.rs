@@ -1,5 +1,5 @@
-//! Roles: saving and deleting them, the secrets of their own MCP servers, their MCP names, and the
-//! default roles a first start creates.
+//! Roles: saving and deleting them, the library items they use, and the default roles a first
+//! start creates.
 
 use super::*;
 
@@ -27,59 +27,17 @@ impl App {
             "" => name.chars().filter(|c| !c.is_whitespace()).take(2).collect::<String>().to_uppercase(),
             i => i.to_string(),
         };
-        let skills: Vec<String> = body["skills"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|v| v.as_str())
-            .filter(|s| self.skill_dir(s).is_some())
-            .map(str::to_owned)
-            .collect();
-        // MCP environment values are secrets: SQLite keeps the variable names, the values live in a 0600 file.
-        let old_secrets = self.role_secrets(&id);
-        let mut secrets = serde_json::Map::new();
-        let mut mcp = vec![];
-        for m in body["mcp"].as_array().cloned().unwrap_or_default() {
-            let mut entry = resolve_mcp(&m)?;
-            let name = str_of(&entry, "name").to_string();
-            let mut env = entry["env"].as_object().cloned().unwrap_or_default();
-            if env.is_empty()
-                && let Some(prev) = old_secrets[&name].as_object()
-            {
-                env = prev.clone();
-            }
-            entry["envKeys"] = json!(env.keys().collect::<Vec<_>>());
-            entry.as_object_mut().unwrap().remove("env");
-            secrets.insert(name, Value::Object(env));
-            mcp.push(entry);
-        }
-        // Library resources the role mounts; a ref to a resource an update removed is dropped,
-        // the way a Skill that no longer has SKILL.md leaves the role on save.
-        let mut mcp_refs: Vec<String> = vec![];
-        for id in body["mcpRefs"].as_array().cloned().unwrap_or_default() {
-            let Some(id) = id.as_str() else { continue };
-            if !mcp_refs.iter().any(|x| x == id) && self.mcp_resource(id).is_some() {
-                mcp_refs.push(id.to_string());
+        // The library items the role uses, each once; an id the library no longer has is dropped.
+        let known: HashSet<String> = self.items()?.into_iter().map(|i| i.id).collect();
+        let mut resources: Vec<&str> = vec![];
+        for id in body["resources"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            if known.contains(id) && !resources.contains(&id) {
+                resources.push(id);
             }
         }
-        let mut names: Vec<String> = mcp.iter().map(|m| str_of(m, "name").to_string()).collect();
-        for id in &mcp_refs {
-            if let Some(r) = self.mcp_resource(id) {
-                names.push(str_of(&r, "name").to_string());
-            }
-        }
-        if let Some(name) = names.iter().find(|n| reserved_mcp_name(n)) {
-            bail!("MCP 名称 {name} 与看板 MCP 的保留名 janus 冲突，请换一个名字");
-        }
-        let mut seen = HashSet::new();
-        if let Some(dup) = names.iter().find(|n| !seen.insert((*n).clone())) {
-            bail!("MCP 名称重复：{dup}。资源库和手工 MCP 不能有同名服务器，请移除其中一个");
-        }
-        self.write_role_secrets(&id, &Value::Object(secrets))?;
         let role = json!({
             "id": id, "name": name, "role": str_of(body, "role"), "desc": str_of(body, "desc"),
-            "prompt": body["prompt"].as_str().unwrap_or("").trim(), "skills": skills, "mcp": mcp, "mcpRefs": mcp_refs,
+            "prompt": body["prompt"].as_str().unwrap_or("").trim(), "resources": resources,
             "connection": connection, "model": str_of(body, "model"), "effort": str_of(body, "effort"),
             "session": session,
             "lead": body["lead"].as_bool().unwrap_or(false),
@@ -98,43 +56,8 @@ impl App {
         {
             bail!("工作区「{}」正在使用这个角色，请先移除", str_of(ws, "name"));
         }
-        let _ = std::fs::remove_file(self.role_secrets_path(id)?);
-        self.db.delete_config(ROLE, id)
-    }
-
-    /// Where a role's own MCP values live. The id names the file, so it must be a valid id.
-    pub(super) fn role_secrets_path(&self, id: &str) -> Result<PathBuf> {
         check_id(id)?;
-        Ok(self
-            .cfg
-            .agents_dir
-            .parent()
-            .unwrap_or(&self.cfg.agents_dir)
-            .join("secrets")
-            .join("roles")
-            .join(format!("{id}.json")))
-    }
-
-    /// A role's own MCP values; none for a role without any (or an invalid id).
-    pub(crate) fn role_secrets(&self, id: &str) -> Value {
-        self.role_secrets_path(id)
-            .ok()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_else(|| json!({}))
-    }
-
-    pub(super) fn write_role_secrets(&self, id: &str, secrets: &Value) -> Result<()> {
-        let path = self.role_secrets_path(id)?;
-        if secrets.as_object().is_none_or(|m| m.values().all(|v| v.as_object().is_none_or(|e| e.is_empty()))) {
-            let _ = std::fs::remove_file(&path);
-            return Ok(());
-        }
-        let dir = path.parent().unwrap();
-        std::fs::create_dir_all(dir)?;
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir.parent().unwrap(), std::fs::Permissions::from_mode(0o700))?;
-        write_private(&path, serde_json::to_string_pretty(secrets)?.as_bytes())
+        self.db.delete_config(ROLE, id)
     }
 
     /// Claude Code runs `/goal` only in a workspace it trusts. The lead's agent has its own
@@ -244,26 +167,6 @@ pub(super) const SEEDS: [RoleSeed; 5] = [
     },
 ];
 
-/// The board MCP's name is reserved. A name whose slug is `janus` would become that name once
-/// the library normalizes it, so those variants are reserved too.
-pub(crate) fn reserved_mcp_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case("janus") || slug(name).is_some_and(|s| s == "janus")
-}
-
-/// Refuse a member whose MCP servers the board would collide with: a name that normalizes to
-/// `janus`, or two servers with one name (a hand-written one and a library resource, or two
-/// resources). Saving a role and building a run's team both check it.
-pub(super) fn check_mcp_names(role_name: &str, mcp: &[Value]) -> Result<()> {
-    if let Some(name) = mcp.iter().map(|m| str_of(m, "name")).find(|n| reserved_mcp_name(n)) {
-        bail!("角色「{role_name}」的 MCP 名称 {name} 与看板 MCP 的保留名 janus 冲突，请换一个名字");
-    }
-    let mut seen = HashSet::new();
-    if let Some(dup) = mcp.iter().map(|m| str_of(m, "name")).find(|n| !seen.insert(*n)) {
-        bail!("角色「{role_name}」的 MCP 名称重复：{dup}，请移除资源库或手工 MCP 中的同名服务器");
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod seed_tests {
     use super::*;
@@ -309,7 +212,7 @@ mod id_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let app = test_app(&dir);
-        // `secrets/roles/../../outside.json` is this file.
+        // `<home>/../outside.json`, should an id ever name a path.
         let outside = dir.join("outside.json");
         std::fs::write(&outside, "keep").unwrap();
         for bad in ["../../outside", "a/b", "Upper", "-lead", "x".repeat(41).as_str()] {
@@ -322,7 +225,7 @@ mod id_tests {
             assert!(err.contains("不合法"), "workspace id {bad}: {err}");
         }
         assert!(app.delete_role("../../outside").is_err());
-        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep", "nothing outside the secrets folder is removed");
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep", "nothing outside Janus home is removed");
         // An agent's id names the folder its deletion removes.
         let err = app
             .save_connection(&json!({ "id": "../x", "kind": "custom", "name": "A", "command": "true" }))

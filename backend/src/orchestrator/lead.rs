@@ -251,16 +251,12 @@ impl App {
             // Claude's system layer carries the brief and, after it, the person's standing rules.
             let system = if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") };
             let (sid, applied, controls) = tokio::time::timeout(STARTUP_TIMEOUT, async {
-                let session = new_session(
-                    &conn,
-                    &workspace,
-                    &lead,
-                    &[self.mcp_server(run, "lead")],
-                    claude.then_some(system.as_str()),
-                )
-                .await?;
+                let board = vec![self.mcp_server(run, "lead")];
+                let opening = self.opening(run, &lead, &conn.capabilities, board, claude.then_some(system.as_str()));
+                let session = new_session(&conn, &workspace, &opening).await?;
                 let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
-                let applied = configure_session(&conn, &session, &lead).await?;
+                let mut applied = configure_session(&conn, &session, &lead).await?;
+                applied["resources"] = json!(opening.resources);
                 let controls = crate::acp_view::controls(&session, &applied);
                 Ok::<_, anyhow::Error>((sid, applied, controls))
             })
@@ -402,22 +398,20 @@ impl App {
             }
         };
         let result = async {
-            let http = conn.capabilities["mcpCapabilities"]["http"] == true;
-            let mut servers = mcp_servers(&lead, http);
-            if http {
-                servers.push(self.mcp_server(run, "lead"));
-            }
+            let board = if conn.capabilities["mcpCapabilities"]["http"] == true {
+                vec![self.mcp_server(run, "lead")]
+            } else {
+                vec![]
+            };
+            let system = (lead.kind == Runtime::Claude)
+                .then(|| if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") });
+            let opening = self.opening(run, &lead, &conn.capabilities, board, system.as_deref());
             let mut loaded = false;
             let mut session = Value::Null;
             if conn.capabilities["loadSession"] == true
                 && let Some(old) = old_session
             {
-                let params = json!({
-                    "sessionId": old,
-                    "cwd": workspace,
-                    "mcpServers": servers.clone(),
-                    "_meta": session_meta()
-                });
+                let params = opening.load_params(&old, &workspace);
                 if let Ok(Ok(r)) = tokio::time::timeout(STARTUP_TIMEOUT, conn.request("session/load", params)).await {
                     drain_replay(&conn, &mut rx).await;
                     let mut r = if r.is_object() { r } else { json!({}) };
@@ -427,20 +421,16 @@ impl App {
                 }
             }
             if !loaded {
-                let system = (lead.kind == Runtime::Claude)
-                    .then(|| if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") });
-                session = tokio::time::timeout(
-                    STARTUP_TIMEOUT,
-                    new_session(&conn, &workspace, &lead, &servers, system.as_deref()),
-                )
-                .await
-                .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+                session = tokio::time::timeout(STARTUP_TIMEOUT, new_session(&conn, &workspace, &opening))
+                    .await
+                    .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
             }
             let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
             if sid.is_empty() {
                 bail!("恢复会话没有返回 sessionId");
             }
-            let applied = configure_session(&conn, &session, &lead).await?;
+            let mut applied = configure_session(&conn, &session, &lead).await?;
+            applied["resources"] = json!(opening.resources);
             let controls = crate::acp_view::controls(&session, &applied);
             self.emit(
                 run,
@@ -723,10 +713,6 @@ impl App {
                 run.goal_images.len(),
                 crate::attachments::lines(&run.goal_images)
             ));
-        }
-        let lead = run.team.iter().find(|m| m.lead);
-        if let Some(lead) = lead {
-            p.push_str(&role_extras(lead, &run.cwd));
         }
         p
     }

@@ -179,7 +179,7 @@ impl App {
 
             let result: Result<Value> = async {
                 self.check_step(id, &mut steps, "打开会话", None, "读取模型列表…".into());
-                let session = match tokio::time::timeout(Duration::from_secs(60), conn.request("session/new", json!({ "cwd": probe, "mcpServers": [], "_meta": crate::orchestrator::session_meta() }))).await {
+                let session = match tokio::time::timeout(Duration::from_secs(60), conn.request("session/new", json!({ "cwd": probe, "mcpServers": [] }))).await {
                     Ok(r) => r,
                     Err(_) => Err(anyhow!("60 秒内没有打开会话")),
                 };

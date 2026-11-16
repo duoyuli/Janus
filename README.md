@@ -34,8 +34,8 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 | Concept | What it means |
 | --- | --- |
 | Agent (provider connection) | A launchable coding agent, such as Codex or Claude Code. Each agent has its own configuration directory and credentials. |
-| Role | Binds an agent and defines its name, responsibilities, model, reasoning effort, permission mode, skills, and MCP. |
-| Skill library | Skills available to roles. Create them in the app, import a local folder, or paste a GitHub repository URL under Settings › Skill Library to discover every skill in the repository. |
+| Role | Binds an agent and defines its name, responsibilities, model, reasoning effort, permission mode, and the skills and MCP servers it uses from the library. |
+| Resource library | Skills and MCP servers kept once and picked per role. Write a skill in the app, copy a local folder, paste an MCP config, or import from a GitHub repository. Each session gets its role's resources when it starts (as a plugin for Claude Code, an extra skills root for Codex, and MCP servers for both); no agent config file is written. |
 | Workspace | A local directory plus a set of role members, one of whom is the lead. |
 | Run | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
 | Lead agent | The agent that drives the goal with `/goal`. It can be Claude Code or Codex, and decides whether to work directly or delegate through orchestration. |

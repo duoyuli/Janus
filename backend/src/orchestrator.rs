@@ -49,7 +49,7 @@ use board_tools::*;
 use lead::*;
 use messages::Delivery;
 use prompts::*;
-pub use session::session_meta;
+
 use session::*;
 pub use turn::cancelled_reply;
 use turn::*;
@@ -132,26 +132,16 @@ pub struct Member {
     /// The provider's custom prompt, appended to every prompt this member receives.
     #[serde(default)]
     pub prompt: String,
-    /// What the role mounts on top of its agent: instructions, skills (name, description, path) and stdio MCP servers.
+    /// The role's instructions.
     #[serde(default)]
     pub role_prompt: String,
+    /// The library items the role uses, as they were when the run started. Skills are copied into
+    /// the member's bundle (`App::bundle_dir`); MCP values are read when a session opens and never
+    /// appear here.
     #[serde(default)]
-    pub skills: Vec<Value>,
-    /// The MCP servers this member opens with: the role's own hand-written ones, then the
-    /// resources it mounts from the MCP library. Their values never appear here.
-    #[serde(default)]
-    pub mcp: Vec<Value>,
-    /// The MCP library resources the role mounted (`<source id>/<key>`), for the record.
-    #[serde(default)]
-    pub mcp_refs: Vec<String>,
+    pub resources: Vec<crate::library::Item>,
     #[serde(default)]
     pub role_id: String,
-    /// MCP environment values by server name. Never serialized, so they stay out of the run record.
-    #[serde(skip)]
-    pub mcp_env: Value,
-    /// HTTP header values by server name, for library resources reached by URL. Never serialized.
-    #[serde(skip)]
-    pub mcp_headers: Value,
 }
 
 #[derive(Deserialize, Default)]
@@ -668,6 +658,7 @@ pub struct App {
     pub runs: StdMutex<HashMap<String, Arc<Run>>>,
     pub adapter_state: crate::adapters::AdapterState,
     pub prices: crate::prices::PriceBook,
+    pub library: crate::library::LibraryState,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
@@ -937,5 +928,6 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
         runs: StdMutex::new(HashMap::new()),
         adapter_state: Default::default(),
         prices: Default::default(),
+        library: Default::default(),
     })
 }

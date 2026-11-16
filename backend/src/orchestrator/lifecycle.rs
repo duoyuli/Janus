@@ -25,14 +25,13 @@ impl App {
             );
         }
         let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await.is_ok();
-        let mut team = team;
         let base_ref = if is_git {
             git(&cwd, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string()
         } else {
             String::new()
         };
         let id = format!("r{}", to_base36(now_ms() as u64));
-        self.snapshot_skills(&id, &mut team)?;
+        self.bundle_team(&id, &team)?;
         let goal_images = crate::attachments::save(&self.cfg.data_dir, &id, &req.images)?;
         let goal = match req.goal.trim() {
             "" => "按附图完成".to_string(),
@@ -100,23 +99,18 @@ impl App {
         }
     }
 
-    /// Copy each member's skills into this run's own directory. Agents get the snapshot path,
-    /// so later edits to the library do not change a run, and no agent reads the library itself.
-    pub(super) fn snapshot_skills(&self, run_id: &str, team: &mut [Member]) -> Result<()> {
-        let root = self.cfg.data_dir.join("runs").join(run_id).join("skills");
-        for m in team.iter_mut() {
-            for s in m.skills.iter_mut() {
-                let (Some(id), Some(src)) =
-                    (s["id"].as_str().map(str::to_owned), s["path"].as_str().map(PathBuf::from))
-                else {
-                    continue;
-                };
-                let dest = root.join(&id);
-                if !dest.exists() {
-                    copy_dir(&src, &dest)?;
-                }
-                s["path"] = json!(dest);
-            }
+    /// Where a member's resources live for this run: its skills, laid out the way its agent
+    /// reads them. Sessions are pointed here when they open.
+    pub(crate) fn bundle_dir(&self, run_id: &str, member: &str) -> PathBuf {
+        self.cfg.data_dir.join("runs").join(run_id).join("members").join(member).join("bundle")
+    }
+
+    /// Copy each member's skills into its bundle, so later edits to the library do not change
+    /// the run and no agent reads the library itself.
+    // @project-doc docs/domains/resource_library.md#delivery
+    pub(super) fn bundle_team(&self, run_id: &str, team: &[Member]) -> Result<()> {
+        for m in team {
+            crate::library::bundle(&self.store_dir(), m.kind, &m.resources, &self.bundle_dir(run_id, &m.id))?;
         }
         Ok(())
     }
@@ -497,21 +491,4 @@ impl App {
         self.emit(run, ev("run.delivered", "janus", "主控完成了目标，交付结果已准备好").data(result));
         self.set_status(run, RunStatus::Delivered);
     }
-}
-
-fn copy_dir(from: &Path, to: &Path) -> Result<()> {
-    std::fs::create_dir_all(to)?;
-    // Symbolic links are skipped: a skill from a cloned repository could point anywhere.
-    for e in std::fs::read_dir(from)?.flatten() {
-        let (src, dst) = (e.path(), to.join(e.file_name()));
-        let Ok(t) = e.file_type() else { continue };
-        if t.is_dir() {
-            if e.file_name() != ".git" {
-                copy_dir(&src, &dst)?;
-            }
-        } else if t.is_file() {
-            std::fs::copy(&src, &dst)?;
-        }
-    }
-    Ok(())
 }

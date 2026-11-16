@@ -3,17 +3,25 @@
 
 use super::*;
 
-/// The values a server declares, by name, from a skipped map. Only the keys the entry carries
-/// are passed, so a value no longer in the manifest does not reach the agent.
-pub(super) fn named_values(entry: &Value, keys: &str, values: &Value) -> Vec<Value> {
-    let saved = &values[entry["name"].as_str().unwrap_or("")];
-    entry[keys]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter_map(|k| saved[k].as_str().filter(|v| !v.is_empty()).map(|v| json!({ "name": k, "value": v })))
-        .collect()
+/// What a session opens with besides its working directory: the member's resources the way its
+/// agent takes them, Janus's own servers (the board), and the system layer. A reloaded session
+/// gets the same, so it keeps its skills, servers and instructions.
+// @project-doc docs/interfaces/acp_integration.md#session_meta
+pub(super) struct Opening {
+    pub mcp_servers: Vec<Value>,
+    pub meta: Value,
+    /// Each of the member's resources and how it reached the session, for the record.
+    pub resources: Vec<crate::library::Delivery>,
+}
+
+impl Opening {
+    pub(super) fn new_params(&self, cwd: &Path) -> Value {
+        json!({ "cwd": cwd, "mcpServers": self.mcp_servers, "_meta": self.meta })
+    }
+
+    pub(super) fn load_params(&self, session: &str, cwd: &Path) -> Value {
+        json!({ "sessionId": session, "cwd": cwd, "mcpServers": self.mcp_servers, "_meta": self.meta })
+    }
 }
 
 impl App {
@@ -99,30 +107,6 @@ pub(super) fn takes_images(conn: &AcpConn) -> bool {
     conn.capabilities["promptCapabilities"]["image"] == true
 }
 
-/// Open a session with the member's MCP servers, in ACP's `McpServer` shape: stdio servers from
-/// the role and the library, plus library resources reached over streamable HTTP. Agents that
-/// declare no HTTP support (Pi) get only the stdio ones; their session still opens.
-pub(super) fn mcp_servers(m: &Member, http: bool) -> Vec<Value> {
-    m.mcp
-        .iter()
-        .filter(|s| s["name"].as_str().is_some_and(|n| !n.is_empty()))
-        .filter(|s| http || s["transport"].as_str() != Some("http"))
-        .map(|s| {
-            if s["transport"].as_str() == Some("http") {
-                json!({
-                    "type": "http", "name": s["name"], "url": s["url"],
-                    "headers": named_values(s, "headerKeys", &m.mcp_headers),
-                })
-            } else {
-                json!({
-                    "name": s["name"], "command": s["command"], "args": s["args"],
-                    "env": named_values(s, "envKeys", &m.mcp_env),
-                })
-            }
-        })
-        .collect()
-}
-
 /// Swallow the history a `session/load` replays. Updates may trail the response, so wait until
 /// the agent has been quiet for a moment; anything it asks meanwhile is declined.
 pub(super) async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceiver<Incoming>) {
@@ -139,38 +123,43 @@ pub(super) async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceive
     }
 }
 
-pub(super) async fn new_session(
-    conn: &AcpConn,
-    cwd: &Path,
-    m: &Member,
-    extra: &[Value],
-    system: Option<&str>,
-) -> Result<Value> {
-    let mut servers = mcp_servers(m, conn.capabilities["mcpCapabilities"]["http"] == true);
-    servers.extend_from_slice(extra);
-    let meta = with_system_prompt(session_meta(), system);
-    let r = conn.request("session/new", json!({ "cwd": cwd, "mcpServers": servers, "_meta": meta })).await?;
+pub(super) async fn new_session(conn: &AcpConn, cwd: &Path, opening: &Opening) -> Result<Value> {
+    let r = conn.request("session/new", opening.new_params(cwd)).await?;
     r["sessionId"].as_str().context("session/new 没有返回 sessionId")?;
     Ok(r)
 }
 
-/// Claude Code gets Janus's own board tools allowed without asking (`mcp__janus`): they only read
-/// and write the run's board, and in its default mode Claude Code would otherwise ask the person
-/// every time a collaborator posts progress. Codex reads the tools' read-only annotations for the
-/// same effect. Nothing else changes what the role's mode allows.
-// @project-doc docs/interfaces/acp_integration.md#session_meta
-pub fn session_meta() -> Value {
-    json!({
-        "claudeCode": { "options": { "settings": { "permissions": { "allow": ["mcp__janus"] } } } },
-    })
-}
-
-/// Claude Code appends this to its own system prompt (never replaces it); other agents ignore it.
-pub(super) fn with_system_prompt(mut meta: Value, system: Option<&str>) -> Value {
-    if let Some(text) = system {
-        meta["systemPrompt"] = json!({ "append": text });
+impl App {
+    /// The opening of a member's session. `caps` are what its agent declared in `initialize`;
+    /// `system` is the system layer: Janus's instructions for this session, then the person's
+    /// standing rules. Claude Code takes it in `_meta.systemPrompt.append`; Codex has it in its
+    /// process environment already (`with_standing`).
+    pub(super) fn opening(
+        &self,
+        run: &Run,
+        m: &Member,
+        caps: &Value,
+        extra: Vec<Value>,
+        system: Option<&str>,
+    ) -> Opening {
+        let bundle = self.bundle_dir(&run.id, &m.id);
+        let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, |id| self.mcp_values(id));
+        let mut meta = launch.meta;
+        if m.kind == Runtime::Claude {
+            // Janus's own board tools only read and write this run's board; in its default mode
+            // Claude Code would ask the person every time a collaborator posts progress. Codex reads
+            // the tools' read-only annotations for the same effect. Nothing else changes what the
+            // role's mode allows.
+            meta["claudeCode"]["options"]["settings"] = json!({ "permissions": { "allow": ["mcp__janus"] } });
+            if let Some(text) = system {
+                // Appended to Claude Code's own system prompt, never replacing it.
+                meta["systemPrompt"] = json!({ "append": text });
+            }
+        }
+        let mut mcp_servers = launch.mcp_servers;
+        mcp_servers.extend(extra);
+        Opening { mcp_servers, meta, resources: launch.delivered }
     }
-    meta
 }
 
 /// The control values a session of this member opens with: exactly what its role chose. Read

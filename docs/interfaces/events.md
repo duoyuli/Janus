@@ -96,7 +96,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | --- | --- |
 | `task.assigned` | 任务分配给执行者 |
 | `task.ready` | 依赖满足，可以启动 |
-| `attempt.launch_requested` / `attempt.started` | 请求启动 / 尝试开始 |
+| `attempt.launch_requested` / `attempt.started` | 请求启动 / 尝试开始；`attempt.started` 的 `data.config` 是实际生效的设置，其中 `resources` 见下 |
 | `context.handoff` | 上游结果交给下游；`data.amendments` 是主控对上游结论的修订，`data.files` 是上游改过的文件，`data.stale` 是上游完成后又被别的任务改过的文件（`[{path, by}]`），见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
 | `result.amended` | 主控修订已完成任务的结论（`janus.amend`）；`data.text` |
 | `result.submitted` | 尝试提交结构化结果；`data.summary`、`data.checks`（逐条验收：`criterion`、`passed`、`evidence`，可选的 `method` 见[证据方法](#evidence_methods)）、`data.evidence`、`data.risks` |
@@ -142,7 +142,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 
 | 类型 | 说明 |
 | --- | --- |
-| `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置） |
+| `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置，其中 `resources` 见下） |
 | `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 1 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话。每段保留原样的空白和换行（可能在代码块中间切开），按顺序直接拼接就是原文；主控的交付摘要取它最后连续的几段拼起来 |
 | `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix` / `board` / `goal_check`，`goal_check` 是问主控目标是否已经完成，见[目标不自己结束时](../domains/goal_mode.md#goal_settle)，`fix` 是把验证失败发回协作者的会话修复，`board` 是插入主控会话的看板推送）、`data.prompt`、`data.session`；`instructions` 另有 `data.via`（`system` / `developer`） |
 | `tool.call` | 工具调用及其输入输出摘要，`data.callId`，文件改动在 `data.diffs`（`data.output`，没有输出时为空），状态在 `data.status`；改了文件的调用（`edit`、`delete`、`move`）另有 `data.paths`，是相对工作目录的文件 |
@@ -159,6 +159,9 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `message.delivered` | 等待中的消息送达：排队的消息在一轮结束后作为新一轮发送，留言在下次会话开始时带入；`data.ids`。插入的消息被 Agent 读到时另有 `data.applied: true` |
 | `session.interrupted` | 用户打断了一轮 |
 | `control.taken` / `control.released` | 接管 / 交还 |
+
+<a id="session_resources"></a>
+会话开始时记录的 `config.resources` 列出成员的每项资源：`item`、`name`、`kind`（`skill` / `mcp`）、`revision`，以及 `via`：`plugin`（Claude Code 的本地插件）、`additionalRoots`（Codex）、`mcpServers`，或 `skipped`（`why` 说明原因，例如自定义命令的 Agent 不能加载 Skill、Agent 没有声明 HTTP MCP 能力）。不含 MCP 的值，见 [Run 和会话怎样拿到资源](../domains/resource_library.md#delivery)。
 
 ### 需要处理的请求
 

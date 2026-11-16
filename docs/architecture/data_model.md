@@ -15,21 +15,16 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 │   ├── root/                         # Agent 进程的 HOME 和 XDG 目录
 │   ├── tmp/                          # TMPDIR
 │   └── secrets.json                  # Agent 的凭据字段，权限 0600
-├── secrets/roles/<role-id>.json      # 角色手工 MCP 的环境变量值，权限 0600
-├── secrets/mcp/<source-id>/<key>.json # MCP 资源库服务器的环境变量和 HTTP header 值，权限 0600
-├── skills/<skill-id>/SKILL.md        # Janus Skill 库（自建的 Skill）
-├── skill-sources/<source-id>/        # GitHub Skill 来源
-│   ├── source.json                   # 仓库、ref、目录、提交、Skill 索引（key 与目录）、更新检查结果
-│   └── repo/                         # 仓库的浅克隆
-├── mcp-sources/<source-id>/          # GitHub MCP 来源
-│   ├── source.json                   # 仓库、ref、目录、提交、服务器索引、解析警告、更新检查结果
-│   └── repo/                         # 仓库的浅克隆
+├── secrets/library/<item-id>.json    # 资源库 MCP 服务器的环境变量和 HTTP header 值，权限 0600
+├── library/
+│   ├── store/<sha256>/               # Skill 的内容，按内容寻址，存下后不再修改
+│   └── sources/<source-id>/repo/     # Git 来源的浅克隆
 ├── adapters/<id>/                    # ACP 适配器，见 ACP 适配器管理
 ├── artifacts/<run>/<task>/           # 产物：回复和 diff
 ├── logs/<run>/                       # 每个 ACP 子进程的 stderr
 │   ├── lead-goal.log                 # 目标模式主控
 │   └── <task>-a<n>.log               # 任务的第 n 次尝试
-└── runs/<run>/skills/                # Run 创建时的 Skill 快照
+└── runs/<run>/members/<member>/bundle/ # 成员的资源包：Run 创建时复制的 Skill
 ```
 
 适配器的目录结构见 [ACP 适配器管理](adapters.md#layout)。
@@ -45,14 +40,14 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
-| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，以及 `meta` 中的标记（例如默认角色的版本 `seeded`） |
+| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色的版本 `seeded`） |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
 | `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入，失败时删除，用于按 `commandId` 只执行一次 |
 | `leases` | `(run_id, name)` | Run 租约，防止两个 Janus 实例驱动同一个 Run |
 
 约束：
 
-- `configs` 不保存凭据。Agent 的凭据在 `secrets.json`，角色手工 MCP 的环境变量值在 `secrets/roles/`，MCP 资源库服务器的环境变量和 HTTP header 值在 `secrets/mcp/`，`configs` 中只记录变量名（`envKeys`、`headerKeys`）。
+- `configs` 不保存凭据。Agent 的凭据在 `secrets.json`，资源库 MCP 服务器的环境变量和 HTTP header 值在 `secrets/library/`，`configs` 中只记录变量名（`envKeys`、`headerKeys`）。
 - 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。应用用 `after` 参数从某个 `seq` 之后续读。
 - `events` 另有索引 `events_type_ts (type, ts)`，按时间段的用量账单用它找出区间里有 `session.usage` 的 Run，不必读全部事件（[用量账单](../interfaces/http_api.md#usage_bill)）。
 - 租约有效期 10 分钟。持有者是 `janus-<pid>`；该进程已经不存在时，其他实例可以接管。
@@ -62,11 +57,11 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 Run 创建后不再读取最新的设置对象：
 
-- 团队成员、角色、模型、会话控制项、权限摘要、Skill 和 MCP 写入 `runs.config`，工作区（含[共享资料](../domains/agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。
-- 成员的 Skill 复制到 `~/.janus/runs/<run>/skills/`，Agent 读的是快照路径，之后修改 Skill 库不影响已有 Run。
+- 团队成员、角色、模型、会话控制项、权限摘要和资源写入 `runs.config`，工作区（含[共享资料](../domains/agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。
+- 成员的资源（`resources`）是资源当时的完整记录，Skill 复制到成员的资源包 `~/.janus/runs/<run>/members/<member>/bundle/`，之后修改资源库不影响已有 Run，见 [Run 和会话怎样拿到资源](../domains/resource_library.md#delivery)。
 - 随目标粘贴的图片保存在 `~/.janus/runs/<run>/attachments/`，路径列表写入 `runs.config.goalImages`，从中断处继续时主控说明里仍有这些图片，见[图片附件](../domains/run_lifecycle.md#attachments)。
 - 怎样连上 Agent（启动命令、凭据、环境变量预设、适配器版本）不进快照，属于 Agent 的设置：每次打开会话时按当前设置读取（`spec_for`），凭据也因此不会写进 `runs.config`。快照冻结的是角色要求的东西。
-- 成员的 MCP 定义包含手工 MCP 和 `mcpRefs` 展开的资源库服务器。快照只保存名称、命令、地址和 `envKeys` / `headerKeys`；值在会话启动时从 `secrets/roles/` 和 `secrets/mcp/` 读取，`Member.mcp_env` / `mcp_headers` 不序列化，所以 `runs.config` 和事件中没有值。
+- MCP 服务器的快照只有名称、命令、地址和 `envKeys` / `headerKeys`；值在会话启动时从 `secrets/library/` 读取，直接放进会话参数，所以 `runs.config` 和事件中没有值。
 
 恢复 Run 时，团队从 `runs.config` 重建，任务状态从事件日志重建，见 [Run 生命周期](../domains/run_lifecycle.md#recovery)。
 

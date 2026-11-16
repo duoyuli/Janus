@@ -60,11 +60,11 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/agents/catalog.rs` | Agent 类型、登录方式和环境变量预设 |
 | `backend/src/agents/connections.rs` | Agent 连接的保存与删除、隔离目录和密钥、会话的启动命令和沙箱环境 |
 | `backend/src/agents/checks.rs` | 配置检查（适配器、运行时、凭据、会话、试运行）和账号登录 |
-| `backend/src/agents/roles.rs` | 角色、角色手工 MCP 的密钥、MCP 名称检查、首次启动写入的默认角色 |
+| `backend/src/agents/roles.rs` | 角色、角色选择的资源、首次启动写入的默认角色 |
 | `backend/src/agents/workspaces.rs` | 工作区和由工作区组成的 Run 团队 |
 | `backend/src/agents/session_options.rs` | 会话控制项的解析、角色保存的值、Plan 模式不运行的规则 |
 | `backend/src/agents/local_config.rs` | 「复制本机配置」：把本机 Agent 的设置复制到隔离目录 |
-| `backend/src/agents/extensions.rs` | 角色挂载的扩展：Janus Skill 库、项目 Skill、资源库 MCP |
+| `backend/src/library.rs` | `App` 的资源库部分：资源（Skill、MCP 服务器）的类型、新建、编辑、导入、删除和应用读到的列表；子模块 `store`（按内容寻址的 Skill）、`skill`、`mcp`（服务器定义和值）、`sources`（Git 来源）、`deliver`（资源包和会话参数），见[资源库](../domains/resource_library.md) |
 | `backend/src/orchestrator.rs` | `App` 的运行部分的核心：Run、任务和尝试的内存状态，事件的写入与广播，等待者和状态转移；子模块如下 |
 | `backend/src/orchestrator/lifecycle.rs` | 创建和驱动 Run：调度循环、停滞检测、交付 |
 | `backend/src/orchestrator/lead.rs` | 主控：目标会话、交付后的对话、主控说明和推送进会话的看板消息 |
@@ -73,7 +73,7 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/orchestrator/messages.rs` | 用户和主控发给会话的消息：记录、插入正在进行的一轮或排队 |
 | `backend/src/orchestrator/attempts.rs` | 任务的一次尝试：会话、结果核对、改动和产物 |
 | `backend/src/orchestrator/turn.rs` | ACP 会话中的一轮提示：把更新转成事件、插话、控制项和 Agent 的请求 |
-| `backend/src/orchestrator/session.rs` | 为成员打开 ACP 会话：启动 Agent 并登记会话（`open_session`），会话结束时撤销登记、撤回它等待的决定并停止 Agent（`close_session`），以及 MCP 服务器、系统提示和角色要求的控制项。主控和每个任务的会话用 `SessionKey` 区分，任务 id 可以取任何看板允许的值 |
+| `backend/src/orchestrator/session.rs` | 为成员打开 ACP 会话：启动 Agent 并登记会话（`open_session`），会话结束时撤销登记、撤回它等待的决定并停止 Agent（`close_session`），以及会话打开时的参数（`opening`：成员的资源、看板和系统层）和角色要求的控制项。主控和每个任务的会话用 `SessionKey` 区分，任务 id 可以取任何看板允许的值 |
 | `backend/src/orchestrator/prompts.rs` | 发给会话的说明和任务提示，以及结构化结果的解析 |
 | `backend/src/orchestrator/actions.rs` | 用户操作、验收归档的交付、重启后的恢复与继续 |
 | `backend/src/orchestrator/tests.rs`、`flow_tests.rs`、`flow_tests/` | 编排器的单元测试和端到端流程测试 |
@@ -86,12 +86,11 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/prices.rs` | 模型价格：每天从 models.dev 同步，每个模型取厂商的 API 价格，给账单估算花费。正在用的价格表（`PriceBook`）由 `App` 持有 |
 | `backend/src/traces.rs` | 任务在工作目录里留下的痕迹：每个任务改过的文件和每个文件最后的修改者、diff 产物的范围、结果与痕迹的对账、完成后又被改过的文件 |
 | `backend/src/status.rs` | Run、任务、尝试和 Agent 阶段的状态枚举；Run 和任务的合法转移集中在 `can_transition_to` |
-| `backend/src/skill_sources.rs` | `App` 的 Skill 来源部分：解析 GitHub 链接、克隆、查找 Skill、更新与删除，以及按 id 找到 Skill（自建或来源） |
 | `backend/src/db.rs` | SQLite 表结构与读写 |
 | `backend/testdata/fake_acp.py` | 测试用的脚本化 ACP Agent |
 | `frontend/` | macOS 应用（Swift Package），结构见 [macOS 应用](frontend.md#source_layout) |
 
-`agents.rs`、`adapters.rs`、`skill_sources.rs` 和 `orchestrator` 的各个子模块都在 `impl App` 上添加方法；`App` 结构体定义在 `orchestrator.rs`。
+`agents.rs`、`adapters.rs`、`library.rs` 和 `orchestrator` 的各个子模块都在 `impl App` 上添加方法；`App` 结构体定义在 `orchestrator.rs`。
 
 <a id="startup"></a>
 ## 启动顺序

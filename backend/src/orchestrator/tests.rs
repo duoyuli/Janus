@@ -12,34 +12,38 @@ fn member_with(kind: Runtime, provider: &str, role: &str) -> Member {
     m
 }
 
-#[test]
-fn mcp_servers_use_declared_keys_and_keep_values_out_of_the_snapshot() {
+/// Each runtime gets its member's resources its own way, and a reload gets the same opening.
+#[tokio::test]
+async fn sessions_open_with_the_members_resources() {
+    let dir = std::env::temp_dir().join(format!("janus-opening-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let app = test_app(&dir);
+    let docs = json!({ "name": "docs", "transport": "http", "url": "https://d.example/mcp", "vars": [{ "name": "Authorization", "value": "Bearer t" }] });
+    let server = app.save_mcp(None, &docs).await.unwrap();
+    let skill = app.create_skill(&json!({ "name": "notes", "description": "d", "content": "x" })).await.unwrap();
+    let run = test_run(1);
     let mut m = member_with(Runtime::Claude, "", "");
-    m.mcp = vec![
-        json!({ "name": "local", "command": "node", "args": ["local.js"], "envKeys": ["LOCAL_TOKEN"] }),
-        json!({ "name": "docs", "transport": "http", "url": "https://example.com/mcp", "headerKeys": ["Authorization"] }),
-    ];
-    m.mcp_env = json!({ "local": { "LOCAL_TOKEN": "env-secret", "UNDECLARED": "x" }, "docs": { "LEFTOVER": "y" } });
-    m.mcp_headers = json!({ "docs": { "Authorization": "Bearer header-secret", "UNDECLARED": "z" } });
-
-    let all = mcp_servers(&m, true);
-    assert_eq!(all[0]["name"], "local");
-    assert_eq!(all[0]["env"], json!([{ "name": "LOCAL_TOKEN", "value": "env-secret" }]), "only declared keys");
-    assert_eq!(all[1]["type"], "http");
-    assert_eq!(all[1]["url"], "https://example.com/mcp");
-    assert_eq!(all[1]["headers"], json!([{ "name": "Authorization", "value": "Bearer header-secret" }]));
-
-    // An Agent without HTTP MCP support still opens with the stdio servers.
-    let stdio_only = mcp_servers(&m, false);
-    assert_eq!(stdio_only.len(), 1);
-    assert_eq!(stdio_only[0]["name"], "local");
-
-    let snapshot = serde_json::to_string(&m).unwrap();
-    assert!(
-        !snapshot.contains("env-secret") && !snapshot.contains("header-secret"),
-        "values stay out of the run record: {snapshot}"
+    m.resources = vec![skill, server];
+    let caps = json!({ "mcpCapabilities": { "http": true } });
+    let board = json!({ "type": "http", "name": "janus", "url": "http://board" });
+    let o = app.opening(&run, &m, &caps, vec![board.clone()], Some("规则"));
+    let bundle = app.bundle_dir(&run.id, &m.id);
+    assert_eq!(o.meta["claudeCode"]["options"]["plugins"], json!([{ "type": "local", "path": bundle }]));
+    assert_eq!(o.meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
+    assert_eq!(o.meta["systemPrompt"]["append"], "规则");
+    let entry = json!({ "type": "http", "name": "docs", "url": "https://d.example/mcp", "headers": [{ "name": "Authorization", "value": "Bearer t" }] });
+    assert_eq!(o.mcp_servers, vec![entry, board]);
+    let load = o.load_params("s1", Path::new("/w"));
+    assert_eq!(
+        (load["sessionId"].as_str(), &load["_meta"], &load["mcpServers"]),
+        (Some("s1"), &o.meta, &json!(o.mcp_servers))
     );
-    assert!(snapshot.contains("LOCAL_TOKEN") && snapshot.contains("Authorization"), "definitions and key names remain");
+    assert!(!serde_json::to_string(&o.resources).unwrap().contains("Bearer t"), "values stay out of the record");
+
+    m.kind = Runtime::Codex;
+    let o = app.opening(&run, &m, &caps, vec![], Some("规则"));
+    assert_eq!(o.meta, json!({ "additionalRoots": [bundle] }), "Codex has its system layer in its environment");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -150,13 +154,6 @@ fn the_lead_summary_joins_the_last_reply_back_together() {
     assert!(last_reply(&[]).is_none());
 }
 
-/// Claude Code is told to allow Janus's board tools, and only those, without asking.
-#[test]
-fn claude_sessions_allow_only_the_board_tools() {
-    let meta = session_meta();
-    assert_eq!(meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
-}
-
 /// Both official adapters report /goal under `_meta.jetbrains.air`.
 #[test]
 fn goal_status_comes_from_the_air_metadata() {
@@ -214,12 +211,8 @@ fn test_run(team_size: usize) -> Run {
                 runtime_name: String::new(),
                 prompt: String::new(),
                 role_prompt: String::new(),
-                skills: vec![],
-                mcp: vec![],
-                mcp_refs: vec![],
+                resources: vec![],
                 role_id: String::new(),
-                mcp_env: Value::Null,
-                mcp_headers: Value::Null,
             })
             .collect(),
         git: false,
