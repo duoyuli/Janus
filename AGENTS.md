@@ -15,6 +15,7 @@
 ## 约定
 
 - 不修改用户自己的 Agent 配置（`~/.codex`、`~/.claude`）。Janus 需要为 Agent 写入的设置只写入 `~/.janus/agents/<id>/` 下的隔离配置。
+- 角色的 Skill、MCP 和指令只在会话启动时注入（`plugins`、`additionalRoots`、`mcpServers`、系统层），不写任何 Agent 的配置文件，隔离目录中的也不写，见 `docs/decisions/launch_time_resources.md`。
 - 凭据不写进代码、日志、文档、SQLite 或设置接口的返回值。
 - 不替用户 commit 或 push；需要时先确认。
 - 新增或修改事件类型时，同步检查应用的 `derive` / `boardFacts`（`frontend/Sources/Janus/Core/Derive.swift`）、看板的 `board_entry` 和恢复逻辑 `resume_run`，见 `docs/interfaces/events.md`。
