@@ -114,12 +114,12 @@ pub(super) fn with_developer_instructions(mut spec: crate::acp::RuntimeSpec, tex
     spec
 }
 
-#[allow(clippy::too_many_arguments)]
+/// What a collaborator's session is told about its task: the goal, the task and its acceptance
+/// criteria, the workspace (the run's), upstream results, peers, the board and the last failure.
 pub(super) fn task_prompt(
     run: &Run,
     m: &Member,
     def: &TaskDef,
-    workspace: &Path,
     upstream: &[String],
     peers: &[String],
     board: bool,
@@ -150,7 +150,7 @@ pub(super) fn task_prompt(
         desc = def.desc,
         max_attempts = def.max_attempts,
         accept = def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n"),
-        ws = workspace.display(),
+        ws = run.cwd.display(),
         wsnote = "你直接在项目的工作目录中工作，改动立即生效，其他成员也会看到。不要 git commit 或 push。",
     );
     if !upstream.is_empty() {
@@ -174,7 +174,7 @@ pub(super) fn task_prompt(
 {\"summary\":\"一句话结果\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"method\":\"test\",\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
 question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"你建议的选项\"}",
     );
-    p.push_str(&role_extras(m, workspace));
+    p.push_str(&role_extras(m, &run.cwd));
     p.push_str(&prompt_instructions(m));
     p
 }

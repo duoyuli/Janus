@@ -24,7 +24,7 @@ impl App {
     pub(super) async fn open_session(
         &self,
         run: &Run,
-        key: &SessionKey,
+        owner: &Owner,
         agent: &str,
         spec: &crate::acp::RuntimeSpec,
         log: &Path,
@@ -33,6 +33,7 @@ impl App {
         let (conn, rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(spec, &run.cwd, log))
             .await
             .map_err(|_| anyhow!("{who}启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+        let key = &owner.session;
         let (tx, steer_rx) = mpsc::unbounded_channel();
         let cancelled = {
             let mut st = run.st.lock().unwrap();
@@ -51,7 +52,7 @@ impl App {
             conn.kill().await;
             return Err(Cancelled.into());
         }
-        let ctl = Control::new(steer_rx, conn.steering);
+        let ctl = Control::new(steer_rx, conn.steering, owner.clone());
         Ok((conn, rx, ctl))
     }
 

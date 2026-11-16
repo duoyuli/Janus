@@ -58,11 +58,11 @@ fn task_prompts_carry_the_shared_material() {
     };
     let m = run.team[1].clone();
     assert!(
-        !task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None).contains("工作区共享资料"),
+        !task_prompt(&run, &m, &def, &[], &[], false, None).contains("工作区共享资料"),
         "nothing when there is none"
     );
     run.brief = "目标用户是独立开发者".into();
-    let p = task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None);
+    let p = task_prompt(&run, &m, &def, &[], &[], false, None);
     assert!(
         p.contains("工作区共享资料（用户维护的长期背景，与任务说明冲突时以任务说明为准）：\n目标用户是独立开发者"),
         "{p}"

@@ -155,7 +155,7 @@ impl App {
         let workspace = run.cwd.clone();
         let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("{id}-a{n}.log"));
         let owner = Owner { session: SessionKey::task(id), attempt: n };
-        let (conn, mut rx, mut ctl) = self.open_session(run, &owner.session, &agent, &spec, &log, "Agent ").await?;
+        let (conn, mut rx, mut ctl) = self.open_session(run, &owner, &agent, &spec, &log, "Agent ").await?;
         let outcome = async {
         // A task interrupted by a restart reopens its old session when the agent can load it.
         let previous = run.st.lock().unwrap().resume_session.remove(id);
@@ -205,7 +205,6 @@ impl App {
                     run,
                     &member,
                     &def,
-                    &workspace,
                     &upstream,
                     &peers,
                     conn.capabilities["mcpCapabilities"]["http"] == true,
@@ -283,81 +282,17 @@ impl App {
                         )?;
                     }
                 }
-                if ctl.finish {
+                if ctl.finishing() {
                     break finished_by_user(&text);
                 }
                 // Under takeover the agent waits for the person; queued messages wait with it.
-                if !ctl.human && !ctl.queued.is_empty() {
-                    next = Some(self.deliver_queued(run, &mut ctl, &agent, id, n));
+                if !ctl.held_by_person() && !ctl.queued.is_empty() {
+                    next = Some(self.take_queued(run, &mut ctl, &ctx, |k| format!("把排队的 {k} 条消息作为新一轮发给 {agent}")));
                     continue;
                 }
-                if ctl.human {
-                    self.emit(
-                        run,
-                        ev("agent.status", &agent, "这一轮已结束，等待你的消息（人工接管中）")
-                            .task(id)
-                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
-                    );
-                    match ctl.rx.recv().await {
-                        None => return Err(Cancelled.into()),
-                        Some(Steer::Message(m)) => {
-                            self.route_message(run, &agent, id, n, &m.id, "prompt");
-                            next = Some(m.text);
-                        }
-                        // The lead's word while the person holds the session waits for the release.
-                        Some(Steer::Redirect(m)) => {
-                            self.route_message(run, &agent, id, n, &m.id, "queued");
-                            ctl.queued.push(m);
-                        }
-                        Some(Steer::Release) => {
-                            ctl.human = false;
-                            run.set_human(&owner.session, n, false);
-                            self.emit(
-                                run,
-                                ev(
-                                    "control.released",
-                                    "user",
-                                    format!(
-                                        "交还托管：{} 继续自主完成任务",
-                                        run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent)
-                                    ),
-                                )
-                                .task(id)
-                                .attempt(n)
-                                .to(&agent),
-                            );
-                            let waiting = if ctl.queued.is_empty() {
-                                String::new()
-                            } else {
-                                format!("\n\n{}", self.deliver_queued(run, &mut ctl, &agent, id, n))
-                            };
-                            next = Some(format!("{RELEASE_PROMPT}{waiting}"));
-                        }
-                        Some(Steer::Finish) => ctl.finish = true,
-                        Some(Steer::Control(cid, value, via)) => {
-                            if let Err(err) = self
-                                .set_control(
-                                    run,
-                                    &conn,
-                                    &sid,
-                                    ControlChange { id: &cid, value: &value, via: &via },
-                                    &ctx,
-                                )
-                                .await
-                            {
-                                self.show(
-                                    run,
-                                    (
-                                        "session.control",
-                                        format!("切换 {cid} 没有成功：{}", short(&format!("{err:#}"), 120)),
-                                        json!({ "id": cid, "failed": true }),
-                                    ),
-                                    &ctx,
-                                );
-                            }
-                        }
-                        Some(Steer::TakeOver | Steer::Interrupt) => {}
-                    }
+                if ctl.held_by_person() {
+                    let session = PromptSession { conn: &conn, rx: &mut rx, sid: &sid };
+                    next = self.wait_for_person(run, &session, &mut ctl, &ctx, RELEASE_PROMPT).await?;
                     continue;
                 }
                 let parsed = parse_result(&text);
@@ -402,14 +337,13 @@ impl App {
                         let reply = match cmd {
                             None => return Err(Cancelled.into()),
                             Some(Steer::Message(m) | Steer::Redirect(m)) => {
-                                self.route_message(run, &agent, id, n, &m.id, "prompt");
+                                self.route_message(run, &agent, id, n, &m.id, Delivery::Prompt);
                                 next = Some(m.text.clone());
                                 m.text
                             }
-                            Some(Steer::Finish) => { ctl.finish = true; "（直接以当前结果完成）".into() }
+                            Some(Steer::Finish) => { ctl.set_hold(run, Hold::Finish); "（直接以当前结果完成）".into() }
                             Some(_) => {
-                                ctl.human = true;
-                                run.set_human(&owner.session, n, true);
+                                ctl.set_hold(run, Hold::Person);
                                 self.emit(run, ev("control.taken", "user", format!("接管 {} 的会话", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent))).task(id).attempt(n).to(&agent));
                                 "（转为人工接管，在会话中继续）".into()
                             }
@@ -439,13 +373,13 @@ impl App {
             );
             match self.verify_result(run, id, n, attempt_id, &def, &mut result).await {
                 Ok(()) => break 'session result,
-                Err(err) if fixes == 0 && !ctl.finish && err.is::<VerificationFailed>() => {
+                Err(err) if fixes == 0 && !ctl.finishing() && err.is::<VerificationFailed>() => {
                     fixes += 1;
                     let prompt = format!(
                         "你的结果还没有满足验收标准：\n{}\n\n请继续：没有达到的标准，修复后重新验证；没有核对或缺少证据的，补上验证和证据。如果某条标准在当前条件下确实无法达到，如实写 passed: false 并说明原因和你能提供的证据。完成后同样以 ```json 结构化结果结束，checks 逐条更新。",
                         verification_output(run, id)
                     );
-                    self.record_session_prompt(run, &ctx, &sid, "fix", &prompt);
+                    self.record_session_prompt(run, &ctx, &sid, PromptChannel::Fix, &prompt);
                     next = Some(prompt);
                 }
                 Err(err) => return Err(err),
@@ -545,7 +479,7 @@ impl App {
         }
         if let Some(agent) = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == id).map(|t| t.agent.clone()) {
             for m in &late {
-                self.route_message(run, &agent, id, 0, &m.id, "next");
+                self.route_message(run, &agent, id, 0, &m.id, Delivery::Next);
             }
         }
         let mut st = run.st.lock().unwrap();

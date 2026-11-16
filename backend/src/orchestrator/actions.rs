@@ -250,11 +250,11 @@ impl App {
                         if id.is_empty() || a["value"].is_null() {
                             bail!("切换会话选项要给出 id 和 value");
                         }
-                        Steer::Control(
-                            id.to_string(),
-                            a["value"].clone(),
-                            a["via"].as_str().unwrap_or("config").to_string(),
-                        )
+                        Steer::Control(SessionControl {
+                            id: id.to_string(),
+                            value: a["value"].clone(),
+                            via: ControlVia::parse(a["via"].as_str().unwrap_or_default()),
+                        })
                     }
                     "takeover" => Steer::TakeOver,
                     "release" => Steer::Release,
@@ -270,7 +270,7 @@ impl App {
                     (Some(tx), cmd) => tx.send(cmd).map_err(|_| anyhow!("这个会话已经结束"))?,
                     // No open session: keep the message for this agent's next one.
                     (None, Steer::Message(m)) if !agent.is_empty() => {
-                        self.route_message(run, agent, "", 0, &m.id, "next");
+                        self.route_message(run, agent, "", 0, &m.id, Delivery::Next);
                         run.st.lock().unwrap().notes.entry(agent.to_string()).or_default().push(m);
                     }
                     (None, _) => bail!("{} 现在没有打开的会话", if agent.is_empty() { task } else { agent }),
@@ -579,7 +579,7 @@ impl App {
                     .rev()
                     .find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
                 let joined = routed
-                    .is_some_and(|x| matches!(x.data.as_ref().unwrap()["delivery"].as_str(), Some("steer" | "prompt")));
+                    .is_some_and(|x| x.data.as_ref().unwrap()["delivery"].as_str().is_some_and(Delivery::reached_turn));
                 let delivered = later.iter().any(|x| {
                     x.kind == "message.delivered"
                         && x.data

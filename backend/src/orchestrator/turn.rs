@@ -66,7 +66,7 @@ impl App {
                 _ = settle => {
                     asks += 1;
                     let text = crate::goal_settle::ask();
-                    self.record_session_prompt(run, ctx, sid, "goal_check", &text);
+                    self.record_session_prompt(run, ctx, sid, PromptChannel::GoalCheck, &text);
                     self.flush_thought(run, &mut turn.thought, ctx);
                     self.flush_message(run, &out, &mut flushed, ctx);
                     asked_at = Some(out.len());
@@ -140,16 +140,10 @@ impl App {
                     // Following an active goal there is no prompt in flight to wait for: what
                     // could not join the agent's own turn goes in now as a prompt of its own,
                     // instead of waiting until the goal settles.
-                    if following && !c.human && !c.queued.is_empty() {
-                        let msgs: Vec<Msg> = std::mem::take(&mut c.queued);
-                        let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                        let mut e = ev("message.delivered", "janus", format!("目标仍在进行，把 {} 条消息立即发给 {}", msgs.len(), ctx.agent)).to(ctx.agent).data(json!({ "ids": ids }));
-                        if let (Some(t), Some(n)) = (ctx.task, ctx.attempt) {
-                            e = e.task(t).attempt(n);
-                        }
-                        self.emit(run, e);
+                    if following && !c.held_by_person() && !c.queued.is_empty() {
+                        let next = self.take_queued(run, c, ctx, |n| format!("目标仍在进行，把 {n} 条消息立即发给 {}", ctx.agent));
                         self.flush_message(run, &out, &mut flushed, ctx);
-                        prompt = send(&msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n"));
+                        prompt = send(&next);
                         following = false;
                     }
                 }
@@ -169,7 +163,7 @@ impl App {
                     Some(Incoming::Request { id, method, params }) => {
                         if is_user_request(&method) {
                             let waited = tokio::time::Instant::now();
-                            let outcome = self.user_request(run, conn, sid, &method, &params, ctx, ctl.as_deref_mut()).await?;
+                            let outcome = self.user_request(run, conn, sid, AgentRequest { method: &method, params: &params }, ctx, ctl.as_deref_mut()).await?;
                             if let Some(d) = deadline.as_mut() {
                                 *d += waited.elapsed();
                             }
@@ -202,13 +196,13 @@ impl App {
 
     /// The agent took a steered message into the running turn.
     pub(super) fn delivered_steer(&self, run: &Run, ctx: &Ctx<'_>, id: &str) {
-        let mut e = ev("message.delivered", "janus", format!("{} 已经读到插入的消息", ctx.agent))
-            .to(ctx.agent)
-            .data(json!({ "ids": [id], "applied": true }));
-        if let (Some(t), Some(n)) = (ctx.task, ctx.attempt) {
-            e = e.task(t).attempt(n);
-        }
-        self.emit(run, e);
+        self.emit(
+            run,
+            ev("message.delivered", "janus", format!("{} 已经读到插入的消息", ctx.agent))
+                .to(ctx.agent)
+                .scope(ctx)
+                .data(json!({ "ids": [id], "applied": true })),
+        );
     }
 
     /// Apply one session command while a turn is running.
@@ -230,7 +224,14 @@ impl App {
                 // else, and the agent may itself be waiting for us (for example on a permission
                 // request).
                 let injected = c.steering && self.steer_into_turn(run, conn, sid, &m.text).await;
-                self.route_message(run, agent, task, n, &m.id, if injected { "steer" } else { "queued" });
+                self.route_message(
+                    run,
+                    agent,
+                    task,
+                    n,
+                    &m.id,
+                    if injected { Delivery::Steer } else { Delivery::Queued },
+                );
                 if injected {
                     self.delivered_steer(run, ctx, &m.id);
                 } else {
@@ -240,16 +241,24 @@ impl App {
             Steer::Redirect(m) => {
                 let injected = c.steering && self.steer_into_turn(run, conn, sid, &m.text).await;
                 if injected {
-                    self.route_message(run, agent, task, n, &m.id, "steer");
+                    self.route_message(run, agent, task, n, &m.id, Delivery::Steer);
                     self.delivered_steer(run, ctx, &m.id);
                 } else {
                     // Stop the turn; the message is the next turn, sent as soon as this one returns.
                     // Under takeover the person decides when the agent goes on, so it waits there.
-                    if !c.human {
+                    let held = c.held_by_person();
+                    if !held {
                         conn.notify("session/cancel", json!({ "sessionId": sid })).await?;
                         c.interrupted = true;
                     }
-                    self.route_message(run, agent, task, n, &m.id, if c.human { "queued" } else { "interrupt" });
+                    self.route_message(
+                        run,
+                        agent,
+                        task,
+                        n,
+                        &m.id,
+                        if held { Delivery::Queued } else { Delivery::Interrupt },
+                    );
                     c.queued.push(m);
                 }
             }
@@ -258,10 +267,9 @@ impl App {
                 conn.notify("session/cancel", json!({ "sessionId": sid })).await?;
                 c.interrupted = true;
                 if finish {
-                    c.finish = true;
-                } else if !c.human {
-                    c.human = true;
-                    run.set_human(&ctx.session(), n, true);
+                    c.set_hold(run, Hold::Finish);
+                } else if !c.held_by_person() {
+                    c.set_hold(run, Hold::Person);
                 }
                 let text = if finish {
                     format!(
@@ -281,9 +289,8 @@ impl App {
                 );
             }
             Steer::TakeOver => {
-                if !c.human {
-                    c.human = true;
-                    run.set_human(&ctx.session(), n, true);
+                if !c.held_by_person() {
+                    c.set_hold(run, Hold::Person);
                     self.emit(
                         run,
                         ev(
@@ -300,25 +307,10 @@ impl App {
                     );
                 }
             }
-            Steer::Control(id, value, via) => {
-                if let Err(err) =
-                    self.set_control(run, conn, sid, ControlChange { id: &id, value: &value, via: &via }, ctx).await
-                {
-                    self.show(
-                        run,
-                        (
-                            "session.control",
-                            format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)),
-                            json!({ "id": id, "failed": true }),
-                        ),
-                        ctx,
-                    );
-                }
-            }
+            Steer::Control(control) => self.apply_control(run, conn, sid, control, ctx).await,
             Steer::Release => {
-                if c.human {
-                    c.human = false;
-                    run.set_human(&ctx.session(), n, false);
+                if c.held_by_person() {
+                    c.set_hold(run, Hold::Agent);
                     self.emit(
                         run,
                         ev(
@@ -349,13 +341,8 @@ impl App {
         if raw.trim().is_empty() {
             return;
         }
-        let mut e = ev("agent.message", ctx.agent, short(raw.trim(), 80)).data(json!({ "text": short(raw, 8000) }));
-        if let Some(t) = ctx.task {
-            e = e.task(t);
-        }
-        if let Some(n) = ctx.attempt {
-            e = e.attempt(n);
-        }
+        let e =
+            ev("agent.message", ctx.agent, short(raw.trim(), 80)).data(json!({ "text": short(raw, 8000) })).scope(ctx);
         self.emit(run, e);
     }
 
@@ -540,13 +527,7 @@ impl App {
                 // finished record (`tool.call`, same `callId`) replaces it.
                 if first && !matches!(status.as_str(), "completed" | "failed") {
                     let data = crate::acp_view::tool_started(&id, entry, &summarize_input(&entry["rawInput"], &title));
-                    let mut e = ev("tool.started", ctx.agent, short(&title, 80)).data(data);
-                    if let Some(t) = ctx.task {
-                        e = e.task(t);
-                    }
-                    if let Some(n) = ctx.attempt {
-                        e = e.attempt(n);
-                    }
+                    let e = ev("tool.started", ctx.agent, short(&title, 80)).data(data).scope(ctx);
                     self.emit(run, e);
                 }
                 if matches!(status.as_str(), "completed" | "failed") {
@@ -568,13 +549,7 @@ impl App {
                     if !diffs.is_empty() {
                         data["diffs"] = json!(diffs);
                     }
-                    let mut e = ev("tool.call", ctx.agent, short(&title, 80)).data(data);
-                    if let Some(t) = ctx.task {
-                        e = e.task(t);
-                    }
-                    if let Some(n) = ctx.attempt {
-                        e = e.attempt(n);
-                    }
+                    let e = ev("tool.call", ctx.agent, short(&title, 80)).data(data).scope(ctx);
                     let seq = self.emit(run, e);
                     // The lead polls the board on purpose; only its other calls can go in circles.
                     if ctx.task.is_some() || !title.contains("janus") {
@@ -592,11 +567,10 @@ impl App {
                         _ if title.contains("test") || title.contains("测试") => AgentPhase::RunningTest,
                         _ => AgentPhase::RunningTool,
                     };
-                    let mut e = ev("agent.status", ctx.agent, short(&title, 80)).data(json!({ "phase": phase }));
-                    if let Some(t) = ctx.task {
-                        e = e.task(t);
-                    }
-                    self.emit(run, e);
+                    self.emit(
+                        run,
+                        ev("agent.status", ctx.agent, short(&title, 80)).scope(ctx).data(json!({ "phase": phase })),
+                    );
                 }
             }
             _ => {
@@ -609,13 +583,7 @@ impl App {
 
     /// Record what `acp_view` made of an update, in the session it came from.
     pub(super) fn show(&self, run: &Run, (kind, text, data): crate::acp_view::Shown, ctx: &Ctx<'_>) {
-        let mut e = ev(kind, ctx.agent, text).data(data);
-        if let Some(t) = ctx.task {
-            e = e.task(t);
-        }
-        if let Some(n) = ctx.attempt {
-            e = e.attempt(n);
-        }
+        let e = ev(kind, ctx.agent, text).data(data).scope(ctx);
         self.emit(run, e);
     }
 
@@ -639,23 +607,45 @@ impl App {
     /// Switch one of the session's controls while it is open: an ACP session mode, or a config
     /// option (the model, the effort, a permission mode). The agent's answer is the new state.
     // @project-doc docs/interfaces/acp_integration.md#session_controls
-    pub(super) async fn set_control(
+    pub(super) async fn apply_control(
         &self,
         run: &Run,
         conn: &AcpConn,
         sid: &str,
-        change: ControlChange<'_>,
+        control: SessionControl,
+        ctx: &Ctx<'_>,
+    ) {
+        if let Err(err) = self.set_control(run, conn, sid, &control, ctx).await {
+            let id = &control.id;
+            self.show(
+                run,
+                (
+                    "session.control",
+                    format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)),
+                    json!({ "id": id, "failed": true }),
+                ),
+                ctx,
+            );
+        }
+    }
+
+    async fn set_control(
+        &self,
+        run: &Run,
+        conn: &AcpConn,
+        sid: &str,
+        control: &SessionControl,
         ctx: &Ctx<'_>,
     ) -> Result<()> {
-        let ControlChange { id, value, via } = change;
-        if via == "mode" {
+        let SessionControl { id, value, via } = control;
+        if *via == ControlVia::Mode {
             conn.request("session/set_mode", json!({ "sessionId": sid, "modeId": value })).await?;
             self.show(
                 run,
                 (
                     "session.control",
                     format!("你把模式切换为 {}", value.as_str().unwrap_or_default()),
-                    json!({ "id": id, "value": value, "via": "mode", "by": "user" }),
+                    json!({ "id": id, "value": value, "via": via.as_str(), "by": "user" }),
                 ),
                 ctx,
             );
@@ -671,7 +661,7 @@ impl App {
                         "你把 {id} 切换为 {}",
                         value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string())
                     ),
-                    json!({ "id": id, "value": value, "via": "config", "by": "user" }),
+                    json!({ "id": id, "value": value, "via": via.as_str(), "by": "user" }),
                 ),
                 ctx,
             );
@@ -688,18 +678,17 @@ impl App {
     /// agent may do without asking is its permission mode, chosen on the role; whatever it does
     /// ask lands here. While waiting, the session stays responsive: an interrupt or finish
     /// withdraws the request, an abort ends the attempt, and messages queue for the end of the turn.
-    #[allow(clippy::too_many_arguments)]
     // @project-doc docs/interfaces/acp_integration.md#user_request_replies
     pub(super) async fn user_request(
         &self,
         run: &Run,
         conn: &AcpConn,
         sid: &str,
-        method: &str,
-        params: &Value,
+        request: AgentRequest<'_>,
         ctx: &Ctx<'_>,
         mut ctl: Option<&mut Control>,
     ) -> Result<Value> {
+        let AgentRequest { method, params } = request;
         let task = ctx.task.unwrap_or_default();
         let n = ctx.attempt.unwrap_or(0);
         let elicit = method == "elicitation/create";
@@ -789,7 +778,7 @@ impl App {
                         }
                         Some(Steer::Message(m) | Steer::Redirect(m)) => {
                             // The agent is blocked on this request; the message goes in after the turn.
-                            self.route_message(run, ctx.agent, task, n, &m.id, "queued");
+                            self.route_message(run, ctx.agent, task, n, &m.id, Delivery::Queued);
                             c.queued.push(m);
                         }
                         Some(cmd) => self.steer_turn(run, conn, sid, c, cmd, ctx).await?,
@@ -808,6 +797,12 @@ impl App {
         }
         self.emit(run, e);
     }
+}
+
+/// A request the agent sent the client mid-turn: a permission request or an elicitation.
+pub(super) struct AgentRequest<'a> {
+    method: &'a str,
+    params: &'a Value,
 }
 
 /// The files a finished tool call changed, relative to the workspace: its ACP `locations`, or the

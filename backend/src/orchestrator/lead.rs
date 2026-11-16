@@ -3,6 +3,56 @@
 
 use super::*;
 
+/// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PromptChannel {
+    /// The lead's brief in Claude's system layer.
+    System,
+    /// The lead's brief as a first prompt, for agents without a slot in their system layer.
+    Context,
+    /// `/goal <goal>`.
+    Goal,
+    /// What comes next in the lead's session: the person's message, or messages that waited.
+    Followup,
+    /// Board entries pushed into the lead's running turn.
+    Board,
+    /// Janus asks a lead whose goal does not settle whether it is done.
+    GoalCheck,
+    /// A result that did not pass its check, sent back to be fixed.
+    Fix,
+}
+
+impl PromptChannel {
+    /// A prompt in the lead's session: a slash command starts a goal, anything else follows up.
+    pub(super) fn of_lead_prompt(prompt: &str) -> PromptChannel {
+        if prompt.starts_with("/goal ") { PromptChannel::Goal } else { PromptChannel::Followup }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            PromptChannel::System => "system",
+            PromptChannel::Context => "context",
+            PromptChannel::Goal => "goal",
+            PromptChannel::Followup => "followup",
+            PromptChannel::Board => "board",
+            PromptChannel::GoalCheck => "goal_check",
+            PromptChannel::Fix => "fix",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            PromptChannel::System => "向 Agent 注入主控上下文",
+            PromptChannel::Context => "向主控发送团队上下文",
+            PromptChannel::Goal => "向主控发送目标提示",
+            PromptChannel::Followup => "向主控发送继续提示",
+            PromptChannel::Board => "把看板上需要处理的消息推给主控",
+            PromptChannel::GoalCheck => "问主控目标是否已经完成",
+            PromptChannel::Fix => "验证没有通过，把结果发回 Agent 修复",
+        }
+    }
+}
+
 impl App {
     /// Goal mode: the lead pursues the goal in its own session (Claude Code and Codex `/goal`) and
     /// does it alone or brings in the team. Bringing them in means submitting an orchestration
@@ -129,7 +179,7 @@ impl App {
             run,
             &Ctx { agent: "lead", task: None, attempt: None, goal: false },
             &sid,
-            "board",
+            PromptChannel::Board,
             &text,
         );
         let _ = tx.send(Steer::Message(Msg { id, text }));
@@ -192,7 +242,7 @@ impl App {
         }
         let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-goal.log");
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let (conn, mut rx, mut ctl) = self.open_session(run, &owner.session, "lead", &spec, &log, "主控").await?;
+        let (conn, mut rx, mut ctl) = self.open_session(run, &owner, "lead", &spec, &log, "主控").await?;
         let result = async {
             let brief = format!("{}{}", self.goal_brief(run, resumed), self.take_notes(run, "lead"));
             let claude = lead.kind == "claude";
@@ -228,7 +278,7 @@ impl App {
                 // Codex has no slot for extra instructions: the brief goes in first, as context.
                 let ack =
                     format!("{brief}\n\n以上是背景信息。现在只回复“已了解”，不要开始工作，目标会在下一条消息里给出。");
-                self.record_session_prompt(run, &ctx, &sid, "context", &ack);
+                self.record_session_prompt(run, &ctx, &sid, PromptChannel::Context, &ack);
                 self.stream_prompt(
                     run,
                     &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
@@ -241,7 +291,7 @@ impl App {
             } else {
                 // Claude receives the brief through session/new's systemPrompt.append. Record it
                 // explicitly so the session view shows the same context the model receives.
-                self.record_session_prompt(run, &ctx, &sid, "system", &brief);
+                self.record_session_prompt(run, &ctx, &sid, PromptChannel::System, &brief);
             }
             let mut prompt = format!("/goal {}", goal_condition(&run.goal));
             let mut delivered = false;
@@ -250,13 +300,7 @@ impl App {
                 // to that goal's turn. Both complete through the same branch below.
                 let goal_turn = prompt.trim_start().starts_with("/goal ")
                     || run.st.lock().unwrap().goal_status.as_deref() == Some("active");
-                self.record_session_prompt(
-                    run,
-                    &ctx,
-                    &sid,
-                    if prompt.starts_with("/goal ") { "goal" } else { "followup" },
-                    &prompt,
-                );
+                self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&prompt), &prompt);
                 let text = self
                     .stream_prompt(
                         run,
@@ -270,17 +314,8 @@ impl App {
                 if let Some(reason) = goal_refused(&text) {
                     bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
                 }
-                if !ctl.human && !ctl.queued.is_empty() {
-                    let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
-                    let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                    self.emit(
-                        run,
-                        ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len()))
-                            .to("lead")
-                            .data(json!({ "ids": ids })),
-                    );
-                    let texts: Vec<&str> = msgs.iter().map(|m| m.text.as_str()).collect();
-                    let next = texts.join("\n\n");
+                if !ctl.held_by_person() && !ctl.queued.is_empty() {
+                    let next = self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给主控"));
                     prompt = if delivered {
                         next
                     } else {
@@ -288,72 +323,11 @@ impl App {
                     };
                     continue;
                 }
-                if ctl.human && !ctl.finish {
-                    self.emit(
-                        run,
-                        ev("agent.status", "lead", "这一轮已结束，等待你的消息（人工接管中）")
-                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
-                    );
-                    loop {
-                        match ctl.rx.recv().await {
-                            None => return Err(Cancelled.into()),
-                            Some(Steer::Message(m)) => {
-                                self.route_message(run, "lead", "", 0, &m.id, "prompt");
-                                prompt = m.text;
-                            }
-                            Some(Steer::Release) => {
-                                ctl.human = false;
-                                run.set_human(&owner.session, 0, false);
-                                self.emit(run, ev("control.released", "user", "交还托管：主控继续推进目标").to("lead"));
-                                prompt = format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal);
-                                if !ctl.queued.is_empty() {
-                                    let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
-                                    let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                                    self.emit(
-                                        run,
-                                        ev(
-                                            "message.delivered",
-                                            "janus",
-                                            format!("交还托管，把排队的 {} 条消息发给主控", msgs.len()),
-                                        )
-                                        .to("lead")
-                                        .data(json!({ "ids": ids })),
-                                    );
-                                    prompt = format!(
-                                        "{}\n\n{prompt}",
-                                        msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n")
-                                    );
-                                }
-                            }
-                            Some(Steer::Finish) => ctl.finish = true,
-                            Some(Steer::Control(id, value, via)) => {
-                                if let Err(err) = self
-                                    .set_control(
-                                        run,
-                                        &conn,
-                                        &sid,
-                                        ControlChange { id: &id, value: &value, via: &via },
-                                        &ctx,
-                                    )
-                                    .await
-                                {
-                                    self.show(
-                                        run,
-                                        (
-                                            "session.control",
-                                            format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)),
-                                            json!({ "id": id, "failed": true }),
-                                        ),
-                                        &ctx,
-                                    );
-                                }
-                                continue;
-                            }
-                            Some(Steer::TakeOver | Steer::Interrupt | Steer::Redirect(_)) => continue,
-                        }
-                        break;
-                    }
-                    if !ctl.finish {
+                if ctl.held_by_person() {
+                    let session = PromptSession { conn: &conn, rx: &mut rx, sid: &sid };
+                    let resume = format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal);
+                    if let Some(next) = self.wait_for_person(run, &session, &mut ctl, &ctx, &resume).await? {
+                        prompt = next;
                         continue;
                     }
                 }
@@ -386,10 +360,7 @@ impl App {
                         self.deliver(run);
                     }
                 }
-                ctl.human = false;
-                ctl.finish = false;
-                ctl.interrupted = false;
-                run.set_human(&owner.session, 0, false);
+                ctl.next_turn(run);
                 let Some(next) = self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? else {
                     return Ok(text);
                 };
@@ -421,7 +392,7 @@ impl App {
         let brief = conversation_brief(run, &events);
         let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-chat.log");
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let opened = self.open_session(run, &owner.session, "lead", &spec, &log, "主控").await;
+        let opened = self.open_session(run, &owner, "lead", &spec, &log, "主控").await;
         let (conn, mut rx, mut ctl) = match opened {
             Ok(opened) => opened,
             Err(err) => {
@@ -519,13 +490,7 @@ impl App {
             loop {
                 let goal_turn = next.trim_start().starts_with("/goal ")
                     || run.st.lock().unwrap().goal_status.as_deref() == Some("active");
-                self.record_session_prompt(
-                    run,
-                    &ctx,
-                    &sid,
-                    if next.starts_with("/goal ") { "goal" } else { "followup" },
-                    &next,
-                );
+                self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&next), &next);
                 let text = self
                     .stream_prompt(
                         run,
@@ -542,16 +507,8 @@ impl App {
                         ev("session.prompt", "janus", format!("主控没有把它当作新的目标：{reason}")).to("lead"),
                     );
                 }
-                if !ctl.human && !ctl.queued.is_empty() {
-                    let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
-                    let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                    self.emit(
-                        run,
-                        ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len()))
-                            .to("lead")
-                            .data(json!({ "ids": ids })),
-                    );
-                    next = msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
+                if !ctl.held_by_person() && !ctl.queued.is_empty() {
+                    next = self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给主控"));
                     continue;
                 }
                 if goal_turn {
@@ -561,9 +518,7 @@ impl App {
                         self.deliver(run);
                     }
                 }
-                ctl.human = false;
-                ctl.finish = false;
-                ctl.interrupted = false;
+                ctl.next_turn(run);
                 match self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? {
                     Some(text) => next = text,
                     None => return Ok(()),
@@ -607,14 +562,10 @@ impl App {
                 cmd = ctl.rx.recv() => match cmd {
                     None => return Err(Cancelled.into()),
                     Some(Steer::Message(m)) => {
-                        self.route_message(run, "lead", "", 0, &m.id, "prompt");
+                        self.route_message(run, "lead", "", 0, &m.id, Delivery::Prompt);
                         return Ok(Some(m.text));
                     }
-                    Some(Steer::Control(id, value, via)) => {
-                        if let Err(err) = self.set_control(run, conn, sid, ControlChange { id: &id, value: &value, via: &via }, ctx).await {
-                            self.show(run, ("session.control", format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": id, "failed": true })), ctx);
-                        }
-                    }
+                    Some(Steer::Control(c)) => self.apply_control(run, conn, sid, c, ctx).await,
                     Some(Steer::Finish) => return Ok(None),
                     Some(Steer::TakeOver | Steer::Interrupt | Steer::Release | Steer::Redirect(_)) => {}
                 },
@@ -659,36 +610,30 @@ impl App {
         if text.is_empty() {
             return;
         }
-        let mut e = ev("session.prompt", "janus", "向 Agent 注入用户的长期要求")
-            .to(ctx.agent)
-            .data(json!({ "channel": "instructions", "via": via, "session": sid, "prompt": text }));
-        if let Some(task) = ctx.task {
-            e = e.task(task);
-        }
-        if let Some(attempt) = ctx.attempt {
-            e = e.attempt(attempt);
-        }
-        self.emit(run, e);
+        self.emit(
+            run,
+            ev("session.prompt", "janus", "向 Agent 注入用户的长期要求")
+                .to(ctx.agent)
+                .scope(ctx)
+                .data(json!({ "channel": "instructions", "via": via, "session": sid, "prompt": text })),
+        );
     }
 
-    pub(super) fn record_session_prompt(&self, run: &Run, ctx: &Ctx<'_>, sid: &str, channel: &str, prompt: &str) {
-        let label = match channel {
-            "system" => "向 Agent 注入主控上下文",
-            "fix" => "验证没有通过，把结果发回 Agent 修复",
-            "context" => "向主控发送团队上下文",
-            "goal" => "向主控发送目标提示",
-            _ => "向主控发送继续提示",
-        };
-        let mut e = ev("session.prompt", "janus", label)
-            .to(ctx.agent)
-            .data(json!({ "channel": channel, "session": sid, "prompt": prompt }));
-        if let Some(task) = ctx.task {
-            e = e.task(task);
-        }
-        if let Some(attempt) = ctx.attempt {
-            e = e.attempt(attempt);
-        }
-        self.emit(run, e);
+    pub(super) fn record_session_prompt(
+        &self,
+        run: &Run,
+        ctx: &Ctx<'_>,
+        sid: &str,
+        channel: PromptChannel,
+        prompt: &str,
+    ) {
+        self.emit(
+            run,
+            ev("session.prompt", "janus", channel.label())
+                .to(ctx.agent)
+                .scope(ctx)
+                .data(json!({ "channel": channel.as_str(), "session": sid, "prompt": prompt })),
+        );
     }
 
     /// What the lead knows about its team and how to work with it. Everything it learns about

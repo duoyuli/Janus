@@ -46,6 +46,7 @@ use board::*;
 use board_tools::*;
 pub use lead::lead_capable;
 use lead::*;
+use messages::Delivery;
 use prompts::*;
 pub use session::session_meta;
 use session::*;
@@ -206,8 +207,38 @@ pub enum Steer {
     TakeOver,
     Release,
     Finish,
-    /// Switch a session control: `id`, its new value, and whether it is an ACP mode or a config option.
-    Control(String, Value, String),
+    /// Switch one of the session's controls.
+    Control(SessionControl),
+}
+
+/// A control the person switches in an open session: its id, the new value, and how the agent
+/// takes it.
+pub struct SessionControl {
+    pub id: String,
+    pub value: Value,
+    pub via: ControlVia,
+}
+
+/// How an agent switches a control: as an ACP session mode (`session/set_mode`) or as a config
+/// option (`session/set_config_option`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControlVia {
+    Mode,
+    Config,
+}
+
+impl ControlVia {
+    /// The `via` an action or a control declaration names; anything but `mode` is a config option.
+    pub fn parse(s: &str) -> ControlVia {
+        if s == "mode" { ControlVia::Mode } else { ControlVia::Config }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            ControlVia::Mode => "mode",
+            ControlVia::Config => "config",
+        }
+    }
 }
 
 /// A message for a session, from the person or the lead. It is recorded the moment it is sent
@@ -219,20 +250,56 @@ pub struct Msg {
     pub text: String,
 }
 
-/// Per-attempt control state. In auto mode the orchestrator finishes the attempt when the agent
-/// returns a result; in human mode it keeps the session open and waits for the person instead.
+/// Who decides what an open session does once a turn ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Hold {
+    /// The agent works on its own: Janus sends the next prompt (or takes the result).
+    Agent,
+    /// The person took over (or interrupted): the session waits for their message, and its
+    /// silence is theirs, not the agent's.
+    Person,
+    /// The person asked to end with the result so far.
+    Finish,
+}
+
+/// The person's side of an open session: their commands, who holds it, and the messages that
+/// wait for the turn to end. Changing who holds it also tells the watchdog, so the two never
+/// disagree.
 struct Control {
     rx: mpsc::UnboundedReceiver<Steer>,
+    /// The agent takes messages into a running turn (`_session/steering`).
     steering: bool,
-    human: bool,
+    hold: Hold,
+    /// Janus cancelled the running turn itself, so the `cancelled` it ends with is expected.
+    /// Cleared when the turn returns.
     interrupted: bool,
-    finish: bool,
     queued: Vec<Msg>,
+    owner: Owner,
 }
 
 impl Control {
-    fn new(rx: mpsc::UnboundedReceiver<Steer>, steering: bool) -> Control {
-        Control { rx, steering, human: false, interrupted: false, finish: false, queued: vec![] }
+    fn new(rx: mpsc::UnboundedReceiver<Steer>, steering: bool, owner: Owner) -> Control {
+        Control { rx, steering, hold: Hold::Agent, interrupted: false, queued: vec![], owner }
+    }
+
+    fn held_by_person(&self) -> bool {
+        self.hold == Hold::Person
+    }
+
+    fn finishing(&self) -> bool {
+        self.hold == Hold::Finish
+    }
+
+    /// Hand the session to `hold`; the watchdog leaves a session the person holds alone.
+    fn set_hold(&mut self, run: &Run, hold: Hold) {
+        self.hold = hold;
+        run.set_human(&self.owner.session, self.owner.attempt, hold == Hold::Person);
+    }
+
+    /// A finished turn of the lead's conversation: the next one starts with the agent in charge.
+    fn next_turn(&mut self, run: &Run) {
+        self.interrupted = false;
+        self.set_hold(run, Hold::Agent);
     }
 }
 
@@ -535,6 +602,12 @@ impl Ev {
         self.data = Some(data);
         self
     }
+    /// The event happens in the session `ctx` speaks in: its task and attempt, if it has them.
+    fn scope(mut self, ctx: &Ctx<'_>) -> Ev {
+        self.task = ctx.task.filter(|t| !t.is_empty()).map(str::to_owned);
+        self.attempt = ctx.attempt.filter(|n| *n > 0);
+        self
+    }
 }
 
 struct Ctx<'a> {
@@ -563,14 +636,6 @@ struct PromptSession<'a> {
     conn: &'a Arc<AcpConn>,
     rx: &'a mut mpsc::UnboundedReceiver<Incoming>,
     sid: &'a str,
-}
-
-/// A control the person switches in an open session (`set_control`).
-struct ControlChange<'a> {
-    id: &'a str,
-    value: &'a Value,
-    /// `mode` for an ACP session mode, else a config option.
-    via: &'a str,
 }
 
 /// A file an attempt produced, saved under the run's artifacts (`save_artifact`).

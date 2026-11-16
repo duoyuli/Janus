@@ -283,7 +283,7 @@ impl App {
                 ))
             }
             None => {
-                self.route_message(run, &agent, task, 0, &msg.id, "next");
+                self.route_message(run, &agent, task, 0, &msg.id, Delivery::Next);
                 run.st.lock().unwrap().notes.entry(agent.clone()).or_default().push(msg);
                 Ok(format!("{task} 现在没有在执行，消息会在 {agent} 下一次开始工作时带给它。"))
             }
