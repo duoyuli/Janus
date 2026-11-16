@@ -30,7 +30,7 @@
 | J-08 | 中高 |  已修复  | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
 | J-09 | 中 |  已修复  | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
 | J-10 | 中 |  已修复  | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
-| J-11 | 中 |  部分修复  | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
+| J-11 | 中 |  已修复  | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
 
 ## 详细问题
 
@@ -166,7 +166,7 @@
 
 建议：先运行 `cargo fmt` 统一格式，再按模块修复 Clippy。对确实承载跨层上下文的函数，优先引入结构体参数或拆分职责，不要用大量 `#[allow]` 消除质量门禁。
 
-处理（2026-11-15）：Clippy 已经没有诊断，并在 CI 中执行（`cargo clippy --all-targets -- -D warnings`）。`cargo fmt --check` 仍未采用，是否采用 rustfmt 见[经验教训](../operations/agent_change_lessons.md#open_items)。
+处理（2026-11-15）：Clippy 已经没有诊断；代码按 `backend/rustfmt.toml` 格式化。`cargo fmt --check` 和 `cargo clippy --all-targets -- -D warnings` 都在 CI 中执行，本地用 `just lint`。
 
 ## 修复顺序
 

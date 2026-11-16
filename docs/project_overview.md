@@ -79,6 +79,7 @@ Janus/
 | --- | --- |
 | 从源码启动（开发） | `just dev` |
 | 运行全部测试 | `just test`；macOS 应用 `just test-mac` |
+| 格式化和静态检查 | `just fmt`；与 CI 相同的检查 `just lint` |
 | 从源码运行 macOS 应用 | `just mac` |
 | 打包 Janus.app 和 DMG | `just dmg` |
 | 安装并以服务方式启动 | `just install`，然后 `just start` |

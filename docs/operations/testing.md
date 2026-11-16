@@ -9,7 +9,7 @@
 just test
 ```
 
-等于 `cd backend && cargo test`。
+等于 `cd backend && cargo test`。提交前再运行 `just lint`，执行与 CI 相同的 `cargo fmt --check` 和 Clippy 检查。
 
 macOS 应用的测试见 [macOS 应用](#macos_app)。
 

@@ -67,6 +67,7 @@
 - **现状**：`just test` 和 `cargo clippy --all-targets -- -D warnings` 仍是人工执行（[经验教训](../operations/agent_change_lessons.md#l02)）。
 - **借鉴**：能被机制执行的规则才会稳定生效。
 - **做法**：在 CI 中加 clippy 和仓库文档检查；测试已经在 CI 中。这一项不涉及多 Agent 运行时，但和「规则变机制」的结论一致。
+- **处理（2026-11-15）**：`cargo fmt --check` 和 Clippy 已在 CI 中执行。文档检查脚本属于 `project-doc` skill，不在仓库中，仍在提交前运行。
 
 ## 操作记录
 

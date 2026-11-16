@@ -20,6 +20,14 @@ dev:
 test:
     cd backend && cargo test
 
+# 按 backend/rustfmt.toml 格式化 Rust 代码
+fmt:
+    cd backend && cargo fmt
+
+# 与 CI 相同的格式和 Clippy 检查，提交前运行
+lint:
+    cd backend && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings
+
 # @project-doc docs/operations/deployment.md#macos_app
 # 从源码运行 macOS 原生应用（连接已在运行的 Janus，否则启动 JANUS_HOME/bin/janus）
 mac:

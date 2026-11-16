@@ -13,16 +13,19 @@ concurrency:
 
 jobs:
   backend:
-    name: Orchestrator (cargo clippy + test)
+    name: Orchestrator (cargo fmt + clippy + test)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
+      - name: Format
+        working-directory: backend
+        run: cargo fmt --check
       - name: Clippy
         working-directory: backend
         run: cargo clippy --all-targets --locked -- -D warnings

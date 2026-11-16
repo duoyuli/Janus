@@ -8,7 +8,7 @@
 满足以下全部条件才合并。不满足的项写进提交说明并说明原因，不能静默跳过。
 
 1. `just test` 通过，并且新行为有测试。测试要走真实的鉴权、校验和持久化路径，不能直接读内部状态绕过它们（见 [L-03](#l03)）。
-2. `cargo clippy --all-targets -- -D warnings` 没有诊断，CI 中执行。新代码不新增 `#[allow(...)]`，确有必要时在旁边写明理由。
+2. `cargo fmt --check` 和 `cargo clippy --all-targets -- -D warnings` 没有诊断，CI 中执行，本地用 `just lint`。新代码不新增 `#[allow(...)]`，确有必要时在旁边写明理由。
 3. 一个提交只做一件事。提交说明里的条目超过三项、或者涉及互不相关的功能时，拆开提交（见 [L-04](#l04)）。
 4. 源文件不超过 2000 行。新功能放进对应职责的模块；一个文件接近上限时先按职责拆成子模块（例如 `orchestrator/`、`agents/`），再加功能（见 [L-04](#l04)）。
 5. 扩大信任边界的改动（新的下载来源、执行第三方脚本、新的网络监听、读写用户目录、改变凭据的存放）要先写 ADR，并更新[安全边界](security.md)（见 [L-05](#l05)）。
@@ -32,7 +32,7 @@
 
 CI 只运行 `cargo test`。`cargo fmt --check` 和 `cargo clippy -D warnings` 在 10-31 已经失败，之后没有人处理，诊断一直存在。门禁不在 CI 里，Agent 就不会在意它。
 
-教训：想要守住的规则要放进 CI。决定不执行的规则（例如本仓库没有采用 rustfmt 的默认行宽）要写明，不要留一个永远失败的检查。
+教训：想要守住的规则要放进 CI。和默认值不同的约定写进配置（例如 `backend/rustfmt.toml` 的行宽），不要留一个永远失败的检查。
 
 <a id="l03"></a>
 ### L-03：测试绕过了要验证的边界
@@ -74,11 +74,12 @@ CI 只运行 `cargo test`。`cargo fmt --check` 和 `cargo clippy -D warnings` �
 
 清理中发现但没有在当次处理的问题。处理后从本节删除，并在清理记录中注明。
 
-- `cargo fmt --check` 不通过，也不在 CI 中（[L-02](#l02)）。需要决定是否采用 rustfmt（或配置行宽）。
+目前没有未解决项。
 
 <a id="cleanup_log"></a>
 ## 清理记录
 
+- 2026-11-15：采用 rustfmt，配置在 `backend/rustfmt.toml`（行宽 120，`use_small_heuristics = "Max"`，格式化后所有文件仍在 2000 行以内），`cargo fmt --check` 进 CI，本地用 `just lint`。L-02 处理完毕，[代码审查报告](../review/code_review_2026_10_31.md)的 J-11 已修复。
 - 2026-11-15（基础债治理）：删除对旧数据的兼容代码（默认角色的版本升级、旧适配器包的替换、早期计划模式 Run、没有 `role_id` 或早于 MCP 名称检查的快照、旧事件形状），`task.succeeded` 带完整结论；Clippy 清零并进 CI（L-02 只剩 rustfmt）；`orchestrator.rs`（7700 行）和 `agents.rs`（2500 行）按职责拆成子模块，规则 4 改为所有文件的行数上限；[代码审查报告](../review/code_review_2026_10_31.md)逐项复核：修复 J-03、J-04、J-06、J-08、J-09、J-10，J-05、J-07 按设计并写进文档，J-02 是接受的风险；删除指向仓库内的默认工作目录 `defaultCwd`。
 - 2026-11-15：所有适配器改为 npm（Codex、Claude Code、Grok、Pi），删除 Git 来源、提交版本号和按目录结构识别来源的逻辑；插话和目标的扩展方法改为 `_session/steering`、`_session/goal` 和 `_meta.jetbrains.air.goal`。L-05（适配器从默认分支构建、不锁定提交）不再存在。
 - 2026-11-08：Run、Task、Attempt、Agent 阶段、适配器任务的状态改为枚举，Run 和 Task 的合法转移集中声明（`backend/src/status.rs`）；连接检查和库源检查各自收敛为一个状态值。检查失败时不再保留上一次的「有更新」。应用更新的进度改为枚举，不解析文字。
