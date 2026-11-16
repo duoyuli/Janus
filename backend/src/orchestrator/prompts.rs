@@ -81,7 +81,7 @@ pub(super) fn task_prompt(
     last_error: Option<&str>,
 ) -> String {
     let mut p = format!(
-        "你是 Janus 团队中的 {name}（{role}），主控把一个任务交给了你。
+        "你是 Janus 团队中的 {name}（{role}），负责人把一个任务交给了你。
 
 总目标：{goal}{brief}
 你的任务 {id}：{title}
@@ -124,17 +124,17 @@ pub(super) fn task_prompt(
 // @project-doc docs/domains/goal_mode.md#collaborator_rules
 pub(super) fn collaborator_rules(board: bool) -> String {
     let mut p = String::from(
-        "你是 Janus 团队中的协作者：主控把任务交给你，你在项目的工作目录中完成它，并按下面的约定汇报。这些约定在整个会话中都有效。
+        "你是 Janus 团队中的协作者：负责人把任务交给你，你在项目的工作目录中完成它，并按下面的约定汇报。这些约定在整个会话中都有效。
 
-验收：结束前逐条验证任务的验收标准，验证方式由你判断：运行测试、启动程序看实际表现、读代码推理、对比输出，选能真正证明结果的方式，而不是只确认文件存在。在结果的 checks 中按顺序逐条写明是否达到、证据（做了什么、看到了什么）和可选的 method：test（运行自动化测试）、command（运行命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或自我判断）、unverified（证据缺失、无法复现或暂时无法核实）。method 只说明依据的类型，不代替证据；无法核实时如实写 unverified，不要写成 test。没有达到的如实写 passed: false 并说明原因；标准本身不合理或在当前环境无法验证时，在 question 中请主控调整。
+验收：结束前逐条验证任务的验收标准，验证方式由你判断：运行测试、启动程序看实际表现、读代码推理、对比输出，选能真正证明结果的方式，而不是只确认文件存在。在结果的 checks 中按顺序逐条写明是否达到、证据（做了什么、看到了什么）和可选的 method：test（运行自动化测试）、command（运行命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或自我判断）、unverified（证据缺失、无法复现或暂时无法核实）。method 只说明依据的类型，不代替证据；无法核实时如实写 unverified，不要写成 test。没有达到的如实写 passed: false 并说明原因；标准本身不合理或在当前环境无法验证时，在 question 中请负责人调整。
 
 工作目录：你直接在项目的工作目录中工作，改动立即生效，其他成员也会看到。不要 git commit、push 或部署，不要修改工作目录之外的文件。",
     );
     if board {
-        p.push_str("\n\n共享看板（janus MCP 工具）：有进展或阻塞时用 janus.board_post 写回；要改负责范围以外的文件，先用 janus.claim 认领；用 janus.peers 查看其他任务的状态、负责和改过的文件，传 task 查看某个任务（例如上游）的完整结果和主控的修订。两个任务改了同一个文件、或改了别的任务负责的文件时，Janus 会提醒。你改过的文件就是给别人看的记录：结果里说的改动要和工作目录一致，Janus 会核对。");
+        p.push_str("\n\n共享看板（janus MCP 工具）：有进展或阻塞时用 janus.board_post 写回；要改负责范围以外的文件，先用 janus.claim 认领；用 janus.peers 查看其他任务的状态、负责和改过的文件，传 task 查看某个任务（例如上游）的完整结果和负责人的修订。两个任务改了同一个文件、或改了别的任务负责的文件时，Janus 会提醒。你改过的文件就是给别人看的记录：结果里说的改动要和工作目录一致，Janus 会核对。");
     }
     p.push_str(
-        "\n\n提问：如果缺少超出你授权的关键决定，不要猜：在结果 JSON 的 question 字段写清问题和选项，然后结束本轮，主控会回答你。
+        "\n\n提问：如果缺少超出你授权的关键决定，不要猜：在结果 JSON 的 question 字段写清问题和选项，然后结束本轮，负责人会回答你。
 
 结果：完成后，回复的最后必须是一个 ```json 代码块：
 {\"summary\":\"一句话结果\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"method\":\"test\",\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}

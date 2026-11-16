@@ -501,7 +501,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: d["from"].str, to: e.task ?? "", agent: e.to ?? "", summary: d["summary"].str, artifacts: d["artifacts"].strings))
         case "orchestration.accepted":
             let ts = d["tasks"].array
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控提交编排", text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : "（依赖 \(x["deps"].strings.joined(separator: "、"))）")" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人提交编排", text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : "（依赖 \(x["deps"].strings.joined(separator: "、"))）")" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
         case "orchestration.rejected":
             let errs = d["errors"].strings
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "编排没有通过校验", text: errs.isEmpty ? e.text : errs.joined(separator: "\n"), agents: ["lead"]))
@@ -517,18 +517,18 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "接受风险并验收", text: e.text))
         case "result.amended":
             if let task = e.task { gaps[task] = nil }
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控修订 \(e.task ?? "") 的结论", text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人修订 \(e.task ?? "") 的结论", text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
         case "task.skipped_by_decision":
-            if e.actor == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控取消 \(e.task ?? "")", text: e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
+            if e.actor == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人取消 \(e.task ?? "")", text: e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "task.reopened":
             if let task = e.task { gaps[task] = nil }
             if e.actor == "lead" {
                 let parts = [d["instructions"].truthy ? "新说明：\(d["instructions"].str)" : nil, d["accept"].truthy ? "新的验收标准：\(d["accept"].strings.joined(separator: "；"))" : nil].compactMap { $0 }
-                f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控重做 \(e.task ?? "")", text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
+                f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人重做 \(e.task ?? "")", text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
             }
         case "task.succeeded":
             if let task = e.task { gaps[task] = d["traceGaps"].strings.isEmpty ? nil : (seq: e.seq, gaps: d["traceGaps"].strings) }
-            if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "主控接受 \(e.task ?? "") 的结果", text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
+            if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人接受 \(e.task ?? "") 的结果", text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "user.message":
             let images = Attach.paths(d).count
             let words = Attach.visibleText(d["text"].string ?? e.text)
@@ -570,9 +570,9 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
                 QuickAction(label: o, prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": JSON(i.task ?? ""), "answer": JSON(o), "note": ""])
             }
         case "question":
-            title = "主控请你决定：\(L.short(i.d["question"].str, 40))"
+            title = "负责人请你决定：\(L.short(i.d["question"].str, 40))"
             actions = i.d["options"].strings.map { o in
-                QuickAction(label: o, help: o == i.d["recommend"].str ? "主控建议" : "", prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": "", "answer": JSON(o), "note": ""])
+                QuickAction(label: o, help: o == i.d["recommend"].str ? "负责人建议" : "", prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": "", "answer": JSON(o), "note": ""])
             }
         case "approval":
             title = L.cn(who, "请求你决定")
@@ -596,10 +596,10 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, sub: t.map { "\($0.id) · \($0.title)" } ?? "", kind: i.kind, actions: actions))
     }
     if let ls = leadStall, st.active {
-        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: "主控可能卡住了", text: ls.text, tasks: [], agents: ["lead"], you: true, sub: "可以在主控的会话里发消息、打断并接管，或者继续等", kind: "lead_stall"))
+        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: "负责人可能卡住了", text: ls.text, tasks: [], agents: ["lead"], you: true, sub: "可以在负责人的会话里发消息、打断并接管，或者继续等", kind: "lead_stall"))
     }
     // Everything else that holds work up is the lead's to settle, not the person's.
-    let lead = "主控在处理，不需要你操作"
+    let lead = "负责人在处理，不需要你操作"
     // A shared edit that an overstep already covers is the same fact: keep the overstep.
     let covered = { (c: (seq: Int, task: String, other: String, paths: [String], owned: Bool)) in
         !c.owned && conflicts.contains { o in o.owned && Set([o.task, o.other]) == Set([c.task, c.other]) && Set(c.paths).isSubset(of: Set(o.paths)) }
@@ -622,10 +622,10 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     }
     for t in st.orderedTasks where t.status == .waitingInput {
         guard let q = t.question, q.answer == nil, !st.inbox.contains(where: { $0.key == q.key }) else { continue }
-        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: "\(t.id) 问主控", text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "lead_question"))
+        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: "\(t.id) 问负责人", text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "lead_question"))
     }
     for t in st.orderedTasks where t.status == .failed || t.status == .verificationFailed {
-        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: "\(t.id) 失败，等主控决定", text: t.error.isEmpty ? t.verificationFailures.joined(separator: "；") : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: "主控可以重做、接受结果或取消", kind: "failed"))
+        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: "\(t.id) 失败，等负责人决定", text: t.error.isEmpty ? t.verificationFailures.joined(separator: "；") : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: "负责人可以重做、接受结果或取消", kind: "failed"))
     }
     for t in st.orderedTasks where t.status == .blocked {
         f.open.append(OpenFact(key: "ob\(t.id)", seq: nil, title: "\(t.id) 等待 \(t.blockedBy)", text: "依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。", tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "blocked"))

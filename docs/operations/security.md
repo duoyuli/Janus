@@ -15,7 +15,7 @@
 
 完整的变量清单见[配置](../interfaces/configuration.md#agent_env)。
 
-例外：Claude Code 做主控时，Janus 在它的隔离配置 `~/.janus/agents/<id>/home/.claude.json` 中把工作目录标记为已信任。这只修改 Janus 为该 Agent 创建的配置，不修改用户自己的 Claude 配置。
+例外：Claude Code 做负责人时，Janus 在它的隔离配置 `~/.janus/agents/<id>/home/.claude.json` 中把工作目录标记为已信任。这只修改 Janus 为该 Agent 创建的配置，不修改用户自己的 Claude 配置。
 
 <a id="local_config_import"></a>
 ## 复制本机配置
@@ -62,7 +62,7 @@ Agent、角色、工作区和资源库中的 id 会成为 Janus home 中目录�
 
 - 任务直接在用户选择的目录中运行，改动立即生效。并行的任务可能修改同一批文件。
 - 一个 Agent 能做什么由它自己的权限模式执行。Janus 不做操作系统级的文件、网络或终端限制，权限模式也不是 Janus 的强制安全策略。
-- Janus 不提交、不推送。主控和任务提示中都要求 Agent 不要 commit、push 或部署，但这只是指令，不是强制。
+- Janus 不提交、不推送。负责人和任务提示中都要求 Agent 不要 commit、push 或部署，但这只是指令，不是强制。
 - 非 Git 目录没有 diff，也无法用 Git 回退。
 
 <a id="network_exposure"></a>

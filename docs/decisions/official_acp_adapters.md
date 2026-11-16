@@ -1,7 +1,7 @@
 # ADR：使用官方 ACP 适配器
 
 - 状态：已采纳（accepted），记录于 2026-11-15。其中 Grok 和 Pi 的条目已被 [内置运行时只保留 Codex 和 Claude Code](codex_and_claude_only.md) 取代。
-- 相关文档：[ACP 适配器管理](../architecture/adapters.md#catalog)、[ACP 集成](../interfaces/acp_integration.md)、[安全边界](../operations/security.md#adapter_install)、[需要主控处理的看板消息推送进主控的会话](board_push.md)。
+- 相关文档：[ACP 适配器管理](../architecture/adapters.md#catalog)、[ACP 集成](../interfaces/acp_integration.md)、[安全边界](../operations/security.md#adapter_install)、[需要负责人处理的看板消息推送进负责人的会话](board_push.md)。
 
 ## 背景
 

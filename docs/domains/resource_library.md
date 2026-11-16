@@ -88,6 +88,6 @@ Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后�
    - Claude Code：`_meta.claudeCode.options.plugins` 指向资源包，Skill 在会话中显示为 `janus:<名字>`。
    - Codex：`_meta.additionalRoots` 指向资源包，Codex 读取其中的 `.agents/skills`，Skill 显示为 `$<名字>`。这个目录同时扩大了会话的文件访问范围。
    - MCP 服务器放进 `mcpServers`。值在这时从 `secrets/library/` 读取，只传服务器声明的、非空的变量；Agent 没有声明对应传输能力的服务器不放进去。看板 MCP 排在最后。
-4. **记录**：每项资源怎样到达会话（`plugin`、`additionalRoots`、`mcpServers`，或 `skipped` 及原因）写进 `agent.status`（主控）和 `attempt.started`（协作者）的 `data.config.resources`，见[事件](../interfaces/events.md)。
+4. **记录**：每项资源怎样到达会话（`plugin`、`additionalRoots`、`mcpServers`，或 `skipped` 及原因）写进 `agent.status`（负责人）和 `attempt.started`（协作者）的 `data.config.resources`，见[事件](../interfaces/events.md)。
 
 Janus 不把 Skill 或 MCP 列进提示，也不列工作目录中的项目 Skill：Claude Code 和 Codex 按自己的规则读取工作目录中的 `.claude/skills`、`.agents/skills`。

@@ -30,12 +30,12 @@ impl App {
             let role = self
                 .db
                 .get_config(ROLE, str_of(&m, "role"))?
-                .ok_or_else(|| anyhow!("角色 {} 不存在", str_of(&m, "role")))?;
+                .ok_or_else(|| anyhow!("数字员工 {} 不存在", str_of(&m, "role")))?;
             members.push(json!({ "role": role["id"] }));
         }
         let lead = str_of(body, "lead");
         if !members.iter().any(|m| m["role"] == lead) {
-            bail!("请从成员中选择一个主控");
+            bail!("请从成员中选择一个负责人");
         }
         let lead_role = self.db.get_config(ROLE, lead)?.unwrap_or_default();
         let leads = self
@@ -43,10 +43,10 @@ impl App {
             .and_then(|c| Runtime::of(str_of(&c, "base")))
             .is_ok_and(Runtime::leads);
         if !leads {
-            bail!("主控只能是 Claude Code 或 Codex 的角色（需要 /goal），「{}」不是", str_of(&lead_role, "name"));
+            bail!("负责人只能是 Claude Code 或 Codex 的数字员工（需要 /goal），「{}」不是", str_of(&lead_role, "name"));
         }
         if members.len() < 2 {
-            bail!("除了主控，至少还需要一名成员");
+            bail!("除了负责人，至少还需要一名成员");
         }
         let name = match str_of(body, "name") {
             "" => path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "workspace".into()),
@@ -72,10 +72,10 @@ impl App {
             let role = self
                 .db
                 .get_config(ROLE, str_of(&m, "role"))?
-                .ok_or_else(|| anyhow!("角色 {} 已被删除", str_of(&m, "role")))?;
+                .ok_or_else(|| anyhow!("数字员工 {} 已被删除", str_of(&m, "role")))?;
             let conn_id = str_of(&role, "connection");
             if conn_id.is_empty() {
-                bail!("角色「{}」还没有绑定 Agent 连接", str_of(&role, "name"));
+                bail!("数字员工「{}」还没有绑定 Agent 连接", str_of(&role, "name"));
             }
             let conn = self.connection(conn_id)?;
             let lead = m["role"] == ws["lead"];
@@ -121,7 +121,7 @@ impl App {
             });
         }
         if !team.iter().any(|m| m.lead) {
-            bail!("执行环境没有主控");
+            bail!("执行环境没有负责人");
         }
         Ok((PathBuf::from(str_of(ws, "path")), team))
     }

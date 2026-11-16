@@ -36,14 +36,14 @@
 
 - 事件只追加，不修改。写入 SQLite 后才广播；写入失败的事件不广播，它的 `seq` 留空（`App::store`），所以应用看到的事件都在日志中。同一个 Run 的分配序号、写入和广播在一把锁内完成（`Run.emitting`），事件流按 `seq` 顺序送出，应用把序号缺口视为漏收，重新读取一次整个 Run。
 - `text` 用于展示，程序逻辑只读 `type` 和 `data`。
-- 等待用户或主控处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键只用来关联，程序不从键的形状读出任何信息：谁在等这个决定（某个任务的某次尝试，或主控）记在编排器内存中的待处理决定上（`Pending.owner`），会话结束时只撤回它自己的决定；事件中由 `task` 和 `to` 表明它属于谁。用户对主控 `ask_user` 问题的回答是没有 `task`、`to` 为 `lead` 的 `question.answered`。
+- 等待用户或负责人处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键只用来关联，程序不从键的形状读出任何信息：谁在等这个决定（某个任务的某次尝试，或负责人）记在编排器内存中的待处理决定上（`Pending.owner`），会话结束时只撤回它自己的决定；事件中由 `task` 和 `to` 表明它属于谁。用户对负责人 `ask_user` 问题的回答是没有 `task`、`to` 为 `lead` 的 `question.answered`。
 
 新增或修改事件类型时，同步检查：应用的 `derive` 和 `boardFacts`（`frontend/Sources/Janus/Core/Derive.swift`，见 [macOS 应用](../architecture/frontend.md#event_derivation)）、看板的 `board_entry`（[看板 MCP 工具](board_mcp.md#wait)）、恢复逻辑 `resume_run`。改 `session.usage` 的字段时还要同步用量账本的两份实现（[用量口径](#usage_accounting)）：`backend/src/usage.rs` 和 `Core/UsageLedger.swift`，并在 `backend/testdata/usage_cases.json` 加用例。
 
 <a id="message_flow"></a>
 ## 消息的流转
 
-用户在会话页发的消息、主控通过看板 `reply` 发给协作者的补充，都按同一流程记录：
+用户在会话页发的消息、负责人通过看板 `reply` 发给协作者的补充，都按同一流程记录：
 
 1. **发出**：立即写 `user.message`（`delivery: "pending"`），带唯一的 `data.id`。`to` 是目标 Agent，从任务会话发出时带 `task`。
 2. **路由**：会话处理到这条消息时写 `message.routed`，`data.delivery` 说明它的去向：
@@ -51,12 +51,12 @@
    | `delivery` | 含义 | 何时出现 |
    | --- | --- | --- |
    | `steer` | 已插入正在进行的这一轮 | Agent 支持 `_session/steering` 且插入成功，见[插话](acp_integration.md#steering) |
-   | `queued` | 排队，这一轮结束后作为新一轮发送 | 用户的消息，Agent 不支持插话或插入失败；Agent 正在等用户处理请求；用户接管着会话时主控发来的消息（交还托管时送达） |
-   | `interrupt` | 打断正在进行的这一轮，立即作为新一轮发送 | 主控的 `reply`，Agent 不支持插话或插入失败 |
+   | `queued` | 排队，这一轮结束后作为新一轮发送 | 用户的消息，Agent 不支持插话或插入失败；Agent 正在等用户处理请求；用户接管着会话时负责人发来的消息（交还托管时送达） |
+   | `interrupt` | 打断正在进行的这一轮，立即作为新一轮发送 | 负责人的 `reply`，Agent 不支持插话或插入失败 |
    | `prompt` | 直接作为新的一轮发送 | 人工接管中一轮已结束、正在等消息时；或在等待提问回答时发送 |
    | `next` | 留言，下次会话开始时带给它 | 这个 Agent 当前没有会话 |
 
-3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。`steer` 的消息在 `_session/steering` 返回 `injected` 时写 `message.delivered`，`data.applied` 为 `true`，表示消息已经进入模型的输入。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。主控跟随进行中的目标时，插不进去的消息立即作为新的一轮发送，写 `message.delivered`，不等目标结束。
+3. **送达**：`queued`、`interrupt` 和 `next` 的消息真正进入会话时写 `message.delivered`，`data.ids` 列出送达的消息。`steer` 的消息在 `_session/steering` 返回 `injected` 时写 `message.delivered`，`data.applied` 为 `true`，表示消息已经进入模型的输入。用户接管会话期间，排队的消息不会自动发出，交还托管时随交还提示一起送达。负责人跟随进行中的目标时，插不进去的消息立即作为新的一轮发送，写 `message.delivered`，不等目标结束。
 
 Janus 自己发给会话的两种消息也走插话，但不记 `user.message`：看板推送记为 `session.prompt`（`channel: "board"`），见[看板推送](../domains/goal_mode.md#board_push)；冲突提醒随 `task.conflict` 发出，见[同时改同一个文件](../domains/goal_mode.md#conflicts)。
 
@@ -70,7 +70,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | 类型 | 说明 |
 | --- | --- |
 | `run.created` | 创建；`data` 含 `goal`、`cwd`、`git`、`baseRef`、`workspace`（工作目录的一句话描述）、`images`（随目标粘贴的图片，见[图片附件](../domains/run_lifecycle.md#attachments)） |
-| `run.delivered` | 交付；`data` 是交付结果：`summary`、`briefSuggestions`（主控建议写入工作区共享资料的条目，见[工作区共享资料](../domains/agents_and_roles.md#workspace_brief)）、`deliverables`、`evidence`（每个任务的全部证据，`text` 以任务 id 开头）、`acceptance`（每个任务的验收记录：验收总数、通过数、证据方法计数、`checks`、独立验证、`traceGaps` 和 `risks`，见[证据方法](#evidence_methods)）、`usage`（一行用量摘要，和 Run 页、看板读同一份账本，见[用量口径](#usage_accounting)）、`risks` |
+| `run.delivered` | 交付；`data` 是交付结果：`summary`、`briefSuggestions`（负责人建议写入工作区共享资料的条目，见[工作区共享资料](../domains/agents_and_roles.md#workspace_brief)）、`deliverables`、`evidence`（每个任务的全部证据，`text` 以任务 id 开头）、`acceptance`（每个任务的验收记录：验收总数、通过数、证据方法计数、`checks`、独立验证、`traceGaps` 和 `risks`，见[证据方法](#evidence_methods)）、`usage`（一行用量摘要，和 Run 页、看板读同一份账本，见[用量口径](#usage_accounting)）、`risks` |
 | `risk.accepted` | 用户验收 |
 | `run.failed` | Run 失败；`data.error` |
 | `run.cancelled` | 用户取消 |
@@ -79,13 +79,13 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `run.paused` / `run.resumed` | 暂停 / 继续 |
 | `run.budget_exhausted` / `run.budget_extended` | 预算用完 / 追加预算 |
 
-### 主控与目标
+### 负责人与目标
 
 | 类型 | 说明 |
 | --- | --- |
-| `goal.status` | Agent 报告的 `/goal` 状态变化，见 [Codex 的目标状态](acp_integration.md#goal_status)；主控向 Janus 确认完成后由 Janus 结束目标时，`actor` 为 `janus`，`data.by` 为 `janus`，见[目标不自己结束时](../domains/goal_mode.md#goal_settle) |
-| `lead.failed` | 主控会话异常结束；`data.error` |
-| `lead.stalled` | 停滞检测发现主控会话没有进展，`to` 为 `user`。`data.reason` 是 `idle`（`data.idleMs`）或 `loop`（`data.tool`、`data.repeats`）；主控再有动静时写一条 `data.resolved: true` 的 `lead.stalled`，见[停滞检测](../domains/run_lifecycle.md#watchdog) |
+| `goal.status` | Agent 报告的 `/goal` 状态变化，见 [Codex 的目标状态](acp_integration.md#goal_status)；负责人向 Janus 确认完成后由 Janus 结束目标时，`actor` 为 `janus`，`data.by` 为 `janus`，见[目标不自己结束时](../domains/goal_mode.md#goal_settle) |
+| `lead.failed` | 负责人会话异常结束；`data.error` |
+| `lead.stalled` | 停滞检测发现负责人会话没有进展，`to` 为 `user`。`data.reason` 是 `idle`（`data.idleMs`）或 `loop`（`data.tool`、`data.repeats`）；负责人再有动静时写一条 `data.resolved: true` 的 `lead.stalled`，见[停滞检测](../domains/run_lifecycle.md#watchdog) |
 | `orchestration.accepted` | 编排通过校验；`data.tasks` 是写入看板的任务（含 `owns`、`verifies`，验证任务的 `deps` 已包含被验证的任务），恢复时据此重建看板 |
 | `orchestration.rejected` | 编排没有通过校验；`data.errors`、`data.submitted` |
 | `board.posted` | 协作者写回看板；`data.kind`（`progress` / `blocker` / `note`）、`data.text` |
@@ -97,20 +97,20 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `task.assigned` | 任务分配给执行者 |
 | `task.ready` | 依赖满足，可以启动 |
 | `attempt.launch_requested` / `attempt.started` | 请求启动 / 尝试开始；`attempt.started` 的 `data.config` 是实际生效的设置，其中 `resources` 见下 |
-| `context.handoff` | 上游结果交给下游；`data.amendments` 是主控对上游结论的修订，`data.files` 是上游改过的文件，`data.stale` 是上游完成后又被别的任务改过的文件（`[{path, by}]`），见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
-| `result.amended` | 主控修订已完成任务的结论（`janus.amend`）；`data.text` |
+| `context.handoff` | 上游结果交给下游；`data.amendments` 是负责人对上游结论的修订，`data.files` 是上游改过的文件，`data.stale` 是上游完成后又被别的任务改过的文件（`[{path, by}]`），见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
+| `result.amended` | 负责人修订已完成任务的结论（`janus.amend`）；`data.text` |
 | `result.submitted` | 尝试提交结构化结果；`data.summary`、`data.checks`（逐条验收：`criterion`、`passed`、`evidence`，可选的 `method` 见[证据方法](#evidence_methods)）、`data.evidence`、`data.risks` |
 | `artifact.created` | 保存产物；`data.name`、`data.kind`、`data.path`、`data.hash`、`data.bytes` |
 | `attempt.failed` | 尝试失败；`data.error` |
 | `attempt.late_result` | 过期尝试的结果被忽略 |
 | `task.retry_scheduled` | 安排下一次尝试 |
-| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。`task.succeeded` 带完整的结论：`data.summary`、`data.evidence`、`data.risks`、`data.checks`（逐条验收及其 `method`）和 `data.acceptance`（验收总数、通过数、证据方法计数、提醒），恢复和应用都从它读回结果；主控用 `accept` 接受结果时，`actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`，`data.checks` 来自被接受的那次 `result.submitted`，`data.risks` 末尾加上没通过核对的原因和接受理由。协作者完成的 `task.succeeded` 带 `data.traceGaps`：结果和工作目录对不上的地方，没有时为空数组，见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
+| `task.succeeded` / `task.failed` | 任务成功 / 失败。`task.failed` 的 `data.reason` 是 `verification`（验证没通过，不自动重试）或 `attempts`（用完尝试次数）。`task.succeeded` 带完整的结论：`data.summary`、`data.evidence`、`data.risks`、`data.checks`（逐条验收及其 `method`）和 `data.acceptance`（验收总数、通过数、证据方法计数、提醒），恢复和应用都从它读回结果；负责人用 `accept` 接受结果时，`actor` 为 `lead`，`data.acceptedBy` 为 `lead`，另有 `data.reason`，`data.checks` 来自被接受的那次 `result.submitted`，`data.risks` 末尾加上没通过核对的原因和接受理由。协作者完成的 `task.succeeded` 带 `data.traceGaps`：结果和工作目录对不上的地方，没有时为空数组，见[工作目录里的痕迹](../domains/goal_mode.md#traces) |
 | `task.blocked` | 硬依赖失败；`data.dependency`。一个依赖处理好后仍有别的依赖失败时再写一条，指向那个依赖 |
 | `task.stalled` | 停滞检测发现尝试没有进展，`to` 为 `lead`。`data.reason` 是 `idle`（`data.idleMs`：多久没有动静）或 `loop`（`data.tool`：重复的调用，`data.repeats`：连续次数）。没有动静的尝试再次有更新时，会再写一条 `data.resolved: true` 的 `task.stalled`，见 [Run 生命周期](../domains/run_lifecycle.md#watchdog) |
 | `task.conflict` | 两个同时执行的任务改了同一批文件；`task` 是发现冲突的一方，`to` 为 `lead`，`data.other` 是另一个任务，`data.paths` 是相对工作目录的文件。`data.owned` 为 `true` 时，是 `task` 改了 `data.other` 负责的文件（越界）。见[同时改同一个文件](../domains/goal_mode.md#conflicts) |
 | `task.claimed` | 协作者用 `claim` 认领文件；`actor` 是执行者，`to` 为 `lead`，`data.paths` 是新认领的路径，恢复时并入任务的 `owns`，见[团队结构](../domains/goal_mode.md#team_structure) |
-| `task.skipped_by_decision` | 主控用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
-| `task.reopened` | 任务重新开始。`data.reason` 是 `lead.retry`（主控重试，`actor` 为 `lead`，可能带新的 `data.instructions`、`data.accept`）或 `upstream.retry`（因上游被取消而连带取消的任务，随上游的重试恢复，`actor` 为 `janus`，`data.upstream` 是上游任务） |
+| `task.skipped_by_decision` | 负责人用 `cancel` 取消（`actor` 为 `lead`，`data.reason`，连带取消的有 `data.dependency`） |
+| `task.reopened` | 任务重新开始。`data.reason` 是 `lead.retry`（负责人重试，`actor` 为 `lead`，可能带新的 `data.instructions`、`data.accept`）或 `upstream.retry`（因上游被取消而连带取消的任务，随上游的重试恢复，`actor` 为 `janus`，`data.upstream` 是上游任务） |
 
 ### 验证
 
@@ -132,19 +132,19 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `reasoning` | 根据推理或自我判断得到的结果 |
 | `unverified` | 证据缺失、无法复现或暂时无法核实 |
 
-- 方法只说明依据的类型，不代表结论一定真实：Agent 仍可能把推理写成 `test`，关键结果由主控自己核对。
+- 方法只说明依据的类型，不代表结论一定真实：Agent 仍可能把推理写成 `test`，关键结果由负责人自己核对。
 - 没有 `method` 的 check 显示为「未说明」，不当作 `reasoning`，也不因此判失败。
 - `method` 存在时必须是上表中的值。其他值原样记录在 `result.submitted` 和 `verification.failed` 的 `data.checks` 中，`evidence::gaps` 报出「不是允许值」并让这次核对失败，不会静默换成合法方法。
 - `reasoning`、`unverified` 和没有方法只产生提醒（`data.acceptance.reminders`），不阻断任务。
-- `data.acceptance` 的结构（`verification.*`、`task.succeeded` 和 `run.delivered` 的 `acceptance` 条目）：`criteria`（验收标准总数）、`passed`（通过数）、`methods`（`method`、`label`、`count` 的数组，按上表顺序）、`unspecified`（没有方法的条数）、`invalid`（不合法的值）、`reminders`（要主控注意的提醒）。交付中的条目另有 `task`、`title`、`status`、`label`、`checks`、`verifications`、`traceGaps`、`risks`。
+- `data.acceptance` 的结构（`verification.*`、`task.succeeded` 和 `run.delivered` 的 `acceptance` 条目）：`criteria`（验收标准总数）、`passed`（通过数）、`methods`（`method`、`label`、`count` 的数组，按上表顺序）、`unspecified`（没有方法的条数）、`invalid`（不合法的值）、`reminders`（要负责人注意的提醒）。交付中的条目另有 `task`、`title`、`status`、`label`、`checks`、`verifications`、`traceGaps`、`risks`。
 
 ### 会话
 
 | 类型 | 说明 |
 | --- | --- |
 | `agent.status` | Agent 阶段变化；会话开始时 `data` 含 `session`、`config`（实际生效的设置，其中 `resources` 见下） |
-| `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 1 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话。每段保留原样的空白和换行（可能在代码块中间切开），按顺序直接拼接就是原文；主控的交付摘要取它最后连续的几段拼起来 |
-| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix` / `board` / `goal_check`，`goal_check` 是问主控目标是否已经完成，见[目标不自己结束时](../domains/goal_mode.md#goal_settle)，`fix` 是把验证失败发回协作者的会话修复，`board` 是插入主控会话的看板推送）、`data.prompt`、`data.session`。`system` 是系统层中 Janus 的说明（主控说明或协作约定），`instructions` 是用户的长期要求，两者另有 `data.via`（`system` / `developer`），见[系统层](acp_integration.md#standing_instructions)；`context` 只用于没有系统层的主控，先发一轮背景 |
+| `agent.message` | Agent 的回复文本；`data.text`。一段文字在下一次工具调用、这一轮结束，或 1 秒没有新内容（`MESSAGE_QUIET`）时写入，所以 Agent 说完要做什么、接着长时间写文件时，应用也能先看到它说的话。每段保留原样的空白和换行（可能在代码块中间切开），按顺序直接拼接就是原文；负责人的交付摘要取它最后连续的几段拼起来 |
+| `session.prompt` | Janus 发给 Agent 的上下文或提示；`data.channel`（`system` / `context` / `goal` / `followup` / `instructions` / `fix` / `board` / `goal_check`，`goal_check` 是问负责人目标是否已经完成，见[目标不自己结束时](../domains/goal_mode.md#goal_settle)，`fix` 是把验证失败发回协作者的会话修复，`board` 是插入负责人会话的看板推送）、`data.prompt`、`data.session`。`system` 是系统层中 Janus 的说明（负责人说明或协作约定），`instructions` 是用户的长期要求，两者另有 `data.via`（`system` / `developer`），见[系统层](acp_integration.md#standing_instructions)；`context` 只用于没有系统层的负责人，先发一轮背景 |
 | `tool.call` | 工具调用及其输入输出摘要，`data.callId`，文件改动在 `data.diffs`（`data.output`，没有输出时为空），状态在 `data.status`；改了文件的调用（`edit`、`delete`、`move`）另有 `data.paths`，是相对工作目录的文件 |
 | `tool.started` | Janus MCP 工具开始执行；`data.callId`、`data.tool`、`data.input`（摘要）、`data.args`（完整参数）、`data.status`。Agent 自己的工具调用开始时也记一条（`data.live` 为 `true`，没有 `args`），完成后由同一 `callId` 的 `tool.call` 替换 |
 | `agent.thought` | Agent 的思考；`data.text`，见[会话中能看到什么](acp_integration.md#session_view) |
@@ -154,7 +154,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | `session.commands` | Agent 提供的斜杠命令；`data.commands`（`name`、`description`、`hint`） |
 | `session.usage` | 会话用量，有两种形态：上下文快照（`data.used`、`data.size`、可选的 `data.cost`，来自 ACP 的 `usage_update`）和一轮的 token（`data.inputTokens`、`data.outputTokens`、`data.totalTokens`、`data.cachedReadTokens`、`data.cachedWriteTokens`、`data.thoughtTokens`，以及 Agent 按模型上报时的 `data.models`，每项带 `model` 和同样的计数，来自 `session/prompt` 的返回，见 `acp_view::prompt_usage`）。缺的字段写 `null`，不写 0。语义和汇总口径见[用量口径](#usage_accounting) |
 | `tool.completed` | Janus MCP 工具返回；`data.callId`、`data.tool`、`data.input`、`data.args`、`data.output`、`data.status` |
-| `user.message` | 用户或主控发出一条消息，发出时立即记录；`data.id`、`data.text`，`data.delivery` 为 `pending`，见[消息的流转](#message_flow)。带图片时 `data.images` 列出图片，`data.text` 末尾有点名图片的 `[附图 N] <路径>` 行，应用显示缩略图并隐藏这些行 |
+| `user.message` | 用户或负责人发出一条消息，发出时立即记录；`data.id`、`data.text`，`data.delivery` 为 `pending`，见[消息的流转](#message_flow)。带图片时 `data.images` 列出图片，`data.text` 末尾有点名图片的 `[附图 N] <路径>` 行，应用显示缩略图并隐藏这些行 |
 | `message.routed` | 会话决定这条消息怎么进入；`data.id`、`data.delivery`（`steer` / `queued` / `interrupt` / `prompt` / `next`） |
 | `message.delivered` | 等待中的消息送达：排队的消息在一轮结束后作为新一轮发送，留言在下次会话开始时带入；`data.ids`。插入的消息被 Agent 读到时另有 `data.applied: true` |
 | `session.interrupted` | 用户打断了一轮 |
@@ -168,7 +168,7 @@ Janus 自己发给会话的两种消息也走插话，但不记 `user.message`�
 | 类型 | 说明 |
 | --- | --- |
 | `question.asked` | 任务提问；`data.key`、`data.question`、`data.options` |
-| `question.escalated` | 交给用户的决定：协作者的提问（带任务），或主控用 `ask_user` 提的问题（`actor` 为 `lead`，没有任务，另有 `data.question`、`data.options`、`data.recommend`）；`data.key`、`data.reason` |
+| `question.escalated` | 交给用户的决定：协作者的提问（带任务），或负责人用 `ask_user` 提的问题（`actor` 为 `lead`，没有任务，另有 `data.question`、`data.options`、`data.recommend`）；`data.key`、`data.reason` |
 | `question.answered` | 提问被回答；`data.answer`、`data.via`（`lead`、`session`；用户在请求卡片上回答时省略） |
 | `answer.delivered` | 回答已发回会话 |
 | `approval.requested` | Agent 请求审批；`data.key`、`data.options` |
@@ -203,12 +203,12 @@ Run 的用量账本是从事件实时算出的只读汇总：后端是 `ledger`�
 
 ### 归集与范围
 
-事件已带 `actor`、`task`、`attempt`，每个数字都能追溯到对应的 `session.usage`。一个 ACP 会话（或主控的一次会话）算一条记录；`attempt.started` 是 Janus 在启动尝试时写的，那个会话属于 `to` 指向的 Agent（`actor` 是 janus），其余事件的 `actor` 就是会话主人。打开的会话即使一条用量都不上报，也算一个「未上报」的会话。
+事件已带 `actor`、`task`、`attempt`，每个数字都能追溯到对应的 `session.usage`。一个 ACP 会话（或负责人的一次会话）算一条记录；`attempt.started` 是 Janus 在启动尝试时写的，那个会话属于 `to` 指向的 Agent（`actor` 是 janus），其余事件的 `actor` 就是会话主人。打开的会话即使一条用量都不上报，也算一个「未上报」的会话。
 
 | 范围 | 内容 |
 | --- | --- |
-| Run | 主控和协作者的全部会话，以及墙钟时长 |
-| 主控 / 协作者小计 | Run 总量包含主控，两者另外单列 |
+| Run | 负责人和协作者的全部会话，以及墙钟时长 |
+| 负责人 / 协作者小计 | Run 总量包含负责人，两者另外单列 |
 | 任务 | 这个任务所有尝试的会话；没有会话时是「未开始」，不是「未上报」。任务账单再按成员和模型分开（`task_bill`） |
 | 成员 | 一个 Agent 在这个 Run 里的全部会话，含它做过的多个任务 |
 | 尝试 | 一次尝试的会话、结束状态和时长 |
@@ -227,7 +227,7 @@ Run 的用量账本是从事件实时算出的只读汇总：后端是 `ledger`�
 ### 取消、过期和失败
 
 - `run.cancelled` 取消整个 Run：取消时刻仍在跑的尝试全部记「已取消」，备注「Run 被取消」，结束时间取取消时刻或更晚的结束时间。
-- `task.skipped_by_decision` 只取消一个任务：只有这个任务仍在跑的尝试记「已取消」，备注「主控取消了这个任务」；同一个 Run 里其他任务的尝试不受影响。
+- `task.skipped_by_decision` 只取消一个任务：只有这个任务仍在跑的尝试记「已取消」，备注「负责人取消了这个任务」；同一个 Run 里其他任务的尝试不受影响。
 - 两种取消都不覆盖取消前已经结束的尝试：失败、验证没通过、过期保持原状态。已经上报的用量照常计入。Janus 不为取消写尝试级事件，杀连接后可能还有一条失败事件，也不算真的失败。
 - `attempt.late_result` 的尝试记「已过期但仍计入」；`verification.failed`、`task.failed` 的尝试带结束原因。
 - 失败的 Run 保留已经发生的用量；隐藏它会低估成本。

@@ -146,7 +146,7 @@ impl App {
                     let text = if ctx.task.is_some() {
                         format!("交还托管：{name} 继续自主完成任务")
                     } else {
-                        "交还托管：主控继续推进目标".to_string()
+                        "交还托管：负责人继续推进目标".to_string()
                     };
                     self.emit(run, ev("control.released", "user", text).scope(ctx).to(agent));
                     if ctl.queued.is_empty() {

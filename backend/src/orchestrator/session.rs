@@ -190,7 +190,7 @@ pub(super) async fn configure_session(conn: &AcpConn, session: &Value, m: &Membe
         }
         if !opt["options"].as_array().is_some_and(|o| o.iter().any(|x| x["value"] == want)) {
             if required {
-                bail!("{} 不提供模型 {want}，请在角色设置中重新选择", m.runtime_name);
+                bail!("{} 不提供模型 {want}，请在数字员工设置中重新选择", m.runtime_name);
             }
             applied[cat] = json!(current);
             continue;

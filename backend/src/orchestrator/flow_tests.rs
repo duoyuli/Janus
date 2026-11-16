@@ -535,7 +535,7 @@ async fn amended_conclusions_reach_downstream_tasks() {
         started.data.as_ref().unwrap()["prompt"]
             .as_str()
             .unwrap()
-            .contains("主控修订了这个结论，以修订为准：改用经典 8 邻域规则")
+            .contains("负责人修订了这个结论，以修订为准：改用经典 8 邻域规则")
     );
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -592,7 +592,7 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "V1", "reason": "我看过了" })).await;
     assert!(err && text.contains("不能直接接受"), "{text}");
     assert!(!task_event(&events(&h.app, &run), "task.succeeded", "V1"));
-    let (_, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["V1"], "reason": "改由主控核对" })).await;
+    let (_, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["V1"], "reason": "改由负责人核对" })).await;
     assert!(!err);
 
     finish_lead(&h);
@@ -1606,7 +1606,7 @@ async fn run_state_follows_the_board() {
     assert!(task_event(&events(&h.app, &run), "task.succeeded", "E"));
     let delivered = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap();
     let risks = delivered.data.unwrap()["risks"].to_string();
-    assert!(risks.contains(&format!("{other}：被主控取消")), "{risks}");
+    assert!(risks.contains(&format!("{other}：被负责人取消")), "{risks}");
 
     // After acceptance nothing reopens the run.
     act(&h, &run, json!({ "type": "accept" }));

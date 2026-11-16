@@ -390,7 +390,7 @@ struct UsageLine: Equatable, Identifiable {
 
 extension UsageLedger {
     /// The run card's subtotal row: the lead is part of the run total and shown apart.
-    var subtotalLine: UsageLine { UsageLine(label: "小计", value: "主控 \(lead.tokensText) · 协作者 \(collaborators.tokensText)") }
+    var subtotalLine: UsageLine { UsageLine(label: "小计", value: "负责人 \(lead.tokensText) · 协作者 \(collaborators.tokensText)") }
 
     /// One task in the expanded detail: its tokens and wall-clock time, or 「未开始」.
     func taskDetail(_ scope: UsageScope) -> String {
@@ -650,9 +650,9 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         // records the cancel, so a failure event can still follow it. An attempt still running when
         // its cancel arrived was cancelled; what it reported stays counted.
         let cancel: (at: Int, note: String)? = switch (runCancelled, taskCancelled[b.task]) {
-        case let (run?, task?) where task <= run: (task, "主控取消了这个任务")
+        case let (run?, task?) where task <= run: (task, "负责人取消了这个任务")
         case let (run?, _): (run, "Run 被取消")
-        case let (nil, task?): (task, "主控取消了这个任务")
+        case let (nil, task?): (task, "负责人取消了这个任务")
         case (nil, nil): nil
         }
         if let cancel, b.state != .succeeded, !(b.endedMs.map { $0 < cancel.at } ?? false) {

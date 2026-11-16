@@ -22,8 +22,8 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Picker("类型", selection: $tab) {
-                    Text("技能 \(items.filter { $0["kind"].str == "skill" }.count)").tag("skill")
-                    Text("MCP 服务器 \(items.filter { $0["kind"].str == "mcp" }.count)").tag("mcp")
+                    Text("Skill \(items.filter { $0["kind"].str == "skill" }.count)").tag("skill")
+                    Text("MCP \(items.filter { $0["kind"].str == "mcp" }.count)").tag("mcp")
                     Text(store.sourceUpdates.isEmpty ? "来源 \(store.librarySources.count)" : "来源 · \(store.sourceUpdates.count) 个有更新").tag("sources")
                 }
                 .pickerStyle(.segmented)
@@ -89,7 +89,7 @@ struct LibraryView: View {
     // MARK: MCP servers
 
     @ViewBuilder private var servers: some View {
-        Text("MCP 服务器在会话启动时放进 session/new 的 mcpServers。环境变量和 HTTP header 的值只保存在 Janus home，设置后不再显示，也不会进入角色、数据库或 Run 记录。")
+        Text("MCP 服务器在会话启动时放进 session/new 的 mcpServers。环境变量和 HTTP header 的值只保存在 Janus home，设置后不再显示，也不会进入数字员工、数据库或 Run 记录。")
             .font(.callout).foregroundStyle(.secondary)
         HStack {
             Button("添加服务器") { mcpDraft = ["name": "", "description": "", "transport": "stdio", "command": "", "url": "", "vars": []] }.buttonStyle(.primary)
@@ -425,7 +425,7 @@ struct McpEditor: View {
             } else {
                 TextField("地址，例如 https://example.com/mcp", text: field("url"))
                     .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
-                if d["transport"].str == "sse" { Text("Codex 不支持 SSE 传输，给 Codex 角色选择时会被跳过。").font(.caption).foregroundStyle(Tone.amber.color) }
+                if d["transport"].str == "sse" { Text("Codex 不支持 SSE 传输，绑定 Codex 的数字员工选择它时会被跳过。").font(.caption).foregroundStyle(Tone.amber.color) }
             }
             HStack {
                 Text(stdio ? "环境变量" : "HTTP header").font(.callout.weight(.semibold))

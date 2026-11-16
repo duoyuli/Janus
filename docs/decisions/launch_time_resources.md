@@ -22,8 +22,8 @@ magpie 的资源库把指令、MCP、Skill、子代理等统一入库，再按�
    - Codex：资源包经 `_meta.additionalRoots` 传入，Codex 读取其中的 `.agents/skills`；系统层文字经进程环境变量 `CODEX_CONFIG` 的 `developer_instructions`。
    - MCP 都经 `mcpServers`，环境变量和 HTTP header 的值在打开会话时从 `secrets/library/` 读取。
    - 自定义命令的 Agent 没有加载 Skill 的入口：它只拿到 MCP，角色上的 Skill 对它标为不支持。
-6. **系统层只放长期有效的内容**：Janus 对这个会话的说明（主控说明，或协作者的协作规则）在前，用户的长期要求在后。恢复会话（`session/load`）时传入与打开时相同的参数。
-7. **例外**：Claude Code 主控运行 `/goal` 前，工作区信任仍写入隔离目录中的 `.claude.json`。SDK 没有在启动时声明信任的入口，这是 Janus 唯一写入 Agent 配置的地方。
+6. **系统层只放长期有效的内容**：Janus 对这个会话的说明（负责人说明，或协作者的协作规则）在前，用户的长期要求在后。恢复会话（`session/load`）时传入与打开时相同的参数。
+7. **例外**：Claude Code 负责人运行 `/goal` 前，工作区信任仍写入隔离目录中的 `.claude.json`。SDK 没有在启动时声明信任的入口，这是 Janus 唯一写入 Agent 配置的地方。
 
 ## 取舍
 
@@ -37,4 +37,4 @@ magpie 的资源库把指令、MCP、Skill、子代理等统一入库，再按�
 
 - 后端新增 `library` 模块：资源、内容存储、凭据、Git 来源和资源包。`skill_sources`、`mcp_sources` 和角色的 `skills`、`mcp`、`mcpRefs` 字段删除，旧数据不迁移。
 - 任务说明不再列出 Skill 和 MCP，也不再列出工作目录中的项目 Skill：Agent 按自己的规则读取工作目录中的 `.claude/skills`、`.agents/skills`。
-- Codex 主控的说明进入开发者指令，不再单独发一轮「背景信息」；协作者的协作规则从任务说明移到系统层。
+- Codex 负责人的说明进入开发者指令，不再单独发一轮「背景信息」；协作者的协作规则从任务说明移到系统层。

@@ -139,7 +139,7 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     let store = testStore
     let run = RunModel(id: "render", store: store)
     run.runJSON = ["config": ["team": [
-        ["id": "lead", "name": "主控", "lead": true],
+        ["id": "lead", "name": "负责人", "lead": true],
         ["id": "researcher", "name": "调研者", "color": "#6a42d6"],
         ["id": "implementer", "name": "实现者"],
     ]]]

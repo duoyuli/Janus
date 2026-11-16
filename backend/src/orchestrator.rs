@@ -857,7 +857,7 @@ impl App {
 }
 
 /// Prefix of a message the lead sends a collaborator, so the session and the record both show who wrote it.
-const LEAD_REPLY: &str = "主控回复：";
+const LEAD_REPLY: &str = "负责人回复：";
 
 /// The heading the lead puts its suggested additions to the shared material under (see `goal_brief`).
 const BRIEF_HEADING: &str = "建议更新共享资料";

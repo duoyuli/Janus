@@ -20,10 +20,10 @@ struct TimelineMark: Identifiable {
     static let openKinds: [String: (String, String)] = [
         "approval": ("hand.raised.fill", "等你审批"), "input": ("square.and.pencil", "等你填写"),
         "question": ("questionmark.bubble.fill", "等你决定"), "session": ("text.bubble.fill", "等你的消息"),
-        "budget": ("hourglass.bottomhalf.filled", "预算用完"), "lead_stall": ("hourglass", "主控可能卡住"),
+        "budget": ("hourglass.bottomhalf.filled", "预算用完"), "lead_stall": ("hourglass", "负责人可能卡住"),
         "conflict": ("arrow.triangle.merge", "同时改了一个文件"), "overstep": ("arrow.right.to.line", "越界"),
         "trace": ("doc.badge.ellipsis", "结果和工作目录对不上"), "stall": ("hourglass", "可能卡住"),
-        "blocker": ("exclamationmark.octagon.fill", "阻塞"), "lead_question": ("questionmark.circle.fill", "问主控"),
+        "blocker": ("exclamationmark.octagon.fill", "阻塞"), "lead_question": ("questionmark.circle.fill", "问负责人"),
         "failed": ("xmark.octagon.fill", "失败"), "blocked": ("pause.circle.fill", "等依赖"),
     ]
 
@@ -197,7 +197,7 @@ struct RunTimeline: View {
             Color.clear.frame(height: axisH)
             if !milestones.isEmpty {
                 Label("决定与待处理", systemImage: "diamond")
-                    .help("◆ 决定 · 红色：等你处理 · 橙色：主控在处理。悬停图标看是什么，点按打开")
+                    .help("◆ 决定 · 红色：等你处理 · 橙色：负责人在处理。悬停图标看是什么，点按打开")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(height: laneH, alignment: .center)
             }

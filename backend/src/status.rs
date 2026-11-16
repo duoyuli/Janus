@@ -132,7 +132,7 @@ impl TaskStatus {
             TaskStatus::Failed => "失败",
             TaskStatus::Blocked => "依赖失败",
             TaskStatus::Cancelled => "已取消",
-            TaskStatus::SkippedByDecision => "主控已取消",
+            TaskStatus::SkippedByDecision => "负责人已取消",
         }
     }
 

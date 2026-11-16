@@ -91,7 +91,7 @@ impl App {
                         ev(
                             "task.failed",
                             "janus",
-                            if verification { format!("{id} 验证没有通过，交给主控决定") } else { format!("{id} 已用完尝试次数，交给主控处理") },
+                            if verification { format!("{id} 验证没有通过，交给负责人决定") } else { format!("{id} 已用完尝试次数，交给负责人处理") },
                         )
                         .task(id)
                         .data(json!({ "error": msg, "maxAttempts": max_attempts, "reason": if verification { "verification" } else { "attempts" } })),
@@ -113,7 +113,7 @@ impl App {
                 let r = u.result.clone().unwrap_or_default();
                 let files: Vec<String> = u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
                 let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
-                let amended = if u.amendments.is_empty() { String::new() } else { format!("\n  主控修订了这个结论，以修订为准：{}", u.amendments.join("；")) };
+                let amended = if u.amendments.is_empty() { String::new() } else { format!("\n  负责人修订了这个结论，以修订为准：{}", u.amendments.join("；")) };
                 // Where to look, not only what it said: the files it changed, and which of them
                 // others changed after it finished.
                 let edited: Vec<String> = st.traces.files(&u.def.id).into_iter().collect();

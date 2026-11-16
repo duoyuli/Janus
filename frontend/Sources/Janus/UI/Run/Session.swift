@@ -152,7 +152,7 @@ struct ChatCard: View {
                 live ? "可以继续对话" : "可以恢复对话",
                 .gray,
                 AnyView(btn("sessSend", "发送", true)),
-                live ? "写下接下来要做的，或用 /goal 设置新的目标" : "写下任务，发送后恢复主控会话",
+                live ? "写下接下来要做的，或用 /goal 设置新的目标" : "写下任务，发送后恢复负责人会话",
                 true
             )
         }
@@ -308,7 +308,7 @@ struct ChatItem: View {
             let via = d["via"].str == "developer" ? "开发者指令" : "系统提示"
             let label = d["channel"].str == "instructions" ? "用户的长期要求 · \(via)"
                 : d["channel"].str == "system" ? "Janus 的说明 · \(via)"
-                : ["context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮", "goal_check": "目标确认 · 主控停下了，目标还标着进行中"][d["channel"].str] ?? "Janus 提示"
+                : ["context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮", "goal_check": "目标确认 · 负责人停下了，目标还标着进行中"][d["channel"].str] ?? "Janus 提示"
             VStack(alignment: .leading, spacing: 4) {
                 HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text("Janus 发给 Agent").font(.caption).foregroundStyle(.secondary) }
                 DisclosureGroup("查看内容") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
@@ -316,24 +316,24 @@ struct ChatItem: View {
             .padding(8)
             .background(Tone.blue.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         // Goal mode: a collaborator asks the lead, which answers on the board.
-        case "question.asked": note("? 问主控：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : "（\(d["options"].strings.joined(separator: " / "))）") · 主控会回答，不需要你处理", .amber)
+        case "question.asked": note("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : "（\(d["options"].strings.joined(separator: " / "))）") · 负责人会回答，不需要你处理", .amber)
         case "context.handoff": note("⇄ 上游任务 \(d["from"].string ?? e.text) 的结果已带入本次任务", nil)
         case "board.posted": note("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)", nil)
         case "task.conflict" where d["owned"].truthy:
-            note("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: "、"))。已提醒 \(e.task ?? "") 不要再改，并告诉主控", .amber)
-        case "task.conflict": note("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时在改 \(d["paths"].strings.joined(separator: "、"))。已提醒双方先读最新内容，并告诉主控", .amber)
+            note("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: "、"))。已提醒 \(e.task ?? "") 不要再改，并告诉负责人", .amber)
+        case "task.conflict": note("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时在改 \(d["paths"].strings.joined(separator: "、"))。已提醒双方先读最新内容，并告诉负责人", .amber)
         case "user.message":
             let via = ["steer": "已插入正在进行的这一轮", "queued": "这一轮结束后发送", "prompt": "作为新一轮发送", "next": "下次会话时带给它"][d["delivery"].str] ?? ""
             userBubble(d["text"].str, images: Attach.paths(d), via: via, insert: false)
         case "message.routed":
             if let m = st.msgs[d["id"].str] {
-                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? "主控插话" : "插话") · \(m.deliveredSeq != nil ? "Agent 已读到" : "已插入这一轮，当前操作结束后读到")", insert: true) }
-                else { userBubble(m.text, images: m.images, via: (m.by == "lead" ? "主控 · " : "") + "作为新的一轮发送", insert: false) }
+                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? "负责人插话" : "插话") · \(m.deliveredSeq != nil ? "Agent 已读到" : "已插入这一轮，当前操作结束后读到")", insert: true) }
+                else { userBubble(m.text, images: m.images, via: (m.by == "lead" ? "负责人 · " : "") + "作为新的一轮发送", insert: false) }
             }
         case "message.delivered":
             if d["ids"].exists {
                 ForEach(d["ids"].strings.compactMap { st.msgs[$0] }.filter { $0.delivery != "steer" }, id: \.id) { m in
-                    userBubble(m.text, images: m.images, via: (m.by == "lead" ? "主控 · " : "") + (m.delivery == "next" ? "留言 · 在这次会话开始时带入" : m.delivery == "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送"), insert: false)
+                    userBubble(m.text, images: m.images, via: (m.by == "lead" ? "负责人 · " : "") + (m.delivery == "next" ? "留言 · 在这次会话开始时带入" : m.delivery == "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送"), insert: false)
                 }
             } else { note("\(L.icon[e.type] ?? "·") \(e.text)", L.tone(of: e.type)) }
         // One line in the conversation; each criterion is a click away (and on the task page).
@@ -538,7 +538,7 @@ struct AgentView: View {
                     .frame(height: 640)
                 Card(padding: 12) {
                     HStack { Text("负责的任务").font(.headline); Spacer(); Text(verbatim: "\(tasks.count) 个").font(.caption).foregroundStyle(.secondary) }
-                    if tasks.isEmpty { Text(agentId == "lead" ? "主控负责规划和协调。" : "还没有分配任务。").font(.callout).foregroundStyle(.secondary) }
+                    if tasks.isEmpty { Text(agentId == "lead" ? "负责人负责规划和协调。" : "还没有分配任务。").font(.callout).foregroundStyle(.secondary) }
                     ForEach(tasks, id: \.id) { t in
                         let (l, tone) = t.status.label
                         HStack {

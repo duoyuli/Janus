@@ -37,7 +37,7 @@ struct HomeView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: "说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给主控", minHeight: 96) { start(problems) }
+                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: "说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给负责人", minHeight: 96) { start(problems) }
                     HStack {
                         // Examples only help before the first run.
                         if runs.isEmpty {
@@ -47,10 +47,10 @@ struct HomeView: View {
                         }
                         Spacer()
                         let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
-                        Button("交给主控") { start(problems) }
+                        Button("交给负责人") { start(problems) }
                             .buttonStyle(.primary)
                             .disabled(!problems.isEmpty || empty)
-                            .help(!problems.isEmpty ? "还有角色不能运行" : empty ? "先写下你想要的结果" : "⌘↩")
+                            .help(!problems.isEmpty ? "还有数字员工不能运行" : empty ? "先写下你想要的结果" : "⌘↩")
                     }
                 }
                 // One line per cause, with the place that fixes it.
@@ -104,12 +104,12 @@ struct HomeView: View {
                     let r = members[i].1
                     Avatar(initials: r?["init"].str ?? "?", color: r?["color"].str ?? "#64748b", size: 22)
                         .overlay(RoundedRectangle(cornerRadius: 22 * 0.28).strokeBorder(Color.page, lineWidth: 1.5))
-                        .help(r?["name"].str ?? "已删除的角色")
+                        .help(r?["name"].str ?? "已删除的数字员工")
                 }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: "、"))
-            Text(verbatim: "\(members.count) 个角色\(lead.map { $0["name"].str == "主控" ? " · 有主控" : " · 主控：\($0["name"].str)" } ?? "")").font(.callout).foregroundStyle(.secondary)
+            Text(verbatim: "\(members.count) 个数字员工\(lead.map { $0["name"].str == "负责人" ? " · 有负责人" : " · 负责人：\($0["name"].str)" } ?? "")").font(.callout).foregroundStyle(.secondary)
             Spacer()
             Button("管理团队…") { store.editingWorkspace = ws }.buttonStyle(.link)
         }
@@ -123,7 +123,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text("共享资料").font(.headline)
-                Text("每个 Run 开始时交给主控和协作者").font(.callout).foregroundStyle(.secondary)
+                Text("每个 Run 开始时交给负责人和协作者").font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 Button(brief.isEmpty ? "添加…" : "编辑…") { store.editingWorkspace = ws }.buttonStyle(.link)
                     .help("产品定位、目标用户、约定、重要文件的位置：写下后，之后的 Run 不必重新调研或再问你")
@@ -152,9 +152,9 @@ struct HomeView: View {
     static func problems(_ roles: [JSON?], connection: (String) -> JSON?) -> [Problem] {
         var out: [Problem] = []
         let deleted = roles.filter { $0 == nil }.count
-        if deleted > 0 { out.append(Problem(text: "工作区里有 \(deleted) 个角色已被删除，请在工作区设置中移除或换成别的角色。", action: "打开角色设置", tab: "roles")) }
+        if deleted > 0 { out.append(Problem(text: "工作区里有 \(deleted) 个数字员工已被删除，请在工作区设置中移除或换成别的数字员工。", action: "打开数字员工设置", tab: "roles")) }
         let unbound = roles.compactMap { $0 }.filter { connection($0["connection"].str) == nil }.map { $0["name"].str }
-        if !unbound.isEmpty { out.append(Problem(text: L.cn(unbound.joined(separator: "、"), "还没有选择 Agent。"), action: "打开角色设置", tab: "roles")) }
+        if !unbound.isEmpty { out.append(Problem(text: L.cn(unbound.joined(separator: "、"), "还没有选择 Agent。"), action: "打开数字员工设置", tab: "roles")) }
         var untested: [(String, [String])] = []
         for r in roles.compactMap({ $0 }) {
             guard let c = connection(r["connection"].str), c["phase"].str != "ok" else { continue }
@@ -208,7 +208,7 @@ struct WorkspaceEditor: View {
                     TextField("名称（可选，默认用目录名）", text: $name).textFieldStyle(.roundedBorder)
 
                     Text("共享资料").font(.headline).padding(.top, 6)
-                    Text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次 Run 开始时交给主控和所有协作者，已经写在这里的事实不会再被重新调研或再问你。").font(.callout).foregroundStyle(.secondary)
+                    Text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次 Run 开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。").font(.callout).foregroundStyle(.secondary)
                     TextEditor(text: $brief)
                         .font(.body)
                         .frame(height: 140)
@@ -220,8 +220,8 @@ struct WorkspaceEditor: View {
                         Text(verbatim: "\(brief.count) / \(Self.briefLimit)").font(.caption).foregroundStyle(brief.count > Self.briefLimit ? Tone.red.color : .secondary)
                     }
 
-                    Text("启用的角色与主控").font(.headline).padding(.top, 6)
-                    if store.roles.isEmpty { Note(text: "还没有角色，先去「设置 → 角色」创建。") }
+                    Text("启用的数字员工").font(.headline).padding(.top, 6)
+                    if store.roles.isEmpty { Note(text: "还没有数字员工，先去「设置 → 数字员工」创建。") }
                     VStack(spacing: 0) {
                         ForEach(store.roles, id: \.self) { r in
                             let id = r["id"].str
@@ -237,12 +237,12 @@ struct WorkspaceEditor: View {
                                 Spacer()
                                 Text(Setup.permLabel(r["session"], c).isEmpty ? "—" : Setup.permLabel(r["session"], c)).font(.caption).foregroundStyle(.secondary)
                                 Button { lead = id } label: {
-                                    Label("主控", systemImage: lead == id ? "largecircle.fill.circle" : "circle")
+                                    Label("负责人", systemImage: lead == id ? "largecircle.fill.circle" : "circle")
                                 }
                                 .buttonStyle(.borderless)
                                 .disabled(!on.contains(id) || !Setup.leadCapable(c))
-                                .help(!Setup.leadCapable(c) ? "只有 Claude Code 或 Codex 能做主控" : !on.contains(id) ? "先启用这个角色" : "设为主控")
-                                .accessibilityLabel("\(r["name"].str) 担任主控")
+                                .help(!Setup.leadCapable(c) ? "只有 Claude Code 或 Codex 能做负责人" : !on.contains(id) ? "先启用这个数字员工" : "设为负责人")
+                                .accessibilityLabel("\(r["name"].str) 担任负责人")
                                 .accessibilityAddTraits(lead == id ? .isSelected : [])
                             }
                             .padding(.vertical, 7)

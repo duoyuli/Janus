@@ -37,7 +37,7 @@ struct AskShell<Body: View, Controls: View>: View {
 
     var body: some View {
         let w = run.who(agent)
-        let whereText = item.task.map { "\($0) · \(st.tasks[$0]?.title ?? "")" } ?? "主控会话"
+        let whereText = item.task.map { "\($0) · \(st.tasks[$0]?.title ?? "")" } ?? "负责人会话"
         Card(tint: tone.color) {
             HStack(spacing: 8) {
                 Pill(pill, tone)
@@ -65,7 +65,7 @@ struct OptionButtons: View {
                 Button {
                     picked = picked == o ? nil : o
                 } label: {
-                    ChoiceLabel(title: o, sub: o == recommend ? "主控建议" : "", subTint: true, on: picked == o)
+                    ChoiceLabel(title: o, sub: o == recommend ? "负责人建议" : "", subTint: true, on: picked == o)
                 }
                 .buttonStyle(.plain)
                 .disabled(disabled)
@@ -113,7 +113,7 @@ struct QuestionAsk: View {
         let downstream = st.order.filter { st.tasks[$0]?.deps.contains(item.task ?? "") == true }
         AskShell(run: run, st: st, item: item, pill: "问题", agent: from, title: L.cn(run.who(from).name, "在 \(item.task ?? "") 中提问")+"\(q?.blocking == true ? " · 阻塞中" : "")") {
             Text(q?.question ?? "").font(.body).textSelection(.enabled)
-            if item.d["reason"].truthy { Text(verbatim: "↳ 主控 Agent 转交给你：\(item.d["reason"].str)").font(.callout).foregroundStyle(.secondary) }
+            if item.d["reason"].truthy { Text(verbatim: "↳ 负责人 Agent 转交给你：\(item.d["reason"].str)").font(.callout).foregroundStyle(.secondary) }
         } controls: {
             OptionButtons(options: q?.options ?? [], recommend: item.d["recommend"].str, picked: pick, disabled: !run.canAct)
             TextField("补充说明（可选），会和回答一起发给 Agent", text: note, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...6).disabled(!run.canAct)
@@ -141,7 +141,7 @@ struct LeadAsk: View {
 
     var body: some View {
         let options = item.d["options"].strings
-        AskShell(run: run, st: st, item: item, pill: "需要你决定", agent: "lead", title: "主控请你决定：\(item.d["question"].str)") {
+        AskShell(run: run, st: st, item: item, pill: "需要你决定", agent: "lead", title: "负责人请你决定：\(item.d["question"].str)") {
             if item.d["reason"].truthy { Text(verbatim: "为什么要你决定：\(item.d["reason"].str)").font(.callout).foregroundStyle(.secondary) }
         } controls: {
             if !options.isEmpty {
@@ -152,7 +152,7 @@ struct LeadAsk: View {
             let empty = run.picks[item.key] == nil && (run.notes[item.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             Button("提交") { submit() }.buttonStyle(.primary).disabled(!run.canAct || empty)
                 .help(empty ? (options.isEmpty ? "先写下你的回答" : "先选择一个选项，或写下你的回答") : "")
-            Text("主控在等这个决定期间，会继续做不依赖它的工作。").font(.caption).foregroundStyle(.secondary)
+            Text("负责人在等这个决定期间，会继续做不依赖它的工作。").font(.caption).foregroundStyle(.secondary)
         }
     }
 

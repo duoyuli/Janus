@@ -178,7 +178,7 @@ Content-Type: application/json
 }
 ```
 
-`run`、`lead`、`collaborators` 是 Run、主控和协作者小计三个范围，`tasks`、`members`、`attempts`、`sessions` 是其余四个维度；`text` 是一行摘要，`reminders` 是只读提醒的文字。`tokens` 的每一项是 `null` 或数字；`completeness` 是 `missing`、`complete`、`partial`；`cost.lines` 为空表示「未上报」，每条带 `currency`（空字符串表示未标注）、`amount` 和 `sessions`；`durationMs`、`waitMs` 没有记录时是 `null`，不是 0。规则见[用量口径](events.md#usage_accounting)。应用自己按同一口径从事件推导，不调用这个接口。
+`run`、`lead`、`collaborators` 是 Run、负责人和协作者小计三个范围，`tasks`、`members`、`attempts`、`sessions` 是其余四个维度；`text` 是一行摘要，`reminders` 是只读提醒的文字。`tokens` 的每一项是 `null` 或数字；`completeness` 是 `missing`、`complete`、`partial`；`cost.lines` 为空表示「未上报」，每条带 `currency`（空字符串表示未标注）、`amount` 和 `sessions`；`durationMs`、`waitMs` 没有记录时是 `null`，不是 0。规则见[用量口径](events.md#usage_accounting)。应用自己按同一口径从事件推导，不调用这个接口。
 
 <a id="sse"></a>
 ### 事件流
@@ -215,10 +215,10 @@ Content-Type: application/json
 
 | `type` | 其他字段 | 说明 |
 | --- | --- | --- |
-| `answer` | `key`、`task`、`answer`、`note` | 回答提问；回答主控用 `ask_user` 提的问题时 `task` 为空 |
+| `answer` | `key`、`task`、`answer`、`note` | 回答提问；回答负责人用 `ask_user` 提的问题时 `task` 为空 |
 | `approve` | `key`、`task`、`allow`、`option`、`label` | 处理审批请求，`option` 是 Agent 给出的 `optionId` |
 | `input` | `key`、`task`、`action`、`content` | 处理表单请求，`action` 是 `accept`、`decline` 或 `cancel` |
-| `message` | `text`、`images`（可选，见[图片](#images)），`agent` 或 `task` | 给会话发消息，`text` 和 `images` 至少有一个；Run 已中断时先恢复。已交付和已验收的 Run 作为普通对话继续；服务重启后第一次发消息会重新打开主控会话（能加载原会话就加载，否则新建会话并带上简要上下文），不重跑已有任务。`text` 中的 `@路径` 作为文件引用交给 Agent，见 [ACP 集成](acp_integration.md#methods) |
+| `message` | `text`、`images`（可选，见[图片](#images)），`agent` 或 `task` | 给会话发消息，`text` 和 `images` 至少有一个；Run 已中断时先恢复。已交付和已验收的 Run 作为普通对话继续；服务重启后第一次发消息会重新打开负责人会话（能加载原会话就加载，否则新建会话并带上简要上下文），不重跑已有任务。`text` 中的 `@路径` 作为文件引用交给 Agent，见 [ACP 集成](acp_integration.md#methods) |
 | `control` | `id`、`value`、`via`（`mode` / `config`，默认 `config`），`agent` 或 `task` | 切换打开着的会话的模型、推理强度或模式；`id` 或 `value` 为空时拒绝；会话没有打开时报错。见[会话中切换控制项](acp_integration.md#session_controls) |
 | `interrupt` | `agent` 或 `task` | 打断当前一轮 |
 | `takeover` | `agent` 或 `task` | 接管会话，Agent 每轮结束后等用户消息 |

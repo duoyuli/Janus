@@ -111,7 +111,7 @@ private struct Log {
     #expect(l.task("T2")?.tokensText == "未上报")
     #expect(l.task("T3")?.notStarted == true && l.taskDetail(l.task("T3")!) == "未开始")
     #expect(l.run.completeness == .partial)
-    #expect(l.subtotalLine.value == "主控 未上报 · 协作者 0 tokens（部分上报）")
+    #expect(l.subtotalLine.value == "负责人 未上报 · 协作者 0 tokens（部分上报）")
 }
 
 /// Cost is a running total per session: the latest reading, plus what came before a reset; a
@@ -161,7 +161,7 @@ private struct Log {
     let l = usageLedger(log.events)
     let a = Dictionary(uniqueKeysWithValues: l.attempts.map { ($0.id, $0) })
     #expect(a["T1#1"]?.state == .failed && a["T1#1"]?.note == "脚本失败" && a["T1#1"]?.durationMs == 2000)
-    #expect(a["T1#2"]?.state == .cancelled && a["T1#2"]?.note == "主控取消了这个任务")
+    #expect(a["T1#2"]?.state == .cancelled && a["T1#2"]?.note == "负责人取消了这个任务")
     #expect(a["T2#1"]?.state == .cancelled && a["T2#1"]?.note == "Run 被取消" && a["T2#1"]?.durationMs == 4100)
     #expect(l.task("T1")?.tokens.total == 1600, "a failed attempt's usage still counts")
     #expect(a["T1#1"]?.line(name: "实现者") == "#1 · 失败 · 实现者 · 700 tokens（完整） · 2 秒")

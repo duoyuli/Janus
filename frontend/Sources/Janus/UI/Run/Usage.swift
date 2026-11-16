@@ -27,7 +27,7 @@ struct UsageSection: View {
         "费用": "Agent 上报的原值，不同币种或口径不合并；没有上报时写「未上报」，不根据 token 估算",
         "耗时": "墙钟时长：从 Run 创建到最后一条事件。等待你的时间单独写出，不当作 Agent 执行时间",
         "上下文": "上下文快照只显示最近值、峰值和比例，不计入 token 总量",
-        "小计": "Run 总计包含主控；主控和协作者分开列出，方便对比",
+        "小计": "Run 总计包含负责人；负责人和协作者分开列出，方便对比",
     ]
 
     var body: some View {
@@ -92,7 +92,7 @@ struct UsageSection: View {
                         let w = run.who(member.id)
                         Avatar(initials: w.initials, color: w.color, size: 14)
                         Text(w.name).font(.callout).lineLimit(1)
-                        if member.id == "lead", w.name != "主控" { Text("主控").font(.caption2).foregroundStyle(.secondary) }
+                        if member.id == "lead", w.name != "负责人" { Text("负责人").font(.caption2).foregroundStyle(.secondary) }
                         Spacer(minLength: 8)
                         Text(verbatim: u.memberDetail(member)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }

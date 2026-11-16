@@ -95,17 +95,17 @@ struct ConnectionRow: View {
                 .buttonStyle(.plain)
                 .help("编辑 \(c["name"].str)")
                 Spacer()
-                if roles.isEmpty { Button("新建角色", action: newRole).buttonStyle(.link) }
+                if roles.isEmpty { Button("新建数字员工", action: newRole).buttonStyle(.link) }
                 else {
                     HStack(spacing: -4) { ForEach(roles.prefix(4), id: \.self) { r in Avatar(initials: r["init"].str, color: r["color"].str, size: 20) } }
-                    Text(verbatim: "\(roles.count) 个角色").font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: "\(roles.count) 个数字员工").font(.caption).foregroundStyle(.secondary)
                 }
                 Dot(tone: tone, text: label).frame(width: 90, alignment: .leading).accessibilityElement(children: .combine)
                 Menu {
                     if let login { Button(String("\(c["loggedIn"].truthy ? "重新登录" : "登录") \(login["label"].str)")) { Task { await store.login(c["id"].str) } } }
                     Button("检查配置") { Task { await store.testConnection(c["id"].str) } }
                     Button("编辑…", action: edit)
-                    Button("在这个 Agent 上新建角色…", action: newRole)
+                    Button("在这个 Agent 上新建数字员工…", action: newRole)
                     Divider()
                     Button("删除…", role: .destructive) { remove() }
                 } label: { Label("更多操作", systemImage: "ellipsis.circle") }
@@ -140,7 +140,7 @@ struct ConnectionRow: View {
                 Button("修改配置", action: edit)
             }
         } else if c["status"].str == "untested" {
-            HStack { Text("还没有检查配置，读到模型后才能给角色使用。").font(.callout).foregroundStyle(.secondary); Button("检查") { Task { await store.testConnection(c["id"].str) } }.buttonStyle(.link) }
+            HStack { Text("还没有检查配置，读到模型后才能给数字员工使用。").font(.callout).foregroundStyle(.secondary); Button("检查") { Task { await store.testConnection(c["id"].str) } }.buttonStyle(.link) }
         }
     }
 
@@ -175,7 +175,7 @@ struct ConnectionRow: View {
 
     private func remove() {
         let used = store.roles.filter { $0["connection"].str == c["id"].str }.map { $0["name"].str }
-        let msg = used.isEmpty ? "" : "这些角色正在使用它，删除后会变成未绑定，需要重新选择 Agent：\(used.joined(separator: "、"))"
+        let msg = used.isEmpty ? "" : "这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：\(used.joined(separator: "、"))"
         guard confirm("删除「\(c["name"].str)」和它的独立目录（包括登录凭据）？", msg, ok: "删除") else { return }
         Task {
             do { try await store.delete("connections", c["id"].str); store.show("已删除 \(c["name"].str)") } catch { await store.loadSetup(); store.show(error.localizedDescription) }
@@ -384,7 +384,7 @@ struct ConnectionEditor: View {
                     if k["runtime"].truthy {
                         field("运行时路径") { TextField(k["runtime"]["detected"].truthy ? k["runtime"]["detected"].str : k["runtime"]["placeholder"].str, text: str("bin")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                     }
-                    field("自定义提示词", hint: "排在角色指令之前，和角色指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在任务说明末尾）。") {
+                    field("自定义提示词", hint: "排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在任务说明末尾）。") {
                         TextEditor(text: str("prompt")).font(.body).frame(height: 70).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     }
                     if !k["token"].truthy { envField(k) }

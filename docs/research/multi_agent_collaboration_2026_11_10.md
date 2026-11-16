@@ -12,8 +12,8 @@
 - **控制面成为竞争点。** OpenAI 把 `spawn_agent`、`send_message`、`wait_agent`、`interrupt_agent`、`list_agents` 做成 Responses API 的一等动作；Claude Code 的 Agent Teams 仍是实验特性，但补上了 `TeammateIdle`、`TaskCreated`、`TaskCompleted` 三类 hook 和更明确的跨 Agent 授权规则。
 - **工程样本里最值得抄的是安全审查。** Nous Research 的 `hermes-security` 给出了完整的多 Agent 安全审查流程：分块、并行 reviewer、覆盖缺口、测试确认、SARIF 导出、逐次授权。
 - **共享记忆和并行假设开始产品化。** PagerDuty 的 Paige 把「同一条时间线」「按置信度排序的假设」「把结论写回共享记忆」做成值班体验的一部分，与本项目的工作区共享资料和看板高度同构。
-- **研究侧偏冷。** 在相同思考 token 预算下，单 Agent 不输多 Agent；普通分解流水线成本约 3.2 倍而准确率没有显著提升；只有廉价模型承担足够比例的输出 token 时，异构流水线才回本。这支持 Janus「由主控决定是否协作」的设计，但也说明成本必须可见。
-- **Janus 的差距不在协作模型，而在成本和证据。** 事件溯源、看板推送、冲突检测、验证和恢复已经比多数新框架完整；缺口是 token / 时间成本没有账本，验收证据没有强度分级，主控缺少「停下但保留上下文」的显式动作。
+- **研究侧偏冷。** 在相同思考 token 预算下，单 Agent 不输多 Agent；普通分解流水线成本约 3.2 倍而准确率没有显著提升；只有廉价模型承担足够比例的输出 token 时，异构流水线才回本。这支持 Janus「由负责人决定是否协作」的设计，但也说明成本必须可见。
+- **Janus 的差距不在协作模型，而在成本和证据。** 事件溯源、看板推送、冲突检测、验证和恢复已经比多数新框架完整；缺口是 token / 时间成本没有账本，验收证据没有强度分级，负责人缺少「停下但保留上下文」的显式动作。
 
 ## 方法与限制
 
@@ -68,7 +68,7 @@ Hosted multi-agent（beta）在 Responses API 中暴露六个动作（[Microsoft
 - 后端无关的工具追踪；子工作流输出可以独立转发。
 - 其他：Cosmos DB 聊天历史、Foundry API key 认证、上下文压缩状态隔离。
 
-判断：语言和部署模型与 Janus 不同，直接借鉴有限。可借鉴的是「角色即工具」和「Skill 来源可组合」：Janus 的角色已经能被主控编排，但还没有把角色当作可复用的工具描述暴露给别的团队或 Run。
+判断：语言和部署模型与 Janus 不同，直接借鉴有限。可借鉴的是「角色即工具」和「Skill 来源可组合」：Janus 的角色已经能被负责人编排，但还没有把角色当作可复用的工具描述暴露给别的团队或 Run。
 
 ### Nous Research：Hermes v0.23 与 hermes-security
 
@@ -128,13 +128,13 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 - **Tran & Kiela（[arXiv 2604.02460](https://www.semanticscholar.org/paper/Single-Agent-LLMs-Outperform-Multi-Agent-Systems-on-Tran-Kiela/a9bba78d6a7441ed43d05a0343518eeac3ac0c7e)）**：在相同思考 token 预算下，单 Agent 在多跳推理上优于多 Agent；此前的优势可以用未计入的计算量解释。
 - **Anthropic 的多 Agent 研究系统复盘（[工程博客](https://www.anthropic.com/engineering/multi-agent-research-system)）**：多 Agent 约 15 倍 token，token 消耗解释了 80% 的性能方差；适合高价值、高度并行的任务，不适合所有任务。
 
-判断：这些结果支持 Janus 现有的「主控决定是否协作，不强制规划」，但也说明必须把成本和收益暴露给主控和用户，否则会滑向「为了协作而协作」。
+判断：这些结果支持 Janus 现有的「负责人决定是否协作，不强制规划」，但也说明必须把成本和收益暴露给负责人和用户，否则会滑向「为了协作而协作」。
 
 ## 横向对比
 
 | 维度 | Janus | Claude Code Agent Teams | OpenAI Hosted multi-agent | PagerDuty Paige | Hermes security |
 | --- | --- | --- | --- | --- | --- |
-| 控制面 | 主控通过看板 MCP 编排；编排器调度 | lead 加共享任务列表；teammate 自领任务 | API 动作：spawn / send / wait / interrupt / list | 人机共享工作台 | 一次扫描一个编排 |
+| 控制面 | 负责人通过看板 MCP 编排；编排器调度 | lead 加共享任务列表；teammate 自领任务 | API 动作：spawn / send / wait / interrupt / list | 人机共享工作台 | 一次扫描一个编排 |
 | 任务与状态 | 7 个调度状态，事件溯源，重启恢复 | pending / in progress / completed，无持久恢复 | Agent 树与状态，由服务维护 | 事故时间线 | 分块与 reviewer 轮次 |
 | 通信 | 只经看板；协作者之间无直接对话 | 直接消息加 mailbox | 消息与 mailbox | 共享时间线 | reviewer 之间不直接对话 |
 | 审计 | 全部状态和消息是事件 | 会话记录，团队配置随会话删除 | `multi_agent_call` 项 | 90 天时间线与审计过滤 | JSONL trace、SARIF |
@@ -149,18 +149,18 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 
 ### P0：小改动，先做
 
-#### 1. 主控说明补团队规模与任务粒度
+#### 1. 负责人说明补团队规模与任务粒度
 
-- **现状**：`goal_brief` 讲了协作要点，但没有给出规模、任务粒度和同文件冲突的具体数字；是否并行完全靠主控自行判断。
+- **现状**：`goal_brief` 讲了协作要点，但没有给出规模、任务粒度和同文件冲突的具体数字；是否并行完全靠负责人自行判断。
 - **借鉴**：Claude Code 建议 3-5 个 teammate、每个 5-6 个任务；Anthropic 研究系统建议 3-5 个并发 subagent；Federation of Agents 的集群上限也是 3-5。
 - **建议**：在说明里加一段短规则：默认同时使用 3-5 个协作者；一个任务对应一个可交付物；每个协作者保持 5-6 个任务；会改同一批文件的任务用依赖串行；任务说明要能独立看懂。
 - **落点**：`goal_brief`（`backend/src/orchestrator.rs`，按仓库规则不要再往这个文件堆功能，可先只改文案）；[目标模式与共享看板](../domains/goal_mode.md#lead_brief)。
-- **验收**：测试断言说明包含这段；用一个 flow test 观察主控拆分出的任务数量和依赖。
-- **风险**：说明变长会占用主控上下文；用短句和列表，不要写成教程。
+- **验收**：测试断言说明包含这段；用一个 flow test 观察负责人拆分出的任务数量和依赖。
+- **风险**：说明变长会占用负责人上下文；用短句和列表，不要写成教程。
 
 #### 2. 让 `team` 显示「最近活动」和「当前动作」
 
-- **现状**：`team` 只列协作者信息和任务状态（id、执行者、状态、标题）。主控判断谁卡住，主要靠 `[停滞]` 推送或 `task_detail`。
+- **现状**：`team` 只列协作者信息和任务状态（id、执行者、状态、标题）。负责人判断谁卡住，主要靠 `[停滞]` 推送或 `task_detail`。
 - **借鉴**：OpenAI 的 `list_agents` 返回每个 Agent 的状态和最新任务消息；Claude Code 的 agent panel 显示 teammate 是空闲还是工作中。
 - **建议**：在每个任务行后加「最近一次事件距今」「当前是否在等审批 / 提问 / 工具调用」「尝试次数 / 上限」。数据从内存中的 watch 状态和事件计算，不新增事件类型；重启后显示「未知」。
 - **落点**：`board_team`、`team_lines_vec`；[看板 MCP 工具](../interfaces/board_mcp.md)的 `team`。
@@ -169,7 +169,7 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 
 #### 3. 给验收证据加「方式」字段
 
-- **现状**：结构化结果是 `checks: [{criterion, passed, evidence}]`，验证只核对结构（有 check、有证据、没有 false），不区分证据强度。文档已经说明「执行者的证据是它的说法，关键结果由主控自己核对」。
+- **现状**：结构化结果是 `checks: [{criterion, passed, evidence}]`，验证只核对结构（有 check、有证据、没有 false），不区分证据强度。文档已经说明「执行者的证据是它的说法，关键结果由负责人自己核对」。
 - **借鉴**：`hermes-security` 区分「有代码依据」和「测试确认」；PagerDuty 的假设按置信度排序并说明排除了什么。
 - **建议**：增加可选字段 `method`，取值 `test`、`command`、`inspection`、`reasoning`。`result_gaps` 对 `passed: true` 但 `method: reasoning` 的条目生成提醒，不判失败；看板和 UI 显示标记。这样不改变「Janus 不运行验证命令」的边界，只把信息摆到台面上。
 - **落点**：结构化结果 schema、`verify_result` / `result_gaps`、`fake_acp.py`、[Run 生命周期](../domains/run_lifecycle.md#structured_result)、[看板 MCP 工具](../interfaces/board_mcp.md#acceptance_criteria)、事件文档和 `DeriveTests`。
@@ -182,16 +182,16 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 
 - **现状**：只有 6 小时墙钟预算；没有 token、费用或尝试次数的汇总展示。当前后端没有读取 ACP 的 token 用量字段，适配器也没有统一上报。
 - **借鉴**：Anthropic 的多 Agent 系统约 15 倍 token，token 解释了 80% 的性能方差；Coordination Tax 论文给出分解的回本条件；Hermes 给 MCP 工具做按次价格和会话上限。
-- **建议**：先做「可观测三件套」：每次尝试的墙钟时间、尝试次数、产物大小。看板的 `task_detail` 和 Run 详情显示；主控在 `team` 里看到每个协作者已用时间。等适配器能上报 usage 时再记 token，不提前假设字段。预算可以保留墙钟阈值，另加「尝试次数上限」作为第二道闸。
+- **建议**：先做「可观测三件套」：每次尝试的墙钟时间、尝试次数、产物大小。看板的 `task_detail` 和 Run 详情显示；负责人在 `team` 里看到每个协作者已用时间。等适配器能上报 usage 时再记 token，不提前假设字段。预算可以保留墙钟阈值，另加「尝试次数上限」作为第二道闸。
 - **落点**：`attempt` 的计时、`Task` / `Run` 统计、`db.rs` 可选列、应用的 Run 详情；如果新增事件类型，必须同步 `derive` / `boardFacts`、`board_entry` 和 `resume_run`。
 - **验收**：flow test 断言统计数字；不访问网络、不调用真实 Agent。
 - **风险**：新增事件类型会影响恢复和界面推导；先只在 `team` / `task_detail` 里计算，不加事件。
 
 #### 5. 「停下但保留上下文」的显式中断
 
-- **现状**：`reply` 已经能插话；不能插话时打断当前轮后发送。`cancel` 结束任务。没有「停止当前轮、保留会话、等主控下一步」的独立动作。
+- **现状**：`reply` 已经能插话；不能插话时打断当前轮后发送。`cancel` 结束任务。没有「停止当前轮、保留会话、等负责人下一步」的独立动作。
 - **借鉴**：OpenAI 的 `interrupt_agent` 中断当前回合但不删除上下文；Claude Code 的 teammate 可以直接被 Esc 打断后继续对话。
-- **建议**：给主控一个 `interrupt` 工具：停止当前轮、保留会话、任务回到可继续状态，随后用 `reply` 恢复。只在适配器支持打断时提供；不支持时明确返回错误，不假装成功。
+- **建议**：给负责人一个 `interrupt` 工具：停止当前轮、保留会话、任务回到可继续状态，随后用 `reply` 恢复。只在适配器支持打断时提供；不支持时明确返回错误，不假装成功。
 - **落点**：`lead_tools`、ACP 的打断控制、[看板 MCP 工具](../interfaces/board_mcp.md)、[目标模式与共享看板](../domains/goal_mode.md#board_flow)。
 - **验收**：反例：不支持打断的适配器上调用 `interrupt` 必须被拒绝且不改变任务状态。
 - **风险**：打断可能丢失未完成的工具结果；需要定义清楚「打断后任务算什么状态」，并让 UI 显示。
@@ -224,7 +224,7 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 ### 明确不建议
 
 - **默认并行**：单 Agent 在同等 token 预算下不输多 Agent；简单任务开团队只会增加协调成本。
-- **无限 spawn / 嵌套团队**：Claude Code 自己不允许嵌套，OpenAI 虽然没有硬上限但默认并发只有 3。Janus 应保持「主控编排、协作者不再派生」。
+- **无限 spawn / 嵌套团队**：Claude Code 自己不允许嵌套，OpenAI 虽然没有硬上限但默认并发只有 3。Janus 应保持「负责人编排、协作者不再派生」。
 - **自动执行修复**：PagerDuty 和 CrowdStrike 都把最终执行留给人或明确的授权范围；Janus 的审批和表单始终归用户，这条边界不要动。
 - **按角色分配模型而不测量**：Coordination Tax 的结论是按任务路由比按角色分配更有效；在没有账本之前，不要引入自动模型分配。
 - **把「零发现」当作结论**：没有覆盖率的零发现没有意义，安全审查必须报告覆盖缺口。
@@ -238,7 +238,7 @@ Janus 的优势是所有状态变化都是事件，可以直接算协作是否�
 - 人工干预次数：`answer`、`approve`、`input`、`message`、`takeover`、`ask_user` 的回答。
 - 停滞事件数 / 任务、冲突事件数 / 任务、提问转交用户的比例。
 - 交付后 7 天内被同一目录的新 Run 重做的任务比例。
-- 对照组：同一目标由一个主控独立完成的成本。没有对照组，无法判断「多 Agent 更好」。
+- 对照组：同一目标由一个负责人独立完成的成本。没有对照组，无法判断「多 Agent 更好」。
 
 ## 下周观察清单
 

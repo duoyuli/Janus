@@ -47,7 +47,7 @@ impl App {
                 "protocolVersion": req["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和任务状态，task_detail 查看某个任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要主控注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；用 peers 查看其他任务的状态、改过的文件和完整结果。" },
+                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和任务状态，task_detail 查看某个任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；用 peers 查看其他任务的状态、改过的文件和完整结果。" },
             }),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
@@ -250,7 +250,7 @@ impl App {
         if let Some(key) = question {
             self.emit(
                 run,
-                ev("question.answered", "lead", format!("主控回答：{}", short(text, 40)))
+                ev("question.answered", "lead", format!("负责人回答：{}", short(text, 40)))
                     .task(task)
                     .to(&agent)
                     .data(json!({ "key": key, "answer": text, "via": "lead" })),
@@ -347,7 +347,7 @@ impl App {
         if let Some(a) = &accept {
             data["accept"] = json!(a);
         }
-        self.emit(run, ev("task.reopened", "lead", format!("主控要求重新执行 {task}")).task(task).data(data));
+        self.emit(run, ev("task.reopened", "lead", format!("负责人要求重新执行 {task}")).task(task).data(data));
         for (id, up) in &revived {
             self.emit(
                 run,
@@ -407,7 +407,7 @@ impl App {
             ..Default::default()
         };
         let error = failed.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or("验证失败").to_string();
-        result.risks.push(format!("{error}；主控接受了结果：{reason}"));
+        result.risks.push(format!("{error}；负责人接受了结果：{reason}"));
         {
             // Checked and settled in one step, so a retry or cancel in between is not overwritten.
             let mut st = run.st.lock().unwrap();
@@ -417,7 +417,7 @@ impl App {
             t.set_status(TaskStatus::Succeeded);
             t.result = Some(result.clone());
         }
-        let seq = self.emit(run, ev("task.succeeded", "lead", format!("主控接受 {task} 的结果：{}", short(reason, 60))).task(task).attempt(submitted.attempt.unwrap_or(0)).data(json!({
+        let seq = self.emit(run, ev("task.succeeded", "lead", format!("负责人接受 {task} 的结果：{}", short(reason, 60))).task(task).attempt(submitted.attempt.unwrap_or(0)).data(json!({
             "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "checks": result.checks, "acceptedBy": "lead", "reason": reason
         })));
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), task) {
@@ -513,7 +513,7 @@ impl App {
         };
         self.emit(
             run,
-            ev("result.amended", "lead", format!("主控修订 {task} 的结论：{}", short(text, 60)))
+            ev("result.amended", "lead", format!("负责人修订 {task} 的结论：{}", short(text, 60)))
                 .task(task)
                 .data(json!({ "text": text })),
         );
@@ -584,8 +584,8 @@ impl App {
         }
         for (id, because) in &dropped {
             let text = match because {
-                Some(dep) => format!("{id} 依赖的 {dep} 被主控取消，一并取消"),
-                None => format!("主控取消 {id}：{}", if reason.is_empty() { "不再需要" } else { &reason }),
+                Some(dep) => format!("{id} 依赖的 {dep} 被负责人取消，一并取消"),
+                None => format!("负责人取消 {id}：{}", if reason.is_empty() { "不再需要" } else { &reason }),
             };
             self.emit(
                 run,
@@ -619,7 +619,7 @@ impl App {
         // Nobody awaits the answer here: it reaches the lead through `wait`.
         self.add_pending(run, &key, Owner { session: SessionKey::Lead, attempt: 0 }, Ask::Question)
             .map_err(|e| format!("{e:#}"))?;
-        self.emit(run, ev("question.escalated", "lead", format!("主控请你决定：{}", short(question, 60))).to("user").data(json!({
+        self.emit(run, ev("question.escalated", "lead", format!("负责人请你决定：{}", short(question, 60))).to("user").data(json!({
             "key": key, "question": question, "options": options, "recommend": recommend, "reason": why, "from": "lead"
         })));
         Ok("已交给用户决定。用户回答后会出现在 janus.wait 的结果里；在那之前继续做不依赖这个决定的工作。".into())
@@ -720,7 +720,7 @@ impl App {
             }
         }
         if !t.amendments.is_empty() {
-            out.push(format!("主控的修订（以此为准）：{}", t.amendments.join("；")));
+            out.push(format!("负责人的修订（以此为准）：{}", t.amendments.join("；")));
         }
         if let Some(v) = st.last_verification.get(task).filter(|_| t.status != TaskStatus::Succeeded) {
             out.push(format!("最近一次没通过验收核对：\n{v}"));
@@ -945,7 +945,7 @@ impl App {
                 .to("lead")
                 .data(json!({ "kind": kind, "text": text })),
         );
-        Ok("已写到共享看板，主控会看到。".into())
+        Ok("已写到共享看板，负责人会看到。".into())
     }
 
     /// A collaborator claims files it is about to change (`teamwork::claim`); the lead sees it on
@@ -983,7 +983,7 @@ impl App {
                 .data(json!({ "paths": fresh })),
         );
         Ok(format!(
-            "已认领 {}，到任务结束为止归你负责。其他同时进行的任务改它们时，Janus 会提醒对方和主控。",
+            "已认领 {}，到任务结束为止归你负责。其他同时进行的任务改它们时，Janus 会提醒对方和负责人。",
             fresh.join("、")
         ))
     }

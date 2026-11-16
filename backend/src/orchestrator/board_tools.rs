@@ -138,7 +138,7 @@ pub(super) fn lead_tools() -> Value {
 pub(super) fn member_tools() -> Value {
     json!([{
         "name": "board_post",
-        "description": "执行任务期间，把进展、阻塞或需要主控注意的事写到共享看板，主控会看到。需要主控做决定才能继续时，不要在这里等：在结果 JSON 的 question 字段提问并结束本轮。",
+        "description": "执行任务期间，把进展、阻塞或需要负责人注意的事写到共享看板，负责人会看到。需要负责人做决定才能继续时，不要在这里等：在结果 JSON 的 question 字段提问并结束本轮。",
         "inputSchema": {
             "type": "object",
             "required": ["text"],
@@ -150,7 +150,7 @@ pub(super) fn member_tools() -> Value {
         "annotations": board_read()
     }, {
         "name": "claim",
-        "description": "开始改一批不在你负责范围内的文件前先认领：认领后它们归你的任务负责，同时进行的其他任务改它们时 Janus 会提醒对方和主控；任务结束后认领自动失效。已经归另一个可能同时进行的任务负责的文件不能认领，会返回负责它的任务。验证任务不改文件，不能认领。",
+        "description": "开始改一批不在你负责范围内的文件前先认领：认领后它们归你的任务负责，同时进行的其他任务改它们时 Janus 会提醒对方和负责人；任务结束后认领自动失效。已经归另一个可能同时进行的任务负责的文件不能认领，会返回负责它的任务。验证任务不改文件，不能认领。",
         "inputSchema": {
             "type": "object",
             "required": ["paths"],
@@ -161,7 +161,7 @@ pub(super) fn member_tools() -> Value {
         "annotations": board_read()
     }, {
         "name": "peers",
-        "description": "查看看板上其他任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个任务的完整说明、结果和主控的修订，例如上游任务的证据。",
+        "description": "查看看板上其他任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个任务的完整说明、结果和负责人的修订，例如上游任务的证据。",
         "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
         "annotations": board_read()
     }])

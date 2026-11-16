@@ -19,7 +19,7 @@ impl App {
         }
         if let Some(lead) = team.iter().find(|m| m.lead).filter(|m| !m.kind.leads()) {
             bail!(
-                "主控「{}」用的是 {}，只有 Claude Code 或 Codex 能做主控（需要 /goal），请在工作区里换一个主控",
+                "负责人「{}」用的是 {}，只有 Claude Code 或 Codex 能做负责人（需要 /goal），请在工作区里换一个负责人",
                 lead.name,
                 lead.runtime_name
             );
@@ -265,7 +265,7 @@ impl App {
                 }
                 Outcome::LeadFailed(err) => {
                     // Like any failed run: continuing it rebuilds the board and restarts the lead.
-                    bail!("主控的会话异常结束：{err}");
+                    bail!("负责人的会话异常结束：{err}");
                 }
                 Outcome::Budget => {
                     // Announced each time the run comes to wait on the budget, including when the
@@ -322,7 +322,7 @@ impl App {
             let SessionKey::Task(task) = session else {
                 self.emit(
                     run,
-                    ev("lead.stalled", "janus", format!("主控已有 {} 没有任何动静", span(idle)))
+                    ev("lead.stalled", "janus", format!("负责人已有 {} 没有任何动静", span(idle)))
                         .to("user")
                         .data(json!({ "reason": "idle", "idleMs": idle })),
                 );
@@ -363,7 +363,7 @@ impl App {
         let SessionKey::Task(task) = session else {
             self.emit(
                 run,
-                ev("lead.stalled", "janus", format!("主控连续 {repeats} 次做同样的调用：{}", short(title, 60)))
+                ev("lead.stalled", "janus", format!("负责人连续 {repeats} 次做同样的调用：{}", short(title, 60)))
                     .to("user")
                     .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
             );
@@ -410,7 +410,7 @@ impl App {
                     TaskStatus::Blocked => Some("依赖失败，没有执行"),
                     TaskStatus::Failed => Some("失败"),
                     TaskStatus::Cancelled => Some("已取消"),
-                    TaskStatus::SkippedByDecision => Some("被主控取消"),
+                    TaskStatus::SkippedByDecision => Some("被负责人取消"),
                     _ => None,
                 };
                 if let Some(state) = unfinished {
@@ -488,7 +488,7 @@ impl App {
                 "risks": risks,
             })
         };
-        self.emit(run, ev("run.delivered", "janus", "主控完成了目标，交付结果已准备好").data(result));
+        self.emit(run, ev("run.delivered", "janus", "负责人完成了目标，交付结果已准备好").data(result));
         self.set_status(run, RunStatus::Delivered);
     }
 }

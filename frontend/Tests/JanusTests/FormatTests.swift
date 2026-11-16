@@ -21,12 +21,12 @@ import Testing
 /// One problem per cause: an Agent that failed its test is named once with all its roles.
 @Test func workspaceProblemsAreGroupedByCause() {
     let conns: [String: JSON] = ["c1": ["name": "脚本 Agent", "phase": "failed"], "c2": ["name": "Codex", "phase": "ok"]]
-    let roles: [JSON?] = [["name": "主控", "connection": "c1"], ["name": "实现者", "connection": "c1"], ["name": "审查者", "connection": "c2"], ["name": "文档", "connection": ""], nil]
+    let roles: [JSON?] = [["name": "负责人", "connection": "c1"], ["name": "实现者", "connection": "c1"], ["name": "审查者", "connection": "c2"], ["name": "文档", "connection": ""], nil]
     let p = HomeView.problems(roles, connection: { conns[$0] })
     #expect(p.count == 3, "\(p.map(\.text))")
-    #expect(p.contains { $0.text.contains("「脚本 Agent」") && $0.text.contains("主控、实现者") && $0.tab == "agents" })
+    #expect(p.contains { $0.text.contains("「脚本 Agent」") && $0.text.contains("负责人、实现者") && $0.tab == "agents" })
     #expect(p.contains { $0.text.hasPrefix("文档还没有选择 Agent") && $0.tab == "roles" })
-    #expect(p.contains { $0.text.contains("1 个角色已被删除") })
+    #expect(p.contains { $0.text.contains("1 个数字员工已被删除") })
     #expect(HomeView.problems([["name": "审查者", "connection": "c2"]], connection: { conns[$0] }).isEmpty)
 }
 
@@ -34,7 +34,7 @@ import Testing
 @Test func chineseJoinsWithoutStraySpaces() {
     #expect(L.cn("实现者", "请求你决定") == "实现者请求你决定")
     #expect(L.cn("Codex", "请求你决定") == "Codex 请求你决定")
-    #expect(L.cn("主控、实现者", "还没有选择 Agent。") == "主控、实现者还没有选择 Agent。")
+    #expect(L.cn("负责人、实现者", "还没有选择 Agent。") == "负责人、实现者还没有选择 Agent。")
 }
 
 /// Usage numbers keep their state: a reported 0 is written as 0, a missing number as words, and

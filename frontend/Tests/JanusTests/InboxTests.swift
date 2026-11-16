@@ -24,7 +24,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城")
     #expect(entries.count == 2)
     let approval = entries.first { $0.title.contains("请求你决定") }
-    let decision = entries.first { $0.title.contains("主控请你决定") }
+    let decision = entries.first { $0.title.contains("负责人请你决定") }
     #expect(approval?.canWait == false && approval?.text == "npm publish" && approval?.workspace == "商城")
     #expect(decision?.canWait == true && decision?.ts == 1_005_000)
     #expect(entries.allSatisfy { $0.key.hasPrefix("r1/") && $0.goal == "上线支付页" && !$0.canSettle })
@@ -72,7 +72,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(approval.actions[0].prominent && approval.actions[0].body["option"].str == "o1" && approval.actions[0].body["allow"] == true)
     #expect(approval.actions[2].body["allow"] == false && approval.actions[2].body["label"].str == "Reject", "the agent's own words go back")
     #expect(approval.actions[1].help.contains("不再询问") && approval.actions[1].help.contains("Always allow"))
-    let decision = entries.first { $0.title.contains("主控请你决定") }!
+    let decision = entries.first { $0.title.contains("负责人请你决定") }!
     #expect(decision.actions.map(\.label) == ["国内", "海外"] && decision.actions[1].prominent)
     #expect(decision.actions[0].body["type"].str == "answer" && decision.actions[0].body["key"].str == "q-lead-1")
     #expect(entries.first { $0.key.hasSuffix("input") }?.actions.isEmpty == true, "a form opens the run")

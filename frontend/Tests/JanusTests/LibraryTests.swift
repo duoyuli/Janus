@@ -28,7 +28,7 @@ private let docs: JSON = [
     let skill: JSON = ["kind": "skill", "origin": ["type": "created"], "roles": []]
     #expect(Library.origin(skill) == "在 Janus 中新建")
     #expect(Library.vars(skill).complete)
-    #expect(Library.usedBy(skill) == "还没有角色使用")
+    #expect(Library.usedBy(skill) == "还没有数字员工使用")
     let stdio: JSON = ["server": ["transport": "stdio", "command": "npx", "args": ["-y", "gh-mcp"]]]
     #expect(Library.endpoint(stdio) == "stdio · npx -y gh-mcp")
     #expect(Library.runtime(["base": "claude", "kind": "deepseek-claude"]) == "claude")

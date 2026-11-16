@@ -73,7 +73,7 @@ async fn a_task_called_lead_is_not_the_lead() {
         assert!(st.live.contains_key(&SessionKey::Lead), "the lead's session is still open");
         assert_eq!(st.live_agent.get("lead"), Some(&SessionKey::Lead));
     }
-    act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "主控请看一下" }));
+    act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "负责人请看一下" }));
     wait_until(&h.app, &run, "the message reaches the lead's session", |e| {
         e.iter().any(|e| e.kind == "message.routed" && e.to.as_deref() == Some("lead") && e.task.is_none())
     })

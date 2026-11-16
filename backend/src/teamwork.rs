@@ -160,7 +160,7 @@ pub fn claim(me: &TaskDef, paths: &[String], board: &[(&TaskDef, TaskStatus)]) -
         paths.iter().filter_map(|p| owner_of(p, &me.id, board).map(|o| format!("{p} 归 {o} 负责"))).collect();
     if !taken.is_empty() {
         return Err(format!(
-            "不能认领：{}。需要改这些文件时，用 janus.board_post 写一条 blocker 请主控协调",
+            "不能认领：{}。需要改这些文件时，用 janus.board_post 写一条 blocker 请负责人协调",
             taken.join("；")
         ));
     }
@@ -173,7 +173,7 @@ pub fn task_section(def: &TaskDef, verified: Option<&TaskDef>) -> String {
     let mut p = String::new();
     if !def.owns.is_empty() {
         p.push_str(&format!(
-            "\n\n你负责的文件：{}。只改这些文件；其他文件归别的任务或主控，需要改时先用 janus.board_post 写一条 blocker 说明原因，或在结果的 question 中请主控决定。",
+            "\n\n你负责的文件：{}。只改这些文件；其他文件归别的任务或负责人，需要改时先用 janus.board_post 写一条 blocker 说明原因，或在结果的 question 中请负责人决定。",
             def.owns.join("、")
         ));
     }

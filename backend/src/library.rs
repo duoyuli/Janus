@@ -364,7 +364,11 @@ impl App {
         let _guard = self.library.lock.lock().await;
         let item = self.item(id)?;
         if let Some(role) = self.roles_using(id)?.first() {
-            bail!("角色「{}」正在使用 {}，请先在角色中取消选择", role["name"].as_str().unwrap_or(""), item.name);
+            bail!(
+                "数字员工「{}」正在使用 {}，请先在数字员工中取消选择",
+                role["name"].as_str().unwrap_or(""),
+                item.name
+            );
         }
         self.db.delete_config(ITEM, id)?;
         let _ = std::fs::remove_file(self.values_path(id)?);

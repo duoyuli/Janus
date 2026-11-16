@@ -4,7 +4,7 @@
 
 ## 目标
 
-Janus 是本地优先的多 Agent 协作工作空间。它通过 ACP（Agent Client Protocol）连接 Codex、Claude Code、Grok、Pi 和其他兼容 ACP 的 Agent，让一个主控 Agent 带着一组协作者完成用户给出的目标，并把每一次会话、编排、审批、产物和交付都记录成可回放的事件。
+Janus 是本地优先的多 Agent 协作工作空间。它通过 ACP（Agent Client Protocol）连接 Codex、Claude Code、Grok、Pi 和其他兼容 ACP 的 Agent，让一个负责人 Agent 带着一组协作者完成用户给出的目标，并把每一次会话、编排、审批、产物和交付都记录成可回放的事件。
 
 Janus 是单机、单用户的工具：编排器只在本机运行，任务直接修改用户选择的目录。
 
@@ -18,13 +18,13 @@ Janus 是单机、单用户的工具：编排器只在本机运行，任务直�
 | 角色 | 绑定一个 Agent，指定名字、职责、模型、推理强度、会话控制项、Skill、MCP | `role` |
 | 会话控制项 | Agent 在 ACP 会话中声明的可选项，例如 Codex 的沙箱预设、Claude Code 的权限模式 | `controls`、角色的 `session` |
 | 权限模式 | 会话控制项中决定 Agent 能做什么的那些，角色编辑器的「权限」只显示它们 | `permission: true` 的控制项 |
-| 工作区 | 一个本机目录加一组角色成员，其中一名是主控 | `workspace` |
+| 工作区 | 一个本机目录加一组角色成员，其中一名是负责人 | `workspace` |
 | Run | 在工作区中提交的一个目标，从创建到验收的全过程 | `Run`、`runs` 表 |
-| 成员 | Run 创建时角色的快照；主控的 id 固定为 `lead` | `Member` |
-| 主控 | 用 `/goal` 推进目标的 Agent，只能是 Claude Code 或 Codex | `lead_capable` |
-| 协作者 | 主控以外的成员 | |
-| 编排 | 主控提交的一组任务 | `orchestrate` 工具、`orchestration.*` 事件 |
-| 共享看板 | 主控和协作者交换任务、进展、阻塞、提问的通道，底层是事件日志 | `board_*` 函数 |
+| 成员 | Run 创建时角色的快照；负责人的 id 固定为 `lead` | `Member` |
+| 负责人 | 用 `/goal` 推进目标的 Agent，只能是 Claude Code 或 Codex | `lead_capable` |
+| 协作者 | 负责人以外的成员 | |
+| 编排 | 负责人提交的一组任务 | `orchestrate` 工具、`orchestration.*` 事件 |
+| 共享看板 | 负责人和协作者交换任务、进展、阻塞、提问的通道，底层是事件日志 | `board_*` 函数 |
 | 任务 / 尝试 | 任务是看板上的一项工作；每次执行是一次尝试，对应一个新的 ACP 会话 | `TaskDef`、`attempts` 表 |
 | 产物 | 尝试结束时保存的回复和 diff | `artifacts` 表 |
 
@@ -50,7 +50,7 @@ Janus/
 │   │   ├── orchestrator.rs# Run 的状态和 App 的核心（事件、等待者、状态转移）
 │   │   ├── orchestrator/  # App 的运行部分：lifecycle、lead、board、board_tools、messages、attempts、turn、session、prompts、actions，以及测试
 │   │   ├── teamwork.rs    # 编排的团队结构：负责的文件、认领、独立验证
-│   │   ├── goal_settle.rs # 主控的目标一直不自己结束时：问主控，确认后由 Janus 清除目标
+│   │   ├── goal_settle.rs # 负责人的目标一直不自己结束时：问负责人，确认后由 Janus 清除目标
 │   │   ├── acp_view.rs    # ACP 会话更新转成事件：思考、计划、斜杠命令、控制项、用量、工具调用的 diff，`@路径` 文件引用
 │   │   ├── evidence.rs    # 验收证据：证据方法、结果核对、证据汇总
 │   │   ├── usage.rs       # Run 级用量账本：从事件日志只读聚合 Run、任务、成员、尝试和会话的 token、费用与耗时

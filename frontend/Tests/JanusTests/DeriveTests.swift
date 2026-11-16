@@ -142,12 +142,12 @@ private func goalRun() -> Log {
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "idleMs": 600000])
     log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"]])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == "主控可能卡住了" && $0.you }, "nobody but the person watches the lead")
+    #expect(f.open.contains { $0.title == "负责人可能卡住了" && $0.you }, "nobody but the person watches the lead")
     #expect(f.open.contains { $0.title == "T1 和 T2 改了同一个文件" && $0.text == "calc.py" && !$0.you })
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "resolved": true])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "主控可能卡住了" })
+    #expect(!f.open.contains { $0.title == "负责人可能卡住了" })
     #expect(!f.open.contains { $0.title.contains("改了同一个文件") }, "neither task is running any more")
 }
 
@@ -156,10 +156,10 @@ private func goalRun() -> Log {
     var log = goalRun()
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "loop", "tool": "Read", "repeats": 5])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == "主控可能卡住了" && $0.you })
+    #expect(f.open.contains { $0.title == "负责人可能卡住了" && $0.you })
     log.add("agent.message", actor: "lead", text: "换个办法")
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "主控可能卡住了" })
+    #expect(!f.open.contains { $0.title == "负责人可能卡住了" })
 }
 
 @Test func tracesOpenOnTheBoardUntilTheLeadActs() {
@@ -212,7 +212,7 @@ private func goalRun() -> Log {
     #expect(f.results.count == 1)
     #expect(f.results[0].usedBy == ["T2"])
     #expect(f.handoffs.map(\.to) == ["T2"])
-    #expect(f.decisions.map(\.title).contains("主控提交编排"))
+    #expect(f.decisions.map(\.title).contains("负责人提交编排"))
     #expect(f.decisions.map(\.title).contains("给 lead 的补充"))
 }
 

@@ -604,7 +604,7 @@ impl App {
             ev(
                 "run.recovered",
                 "user",
-                format!("从中断处继续：看板上 {done} 个任务已完成，{open} 个任务重新开始，主控重新推进目标"),
+                format!("从中断处继续：看板上 {done} 个任务已完成，{open} 个任务重新开始，负责人重新推进目标"),
             )
             .data(json!({ "phase": "running", "done": done, "open": open, "tasks": restored })),
         );

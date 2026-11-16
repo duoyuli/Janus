@@ -33,7 +33,7 @@ Janus 读取的 Agent 能力：
 | `agentInfo.name`、`agentInfo.version` | 配置检查中显示 |
 | `mcpCapabilities.http` | 为 `true` 时，目标模式下的协作者会话接入看板 MCP 服务 |
 | `loadSession` | 为 `true` 时，重启后恢复的任务尝试用 `session/load` 重新打开原会话 |
-| `_meta.steering.supported` | 为 `true` 时，用户的消息、主控的回复、看板推送和冲突提醒通过 `_session/steering` 插入正在进行的一轮，见[插话](#steering) |
+| `_meta.steering.supported` | 为 `true` 时，用户的消息、负责人的回复、看板推送和冲突提醒通过 `_session/steering` 插入正在进行的一轮，见[插话](#steering) |
 | `_meta.jetbrains.air.goal.controlMethod` | 清除目标时调用的方法，官方适配器为 `_session/goal` |
 
 <a id="methods"></a>
@@ -49,7 +49,7 @@ Janus 读取的 Agent 能力：
 | Janus → Agent | `session/prompt` | 发送一轮提示：一个文字块；Agent 声明了 `promptCapabilities.image` 时，后面附上文字点名的图片块，见[图片附件](../domains/run_lifecycle.md#attachments)；文字里以 `@路径` 提到的工作区文件，每个附一个 `resource_link` 块（`file://` 绝对路径，`name` 是相对路径），ACP 要求所有 Agent 都支持这种块 |
 | Janus → Agent | `session/cancel`（通知） | 打断当前一轮 |
 | Janus → Agent | `_session/steering` | 把消息插入正在进行的一轮，内容块与 `session/prompt` 相同，带 `_meta.steering.idleBehavior: "promptRequired"`；返回 `outcome: "injected"` 表示成功；15 秒超时 |
-| Janus → Agent | `_session/goal` | 清除主控的目标（`action: "clear"`），见 [目标状态](#goal_status) |
+| Janus → Agent | `_session/goal` | 清除负责人的目标（`action: "clear"`），见 [目标状态](#goal_status) |
 | Agent → Janus | `session/update`（通知） | 流式输出（`agent_message_chunk`）、思考（`agent_thought_chunk`）、工具调用（`tool_call`、`tool_call_update`）、计划（`plan`）、斜杠命令（`available_commands_update`）、模式和选项的变化（`current_mode_update`、`config_option_update`）、用量（`usage_update`）、会话信息（`session_info_update`），见[会话中能看到什么](#session_view) |
 | Agent → Janus | `session/request_permission` | 审批请求，转给用户 |
 | Agent → Janus | `elicitation/create` | 表单或链接请求，转给用户 |
@@ -75,7 +75,7 @@ Claude Code：
 
 - `claudeCode.options` 原样交给官方 Claude Code 适配器，适配器把它展开进 SDK 的选项。`settings.permissions.allow` 让 Janus 自己的看板工具（只读写这个 Run 的看板）不用审批；没有它时，Claude Code 在默认模式下每次协作者写进展都会请用户批准（真实运行中发现）。Codex 通过工具的只读标注得到同样的效果。角色选择的权限模式对其他所有工具照常生效。
 - `plugins`：成员有 Skill 时才有。资源包作为本地插件加载，只在这个会话中有效，不写进配置目录；Skill 在会话中显示为 `janus:<名字>`，见[资源库](../domains/resource_library.md#delivery)。
-- `systemPrompt.append`：主控会话放主控说明和用户的长期要求，协作者会话放长期要求（见下一节）。只追加，不替换 Claude Code 自带的系统提示。
+- `systemPrompt.append`：负责人会话放负责人说明和用户的长期要求，协作者会话放长期要求（见下一节）。只追加，不替换 Claude Code 自带的系统提示。
 
 Codex：
 
@@ -92,7 +92,7 @@ Codex：
 
 一个会话的系统层（`system_layer`）由两部分组成，在整个会话中都有效，优先级高于任务说明：
 
-1. **Janus 的说明**：主控会话是主控说明（`goal_brief`，交付后的对话是 `conversation_brief`），协作者会话是协作约定（`collaborator_rules`），见[目标模式](../domains/goal_mode.md#collaborator_rules)。
+1. **Janus 的说明**：负责人会话是负责人说明（`goal_brief`，交付后的对话是 `conversation_brief`），协作者会话是协作约定（`collaborator_rules`），见[目标模式](../domains/goal_mode.md#collaborator_rules)。
 2. **用户的长期要求**：Provider 的「自定义提示词」和角色的「指令」，`standing_instructions` 把两者合成一段（Provider 在前，角色在后）。
 
 `instruction_channel` 按运行时选择注入方式：
@@ -101,7 +101,7 @@ Codex：
 | --- | --- | --- |
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
 | Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_system`、`with_developer_instructions`） |
-| 自定义命令 | 第一条提示 | 没有系统层入口：协作约定和 `<standing_instructions>` 块附在任务说明的末尾；只在测试中出现的自定义主控先收到一轮「背景信息」 |
+| 自定义命令 | 第一条提示 | 没有系统层入口：协作约定和 `<standing_instructions>` 块附在任务说明的末尾；只在测试中出现的自定义负责人先收到一轮「背景信息」 |
 
 走系统提示或开发者指令时，Janus 记两条 `session.prompt` 事件：Janus 的说明（`channel` 为 `system`）和用户的长期要求（`channel` 为 `instructions`），都带 `via`（`system` 或 `developer`），会话页可以展开查看。
 
@@ -158,7 +158,7 @@ Janus 仍然声明不提供文件读写和终端（`clientCapabilities.fs`、`te
 <a id="goal_status"></a>
 ## 目标状态
 
-官方 Codex 和 Claude Code 适配器在 `session_info_update` 中报告 `/goal` 的状态（例如 `active`、`paused`、`complete`），写在 `_meta.jetbrains.air.goal`，只在客户端声明了 AIR 时发送。Janus 把状态变化记为 `goal.status` 事件；状态为 `active` 时，即使 `session/prompt` 已经返回，也继续跟随会话的输出。主控确认完成后，Janus 用 `_session/goal`（`action: "clear"`）清除目标。
+官方 Codex 和 Claude Code 适配器在 `session_info_update` 中报告 `/goal` 的状态（例如 `active`、`paused`、`complete`），写在 `_meta.jetbrains.air.goal`，只在客户端声明了 AIR 时发送。Janus 把状态变化记为 `goal.status` 事件；状态为 `active` 时，即使 `session/prompt` 已经返回，也继续跟随会话的输出。负责人确认完成后，Janus 用 `_session/goal`（`action: "clear"`）清除目标。
 
 <a id="steering"></a>
 ## 插话
@@ -167,9 +167,9 @@ Agent 声明了 `_meta.steering.supported` 时，会话正在进行的一轮可�
 
 1. Janus 发出 `_session/steering`，内容是消息的文字和 `@路径` 引用块，并带 `_meta.steering.idleBehavior: "promptRequired"`。返回 `outcome: "injected"` 时记 `message.routed`（`delivery: "steer"`）和 `message.delivered`（`data.applied: true`）。
 2. Agent 在下一个安全点把消息交给模型：Codex 立即读到；Claude Code 在当前工具调用结束后读到。这次插入已经成功时，不再另发通知。
-3. Agent 拒绝（例如这一轮正在结束）或没有声明插话时，用户的消息排队到这一轮结束；主控的回复打断这一轮后立即发送。
+3. Agent 拒绝（例如这一轮正在结束）或没有声明插话时，用户的消息排队到这一轮结束；负责人的回复打断这一轮后立即发送。
 
-主控跟随进行中的目标（`session/prompt` 已经返回、目标仍是 `active`）时没有可以等待的一轮：插不进去的消息立即作为新的一轮发送，不等目标结束。
+负责人跟随进行中的目标（`session/prompt` 已经返回、目标仍是 `active`）时没有可以等待的一轮：插不进去的消息立即作为新的一轮发送，不等目标结束。
 
 `idleBehavior: "promptRequired"` 表示没有正在进行的一轮时不替客户端开始新一轮：Agent 返回 `promptRequired`，Janus 把消息留在队列里，按正常的 `session/prompt` 流程发送，完成和用量仍归那一轮。
 

@@ -39,11 +39,11 @@ impl PromptChannel {
 
     fn label(self) -> &'static str {
         match self {
-            PromptChannel::Context => "向主控发送团队上下文",
-            PromptChannel::Goal => "向主控发送目标提示",
-            PromptChannel::Followup => "向主控发送继续提示",
-            PromptChannel::Board => "把看板上需要处理的消息推给主控",
-            PromptChannel::GoalCheck => "问主控目标是否已经完成",
+            PromptChannel::Context => "向负责人发送团队上下文",
+            PromptChannel::Goal => "向负责人发送目标提示",
+            PromptChannel::Followup => "向负责人发送继续提示",
+            PromptChannel::Board => "把看板上需要处理的消息推给负责人",
+            PromptChannel::GoalCheck => "问负责人目标是否已经完成",
             PromptChannel::Fix => "验证没有通过，把结果发回 Agent 修复",
         }
     }
@@ -92,8 +92,12 @@ impl App {
                 Err(err) => {
                     app.emit(
                         &r,
-                        ev("lead.failed", "janus", format!("主控的会话异常结束：{}", short(&format!("{err:#}"), 120)))
-                            .data(json!({ "error": format!("{err:#}") })),
+                        ev(
+                            "lead.failed",
+                            "janus",
+                            format!("负责人的会话异常结束：{}", short(&format!("{err:#}"), 120)),
+                        )
+                        .data(json!({ "error": format!("{err:#}") })),
                     );
                     LeadGoal::Failed(format!("{err:#}"))
                 }
@@ -215,9 +219,10 @@ impl App {
             if !live {
                 continue;
             }
-            let esc = ev("question.escalated", "janus", "主控已经结束，协作者的提问转交给你").to("user").data(json!({
-                "key": key, "reason": "主控的会话已经结束，没有人在看板上回答这个问题。"
-            }));
+            let esc =
+                ev("question.escalated", "janus", "负责人已经结束，协作者的提问转交给你").to("user").data(json!({
+                    "key": key, "reason": "负责人的会话已经结束，没有人在看板上回答这个问题。"
+                }));
             self.emit(run, esc.task(e.task.as_deref().unwrap_or_default()));
         }
     }
@@ -227,7 +232,7 @@ impl App {
     pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<String> {
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         if !lead.kind.leads() {
-            bail!("主控只能是 Claude Code 或 Codex：只有它们支持 /goal");
+            bail!("负责人只能是 Claude Code 或 Codex：只有它们支持 /goal");
         }
         let standing = standing_instructions(&lead);
         let channel = instruction_channel(lead.kind);
@@ -246,7 +251,7 @@ impl App {
         }
         let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-goal.log");
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let (conn, mut rx, mut ctl) = self.open_session(run, &owner, "lead", &spec, &log, "主控").await?;
+        let (conn, mut rx, mut ctl) = self.open_session(run, &owner, "lead", &spec, &log, "负责人").await?;
         let result = async {
             self.take_peeked_notes(run, "lead", &note_ids);
             let (sid, applied, controls) = tokio::time::timeout(STARTUP_TIMEOUT, async {
@@ -266,7 +271,7 @@ impl App {
                 Ok::<_, anyhow::Error>((sid, applied, controls))
             })
             .await
-            .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+            .map_err(|_| anyhow!("负责人打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
             self.emit(
                 run,
                 ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" })
@@ -276,7 +281,7 @@ impl App {
             self.watch_session(run, &owner.session, 0);
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
-            self.record_system(run, &ctx, &sid, &channel, "向主控注入主控说明", &brief);
+            self.record_system(run, &ctx, &sid, &channel, "向负责人注入负责人说明", &brief);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
             if channel == Channel::Prompt {
                 // An agent without a system layer gets the brief first, as context.
@@ -314,7 +319,8 @@ impl App {
                     bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
                 }
                 if !ctl.held_by_person() && !ctl.queued.is_empty() {
-                    let next = self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给主控"));
+                    let next =
+                        self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给负责人"));
                     prompt = if delivered {
                         next
                     } else {
@@ -368,7 +374,7 @@ impl App {
         }
         .await;
         run.st.lock().unwrap().lead.session = None;
-        self.close_session(run, &owner, Some(&conn), "主控的会话已结束，撤回这个请求").await;
+        self.close_session(run, &owner, Some(&conn), "负责人的会话已结束，撤回这个请求").await;
         run.lead_nudge.notify_one();
         result
     }
@@ -391,7 +397,7 @@ impl App {
         }
         let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-chat.log");
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let opened = self.open_session(run, &owner, "lead", &spec, &log, "主控").await;
+        let opened = self.open_session(run, &owner, "lead", &spec, &log, "负责人").await;
         let (conn, mut rx, mut ctl) = match opened {
             Ok(opened) => opened,
             Err(err) => {
@@ -429,7 +435,7 @@ impl App {
             if !loaded {
                 session = tokio::time::timeout(STARTUP_TIMEOUT, new_session(&conn, &workspace, &opening))
                     .await
-                    .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+                    .map_err(|_| anyhow!("负责人打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
             }
             let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
             if sid.is_empty() {
@@ -459,7 +465,7 @@ impl App {
             if has_controls {
                 self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             }
-            self.record_system(run, &ctx, &sid, &channel, "向主控注入对话背景", &brief);
+            self.record_system(run, &ctx, &sid, &channel, "向负责人注入对话背景", &brief);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
@@ -476,9 +482,13 @@ impl App {
                 let ids: Vec<&str> = prompt.iter().map(|m| m.id.as_str()).collect();
                 self.emit(
                     run,
-                    ev("message.delivered", "janus", format!("恢复会话，把你留给主控的 {} 条消息发出去", prompt.len()))
-                        .to("lead")
-                        .data(json!({ "ids": ids })),
+                    ev(
+                        "message.delivered",
+                        "janus",
+                        format!("恢复会话，把你留给负责人的 {} 条消息发出去", prompt.len()),
+                    )
+                    .to("lead")
+                    .data(json!({ "ids": ids })),
                 );
             }
             let mut next = prompt.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
@@ -501,11 +511,11 @@ impl App {
                 if let Some(reason) = goal_refused(&text) {
                     self.emit(
                         run,
-                        ev("session.prompt", "janus", format!("主控没有把它当作新的目标：{reason}")).to("lead"),
+                        ev("session.prompt", "janus", format!("负责人没有把它当作新的目标：{reason}")).to("lead"),
                     );
                 }
                 if !ctl.held_by_person() && !ctl.queued.is_empty() {
-                    next = self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给主控"));
+                    next = self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给负责人"));
                     continue;
                 }
                 if goal_turn {
@@ -524,7 +534,7 @@ impl App {
         }
         .await;
         run.st.lock().unwrap().lead.session = None;
-        self.close_session(run, &owner, Some(&conn), "主控的会话已结束，撤回这个请求").await;
+        self.close_session(run, &owner, Some(&conn), "负责人的会话已结束，撤回这个请求").await;
         // Without a live session the run is read-only again; the next message reopens it. If the
         // scheduler is still running tasks, leave the run reachable until they finish.
         if run.driving.active() {
@@ -645,7 +655,7 @@ impl App {
     // @project-doc docs/domains/goal_mode.md#lead_brief
     pub(super) fn goal_brief(&self, run: &Run, resumed: bool) -> String {
         let mut p = format!(
-            "你是 Janus 团队的主控，负责完成用户交给你的目标。你可以自己从头做到尾；也可以在需要时把一部分工作交给下面的协作者。是否需要协作、交给谁、怎么拆，都由你判断，不要为了协作而协作。
+            "你是 Janus 团队的负责人，负责完成用户交给你的目标。你可以自己从头做到尾；也可以在需要时把一部分工作交给下面的协作者。是否需要协作、交给谁、怎么拆，都由你判断，不要为了协作而协作。
 
 工作目录：{cwd}（你和协作者都直接在这里工作，改动立即彼此可见）。{git}
 
@@ -879,7 +889,7 @@ pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
         .rev()
         .filter(|e| e.task.is_none() && e.attempt.is_none())
         .filter_map(|e| match e.kind.as_str() {
-            "agent.message" if !e.text.trim().is_empty() => Some(format!("主控：{}", short(e.text.trim(), 500))),
+            "agent.message" if !e.text.trim().is_empty() => Some(format!("负责人：{}", short(e.text.trim(), 500))),
             "user.message" if !e.text.trim().is_empty() => Some(format!("用户：{}", short(e.text.trim(), 500))),
             _ => None,
         })

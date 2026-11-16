@@ -528,7 +528,7 @@ impl Ledger {
         let mut out = vec![self.summary_line()];
         out.extend(breakdown_text(&self.run.tokens));
         out.push(format!(
-            "主控 {} · 协作者小计 {}",
+            "负责人 {} · 协作者小计 {}",
             tokens_text(&self.lead.tokens, self.lead.completeness),
             tokens_text(&self.collaborators.tokens, self.collaborators.completeness)
         ));
@@ -752,7 +752,7 @@ fn percent(ratio: f64) -> String {
 
 fn who(actor: &str, names: &Names) -> String {
     if actor == LEAD {
-        return "主控".into();
+        return "负责人".into();
     }
     names.get(actor).cloned().unwrap_or_else(|| actor.to_string())
 }
@@ -1018,9 +1018,9 @@ impl Scan {
         for ((task, _), a) in self.attempts.iter_mut() {
             let task_at = self.task_cancelled.get(task).copied();
             let (at, note) = match (self.run_cancelled, task_at) {
-                (Some(run), Some(task)) if task <= run => (task, "主控取消了这个任务"),
+                (Some(run), Some(task)) if task <= run => (task, "负责人取消了这个任务"),
                 (Some(run), _) => (run, "Run 被取消"),
-                (None, Some(task)) => (task, "主控取消了这个任务"),
+                (None, Some(task)) => (task, "负责人取消了这个任务"),
                 (None, None) => continue,
             };
             if a.state == AttemptState::Succeeded || a.ended_ms.is_some_and(|end| end < at) {
@@ -1463,7 +1463,7 @@ mod tests {
         usage(&mut e, 3, 3_000, "lead", None, None, json!({ "totalTokens": 1500 }));
         let only_lead = ledger(&e);
         assert_eq!(only_lead.run.tokens.total, Some(1500));
-        assert!(only_lead.board_lines(&Names::new()).contains("主控 1,500 tokens（完整） · 协作者小计 未上报"));
+        assert!(only_lead.board_lines(&Names::new()).contains("负责人 1,500 tokens（完整） · 协作者小计 未上报"));
         started(&mut e, 4, 4_000, "m1", "T1", 1, "s1");
         usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 800 }));
         let l = ledger(&e);
@@ -1510,7 +1510,7 @@ mod tests {
         let of = |l: &Ledger, task: &str| l.attempts.iter().find(|a| a.task == task).unwrap().clone();
         assert_eq!(
             (of(&l, "T1").state, of(&l, "T1").note.as_deref()),
-            (AttemptState::Cancelled, Some("主控取消了这个任务"))
+            (AttemptState::Cancelled, Some("负责人取消了这个任务"))
         );
         assert_eq!(of(&l, "T2").state, AttemptState::Unfinished, "cancelling one task leaves the others running");
         e.push(ev(6, 9_000, "run.cancelled", "user", None, None, json!({})));

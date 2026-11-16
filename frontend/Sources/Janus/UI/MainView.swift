@@ -125,7 +125,7 @@ struct Sidebar: View {
                     Button { store.openSettings(store.settingsTab) } label: { Label("设置", systemImage: "gearshape") }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .help("Agents、角色和 ACP 适配器（⌘,）")
+                        .help("Agent、数字员工和 ACP（⌘,）")
                 }
                 UpdateBadge(updater: Updater.shared)
                 if !store.sourceUpdates.isEmpty {
@@ -158,7 +158,7 @@ struct Sidebar: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .hoverable(5)
-            .help("新建任务：打开工作区，写下目标并交给主控")
+            .help("新建任务：打开工作区，写下目标并交给负责人")
             .accessibilityLabel("新建任务")
         }
         .font(.caption)
@@ -219,7 +219,7 @@ struct NoWorkspaceView: View {
                 OnboardingBar(store: store)
                 Card {
                     Text("还没有工作区").font(.display(.title3))
-                    Text("工作区指定任务在哪个目录执行、由哪些角色参与。").foregroundStyle(.secondary)
+                    Text("工作区指定任务在哪个目录执行、由哪些数字员工参与。").foregroundStyle(.secondary)
                     Button("新建工作区") { store.editingWorkspace = AppStore.blankWorkspace }
                         .buttonStyle(.primary)
                 }

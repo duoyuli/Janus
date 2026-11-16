@@ -22,7 +22,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 ├── adapters/<id>/                    # ACP 适配器，见 ACP 适配器管理
 ├── artifacts/<run>/<task>/           # 产物：回复和 diff
 ├── logs/<run>/                       # 每个 ACP 子进程的 stderr
-│   ├── lead-goal.log                 # 目标模式主控
+│   ├── lead-goal.log                 # 目标模式负责人
 │   └── <task>-a<n>.log               # 任务的第 n 次尝试
 └── runs/<run>/members/<member>/bundle/ # 成员的资源包：Run 创建时复制的 Skill
 ```
@@ -59,7 +59,7 @@ Run 创建后不再读取最新的设置对象：
 
 - 团队成员、角色、模型、会话控制项、权限摘要和资源写入 `runs.config`，工作区（含[共享资料](../domains/agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。
 - 成员的资源（`resources`）是资源当时的完整记录，Skill 复制到成员的资源包 `~/.janus/runs/<run>/members/<member>/bundle/`，之后修改资源库不影响已有 Run，见 [Run 和会话怎样拿到资源](../domains/resource_library.md#delivery)。
-- 随目标粘贴的图片保存在 `~/.janus/runs/<run>/attachments/`，路径列表写入 `runs.config.goalImages`，从中断处继续时主控说明里仍有这些图片，见[图片附件](../domains/run_lifecycle.md#attachments)。
+- 随目标粘贴的图片保存在 `~/.janus/runs/<run>/attachments/`，路径列表写入 `runs.config.goalImages`，从中断处继续时负责人说明里仍有这些图片，见[图片附件](../domains/run_lifecycle.md#attachments)。
 - 怎样连上 Agent（启动命令、凭据、环境变量预设、适配器版本）不进快照，属于 Agent 的设置：每次打开会话时按当前设置读取（`spec_for`），凭据也因此不会写进 `runs.config`。快照冻结的是角色要求的东西。
 - MCP 服务器的快照只有名称、命令、地址和 `envKeys` / `headerKeys`；值在会话启动时从 `secrets/library/` 读取，直接放进会话参数，所以 `runs.config` 和事件中没有值。
 

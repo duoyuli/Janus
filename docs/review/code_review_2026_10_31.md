@@ -10,7 +10,7 @@
 
 当前实现已经覆盖 ACP 启动、Run 编排、共享看板、事件记录、恢复和前端回放等主要流程，`just test` 的 19 个 Rust 测试和示例项目的 2 个 Python 测试均通过。
 
-当前最需要处理的是身份边界、秘密值持久化、操作幂等性和事件持久化一致性。这些问题可能导致协作者获得主控权限、凭据进入 SQLite、同一用户操作重复执行，或前端看到无法在重启后恢复的状态。
+当前最需要处理的是身份边界、秘密值持久化、操作幂等性和事件持久化一致性。这些问题可能导致协作者获得负责人权限、凭据进入 SQLite、同一用户操作重复执行，或前端看到无法在重启后恢复的状态。
 
 工程质量检查尚未通过：`cargo fmt --check` 失败，`cargo clippy --all-targets -- -D warnings` 报告 22 项诊断。当前审查没有修改业务代码，也没有修改 `examples/calc` 的已有未提交内容。
 
@@ -20,13 +20,13 @@
 
 | 编号 | 影响 | 状态 | 问题 | 位置 |
 | --- | --- | --- | --- | --- |
-| J-01 | 高 |  已修复  | MCP 的 `who` 没有绑定到发放 URL 的会话，协作者可以请求主控工具 | `backend/src/orchestrator.rs:1058` |
+| J-01 | 高 |  已修复  | MCP 的 `who` 没有绑定到发放 URL 的会话，协作者可以请求负责人工具 | `backend/src/orchestrator.rs:1058` |
 | J-02 | 高 |  已接受的风险  | Agent 的 `envText` 原值写入 SQLite，并通过设置接口返回 | `backend/src/agents.rs:396` |
 | J-03 | 高 |  已修复  | `commandId` 的检查、操作和记录不是原子流程 | `backend/src/main.rs:333` |
 | J-04 | 高 |  已修复  | 事件持久化失败后仍然广播，事实来源与页面状态可能分离 | `backend/src/orchestrator.rs:390` |
 | J-05 | 高 |  按设计  | Run 只保存 Provider ID，后续任务重新读取当前 Provider 配置 | `backend/src/orchestrator.rs:1480` |
 | J-06 | 中高 |  已修复  | Run 查询固定 `LIMIT 50`，旧 Run 无法正常详情、恢复或验收 | `backend/src/db.rs:199` |
-| J-07 | 中高 |  按设计  | Run 预算只在内存中保存，恢复时重置；主控提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
+| J-07 | 中高 |  按设计  | Run 预算只在内存中保存，恢复时重置；负责人提示没有 Run 级截止时间 | `backend/src/orchestrator.rs:930` |
 | J-08 | 中高 |  已修复  | 连接和角色 ID 的更新入口没有统一校验，可能影响文件路径 | `backend/src/agents.rs:371` |
 | J-09 | 中 |  已修复  | PID 文件锁不是原子锁，无法严格保证单实例 | `backend/src/main.rs:48` |
 | J-10 | 中 |  已修复  | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
@@ -36,17 +36,17 @@
 
 ### J-01：MCP 会话身份没有绑定到 `who`
 
-影响：高。恶意或行为异常的自定义 ACP Agent 可以绕过协作者权限，调用主控的 `orchestrate` 和 `reply` 工具，改变任务图或向其他协作者发送指令。
+影响：高。恶意或行为异常的自定义 ACP Agent 可以绕过协作者权限，调用负责人的 `orchestrate` 和 `reply` 工具，改变任务图或向其他协作者发送指令。
 
-代码事实：`mcp` 只检查 Run 是否存在以及 token 是否匹配，然后用 URL 中的 `who` 判断是否为主控。`who == "lead"` 时，`tools/list` 返回主控工具。当前代码没有检查 `who` 是否属于发放该 URL 的会话，也没有检查任务 ID 是否对应当前 ACP 连接。
+代码事实：`mcp` 只检查 Run 是否存在以及 token 是否匹配，然后用 URL 中的 `who` 判断是否为负责人。`who == "lead"` 时，`tools/list` 返回负责人工具。当前代码没有检查 `who` 是否属于发放该 URL 的会话，也没有检查任务 ID 是否对应当前 ACP 连接。
 
 证据：[orchestrator.rs:1058](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1058)、[orchestrator.rs:1060](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1060)、[orchestrator.rs:1066](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1066)、[orchestrator.rs:1092](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1092)。
 
 触发条件：协作者已经获得自己的 MCP URL 和 Run token，随后把 URL 最后的 `who` 改成 `lead`，再调用 `tools/list` 或 `tools/call`。
 
-建议：为每个 Agent 会话生成独立的不可转移 token，并在服务端保存 token、Run、成员、任务和 ACP 会话之间的绑定。服务端根据绑定结果决定工具集合，不再信任 URL 中的 `who`。至少应增加「协作者 token 不能列出主控工具」和「协作者不能操作其他任务」的测试。
+建议：为每个 Agent 会话生成独立的不可转移 token，并在服务端保存 token、Run、成员、任务和 ACP 会话之间的绑定。服务端根据绑定结果决定工具集合，不再信任 URL 中的 `who`。至少应增加「协作者 token 不能列出负责人工具」和「协作者不能操作其他任务」的测试。
 
-处理（2026-11-15）：2026-11-08 修复：看板 MCP 的 URL 令牌由 Run 密钥和 `who` 派生（`session_token`），协作者不能改名为主控或其他任务，测试带反例。
+处理（2026-11-15）：2026-11-08 修复：看板 MCP 的 URL 令牌由 Run 密钥和 `who` 派生（`session_token`），协作者不能改名为负责人或其他任务，测试带反例。
 
 ### J-02：`envText` 的值进入 SQLite 和设置接口响应
 
@@ -110,17 +110,17 @@
 
 处理（2026-11-15）：列表仍只返回最近的 50 个 Run（应用的侧栏和角色统计用它），按 id 的读取改用 `Db::run`：详情、工作目录文件、验收归档的交付和从中断处继续都不受这个范围限制。测试 `a_run_past_the_newest_fifty_is_still_found`。
 
-### J-07：Run 预算不持久化，主控会话没有 Run 级截止时间
+### J-07：Run 预算不持久化，负责人会话没有 Run 级截止时间
 
-影响：中高。反复重启可以重新获得完整预算；主控会话可能继续运行到超过 Run 预算。
+影响：中高。反复重启可以重新获得完整预算；负责人会话可能继续运行到超过 Run 预算。
 
-代码事实：`deadline_ms` 只保存在内存中的 `Run`。恢复 Run 时直接设置为当前时间加 6 小时。主控调用 `stream_prompt` 时传入 `None`，没有使用 Run 的剩余预算。
+代码事实：`deadline_ms` 只保存在内存中的 `Run`。恢复 Run 时直接设置为当前时间加 6 小时。负责人调用 `stream_prompt` 时传入 `None`，没有使用 Run 的剩余预算。
 
 证据：[orchestrator.rs:285](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:285)、[orchestrator.rs:930](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:930)、[orchestrator.rs:2987](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2987)。
 
-建议：在 Run 创建事件或数据库字段中保存绝对截止时间。恢复时沿用该时间，追加预算时显式更新并记录事件。主控和协作者启动、提示、验证和等待用户请求时，都应使用同一个剩余预算，并在超时后终止会话或进入可恢复状态。
+建议：在 Run 创建事件或数据库字段中保存绝对截止时间。恢复时沿用该时间，追加预算时显式更新并记录事件。负责人和协作者启动、提示、验证和等待用户请求时，都应使用同一个剩余预算，并在超时后终止会话或进入可恢复状态。
 
-处理（2026-11-15）：Run 预算限制的是 Run 在没有人关注时能持续启动新工作多久。服务重启后 Run 不会自己继续，要用户点「从中断处继续」，这时重新计 6 小时是用户的决定；主控会话的停滞由停滞检测报告给用户。这一规则写进了 [Run 生命周期](../domains/run_lifecycle.md)。
+处理（2026-11-15）：Run 预算限制的是 Run 在没有人关注时能持续启动新工作多久。服务重启后 Run 不会自己继续，要用户点「从中断处继续」，这时重新计 6 小时是用户的决定；负责人会话的停滞由停滞检测报告给用户。这一规则写进了 [Run 生命周期](../domains/run_lifecycle.md)。
 
 ### J-08：连接和角色 ID 更新入口没有统一校验
 

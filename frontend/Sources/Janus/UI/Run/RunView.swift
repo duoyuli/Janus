@@ -210,7 +210,7 @@ struct BoardView: View {
                 InboxSection(run: run, st: st)
                 if st.result != nil { ResultCard(run: run, st: st) }
                 AdaptiveColumns(side: 340, minMain: 480, spacing: 18) {
-                    ChatCard(run: run, st: st, title: "主控", info: agentSession(st, "lead"), target: .agent("lead"))
+                    ChatCard(run: run, st: st, title: "负责人", info: agentSession(st, "lead"), target: .agent("lead"))
                         .frame(height: 640)
                     RunInspector(run: run, st: st)
                 }
@@ -315,7 +315,7 @@ struct RunCard: View {
         }
         if r.paused { return ("已暂停", .gray) }
         switch r.status {
-        case .planning: return ("主控正在启动", .blue)
+        case .planning: return ("负责人正在启动", .blue)
         case .accepted: return ("已验收", .green)
         case .waitingInput: return ("等你追加预算", .amber)
         case .delivered: return ("已交付 · 等你验收", .green)
@@ -495,7 +495,7 @@ struct AgentsPanel: View {
             let waiting = next.deps.filter { st.tasks[$0]?.status != .succeeded }.joined(separator: "、")
             line = next.status == .blocked ? "\(next.id) 等待 \(next.blockedBy) 修复" : "下一步 \(next.id) · 等待 \(waiting.isEmpty ? "调度" : waiting)"
         } else {
-            line = !mine.isEmpty ? "分配的任务都已完成" : !st.order.isEmpty ? "主控没有给它派任务" : "待命"
+            line = !mine.isEmpty ? "分配的任务都已完成" : !st.order.isEmpty ? "负责人没有给它派任务" : "待命"
         }
         var meta: [String] = []
         if phase != "idle", let beat = a?.beat, beat > 0 { meta.append("心跳 \(L.ago(beat, st.run.now))") }
@@ -550,7 +550,7 @@ struct BriefSuggestions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("主控建议写入共享资料").font(.callout.weight(.semibold))
+            Text("负责人建议写入共享资料").font(.callout.weight(.semibold))
             ForEach(lines.indices, id: \.self) { i in Text("· \(lines[i])").font(.callout).textSelection(.enabled) }
             HStack {
                 Text("采纳后，之后在这个工作区的 Run 都会看到这些内容。").font(.caption).foregroundStyle(.secondary)
@@ -612,7 +612,7 @@ struct RunInspector: View {
     }
 
     @ViewBuilder private var tasks: some View {
-        if st.orderedTasks.isEmpty { Text("主控还没有派出任务。").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
+        if st.orderedTasks.isEmpty { Text("负责人还没有派出任务。").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
         ForEach(Array(st.orderedTasks.enumerated()), id: \.element.id) { i, t in
             if i > 0 { Divider() }
             let (label, tone) = t.status.label

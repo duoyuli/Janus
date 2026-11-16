@@ -24,7 +24,7 @@ enum RunStatus: String {
     /// How the run lists name it.
     var listLabel: (String, Tone) {
         switch self {
-        case .planning: return ("主控启动中", .blue)
+        case .planning: return ("负责人启动中", .blue)
         case .waitingInput: return ("等你追加预算", .amber)
         case .running: return ("执行中", .blue)
         case .delivered: return ("已交付", .green)
@@ -69,7 +69,7 @@ enum TaskStatus: String {
         case .waitingInput: return ("等你回答", .amber)
         case .waitingApproval: return ("等你审批", .amber)
         case .blocked: return ("依赖失败", .amber)
-        case .skippedByDecision: return ("主控取消", .gray)
+        case .skippedByDecision: return ("负责人取消", .gray)
         case .verifying: return ("核对中", .violet)
         case .verificationFailed: return ("没通过验收", .red)
         case .succeeded: return ("已完成", .green)

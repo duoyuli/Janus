@@ -113,7 +113,7 @@ impl App {
                     {
                         let _ = conn.request_timeout("_session/goal", json!({ "sessionId": sid, "action": "clear" }), Some(STEER_TIMEOUT)).await;
                         run.st.lock().unwrap().lead.goal_active = false;
-                        self.emit(run, ev("goal.status", "janus", "主控确认目标已完成，Janus 结束了目标").data(json!({ "status": null, "by": "janus" })));
+                        self.emit(run, ev("goal.status", "janus", "负责人确认目标已完成，Janus 结束了目标").data(json!({ "status": null, "by": "janus" })));
                         return Ok(if summary.is_empty() { out[..from].to_string() } else { summary });
                     }
                     if res["stopReason"] == "cancelled" && !interrupted {
@@ -415,7 +415,7 @@ impl App {
                     .data(json!({ "other": other, "paths": files })),
             );
             for (me, them) in [(task, other.as_str()), (other.as_str(), task)] {
-                self.notify(run, me, &format!("[Janus 提醒] 任务 {them}（{}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时用 janus.board_post 写一条 blocker 告诉主控。", name(them)));
+                self.notify(run, me, &format!("[Janus 提醒] 任务 {them}（{}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时用 janus.board_post 写一条 blocker 告诉负责人。", name(them)));
             }
         }
         for (other, files) in owned {
@@ -427,7 +427,7 @@ impl App {
                     .to("lead")
                     .data(json!({ "other": other, "paths": files, "owned": true })),
             );
-            self.notify(run, task, &format!("[Janus 提醒] {list} 归任务 {other}（{}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，用 janus.board_post 写一条 blocker 说明原因，由主控协调。", name(&other)));
+            self.notify(run, task, &format!("[Janus 提醒] {list} 归任务 {other}（{}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，用 janus.board_post 写一条 blocker 说明原因，由负责人协调。", name(&other)));
         }
     }
 
@@ -474,7 +474,7 @@ impl App {
                 ),
                 None => self.emit(
                     run,
-                    ev("lead.stalled", "janus", "主控又有动静了")
+                    ev("lead.stalled", "janus", "负责人又有动静了")
                         .to("user")
                         .data(json!({ "reason": "idle", "resolved": true })),
                 ),
@@ -725,7 +725,7 @@ impl App {
             ev("approval.requested", ctx.agent, format!("请求批准：{}", short(&title, 50))).data(json!({
                 "key": key, "agent": ctx.agent, "command": command, "title": title,
                 "toolKind": tool["kind"], "content": tool["content"], "rawInput": tool["rawInput"],
-                "policy": "这个角色的权限模式要求这一步由你决定",
+                "policy": "这个数字员工的权限模式要求这一步由你决定",
                 "impact": "Agent 在等你选择；选项由 Agent 提供，按它自己的含义生效。",
                 "options": options,
             }))

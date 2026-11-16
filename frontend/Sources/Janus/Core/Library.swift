@@ -50,6 +50,6 @@ enum Library {
     /// The roles using an item, for its row.
     static func usedBy(_ item: JSON) -> String {
         let names = item["roles"].array.map { $0["name"].str }
-        return names.isEmpty ? "还没有角色使用" : "\(names.joined(separator: "、")) 在用"
+        return names.isEmpty ? "还没有数字员工使用" : "\(names.joined(separator: "、")) 在用"
     }
 }

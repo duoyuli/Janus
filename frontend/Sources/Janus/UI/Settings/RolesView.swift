@@ -11,19 +11,19 @@ struct RolesView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("决定谁用什么模型、带什么指令和工具做事。").font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("新建角色") { store.newRole() }.buttonStyle(.primary)
+                    Button("新建数字员工") { store.newRole() }.buttonStyle(.primary)
                 }
                 if store.okConnections.isEmpty {
                     HStack {
-                        Note(text: "还没有测试通过的 Agent。可以先编辑角色，测试通过后才能运行。", tone: .amber)
+                        Note(text: "还没有测试通过的 Agent。可以先编辑数字员工，测试通过后才能运行。", tone: .amber)
                         Button("去测试") { store.openSettings("agents") }
                     }
                 }
                 if store.roles.isEmpty {
                     Card(padding: 20) {
-                        Text("还没有角色").font(.display(.title3))
-                        Text("角色决定谁做什么。先建一个主控，再建几个负责具体工作的成员。").foregroundStyle(.secondary)
-                        Button("新建角色") { store.newRole() }.buttonStyle(.primary)
+                        Text("还没有数字员工").font(.display(.title3))
+                        Text("数字员工决定谁做什么。先建一个负责人，再建几个负责具体工作的成员。").foregroundStyle(.secondary)
+                        Button("新建数字员工") { store.newRole() }.buttonStyle(.primary)
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -47,7 +47,7 @@ struct RolesView: View {
             HStack(spacing: 12) {
                 Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) { Text(r["name"].str).fontWeight(.semibold); if r["lead"].truthy { Pill("主控", .violet) } }
+                    HStack(spacing: 6) { Text(r["name"].str).fontWeight(.semibold); if r["lead"].truthy { Pill("负责人", .violet) } }
                     Text(([r["desc"].truthy ? r["desc"].str : r["role"].truthy ? r["role"].str : "还没有填写职责"] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
@@ -101,7 +101,7 @@ struct RoleEditor: View {
                 Button { colors.toggle() } label: {
                     Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased(), color: r["color"].str, size: 34)
                 }
-                .buttonStyle(.plain).help("选择颜色").accessibilityLabel("角色颜色")
+                .buttonStyle(.plain).help("选择颜色").accessibilityLabel("数字员工颜色")
                 .popover(isPresented: $colors) {
                     HStack(spacing: 8) {
                         ForEach(AppStore.roleColors, id: \.self) { col in
@@ -118,7 +118,7 @@ struct RoleEditor: View {
                     .padding(12)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r["id"].truthy ? "编辑角色" : "新建角色").font(.display(.title3))
+                    Text(r["id"].truthy ? "编辑数字员工" : "新建数字员工").font(.display(.title3))
                     if let line = RolesView.statLine(store.roleStats["roles"][r["id"].str], runs: store.roleStats["runs"].int ?? 0) {
                         Text(line).font(.caption).foregroundStyle(.secondary).help("首次通过：第一次尝试就完成，且验证一次通过")
                     }
@@ -172,7 +172,7 @@ struct RoleEditor: View {
                         .accessibilityLabel("指令")
                         .frame(minHeight: 120, maxHeight: 260)
                         .overlay(alignment: .topLeading) {
-                            if !r["prompt"].truthy { Text("告诉这个角色怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。").foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
+                            if !r["prompt"].truthy { Text("告诉这个数字员工怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。").foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
                         }
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     Text(Setup.instructionsVia(c)).font(.caption).foregroundStyle(.secondary)
@@ -182,15 +182,15 @@ struct RoleEditor: View {
                     section("权限", trailing: Setup.controls(c).contains { $0["permission"].truthy } ? "\(c?["name"].str ?? "") 的权限模式" : "")
                     permissions(c)
                     if c?["options"]["controls"].exists == true {
-                        Text("主控规划时会看到这个模式，按它分配任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。").font(.caption).foregroundStyle(.secondary)
+                        Text("负责人规划时会看到这个模式，按它分配任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。").font(.caption).foregroundStyle(.secondary)
                     }
                     otherControls(c)
 
                     section("协作")
                     Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("可以担任主控")
-                            Text(Setup.leadCapable(c) ? "用 /goal 推进目标，需要时编排协作者" : "只有 Claude Code 或 Codex 能做主控（需要 /goal）").font(.caption).foregroundStyle(.secondary)
+                            Text("可以担任负责人")
+                            Text(Setup.leadCapable(c) ? "用 /goal 推进目标，需要时编排协作者" : "只有 Claude Code 或 Codex 能做负责人（需要 /goal）").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .toggleStyle(.switch)
@@ -260,7 +260,7 @@ struct RoleEditor: View {
                 Text("资源库还是空的。在设置的「资源库」中新建 Skill、添加 MCP 服务器，或从 GitHub 导入。").font(.callout).foregroundStyle(.secondary)
             } else {
                 TextField("搜索资源库", text: $pickQuery).textFieldStyle(.roundedBorder)
-                ForEach([("skill", "技能"), ("mcp", "MCP 服务器")], id: \.0) { kind, title in
+                ForEach([("skill", "Skill"), ("mcp", "MCP")], id: \.0) { kind, title in
                     let list = items.filter { $0["kind"].str == kind }
                     if !list.isEmpty {
                         Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 4)
@@ -417,7 +417,7 @@ struct RoleEditor: View {
         Task {
             do {
                 let saved = try await store.save("roles", r)
-                store.show("已保存角色 \(saved["name"].str)")
+                store.show("已保存数字员工 \(saved["name"].str)")
                 dismiss()
             } catch { store.show(error.localizedDescription) }
             saving = false
@@ -425,7 +425,7 @@ struct RoleEditor: View {
     }
 
     private func remove() {
-        guard confirm("删除角色「\(r["name"].str)」？", ok: "删除") else { return }
+        guard confirm("删除数字员工「\(r["name"].str)」？", ok: "删除") else { return }
         Task {
             do { try await store.delete("roles", r["id"].str); dismiss() } catch { store.show(error.localizedDescription) }
         }

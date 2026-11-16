@@ -152,7 +152,7 @@ struct TeamView: View {
                     if let ws = run.store.workspace(run.workspaceId) { Button("工作区设置…") { run.store.editingWorkspace = ws } }
                 }
                 Card {
-                    KV(rows: [("主控", run.agentName("lead")), ("工作区", wsNote(full.run)), ("开始", L.dateTime(full.run.start))])
+                    KV(rows: [("负责人", run.agentName("lead")), ("工作区", wsNote(full.run)), ("开始", L.dateTime(full.run.start))])
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {
                     ForEach(run.team, id: \.self) { m in
@@ -163,7 +163,7 @@ struct TeamView: View {
                             HStack(spacing: 10) {
                                 Avatar(initials: w.initials, color: w.color, size: 34)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(w.name + (w.lead ? " · 主控" : "")).font(.headline)
+                                    Text(w.name + (w.lead ? " · 负责人" : "")).font(.headline)
                                     Text(verbatim: "\(w.role) · \(w.runtime) · ACP").font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
