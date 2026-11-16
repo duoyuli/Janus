@@ -261,7 +261,7 @@ impl App {
                     c.finish = true;
                 } else if !c.human {
                     c.human = true;
-                    run.set_human(watch_key(ctx), n, true);
+                    run.set_human(&ctx.session(), n, true);
                 }
                 let text = if finish {
                     format!(
@@ -283,7 +283,7 @@ impl App {
             Steer::TakeOver => {
                 if !c.human {
                     c.human = true;
-                    run.set_human(watch_key(ctx), n, true);
+                    run.set_human(&ctx.session(), n, true);
                     self.emit(
                         run,
                         ev(
@@ -318,7 +318,7 @@ impl App {
             Steer::Release => {
                 if c.human {
                     c.human = false;
-                    run.set_human(watch_key(ctx), n, false);
+                    run.set_human(&ctx.session(), n, false);
                     self.emit(
                         run,
                         ev(
@@ -450,7 +450,8 @@ impl App {
     pub(super) fn notify(&self, run: &Run, task: &str, text: &str) {
         let tx = {
             let st = run.st.lock().unwrap();
-            st.steerable.contains(task).then(|| st.live.get(task).cloned()).flatten()
+            let key = SessionKey::task(task);
+            st.steerable.contains(&key).then(|| st.live.get(&key).cloned()).flatten()
         };
         let Some(tx) = tx else { return };
         static NEXT: AtomicI64 = AtomicI64::new(0);
@@ -468,9 +469,9 @@ impl App {
         ctx: &Ctx<'_>,
     ) {
         // Any update from the session (a chunk of text or thought, a tool's progress) is a sign of work.
-        let key = watch_key(ctx);
+        let key = ctx.session();
         let n = ctx.attempt.unwrap_or(0);
-        let quiet = run.with_watch(key, n, |w| {
+        let quiet = run.with_watch(&key, n, |w| {
             w.last_ms = now_ms();
             std::mem::take(&mut w.idle_noticed)
         });
@@ -577,7 +578,7 @@ impl App {
                     let seq = self.emit(run, e);
                     // The lead polls the board on purpose; only its other calls can go in circles.
                     if ctx.task.is_some() || !title.contains("janus") {
-                        self.watch_call(run, key, &kind, &title, &input);
+                        self.watch_call(run, &key, &kind, &title, &input);
                     }
                     if let (Some(task), false) = (ctx.task, edited.is_empty()) {
                         self.record_edits(run, task, &edited, seq);
@@ -745,8 +746,8 @@ impl App {
             e = e.task(task).attempt(n);
         }
         self.emit(run, e);
-        let _held = run.held(watch_key(ctx), n);
-        let wait = self.wait_for(run, &key);
+        let _held = run.held(&ctx.session(), n);
+        let wait = self.wait_for(run, &key, ctx.owner(), Ask::Request);
         tokio::pin!(wait);
         loop {
             let steer = async {
@@ -800,7 +801,7 @@ impl App {
 
     /// Drop a pending decision nobody can act on any more, and tell the app to remove its card.
     pub(super) fn withdraw(&self, run: &Run, key: &str, task: &str, n: i64, text: &str) {
-        run.st.lock().unwrap().waiters.remove(key);
+        run.st.lock().unwrap().pending.remove(key);
         let mut e = ev("decision.withdrawn", "janus", text).data(json!({ "key": key }));
         if !task.is_empty() {
             e = e.task(task).attempt(n);

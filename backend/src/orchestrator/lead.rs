@@ -97,10 +97,10 @@ impl App {
     pub(super) fn push_board(&self, run: &Run) {
         let (tx, cursor, sid) = {
             let st = run.st.lock().unwrap();
-            if st.lead_waiting || !st.steerable.contains("lead") {
+            if st.lead_waiting || !st.steerable.contains(&SessionKey::Lead) {
                 return;
             }
-            (st.live.get("lead").cloned(), st.lead_cursor, st.lead_session.clone())
+            (st.live.get(&SessionKey::Lead).cloned(), st.lead_cursor, st.lead_session.clone())
         };
         let (Some(tx), Some(sid)) = (tx, sid) else { return };
         let events = self.db.events(&run.id, cursor).unwrap_or_default();
@@ -191,28 +191,9 @@ impl App {
             self.trust_claude_workspace(&lead.runtime, &workspace)?;
         }
         let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-goal.log");
+        let owner = Owner { session: SessionKey::Lead, attempt: 0 };
+        let (conn, mut rx, mut ctl) = self.open_session(run, &owner.session, "lead", &spec, &log, "主控").await?;
         let result = async {
-            let (conn, mut rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(&spec, &workspace, &log))
-                .await
-                .map_err(|_| anyhow!("主控启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-            let (tx, steer_rx) = mpsc::unbounded_channel();
-            {
-                let mut st = run.st.lock().unwrap();
-                st.conns.insert("lead".into(), conn.clone());
-                if st.cancelled {
-                    return Err(Cancelled.into());
-                }
-                st.live.insert("lead".into(), tx);
-                st.live_agent.insert("lead".into(), "lead".into());
-            }
-            let mut ctl = Control {
-                rx: steer_rx,
-                steering: conn.steering,
-                human: false,
-                interrupted: false,
-                finish: false,
-                queued: vec![],
-            };
             let brief = format!("{}{}", self.goal_brief(run, resumed), self.take_notes(run, "lead"));
             let claude = lead.kind == "claude";
             // Claude's system layer carries the brief and, after it, the person's standing rules.
@@ -238,17 +219,8 @@ impl App {
                 ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" })
                     .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied })),
             );
-            {
-                let mut st = run.st.lock().unwrap();
-                st.lead_session = Some(sid.clone());
-                if ctl.steering {
-                    st.steerable.insert("lead".into());
-                }
-            }
-            run.watch
-                .lock()
-                .unwrap()
-                .insert(LEAD_WATCH.into(), Watch { attempt: 0, last_ms: now_ms(), ..Default::default() });
+            run.st.lock().unwrap().lead_session = Some(sid.clone());
+            self.watch_session(run, &owner.session, 0);
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
@@ -331,7 +303,7 @@ impl App {
                             }
                             Some(Steer::Release) => {
                                 ctl.human = false;
-                                run.set_human(LEAD_WATCH, 0, false);
+                                run.set_human(&owner.session, 0, false);
                                 self.emit(run, ev("control.released", "user", "交还托管：主控继续推进目标").to("lead"));
                                 prompt = format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal);
                                 if !ctl.queued.is_empty() {
@@ -389,7 +361,7 @@ impl App {
                     // The goal is complete. Delivery can happen while this session stays open:
                     // the person may write the next task or set a new goal with a slash command.
                     delivered = true;
-                    run.watch.lock().unwrap().remove(LEAD_WATCH);
+                    run.watch.lock().unwrap().remove(&owner.session);
                     {
                         let mut st = run.st.lock().unwrap();
                         // A goal that was ended by hand must not make the next chat turn follow it.
@@ -417,7 +389,7 @@ impl App {
                 ctl.human = false;
                 ctl.finish = false;
                 ctl.interrupted = false;
-                run.set_human(LEAD_WATCH, 0, false);
+                run.set_human(&owner.session, 0, false);
                 let Some(next) = self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? else {
                     return Ok(text);
                 };
@@ -425,28 +397,9 @@ impl App {
             }
         }
         .await;
-        run.watch.lock().unwrap().remove(LEAD_WATCH);
-        let (conn, stale) = {
-            let mut st = run.st.lock().unwrap();
-            st.live.remove("lead");
-            st.live_agent.remove("lead");
-            st.steerable.remove("lead");
-            st.lead_session = None;
-            let stale: Vec<String> = st
-                .waiters
-                .keys()
-                .filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-"))
-                .cloned()
-                .collect();
-            (st.conns.remove("lead"), stale)
-        };
-        for key in stale {
-            self.withdraw(run, &key, "", 0, "主控的会话已结束，撤回这个请求");
-        }
+        run.st.lock().unwrap().lead_session = None;
+        self.close_session(run, &owner, Some(&conn), "主控的会话已结束，撤回这个请求").await;
         run.lead_nudge.notify_one();
-        if let Some(conn) = conn {
-            conn.kill().await;
-        }
         result
     }
 
@@ -467,28 +420,16 @@ impl App {
         let old_session = last_lead_session(&events);
         let brief = conversation_brief(run, &events);
         let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-chat.log");
-        let result = async {
-            let (conn, mut rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(&spec, &workspace, &log))
-                .await
-                .map_err(|_| anyhow!("主控启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-            let (tx, steer_rx) = mpsc::unbounded_channel();
-            {
-                let mut st = run.st.lock().unwrap();
-                st.conns.insert("lead".into(), conn.clone());
-                if st.cancelled {
-                    return Err(Cancelled.into());
-                }
-                st.live.insert("lead".into(), tx);
-                st.live_agent.insert("lead".into(), "lead".into());
+        let owner = Owner { session: SessionKey::Lead, attempt: 0 };
+        let opened = self.open_session(run, &owner.session, "lead", &spec, &log, "主控").await;
+        let (conn, mut rx, mut ctl) = match opened {
+            Ok(opened) => opened,
+            Err(err) => {
+                self.runs.lock().unwrap().remove(&run.id);
+                return Err(err);
             }
-            let mut ctl = Control {
-                rx: steer_rx,
-                steering: conn.steering,
-                human: false,
-                interrupted: false,
-                finish: false,
-                queued: vec![],
-            };
+        };
+        let result = async {
             let http = conn.capabilities["mcpCapabilities"]["http"] == true;
             let mut servers = mcp_servers(&lead, http);
             if http {
@@ -537,9 +478,6 @@ impl App {
             {
                 let mut st = run.st.lock().unwrap();
                 st.lead_session = Some(sid.clone());
-                if ctl.steering {
-                    st.steerable.insert("lead".into());
-                }
                 if st.lead_done.is_none() {
                     st.lead_done = Some(Ok(delivery_summary(&events)));
                 }
@@ -633,24 +571,8 @@ impl App {
             }
         }
         .await;
-        run.watch.lock().unwrap().remove(LEAD_WATCH);
-        let (conn, stale) = {
-            let mut st = run.st.lock().unwrap();
-            st.live.remove("lead");
-            st.live_agent.remove("lead");
-            st.steerable.remove("lead");
-            st.lead_session = None;
-            let stale: Vec<String> = st
-                .waiters
-                .keys()
-                .filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-"))
-                .cloned()
-                .collect();
-            (st.conns.remove("lead"), stale)
-        };
-        for key in stale {
-            self.withdraw(run, &key, "", 0, "主控的会话已结束，撤回这个请求");
-        }
+        run.st.lock().unwrap().lead_session = None;
+        self.close_session(run, &owner, Some(&conn), "主控的会话已结束，撤回这个请求").await;
         // Without a live session the run is read-only again; the next message reopens it. If the
         // scheduler is still running tasks, leave the run reachable until they finish.
         if run.driving.load(Ordering::SeqCst) {
@@ -666,9 +588,6 @@ impl App {
             self.runs.lock().unwrap().remove(&run.id);
         }
         run.lead_nudge.notify_one();
-        if let Some(conn) = conn {
-            conn.kill().await;
-        }
         result
     }
 

@@ -72,17 +72,20 @@ impl App {
         let task = a["task"].as_str().unwrap_or("");
         match kind {
             "answer" => {
-                self.expect_waiter(run, key)?;
+                // The answer goes to whoever asked: a task's agent, or the lead (`ask_user`).
+                let agent = match self.pending_owner(run, key)?.session {
+                    SessionKey::Lead => "lead".to_string(),
+                    SessionKey::Task(t) => run
+                        .st
+                        .lock()
+                        .unwrap()
+                        .tasks
+                        .iter()
+                        .find(|x| x.def.id == t)
+                        .map(|x| x.agent.clone())
+                        .unwrap_or_default(),
+                };
                 let answer = a["answer"].as_str().unwrap_or("").to_string();
-                let agent = run
-                    .st
-                    .lock()
-                    .unwrap()
-                    .tasks
-                    .iter()
-                    .find(|t| t.def.id == task)
-                    .map(|t| t.agent.clone())
-                    .unwrap_or_default();
                 self.emit(
                     run,
                     ev("question.answered", "user", format!("回答：{answer}"))
@@ -103,7 +106,7 @@ impl App {
                 );
             }
             "approve" | "input" => {
-                self.expect_waiter(run, key)?;
+                self.pending_owner(run, key)?;
                 let agent = run
                     .st
                     .lock()
@@ -202,7 +205,7 @@ impl App {
                 }
                 let conns: Vec<Arc<AcpConn>> = {
                     let mut st = run.st.lock().unwrap();
-                    st.waiters.clear();
+                    st.pending.clear();
                     st.live.clear();
                     st.conns.drain().map(|(_, c)| c).collect()
                 };
@@ -259,12 +262,9 @@ impl App {
                 };
                 let tx = {
                     let st = run.st.lock().unwrap();
-                    let key = if task.is_empty() {
-                        st.live_agent.get(agent).cloned().unwrap_or_default()
-                    } else {
-                        task.to_string()
-                    };
-                    st.live.get(&key).cloned()
+                    let key =
+                        if task.is_empty() { st.live_agent.get(agent).cloned() } else { Some(SessionKey::task(task)) };
+                    key.and_then(|k| st.live.get(&k).cloned())
                 };
                 match (tx, cmd) {
                     (Some(tx), cmd) => tx.send(cmd).map_err(|_| anyhow!("这个会话已经结束"))?,

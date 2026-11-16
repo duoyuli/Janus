@@ -239,9 +239,13 @@ impl App {
             let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
                 return Err(format!("看板上没有任务 {task}"));
             };
-            let prefix = format!("q-{task}-");
-            let question = st.waiters.keys().find(|k| k.starts_with(&prefix)).cloned();
-            (t.agent.clone(), question, st.live.get(task).cloned())
+            let session = SessionKey::task(task);
+            let question = st
+                .pending
+                .iter()
+                .find(|(_, p)| p.ask == Ask::Question && p.owner.session == session)
+                .map(|(k, _)| k.clone());
+            (t.agent.clone(), question, st.live.get(&session).cloned())
         };
         if let Some(key) = question {
             self.emit(
@@ -499,7 +503,9 @@ impl App {
             let downstream: Vec<&Task> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).collect();
             let running: Vec<(String, String, mpsc::UnboundedSender<Steer>)> = downstream
                 .iter()
-                .filter_map(|x| st.live.get(&x.def.id).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone())))
+                .filter_map(|x| {
+                    st.live.get(&SessionKey::task(&x.def.id)).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone()))
+                })
                 .collect();
             let done: Vec<String> =
                 downstream.iter().filter(|x| x.status == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect();
@@ -569,7 +575,8 @@ impl App {
                     queue.push((d.def.id.clone(), Some(id.clone())));
                 }
             }
-            let conns: Vec<Arc<AcpConn>> = dropped.iter().filter_map(|(id, _)| st.conns.remove(id)).collect();
+            let conns: Vec<Arc<AcpConn>> =
+                dropped.iter().filter_map(|(id, _)| st.conns.remove(&SessionKey::task(id))).collect();
             (dropped, conns)
         };
         for conn in conns {
@@ -609,8 +616,9 @@ impl App {
         let recommend = args["recommend"].as_str().unwrap_or("");
         static NEXT: AtomicI64 = AtomicI64::new(0);
         let key = format!("q-lead-{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
-        let (tx, _rx) = oneshot::channel();
-        run.st.lock().unwrap().waiters.insert(key.clone(), tx);
+        // Nobody awaits the answer here: it reaches the lead through `wait`.
+        self.add_pending(run, &key, Owner { session: SessionKey::Lead, attempt: 0 }, Ask::Question)
+            .map_err(|e| format!("{e:#}"))?;
         self.emit(run, ev("question.escalated", "lead", format!("主控请你决定：{}", short(question, 60))).to("user").data(json!({
             "key": key, "question": question, "options": options, "recommend": recommend, "reason": why, "from": "lead"
         })));

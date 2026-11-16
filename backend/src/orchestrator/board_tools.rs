@@ -284,10 +284,8 @@ pub(super) fn needs_lead(e: &Event) -> bool {
         "board.posted" => field("kind") == "blocker",
         // A result that disagrees with what the task left in the workspace.
         "task.succeeded" => field("traceGaps").as_array().is_some_and(|g| !g.is_empty()),
-        // The person's answer to the lead's own question, or to a collaborator's in its session.
-        "question.answered" => {
-            field("key").as_str().is_some_and(|k| k.starts_with("q-lead-")) || field("via") != "lead"
-        }
+        // The person's answer, to the lead's own question or to a collaborator's; not the lead's.
+        "question.answered" => field("via") != "lead",
         _ => false,
     }
 }
@@ -306,8 +304,9 @@ pub(super) fn inline_list(items: &[String]) -> (String, bool) {
 
 pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     let d = e.data.clone().unwrap_or_default();
-    // The person's answer to a decision the lead handed them (`ask_user`).
-    if e.kind == "question.answered" && d["key"].as_str().is_some_and(|k| k.starts_with("q-lead-")) {
+    // The person's answer to a decision the lead handed them (`ask_user`): addressed to the lead,
+    // about no task.
+    if e.kind == "question.answered" && e.task.is_none() && e.to.as_deref() == Some("lead") {
         let note = d["note"].as_str().filter(|n| !n.is_empty()).map(|n| format!("（补充：{n}）")).unwrap_or_default();
         return Some(format!(
             "- [用户决定] 你交给用户的问题，用户的回答：{}{note}",

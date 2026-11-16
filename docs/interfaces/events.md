@@ -36,7 +36,7 @@
 
 - 事件只追加，不修改。写入 SQLite 后才广播；写入失败的事件不广播，它的 `seq` 留空（`App::store`），所以应用看到的事件都在日志中。同一个 Run 的分配序号、写入和广播在一把锁内完成（`Run.emitting`），事件流按 `seq` 顺序送出，应用把序号缺口视为漏收，重新读取一次整个 Run。
 - `text` 用于展示，程序逻辑只读 `type` 和 `data`。
-- 等待用户或主控处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键的前缀：`q-<task>-<n>-<轮>` 是任务提问，`q-lead-` 是主控用 `ask_user` 提的问题，`req-<task 或 agent>-<n>-<时间>` 是审批或表单请求。
+- 等待用户或主控处理的事件，在 `data.key` 中带一个唯一键；回答、撤回和转交都用这个键关联。键只用来关联，程序不从键的形状读出任何信息：谁在等这个决定（某个任务的某次尝试，或主控）记在编排器内存中的待处理决定上（`Pending.owner`），会话结束时只撤回它自己的决定；事件中由 `task` 和 `to` 表明它属于谁。用户对主控 `ask_user` 问题的回答是没有 `task`、`to` 为 `lead` 的 `question.answered`。
 
 新增或修改事件类型时，同步检查：应用的 `derive` 和 `boardFacts`（`frontend/Sources/Janus/Core/Derive.swift`，见 [macOS 应用](../architecture/frontend.md#event_derivation)）、看板的 `board_entry`（[看板 MCP 工具](board_mcp.md#wait)）、恢复逻辑 `resume_run`。改 `session.usage` 的字段时还要同步用量账本的两份实现（[用量口径](#usage_accounting)）：`backend/src/usage.rs` 和 `Core/UsageLedger.swift`，并在 `backend/testdata/usage_cases.json` 加用例。
 

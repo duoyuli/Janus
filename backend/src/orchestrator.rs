@@ -46,7 +46,6 @@ use board::*;
 use board_tools::*;
 pub use lead::lead_capable;
 use lead::*;
-use lifecycle::*;
 use prompts::*;
 pub use session::session_meta;
 use session::*;
@@ -65,8 +64,6 @@ const RUN_BUDGET_MS: i64 = 6 * 60 * 60 * 1000;
 pub const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
 /// The watchdog tells the lead about an attempt that made the same tool call this many times in a row.
 const LOOP_REPEAT: u32 = 5;
-/// The lead's own entry in the watchdog's map. Task ids cannot contain `@`.
-const LEAD_WATCH: &str = "@lead";
 /// Board events that need the lead are gathered this long before they go into its session, so
 /// a burst arrives as one message.
 const PUSH_SETTLE: Duration = Duration::from_secs(2);
@@ -233,6 +230,12 @@ struct Control {
     queued: Vec<Msg>,
 }
 
+impl Control {
+    fn new(rx: mpsc::UnboundedReceiver<Steer>, steering: bool) -> Control {
+        Control { rx, steering, human: false, interrupted: false, finish: false, queued: vec![] }
+    }
+}
+
 /// How long an agent's text may sit unshown after its last chunk.
 const MESSAGE_QUIET: Duration = Duration::from_secs(1);
 
@@ -318,12 +321,13 @@ struct RunState {
     paused: bool,
     cancelled: bool,
     tasks: Vec<Task>,
-    waiters: HashMap<String, oneshot::Sender<Value>>,
-    conns: HashMap<String, Arc<AcpConn>>,
-    /// Control channels of open ACP sessions, by task id ("lead" while the lead is planning).
-    live: HashMap<String, mpsc::UnboundedSender<Steer>>,
+    /// Decisions a session waits on, by the key the app and the lead answer them with.
+    pending: HashMap<String, Pending>,
+    conns: HashMap<SessionKey, Arc<AcpConn>>,
+    /// Control channels of open ACP sessions.
+    live: HashMap<SessionKey, mpsc::UnboundedSender<Steer>>,
     /// Which open session each agent is in, so a person can talk to an agent without knowing its task.
-    live_agent: HashMap<String, String>,
+    live_agent: HashMap<String, SessionKey>,
     /// Messages for an agent that had no open session; delivered with its next session.
     notes: HashMap<String, Vec<Msg>>,
     /// Why each task's last result did not pass its acceptance check, for the fix round and the lead.
@@ -346,10 +350,9 @@ struct RunState {
     lead_waiting: bool,
     /// The lead's open session id, for recording what Janus pushes into it.
     lead_session: Option<String>,
-    /// Sessions (task ids, or "lead") whose agent can take a message into the running turn.
-    /// Only they get board pushes and conflict notices: queued until the turn ends, a notice
-    /// would arrive after the fact.
-    steerable: HashSet<String>,
+    /// Sessions whose agent can take a message into the running turn. Only they get board pushes
+    /// and conflict notices: queued until the turn ends, a notice would arrive after the fact.
+    steerable: HashSet<SessionKey>,
     /// What each task left in the workspace: the files it edited, who edited each file last,
     /// and the conflicts already reported (see `traces`).
     traces: crate::traces::Traces,
@@ -377,9 +380,46 @@ pub struct Run {
     driving: std::sync::atomic::AtomicBool,
     /// Something the lead should hear about reached the board (see `push_board`).
     lead_nudge: Notify,
-    /// The watchdog's view of each running attempt, by task id. Its own lock: session updates
-    /// touch it often, and nothing else is held while it is.
-    watch: StdMutex<HashMap<String, Watch>>,
+    /// The watchdog's view of each open session. Its own lock: session updates touch it often,
+    /// and nothing else is held while it is.
+    watch: StdMutex<HashMap<SessionKey, Watch>>,
+}
+
+/// Whose open ACP session something belongs to: the lead's, or a task's. The two never share a
+/// namespace, so a task may be called anything the board allows, `lead` included.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum SessionKey {
+    Lead,
+    Task(String),
+}
+
+impl SessionKey {
+    fn task(id: &str) -> SessionKey {
+        SessionKey::Task(id.to_string())
+    }
+}
+
+/// The session a pending decision came from, and for a task's session its attempt (the lead's is 0).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Owner {
+    session: SessionKey,
+    attempt: i64,
+}
+
+/// What a pending decision asks for: an answer to a question, or a reply to an agent's request
+/// (an approval or a form).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ask {
+    Question,
+    Request,
+}
+
+/// A decision someone waits on. It belongs to the session that asked: when that session ends,
+/// its decisions are withdrawn; nothing about it is read from the shape of its key.
+struct Pending {
+    owner: Owner,
+    ask: Ask,
+    tx: oneshot::Sender<Value>,
 }
 
 /// What the watchdog knows about a running attempt: when its session last showed any sign of
@@ -399,17 +439,17 @@ struct Watch {
     repeats: u32,
 }
 
-/// While alive, the attempt waits on a person and the watchdog leaves it alone; dropping it
+/// While alive, the session waits on a person and the watchdog leaves it alone; dropping it
 /// starts the quiet clock again.
 struct Held<'a> {
     run: &'a Run,
-    task: String,
+    session: SessionKey,
     attempt: i64,
 }
 
 impl Drop for Held<'_> {
     fn drop(&mut self) {
-        self.run.with_watch(&self.task, self.attempt, |w| {
+        self.run.with_watch(&self.session, self.attempt, |w| {
             w.waits = w.waits.saturating_sub(1);
             w.last_ms = now_ms();
         });
@@ -424,20 +464,20 @@ impl Run {
         st.tasks.iter_mut().find(|t| t.def.id == id)
     }
 
-    /// Change what the watchdog knows about attempt `n` of `task`, if that attempt is running.
-    fn with_watch<T>(&self, task: &str, n: i64, f: impl FnOnce(&mut Watch) -> T) -> Option<T> {
-        self.watch.lock().unwrap().get_mut(task).filter(|w| w.attempt == n).map(f)
+    /// Change what the watchdog knows about attempt `n` of a session, if that attempt is open.
+    fn with_watch<T>(&self, session: &SessionKey, n: i64, f: impl FnOnce(&mut Watch) -> T) -> Option<T> {
+        self.watch.lock().unwrap().get_mut(session).filter(|w| w.attempt == n).map(f)
     }
 
-    /// The attempt waits on a person until the returned guard is dropped.
-    fn held(&self, task: &str, n: i64) -> Held<'_> {
-        self.with_watch(task, n, |w| w.waits += 1);
-        Held { run: self, task: task.into(), attempt: n }
+    /// The session waits on a person until the returned guard is dropped.
+    fn held(&self, session: &SessionKey, n: i64) -> Held<'_> {
+        self.with_watch(session, n, |w| w.waits += 1);
+        Held { run: self, session: session.clone(), attempt: n }
     }
 
     /// The person took over (or interrupted) the session, or handed it back.
-    fn set_human(&self, task: &str, n: i64, human: bool) {
-        self.with_watch(task, n, |w| {
+    fn set_human(&self, session: &SessionKey, n: i64, human: bool) {
+        self.with_watch(session, n, |w| {
             w.human = human;
             w.last_ms = now_ms();
         });
@@ -504,6 +544,18 @@ struct Ctx<'a> {
     /// The lead's goal session: a prompt that returns while the agent's goal is still active
     /// does not end the turn; the session is followed until the goal settles.
     goal: bool,
+}
+
+impl Ctx<'_> {
+    /// The session this context speaks in: its task's, or the lead's.
+    fn session(&self) -> SessionKey {
+        self.task.map_or(SessionKey::Lead, SessionKey::task)
+    }
+
+    /// Who the session's pending decisions belong to.
+    fn owner(&self) -> Owner {
+        Owner { session: self.session(), attempt: self.attempt.unwrap_or(0) }
+    }
 }
 
 /// The open ACP session a prompt turn runs in: its connection, its incoming messages and its id.
@@ -593,32 +645,61 @@ impl App {
         let _ = self.db.set_run_status(&run.id, status);
     }
 
-    async fn wait_for(&self, run: &Run, key: &str) -> Result<Value> {
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut st = run.st.lock().unwrap();
-            // Cancelling clears the waiters; one registered afterwards would never be resolved.
-            if st.cancelled {
-                return Err(Cancelled.into());
-            }
-            st.waiters.insert(key.into(), tx);
-        }
+    /// Wait for the decision `key`, which `owner` asked for.
+    async fn wait_for(&self, run: &Run, key: &str, owner: Owner, ask: Ask) -> Result<Value> {
+        let rx = self.add_pending(run, key, owner, ask)?;
         rx.await.map_err(|_| anyhow::Error::new(Cancelled))
     }
 
-    /// Checked before a decision is logged, so the audit trail never records an answer nobody was waiting for.
-    fn expect_waiter(&self, run: &Run, key: &str) -> Result<()> {
-        if run.st.lock().unwrap().waiters.contains_key(key) {
-            Ok(())
-        } else {
-            bail!("没有等待中的决定：{key}")
+    /// Register a pending decision; its answer arrives on the returned receiver.
+    fn add_pending(&self, run: &Run, key: &str, owner: Owner, ask: Ask) -> Result<oneshot::Receiver<Value>> {
+        let (tx, rx) = oneshot::channel();
+        let mut st = run.st.lock().unwrap();
+        // Cancelling clears the pending decisions; one added afterwards would never be resolved.
+        if st.cancelled {
+            return Err(Cancelled.into());
+        }
+        st.pending.insert(key.into(), Pending { owner, ask, tx });
+        Ok(rx)
+    }
+
+    /// Who is waiting on `key`. Checked before a decision is logged, so the audit trail never
+    /// records an answer nobody was waiting for.
+    fn pending_owner(&self, run: &Run, key: &str) -> Result<Owner> {
+        match run.st.lock().unwrap().pending.get(key) {
+            Some(p) => Ok(p.owner.clone()),
+            None => bail!("没有等待中的决定：{key}"),
         }
     }
 
     fn resolve(&self, run: &Run, key: &str, value: Value) -> Result<()> {
-        let waiter = run.st.lock().unwrap().waiters.remove(key).ok_or_else(|| anyhow!("没有等待中的决定：{key}"))?;
-        let _ = waiter.send(value);
+        let pending = run.st.lock().unwrap().pending.remove(key).ok_or_else(|| anyhow!("没有等待中的决定：{key}"))?;
+        let _ = pending.tx.send(value);
         Ok(())
+    }
+
+    /// Withdraw every decision `owner` was waiting on: its session ended, so nobody can act on
+    /// them any more, and the app removes their cards.
+    fn withdraw_owned(&self, run: &Run, owner: &Owner, text: &str) {
+        let keys: Vec<String> = {
+            let mut st = run.st.lock().unwrap();
+            let keys: Vec<String> =
+                st.pending.iter().filter(|(_, p)| &p.owner == owner).map(|(k, _)| k.clone()).collect();
+            for k in &keys {
+                st.pending.remove(k);
+            }
+            keys
+        };
+        let task = match &owner.session {
+            SessionKey::Task(t) => t.as_str(),
+            SessionKey::Lead => "",
+        };
+        for key in keys {
+            self.emit(
+                run,
+                ev("decision.withdrawn", "janus", text).task(task).attempt(owner.attempt).data(json!({ "key": key })),
+            );
+        }
     }
 }
 

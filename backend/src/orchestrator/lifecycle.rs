@@ -312,12 +312,12 @@ impl App {
     pub(super) fn watchdog(&self, run: &Run) {
         let now = now_ms();
         let limit = self.cfg.stall_after.as_millis() as i64;
-        let due: Vec<(String, i64, i64)> = run
+        let due: Vec<(SessionKey, i64, i64)> = run
             .watch
             .lock()
             .unwrap()
             .iter_mut()
-            .filter_map(|(task, w)| {
+            .filter_map(|(session, w)| {
                 if w.human || w.waits > 0 {
                     // Waiting on a person is not the agent's silence; the clock starts once they are done.
                     w.last_ms = now;
@@ -327,11 +327,11 @@ impl App {
                     return None;
                 }
                 w.idle_noticed = true;
-                Some((task.clone(), w.attempt, now - w.last_ms))
+                Some((session.clone(), w.attempt, now - w.last_ms))
             })
             .collect();
-        for (task, n, idle) in due {
-            if task == LEAD_WATCH {
+        for (session, n, idle) in due {
+            let SessionKey::Task(task) = session else {
                 self.emit(
                     run,
                     ev("lead.stalled", "janus", format!("主控已有 {} 没有任何动静", span(idle)))
@@ -339,7 +339,7 @@ impl App {
                         .data(json!({ "reason": "idle", "idleMs": idle })),
                 );
                 continue;
-            }
+            };
             self.emit(
                 run,
                 ev("task.stalled", "janus", format!("{task} 已有 {} 没有任何动静", span(idle)))
@@ -353,14 +353,14 @@ impl App {
 
     /// Count a finished tool call; every `LOOP_REPEAT` identical calls in a row, tell the lead.
     // @project-doc docs/domains/run_lifecycle.md#watchdog
-    pub(super) fn watch_call(&self, run: &Run, task: &str, kind: &str, title: &str, input: &str) {
+    pub(super) fn watch_call(&self, run: &Run, session: &SessionKey, kind: &str, title: &str, input: &str) {
         use std::hash::{Hash, Hasher};
         let mut h = std::hash::DefaultHasher::new();
         (kind, title, input).hash(&mut h);
         let call = h.finish();
         let (n, repeats) = {
             let mut watch = run.watch.lock().unwrap();
-            let Some(w) = watch.get_mut(task) else { return };
+            let Some(w) = watch.get_mut(session) else { return };
             if w.call == call {
                 w.repeats += 1;
             } else {
@@ -372,7 +372,7 @@ impl App {
             }
             (w.attempt, w.repeats)
         };
-        if task == LEAD_WATCH {
+        let SessionKey::Task(task) = session else {
             self.emit(
                 run,
                 ev("lead.stalled", "janus", format!("主控连续 {repeats} 次做同样的调用：{}", short(title, 60)))
@@ -380,7 +380,7 @@ impl App {
                     .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
             );
             return;
-        }
+        };
         self.emit(
             run,
             ev("task.stalled", "janus", format!("{task} 连续 {repeats} 次做同样的调用：{}", short(title, 60)))
@@ -505,16 +505,7 @@ impl App {
     }
 }
 
-/// Where the watchdog keeps a session: its task, or the lead's own entry.
-pub(super) fn watch_key<'a>(ctx: &Ctx<'a>) -> &'a str {
-    match ctx.task {
-        Some(t) => t,
-        None if ctx.agent == "lead" => LEAD_WATCH,
-        None => "",
-    }
-}
-
-pub(super) fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     std::fs::create_dir_all(to)?;
     // Symbolic links are skipped: a skill from a cloned repository could point anywhere.
     for e in std::fs::read_dir(from)?.flatten() {

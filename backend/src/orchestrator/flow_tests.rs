@@ -7,6 +7,7 @@ use super::*;
 // Newer flows live in their own files under `orchestrator/flow_tests/`, so this file stops growing.
 mod actions;
 mod evidence;
+mod owners;
 mod usage;
 
 struct Harness {

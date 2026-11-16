@@ -16,6 +16,83 @@ pub(super) fn named_values(entry: &Value, keys: &str, values: &Value) -> Vec<Val
         .collect()
 }
 
+impl App {
+    /// Start the agent of a session and make it live: its connection is registered (cancelling the
+    /// run kills it), the person's commands reach it, its agent can be found by name, and Janus
+    /// pushes into it when it takes steering. `who` names it in the timeout message. Everything
+    /// here is taken back by `close_session`.
+    pub(super) async fn open_session(
+        &self,
+        run: &Run,
+        key: &SessionKey,
+        agent: &str,
+        spec: &crate::acp::RuntimeSpec,
+        log: &Path,
+        who: &str,
+    ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
+        let (conn, rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(spec, &run.cwd, log))
+            .await
+            .map_err(|_| anyhow!("{who}启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+        let (tx, steer_rx) = mpsc::unbounded_channel();
+        let cancelled = {
+            let mut st = run.st.lock().unwrap();
+            if !st.cancelled {
+                st.conns.insert(key.clone(), conn.clone());
+                st.live.insert(key.clone(), tx);
+                st.live_agent.insert(agent.to_string(), key.clone());
+                if conn.steering {
+                    st.steerable.insert(key.clone());
+                }
+            }
+            st.cancelled
+        };
+        // Cancelling stops every registered agent; one that started meanwhile stops here.
+        if cancelled {
+            conn.kill().await;
+            return Err(Cancelled.into());
+        }
+        let ctl = Control::new(steer_rx, conn.steering);
+        Ok((conn, rx, ctl))
+    }
+
+    /// The session is open and working: the watchdog follows it from now on.
+    pub(super) fn watch_session(&self, run: &Run, key: &SessionKey, attempt: i64) {
+        run.watch.lock().unwrap().insert(key.clone(), Watch { attempt, last_ms: now_ms(), ..Default::default() });
+    }
+
+    /// Take back what `open_session` and `watch_session` set up, withdraw the decisions the
+    /// session still waited on, and stop its agent. Entries a newer session of the same key put
+    /// in place stay.
+    pub(super) async fn close_session(&self, run: &Run, owner: &Owner, conn: Option<&Arc<AcpConn>>, why: &str) {
+        let key = &owner.session;
+        {
+            let mut watch = run.watch.lock().unwrap();
+            if watch.get(key).is_some_and(|w| w.attempt == owner.attempt) {
+                watch.remove(key);
+            }
+        }
+        let stopped = {
+            let mut st = run.st.lock().unwrap();
+            let mine = match (st.conns.get(key), conn) {
+                (Some(registered), Some(conn)) => Arc::ptr_eq(registered, conn),
+                _ => true,
+            };
+            if mine {
+                st.live.remove(key);
+                st.live_agent.retain(|_, k| k != key);
+                st.steerable.remove(key);
+                st.conns.remove(key)
+            } else {
+                None
+            }
+        };
+        self.withdraw_owned(run, owner, why);
+        if let Some(conn) = stopped.or_else(|| conn.cloned()) {
+            conn.kill().await;
+        }
+    }
+}
+
 /// Whether the agent declared image input (`promptCapabilities.image`) when it started.
 pub(super) fn takes_images(conn: &AcpConn) -> bool {
     conn.capabilities["promptCapabilities"]["image"] == true

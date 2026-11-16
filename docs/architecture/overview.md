@@ -75,7 +75,7 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/orchestrator/messages.rs` | 用户和主控发给会话的消息：记录、插入正在进行的一轮或排队 |
 | `backend/src/orchestrator/attempts.rs` | 任务的一次尝试：会话、结果核对、改动和产物 |
 | `backend/src/orchestrator/turn.rs` | ACP 会话中的一轮提示：把更新转成事件、插话、控制项和 Agent 的请求 |
-| `backend/src/orchestrator/session.rs` | 为成员打开 ACP 会话：MCP 服务器、系统提示和角色要求的控制项 |
+| `backend/src/orchestrator/session.rs` | 为成员打开 ACP 会话：启动 Agent 并登记会话（`open_session`），会话结束时撤销登记、撤回它等待的决定并停止 Agent（`close_session`），以及 MCP 服务器、系统提示和角色要求的控制项。主控和每个任务的会话用 `SessionKey` 区分，任务 id 可以取任何看板允许的值 |
 | `backend/src/orchestrator/prompts.rs` | 发给会话的说明和任务提示，以及结构化结果的解析 |
 | `backend/src/orchestrator/actions.rs` | 用户操作、验收归档的交付、重启后的恢复与继续 |
 | `backend/src/orchestrator/tests.rs`、`flow_tests.rs`、`flow_tests/` | 编排器的单元测试和端到端流程测试 |

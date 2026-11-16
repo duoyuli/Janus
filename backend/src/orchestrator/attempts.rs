@@ -5,38 +5,6 @@ use super::*;
 impl App {
     pub(super) async fn run_attempt(self: &Arc<Self>, run: &Arc<Run>, id: &str, n: i64, attempt_id: &str) {
         let result = self.attempt(run, id, n, attempt_id).await;
-        {
-            let mut watch = run.watch.lock().unwrap();
-            if watch.get(id).is_some_and(|w| w.attempt == n) {
-                watch.remove(id);
-            }
-        }
-        let withdrawn: Vec<String> = {
-            let mut st = run.st.lock().unwrap();
-            st.live.remove(id);
-            st.live_agent.retain(|_, task| task != id);
-            st.steerable.remove(id);
-            // Questions, permission requests and forms of this attempt can no longer be answered.
-            let prefixes = [format!("q-{id}-{n}-"), format!("req-{id}-{n}-")];
-            let keys: Vec<String> =
-                st.waiters.keys().filter(|k| prefixes.iter().any(|p| k.starts_with(p.as_str()))).cloned().collect();
-            for k in &keys {
-                st.waiters.remove(k);
-            }
-            keys
-        };
-        for key in withdrawn {
-            self.emit(
-                run,
-                ev("decision.withdrawn", "janus", format!("{id} 的这次尝试已经结束，撤回待处理的请求"))
-                    .task(id)
-                    .attempt(n)
-                    .data(json!({ "key": key })),
-            );
-        }
-        if let Some(conn) = run.st.lock().unwrap().conns.remove(id) {
-            tokio::spawn(async move { conn.kill().await });
-        }
         if let Err(err) = result {
             let msg = format!("{err:#}");
             let verification = err.downcast_ref::<VerificationFailed>().is_some();
@@ -186,13 +154,9 @@ impl App {
 
         let workspace = run.cwd.clone();
         let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("{id}-a{n}.log"));
-        let (conn, mut rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(&spec, &workspace, &log))
-            .await
-            .map_err(|_| anyhow!("Agent 启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-        run.st.lock().unwrap().conns.insert(id.into(), conn.clone());
-        if run.st.lock().unwrap().cancelled {
-            return Err(Cancelled.into());
-        }
+        let owner = Owner { session: SessionKey::task(id), attempt: n };
+        let (conn, mut rx, mut ctl) = self.open_session(run, &owner.session, &agent, &spec, &log, "Agent ").await?;
+        let outcome = async {
         // A task interrupted by a restart reopens its old session when the agent can load it.
         let previous = run.st.lock().unwrap().resume_session.remove(id);
         let opened = tokio::time::timeout(STARTUP_TIMEOUT, async {
@@ -280,24 +244,7 @@ impl App {
         let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
         self.show(run, ("session.controls", "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
         self.record_instructions(run, &ctx, &sid, &channel, &standing);
-        let (steer_tx, steer_rx) = mpsc::unbounded_channel();
-        {
-            let mut st = run.st.lock().unwrap();
-            st.live.insert(id.into(), steer_tx);
-            st.live_agent.insert(agent.clone(), id.into());
-        }
-        run.watch.lock().unwrap().insert(id.into(), Watch { attempt: n, last_ms: now_ms(), ..Default::default() });
-        let mut ctl = Control {
-            rx: steer_rx,
-            steering: conn.steering,
-            human: false,
-            interrupted: false,
-            finish: false,
-            queued: vec![],
-        };
-        if ctl.steering {
-            run.st.lock().unwrap().steerable.insert(id.into());
-        }
+        self.watch_session(run, &owner.session, n);
         let mut next = Some(prompt);
         let mut text = String::new();
         let mut round = 0;
@@ -364,7 +311,7 @@ impl App {
                         }
                         Some(Steer::Release) => {
                             ctl.human = false;
-                            run.set_human(id, n, false);
+                            run.set_human(&owner.session, n, false);
                             self.emit(
                                 run,
                                 ev(
@@ -440,9 +387,9 @@ impl App {
                     self.escalate_open_questions(run);
                 }
                 // The question card and the session both reach the same agent; whichever you use first wins.
-                let _held = run.held(id, n);
+                let _held = run.held(&owner.session, n);
                 tokio::select! {
-                    answer = self.wait_for(run, &key) => {
+                    answer = self.wait_for(run, &key, owner.clone(), Ask::Question) => {
                         let answer = answer?;
                         next = Some(format!(
                             "你的问题已得到回答：{}\n补充说明：{}\n请据此继续完成任务。完成后同样以 ```json 结构化结果结束。",
@@ -451,7 +398,7 @@ impl App {
                         ));
                     }
                     cmd = ctl.rx.recv() => {
-                        run.st.lock().unwrap().waiters.remove(&key);
+                        run.st.lock().unwrap().pending.remove(&key);
                         let reply = match cmd {
                             None => return Err(Cancelled.into()),
                             Some(Steer::Message(m) | Steer::Redirect(m)) => {
@@ -462,7 +409,7 @@ impl App {
                             Some(Steer::Finish) => { ctl.finish = true; "（直接以当前结果完成）".into() }
                             Some(_) => {
                                 ctl.human = true;
-                                run.set_human(id, n, true);
+                                run.set_human(&owner.session, n, true);
                                 self.emit(run, ev("control.taken", "user", format!("接管 {} 的会话", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent))).task(id).attempt(n).to(&agent));
                                 "（转为人工接管，在会话中继续）".into()
                             }
@@ -504,7 +451,12 @@ impl App {
                 Err(err) => return Err(err),
             }
         };
-        conn.kill().await;
+        Ok::<_, anyhow::Error>(result)
+        }
+        .await;
+        // The agent stops before its changes are recorded, so nothing moves under the record.
+        self.close_session(run, &owner, Some(&conn), &format!("{id} 的这次尝试已经结束，撤回待处理的请求")).await;
+        let result = outcome?;
         self.check_aborted(run, id, &mut ctl)?;
         self.record_changes(run, id, n, &agent, &workspace)?;
         // The result against what the task left in the workspace: the lead sees where they differ.
