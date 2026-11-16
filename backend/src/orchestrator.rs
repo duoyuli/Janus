@@ -14,6 +14,7 @@ use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verification};
 use crate::git_probe;
 use crate::status::{AgentPhase, AttemptStatus, RunStatus, TaskStatus};
+use crate::traces::Overlap;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

@@ -379,9 +379,8 @@ impl App {
             let shared: Vec<(String, Vec<String>)> = shared
                 .into_iter()
                 .filter_map(|(other, common)| {
-                    let (a, b) = if task < other.as_str() { (task, other.as_str()) } else { (other.as_str(), task) };
                     let fresh: Vec<String> =
-                        common.into_iter().filter(|p| st.traces.first_report("same", a, b, p)).collect();
+                        common.into_iter().filter(|p| st.traces.first_report(Overlap::Same, task, &other, p)).collect();
                     (!fresh.is_empty()).then_some((other, fresh))
                 })
                 .collect();
@@ -389,7 +388,7 @@ impl App {
                 .into_iter()
                 .filter_map(|(other, files)| {
                     let fresh: Vec<String> =
-                        files.into_iter().filter(|p| st.traces.first_report("owned", task, &other, p)).collect();
+                        files.into_iter().filter(|p| st.traces.first_report(Overlap::Owned, task, &other, p)).collect();
                     (!fresh.is_empty()).then_some((other, fresh))
                 })
                 .collect();

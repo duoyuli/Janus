@@ -538,13 +538,9 @@ impl App {
                     "tool.call" if !paths.is_empty() => st.traces.record(task, &paths, e.seq),
                     "task.conflict" => {
                         let other = d["other"].as_str().unwrap_or_default();
+                        let kind = if d["owned"] == true { Overlap::Owned } else { Overlap::Same };
                         for p in &paths {
-                            if d["owned"] == true {
-                                st.traces.first_report("owned", task, other, p);
-                            } else {
-                                let (a, b) = if task < other { (task, other) } else { (other, task) };
-                                st.traces.first_report("same", a, b, p);
-                            }
+                            st.traces.first_report(kind, task, other, p);
                         }
                     }
                     _ => {}

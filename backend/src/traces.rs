@@ -12,6 +12,15 @@ use crate::orchestrator::TaskDef;
 use crate::teamwork::covers;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+/// What two tasks' edits overlap in, as reported to the lead (`task.conflict`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Overlap {
+    /// Two tasks running at the same time edited the same file; the pair has no order.
+    Same,
+    /// A task edited a file another open task owns (`owns`, or a claim).
+    Owned,
+}
+
 #[derive(Default)]
 pub struct Traces {
     /// Files each task edited (relative to the workspace), from its tool calls.
@@ -19,7 +28,7 @@ pub struct Traces {
     /// Who edited each file last, and the seq of that tool call.
     last_edit: HashMap<String, (String, i64)>,
     /// Reports already made: (kind, task, other task, file).
-    reported: HashSet<(&'static str, String, String, String)>,
+    reported: HashSet<(Overlap, String, String, String)>,
 }
 
 impl Traces {
@@ -35,9 +44,14 @@ impl Traces {
         self.touched.get(task).cloned().unwrap_or_default()
     }
 
-    /// Whether this is the first report of `kind` for the pair and file.
-    pub fn first_report(&mut self, kind: &'static str, task: &str, other: &str, path: &str) -> bool {
-        self.reported.insert((kind, task.into(), other.into(), path.into()))
+    /// Whether this is the first report of `kind` for the pair and file. `Same` is one report
+    /// for both orders of the pair; `Owned` is about the task that stepped over.
+    pub fn first_report(&mut self, kind: Overlap, task: &str, other: &str, path: &str) -> bool {
+        let (a, b) = match kind {
+            Overlap::Same if other < task => (other, task),
+            _ => (task, other),
+        };
+        self.reported.insert((kind, a.into(), b.into(), path.into()))
     }
 
     /// Files `task` edited that another task edited after `since` (the seq it finished at), with
@@ -194,7 +208,12 @@ mod tests {
         assert!(t.edited_after("T2", 20).is_empty(), "its own edits");
         assert!(stale_note(&t.edited_after("T1", 20)).contains("a.rs（T2 改）"));
         assert!(stale_note(&[]).is_empty());
-        assert!(t.first_report("same", "T1", "T2", "a.rs") && !t.first_report("same", "T1", "T2", "a.rs"));
+        assert!(
+            t.first_report(Overlap::Same, "T1", "T2", "a.rs") && !t.first_report(Overlap::Same, "T1", "T2", "a.rs")
+        );
+        assert!(!t.first_report(Overlap::Same, "T2", "T1", "a.rs"), "the same pair the other way round");
+        assert!(t.first_report(Overlap::Owned, "T2", "T1", "a.rs"), "another kind is another report");
+        assert!(t.first_report(Overlap::Owned, "T1", "T2", "a.rs"), "stepping over is about who did");
     }
 
     #[test]
