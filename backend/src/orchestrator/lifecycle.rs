@@ -17,7 +17,7 @@ impl App {
         for m in &team {
             self.spec_for(&m.runtime)?;
         }
-        if let Some(lead) = team.iter().find(|m| m.lead).filter(|m| !lead_capable(&m.kind)) {
+        if let Some(lead) = team.iter().find(|m| m.lead).filter(|m| !m.kind.leads()) {
             bail!(
                 "主控「{}」用的是 {}，只有 Claude Code 或 Codex 能做主控（需要 /goal），请在工作区里换一个主控",
                 lead.name,

@@ -14,7 +14,7 @@
 
 ## 约定
 
-- 不修改用户自己的 Agent 配置（`~/.codex`、`~/.claude`、`~/.grok`、`~/.pi`）。Janus 需要为 Agent 写入的设置只写入 `~/.janus/agents/<id>/` 下的隔离配置。
+- 不修改用户自己的 Agent 配置（`~/.codex`、`~/.claude`）。Janus 需要为 Agent 写入的设置只写入 `~/.janus/agents/<id>/` 下的隔离配置。
 - 凭据不写进代码、日志、文档、SQLite 或设置接口的返回值。
 - 不替用户 commit 或 push；需要时先确认。
 - 新增或修改事件类型时，同步检查应用的 `derive` / `boardFacts`（`frontend/Sources/Janus/Core/Derive.swift`）、看板的 `board_entry` 和恢复逻辑 `resume_run`，见 `docs/interfaces/events.md`。

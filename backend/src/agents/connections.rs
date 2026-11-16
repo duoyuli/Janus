@@ -39,7 +39,7 @@ impl App {
             c["secretsSet"] =
                 json!(secrets.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default());
             c["home"] = json!(dir.join("home"));
-            if login_kind(c).is_some() {
+            if account_login(c) {
                 c["loggedIn"] = json!(dir.join("home/auth.json").exists());
             }
             if !c["login"].is_null() {
@@ -144,7 +144,7 @@ impl App {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
         }
-        if let Some(env) = self.prepare_home(&config, &secrets, &home)? {
+        if let Some(env) = self.prepare_home(&config, &home)? {
             config["importedEnv"] = json!(env.keys().collect::<Vec<_>>());
             secrets["importedEnv"] = Value::Object(env);
         }
@@ -153,43 +153,19 @@ impl App {
         Ok(config)
     }
 
-    /// Write the agent's own config files into its isolated home.
-    /// Returns the credential variables captured by "复制本机配置", which are stored as secrets.
-    pub(super) fn prepare_home(
-        &self,
-        c: &Value,
-        secrets: &Value,
-        home: &Path,
-    ) -> Result<Option<serde_json::Map<String, Value>>> {
-        match (str_of(c, "base"), str_of(c, "auth")) {
-            ("pi", "provider") => {
-                let models: Vec<Value> = str_of(c, "models").split([',', '，', ' ', '\n']).map(str::trim).filter(|s| !s.is_empty()).map(|m| json!({
-                    "id": m, "name": m, "reasoning": true, "input": ["text"], "contextWindow": 128000, "maxTokens": 16384,
-                    "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-                })).collect();
-                if models.is_empty() {
-                    bail!("至少填写一个模型 ID");
-                }
-                let api = match str_of(c, "api") {
-                    "" => "openai-completions",
-                    a => a,
-                };
-                let catalog = json!({ "providers": { "janus": { "baseUrl": str_of(c, "baseUrl"), "api": api, "apiKey": secrets["apiKey"], "models": models } } });
-                write_private(&home.join("models.json"), serde_json::to_string_pretty(&catalog)?.as_bytes())?;
-            }
-            (base, "import") => {
-                let (copied, env) = import_local(base, &local_source(base, str_of(c, "source")), home)?;
-                if copied.is_empty() && env.is_empty() {
-                    bail!(
-                        "在 {} 和你的 shell 环境中都没有找到可以复制的配置",
-                        local_source(base, str_of(c, "source")).display()
-                    );
-                }
-                return Ok(Some(env));
-            }
-            _ => {}
+    /// "复制本机配置": copy the agent's own setup into its isolated home. Returns the credential
+    /// variables found in the person's shell, which are stored as secrets.
+    pub(super) fn prepare_home(&self, c: &Value, home: &Path) -> Result<Option<serde_json::Map<String, Value>>> {
+        if str_of(c, "auth") != "import" {
+            return Ok(None);
         }
-        Ok(None)
+        let base = str_of(c, "base");
+        let src = local_source(base, str_of(c, "source"));
+        let (copied, env) = import_local(base, &src, home)?;
+        if copied.is_empty() && env.is_empty() {
+            bail!("在 {} 和你的 shell 环境中都没有找到可以复制的配置", src.display());
+        }
+        Ok(Some(env))
     }
 
     /// Deleting a provider unbinds the roles that used it; only a running task keeps it alive.
@@ -260,11 +236,11 @@ impl App {
             override_env(&mut env, k, v.as_str().unwrap_or(""));
         }
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
-        let base = str_of(&c, "base").to_string();
+        let runtime = Runtime::of(str_of(&c, "base"))?;
         let mut program = self.cfg.node.clone();
         let mut args = vec![];
-        let adapter = match base.as_str() {
-            "codex" => {
+        let adapter = match runtime {
+            Runtime::Codex => {
                 set("CODEX_HOME", home);
                 // The adapter bundles the Codex CLI. A path chosen on the agent overrides it.
                 if let Some(b) = configured_bin(&c) {
@@ -281,9 +257,9 @@ impl App {
                         set("MODEL_PROVIDER", "janus".into());
                     }
                 }
-                crate::adapters::for_base(&base)
+                crate::adapters::for_base(runtime.as_str())
             }
-            "claude" => {
+            Runtime::Claude => {
                 set("CLAUDE_CONFIG_DIR", home);
                 // Janus reads a returned turn as the agent's answer. A command or subagent Claude
                 // Code sends to the background would end the turn before the work is done.
@@ -299,25 +275,9 @@ impl App {
                     (_, "apikey") => set("ANTHROPIC_API_KEY", secret("apiKey")),
                     _ => {}
                 }
-                crate::adapters::for_base(&base)
+                crate::adapters::for_base(runtime.as_str())
             }
-            "grok" => {
-                // The official CLI keeps its native binary and configuration under GROK_HOME.
-                set("GROK_HOME", home);
-                if c["auth"] == "apikey" {
-                    set("XAI_API_KEY", secret("apiKey"));
-                }
-                crate::adapters::for_base(&base)
-            }
-            "pi" => {
-                set("PI_CODING_AGENT_DIR", home);
-                // pi-acp runs the pi CLI; a path chosen on the agent overrides the one on PATH.
-                if let Some(b) = configured_bin(&c) {
-                    set("PI_ACP_PI_COMMAND", b);
-                }
-                crate::adapters::for_base(&base)
-            }
-            "custom" => {
+            Runtime::Custom => {
                 // A custom agent runs in the same sandbox as the built-in ones; it gets only the variables configured here.
                 let mut parts = split_command(str_of(&c, "command"))?;
                 if parts.is_empty() {
@@ -327,20 +287,18 @@ impl App {
                 args = parts;
                 None
             }
-            k => bail!("未知的 Agent 类型 {k}"),
         };
         let mut full = vec![];
         let mut pin = None;
         if let Some(adapter) = adapter {
             let (entry, version) = self.adapter_entry(adapter.id)?;
             full.push(entry.to_string_lossy().to_string());
-            full.extend(adapter.args.iter().map(|a| a.to_string()));
             pin = Some(version);
         }
         full.extend(args);
         Ok(RuntimeSpec {
             id: id.to_string(),
-            kind: base,
+            kind: runtime,
             name: str_of(&c, "name").to_string(),
             program,
             args: full,
@@ -391,7 +349,5 @@ pub(super) fn is_sandbox_var(k: &str) -> bool {
             | "PATH"
             | "CODEX_HOME"
             | "CLAUDE_CONFIG_DIR"
-            | "GROK_HOME"
-            | "PI_CODING_AGENT_DIR"
     ) || k.starts_with("JANUS_")
 }

@@ -1,9 +1,9 @@
 //! Setup objects: agent connections → roles → execution environments.
 //!
-//! A connection is one coding agent (Codex / Claude Code / Grok / Pi) reached through an ACP
-//! adapter. Each connection owns an isolated home under `~/.janus/agents/<id>/home` that is
-//! handed to the agent as CODEX_HOME / CLAUDE_CONFIG_DIR / PI_CODING_AGENT_DIR, so neither
-//! the user's own `~/.codex`, `~/.claude`, `~/.pi` nor their shell credentials leak in.
+//! A connection is one coding agent (Codex or Claude Code through their ACP adapters, or any ACP
+//! agent started by a custom command). Each connection owns an isolated home under
+//! `~/.janus/agents/<id>/home` that is handed to the agent as CODEX_HOME / CLAUDE_CONFIG_DIR, so
+//! neither the user's own `~/.codex`, `~/.claude` nor their shell credentials leak in.
 //! Secrets live in `~/.janus/agents/<id>/secrets.json` (0600) and never in SQLite or the API.
 //!
 //! The child modules each add one part: `catalog` (agent kinds and presets), `connections`
@@ -15,6 +15,7 @@
 use crate::acp::{AcpConn, Incoming, RuntimeSpec};
 use crate::orchestrator::{App, Member, expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -44,6 +45,42 @@ pub use session_options::{is_plan_value, model_label, plan_off_value, session_la
 use workspaces::*;
 
 const CONNECTION: &str = "connection";
+
+/// What an agent runs on. Codex and Claude Code start through their official ACP adapters; a
+/// custom command is any other ACP agent. Presets over Claude Code run on `Claude`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Runtime {
+    Codex,
+    Claude,
+    Custom,
+}
+
+impl Runtime {
+    /// The runtime of a connection's `base`.
+    pub fn of(base: &str) -> Result<Runtime> {
+        match base {
+            "codex" => Ok(Runtime::Codex),
+            "claude" => Ok(Runtime::Claude),
+            "custom" => Ok(Runtime::Custom),
+            other => bail!("不支持的 Agent 类型：{other}"),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Runtime::Codex => "codex",
+            Runtime::Claude => "claude",
+            Runtime::Custom => "custom",
+        }
+    }
+
+    /// Agents that can lead: they pursue a goal on their own with `/goal`. Tests lead with the
+    /// scripted custom agent.
+    pub fn leads(self) -> bool {
+        matches!(self, Runtime::Claude | Runtime::Codex) || (cfg!(test) && self == Runtime::Custom)
+    }
+}
 pub(crate) const ROLE: &str = "role";
 
 /// Split a launch command like a shell would for the simple cases: whitespace, single and double quotes.
@@ -85,7 +122,7 @@ pub fn which(bin: &str) -> Option<String> {
 pub(crate) fn connection_phase(c: &Value) -> &'static str {
     if c["login"]["state"] == "running" {
         "logging_in"
-    } else if login_kind(c).is_some() && c["loggedIn"].as_bool() != Some(true) {
+    } else if account_login(c) && c["loggedIn"].as_bool() != Some(true) {
         "logged_out"
     } else {
         match c["status"].as_str() {

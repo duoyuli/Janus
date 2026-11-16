@@ -230,15 +230,15 @@ impl App {
     /// board tools in reach. Open to the person like any session: steering, takeover, messages.
     pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<String> {
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
-        if !lead_capable(&lead.kind) {
+        if !lead.kind.leads() {
             bail!("主控只能是 Claude Code 或 Codex：只有它们支持 /goal");
         }
         let standing = standing_instructions(&lead);
-        let channel = instruction_channel(&lead.kind);
+        let channel = instruction_channel(lead.kind);
         let mut spec = self.spec_for(&lead.runtime)?;
         spec = self.with_standing(spec, &channel, &standing)?;
         let workspace = run.cwd.clone();
-        if lead.kind == "claude" {
+        if lead.kind == Runtime::Claude {
             // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
             self.trust_claude_workspace(&lead.runtime, &workspace)?;
         }
@@ -247,7 +247,7 @@ impl App {
         let (conn, mut rx, mut ctl) = self.open_session(run, &owner, "lead", &spec, &log, "主控").await?;
         let result = async {
             let brief = format!("{}{}", self.goal_brief(run, resumed), self.take_notes(run, "lead"));
-            let claude = lead.kind == "claude";
+            let claude = lead.kind == Runtime::Claude;
             // Claude's system layer carries the brief and, after it, the person's standing rules.
             let system = if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") };
             let (sid, applied, controls) = tokio::time::timeout(STARTUP_TIMEOUT, async {
@@ -381,11 +381,11 @@ impl App {
     pub(super) async fn lead_conversation(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
-        let channel = instruction_channel(&lead.kind);
+        let channel = instruction_channel(lead.kind);
         let mut spec = self.spec_for(&lead.runtime)?;
         spec = self.with_standing(spec, &channel, &standing)?;
         let workspace = run.cwd.clone();
-        if lead.kind == "claude" {
+        if lead.kind == Runtime::Claude {
             self.trust_claude_workspace(&lead.runtime, &workspace)?;
         }
         let events = self.db.events(&run.id, 0).unwrap_or_default();
@@ -427,7 +427,7 @@ impl App {
                 }
             }
             if !loaded {
-                let system = (lead.kind == "claude")
+                let system = (lead.kind == Runtime::Claude)
                     .then(|| if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") });
                 session = tokio::time::timeout(
                     STARTUP_TIMEOUT,
@@ -485,7 +485,7 @@ impl App {
                 );
             }
             let mut next = prompt.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
-            if !loaded && lead.kind != "claude" {
+            if !loaded && lead.kind != Runtime::Claude {
                 next = format!("{brief}\n\n用户接着说：\n{next}");
             }
             loop {
@@ -744,7 +744,7 @@ pub(super) fn team_lines_vec(run: &Run) -> Vec<String> {
                 m.name,
                 m.role,
                 if m.desc.trim().is_empty() { "未填写" } else { m.desc.trim() },
-                if m.runtime_name.is_empty() { &m.kind } else { &m.runtime_name },
+                if m.runtime_name.is_empty() { m.kind.as_str() } else { &m.runtime_name },
                 if m.model_label.is_empty() { "Agent 默认" } else { &m.model_label },
                 if m.permission.is_empty() { "未声明，工具调用直接执行" } else { &m.permission },
             )
@@ -845,12 +845,6 @@ pub(super) fn split_brief_suggestions(text: &str) -> (String, Vec<String>) {
         .collect();
     let rest = [&lines[..start], &lines[end..]].concat().join("\n");
     (rest, suggestions)
-}
-
-/// Agents that can lead: they pursue a goal on their own with `/goal`.
-pub fn lead_capable(kind: &str) -> bool {
-    // Tests lead with the scripted custom agent.
-    matches!(kind, "claude" | "codex") || (cfg!(test) && kind == "custom")
 }
 
 /// The ACP session id of the lead's last session, from the event log.

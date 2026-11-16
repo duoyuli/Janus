@@ -18,7 +18,7 @@ struct AgentsView: View {
                         Text("还没有接入 Agent").font(.display(.title3))
                         Text("把你本机已经在用的 Agent 迁移过来，配置和凭据会一并复制。").foregroundStyle(.secondary)
                         HStack {
-                            ForEach(["codex", "claude", "pi", "grok"].compactMap { store.kind($0) }, id: \.self) { k in
+                            ForEach(["codex", "claude"].compactMap { store.kind($0) }, id: \.self) { k in
                                 Button { editing = newDraft(k["id"].str) } label: {
                                     HStack {
                                         Avatar(initials: k["init"].str, color: k["color"].str, size: 28)
@@ -149,7 +149,7 @@ struct ConnectionRow: View {
         return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).compactMap { Range($0.range, in: s).map { String(s[$0]) } }
     }
 
-    /// The auth method's own `login` flag says whether Janus drives an account login (Codex ChatGPT, Grok xAI).
+    /// The auth method's own `login` flag says whether Janus drives an account login (Codex ChatGPT).
     private var loginAuth: JSON? { store.kind(c["kind"].str)?["auths"].array.first { $0["id"].str == c["auth"].str && $0["login"].truthy } }
 
     /// The backend's single `phase` combines the check status with the account login, so the
@@ -384,7 +384,7 @@ struct ConnectionEditor: View {
                     if k["runtime"].truthy {
                         field("运行时路径") { TextField(k["runtime"]["detected"].truthy ? k["runtime"]["detected"].str : k["runtime"]["placeholder"].str, text: str("bin")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                     }
-                    field("自定义提示词", hint: "排在角色指令之前，和角色指令走同一种注入方式（Claude Code、Pi 是系统提示，Codex 是开发者指令，其他 Agent 附在任务说明末尾）。") {
+                    field("自定义提示词", hint: "排在角色指令之前，和角色指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在任务说明末尾）。") {
                         TextEditor(text: str("prompt")).font(.body).frame(height: 70).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     }
                     if !k["token"].truthy { envField(k) }

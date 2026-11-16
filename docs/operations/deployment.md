@@ -15,7 +15,6 @@
 ├── config.toml               # 用户配置，可选
 ├── janus.db                  # SQLite：Agent、角色、工作区、Run、事件
 ├── agents/<agent-id>/        # 每个 Agent 的隔离配置目录、HOME、临时目录和凭据
-│   └── janus/                # Janus 为这个 Agent 生成的文件，例如 Pi 的长期要求扩展
 ├── secrets/roles/            # 角色手工 MCP 的环境变量值
 ├── secrets/mcp/<id>/         # MCP 资源库服务器的环境变量和 HTTP header 值
 ├── skills/                   # Janus Skill 库（自建的 Skill）
@@ -56,7 +55,7 @@
 
 1. 在 GitHub Release 中下载 `Janus-<版本>.dmg`，打开后把 Janus 拖进「应用程序」。
 2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 → 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
-3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 14 或更高。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js。Codex、Claude Code 和 Grok 的适配器在第一次使用时从 npm 下载，并自带对应的 CLI；Pi 适配器会启动本机的 `pi` 命令，需要先安装 Pi。
+3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 14 或更高。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js。Codex 和 Claude Code 的适配器在第一次使用时从 npm 下载，并自带对应的 CLI。
 
 应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/frontend.md#server_process)。
 
@@ -94,7 +93,7 @@
 | Node.js | 运行 ACP 适配器，安装适配器 | 22.19 及以上；安装包中的 Janus.app 自带，不需要另装 |
 | `npm`、`npx` | 安装适配器 | 随 Node.js 安装 |
 | `git` | 检查工作目录 | |
-| Agent CLI | Pi 和自定义命令类型的 Agent | 内置适配器自带 Codex、Claude Code 和 Grok 的 CLI；Pi 需要本机的 `pi` 命令 |
+| Agent CLI | 自定义命令类型的 Agent | 内置适配器自带 Codex 和 Claude Code 的 CLI |
 
 安装和检查适配器更新需要访问 npm。
 

@@ -41,7 +41,6 @@ enum Setup {
         switch c["base"].str {
         case "claude": return "作为系统提示追加在 Claude Code 自带的提示之后，整个会话都有效，优先于任务说明。"
         case "codex": return "作为 Codex 的开发者指令注入，整个会话都有效，优先于任务说明。"
-        case "pi": return "通过 Janus 的 Pi 扩展加入系统提示，整个会话都有效，优先于任务说明。"
         default: return "\(c["name"].str) 不支持系统提示，指令附在每次任务说明的末尾。"
         }
     }

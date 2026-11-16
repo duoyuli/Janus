@@ -9,7 +9,7 @@
 
 - 只从宿主继承 `PATH`、语言环境、`TERM`、`USER`、`LOGNAME`、`SHELL`、`TZ`。
 - `HOME`、XDG 目录和 `TMPDIR` 指向 `~/.janus/agents/<id>/` 下的专属目录，Agent 查找 `~/...` 时落在自己的目录里。
-- Agent 的配置目录（`CODEX_HOME`、`CLAUDE_CONFIG_DIR`、`GROK_HOME`、`PI_CODING_AGENT_DIR`）是 `~/.janus/agents/<id>/home`。用户自己的 `~/.codex`、`~/.claude`、`~/.grok`、`~/.pi` 不会被读取或修改。
+- Agent 的配置目录（`CODEX_HOME`、`CLAUDE_CONFIG_DIR`）是 `~/.janus/agents/<id>/home`。用户自己的 `~/.codex`、`~/.claude` 不会被读取或修改。
 - 用户在 Agent 设置中填写的环境变量不能覆盖上面这些由 Janus 控制的变量。
 - 自定义命令的 Agent 使用同样的隔离环境。
 
@@ -26,8 +26,6 @@
 | --- | --- |
 | Codex | `model`、`model_provider`、`model_providers`、`model_reasoning_*`、`model_verbosity`、`model_context_window`、`model_auto_compact_token_limit`、`model_catalog_json`（引用的模型目录一并复制）、`openai_base_url`、`service_tier` |
 | Claude Code | `model`，以及 `settings.json` 中配置模型接入点的 `env` 项 |
-| Grok | `models`、`model` |
-| Pi | `defaultProvider`、`defaultModel`、`defaultThinkingLevel`、`enabledModels` |
 
 指令文件、hooks、插件、MCP、Skill、权限和沙箱策略都不复制。
 
@@ -35,7 +33,7 @@
 
 - 运行时自己的凭据文件（例如 `auth.json`）。
 - Claude Code 在 macOS 钥匙串中的登录信息，通过 `security` 命令读取。
-- 用户登录 shell 中导出的凭据变量：标准变量，以及配置文件中引用的变量（Codex 的 `env_key`、Pi 的 `apiKey`）。Janus 以交互式登录 shell 读取环境，与新开终端看到的一致。
+- 用户登录 shell 中导出的凭据变量：标准变量，以及配置文件中引用的变量（Codex 的 `env_key`）。Janus 以交互式登录 shell 读取环境，与新开终端看到的一致。
 
 应用中的预览（`/api/local-config`）只列出会复制的文件和变量名，不显示值。
 
@@ -80,7 +78,7 @@ Agent、角色和工作区的 id 是 Janus home 中目录和文件的名字（`a
 <a id="adapter_install"></a>
 ## 适配器安装
 
-- 适配器来自 npm（`@agentclientprotocol/codex-acp`、`@agentclientprotocol/claude-agent-acp`、`@xai-official/grok`、`pi-acp`）。Janus 不校验包的签名，信任边界与手动执行 `npm install` 相同。
+- 适配器来自 npm（`@agentclientprotocol/codex-acp`、`@agentclientprotocol/claude-agent-acp`）。Janus 不校验包的签名，信任边界与手动执行 `npm install` 相同。
 - npm 安装带 `--ignore-scripts`，不执行包自带的安装和生命周期脚本。
 - 安装命令在 Janus 进程自己的环境中运行（`PATH`、npm 配置、代理），不是 Agent 的隔离环境。
 - 来源写在代码中，应用和接口不能指定其他来源。

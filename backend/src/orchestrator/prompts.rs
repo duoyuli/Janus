@@ -62,11 +62,11 @@ pub(super) enum Channel {
     Prompt,
 }
 
-pub(super) fn instruction_channel(kind: &str) -> Channel {
+pub(super) fn instruction_channel(kind: Runtime) -> Channel {
     match kind {
-        "claude" => Channel::System,
-        "codex" => Channel::Developer,
-        _ => Channel::Prompt,
+        Runtime::Claude => Channel::System,
+        Runtime::Codex => Channel::Developer,
+        Runtime::Custom => Channel::Prompt,
     }
 }
 
@@ -75,7 +75,7 @@ pub(super) fn instruction_channel(kind: &str) -> Channel {
 pub(super) fn standing_instructions(m: &Member) -> String {
     let mut parts = vec![];
     if !m.prompt.trim().is_empty() {
-        let from = if m.runtime_name.is_empty() { &m.kind } else { &m.runtime_name };
+        let from = if m.runtime_name.is_empty() { m.kind.as_str() } else { &m.runtime_name };
         parts.push(format!("来自 Agent 设置（{from}）：\n{}", m.prompt.trim()));
     }
     if !m.role_prompt.trim().is_empty() {
@@ -90,7 +90,7 @@ pub(super) fn standing_instructions(m: &Member) -> String {
 /// The same rules for an agent with no system layer, set apart from the task in the first prompt.
 pub(super) fn prompt_instructions(m: &Member) -> String {
     let text = standing_instructions(m);
-    if text.is_empty() || instruction_channel(&m.kind) != Channel::Prompt {
+    if text.is_empty() || instruction_channel(m.kind) != Channel::Prompt {
         return String::new();
     }
     format!("\n\n<standing_instructions>\n{text}\n</standing_instructions>")

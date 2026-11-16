@@ -32,8 +32,6 @@ Rust 编排器（backend/，axum + tokio）
 ACP 适配器（~/.janus/adapters/，按需安装）
   ├── @agentclientprotocol/codex-acp         → Codex CLI
   ├── @agentclientprotocol/claude-agent-acp  → Claude Code
-  ├── @xai-official/grok                     → Grok CLI
-  ├── pi-acp                                 → Pi
   └── 自定义 ACP 命令
   │
   ▼

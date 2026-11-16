@@ -12,7 +12,7 @@
 
 > A gate has two faces. One looks forward, to what can be built. The other looks back, at what must hold.
 
-Janus is a local-first multi-agent workspace. Through the Agent Client Protocol (ACP), it connects Codex, Claude Code, Grok, Pi, and other ACP-compatible agents into a single team: one lead agent sets the direction, collaborators carry the work, and acceptance is decided in the open. Every session, orchestration step, approval, artifact, and delivery is recorded as a replayable event.
+Janus is a local-first multi-agent workspace. Through the Agent Client Protocol (ACP), it connects Codex, Claude Code, and other ACP-compatible agents into a single team: one lead agent sets the direction, collaborators carry the work, and acceptance is decided in the open. Every session, orchestration step, approval, artifact, and delivery is recorded as a replayable event.
 
 ## The name
 
@@ -47,7 +47,7 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 
 1. Download `Janus-<version>.dmg` from [GitHub Releases](https://github.com/duoyuli/Janus/releases) and drag Janus into Applications.
 2. On first launch, macOS may say the developer cannot be verified (the package is not signed with an Apple certificate). Open System Settings → Privacy & Security and choose Open Anyway.
-3. Requires an Apple silicon Mac (M series) and macOS 14 or later. The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex, Claude Code, and Grok adapters bundle their CLIs; the Pi adapter uses the local `pi` command.
+3. Requires an Apple silicon Mac (M series) and macOS 14 or later. The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex and Claude Code adapters bundle their CLIs.
 
 The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/deployment.md#macos_app).
 
@@ -57,7 +57,7 @@ The app ships with its own Janus service and works out of the box. If you alread
 
 - The Rust toolchain and Cargo (edition 2024), Swift 6 (Xcode or the Command Line Tools), and [just](https://github.com/casey/just).
 - Node.js 22.19 or later, and the npm that ships with it.
-- Pi requires the local `pi` command; agents of the custom-command type need their own launch command. Built-in adapters bundle the Codex, Claude Code, and Grok CLIs.
+- Agents of the custom-command type need their own launch command. Built-in adapters bundle the Codex and Claude Code CLIs.
 - The first use of an agent needs network access to download its ACP adapter.
 
 #### Install and start

@@ -2,10 +2,10 @@
 
 use super::*;
 
-fn member_with(kind: &str, provider: &str, role: &str) -> Member {
+fn member_with(kind: Runtime, provider: &str, role: &str) -> Member {
     let mut m = test_run(1).team.remove(0);
     m.name = "Reviewer".into();
-    m.kind = kind.into();
+    m.kind = kind;
     m.runtime_name = "Codex".into();
     m.prompt = provider.into();
     m.role_prompt = role.into();
@@ -14,7 +14,7 @@ fn member_with(kind: &str, provider: &str, role: &str) -> Member {
 
 #[test]
 fn mcp_servers_use_declared_keys_and_keep_values_out_of_the_snapshot() {
-    let mut m = member_with("claude", "", "");
+    let mut m = member_with(Runtime::Claude, "", "");
     m.mcp = vec![
         json!({ "name": "local", "command": "node", "args": ["local.js"], "envKeys": ["LOCAL_TOKEN"] }),
         json!({ "name": "docs", "transport": "http", "url": "https://example.com/mcp", "headerKeys": ["Authorization"] }),
@@ -83,25 +83,25 @@ fn the_leads_suggestions_for_the_shared_material_are_split_off() {
 
 #[test]
 fn standing_instructions_pick_the_system_layer_when_there_is_one() {
-    assert_eq!(instruction_channel("claude"), Channel::System);
-    assert_eq!(instruction_channel("codex"), Channel::Developer);
-    assert_eq!(instruction_channel("pi"), Channel::Prompt);
-    assert_eq!(instruction_channel("grok"), Channel::Prompt);
-    let m = member_with("codex", "用中文回答", "只报有依据的问题");
+    assert_eq!(instruction_channel(Runtime::Claude), Channel::System);
+    assert_eq!(instruction_channel(Runtime::Codex), Channel::Developer);
+    assert_eq!(instruction_channel(Runtime::Custom), Channel::Prompt);
+    let m = member_with(Runtime::Codex, "用中文回答", "只报有依据的问题");
     let text = standing_instructions(&m);
     assert!(text.find("用中文回答").unwrap() < text.find("只报有依据的问题").unwrap(), "provider first, then role");
-    assert!(standing_instructions(&member_with("codex", " ", "")).is_empty());
+    assert!(standing_instructions(&member_with(Runtime::Codex, " ", "")).is_empty());
     // Only agents without a system layer get the rules in their prompt.
     assert!(prompt_instructions(&m).is_empty());
-    assert!(prompt_instructions(&member_with("grok", "", "只报有依据的问题")).contains("<standing_instructions>"));
-    assert!(prompt_instructions(&member_with("pi", "", "只报有依据的问题")).contains("<standing_instructions>"));
+    assert!(
+        prompt_instructions(&member_with(Runtime::Custom, "", "只报有依据的问题")).contains("<standing_instructions>")
+    );
 }
 
 #[test]
 fn developer_instructions_merge_into_codex_config() {
     let spec = |env: Vec<(String, String)>| crate::acp::RuntimeSpec {
         id: "c".into(),
-        kind: "codex".into(),
+        kind: Runtime::Codex,
         name: "Codex".into(),
         program: "node".into(),
         args: vec![],
@@ -210,7 +210,7 @@ fn test_run(team_size: usize) -> Run {
                 session: json!({}),
                 permission: String::new(),
                 model_label: String::new(),
-                kind: String::new(),
+                kind: Runtime::Custom,
                 runtime_name: String::new(),
                 prompt: String::new(),
                 role_prompt: String::new(),

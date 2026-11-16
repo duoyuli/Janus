@@ -112,13 +112,10 @@ fn bad(err: anyhow::Error) -> (StatusCode, String) {
 }
 
 async fn meta(State(app): State<Arc<App>>) -> Json<Value> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let has = |p: &str| PathBuf::from(&home).join(p).exists();
     Json(json!({
         "kinds": agents::kinds(),
         "local": {
-            "codex": agents::which("codex"), "claude": agents::which("claude"), "pi": agents::which("pi"),
-            "piConfig": has(".pi/agent/models.json") || has(".pi/agent/auth.json"),
+            "codex": agents::which("codex"), "claude": agents::which("claude"),
         },
         "dataDir": app.cfg.data_dir,
         "agentsDir": app.cfg.agents_dir,

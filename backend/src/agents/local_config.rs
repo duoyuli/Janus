@@ -22,11 +22,6 @@ pub(super) const CODEX_KEEP: &[&str] = &[
 
 pub(super) const CLAUDE_KEEP: &[&str] = &["env", "model"];
 
-pub(super) const GROK_KEEP: &[&str] = &["models", "model"];
-
-pub(super) const PI_SETTINGS_KEEP: &[&str] =
-    &["defaultProvider", "defaultModel", "defaultThinkingLevel", "enabledModels"];
-
 /// Claude `settings.json` env entries that configure the model endpoint; anything else is user preference.
 pub(super) fn claude_env_kept(k: &str) -> bool {
     k.starts_with("ANTHROPIC_")
@@ -64,12 +59,6 @@ pub(super) fn sanitize_json(text: &str, keep: &[&str], what: &str) -> Result<Str
     Ok(serde_json::to_string_pretty(&v)?)
 }
 
-pub(super) fn sanitize_toml(text: &str, keep: &[&str]) -> Result<String> {
-    let mut t: toml::Table = text.parse().context("config.toml 不是有效的 TOML")?;
-    t.retain(|k, _| keep.contains(&k));
-    Ok(toml::to_string(&t)?)
-}
-
 /// Bring an agent home in line with the rules above. Runs on import and, for homes made by
 /// earlier versions, once at startup; files that are not configuration-for-a-model are removed.
 pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
@@ -84,8 +73,6 @@ pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
     match base {
         "codex" => rewrite("config.toml", &|t| sanitize_codex(t, home))?,
         "claude" => rewrite("settings.json", &|t| sanitize_json(t, CLAUDE_KEEP, "settings.json"))?,
-        "grok" => rewrite("config.toml", &|t| sanitize_toml(t, GROK_KEEP))?,
-        "pi" => rewrite("settings.json", &|t| sanitize_json(t, PI_SETTINGS_KEEP, "settings.json"))?,
         _ => {}
     }
     for global in ["AGENTS.md", "CLAUDE.md"] {
@@ -95,12 +82,7 @@ pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
 }
 
 pub(super) fn local_source(base: &str, source: &str) -> PathBuf {
-    let default = match base {
-        "codex" => "~/.codex",
-        "claude" => "~/.claude",
-        "grok" => "~/.grok",
-        _ => "~/.pi/agent",
-    };
+    let default = if base == "codex" { "~/.codex" } else { "~/.claude" };
     PathBuf::from(expand_home(if source.trim().is_empty() { default } else { source.trim() }))
 }
 
@@ -139,11 +121,11 @@ pub(super) fn shell_env() -> HashMap<String, String> {
 }
 
 /// Environment variables that carry an agent's credentials or endpoint when it is not logged in
-/// through its own store: the standard ones, plus any a config file names (Codex `env_key`, Pi `apiKey`).
+/// through its own store: the standard ones, plus any a Codex config names as a provider's `env_key`.
 pub(super) fn credential_vars(base: &str, src: &Path) -> Vec<String> {
     let mut vars: Vec<String> = match base {
         "codex" => vec!["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"],
-        "claude" => vec![
+        _ => vec![
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_BASE_URL",
@@ -161,20 +143,10 @@ pub(super) fn credential_vars(base: &str, src: &Path) -> Vec<String> {
             "ANTHROPIC_VERTEX_PROJECT_ID",
             "CLOUD_ML_REGION",
         ],
-        "grok" => vec!["XAI_API_KEY"],
-        _ => vec![
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "GEMINI_API_KEY",
-            "OPENROUTER_API_KEY",
-            "XAI_API_KEY",
-            "DEEPSEEK_API_KEY",
-        ],
     }
     .into_iter()
     .map(str::to_owned)
     .collect();
-    let named = |v: &str| v.len() > 1 && v.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
     if base == "codex" {
         let t: Option<toml::Table> = std::fs::read_to_string(src.join("config.toml")).ok().and_then(|s| s.parse().ok());
         if let Some(providers) = t.as_ref().and_then(|t| t.get("model_providers")).and_then(|v| v.as_table()) {
@@ -182,15 +154,6 @@ pub(super) fn credential_vars(base: &str, src: &Path) -> Vec<String> {
                 if let Some(k) = p.get("env_key").and_then(|v| v.as_str()) {
                     vars.push(k.to_string());
                 }
-            }
-        }
-    }
-    if base == "pi" {
-        let v: Option<Value> =
-            std::fs::read_to_string(src.join("models.json")).ok().and_then(|s| serde_json::from_str(&s).ok());
-        for p in v.as_ref().and_then(|v| v["providers"].as_object()).into_iter().flat_map(|m| m.values()) {
-            if let Some(k) = p["apiKey"].as_str().filter(|k| named(k)) {
-                vars.push(k.to_string());
             }
         }
     }
@@ -243,22 +206,7 @@ pub(super) fn plan_import(base: &str, src: &Path) -> Vec<(String, String)> {
                 add(".credentials.json", "登录令牌（来自钥匙串）".into());
             }
         }
-        "grok" => {
-            if has("config.toml") {
-                add("config.toml", "模型与接入点".into());
-            }
-            if has("auth.json") {
-                add("auth.json", "xAI 登录令牌".into());
-            }
-        }
-        _ => {
-            for (f, note) in [("auth.json", "登录凭据"), ("models.json", "模型与服务"), ("settings.json", "默认模型")]
-            {
-                if has(f) {
-                    add(f, note.into());
-                }
-            }
-        }
+        _ => {}
     }
     out
 }

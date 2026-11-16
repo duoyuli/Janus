@@ -28,16 +28,12 @@ pub struct AdapterDef {
     pub name: &'static str,
     /// The npm package name. Its `bin` entry is the adapter's script.
     pub package: &'static str,
-    /// Arguments that go after the entry file when the adapter is the ACP server.
-    pub args: &'static [&'static str],
 }
 
 // @project-doc docs/architecture/adapters.md#catalog
 pub const ADAPTERS: &[AdapterDef] = &[
-    AdapterDef { id: "codex", name: "Codex", package: "@agentclientprotocol/codex-acp", args: &[] },
-    AdapterDef { id: "claude", name: "Claude Code", package: "@agentclientprotocol/claude-agent-acp", args: &[] },
-    AdapterDef { id: "grok", name: "Grok", package: "@xai-official/grok", args: &["agent", "stdio"] },
-    AdapterDef { id: "pi", name: "Pi", package: "pi-acp", args: &[] },
+    AdapterDef { id: "codex", name: "Codex", package: "@agentclientprotocol/codex-acp" },
+    AdapterDef { id: "claude", name: "Claude Code", package: "@agentclientprotocol/claude-agent-acp" },
 ];
 
 /// The adapter a runtime needs: presets over Claude Code share Claude's; custom commands need none.

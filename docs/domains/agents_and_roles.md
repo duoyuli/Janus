@@ -13,8 +13,6 @@
 | --- | --- | --- | --- | --- |
 | `codex` | 内置 | `codex` | 复制本机配置、ChatGPT 登录、自定义 API（OpenAI 或兼容 Responses API 的网关） | `CODEX_HOME` |
 | `claude` | 内置 | `claude` | 复制本机配置、Claude 订阅 OAuth Token、API Key | `CLAUDE_CONFIG_DIR` |
-| `grok` | 内置 | `grok` | 复制本机配置、xAI 账号设备码登录、API Key | `GROK_HOME` |
-| `pi` | 内置 | `pi` | 复制本机配置、OpenAI 兼容服务 | `PI_CODING_AGENT_DIR` |
 | `deepseek-claude`、`minimax-claude`、`glm-claude` | 预设 | `claude` | 粘贴对应厂商的 token，通过预设的环境变量（可修改）把 Claude Code 指向厂商的 Anthropic 兼容接口 | `CLAUDE_CONFIG_DIR` |
 | `custom` | 自定义 | `custom` | 无；只使用填写的启动命令和环境变量 | 无 |
 
@@ -31,7 +29,7 @@
 Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/security.md)），它看到的变量按以下顺序叠加，同名时后面的覆盖前面的：
 
 1. 沙箱变量：`HOME`、XDG 目录、`TMPDIR` 等，指向 `~/.janus/agents/<id>/` 下的隔离目录。
-2. 类型的默认变量（`fixedEnv`，预设还有所选接入点的 `env`），例如 DeepSeek 预设的 `ANTHROPIC_BASE_URL` 和各档模型，Grok 的 `GROK_DISABLE_AUTOUPDATER=1`。
+2. 类型的默认变量（`fixedEnv`，预设还有所选接入点的 `env`），例如 DeepSeek 预设的 `ANTHROPIC_BASE_URL` 和各档模型。
 3. 用户在 Agent 上填写的环境变量，以及「复制本机配置」带来的变量。值为空（`KEY=`）表示去掉这个变量。沙箱变量不能在这里改写。
 4. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和凭据（如预设 token 对应的 `ANTHROPIC_AUTH_TOKEN`）。Claude Code 还有一项默认值：`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，原因见 [Claude Code 会话的环境默认值](../interfaces/acp_integration.md#background_tasks)。
 
@@ -67,14 +65,14 @@ Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话�
 - `category` 是 `mode` 或 `_permission`。
 - id（`-` 视为 `_`）是 `mode`、`permission_mode`、`plan_mode`、`approval_policy` 或 `sandbox`。
 
-各 Agent 声明的典型权限模式：Codex 的沙箱预设（Read-only / Agent / Full access 等）、Claude Code 的权限模式（Manual / Accept edits / Auto / Bypass 等）、Grok 的权限模式。具体选项以 Agent 实际声明为准。
+各 Agent 声明的典型权限模式：Codex 的沙箱预设（Read-only / Agent / Full access 等）、Claude Code 的权限模式（Manual / Accept edits / Auto / Bypass 等）。具体选项以 Agent 实际声明为准。
 
 <a id="no_plan_mode"></a>
 ### 不使用 Plan 模式
 
 Janus 不让任何 Agent 进入 Plan 模式。Plan 模式只出方案、不执行，而 Janus 的任务要真正完成；Codex 主控在 Plan 模式下还会跳过 `/goal` 的自动推进（日志为 `skipping goal continuation ... reason=PlanMode`），Run 会一直停在「目标进行中」。
 
-- `session_options` 把 id 含 `plan` 的控制项（`is_plan_toggle`，例如 Codex 的 `plan-mode` 是 on / off 下拉，Grok 的 `plan_mode` 是布尔开关）从 `controls` 中移到 `planToggles`，并从所有下拉控制项中去掉值为 `plan` 的选项（`is_plan_value`，例如 Claude Code 的 Plan 权限模式和旧版 Agent 的 `plan` session mode）。角色编辑器因此看不到这些选项；在这条规则之前检查过的 Agent，应用按同样规则过滤它保存的选项。
+- `session_options` 把 id 含 `plan` 的控制项（`is_plan_toggle`，例如 Codex 的 `plan-mode` 是 on / off 下拉，也可能是布尔开关）从 `controls` 中移到 `planToggles`，并从所有下拉控制项中去掉值为 `plan` 的选项（`is_plan_value`，例如 Claude Code 的 Plan 权限模式和旧版 Agent 的 `plan` session mode）。角色编辑器因此看不到这些选项；在这条规则之前检查过的 Agent，应用按同样规则过滤它保存的选项。
 - `role_session` 丢弃角色中与 Plan 有关的值：保存角色时清掉，启动会话时也不使用。
 - 打开会话时，`configure_session` 把仍处于开启状态的 Plan 控制项设为关闭值（`plan_off_value`：布尔为 `false`，下拉为 `off` 一类的选项）；下拉控制项的当前值是 `plan` 且角色没有指定时，改为第一个其他选项。关闭失败时会话以错误结束，不会带着 Plan 模式运行。
 
@@ -89,7 +87,7 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 | `connection` | 绑定的 Agent id |
 | `model`、`effort` | 模型和推理强度；留空表示使用 Agent 默认值 |
 | `session` | 选定的会话控制项值，`{控制项 id: 值}` |
-| `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，Pi 通过 Janus 的扩展加入系统提示，其他 Agent 附在任务说明末尾，见 [ACP 集成](../interfaces/acp_integration.md#standing_instructions) |
+| `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在任务说明末尾，见 [ACP 集成](../interfaces/acp_integration.md#standing_instructions) |
 | `skills` | Skill id：Janus 自建的 Skill 是 `<id>`，GitHub 来源中的 Skill 是 `<来源 id>/<key>`，见 [Skill](#skills) |
 | `mcp` | 手工 MCP 服务器，固定为 stdio：名称、命令、参数、环境变量名（值另存） |
 | `mcpRefs` | 从 MCP 资源库挂载的服务器，每项是 `<来源 id>/<key>`，见 [MCP 来源](#mcp_library) |
@@ -246,5 +244,5 @@ MCP 来源是一个 GitHub 仓库（或仓库中的一个目录），参考 magp
 - `team_for` 先放手工 MCP，再放资源库 MCP。定义随 Run 快照保存，值不进入快照；会话启动时由 `attach_mcp_secrets` 从两个 secrets 目录读取，所以中断后继续的会话也会读到最新保存的值。
 - 只注入服务器声明的变量名（`envKeys`、`headerKeys`），secrets 中多余的键和空值不会传给 Agent。
 - 手工 MCP 与资源库 MCP 不能同名；保存角色和创建 Run 时都会报错。名称规范化后是 `janus` 的服务器与看板 MCP 冲突：资源库在解析时跳过，手工 MCP 在保存角色时拒绝，创建 Run 时再检查一次已保存的角色。
-- Agent 没有声明 HTTP MCP 能力时（例如 Pi），会话只带 stdio 服务器，资源库中的 http 服务器被跳过，会话仍能打开。
+- Agent 没有声明 HTTP MCP 能力时（只可能是自定义命令的 Agent），会话只带 stdio 服务器，资源库中的 http 服务器被跳过，会话仍能打开。
 - 目标模式下，Janus 还会附加自己的 HTTP 看板服务（名称 `janus`），见[看板 MCP 工具](../interfaces/board_mcp.md)。

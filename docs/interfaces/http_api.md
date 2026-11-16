@@ -41,7 +41,7 @@
 | POST | `/api/setup/{kind}` | 新建或更新设置对象，`kind` 是 `connections`、`roles` 或 `workspaces` |
 | DELETE | `/api/setup/{kind}/{id}` | 删除设置对象 |
 | POST | `/api/connections/{id}/test` | 在后台启动配置检查，立即返回 |
-| POST | `/api/connections/{id}/login` | 启动 Codex 或 Grok 的账号登录 |
+| POST | `/api/connections/{id}/login` | 启动 Codex 的 ChatGPT 账号登录 |
 | GET | `/api/file?path=` | 读取产物文本 |
 | GET | `/api/stats/roles` | 最近的 Run 中各角色的任务统计，见[角色的执行统计](../domains/agents_and_roles.md#role_stats) |
 | GET | `/api/runs` | 最近创建的 50 个 Run；更早的 Run 仍可按 id 读取详情、继续和验收 |

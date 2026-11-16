@@ -48,31 +48,6 @@ pub fn kinds() -> Value {
                   "fields": [{ "key": "apiKey", "label": "API Key", "type": "secret", "required": true, "placeholder": "sk-ant-api03-..." }] }
             ]
         },
-        {
-            "id": "grok", "group": "builtin", "base": "grok", "name": "Grok", "desc": "xAI Grok", "color": "#111111", "init": "GK",
-            "isolation": "GROK_HOME", "runtime": runtime("grok"), "fixedEnv": { "GROK_DISABLE_AUTOUPDATER": "1" },
-            "auths": [
-                { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.grok" }] },
-                { "id": "account", "label": "xAI 账号", "login": true, "desc": "创建后用设备码登录。", "fields": [] },
-                { "id": "apikey", "label": "API Key", "desc": "",
-                  "fields": [{ "key": "apiKey", "label": "API Key", "type": "secret", "required": true, "placeholder": "xai-..." }] }
-            ]
-        },
-        {
-            "id": "pi", "group": "builtin", "base": "pi", "name": "Pi", "desc": "Pi 编码 Agent", "color": "#0e7490", "init": "PI",
-            "isolation": "PI_CODING_AGENT_DIR", "runtime": runtime("pi"),
-            "auths": [
-                { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.pi/agent" }] },
-                { "id": "provider", "label": "OpenAI 兼容服务", "desc": "",
-                  "fields": [
-                      { "key": "baseUrl", "label": "Base URL", "type": "text", "required": true, "placeholder": "https://api.openai.com/v1" },
-                      { "key": "apiKey", "label": "API Key", "type": "secret", "required": true },
-                      { "key": "api", "label": "接口类型", "type": "select", "options": [["openai-completions", "OpenAI Chat Completions"], ["openai-responses", "OpenAI Responses"], ["anthropic-messages", "Anthropic Messages"]] },
-                      { "key": "models", "label": "模型 ID", "type": "text", "required": true, "placeholder": "用逗号分隔，例如 gpt-5.1, gpt-5.1-mini" }
-                  ] },
-
-            ]
-        },
         claude_preset("deepseek-claude", "DeepSeek over Claude Code", "用 DeepSeek 驱动 Claude Code，粘贴 API token 即可。", "#4d6bfe", "DS",
             "DeepSeek API token", "在 platform.deepseek.com 创建或复制。",
             json!({ "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic", "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]", "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
@@ -161,11 +136,8 @@ pub(super) fn auth_hint(msg: &str) -> String {
     }
 }
 
-/// Runtimes whose account login Janus drives itself; both keep credentials in `<home>/auth.json`.
-pub(super) fn login_kind(c: &Value) -> Option<&str> {
-    match (c["base"].as_str(), c["auth"].as_str()) {
-        (Some("codex"), Some("chatgpt")) => Some("codex"),
-        (Some("grok"), Some("account")) => Some("grok"),
-        _ => None,
-    }
+/// Whether Janus drives this agent's account login itself: Codex with a ChatGPT account, which
+/// keeps its credentials in `<home>/auth.json`.
+pub(super) fn account_login(c: &Value) -> bool {
+    c["base"] == "codex" && c["auth"] == "chatgpt"
 }

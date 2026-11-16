@@ -113,13 +113,6 @@ impl App {
                     (false, "没有填写 OAuth Token".into())
                 }
             }
-            ("pi", "provider") => {
-                if home.join("models.json").exists() {
-                    (true, "已生成 models.json".into())
-                } else {
-                    (false, "缺少 models.json，请重新保存".into())
-                }
-            }
             ("custom", _) => (true, "由启动命令自己负责".into()),
             _ => (true, "无需凭据".into()),
         }
@@ -278,11 +271,9 @@ impl App {
     /// CODEX_HOME. `codex login` opens the browser itself.
     pub fn start_login(self: &Arc<Self>, id: &str) -> Result<()> {
         let mut c = self.connection(id)?;
-        let (home_env, login_args): (&str, &[&str]) = match login_kind(&c) {
-            Some("codex") => ("CODEX_HOME", &["cli", "login"]),
-            Some("grok") => ("GROK_HOME", &["login", "--device-auth"]),
-            _ => bail!("这个 Provider 的认证方式不需要登录"),
-        };
+        if !account_login(&c) {
+            bail!("这个 Provider 的认证方式不需要登录");
+        }
         if c["login"]["state"] == "running" {
             return Ok(());
         }
@@ -295,9 +286,8 @@ impl App {
         let mut child = cmd
             .envs(spec.env.iter().cloned())
             .arg(entry)
-            .args(login_args)
-            .env(home_env, dir.join("home"))
-            .env("GROK_DISABLE_AUTOUPDATER", "1")
+            .args(["cli", "login"])
+            .env("CODEX_HOME", dir.join("home"))
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)

@@ -146,7 +146,7 @@ impl App {
         };
         let member = run.member(&agent).context("member missing")?.clone();
         let standing = standing_instructions(&member);
-        let channel = instruction_channel(&member.kind);
+        let channel = instruction_channel(member.kind);
         let mut spec = self.spec_for(&member.runtime)?;
         spec = self.with_standing(spec, &channel, &standing)?;
         let system = (channel == Channel::System && !standing.is_empty()).then_some(standing.as_str());

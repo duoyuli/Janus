@@ -28,8 +28,8 @@ pub type RequestId = RawJsonRpcId;
 #[derive(Clone, Debug)]
 pub struct RuntimeSpec {
     pub id: String,
-    /// codex / claude / pi: decides adapter-specific session settings.
-    pub kind: String,
+    /// Decides adapter-specific session settings.
+    pub kind: crate::agents::Runtime,
     pub name: String,
     pub program: String,
     pub args: Vec<String>,

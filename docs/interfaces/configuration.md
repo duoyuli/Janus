@@ -52,8 +52,6 @@ Agent 子进程的环境由 `spec_for` 完整构造，按以下顺序叠加，�
 | --- | --- |
 | Codex | `CODEX_HOME`、`CODEX_PATH`；自定义 API 时 `OPENAI_API_KEY`，填写 Base URL 时还有 `CODEX_CONFIG`、`MODEL_PROVIDER` |
 | Claude Code | `CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_EXECUTABLE`；预设的固定变量和接入点变量；认证变量 `CLAUDE_CODE_OAUTH_TOKEN`、`ANTHROPIC_API_KEY` 或预设的 `ANTHROPIC_AUTH_TOKEN` |
-| Grok | `GROK_HOME`、`GROK_PATH`、`GROK_DISABLE_AUTOUPDATER=1`；API Key 时 `XAI_API_KEY` |
-| Pi | `PI_CODING_AGENT_DIR`；OpenAI 兼容服务时附加参数 `--provider janus` |
 | 自定义 | 只有上面两层 |
 
 <a id="adapter_paths"></a>

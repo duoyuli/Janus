@@ -38,11 +38,11 @@ impl App {
             bail!("请从成员中选择一个主控");
         }
         let lead_role = self.db.get_config(ROLE, lead)?.unwrap_or_default();
-        let lead_kind = self
+        let leads = self
             .connection(str_of(&lead_role, "connection"))
-            .map(|c| str_of(&c, "base").to_string())
-            .unwrap_or_default();
-        if !crate::orchestrator::lead_capable(&lead_kind) {
+            .and_then(|c| Runtime::of(str_of(&c, "base")))
+            .is_ok_and(Runtime::leads);
+        if !leads {
             bail!("主控只能是 Claude Code 或 Codex 的角色（需要 /goal），「{}」不是", str_of(&lead_role, "name"));
         }
         if members.len() < 2 {
@@ -115,7 +115,7 @@ impl App {
                 session,
                 permission,
                 model_label,
-                kind: str_of(&conn, "base").into(),
+                kind: Runtime::of(str_of(&conn, "base"))?,
                 prompt: str_of(&conn, "prompt").into(),
                 role_prompt: str_of(&role, "prompt").into(),
                 skills: role["skills"]

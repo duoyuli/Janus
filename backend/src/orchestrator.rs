@@ -10,6 +10,7 @@
 //! applies what the person does and recovers runs after a restart.
 
 use crate::acp::{AcpConn, Incoming};
+use crate::agents::Runtime;
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verification};
 use crate::git_probe;
@@ -45,7 +46,6 @@ pub use actions::{ActionRefused, ActionReply};
 use attempts::*;
 use board::*;
 use board_tools::*;
-pub use lead::lead_capable;
 use lead::*;
 use messages::Delivery;
 use prompts::*;
@@ -126,8 +126,7 @@ pub struct Member {
     /// Model and reasoning effort as the lead is told them, e.g. "GPT-6.1 Sol · high（Agent 默认）".
     #[serde(default)]
     pub model_label: String,
-    #[serde(default)]
-    pub kind: String,
+    pub kind: Runtime,
     #[serde(default)]
     pub runtime_name: String,
     /// The provider's custom prompt, appended to every prompt this member receives.

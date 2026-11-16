@@ -11,12 +11,10 @@
 | --- | --- | --- | --- |
 | `codex` | Codex | npm `@agentclientprotocol/codex-acp` | 包版本，例如 `2.6.0` |
 | `claude` | Claude Code，以及 DeepSeek / MiniMax / GLM 等基于 Claude Code 的预设 | npm `@agentclientprotocol/claude-agent-acp` | 例如 `0.107.0` |
-| `grok` | Grok | npm `@xai-official/grok`，启动参数 `agent stdio` | 例如 `1.0.87` |
-| `pi` | Pi | npm `pi-acp` | 例如 `0.0.34` |
 
 自定义命令的 Agent 自带启动命令，不需要适配器。Agent 和适配器的对应关系由连接的基础运行时（`base`）决定（`for_base`）。
 
-Codex、Claude Code 和 Grok 的适配器自带对应的 CLI，用户不需要另外安装。Pi 的适配器会启动本机的 `pi` 命令（`PI_ACP_PI_COMMAND` 可以覆盖路径），需要先安装 Pi。Pi 适配器不会把 ACP 的 MCP 服务器转发给 pi，所以 Pi 会话看不到看板工具；它只适合不依赖看板的用途。
+Codex 和 Claude Code 的适配器自带对应的 CLI，用户不需要另外安装。Grok 和 Pi 已不再支持，见 [ADR：内置运行时只保留 Codex 和 Claude Code](../decisions/codex_and_claude_only.md)。
 
 插话使用官方约定的 `_session/steering` 扩展，见 [ACP 集成](../interfaces/acp_integration.md#steering)。
 

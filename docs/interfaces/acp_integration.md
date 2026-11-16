@@ -82,7 +82,7 @@ Provider 的「自定义提示词」和角色的「指令」是用户给这个�
 | --- | --- | --- |
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
 | Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_developer_instructions`） |
-| 其他（Grok、Pi、自定义命令） | 任务说明 | 没有系统提示入口，用 `<standing_instructions>` 块附在每次任务说明的末尾 |
+| 自定义命令 | 任务说明 | 没有系统提示入口，用 `<standing_instructions>` 块附在每次任务说明的末尾 |
 
 走系统提示或开发者指令时，Janus 记一条 `session.prompt` 事件（`channel` 为 `instructions`，`via` 为 `system` 或 `developer`），会话页可以展开查看。
 
@@ -123,7 +123,7 @@ Janus 把会话的更新转成事件（`acp_view.rs`），应用照着显示，�
 `session.usage` 的两种形态含义不同，Janus 原样记录，口径由用量账本统一处理：
 
 - `usage_update`：`used` 是此刻在上下文里的 token，`size` 是上下文窗口大小，`cost` 带 `amount` 和 `currency`，是会话的累计费用，但不是所有适配器都发。快照按更新原样记录，不去重。
-- `session/prompt` 返回的 `usage`：这一轮提示自己的 token。ACP v1 的 `Usage` 注释写「across session」，与 `PromptResponse` 的「Token usage for this turn」矛盾；v2 改为「the completed work」，Claude Code 和 Codex 适配器也都按每轮实现（Claude Code 在每轮开始清零，Codex 取这一轮前后的会话总量之差）。Pi 适配器只发上下文快照，不发 token。
+- `session/prompt` 返回的 `usage`：这一轮提示自己的 token。ACP v1 的 `Usage` 注释写「across session」，与 `PromptResponse` 的「Token usage for this turn」矛盾；v2 改为「the completed work」，Claude Code 和 Codex 适配器也都按每轮实现（Claude Code 在每轮开始清零，Codex 取这一轮前后的会话总量之差）。
 - 返回值的 `_meta.quota.model_usage`：Claude Code 和 Codex 适配器按模型给出这一轮的计数（`token_count` 里缓存读取叫 `cachedInputTokens`，缓存写入叫 `cachedWriteTokens` 或 `cacheWriteInputTokens`，推理叫 `reasoningOutputTokens`）。Claude Code 的 `usage` 只算主循环，`model_usage` 还算子 Agent 和压缩，所以 Janus 把它按 ACP 的字段名记为 `models`，账本优先用它（`acp_view::prompt_usage`）。
 - 缺的字段写 `null`，不写 0。
 
