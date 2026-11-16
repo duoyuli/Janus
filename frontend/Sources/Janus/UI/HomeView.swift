@@ -70,7 +70,7 @@ struct HomeView: View {
                         Text("等你处理").font(.headline)
                         Card(padding: 4) {
                             ForEach(waiting, id: \.self) { r in
-                                let (l, t) = L.runListStatus[r["status"].str] ?? (r["status"].str, .gray)
+                                let (l, t) = RunStatus(r["status"].str).listLabel
                                 Button { store.open(.run(r["id"].str)) } label: {
                                     HStack {
                                         Text(L.goalTitle(r["goal"].str)).lineLimit(1)

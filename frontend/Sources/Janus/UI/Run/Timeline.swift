@@ -59,7 +59,7 @@ struct TimelineBar: Identifiable {
     let start: Double
     let end: Double
     let attempt: Int
-    let status: String
+    let status: TaskStatus
     let running: Bool
 }
 
@@ -68,7 +68,7 @@ struct TimelineTask: Identifiable {
     let id: String
     let title: String
     let agent: String
-    let status: String
+    let status: TaskStatus
     let deps: [String]
     var bars: [TimelineBar] = []
     /// Not started yet: what it waits for.
@@ -210,7 +210,7 @@ struct RunTimeline: View {
     }
 
     private func taskLabel(_ t: TimelineTask) -> some View {
-        let (label, tone) = L.task(t.status)
+        let (label, tone) = t.status.label
         let w = run.who(t.agent)
         return HStack(spacing: 8) {
             Image(systemName: Self.statusSymbol(tone))
@@ -245,7 +245,7 @@ struct RunTimeline: View {
     }
 
     private func labelHelp(_ t: TimelineTask) -> String {
-        var lines = ["\(t.id) \(t.title)", "执行者：\(run.who(t.agent).name) · \(L.task(t.status).0)"]
+        var lines = ["\(t.id) \(t.title)", "执行者：\(run.who(t.agent).name) · \(t.status.label.0)"]
         let ups = t.deps.map { d in "\(d)（\(run.who(tasks.first { $0.id == d }?.agent ?? "").name)）" }
         if !ups.isEmpty { lines.append("上游交接：\(ups.joined(separator: "、"))") }
         if let w = t.waiting { lines.append("还没开始 · \(w)") }
@@ -346,7 +346,7 @@ struct RunTimeline: View {
     }
 
     private func attemptBar(_ t: TimelineTask, _ b: TimelineBar, color: Color, width: CGFloat) -> some View {
-        let (label, tone) = L.task(b.status)
+        let (label, tone) = b.status.label
         let failed = tone == .red
         // Work in progress is the one thing in signal cyan; finished work is its agent's tone.
         let fill = failed ? Tone.red.color : b.running ? Color.accent : color

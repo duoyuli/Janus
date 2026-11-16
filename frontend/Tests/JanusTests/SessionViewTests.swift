@@ -67,12 +67,12 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
 @Test func aDeliveredLeadStaysInConversation() {
     var st = RunState()
     st.run.goal = "目标"
-    st.run.status = "delivered"
+    st.run.status = .delivered
     #expect(agentSession(st, "lead").converse)
     #expect(!agentSession(st, "m1").converse)
-    st.run.status = "accepted"
+    st.run.status = .accepted
     #expect(agentSession(st, "lead").converse)
-    st.run.status = "cancelled"
+    st.run.status = .cancelled
     #expect(!agentSession(st, "lead").converse)
 }
 

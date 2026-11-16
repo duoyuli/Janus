@@ -30,8 +30,6 @@ struct InboxEntry: Identifiable, Equatable {
 /// derivation the run page uses (`derive`, `boardFacts`), so the two never disagree.
 // @project-doc docs/architecture/frontend.md#inbox
 enum Inbox {
-    static let active: Set<String> = ["planning", "running", "waiting_input"]
-
     /// The person's open items of one live run.
     static func entries(run: JSON, state: RunState, workspace: String) -> [InboxEntry] {
         let id = run["id"].str
@@ -58,10 +56,10 @@ enum Inbox {
         func entry(_ what: String, _ title: String, _ sub: String, wait: Bool, settle: Bool) -> InboxEntry {
             InboxEntry(key: "\(id)/\(what)", run: id, goal: row["goal"].str, workspace: workspace, title: title, text: "", sub: sub, ts: at, canWait: wait, canSettle: settle, kind: what)
         }
-        switch row["status"].str {
-        case "delivered": return [entry("delivered", "已交付，等你验收", "核对证据和风险后验收", wait: true, settle: false)]
-        case "interrupted": return [entry("interrupted", "已中断，可以从中断处继续", "继续，或者标记为已处理", wait: true, settle: true)]
-        case "failed": return [entry("failed", "失败了，可以从中断处继续", "查看原因后继续，或者标记为已处理", wait: true, settle: true)]
+        switch RunStatus(row["status"].str) {
+        case .delivered: return [entry("delivered", "已交付，等你验收", "核对证据和风险后验收", wait: true, settle: false)]
+        case .interrupted: return [entry("interrupted", "已中断，可以从中断处继续", "继续，或者标记为已处理", wait: true, settle: true)]
+        case .failed: return [entry("failed", "失败了，可以从中断处继续", "查看原因后继续，或者标记为已处理", wait: true, settle: true)]
         default: return []
         }
     }
@@ -98,10 +96,10 @@ final class InboxModel {
 
     func refresh(_ store: AppStore) async {
         var out: [InboxEntry] = []
-        let live = store.runs.filter { Inbox.active.contains($0["status"].str) }
+        let live = store.runs.filter { RunStatus($0["status"].str).isActive }
         for row in store.runs {
             let ws = store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? ""
-            guard Inbox.active.contains(row["status"].str) else {
+            guard RunStatus(row["status"].str).isActive else {
                 out += Inbox.entries(row: row, workspace: ws)
                 continue
             }

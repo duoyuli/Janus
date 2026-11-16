@@ -58,10 +58,11 @@ frontend/
 │   │   ├── Diff.swift         # 解析任务的 diff 产物，把审阅意见合成一条消息
 │   │   ├── SessionView.swift  # 从会话事件读出计划、控制项、斜杠命令、用量，输入框的补全
 │   │   ├── Derive.swift       # derive / boardFacts：由事件推导界面状态
+│   │   ├── Status.swift       # Run、任务和尝试的状态枚举，各自的分组（进行中、已结束、可继续）和文字
 │   │   ├── Acceptance.swift   # 验收证据：check 的证据方法、证据汇总、交付中每个任务的验收记录
 │   │   ├── UsageLedger.swift  # 用量账本：从事件推导 Run、任务、成员、尝试的 token、费用和时长
 │   │   ├── UsageBill.swift    # 账单：任务账单（由账本得到）和按时间段的账单（读 /api/usage）
-│   │   ├── Format.swift       # 状态文字、事件图标与色调、时间和文本格式
+│   │   ├── Format.swift       # Agent 阶段文字、事件图标与色调、时间和文本格式
 │   │   ├── Setup.swift        # 会话控制项、权限模式标签、环境变量文本
 │   │   ├── MarkdownDoc.swift  # Markdown 文档的块结构解析（MDDoc）
 │   │   ├── RunDocs.swift      # 收集一个 Run 交付、保存和提到的 Markdown 文件

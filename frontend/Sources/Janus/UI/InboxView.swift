@@ -12,7 +12,7 @@ struct InboxView: View {
         let inbox = store.inbox
         let open = inbox.open
         let later = inbox.later
-        let working = store.runs.filter { Inbox.active.contains($0["status"].str) }
+        let working = store.runs.filter { RunStatus($0["status"].str).isActive }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 SectionHeader(title: "需要你处理", sub: "所有工作区", count: open.isEmpty ? nil : open.count)
@@ -55,7 +55,7 @@ struct InboxView: View {
                     Card(padding: 4) {
                         if working.isEmpty { Text("没有正在进行的 Run").foregroundStyle(.secondary).padding(10) }
                         ForEach(working, id: \.self) { r in
-                            let (label, tone) = L.runListStatus[r["status"].str] ?? (r["status"].str, .gray)
+                            let (label, tone) = RunStatus(r["status"].str).listLabel
                             Button { store.open(.run(r["id"].str)) } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 1) {

@@ -40,7 +40,7 @@ struct ProgressBoard: View {
     /// "3 个任务 · 完成 2"
     private var summary: String {
         guard !st.order.isEmpty else { return "" }
-        let done = st.orderedTasks.filter { $0.status == "succeeded" }.count
+        let done = st.orderedTasks.filter { $0.status == .succeeded }.count
         return "\(st.order.count) 个任务 · 完成 \(done)"
     }
 
@@ -57,13 +57,13 @@ struct ProgressBoard: View {
             var x = TimelineTask(id: t.id, title: t.title, agent: t.agent, status: t.status, deps: t.deps)
             for a in t.attempts {
                 // A finished attempt keeps its own outcome; the running one shows the task's status.
-                let ended = ["succeeded", "failed"].contains(a.status)
+                let ended = a.status != .running
                 x.bars.append(TimelineBar(id: "\(t.id)#\(a.n)", start: a.start, end: a.end ?? now, attempt: a.n,
-                                          status: a.end != nil && ended ? a.status : t.status, running: a.end == nil))
+                                          status: a.end != nil && ended ? a.status.asTask : t.status, running: a.end == nil))
             }
-            if t.attempts.isEmpty, waits, ["pending", "ready", "assigned", "blocked"].contains(t.status) {
-                let waiting = t.deps.filter { st.tasks[$0]?.status != "succeeded" }
-                x.waiting = t.status == "blocked" ? "等待 \(t.blockedBy) 修复" : waiting.isEmpty ? "等待调度" : "等待 \(waiting.joined(separator: "、"))"
+            if t.attempts.isEmpty, waits, t.status.isWaitingToStart {
+                let waiting = t.deps.filter { st.tasks[$0]?.status != .succeeded }
+                x.waiting = t.status == .blocked ? "等待 \(t.blockedBy) 修复" : waiting.isEmpty ? "等待调度" : "等待 \(waiting.joined(separator: "、"))"
             }
             if let r = f.results.last(where: { $0.task == t.id }) {
                 // The mark itself stays small; its tooltip and VoiceOver label carry the evidence

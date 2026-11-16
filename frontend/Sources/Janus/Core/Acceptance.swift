@@ -164,8 +164,8 @@ struct VerificationRecord: Identifiable {
     /// As the event log has it now.
     init(_ v: TaskState) {
         task = v.id
-        label = L.task(v.status).0
-        passed = v.status == "succeeded"
+        label = v.status.label.0
+        passed = v.status == .succeeded
         summary = v.summary
         checks = v.checks
         evidence = v.evidence
@@ -178,7 +178,7 @@ struct VerificationRecord: Identifiable {
 struct DeliveryAcceptance: Identifiable {
     let task: String
     let title: String
-    let status: String
+    let status: TaskStatus
     let summary: EvidenceSummary
     let checks: [Check]
     let verifications: [VerificationRecord]
@@ -191,7 +191,7 @@ extension DeliveryAcceptance {
     init?(_ j: JSON) {
         let task = j["task"].str
         if task.isEmpty { return nil }
-        self.init(task: task, title: j["title"].str, status: j["status"].str, summary: EvidenceSummary(recorded: j),
+        self.init(task: task, title: j["title"].str, status: TaskStatus(j["status"].str), summary: EvidenceSummary(recorded: j),
                   checks: Check.list(j["checks"]), verifications: j["verifications"].array.compactMap(VerificationRecord.init),
                   traceGaps: j["traceGaps"].strings, risks: j["risks"].strings)
     }

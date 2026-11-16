@@ -29,20 +29,20 @@ private func goalRun() -> Log {
 @Test func goalRunTracksTasksAndAgents() {
     var log = goalRun()
     let s1 = derive(log.events)
-    #expect(s1.run.status == "running")
+    #expect(s1.run.status == .running)
     #expect(s1.order == ["T1", "T2"])
-    #expect(s1.tasks["T1"]?.status == "running")
+    #expect(s1.tasks["T1"]?.status == .running)
     #expect(s1.tasks["T1"]?.live == true)
-    #expect(s1.tasks["T2"]?.status == "pending")
+    #expect(s1.tasks["T2"]?.status == .pending)
     #expect(s1.agents["researcher"]?.phase == "thinking")
 
     log.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"], "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"], "risks": [], "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
     let s2 = derive(log.events)
-    #expect(s2.tasks["T1"]?.status == "succeeded")
+    #expect(s2.tasks["T1"]?.status == .succeeded)
     #expect(s2.tasks["T1"]?.checks.first?.passed == true)
     #expect(s2.tasks["T1"]?.live == false)
-    #expect(s2.tasks["T1"]?.attempts.last?.status == "succeeded")
+    #expect(s2.tasks["T1"]?.attempts.last?.status == .succeeded)
     #expect(s2.agents["researcher"]?.phase == "idle")
 }
 
@@ -52,7 +52,7 @@ private func goalRun() -> Log {
     log.add("question.escalated", actor: "lead", data: ["key": "q-lead-1", "question": "用哪个框架？", "options": ["A", "B"], "recommend": "A", "reason": "影响整体"])
     let s = derive(log.events)
     #expect(s.inbox.map(\.key) == ["a-1", "q-lead-1"])
-    #expect(s.tasks["T1"]?.status == "waiting_approval")
+    #expect(s.tasks["T1"]?.status == .waitingApproval)
     #expect(s.inbox[1].task == nil)
     #expect(s.inbox[1].d["options"].strings == ["A", "B"])
     #expect(s.agents["researcher"]?.phase == "waiting_approval")
@@ -61,7 +61,7 @@ private func goalRun() -> Log {
     log.add("question.answered", actor: "user", to: "lead", data: ["key": "q-lead-1", "answer": "A"])
     let s2 = derive(log.events)
     #expect(s2.inbox.isEmpty)
-    #expect(s2.tasks["T1"]?.status == "running")
+    #expect(s2.tasks["T1"]?.status == .running)
     #expect(s2.answers["a-1"] == "granted")
 }
 
@@ -70,7 +70,7 @@ private func goalRun() -> Log {
     log.add("verification.failed", task: "T1", data: ["failures": ["漏了验收标准"]])
     log.add("task.failed", task: "T1", data: ["error": "用完重试次数"])
     let s = derive(log.events)
-    #expect(s.tasks["T1"]?.status == "failed")
+    #expect(s.tasks["T1"]?.status == .failed)
     // The lead deals with failures: the person is not asked.
     #expect(s.inbox.isEmpty)
     let f = boardFacts(s) { $0 }
@@ -95,11 +95,11 @@ private func goalRun() -> Log {
     var log = goalRun()
     log.add("run.delivered", data: ["summary": "完成", "briefSuggestions": ["定价页在 docs/pricing.md"], "risks": [], "evidence": [], "deliverables": []])
     var s = derive(log.events)
-    #expect(s.run.status == "delivered")
+    #expect(s.run.status == .delivered)
     #expect(s.result?.d["briefSuggestions"].strings == ["定价页在 docs/pricing.md"])
     log.add("risk.accepted", actor: "user")
     s = derive(log.events)
-    #expect(s.run.status == "accepted")
+    #expect(s.run.status == .accepted)
     #expect(s.result?.accepted != nil)
 }
 
@@ -112,7 +112,7 @@ private func goalRun() -> Log {
     let s = derive(log.events)
     #expect(s.tasks["T1"]?.amendments.isEmpty == true)
     #expect(s.tasks["T1"]?.desc == "再查一遍")
-    #expect(s.tasks["T1"]?.status == "ready")
+    #expect(s.tasks["T1"]?.status == .ready)
 }
 
 @Test func stalledTasksStayOpenUntilTheAgentMoves() {
@@ -272,13 +272,18 @@ private func goalRun() -> Log {
     #expect(s.tasks["T1"]?.attempts.last?.end == log.events.last?.ts)
 }
 
-/// The scheduler's seven states plus the six the app derives for display; a new one must get a
-/// label (and a line in docs/domains/run_lifecycle.md) rather than fall back to its raw name.
-@Test func everyTaskStatusHasALabel() {
+/// The scheduler's seven states plus the six the app derives for display are each a case of
+/// `TaskStatus` (a new one needs a case, its label and a line in docs/domains/run_lifecycle.md);
+/// the run states are each a `RunStatus`, and nothing else is.
+@Test func everyStatusTheServerSendsIsACase() {
     let scheduler = ["pending", "running", "blocked", "succeeded", "failed", "cancelled", "skipped_by_decision"]
     let derived = ["ready", "assigned", "verifying", "verification_failed", "waiting_input", "waiting_approval"]
-    #expect(Set(L.taskStatus.keys) == Set(scheduler + derived))
-    for s in scheduler + derived { #expect(L.taskStatus[s] != nil, "\(s)") }
+    for s in scheduler + derived { #expect(TaskStatus(rawValue: s) != nil, "\(s)") }
+    let runs = ["planning", "running", "waiting_input", "delivered", "accepted", "cancelled", "failed", "interrupted"]
+    for s in runs { #expect(RunStatus(s) != .unknown, "\(s)") }
+    #expect(RunStatus("idle") == .unknown)
+    #expect(Set(runs.map(RunStatus.init).filter(\.isActive)) == [.planning, .running, .waitingInput])
+    #expect(Set(runs.map(RunStatus.init).filter(\.canResume)) == [.interrupted, .failed])
 }
 
 @Test func suggestedLinesAreAppendedToTheSharedMaterial() {

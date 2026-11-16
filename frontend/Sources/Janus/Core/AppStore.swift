@@ -65,7 +65,7 @@ final class AppStore {
         startRunPolling()
         if screen == nil {
             // Start from what needs the person, not from watching a run work.
-            if !inbox.open.isEmpty || runs.contains(where: { Inbox.active.contains($0["status"].str) }) { open(.inbox) }
+            if !inbox.open.isEmpty || runs.contains(where: { RunStatus($0["status"].str).isActive }) { open(.inbox) }
             else if let ws = currentWorkspace { open(.home(ws["id"].str)) }
             else { open(.newWorkspace) }
         }

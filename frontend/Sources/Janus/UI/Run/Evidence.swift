@@ -163,7 +163,7 @@ struct DeliveryTaskView: View {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 TaskTag(id: record.task)
                 Text(record.title).font(.callout.weight(.semibold)).textSelection(.enabled)
-                let status = L.task(record.status)
+                let status = record.status.label
                 Pill(status.0, status.1)
                 Text(verbatim: "通过 \(s.passed) / \(s.criteria) 条")
                     .font(.caption).foregroundStyle(.secondary)

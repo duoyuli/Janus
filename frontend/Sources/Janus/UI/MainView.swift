@@ -71,7 +71,7 @@ struct Sidebar: View {
                 ForEach(runs.prefix(shownRuns), id: \.self) { r in
                     // A run waiting on the person says so, with how many, like the inbox.
                     let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
-                    let (label, tone) = waiting > 0 ? ("等你处理", Tone.amber) : L.runListStatus[r["status"].str] ?? (r["status"].str, .gray)
+                    let (label, tone) = waiting > 0 ? ("等你处理", Tone.amber) : RunStatus(r["status"].str).listLabel
                     HStack(spacing: 8) {
                         Circle().fill(tone.color).frame(width: 7, height: 7).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 1) {

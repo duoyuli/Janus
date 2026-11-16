@@ -25,13 +25,13 @@ struct SessionInfo {
 
 func taskSession(_ st: RunState, _ t: TaskState) -> SessionInfo {
     // A conflict is recorded on the task whose edit found it; the other task's session shows it too.
-    SessionInfo(evs: st.events.filter { ($0.task == t.id || ($0.type == "task.conflict" && $0.data["other"].str == t.id)) && isSessionEvent($0) }, open: t.live, human: t.control == "human", idle: t.turn == "idle", resume: ["interrupted", "failed"].contains(st.run.status), leave: false, converse: false)
+    SessionInfo(evs: st.events.filter { ($0.task == t.id || ($0.type == "task.conflict" && $0.data["other"].str == t.id)) && isSessionEvent($0) }, open: t.live, human: t.human, idle: t.idle, resume: st.run.status.canResume, leave: false, converse: false)
 }
 
 /// Everything one agent did in this run, and where a message to it goes right now.
 func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
     let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && e.type == "run.created") }
-    let open = st.orderedTasks.contains { $0.agent == id && $0.live } || (id == "lead" && ["planning", "running"].contains(st.run.status))
+    let open = st.orderedTasks.contains { $0.agent == id && $0.live } || (id == "lead" && (st.run.status == .planning || st.run.status == .running))
     var human = false, idle = false
     for e in evs {
         if e.type == "control.taken" || (e.type == "session.interrupted" && !e.data["finish"].truthy) { human = true }
@@ -39,9 +39,9 @@ func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
         if e.type == "agent.status" && e.data["turn"].str == "idle" { idle = true }
         if ((e.type == "user.message" || e.type == "message.routed") && e.data["delivery"].str == "prompt") || ["control.released", "message.delivered", "attempt.started"].contains(e.type) { idle = false }
     }
-    let active = !["delivered", "accepted", "cancelled"].contains(st.run.status)
-    let converse = id == "lead" && ["delivered", "accepted"].contains(st.run.status)
-    return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: ["interrupted", "failed"].contains(st.run.status), leave: active, converse: converse)
+    let active = !(st.run.status.isDone || st.run.status == .cancelled)
+    let converse = id == "lead" && st.run.status.isDone
+    return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: st.run.status.canResume, leave: active, converse: converse)
 }
 
 /// One conversation view for every session.
@@ -539,7 +539,7 @@ struct AgentView: View {
                     HStack { Text("负责的任务").font(.headline); Spacer(); Text(verbatim: "\(tasks.count) 个").font(.caption).foregroundStyle(.secondary) }
                     if tasks.isEmpty { Text(agentId == "lead" ? "主控负责规划和协调。" : "还没有分配任务。").font(.callout).foregroundStyle(.secondary) }
                     ForEach(tasks, id: \.id) { t in
-                        let (l, tone) = L.task(t.status)
+                        let (l, tone) = t.status.label
                         HStack {
                             Button(String("\(t.id) \(t.title)")) { run.show(.task(t.id)) }.buttonStyle(.link).lineLimit(2)
                             Spacer()

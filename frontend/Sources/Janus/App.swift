@@ -59,7 +59,7 @@ struct StatusMenu: View {
     var body: some View {
         let store = model.store
         let waiting = store?.inbox.open.count ?? 0
-        let active = store?.runs.filter { Inbox.active.contains($0["status"].str) }.count ?? 0
+        let active = store?.runs.filter { RunStatus($0["status"].str).isActive }.count ?? 0
         Button(waiting > 0 ? "收件箱：\(waiting) 项等你处理" : "收件箱：没有等你处理的事") { show(); store?.open(.inbox) }.disabled(store == nil)
         Button("打开 Janus") { show() }
         if active > 0 { Text("\(active) 个 Run 正在进行") }
@@ -114,12 +114,12 @@ struct JanusCommands: Commands {
         }
         CommandMenu("Run") {
             let r = run?.state.run
-            let active = onRun && run?.canAct == true && r.map { !RunState.finished.contains($0.status) } == true
+            let active = onRun && run?.canAct == true && r.map { !$0.status.isFinished } == true
             Button(r?.paused == true ? "继续" : "暂停") { Task { await run?.togglePause() } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-                .disabled(!active || !(r?.status == "running" || r?.paused == true))
+                .disabled(!active || !(r?.status == .running || r?.paused == true))
             Button("从中断处继续") { Task { await run?.act(["type": "resumeRun"]) } }
-                .disabled(!(onRun && run?.canAct == true && ["interrupted", "failed"].contains(r?.status ?? "")))
+                .disabled(!(onRun && run?.canAct == true && r?.status.canResume == true))
             Button("停止 Run…") { if let run { cancelRun(run) } }.disabled(!active)
             Divider()
             Button("复制交付摘要") { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
@@ -229,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // resumed later. A server the app found running (the launchd service) keeps going.
         // Installing an update: the person already agreed to quit.
         if !Updater.shared.quitting, model.backend.owned, let s = model.store,
-           s.runs.contains(where: { ["planning", "running", "waiting_input"].contains($0["status"].str) }) {
+           s.runs.contains(where: { RunStatus($0["status"].str).isActive }) {
             if !confirm("退出 Janus？", "还有正在执行的任务。退出会停止 Janus 服务，这些任务会中断，下次打开后可以「从中断处继续」。", ok: "退出") { return .terminateCancel }
         }
         model.backend.stop()

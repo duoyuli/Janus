@@ -20,7 +20,7 @@ struct TaskView: View {
     }
 
     private func content(_ st: RunState, _ t: TaskState) -> some View {
-        let (label, tone) = L.task(t.status)
+        let (label, tone) = t.status.label
         let evs = st.events.filter { e in e.task == t.id || e.data["target"].str == t.id || e.data["tasks"].strings.contains(t.id) || e.data["unlocked"].strings.contains(t.id) }
         let lastStart = evs.last { $0.type == "attempt.started" }?.data ?? .null
         let w = run.who(t.agent)
@@ -129,7 +129,7 @@ struct TaskView: View {
                                 Text("尝试").font(.callout).foregroundStyle(.secondary)
                                 ForEach(t.attempts.indices, id: \.self) { i in
                                     let a = t.attempts[i]
-                                    let (al, at) = L.attemptStatus[a.status] ?? (a.status, .gray)
+                                    let (al, at) = a.status.label
                                     VStack(alignment: .leading, spacing: 4) {
                                         HStack {
                                             Text(verbatim: "#\(a.n)").fontWeight(.semibold)

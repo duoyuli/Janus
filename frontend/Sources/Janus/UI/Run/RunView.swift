@@ -230,10 +230,10 @@ struct RunCard: View {
         let (label, tone) = status
         let title = L.goalTitle(r.goal)
         let long = r.goal.trimmingCharacters(in: .whitespacesAndNewlines) != title
-        let done = st.orderedTasks.filter { $0.status == "succeeded" }.count
+        let done = st.orderedTasks.filter { $0.status == .succeeded }.count
         let stages = ["推进目标", "协作", "交付", "验收"]
         let idx = stageIndex
-        let active = !RunState.finished.contains(r.status)
+        let active = !r.status.isFinished
         Card(padding: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -247,7 +247,7 @@ struct RunCard: View {
                 }
                 Spacer()
                 if run.canAct && active {
-                    if r.status == "running" || r.paused {
+                    if r.status == .running || r.paused {
                         Button { Task { await run.togglePause() } } label: {
                             Label(r.paused ? "继续" : "暂停", systemImage: r.paused ? "play.fill" : "pause.fill")
                         }
@@ -256,10 +256,10 @@ struct RunCard: View {
                     Button("停止…", role: .destructive) { cancelRun(run) }.help("结束这个 Run 的所有会话")
                 }
             }
-            if r.status == "failed" { Note(text: r.error, tone: .red) }
-            if ["interrupted", "failed"].contains(r.status) && !run.isReplaying {
+            if r.status == .failed { Note(text: r.error, tone: .red) }
+            if r.status.canResume && !run.isReplaying {
                 HStack {
-                    Text(verbatim: "\(r.status == "interrupted" ? "编排器重启时中断了。已完成的任务会保留，未完成的从原处继续。" : "可以从失败处继续。")也可以点右侧的 Agent 进入对话，补充信息后再继续。").font(.callout).foregroundStyle(.secondary)
+                    Text(verbatim: "\(r.status == .interrupted ? "编排器重启时中断了。已完成的任务会保留，未完成的从原处继续。" : "可以从失败处继续。")也可以点右侧的 Agent 进入对话，补充信息后再继续。").font(.callout).foregroundStyle(.secondary)
                     Spacer()
                     Button("从中断处继续") { Task { await run.act(["type": "resumeRun"]) } }.buttonStyle(.primary)
                 }
@@ -308,17 +308,17 @@ struct RunCard: View {
     private var status: (String, Tone) {
         let r = st.run
         switch r.status {
-        case "cancelled": return ("已停止", .gray)
-        case "failed": return ("Run 失败", .red)
-        case "interrupted": return ("已中断", .gray)
+        case .cancelled: return ("已停止", .gray)
+        case .failed: return ("Run 失败", .red)
+        case .interrupted: return ("已中断", .gray)
         default: break
         }
         if r.paused { return ("已暂停", .gray) }
         switch r.status {
-        case "planning": return ("主控正在启动", .blue)
-        case "accepted": return ("已验收", .green)
-        case "waiting_input": return ("等你追加预算", .amber)
-        case "delivered": return ("已交付 · 等你验收", .green)
+        case .planning: return ("主控正在启动", .blue)
+        case .accepted: return ("已验收", .green)
+        case .waitingInput: return ("等你追加预算", .amber)
+        case .delivered: return ("已交付 · 等你验收", .green)
         default: break
         }
         if !st.inbox.isEmpty { return ("等你处理 \(st.inbox.count) 项", .amber) }
@@ -327,9 +327,9 @@ struct RunCard: View {
 
     private var stageIndex: Int {
         let r = st.run
-        if r.status == "accepted" { return 4 }
-        if r.status == "delivered" { return 3 }
-        if st.orderedTasks.contains(where: { !["succeeded", "failed", "cancelled", "skipped_by_decision"].contains($0.status) }) { return 1 }
+        if r.status == .accepted { return 4 }
+        if r.status == .delivered { return 3 }
+        if st.orderedTasks.contains(where: { !$0.status.isEnded }) { return 1 }
         return 0
     }
 }
@@ -480,19 +480,20 @@ struct AgentsPanel: View {
         let w = run.who(id)
         let a = st.agents[id]
         let mine = st.orderedTasks.filter { $0.agent == id }
-        let cur = mine.first { ["running", "waiting_input", "waiting_approval", "assigned"].contains($0.status) }
-        let next = mine.first { ["created", "pending", "ready", "blocked"].contains($0.status) }
+        let cur = mine.first { $0.status.isBusy }
+        let next = mine.first { $0.status.isWaitingToStart }
         let phase = self.phase(id, lead: lead)
         let (pl, pt) = L.phase(phase)
         var line: String
         if lead {
-            line = !st.inbox.isEmpty ? "等你处理 \(st.inbox.count) 项，其余任务继续调度" : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == "delivered" ? "已完成最终验收" : "按依赖调度任务")
+            line = !st.inbox.isEmpty ? "等你处理 \(st.inbox.count) 项，其余任务继续调度" : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == .delivered ? "已完成最终验收" : "按依赖调度任务")
         } else if let cur {
             line = "\(cur.id) \(cur.title)"
-            if cur.status == "waiting_input" { line += " · 等你回答" } else if cur.status == "waiting_approval" { line += " · 等你审批" } else if let n = a?.note, !n.isEmpty { line += " · \(n)" }
-            if cur.control == "human" { line += " · 人工接管中" }
+            if cur.status == .waitingInput { line += " · 等你回答" } else if cur.status == .waitingApproval { line += " · 等你审批" } else if let n = a?.note, !n.isEmpty { line += " · \(n)" }
+            if cur.human { line += " · 人工接管中" }
         } else if let next {
-            line = next.status == "blocked" ? "\(next.id) 等待 \(next.blockedBy) 修复" : "下一步 \(next.id) · 等待 \(next.deps.filter { st.tasks[$0]?.status != "succeeded" }.joined(separator: "、").isEmpty ? "调度" : next.deps.filter { st.tasks[$0]?.status != "succeeded" }.joined(separator: "、"))"
+            let waiting = next.deps.filter { st.tasks[$0]?.status != .succeeded }.joined(separator: "、")
+            line = next.status == .blocked ? "\(next.id) 等待 \(next.blockedBy) 修复" : "下一步 \(next.id) · 等待 \(waiting.isEmpty ? "调度" : waiting)"
         } else {
             line = !mine.isEmpty ? "分配的任务都已完成" : !st.order.isEmpty ? "主控没有给它派任务" : "待命"
         }
@@ -512,7 +513,7 @@ struct AgentsPanel: View {
                         Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                 }
-                if let cur, cur.status == "running", let p = a?.progress, p > 0 { Bar(value: p).padding(.leading, 40) }
+                if let cur, cur.status == .running, let p = a?.progress, p > 0 { Bar(value: p).padding(.leading, 40) }
             }
             .padding(.vertical, 9).padding(.horizontal, 4)
             .contentShape(Rectangle())
@@ -524,17 +525,17 @@ struct AgentsPanel: View {
 
     /// A collaborator without a task in progress is idle, whatever its last status said.
     private func phase(_ id: String, lead: Bool) -> String {
-        let p = RunState.finished.contains(st.run.status) ? "idle" : st.agents[id]?.phase ?? "idle"
-        let busy = st.orderedTasks.contains { $0.agent == id && ["running", "waiting_input", "waiting_approval", "assigned"].contains($0.status) }
+        let p = st.run.status.isFinished ? "idle" : st.agents[id]?.phase ?? "idle"
+        let busy = st.orderedTasks.contains { $0.agent == id && $0.status.isBusy }
         return !lead && !busy && p != "error" ? "idle" : p
     }
 
     /// "本次 2/3 首次通过 · 验证没通过 1"
     private func runStats(_ id: String, _ mine: [TaskState]) -> String? {
-        let ended = mine.filter { ["succeeded", "failed"].contains($0.status) }
+        let ended = mine.filter { $0.status == .succeeded || $0.status == .failed }
         guard !ended.isEmpty else { return nil }
         func vf(_ t: String) -> Int { st.events.filter { $0.type == "verification.failed" && $0.task == t }.count }
-        let first = ended.filter { $0.status == "succeeded" && $0.attempts.count == 1 && vf($0.id) == 0 }.count
+        let first = ended.filter { $0.status == .succeeded && $0.attempts.count == 1 && vf($0.id) == 0 }.count
         let vfail = ended.filter { vf($0.id) > 0 }.count
         return "本次 \(first)/\(ended.count) 首次通过\(vfail > 0 ? " · 验证没通过 \(vfail)" : "")"
     }
@@ -614,7 +615,7 @@ struct RunInspector: View {
         if st.orderedTasks.isEmpty { Text("主控还没有派出任务。").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
         ForEach(Array(st.orderedTasks.enumerated()), id: \.element.id) { i, t in
             if i > 0 { Divider() }
-            let (label, tone) = L.task(t.status)
+            let (label, tone) = t.status.label
             let w = run.who(t.agent)
             Button { run.show(.task(t.id)) } label: {
                 HStack(alignment: .top, spacing: 10) {

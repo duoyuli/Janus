@@ -5,28 +5,12 @@ enum Tone: String { case gray, blue, green, amber, red, violet }
 
 /// Labels and small formatting helpers.
 enum L {
-    static let taskStatus: [String: (String, Tone)] = [
-        "pending": ("等待依赖", .gray), "ready": ("就绪", .gray), "assigned": ("已分配", .blue), "running": ("执行中", .blue),
-        "waiting_input": ("等你回答", .amber), "waiting_approval": ("等你审批", .amber),
-        "blocked": ("依赖失败", .amber), "skipped_by_decision": ("主控取消", .gray),
-        "verifying": ("核对中", .violet), "verification_failed": ("没通过验收", .red), "succeeded": ("已完成", .green), "failed": ("失败", .red), "cancelled": ("已取消", .gray),
-    ]
-    static func task(_ s: String) -> (String, Tone) { taskStatus[s] ?? (s, .gray) }
-
     static let agentPhase: [String: (String, Tone)] = [
         "idle": ("空闲", .gray), "thinking": ("规划中", .blue), "coordinating": ("协调中", .blue), "reading_files": ("读取文件", .blue),
         "editing": ("修改文件", .blue), "running_tool": ("调用工具", .blue), "running_test": ("运行测试", .blue),
         "waiting_for_input": ("等待输入", .amber), "waiting_for_agent": ("等待协作者", .amber), "waiting_approval": ("等待审批", .amber), "error": ("异常", .red),
     ]
     static func phase(_ s: String) -> (String, Tone) { agentPhase[s] ?? agentPhase["idle"]! }
-
-    static let attemptStatus: [String: (String, Tone)] = ["running": ("进行中", .blue), "succeeded": ("成功", .green), "failed": ("失败", .red)]
-
-    static let runListStatus: [String: (String, Tone)] = [
-        "planning": ("主控启动中", .blue), "waiting_input": ("等你追加预算", .amber), "running": ("执行中", .blue),
-        "delivered": ("已交付", .green), "accepted": ("已验收", .green), "failed": ("失败", .red),
-        "cancelled": ("已停止", .gray), "interrupted": ("已中断", .gray),
-    ]
 
     static let icon: [String: String] = [
         "run.created": "✦", "run.cancelled": "■", "run.paused": "Ⅱ", "run.resumed": "▶",

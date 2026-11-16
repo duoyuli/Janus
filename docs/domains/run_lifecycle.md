@@ -67,7 +67,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 | `cancelled` | Run 被取消时正在执行 | 是 |
 | `skipped_by_decision` | 被主控取消（`cancel`）；连带取消的任务随上游的 `retry` 回到 `pending` | 是 |
 
-这 7 个是调度器写出的状态（`TaskStatus`，`backend/src/status.rs`），合法转移集中在 `TaskStatus::can_transition_to`。应用另外从事件推导几个只用于显示的状态，它们不参与调度：`ready`（`task.ready`）、`assigned`（`task.assigned`）、`verifying`（`verification.started`）、`verification_failed`（`verification.failed`）、`waiting_input`（`question.asked` / `input.requested`）、`waiting_approval`（`approval.requested`）。重启恢复时以看板重建出的 7 个状态为准。
+这 7 个是调度器写出的状态（`TaskStatus`，`backend/src/status.rs`），合法转移集中在 `TaskStatus::can_transition_to`。应用另外从事件推导几个只用于显示的状态，它们不参与调度：`ready`（`task.ready`）、`assigned`（`task.assigned`）、`verifying`（`verification.started`）、`verification_failed`（`verification.failed`）、`waiting_input`（`question.asked` / `input.requested`）、`waiting_approval`（`approval.requested`）。重启恢复时以看板重建出的 7 个状态为准。应用中这 13 个状态是 `TaskStatus` 的成员（`frontend/Sources/Janus/Core/Status.swift`），Run 的状态是 `RunStatus`；进行中、已结束、可以从中断处继续这些分组也在那里定义，界面不再各自列字符串。
 
 ### 启动条件
 
