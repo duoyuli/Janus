@@ -8,7 +8,7 @@
 
 - 开发：`just dev`（等于 `cd backend && cargo run`）从源码启动服务，`just mac` 从源码运行应用（连接这个服务）。改了 Rust 代码需要重启服务，改了 Swift 代码重新 `just mac`。
 - 测试：`just test`。不访问网络、不调用真实 Agent，需要本机有 `git` 和 `python3`。应用的测试：`just test-mac`（需要 Xcode）。格式化：`just fmt`；与 CI 相同的格式和 Clippy 检查：`just lint`。
-- 打包与发布：`just dmg` 构建 `dist/Janus.app` 和 DMG；推送 `v*` 标签（按日期，例如 `v2026.11.01`）由 CI 构建 DMG 并发布，见 `docs/operations/ci_release.md`。
+- 打包与发布：`just dmg` 构建 `dist/Janus.app` 和 DMG；推送 `v*` 标签（按日期，例如 `v2026.11.01`）由 CI 构建 DMG 并发布。发布前必须在 `CHANGELOG.md` 写下这一版的 change log（标题 `## <版本>`），工作流把它作为 Release 说明和「更新内容」，缺少这一节时发布失败，见 `docs/operations/ci_release.md`。
 - 安装与服务：`just install`、`just start`、`just restart`、`just status`、`just logs`，见 `docs/operations/deployment.md`。
 - 排障、重启恢复：见 `docs/operations/runbook.md`。
 

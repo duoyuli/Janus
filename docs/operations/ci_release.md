@@ -24,14 +24,17 @@
 3. 有 `MACOS_SIGNING_P12` secret 时，把证书导入临时钥匙串，设置 `JANUS_SIGN_IDENTITY` 和 `JANUS_SIGN_KEYCHAIN`，见[签名](#signing)；没有时用 ad-hoc 签名。
 4. 执行 `frontend/scripts/package.sh --version <标签去掉 v>`，得到 `dist/Janus.app`、`dist/Janus-<版本>.dmg` 和[更新部分](#update_parts)。
 5. 检查应用、服务和内置 Node.js 都是 arm64，校验签名；把两个更新部分重新拼装成应用再校验一次签名（更新器就是这样拼装的）；计算 SHA-256 写入 `SHA256SUMS.txt`（只写文件名，下载后在同一目录执行 `shasum -a 256 -c SHA256SUMS.txt` 即可核对）。
-6. 上传为工作流产物，并创建同名的 GitHub Release（已存在时覆盖上传），附上 DMG、更新部分、`update.json` 和校验和，发布说明包含首次打开的步骤。
+6. 上传为工作流产物，并创建同名的 GitHub Release（已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节加上首次打开的步骤组成；找不到这一节时工作流失败。
 
 发布一个版本（版本号按日期，见[版本号](#versioning)）：
 
 ```sh
+# 先在 CHANGELOG.md 最上面写下这一版的「## 2026.11.01」一节
 git tag v2026.11.01
 git push origin v2026.11.01
 ```
+
+每一版都要写 change log：小节标题是「`## <版本>`」，内容和标签里的版本一致；内容写用户能看到的变化，不写内部重构。工作流按标签取这一节作为 Release 说明，应用内更新的「更新内容」也读它，所以缺少这一节时不允许发布。
 
 在 GitHub 的 Actions 页面手动运行 Release 工作流（填写版本号）只构建 DMG 并作为工作流产物上传，不创建 Release，用来试打包。
 

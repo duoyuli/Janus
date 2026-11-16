@@ -98,9 +98,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          notes="下载 Janus-${{ steps.v.outputs.version }}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」；之后的版本在应用内一键更新，不需要再次允许。只支持 Apple 芯片（M 系列）的 Mac，macOS 14 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
+          version="${{ steps.v.outputs.version }}"
+          # The change log is written before tagging: the section "## <version>" in CHANGELOG.md.
+          notes="$(awk -v h="## ${version}" '
+            $0 == h { on = 1; next }
+            on && /^## / { exit }
+            on { if (!started && $0 == "") next; started = 1; print }
+          ' CHANGELOG.md)"
+          if [ -z "$notes" ]; then
+            echo "CHANGELOG.md 缺少「## ${version}」一节：发布前先写这一版的 change log"
+            exit 1
+          fi
+          install="下载 Janus-${version}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」；之后的版本在应用内一键更新，不需要再次允许。只支持 Apple 芯片（M 系列）的 Mac，macOS 14 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
+          body="$(printf '%s\n\n---\n\n%s' "$notes" "$install")"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --clobber
+            gh release edit "$tag" --notes "$body"
           else
-            gh release create "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --title "Janus ${{ steps.v.outputs.version }}" --notes "$notes" --generate-notes
+            gh release create "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --title "Janus ${version}" --notes "$body"
           fi
