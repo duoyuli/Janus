@@ -144,7 +144,7 @@ impl App {
                     ctl.set_hold(run, Hold::Agent);
                     let name = run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent);
                     let text = if ctx.task.is_some() {
-                        format!("交还托管：{name} 继续自主完成任务")
+                        format!("交还托管：{name} 继续自主完成子任务")
                     } else {
                         "交还托管：负责人继续推进目标".to_string()
                     };

@@ -14,7 +14,7 @@ impl App {
     /// "lead" or the task id of the collaborator's session. Notifications get no response.
     // @project-doc docs/interfaces/board_mcp.md#transport
     pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, who: &str, req: Value) -> Result<Option<Value>> {
-        let run = self.run(run_id).context("这个 Run 不在运行")?;
+        let run = self.run(run_id).context("这个任务不在运行")?;
         // The URL's token is bound to its `who`, so a collaborator cannot rename itself to `lead`
         // or to another task: only the session Janus started holds the token for that name.
         let run_token = run.st.lock().unwrap().mcp_token.clone();
@@ -47,7 +47,7 @@ impl App {
                 "protocolVersion": req["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和任务状态，task_detail 查看某个任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；用 peers 查看其他任务的状态、改过的文件和完整结果。" },
+                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；用 peers 查看其他子任务的状态、改过的文件和完整结果。" },
             }),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
@@ -129,7 +129,7 @@ impl App {
             st.tasks.iter().map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status, t.def.title)).collect();
         drop(st);
         format!(
-            "协作者：\n{}\n\n看板上的任务：\n{}\n\n用量（只读，缺失写「未上报」而不是 0）：\n{}",
+            "协作者：\n{}\n\n看板上的子任务：\n{}\n\n用量（只读，缺失写「未上报」而不是 0）：\n{}",
             team_lines(run),
             if tasks.is_empty() { "（还没有）".into() } else { tasks.join("\n") },
             self.usage(run).board_lines(&Self::usage_names(run))
@@ -160,7 +160,7 @@ impl App {
                     .data(json!({ "errors": errors, "submitted": args })),
                 );
                 return Err(format!(
-                    "编排没有通过校验，没有任何任务开始。请修正后重新提交：\n- {}",
+                    "编排没有通过校验，没有任何子任务开始。请修正后重新提交：\n- {}",
                     errors.join("\n- ")
                 ));
             }
@@ -184,7 +184,7 @@ impl App {
         };
         self.emit(
             run,
-            ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个任务写入看板，开始执行", defs.len()))
+            ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个子任务写入看板，开始执行", defs.len()))
                 .data(json!({ "tasks": tasks, "total": n })),
         );
         // After delivery the scheduler has returned; new work written in a conversation starts it again.
@@ -218,10 +218,10 @@ impl App {
             }
             let open = run.st.lock().unwrap().tasks.iter().any(|t| !t.status.terminal());
             if !open {
-                return "看板上没有新消息，也没有在执行或等待的任务。".into();
+                return "看板上没有新消息，也没有在执行或等待的子任务。".into();
             }
             if tokio::time::Instant::now() >= until || run.st.lock().unwrap().cancelled() {
-                return format!("{} 秒内看板上没有新消息，任务仍在进行。可以再次调用 janus.wait。", limit.as_secs());
+                return format!("{} 秒内看板上没有新消息，子任务仍在进行。可以再次调用 janus.wait。", limit.as_secs());
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -237,7 +237,7 @@ impl App {
         let (agent, question, live) = {
             let st = run.st.lock().unwrap();
             let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
-                return Err(format!("看板上没有任务 {task}"));
+                return Err(format!("看板上没有子任务 {task}"));
             };
             let session = SessionKey::task(task);
             let question = st
@@ -270,7 +270,7 @@ impl App {
         if live.is_none() && status.terminal() {
             // A reply to a finished task would otherwise wait for whatever this agent does next.
             return Err(format!(
-                "{task} 已经结束（{}），{agent} 没有在做这个任务，消息不会送达。需要它继续做事，请用 janus.retry 重新执行 {task}，或用 janus.orchestrate 新建任务。",
+                "{task} 已经结束（{}），{agent} 没有在做这个子任务，消息不会送达。需要它继续做事，请用 janus.retry 重新执行 {task}，或用 janus.orchestrate 新建子任务。",
                 status.label()
             ));
         }
@@ -304,10 +304,10 @@ impl App {
         {
             let mut st = run.st.lock().unwrap();
             let Some(t) = Run::task_mut(&mut st, task) else {
-                return Err(format!("看板上没有任务 {task}"));
+                return Err(format!("看板上没有子任务 {task}"));
             };
             if !matches!(t.status, TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::SkippedByDecision) {
-                return Err(format!("{task} 现在是「{}」，只能重试失败或已取消的任务", t.status.label()));
+                return Err(format!("{task} 现在是「{}」，只能重试失败或已取消的子任务", t.status.label()));
             }
             t.set_status(TaskStatus::Pending);
             t.active_attempt = None;
@@ -359,10 +359,10 @@ impl App {
         self.ensure_driver(run);
         run.wake.notify_one();
         if revived.is_empty() {
-            Ok(format!("{task} 会重新执行，依赖它的任务会在它成功后继续。"))
+            Ok(format!("{task} 会重新执行，依赖它的子任务会在它成功后继续。"))
         } else {
             Ok(format!(
-                "{task} 会重新执行，依赖它的任务会在它成功后继续；因它被取消的 {} 也恢复了。",
+                "{task} 会重新执行，依赖它的子任务会在它成功后继续；因它被取消的 {} 也恢复了。",
                 revived.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")
             ))
         }
@@ -392,7 +392,7 @@ impl App {
         let failed = mine("task.failed").filter(|e| e.data.as_ref().is_some_and(|d| d["reason"] == "verification"));
         let submitted = mine("result.submitted").filter(|r| failed.is_some_and(|f| r.seq < f.seq));
         let (Some(failed), Some(submitted)) = (failed, submitted) else {
-            return Err(format!("{task} 不是因没通过验收核对而失败的任务，没有可以接受的结果"));
+            return Err(format!("{task} 不是因没通过验收核对而失败的子任务，没有可以接受的结果"));
         };
         let d = submitted.data.clone().unwrap_or_default();
         let strings = |v: &Value| -> Vec<String> {
@@ -424,7 +424,7 @@ impl App {
             t.succeeded_seq = Some(seq);
         }
         run.wake.notify_one();
-        Ok(format!("已接受 {task} 的结果，依赖它的任务会继续。"))
+        Ok(format!("已接受 {task} 的结果，依赖它的子任务会继续。"))
     }
 
     /// How each role's tasks went in recent runs (the ones `runs()` lists): how many finished,
@@ -491,11 +491,11 @@ impl App {
         let (running, done) = {
             let mut st = run.st.lock().unwrap();
             let Some(t) = Run::task_mut(&mut st, task) else {
-                return Err(format!("看板上没有任务 {task}"));
+                return Err(format!("看板上没有子任务 {task}"));
             };
             if t.status != TaskStatus::Succeeded {
                 return Err(format!(
-                    "{task} 现在是「{}」，只能修订已完成任务的结论；还在执行的任务用 janus.reply",
+                    "{task} 现在是「{}」，只能修订已完成子任务的结论；还在执行的子任务用 janus.reply",
                     t.status.label()
                 ));
             }
@@ -523,7 +523,7 @@ impl App {
                 "lead",
                 agent,
                 id,
-                &format!("{LEAD_REPLY}上游任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"),
+                &format!("{LEAD_REPLY}上游子任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"),
                 &[],
             );
             let _ = tx.send(Steer::Redirect(msg));
@@ -538,7 +538,7 @@ impl App {
         if !done.is_empty() {
             out.push_str(&format!("{} 已经基于旧结论完成，需要的话用 janus.retry 重做。", done.join("、")));
         }
-        out.push_str("还没开始的下游任务会在交接时拿到修订。");
+        out.push_str("还没开始的下游子任务会在交接时拿到修订。");
         Ok(out)
     }
 
@@ -556,7 +556,7 @@ impl App {
         let (dropped, conns) = {
             let mut st = run.st.lock().unwrap();
             if let Some(missing) = wanted.iter().find(|id| !st.tasks.iter().any(|t| &t.def.id == *id)) {
-                return Err(format!("看板上没有任务 {missing}"));
+                return Err(format!("看板上没有子任务 {missing}"));
             }
             let mut dropped: Vec<(String, Option<String>)> = vec![];
             let mut queue: Vec<(String, Option<String>)> = wanted.iter().map(|id| (id.clone(), None)).collect();
@@ -596,7 +596,7 @@ impl App {
         }
         run.wake.notify_one();
         if dropped.is_empty() {
-            return Ok("这些任务都已经结束，没有需要取消的。".into());
+            return Ok("这些子任务都已经结束，没有需要取消的。".into());
         }
         Ok(format!("已取消：{}。", dropped.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")))
     }
@@ -636,7 +636,7 @@ impl App {
         let usage = crate::usage::ledger(&events);
         let st = run.st.lock().unwrap();
         let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
-            return Err(format!("看板上没有任务 {task}"));
+            return Err(format!("看板上没有子任务 {task}"));
         };
         let name = |agent: &str| run.member(agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.to_string());
         let label = |id: &str| {
@@ -648,7 +648,7 @@ impl App {
         let mine = |e: &&Event| e.task.as_deref() == Some(task);
         let mut out = vec![
             format!(
-                "任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次",
+                "子任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次",
                 t.def.title,
                 name(&t.agent),
                 t.agent,
@@ -788,7 +788,7 @@ impl App {
                     "question.asked" => Some(format!("- [提问] {}", d["question"].as_str().unwrap_or(&e.text))),
                     "question.answered" => Some(format!("- [回答] {}", d["answer"].as_str().unwrap_or(&e.text))),
                     "task.conflict" if d["owned"] == true && theirs(&e) => Some(format!(
-                        "- [越界] {} 改了这个任务负责的 {}",
+                        "- [越界] {} 改了这个子任务负责的 {}",
                         d["other"].as_str().unwrap_or("?"),
                         d["paths"]
                             .as_array()
@@ -908,7 +908,7 @@ impl App {
             })
             .collect();
         Ok(format!(
-            "看板上的其他任务：\n{}\n\n最近写回看板的内容：\n{}\n\n要看某个任务的完整说明、结果和修订，传 task 再调用一次。",
+            "看板上的其他子任务：\n{}\n\n最近写回看板的内容：\n{}\n\n要看某个子任务的完整说明、结果和修订，传 task 再调用一次。",
             if lines.is_empty() { "（没有）".into() } else { lines.join("\n") },
             if posts.is_empty() { "（没有）".into() } else { posts.join("\n") }
         ))
@@ -932,7 +932,7 @@ impl App {
             .iter()
             .find(|t| t.def.id == task)
             .map(|t| t.agent.clone())
-            .ok_or_else(|| format!("看板上没有任务 {task}"))?;
+            .ok_or_else(|| format!("看板上没有子任务 {task}"))?;
         let label = match kind {
             "blocker" => "阻塞",
             "note" => "备注",
@@ -963,7 +963,7 @@ impl App {
         let (agent, fresh) = {
             let mut guard = run.st.lock().unwrap();
             let st = &mut *guard;
-            let me = st.tasks.iter().find(|t| t.def.id == task).ok_or_else(|| format!("看板上没有任务 {task}"))?;
+            let me = st.tasks.iter().find(|t| t.def.id == task).ok_or_else(|| format!("看板上没有子任务 {task}"))?;
             let board: Vec<(&TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (&t.def, t.status)).collect();
             let fresh = crate::teamwork::claim(&me.def, &paths, &board)?;
             let agent = me.agent.clone();
@@ -973,7 +973,7 @@ impl App {
             (agent, fresh)
         };
         if fresh.is_empty() {
-            return Ok("这些文件已经由你的任务负责。".into());
+            return Ok("这些文件已经由你的子任务负责。".into());
         }
         self.emit(
             run,
@@ -983,7 +983,7 @@ impl App {
                 .data(json!({ "paths": fresh })),
         );
         Ok(format!(
-            "已认领 {}，到任务结束为止归你负责。其他同时进行的任务改它们时，Janus 会提醒对方和负责人。",
+            "已认领 {}，到子任务结束为止归你负责。其他同时进行的子任务改它们时，Janus 会提醒对方和负责人。",
             fresh.join("、")
         ))
     }

@@ -177,7 +177,7 @@ def prompt(msg):
                 return {"stopReason": "cancelled"}
         say(sid, open(go).read())
         return {"stopReason": "end_turn"}
-    m = re.search(r"你的任务 (\S+)：", text)
+    m = re.search(r"你的子任务 (\S+)：", text)
     task = m.group(1) if m else TASKS.get(sid, "unknown")
     TASKS[sid] = task
     c = re.search(r"验收标准：\n((?:- .*\n?)+)", text) if m else None

@@ -38,14 +38,14 @@ struct AuditView: View {
                     Text(verbatim: "\(invs.count) 条，基于 \(events.count) 条事件").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .help("工作台上的状态都由这些事件推导；任务状态只由编排器改变。选中一条事件查看原文，点「回放到这里」看当时的工作台。")
+            .help("工作台上的状态都由这些事件推导；子任务状态只由编排器改变。选中一条事件查看原文，点「回放到这里」看当时的工作台。")
             HStack(spacing: 10) {
                 Picker("事件类别", selection: Binding(get: { run.auditCat }, set: { run.auditCat = $0 })) {
                     ForEach(L.categoryLabel, id: \.0) { Text($0.1).tag($0.0) }
                 }
                 .pickerStyle(.segmented).frame(maxWidth: 460)
-                Picker("任务", selection: Binding(get: { run.auditTask }, set: { run.auditTask = $0 })) {
-                    Text("全部任务").tag("")
+                Picker("子任务", selection: Binding(get: { run.auditTask }, set: { run.auditTask = $0 })) {
+                    Text("全部子任务").tag("")
                     ForEach(full.order, id: \.self) { id in Text(verbatim: "\(id) \(L.short(full.tasks[id]?.title ?? "", 14))").tag(id) }
                 }
                 .frame(width: 200)
@@ -120,9 +120,9 @@ struct AuditView: View {
         for ns in numbers.values { for (i, n) in ns.enumerated() where n != i + 1 { gaps += 1 } }
         let attempts = numbers.values.reduce(0) { $0 + $1.count }
         return [
-            ("每个任务同一时间最多一个进行中的尝试", overlap == 0, "\(attempts) 次尝试"),
-            ("重试会新建尝试，旧记录保留", gaps == 0, "\(numbers.count) 个任务"),
-            ("任务状态只由编排器（Janus）改变", badActor == 0, "Agent 只提交进度与结果"),
+            ("每个子任务同一时间最多一个进行中的尝试", overlap == 0, "\(attempts) 次尝试"),
+            ("重试会新建尝试，旧记录保留", gaps == 0, "\(numbers.count) 个子任务"),
+            ("子任务状态只由编排器（Janus）改变", badActor == 0, "Agent 只提交进度与结果"),
             ("标记完成前已提交结构化结果和证据", noEvidence == 0 && unsubmitted == 0, "\(events.filter { $0.type == "task.succeeded" }.count) 次完成"),
             ("等待输入时附带可回答的问题", badQuestion == 0, "\(events.filter { $0.type == "question.asked" }.count) 个问题"),
         ]
@@ -146,7 +146,7 @@ struct TeamView: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("团队与权限").font(.display(.title2))
-                        Text("这个 Run 创建时的团队快照。").font(.callout).foregroundStyle(.secondary)
+                        Text("这个任务创建时的团队快照。").font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if let ws = run.store.workspace(run.workspaceId) { Button("工作区设置…") { run.store.editingWorkspace = ws } }

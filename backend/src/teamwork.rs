@@ -56,9 +56,9 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
             board.iter().map(|(d, _)| (d.id.as_str(), d)).chain(new.iter().map(|d| (d.id.as_str(), d))).collect();
         for (i, d) in new.iter().enumerate() {
             let Some(target) = d.verifies.as_deref() else { continue };
-            let label = format!("任务 {}", d.id);
+            let label = format!("子任务 {}", d.id);
             match all.get(target) {
-                None => errors.push(format!("{label}：verifies 指向的任务 {target} 不存在")),
+                None => errors.push(format!("{label}：verifies 指向的子任务 {target} 不存在")),
                 Some(_) if target == d.id => errors.push(format!("{label}：不能验证自己")),
                 Some(t) => {
                     if t.assignee == d.assignee {
@@ -73,7 +73,7 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
                 }
             }
             if !d.owns.is_empty() {
-                errors.push(format!("{label}：验证任务只检查、不改文件，不要写 owns"));
+                errors.push(format!("{label}：验证子任务只检查、不改文件，不要写 owns"));
             }
         }
     }
@@ -92,7 +92,7 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
     // The dependency a verifier gets on its task must not close a loop.
     for d in new.iter().filter(|d| d.verifies.as_deref().is_some_and(|t| t != d.id && upstream(t).contains(&d.id))) {
         errors.push(format!(
-            "任务 {}：它验证的 {} 依赖它，依赖之间有环",
+            "子任务 {}：它验证的 {} 依赖它，依赖之间有环",
             d.id,
             d.verifies.as_deref().unwrap_or_default()
         ));
@@ -110,7 +110,7 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
                 a.owns.iter().filter(|x| b.owns.iter().any(|y| overlaps(x, y))).map(String::as_str).collect();
             if !shared.is_empty() {
                 errors.push(format!(
-                    "任务 {} 和 {} 可能同时执行，却都负责 {}：用 deps 让一个等另一个完成，或者重新划分 owns",
+                    "子任务 {} 和 {} 可能同时执行，却都负责 {}：用 deps 让一个等另一个完成，或者重新划分 owns",
                     a.id,
                     b.id,
                     shared.join("、")
@@ -154,7 +154,7 @@ pub fn owner_of<'a>(path: &str, me: &str, board: &[(&'a TaskDef, TaskStatus)]) -
 /// open task that may run alongside owns. Returns the paths not already the task's own.
 pub fn claim(me: &TaskDef, paths: &[String], board: &[(&TaskDef, TaskStatus)]) -> Result<Vec<String>, String> {
     if me.verifies.is_some() {
-        return Err(format!("{} 是验证任务，只检查不改文件，不能认领文件", me.id));
+        return Err(format!("{} 是验证子任务，只检查不改文件，不能认领文件", me.id));
     }
     let taken: Vec<String> =
         paths.iter().filter_map(|p| owner_of(p, &me.id, board).map(|o| format!("{p} 归 {o} 负责"))).collect();
@@ -173,13 +173,13 @@ pub fn task_section(def: &TaskDef, verified: Option<&TaskDef>) -> String {
     let mut p = String::new();
     if !def.owns.is_empty() {
         p.push_str(&format!(
-            "\n\n你负责的文件：{}。只改这些文件；其他文件归别的任务或负责人，需要改时先用 janus.board_post 写一条 blocker 说明原因，或在结果的 question 中请负责人决定。",
+            "\n\n你负责的文件：{}。只改这些文件；其他文件归别的子任务或负责人，需要改时先用 janus.board_post 写一条 blocker 说明原因，或在结果的 question 中请负责人决定。",
             def.owns.join("、")
         ));
     }
     if let Some(v) = verified {
         p.push_str(&format!(
-            "\n\n你是任务 {id}「{title}」的独立验证者，它由别的协作者完成。不要修改任何文件，也不要替它修问题：读它的改动（git diff 或它改过的文件，用 janus.peers 传 task={id} 查看完整结果），运行测试、启动程序或复现它声称的行为，逐条核对它的验收标准：\n{accept}\n不要只复述执行者的结论：结果的 checks 中每条都写明你实际执行的命令或操作和看到的输出；发现的问题写成能复现的步骤，没有达到的如实写 passed: false。",
+            "\n\n你是子任务 {id}「{title}」的独立验证者，它由别的协作者完成。不要修改任何文件，也不要替它修问题：读它的改动（git diff 或它改过的文件，用 janus.peers 传 task={id} 查看完整结果），运行测试、启动程序或复现它声称的行为，逐条核对它的验收标准：\n{accept}\n不要只复述执行者的结论：结果的 checks 中每条都写明你实际执行的命令或操作和看到的输出；发现的问题写成能复现的步骤，没有达到的如实写 passed: false。",
             id = v.id,
             title = v.title,
             accept = v.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n"),
@@ -193,7 +193,7 @@ pub fn task_section(def: &TaskDef, verified: Option<&TaskDef>) -> String {
 pub fn accept_refused(def: &TaskDef) -> Option<String> {
     let target = def.verifies.as_deref()?;
     Some(format!(
-        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。请用 janus.task_detail 查看 {id} 发现的问题，再用 janus.orchestrate 派一个修复任务（可以交给 {target} 的执行者，依赖 {id}）和一个新的验证任务（verifies 指向修复任务）；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
+        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。请用 janus.task_detail 查看 {id} 发现的问题，再用 janus.orchestrate 派一个修复子任务（可以交给 {target} 的执行者，依赖 {id}）和一个新的验证子任务（verifies 指向修复子任务）；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
         id = def.id
     ))
 }
@@ -201,11 +201,11 @@ pub fn accept_refused(def: &TaskDef) -> Option<String> {
 /// The part of the lead's brief on how to organise the team.
 pub fn lead_guide() -> &'static str {
     "团队怎么组织：
-- 先估计规模：一个人能在一轮里做完、或者步骤彼此紧密依赖的工作，你自己做；能按文件、模块或问题干净切开的，才分给协作者。同时执行的任务一般不超过协作者人数，每个任务的产出是一处可以单独核对的改动。
-- 每个任务的说明写清三件事：负责什么、不能碰什么、做到什么算完成。会改文件的任务用 owns 列出它负责的文件或目录（相对工作目录，目录包含其下所有文件）；可能同时执行的任务 owns 不能重叠，Janus 校验时会拒绝重叠的编排。
-- 协作者开始改文件前可以用 janus.claim 认领 owns 以外的文件，你会在看板上看到 [认领]；同时进行的任务改了别人负责的文件，看板上是 [越界]。
-- 任务完成时 Janus 会拿结果和它在工作目录里留下的改动对账：没改负责的文件、改了范围以外的文件、验证者改了文件，都会在 [完成] 条目下列为「痕迹核对」。以工作目录的现状为准，不要只看结果摘要。
-- 重要的改动安排独立验证：再提交一个任务，verifies 写被验证任务的 id，交给另一个协作者。验证任务自动在被验证的任务完成后开始，只检查不改文件，验收标准要求它给出实际运行的命令和输出。验证没通过时不能用 janus.accept 放行：派修复任务和新的验证任务，或者 janus.cancel 取消验证并写明理由。没有第二个协作者时，你自己核对。"
+- 先估计规模：一个人能在一轮里做完、或者步骤彼此紧密依赖的工作，你自己做；能按文件、模块或问题干净切开的，才分给协作者。同时执行的子任务一般不超过协作者人数，每个子任务的产出是一处可以单独核对的改动。
+- 每个子任务的说明写清三件事：负责什么、不能碰什么、做到什么算完成。会改文件的子任务用 owns 列出它负责的文件或目录（相对工作目录，目录包含其下所有文件）；可能同时执行的子任务 owns 不能重叠，Janus 校验时会拒绝重叠的编排。
+- 协作者开始改文件前可以用 janus.claim 认领 owns 以外的文件，你会在看板上看到 [认领]；同时进行的子任务改了别人负责的文件，看板上是 [越界]。
+- 子任务完成时 Janus 会拿结果和它在工作目录里留下的改动对账：没改负责的文件、改了范围以外的文件、验证者改了文件，都会在 [完成] 条目下列为「痕迹核对」。以工作目录的现状为准，不要只看结果摘要。
+- 重要的改动安排独立验证：再提交一个子任务，verifies 写被验证子任务的 id，交给另一个协作者。验证子任务自动在被验证的子任务完成后开始，只检查不改文件，验收标准要求它给出实际运行的命令和输出。验证没通过时不能用 janus.accept 放行：派修复子任务和新的验证子任务，或者 janus.cancel 取消验证并写明理由。没有第二个协作者时，你自己核对。"
 }
 
 #[cfg(test)]
@@ -238,7 +238,7 @@ mod tests {
         let mut e = vec![];
         let owns = read_owns(
             &json!(["./src/", "src", "README.md", "/etc/passwd", "../x", "a/../../b", ""]),
-            "任务 T1",
+            "子任务 T1",
             &mut e,
         );
         assert_eq!(owns, vec!["src", "README.md"]);
@@ -346,7 +346,7 @@ mod tests {
         );
         let e = claim(&b, &["src/a.rs".into(), "x".into()], &board).unwrap_err();
         assert!(e.contains("src/a.rs 归 A 负责") && e.contains("blocker"), "{e}");
-        assert!(claim(&v, &["y".into()], &board).unwrap_err().contains("验证任务"));
+        assert!(claim(&v, &["y".into()], &board).unwrap_err().contains("验证子任务"));
         b.owns.clear();
         let done = [(&a, TaskStatus::Succeeded)];
         assert_eq!(claim(&b, &["src/a.rs".into()], &done).unwrap(), vec!["src/a.rs"], "A is done");
@@ -359,7 +359,7 @@ mod tests {
         assert!(p.contains("你负责的文件：src、README.md") && !p.contains("独立验证者"), "{p}");
         let p = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&work));
         assert!(
-            p.contains("任务 T1「T1」的独立验证者") && p.contains("- T1 做完") && p.contains("不要修改任何文件"),
+            p.contains("子任务 T1「T1」的独立验证者") && p.contains("- T1 做完") && p.contains("不要修改任何文件"),
             "{p}"
         );
         assert!(task_section(&def("T2", "m1", &[], &[], None), None).is_empty());

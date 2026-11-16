@@ -123,10 +123,10 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text("共享资料").font(.headline)
-                Text("每个 Run 开始时交给负责人和协作者").font(.callout).foregroundStyle(.secondary)
+                Text("每次任务开始时交给负责人和协作者").font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 Button(brief.isEmpty ? "添加…" : "编辑…") { store.editingWorkspace = ws }.buttonStyle(.link)
-                    .help("产品定位、目标用户、约定、重要文件的位置：写下后，之后的 Run 不必重新调研或再问你")
+                    .help("产品定位、目标用户、约定、重要文件的位置：写下后，之后的任务不必重新调研或再问你")
             }
             if !brief.isEmpty {
                 Card {
@@ -208,14 +208,14 @@ struct WorkspaceEditor: View {
                     TextField("名称（可选，默认用目录名）", text: $name).textFieldStyle(.roundedBorder)
 
                     Text("共享资料").font(.headline).padding(.top, 6)
-                    Text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次 Run 开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。").font(.callout).foregroundStyle(.secondary)
+                    Text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次任务开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。").font(.callout).foregroundStyle(.secondary)
                     TextEditor(text: $brief)
                         .font(.body)
                         .frame(height: 140)
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(brief.count > Self.briefLimit ? Tone.red.color : Color.line))
                         .accessibilityLabel("共享资料")
                     HStack {
-                        if let saved = initial?.last, saved != brief, !isNew { Text("还没保存：保存后，之后的 Run 才会用到新的共享资料。").font(.caption).foregroundStyle(Tone.amber.color) }
+                        if let saved = initial?.last, saved != brief, !isNew { Text("还没保存：保存后，之后的任务才会用到新的共享资料。").font(.caption).foregroundStyle(Tone.amber.color) }
                         Spacer()
                         Text(verbatim: "\(brief.count) / \(Self.briefLimit)").font(.caption).foregroundStyle(brief.count > Self.briefLimit ? Tone.red.color : .secondary)
                     }
@@ -236,14 +236,16 @@ struct WorkspaceEditor: View {
                                 }
                                 Spacer()
                                 Text(Setup.permLabel(r["session"], c).isEmpty ? "—" : Setup.permLabel(r["session"], c)).font(.caption).foregroundStyle(.secondary)
-                                Button { lead = id } label: {
-                                    Label("负责人", systemImage: lead == id ? "largecircle.fill.circle" : "circle")
+                                if r["lead"].truthy && Setup.leadCapable(c) {
+                                    Button { lead = id } label: {
+                                        Label("负责人", systemImage: lead == id ? "largecircle.fill.circle" : "circle")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .disabled(!on.contains(id))
+                                    .help(!on.contains(id) ? "先启用这个数字员工" : "设为负责人")
+                                    .accessibilityLabel("\(r["name"].str) 担任负责人")
+                                    .accessibilityAddTraits(lead == id ? .isSelected : [])
                                 }
-                                .buttonStyle(.borderless)
-                                .disabled(!on.contains(id) || !Setup.leadCapable(c))
-                                .help(!Setup.leadCapable(c) ? "只有 Claude Code 或 Codex 能做负责人" : !on.contains(id) ? "先启用这个数字员工" : "设为负责人")
-                                .accessibilityLabel("\(r["name"].str) 担任负责人")
-                                .accessibilityAddTraits(lead == id ? .isSelected : [])
                             }
                             .padding(.vertical, 7)
                             .opacity(on.contains(id) ? 1 : 0.6)

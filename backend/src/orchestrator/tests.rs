@@ -65,7 +65,7 @@ fn task_prompts_carry_the_shared_material() {
     run.brief = "目标用户是独立开发者".into();
     let p = task_prompt(&run, &m, &def, &[], &[], None);
     assert!(
-        p.contains("工作区共享资料（用户维护的长期背景，与任务说明冲突时以任务说明为准）：\n目标用户是独立开发者"),
+        p.contains("工作区共享资料（用户维护的长期背景，与子任务说明冲突时以子任务说明为准）：\n目标用户是独立开发者"),
         "{p}"
     );
 }
@@ -156,7 +156,10 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
         verifies: None,
     };
     let task = task_prompt(&run, &run.team[1], &def, &[], &[], None);
-    assert!(task.contains("你的任务 T1") && !task.contains("```json") && !task.contains("janus.board_post"), "{task}");
+    assert!(
+        task.contains("你的子任务 T1") && !task.contains("```json") && !task.contains("janus.board_post"),
+        "{task}"
+    );
 }
 
 /// A reply that streamed in pieces is the whole reply again, and only the last one.

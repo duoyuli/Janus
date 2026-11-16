@@ -562,7 +562,7 @@ impl Ledger {
     /// members that spent it.
     pub fn task_lines(&self, task: &str, names: &Names) -> Vec<String> {
         let Some(scope) = self.task(task).filter(|s| s.sessions > 0) else {
-            return vec![format!("用量：未开始（任务 {task} 还没有会话）")];
+            return vec![format!("用量：未开始（子任务 {task} 还没有会话）")];
         };
         let mut out = vec![format!(
             "用量：{} · {} · 耗时 {}{}",
@@ -1018,9 +1018,9 @@ impl Scan {
         for ((task, _), a) in self.attempts.iter_mut() {
             let task_at = self.task_cancelled.get(task).copied();
             let (at, note) = match (self.run_cancelled, task_at) {
-                (Some(run), Some(task)) if task <= run => (task, "负责人取消了这个任务"),
-                (Some(run), _) => (run, "Run 被取消"),
-                (None, Some(task)) => (task, "负责人取消了这个任务"),
+                (Some(run), Some(task)) if task <= run => (task, "负责人取消了这个子任务"),
+                (Some(run), _) => (run, "任务被取消"),
+                (None, Some(task)) => (task, "负责人取消了这个子任务"),
                 (None, None) => continue,
             };
             if a.state == AttemptState::Succeeded || a.ended_ms.is_some_and(|end| end < at) {
@@ -1160,7 +1160,12 @@ fn reminders(ledger: &Ledger, declared_collaborators: usize) -> Vec<String> {
             ledger.tasks.iter().filter_map(|t| t.tokens.total.map(|v| (t, v))).max_by_key(|(_, v)| *v)
         && used as f64 >= n as f64 * TASK_SHARE
     {
-        out.push(format!("大部分用量集中在一个任务：{} 占 {} 的 {}", task.id, num(n), percent(used as f64 / n as f64)));
+        out.push(format!(
+            "大部分用量集中在一个子任务：{} 占 {} 的 {}",
+            task.id,
+            num(n),
+            percent(used as f64 / n as f64)
+        ));
     }
     let collaborators = declared_collaborators.max(ledger.members.iter().filter(|m| m.id != LEAD).count());
     if collaborators >= MANY_COLLABORATORS
@@ -1168,7 +1173,7 @@ fn reminders(ledger: &Ledger, declared_collaborators: usize) -> Vec<String> {
         && ledger.run.duration_ms.is_some_and(|ms| ms >= IDLE_WITHOUT_SUCCESS)
     {
         out.push(format!(
-            "协作者多但没有有效产出：{collaborators} 个协作者，{} 内没有任何任务成功",
+            "协作者多但没有有效产出：{collaborators} 个协作者，{} 内没有任何子任务成功",
             duration(IDLE_WITHOUT_SUCCESS)
         ));
     }
@@ -1510,7 +1515,7 @@ mod tests {
         let of = |l: &Ledger, task: &str| l.attempts.iter().find(|a| a.task == task).unwrap().clone();
         assert_eq!(
             (of(&l, "T1").state, of(&l, "T1").note.as_deref()),
-            (AttemptState::Cancelled, Some("负责人取消了这个任务"))
+            (AttemptState::Cancelled, Some("负责人取消了这个子任务"))
         );
         assert_eq!(of(&l, "T2").state, AttemptState::Unfinished, "cancelling one task leaves the others running");
         e.push(ev(6, 9_000, "run.cancelled", "user", None, None, json!({})));
@@ -1518,7 +1523,7 @@ mod tests {
         let l = ledger(&e);
         assert_eq!(
             (of(&l, "T2").state, of(&l, "T2").note.as_deref(), of(&l, "T2").duration_ms),
-            (AttemptState::Cancelled, Some("Run 被取消"), Some(7100))
+            (AttemptState::Cancelled, Some("任务被取消"), Some(7100))
         );
         assert_eq!(l.task("T1").unwrap().tokens.total, Some(1500), "what it reported before the cancel still counts");
     }

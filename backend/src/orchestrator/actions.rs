@@ -46,7 +46,7 @@ impl App {
         let run = match self.run(run_id) {
             // The run is live (a failed driver removes its run, see `launch`): nothing to resume.
             Some(_) if kind == "resumeRun" => {
-                return Err(ActionRefused::Conflict("这个 Run 正在进行，不需要从中断处继续".into()));
+                return Err(ActionRefused::Conflict("这个任务正在进行，不需要从中断处继续".into()));
             }
             Some(run) => run,
             None => match kind {
@@ -57,7 +57,7 @@ impl App {
                 "message" => self.resume_run(run_id).await.map_err(ActionRefused::Invalid)?,
                 _ => {
                     return Err(ActionRefused::Conflict(
-                        "这个任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
+                        "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
                     ));
                 }
             },
@@ -155,7 +155,7 @@ impl App {
                     let mut st = run.st.lock().unwrap();
                     // Pausing or resuming a finished Run would leave `paused` set with nothing to drive.
                     if !matches!(st.status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
-                        bail!("Run 现在是「{}」，不能{}", st.status, if pause { "暂停" } else { "继续" });
+                        bail!("任务现在是「{}」，不能{}", st.status, if pause { "暂停" } else { "继续" });
                     }
                     st.paused = pause;
                 }
@@ -165,9 +165,9 @@ impl App {
                         if pause { "run.paused" } else { "run.resumed" },
                         "user",
                         if pause {
-                            "暂停 Run：进行中的尝试会继续完成，不再启动新任务"
+                            "暂停任务：进行中的尝试会继续完成，不再启动新子任务"
                         } else {
-                            "继续 Run"
+                            "继续任务"
                         },
                     ),
                 );
@@ -177,7 +177,7 @@ impl App {
             "extendBudget" => {
                 let status = run.st.lock().unwrap().status;
                 if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
-                    bail!("Run 现在是「{status}」，不能追加预算");
+                    bail!("任务现在是「{status}」，不能追加预算");
                 }
                 let minutes = a["minutes"].as_i64().unwrap_or(60).clamp(1, 24 * 60);
                 let added = minutes * 60 * 1000;
@@ -186,7 +186,7 @@ impl App {
                 run.deadline_ms.store(deadline, Ordering::SeqCst);
                 self.emit(
                     run,
-                    ev("run.budget_extended", "user", format!("追加 Run 预算 {minutes} 分钟"))
+                    ev("run.budget_extended", "user", format!("追加任务预算 {minutes} 分钟"))
                         .data(json!({ "minutes": minutes, "addedMs": added })),
                 );
                 if status == RunStatus::WaitingInput {
@@ -201,7 +201,7 @@ impl App {
                     status,
                     RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput | RunStatus::Delivered
                 ) {
-                    bail!("Run 现在是「{status}」，不能停止");
+                    bail!("任务现在是「{status}」，不能停止");
                 }
                 let conns: Vec<Arc<AcpConn>> = {
                     let mut st = run.st.lock().unwrap();
@@ -281,7 +281,7 @@ impl App {
                 // by the scheduler the moment it next ran.
                 let status = run.st.lock().unwrap().status;
                 if status != RunStatus::Delivered {
-                    bail!("Run 现在是「{status}」，只有已交付的 Run 可以验收");
+                    bail!("任务现在是「{status}」，只有已交付的任务 可以验收");
                 }
                 self.emit(run, ev("risk.accepted", "user", "核对证据后验收通过"));
                 self.set_status(run, RunStatus::Accepted);
@@ -294,7 +294,7 @@ impl App {
     pub fn accept_archived(&self, run_id: &str) -> Result<()> {
         let status = self.db.run(run_id)?.map(|r| r["status"].clone()).context("run not found")?;
         if status.as_str() != Some("delivered") {
-            bail!("只有已交付的 Run 可以验收");
+            bail!("只有已交付的任务 可以验收");
         }
         let seq = self.db.max_seq(run_id)? + 1;
         self.store(Event {
@@ -329,12 +329,12 @@ impl App {
             previous,
             Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
         ) {
-            bail!("只有中断、失败、已交付或已验收的任务可以继续");
+            bail!("只有中断、失败、已交付或已验收的子任务可以继续");
         }
         let events = self.db.events(run_id, 0)?;
         let config = &row["config"];
         let mut team: Vec<Member> =
-            serde_json::from_value(config["team"].clone()).context("这个任务的团队记录无法读取")?;
+            serde_json::from_value(config["team"].clone()).context("这个子任务的团队记录无法读取")?;
         for m in team.iter_mut() {
             // A conversation only needs the lead. A collaborator's adapter may have changed or
             // been removed since the run; its task will report that if new work uses it.
@@ -346,7 +346,7 @@ impl App {
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
         let owner = format!("janus-{}", std::process::id());
         if self.db.acquire_lease(run_id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
-            bail!("Run 已被另一个 Janus 实例接管");
+            bail!("任务已被另一个 Janus 实例接管");
         }
         let run = Arc::new(Run::new(RunRecord {
             id: run_id.to_string(),
@@ -604,7 +604,7 @@ impl App {
             ev(
                 "run.recovered",
                 "user",
-                format!("从中断处继续：看板上 {done} 个任务已完成，{open} 个任务重新开始，负责人重新推进目标"),
+                format!("从中断处继续：看板上 {done} 个子任务已完成，{open} 个子任务重新开始，负责人重新推进目标"),
             )
             .data(json!({ "phase": "running", "done": done, "open": open, "tasks": restored })),
         );

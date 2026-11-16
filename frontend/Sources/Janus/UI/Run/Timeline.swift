@@ -249,7 +249,7 @@ struct RunTimeline: View {
         let ups = t.deps.map { d in "\(d)（\(run.who(tasks.first { $0.id == d }?.agent ?? "").name)）" }
         if !ups.isEmpty { lines.append("上游交接：\(ups.joined(separator: "、"))") }
         if let w = t.waiting { lines.append("还没开始 · \(w)") }
-        lines.append("点按查看任务")
+        lines.append("点按查看子任务")
         return lines.joined(separator: "\n")
     }
 
@@ -337,7 +337,7 @@ struct RunTimeline: View {
             }
             .buttonStyle(.plain)
             .offset(x: x0, y: y)
-            .help("\(t.id) \(t.title)\n还没开始 · \(note)\n点按查看任务")
+            .help("\(t.id) \(t.title)\n还没开始 · \(note)\n点按查看子任务")
             .accessibilityLabel("\(t.id) \(t.title)，还没开始，\(note)")
         }
         if let last = t.bars.last, t.result != nil || !t.artifacts.isEmpty {
@@ -366,7 +366,7 @@ struct RunTimeline: View {
                 .hoverable(5)
         }
         .buttonStyle(.plain)
-        .help("\(t.id) \(t.title)\n尝试 \(b.attempt) · \(label) · \(L.clock(b.start)) – \(b.running ? "进行中" : L.clock(b.end))（\(L.dur(b.end - b.start))）\n点按查看任务")
+        .help("\(t.id) \(t.title)\n尝试 \(b.attempt) · \(label) · \(L.clock(b.start)) – \(b.running ? "进行中" : L.clock(b.end))（\(L.dur(b.end - b.start))）\n点按查看子任务")
         .accessibilityLabel("\(t.id) \(t.title)，尝试 \(b.attempt)，\(label)，用时 \(L.dur(b.end - b.start))")
     }
 

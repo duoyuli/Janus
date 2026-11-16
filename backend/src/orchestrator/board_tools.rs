@@ -18,13 +18,13 @@ pub(super) fn lead_tools() -> Value {
     json!([
         {
             "name": "team",
-            "description": "查看协作者（职责、Agent、模型、权限模式）和共享看板上所有任务的当前状态。",
+            "description": "查看协作者（职责、Agent、模型、权限模式）和共享看板上所有子任务的当前状态。",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": board_read()
         },
         {
             "name": "orchestrate",
-            "description": "提交一份编排：一组交给协作者的任务。Janus 先校验（执行者是协作者、id 不重复、依赖存在且无环、可能同时执行的任务负责的文件不重叠、验证者不是被验证任务的执行者），不通过时返回全部错误且不执行任何任务；通过后写入共享看板并按依赖执行。可以多次提交，后提交的任务可以依赖之前提交的任务。",
+            "description": "提交一份编排：一组交给协作者的子任务。Janus 先校验（执行者是协作者、id 不重复、依赖存在且无环、可能同时执行的子任务负责的文件不重叠、验证者不是被验证子任务的执行者），不通过时返回全部错误且不执行任何子任务；通过后写入共享看板并按依赖执行。可以多次提交，后提交的子任务可以依赖之前提交的子任务。",
             "inputSchema": {
                 "type": "object",
                 "required": ["tasks"],
@@ -36,14 +36,14 @@ pub(super) fn lead_tools() -> Value {
                             "type": "object",
                             "required": ["id", "title", "instructions", "assignee", "accept"],
                             "properties": {
-                                "id": { "type": "string", "description": "任务 id，字母数字和 - _，在整个看板里唯一，例如 T1" },
+                                "id": { "type": "string", "description": "子任务 id，字母数字和 - _，在整个看板里唯一，例如 T1" },
                                 "title": { "type": "string" },
                                 "instructions": { "type": "string", "description": "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。" },
                                 "assignee": { "type": "string", "description": "协作者 id" },
-                                "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的任务 id" },
+                                "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的子任务 id" },
                                 "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）" },
-                                "owns": { "type": "array", "items": { "type": "string" }, "description": "这个任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的任务不能重叠" },
-                                "verifies": { "type": "string", "description": "独立验证：被验证任务的 id。交给另一个协作者，自动在被验证的任务完成后开始，只检查不改文件" }
+                                "owns": { "type": "array", "items": { "type": "string" }, "description": "这个子任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的子任务不能重叠" },
+                                "verifies": { "type": "string", "description": "独立验证：被验证子任务的 id。交给另一个协作者，自动在被验证的子任务完成后开始，只检查不改文件" }
                             }
                         }
                     }
@@ -53,13 +53,13 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "wait",
-            "description": "从共享看板取回发给你的新消息：任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，以及协作者的提问。有新消息立即返回，否则最多等 timeout_sec 秒。",
+            "description": "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，以及协作者的提问。有新消息立即返回，否则最多等 timeout_sec 秒。",
             "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 45 } } },
             "annotations": board_read()
         },
         {
             "name": "reply",
-            "description": "回答协作者在某个任务里的提问，或给正在执行的协作者补充指示。消息立即送达：能插话时插入当前这一轮，否则打断它当前这一轮后发送。任务已经结束时会返回错误。",
+            "description": "回答协作者在某个子任务里的提问，或给正在执行的协作者补充指示。消息立即送达：能插话时插入当前这一轮，否则打断它当前这一轮后发送。子任务已经结束时会返回错误。",
             "inputSchema": {
                 "type": "object",
                 "required": ["task", "text"],
@@ -69,7 +69,7 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "retry",
-            "description": "重新执行一个失败或已取消的任务，重新给满尝试次数。可以同时修改给执行者的说明和验收标准。被它阻塞的任务会在它成功后自动继续。",
+            "description": "重新执行一个失败或已取消的子任务，重新给满尝试次数。可以同时修改给执行者的说明和验收标准。被它阻塞的子任务会在它成功后自动继续。",
             "inputSchema": {
                 "type": "object",
                 "required": ["task"],
@@ -83,7 +83,7 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "accept",
-            "description": "接受一个没有通过验收核对的任务的结果：执行者自认没有完全达到某条标准，但你核对后认为可以接受。任务算作完成，没达到的部分作为风险记录，依赖它的任务继续执行。",
+            "description": "接受一个没有通过验收核对的子任务的结果：执行者自认没有完全达到某条标准，但你核对后认为可以接受。子任务算作完成，没达到的部分作为风险记录，依赖它的子任务继续执行。",
             "inputSchema": {
                 "type": "object",
                 "required": ["task", "reason"],
@@ -93,7 +93,7 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "amend",
-            "description": "修订一个已完成任务的结论（例如推翻它的选型）。正在执行的下游任务立即收到修订，还没开始的在交接时拿到；已经基于旧结论完成的下游任务会列出来，由你决定是否重做。",
+            "description": "修订一个已完成子任务的结论（例如推翻它的选型）。正在执行的下游子任务立即收到修订，还没开始的在交接时拿到；已经基于旧结论完成的下游子任务会列出来，由你决定是否重做。",
             "inputSchema": {
                 "type": "object",
                 "required": ["task", "text"],
@@ -103,7 +103,7 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "cancel",
-            "description": "取消不再需要的任务：还没开始的不再开始，执行中的被停止，依赖它们的任务一并取消。",
+            "description": "取消不再需要的子任务：还没开始的不再开始，执行中的被停止，依赖它们的子任务一并取消。",
             "inputSchema": {
                 "type": "object",
                 "required": ["tasks"],
@@ -113,7 +113,7 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "task_detail",
-            "description": "查看看板上一个任务的全部信息：说明、验收标准、完整结果（逐条验收及其证据方法、全部证据、风险、证据汇总）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
+            "description": "查看看板上一个子任务的全部信息：说明、验收标准、完整结果（逐条验收及其证据方法、全部证据、风险、证据汇总）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游子任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
             "inputSchema": { "type": "object", "required": ["task"], "properties": { "task": { "type": "string" } } },
             "annotations": board_read()
         },
@@ -138,7 +138,7 @@ pub(super) fn lead_tools() -> Value {
 pub(super) fn member_tools() -> Value {
     json!([{
         "name": "board_post",
-        "description": "执行任务期间，把进展、阻塞或需要负责人注意的事写到共享看板，负责人会看到。需要负责人做决定才能继续时，不要在这里等：在结果 JSON 的 question 字段提问并结束本轮。",
+        "description": "执行子任务期间，把进展、阻塞或需要负责人注意的事写到共享看板，负责人会看到。需要负责人做决定才能继续时，不要在这里等：在结果 JSON 的 question 字段提问并结束本轮。",
         "inputSchema": {
             "type": "object",
             "required": ["text"],
@@ -150,7 +150,7 @@ pub(super) fn member_tools() -> Value {
         "annotations": board_read()
     }, {
         "name": "claim",
-        "description": "开始改一批不在你负责范围内的文件前先认领：认领后它们归你的任务负责，同时进行的其他任务改它们时 Janus 会提醒对方和负责人；任务结束后认领自动失效。已经归另一个可能同时进行的任务负责的文件不能认领，会返回负责它的任务。验证任务不改文件，不能认领。",
+        "description": "开始改一批不在你负责范围内的文件前先认领：认领后它们归你的子任务负责，同时进行的其他子任务改它们时 Janus 会提醒对方和负责人；子任务结束后认领自动失效。已经归另一个可能同时进行的子任务负责的文件不能认领，会返回负责它的子任务。验证子任务不改文件，不能认领。",
         "inputSchema": {
             "type": "object",
             "required": ["paths"],
@@ -161,7 +161,7 @@ pub(super) fn member_tools() -> Value {
         "annotations": board_read()
     }, {
         "name": "peers",
-        "description": "查看看板上其他任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个任务的完整说明、结果和负责人的修订，例如上游任务的证据。",
+        "description": "查看看板上其他子任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的子任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个子任务的完整说明、结果和负责人的修订，例如上游子任务的证据。",
         "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
         "annotations": board_read()
     }])
@@ -185,11 +185,11 @@ pub(super) fn validate_orchestration(
     let mut defs = vec![];
     for (i, t) in items.iter().enumerate() {
         let id = t["id"].as_str().unwrap_or("").trim().to_string();
-        let label = if id.is_empty() { format!("第 {} 个任务", i + 1) } else { format!("任务 {id}") };
+        let label = if id.is_empty() { format!("第 {} 个子任务", i + 1) } else { format!("子任务 {id}") };
         if id.is_empty() || id.len() > 32 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
             errors.push(format!("{label}：id 只能用字母、数字、- 和 _，最长 32 个字符"));
         } else if existing.contains(&id) || ids.contains(&id) {
-            errors.push(format!("{label}：id 和看板上已有的任务重复"));
+            errors.push(format!("{label}：id 和看板上已有的子任务重复"));
         }
         let title = t["title"].as_str().unwrap_or("").trim().to_string();
         let instructions = t["instructions"].as_str().unwrap_or("").trim().to_string();
@@ -240,9 +240,9 @@ pub(super) fn validate_orchestration(
     for d in &defs {
         for dep in &d.deps {
             if dep == &d.id {
-                errors.push(format!("任务 {}：不能依赖自己", d.id));
+                errors.push(format!("子任务 {}：不能依赖自己", d.id));
             } else if !ids.contains(dep) && !existing.contains(dep) {
-                errors.push(format!("任务 {}：依赖 {dep} 不存在", d.id));
+                errors.push(format!("子任务 {}：依赖 {dep} 不存在", d.id));
             }
         }
     }
@@ -379,19 +379,19 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             msg
         }
         "task.conflict" if d["owned"] == true => format!(
-            "- [越界] {task}「{title}」· {name} 改了 {} 负责的 {}，两个任务可能同时在改。Janus 已提醒 {task} 不要再改：确认分工，用 janus.reply 告诉它怎样配合；确实要它改，就让负责的一方先完成，或者取消并重新编排。",
+            "- [越界] {task}「{title}」· {name} 改了 {} 负责的 {}，两个子任务可能同时在改。Janus 已提醒 {task} 不要再改：确认分工，用 janus.reply 告诉它怎样配合；确实要它改，就让负责的一方先完成，或者取消并重新编排。",
             d["other"].as_str().unwrap_or("?"),
             d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
         ),
         "task.claimed" => format!(
-            "- [认领] {task} · {name} 开始改 {}，认领为它负责的文件，到任务结束为止。",
+            "- [认领] {task} · {name} 开始改 {}，认领为它负责的文件，到子任务结束为止。",
             d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
         ),
         "task.conflict" => {
             let files: Vec<String> =
                 d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
             format!(
-                "- [冲突] {task} 和 {} 同时在改 {}。它们直接在同一个目录里工作，可能覆盖彼此的改动：确认分工，用 janus.reply 告诉其中一方先停下或怎样配合；之后会改同一批文件的任务用依赖串行。",
+                "- [冲突] {task} 和 {} 同时在改 {}。它们直接在同一个目录里工作，可能覆盖彼此的改动：确认分工，用 janus.reply 告诉其中一方先停下或怎样配合；之后会改同一批文件的子任务用依赖串行。",
                 d["other"].as_str().unwrap_or("?"),
                 files.join("、")
             )
@@ -402,7 +402,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             d["error"].as_str().unwrap_or(&e.text)
         ),
         "task.failed" if d["reason"] == "verification" && verifies.is_some() => format!(
-            "- [验证没通过] {task} · {name} 独立验证 {} 时发现问题：\n{}\n  不能用 janus.accept 放行：派修复任务和新的验证任务，或者 janus.cancel 取消 {task} 并写明理由。",
+            "- [验证没通过] {task} · {name} 独立验证 {} 时发现问题：\n{}\n  不能用 janus.accept 放行：派修复子任务和新的验证子任务，或者 janus.cancel 取消 {task} 并写明理由。",
             verifies.as_deref().unwrap_or_default(),
             verification_output(run, task)
         ),

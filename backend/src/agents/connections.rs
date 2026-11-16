@@ -192,7 +192,7 @@ impl App {
         check_id(id)?;
         let busy = self.runs.lock().unwrap().values().any(|r| r.team.iter().any(|m| m.runtime == id));
         if busy {
-            bail!("有正在运行的任务在使用这个 Provider，请等它结束或取消后再删除");
+            bail!("有正在运行的子任务在使用这个 Provider，请等它结束或取消后再删除");
         }
         for mut role in self.db.list_config(ROLE)?.into_iter().filter(|r| r["connection"] == id) {
             role["connection"] = json!("");

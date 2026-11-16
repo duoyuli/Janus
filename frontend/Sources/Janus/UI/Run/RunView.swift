@@ -110,10 +110,10 @@ struct DocumentsMenu: View {
             Divider()
             Button("打开其他 Markdown 文件…") { ArtifactWindow.choose() }
         } label: { Label("文档", systemImage: "doc.richtext") }
-        .help("查看这个 Run 交付、保存或提到的 Markdown 文档")
+        .help("查看这个任务交付、保存或提到的 Markdown 文档")
     }
 
-    static let title: [RunDocs.Source: String] = [.deliverable: "交付物", .artifact: "任务产物", .mentioned: "Agent 写过或提到的文档"]
+    static let title: [RunDocs.Source: String] = [.deliverable: "交付物", .artifact: "子任务产物", .mentioned: "Agent 写过或提到的文档"]
 
     /// Inside the run's directory, the path from there; elsewhere, the path with ~.
     static func label(_ path: String, cwd: String) -> String {
@@ -251,15 +251,15 @@ struct RunCard: View {
                         Button { Task { await run.togglePause() } } label: {
                             Label(r.paused ? "继续" : "暂停", systemImage: r.paused ? "play.fill" : "pause.fill")
                         }
-                        .help(r.paused ? "继续调度任务（⇧⌘P）" : "暂停后不再启动新任务，进行中的尝试会继续（⇧⌘P）")
+                        .help(r.paused ? "继续调度子任务（⇧⌘P）" : "暂停后不再启动新子任务，进行中的尝试会继续（⇧⌘P）")
                     }
-                    Button("停止…", role: .destructive) { cancelRun(run) }.help("结束这个 Run 的所有会话")
+                    Button("停止…", role: .destructive) { cancelRun(run) }.help("结束这个任务的所有会话")
                 }
             }
             if r.status == .failed { Note(text: r.error, tone: .red) }
             if r.status.canResume && !run.isReplaying {
                 HStack {
-                    Text(verbatim: "\(r.status == .interrupted ? "编排器重启时中断了。已完成的任务会保留，未完成的从原处继续。" : "可以从失败处继续。")也可以点右侧的 Agent 进入对话，补充信息后再继续。").font(.callout).foregroundStyle(.secondary)
+                    Text(verbatim: "\(r.status == .interrupted ? "编排器重启时中断了。已完成的子任务会保留，未完成的从原处继续。" : "可以从失败处继续。")也可以点右侧的 Agent 进入对话，补充信息后再继续。").font(.callout).foregroundStyle(.secondary)
                     Spacer()
                     Button("从中断处继续") { Task { await run.act(["type": "resumeRun"]) } }.buttonStyle(.primary)
                 }
@@ -269,7 +269,7 @@ struct RunCard: View {
             // Team, workspace and start time are on the 团队与权限 page. The wall-clock time is
             // in the usage section below, from the same events.
             HStack(spacing: 16) {
-                if !st.order.isEmpty { meta("任务", "\(done) / \(st.order.count)") }
+                if !st.order.isEmpty { meta("子任务", "\(done) / \(st.order.count)") }
             }
             UsageSection(run: run, st: st)
             // A progress indicator, not controls: dots on a line, nothing that looks pressable.
@@ -309,7 +309,7 @@ struct RunCard: View {
         let r = st.run
         switch r.status {
         case .cancelled: return ("已停止", .gray)
-        case .failed: return ("Run 失败", .red)
+        case .failed: return ("任务失败", .red)
         case .interrupted: return ("已中断", .gray)
         default: break
         }
@@ -486,7 +486,7 @@ struct AgentsPanel: View {
         let (pl, pt) = L.phase(phase)
         var line: String
         if lead {
-            line = !st.inbox.isEmpty ? "等你处理 \(st.inbox.count) 项，其余任务继续调度" : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == .delivered ? "已完成最终验收" : "按依赖调度任务")
+            line = !st.inbox.isEmpty ? "等你处理 \(st.inbox.count) 项，其余子任务继续调度" : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == .delivered ? "已完成最终验收" : "按依赖调度子任务")
         } else if let cur {
             line = "\(cur.id) \(cur.title)"
             if cur.status == .waitingInput { line += " · 等你回答" } else if cur.status == .waitingApproval { line += " · 等你审批" } else if let n = a?.note, !n.isEmpty { line += " · \(n)" }
@@ -495,7 +495,7 @@ struct AgentsPanel: View {
             let waiting = next.deps.filter { st.tasks[$0]?.status != .succeeded }.joined(separator: "、")
             line = next.status == .blocked ? "\(next.id) 等待 \(next.blockedBy) 修复" : "下一步 \(next.id) · 等待 \(waiting.isEmpty ? "调度" : waiting)"
         } else {
-            line = !mine.isEmpty ? "分配的任务都已完成" : !st.order.isEmpty ? "负责人没有给它派任务" : "待命"
+            line = !mine.isEmpty ? "分配的子任务都已完成" : !st.order.isEmpty ? "负责人没有给它派子任务" : "待命"
         }
         var meta: [String] = []
         if phase != "idle", let beat = a?.beat, beat > 0 { meta.append("心跳 \(L.ago(beat, st.run.now))") }
@@ -553,7 +553,7 @@ struct BriefSuggestions: View {
             Text("负责人建议写入共享资料").font(.callout.weight(.semibold))
             ForEach(lines.indices, id: \.self) { i in Text("· \(lines[i])").font(.callout).textSelection(.enabled) }
             HStack {
-                Text("采纳后，之后在这个工作区的 Run 都会看到这些内容。").font(.caption).foregroundStyle(.secondary)
+                Text("采纳后，之后在这个工作区的任务都会看到这些内容。").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if let ws = run.store.workspace(run.workspaceId) {
                     Button("加入共享资料…") { run.store.editingWorkspace = Self.adding(lines, to: ws) }
@@ -591,7 +591,7 @@ struct RunInspector: View {
         let files = latest(st.artifacts.filter { $0.kind != "git_diff" })
         Card(padding: 12) {
             Picker("查看", selection: $tab) {
-                Text(verbatim: "任务 \(st.order.count)").tag("tasks")
+                Text(verbatim: "子任务 \(st.order.count)").tag("tasks")
                 Text(verbatim: "改动 \(diffs.count)").tag("changes")
                 Text(verbatim: "产物 \(files.count)").tag("files")
                 Text("团队").tag("team")
@@ -600,7 +600,7 @@ struct RunInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     switch tab {
-                    case "changes": artifacts(diffs, empty: "还没有任务改过文件。")
+                    case "changes": artifacts(diffs, empty: "还没有子任务改过文件。")
                     case "files": artifacts(files, empty: "还没有产物。")
                     case "team": AgentsPanel(run: run, st: st)
                     default: tasks
@@ -612,7 +612,7 @@ struct RunInspector: View {
     }
 
     @ViewBuilder private var tasks: some View {
-        if st.orderedTasks.isEmpty { Text("负责人还没有派出任务。").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
+        if st.orderedTasks.isEmpty { Text("负责人还没有派出子任务。").font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
         ForEach(Array(st.orderedTasks.enumerated()), id: \.element.id) { i, t in
             if i > 0 { Divider() }
             let (label, tone) = t.status.label

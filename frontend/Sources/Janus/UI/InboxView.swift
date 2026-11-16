@@ -19,7 +19,7 @@ struct InboxView: View {
                 if open.isEmpty {
                     Card {
                         Text("没有需要你处理的事。").font(.headline)
-                        Text(working.isEmpty ? "也没有正在进行的 Run。" : "\(working.count) 个 Run 在进行，有需要你决定的事会出现在这里。").foregroundStyle(.secondary)
+                        Text(working.isEmpty ? "也没有正在进行的任务。" : "\(working.count) 个任务在进行，有需要你决定的事会出现在这里。").foregroundStyle(.secondary)
                     }
                 } else {
                     Card(padding: 4) {
@@ -53,7 +53,7 @@ struct InboxView: View {
 
                 DisclosureGroup(isExpanded: Binding(get: { inbox.showWorking }, set: { inbox.showWorking = $0 })) {
                     Card(padding: 4) {
-                        if working.isEmpty { Text("没有正在进行的 Run").foregroundStyle(.secondary).padding(10) }
+                        if working.isEmpty { Text("没有正在进行的任务").foregroundStyle(.secondary).padding(10) }
                         ForEach(working, id: \.self) { r in
                             let (label, tone) = RunStatus(r["status"].str).listLabel
                             Button { store.open(.run(r["id"].str)) } label: {
@@ -77,7 +77,7 @@ struct InboxView: View {
                 } label: {
                     Text("进行中（\(working.count)）").font(.headline)
                 }
-                .help("正在工作的 Run 默认收起：有需要你的地方，它会出现在上面")
+                .help("正在工作的任务默认收起：有需要你的地方，它会出现在上面")
             }
             .padding(24)
             .frame(maxWidth: 820, alignment: .leading)
@@ -119,12 +119,12 @@ struct InboxView: View {
             }
             if e.canSettle {
                 Button("标记已处理") { store.inbox.settle(e.key) }
-                    .help("不再提醒这个 Run；它保持现在的状态，仍可以在任务记录中打开")
+                    .help("不再提醒这个任务；它保持现在的状态，仍可以在任务记录中打开")
             }
             if e.actions.isEmpty {
                 Button("去处理") { store.open(.run(e.run)) }.buttonStyle(.primary)
             } else {
-                Button("详情") { store.open(.run(e.run)) }.help("打开这个 Run，看完整的请求")
+                Button("详情") { store.open(.run(e.run)) }.help("打开这个任务，看完整的请求")
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 12)

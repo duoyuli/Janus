@@ -42,7 +42,7 @@ impl App {
         self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
         let owner = format!("janus-{}", std::process::id());
         if self.db.acquire_lease(&id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
-            bail!("Run 已被另一个 Janus 实例接管");
+            bail!("任务已被另一个 Janus 实例接管");
         }
         let run = Arc::new(Run::new(RunRecord {
             id: id.clone(),
@@ -77,7 +77,7 @@ impl App {
             {
                 app.emit(
                     &run,
-                    ev("run.failed", "janus", format!("Run 失败：{err:#}"))
+                    ev("run.failed", "janus", format!("任务失败：{err:#}"))
                         .data(json!({ "error": format!("{err:#}") })),
                 );
                 app.set_status(&run, RunStatus::Failed);
@@ -119,7 +119,7 @@ impl App {
         let workspace_note = if run.git {
             format!("Git 仓库，基线 {}", short_sha(&run.base_ref))
         } else {
-            "非 Git 目录：任务直接在这个目录中执行，没有 diff".to_string()
+            "非 Git 目录：子任务直接在这个目录中执行，没有 diff".to_string()
         };
         self.emit(
             run,
@@ -274,7 +274,7 @@ impl App {
                         self.set_status(run, RunStatus::WaitingInput);
                         self.emit(
                             run,
-                            ev("run.budget_exhausted", "janus", "Run 达到墙钟预算，等待你追加预算、接受部分结果或取消")
+                            ev("run.budget_exhausted", "janus", "任务达到墙钟预算，等待你追加预算、接受部分结果或取消")
                                 .data(json!({ "budgetMs": RUN_BUDGET_MS })),
                         );
                     }

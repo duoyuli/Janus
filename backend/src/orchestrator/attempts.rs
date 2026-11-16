@@ -82,7 +82,7 @@ impl App {
                         ev("task.retry_scheduled", "janus", format!("按重试策略为 {id} 创建第 {} 次尝试", n + 1))
                             .task(id)
                             .data(json!({
-                                "next": n + 1, "strategy": "新建 ACP 会话，注入任务说明、上游结果和上次失败原因"
+                                "next": n + 1, "strategy": "新建 ACP 会话，注入子任务说明、上游结果和上次失败原因"
                             })),
                     );
                 } else {
@@ -201,7 +201,7 @@ impl App {
         let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
         let prompt = if resumed {
             format!(
-                "编排器中断后，这个会话已经恢复。请从中断的地方继续完成原来的任务，完成后按最初的要求以 ```json 结构化结果结束。{}",
+                "编排器中断后，这个会话已经恢复。请从中断的地方继续完成原来的子任务，完成后按最初的要求以 ```json 结构化结果结束。{}",
                 self.take_notes(run, &agent)
             )
         } else {
@@ -309,7 +309,7 @@ impl App {
                 };
                 asked += 1;
                 if asked > 4 {
-                    bail!("连续 4 轮仍在提问，没有完成任务");
+                    bail!("连续 4 轮仍在提问，没有完成子任务");
                 }
                 let key = format!("q-{id}-{n}-{round}");
                 let question = q["text"].as_str().or(q.as_str()).unwrap_or("需要你的决定").to_string();
@@ -335,7 +335,7 @@ impl App {
                     answer = self.wait_for(run, &key, owner.clone(), Ask::Question) => {
                         let answer = answer?;
                         next = Some(format!(
-                            "你的问题已得到回答：{}\n补充说明：{}\n请据此继续完成任务。完成后同样以 ```json 结构化结果结束。",
+                            "你的问题已得到回答：{}\n补充说明：{}\n请据此继续完成子任务。完成后同样以 ```json 结构化结果结束。",
                             answer["answer"].as_str().unwrap_or(""),
                             answer["note"].as_str().filter(|s| !s.is_empty()).unwrap_or("无")
                         ));
@@ -611,7 +611,7 @@ impl App {
         let desc = [
             Some(crate::traces::diff_summary(&stat, new_files)).filter(|s| !s.is_empty()),
             Some(if scope.is_empty() {
-                "工作目录相对 HEAD 的全部改动（没有它改了哪些文件的记录，可能含其他任务的改动），未提交".to_string()
+                "工作目录相对 HEAD 的全部改动（没有它改了哪些文件的记录，可能含其他子任务的改动），未提交".to_string()
             } else {
                 format!("{id} 负责和改过的文件相对 HEAD 的改动，未提交")
             }),

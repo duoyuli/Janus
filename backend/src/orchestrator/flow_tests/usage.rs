@@ -114,7 +114,7 @@ async fn a_cancelled_run_marks_the_running_attempt_and_keeps_reported_usage() {
     assert_eq!(l.task("T1").unwrap().tokens.total, Some(2000), "usage reported before the cancel stays");
     let t2 = l.attempts.iter().find(|a| a.task == "T2").unwrap();
     assert_eq!(t2.state, crate::usage::AttemptState::Cancelled);
-    assert_eq!(t2.note.as_deref(), Some("Run 被取消"));
+    assert_eq!(t2.note.as_deref(), Some("任务被取消"));
     assert!(t2.duration_ms.is_some_and(|ms| ms >= 0), "{:?}", t2);
     assert_eq!(t2.tokens.total, None, "the cancelled attempt reported nothing: {:?}", t2);
     assert!(

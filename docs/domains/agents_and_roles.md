@@ -138,7 +138,7 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 
 规则：
 
-- 负责人的角色必须绑定 Claude Code 或 Codex，见[目标模式](goal_mode.md#lead_role)。
+- 负责人必须是开启了「可以担任负责人」（角色字段 `lead`）并绑定 Claude Code 或 Codex 的角色，见[目标模式](goal_mode.md#lead_role)。
 - 除负责人外至少还要有一名成员。
 - Run 创建时，负责人的成员 id 变为 `lead`；如果某个角色的 id 本身是 `lead` 但不是负责人，改为 `lead-role`。
 

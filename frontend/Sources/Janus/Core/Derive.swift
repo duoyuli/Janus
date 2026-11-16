@@ -581,7 +581,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             }
         case "input": title = L.cn(who, "需要你\(i.d["mode"].str == "url" ? "打开链接" : "填写")")
         case "session": title = L.cn(who, "这一轮结束，等你的消息")
-        case "budget": title = "Run 达到预算，等你追加或停止"
+        case "budget": title = "任务达到预算，等你追加或停止"
         default: title = "等你处理"
         }
         var text: String

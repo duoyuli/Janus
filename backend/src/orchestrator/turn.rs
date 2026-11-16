@@ -273,7 +273,7 @@ impl App {
                 }
                 let text = if finish {
                     format!(
-                        "停止 {} 这一轮，并以当前结果完成任务",
+                        "停止 {} 这一轮，并以当前结果完成子任务",
                         run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)
                     )
                 } else {
@@ -317,7 +317,7 @@ impl App {
                             "control.released",
                             "user",
                             format!(
-                                "交还托管：{} 继续自主完成任务",
+                                "交还托管：{} 继续自主完成子任务",
                                 run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)
                             ),
                         )
@@ -415,7 +415,7 @@ impl App {
                     .data(json!({ "other": other, "paths": files })),
             );
             for (me, them) in [(task, other.as_str()), (other.as_str(), task)] {
-                self.notify(run, me, &format!("[Janus 提醒] 任务 {them}（{}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时用 janus.board_post 写一条 blocker 告诉负责人。", name(them)));
+                self.notify(run, me, &format!("[Janus 提醒] 子任务 {them}（{}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时用 janus.board_post 写一条 blocker 告诉负责人。", name(them)));
             }
         }
         for (other, files) in owned {
@@ -427,7 +427,7 @@ impl App {
                     .to("lead")
                     .data(json!({ "other": other, "paths": files, "owned": true })),
             );
-            self.notify(run, task, &format!("[Janus 提醒] {list} 归任务 {other}（{}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，用 janus.board_post 写一条 blocker 说明原因，由负责人协调。", name(&other)));
+            self.notify(run, task, &format!("[Janus 提醒] {list} 归子任务 {other}（{}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，用 janus.board_post 写一条 blocker 说明原因，由负责人协调。", name(&other)));
         }
     }
 

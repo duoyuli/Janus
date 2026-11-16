@@ -25,9 +25,9 @@ struct UsageSection: View {
         "Token": "每一轮 Agent 上报的 token 相加（含子 Agent，Agent 按模型上报时以它为准）；缺失写「未上报」，不写 0；上下文快照不计入",
         "构成": "Agent 上报的输入、缓存读取、缓存写入和输出；为 0 或没有上报的部分不列出",
         "费用": "Agent 上报的原值，不同币种或口径不合并；没有上报时写「未上报」，不根据 token 估算",
-        "耗时": "墙钟时长：从 Run 创建到最后一条事件。等待你的时间单独写出，不当作 Agent 执行时间",
+        "耗时": "墙钟时长：从任务创建到最后一条事件。等待你的时间单独写出，不当作 Agent 执行时间",
         "上下文": "上下文快照只显示最近值、峰值和比例，不计入 token 总量",
-        "小计": "Run 总计包含负责人；负责人和协作者分开列出，方便对比",
+        "小计": "任务总计包含负责人；负责人和协作者分开列出，方便对比",
     ]
 
     var body: some View {
@@ -45,13 +45,13 @@ struct UsageSection: View {
                     HStack(spacing: 4) {
                         Image(systemName: detail ? "chevron.down" : "chevron.right")
                             .font(.caption2.weight(.semibold))
-                        Text(detail ? "收起明细" : "任务与成员明细").font(.callout)
+                        Text(detail ? "收起明细" : "子任务与成员明细").font(.callout)
                     }
                     .foregroundStyle(Color.accent)
                 }
                 .buttonStyle(.plain)
-                .help("按任务和成员展开这次 Run 的用量，每个数字都来自 session.usage 事件")
-                .accessibilityLabel(detail ? "收起任务与成员明细" : "展开任务与成员明细")
+                .help("按子任务和成员展开这次任务的用量，每个数字都来自 session.usage 事件")
+                .accessibilityLabel(detail ? "收起子任务与成员明细" : "展开子任务与成员明细")
             }
             ForEach(u.run.summaryRows) { row in
                 UsageRow(label: row.label, value: row.value).help(Self.help[row.label] ?? "")
@@ -63,13 +63,13 @@ struct UsageSection: View {
             if let line = u.remindersLine { Note(text: line, tone: .amber) }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("这次 Run 的用量")
+        .accessibilityLabel("这次任务的用量")
     }
 
     @ViewBuilder private func details(_ u: UsageLedger) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             if u.tasks.isEmpty && u.members.isEmpty {
-                Text("还没有任务和会话。").font(.caption).foregroundStyle(.secondary)
+                Text("还没有子任务和会话。").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(u.tasks, id: \.id) { scope in
                 Button { run.show(.task(scope.id)) } label: {
@@ -83,7 +83,7 @@ struct UsageSection: View {
                     .hoverable(6)
                 }
                 .buttonStyle(.plain)
-                .help("\(u.taskDetail(scope)) · \(scope.costDetail)，点按打开任务页")
+                .help("\(u.taskDetail(scope)) · \(scope.costDetail)，点按打开子任务页")
             }
             if !u.tasks.isEmpty && !u.members.isEmpty { Divider() }
             ForEach(u.members, id: \.id) { member in
@@ -144,8 +144,8 @@ struct TaskUsageCard: View {
                 UsageReceipt(bill: pricesAt == nil && prices.isEmpty ? bill : bill.priced(with: prices, fetchedAt: pricesAt))
             } else {
                 Text("用量").font(.headline)
-                Text("未开始（这个任务还没有会话）").font(.callout).foregroundStyle(.secondary)
-                    .accessibilityLabel("用量未开始，这个任务还没有会话")
+                Text("未开始（这个子任务还没有会话）").font(.callout).foregroundStyle(.secondary)
+                    .accessibilityLabel("用量未开始，这个子任务还没有会话")
             }
         }
         .accessibilityElement(children: .contain)

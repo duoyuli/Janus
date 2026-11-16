@@ -89,7 +89,7 @@ struct LibraryView: View {
     // MARK: MCP servers
 
     @ViewBuilder private var servers: some View {
-        Text("MCP 服务器在会话启动时放进 session/new 的 mcpServers。环境变量和 HTTP header 的值只保存在 Janus home，设置后不再显示，也不会进入数字员工、数据库或 Run 记录。")
+        Text("MCP 服务器在会话启动时放进 session/new 的 mcpServers。环境变量和 HTTP header 的值只保存在 Janus home，设置后不再显示，也不会进入数字员工、数据库或任务记录。")
             .font(.callout).foregroundStyle(.secondary)
         HStack {
             Button("添加服务器") { mcpDraft = ["name": "", "description": "", "transport": "stdio", "command": "", "url": "", "vars": []] }.buttonStyle(.primary)
@@ -266,13 +266,13 @@ struct LibraryView: View {
             do {
                 let r = try await store.api.post("/api/library/items/\(i["id"].str)/refresh")
                 await store.loadLibrary()
-                store.show(r["revision"].str == i["revision"].str ? "\(i["name"].str) 没有变化" : "已从文件夹刷新 \(i["name"].str)，新的 Run 使用新内容")
+                store.show(r["revision"].str == i["revision"].str ? "\(i["name"].str) 没有变化" : "已从文件夹刷新 \(i["name"].str)，新的任务使用新内容")
             } catch { store.show(error.localizedDescription) }
         }
     }
 
     private func remove(_ i: JSON) {
-        guard confirm("删除 \(i["name"].str)？", "已经开始的 Run 有自己的副本，不受影响。MCP 服务器的值会一起删除。", ok: "删除") else { return }
+        guard confirm("删除 \(i["name"].str)？", "已经开始的任务有自己的副本，不受影响。MCP 服务器的值会一起删除。", ok: "删除") else { return }
         Task {
             do { try await store.api.delete("/api/library/items/\(i["id"].str)"); await store.loadLibrary() }
             catch { store.show(error.localizedDescription) }

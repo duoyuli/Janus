@@ -123,7 +123,7 @@ pub fn gaps(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet
     if def.verifies.is_some() {
         if !touched.is_empty() {
             out.push(format!(
-                "验证任务改了文件：{}。验证者只检查不改文件，这些改动没有经过独立验证",
+                "验证子任务改了文件：{}。验证者只检查不改文件，这些改动没有经过独立验证",
                 list(&touched.iter().collect::<Vec<_>>())
             ));
         }
@@ -188,7 +188,7 @@ mod tests {
         assert!(gaps(&def(&["src"], None), &set(&[]), None)[0].contains("工具调用"));
         // A verifier changes nothing.
         let g = gaps(&def(&[], Some("T0")), &set(&["src/a.rs"]), Some(&set(&["src/a.rs"])));
-        assert!(g.len() == 1 && g[0].contains("验证任务改了文件"), "{g:?}");
+        assert!(g.len() == 1 && g[0].contains("验证子任务改了文件"), "{g:?}");
         assert!(
             gaps(&def(&[], Some("T0")), &set(&[]), Some(&set(&["src/a.rs"]))).is_empty(),
             "another task's change is not the verifier's"

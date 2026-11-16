@@ -73,12 +73,12 @@ struct RolesView: View {
         .help("编辑 \(r["name"].str)")
     }
 
-    /// "最近 27 个 Run：10 个任务 · 首次通过 70% · 验证失败 2 · 成功平均 5.2 分钟"
+    /// "最近 27 个任务：10 个子任务 · 首次通过 70% · 验证失败 2 · 成功平均 5.2 分钟"
     static func statLine(_ x: JSON, runs: Int) -> String? {
         guard let tasks = x["tasks"].int, tasks > 0 else { return nil }
         let pct = { (n: Int) in "\(Int((Double(n) / Double(tasks) * 100).rounded()))%" }
-        let parts = ["\(tasks) 个任务", "首次通过 \(pct(x["firstPass"].int ?? 0))", (x["failed"].int ?? 0) > 0 ? "失败 \(x["failed"].str)" : "", (x["verificationFailed"].int ?? 0) > 0 ? "验证没通过 \(x["verificationFailed"].str)" : "", x["avgMinutes"].truthy ? "成功平均 \(x["avgMinutes"].str) 分钟" : ""].filter { !$0.isEmpty }
-        return "最近 \(runs) 个 Run：\(parts.joined(separator: " · "))"
+        let parts = ["\(tasks) 个子任务", "首次通过 \(pct(x["firstPass"].int ?? 0))", (x["failed"].int ?? 0) > 0 ? "失败 \(x["failed"].str)" : "", (x["verificationFailed"].int ?? 0) > 0 ? "验证没通过 \(x["verificationFailed"].str)" : "", x["avgMinutes"].truthy ? "成功平均 \(x["avgMinutes"].str) 分钟" : ""].filter { !$0.isEmpty }
+        return "最近 \(runs) 个任务：\(parts.joined(separator: " · "))"
     }
 }
 
@@ -182,7 +182,7 @@ struct RoleEditor: View {
                     section("权限", trailing: Setup.controls(c).contains { $0["permission"].truthy } ? "\(c?["name"].str ?? "") 的权限模式" : "")
                     permissions(c)
                     if c?["options"]["controls"].exists == true {
-                        Text("负责人规划时会看到这个模式，按它分配任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。").font(.caption).foregroundStyle(.secondary)
+                        Text("负责人规划时会看到这个模式，按它分配子任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。").font(.caption).foregroundStyle(.secondary)
                     }
                     otherControls(c)
 

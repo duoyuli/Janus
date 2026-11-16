@@ -120,7 +120,7 @@ struct QuestionAsk: View {
             Button("提交回答") { answer(task: item.task ?? "") }.buttonStyle(.primary).disabled(!run.canAct || run.picks[item.key] == nil)
                 .help(run.picks[item.key] == nil ? "先选择一个选项" : "")
             // Notes go under the buttons, so a narrow card does not squeeze them into a strip.
-            Text(verbatim: "回答会写入事件日志，并通过 ACP 发回会话。\(downstream.isEmpty ? "" : "受影响的下游任务：\(downstream.joined(separator: "、"))。")").font(.caption).foregroundStyle(.secondary)
+            Text(verbatim: "回答会写入事件日志，并通过 ACP 发回会话。\(downstream.isEmpty ? "" : "受影响的下游子任务：\(downstream.joined(separator: "、"))。")").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -383,7 +383,7 @@ struct SessionAsk: View {
                 Spacer()
                 if let e = st.event(item.seq) { Text(L.clock(e.ts)).font(.caption).foregroundStyle(.secondary) }
             }
-            if item.task != nil { Text("你接管了这个会话。Agent 这一轮已经结束，在你发消息、交还托管或结束任务之前，它会一直等待。").font(.callout).foregroundStyle(.secondary) }
+            if item.task != nil { Text("你接管了这个会话。Agent 这一轮已经结束，在你发消息、交还托管或结束子任务之前，它会一直等待。").font(.callout).foregroundStyle(.secondary) }
             Button(item.task != nil ? "打开会话" : "打开对话") { run.show(item.task.map { .task($0) } ?? .agent(agent)) }.buttonStyle(.primary)
         }
     }
@@ -398,13 +398,13 @@ struct BudgetAsk: View {
         Card(tint: Tone.amber.color) {
             HStack {
                 Pill("预算", .amber)
-                Text("Run 已达到墙钟预算").font(.headline)
+                Text("任务已达到墙钟预算").font(.headline)
                 Spacer()
                 SeqButton(seq: item.seq, run: run)
             }
             Note(text: item.d["text"].str, tone: .red)
             HStack {
-                Button("停止 Run…", role: .destructive) { cancelRun(run) }.disabled(!run.canAct)
+                Button("停止任务…", role: .destructive) { cancelRun(run) }.disabled(!run.canAct)
                 Button("追加 60 分钟") { Task { await run.act(["type": "extendBudget", "minutes": 60]) } }.buttonStyle(.primary).disabled(!run.canAct)
             }
         }
@@ -413,7 +413,7 @@ struct BudgetAsk: View {
 
 @MainActor
 func cancelRun(_ run: RunModel) {
-    if confirm("停止这个 Run？", "所有进行中的 Agent 会话都会结束，工作目录中已有的改动会保留。停止后不能再继续。", ok: "停止") { Task { await run.act(["type": "cancel"]) } }
+    if confirm("停止这个任务？", "所有进行中的 Agent 会话都会结束，工作目录中已有的改动会保留。停止后不能再继续。", ok: "停止") { Task { await run.act(["type": "cancel"]) } }
 }
 
 struct CodeBlock: View {

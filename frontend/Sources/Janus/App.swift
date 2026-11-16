@@ -26,7 +26,8 @@ struct JanusApp: App {
 }
 
 /// The menu bar icon carries the number of things waiting on the person, so there is no need to
-/// open the window to check on runs that are just working.
+/// open the window to check on runs that are just working. The mark is the app icon's gate, drawn
+/// as a template image so the menu bar tints it in either appearance.
 struct MenuBarLabel: View {
     let model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -34,7 +35,8 @@ struct MenuBarLabel: View {
     var body: some View {
         let n = model.store?.inbox.open.count ?? 0
         HStack(spacing: 3) {
-            Image(systemName: n > 0 ? "tray.full" : "circle.hexagongrid")
+            Image(nsImage: MenuBarMark.image)
+                .frame(width: 16, height: 16)
             if n > 0 { Text("\(n)") }
         }
         .accessibilityLabel(n > 0 ? "Janus，\(n) 项等你处理" : "Janus")
@@ -50,6 +52,45 @@ struct MenuBarLabel: View {
     }
 }
 
+/// Janus's gate as a menu bar template image: an arch with a seam and two eyes, the same mark as
+/// the app icon (frontend/scripts/make-icon.swift).
+enum MenuBarMark {
+    static let image: NSImage = {
+        let side: CGFloat = 18
+        let img = NSImage(size: NSSize(width: side, height: side), flipped: true) { rect in
+            let s = rect.width
+            let cx = s / 2
+            let w = s * 0.76, h = s * 0.82, r = w / 2
+            let bottom = s * 0.92, top = bottom - h, spring = top + r
+            let k: CGFloat = 0.5522847498
+            let p = NSBezierPath()
+            p.move(to: NSPoint(x: cx - r, y: bottom))
+            p.line(to: NSPoint(x: cx - r, y: spring))
+            p.curve(to: NSPoint(x: cx, y: top),
+                    controlPoint1: NSPoint(x: cx - r, y: spring - r * k),
+                    controlPoint2: NSPoint(x: cx - r * k, y: top))
+            p.curve(to: NSPoint(x: cx + r, y: spring),
+                    controlPoint1: NSPoint(x: cx + r * k, y: top),
+                    controlPoint2: NSPoint(x: cx + r, y: spring - r * k))
+            p.line(to: NSPoint(x: cx + r, y: bottom))
+            p.close()
+            let eyeR = s * 0.09 * 0.76
+            let eyeY = top + h * 0.40
+            for dx in [-1.0, 1.0] {
+                p.append(NSBezierPath(ovalIn: NSRect(x: cx + CGFloat(dx) * s * 0.16 - eyeR, y: eyeY - eyeR, width: eyeR * 2, height: eyeR * 2)))
+            }
+            let seamW = s * 0.030
+            p.append(NSBezierPath(rect: NSRect(x: cx - seamW / 2, y: top + h * 0.03, width: seamW, height: h * 0.94)))
+            p.windingRule = .evenOdd
+            NSColor.black.setFill()
+            p.fill()
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }()
+}
+
 /// The menu under Janus's menu bar icon: the way back to the window, and what the Dock and the
 /// app menu used to offer.
 struct StatusMenu: View {
@@ -62,7 +103,7 @@ struct StatusMenu: View {
         let active = store?.runs.filter { RunStatus($0["status"].str).isActive }.count ?? 0
         Button(waiting > 0 ? "收件箱：\(waiting) 项等你处理" : "收件箱：没有等你处理的事") { show(); store?.open(.inbox) }.disabled(store == nil)
         Button("打开 Janus") { show() }
-        if active > 0 { Text("\(active) 个 Run 正在进行") }
+        if active > 0 { Text("\(active) 个任务正在进行") }
         Divider()
         Button("新目标") { show(); model.newGoal() }.disabled(store == nil)
         Button("设置…") { show(); store?.openSettings(store?.settingsTab ?? "agents") }.disabled(store == nil)
@@ -112,7 +153,7 @@ struct JanusCommands: Commands {
             Button("刷新") { Task { await model.refresh() } }.keyboardShortcut("r").disabled(store == nil)
             Divider()
         }
-        CommandMenu("Run") {
+        CommandMenu("任务") {
             let r = run?.state.run
             let active = onRun && run?.canAct == true && r.map { !$0.status.isFinished } == true
             Button(r?.paused == true ? "继续" : "暂停") { Task { await run?.togglePause() } }
@@ -120,7 +161,7 @@ struct JanusCommands: Commands {
                 .disabled(!active || !(r?.status == .running || r?.paused == true))
             Button("从中断处继续") { Task { await run?.act(["type": "resumeRun"]) } }
                 .disabled(!(onRun && run?.canAct == true && r?.status.canResume == true))
-            Button("停止 Run…") { if let run { cancelRun(run) } }.disabled(!active)
+            Button("停止任务…") { if let run { cancelRun(run) } }.disabled(!active)
             Divider()
             Button("复制交付摘要") { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
             Button("回到实时") { run?.replay = nil }.disabled(!(run?.isReplaying ?? false))

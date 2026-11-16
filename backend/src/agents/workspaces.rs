@@ -38,6 +38,9 @@ impl App {
             bail!("请从成员中选择一个负责人");
         }
         let lead_role = self.db.get_config(ROLE, lead)?.unwrap_or_default();
+        if lead_role["lead"] != true {
+            bail!("数字员工「{}」没有开启「可以担任负责人」", str_of(&lead_role, "name"));
+        }
         let leads = self
             .connection(str_of(&lead_role, "connection"))
             .and_then(|c| Runtime::of(str_of(&c, "base")))
@@ -79,6 +82,9 @@ impl App {
             }
             let conn = self.connection(conn_id)?;
             let lead = m["role"] == ws["lead"];
+            if lead && role["lead"] != true {
+                bail!("数字员工「{}」没有开启「可以担任负责人」，请在工作区里换一个负责人", str_of(&role, "name"));
+            }
             let session = role_session(&role, &conn);
             let permission = session_label(&session, &conn);
             let model_label = model_label(&role, &conn);
@@ -131,3 +137,43 @@ pub(super) const WORKSPACE: &str = "workspace";
 
 /// The most a workspace's shared material may hold: it goes into every session's prompt.
 pub(super) const BRIEF_LIMIT: usize = 8000;
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+    use crate::orchestrator::test_app;
+
+    /// The runtime alone is not enough: the role must also allow being the lead.
+    #[test]
+    fn only_a_role_that_may_lead_can_be_the_workspace_lead() {
+        let dir = std::env::temp_dir().join(format!("janus-workspace-lead-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = test_app(&dir);
+        let c = app.save_connection(&json!({ "id": "codex-1", "kind": "codex", "name": "Codex" })).unwrap();
+        let can =
+            app.save_role(&json!({ "id": "can-lead", "name": "负责人", "connection": c["id"], "lead": true })).unwrap();
+        let cannot = app
+            .save_role(&json!({ "id": "cannot-lead", "name": "成员", "connection": c["id"], "lead": false }))
+            .unwrap();
+        let members = json!([{ "role": can["id"] }, { "role": cannot["id"] }]);
+        let saved = app
+            .save_workspace(
+                &json!({ "name": "W", "path": dir.to_string_lossy(), "members": members, "lead": can["id"] }),
+            )
+            .unwrap();
+        assert_eq!(saved["lead"], can["id"]);
+        let err = app
+            .save_workspace(
+                &json!({ "name": "W2", "path": dir.to_string_lossy(), "members": members, "lead": cannot["id"] }),
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("没有开启「可以担任负责人」"), "{err}");
+        // A workspace whose lead role loses the flag cannot start a run either.
+        app.save_role(&json!({ "id": "can-lead", "name": "负责人", "connection": c["id"], "lead": false })).unwrap();
+        let err = app.team_for(&saved).unwrap_err().to_string();
+        assert!(err.contains("没有开启「可以担任负责人」"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

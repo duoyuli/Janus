@@ -12,7 +12,7 @@ struct TaskView: View {
             content(st, t)
         } else {
             VStack(spacing: 10) {
-                Text(run.isReplaying ? "在当前回放位置，这个任务还不存在。" : "这个 Run 里没有 \(taskId)。").foregroundStyle(.secondary)
+                Text(run.isReplaying ? "在当前回放位置，这个子任务还不存在。" : "这个任务里没有 \(taskId)。").foregroundStyle(.secondary)
                 Button("返回工作台") { run.show(.board) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

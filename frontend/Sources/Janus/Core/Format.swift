@@ -46,7 +46,7 @@ enum L {
         if m(#"^(agent\.status|tool\.|session\.prompt)"#) { return "progress" }
         return "tasks"
     }
-    static let categoryLabel: [(String, String)] = [("all", "全部"), ("tasks", "任务"), ("messages", "消息"), ("artifacts", "产物"), ("decisions", "决策"), ("progress", "进度与工具")]
+    static let categoryLabel: [(String, String)] = [("all", "全部"), ("tasks", "子任务"), ("messages", "消息"), ("artifacts", "产物"), ("decisions", "决策"), ("progress", "进度与工具")]
 
     // MARK: Time
 

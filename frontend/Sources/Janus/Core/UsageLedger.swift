@@ -650,9 +650,9 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         // records the cancel, so a failure event can still follow it. An attempt still running when
         // its cancel arrived was cancelled; what it reported stays counted.
         let cancel: (at: Int, note: String)? = switch (runCancelled, taskCancelled[b.task]) {
-        case let (run?, task?) where task <= run: (task, "负责人取消了这个任务")
-        case let (run?, _): (run, "Run 被取消")
-        case let (nil, task?): (task, "负责人取消了这个任务")
+        case let (run?, task?) where task <= run: (task, "负责人取消了这个子任务")
+        case let (run?, _): (run, "任务被取消")
+        case let (nil, task?): (task, "负责人取消了这个子任务")
         case (nil, nil): nil
         }
         if let cancel, b.state != .succeeded, !(b.endedMs.map { $0 < cancel.at } ?? false) {
@@ -679,11 +679,11 @@ func usageReminders(_ ledger: UsageLedger, declared: Int) -> [String] {
     }
     if let n = total, n >= 50_000, let (task, used) = ledger.tasks.compactMap({ t in t.tokens.total.map { (t, $0) } }).max(by: { $0.1 < $1.1 }),
        Double(used) >= Double(n) * 0.6 {
-        out.append("大部分用量集中在一个任务：\(task.id) 占 \(usageNum(n)) 的 \(usagePercent(Double(used) / Double(n)))")
+        out.append("大部分用量集中在一个子任务：\(task.id) 占 \(usageNum(n)) 的 \(usagePercent(Double(used) / Double(n)))")
     }
     let collaborators = max(declared, ledger.members.filter { $0.id != "lead" }.count)
     if collaborators >= 5, !ledger.attempts.contains(where: { $0.state == .succeeded }), (ledger.run.durationMs ?? 0) >= 30 * 60 * 1000 {
-        out.append("协作者多但没有有效产出：\(collaborators) 个协作者，30 分钟内没有任何任务成功")
+        out.append("协作者多但没有有效产出：\(collaborators) 个协作者，30 分钟内没有任何子任务成功")
     }
     if let n = total, n >= 100_000, !ledger.run.cost.reported {
         out.append("费用无法判断：有 token 用量，但没有任何会话上报费用")

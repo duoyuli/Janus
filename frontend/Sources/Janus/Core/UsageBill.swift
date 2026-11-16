@@ -146,8 +146,8 @@ extension UsageBill {
         var notes: [String] = []
         if scope.completeness == .partial { notes.insert("\(scope.missingSessions) 个会话没有上报 token，数字是下界。", at: 0) }
         return UsageBill(
-            title: "任务用量账单",
-            meta: [UsageLine(label: "任务", value: "\(t.id)「\(t.title)」")],
+            title: "子任务用量账单",
+            meta: [UsageLine(label: "子任务", value: "\(t.id)「\(t.title)」")],
             tokens: scope.tokens, cost: scope.cost, stats: stats,
             groupsTitle: "成员 / 模型", groups: ledger.bill(ofTask: t.id, name: name),
             sections: attempts.isEmpty ? [] : [UsageBillSection(title: "每次尝试", rows: attempts.map { a in
@@ -167,7 +167,7 @@ extension UsageBill {
         let last = Date(timeIntervalSince1970: ((j["to"].double ?? 0) - 1) / 1000)
         let tokens = UsageTokens.bill(j["tokens"])
         let active = j["activeDays"].int ?? 0
-        var stats = [UsageLine(label: "Run", value: "\(j["runs"].int ?? 0) 个"),
+        var stats = [UsageLine(label: "任务", value: "\(j["runs"].int ?? 0) 个"),
                      UsageLine(label: "请求", value: "\(usageNum(j["turns"].int ?? 0)) 轮"),
                      UsageLine(label: "会话", value: "\(j["sessions"].int ?? 0) 个"),
                      UsageLine(label: "活跃天数", value: "\(active) / \(j["days"].int ?? 0)")]

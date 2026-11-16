@@ -297,7 +297,7 @@ impl Control {
 const MESSAGE_QUIET: Duration = Duration::from_secs(1);
 
 const RELEASE_PROMPT: &str =
-    "人工介入结束。请结合上面的对话，自主完成原来的任务。完成后按最初的要求，以 ```json 结构化结果结束。";
+    "人工介入结束。请结合上面的对话，自主完成原来的子任务。完成后按最初的要求，以 ```json 结构化结果结束。";
 
 /// The agent finished but a verification command failed. Running the same command against a new
 /// session rarely changes the outcome (the command may not fit the workspace), so the lead decides.

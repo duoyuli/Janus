@@ -70,7 +70,7 @@ struct ChatCard: View {
                     // They stay apart from the run's cumulative total on the run card.
                     Text(verbatim: u.labels ?? u.percent.map { "上下文 \($0)%" } ?? "\(SessionView.tokens(u.tokens ?? 0)) tokens")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-                        .help([u.used.map { "上下文已用 \(SessionView.tokens($0))" }, u.size.map { "共 \(SessionView.tokens($0))" }, u.tokens.map { "上一轮 \(SessionView.tokens($0)) tokens" }].compactMap { $0 }.joined(separator: " · ") + "\n本会话的数字不计入 Run 累计用量")
+                        .help([u.used.map { "上下文已用 \(SessionView.tokens($0))" }, u.size.map { "共 \(SessionView.tokens($0))" }, u.tokens.map { "上一轮 \(SessionView.tokens($0)) tokens" }].compactMap { $0 }.joined(separator: " · ") + "\n本会话的数字不计入任务累计用量")
                 }
                 Picker("显示", selection: $density) {
                     Text("详细").tag("detail")
@@ -178,7 +178,7 @@ struct ChatCard: View {
     private var images: [PastedImage] { run.sessionImages[target.key] ?? [] }
 
     private func send(_ type: String) {
-        if type == "finish" && !confirm("用当前产出完成这个任务？", "任务里已有的改动会照常记录成 diff。", ok: "完成", destructive: false) { return }
+        if type == "finish" && !confirm("用当前产出完成这个子任务？", "子任务里已有的改动会照常记录成 diff。", ok: "完成", destructive: false) { return }
         var body = target.body
         body["type"] = JSON(type)
         if type == "message" {
@@ -283,7 +283,7 @@ struct ChatItem: View {
                 Divider()
                 Text(verbatim: "\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(d["resumed"].truthy ? " · 恢复了原会话" : "")")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                DisclosureGroup("编排器发出的任务说明") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
+                DisclosureGroup("编排器发出的子任务说明") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
         case "run.created":
             divider("目标 · \(L.goalTitle(d["goal"].str))")
@@ -317,7 +317,7 @@ struct ChatItem: View {
             .background(Tone.blue.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         // Goal mode: a collaborator asks the lead, which answers on the board.
         case "question.asked": note("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : "（\(d["options"].strings.joined(separator: " / "))）") · 负责人会回答，不需要你处理", .amber)
-        case "context.handoff": note("⇄ 上游任务 \(d["from"].string ?? e.text) 的结果已带入本次任务", nil)
+        case "context.handoff": note("⇄ 上游子任务 \(d["from"].string ?? e.text) 的结果已带入本次子任务", nil)
         case "board.posted": note("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)", nil)
         case "task.conflict" where d["owned"].truthy:
             note("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: "、"))。已提醒 \(e.task ?? "") 不要再改，并告诉负责人", .amber)
@@ -461,7 +461,7 @@ struct ToolRow: View {
         case "janus.accept": return ("接受 \(a["task"].str) 的结果：\(a["reason"].str)", first)
         case "janus.cancel": return ("取消 \(a["tasks"].strings.joined(separator: "、"))\(a["reason"].truthy ? "：\(a["reason"].str)" : "")", first)
         case "janus.ask_user": return ("请你决定：\(a["question"].str)", first)
-        case "janus.team": return ("查看团队和任务状态", "")
+        case "janus.team": return ("查看团队和子任务状态", "")
         case "janus.board_post": return ("写回看板：\(a["text"].str)", "")
         default: return (tool, first)
         }
@@ -537,8 +537,8 @@ struct AgentView: View {
                 ChatCard(run: run, st: st, title: "对话", info: agentSession(st, agentId), target: .agent(agentId))
                     .frame(height: 640)
                 Card(padding: 12) {
-                    HStack { Text("负责的任务").font(.headline); Spacer(); Text(verbatim: "\(tasks.count) 个").font(.caption).foregroundStyle(.secondary) }
-                    if tasks.isEmpty { Text(agentId == "lead" ? "负责人负责规划和协调。" : "还没有分配任务。").font(.callout).foregroundStyle(.secondary) }
+                    HStack { Text("负责的子任务").font(.headline); Spacer(); Text(verbatim: "\(tasks.count) 个").font(.caption).foregroundStyle(.secondary) }
+                    if tasks.isEmpty { Text(agentId == "lead" ? "负责人负责规划和协调。" : "还没有分配子任务。").font(.callout).foregroundStyle(.secondary) }
                     ForEach(tasks, id: \.id) { t in
                         let (l, tone) = t.status.label
                         HStack {

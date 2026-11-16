@@ -50,13 +50,14 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
         "env": { "FAKE_DIR": fake.to_string_lossy() },
         "options": { "controls": [{ "id": "mode", "name": "Mode", "category": "mode", "type": "select", "via": "config", "current": "ask", "permission": true, "options": modes }] }
     }), now_ms()).unwrap();
-    for (id, writable) in members {
+    for (i, (id, writable)) in members.iter().enumerate() {
         app.db
             .put_config(
                 "role",
                 id,
                 &json!({
                     "id": id, "name": id, "role": "测试", "connection": "fake",
+                    "lead": i == 0,
                     "session": if *writable { json!({}) } else { json!({ "mode": "read-only" }) },
                 }),
                 now_ms(),
@@ -512,7 +513,7 @@ async fn amended_conclusions_reach_downstream_tasks() {
     wait_until(&h.app, &run, "B running", |e| task_event(e, "attempt.started", "B")).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let (text, err) = tool(&h.app, &run, "lead", "amend", json!({ "task": "B", "text": "x" })).await;
-    assert!(err && text.contains("只能修订已完成任务"), "{text}");
+    assert!(err && text.contains("只能修订已完成子任务"), "{text}");
     let (text, err) = tool(&h.app, &run, "lead", "amend", json!({ "task": "A", "text": "改用经典 8 邻域规则" })).await;
     assert!(!err && text.contains("B"), "{text}");
     wait_until(&h.app, &run, "B after the amendment", |e| task_event(e, "task.succeeded", "B")).await;
@@ -729,7 +730,7 @@ async fn goal_mode_orchestrates_through_the_board() {
         { "id": "T3", "title": "查", "instructions": "查", "assignee": "m1" }] }),
     )
     .await;
-    assert!(err && text.contains("nobody") && text.contains("T9") && text.contains("任务 T3：缺少 accept"), "{text}");
+    assert!(err && text.contains("nobody") && text.contains("T9") && text.contains("子任务 T3：缺少 accept"), "{text}");
     assert!(h.app.run(&run).unwrap().st.lock().unwrap().tasks.is_empty());
 
     let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [
@@ -945,7 +946,7 @@ async fn messages_are_shown_then_routed_and_delivered() {
     wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
 
     // No session now: a note, carried into m1's next session.
-    act(&h, &run, json!({ "type": "message", "agent": "m1", "text": "下一个任务注意测试" }));
+    act(&h, &run, json!({ "type": "message", "agent": "m1", "text": "下一个子任务注意测试" }));
     let note = events(&h.app, &run).into_iter().rev().find(|e| e.kind == "user.message").unwrap();
     let note_id = note.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
     assert!(events(&h.app, &run).iter().any(|e| e.kind == "message.routed"
@@ -967,7 +968,7 @@ async fn messages_are_shown_then_routed_and_delivered() {
         .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2"))
         .unwrap();
     assert!(
-        t2.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("下一个任务注意测试"),
+        t2.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("下一个子任务注意测试"),
         "the note is in T2's prompt"
     );
     finish_lead(&h);
@@ -1042,12 +1043,12 @@ async fn a_historical_delivered_run_reopens_for_chat() {
     // Only the event log survives: the live Run is gone.
     h.app.runs.lock().unwrap().remove(&run);
     let reopened = h.app.resume_run(&run).await.expect("a delivered run reopens");
-    h.app.action(&reopened, &json!({ "type": "message", "agent": "lead", "text": "历史任务继续" })).unwrap();
+    h.app.action(&reopened, &json!({ "type": "message", "agent": "lead", "text": "历史子任务继续" })).unwrap();
     wait_until(&h.app, &run, "reopened prompt", |evs| {
         evs.iter().any(|e| {
             e.kind == "session.prompt"
                 && e.data.as_ref().is_some_and(|d| {
-                    d["channel"] == "followup" && d["prompt"].as_str().is_some_and(|t| t.contains("历史任务继续"))
+                    d["channel"] == "followup" && d["prompt"].as_str().is_some_and(|t| t.contains("历史子任务继续"))
                 })
         })
     })
@@ -1288,11 +1289,11 @@ async fn collaborators_claim_files_before_changing_them() {
     let (text, err) = tool(&h.app, &run, "T2", "claim", json!({ "paths": ["docs/"] })).await;
     assert!(!err && text.contains("已认领 docs"), "{text}");
     let (text, err) = tool(&h.app, &run, "T2", "claim", json!({ "paths": ["docs/a.md"] })).await;
-    assert!(!err && text.contains("已经由你的任务负责"), "{text}");
+    assert!(!err && text.contains("已经由你的子任务负责"), "{text}");
     let (text, err) = tool(&h.app, &run, "T1", "claim", json!({ "paths": ["docs/b.md"] })).await;
     assert!(err && text.contains("归 T2 负责"), "{text}");
     let (text, err) = tool(&h.app, &run, "V1", "claim", json!({ "paths": ["x"] })).await;
-    assert!(err && text.contains("验证任务"), "{text}");
+    assert!(err && text.contains("验证子任务"), "{text}");
     assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind == "task.claimed").count(), 1);
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[认领] T2") && board.contains("docs"), "{board}");
@@ -1681,7 +1682,7 @@ async fn library_mcp_reaches_the_session_with_its_values() {
         h.app.create_skill(&json!({ "name": "notes", "description": "记笔记", "content": "写下来。" })).await.unwrap();
     let ids: Vec<&str> = imported.iter().chain([&local, &skill]).map(|i| i.id.as_str()).collect();
     h.app
-        .save_role(&json!({ "id": "lead", "name": "lead", "role": "测试", "connection": "fake", "resources": ids }))
+        .save_role(&json!({ "id": "lead", "name": "lead", "role": "测试", "connection": "fake", "lead": true, "resources": ids }))
         .unwrap();
 
     let run = h

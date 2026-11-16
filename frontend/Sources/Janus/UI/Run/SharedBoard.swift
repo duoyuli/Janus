@@ -37,11 +37,11 @@ struct ProgressBoard: View {
         }
     }
 
-    /// "3 个任务 · 完成 2"
+    /// "3 个子任务 · 完成 2"
     private var summary: String {
         guard !st.order.isEmpty else { return "" }
         let done = st.orderedTasks.filter { $0.status == .succeeded }.count
-        return "\(st.order.count) 个任务 · 完成 \(done)"
+        return "\(st.order.count) 个子任务 · 完成 \(done)"
     }
 
     private var nowMs: Double {
