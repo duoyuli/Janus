@@ -40,8 +40,9 @@ struct RolesView: View {
     private func row(_ r: JSON) -> some View {
         let c = store.connection(r["connection"].str)
         let k = c.flatMap { store.kind($0["kind"].str) }
-        let mcpCount = r["mcp"].array.count + r["mcpRefs"].strings.count
-        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? "提示词" : "", r["skills"].array.isEmpty ? "" : "\(r["skills"].array.count) Skill", mcpCount == 0 ? "" : "\(mcpCount) MCP"].filter { !$0.isEmpty }
+        let kinds = r["resources"].strings.compactMap { store.libraryItem($0)?["kind"].str }
+        let skills = kinds.filter { $0 == "skill" }.count, servers = kinds.filter { $0 == "mcp" }.count
+        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? "提示词" : "", skills == 0 ? "" : "\(skills) Skill", servers == 0 ? "" : "\(servers) MCP"].filter { !$0.isEmpty }
         return Button { store.editingRole = r } label: {
             HStack(spacing: 12) {
                 Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
@@ -87,16 +88,8 @@ struct RoleEditor: View {
     let original: JSON
     @Environment(\.dismiss) private var dismiss
     @Local private var r: JSON = [:]
-    @Local private var skillPick = false
-    @Local private var skillQuery = ""
-    @Local private var skillDraft: JSON?
-    @Local private var ghLink: String?
-    @Local private var ghAdding = false
-    @Local private var mcpDraft: JSON?
-    @Local private var mcpPick = false
-    @Local private var mcpQuery = ""
-    @Local private var mcpLink: String?
-    @Local private var mcpAdding = false
+    @Local private var picking = false
+    @Local private var pickQuery = ""
     @Local private var saving = false
     @Local private var colors = false
 
@@ -184,8 +177,7 @@ struct RoleEditor: View {
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     Text(Setup.instructionsVia(c)).font(.caption).foregroundStyle(.secondary)
 
-                    skills
-                    mcp
+                    resources
 
                     section("权限", trailing: Setup.controls(c).contains { $0["permission"].truthy } ? "\(c?["name"].str ?? "") 的权限模式" : "")
                     permissions(c)
@@ -219,10 +211,7 @@ struct RoleEditor: View {
         }
         .frame(minWidth: 620, idealWidth: 680, minHeight: 480, idealHeight: 760)
         .onAppear { r = original }
-        .task {
-            if store.skills == nil { await store.loadSkills() }
-            if store.mcpSources == nil { await store.loadMcpSources() }
-        }
+        .task { await store.loadLibrary() }
     }
 
     private func bind(_ k: String) -> Binding<String> {
@@ -244,267 +233,62 @@ struct RoleEditor: View {
         .padding(.top, 6)
     }
 
-    // MARK: Skills
+    // MARK: Resources
 
-    @ViewBuilder private var skills: some View {
-        let lib = store.skills ?? []
-        let picked = r["skills"].strings.map { id in lib.first { $0["id"].str == id } ?? ["id": JSON(id), "name": JSON(id), "description": store.skills == nil ? "" : "找不到这个 Skill：来源已删除，或更新后仓库中没有了"] }
-        section("Skills", count: picked.count, action: skillPick ? nil : ("添加", { skillPick = true }))
-        ForEach(picked, id: \.self) { s in
-            mounted("sparkles", s["name"].str, [s["sourceId"].truthy ? s["source"].str : "", s["description"].str].filter { !$0.isEmpty }.joined(separator: " · ")) { r["skills"] = JSON(r["skills"].strings.filter { $0 != s["id"].str }) }
-        }
-        if skillPick {
-            VStack(alignment: .leading, spacing: 8) {
-                if let d = skillDraft {
-                    TextField("名称，例如 code-review", text: Binding(get: { d["name"].str }, set: { skillDraft?["name"] = JSON($0) })).textFieldStyle(.roundedBorder)
-                    TextField("什么时候用，例如：评审代码变更时使用", text: Binding(get: { d["description"].str }, set: { skillDraft?["description"] = JSON($0) })).textFieldStyle(.roundedBorder)
-                    TextEditor(text: Binding(get: { d["content"].str }, set: { skillDraft?["content"] = JSON($0) })).frame(height: 110).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
-                    HStack { Spacer(); Button("取消") { skillDraft = nil }; Button("添加到 Skill 库") { createSkill() }.buttonStyle(.primary) }
-                } else if let link = ghLink {
-                    Text("粘贴 GitHub 仓库链接，Janus 会找出其中所有的 Skill，之后在设置的「Skill 库」中管理。").font(.caption).foregroundStyle(.secondary)
-                    TextField("https://github.com/owner/repo", text: Binding(get: { link }, set: { ghLink = $0 })).textFieldStyle(.roundedBorder).onSubmit(addSource).disabled(ghAdding)
-                    HStack {
-                        if ghAdding { ProgressView().controlSize(.small); Text("正在拉取仓库…").font(.callout).foregroundStyle(.secondary) }
-                        Spacer()
-                        Button("取消") { ghLink = nil }.disabled(ghAdding)
-                        Button("添加") { addSource() }.buttonStyle(.primary).disabled(ghAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                } else {
-                    if !lib.isEmpty { TextField("搜索 Skill 库", text: $skillQuery).textFieldStyle(.roundedBorder) }
-                    let q = skillQuery.lowercased()
-                    let list = lib.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str) \($0["source"].str)".lowercased().contains(q) }
-                    let groups = Self.groups(list)
-                    if store.skills == nil { Text("读取中…").foregroundStyle(.secondary) }
-                    else if list.isEmpty { Text(lib.isEmpty ? "Skill 库还是空的" : "没有匹配的 Skill").font(.callout).foregroundStyle(.secondary) }
-                    ForEach(groups, id: \.0) { g in
-                        if groups.count > 1 {
-                            let n = g.1.filter { r["skills"].strings.contains($0["id"].str) }.count
-                            HStack(spacing: 6) {
-                                Image(systemName: g.0 == "Janus" ? "tray.full" : "shippingbox").font(.caption).foregroundStyle(.secondary)
-                                Text(g.0 == "Janus" ? "Janus 自建" : g.0).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                if n > 0 { Text("已选 \(n)").font(.caption).foregroundStyle(Color.accentColor) }
-                                if let src = store.skillSourceUpdates.first(where: { $0["repo"].str == g.0 }) {
-                                    Spacer()
-                                    if store.updatingSources.contains(src["id"].str) { ProgressView().controlSize(.mini) }
-                                    else { Button("有更新 · 更新") { Task { await store.updateSkillSources([src["id"].str]) } }.buttonStyle(.link).font(.caption) }
-                                }
-                            }
-                            .padding(.top, 4)
-                        }
-                        ForEach(g.1, id: \.self) { s in pickRow(s) }
-                    }
-                    HStack {
-                        Button("新建…") { skillDraft = ["name": "", "description": "", "content": ""] }.buttonStyle(.link)
-                        Button("从文件夹导入…") { importSkill() }.buttonStyle(.link)
-                        Button("从 GitHub 添加…") { ghLink = "" }.buttonStyle(.link)
-                        Spacer()
-                        Button("完成") { skillPick = false }
-                    }
-                }
-            }
-            .padding(10)
-            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    /// The library's own skills first, then each repository's, in the order they were added.
-    static func groups(_ list: [JSON]) -> [(String, [JSON])] {
-        var out: [(String, [JSON])] = []
-        for s in list {
-            let key = s["sourceId"].truthy ? s["source"].str : "Janus"
-            if let i = out.firstIndex(where: { $0.0 == key }) { out[i].1.append(s) } else { out.append((key, [s])) }
-        }
-        return out.sorted { ($0.0 == "Janus" ? 0 : 1) < ($1.0 == "Janus" ? 0 : 1) }
-    }
-
-    private func pickRow(_ s: JSON) -> some View {
-        let on = r["skills"].strings.contains(s["id"].str)
-        return Button {
-            var set = r["skills"].strings
-            if on { set.removeAll { $0 == s["id"].str } } else { set.append(s["id"].str) }
-            r["skills"] = JSON(set)
-        } label: {
-            HStack(alignment: .top) {
-                Image(systemName: on ? "checkmark.square.fill" : "square").foregroundStyle(on ? Color.accentColor : .secondary).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) { Text(s["name"].str).fontWeight(.medium); Text(s["description"].str).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                Spacer()
-            }
-            .contentShape(Rectangle())
-            .hoverable(6)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
-
-    private func addSource() {
-        guard let link = ghLink?.trimmingCharacters(in: .whitespaces), !link.isEmpty, !ghAdding else { return }
-        ghAdding = true
-        Task {
-            defer { ghAdding = false }
-            do {
-                let src = try await store.api.post("/api/skill-sources", ["url": JSON(link)], timeout: 240)
-                ghLink = nil
-                skillQuery = ""
-                await store.loadSkills()
-                await store.loadSkillSources()
-                store.show("已添加 \(src["repo"].str)：找到 \(src["skills"].array.count) 个 Skill，勾选要给这个角色用的")
-            } catch { store.show(error.localizedDescription) }
-        }
-    }
-
-    private func mounted(_ icon: String, _ title: String, _ sub: String, remove: @escaping () -> Void) -> some View {
-        HStack(alignment: .top) {
-            Image(systemName: icon).foregroundStyle(Color.accent)
-            VStack(alignment: .leading, spacing: 1) { Text(title).fontWeight(.medium); if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary) } }
-            Spacer()
-            Button(action: remove) { Label("移除 \(title)", systemImage: "xmark") }.labelStyle(.iconOnly).buttonStyle(.borderless).help("移除")
-        }
-        .padding(8)
-        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7))
-    }
-
-    private func createSkill() {
-        guard let d = skillDraft else { return }
-        Task {
-            do {
-                let sk = try await store.api.post("/api/skills", d)
-                skillDraft = nil
-                await store.loadSkills()
-                r["skills"] = JSON(r["skills"].strings + [sk["id"].str])
-                store.show("已添加 Skill \(sk["name"].str)")
-            } catch { store.show(error.localizedDescription) }
-        }
-    }
-
-    private func importSkill() {
-        let p = NSOpenPanel()
-        p.canChooseDirectories = true
-        p.canChooseFiles = false
-        p.showsHiddenFiles = true
-        p.prompt = "复制到 Skill 库"
-        p.message = "选择包含 SKILL.md 的文件夹"
-        guard p.runModal() == .OK, let u = p.url else { return }
-        Task {
-            do {
-                let sk = try await store.api.post("/api/skills/import", ["path": JSON(u.path)])
-                await store.loadSkills()
-                r["skills"] = JSON(r["skills"].strings + [sk["id"].str])
-                store.show("已导入 Skill \(sk["name"].str)")
-            } catch { store.show(error.localizedDescription) }
-        }
-    }
-
-    // MARK: MCP
-
-    @ViewBuilder private var mcp: some View {
-        let list = r["mcp"].array
-        let refs = r["mcpRefs"].strings
-        let picked = refs.map { id in
-            store.mcpResource(id) ?? ["id": JSON(id), "key": JSON(id), "title": JSON(id), "sourceId": "", "missing": true]
-        }
-        section("MCP", count: list.count + picked.count, action: mcpPick || mcpDraft != nil ? nil : ("添加", { mcpPick = true; Task { await store.loadMcpSources() } }))
-        ForEach(list.indices, id: \.self) { i in
-            let m = list[i]
-            let cmd = ([m["command"].str] + m["args"].strings).joined(separator: " ")
-            mounted("square.on.square", m["name"].str, cmd + (m["envKeys"].array.isEmpty ? "" : " · \(m["envKeys"].array.count) 个环境变量")) {
-                var l = r["mcp"].array; l.remove(at: i); r["mcp"] = .array(l)
-            }
-        }
-        ForEach(picked, id: \.self) { s in
-            mounted("wrench.and.screwdriver", mcpName(s), mcpDetail(s)) {
-                r["mcpRefs"] = JSON(r["mcpRefs"].strings.filter { $0 != s["id"].str })
-            }
-        }
-        if mcpPick { mcpPicker() }
-        if let d = mcpDraft {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    TextField("名称，例如 filesystem", text: Binding(get: { d["name"].str }, set: { mcpDraft?["name"] = JSON($0) })).textFieldStyle(.roundedBorder).frame(width: 180)
-                    TextField("启动命令，例如 npx -y @modelcontextprotocol/server-filesystem .", text: Binding(get: { d["command"].str }, set: { mcpDraft?["command"] = JSON($0) })).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
-                }
-                TextField("环境变量 KEY=value，每行一个", text: Binding(get: { d["envText"].str }, set: { mcpDraft?["envText"] = JSON($0) }), axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...5).font(.system(.body, design: .monospaced))
-                HStack {
-                    Button("从 MCP 库选择…") { mcpDraft = nil; mcpPick = true; Task { await store.loadMcpSources() } }.buttonStyle(.link)
-                    Spacer()
-                    Button("取消") { mcpDraft = nil }
-                    Button("添加") { addMcp(d) }.buttonStyle(.primary)
-                }
-            }
-            .padding(10)
-            .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    /// The library's servers, grouped by source, with their credential state and a way to add a
-    /// repository without leaving the role editor.
-    @ViewBuilder private func mcpPicker() -> some View {
-        let lib = store.mcpSources ?? []
-        VStack(alignment: .leading, spacing: 8) {
-            if let link = mcpLink {
-                Text("粘贴 GitHub 仓库链接，Janus 会读取其中的 mcp.json / .mcp.json。导入后在设置的「MCP 库」里管理。").font(.caption).foregroundStyle(.secondary)
-                TextField("https://github.com/owner/repo", text: Binding(get: { link }, set: { mcpLink = $0 })).textFieldStyle(.roundedBorder).onSubmit(addMcpSource).disabled(mcpAdding)
-                HStack {
-                    if mcpAdding { ProgressView().controlSize(.small); Text("正在拉取仓库…").font(.callout).foregroundStyle(.secondary) }
-                    Spacer()
-                    Button("取消") { mcpLink = nil }.disabled(mcpAdding)
-                    Button("导入") { addMcpSource() }.buttonStyle(.primary).disabled(mcpAdding || link.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
+    /// The library items this role uses, each with what the role's agent can do with it.
+    // @project-doc docs/domains/resource_library.md#roles
+    @ViewBuilder private var resources: some View {
+        let runtime = Library.runtime(store.connection(r["connection"].str))
+        let chosen = r["resources"].strings
+        section("资源", count: chosen.count, action: picking ? nil : ("选择", { picking = true }))
+        ForEach(chosen, id: \.self) { id in
+            if let i = store.libraryItem(id) {
+                mounted(i["kind"].str == "skill" ? "sparkles" : "wrench.and.screwdriver", i["name"].str, detail(i, runtime), warn: warning(i, runtime)) { toggle(id) }
             } else {
-                if !lib.isEmpty { TextField("搜索 MCP 库", text: $mcpQuery).textFieldStyle(.roundedBorder) }
-                if store.mcpSources == nil { Text("读取中…").foregroundStyle(.secondary) }
-                else if lib.isEmpty { Text("MCP 库还是空的。从 GitHub 导入，或者手工添加一个服务器。").font(.callout).foregroundStyle(.secondary) }
-                ForEach(lib, id: \.self) { src in
-                    let q = mcpQuery.lowercased()
-                    let servers = src["servers"].array.filter { q.isEmpty || "\($0["title"].str) \($0["description"].str)".lowercased().contains(q) }
-                    if !servers.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "shippingbox").font(.caption).foregroundStyle(.secondary)
-                            Text(src["repo"].str).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            if let update = store.mcpSourceUpdates.first(where: { $0["id"].str == src["id"].str }) {
-                                Spacer()
-                                if store.updatingMcpSources.contains(update["id"].str) { ProgressView().controlSize(.mini) }
-                                else { Button("有更新 · 更新") { Task { await store.updateMcpSources([update["id"].str]) } }.buttonStyle(.link).font(.caption) }
-                            }
-                        }
-                        .padding(.top, 4)
-                        ForEach(servers, id: \.self) { mcpPickRow($0) }
+                mounted("questionmark.circle", id, "", warn: store.library == nil ? "" : "已从资源库删除，保存时移除") { toggle(id) }
+            }
+        }
+        if picking { picker(runtime) }
+        Text("Skill 和 MCP 服务器在设置的「资源库」中添加和管理。会话启动时交给 Agent，不写进它的配置。").font(.caption).foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private func picker(_ runtime: String) -> some View {
+        let q = pickQuery.lowercased()
+        let items = store.libraryItems.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str)".lowercased().contains(q) }
+        VStack(alignment: .leading, spacing: 8) {
+            if store.libraryItems.isEmpty {
+                Text("资源库还是空的。在设置的「资源库」中新建 Skill、添加 MCP 服务器，或从 GitHub 导入。").font(.callout).foregroundStyle(.secondary)
+            } else {
+                TextField("搜索资源库", text: $pickQuery).textFieldStyle(.roundedBorder)
+                ForEach([("skill", "技能"), ("mcp", "MCP 服务器")], id: \.0) { kind, title in
+                    let list = items.filter { $0["kind"].str == kind }
+                    if !list.isEmpty {
+                        Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 4)
+                        ForEach(list, id: \.self) { pickRow($0, runtime) }
                     }
                 }
-                HStack {
-                    Button("手工添加…") { mcpPick = false; mcpDraft = ["name": "", "command": "", "envText": ""] }.buttonStyle(.link)
-                    Button("从 GitHub 导入…") { mcpLink = "" }.buttonStyle(.link)
-                    Spacer()
-                    Button("完成") { mcpPick = false }
-                }
+                if items.isEmpty { Text("没有匹配的资源").font(.callout).foregroundStyle(.secondary) }
             }
-            Text("环境变量和 HTTP header 的值在设置的「MCP 库」里设置；值不会存进角色或 Run 记录。").font(.caption2).foregroundStyle(.secondary)
+            HStack { Spacer(); Button("完成") { picking = false } }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func mcpPickRow(_ s: JSON) -> some View {
-        let on = r["mcpRefs"].strings.contains(s["id"].str)
-        let http = s["transport"].str == "http"
-        let missing = s["envKeys"].strings.count - s["envSet"].strings.count + s["headerKeys"].strings.count - s["headerSet"].strings.count
-        return Button {
-            var set = r["mcpRefs"].strings
-            if on { set.removeAll { $0 == s["id"].str } } else { set.append(s["id"].str) }
-            r["mcpRefs"] = JSON(set)
-        } label: {
-            HStack(alignment: .top) {
-                Image(systemName: on ? "checkmark.square.fill" : "square").foregroundStyle(on ? Color.accentColor : .secondary).accessibilityHidden(true)
+    private func pickRow(_ i: JSON, _ runtime: String) -> some View {
+        let on = r["resources"].strings.contains(i["id"].str)
+        return Button { toggle(i["id"].str) } label: {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: on ? "checkmark.square.fill" : "square").foregroundStyle(on ? Color.accent : Color.secondary)
                 VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(mcpName(s)).fontWeight(.medium)
-                        Pill(http ? "HTTP" : "stdio", http ? .blue : .gray)
-                        if missing > 0 { Pill("\(missing) 个值未设置", .amber) }
-                    }
-                    if s["description"].truthy { Text(s["description"].str).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                    Text([s["manifest"].str, mcpCreds(s)].filter { !$0.isEmpty }.joined(separator: " · ")).font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary).lineLimit(1)
+                    Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium))
+                    Text(detail(i, runtime)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    let w = warning(i, runtime)
+                    if !w.isEmpty { Text(w).font(.caption).foregroundStyle(Tone.amber.color) }
                 }
                 Spacer()
             }
+            .padding(.vertical, 3)
             .contentShape(Rectangle())
             .hoverable(6)
         }
@@ -512,45 +296,37 @@ struct RoleEditor: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
-    private func mcpName(_ s: JSON) -> String { s["title"].truthy ? s["title"].str : s["key"].str }
-
-    private func mcpCreds(_ s: JSON) -> String {
-        let env = s["envKeys"].strings
-        let headers = s["headerKeys"].strings
-        var parts: [String] = []
-        if !env.isEmpty { parts.append("环境变量 \(s["envSet"].strings.count)/\(env.count)") }
-        if !headers.isEmpty { parts.append("Header \(s["headerSet"].strings.count)/\(headers.count)") }
-        return parts.joined(separator: " · ")
+    private func toggle(_ id: String) {
+        var set = r["resources"].strings
+        if let k = set.firstIndex(of: id) { set.remove(at: k) } else { set.append(id) }
+        r["resources"] = JSON(set)
     }
 
-    private func mcpDetail(_ s: JSON) -> String {
-        if s["missing"].truthy { return "找不到这个 MCP：来源已删除，或更新后仓库中没有了。保存角色时会移除它" }
-        let what = s["transport"].str == "http" ? "HTTP" : "stdio"
-        return [s["source"].str, what, mcpCreds(s), s["description"].str].filter { !$0.isEmpty }.joined(separator: " · ")
+    private func detail(_ i: JSON, _ runtime: String) -> String {
+        let what = i["kind"].str == "skill" ? i["description"].str : Library.endpoint(i)
+        return [what, Library.origin(i)].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    private func addMcpSource() {
-        guard let link = mcpLink?.trimmingCharacters(in: .whitespaces), !link.isEmpty, !mcpAdding else { return }
-        mcpAdding = true
-        Task {
-            defer { mcpAdding = false }
-            do {
-                let src = try await store.api.post("/api/mcp-sources", ["url": JSON(link)], timeout: 240)
-                mcpLink = nil
-                mcpQuery = ""
-                await store.loadMcpSources()
-                store.show("已导入 \(src["repo"].str)：找到 \(src["servers"].array.count) 个 MCP，勾选要给这个角色用的")
-            } catch { store.show(error.localizedDescription) }
+    /// What keeps the item from working for this role: its agent can't use it, or values are missing.
+    private func warning(_ i: JSON, _ runtime: String) -> String {
+        let s = runtime.isEmpty ? (state: "yes", why: "") : Library.support(i, runtime: runtime)
+        let vars = Library.vars(i)
+        return [s.state == "yes" ? "" : s.why, vars.complete ? "" : vars.text].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private func mounted(_ icon: String, _ title: String, _ sub: String, warn: String, remove: @escaping () -> Void) -> some View {
+        HStack(alignment: .top) {
+            Image(systemName: icon).foregroundStyle(Color.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(.body, design: .monospaced).weight(.medium))
+                if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                if !warn.isEmpty { Text(warn).font(.caption).foregroundStyle(Tone.amber.color) }
+            }
+            Spacer()
+            Button(action: remove) { Label("移除 \(title)", systemImage: "xmark") }.labelStyle(.iconOnly).buttonStyle(.borderless).help("移除")
         }
-    }
-
-    private func addMcp(_ d: JSON) {
-        guard d["name"].str.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { store.show("名称只能包含字母、数字、- 和 _。"); return }
-        guard d["name"].str.lowercased() != "janus" else { store.show("名称 janus 保留给 Janus 看板，请换一个名字。"); return }
-        let cmd = d["command"].str.trimmingCharacters(in: .whitespaces)
-        guard !cmd.isEmpty else { store.show("请填写启动命令。"); return }
-        r["mcp"] = .array(r["mcp"].array + [["name": d["name"], "command": JSON(cmd), "envText": d["envText"]]])
-        mcpDraft = nil
+        .padding(8)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7))
     }
 
     // MARK: Session controls: whatever the agent declares

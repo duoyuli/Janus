@@ -51,7 +51,7 @@ frontend/
 │   │   ├── API.swift          # HTTP 请求和 SSE 事件流
 │   │   ├── Appearance.swift   # 应用自己的外观：跟随系统、浅色或深色，记在本机
 │   │   ├── Backend.swift      # 找到或启动 Janus 服务
-│   │   ├── AppStore.swift     # Agents、角色、工作区、Run 列表、适配器、Skill 库和 Skill 来源、MCP 库和 MCP 来源，以及当前屏幕
+│   │   ├── AppStore.swift     # Agents、角色、工作区、Run 列表、适配器、资源库（资源和来源），以及当前屏幕
 │   │   ├── RunModel.swift     # 打开的 Run：事件、订阅、操作、回放、草稿
 │   │   ├── Inbox.swift        # 收件箱：汇总所有 Run 中等人处理的事项、稍后处理与已处理
 │   │   ├── Notifier.swift     # 系统通知：Janus 不在前台时，收件箱里的新事项
@@ -68,7 +68,7 @@ frontend/
 │   │   ├── RunDocs.swift      # 收集一个 Run 交付、保存和提到的 Markdown 文件
 │   │   ├── Updater.swift      # 应用内更新：检查、按部分下载、校验签名、替换并重新打开
 │   │   └── Snapshots.swift    # 开发用：按命令保存窗口截图
-│   └── UI/                    # 侧栏、工作区首页、Run 各页面（UI/Run/，含验收证据 Evidence.swift、用量与账单 Usage.swift）、diff 审阅窗口、设置浮层（Settings/，含用量账单 UsageBillView.swift）
+│   └── UI/                    # 侧栏、工作区首页、Run 各页面（UI/Run/，含验收证据 Evidence.swift、用量与账单 Usage.swift）、diff 审阅窗口、设置浮层（Settings/，含资源库 LibraryView.swift、用量账单 UsageBillView.swift）
 ├── Tests/JanusTests/          # Swift Testing 测试
 └── scripts/                   # package.sh（打包，含下载 Node.js）、make-icon.swift（图标）
 ```
@@ -146,7 +146,7 @@ Run 的用量汇总是从事件算出的只读账本：后端是 `ledger`（`bac
 | 工作区设置（表单） | 目录（系统的文件夹选择框）、名称、[共享资料](../domains/agents_and_roles.md#workspace_brief)（显示字数和上限，超过上限不能保存）、启用的角色、主控 |
 | 运行页 | 工具栏切换「工作台 / 审计与回放 / 团队与权限」，「文档」菜单列出这个 Run 的 Markdown 文档（见[文档查看](#markdown_viewer)），并可复制交付摘要、导出事件日志（JSONL）。任务页和 Agent 页的工具栏左侧有返回按钮，此时分段控件不选中任何一项，点「工作台」也能返回 |
 | 任务页 / Agent 页 | 任务页标题下列出它负责的文件（编排的 `owns` 加上认领的）和它独立验证的任务；左侧是会话和折叠的执行轨迹；右侧最上面是这个任务的[用量账单](#usage_bill)，然后是验收标准（结果和工作目录对不上时，最先用警示色列出，然后是每条标准的证据方法和完整证据、只提醒不阻断的项、执行者提交的其他证据、独立验证、风险、结果摘要，见[验收证据](#evidence_methods)），下面一张概要卡片列出执行者、上游、下游和尝试，运行环境折叠在其中，有产物时再显示产物。编排器发给 Agent 的任务说明在会话中每次尝试的开头展开查看。Agent 页是对话和它负责的任务 |
-| 设置（⌘,） | 浮在主界面中央的面板（`UI/Settings/SettingsView.swift`，`AppStore.showingSettings`），不另开窗口：后面是压暗的主界面，点空白处或 Esc 关闭，关闭后回到打开设置前的页面，页面状态不变。左侧列出六个分类，右侧是选中的面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、Skill、MCP、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、Skill 库（粘贴 GitHub 链接添加来源、检查更新、一键更新、删除、浏览每个来源的 Skill 和挂载它的角色；管理自建的 Skill，见 [Skill 来源](../domains/agents_and_roles.md#skill_sources)）、MCP 库（导入 GitHub 来源、检查更新、重新拉取、删除，浏览 stdio / HTTP 服务器和挂载它的角色，按变量名设置或清除凭据，清除成功后立即显示「未设置」，见 [MCP 来源](../domains/agents_and_roles.md#mcp_library)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）、用量账单（按时间段汇总所有 Run 的用量，见[用量账单](#usage_bill)）。左侧面板底部是外观选择（系统、浅色或深色，记在本机）。角色编辑器可以按来源勾选 MCP 库中的服务器，也可以手工添加 stdio 服务器；来源里消失的资源标为找不到，保存时移除。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
+| 设置（⌘,） | 浮在主界面中央的面板（`UI/Settings/SettingsView.swift`，`AppStore.showingSettings`），不另开窗口：后面是压暗的主界面，点空白处或 Esc 关闭，关闭后回到打开设置前的页面，页面状态不变。左侧列出五个分类，右侧是选中的面板，重新打开时回到上次的面板：Agents（添加、编辑、检查、登录、删除）、角色（模型、指令、资源、权限、会话选项；[执行统计](../domains/agents_and_roles.md#role_stats)显示在角色编辑器标题下）、资源库（`LibraryView`，分「技能」「MCP 服务器」「来源」三栏，各带数量：新建和编辑 Skill、从文件夹复制或刷新；添加、编辑 MCP 服务器和粘贴配置，变量的值只能写入、不再显示，留空保留已保存的值；粘贴 GitHub 链接添加来源，勾选导入、检查更新、更新、删除。每项资源显示来源、使用它的角色、缺少的值和 Codex 不支持的传输，见[资源库](../domains/resource_library.md)）、ACP 适配器（安装、检查更新、升级、切回，见 [ACP 适配器管理](adapters.md)）、用量账单（按时间段汇总所有 Run 的用量，见[用量账单](#usage_bill)）。左侧面板底部是外观选择（系统、浅色或深色，记在本机）。角色编辑器的「资源」区从资源库中按类型勾选，每项按角色绑定的 Agent 标出不能使用的原因（例如 Codex 不支持 SSE、自定义命令的 Agent 不能加载 Skill）和缺少的值；资源库中已删除的资源标出，保存时移除。资源来源有更新时，主窗口侧栏底部显示「N 个资源来源有更新」，点击打开资源库。主窗口中需要设置的地方（入门步骤、角色不能运行的提示）直接打开对应面板 |
 
 <a id="run_page"></a>工作台以主控的对话为中心，从上到下依次是：运行卡片（「推进目标 / 协作 / 交付 / 验收」的步骤指示）、需要你处理、交付结果、主控的对话和它旁边的检查器、[进展](#run_timeline)，没有内容的部分不显示。主控的对话（`ChatCard`，`target: .agent("lead")`）和 Agent 页的对话是同一个，可以直接插话、接管。Run 交付后主控的会话仍保留为常规对话：可以直接写下一轮任务，或用 `/goal` 设置新的目标。服务重启后会话不在内存中，第一次发送消息会重新打开主控会话（能加载原会话就加载，否则新建会话并带上目标、交付摘要和最近的对话）。检查器（`RunInspector`）分四个页签，上次选的页签会记住：任务（点按打开任务页）、改动（每个任务最新的 diff，点「审阅」打开 [diff 审阅](#diff_review)）、产物（其他文件）、团队（各 Agent 在做什么）。窗口窄时检查器移到对话下方。目标可能是一大段粘贴的说明，标题和 Run 列表只显示它的第一行（`goalTitle`），完整目标在运行卡片中展开查看。交付结果依次显示主控的总结、交付物、证据、逐条验收（每个任务的通过数、证据方法、各自的标准与完整证据、独立验证、痕迹核对和风险）、风险与限制（没有的项不显示）、主控建议写入共享资料的条目（`BriefSuggestions`，带「加入共享资料…」按钮），以及验收操作。
 

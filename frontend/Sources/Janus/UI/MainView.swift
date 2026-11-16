@@ -128,13 +128,13 @@ struct Sidebar: View {
                         .help("Agents、角色和 ACP 适配器（⌘,）")
                 }
                 UpdateBadge(updater: Updater.shared)
-                if !store.skillSourceUpdates.isEmpty {
-                    Button { store.openSettings("skills") } label: {
-                        Label("\(store.skillSourceUpdates.count) 个 Skill 来源有更新", systemImage: "arrow.down.circle")
+                if !store.sourceUpdates.isEmpty {
+                    Button { store.openSettings("library") } label: {
+                        Label("\(store.sourceUpdates.count) 个资源来源有更新", systemImage: "arrow.down.circle")
                             .font(.caption).foregroundStyle(Tone.blue.color)
                     }
                     .buttonStyle(.plain)
-                    .help(store.skillSourceUpdates.map { $0["repo"].str }.joined(separator: "、") + "：GitHub 上有新的提交，打开 Skill 库更新")
+                    .help(store.sourceUpdates.map { $0["repo"].str }.joined(separator: "、") + "：GitHub 上有新的提交，打开资源库更新")
                 }
                 if let n = store.serverNotice { Text(n).font(.caption2).foregroundStyle(Tone.amber.color).fixedSize(horizontal: false, vertical: true) }
             }

@@ -10,7 +10,7 @@ enum Screen: Hashable {
     case newWorkspace
 }
 
-/// Global state: setup objects (Agents, roles, workspaces), runs, adapters and the Skill library.
+/// Global state: setup objects (Agents, roles, workspaces), runs, adapters and the resource library.
 /// Everything is read from the orchestrator; nothing here is the source of truth.
 @Observable @MainActor
 final class AppStore {
@@ -22,11 +22,8 @@ final class AppStore {
     var runs: [JSON] = []
     var roleStats: JSON = .null
     var adapters: JSON = .null
-    var skills: [JSON]?
-    /// GitHub repositories whose skills sit next to the library's own (Settings › Skill 库).
-    var skillSources: [JSON]?
-    /// GitHub repositories whose MCP server definitions roles can mount (Settings › MCP 库).
-    var mcpSources: [JSON]?
+    /// The resource library (Settings › 资源库): `items` (skills and MCP servers) and `sources`.
+    var library: JSON?
     var screen: Screen?
     var toast: String?
     /// Why the server is not on its configured address (a taken port), if it is not.
@@ -56,10 +53,8 @@ final class AppStore {
         async let r: Void = loadRuns()
         _ = await (m, r)
         await loadSetup()
-        await loadSkillSources()
-        await loadMcpSources()
-        watchSkillSources()
-        watchMcpSources()
+        await loadLibrary()
+        watchLibrary()
         watchChecks()
         await inbox.refresh(self)
         startRunPolling()
@@ -90,115 +85,63 @@ final class AppStore {
         roleStats = (try? await api.get("/api/stats/roles")) ?? .null
     }
 
-    func loadSkills() async {
-        skills = (try? await api.get("/api/skills"))?["skills"].array ?? []
+    // MARK: Resource library
+
+    var libraryItems: [JSON] { library?["items"].array ?? [] }
+    var librarySources: [JSON] { library?["sources"].array ?? [] }
+    func libraryItem(_ id: String) -> JSON? { libraryItems.first { $0["id"].str == id } }
+
+    func loadLibrary() async {
+        if let l = try? await api.get("/api/library") { library = l }
+        else if library == nil { library = ["items": [], "sources": []] }
     }
 
-    func loadSkillSources() async {
-        skillSources = (try? await api.get("/api/skill-sources"))?["sources"].array ?? []
-    }
-
-    /// Sources whose remote has commits the local copy lacks (the server checks every few hours).
-    var skillSourceUpdates: [JSON] { (skillSources ?? []).filter { $0["updateAvailable"].truthy } }
+    /// Sources whose remote moved on since the last fetch (the server checks every few hours).
+    var sourceUpdates: [JSON] { librarySources.filter { $0["updateAvailable"].truthy } }
 
     /// Sources being fetched, so every screen shows the same progress.
     var updatingSources: Set<String> = []
 
-    /// The server's own checks land in source.json; re-read them now and then so reminders show up.
-    private func watchSkillSources() {
-        polls["skillSources"]?.cancel()
-        polls["skillSources"] = Task { [weak self] in
+    /// The server records its own checks; re-read the library now and then so reminders show up.
+    private func watchLibrary() {
+        polls["library"]?.cancel()
+        polls["library"] = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 600_000_000_000)
-                await self?.loadSkillSources()
+                await self?.loadLibrary()
             }
         }
     }
 
     /// Ask every remote now, instead of waiting for the server's next round.
-    func checkSkillSources() async {
+    func checkSources() async {
         do {
-            skillSources = try await api.post("/api/skill-sources/check", timeout: 240)["sources"].array
-            let n = skillSourceUpdates.count
-            show(n == 0 ? "所有 Skill 来源都是最新的" : "\(n) 个 Skill 来源有更新")
+            _ = try await api.post("/api/library/sources/check", timeout: 240)
+            await loadLibrary()
+            let n = sourceUpdates.count
+            show(n == 0 ? "所有来源都是最新的" : "\(n) 个来源有更新")
         } catch { show(error.localizedDescription) }
     }
 
-    /// Fetch the given sources again (all with updates when nil), then reload what lists skills.
-    func updateSkillSources(_ ids: [String]? = nil) async {
-        let ids = ids ?? skillSourceUpdates.map { $0["id"].str }
+    /// Fetch the given sources again (all with updates when nil); items imported from them follow.
+    func updateSources(_ ids: [String]? = nil) async {
+        let ids = ids ?? sourceUpdates.map { $0["id"].str }
         guard !ids.isEmpty else { return }
         updatingSources.formUnion(ids)
-        var done: [JSON] = [], failed: [String] = []
+        var updated: [String] = [], missing: [String] = [], failed: [String] = []
         for id in ids {
-            do { done.append(try await api.post("/api/skill-sources/\(id)/update", timeout: 240)) }
-            catch { failed.append("\(id)：\(error.localizedDescription)") }
+            do {
+                let r = try await api.post("/api/library/sources/\(id)/update", timeout: 240)
+                updated += r["updated"].strings
+                missing += r["missing"].strings
+            } catch { failed.append(error.localizedDescription) }
             updatingSources.remove(id)
         }
-        await loadSkillSources()
-        await loadSkills()
+        await loadLibrary()
         if !failed.isEmpty { show("更新失败：\(failed.joined(separator: "；"))"); return }
-        let have = Set(done.flatMap { $0["skills"].array.map { $0["id"].str } })
-        let gone = Set(roles.flatMap { $0["skills"].strings }.filter { sid in ids.contains { sid.hasPrefix("\($0)/") } && !have.contains(sid) })
-        let what = done.count == 1 ? "\(done[0]["repo"].str)：\(done[0]["skills"].array.count) 个 Skill" : "\(done.count) 个来源"
-        show(gone.isEmpty ? "已更新 \(what)" : "已更新 \(what)，角色挂载的 \(gone.count) 个 Skill 已不在仓库中")
-    }
-
-    func loadMcpSources() async {
-        mcpSources = (try? await api.get("/api/mcp-sources"))?["sources"].array ?? []
-    }
-
-    /// Sources whose remote has commits the local copy lacks (the server checks every few hours).
-    var mcpSourceUpdates: [JSON] { (mcpSources ?? []).filter { $0["updateAvailable"].truthy } }
-
-    /// MCP sources being fetched, so the library and the role editor show the same progress.
-    var updatingMcpSources: Set<String> = []
-
-    private func watchMcpSources() {
-        polls["mcpSources"]?.cancel()
-        polls["mcpSources"] = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 600_000_000_000)
-                await self?.loadMcpSources()
-            }
-        }
-    }
-
-    /// Ask every MCP remote now, instead of waiting for the server's next round.
-    func checkMcpSources() async {
-        do {
-            mcpSources = try await api.post("/api/mcp-sources/check", timeout: 240)["sources"].array
-            let n = mcpSourceUpdates.count
-            show(n == 0 ? "所有 MCP 来源都是最新的" : "\(n) 个 MCP 来源有更新")
-        } catch { show(error.localizedDescription) }
-    }
-
-    /// Fetch the given MCP sources again (all with updates when nil), then reload what lists them.
-    func updateMcpSources(_ ids: [String]? = nil) async {
-        let ids = ids ?? mcpSourceUpdates.map { $0["id"].str }
-        guard !ids.isEmpty else { return }
-        updatingMcpSources.formUnion(ids)
-        var done: [JSON] = [], failed: [String] = []
-        for id in ids {
-            do { done.append(try await api.post("/api/mcp-sources/\(id)/update", timeout: 240)) }
-            catch { failed.append("\(id)：\(error.localizedDescription)") }
-            updatingMcpSources.remove(id)
-        }
-        await loadMcpSources()
-        await loadSetup()
-        if !failed.isEmpty { show("更新失败：\(failed.joined(separator: "；"))"); return }
-        let have = Set(done.flatMap { $0["servers"].array.map { $0["id"].str } })
-        let gone = Set(roles.flatMap { $0["mcpRefs"].strings }.filter { rid in ids.contains { rid.hasPrefix("\($0)/") } && !have.contains(rid) })
-        let what = done.count == 1 ? "\(done[0]["repo"].str)：\(done[0]["servers"].array.count) 个 MCP" : "\(done.count) 个来源"
-        show(gone.isEmpty ? "已更新 \(what)" : "已更新 \(what)，角色挂载的 \(gone.count) 个 MCP 已不在仓库中")
-    }
-
-    /// A library resource by `<source>/<key>`, as the role editor shows it.
-    func mcpResource(_ id: String) -> JSON? {
-        for s in mcpSources ?? [] {
-            if let r = s["servers"].array.first(where: { $0["id"].str == id }) { return r }
-        }
-        return nil
+        var msg = updated.isEmpty ? "已更新来源，导入的资源没有变化" : "已更新 \(updated.joined(separator: "、"))"
+        if !missing.isEmpty { msg += "；\(missing.joined(separator: "、")) 已不在来源中，保持原样" }
+        show(msg)
     }
 
     /// The sidebar keeps run statuses fresh while the window is open.
@@ -283,7 +226,7 @@ final class AppStore {
     static let roleColors = ["#c96442", "#7b6cc2", "#3f7d5b", "#b5852b", "#2f7f8c", "#b04d6d", "#5f6b7a", "#8a6a4f"]
 
     func newRole(connection: String = "") {
-        editingRole = ["id": "", "name": "新角色", "role": "", "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "skills": [], "mcp": [], "mcpRefs": []]
+        editingRole = ["id": "", "name": "新角色", "role": "", "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []]
     }
 
     @discardableResult

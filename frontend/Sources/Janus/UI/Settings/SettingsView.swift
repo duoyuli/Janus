@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The settings panel (⌘,): a floating card in the middle of the window, a pane each for Agents,
-/// roles, the Skill and MCP libraries, ACP adapters and the usage bill. Clicking the dimmed area or pressing Esc
+/// roles, the resource library, ACP adapters and the usage bill. Clicking the dimmed area or pressing Esc
 /// closes it and shows the screen underneath unchanged; the last pane opened comes back next time.
 /// The bottom of the sidebar picks the app's appearance.
 // @project-doc docs/architecture/frontend.md#screens
@@ -47,8 +47,7 @@ struct SettingsView: View {
             VStack(spacing: 2) {
                 nav("agents", "Agents", "cpu")
                 nav("roles", "角色", "person.2")
-                nav("skills", "Skill 库", "sparkles", updates: store.skillSourceUpdates.count)
-                nav("mcp", "MCP 库", "wrench.and.screwdriver", updates: store.mcpSourceUpdates.count)
+                nav("library", "资源库", "books.vertical", updates: store.sourceUpdates.count)
                 nav("adapters", "ACP 适配器", "shippingbox")
                 nav("usage", "用量账单", "list.bullet.rectangle")
             }
@@ -96,8 +95,7 @@ struct SettingsView: View {
     @ViewBuilder private var pane: some View {
         switch store.settingsTab {
         case "roles": RolesView(store: store)
-        case "skills": SkillsView(store: store)
-        case "mcp": McpView(store: store)
+        case "library": LibraryView(store: store)
         case "adapters": AdaptersView(store: store)
         case "usage": UsageBillView(store: store)
         default: AgentsView(store: store)
