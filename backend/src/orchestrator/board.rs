@@ -198,9 +198,9 @@ impl App {
 
     /// Board entries for the lead since it last looked, waiting up to the given time for some.
     pub(super) async fn board_wait(&self, run: &Run, args: &Value) -> String {
-        run.st.lock().unwrap().lead_waiting = true;
+        run.st.lock().unwrap().lead.waiting = true;
         let out = self.board_wait_inner(run, args).await;
-        run.st.lock().unwrap().lead_waiting = false;
+        run.st.lock().unwrap().lead.waiting = false;
         out
     }
 
@@ -208,11 +208,11 @@ impl App {
         let limit = Duration::from_secs(args["timeout_sec"].as_u64().unwrap_or(40).clamp(1, 45));
         let until = tokio::time::Instant::now() + limit;
         loop {
-            let cursor = run.st.lock().unwrap().lead_cursor;
+            let cursor = run.st.lock().unwrap().lead.cursor;
             let events = self.db.events(&run.id, cursor).unwrap_or_default();
             let last = events.last().map(|e| e.seq).unwrap_or(cursor);
             let entries: Vec<String> = events.iter().filter_map(|e| board_entry(run, e)).collect();
-            run.st.lock().unwrap().lead_cursor = last;
+            run.st.lock().unwrap().lead.cursor = last;
             if !entries.is_empty() {
                 return format!("看板上的新消息：\n{}", entries.join("\n"));
             }
@@ -220,7 +220,7 @@ impl App {
             if !open {
                 return "看板上没有新消息，也没有在执行或等待的任务。".into();
             }
-            if tokio::time::Instant::now() >= until || run.st.lock().unwrap().cancelled {
+            if tokio::time::Instant::now() >= until || run.st.lock().unwrap().cancelled() {
                 return format!("{} 秒内看板上没有新消息，任务仍在进行。可以再次调用 janus.wait。", limit.as_secs());
             }
             tokio::time::sleep(Duration::from_millis(500)).await;

@@ -169,7 +169,7 @@ fn goal_status_comes_from_the_air_metadata() {
     for status in ["active", "complete"] {
         let u = json!({ "sessionUpdate": "session_info_update", "_meta": { "jetbrains": { "air": { "goal": { "objective": "x", "status": status } } } } });
         app.on_update(&run, &u, &mut out, &mut flushed, &mut turn, &ctx);
-        assert_eq!(run.st.lock().unwrap().goal_status.as_deref(), Some(status));
+        assert_eq!(run.st.lock().unwrap().lead.goal_active, status == "active");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -191,10 +191,9 @@ fn long_results_are_clipped_on_the_board() {
 }
 
 fn test_run(team_size: usize) -> Run {
-    Run {
+    Run::new(RunRecord {
         id: "r-test".into(),
         goal: "测试目标".into(),
-        goal_images: vec![],
         cwd: PathBuf::from("/tmp"),
         team: (0..team_size)
             .map(|i| Member {
@@ -226,15 +225,10 @@ fn test_run(team_size: usize) -> Run {
         git: false,
         base_ref: String::new(),
         brief: String::new(),
-        seq: AtomicI64::new(0),
-        emitting: StdMutex::new(()),
-        deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
-        st: StdMutex::new(RunState { status: RunStatus::Planning, ..Default::default() }),
-        wake: Notify::new(),
-        driving: Default::default(),
-        lead_nudge: Notify::new(),
-        watch: Default::default(),
-    }
+        goal_images: vec![],
+        last_seq: 0,
+        status: RunStatus::Planning,
+    })
 }
 
 #[test]
@@ -300,5 +294,38 @@ fn an_event_that_was_not_written_is_not_broadcast() {
     assert!(!app.store(event("refused")));
     assert!(rx.try_recv().is_err(), "a refused event is not broadcast");
     assert_eq!(app.db.events("r1", 0).unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// One driver per run: a second is refused while the first is alive, and its end can be awaited
+/// instead of polled.
+#[tokio::test]
+async fn a_run_has_one_driver_and_its_end_can_be_awaited() {
+    let driving = Arc::new(Driving::default());
+    assert!(driving.claim());
+    assert!(!driving.claim(), "a second driver is refused while one is alive");
+    let waiter = {
+        let driving = driving.clone();
+        tokio::spawn(async move { driving.idle().await })
+    };
+    tokio::task::yield_now().await;
+    assert!(!waiter.is_finished(), "still driving");
+    driving.set(false);
+    tokio::time::timeout(Duration::from_secs(1), waiter).await.unwrap().unwrap();
+    assert!(driving.claim(), "the run can be driven again");
+}
+
+/// A cancelled run is cancelled by its status alone, and takes no new pending decisions.
+#[test]
+fn cancelling_is_the_status() {
+    let dir = std::env::temp_dir().join(format!("janus-cancel-status-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let app = test_app(&dir);
+    let run = test_run(1);
+    let owner = Owner { session: SessionKey::Lead, attempt: 0 };
+    assert!(app.add_pending(&run, "k1", owner.clone(), Ask::Question).is_ok());
+    run.st.lock().unwrap().status = RunStatus::Cancelled;
+    assert!(run.st.lock().unwrap().cancelled());
+    assert!(app.add_pending(&run, "k2", owner, Ask::Question).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }

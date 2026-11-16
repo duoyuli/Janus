@@ -32,7 +32,7 @@ impl App {
         // Goal mode: the prompt has returned but the agent's goal is still active, so the agent
         // keeps working in further turns of its own; the session is followed until it settles.
         let mut following = false;
-        let goal_active = || ctx.goal && run.st.lock().unwrap().goal_status.as_deref() == Some("active");
+        let goal_active = || ctx.goal && run.st.lock().unwrap().lead.goal_active;
         // Following a goal that does not settle by itself: when the session last moved, how many
         // times Janus has asked the lead, and where the reply to the last ask starts in `out`.
         let mut heard = tokio::time::Instant::now();
@@ -102,7 +102,7 @@ impl App {
                     if let Some(u) = crate::acp_view::prompt_usage(&res) {
                         self.show(run, u, ctx);
                     }
-                    if run.st.lock().unwrap().cancelled {
+                    if run.st.lock().unwrap().cancelled() {
                         return Err(Cancelled.into());
                     }
                     let interrupted = ctl.as_mut().is_some_and(|c| std::mem::take(&mut c.interrupted));
@@ -112,7 +112,7 @@ impl App {
                         && let Some(summary) = crate::goal_settle::confirmed(&out[from..])
                     {
                         let _ = conn.request_timeout("_session/goal", json!({ "sessionId": sid, "action": "clear" }), Some(STEER_TIMEOUT)).await;
-                        run.st.lock().unwrap().goal_status = None;
+                        run.st.lock().unwrap().lead.goal_active = false;
                         self.emit(run, ev("goal.status", "janus", "主控确认目标已完成，Janus 结束了目标").data(json!({ "status": null, "by": "janus" })));
                         return Ok(if summary.is_empty() { out[..from].to_string() } else { summary });
                     }
@@ -488,7 +488,7 @@ impl App {
             "session_info_update" if ctx.goal && goal_meta.is_some() => {
                 let goal = goal_meta.unwrap();
                 let status = goal["status"].as_str().map(str::to_owned);
-                run.st.lock().unwrap().goal_status = status.clone();
+                run.st.lock().unwrap().lead.goal_active = status.as_deref() == Some("active");
                 self.emit(
                     run,
                     ev(

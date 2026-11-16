@@ -883,7 +883,7 @@ async fn goal_mode_resumes_with_the_board() {
     );
 
     // The process goes away while the lead is still working.
-    h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
@@ -1233,7 +1233,7 @@ async fn traces_check_results_and_mark_stale_conclusions() {
     assert_eq!(handoff.data.as_ref().unwrap()["files"], json!(["a.txt"]));
 
     // The traces outlive the process.
-    h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
@@ -1626,7 +1626,7 @@ async fn restart_restores_failed_and_blocked() {
     let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m1", json!({ "deps": ["T1"] }))])).await;
     wait_until(&h.app, &run, "blocked", |e| has(e, "task.blocked")).await;
     // Simulate the process going away: stop the old driver without writing anything.
-    h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
@@ -1711,7 +1711,7 @@ async fn library_mcp_reaches_the_session_with_its_values() {
         assert!(!record.contains(secret), "the run record and its events hold no values: {secret}");
     }
     assert!(record.contains("acme-tools/fetch"), "the mounted resources are recorded");
-    h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -1788,6 +1788,6 @@ async fn pasted_images_reach_the_agent() {
         &json!({ "type": "message", "agent": "lead", "text": "x", "images": [{ "data": "aGVsbG8=" }] }),
     );
     assert!(bad.is_err());
-    h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

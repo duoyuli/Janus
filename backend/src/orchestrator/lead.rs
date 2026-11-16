@@ -62,14 +62,14 @@ impl App {
     pub(super) async fn goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<()> {
         {
             let mut st = run.st.lock().unwrap();
-            st.lead_done = None;
+            st.lead.goal = LeadGoal::Working;
             // Changes already in the directory are not this run's: a task's diff starts from here.
             if run.git && st.last_diff.is_empty() {
                 st.last_diff = working_diff(&run.cwd, &[]);
             }
             // Continuing: the restarted lead is told the board so far; `wait` brings only what is new.
             if resumed {
-                st.lead_cursor = run.seq.load(Ordering::SeqCst);
+                st.lead.cursor = run.seq.load(Ordering::SeqCst);
             }
             if st.mcp_token.is_empty() {
                 st.mcp_token = random_token();
@@ -81,15 +81,17 @@ impl App {
         let (app, r) = (self.clone(), run.clone());
         tokio::spawn(async move {
             let outcome = app.lead_goal(&r, resumed).await;
-            if r.st.lock().unwrap().cancelled {
+            if r.st.lock().unwrap().cancelled() {
                 return;
             }
             let done = match outcome {
                 // The lead's last message is its report; earlier ones narrated the work.
-                Ok(text) => Ok(last_reply(&app.db.events(&r.id, 0).unwrap_or_default())
-                    // A lead that confirmed its goal to Janus starts with the marker; the summary does not.
-                    .map(|t| crate::goal_settle::confirmed(&t).filter(|s| !s.is_empty()).unwrap_or(t))
-                    .unwrap_or(text)),
+                Ok(text) => LeadGoal::Done(
+                    last_reply(&app.db.events(&r.id, 0).unwrap_or_default())
+                        // A lead that confirmed its goal to Janus starts with the marker; the summary does not.
+                        .map(|t| crate::goal_settle::confirmed(&t).filter(|s| !s.is_empty()).unwrap_or(t))
+                        .unwrap_or(text),
+                ),
                 Err(err) if err.downcast_ref::<Cancelled>().is_some() => return,
                 Err(err) => {
                     app.emit(
@@ -97,15 +99,15 @@ impl App {
                         ev("lead.failed", "janus", format!("主控的会话异常结束：{}", short(&format!("{err:#}"), 120)))
                             .data(json!({ "error": format!("{err:#}") })),
                     );
-                    Err(format!("{err:#}"))
+                    LeadGoal::Failed(format!("{err:#}"))
                 }
             };
             // The lead sets this when its first goal completes, while the session stays open for
             // conversation. Do not replace the delivered summary with a later chat reply.
             let first = {
                 let mut st = r.st.lock().unwrap();
-                if st.lead_done.is_none() {
-                    st.lead_done = Some(done);
+                if !st.lead.goal.ended() {
+                    st.lead.goal = done;
                     true
                 } else {
                     false
@@ -128,7 +130,7 @@ impl App {
             {
                 let st = run.st.lock().unwrap();
                 // Delivery ends automatic board pushes; the session then only answers the person.
-                if st.cancelled || st.lead_done.is_some() {
+                if st.cancelled() || st.lead.goal.ended() {
                     return;
                 }
             }
@@ -147,10 +149,10 @@ impl App {
     pub(super) fn push_board(&self, run: &Run) {
         let (tx, cursor, sid) = {
             let st = run.st.lock().unwrap();
-            if st.lead_waiting || !st.steerable.contains(&SessionKey::Lead) {
+            if st.lead.waiting || !st.steerable.contains(&SessionKey::Lead) {
                 return;
             }
-            (st.live.get(&SessionKey::Lead).cloned(), st.lead_cursor, st.lead_session.clone())
+            (st.live.get(&SessionKey::Lead).cloned(), st.lead.cursor, st.lead.session.clone())
         };
         let (Some(tx), Some(sid)) = (tx, sid) else { return };
         let events = self.db.events(&run.id, cursor).unwrap_or_default();
@@ -161,10 +163,10 @@ impl App {
         let last = events.last().map(|e| e.seq).unwrap_or(cursor);
         {
             let mut st = run.st.lock().unwrap();
-            if st.lead_waiting || st.lead_cursor != cursor {
+            if st.lead.waiting || st.lead.cursor != cursor {
                 return;
             }
-            st.lead_cursor = last;
+            st.lead.cursor = last;
         }
         if entries.is_empty() {
             return;
@@ -269,7 +271,7 @@ impl App {
                 ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" })
                     .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied })),
             );
-            run.st.lock().unwrap().lead_session = Some(sid.clone());
+            run.st.lock().unwrap().lead.session = Some(sid.clone());
             self.watch_session(run, &owner.session, 0);
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
@@ -298,8 +300,7 @@ impl App {
             loop {
                 // A slash command starts a new goal; a message sent while one is active belongs
                 // to that goal's turn. Both complete through the same branch below.
-                let goal_turn = prompt.trim_start().starts_with("/goal ")
-                    || run.st.lock().unwrap().goal_status.as_deref() == Some("active");
+                let goal_turn = prompt.trim_start().starts_with("/goal ") || run.st.lock().unwrap().lead.goal_active;
                 self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&prompt), &prompt);
                 let text = self
                     .stream_prompt(
@@ -339,8 +340,8 @@ impl App {
                     {
                         let mut st = run.st.lock().unwrap();
                         // A goal that was ended by hand must not make the next chat turn follow it.
-                        st.goal_status = None;
-                        st.lead_done = Some(Ok(text.clone()));
+                        st.lead.goal_active = false;
+                        st.lead.goal = LeadGoal::Done(text.clone());
                     }
                     run.lead_nudge.notify_one();
                     run.wake.notify_one();
@@ -354,9 +355,9 @@ impl App {
                     );
                 } else if goal_turn {
                     // A new goal in the conversation is a new result: deliver it like the first one.
-                    run.st.lock().unwrap().lead_done = Some(Ok(text.clone()));
+                    run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
-                    if !run.driving.load(Ordering::SeqCst) {
+                    if !run.driving.active() {
                         self.deliver(run);
                     }
                 }
@@ -368,7 +369,7 @@ impl App {
             }
         }
         .await;
-        run.st.lock().unwrap().lead_session = None;
+        run.st.lock().unwrap().lead.session = None;
         self.close_session(run, &owner, Some(&conn), "主控的会话已结束，撤回这个请求").await;
         run.lead_nudge.notify_one();
         result
@@ -448,9 +449,9 @@ impl App {
             );
             {
                 let mut st = run.st.lock().unwrap();
-                st.lead_session = Some(sid.clone());
-                if st.lead_done.is_none() {
-                    st.lead_done = Some(Ok(delivery_summary(&events)));
+                st.lead.session = Some(sid.clone());
+                if !st.lead.goal.ended() {
+                    st.lead.goal = LeadGoal::Done(delivery_summary(&events));
                 }
             }
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
@@ -488,8 +489,7 @@ impl App {
                 next = format!("{brief}\n\n用户接着说：\n{next}");
             }
             loop {
-                let goal_turn = next.trim_start().starts_with("/goal ")
-                    || run.st.lock().unwrap().goal_status.as_deref() == Some("active");
+                let goal_turn = next.trim_start().starts_with("/goal ") || run.st.lock().unwrap().lead.goal_active;
                 self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&next), &next);
                 let text = self
                     .stream_prompt(
@@ -512,9 +512,9 @@ impl App {
                     continue;
                 }
                 if goal_turn {
-                    run.st.lock().unwrap().lead_done = Some(Ok(text.clone()));
+                    run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
-                    if !run.driving.load(Ordering::SeqCst) {
+                    if !run.driving.active() {
                         self.deliver(run);
                     }
                 }
@@ -526,17 +526,15 @@ impl App {
             }
         }
         .await;
-        run.st.lock().unwrap().lead_session = None;
+        run.st.lock().unwrap().lead.session = None;
         self.close_session(run, &owner, Some(&conn), "主控的会话已结束，撤回这个请求").await;
         // Without a live session the run is read-only again; the next message reopens it. If the
         // scheduler is still running tasks, leave the run reachable until they finish.
-        if run.driving.load(Ordering::SeqCst) {
+        if run.driving.active() {
             let app = self.clone();
             let r = run.clone();
             tokio::spawn(async move {
-                while r.driving.load(Ordering::SeqCst) {
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                }
+                r.driving.idle().await;
                 app.runs.lock().unwrap().remove(&r.id);
             });
         } else {

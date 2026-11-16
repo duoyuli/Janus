@@ -18,7 +18,7 @@ impl App {
             }
             let (next, max_attempts) = {
                 let mut st = run.st.lock().unwrap();
-                let cancelled = st.cancelled;
+                let cancelled = st.cancelled();
                 match Run::task_mut(&mut st, id).filter(|t| t.active_attempt.as_deref() == Some(attempt_id)) {
                     None => (Next::Late, 0),
                     Some(t) => {
@@ -318,7 +318,7 @@ impl App {
                 // Goal mode: the lead orchestrated this task and answers its questions (it reads them
                 // with `wait`). Otherwise the question goes to the person.
                 // The lead answers questions on the board; once it is gone, they go to the person.
-                if run.st.lock().unwrap().lead_done.is_some() {
+                if run.st.lock().unwrap().lead.goal.ended() {
                     self.escalate_open_questions(run);
                 }
                 // The question card and the session both reach the same agent; whichever you use first wins.
@@ -487,7 +487,7 @@ impl App {
         if let Some(agent) = st.tasks.iter().find(|t| t.def.id == id && !late.is_empty()).map(|t| t.agent.clone()) {
             st.notes.entry(agent).or_default().extend(late);
         }
-        if st.cancelled {
+        if st.cancelled() {
             return Err(Cancelled.into());
         }
         Ok(())

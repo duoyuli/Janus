@@ -45,7 +45,7 @@ impl App {
         if self.db.acquire_lease(&id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
             bail!("Run 已被另一个 Janus 实例接管");
         }
-        let run = Arc::new(Run {
+        let run = Arc::new(Run::new(RunRecord {
             id: id.clone(),
             goal,
             cwd,
@@ -54,33 +54,27 @@ impl App {
             base_ref,
             brief: ws["brief"].as_str().unwrap_or("").trim().to_string(),
             goal_images,
-            seq: AtomicI64::new(0),
-            emitting: StdMutex::new(()),
-            deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
-            st: StdMutex::new(RunState { status: RunStatus::Planning, ..Default::default() }),
-            wake: Notify::new(),
-            driving: Default::default(),
-            lead_nudge: Notify::new(),
-            watch: Default::default(),
-        });
+            last_seq: 0,
+            status: RunStatus::Planning,
+        }));
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.launch(run, Phase::Start);
         Ok(id)
     }
 
     pub(super) fn launch(self: &Arc<Self>, run: Arc<Run>, phase: Phase) {
-        run.driving.store(true, Ordering::SeqCst);
+        run.driving.set(true);
         let app = self.clone();
         tokio::spawn(async move {
             let result = match phase {
                 Phase::Start => app.drive(&run).await,
                 Phase::Execute => app.execute(&run).await,
-                Phase::Goal(resumed) => app.goal(&run, resumed).await,
+                Phase::Goal { resumed } => app.goal(&run, resumed).await,
             };
-            run.driving.store(false, Ordering::SeqCst);
+            run.driving.set(false);
             if let Err(err) = result
                 && err.downcast_ref::<Cancelled>().is_none()
-                && !run.st.lock().unwrap().cancelled
+                && !run.st.lock().unwrap().cancelled()
             {
                 app.emit(
                     &run,
@@ -99,9 +93,9 @@ impl App {
     pub(super) fn ensure_driver(self: &Arc<Self>, run: &Arc<Run>) {
         let executable = {
             let st = run.st.lock().unwrap();
-            !st.cancelled && !st.tasks.is_empty()
+            !st.cancelled() && !st.tasks.is_empty()
         };
-        if executable && run.driving.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        if executable && run.driving.claim() {
             self.launch(run.clone(), Phase::Execute);
         }
     }
@@ -157,7 +151,7 @@ impl App {
             Running,
         }
         loop {
-            if run.st.lock().unwrap().cancelled {
+            if run.st.lock().unwrap().cancelled() {
                 return Err(Cancelled.into());
             }
             let over_budget = now_ms() > run.deadline_ms.load(Ordering::SeqCst);
@@ -219,9 +213,9 @@ impl App {
                 // The lead decides what a failure means (it reads it on the board), so nothing
                 // waits for the person; the run ends once the lead is done and no task is running
                 // or can still start.
-                let outcome = if let (true, Some(Err(err))) = (finished, &st.lead_done) {
+                let outcome = if let (true, LeadGoal::Failed(err)) = (finished, &st.lead.goal) {
                     Outcome::LeadFailed(err.clone())
-                } else if finished && st.lead_done.is_some() {
+                } else if finished && st.lead.goal.ended() {
                     Outcome::Deliver
                 } else if over_budget && !all_terminal {
                     Outcome::Budget
@@ -486,8 +480,8 @@ impl App {
                 deliverables.push(report.clone());
             }
             // The lead reports how the goal went, in its last message.
-            let (text, suggestions) = match &st.lead_done {
-                Some(Ok(text)) => split_brief_suggestions(text),
+            let (text, suggestions) = match &st.lead.goal {
+                LeadGoal::Done(text) => split_brief_suggestions(text),
                 _ => (String::new(), vec![]),
             };
             json!({

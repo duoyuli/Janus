@@ -351,7 +351,7 @@ impl App {
         if self.db.acquire_lease(run_id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
             bail!("Run 已被另一个 Janus 实例接管");
         }
-        let run = Arc::new(Run {
+        let run = Arc::new(Run::new(RunRecord {
             id: run_id.to_string(),
             goal: row["goal"].as_str().unwrap_or("").to_string(),
             cwd: PathBuf::from(row["cwd"].as_str().unwrap_or("")),
@@ -360,18 +360,9 @@ impl App {
             base_ref,
             brief: config["workspace"]["brief"].as_str().unwrap_or("").trim().to_string(),
             goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
-            seq: AtomicI64::new(self.db.max_seq(run_id)?),
-            emitting: StdMutex::new(()),
-            deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
-            st: StdMutex::new(RunState {
-                status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
-                ..Default::default()
-            }),
-            wake: Notify::new(),
-            driving: Default::default(),
-            lead_nudge: Notify::new(),
-            watch: Default::default(),
-        });
+            last_seq: self.db.max_seq(run_id)?,
+            status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
+        }));
 
         // The board's tasks are every orchestration the lead got accepted.
         let board: Vec<Value> = events
@@ -624,7 +615,7 @@ impl App {
             )
             .data(json!({ "phase": "running", "done": done, "open": open, "tasks": restored })),
         );
-        self.launch(run.clone(), Phase::Goal(true));
+        self.launch(run.clone(), Phase::Goal { resumed: true });
         Ok(run)
     }
 

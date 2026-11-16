@@ -77,12 +77,12 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
 }
 
-/// Where a run's driver starts: from scratch, back into the lead's goal (`true` when continuing
-/// an interrupted run), or executing the board's tasks after the lead is done.
+/// Where a run's driver starts: from scratch, back into the lead's goal (`resumed` when
+/// continuing an interrupted run), or executing the board's tasks after the lead is done.
 enum Phase {
     Start,
     Execute,
-    Goal(bool),
+    Goal { resumed: bool },
 }
 
 /// Returned when the user cancels a run; callers stop quietly instead of recording a failure.
@@ -386,7 +386,6 @@ impl Task {
 struct RunState {
     status: RunStatus,
     paused: bool,
-    cancelled: bool,
     tasks: Vec<Task>,
     /// Decisions a session waits on, by the key the app and the lead answer them with.
     pending: HashMap<String, Pending>,
@@ -404,25 +403,98 @@ struct RunState {
     /// Working in place: the working-tree diff last saved as an artifact, so a task that changed
     /// nothing does not repeat what an earlier one changed.
     last_diff: String,
-    /// The lead's goal session ended: its last message, or why it failed.
-    lead_done: Option<std::result::Result<String, String>>,
     /// Secret in this run's MCP URL, so only its lead reaches the team tools.
     mcp_token: String,
-    /// The goal status the lead's agent last reported (Codex keeps working between prompts while
-    /// its goal is active).
-    goal_status: Option<String>,
-    /// The last event the lead has seen on the board, through `wait` or pushed into its session.
-    lead_cursor: i64,
-    /// The lead is inside `wait`, which hands it the board itself.
-    lead_waiting: bool,
-    /// The lead's open session id, for recording what Janus pushes into it.
-    lead_session: Option<String>,
+    lead: LeadState,
     /// Sessions whose agent can take a message into the running turn. Only they get board pushes
     /// and conflict notices: queued until the turn ends, a notice would arrive after the fact.
     steerable: HashSet<SessionKey>,
     /// What each task left in the workspace: the files it edited, who edited each file last,
     /// and the conflicts already reported (see `traces`).
     traces: crate::traces::Traces,
+}
+
+impl RunState {
+    /// Cancelling is the run's status, not a flag of its own: nothing leaves `Cancelled`.
+    fn cancelled(&self) -> bool {
+        self.status == RunStatus::Cancelled
+    }
+}
+
+/// What the run knows about its lead.
+#[derive(Default)]
+struct LeadState {
+    goal: LeadGoal,
+    /// The lead's agent reports its `/goal` active: it keeps working between prompts until the
+    /// goal settles (Codex), so the session is followed after a prompt returns.
+    goal_active: bool,
+    /// The last event the lead has seen on the board, through `wait` or pushed into its session.
+    cursor: i64,
+    /// The lead is inside `wait`, which hands it the board itself.
+    waiting: bool,
+    /// The lead's open session id, for recording what Janus pushes into it.
+    session: Option<String>,
+}
+
+/// How far the lead's goal is: still worked on, done with the summary it delivered, or ended
+/// because its session broke off.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum LeadGoal {
+    #[default]
+    Working,
+    Done(String),
+    Failed(String),
+}
+
+impl LeadGoal {
+    fn ended(&self) -> bool {
+        *self != LeadGoal::Working
+    }
+}
+
+/// Whether a driver task (the goal or the scheduler) is alive for a run, and a way to wait until
+/// none is.
+struct Driving(tokio::sync::watch::Sender<bool>);
+
+impl Default for Driving {
+    fn default() -> Self {
+        Driving(tokio::sync::watch::channel(false).0)
+    }
+}
+
+impl Driving {
+    /// Take the run for a new driver; false when one is already alive.
+    fn claim(&self) -> bool {
+        self.0.send_if_modified(|on| !std::mem::replace(on, true))
+    }
+
+    fn set(&self, on: bool) {
+        self.0.send_replace(on);
+    }
+
+    fn active(&self) -> bool {
+        *self.0.borrow()
+    }
+
+    /// Returns once no driver is alive.
+    async fn idle(&self) {
+        let _ = self.0.subscribe().wait_for(|on| !*on).await;
+    }
+}
+
+/// What a run is made of, from its creation or its record. Everything else about it starts empty.
+struct RunRecord {
+    id: String,
+    goal: String,
+    cwd: PathBuf,
+    team: Vec<Member>,
+    git: bool,
+    base_ref: String,
+    brief: String,
+    goal_images: Vec<Value>,
+    /// The last event already in the log; the next one gets the following seq.
+    last_seq: i64,
+    status: RunStatus,
 }
 
 pub struct Run {
@@ -443,8 +515,7 @@ pub struct Run {
     deadline_ms: AtomicI64,
     st: StdMutex<RunState>,
     wake: Notify,
-    /// A driver task (planning or execution) is alive for this run.
-    driving: std::sync::atomic::AtomicBool,
+    driving: Driving,
     /// Something the lead should hear about reached the board (see `push_board`).
     lead_nudge: Notify,
     /// The watchdog's view of each open session. Its own lock: session updates touch it often,
@@ -524,6 +595,27 @@ impl Drop for Held<'_> {
 }
 
 impl Run {
+    fn new(r: RunRecord) -> Run {
+        Run {
+            id: r.id,
+            goal: r.goal,
+            cwd: r.cwd,
+            team: r.team,
+            git: r.git,
+            base_ref: r.base_ref,
+            brief: r.brief,
+            goal_images: r.goal_images,
+            seq: AtomicI64::new(r.last_seq),
+            emitting: StdMutex::new(()),
+            deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
+            st: StdMutex::new(RunState { status: r.status, ..Default::default() }),
+            wake: Notify::new(),
+            driving: Driving::default(),
+            lead_nudge: Notify::new(),
+            watch: Default::default(),
+        }
+    }
+
     fn member(&self, id: &str) -> Option<&Member> {
         self.team.iter().find(|m| m.id == id)
     }
@@ -699,9 +791,6 @@ impl App {
             }
             debug_assert!(st.status.can_transition_to(status), "run {}: {:?} -> {:?}", run.id, st.status, status);
             st.status = status;
-            if status == RunStatus::Cancelled {
-                st.cancelled = true;
-            }
             // Pausing only makes sense while work can still start; a finished Run is not paused.
             if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
                 st.paused = false;
@@ -721,7 +810,7 @@ impl App {
         let (tx, rx) = oneshot::channel();
         let mut st = run.st.lock().unwrap();
         // Cancelling clears the pending decisions; one added afterwards would never be resolved.
-        if st.cancelled {
+        if st.cancelled() {
             return Err(Cancelled.into());
         }
         st.pending.insert(key.into(), Pending { owner, ask, tx });

@@ -37,7 +37,7 @@ impl App {
         let (tx, steer_rx) = mpsc::unbounded_channel();
         let cancelled = {
             let mut st = run.st.lock().unwrap();
-            if !st.cancelled {
+            if !st.cancelled() {
                 st.conns.insert(key.clone(), conn.clone());
                 st.live.insert(key.clone(), tx);
                 st.live_agent.insert(agent.to_string(), key.clone());
@@ -45,7 +45,7 @@ impl App {
                     st.steerable.insert(key.clone());
                 }
             }
-            st.cancelled
+            st.cancelled()
         };
         // Cancelling stops every registered agent; one that started meanwhile stops here.
         if cancelled {

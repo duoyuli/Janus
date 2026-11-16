@@ -37,6 +37,6 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     assert_eq!(said("第二次"), 1);
 
     assert!(matches!(h.app.request_action("no-such-run", &body).await, Err(ActionRefused::NotFound)));
-    h.app.run(&run).unwrap().st.lock().unwrap().cancelled = true;
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
