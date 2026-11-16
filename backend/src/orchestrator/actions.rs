@@ -572,35 +572,23 @@ impl App {
                 if e.kind != "user.message" {
                     continue;
                 }
-                let text = d["text"].as_str().unwrap_or_default().to_string();
+                let Some(id) = d["id"].as_str() else { continue };
                 let later = &events[i + 1..];
-                let waiting = match d["id"].as_str() {
-                    Some(id) => {
-                        let routed = later
-                            .iter()
-                            .rev()
-                            .find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
-                        let joined = routed.is_some_and(|x| {
-                            matches!(x.data.as_ref().unwrap()["delivery"].as_str(), Some("steer" | "prompt"))
-                        });
-                        let delivered = later.iter().any(|x| {
-                            x.kind == "message.delivered"
-                                && x.data
-                                    .as_ref()
-                                    .is_some_and(|x| x["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id)))
-                        });
-                        (!joined && !delivered).then(|| Msg { id: id.to_string(), text })
-                    }
-                    // Recorded before messages had ids: only queued and next ones waited.
-                    None => {
-                        let waited = matches!(d["delivery"].as_str(), Some("next" | "queued"));
-                        let delivered =
-                            later.iter().any(|x| x.kind == "message.delivered" && x.to.as_deref() == Some(agent));
-                        (waited && !delivered).then(|| Msg { id: format!("old-{}", e.seq), text })
-                    }
-                };
-                if let Some(m) = waiting {
-                    st.notes.entry(agent.to_string()).or_default().push(m);
+                let routed = later
+                    .iter()
+                    .rev()
+                    .find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
+                let joined = routed
+                    .is_some_and(|x| matches!(x.data.as_ref().unwrap()["delivery"].as_str(), Some("steer" | "prompt")));
+                let delivered = later.iter().any(|x| {
+                    x.kind == "message.delivered"
+                        && x.data
+                            .as_ref()
+                            .is_some_and(|x| x["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id)))
+                });
+                if !joined && !delivered {
+                    let text = d["text"].as_str().unwrap_or_default().to_string();
+                    st.notes.entry(agent.to_string()).or_default().push(Msg { id: id.to_string(), text });
                 }
             }
         }
