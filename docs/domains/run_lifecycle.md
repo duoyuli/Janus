@@ -89,7 +89,7 @@ Run 快照中的工作区带着创建时的[共享资料](agents_and_roles.md#wo
 
 1. 打开会话，接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/acp_integration.md#session_setup)。
-3. 发送任务提示（`task_prompt`）：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准（要求协作者结束前用自己判断的方式逐条验证，在 `checks` 中给出证据；标准不合理时在 `question` 中请主控调整）、上游结果（含主控的修订）、上次失败原因、Skill 列表和结构化结果格式。角色指令和 Provider 的自定义提示词按 [用户的长期要求](../interfaces/acp_integration.md#standing_instructions) 注入，只有没有系统层入口的 Agent 才附在这里。
+3. 发送任务提示（`task_prompt`）：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含主控的修订）、同时进行的任务和上次失败原因。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/acp_integration.md#standing_instructions)中，见[协作者的约定](goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
 4. 收集流式输出、工具调用、审批请求和表单请求。
 5. 解析回复中最后一个 ```` ```json ```` 代码块作为结构化结果。
 

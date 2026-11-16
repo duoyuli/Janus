@@ -6,8 +6,6 @@ use super::*;
 /// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PromptChannel {
-    /// The lead's brief in Claude's system layer.
-    System,
     /// The lead's brief as a first prompt, for agents without a slot in their system layer.
     Context,
     /// `/goal <goal>`.
@@ -30,7 +28,6 @@ impl PromptChannel {
 
     fn as_str(self) -> &'static str {
         match self {
-            PromptChannel::System => "system",
             PromptChannel::Context => "context",
             PromptChannel::Goal => "goal",
             PromptChannel::Followup => "followup",
@@ -42,7 +39,6 @@ impl PromptChannel {
 
     fn label(self) -> &'static str {
         match self {
-            PromptChannel::System => "向 Agent 注入主控上下文",
             PromptChannel::Context => "向主控发送团队上下文",
             PromptChannel::Goal => "向主控发送目标提示",
             PromptChannel::Followup => "向主控发送继续提示",
@@ -235,8 +231,14 @@ impl App {
         }
         let standing = standing_instructions(&lead);
         let channel = instruction_channel(lead.kind);
-        let mut spec = self.spec_for(&lead.runtime)?;
-        spec = self.with_standing(spec, &channel, &standing)?;
+        // The brief, with the messages left for the lead, goes in the system layer before the
+        // standing rules. Codex reads it from its environment, so it is known before the adapter
+        // starts; the notes are taken only once the session is open.
+        // @project-doc docs/domains/goal_mode.md#lead_brief
+        let (notes, note_ids) = self.peek_notes(run, "lead");
+        let brief = format!("{}{notes}", self.goal_brief(run, resumed));
+        let system = system_layer(&brief, &standing);
+        let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
         let workspace = run.cwd.clone();
         if lead.kind == Runtime::Claude {
             // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
@@ -246,13 +248,16 @@ impl App {
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
         let (conn, mut rx, mut ctl) = self.open_session(run, &owner, "lead", &spec, &log, "主控").await?;
         let result = async {
-            let brief = format!("{}{}", self.goal_brief(run, resumed), self.take_notes(run, "lead"));
-            let claude = lead.kind == Runtime::Claude;
-            // Claude's system layer carries the brief and, after it, the person's standing rules.
-            let system = if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") };
+            self.take_peeked_notes(run, "lead", &note_ids);
             let (sid, applied, controls) = tokio::time::timeout(STARTUP_TIMEOUT, async {
                 let board = vec![self.mcp_server(run, "lead")];
-                let opening = self.opening(run, &lead, &conn.capabilities, board, claude.then_some(system.as_str()));
+                let opening = self.opening(
+                    run,
+                    &lead,
+                    &conn.capabilities,
+                    board,
+                    (channel == Channel::System).then_some(system.as_str()),
+                );
                 let session = new_session(&conn, &workspace, &opening).await?;
                 let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
                 let mut applied = configure_session(&conn, &session, &lead).await?;
@@ -271,9 +276,10 @@ impl App {
             self.watch_session(run, &owner.session, 0);
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
+            self.record_system(run, &ctx, &sid, &channel, "向主控注入主控说明", &brief);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
-            if !claude {
-                // Codex has no slot for extra instructions: the brief goes in first, as context.
+            if channel == Channel::Prompt {
+                // An agent without a system layer gets the brief first, as context.
                 let ack =
                     format!("{brief}\n\n以上是背景信息。现在只回复“已了解”，不要开始工作，目标会在下一条消息里给出。");
                 self.record_session_prompt(run, &ctx, &sid, PromptChannel::Context, &ack);
@@ -286,10 +292,6 @@ impl App {
                     Some(STARTUP_TIMEOUT),
                 )
                 .await?;
-            } else {
-                // Claude receives the brief through session/new's systemPrompt.append. Record it
-                // explicitly so the session view shows the same context the model receives.
-                self.record_session_prompt(run, &ctx, &sid, PromptChannel::System, &brief);
             }
             let mut prompt = format!("/goal {}", goal_condition(&run.goal));
             let mut delivered = false;
@@ -378,15 +380,15 @@ impl App {
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
         let channel = instruction_channel(lead.kind);
-        let mut spec = self.spec_for(&lead.runtime)?;
-        spec = self.with_standing(spec, &channel, &standing)?;
+        let events = self.db.events(&run.id, 0).unwrap_or_default();
+        let old_session = last_lead_session(&events);
+        let brief = conversation_brief(run, &events);
+        let system = system_layer(&brief, &standing);
+        let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
         let workspace = run.cwd.clone();
         if lead.kind == Runtime::Claude {
             self.trust_claude_workspace(&lead.runtime, &workspace)?;
         }
-        let events = self.db.events(&run.id, 0).unwrap_or_default();
-        let old_session = last_lead_session(&events);
-        let brief = conversation_brief(run, &events);
         let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-chat.log");
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
         let opened = self.open_session(run, &owner, "lead", &spec, &log, "主控").await;
@@ -403,9 +405,13 @@ impl App {
             } else {
                 vec![]
             };
-            let system = (lead.kind == Runtime::Claude)
-                .then(|| if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") });
-            let opening = self.opening(run, &lead, &conn.capabilities, board, system.as_deref());
+            let opening = self.opening(
+                run,
+                &lead,
+                &conn.capabilities,
+                board,
+                (channel == Channel::System).then_some(system.as_str()),
+            );
             let mut loaded = false;
             let mut session = Value::Null;
             if conn.capabilities["loadSession"] == true
@@ -453,6 +459,7 @@ impl App {
             if has_controls {
                 self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             }
+            self.record_system(run, &ctx, &sid, &channel, "向主控注入对话背景", &brief);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
@@ -475,7 +482,7 @@ impl App {
                 );
             }
             let mut next = prompt.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
-            if !loaded && lead.kind != Runtime::Claude {
+            if !loaded && channel == Channel::Prompt {
                 next = format!("{brief}\n\n用户接着说：\n{next}");
             }
             loop {
@@ -572,20 +579,29 @@ impl App {
         }
     }
 
-    /// Starts the adapter so the standing instructions reach the agent's system layer.
-    pub(super) fn with_standing(
+    /// Janus's part of the system layer is invisible in the transcript: record it, with its
+    /// channel, the way `record_instructions` records the person's part.
+    pub(super) fn record_system(
         &self,
-        mut spec: crate::acp::RuntimeSpec,
+        run: &Run,
+        ctx: &Ctx<'_>,
+        sid: &str,
         channel: &Channel,
+        label: &str,
         text: &str,
-    ) -> Result<crate::acp::RuntimeSpec> {
-        if text.is_empty() {
-            return Ok(spec);
-        }
-        if channel == &Channel::Developer {
-            spec = with_developer_instructions(spec, text);
-        }
-        Ok(spec)
+    ) {
+        let via = match channel {
+            Channel::System => "system",
+            Channel::Developer => "developer",
+            Channel::Prompt => return,
+        };
+        self.emit(
+            run,
+            ev("session.prompt", "janus", label)
+                .to(ctx.agent)
+                .scope(ctx)
+                .data(json!({ "channel": "system", "via": via, "session": sid, "prompt": text })),
+        );
     }
 
     /// What went into the system layer is invisible in the transcript: record it, with its channel.

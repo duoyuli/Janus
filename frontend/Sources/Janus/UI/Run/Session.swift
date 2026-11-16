@@ -305,9 +305,10 @@ struct ChatItem: View {
         case "session.control":
             note("\(d["failed"].truthy ? "⚠" : "↺") \(e.text)", d["failed"].truthy ? .amber : nil)
         case "session.prompt":
-            let label = d["channel"].str == "instructions"
-                ? "用户的长期要求 · \(d["via"].str == "developer" ? "开发者指令" : "系统提示")"
-                : ["system": "主控上下文", "context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮", "goal_check": "目标确认 · 主控停下了，目标还标着进行中"][d["channel"].str] ?? "Janus 提示"
+            let via = d["via"].str == "developer" ? "开发者指令" : "系统提示"
+            let label = d["channel"].str == "instructions" ? "用户的长期要求 · \(via)"
+                : d["channel"].str == "system" ? "Janus 的说明 · \(via)"
+                : ["context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮", "goal_check": "目标确认 · 主控停下了，目标还标着进行中"][d["channel"].str] ?? "Janus 提示"
             VStack(alignment: .leading, spacing: 4) {
                 HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text("Janus 发给 Agent").font(.caption).foregroundStyle(.secondary) }
                 DisclosureGroup("查看内容") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)

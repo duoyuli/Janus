@@ -61,12 +61,9 @@ fn task_prompts_carry_the_shared_material() {
         verifies: None,
     };
     let m = run.team[1].clone();
-    assert!(
-        !task_prompt(&run, &m, &def, &[], &[], false, None).contains("工作区共享资料"),
-        "nothing when there is none"
-    );
+    assert!(!task_prompt(&run, &m, &def, &[], &[], None).contains("工作区共享资料"), "nothing when there is none");
     run.brief = "目标用户是独立开发者".into();
-    let p = task_prompt(&run, &m, &def, &[], &[], false, None);
+    let p = task_prompt(&run, &m, &def, &[], &[], None);
     assert!(
         p.contains("工作区共享资料（用户维护的长期背景，与任务说明冲突时以任务说明为准）：\n目标用户是独立开发者"),
         "{p}"
@@ -120,6 +117,46 @@ fn developer_instructions_merge_into_codex_config() {
     let out = with_developer_instructions(spec(vec![]), "规则");
     assert_eq!(out.env, vec![("CODEX_CONFIG".to_string(), r#"{"developer_instructions":"规则"}"#.to_string())]);
     assert!(with_developer_instructions(spec(vec![]), "").env.is_empty());
+}
+
+/// Janus's rules for a collaborator lead its system layer, the person's standing rules follow,
+/// and Codex gets both as developer instructions. The task prompt carries only the task.
+#[test]
+fn the_system_layer_holds_janus_rules_then_the_persons() {
+    let rules = collaborator_rules(true);
+    assert!(rules.contains("janus.board_post") && rules.contains("```json"), "{rules}");
+    assert!(!collaborator_rules(false).contains("janus.board_post"), "no board, no board tools");
+    let text = system_layer(&rules, "以下是用户为你设定的长期要求");
+    assert!(text.find("```json").unwrap() < text.find("长期要求").unwrap());
+    assert_eq!(system_layer(" ", ""), "");
+    let spec = || crate::acp::RuntimeSpec {
+        id: "c".into(),
+        kind: Runtime::Codex,
+        name: "Codex".into(),
+        program: "node".into(),
+        args: vec![],
+        env: vec![],
+        pin: None,
+    };
+    let codex = with_system(spec(), &Channel::Developer, &text);
+    let cfg: Value = serde_json::from_str(&codex.env[0].1).unwrap();
+    assert_eq!(cfg["developer_instructions"], text);
+    assert!(with_system(spec(), &Channel::System, &text).env.is_empty(), "Claude Code takes it in session/new");
+
+    let run = test_run(2);
+    let def = TaskDef {
+        id: "T1".into(),
+        title: "t".into(),
+        desc: "d".into(),
+        deps: vec![],
+        accept: vec!["a".into()],
+        assignee: run.team[1].id.clone(),
+        max_attempts: 2,
+        owns: vec![],
+        verifies: None,
+    };
+    let task = task_prompt(&run, &run.team[1], &def, &[], &[], None);
+    assert!(task.contains("你的任务 T1") && !task.contains("```json") && !task.contains("janus.board_post"), "{task}");
 }
 
 /// A reply that streamed in pieces is the whole reply again, and only the last one.

@@ -168,8 +168,37 @@ impl App {
 
     pub(super) fn take_notes(&self, run: &Run, agent: &str) -> String {
         let notes = run.st.lock().unwrap().notes.remove(agent).unwrap_or_default();
+        self.notes_delivered(run, agent, &notes);
+        notes_text(&notes)
+    }
+
+    /// The notes left for an agent, without taking them: a session that has to know them before
+    /// it starts (Codex's system layer is in its environment) takes them once it is open.
+    pub(super) fn peek_notes(&self, run: &Run, agent: &str) -> (String, Vec<String>) {
+        let st = run.st.lock().unwrap();
+        let notes = st.notes.get(agent).map(Vec::as_slice).unwrap_or_default();
+        (notes_text(notes), notes.iter().map(|m| m.id.clone()).collect())
+    }
+
+    /// Take the notes `peek_notes` saw; any left since stay for the next prompt.
+    pub(super) fn take_peeked_notes(&self, run: &Run, agent: &str, ids: &[String]) {
+        let taken: Vec<Msg> = {
+            let mut st = run.st.lock().unwrap();
+            let Some(notes) = st.notes.get_mut(agent) else { return };
+            let (taken, left): (Vec<Msg>, Vec<Msg>) =
+                std::mem::take(notes).into_iter().partition(|m| ids.contains(&m.id));
+            *notes = left;
+            if notes.is_empty() {
+                st.notes.remove(agent);
+            }
+            taken
+        };
+        self.notes_delivered(run, agent, &taken);
+    }
+
+    fn notes_delivered(&self, run: &Run, agent: &str, notes: &[Msg]) {
         if notes.is_empty() {
-            return String::new();
+            return;
         }
         let ids: Vec<&str> = notes.iter().map(|m| m.id.as_str()).collect();
         self.emit(
@@ -178,9 +207,15 @@ impl App {
                 .to(agent)
                 .data(json!({ "ids": ids })),
         );
-        format!(
-            "\n\n用户补充的信息（请优先考虑）：\n{}",
-            notes.iter().map(|n| format!("- {}", n.text)).collect::<Vec<_>>().join("\n")
-        )
     }
+}
+
+fn notes_text(notes: &[Msg]) -> String {
+    if notes.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\n用户补充的信息（请优先考虑）：\n{}",
+        notes.iter().map(|n| format!("- {}", n.text)).collect::<Vec<_>>().join("\n")
+    )
 }

@@ -88,19 +88,24 @@ Codex：
 自定义命令的 Agent：`_meta` 为空。
 
 <a id="standing_instructions"></a>
-## 用户的长期要求
+## 系统层：Janus 的说明和用户的长期要求
 
-Provider 的「自定义提示词」和角色的「指令」是用户给这个成员定的长期要求，在整个会话中都有效，优先级高于主控写的任务说明。`standing_instructions` 把两者合成一段（Provider 在前，角色在后），`instruction_channel` 按 Agent 类型选择注入方式：
+一个会话的系统层（`system_layer`）由两部分组成，在整个会话中都有效，优先级高于任务说明：
+
+1. **Janus 的说明**：主控会话是主控说明（`goal_brief`，交付后的对话是 `conversation_brief`），协作者会话是协作约定（`collaborator_rules`），见[目标模式](../domains/goal_mode.md#collaborator_rules)。
+2. **用户的长期要求**：Provider 的「自定义提示词」和角色的「指令」，`standing_instructions` 把两者合成一段（Provider 在前，角色在后）。
+
+`instruction_channel` 按运行时选择注入方式：
 
 | Agent | 通道 | 做法 |
 | --- | --- | --- |
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
-| Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_developer_instructions`） |
-| 自定义命令 | 任务说明 | 没有系统提示入口，用 `<standing_instructions>` 块附在每次任务说明的末尾 |
+| Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_system`、`with_developer_instructions`） |
+| 自定义命令 | 第一条提示 | 没有系统层入口：协作约定和 `<standing_instructions>` 块附在任务说明的末尾；只在测试中出现的自定义主控先收到一轮「背景信息」 |
 
-走系统提示或开发者指令时，Janus 记一条 `session.prompt` 事件（`channel` 为 `instructions`，`via` 为 `system` 或 `developer`），会话页可以展开查看。
+走系统提示或开发者指令时，Janus 记两条 `session.prompt` 事件：Janus 的说明（`channel` 为 `system`）和用户的长期要求（`channel` 为 `instructions`），都带 `via`（`system` 或 `developer`），会话页可以展开查看。
 
-Skill、MCP 和权限模式不属于长期要求，它们按各 Agent 自己的机制生效。
+Skill、MCP 和权限模式不属于系统层，它们按各 Agent 自己的机制生效，见[资源库](../domains/resource_library.md#delivery)。
 
 <a id="session_setup"></a>
 ## 会话设置

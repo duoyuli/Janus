@@ -147,9 +147,13 @@ impl App {
         let member = run.member(&agent).context("member missing")?.clone();
         let standing = standing_instructions(&member);
         let channel = instruction_channel(member.kind);
-        let mut spec = self.spec_for(&member.runtime)?;
-        spec = self.with_standing(spec, &channel, &standing)?;
-        let system = (channel == Channel::System && !standing.is_empty()).then_some(standing.as_str());
+        // The collaborator rules, then the person's standing rules, in the system layer. Codex and
+        // Claude Code both take HTTP MCP servers, so their sessions always have the board.
+        // @project-doc docs/domains/goal_mode.md#collaborator_rules
+        let rules = collaborator_rules(true);
+        let system_text = system_layer(&rules, &standing);
+        let spec = with_system(self.spec_for(&member.runtime)?, &channel, &system_text);
+        let system = (channel == Channel::System).then_some(system_text.as_str());
         self.db.start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
 
         let workspace = run.cwd.clone();
@@ -201,17 +205,18 @@ impl App {
                 self.take_notes(run, &agent)
             )
         } else {
-            format!(
-                "{}{team_note}{}",
-                task_prompt(
-                    run,
-                    &member,
-                    &def,
-                    &upstream,
-                    &peers,
-                    conn.capabilities["mcpCapabilities"]["http"] == true,
-                    last_error.as_deref()
+            // An agent without a system layer gets the rules after the task.
+            let rules = match channel {
+                Channel::Prompt => format!(
+                    "\n\n{}{}",
+                    collaborator_rules(conn.capabilities["mcpCapabilities"]["http"] == true),
+                    prompt_instructions(&member)
                 ),
+                Channel::System | Channel::Developer => String::new(),
+            };
+            format!(
+                "{}{team_note}{}{rules}",
+                task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
                 self.take_notes(run, &agent)
             )
         };
@@ -244,6 +249,7 @@ impl App {
 
         let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
         self.show(run, ("session.controls", "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
+        self.record_system(run, &ctx, &sid, &channel, "向协作者注入协作约定", &rules);
         self.record_instructions(run, &ctx, &sid, &channel, &standing);
         self.watch_session(run, &owner.session, n);
         let mut next = Some(prompt);

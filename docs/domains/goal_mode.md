@@ -21,15 +21,13 @@
 1. 为主控生成看板令牌，记录当前 diff 作为基线（之后的 diff 产物只包含 Run 期间的改动）。
 2. Claude Code 主控：在它的隔离配置 `~/.janus/agents/<id>/home/.claude.json` 中把工作目录标记为已信任，因为 Claude Code 只在受信任的工作区运行 `/goal`。不修改用户自己的 Claude 配置。
 3. 启动 ACP 子进程，打开会话，接入看板 MCP 服务（`janus`），按角色设置会话控制项。
-4. 注入说明（见[主控知道什么](#lead_brief)）：
-   - Claude Code：通过 `session/new` 的 `_meta.systemPrompt.append`，主控说明之后接着用户的长期要求。
-   - Codex：主控说明没有系统层入口，先作为第一条消息发送，要求只回复「已了解」；用户的长期要求作为开发者指令注入，见 [ACP 集成](../interfaces/acp_integration.md#standing_instructions)。
+4. 注入说明（见[主控知道什么](#lead_brief)）：主控说明（连同用户留给主控的消息）在前、用户的长期要求在后，放进系统层。Claude Code 通过 `session/new` 的 `_meta.systemPrompt.append`；Codex 通过适配器进程的 `CODEX_CONFIG.developer_instructions`，它在适配器启动前就要确定，所以留言在会话打开后才标为送达（`peek_notes`、`take_peeked_notes`）。见 [ACP 集成](../interfaces/acp_integration.md#standing_instructions)。
 5. 发送 `/goal <目标>`。目标超过 3800 个字符时截断。
 6. 如果回复表明 Agent 不支持或拒绝 `/goal`，主控以失败结束。
 7. Codex 在提示返回后可能继续工作。Janus 读取 `session_info_update` 中的目标状态（记为 `goal.status` 事件），状态为 `active` 时继续跟随会话；目标一直不自己结束时，见[目标不自己结束时](#goal_settle)。
 8. 一轮结束后，如果有用户排队的消息，把它们发给主控继续；如果用户接管了会话，等待用户消息或交还。
 
-发给主控的上下文、`/goal` 和后续提示会作为 `session.prompt` 事件记录，主控会话页可以展开查看。主控调用 `orchestrate`、`wait`、`reply` 或 `team` 时，Janus MCP 入口会记录 `tool.started` 和 `tool.completed`，长时间的 `wait` 会先显示等待状态。
+系统层中的主控说明（`channel` 为 `system`）、用户的长期要求（`instructions`）、`/goal` 和后续提示都作为 `session.prompt` 事件记录，主控会话页可以展开查看。主控调用 `orchestrate`、`wait`、`reply` 或 `team` 时，Janus MCP 入口会记录 `tool.started` 和 `tool.completed`，长时间的 `wait` 会先显示等待状态。
 
 主控会话结束时，结果记为「完成」（附最后一条回复）或「异常」（附错误）。用户取消 Run 时不记结果。
 
@@ -138,7 +136,20 @@
 - Run 是目标模式。
 - Agent 在 `initialize` 中声明 `mcpCapabilities.http` 为 `true`。
 
-Pi 只支持 stdio MCP，不接入看板。它照常执行任务，通过结构化结果和提问回报。
+Codex 和 Claude Code 都声明支持，它们的协作者总会接入看板。自定义命令的 Agent 不声明时不接入，它照常执行任务，通过结构化结果和提问回报。
+
+<a id="collaborator_rules"></a>
+### 协作者的约定
+
+协作者怎样与 Janus 协作的固定约定（`collaborator_rules`）放在系统层，在用户的长期要求之前，整个会话都有效：
+
+- 结束前逐条验证验收标准，在结果的 `checks` 中写明是否达到、证据和证据方法。
+- 直接在工作目录中工作，不 commit、push、部署，不改工作目录之外的文件。
+- 看板工具的用法（接入看板时）。
+- 缺少超出授权的决定时，在结果的 `question` 中提问。
+- 结构化结果的格式，见[结构化结果](run_lifecycle.md#structured_result)。
+
+第一条提示（`task_prompt`）只有这一次的任务：目标、共享资料、任务和验收标准、工作目录、上游任务的结果、同时进行的任务、上一次失败的原因，以及团队结构段和用户的留言。会话打开时，约定记为 `session.prompt`（`channel` 为 `system`）。自定义命令的 Agent 没有系统层，约定和长期要求附在第一条提示的末尾。
 
 <a id="decision_ownership"></a>
 ## 谁来做决定
