@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The settings panel (⌘,): a floating card in the middle of the window, a pane each for Agents,
-/// roles, the resource library, ACP adapters and the usage bill. Clicking the dimmed area or pressing Esc
-/// closes it and shows the screen underneath unchanged; the last pane opened comes back next time.
-/// The bottom of the sidebar picks the app's appearance.
+/// The settings panel (⌘,): a floating card in the middle of the window, a pane each for ACP adapters,
+/// Agents, the resource library, digital employees (roles), the usage bill and updates. Clicking the
+/// dimmed area or pressing Esc closes it and shows the screen underneath unchanged; the last pane
+/// opened comes back next time. The bottom of the sidebar picks the app's appearance.
 // @project-doc docs/architecture/frontend.md#screens
 struct SettingsView: View {
     let store: AppStore
@@ -45,11 +45,12 @@ struct SettingsView: View {
                 .font(.display(.title2))
                 .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 10)
             VStack(spacing: 2) {
-                nav("agents", "Agents", "cpu")
-                nav("roles", "角色", "person.2")
+                nav("adapters", "ACP", "shippingbox")
+                nav("agents", "Agent", "cpu")
                 nav("library", "资源库", "books.vertical", updates: store.sourceUpdates.count)
-                nav("adapters", "ACP 适配器", "shippingbox")
+                nav("roles", "数字员工", "person.2")
                 nav("usage", "用量账单", "list.bullet.rectangle")
+                nav("updates", "更新", "arrow.triangle.2.circlepath")
             }
             .padding(.horizontal, 8)
             Spacer(minLength: 16)
@@ -98,6 +99,7 @@ struct SettingsView: View {
         case "library": LibraryView(store: store)
         case "adapters": AdaptersView(store: store)
         case "usage": UsageBillView(store: store)
+        case "updates": UpdatesView()
         default: AgentsView(store: store)
         }
     }

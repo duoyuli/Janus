@@ -156,7 +156,7 @@ just install
 | Janus 本身（服务） | 更新仓库代码后执行 `just install`，再执行 `just restart` |
 | Janus 本身（macOS 应用） | 点侧栏底部的「可以更新」，或菜单栏 Janus 图标菜单中的「检查更新…」。上一个版本保留在 `~/.janus/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
 | ACP 适配器 | 在「设置 → ACP 适配器」中检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/adapters.md) |
-| Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → Agents」重新检查 |
+| Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → Agent」重新检查 |
 
 数据库结构由 Janus 启动时自动创建；不需要单独迁移。
 
