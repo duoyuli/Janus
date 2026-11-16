@@ -150,7 +150,19 @@ mod workspace_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let app = test_app(&dir);
-        let c = app.save_connection(&json!({ "id": "codex-1", "kind": "codex", "name": "Codex" })).unwrap();
+        // A connection written directly: copying the user's own agent config is not the subject.
+        app.db
+            .put_config(
+                "connection",
+                "codex-1",
+                &json!({
+                    "id": "codex-1", "kind": "codex", "base": "codex", "name": "Codex",
+                    "options": { "controls": [] }
+                }),
+                now_ms(),
+            )
+            .unwrap();
+        let c = json!({ "id": "codex-1" });
         let can =
             app.save_role(&json!({ "id": "can-lead", "name": "负责人", "connection": c["id"], "lead": true })).unwrap();
         let cannot = app
