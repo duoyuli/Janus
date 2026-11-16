@@ -22,7 +22,10 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     let duplicate = replies.iter().filter(|r| matches!(r, Ok(ActionReply::Duplicate))).count();
     assert_eq!((done, duplicate), (1, 1), "the second request with the id does nothing");
     let said = |text: &str| {
-        events(&h.app, &run).iter().filter(|e| e.kind == "user.message" && e.data.as_ref().is_some_and(|d| d["text"] == text)).count()
+        events(&h.app, &run)
+            .iter()
+            .filter(|e| e.kind == "user.message" && e.data.as_ref().is_some_and(|d| d["text"] == text))
+            .count()
     };
     assert_eq!(said("只说一次"), 1);
 

@@ -22,20 +22,38 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     wait_until(&h.app, &run, "V1", |e| task_event(e, "task.succeeded", "V1")).await;
     let evs = events(&h.app, &run);
     let submitted = evs.iter().find(|e| e.kind == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
-    let names: Vec<&str> = submitted.data.as_ref().unwrap()["checks"].as_array().unwrap().iter().filter_map(|c| c["method"].as_str()).collect();
-    assert_eq!(names, ["test", "command", "inspection", "reasoning", "unverified"], "every method reaches the event log");
+    let names: Vec<&str> = submitted.data.as_ref().unwrap()["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["method"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["test", "command", "inspection", "reasoning", "unverified"],
+        "every method reaches the event log"
+    );
 
     // The board message: totals, method counts, the reminders and the independent verification.
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[完成] T1"), "{board}");
     assert!(board.contains("验收标准：5 条，通过 5 条"), "{board}");
     assert!(board.contains("证据：测试 1 条、命令 1 条、检查 1 条、推理判断 1 条、未核实 1 条"), "{board}");
-    assert!(board.contains("提醒（不影响是否通过）") && board.contains("推理判断") && board.contains("未核实"), "{board}");
+    assert!(
+        board.contains("提醒（不影响是否通过）") && board.contains("推理判断") && board.contains("未核实"),
+        "{board}"
+    );
     assert!(board.contains("独立验证：V1 已完成"), "{board}");
 
     // `task_detail`: each criterion with its method, and the verifier's own result apart.
     let (detail, _) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
-    assert!(detail.contains("✓ [测试]") && detail.contains("✓ [检查]") && detail.contains("✓ [推理判断]") && detail.contains("✓ [未核实]"), "{detail}");
+    assert!(
+        detail.contains("✓ [测试]")
+            && detail.contains("✓ [检查]")
+            && detail.contains("✓ [推理判断]")
+            && detail.contains("✓ [未核实]"),
+        "{detail}"
+    );
     assert!(detail.contains("独立验证 V1：已完成"), "{detail}");
 
     // The process goes away; the board is rebuilt from the event log.
@@ -60,7 +78,13 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     assert_eq!(t1["verifications"][0]["task"], "V1");
     assert_eq!(t1["verifications"][0]["passed"], true);
     // All three pieces of task-level evidence, not only the first.
-    let texts: Vec<&str> = d["evidence"].as_array().unwrap().iter().filter_map(|e| e["text"].as_str()).filter(|t| t.starts_with("T1：")).collect();
+    let texts: Vec<&str> = d["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|e| e["text"].as_str())
+        .filter(|t| t.starts_with("T1："))
+        .collect();
     assert_eq!(texts.len(), 3, "{texts:?}");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -75,12 +99,24 @@ async fn an_illegal_evidence_method_fails_the_result_check() {
     let evs = events(&h.app, &run);
     let failed = evs.iter().find(|e| e.kind == "verification.failed" && e.task.as_deref() == Some("T1")).unwrap();
     let failures = failed.data.as_ref().unwrap()["failures"].as_array().unwrap().clone();
-    assert!(failures.iter().any(|f| f.as_str().is_some_and(|f| f.contains("证据方法「vibes」不是允许值"))), "{failures:?}");
+    assert!(
+        failures.iter().any(|f| f.as_str().is_some_and(|f| f.contains("证据方法「vibes」不是允许值"))),
+        "{failures:?}"
+    );
     // The recorded check keeps exactly the value it was given.
     let submitted = evs.iter().find(|e| e.kind == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
     assert_eq!(submitted.data.as_ref().unwrap()["checks"][0]["method"], "vibes");
     wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
-    let done = events(&h.app, &run).into_iter().rev().find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1")).unwrap();
-    assert_eq!(done.data.as_ref().unwrap()["acceptance"]["unspecified"], 1, "no method is 「未说明」, not a failure: {:?}", done.data);
+    let done = events(&h.app, &run)
+        .into_iter()
+        .rev()
+        .find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1"))
+        .unwrap();
+    assert_eq!(
+        done.data.as_ref().unwrap()["acceptance"]["unspecified"],
+        1,
+        "no method is 「未说明」, not a failure: {:?}",
+        done.data
+    );
     let _ = std::fs::remove_dir_all(&h.dir);
 }

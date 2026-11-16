@@ -42,7 +42,11 @@ impl App {
                     .unwrap_or(text)),
                 Err(err) if err.downcast_ref::<Cancelled>().is_some() => return,
                 Err(err) => {
-                    app.emit(&r, ev("lead.failed", "janus", format!("主控的会话异常结束：{}", short(&format!("{err:#}"), 120))).data(json!({ "error": format!("{err:#}") })));
+                    app.emit(
+                        &r,
+                        ev("lead.failed", "janus", format!("主控的会话异常结束：{}", short(&format!("{err:#}"), 120)))
+                            .data(json!({ "error": format!("{err:#}") })),
+                    );
                     Err(format!("{err:#}"))
                 }
             };
@@ -115,10 +119,19 @@ impl App {
         if entries.is_empty() {
             return;
         }
-        let text = format!("[Janus 看板推送] 看板上有需要你处理的新消息。它们已经算作读过，不会再出现在 janus.wait 里：\n{}", entries.join("\n"));
+        let text = format!(
+            "[Janus 看板推送] 看板上有需要你处理的新消息。它们已经算作读过，不会再出现在 janus.wait 里：\n{}",
+            entries.join("\n")
+        );
         static NEXT: AtomicI64 = AtomicI64::new(0);
         let id = format!("push{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
-        self.record_session_prompt(run, &Ctx { agent: "lead", task: None, attempt: None, goal: false }, &sid, "board", &text);
+        self.record_session_prompt(
+            run,
+            &Ctx { agent: "lead", task: None, attempt: None, goal: false },
+            &sid,
+            "board",
+            &text,
+        );
         let _ = tx.send(Steer::Message(Msg { id, text }));
     }
 
@@ -147,7 +160,9 @@ impl App {
             // A question from an attempt that has since ended is no longer waiting for anyone.
             let live = e.task.as_ref().is_some_and(|t| {
                 running.contains(t)
-                    && !events.iter().any(|x| x.seq > e.seq && x.kind == "attempt.started" && x.task.as_ref() == Some(t))
+                    && !events
+                        .iter()
+                        .any(|x| x.seq > e.seq && x.kind == "attempt.started" && x.task.as_ref() == Some(t))
             });
             if !live {
                 continue;
@@ -203,7 +218,14 @@ impl App {
             // Claude's system layer carries the brief and, after it, the person's standing rules.
             let system = if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") };
             let (sid, applied, controls) = tokio::time::timeout(STARTUP_TIMEOUT, async {
-                let session = new_session(&conn, &workspace, &lead, &[self.mcp_server(run, "lead")], claude.then_some(system.as_str())).await?;
+                let session = new_session(
+                    &conn,
+                    &workspace,
+                    &lead,
+                    &[self.mcp_server(run, "lead")],
+                    claude.then_some(system.as_str()),
+                )
+                .await?;
                 let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
                 let applied = configure_session(&conn, &session, &lead).await?;
                 let controls = crate::acp_view::controls(&session, &applied);
@@ -211,7 +233,11 @@ impl App {
             })
             .await
             .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-            self.emit(run, ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" }).data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied })));
+            self.emit(
+                run,
+                ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" })
+                    .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied })),
+            );
             {
                 let mut st = run.st.lock().unwrap();
                 st.lead_session = Some(sid.clone());
@@ -219,15 +245,27 @@ impl App {
                     st.steerable.insert("lead".into());
                 }
             }
-            run.watch.lock().unwrap().insert(LEAD_WATCH.into(), Watch { attempt: 0, last_ms: now_ms(), ..Default::default() });
+            run.watch
+                .lock()
+                .unwrap()
+                .insert(LEAD_WATCH.into(), Watch { attempt: 0, last_ms: now_ms(), ..Default::default() });
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
             if !claude {
                 // Codex has no slot for extra instructions: the brief goes in first, as context.
-                let ack = format!("{brief}\n\n以上是背景信息。现在只回复“已了解”，不要开始工作，目标会在下一条消息里给出。");
+                let ack =
+                    format!("{brief}\n\n以上是背景信息。现在只回复“已了解”，不要开始工作，目标会在下一条消息里给出。");
                 self.record_session_prompt(run, &ctx, &sid, "context", &ack);
-                self.stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &ack, &Ctx { goal: false, ..ctx }, Some(&mut ctl), Some(STARTUP_TIMEOUT)).await?;
+                self.stream_prompt(
+                    run,
+                    &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
+                    &ack,
+                    &Ctx { goal: false, ..ctx },
+                    Some(&mut ctl),
+                    Some(STARTUP_TIMEOUT),
+                )
+                .await?;
             } else {
                 // Claude receives the brief through session/new's systemPrompt.append. Record it
                 // explicitly so the session view shows the same context the model receives.
@@ -247,14 +285,28 @@ impl App {
                     if prompt.starts_with("/goal ") { "goal" } else { "followup" },
                     &prompt,
                 );
-                let text = self.stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &prompt, &ctx, Some(&mut ctl), None).await?;
+                let text = self
+                    .stream_prompt(
+                        run,
+                        &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
+                        &prompt,
+                        &ctx,
+                        Some(&mut ctl),
+                        None,
+                    )
+                    .await?;
                 if let Some(reason) = goal_refused(&text) {
                     bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
                 }
                 if !ctl.human && !ctl.queued.is_empty() {
                     let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
                     let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                    self.emit(run, ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
+                    self.emit(
+                        run,
+                        ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len()))
+                            .to("lead")
+                            .data(json!({ "ids": ids })),
+                    );
                     let texts: Vec<&str> = msgs.iter().map(|m| m.text.as_str()).collect();
                     let next = texts.join("\n\n");
                     prompt = if delivered {
@@ -265,7 +317,11 @@ impl App {
                     continue;
                 }
                 if ctl.human && !ctl.finish {
-                    self.emit(run, ev("agent.status", "lead", "这一轮已结束，等待你的消息（人工接管中）").data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })));
+                    self.emit(
+                        run,
+                        ev("agent.status", "lead", "这一轮已结束，等待你的消息（人工接管中）")
+                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
+                    );
                     loop {
                         match ctl.rx.recv().await {
                             None => return Err(Cancelled.into()),
@@ -281,14 +337,43 @@ impl App {
                                 if !ctl.queued.is_empty() {
                                     let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
                                     let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                                    self.emit(run, ev("message.delivered", "janus", format!("交还托管，把排队的 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
-                                    prompt = format!("{}\n\n{prompt}", msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n"));
+                                    self.emit(
+                                        run,
+                                        ev(
+                                            "message.delivered",
+                                            "janus",
+                                            format!("交还托管，把排队的 {} 条消息发给主控", msgs.len()),
+                                        )
+                                        .to("lead")
+                                        .data(json!({ "ids": ids })),
+                                    );
+                                    prompt = format!(
+                                        "{}\n\n{prompt}",
+                                        msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n")
+                                    );
                                 }
                             }
                             Some(Steer::Finish) => ctl.finish = true,
                             Some(Steer::Control(id, value, via)) => {
-                                if let Err(err) = self.set_control(run, &conn, &sid, ControlChange { id: &id, value: &value, via: &via }, &ctx).await {
-                                    self.show(run, ("session.control", format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": id, "failed": true })), &ctx);
+                                if let Err(err) = self
+                                    .set_control(
+                                        run,
+                                        &conn,
+                                        &sid,
+                                        ControlChange { id: &id, value: &value, via: &via },
+                                        &ctx,
+                                    )
+                                    .await
+                                {
+                                    self.show(
+                                        run,
+                                        (
+                                            "session.control",
+                                            format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)),
+                                            json!({ "id": id, "failed": true }),
+                                        ),
+                                        &ctx,
+                                    );
                                 }
                                 continue;
                             }
@@ -316,7 +401,11 @@ impl App {
                     // The run is delivered; a collaborator still waiting on the board now waits on
                     // the person, as it did when the lead's session ended.
                     self.escalate_open_questions(run);
-                    self.emit(run, ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标").data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })));
+                    self.emit(
+                        run,
+                        ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标")
+                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
+                    );
                 } else if goal_turn {
                     // A new goal in the conversation is a new result: deliver it like the first one.
                     run.st.lock().unwrap().lead_done = Some(Ok(text.clone()));
@@ -343,7 +432,12 @@ impl App {
             st.live_agent.remove("lead");
             st.steerable.remove("lead");
             st.lead_session = None;
-            let stale: Vec<String> = st.waiters.keys().filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-")).cloned().collect();
+            let stale: Vec<String> = st
+                .waiters
+                .keys()
+                .filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-"))
+                .cloned()
+                .collect();
             (st.conns.remove("lead"), stale)
         };
         for key in stale {
@@ -420,12 +514,14 @@ impl App {
                 }
             }
             if !loaded {
-                let system = (lead.kind == "claude").then(|| {
-                    if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") }
-                });
-                session = tokio::time::timeout(STARTUP_TIMEOUT, new_session(&conn, &workspace, &lead, &servers, system.as_deref()))
-                    .await
-                    .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+                let system = (lead.kind == "claude")
+                    .then(|| if standing.is_empty() { brief.clone() } else { format!("{brief}\n\n{standing}") });
+                session = tokio::time::timeout(
+                    STARTUP_TIMEOUT,
+                    new_session(&conn, &workspace, &lead, &servers, system.as_deref()),
+                )
+                .await
+                .map_err(|_| anyhow!("主控打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
             }
             let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
             if sid.is_empty() {
@@ -433,7 +529,11 @@ impl App {
             }
             let applied = configure_session(&conn, &session, &lead).await?;
             let controls = crate::acp_view::controls(&session, &applied);
-            self.emit(run, ev("agent.status", "lead", "继续之前的对话").data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied, "mode": "chat" })));
+            self.emit(
+                run,
+                ev("agent.status", "lead", "继续之前的对话")
+                    .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied, "mode": "chat" })),
+            );
             {
                 let mut st = run.st.lock().unwrap();
                 st.lead_session = Some(sid.clone());
@@ -467,7 +567,12 @@ impl App {
                 }
             } else {
                 let ids: Vec<&str> = prompt.iter().map(|m| m.id.as_str()).collect();
-                self.emit(run, ev("message.delivered", "janus", format!("恢复会话，把你留给主控的 {} 条消息发出去", prompt.len())).to("lead").data(json!({ "ids": ids })));
+                self.emit(
+                    run,
+                    ev("message.delivered", "janus", format!("恢复会话，把你留给主控的 {} 条消息发出去", prompt.len()))
+                        .to("lead")
+                        .data(json!({ "ids": ids })),
+                );
             }
             let mut next = prompt.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
             if !loaded && lead.kind != "claude" {
@@ -476,15 +581,38 @@ impl App {
             loop {
                 let goal_turn = next.trim_start().starts_with("/goal ")
                     || run.st.lock().unwrap().goal_status.as_deref() == Some("active");
-                self.record_session_prompt(run, &ctx, &sid, if next.starts_with("/goal ") { "goal" } else { "followup" }, &next);
-                let text = self.stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &next, &ctx, Some(&mut ctl), None).await?;
+                self.record_session_prompt(
+                    run,
+                    &ctx,
+                    &sid,
+                    if next.starts_with("/goal ") { "goal" } else { "followup" },
+                    &next,
+                );
+                let text = self
+                    .stream_prompt(
+                        run,
+                        &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
+                        &next,
+                        &ctx,
+                        Some(&mut ctl),
+                        None,
+                    )
+                    .await?;
                 if let Some(reason) = goal_refused(&text) {
-                    self.emit(run, ev("session.prompt", "janus", format!("主控没有把它当作新的目标：{reason}")).to("lead"));
+                    self.emit(
+                        run,
+                        ev("session.prompt", "janus", format!("主控没有把它当作新的目标：{reason}")).to("lead"),
+                    );
                 }
                 if !ctl.human && !ctl.queued.is_empty() {
                     let msgs: Vec<Msg> = std::mem::take(&mut ctl.queued);
                     let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
-                    self.emit(run, ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len())).to("lead").data(json!({ "ids": ids })));
+                    self.emit(
+                        run,
+                        ev("message.delivered", "janus", format!("这一轮结束，把 {} 条消息发给主控", msgs.len()))
+                            .to("lead")
+                            .data(json!({ "ids": ids })),
+                    );
                     next = msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
                     continue;
                 }
@@ -512,7 +640,12 @@ impl App {
             st.live_agent.remove("lead");
             st.steerable.remove("lead");
             st.lead_session = None;
-            let stale: Vec<String> = st.waiters.keys().filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-")).cloned().collect();
+            let stale: Vec<String> = st
+                .waiters
+                .keys()
+                .filter(|k| k.starts_with("req-lead-0-") || k.starts_with("q-lead-"))
+                .cloned()
+                .collect();
             (st.conns.remove("lead"), stale)
         };
         for key in stale {
@@ -582,7 +715,12 @@ impl App {
     }
 
     /// Starts the adapter so the standing instructions reach the agent's system layer.
-    pub(super) fn with_standing(&self, mut spec: crate::acp::RuntimeSpec, channel: &Channel, text: &str) -> Result<crate::acp::RuntimeSpec> {
+    pub(super) fn with_standing(
+        &self,
+        mut spec: crate::acp::RuntimeSpec,
+        channel: &Channel,
+        text: &str,
+    ) -> Result<crate::acp::RuntimeSpec> {
         if text.is_empty() {
             return Ok(spec);
         }
@@ -697,11 +835,24 @@ impl App {
             let tasks: Vec<String> = st
                 .tasks
                 .iter()
-                .map(|t| format!("- {}（{}）：{} · {}{}", t.def.id, t.agent, t.def.title, t.status, t.result.as_ref().map(|r| format!(" · {}", short(&r.summary, 80))).unwrap_or_default()))
+                .map(|t| {
+                    format!(
+                        "- {}（{}）：{} · {}{}",
+                        t.def.id,
+                        t.agent,
+                        t.def.title,
+                        t.status,
+                        t.result.as_ref().map(|r| format!(" · {}", short(&r.summary, 80))).unwrap_or_default()
+                    )
+                })
                 .collect();
             p.push_str(&format!(
                 "\n\n这是从中断处继续：上一次会话已经结束，工作目录里保留了之前的改动。{}",
-                if tasks.is_empty() { "之前没有交给协作者的任务。".to_string() } else { format!("看板上之前的任务：\n{}\n未完成的任务会重新开始。", tasks.join("\n")) }
+                if tasks.is_empty() {
+                    "之前没有交给协作者的任务。".to_string()
+                } else {
+                    format!("看板上之前的任务：\n{}\n未完成的任务会重新开始。", tasks.join("\n"))
+                }
             ));
         }
         if !run.goal_images.is_empty() {
@@ -741,11 +892,7 @@ pub(super) fn team_lines_vec(run: &Run) -> Vec<String> {
 
 pub(super) fn team_lines(run: &Run) -> String {
     let lines = team_lines_vec(run);
-    if lines.is_empty() {
-        "- （没有协作者，所有工作由你自己完成）".into()
-    } else {
-        lines.join("\n")
-    }
+    if lines.is_empty() { "- （没有协作者，所有工作由你自己完成）".into() } else { lines.join("\n") }
 }
 
 /// The `/goal` text: the user's goal alone (Claude Code judges completion against it), within
@@ -819,13 +966,17 @@ pub(super) fn split_brief_suggestions(text: &str) -> (String, Vec<String>) {
     let Some(start) = lines.iter().position(|l| is_heading(l)) else {
         return (text.to_string(), vec![]);
     };
-    let end = lines[start + 1..].iter().position(|l| l.trim_start().starts_with('#')).map_or(lines.len(), |i| start + 1 + i);
+    let end =
+        lines[start + 1..].iter().position(|l| l.trim_start().starts_with('#')).map_or(lines.len(), |i| start + 1 + i);
     let suggestions = lines[start + 1..end]
         .iter()
         .map(|l| {
             let t = l.trim();
             let t = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).unwrap_or(t);
-            let t = t.split_once(". ").filter(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).map_or(t, |(_, rest)| rest);
+            let t = t
+                .split_once(". ")
+                .filter(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+                .map_or(t, |(_, rest)| rest);
             t.trim().to_string()
         })
         .filter(|l| !l.is_empty())
@@ -847,8 +998,7 @@ pub(super) fn last_lead_session(events: &[Event]) -> Option<String> {
             return None;
         }
         let lead = e.actor == "lead" || e.to.as_deref() == Some("lead");
-        lead.then(|| e.data.as_ref()?.get("session")?.as_str().map(str::to_owned))
-            .flatten()
+        lead.then(|| e.data.as_ref()?.get("session")?.as_str().map(str::to_owned)).flatten()
     })
 }
 

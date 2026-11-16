@@ -146,10 +146,7 @@ impl TaskStatus {
 
     /// A failed dependency blocks its downstream task.
     pub fn failed_dependency(self) -> bool {
-        matches!(
-            self,
-            TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::Blocked | TaskStatus::SkippedByDecision
-        )
+        matches!(self, TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::Blocked | TaskStatus::SkippedByDecision)
     }
 
     pub fn can_transition_to(self, to: TaskStatus) -> bool {
@@ -294,7 +291,11 @@ mod tests {
         // Only a delivered run is accepted.
         assert!(!RunStatus::Running.can_transition_to(RunStatus::Accepted));
         assert!(!RunStatus::WaitingInput.can_transition_to(RunStatus::Accepted));
-        assert!([RunStatus::Cancelled, RunStatus::Interrupted, RunStatus::Failed].iter().all(|to| !RunStatus::Accepted.can_transition_to(*to)));
+        assert!(
+            [RunStatus::Cancelled, RunStatus::Interrupted, RunStatus::Failed]
+                .iter()
+                .all(|to| !RunStatus::Accepted.can_transition_to(*to))
+        );
         assert!(RunStatus::Running.can_transition_to(RunStatus::Running));
     }
 

@@ -1,0 +1,4 @@
+# Wider than rustfmt's default (100) and with small items kept on one line, so the code stays close to its
+# existing shape and every file stays under the 2000-line limit (AGENTS.md, rule 4).
+max_width = 120
+use_small_heuristics = "Max"

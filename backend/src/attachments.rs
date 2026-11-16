@@ -142,7 +142,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
         let data = STANDARD.encode(PNG);
-        let saved = save(&home, "r1", &[json!({ "data": format!("data:image/png;base64,{data}"), "name": "截图.png", "mimeType": "image/jpeg" })]).unwrap();
+        let saved = save(
+            &home,
+            "r1",
+            &[json!({ "data": format!("data:image/png;base64,{data}"), "name": "截图.png", "mimeType": "image/jpeg" })],
+        )
+        .unwrap();
         assert_eq!(saved[0]["mimeType"], "image/png", "the type comes from the bytes");
         assert_eq!(saved[0]["name"], "截图.png");
         let path = saved[0]["path"].as_str().unwrap();

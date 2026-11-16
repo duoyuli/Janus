@@ -61,19 +61,18 @@ pub(super) async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceive
     }
 }
 
-pub(super) async fn new_session(conn: &AcpConn, cwd: &Path, m: &Member, extra: &[Value], system: Option<&str>) -> Result<Value> {
+pub(super) async fn new_session(
+    conn: &AcpConn,
+    cwd: &Path,
+    m: &Member,
+    extra: &[Value],
+    system: Option<&str>,
+) -> Result<Value> {
     let mut servers = mcp_servers(m, conn.capabilities["mcpCapabilities"]["http"] == true);
     servers.extend_from_slice(extra);
     let meta = with_system_prompt(session_meta(), system);
-    let r = conn
-        .request(
-            "session/new",
-            json!({ "cwd": cwd, "mcpServers": servers, "_meta": meta }),
-        )
-        .await?;
-    r["sessionId"]
-        .as_str()
-        .context("session/new 没有返回 sessionId")?;
+    let r = conn.request("session/new", json!({ "cwd": cwd, "mcpServers": servers, "_meta": meta })).await?;
+    r["sessionId"].as_str().context("session/new 没有返回 sessionId")?;
     Ok(r)
 }
 
@@ -108,18 +107,11 @@ pub(super) fn session_values(m: &Member) -> Value {
 /// Apply the role's model, effort and session controls (permission mode and whatever else its
 /// agent declares). Returns what was applied, so the attempt records the exact settings it ran with.
 // @project-doc docs/interfaces/acp_integration.md#session_setup
-pub(super) async fn configure_session(
-    conn: &AcpConn,
-    session: &Value,
-    m: &Member,
-) -> Result<Value> {
+pub(super) async fn configure_session(conn: &AcpConn, session: &Value, m: &Member) -> Result<Value> {
     let sid = session["sessionId"].as_str().unwrap_or_default();
     let mut opts = crate::agents::session_options(session);
     let mut applied = json!({ "controls": {} });
-    for (cat, want, required) in [
-        ("model", m.model.as_str(), true),
-        ("effort", m.effort.as_str(), false),
-    ] {
+    for (cat, want, required) in [("model", m.model.as_str(), true), ("effort", m.effort.as_str(), false)] {
         let opt = opts[cat].clone();
         if opt.is_null() {
             continue;
@@ -129,24 +121,15 @@ pub(super) async fn configure_session(
             applied[cat] = json!(current);
             continue;
         }
-        if !opt["options"]
-            .as_array()
-            .is_some_and(|o| o.iter().any(|x| x["value"] == want))
-        {
+        if !opt["options"].as_array().is_some_and(|o| o.iter().any(|x| x["value"] == want)) {
             if required {
-                bail!(
-                    "{} 不提供模型 {want}，请在角色设置中重新选择",
-                    m.runtime_name
-                );
+                bail!("{} 不提供模型 {want}，请在角色设置中重新选择", m.runtime_name);
             }
             applied[cat] = json!(current);
             continue;
         }
         match conn
-            .request(
-                "session/set_config_option",
-                json!({ "sessionId": sid, "configId": opt["id"], "value": want }),
-            )
+            .request("session/set_config_option", json!({ "sessionId": sid, "configId": opt["id"], "value": want }))
             .await
         {
             Ok(r) => {
@@ -171,9 +154,7 @@ pub(super) async fn configure_session(
         }
         let offered = match &want {
             Value::Bool(_) => c["type"] == "boolean",
-            Value::String(_) => c["options"]
-                .as_array()
-                .is_some_and(|o| o.iter().any(|x| x["value"] == want)),
+            Value::String(_) => c["options"].as_array().is_some_and(|o| o.iter().any(|x| x["value"] == want)),
             _ => false,
         };
         if want.is_null() || want == current || !offered {
@@ -183,17 +164,9 @@ pub(super) async fn configure_session(
             continue;
         }
         let res = if c["via"] == "mode" {
-            conn.request(
-                "session/set_mode",
-                json!({ "sessionId": sid, "modeId": want }),
-            )
-            .await
+            conn.request("session/set_mode", json!({ "sessionId": sid, "modeId": want })).await
         } else {
-            conn.request(
-                "session/set_config_option",
-                json!({ "sessionId": sid, "configId": id, "value": want }),
-            )
-            .await
+            conn.request("session/set_config_option", json!({ "sessionId": sid, "configId": id, "value": want })).await
         };
         applied["controls"][id] = if res.is_ok() { want } else { current };
     }
@@ -209,10 +182,7 @@ pub(super) async fn configure_session(
             }
         }
     }
-    if let Some(mode) = opts["controls"]
-        .as_array()
-        .and_then(|a| a.iter().find(|c| c["category"] == "mode"))
-    {
+    if let Some(mode) = opts["controls"].as_array().and_then(|a| a.iter().find(|c| c["category"] == "mode")) {
         applied["mode"] = applied["controls"][mode["id"].as_str().unwrap_or_default()].clone();
     }
     applied["label"] = json!(applied_label(&opts, &applied["controls"]));

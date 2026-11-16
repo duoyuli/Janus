@@ -71,13 +71,23 @@ impl Price {
             return None;
         }
         let at = |n: Option<i64>, usd: f64| n.unwrap_or(0) as f64 * usd / 1e6;
-        Some(at(t.input, self.input) + at(t.output, self.output) + at(t.cached_read, self.cache_read.unwrap_or(self.input)) + at(t.cached_write, self.cache_write.unwrap_or(self.input)))
+        Some(
+            at(t.input, self.input)
+                + at(t.output, self.output)
+                + at(t.cached_read, self.cache_read.unwrap_or(self.input))
+                + at(t.cached_write, self.cache_write.unwrap_or(self.input)),
+        )
     }
 
     /// A models.dev `cost` object; `None` without valid input and output prices.
     fn read(c: &Value) -> Option<Price> {
         let usd = |k: &str| c[k].as_f64().filter(|v| v.is_finite() && *v >= 0.0);
-        Some(Price { input: usd("input")?, output: usd("output")?, cache_read: usd("cache_read"), cache_write: usd("cache_write") })
+        Some(Price {
+            input: usd("input")?,
+            output: usd("output")?,
+            cache_read: usd("cache_read"),
+            cache_write: usd("cache_write"),
+        })
     }
 }
 
@@ -115,7 +125,10 @@ impl Table {
         let models = listed
             .into_iter()
             .filter_map(|(model, list)| {
-                let lab = LABS.iter().find(|(family, _)| model.starts_with(family)).and_then(|(_, lab)| list.iter().find(|(p, _)| p == lab));
+                let lab = LABS
+                    .iter()
+                    .find(|(family, _)| model.starts_with(family))
+                    .and_then(|(_, lab)| list.iter().find(|(p, _)| p == lab));
                 let entry = match lab {
                     Some((provider, price)) => Entry { price: *price, provider: provider.to_string(), official: true },
                     None => {
@@ -181,7 +194,8 @@ fn most_listed<'a>(list: &[(&'a str, Price)]) -> Option<(&'a str, Price)> {
     }
     list.iter()
         .max_by(|(pa, a), (pb, b)| {
-            let (ca, cb) = (count[&(a.input.to_bits(), a.output.to_bits())], count[&(b.input.to_bits(), b.output.to_bits())]);
+            let (ca, cb) =
+                (count[&(a.input.to_bits(), a.output.to_bits())], count[&(b.input.to_bits(), b.output.to_bits())]);
             ca.cmp(&cb).then(b.input.total_cmp(&a.input)).then(pb.cmp(pa))
         })
         .copied()
@@ -217,9 +231,7 @@ pub fn current(home: &Path) -> Option<Arc<Table>> {
 /// table in use stays when anything fails.
 pub async fn sync(home: PathBuf, force: bool) -> Result<Arc<Table>> {
     let now = crate::orchestrator::now_ms();
-    if !force
-        && let Some(t) = current(&home).filter(|t| now - t.fetched_at < SYNC_AFTER_MS)
-    {
+    if !force && let Some(t) = current(&home).filter(|t| now - t.fetched_at < SYNC_AFTER_MS) {
         return Ok(t);
     }
     let table = Arc::new(tokio::task::spawn_blocking(move || fetch(&home, now)).await??);
@@ -235,7 +247,17 @@ fn fetch(home: &Path, now: i64) -> Result<Table> {
     std::fs::create_dir_all(&dir)?;
     let raw = dir.join("api.json.part");
     let status = std::process::Command::new("curl")
-        .args(["-fsSL", "--proto", "=https", "--tlsv1.2", "--max-time", "120", "--max-filesize", &MAX_BYTES.to_string(), "-o"])
+        .args([
+            "-fsSL",
+            "--proto",
+            "=https",
+            "--tlsv1.2",
+            "--max-time",
+            "120",
+            "--max-filesize",
+            &MAX_BYTES.to_string(),
+            "-o",
+        ])
         .arg(&raw)
         .arg(SOURCE)
         .status()
@@ -290,31 +312,64 @@ mod tests {
     fn the_lab_price_wins_and_other_models_take_the_most_listed_price() {
         let t = Table::from_models_dev(&api(), 7);
         let astra = t.get("codex/gpt-6-astra").unwrap();
-        assert_eq!((astra.price.input, astra.price.cache_write, astra.provider.as_str(), astra.official), (10.0, Some(12.5), "openai", true));
+        assert_eq!(
+            (astra.price.input, astra.price.cache_write, astra.provider.as_str(), astra.official),
+            (10.0, Some(12.5), "openai", true)
+        );
         let flash = t.get("magpie/remote-magpie/auto/DeepSeek-V4.1-Flash").unwrap();
-        assert_eq!((flash.price.input, flash.price.output, flash.official), (0.3, 1.2, false), "two paid providers list 0.3 / 1.2; the free listings and a host are not the lab");
+        assert_eq!(
+            (flash.price.input, flash.price.output, flash.official),
+            (0.3, 1.2, false),
+            "two paid providers list 0.3 / 1.2; the free listings and a host are not the lab"
+        );
         assert!(t.get("deepseek-v4-flash").unwrap().official, "the lab's own model");
-        assert!(t.get("gpt-image-2").is_none() && t.get("broken").is_none(), "no price, or an invalid one, is no entry");
+        assert!(
+            t.get("gpt-image-2").is_none() && t.get("broken").is_none(),
+            "no price, or an invalid one, is no entry"
+        );
         assert_eq!(key("Claude-Opus-5-5[1m]"), "claude-opus-5-5");
     }
 
     #[test]
     fn tokens_are_priced_per_million_and_the_unpriced_are_counted() {
         let p = Price { input: 10.0, output: 50.0, cache_read: Some(1.0), cache_write: None };
-        let t = Tokens { total: Some(2_300_000), input: Some(1_000_000), output: Some(100_000), cached_read: Some(1_000_000), cached_write: Some(200_000), thought: None };
-        assert!((p.cost(&t).unwrap() - (10.0 + 5.0 + 1.0 + 2.0)).abs() < 1e-9, "a cache write without its own price is charged as input");
+        let t = Tokens {
+            total: Some(2_300_000),
+            input: Some(1_000_000),
+            output: Some(100_000),
+            cached_read: Some(1_000_000),
+            cached_write: Some(200_000),
+            thought: None,
+        };
+        assert!(
+            (p.cost(&t).unwrap() - (10.0 + 5.0 + 1.0 + 2.0)).abs() < 1e-9,
+            "a cache write without its own price is charged as input"
+        );
         assert_eq!(p.cost(&Tokens { total: Some(5), ..Default::default() }), None, "a total alone cannot be priced");
 
         let table = Table::from_models_dev(&api(), 7);
         let mut groups = vec![BillGroup {
             models: vec![
-                ModelLine { model: "gpt-6-astra".into(), tokens: Tokens { input: Some(2_000_000), output: Some(0), ..Default::default() }, turns: 3, estimate: None },
-                ModelLine { model: "mystery".into(), tokens: Tokens { input: Some(5), ..Default::default() }, turns: 2, estimate: None },
+                ModelLine {
+                    model: "gpt-6-astra".into(),
+                    tokens: Tokens { input: Some(2_000_000), output: Some(0), ..Default::default() },
+                    turns: 3,
+                    estimate: None,
+                },
+                ModelLine {
+                    model: "mystery".into(),
+                    tokens: Tokens { input: Some(5), ..Default::default() },
+                    turns: 2,
+                    estimate: None,
+                },
             ],
             ..BillGroup::new("codex", "Codex")
         }];
         let e = table.price(&mut groups);
         assert_eq!((e.amount, e.unpriced_turns, e.unpriced_models.clone()), (20.0, 2, vec!["mystery".to_string()]));
-        assert_eq!((groups[0].estimate, groups[0].models[0].estimate, groups[0].models[1].estimate), (Some(20.0), Some(20.0), None));
+        assert_eq!(
+            (groups[0].estimate, groups[0].models[0].estimate, groups[0].models[1].estimate),
+            (Some(20.0), Some(20.0), None)
+        );
     }
 }

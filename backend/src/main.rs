@@ -56,7 +56,8 @@ fn janus_home() -> Result<PathBuf> {
 // @project-doc docs/operations/deployment.md#single_instance
 fn lock_home(home: &std::path::Path) -> Result<std::fs::File> {
     use std::io::Write;
-    let mut file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(home.join("janus.pid"))?;
+    let mut file =
+        std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(home.join("janus.pid"))?;
     match file.try_lock() {
         Ok(()) => {}
         Err(std::fs::TryLockError::WouldBlock) => {
@@ -86,14 +87,20 @@ mod lock_tests {
         assert_eq!(std::fs::read_to_string(home.join("janus.pid")).unwrap(), std::process::id().to_string());
         let err = super::lock_home(&home).unwrap_err().to_string();
         assert!(err.contains("另一个 Janus"), "{err}");
-        assert_eq!(std::fs::read_to_string(home.join("janus.pid")).unwrap(), std::process::id().to_string(), "the refused one does not overwrite the owner");
+        assert_eq!(
+            std::fs::read_to_string(home.join("janus.pid")).unwrap(),
+            std::process::id().to_string(),
+            "the refused one does not overwrite the owner"
+        );
         drop(first);
         // Other tests spawn processes meanwhile: a child forked in that moment holds the descriptor
         // until its exec closes it, so the release can take an instant to show.
-        let again = (0..100).find_map(|_| super::lock_home(&home).ok().or_else(|| {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            None
-        }));
+        let again = (0..100).find_map(|_| {
+            super::lock_home(&home).ok().or_else(|| {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                None
+            })
+        });
         assert!(again.is_some(), "the lock is released with its holder");
         let _ = std::fs::remove_dir_all(&home);
     }
@@ -129,11 +136,7 @@ async fn setup(State(app): State<Arc<App>>) -> ApiResult {
     .into_response())
 }
 
-async fn save(
-    State(app): State<Arc<App>>,
-    UrlPath(kind): UrlPath<String>,
-    Json(body): Json<Value>,
-) -> ApiResult {
+async fn save(State(app): State<Arc<App>>, UrlPath(kind): UrlPath<String>, Json(body): Json<Value>) -> ApiResult {
     let saved = match kind.as_str() {
         "connections" => app.save_connection(&body),
         "roles" => app.save_role(&body),
@@ -144,10 +147,7 @@ async fn save(
     Ok(Json(saved).into_response())
 }
 
-async fn remove(
-    State(app): State<Arc<App>>,
-    UrlPath((kind, id)): UrlPath<(String, String)>,
-) -> ApiResult {
+async fn remove(State(app): State<Arc<App>>, UrlPath((kind, id)): UrlPath<(String, String)>) -> ApiResult {
     match kind.as_str() {
         "connections" => app.delete_connection(&id),
         "roles" => app.delete_role(&id),
@@ -174,10 +174,7 @@ struct PreviewQuery {
 }
 
 async fn local_preview(Query(q): Query<PreviewQuery>) -> Json<Value> {
-    Json(agents::local_preview(
-        &q.kind,
-        q.source.as_deref().unwrap_or(""),
-    ))
+    Json(agents::local_preview(&q.kind, q.source.as_deref().unwrap_or("")))
 }
 
 /// The ACP adapters: installed versions, the newest known one, and any install in progress.
@@ -266,7 +263,8 @@ struct SuggestQuery {
 }
 
 async fn suggest_id(State(app): State<Arc<App>>, Query(q): Query<SuggestQuery>) -> ApiResult {
-    Ok(Json(json!({ "id": app.suggest_agent_id(&q.kind, q.name.as_deref().unwrap_or("")).map_err(bad)? })).into_response())
+    Ok(Json(json!({ "id": app.suggest_agent_id(&q.kind, q.name.as_deref().unwrap_or("")).map_err(bad)? }))
+        .into_response())
 }
 
 async fn create_skill(Json(body): Json<Value>) -> ApiResult {
@@ -274,10 +272,7 @@ async fn create_skill(Json(body): Json<Value>) -> ApiResult {
 }
 
 async fn import_skill(Json(body): Json<Value>) -> ApiResult {
-    Ok(
-        Json(agents::import_skill(body["path"].as_str().unwrap_or("")).map_err(bad)?)
-            .into_response(),
-    )
+    Ok(Json(agents::import_skill(body["path"].as_str().unwrap_or("")).map_err(bad)?).into_response())
 }
 
 async fn delete_skill(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
@@ -295,20 +290,12 @@ async fn inspect(Query(q): Query<PathQuery>) -> Json<Value> {
     if !path.is_dir() {
         return Json(json!({ "exists": false, "path": path }));
     }
-    let branch = git(&path, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .await
-        .ok()
-        .map(|s| s.trim().to_string());
+    let branch = git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).await.ok().map(|s| s.trim().to_string());
     let dirty = match branch {
-        Some(_) => git(&path, &["status", "--porcelain"])
-            .await
-            .map(|s| s.lines().count())
-            .unwrap_or(0),
+        Some(_) => git(&path, &["status", "--porcelain"]).await.map(|s| s.lines().count()).unwrap_or(0),
         None => 0,
     };
-    Json(
-        json!({ "exists": true, "path": path, "git": branch.is_some(), "branch": branch, "dirty": dirty }),
-    )
+    Json(json!({ "exists": true, "path": path, "git": branch.is_some(), "branch": branch, "dirty": dirty }))
 }
 
 async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
@@ -329,10 +316,7 @@ async fn create_run(State(app): State<Arc<App>>, Json(req): Json<NewRun>) -> Api
 async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<After>) -> ApiResult {
     let run = app.db.run(&id).map_err(bad)?.ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
     let events = app.db.events(&id, q.after.unwrap_or(0).max(0)).map_err(bad)?;
-    Ok(
-        Json(json!({ "run": run, "events": events, "live": app.run(&id).is_some() }))
-            .into_response(),
-    )
+    Ok(Json(json!({ "run": run, "events": events, "live": app.run(&id).is_some() })).into_response())
 }
 
 /// The run's read-only usage ledger over its whole event log (`backend/src/usage.rs`). A run always
@@ -361,7 +345,8 @@ async fn usage_bill(State(app): State<Arc<App>>, Query(p): Query<Period>) -> Api
         return Err((StatusCode::BAD_REQUEST, format!("区间要在 1 毫秒到 {MAX_DAYS} 天之间")));
     }
     let prices = prices::current(&config::settings().home);
-    Ok(Json(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0), prices.as_deref()).map_err(bad)?).into_response())
+    Ok(Json(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0), prices.as_deref()).map_err(bad)?)
+        .into_response())
 }
 
 #[derive(Deserialize)]
@@ -374,7 +359,8 @@ struct PriceQuery {
 /// the app can price a task's bill; `null` for a model without a price.
 // @project-doc docs/interfaces/http_api.md#prices
 async fn get_prices(Query(q): Query<PriceQuery>) -> ApiResult {
-    Ok(Json(price_reply(prices::current(&config::settings().home).as_deref(), q.models.as_deref().unwrap_or(""))).into_response())
+    Ok(Json(price_reply(prices::current(&config::settings().home).as_deref(), q.models.as_deref().unwrap_or("")))
+        .into_response())
 }
 
 /// Download the models.dev list now instead of waiting for the daily sync.
@@ -420,10 +406,7 @@ async fn stream(
     // Subscribe before reading the backlog so nothing falls between the two.
     let live = BroadcastStream::new(app.tx.subscribe());
     let backlog = app.db.events(&id, q.after.unwrap_or(0)).unwrap_or_default();
-    let last = backlog
-        .last()
-        .map(|e| e.seq)
-        .unwrap_or(q.after.unwrap_or(0));
+    let last = backlog.last().map(|e| e.seq).unwrap_or(q.after.unwrap_or(0));
     let to_sse = |e: &db::Event| Ok(SseEvent::default().data(serde_json::to_string(e).unwrap()));
     let backlog: Vec<_> = backlog.iter().map(to_sse).collect();
     let live = live.filter_map(move |msg| match msg {
@@ -458,7 +441,9 @@ async fn mcp_stream() -> StatusCode {
 async fn action(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Json(body): Json<Value>) -> ApiResult {
     match app.request_action(&id, &body).await {
         Ok(ActionReply::Done) => Ok(Json(json!({ "ok": true })).into_response()),
-        Ok(ActionReply::Duplicate) => Ok(Json(json!({ "ok": true, "duplicate": true, "commandId": body["commandId"] })).into_response()),
+        Ok(ActionReply::Duplicate) => {
+            Ok(Json(json!({ "ok": true, "duplicate": true, "commandId": body["commandId"] })).into_response())
+        }
         Err(ActionRefused::NotFound) => Err((StatusCode::NOT_FOUND, "run not found".into())),
         Err(ActionRefused::Conflict(why)) => Err((StatusCode::CONFLICT, why)),
         Err(ActionRefused::Invalid(err)) => Err(bad(err)),
@@ -466,20 +451,12 @@ async fn action(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Json(
 }
 
 async fn export(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    let lines: Vec<String> = app
-        .db
-        .events(&id, 0)
-        .map_err(bad)?
-        .iter()
-        .map(|e| serde_json::to_string(e).unwrap())
-        .collect();
+    let lines: Vec<String> =
+        app.db.events(&id, 0).map_err(bad)?.iter().map(|e| serde_json::to_string(e).unwrap()).collect();
     Ok((
         [
             (header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8"),
-            (
-                header::CONTENT_DISPOSITION,
-                &format!("attachment; filename=\"janus-{id}.jsonl\""),
-            ),
+            (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"janus-{id}.jsonl\"")),
         ],
         lines.join("\n") + "\n",
     )
@@ -492,14 +469,9 @@ async fn file(State(app): State<Arc<App>>, Query(q): Query<PathQuery>) -> ApiRes
     let base = app.cfg.data_dir.join("artifacts");
     std::fs::create_dir_all(&base).map_err(|e| bad(e.into()))?;
     let base = base.canonicalize().map_err(|e| bad(e.into()))?;
-    let path = PathBuf::from(&q.path)
-        .canonicalize()
-        .map_err(|_| (StatusCode::NOT_FOUND, "not found".into()))?;
+    let path = PathBuf::from(&q.path).canonicalize().map_err(|_| (StatusCode::NOT_FOUND, "not found".into()))?;
     if !path.starts_with(&base) {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "只能读取 Janus 的产物目录".into(),
-        ));
+        return Err((StatusCode::FORBIDDEN, "只能读取 Janus 的产物目录".into()));
     }
     let text = std::fs::read_to_string(&path).map_err(|e| bad(e.into()))?;
     Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response())
@@ -514,7 +486,10 @@ async fn main() -> Result<()> {
             return Ok(());
         }
         Some("--help" | "-h") => {
-            println!("janus {}: local multi-agent workspace. Run without arguments to start the server.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node).\nSee docs/operations/deployment.md.", env!("CARGO_PKG_VERSION"));
+            println!(
+                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node).\nSee docs/operations/deployment.md.",
+                env!("CARGO_PKG_VERSION")
+            );
             return Ok(());
         }
         Some(other) => anyhow::bail!("unknown argument {other}; see janus --help"),

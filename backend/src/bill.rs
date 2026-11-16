@@ -89,7 +89,10 @@ fn agent_of(config: &Value, actor: &str) -> (String, String) {
     let member = config["team"].as_array().into_iter().flatten().find(|m| m["id"] == actor);
     let runtime = member.and_then(|m| m["runtime"].as_str()).filter(|r| !r.is_empty());
     match runtime {
-        Some(r) => (r.to_string(), member.and_then(|m| m["runtime_name"].as_str()).filter(|n| !n.is_empty()).unwrap_or(r).to_string()),
+        Some(r) => (
+            r.to_string(),
+            member.and_then(|m| m["runtime_name"].as_str()).filter(|n| !n.is_empty()).unwrap_or(r).to_string(),
+        ),
         None => (format!("member:{actor}"), actor.to_string()),
     }
 }
@@ -101,7 +104,18 @@ mod tests {
     use serde_json::json;
 
     fn ev(seq: i64, ts: i64, kind: &str, actor: &str, to: Option<&str>, task: Option<&str>, data: Value) -> Event {
-        Event { run_id: "r1".into(), seq, ts, kind: kind.into(), actor: actor.into(), to: to.map(str::to_owned), task: task.map(str::to_owned), attempt: task.map(|_| 1), text: String::new(), data: Some(data) }
+        Event {
+            run_id: "r1".into(),
+            seq,
+            ts,
+            kind: kind.into(),
+            actor: actor.into(),
+            to: to.map(str::to_owned),
+            task: task.map(str::to_owned),
+            attempt: task.map(|_| 1),
+            text: String::new(),
+            data: Some(data),
+        }
     }
 
     fn team() -> Value {
@@ -124,15 +138,55 @@ mod tests {
             ev(2, 10, "agent.status", "lead", None, None, json!({ "session": "lead-1" })),
             ev(3, 20, "session.controls", "lead", None, None, json!({ "model": { "current": "gpt-6" } })),
             // Before the period: not billed.
-            ev(4, day - 1, "session.usage", "lead", None, None, json!({ "inputTokens": 900, "outputTokens": 100, "totalTokens": 1000 })),
-            ev(5, day + 10, "session.usage", "lead", None, None, json!({ "inputTokens": 100, "cachedReadTokens": 800, "outputTokens": 100, "totalTokens": 1000 })),
+            ev(
+                4,
+                day - 1,
+                "session.usage",
+                "lead",
+                None,
+                None,
+                json!({ "inputTokens": 900, "outputTokens": 100, "totalTokens": 1000 }),
+            ),
+            ev(
+                5,
+                day + 10,
+                "session.usage",
+                "lead",
+                None,
+                None,
+                json!({ "inputTokens": 100, "cachedReadTokens": 800, "outputTokens": 100, "totalTokens": 1000 }),
+            ),
             ev(6, day + 20, "attempt.started", "janus", Some("m1"), Some("T1"), json!({ "session": "s1" })),
-            ev(7, day + 30, "session.usage", "m1", None, Some("T1"), json!({ "used": 100, "size": 1000, "cost": { "amount": 0.5, "currency": "USD" } })),
-            ev(8, 3 * day + 30, "session.usage", "m1", None, Some("T1"), json!({ "totalTokens": 600, "models": [
+            ev(
+                7,
+                day + 30,
+                "session.usage",
+                "m1",
+                None,
+                Some("T1"),
+                json!({ "used": 100, "size": 1000, "cost": { "amount": 0.5, "currency": "USD" } }),
+            ),
+            ev(
+                8,
+                3 * day + 30,
+                "session.usage",
+                "m1",
+                None,
+                Some("T1"),
+                json!({ "totalTokens": 600, "models": [
                 { "model": "opus", "inputTokens": 100, "cachedReadTokens": 300, "outputTokens": 100, "totalTokens": 500 },
                 { "model": "haiku", "inputTokens": 80, "outputTokens": 20, "totalTokens": 100 }
-            ] })),
-            ev(9, 3 * day + 40, "session.usage", "m1", None, Some("T1"), json!({ "used": 200, "size": 1000, "cost": { "amount": 0.8, "currency": "USD" } })),
+            ] }),
+            ),
+            ev(
+                9,
+                3 * day + 40,
+                "session.usage",
+                "m1",
+                None,
+                Some("T1"),
+                json!({ "used": 200, "size": 1000, "cost": { "amount": 0.8, "currency": "USD" } }),
+            ),
             ev(10, 3 * day + 50, "attempt.started", "janus", Some("m2"), Some("T2"), json!({ "session": "s2" })),
             // After the period: not billed.
             ev(11, 9 * day, "session.usage", "m1", None, Some("T1"), json!({ "totalTokens": 5000 })),
@@ -142,29 +196,51 @@ mod tests {
         }
         // A run without usage in the period is not read.
         db.insert_run("r2", "g", "/tmp", &team(), 0).unwrap();
-        db.insert_event(&Event { run_id: "r2".into(), ..ev(1, 0, "session.usage", "lead", None, None, json!({ "totalTokens": 77 })) }).unwrap();
+        db.insert_event(&Event {
+            run_id: "r2".into(),
+            ..ev(1, 0, "session.usage", "lead", None, None, json!({ "totalTokens": 77 }))
+        })
+        .unwrap();
 
         let bill = period(&db, day, 8 * day, 0, None).unwrap();
         assert!(bill.estimate.is_none(), "no prices synced yet");
         assert_eq!((bill.runs, bill.days, bill.active_days, bill.turns), (1, 7, 2, 2));
-        assert_eq!(bill.tokens.total, Some(1600), "one lead turn and one turn by two models; the turns outside are left out");
+        assert_eq!(
+            bill.tokens.total,
+            Some(1600),
+            "one lead turn and one turn by two models; the turns outside are left out"
+        );
         assert_eq!((bill.sessions, bill.unreported_sessions), (3, 1), "m2 opened a session and reported nothing");
         assert_eq!(bill.agents.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["Codex", "Claude Code"]);
         let codex = &bill.agents[0];
         assert_eq!((codex.tokens.total, codex.models[0].model.as_str(), codex.turns), (Some(1000), "gpt-6", 1));
         let claude = &bill.agents[1];
-        assert_eq!(claude.models.iter().map(|m| (m.model.as_str(), m.tokens.total)).collect::<Vec<_>>(), [("opus", Some(500)), ("haiku", Some(100))]);
-        assert_eq!((claude.cost.lines[0].currency.as_str(), claude.cost.lines[0].amount), ("USD", 0.8), "both readings fall in the period");
+        assert_eq!(
+            claude.models.iter().map(|m| (m.model.as_str(), m.tokens.total)).collect::<Vec<_>>(),
+            [("opus", Some(500)), ("haiku", Some(100))]
+        );
+        assert_eq!(
+            (claude.cost.lines[0].currency.as_str(), claude.cost.lines[0].amount),
+            ("USD", 0.8),
+            "both readings fall in the period"
+        );
         // The cache hit rate: 1,100 cache reads of 1,380 prompt tokens.
         assert!((bill.cache_hit_rate.unwrap() - 1100.0 / 1380.0).abs() < 1e-9, "{:?}", bill.cache_hit_rate);
 
         // A later period starts from the running cost reached before it, and a time zone moves days.
         let late = period(&db, 3 * day + 35, 8 * day, 0, None).unwrap();
-        assert!((late.cost.lines[0].amount - 0.3).abs() < 1e-9, "0.8 reached in it minus 0.5 before it: {:?}", late.cost);
+        assert!(
+            (late.cost.lines[0].amount - 0.3).abs() < 1e-9,
+            "0.8 reached in it minus 0.5 before it: {:?}",
+            late.cost
+        );
         assert_eq!(late.tokens.total, None, "no turn in it");
         assert_eq!(period(&db, day, 8 * day, 23 * 60, None).unwrap().active_days, 2);
         // With prices, each model line is priced at its list price and the rest are counted.
-        let table = Table::from_models_dev(&json!({ "anthropic": { "models": { "opus": { "cost": { "input": 5, "output": 25, "cache_read": 0.5 } } } } }), 1);
+        let table = Table::from_models_dev(
+            &json!({ "anthropic": { "models": { "opus": { "cost": { "input": 5, "output": 25, "cache_read": 0.5 } } } } }),
+            1,
+        );
         let priced = period(&db, day, 8 * day, 0, Some(&table)).unwrap();
         let e = priced.estimate.unwrap();
         let opus = (100.0 * 5.0 + 100.0 * 25.0 + 300.0 * 0.5) / 1e6;

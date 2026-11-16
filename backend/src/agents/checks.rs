@@ -7,11 +7,7 @@ impl App {
     /// Start a configuration check in the background, so it finishes even if the app that asked goes away.
     pub fn start_check(self: &Arc<Self>, id: &str) -> Result<Value> {
         let mut c = self.connection(id)?;
-        if c["status"] == "testing"
-            && c["testStartedAt"]
-                .as_i64()
-                .is_some_and(|t| now_ms() - t < 200_000)
-        {
+        if c["status"] == "testing" && c["testStartedAt"].as_i64().is_some_and(|t| now_ms() - t < 200_000) {
             return Ok(c);
         }
         c["status"] = json!("testing");
@@ -30,28 +26,15 @@ impl App {
 
     /// A check left half-done by a restart reads as "not tested" again.
     pub fn reset_stale_checks(&self) -> Result<()> {
-        for mut c in self
-            .db
-            .list_config(CONNECTION)?
-            .into_iter()
-            .filter(|c| c["status"] == "testing")
-        {
+        for mut c in self.db.list_config(CONNECTION)?.into_iter().filter(|c| c["status"] == "testing") {
             c["status"] = json!("untested");
-            self.db
-                .put_config(CONNECTION, str_of(&c, "id"), &c, now_ms())?;
+            self.db.put_config(CONNECTION, str_of(&c, "id"), &c, now_ms())?;
         }
         Ok(())
     }
 
     /// Record one step of the check so the app can show progress while it runs.
-    pub(super) fn check_step(
-        &self,
-        id: &str,
-        steps: &mut Vec<Value>,
-        name: &str,
-        ok: Option<bool>,
-        detail: String,
-    ) {
+    pub(super) fn check_step(&self, id: &str, steps: &mut Vec<Value>, name: &str, ok: Option<bool>, detail: String) {
         steps.retain(|s| s["step"] != name);
         steps.push(json!({ "step": name, "ok": ok, "detail": self.redact(id, &detail) }));
         if let Ok(mut c) = self.connection(id) {
@@ -66,30 +49,12 @@ impl App {
         let home = self.agent_dir(id).join("home");
         let secrets = self.secrets(id);
         let has = |k: &str| secrets[k].as_str().is_some_and(|v| !v.is_empty());
-        let desc = kinds()
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|k| k["id"] == c["kind"])
-            .cloned()
-            .unwrap_or(Value::Null);
+        let desc = kinds().as_array().unwrap().iter().find(|k| k["id"] == c["kind"]).cloned().unwrap_or(Value::Null);
         if !desc["token"].is_null() {
             return if has("token") {
-                (
-                    true,
-                    format!(
-                        "已保存 {}",
-                        desc["token"]["label"].as_str().unwrap_or("token")
-                    ),
-                )
+                (true, format!("已保存 {}", desc["token"]["label"].as_str().unwrap_or("token")))
             } else {
-                (
-                    false,
-                    format!(
-                        "没有填写 {}",
-                        desc["token"]["label"].as_str().unwrap_or("token")
-                    ),
-                )
+                (false, format!("没有填写 {}", desc["token"]["label"].as_str().unwrap_or("token")))
             };
         }
         match (str_of(c, "base"), str_of(c, "auth")) {
@@ -112,26 +77,18 @@ impl App {
                             .collect()
                     })
                     .unwrap_or_default();
-                let env: Vec<String> = secrets["importedEnv"]
-                    .as_object()
-                    .map(|m| m.keys().cloned().collect())
-                    .unwrap_or_default();
+                let env: Vec<String> =
+                    secrets["importedEnv"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
                 if files.is_empty() && env.is_empty() {
                     (false, "没有复制到任何配置，请检查来源目录后重新保存".into())
                 } else {
                     (
                         true,
-                        [
-                            files.join("、"),
-                            env.iter()
-                                .map(|e| format!("${e}"))
-                                .collect::<Vec<_>>()
-                                .join("、"),
-                        ]
-                        .into_iter()
-                        .filter(|s| !s.is_empty())
-                        .collect::<Vec<_>>()
-                        .join("，"),
+                        [files.join("、"), env.iter().map(|e| format!("${e}")).collect::<Vec<_>>().join("、")]
+                            .into_iter()
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>()
+                            .join("，"),
                     )
                 }
             }
@@ -300,10 +257,7 @@ impl App {
                 c["errorLog"] = Value::Null;
                 c["agentInfo"] = found["agentInfo"].clone();
                 c["options"] = found["options"].clone();
-                c["reply"] = json!(crate::orchestrator::short(
-                    found["reply"].as_str().unwrap_or(""),
-                    80
-                ));
+                c["reply"] = json!(crate::orchestrator::short(found["reply"].as_str().unwrap_or(""), 80));
             }
             Err(err) => {
                 let failed = steps

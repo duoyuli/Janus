@@ -6,11 +6,12 @@ use super::*;
 impl App {
     pub fn delete_skill(&self, id: &str) -> Result<()> {
         check_skill_id(id)?;
-        if let Some(role) = self.db.list_config(ROLE)?.iter().find(|r| {
-            r["skills"]
-                .as_array()
-                .is_some_and(|s| s.iter().any(|x| x == id))
-        }) {
+        if let Some(role) = self
+            .db
+            .list_config(ROLE)?
+            .iter()
+            .find(|r| r["skills"].as_array().is_some_and(|s| s.iter().any(|x| x == id)))
+        {
             bail!("角色「{}」挂载了这个 Skill，请先移除", str_of(role, "name"));
         }
         std::fs::remove_dir_all(skill_library().join(id)).context("删除 Skill 失败")
@@ -26,9 +27,7 @@ pub fn skill_library() -> PathBuf {
 pub(crate) fn check_skill_id(id: &str) -> Result<()> {
     let ok = !id.is_empty()
         && id.len() <= 64
-        && id
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
     if !ok {
         bail!("Skill ID 只能用小写字母、数字、- 和 _");
     }
@@ -41,11 +40,7 @@ pub(crate) fn read_skill(dir: &Path, source: &str) -> Option<Value> {
     let id = dir.file_name()?.to_string_lossy().to_string();
     let mut name = id.clone();
     let mut desc = String::new();
-    if let Some(front) = text
-        .strip_prefix("---")
-        .and_then(|t| t.split_once("\n---"))
-        .map(|(f, _)| f)
-    {
+    if let Some(front) = text.strip_prefix("---").and_then(|t| t.split_once("\n---")).map(|(f, _)| f) {
         let lines: Vec<&str> = front.lines().collect();
         for (i, line) in lines.iter().enumerate() {
             if let Some(v) = line.strip_prefix("name:") {
@@ -66,18 +61,12 @@ pub(crate) fn read_skill(dir: &Path, source: &str) -> Option<Value> {
             }
         }
     }
-    Some(
-        json!({ "id": id, "path": dir, "name": name, "description": short_desc(&desc), "source": source }),
-    )
+    Some(json!({ "id": id, "path": dir, "name": name, "description": short_desc(&desc), "source": source }))
 }
 
 pub(super) fn short_desc(s: &str) -> String {
     let s: String = s.chars().take(240).collect();
-    if s.chars().count() == 240 {
-        format!("{s}…")
-    } else {
-        s
-    }
+    if s.chars().count() == 240 { format!("{s}…") } else { s }
 }
 
 pub fn list_skills() -> Value {
@@ -91,11 +80,7 @@ pub fn list_skills() -> Value {
         .filter_map(|d| read_skill(&d, "Janus"))
         .collect();
     out.sort_by(|a, b| {
-        a["name"]
-            .as_str()
-            .unwrap_or("")
-            .to_lowercase()
-            .cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
+        a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
     });
     json!({ "skills": out, "root": root })
 }
@@ -104,13 +89,7 @@ pub(super) fn unique_skill_id(want: &str) -> Result<String> {
     let base = slug(want).unwrap_or_else(|| "skill".into());
     let root = skill_library();
     (1..1000)
-        .map(|i| {
-            if i == 1 {
-                base.clone()
-            } else {
-                format!("{base}-{i}")
-            }
-        })
+        .map(|i| if i == 1 { base.clone() } else { format!("{base}-{i}") })
         .find(|id| !root.join(id).exists())
         .context("没有可用的 Skill ID")
 }
@@ -140,17 +119,11 @@ pub fn create_skill(body: &Value) -> Result<Value> {
 /// Copy a skill folder the user picked into the library. Only regular files are copied, symlinks
 /// are resolved to their content, and nothing outside the chosen folder is followed.
 pub fn import_skill(path: &str) -> Result<Value> {
-    let src = PathBuf::from(expand_home(path.trim()))
-        .canonicalize()
-        .context("文件夹不存在")?;
+    let src = PathBuf::from(expand_home(path.trim())).canonicalize().context("文件夹不存在")?;
     if !src.join("SKILL.md").is_file() {
         bail!("这个文件夹里没有 SKILL.md");
     }
-    let id = unique_skill_id(
-        &src.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default(),
-    )?;
+    let id = unique_skill_id(&src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())?;
     let dest = skill_library().join(&id);
     let mut total = 0u64;
     copy_tree(&src, &src, &dest, &mut total)?;
@@ -187,25 +160,15 @@ pub(super) fn copy_tree(root: &Path, from: &Path, to: &Path, total: &mut u64) ->
 /// These are the only skills an agent reads from outside Janus's library.
 pub fn project_skills(workspace: &Path) -> Vec<Value> {
     let mut out = vec![];
-    for rel in [
-        ".agents/skills",
-        ".claude/skills",
-        ".codex/skills",
-        ".pi/skills",
-        ".janus/skills",
-    ] {
-        for e in std::fs::read_dir(workspace.join(rel))
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
+    for rel in [".agents/skills", ".claude/skills", ".codex/skills", ".pi/skills", ".janus/skills"] {
+        for e in std::fs::read_dir(workspace.join(rel)).into_iter().flatten().flatten() {
             let p = e.path();
-            if p.canonicalize()
-                .is_ok_and(|real| real.starts_with(workspace.canonicalize().unwrap_or_default()))
-                && let Some(mut s) = read_skill(&p, "项目") {
-                    s["path"] = json!(format!("{rel}/{}", e.file_name().to_string_lossy()));
-                    out.push(s);
-                }
+            if p.canonicalize().is_ok_and(|real| real.starts_with(workspace.canonicalize().unwrap_or_default()))
+                && let Some(mut s) = read_skill(&p, "项目")
+            {
+                s["path"] = json!(format!("{rel}/{}", e.file_name().to_string_lossy()));
+                out.push(s);
+            }
         }
     }
     out
@@ -215,23 +178,16 @@ pub fn project_skills(workspace: &Path) -> Vec<Value> {
 pub(super) fn resolve_mcp(m: &Value) -> Result<Value> {
     let m = m.clone();
     let name = str_of(&m, "name").to_string();
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         bail!("MCP 名称只能包含字母、数字、- 和 _：{name}");
     }
     if reserved_mcp_name(&name) {
         bail!("MCP 名称 {name} 规范化后是 janus，保留给 Janus 看板，请换一个名字");
     }
     let (command, args) = match (&m["args"], str_of(&m, "command")) {
-        (Value::Array(a), cmd) => (
-            cmd.to_string(),
-            a.iter()
-                .filter_map(|x| x.as_str().map(str::to_owned))
-                .collect::<Vec<_>>(),
-        ),
+        (Value::Array(a), cmd) => {
+            (cmd.to_string(), a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect::<Vec<_>>())
+        }
         (_, line) => {
             let mut parts = split_command(line)?;
             if parts.is_empty() {
@@ -249,16 +205,7 @@ pub(super) fn resolve_mcp(m: &Value) -> Result<Value> {
         _ => match &m["env"] {
             Value::Object(o) => Value::Object(
                 o.iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            json!(
-                                v.as_str()
-                                    .map(str::to_owned)
-                                    .unwrap_or_else(|| v.to_string())
-                            ),
-                        )
-                    })
+                    .map(|(k, v)| (k.clone(), json!(v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))))
                     .collect(),
             ),
             _ => json!({}),

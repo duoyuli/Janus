@@ -18,11 +18,7 @@ impl App {
     pub(super) fn redact(&self, id: &str, text: &str) -> String {
         let mut out = text.to_string();
         if let Some(map) = self.secrets(id).as_object() {
-            for v in map
-                .values()
-                .filter_map(Value::as_str)
-                .filter(|s| s.len() >= 6)
-            {
+            for v in map.values().filter_map(Value::as_str).filter(|s| s.len() >= 6) {
                 out = out.replace(v, "<secret>");
             }
         }
@@ -30,9 +26,7 @@ impl App {
     }
 
     pub fn connection(&self, id: &str) -> Result<Value> {
-        self.db
-            .get_config(CONNECTION, id)?
-            .ok_or_else(|| anyhow!("Provider {id} 不存在"))
+        self.db.get_config(CONNECTION, id)?.ok_or_else(|| anyhow!("Provider {id} 不存在"))
     }
 
     /// Connections as the UI sees them: config plus derived state, never secret values.
@@ -42,12 +36,8 @@ impl App {
             let id = str_of(c, "id").to_string();
             let dir = self.agent_dir(&id);
             let secrets = self.secrets(&id);
-            c["secretsSet"] = json!(
-                secrets
-                    .as_object()
-                    .map(|m| m.keys().cloned().collect::<Vec<_>>())
-                    .unwrap_or_default()
-            );
+            c["secretsSet"] =
+                json!(secrets.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default());
             c["home"] = json!(dir.join("home"));
             if login_kind(c).is_some() {
                 c["loggedIn"] = json!(dir.join("home/auth.json").exists());
@@ -70,11 +60,7 @@ impl App {
             .cloned()
             .ok_or_else(|| anyhow!("不支持的 Provider 类型：{kind}"))?;
         let auths = desc["auths"].as_array().cloned().unwrap_or_default();
-        let auth_desc = match auths
-            .iter()
-            .find(|a| a["id"] == str_of(body, "auth"))
-            .or(auths.first())
-        {
+        let auth_desc = match auths.iter().find(|a| a["id"] == str_of(body, "auth")).or(auths.first()) {
             Some(a) => a.clone(),
             None => json!({ "id": "", "fields": [] }),
         };
@@ -84,9 +70,7 @@ impl App {
                 "" => self.suggest_agent_id(kind, str_of(body, "name"))?,
                 wanted => {
                     check_id(wanted)?;
-                    if self.db.get_config(CONNECTION, wanted)?.is_some()
-                        || self.agent_dir(wanted).exists()
-                    {
+                    if self.db.get_config(CONNECTION, wanted)?.is_some() || self.agent_dir(wanted).exists() {
                         bail!("ID「{wanted}」已被占用，换一个");
                     }
                     wanted.to_string()
@@ -99,9 +83,10 @@ impl App {
         };
         let prev = self.db.get_config(CONNECTION, &id)?;
         if let Some(p) = &prev
-            && p["kind"] != kind {
-                bail!("不能修改已有 Provider 的类型");
-            }
+            && p["kind"] != kind
+        {
+            bail!("不能修改已有 Provider 的类型");
+        }
         let name = match str_of(body, "name") {
             "" => desc["name"].as_str().unwrap().to_string(),
             n => n.to_string(),
@@ -120,10 +105,7 @@ impl App {
             config["command"] = json!(command);
         }
         if let Some(endpoints) = desc["endpoints"].as_array().filter(|e| !e.is_empty()) {
-            let pick = endpoints
-                .iter()
-                .find(|e| e["id"] == str_of(body, "endpoint"))
-                .unwrap_or(&endpoints[0]);
+            let pick = endpoints.iter().find(|e| e["id"] == str_of(body, "endpoint")).unwrap_or(&endpoints[0]);
             config["endpoint"] = pick["id"].clone();
         }
 
@@ -152,11 +134,7 @@ impl App {
         }
         // Drop secrets the chosen auth method does not use, so switching methods leaves nothing behind.
         if let Some(map) = secrets.as_object_mut() {
-            map.retain(|k, _| {
-                fields
-                    .iter()
-                    .any(|f| f["key"] == k.as_str() && f["type"] == "secret")
-            });
+            map.retain(|k, _| fields.iter().any(|f| f["key"] == k.as_str() && f["type"] == "secret"));
         }
 
         let dir = self.agent_dir(&id);
@@ -170,10 +148,7 @@ impl App {
             config["importedEnv"] = json!(env.keys().collect::<Vec<_>>());
             secrets["importedEnv"] = Value::Object(env);
         }
-        write_private(
-            &dir.join("secrets.json"),
-            serde_json::to_string_pretty(&secrets)?.as_bytes(),
-        )?;
+        write_private(&dir.join("secrets.json"), serde_json::to_string_pretty(&secrets)?.as_bytes())?;
         self.db.put_config(CONNECTION, &id, &config, now_ms())?;
         Ok(config)
     }
@@ -200,14 +175,10 @@ impl App {
                     a => a,
                 };
                 let catalog = json!({ "providers": { "janus": { "baseUrl": str_of(c, "baseUrl"), "api": api, "apiKey": secrets["apiKey"], "models": models } } });
-                write_private(
-                    &home.join("models.json"),
-                    serde_json::to_string_pretty(&catalog)?.as_bytes(),
-                )?;
+                write_private(&home.join("models.json"), serde_json::to_string_pretty(&catalog)?.as_bytes())?;
             }
             (base, "import") => {
-                let (copied, env) =
-                    import_local(base, &local_source(base, str_of(c, "source")), home)?;
+                let (copied, env) = import_local(base, &local_source(base, str_of(c, "source")), home)?;
                 if copied.is_empty() && env.is_empty() {
                     bail!(
                         "在 {} 和你的 shell 环境中都没有找到可以复制的配置",
@@ -232,44 +203,26 @@ impl App {
             return Ok(base);
         }
         if let Some(n) = slug(name).filter(|n| n != &base) {
-            let id = if n.starts_with(&base) {
-                n
-            } else {
-                format!("{base}-{n}")
-            };
+            let id = if n.starts_with(&base) { n } else { format!("{base}-{n}") };
             if check_id(&id).is_ok() && !taken(&id)? {
                 return Ok(id);
             }
         }
-        (2..1000)
-            .map(|i| format!("{base}-{i}"))
-            .find(|id| !taken(id).unwrap_or(true))
-            .context("没有可用的 ID")
+        (2..1000).map(|i| format!("{base}-{i}")).find(|id| !taken(id).unwrap_or(true)).context("没有可用的 ID")
     }
 
     pub fn delete_connection(&self, id: &str) -> Result<()> {
         // The id names the folder removed below.
         check_id(id)?;
-        let busy = self
-            .runs
-            .lock()
-            .unwrap()
-            .values()
-            .any(|r| r.team.iter().any(|m| m.runtime == id));
+        let busy = self.runs.lock().unwrap().values().any(|r| r.team.iter().any(|m| m.runtime == id));
         if busy {
             bail!("有正在运行的任务在使用这个 Provider，请等它结束或取消后再删除");
         }
-        for mut role in self
-            .db
-            .list_config(ROLE)?
-            .into_iter()
-            .filter(|r| r["connection"] == id)
-        {
+        for mut role in self.db.list_config(ROLE)?.into_iter().filter(|r| r["connection"] == id) {
             role["connection"] = json!("");
             role["model"] = json!("");
             role["effort"] = json!("");
-            self.db
-                .put_config(ROLE, str_of(&role, "id"), &role, now_ms())?;
+            self.db.put_config(ROLE, str_of(&role, "id"), &role, now_ms())?;
         }
         self.db.delete_config(CONNECTION, id)?;
         let _ = std::fs::remove_dir_all(self.agent_dir(id));
@@ -290,11 +243,7 @@ impl App {
             .context("未知的 Provider 类型")?;
         let s = self.secrets(id);
         let secret = |k: &str| s[k].as_str().unwrap_or("").to_string();
-        let home = self
-            .agent_dir(id)
-            .join("home")
-            .to_string_lossy()
-            .to_string();
+        let home = self.agent_dir(id).join("home").to_string_lossy().to_string();
         // Sandbox first, then a preset's defaults, then the variables configured on this agent (which
         // override the defaults; an empty value unsets one), then its isolation and credentials, so
         // nothing the user typed can point the agent back at the host's own directories.
@@ -345,9 +294,7 @@ impl App {
                     set("CLAUDE_CODE_EXECUTABLE", b);
                 }
                 match (desc["group"].as_str(), str_of(&c, "auth")) {
-                    (Some("preset"), _) => {
-                        set(desc["token"]["envKey"].as_str().unwrap(), secret("token"))
-                    }
+                    (Some("preset"), _) => set(desc["token"]["envKey"].as_str().unwrap(), secret("token")),
                     (_, "oauth") => set("CLAUDE_CODE_OAUTH_TOKEN", secret("token")),
                     (_, "apikey") => set("ANTHROPIC_API_KEY", secret("apiKey")),
                     _ => {}
@@ -415,10 +362,8 @@ impl App {
             ("XDG_CACHE_HOME", root.join(".cache")),
             ("TMPDIR", dir.join("tmp")),
         ];
-        let mut env: Vec<(String, String)> = HOST_ENV
-            .iter()
-            .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
-            .collect();
+        let mut env: Vec<(String, String)> =
+            HOST_ENV.iter().filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))).collect();
         for (k, p) in paths {
             std::fs::create_dir_all(&p)?;
             env.push((k.to_string(), p.to_string_lossy().to_string()));
@@ -430,18 +375,8 @@ impl App {
 
 /// The only variables an agent inherits from the host: enough to find executables and render text.
 /// Everything else (HOME, XDG_*, credentials, proxies, SSH, Git and agent settings) is set by Janus or absent.
-pub(super) const HOST_ENV: &[&str] = &[
-    "PATH",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "LC_MESSAGES",
-    "TERM",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "TZ",
-];
+pub(super) const HOST_ENV: &[&str] =
+    &["PATH", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TERM", "USER", "LOGNAME", "SHELL", "TZ"];
 
 /// Variables that only Janus may set; an agent's own environment settings cannot override them.
 pub(super) fn is_sandbox_var(k: &str) -> bool {

@@ -19,7 +19,8 @@ use std::time::Duration;
 /// adding, so two adds of one link cannot both pass the duplicate check. Keyed by path, so two
 /// Janus homes (or tests running in parallel) never share a lock.
 pub(crate) fn folder_lock(dir: &Path) -> Arc<tokio::sync::Mutex<()>> {
-    static LOCKS: LazyLock<std::sync::Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> = LazyLock::new(Default::default);
+    static LOCKS: LazyLock<std::sync::Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> =
+        LazyLock::new(Default::default);
     LOCKS.lock().unwrap().entry(dir.to_path_buf()).or_default().clone()
 }
 
@@ -165,11 +166,8 @@ fn assign_keys(repo_name: &str, found: &[String], before: &[Value]) -> Vec<Value
     let mut keyed: Vec<(String, Option<String>)> = found
         .iter()
         .map(|p| {
-            let prev = before
-                .iter()
-                .find(|b| b["path"] == p.as_str())
-                .and_then(|b| b["key"].as_str())
-                .map(str::to_owned);
+            let prev =
+                before.iter().find(|b| b["path"] == p.as_str()).and_then(|b| b["key"].as_str()).map(str::to_owned);
             (p.clone(), prev)
         })
         .collect();
@@ -289,9 +287,7 @@ pub(crate) async fn git_in(cwd: &Path, args: &[&str]) -> Result<String> {
         .env("GIT_LFS_SKIP_SMUDGE", "1")
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
-    let out = tokio::time::timeout(CLONE_TIMEOUT, cmd.output())
-        .await
-        .context("拉取仓库超时")??;
+    let out = tokio::time::timeout(CLONE_TIMEOUT, cmd.output()).await.context("拉取仓库超时")??;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let line = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
@@ -402,12 +398,18 @@ impl App {
     pub(crate) async fn add_source_at(&self, at: RepoAt, clone_url: &str) -> Result<Value> {
         let _adding = folder_lock(&self.skill_sources_root()).lock_owned().await;
         if let Some(s) = self.sources().into_iter().find(|s| {
-            s["repo"].as_str().is_some_and(|r| r.eq_ignore_ascii_case(&at.repo)) && s["ref"] == at.git_ref.as_str() && s["path"] == at.path.as_str()
+            s["repo"].as_str().is_some_and(|r| r.eq_ignore_ascii_case(&at.repo))
+                && s["ref"] == at.git_ref.as_str()
+                && s["path"] == at.path.as_str()
         }) {
             bail!("已经添加过这个来源：{}", str_of(&s, "url"));
         }
-        let base = slug(&format!("{}{}", at.repo.replace('/', "-"), if at.path.is_empty() { String::new() } else { format!("-{}", at.path.rsplit('/').next().unwrap_or("")) }))
-            .unwrap_or_else(|| "source".into());
+        let base = slug(&format!(
+            "{}{}",
+            at.repo.replace('/', "-"),
+            if at.path.is_empty() { String::new() } else { format!("-{}", at.path.rsplit('/').next().unwrap_or("")) }
+        ))
+        .unwrap_or_else(|| "source".into());
         let root = self.skill_sources_root();
         let id = (1..1000)
             .map(|i| if i == 1 { base.clone() } else { format!("{base}-{i}") })
@@ -488,7 +490,11 @@ impl App {
             .db
             .list_config(ROLE)?
             .iter()
-            .filter(|r| r["skills"].as_array().is_some_and(|s| s.iter().any(|x| x.as_str().is_some_and(|x| x.starts_with(&prefix)))))
+            .filter(|r| {
+                r["skills"]
+                    .as_array()
+                    .is_some_and(|s| s.iter().any(|x| x.as_str().is_some_and(|x| x.starts_with(&prefix))))
+            })
             .map(|r| str_of(r, "name").to_string())
             .collect();
         if !users.is_empty() {
@@ -570,7 +576,8 @@ mod tests {
 
     fn skill(dir: &Path, name: &str) {
         std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join("SKILL.md"), format!("---\nname: {name}\ndescription: does {name}\n---\nbody\n")).unwrap();
+        std::fs::write(dir.join("SKILL.md"), format!("---\nname: {name}\ndescription: does {name}\n---\nbody\n"))
+            .unwrap();
     }
 
     #[tokio::test]
@@ -596,16 +603,28 @@ mod tests {
         let id = src["id"].as_str().unwrap().to_string();
         assert_eq!(id, "acme-skills");
         let names: Vec<&str> = src["skills"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["review", "pdf"], "hidden folders count, node_modules, symlinks and a skill's own folders do not");
+        assert_eq!(
+            names,
+            ["review", "pdf"],
+            "hidden folders count, node_modules, symlinks and a skill's own folders do not"
+        );
         assert!(app.add_source_at(at(), &url).await.is_err(), "the same repository twice");
 
         // The library lists it, a role can mount it, and a run gets it.
         let all = app.all_skills();
-        assert!(all["skills"].as_array().unwrap().iter().any(|s| s["id"] == "acme-skills/pdf" && s["source"] == "acme/skills"));
+        assert!(
+            all["skills"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["id"] == "acme-skills/pdf" && s["source"] == "acme/skills")
+        );
         assert_eq!(app.skill_info("acme-skills/pdf").unwrap()["name"], "pdf");
         assert!(app.skill_dir("acme-skills/nope").is_none());
         assert!(app.skill_dir("../x/pdf").is_none());
-        app.db.put_config(ROLE, "r", &json!({ "id": "r", "name": "审查", "skills": ["acme-skills/pdf"] }), now_ms()).unwrap();
+        app.db
+            .put_config(ROLE, "r", &json!({ "id": "r", "name": "审查", "skills": ["acme-skills/pdf"] }), now_ms())
+            .unwrap();
         assert!(app.delete_skill_source(&id).unwrap_err().to_string().contains("审查"));
 
         // Upstream moves on: a new skill appears, review goes away, pdf keeps its id.
@@ -617,7 +636,11 @@ mod tests {
         assert_eq!(listed["sources"][0]["updateAvailable"], true, "{listed}");
         let src = app.update_skill_source(&id).await.unwrap();
         assert_eq!(src["updateAvailable"], false);
-        assert_eq!(app.check_skill_sources().await["sources"][0]["updateAvailable"], false, "nothing new after the update");
+        assert_eq!(
+            app.check_skill_sources().await["sources"][0]["updateAvailable"],
+            false,
+            "nothing new after the update"
+        );
         let ids: Vec<&str> = src["skills"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["acme-skills/lint", "acme-skills/pdf"]);
         assert!(app.skill_dir("acme-skills/pdf").is_some());

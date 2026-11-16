@@ -25,33 +25,33 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 
-mod lifecycle;
-mod lead;
+mod actions;
+mod attempts;
 mod board;
 mod board_tools;
-mod messages;
-mod attempts;
-mod turn;
-mod session;
-mod prompts;
-mod actions;
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod flow_tests;
+mod lead;
+mod lifecycle;
+mod messages;
+mod prompts;
+mod session;
+#[cfg(test)]
+mod tests;
+mod turn;
 
-use lifecycle::*;
-use lead::*;
+pub use actions::{ActionRefused, ActionReply};
+use attempts::*;
 use board::*;
 use board_tools::*;
-use attempts::*;
-use turn::*;
-use session::*;
-use prompts::*;
 pub use lead::lead_capable;
+use lead::*;
+use lifecycle::*;
+use prompts::*;
 pub use session::session_meta;
-pub use actions::{ActionRefused, ActionReply};
+use session::*;
 pub use turn::cancelled_reply;
+use turn::*;
 
 /// Attempts per delegated task before it fails and the lead decides what to do next.
 const MAX_ATTEMPTS: i64 = 2;
@@ -76,10 +76,7 @@ const INLINE_ITEM: usize = 160;
 const INLINE_ITEMS: usize = 3;
 
 pub fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
 }
 
 /// Where a run's driver starts: from scratch, back into the lead's goal (`true` when continuing
@@ -198,10 +195,7 @@ fn default_max_attempts() -> i64 {
 
 impl TaskDef {
     fn dep_failed(&self, statuses: &HashMap<String, TaskStatus>) -> Option<String> {
-        self.deps
-            .iter()
-            .find(|id| statuses.get(*id).is_some_and(|s| s.failed_dependency()))
-            .cloned()
+        self.deps.iter().find(|id| statuses.get(*id).is_some_and(|s| s.failed_dependency())).cloned()
     }
 }
 
@@ -242,7 +236,8 @@ struct Control {
 /// How long an agent's text may sit unshown after its last chunk.
 const MESSAGE_QUIET: Duration = Duration::from_secs(1);
 
-const RELEASE_PROMPT: &str = "人工介入结束。请结合上面的对话，自主完成原来的任务。完成后按最初的要求，以 ```json 结构化结果结束。";
+const RELEASE_PROMPT: &str =
+    "人工介入结束。请结合上面的对话，自主完成原来的任务。完成后按最初的要求，以 ```json 结构化结果结束。";
 
 /// The agent finished but a verification command failed. Running the same command against a new
 /// session rarely changes the outcome (the command may not fit the workspace), so the lead decides.
@@ -310,18 +305,9 @@ impl Task {
     /// build records it instead of silently accepting it.
     fn set_status(&mut self, to: TaskStatus) {
         if !self.status.can_transition_to(to) {
-            crate::config::log(format!(
-                "janus: task {}: illegal status {:?} -> {:?}",
-                self.def.id, self.status, to
-            ));
+            crate::config::log(format!("janus: task {}: illegal status {:?} -> {:?}", self.def.id, self.status, to));
         }
-        debug_assert!(
-            self.status.can_transition_to(to),
-            "task {}: {:?} -> {:?}",
-            self.def.id,
-            self.status,
-            to
-        );
+        debug_assert!(self.status.can_transition_to(to), "task {}: {:?} -> {:?}", self.def.id, self.status, to);
         self.status = to;
     }
 }
@@ -489,15 +475,7 @@ pub struct Ev {
 }
 
 pub fn ev(kind: &str, actor: &str, text: impl Into<String>) -> Ev {
-    Ev {
-        kind: kind.into(),
-        actor: actor.into(),
-        text: text.into(),
-        to: None,
-        task: None,
-        attempt: None,
-        data: None,
-    }
+    Ev { kind: kind.into(), actor: actor.into(), text: text.into(), to: None, task: None, attempt: None, data: None }
 }
 
 impl Ev {
@@ -600,18 +578,9 @@ impl App {
         {
             let mut st = run.st.lock().unwrap();
             if !st.status.can_transition_to(status) {
-                crate::config::log(format!(
-                    "janus: run {}: illegal status {:?} -> {:?}",
-                    run.id, st.status, status
-                ));
+                crate::config::log(format!("janus: run {}: illegal status {:?} -> {:?}", run.id, st.status, status));
             }
-            debug_assert!(
-                st.status.can_transition_to(status),
-                "run {}: {:?} -> {:?}",
-                run.id,
-                st.status,
-                status
-            );
+            debug_assert!(st.status.can_transition_to(status), "run {}: {:?} -> {:?}", run.id, st.status, status);
             st.status = status;
             if status == RunStatus::Cancelled {
                 st.cancelled = true;
@@ -647,17 +616,10 @@ impl App {
     }
 
     fn resolve(&self, run: &Run, key: &str, value: Value) -> Result<()> {
-        let waiter = run
-            .st
-            .lock()
-            .unwrap()
-            .waiters
-            .remove(key)
-            .ok_or_else(|| anyhow!("没有等待中的决定：{key}"))?;
+        let waiter = run.st.lock().unwrap().waiters.remove(key).ok_or_else(|| anyhow!("没有等待中的决定：{key}"))?;
         let _ = waiter.send(value);
         Ok(())
     }
-
 }
 
 /// Prefix of a message the lead sends a collaborator, so the session and the record both show who wrote it.
@@ -668,15 +630,9 @@ const BRIEF_HEADING: &str = "建议更新共享资料";
 
 /// Read-only git query (see `git_probe::read_only`); not for commands that write the repository.
 pub async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
-    let out = tokio::process::Command::from(git_probe::read_only(cwd, args))
-        .output()
-        .await?;
+    let out = tokio::process::Command::from(git_probe::read_only(cwd, args)).output().await?;
     if !out.status.success() {
-        bail!(
-            "git {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -688,21 +644,11 @@ fn span(ms: i64) -> String {
 
 pub fn short(s: &str, n: usize) -> String {
     let s = s.trim();
-    if s.chars().count() > n {
-        format!("{}…", s.chars().take(n).collect::<String>())
-    } else {
-        s.to_string()
-    }
+    if s.chars().count() > n { format!("{}…", s.chars().take(n).collect::<String>()) } else { s.to_string() }
 }
 
 fn first_line(text: &str) -> String {
-    short(
-        text.lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty())
-            .unwrap_or("（空回复）"),
-        120,
-    )
+    short(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("（空回复）"), 120)
 }
 
 fn short_sha(s: &str) -> &str {

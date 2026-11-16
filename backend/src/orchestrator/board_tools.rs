@@ -170,7 +170,11 @@ pub(super) fn member_tools() -> Value {
 /// Check an orchestration the lead submitted, against the team and the tasks already on the
 /// board. Every problem is reported at once, so one round of fixes is enough.
 // @project-doc docs/interfaces/board_mcp.md#orchestration_validation
-pub(super) fn validate_orchestration(run: &Run, board: &[(TaskDef, TaskStatus)], args: &Value) -> std::result::Result<Vec<TaskDef>, Vec<String>> {
+pub(super) fn validate_orchestration(
+    run: &Run,
+    board: &[(TaskDef, TaskStatus)],
+    args: &Value,
+) -> std::result::Result<Vec<TaskDef>, Vec<String>> {
     let mut errors = vec![];
     let existing: Vec<String> = board.iter().map(|(d, _)| d.id.clone()).collect();
     let Some(items) = args["tasks"].as_array().filter(|a| !a.is_empty()) else {
@@ -203,11 +207,20 @@ pub(super) fn validate_orchestration(run: &Run, board: &[(TaskDef, TaskStatus)],
             ));
         }
         let strings = |v: &Value| -> Vec<String> {
-            v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect()).unwrap_or_default()
+            v.as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(|s| s.trim().to_string()))
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default()
         };
         let accept = strings(&t["accept"]);
         if accept.is_empty() {
-            errors.push(format!("{label}：缺少 accept：写出可核对的验收标准（做到什么、怎样算做到），执行者会逐条验证并给出证据"));
+            errors.push(format!(
+                "{label}：缺少 accept：写出可核对的验收标准（做到什么、怎样算做到），执行者会逐条验证并给出证据"
+            ));
         }
         let owns = crate::teamwork::read_owns(&t["owns"], &label, &mut errors);
         let verifies = t["verifies"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
@@ -272,7 +285,9 @@ pub(super) fn needs_lead(e: &Event) -> bool {
         // A result that disagrees with what the task left in the workspace.
         "task.succeeded" => field("traceGaps").as_array().is_some_and(|g| !g.is_empty()),
         // The person's answer to the lead's own question, or to a collaborator's in its session.
-        "question.answered" => field("key").as_str().is_some_and(|k| k.starts_with("q-lead-")) || field("via") != "lead",
+        "question.answered" => {
+            field("key").as_str().is_some_and(|k| k.starts_with("q-lead-")) || field("via") != "lead"
+        }
         _ => false,
     }
 }
@@ -280,7 +295,8 @@ pub(super) fn needs_lead(e: &Event) -> bool {
 /// The first few items of a list, each clipped, and whether anything was left out.
 pub(super) fn inline_list(items: &[String]) -> (String, bool) {
     let shown: Vec<String> = items.iter().take(INLINE_ITEMS).map(|x| short(x, INLINE_ITEM)).collect();
-    let clipped = items.len() > INLINE_ITEMS || items.iter().take(INLINE_ITEMS).any(|x| x.chars().count() > INLINE_ITEM);
+    let clipped =
+        items.len() > INLINE_ITEMS || items.iter().take(INLINE_ITEMS).any(|x| x.chars().count() > INLINE_ITEM);
     let mut text = shown.join("；");
     if items.len() > INLINE_ITEMS {
         text.push_str(&format!("；等共 {} 条", items.len()));
@@ -293,7 +309,10 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     // The person's answer to a decision the lead handed them (`ask_user`).
     if e.kind == "question.answered" && d["key"].as_str().is_some_and(|k| k.starts_with("q-lead-")) {
         let note = d["note"].as_str().filter(|n| !n.is_empty()).map(|n| format!("（补充：{n}）")).unwrap_or_default();
-        return Some(format!("- [用户决定] 你交给用户的问题，用户的回答：{}{note}", d["answer"].as_str().unwrap_or("")));
+        return Some(format!(
+            "- [用户决定] 你交给用户的问题，用户的回答：{}{note}",
+            d["answer"].as_str().unwrap_or("")
+        ));
     }
     let task = e.task.as_deref()?;
     let who = |agent: &str| run.member(agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.to_string());
@@ -365,16 +384,24 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             d["other"].as_str().unwrap_or("?"),
             d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
         ),
-        "task.claimed" => format!("- [认领] {task} · {name} 开始改 {}，认领为它负责的文件，到任务结束为止。", d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")),
+        "task.claimed" => format!(
+            "- [认领] {task} · {name} 开始改 {}，认领为它负责的文件，到任务结束为止。",
+            d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
+        ),
         "task.conflict" => {
-            let files: Vec<String> = d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+            let files: Vec<String> =
+                d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
             format!(
                 "- [冲突] {task} 和 {} 同时在改 {}。它们直接在同一个目录里工作，可能覆盖彼此的改动：确认分工，用 janus.reply 告诉其中一方先停下或怎样配合；之后会改同一批文件的任务用依赖串行。",
                 d["other"].as_str().unwrap_or("?"),
                 files.join("、")
             )
         }
-        "attempt.failed" => format!("- [尝试失败] {task}「{title}」· {name} 第 {} 次：{}", e.attempt.unwrap_or(1), d["error"].as_str().unwrap_or(&e.text)),
+        "attempt.failed" => format!(
+            "- [尝试失败] {task}「{title}」· {name} 第 {} 次：{}",
+            e.attempt.unwrap_or(1),
+            d["error"].as_str().unwrap_or(&e.text)
+        ),
         "task.failed" if d["reason"] == "verification" && verifies.is_some() => format!(
             "- [验证没通过] {task} · {name} 独立验证 {} 时发现问题：\n{}\n  不能用 janus.accept 放行：派修复任务和新的验证任务，或者 janus.cancel 取消 {task} 并写明理由。",
             verifies.as_deref().unwrap_or_default(),
@@ -384,16 +411,32 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             "- [没通过验收] {task}「{title}」· {name} 补过一次仍没有满足验收标准：\n{}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
             verification_output(run, task)
         ),
-        "task.failed" => format!("- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（可改说明）、janus.cancel 取消，或自己做。", d["error"].as_str().unwrap_or(&e.text)),
-        "task.blocked" => format!("- [无法开始] {task}「{title}」：依赖 {} 失败。用 janus.retry 或 janus.accept 处理 {0} 后会自动继续；不再需要就 janus.cancel。", d["dependency"].as_str().unwrap_or("?")),
+        "task.failed" => format!(
+            "- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（可改说明）、janus.cancel 取消，或自己做。",
+            d["error"].as_str().unwrap_or(&e.text)
+        ),
+        "task.blocked" => format!(
+            "- [无法开始] {task}「{title}」：依赖 {} 失败。用 janus.retry 或 janus.accept 处理 {0} 后会自动继续；不再需要就 janus.cancel。",
+            d["dependency"].as_str().unwrap_or("?")
+        ),
         // A collaborator's question the person answered in its session: the lead must not answer again.
-        "question.answered" if d["via"] != "lead" => format!("- [用户已回答] {task} 的提问由用户直接回答：{}。不要再回答这个问题，按用户的回答推进。", d["answer"].as_str().unwrap_or("")),
+        "question.answered" if d["via"] != "lead" => format!(
+            "- [用户已回答] {task} 的提问由用户直接回答：{}。不要再回答这个问题，按用户的回答推进。",
+            d["answer"].as_str().unwrap_or("")
+        ),
         "board.posted" => {
-            let label = match d["kind"].as_str() { Some("blocker") => "阻塞", Some("note") => "备注", _ => "进展" };
+            let label = match d["kind"].as_str() {
+                Some("blocker") => "阻塞",
+                Some("note") => "备注",
+                _ => "进展",
+            };
             format!("- [{label}] {task} · {name}：{}", d["text"].as_str().unwrap_or(&e.text))
         }
         "question.asked" => {
-            let options: Vec<String> = d["options"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+            let options: Vec<String> = d["options"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default();
             format!(
                 "- [提问] {task} · {name} 停下来等你回答：{}{}\n  用 janus.reply 回答（task={task}）。",
                 d["question"].as_str().unwrap_or(&e.text),

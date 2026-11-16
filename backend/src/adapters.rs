@@ -34,30 +34,10 @@ pub struct AdapterDef {
 
 // @project-doc docs/architecture/adapters.md#catalog
 pub const ADAPTERS: &[AdapterDef] = &[
-    AdapterDef {
-        id: "codex",
-        name: "Codex",
-        package: "@agentclientprotocol/codex-acp",
-        args: &[],
-    },
-    AdapterDef {
-        id: "claude",
-        name: "Claude Code",
-        package: "@agentclientprotocol/claude-agent-acp",
-        args: &[],
-    },
-    AdapterDef {
-        id: "grok",
-        name: "Grok",
-        package: "@xai-official/grok",
-        args: &["agent", "stdio"],
-    },
-    AdapterDef {
-        id: "pi",
-        name: "Pi",
-        package: "pi-acp",
-        args: &[],
-    },
+    AdapterDef { id: "codex", name: "Codex", package: "@agentclientprotocol/codex-acp", args: &[] },
+    AdapterDef { id: "claude", name: "Claude Code", package: "@agentclientprotocol/claude-agent-acp", args: &[] },
+    AdapterDef { id: "grok", name: "Grok", package: "@xai-official/grok", args: &["agent", "stdio"] },
+    AdapterDef { id: "pi", name: "Pi", package: "pi-acp", args: &[] },
 ];
 
 /// The adapter a runtime needs: presets over Claude Code share Claude's; custom commands need none.
@@ -66,10 +46,7 @@ pub fn for_base(base: &str) -> Option<&'static AdapterDef> {
 }
 
 fn def(id: &str) -> Result<&'static AdapterDef> {
-    ADAPTERS
-        .iter()
-        .find(|a| a.id == id)
-        .ok_or_else(|| anyhow!("没有这个 ACP 适配器：{id}"))
+    ADAPTERS.iter().find(|a| a.id == id).ok_or_else(|| anyhow!("没有这个 ACP 适配器：{id}"))
 }
 
 /// What is going on with one adapter right now: an install or update check in progress, or how
@@ -145,11 +122,7 @@ impl App {
     }
 
     fn adapter_log(&self, id: &str) -> PathBuf {
-        self.cfg
-            .data_dir
-            .join("logs")
-            .join("adapters")
-            .join(format!("{id}.log"))
+        self.cfg.data_dir.join("logs").join("adapters").join(format!("{id}.log"))
     }
 
     /// The version directory `current` points to, if the adapter is installed.
@@ -164,10 +137,7 @@ impl App {
     pub fn adapter_entry(&self, id: &str) -> Result<(PathBuf, Arc<VersionPin>)> {
         let d = def(id)?;
         let dir = self.adapter_current(id).ok_or_else(|| {
-            anyhow!(
-                "{} 的 ACP 适配器还没有安装：在「设置 → Agents」中运行配置检查会自动安装",
-                d.name
-            )
+            anyhow!("{} 的 ACP 适配器还没有安装：在「设置 → Agents」中运行配置检查会自动安装", d.name)
         })?;
         Ok((entry_in(d, &dir)?, VersionPin::new(dir)))
     }
@@ -222,11 +192,7 @@ impl App {
     }
 
     /// Start installing (the newest version, or `version`) in the background.
-    pub fn start_adapter_install(
-        self: &Arc<Self>,
-        id: &str,
-        version: Option<String>,
-    ) -> Result<()> {
+    pub fn start_adapter_install(self: &Arc<Self>, id: &str, version: Option<String>) -> Result<()> {
         def(id)?;
         begin(id, "install")?;
         let app = self.clone();
@@ -254,18 +220,11 @@ impl App {
     /// Make an installed version current again (roll back, or forward).
     pub fn use_adapter_version(&self, id: &str, version: &str) -> Result<()> {
         def(id)?;
-        if JOBS
-            .lock()
-            .unwrap()
-            .get(id)
-            .is_some_and(|j| j.state == JobState::Running)
-        {
+        if JOBS.lock().unwrap().get(id).is_some_and(|j| j.state == JobState::Running) {
             bail!("{id} 的适配器正在安装，等它结束后再切换");
         }
         let dir = self.adapters_dir().join(id);
-        if version.contains('/')
-            || version.starts_with('.')
-            || !dir.join(version).join(".janus-adapter.json").is_file()
+        if version.contains('/') || version.starts_with('.') || !dir.join(version).join(".janus-adapter.json").is_file()
         {
             bail!("没有安装这个版本：{version}");
         }
@@ -284,12 +243,7 @@ impl App {
         }
         begin(id, "install")?;
         let r = self.install_adapter(id, None);
-        finish(
-            id,
-            r.as_ref()
-                .map(|v| format!("已安装 {v}"))
-                .map_err(|e| anyhow!("{e:#}")),
-        );
+        finish(id, r.as_ref().map(|v| format!("已安装 {v}")).map_err(|e| anyhow!("{e:#}")));
         r.map(Some)
     }
 
@@ -298,11 +252,7 @@ impl App {
         if let Some(dir) = log.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log)
-        {
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log) {
             let _ = writeln!(f, "== {} {line}", crate::config::utc(now_ms()));
         }
     }
@@ -310,16 +260,11 @@ impl App {
     /// The newest version npm offers.
     fn latest_adapter_version(&self, id: &str) -> Result<String> {
         let d = def(id)?;
-        let v = run_text(Command::new("npm").args(["view", d.package, "version"]))?
-            .trim()
-            .to_string();
+        let v = run_text(Command::new("npm").args(["view", d.package, "version"]))?.trim().to_string();
         if v.is_empty() {
             bail!("没有查到最新版本");
         }
-        LATEST
-            .lock()
-            .unwrap()
-            .insert(id.to_string(), (v.clone(), now_ms()));
+        LATEST.lock().unwrap().insert(id.to_string(), (v.clone(), now_ms()));
         Ok(v)
     }
 
@@ -334,46 +279,26 @@ impl App {
         let staging = dir.join(format!(".staging-{}", now_ms()));
         self.adapter_note(
             id,
-            &format!(
-                "开始安装 {}{}",
-                d.package,
-                version.map(|v| format!("@{v}")).unwrap_or_default()
-            ),
+            &format!("开始安装 {}{}", d.package, version.map(|v| format!("@{v}")).unwrap_or_default()),
         );
         let built = (|| -> Result<String> {
             let node = &crate::config::settings().node;
             check_node(node, d)?;
             std::fs::create_dir_all(&staging)?;
-            std::fs::write(
-                staging.join("package.json"),
-                r#"{ "name": "janus-adapter", "private": true }"#,
-            )?;
+            std::fs::write(staging.join("package.json"), r#"{ "name": "janus-adapter", "private": true }"#)?;
             let spec = format!("{}@{}", d.package, version.unwrap_or("latest"));
             // npm lifecycle scripts are not part of the ACP protocol: skip them so an adapter
             // update does not execute package-provided code at install time.
             logged(
                 Command::new("npm")
-                    .args([
-                        "install",
-                        "--omit=dev",
-                        "--ignore-scripts",
-                        "--no-audit",
-                        "--no-fund",
-                        &spec,
-                    ])
+                    .args(["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", &spec])
                     .current_dir(&staging),
                 &log_path,
             )?;
             let installed: Value = serde_json::from_str(&std::fs::read_to_string(
-                staging
-                    .join("node_modules")
-                    .join(d.package)
-                    .join("package.json"),
+                staging.join("node_modules").join(d.package).join("package.json"),
             )?)?;
-            installed["version"]
-                .as_str()
-                .context("package.json 没有 version")
-                .map(str::to_owned)
+            installed["version"].as_str().context("package.json 没有 version").map(str::to_owned)
         })();
         let v = match built {
             Ok(x) => x,
@@ -402,9 +327,7 @@ impl App {
             )?;
             std::fs::rename(&staging, &target)?;
         }
-        let previous = std::fs::read_link(dir.join("current"))
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
+        let previous = std::fs::read_link(dir.join("current")).ok().map(|p| p.to_string_lossy().to_string());
         switch_current(&dir, &v)?;
         prune(&dir, &v, previous.as_deref());
         self.adapter_note(id, &format!("已安装 {v} 并设为当前版本"));
@@ -422,12 +345,9 @@ fn entry_in(d: &AdapterDef, dir: &Path) -> Result<PathBuf> {
     )?;
     let rel = match &pkg["bin"] {
         Value::String(s) => s.clone(),
-        Value::Object(m) => m
-            .get(d.package)
-            .or_else(|| m.values().next())
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        Value::Object(m) => {
+            m.get(d.package).or_else(|| m.values().next()).and_then(Value::as_str).unwrap_or_default().to_string()
+        }
         _ => pkg["main"].as_str().unwrap_or_default().to_string(),
     };
     let entry = pkg_dir.join(rel.trim_start_matches("./"));
@@ -455,11 +375,8 @@ fn prune(dir: &Path, current: &str, previous: Option<&str>) {
         }
         let stale_staging = name.starts_with(".staging-") || name.starts_with(".current-");
         if stale_staging || e.path().join(".janus-adapter.json").is_file() {
-            let _ = if e.path().is_symlink() {
-                std::fs::remove_file(e.path())
-            } else {
-                std::fs::remove_dir_all(e.path())
-            };
+            let _ =
+                if e.path().is_symlink() { std::fs::remove_file(e.path()) } else { std::fs::remove_dir_all(e.path()) };
         }
     }
 }
@@ -468,36 +385,21 @@ fn prune(dir: &Path, current: &str, previous: Option<&str>) {
 fn check_node(node: &str, d: &AdapterDef) -> Result<()> {
     let out = run_text(Command::new(node).arg("--version"))
         .with_context(|| format!("找不到 Node（{node}），安装 {} 的适配器需要它", d.name))?;
-    let v: Vec<u64> = out
-        .trim()
-        .trim_start_matches('v')
-        .split('.')
-        .filter_map(|x| x.parse().ok())
-        .collect();
+    let v: Vec<u64> = out.trim().trim_start_matches('v').split('.').filter_map(|x| x.parse().ok()).collect();
     let old = match v.as_slice() {
         [major, minor, ..] => *major < 22 || (*major == 22 && *minor < 19),
         _ => true,
     };
     if old {
-        bail!(
-            "Node 版本 {} 太旧，ACP 适配器需要 Node 22.19 以上",
-            out.trim()
-        );
+        bail!("Node 版本 {} 太旧，ACP 适配器需要 Node 22.19 以上", out.trim());
     }
     Ok(())
 }
 
 fn run_text(cmd: &mut Command) -> Result<String> {
-    let out = cmd
-        .stdin(Stdio::null())
-        .output()
-        .with_context(|| format!("无法运行 {:?}", cmd.get_program()))?;
+    let out = cmd.stdin(Stdio::null()).output().with_context(|| format!("无法运行 {:?}", cmd.get_program()))?;
     if !out.status.success() {
-        bail!(
-            "{:?} 失败：{}",
-            cmd.get_program(),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+        bail!("{:?} 失败：{}", cmd.get_program(), String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
@@ -507,15 +409,9 @@ fn logged(cmd: &mut Command, log: &Path) -> Result<()> {
     let line = format!(
         "$ {:?} {}",
         cmd.get_program(),
-        cmd.get_args()
-            .map(|a| a.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ")
+        cmd.get_args().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ")
     );
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log)?;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
     writeln!(f, "{line}")?;
     let status = cmd
         .stdin(Stdio::null())
@@ -524,11 +420,7 @@ fn logged(cmd: &mut Command, log: &Path) -> Result<()> {
         .status()
         .with_context(|| format!("无法运行 {:?}", cmd.get_program()))?;
     if !status.success() {
-        bail!(
-            "{line} 失败（exit {}），详见 {}",
-            status.code().unwrap_or(-1),
-            log.display()
-        );
+        bail!("{line} 失败（exit {}），详见 {}", status.code().unwrap_or(-1), log.display());
     }
     Ok(())
 }
@@ -536,24 +428,11 @@ fn logged(cmd: &mut Command, log: &Path) -> Result<()> {
 fn begin(id: &str, action: &str) -> Result<()> {
     let mut jobs = JOBS.lock().unwrap();
     if jobs.get(id).is_some_and(|j| j.state == JobState::Running) {
-        bail!(
-            "{id} 的适配器已经在{}中",
-            if action == "install" {
-                "安装"
-            } else {
-                "处理"
-            }
-        );
+        bail!("{id} 的适配器已经在{}中", if action == "install" { "安装" } else { "处理" });
     }
     jobs.insert(
         id.to_string(),
-        Job {
-            state: JobState::Running,
-            action: action.into(),
-            detail: String::new(),
-            started: now_ms(),
-            ended: 0,
-        },
+        Job { state: JobState::Running, action: action.into(), detail: String::new(), started: now_ms(), ended: 0 },
     );
     Ok(())
 }
@@ -590,22 +469,12 @@ mod tests {
         std::fs::create_dir_all(dir.join(".staging-1")).unwrap();
         switch_current(&dir, "1.1.0").unwrap();
         switch_current(&dir, "1.2.0").unwrap();
-        assert_eq!(
-            std::fs::read_link(dir.join("current")).unwrap(),
-            PathBuf::from("1.2.0")
-        );
+        assert_eq!(std::fs::read_link(dir.join("current")).unwrap(), PathBuf::from("1.2.0"));
         prune(&dir, "1.2.0", Some("1.1.0"));
-        let mut left: Vec<String> = std::fs::read_dir(&dir)
-            .unwrap()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().to_string())
-            .collect();
+        let mut left: Vec<String> =
+            std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
         left.sort();
-        assert_eq!(
-            left,
-            ["1.1.0", "1.2.0", "current"],
-            "the previous version stays for rolling back"
-        );
+        assert_eq!(left, ["1.1.0", "1.2.0", "current"], "the previous version stays for rolling back");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -644,5 +513,4 @@ mod tests {
         assert_eq!(entry_in(d, &dir).unwrap(), pkg.join("dist/index.js"));
         let _ = std::fs::remove_dir_all(&dir);
     }
-
 }

@@ -365,7 +365,11 @@ impl Session {
         at_to
             .into_iter()
             .filter(|(currency, _)| in_window.contains(currency))
-            .map(|(currency, c)| CostLine { currency: currency.to_string(), amount: c.total() - at_from.get(currency).map_or(0.0, |c| c.total()), sessions: 1 })
+            .map(|(currency, c)| CostLine {
+                currency: currency.to_string(),
+                amount: c.total() - at_from.get(currency).map_or(0.0, |c| c.total()),
+                sessions: 1,
+            })
             .collect()
     }
 }
@@ -445,7 +449,12 @@ impl Scope {
     }
 
     /// The range over `sessions` (oldest first, so the latest context snapshot wins).
-    fn over<'a>(id: &str, sessions: impl Iterator<Item = &'a Session>, duration_ms: Option<i64>, wait_ms: Option<i64>) -> Scope {
+    fn over<'a>(
+        id: &str,
+        sessions: impl Iterator<Item = &'a Session>,
+        duration_ms: Option<i64>,
+        wait_ms: Option<i64>,
+    ) -> Scope {
         let mut s = Scope::new(id);
         for session in sessions {
             s.sessions += 1;
@@ -505,7 +514,12 @@ impl Ledger {
     }
 
     fn run_line(&self) -> String {
-        format!("{} · {} · 耗时 {}", tokens_text(&self.run.tokens, self.run.completeness), cost_text(&self.run.cost), duration_text(self.run.duration_ms))
+        format!(
+            "{} · {} · 耗时 {}",
+            tokens_text(&self.run.tokens, self.run.completeness),
+            cost_text(&self.run.cost),
+            duration_text(self.run.duration_ms)
+        )
     }
 
     /// The usage part of `team`: the run, its makeup, the lead and collaborator subtotals, one line
@@ -572,9 +586,17 @@ impl Ledger {
             ));
         }
         for g in self.task_bill(task, names) {
-            let models: Vec<String> = g.models.iter().map(|m| format!("{} {}", m.model, m.tokens.total.map(num).unwrap_or_else(|| "未上报".into()))).collect();
+            let models: Vec<String> = g
+                .models
+                .iter()
+                .map(|m| format!("{} {}", m.model, m.tokens.total.map(num).unwrap_or_else(|| "未上报".into())))
+                .collect();
             let tokens = g.tokens.total.map(|n| format!("{} tokens", num(n))).unwrap_or_else(|| "未上报".into());
-            out.push(format!("成员 {}：{tokens}{}", g.name, if models.is_empty() { String::new() } else { format!(" · 模型 {}", models.join("、")) }));
+            out.push(format!(
+                "成员 {}：{tokens}{}",
+                g.name,
+                if models.is_empty() { String::new() } else { format!(" · 模型 {}", models.join("、")) }
+            ));
         }
         out
     }
@@ -605,7 +627,8 @@ impl Ledger {
         if self.reminders.is_empty() {
             return None;
         }
-        let prefix = if self.run.completeness == Completeness::Complete { "提醒" } else { "提醒（按已上报数据）" };
+        let prefix =
+            if self.run.completeness == Completeness::Complete { "提醒" } else { "提醒（按已上报数据）" };
         Some(format!("{prefix}：{}", self.reminders.join("；")))
     }
 }
@@ -630,10 +653,15 @@ pub fn tokens_text(tokens: &Tokens, completeness: Completeness) -> String {
 /// What the tokens are made of, as far as the agents said: `构成：输入 … · 缓存读取 … · 输出 …`.
 /// A part that is 0 or was never reported is left out.
 fn breakdown_text(tokens: &Tokens) -> Option<String> {
-    let parts: Vec<String> = [("输入", tokens.input), ("缓存读取", tokens.cached_read), ("缓存写入", tokens.cached_write), ("输出", tokens.output)]
-        .into_iter()
-        .filter_map(|(label, n)| n.filter(|n| *n > 0).map(|n| format!("{label} {}", num(n))))
-        .collect();
+    let parts: Vec<String> = [
+        ("输入", tokens.input),
+        ("缓存读取", tokens.cached_read),
+        ("缓存写入", tokens.cached_write),
+        ("输出", tokens.output),
+    ]
+    .into_iter()
+    .filter_map(|(label, n)| n.filter(|n| *n > 0).map(|n| format!("{label} {}", num(n))))
+    .collect();
     if parts.is_empty() {
         return None;
     }
@@ -664,7 +692,12 @@ fn context_text(context: &Context) -> Option<String> {
     }
     let used = context.used.map(num).unwrap_or_else(|| "未上报".into());
     let mut line = match context.size {
-        Some(size) => format!("上下文 {} / {}（{}）", used, num(size), context.ratio().map(percent).unwrap_or_else(|| "没有比例".into())),
+        Some(size) => format!(
+            "上下文 {} / {}（{}）",
+            used,
+            num(size),
+            context.ratio().map(percent).unwrap_or_else(|| "没有比例".into())
+        ),
         None => format!("上下文 {used}"),
     };
     if let (Some(peak), Some(used)) = (context.peak, context.used)
@@ -825,10 +858,17 @@ impl Scan {
                 }
             }
             "attempt.failed" => self.attempt_ended(e, AttemptState::Failed, data["error"].as_str().map(str::to_owned)),
-            "attempt.late_result" => self.attempt_ended(e, AttemptState::Expired, Some("过期尝试的结果被忽略，用量照常计入".into())),
+            "attempt.late_result" => {
+                self.attempt_ended(e, AttemptState::Expired, Some("过期尝试的结果被忽略，用量照常计入".into()))
+            }
             "verification.failed" => {
-                let failures: Vec<&str> = data["failures"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
-                self.attempt_ended(e, AttemptState::VerificationFailed, (!failures.is_empty()).then(|| failures.join("；")));
+                let failures: Vec<&str> =
+                    data["failures"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                self.attempt_ended(
+                    e,
+                    AttemptState::VerificationFailed,
+                    (!failures.is_empty()).then(|| failures.join("；")),
+                );
             }
             "task.succeeded" => self.attempt_ended(e, AttemptState::Succeeded, None),
             "task.failed" => {
@@ -882,7 +922,16 @@ impl Scan {
         let key = (task.to_string(), n);
         let a = self.attempts.entry(key.clone()).or_insert_with(|| {
             self.attempt_order.push(key);
-            AttemptBuild { task: task.to_string(), n, actor: actor.to_string(), state: AttemptState::Unfinished, note: None, started_ms: ts, ended_ms: None, last_ms: ts }
+            AttemptBuild {
+                task: task.to_string(),
+                n,
+                actor: actor.to_string(),
+                state: AttemptState::Unfinished,
+                note: None,
+                started_ms: ts,
+                ended_ms: None,
+                last_ms: ts,
+            }
         });
         a.last_ms = a.last_ms.max(ts);
         if actor != LEAD {
@@ -905,7 +954,9 @@ impl Scan {
     fn usage(&mut self, e: &Event, data: &Value) {
         let rows = Tokens::of_turn(data);
         let (used, size) = (data["used"].as_i64(), data["size"].as_i64());
-        let cost = data["cost"]["amount"].as_f64().map(|amount| (data["cost"]["currency"].as_str().unwrap_or("").to_string(), amount));
+        let cost = data["cost"]["amount"]
+            .as_f64()
+            .map(|amount| (data["cost"]["currency"].as_str().unwrap_or("").to_string(), amount));
         if rows.is_empty() && used.is_none() && size.is_none() && cost.is_none() {
             return;
         }
@@ -934,11 +985,22 @@ impl Scan {
     fn touch(&mut self, e: &Event, actor: &str) -> String {
         let key = match self.current_session.get(actor) {
             Some(sid) => format!("{actor}:{sid}"),
-            None => format!("{actor}:{}/{}", e.task.as_deref().unwrap_or("-"), e.attempt.map(|n| n.to_string()).unwrap_or_else(|| "-".into())),
+            None => format!(
+                "{actor}:{}/{}",
+                e.task.as_deref().unwrap_or("-"),
+                e.attempt.map(|n| n.to_string()).unwrap_or_else(|| "-".into())
+            ),
         };
         let s = self.sessions.entry(key.clone()).or_insert_with(|| {
             self.order.push(key.clone());
-            SessionBuild { actor: actor.to_string(), task: e.task.clone(), attempt: e.attempt, first_ms: e.ts, last_ms: e.ts, ..Default::default() }
+            SessionBuild {
+                actor: actor.to_string(),
+                task: e.task.clone(),
+                attempt: e.attempt,
+                first_ms: e.ts,
+                last_ms: e.ts,
+                ..Default::default()
+            }
         });
         s.first_ms = s.first_ms.min(e.ts);
         s.last_ms = s.last_ms.max(e.ts);
@@ -973,7 +1035,9 @@ impl Scan {
             self.waits.push(Wait { ms: end.saturating_sub(start), task, actor });
         }
         let waits = &self.waits;
-        let wait_of = |pred: &dyn Fn(&Wait) -> bool| -> Option<i64> { waits.iter().filter(|w| pred(w)).map(|w| w.ms).reduce(|a, b| a + b) };
+        let wait_of = |pred: &dyn Fn(&Wait) -> bool| -> Option<i64> {
+            waits.iter().filter(|w| pred(w)).map(|w| w.ms).reduce(|a, b| a + b)
+        };
 
         let mut sessions: Vec<Session> = self
             .order
@@ -987,7 +1051,11 @@ impl Scan {
                 tokens: b.tokens,
                 turns: b.turns,
                 context: b.context,
-                cost: b.cost.into_iter().map(|(currency, c)| CostLine { currency, amount: c.total(), sessions: 1 }).collect(),
+                cost: b
+                    .cost
+                    .into_iter()
+                    .map(|(currency, c)| CostLine { currency, amount: c.total(), sessions: 1 })
+                    .collect(),
                 first_ms: b.first_ms,
                 last_ms: b.last_ms,
                 spend: b.spend,
@@ -997,27 +1065,48 @@ impl Scan {
         // Oldest first, so a range's latest context snapshot is the one that shows.
         sessions.sort_by_key(|s| s.last_ms);
 
-        let run = Scope::over("run", sessions.iter(), self.created_ms.map(|c| end.saturating_sub(c)), wait_of(&|_| true));
+        let run =
+            Scope::over("run", sessions.iter(), self.created_ms.map(|c| end.saturating_sub(c)), wait_of(&|_| true));
         let lead = Scope::over(LEAD, sessions.iter().filter(|s| s.actor == LEAD), None, wait_of(&|w| w.actor == LEAD));
-        let collaborators = Scope::over("collaborators", sessions.iter().filter(|s| s.actor != LEAD), None, wait_of(&|w| w.actor != LEAD));
+        let collaborators = Scope::over(
+            "collaborators",
+            sessions.iter().filter(|s| s.actor != LEAD),
+            None,
+            wait_of(&|w| w.actor != LEAD),
+        );
         let tasks: Vec<Scope> = self
             .tasks
             .iter()
             .map(|task| {
                 let span = self.task_span.get(task).map(|(a, b)| b.saturating_sub(*a));
-                Scope::over(task, sessions.iter().filter(|s| s.task.as_deref() == Some(task.as_str())), span, wait_of(&|w| w.task.as_deref() == Some(task.as_str())))
+                Scope::over(
+                    task,
+                    sessions.iter().filter(|s| s.task.as_deref() == Some(task.as_str())),
+                    span,
+                    wait_of(&|w| w.task.as_deref() == Some(task.as_str())),
+                )
             })
             .collect();
         let mut actors: Vec<&str> = sessions.iter().map(|s| s.actor.as_str()).collect();
         actors.sort();
         actors.dedup();
-        let members: Vec<Scope> = actors.iter().map(|actor| Scope::over(actor, sessions.iter().filter(|s| s.actor == *actor), None, wait_of(&|w| w.actor == *actor))).collect();
+        let members: Vec<Scope> = actors
+            .iter()
+            .map(|actor| {
+                Scope::over(actor, sessions.iter().filter(|s| s.actor == *actor), None, wait_of(&|w| w.actor == *actor))
+            })
+            .collect();
         let attempts: Vec<Attempt> = self
             .attempt_order
             .iter()
             .filter_map(|key| self.attempts.get(key))
             .map(|b| {
-                let scope = Scope::over("", sessions.iter().filter(|s| s.task.as_deref() == Some(b.task.as_str()) && s.attempt == Some(b.n)), None, None);
+                let scope = Scope::over(
+                    "",
+                    sessions.iter().filter(|s| s.task.as_deref() == Some(b.task.as_str()) && s.attempt == Some(b.n)),
+                    None,
+                    None,
+                );
                 Attempt {
                     task: b.task.clone(),
                     n: b.n,
@@ -1026,7 +1115,11 @@ impl Scan {
                     note: b.note.clone(),
                     started_ms: b.started_ms,
                     ended_ms: b.ended_ms,
-                    duration_ms: b.ended_ms.unwrap_or(b.last_ms).checked_sub(b.started_ms).filter(|ms| b.ended_ms.is_some() || *ms > 0),
+                    duration_ms: b
+                        .ended_ms
+                        .unwrap_or(b.last_ms)
+                        .checked_sub(b.started_ms)
+                        .filter(|ms| b.ended_ms.is_some() || *ms > 0),
                     tokens: scope.tokens,
                     turns: scope.turns,
                     context: scope.context,
@@ -1037,7 +1130,17 @@ impl Scan {
             })
             .collect();
 
-        let mut ledger = Ledger { text: String::new(), run, lead, collaborators, tasks, members, attempts, sessions, reminders: vec![] };
+        let mut ledger = Ledger {
+            text: String::new(),
+            run,
+            lead,
+            collaborators,
+            tasks,
+            members,
+            attempts,
+            sessions,
+            reminders: vec![],
+        };
         ledger.reminders = reminders(&ledger, self.collaborators.len());
         ledger.text = ledger.summary_line();
         ledger
@@ -1053,7 +1156,8 @@ fn reminders(ledger: &Ledger, declared_collaborators: usize) -> Vec<String> {
         out.push(format!("Token 用量偏高：已上报 {} tokens，达到默认提醒阈值 {}", num(n), num(TOKEN_REMINDER)));
     }
     if let Some(n) = total.filter(|n| *n >= TASK_SHARE_FLOOR)
-        && let Some((task, used)) = ledger.tasks.iter().filter_map(|t| t.tokens.total.map(|v| (t, v))).max_by_key(|(_, v)| *v)
+        && let Some((task, used)) =
+            ledger.tasks.iter().filter_map(|t| t.tokens.total.map(|v| (t, v))).max_by_key(|(_, v)| *v)
         && used as f64 >= n as f64 * TASK_SHARE
     {
         out.push(format!("大部分用量集中在一个任务：{} 占 {} 的 {}", task.id, num(n), percent(used as f64 / n as f64)));
@@ -1063,7 +1167,10 @@ fn reminders(ledger: &Ledger, declared_collaborators: usize) -> Vec<String> {
         && !ledger.attempts.iter().any(|a| a.state == AttemptState::Succeeded)
         && ledger.run.duration_ms.is_some_and(|ms| ms >= IDLE_WITHOUT_SUCCESS)
     {
-        out.push(format!("协作者多但没有有效产出：{collaborators} 个协作者，{} 内没有任何任务成功", duration(IDLE_WITHOUT_SUCCESS)));
+        out.push(format!(
+            "协作者多但没有有效产出：{collaborators} 个协作者，{} 内没有任何任务成功",
+            duration(IDLE_WITHOUT_SUCCESS)
+        ));
     }
     if total.is_some_and(|n| n >= COST_BLIND_TOKENS) && !ledger.run.cost.reported() {
         out.push("费用无法判断：有 token 用量，但没有任何会话上报费用".into());
@@ -1108,7 +1215,15 @@ mod tests {
         }
     }
 
-    fn usage(e: &mut Vec<Event>, seq: i64, ts: i64, actor: &str, task: Option<&str>, attempt: Option<i64>, data: Value) {
+    fn usage(
+        e: &mut Vec<Event>,
+        seq: i64,
+        ts: i64,
+        actor: &str,
+        task: Option<&str>,
+        attempt: Option<i64>,
+        data: Value,
+    ) {
         e.push(ev(seq, ts, "session.usage", actor, task, attempt, data));
     }
 
@@ -1126,7 +1241,8 @@ mod tests {
         let cases: Value = serde_json::from_str(include_str!("../testdata/usage_cases.json")).unwrap();
         for case in cases.as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
-            let events: Vec<Event> = case["events"].as_array().unwrap().iter().map(|v| event_from_json("case", v)).collect();
+            let events: Vec<Event> =
+                case["events"].as_array().unwrap().iter().map(|v| event_from_json("case", v)).collect();
             let l = ledger(&events);
             let want = &case["expect"];
             assert_eq!(l.run.tokens.total, want["runTotal"].as_i64(), "{name}: run total");
@@ -1136,10 +1252,19 @@ mod tests {
                 assert_eq!(l.task(task).and_then(|t| t.tokens.total), total.as_i64(), "{name}: task {task}");
             }
             for (key, state) in want["attempts"].as_object().into_iter().flatten() {
-                let a = l.attempts.iter().find(|a| format!("{}#{}", a.task, a.n) == *key).unwrap_or_else(|| panic!("{name}: attempt {key}"));
+                let a = l
+                    .attempts
+                    .iter()
+                    .find(|a| format!("{}#{}", a.task, a.n) == *key)
+                    .unwrap_or_else(|| panic!("{name}: attempt {key}"));
                 assert_eq!(a.state.label(), state.as_str().unwrap(), "{name}: attempt {key}");
             }
-            assert_eq!(l.reminders.len(), want["reminders"].as_u64().unwrap_or(0) as usize, "{name}: reminders {:?}", l.reminders);
+            assert_eq!(
+                l.reminders.len(),
+                want["reminders"].as_u64().unwrap_or(0) as usize,
+                "{name}: reminders {:?}",
+                l.reminders
+            );
         }
     }
 
@@ -1149,10 +1274,42 @@ mod tests {
         let mut e = vec![];
         created(&mut e);
         started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
-        usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), json!({ "inputTokens": 600, "outputTokens": 100, "totalTokens": 700 }));
-        usage(&mut e, 4, 4_000, "m1", Some("T1"), Some(1), json!({ "inputTokens": 1200, "outputTokens": 200, "totalTokens": 1400 }));
-        usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "inputTokens": 1800, "outputTokens": 300, "totalTokens": 2100 }));
-        usage(&mut e, 6, 6_000, "m1", Some("T1"), Some(1), json!({ "inputTokens": 300, "outputTokens": 50, "totalTokens": 350 }));
+        usage(
+            &mut e,
+            3,
+            3_000,
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "inputTokens": 600, "outputTokens": 100, "totalTokens": 700 }),
+        );
+        usage(
+            &mut e,
+            4,
+            4_000,
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "inputTokens": 1200, "outputTokens": 200, "totalTokens": 1400 }),
+        );
+        usage(
+            &mut e,
+            5,
+            5_000,
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "inputTokens": 1800, "outputTokens": 300, "totalTokens": 2100 }),
+        );
+        usage(
+            &mut e,
+            6,
+            6_000,
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "inputTokens": 300, "outputTokens": 50, "totalTokens": 350 }),
+        );
         let l = ledger(&e);
         assert_eq!(l.run.tokens.total, Some(4550));
         assert_eq!((l.run.tokens.input, l.run.tokens.output), (Some(3900), Some(650)));
@@ -1182,7 +1339,15 @@ mod tests {
                 ]
             }),
         );
-        usage(&mut e, 4, 4_000, "m1", Some("T1"), Some(1), json!({ "inputTokens": 50, "outputTokens": 10, "totalTokens": 60 }));
+        usage(
+            &mut e,
+            4,
+            4_000,
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "inputTokens": 50, "outputTokens": 10, "totalTokens": 60 }),
+        );
         let l = ledger(&e);
         assert_eq!(l.run.tokens.total, Some(7560), "6600 + 900 from the quota, then 60 from a turn without it");
         assert_eq!((l.run.tokens.cached_read, l.run.tokens.cached_write), (Some(5000), Some(100)));
@@ -1195,7 +1360,15 @@ mod tests {
         let mut e = vec![];
         created(&mut e);
         started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
-        usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), json!({ "inputTokens": 500, "outputTokens": 100, "cachedReadTokens": 2000, "totalTokens": null }));
+        usage(
+            &mut e,
+            3,
+            3_000,
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "inputTokens": 500, "outputTokens": 100, "cachedReadTokens": 2000, "totalTokens": null }),
+        );
         assert_eq!(ledger(&e).run.tokens.total, Some(2600));
     }
 
@@ -1204,13 +1377,18 @@ mod tests {
         let mut e = vec![];
         created(&mut e);
         started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
-        for (i, (ts, used)) in [(3_000, 52000), (4_000, 52000), (5_000, 61000), (6_000, 61000), (7_000, 52000)].iter().enumerate() {
+        for (i, (ts, used)) in
+            [(3_000, 52000), (4_000, 52000), (5_000, 61000), (6_000, 61000), (7_000, 52000)].iter().enumerate()
+        {
             usage(&mut e, 3 + i as i64, *ts, "m1", Some("T1"), Some(1), json!({ "used": used, "size": 200000 }));
         }
         let l = ledger(&e);
         assert_eq!(l.run.tokens.total, None, "a snapshot is not consumption");
         assert_eq!(l.run.completeness, Completeness::Missing);
-        assert_eq!((l.run.context.used, l.run.context.peak, l.run.context.size, l.run.context.reports), (Some(52000), Some(61000), Some(200000), 5));
+        assert_eq!(
+            (l.run.context.used, l.run.context.peak, l.run.context.size, l.run.context.reports),
+            (Some(52000), Some(61000), Some(200000), 5)
+        );
         let line = l.board_lines(&Names::new());
         assert!(line.contains("上下文 52,000 / 200,000（26%） · 峰值 61,000"), "{line}");
     }
@@ -1228,7 +1406,15 @@ mod tests {
         assert!(l.task_lines("T1", &Names::new()).join("\n").contains("未上报"));
         assert!(l.task_lines("T9", &Names::new())[0].contains("未开始"));
         // A turn that really used nothing is a reported 0.
-        usage(&mut e, 4, 4_000, "m1", Some("T1"), Some(1), json!({ "inputTokens": 0, "outputTokens": 0, "totalTokens": 0 }));
+        usage(
+            &mut e,
+            4,
+            4_000,
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "inputTokens": 0, "outputTokens": 0, "totalTokens": 0 }),
+        );
         assert_eq!(ledger(&e).run.tokens.total, Some(0));
     }
 
@@ -1245,7 +1431,11 @@ mod tests {
         usage(&mut e, 7, 7_000, "m1", Some("T1"), Some(1), cost(0.2));
         let l = ledger(&e);
         assert_eq!(l.run.cost.lines.len(), 1);
-        assert!((l.run.cost.lines[0].amount - 0.5).abs() < 1e-9, "0.3 before the reset + 0.2 after it: {:?}", l.run.cost);
+        assert!(
+            (l.run.cost.lines[0].amount - 0.5).abs() < 1e-9,
+            "0.3 before the reset + 0.2 after it: {:?}",
+            l.run.cost
+        );
         assert_eq!(l.run.cost.reported_sessions, 1);
     }
 
@@ -1277,7 +1467,10 @@ mod tests {
         started(&mut e, 4, 4_000, "m1", "T1", 1, "s1");
         usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 800 }));
         let l = ledger(&e);
-        assert_eq!((l.lead.tokens.total, l.collaborators.tokens.total, l.run.tokens.total), (Some(1500), Some(800), Some(2300)));
+        assert_eq!(
+            (l.lead.tokens.total, l.collaborators.tokens.total, l.run.tokens.total),
+            (Some(1500), Some(800), Some(2300))
+        );
     }
 
     #[test]
@@ -1291,12 +1484,18 @@ mod tests {
         usage(&mut e, 6, 7_000, "m1", Some("T1"), Some(2), json!({ "totalTokens": 900 }));
         e.push(ev(7, 8_000, "task.succeeded", "m1", Some("T1"), Some(2), json!({ "summary": "完成" })));
         let l = ledger(&e);
-        assert_eq!((l.attempts[0].state, l.attempts[0].note.as_deref(), l.attempts[0].duration_ms), (AttemptState::Failed, Some("脚本失败"), Some(2000)));
+        assert_eq!(
+            (l.attempts[0].state, l.attempts[0].note.as_deref(), l.attempts[0].duration_ms),
+            (AttemptState::Failed, Some("脚本失败"), Some(2000))
+        );
         assert_eq!(l.attempts[1].state, AttemptState::Succeeded);
         assert_eq!(l.task("T1").unwrap().tokens.total, Some(1600), "a failed attempt's usage still counts");
         let lines = l.task_lines("T1", &Names::new());
         assert!(lines.iter().any(|x| x.starts_with("尝试 1：m1 · 失败")), "{lines:?}");
-        assert!(lines.iter().any(|x| x == "成员 m1：1,600 tokens · 模型 未知模型 1,600"), "a session that named no model: {lines:?}");
+        assert!(
+            lines.iter().any(|x| x == "成员 m1：1,600 tokens · 模型 未知模型 1,600"),
+            "a session that named no model: {lines:?}"
+        );
     }
 
     #[test]
@@ -1309,12 +1508,18 @@ mod tests {
         e.push(ev(5, 5_000, "task.skipped_by_decision", "lead", Some("T1"), None, json!({ "reason": "不需要了" })));
         let l = ledger(&e);
         let of = |l: &Ledger, task: &str| l.attempts.iter().find(|a| a.task == task).unwrap().clone();
-        assert_eq!((of(&l, "T1").state, of(&l, "T1").note.as_deref()), (AttemptState::Cancelled, Some("主控取消了这个任务")));
+        assert_eq!(
+            (of(&l, "T1").state, of(&l, "T1").note.as_deref()),
+            (AttemptState::Cancelled, Some("主控取消了这个任务"))
+        );
         assert_eq!(of(&l, "T2").state, AttemptState::Unfinished, "cancelling one task leaves the others running");
         e.push(ev(6, 9_000, "run.cancelled", "user", None, None, json!({})));
         e.push(ev(7, 9_100, "attempt.failed", "m2", Some("T2"), Some(1), json!({ "error": "连接已关闭" })));
         let l = ledger(&e);
-        assert_eq!((of(&l, "T2").state, of(&l, "T2").note.as_deref(), of(&l, "T2").duration_ms), (AttemptState::Cancelled, Some("Run 被取消"), Some(7100)));
+        assert_eq!(
+            (of(&l, "T2").state, of(&l, "T2").note.as_deref(), of(&l, "T2").duration_ms),
+            (AttemptState::Cancelled, Some("Run 被取消"), Some(7100))
+        );
         assert_eq!(l.task("T1").unwrap().tokens.total, Some(1500), "what it reported before the cancel still counts");
     }
 
@@ -1335,11 +1540,30 @@ mod tests {
         let mut e = vec![];
         created(&mut e);
         started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
-        e.push(ev(3, 3_000, "approval.requested", "m1", Some("T1"), Some(1), json!({ "key": "req-T1-1", "options": [] })));
-        e.push(ev(4, 33_000, "approval.granted", "user", Some("T1"), Some(1), json!({ "key": "req-T1-1", "allow": true })));
+        e.push(ev(
+            3,
+            3_000,
+            "approval.requested",
+            "m1",
+            Some("T1"),
+            Some(1),
+            json!({ "key": "req-T1-1", "options": [] }),
+        ));
+        e.push(ev(
+            4,
+            33_000,
+            "approval.granted",
+            "user",
+            Some("T1"),
+            Some(1),
+            json!({ "key": "req-T1-1", "allow": true }),
+        ));
         e.push(ev(5, 60_000, "task.succeeded", "m1", Some("T1"), Some(1), json!({ "summary": "完成" })));
         let l = ledger(&e);
-        assert_eq!((l.run.duration_ms, l.run.wait_ms, l.task("T1").unwrap().wait_ms), (Some(59_000), Some(30_000), Some(30_000)));
+        assert_eq!(
+            (l.run.duration_ms, l.run.wait_ms, l.task("T1").unwrap().wait_ms),
+            (Some(59_000), Some(30_000), Some(30_000))
+        );
         assert!(l.task_lines("T1", &Names::new())[0].contains("（其中等待用户 30 秒）"));
     }
 
@@ -1349,12 +1573,24 @@ mod tests {
         created(&mut e);
         started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
         for (i, n) in [700, 1400, 2100].iter().enumerate() {
-            usage(&mut e, 3 + i as i64, 3_000 + i as i64 * 1000, "m1", Some("T1"), Some(1), json!({ "totalTokens": n }));
+            usage(
+                &mut e,
+                3 + i as i64,
+                3_000 + i as i64 * 1000,
+                "m1",
+                Some("T1"),
+                Some(1),
+                json!({ "totalTokens": n }),
+            );
         }
         assert_eq!(ledger(&e[..3]).run.tokens.total, Some(700));
         assert_eq!(ledger(&e[..4]).run.tokens.total, Some(2100));
         assert_eq!(ledger(&e).run.tokens.total, Some(4200));
-        assert_eq!(serde_json::to_value(ledger(&e)).unwrap(), serde_json::to_value(ledger(&e)).unwrap(), "nothing carries over between reads");
+        assert_eq!(
+            serde_json::to_value(ledger(&e)).unwrap(),
+            serde_json::to_value(ledger(&e)).unwrap(),
+            "nothing carries over between reads"
+        );
     }
 
     #[test]
@@ -1373,7 +1609,10 @@ mod tests {
 
     #[test]
     fn numbers_and_durations_read_the_way_the_app_writes_them() {
-        assert_eq!((num(0), num(999), num(15400), num(-1234567)), ("0".into(), "999".into(), "15,400".into(), "-1,234,567".into()));
+        assert_eq!(
+            (num(0), num(999), num(15400), num(-1234567)),
+            ("0".into(), "999".into(), "15,400".into(), "-1,234,567".into())
+        );
         assert_eq!(duration(192_000), "3 分 12 秒");
         assert_eq!(duration(65_000), "1 分 05 秒");
         assert_eq!(duration(44_600), "45 秒");
@@ -1393,7 +1632,15 @@ mod tests {
                 started(&mut e, seq, 2_000 + seq * 10, "m1", &id, attempt, &format!("s{task}-{attempt}"));
                 seq += 1;
                 for turn in 1..=400 {
-                    usage(&mut e, seq, 2_000 + seq * 10, "m1", Some(&id), Some(attempt), json!({ "inputTokens": 100 * turn, "outputTokens": 10 * turn, "totalTokens": 110 * turn, "used": 1000 + turn, "size": 200000 }));
+                    usage(
+                        &mut e,
+                        seq,
+                        2_000 + seq * 10,
+                        "m1",
+                        Some(&id),
+                        Some(attempt),
+                        json!({ "inputTokens": 100 * turn, "outputTokens": 10 * turn, "totalTokens": 110 * turn, "used": 1000 + turn, "size": 200000 }),
+                    );
                     seq += 1;
                 }
             }

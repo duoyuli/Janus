@@ -34,13 +34,8 @@ pub enum Method {
 
 impl Method {
     /// Every allowed method, in the order counts and labels are listed.
-    pub const ALL: [Method; 5] = [
-        Method::Test,
-        Method::Command,
-        Method::Inspection,
-        Method::Reasoning,
-        Method::Unverified,
-    ];
+    pub const ALL: [Method; 5] =
+        [Method::Test, Method::Command, Method::Inspection, Method::Reasoning, Method::Unverified];
 
     /// The value written in the structured result and kept in the event log.
     pub fn as_str(self) -> &'static str {
@@ -190,7 +185,9 @@ impl Summary {
         for (i, c) in checks.iter().enumerate() {
             let (n, name) = (i + 1, criterion_name(&c.criterion));
             match (c.method, &c.method_error) {
-                (Some(Method::Reasoning), _) => s.reminders.push(format!("第 {n} 条「{name}」是推理判断，不是运行得到的结果")),
+                (Some(Method::Reasoning), _) => {
+                    s.reminders.push(format!("第 {n} 条「{name}」是推理判断，不是运行得到的结果"))
+                }
                 (Some(Method::Unverified), _) => s.reminders.push(format!(
                     "第 {n} 条「{name}」未核实：{}",
                     if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() }
@@ -279,7 +276,10 @@ pub fn gaps(accept: &[String], summary: &str, checks: &[Check]) -> Vec<String> {
             continue;
         };
         if !c.passed {
-            gaps.push(format!("自认没有达到「{criterion}」：{}", if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() }));
+            gaps.push(format!(
+                "自认没有达到「{criterion}」：{}",
+                if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() }
+            ));
         } else if c.evidence.trim().is_empty() {
             gaps.push(format!("「{criterion}」没有给出证据"));
         }
@@ -319,11 +319,21 @@ mod tests {
 
     #[test]
     fn every_allowed_method_round_trips_and_labels_itself() {
-        for (raw, label) in [("test", "测试"), ("command", "命令"), ("inspection", "检查"), ("reasoning", "推理判断"), ("unverified", "未核实")] {
+        for (raw, label) in [
+            ("test", "测试"),
+            ("command", "命令"),
+            ("inspection", "检查"),
+            ("reasoning", "推理判断"),
+            ("unverified", "未核实"),
+        ] {
             let c = check("标准1", Some(raw), "证据");
             assert_eq!(c.method, Method::parse(raw), "{raw}");
             assert_eq!(c.method_label(), label);
-            assert_eq!(serde_json::to_value(&c).unwrap()["method"], json!(raw), "the event keeps the value it was given");
+            assert_eq!(
+                serde_json::to_value(&c).unwrap()["method"],
+                json!(raw),
+                "the event keeps the value it was given"
+            );
         }
     }
 
@@ -340,7 +350,10 @@ mod tests {
         assert_eq!((s.criteria, s.passed, s.unspecified), (2, 2, 1));
         assert_eq!(s.counts(), "测试 1 条、未说明 1 条");
         assert!(s.reminders.iter().any(|r| r.contains("没有说明证据方法")), "{:?}", s.reminders);
-        assert!(gaps(&accept(2), "完成", &[check("标准1", None, "说明"), check("标准2", None, "说明")]).is_empty(), "no method is no gap");
+        assert!(
+            gaps(&accept(2), "完成", &[check("标准1", None, "说明"), check("标准2", None, "说明")]).is_empty(),
+            "no method is no gap"
+        );
     }
 
     #[test]

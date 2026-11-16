@@ -11,11 +11,7 @@ use super::*;
 pub fn session_options(session: &Value) -> Value {
     let mut out = json!({ "controls": [] });
     let mut controls = vec![];
-    for o in session["configOptions"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default()
-    {
+    for o in session["configOptions"].as_array().cloned().unwrap_or_default() {
         let cat = match o["category"].as_str() {
             Some("model") => "model",
             Some("thought_level") => "effort",
@@ -105,7 +101,10 @@ pub(super) fn session_control(o: &Value, via: &str) -> Option<Value> {
     }
     let category = o["category"].as_str().unwrap_or("");
     let permission = matches!(category, "mode" | "_permission")
-        || matches!(id.replace('-', "_").as_str(), "mode" | "permission_mode" | "plan_mode" | "approval_policy" | "sandbox");
+        || matches!(
+            id.replace('-', "_").as_str(),
+            "mode" | "permission_mode" | "plan_mode" | "approval_policy" | "sandbox"
+        );
     Some(json!({
         "id": id, "name": o["name"].as_str().unwrap_or(id), "desc": o["description"],
         "category": category, "type": kind, "via": via, "current": o["currentValue"], "permission": permission,
@@ -142,7 +141,8 @@ pub fn model_label(role: &Value, conn: &Value) -> String {
     let pick = |cat: &str, key: &str| -> Option<(String, bool)> {
         let opt = &conn["options"][cat];
         let chosen = str_of(role, key);
-        let (value, default) = if chosen.is_empty() { (opt["current"].as_str()?.to_string(), true) } else { (chosen.to_string(), false) };
+        let (value, default) =
+            if chosen.is_empty() { (opt["current"].as_str()?.to_string(), true) } else { (chosen.to_string(), false) };
         let name = opt["options"]
             .as_array()
             .and_then(|o| o.iter().find(|x| x["value"] == value.as_str()))
@@ -196,9 +196,7 @@ mod session_option_tests {
 
     #[test]
     fn a_connection_has_one_phase() {
-        let codex = |status: &str, login: &str, logged_in: bool| {
-            json!({ "base": "codex", "auth": "chatgpt", "status": status, "login": { "state": login }, "loggedIn": logged_in })
-        };
+        let codex = |status: &str, login: &str, logged_in: bool| json!({ "base": "codex", "auth": "chatgpt", "status": status, "login": { "state": login }, "loggedIn": logged_in });
         assert_eq!(connection_phase(&codex("ok", "done", true)), "ok");
         assert_eq!(connection_phase(&codex("ok", "running", false)), "logging_in");
         assert_eq!(connection_phase(&codex("ok", "done", false)), "logged_out");
@@ -212,7 +210,11 @@ mod session_option_tests {
         let glm = kinds.as_array().unwrap().iter().find(|k| k["id"] == "glm-claude").unwrap();
         let mut env = preset_env(glm, &json!({ "endpoint": "zai" }));
         let get = |env: &Vec<(String, String)>, k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        assert_eq!(get(&env, "ANTHROPIC_BASE_URL").as_deref(), Some("https://api.z.ai/api/anthropic"), "the chosen endpoint");
+        assert_eq!(
+            get(&env, "ANTHROPIC_BASE_URL").as_deref(),
+            Some("https://api.z.ai/api/anthropic"),
+            "the chosen endpoint"
+        );
         override_env(&mut env, "ANTHROPIC_DEFAULT_OPUS_MODEL", "glm-6");
         override_env(&mut env, "API_TIMEOUT_MS", "");
         assert_eq!(get(&env, "ANTHROPIC_DEFAULT_OPUS_MODEL").as_deref(), Some("glm-6"));
@@ -239,13 +241,17 @@ mod session_option_tests {
         assert_eq!(role_session(&role, &conn), json!({ "permission_mode": "always-approve" }));
         assert_eq!(session_label(&role_session(&role, &conn), &conn), "Always Approve");
         // Claude Code's Plan permission mode is not offered, and a role that chose it loses it.
-        let claude = session_options(&json!({ "configOptions": [{ "id": "mode", "category": "mode", "type": "select", "currentValue": "default",
-            "options": [{ "value": "default" }, { "value": "acceptEdits" }, { "value": "plan" }] }] }));
+        let claude = session_options(
+            &json!({ "configOptions": [{ "id": "mode", "category": "mode", "type": "select", "currentValue": "default",
+            "options": [{ "value": "default" }, { "value": "acceptEdits" }, { "value": "plan" }] }] }),
+        );
         assert_eq!(claude["controls"][0]["options"].as_array().unwrap().len(), 2);
         assert_eq!(role_session(&json!({ "session": { "mode": "plan" } }), &json!({ "options": claude })), json!({}));
         // Codex: Plan mode is an on/off select; it is switched off, never offered.
-        let codex_plan = session_options(&json!({ "configOptions": [{ "id": "plan-mode", "name": "Plan mode", "type": "select", "currentValue": "on",
-            "options": [{ "value": "off" }, { "value": "on" }] }] }));
+        let codex_plan = session_options(
+            &json!({ "configOptions": [{ "id": "plan-mode", "name": "Plan mode", "type": "select", "currentValue": "on",
+            "options": [{ "value": "off" }, { "value": "on" }] }] }),
+        );
         assert!(codex_plan["controls"].as_array().unwrap().is_empty());
         assert_eq!(plan_off_value(&codex_plan["planToggles"][0]), Some(json!("off")));
         let mut already_off = codex_plan["planToggles"][0].clone();
@@ -263,9 +269,15 @@ mod session_option_tests {
         assert_eq!(fast["permission"], false);
 
         // Agents that report ACP session modes: they become a control set through session/set_mode.
-        let legacy = session_options(&json!({ "modes": { "currentModeId": "default", "availableModes": [{ "id": "default", "name": "Default" }, { "id": "plan", "name": "Plan" }] } }));
+        let legacy = session_options(
+            &json!({ "modes": { "currentModeId": "default", "availableModes": [{ "id": "default", "name": "Default" }, { "id": "plan", "name": "Plan" }] } }),
+        );
         assert_eq!(legacy["controls"][0]["via"], "mode");
-        assert_eq!(legacy["controls"][0]["options"].as_array().unwrap().len(), 1, "the plan session mode is not offered");
+        assert_eq!(
+            legacy["controls"][0]["options"].as_array().unwrap().len(),
+            1,
+            "the plan session mode is not offered"
+        );
 
         // Model and effort as the lead is told them.
         let opts = json!({ "options": {
@@ -273,7 +285,10 @@ mod session_option_tests {
             "effort": { "current": "medium", "options": [{ "value": "medium", "name": "medium" }, { "value": "high", "name": "high" }] } } });
         assert_eq!(model_label(&json!({ "model": "sol", "effort": "high" }), &opts), "GPT-6.1 Sol，推理强度 high");
         assert_eq!(model_label(&json!({}), &opts), "GPT-6，推理强度 medium（Agent 默认）");
-        assert_eq!(model_label(&json!({ "model": "sol" }), &opts), "GPT-6.1 Sol，推理强度 medium（推理强度为 Agent 默认）");
+        assert_eq!(
+            model_label(&json!({ "model": "sol" }), &opts),
+            "GPT-6.1 Sol，推理强度 medium（推理强度为 Agent 默认）"
+        );
         assert_eq!(model_label(&json!({}), &json!({})), "");
 
         // Pi: nothing declared.

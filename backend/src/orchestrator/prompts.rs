@@ -37,14 +37,14 @@ pub(super) fn role_extras(m: &Member, workspace: &Path) -> String {
                 )
             })
             .collect();
-        p.push_str(&format!("\n\n你可以使用以下 skill。当任务与某个 skill 相关时，先读取它的 SKILL.md，再按其中的说明执行：\n{}", list.join("\n")));
+        p.push_str(&format!(
+            "\n\n你可以使用以下 skill。当任务与某个 skill 相关时，先读取它的 SKILL.md，再按其中的说明执行：\n{}",
+            list.join("\n")
+        ));
     }
     if !m.mcp.is_empty() {
         let names: Vec<&str> = m.mcp.iter().filter_map(|x| x["name"].as_str()).collect();
-        p.push_str(&format!(
-            "\n\n这个会话已经接入以下 MCP 服务器，可以直接调用它们提供的工具：{}",
-            names.join("、")
-        ));
+        p.push_str(&format!("\n\n这个会话已经接入以下 MCP 服务器，可以直接调用它们提供的工具：{}", names.join("、")));
     }
     p
 }
@@ -103,10 +103,8 @@ pub(super) fn with_developer_instructions(mut spec: crate::acp::RuntimeSpec, tex
         return spec;
     }
     let i = spec.env.iter().position(|(k, _)| k == "CODEX_CONFIG");
-    let mut cfg: Value = i
-        .and_then(|i| serde_json::from_str(&spec.env[i].1).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(|| json!({}));
+    let mut cfg: Value =
+        i.and_then(|i| serde_json::from_str(&spec.env[i].1).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
     cfg["developer_instructions"] = json!(text);
     let v = cfg.to_string();
     match i {
@@ -159,7 +157,10 @@ pub(super) fn task_prompt(
         p.push_str(&format!("\n\n上游任务的结果（摘要）：\n{}", upstream.join("\n")));
     }
     if !peers.is_empty() {
-        p.push_str(&format!("\n\n现在同时在这个目录里工作的其他任务：\n{}\n改它们可能也在改的文件前，先读最新内容。", peers.join("\n")));
+        p.push_str(&format!(
+            "\n\n现在同时在这个目录里工作的其他任务：\n{}\n改它们可能也在改的文件前，先读最新内容。",
+            peers.join("\n")
+        ));
     }
     if board {
         p.push_str("\n\n共享看板（janus MCP 工具）：有进展或阻塞时用 janus.board_post 写回；要改负责范围以外的文件，先用 janus.claim 认领；用 janus.peers 查看其他任务的状态、负责和改过的文件，传 task 查看某个任务（例如上游）的完整结果和主控的修订。两个任务改了同一个文件、或改了别的任务负责的文件时，Janus 会提醒。你改过的文件就是给别人看的记录：结果里说的改动要和工作目录一致，Janus 会核对。");
@@ -193,11 +194,9 @@ pub(super) fn extract_json(text: &str) -> Option<Value> {
         return last;
     }
     let close = text.rfind('}')?;
-    text.match_indices('{').rev().find_map(|(i, _)| {
-        serde_json::from_str::<Value>(&text[i..=close])
-            .ok()
-            .filter(Value::is_object)
-    })
+    text.match_indices('{')
+        .rev()
+        .find_map(|(i, _)| serde_json::from_str::<Value>(&text[i..=close]).ok().filter(Value::is_object))
 }
 
 /// Read the checks of a result recorded in an event, with their evidence methods; results written
@@ -224,20 +223,12 @@ pub(super) fn finished_by_user(text: &str) -> TaskResult {
 pub(super) fn parse_result(text: &str) -> TaskResult {
     let strings = |v: &Value| {
         v.as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str().map(str::to_owned))
-                    .filter(|s| !s.trim().is_empty())
-                    .collect()
-            })
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).filter(|s| !s.trim().is_empty()).collect())
             .unwrap_or_default()
     };
     match extract_json(text) {
         Some(v) => TaskResult {
-            summary: v["summary"]
-                .as_str()
-                .map(str::to_owned)
-                .unwrap_or_else(|| first_line(text)),
+            summary: v["summary"].as_str().map(str::to_owned).unwrap_or_else(|| first_line(text)),
             evidence: strings(&v["evidence"]),
             risks: strings(&v["risks"]),
             checks: v["checks"].as_array().map(|a| a.iter().map(Check::from_json).collect()).unwrap_or_default(),

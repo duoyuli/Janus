@@ -52,7 +52,8 @@ pub fn covers(owned: &str, path: &str) -> bool {
 pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut Vec<String>) {
     let mut add_deps: Vec<(usize, String)> = vec![];
     {
-        let all: HashMap<&str, &TaskDef> = board.iter().map(|(d, _)| (d.id.as_str(), d)).chain(new.iter().map(|d| (d.id.as_str(), d))).collect();
+        let all: HashMap<&str, &TaskDef> =
+            board.iter().map(|(d, _)| (d.id.as_str(), d)).chain(new.iter().map(|d| (d.id.as_str(), d))).collect();
         for (i, d) in new.iter().enumerate() {
             let Some(target) = d.verifies.as_deref() else { continue };
             let label = format!("任务 {}", d.id);
@@ -61,7 +62,10 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
                 Some(_) if target == d.id => errors.push(format!("{label}：不能验证自己")),
                 Some(t) => {
                     if t.assignee == d.assignee {
-                        errors.push(format!("{label}：验证 {target} 的必须是另一个协作者，不能是它的执行者 {}", d.assignee));
+                        errors.push(format!(
+                            "{label}：验证 {target} 的必须是另一个协作者，不能是它的执行者 {}",
+                            d.assignee
+                        ));
                     }
                     if !d.deps.iter().any(|x| x == target) {
                         add_deps.push((i, target.to_string()));
@@ -77,7 +81,8 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
         new[i].deps.push(dep);
     }
 
-    let all: HashMap<&str, &TaskDef> = board.iter().map(|(d, _)| (d.id.as_str(), d)).chain(new.iter().map(|d| (d.id.as_str(), d))).collect();
+    let all: HashMap<&str, &TaskDef> =
+        board.iter().map(|(d, _)| (d.id.as_str(), d)).chain(new.iter().map(|d| (d.id.as_str(), d))).collect();
     // Tasks that may run at the same time: neither is upstream of the other. Finished tasks are
     // no longer changing anything.
     let open: Vec<&TaskDef> = board.iter().filter(|(_, s)| !s.terminal()).map(|(d, _)| d).chain(new.iter()).collect();
@@ -86,7 +91,11 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
     let ups: HashMap<&str, HashSet<String>> = open.iter().map(|d| (d.id.as_str(), upstream(&d.id))).collect();
     // The dependency a verifier gets on its task must not close a loop.
     for d in new.iter().filter(|d| d.verifies.as_deref().is_some_and(|t| t != d.id && upstream(t).contains(&d.id))) {
-        errors.push(format!("任务 {}：它验证的 {} 依赖它，依赖之间有环", d.id, d.verifies.as_deref().unwrap_or_default()));
+        errors.push(format!(
+            "任务 {}：它验证的 {} 依赖它，依赖之间有环",
+            d.id,
+            d.verifies.as_deref().unwrap_or_default()
+        ));
     }
     let fresh: HashSet<&str> = new.iter().map(|d| d.id.as_str()).collect();
     for (i, a) in open.iter().enumerate() {
@@ -97,7 +106,8 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
             if ups[a.id.as_str()].contains(&b.id) || ups[b.id.as_str()].contains(&a.id) {
                 continue;
             }
-            let shared: Vec<&str> = a.owns.iter().filter(|x| b.owns.iter().any(|y| overlaps(x, y))).map(String::as_str).collect();
+            let shared: Vec<&str> =
+                a.owns.iter().filter(|x| b.owns.iter().any(|y| overlaps(x, y))).map(String::as_str).collect();
             if !shared.is_empty() {
                 errors.push(format!(
                     "任务 {} 和 {} 可能同时执行，却都负责 {}：用 deps 让一个等另一个完成，或者重新划分 owns",
@@ -146,9 +156,13 @@ pub fn claim(me: &TaskDef, paths: &[String], board: &[(&TaskDef, TaskStatus)]) -
     if me.verifies.is_some() {
         return Err(format!("{} 是验证任务，只检查不改文件，不能认领文件", me.id));
     }
-    let taken: Vec<String> = paths.iter().filter_map(|p| owner_of(p, &me.id, board).map(|o| format!("{p} 归 {o} 负责"))).collect();
+    let taken: Vec<String> =
+        paths.iter().filter_map(|p| owner_of(p, &me.id, board).map(|o| format!("{p} 归 {o} 负责"))).collect();
     if !taken.is_empty() {
-        return Err(format!("不能认领：{}。需要改这些文件时，用 janus.board_post 写一条 blocker 请主控协调", taken.join("；")));
+        return Err(format!(
+            "不能认领：{}。需要改这些文件时，用 janus.board_post 写一条 blocker 请主控协调",
+            taken.join("；")
+        ));
     }
     Ok(paths.iter().filter(|p| !me.owns.iter().any(|o| covers(o, p))).cloned().collect())
 }
@@ -222,7 +236,11 @@ mod tests {
     #[test]
     fn owns_are_workspace_paths() {
         let mut e = vec![];
-        let owns = read_owns(&json!(["./src/", "src", "README.md", "/etc/passwd", "../x", "a/../../b", ""]), "任务 T1", &mut e);
+        let owns = read_owns(
+            &json!(["./src/", "src", "README.md", "/etc/passwd", "../x", "a/../../b", ""]),
+            "任务 T1",
+            &mut e,
+        );
         assert_eq!(owns, vec!["src", "README.md"]);
         assert_eq!(e.len(), 3, "{e:?}");
         assert!(overlaps("src", "src/a.rs") && overlaps("src/a.rs", "src") && overlaps("a", "a"));
@@ -235,17 +253,28 @@ mod tests {
         let e = errors(&mut [def("T1", "m1", &[], &["src"], None), def("T2", "m2", &[], &["src/main.rs"], None)], &[]);
         assert!(e.len() == 1 && e[0].contains("T1 和 T2") && e[0].contains("deps"), "{e:?}");
         // Ordered through a chain of deps, or disjoint: fine.
-        assert!(errors(&mut [def("T1", "m1", &[], &["src"], None), def("T2", "m2", &["T1"], &["src"], None)], &[]).is_empty());
+        assert!(
+            errors(&mut [def("T1", "m1", &[], &["src"], None), def("T2", "m2", &["T1"], &["src"], None)], &[])
+                .is_empty()
+        );
         let board = [(def("T0", "m1", &[], &["src"], None), TaskStatus::Running)];
-        assert!(errors(&mut [def("T1", "m2", &["T0"], &[], None), def("T2", "m3", &["T1"], &["src/a.rs"], None)], &board).is_empty());
-        assert!(errors(&mut [def("T1", "m1", &[], &["src"], None), def("T2", "m2", &[], &["docs"], None)], &[]).is_empty());
+        assert!(
+            errors(&mut [def("T1", "m2", &["T0"], &[], None), def("T2", "m3", &["T1"], &["src/a.rs"], None)], &board)
+                .is_empty()
+        );
+        assert!(
+            errors(&mut [def("T1", "m1", &[], &["src"], None), def("T2", "m2", &[], &["docs"], None)], &[]).is_empty()
+        );
         // Against an open task on the board, but not a finished one.
         let e = errors(&mut [def("T2", "m2", &[], &["src/a.rs"], None)], &board);
         assert!(e.len() == 1 && e[0].contains("T0 和 T2"), "{e:?}");
         let done = [(def("T0", "m1", &[], &["src"], None), TaskStatus::Succeeded)];
         assert!(errors(&mut [def("T2", "m2", &[], &["src/a.rs"], None)], &done).is_empty());
         // Two open tasks already on the board are not this orchestration's problem.
-        let both = [(def("A", "m1", &[], &["x"], None), TaskStatus::Running), (def("B", "m2", &[], &["x"], None), TaskStatus::Pending)];
+        let both = [
+            (def("A", "m1", &[], &["x"], None), TaskStatus::Running),
+            (def("B", "m2", &[], &["x"], None), TaskStatus::Pending),
+        ];
         assert!(errors(&mut [def("T3", "m3", &[], &["y"], None)], &both).is_empty());
     }
 
@@ -255,7 +284,15 @@ mod tests {
         assert!(errors(&mut new, &[]).is_empty());
         assert_eq!(new[1].deps, vec!["T1"], "the verifier starts after the task it checks");
         // A verifier that does not overlap in time with the work may read the same files.
-        let e = errors(&mut [def("T1", "m1", &[], &[], None), def("V1", "m1", &[], &["src"], Some("T1")), def("V2", "m2", &[], &[], Some("T9")), def("V3", "m2", &[], &[], Some("V3"))], &[]);
+        let e = errors(
+            &mut [
+                def("T1", "m1", &[], &[], None),
+                def("V1", "m1", &[], &["src"], Some("T1")),
+                def("V2", "m2", &[], &[], Some("T9")),
+                def("V3", "m2", &[], &[], Some("V3")),
+            ],
+            &[],
+        );
         assert!(e.iter().any(|x| x.contains("V1") && x.contains("另一个协作者")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("V1") && x.contains("不要写 owns")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("V2") && x.contains("T9 不存在")), "{e:?}");
@@ -265,14 +302,26 @@ mod tests {
         // It may verify a task from an earlier orchestration.
         let board = [(def("T1", "m1", &[], &[], None), TaskStatus::Succeeded)];
         assert!(errors(&mut [def("V1", "m2", &[], &[], Some("T1"))], &board).is_empty());
-        assert!(accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1"))).is_some_and(|x| x.contains("janus.orchestrate")));
+        assert!(
+            accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1"))).is_some_and(|x| x.contains("janus.orchestrate"))
+        );
         assert!(accept_refused(&def("T1", "m1", &[], &[], None)).is_none());
     }
 
     #[test]
     fn a_file_belongs_to_an_open_task_that_may_run_alongside() {
-        let (a, b, c, d) = (def("A", "m1", &[], &["src"], None), def("B", "m2", &[], &[], None), def("C", "m3", &["A"], &["docs"], None), def("D", "m1", &[], &["lib.rs"], None));
-        let board = [(&a, TaskStatus::Running), (&b, TaskStatus::Running), (&c, TaskStatus::Pending), (&d, TaskStatus::Succeeded)];
+        let (a, b, c, d) = (
+            def("A", "m1", &[], &["src"], None),
+            def("B", "m2", &[], &[], None),
+            def("C", "m3", &["A"], &["docs"], None),
+            def("D", "m1", &[], &["lib.rs"], None),
+        );
+        let board = [
+            (&a, TaskStatus::Running),
+            (&b, TaskStatus::Running),
+            (&c, TaskStatus::Pending),
+            (&d, TaskStatus::Succeeded),
+        ];
         assert_eq!(owner_of("src/main.rs", "B", &board), Some("A"));
         assert_eq!(owner_of("src", "B", &board), Some("A"), "a whole directory touches A's files");
         assert_eq!(owner_of("src/main.rs", "A", &board), None, "its own files");
@@ -284,9 +333,17 @@ mod tests {
 
     #[test]
     fn claims_take_free_files_and_are_refused_for_taken_ones() {
-        let (a, mut b, v) = (def("A", "m1", &[], &["src"], None), def("B", "m2", &[], &["docs"], None), def("V", "m3", &[], &[], Some("A")));
+        let (a, mut b, v) = (
+            def("A", "m1", &[], &["src"], None),
+            def("B", "m2", &[], &["docs"], None),
+            def("V", "m3", &[], &[], Some("A")),
+        );
         let board = [(&a, TaskStatus::Running), (&b, TaskStatus::Running), (&v, TaskStatus::Pending)];
-        assert_eq!(claim(&b, &["README.md".into(), "docs/a.md".into()], &board).unwrap(), vec!["README.md"], "docs/a.md is already B's");
+        assert_eq!(
+            claim(&b, &["README.md".into(), "docs/a.md".into()], &board).unwrap(),
+            vec!["README.md"],
+            "docs/a.md is already B's"
+        );
         let e = claim(&b, &["src/a.rs".into(), "x".into()], &board).unwrap_err();
         assert!(e.contains("src/a.rs 归 A 负责") && e.contains("blocker"), "{e}");
         assert!(claim(&v, &["y".into()], &board).unwrap_err().contains("验证任务"));
@@ -301,7 +358,10 @@ mod tests {
         let p = task_section(&work, None);
         assert!(p.contains("你负责的文件：src、README.md") && !p.contains("独立验证者"), "{p}");
         let p = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&work));
-        assert!(p.contains("任务 T1「T1」的独立验证者") && p.contains("- T1 做完") && p.contains("不要修改任何文件"), "{p}");
+        assert!(
+            p.contains("任务 T1「T1」的独立验证者") && p.contains("- T1 做完") && p.contains("不要修改任何文件"),
+            "{p}"
+        );
         assert!(task_section(&def("T2", "m1", &[], &[], None), None).is_empty());
     }
 }

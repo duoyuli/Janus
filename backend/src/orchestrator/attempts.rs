@@ -18,12 +18,8 @@ impl App {
             st.steerable.remove(id);
             // Questions, permission requests and forms of this attempt can no longer be answered.
             let prefixes = [format!("q-{id}-{n}-"), format!("req-{id}-{n}-")];
-            let keys: Vec<String> = st
-                .waiters
-                .keys()
-                .filter(|k| prefixes.iter().any(|p| k.starts_with(p.as_str())))
-                .cloned()
-                .collect();
+            let keys: Vec<String> =
+                st.waiters.keys().filter(|k| prefixes.iter().any(|p| k.starts_with(p.as_str()))).cloned().collect();
             for k in &keys {
                 st.waiters.remove(k);
             }
@@ -32,14 +28,10 @@ impl App {
         for key in withdrawn {
             self.emit(
                 run,
-                ev(
-                    "decision.withdrawn",
-                    "janus",
-                    format!("{id} 的这次尝试已经结束，撤回待处理的请求"),
-                )
-                .task(id)
-                .attempt(n)
-                .data(json!({ "key": key })),
+                ev("decision.withdrawn", "janus", format!("{id} 的这次尝试已经结束，撤回待处理的请求"))
+                    .task(id)
+                    .attempt(n)
+                    .data(json!({ "key": key })),
             );
         }
         if let Some(conn) = run.st.lock().unwrap().conns.remove(id) {
@@ -82,24 +74,32 @@ impl App {
             };
             if matches!(next, Next::Late) {
                 // The lead cancelled or retried the task while this attempt was ending.
-                let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, AttemptUpdate { error: Some(&msg), ended: Some(now_ms()), ..Default::default() });
+                let _ = self.db.update_attempt(
+                    &run.id,
+                    id,
+                    n,
+                    AttemptStatus::Cancelled,
+                    AttemptUpdate { error: Some(&msg), ended: Some(now_ms()), ..Default::default() },
+                );
                 self.emit(
                     run,
-                    ev(
-                        "attempt.late_result",
-                        "janus",
-                        format!("忽略已过期 Attempt {attempt_id} 的结果"),
-                    )
-                    .task(id)
-                    .attempt(n)
-                    .data(json!({ "attemptId": attempt_id, "error": msg })),
+                    ev("attempt.late_result", "janus", format!("忽略已过期 Attempt {attempt_id} 的结果"))
+                        .task(id)
+                        .attempt(n)
+                        .data(json!({ "attemptId": attempt_id, "error": msg })),
                 );
                 return;
             }
             // Only a cancelled run counts as cancellation. Anything else, including an agent
             // ending its own turn as cancelled, is a failed attempt.
             let cancelled = matches!(next, Next::Cancelled);
-            let _ = self.db.update_attempt(&run.id, id, n, if cancelled { AttemptStatus::Cancelled } else { AttemptStatus::Failed }, AttemptUpdate { error: Some(&msg), ended: Some(now_ms()), ..Default::default() });
+            let _ = self.db.update_attempt(
+                &run.id,
+                id,
+                n,
+                if cancelled { AttemptStatus::Cancelled } else { AttemptStatus::Failed },
+                AttemptUpdate { error: Some(&msg), ended: Some(now_ms()), ..Default::default() },
+            );
             if !cancelled {
                 self.emit(
                     run,
@@ -109,9 +109,14 @@ impl App {
                         .data(json!({ "error": msg })),
                 );
                 if matches!(next, Next::Retry) {
-                    self.emit(run, ev("task.retry_scheduled", "janus", format!("按重试策略为 {id} 创建第 {} 次尝试", n + 1)).task(id).data(json!({
-                        "next": n + 1, "strategy": "新建 ACP 会话，注入任务说明、上游结果和上次失败原因"
-                    })));
+                    self.emit(
+                        run,
+                        ev("task.retry_scheduled", "janus", format!("按重试策略为 {id} 创建第 {} 次尝试", n + 1))
+                            .task(id)
+                            .data(json!({
+                                "next": n + 1, "strategy": "新建 ACP 会话，注入任务说明、上游结果和上次失败原因"
+                            })),
+                    );
                 } else {
                     self.emit(
                         run,
@@ -129,21 +134,12 @@ impl App {
         run.wake.notify_one();
     }
 
-    pub(super) async fn attempt(
-        self: &Arc<Self>,
-        run: &Arc<Run>,
-        id: &str,
-        n: i64,
-        attempt_id: &str,
-    ) -> Result<()> {
+    pub(super) async fn attempt(self: &Arc<Self>, run: &Arc<Run>, id: &str, n: i64, attempt_id: &str) -> Result<()> {
         let (def, agent, upstream, handoffs, last_error, team_note) = {
             let st = run.st.lock().unwrap();
-            let t = st
-                .tasks
-                .iter()
-                .find(|t| t.def.id == id)
-                .context("task missing")?;
-            let verified = t.def.verifies.as_deref().and_then(|v| st.tasks.iter().find(|x| x.def.id == v)).map(|x| &x.def);
+            let t = st.tasks.iter().find(|t| t.def.id == id).context("task missing")?;
+            let verified =
+                t.def.verifies.as_deref().and_then(|v| st.tasks.iter().find(|x| x.def.id == v)).map(|x| &x.def);
             let team_note = crate::teamwork::task_section(&t.def, verified);
             let (upstream, handoffs): (Vec<String>, Vec<Value>) = t.def.deps.iter().filter_map(|d| st.tasks.iter().find(|x| &x.def.id == d)).map(|u| {
                 let r = u.result.clone().unwrap_or_default();
@@ -163,21 +159,21 @@ impl App {
                 let handoff = json!({ "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary, "artifacts": names, "risks": r.risks.len(), "amendments": u.amendments, "files": edited, "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>() });
                 (line, handoff)
             }).unzip();
-            (
-                t.def.clone(),
-                t.agent.clone(),
-                upstream,
-                handoffs,
-                self.db_last_error(&run.id, id),
-                team_note,
-            )
+            (t.def.clone(), t.agent.clone(), upstream, handoffs, self.db_last_error(&run.id, id), team_note)
         };
         let peers: Vec<String> = {
             let st = run.st.lock().unwrap();
             st.tasks
                 .iter()
                 .filter(|t| t.status == TaskStatus::Running && t.def.id != id)
-                .map(|t| format!("- {}「{}」· {}", t.def.id, t.def.title, run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent)))
+                .map(|t| {
+                    format!(
+                        "- {}「{}」· {}",
+                        t.def.id,
+                        t.def.title,
+                        run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent)
+                    )
+                })
                 .collect()
         };
         let member = run.member(&agent).context("member missing")?.clone();
@@ -186,25 +182,13 @@ impl App {
         let mut spec = self.spec_for(&member.runtime)?;
         spec = self.with_standing(spec, &channel, &standing)?;
         let system = (channel == Channel::System && !standing.is_empty()).then_some(standing.as_str());
-        self.db
-            .start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
+        self.db.start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
 
         let workspace = run.cwd.clone();
-        let log = self
-            .cfg
-            .data_dir
-            .join("logs")
-            .join(&run.id)
-            .join(format!("{id}-a{n}.log"));
-        let (conn, mut rx) =
-            tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(&spec, &workspace, &log))
-                .await
-                .map_err(|_| {
-                    anyhow!(
-                        "Agent 启动超过 {} 分钟没有完成",
-                        STARTUP_TIMEOUT.as_secs() / 60
-                    )
-                })??;
+        let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("{id}-a{n}.log"));
+        let (conn, mut rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(&spec, &workspace, &log))
+            .await
+            .map_err(|_| anyhow!("Agent 启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
         run.st.lock().unwrap().conns.insert(id.into(), conn.clone());
         if run.st.lock().unwrap().cancelled {
             return Err(Cancelled.into());
@@ -244,10 +228,7 @@ impl App {
         .await
         .map_err(|_| anyhow!("打开 ACP 会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
         let (session, applied, resumed) = opened;
-        let sid = session["sessionId"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
+        let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
         let prompt = if resumed {
             format!(
                 "编排器中断后，这个会话已经恢复。请从中断的地方继续完成原来的任务，完成后按最初的要求以 ```json 结构化结果结束。{}",
@@ -256,11 +237,26 @@ impl App {
         } else {
             format!(
                 "{}{team_note}{}",
-                task_prompt(run, &member, &def, &workspace, &upstream, &peers, conn.capabilities["mcpCapabilities"]["http"] == true, last_error.as_deref()),
+                task_prompt(
+                    run,
+                    &member,
+                    &def,
+                    &workspace,
+                    &upstream,
+                    &peers,
+                    conn.capabilities["mcpCapabilities"]["http"] == true,
+                    last_error.as_deref()
+                ),
                 self.take_notes(run, &agent)
             )
         };
-        self.db.update_attempt(&run.id, id, n, AttemptStatus::Running, AttemptUpdate { session: Some(&sid), workspace: Some(&workspace.to_string_lossy()), ..Default::default() })?;
+        self.db.update_attempt(
+            &run.id,
+            id,
+            n,
+            AttemptStatus::Running,
+            AttemptUpdate { session: Some(&sid), workspace: Some(&workspace.to_string_lossy()), ..Default::default() },
+        )?;
         self.emit(run, ev("attempt.started", "janus", format!("启动 {id} 第 {n} 次尝试 · {}", spec.name)).task(id).attempt(n).to(&agent).data(json!({
             "attemptId": attempt_id, "session": sid, "workspace": format!("工作目录 {}", workspace.display()), "path": workspace, "runtime": spec.name, "kind": spec.kind, "agentInfo": conn.agent_info,
             "config": applied, "enforcement": enforcement(&applied), "prompt": prompt, "resumed": resumed
@@ -281,12 +277,7 @@ impl App {
             }
         }
 
-        let ctx = Ctx {
-            agent: &agent,
-            task: Some(id),
-            attempt: Some(n),
-            goal: false,
-        };
+        let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
         self.show(run, ("session.controls", "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
         self.record_instructions(run, &ctx, &sid, &channel, &standing);
         let (steer_tx, steer_rx) = mpsc::unbounded_channel();
@@ -318,17 +309,31 @@ impl App {
             let mut result = loop {
                 if let Some(p) = next.take() {
                     text = self
-                        .stream_prompt(run, &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid }, &p, &ctx, Some(&mut ctl), Some(ATTEMPT_TIMEOUT))
+                        .stream_prompt(
+                            run,
+                            &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
+                            &p,
+                            &ctx,
+                            Some(&mut ctl),
+                            Some(ATTEMPT_TIMEOUT),
+                        )
                         .await?;
-                    let suffix = if round == 0 {
-                        String::new()
-                    } else {
-                        format!("-r{round}")
-                    };
+                    let suffix = if round == 0 { String::new() } else { format!("-r{round}") };
                     round += 1;
                     // A turn stopped before it said anything (an interrupt) leaves no report.
                     if !text.trim().is_empty() {
-                        self.save_artifact(run, NewArtifact { task: id, attempt: n, agent: &agent, name: &format!("{id}-a{n}-report{suffix}.md"), kind: "report", bytes: text.as_bytes(), desc: "Agent 这一轮的最终回复" })?;
+                        self.save_artifact(
+                            run,
+                            NewArtifact {
+                                task: id,
+                                attempt: n,
+                                agent: &agent,
+                                name: &format!("{id}-a{n}-report{suffix}.md"),
+                                kind: "report",
+                                bytes: text.as_bytes(),
+                                desc: "Agent 这一轮的最终回复",
+                            },
+                        )?;
                     }
                 }
                 if ctl.finish {
@@ -342,13 +347,9 @@ impl App {
                 if ctl.human {
                     self.emit(
                         run,
-                        ev(
-                            "agent.status",
-                            &agent,
-                            "这一轮已结束，等待你的消息（人工接管中）",
-                        )
-                        .task(id)
-                        .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
+                        ev("agent.status", &agent, "这一轮已结束，等待你的消息（人工接管中）")
+                            .task(id)
+                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
                     match ctl.rx.recv().await {
                         None => return Err(Cancelled.into()),
@@ -369,19 +370,43 @@ impl App {
                                 ev(
                                     "control.released",
                                     "user",
-                                    format!("交还托管：{} 继续自主完成任务", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent)),
+                                    format!(
+                                        "交还托管：{} 继续自主完成任务",
+                                        run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent)
+                                    ),
                                 )
                                 .task(id)
                                 .attempt(n)
                                 .to(&agent),
                             );
-                            let waiting = if ctl.queued.is_empty() { String::new() } else { format!("\n\n{}", self.deliver_queued(run, &mut ctl, &agent, id, n)) };
+                            let waiting = if ctl.queued.is_empty() {
+                                String::new()
+                            } else {
+                                format!("\n\n{}", self.deliver_queued(run, &mut ctl, &agent, id, n))
+                            };
                             next = Some(format!("{RELEASE_PROMPT}{waiting}"));
                         }
                         Some(Steer::Finish) => ctl.finish = true,
                         Some(Steer::Control(cid, value, via)) => {
-                            if let Err(err) = self.set_control(run, &conn, &sid, ControlChange { id: &cid, value: &value, via: &via }, &ctx).await {
-                                self.show(run, ("session.control", format!("切换 {cid} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": cid, "failed": true })), &ctx);
+                            if let Err(err) = self
+                                .set_control(
+                                    run,
+                                    &conn,
+                                    &sid,
+                                    ControlChange { id: &cid, value: &value, via: &via },
+                                    &ctx,
+                                )
+                                .await
+                            {
+                                self.show(
+                                    run,
+                                    (
+                                        "session.control",
+                                        format!("切换 {cid} 没有成功：{}", short(&format!("{err:#}"), 120)),
+                                        json!({ "id": cid, "failed": true }),
+                                    ),
+                                    &ctx,
+                                );
                             }
                         }
                         Some(Steer::TakeOver | Steer::Interrupt) => {}
@@ -397,28 +422,16 @@ impl App {
                     bail!("连续 4 轮仍在提问，没有完成任务");
                 }
                 let key = format!("q-{id}-{n}-{round}");
-                let question = q["text"]
-                    .as_str()
-                    .or(q.as_str())
-                    .unwrap_or("需要你的决定")
-                    .to_string();
+                let question = q["text"].as_str().or(q.as_str()).unwrap_or("需要你的决定").to_string();
                 let options: Vec<String> = q["options"]
                     .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|o| o.as_str().map(str::to_owned))
-                            .collect()
-                    })
+                    .map(|a| a.iter().filter_map(|o| o.as_str().map(str::to_owned)).collect())
                     .unwrap_or_default();
                 self.emit(
                     run,
-                    ev("question.asked", &agent, short(&question, 60))
-                        .task(id)
-                        .attempt(n)
-                        .to("lead")
-                        .data(json!({
-                            "key": key, "question": question, "options": options, "blocking": true
-                        })),
+                    ev("question.asked", &agent, short(&question, 60)).task(id).attempt(n).to("lead").data(json!({
+                        "key": key, "question": question, "options": options, "blocking": true
+                    })),
                 );
                 // Goal mode: the lead orchestrated this task and answers its questions (it reads them
                 // with `wait`). Otherwise the question goes to the person.
@@ -461,9 +474,7 @@ impl App {
             // An abort that arrived between turns (or a cancel) must not end up as a success.
             self.check_aborted(run, id, &mut ctl)?;
             if result.evidence.is_empty() {
-                result
-                    .evidence
-                    .push(format!("最终回复：{id}-a{n}-report.md"));
+                result.evidence.push(format!("最终回复：{id}-a{n}-report.md"));
             }
             self.emit(
                 run,
@@ -499,10 +510,17 @@ impl App {
         // The result against what the task left in the workspace: the lead sees where they differ.
         let gaps = {
             let changed = run.git.then(|| {
-                crate::traces::changed_files(&git_out(&workspace, &["diff-index", "--name-only", "HEAD"]), &git_out(&workspace, &["ls-files", "--others", "--exclude-standard"]))
+                crate::traces::changed_files(
+                    &git_out(&workspace, &["diff-index", "--name-only", "HEAD"]),
+                    &git_out(&workspace, &["ls-files", "--others", "--exclude-standard"]),
+                )
             });
             let st = run.st.lock().unwrap();
-            st.tasks.iter().find(|t| t.def.id == id).map(|t| crate::traces::gaps(&t.def, &st.traces.files(id), changed.as_ref())).unwrap_or_default()
+            st.tasks
+                .iter()
+                .find(|t| t.def.id == id)
+                .map(|t| crate::traces::gaps(&t.def, &st.traces.files(id), changed.as_ref()))
+                .unwrap_or_default()
         };
 
         // Settle the task in the same step as checking that this attempt still owns it, so a cancel
@@ -520,41 +538,45 @@ impl App {
             }
         };
         if !current {
-            let _ = self.db.update_attempt(&run.id, id, n, AttemptStatus::Cancelled, AttemptUpdate { ended: Some(now_ms()), ..Default::default() });
+            let _ = self.db.update_attempt(
+                &run.id,
+                id,
+                n,
+                AttemptStatus::Cancelled,
+                AttemptUpdate { ended: Some(now_ms()), ..Default::default() },
+            );
             self.emit(
                 run,
-                ev(
-                    "attempt.late_result",
-                    "janus",
-                    format!("忽略已过期 Attempt {attempt_id} 的成功结果"),
-                )
-                .task(id)
-                .attempt(n),
+                ev("attempt.late_result", "janus", format!("忽略已过期 Attempt {attempt_id} 的成功结果"))
+                    .task(id)
+                    .attempt(n),
             );
             return Ok(());
         }
         let seq = self.emit(
             run,
-            ev(
-                "task.succeeded",
-                "janus",
-                format!("校验结构化结果与证据后，将 {id} 标记为完成"),
-            )
-            .task(id)
-            .attempt(n)
-            .data(json!({
-                "attemptId": attempt_id,
-                // The conclusion carries the whole result, so the app, the delivery and a resumed
-                // run read it from this one event.
-                "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "traceGaps": gaps,
-                "checks": result.checks, "acceptance": Summary::of(&def.accept, &result.checks)
-            })),
+            ev("task.succeeded", "janus", format!("校验结构化结果与证据后，将 {id} 标记为完成"))
+                .task(id)
+                .attempt(n)
+                .data(json!({
+                    "attemptId": attempt_id,
+                    // The conclusion carries the whole result, so the app, the delivery and a resumed
+                    // run read it from this one event.
+                    "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "traceGaps": gaps,
+                    "checks": result.checks, "acceptance": Summary::of(&def.accept, &result.checks)
+                })),
         );
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), id) {
             t.succeeded_seq = Some(seq);
         }
         // The event above is the fact; a failed bookkeeping write must not turn it into a retry.
-        if let Err(err) = self.db.update_attempt(&run.id, id, n, AttemptStatus::Succeeded, AttemptUpdate { ended: Some(now_ms()), ..Default::default() }) {
+        if let Err(err) = self.db.update_attempt(
+            &run.id,
+            id,
+            n,
+            AttemptStatus::Succeeded,
+            AttemptUpdate { ended: Some(now_ms()), ..Default::default() },
+        ) {
             crate::config::log(format!("janus: failed to record attempt {id}#{n}: {err:#}"));
         }
         Ok(())
@@ -576,12 +598,7 @@ impl App {
         }
         let mut st = run.st.lock().unwrap();
         // Messages sent after the last turn are kept for this agent's next session.
-        if let Some(agent) = st
-            .tasks
-            .iter()
-            .find(|t| t.def.id == id && !late.is_empty())
-            .map(|t| t.agent.clone())
-        {
+        if let Some(agent) = st.tasks.iter().find(|t| t.def.id == id && !late.is_empty()).map(|t| t.agent.clone()) {
             st.notes.entry(agent).or_default().extend(late);
         }
         if st.cancelled {
@@ -617,8 +634,20 @@ impl App {
         let summary = Summary::of(&def.accept, &result.checks);
         if !failures.is_empty() {
             let message = failures.join("；");
-            run.st.lock().unwrap().last_verification.insert(id.to_string(), failures.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n"));
-            self.db.insert_verification(&VerificationRow { run_id: &run.id, task: id, attempt: n, attempt_id, status: "failed", details: &json!({ "attemptId": attempt_id, "failures": failures }), created_at: now_ms() })?;
+            run.st
+                .lock()
+                .unwrap()
+                .last_verification
+                .insert(id.to_string(), failures.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n"));
+            self.db.insert_verification(&VerificationRow {
+                run_id: &run.id,
+                task: id,
+                attempt: n,
+                attempt_id,
+                status: "failed",
+                details: &json!({ "attemptId": attempt_id, "failures": failures }),
+                created_at: now_ms(),
+            })?;
             self.emit(
                 run,
                 ev("verification.failed", "janus", format!("{id} 没有通过验收核对：{}", short(&message, 120)))
@@ -628,7 +657,15 @@ impl App {
             );
             return Err(VerificationFailed(message).into());
         }
-        self.db.insert_verification(&VerificationRow { run_id: &run.id, task: id, attempt: n, attempt_id, status: "passed", details: &json!({ "attemptId": attempt_id, "checks": result.checks }), created_at: now_ms() })?;
+        self.db.insert_verification(&VerificationRow {
+            run_id: &run.id,
+            task: id,
+            attempt: n,
+            attempt_id,
+            status: "passed",
+            details: &json!({ "attemptId": attempt_id, "checks": result.checks }),
+            created_at: now_ms(),
+        })?;
         self.emit(
             run,
             ev("verification.passed", "janus", format!("{id} 通过验收核对"))
@@ -647,10 +684,7 @@ impl App {
             .ok()?
             .into_iter()
             .rev()
-            .find(|e| {
-                matches!(e.kind.as_str(), "attempt.failed" | "task.succeeded")
-                    && e.task.as_deref() == Some(task)
-            })
+            .find(|e| matches!(e.kind.as_str(), "attempt.failed" | "task.succeeded") && e.task.as_deref() == Some(task))
             .filter(|e| e.kind == "attempt.failed")
             .and_then(|e| e.data?["error"].as_str().map(str::to_owned))
     }
@@ -692,7 +726,18 @@ impl App {
         .flatten()
         .collect::<Vec<_>>()
         .join(" · ");
-        self.save_artifact(run, NewArtifact { task: id, attempt: n, agent, name: &format!("{id}-a{n}.diff"), kind: "git_diff", bytes: diff.as_bytes(), desc: &desc })
+        self.save_artifact(
+            run,
+            NewArtifact {
+                task: id,
+                attempt: n,
+                agent,
+                name: &format!("{id}-a{n}.diff"),
+                kind: "git_diff",
+                bytes: diff.as_bytes(),
+                desc: &desc,
+            },
+        )
     }
 
     pub(super) fn save_artifact(&self, run: &Run, artifact: NewArtifact<'_>) -> Result<()> {
@@ -701,21 +746,28 @@ impl App {
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(name);
         std::fs::write(&path, bytes)?;
-        let sha: String = Sha256::digest(bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        self.db.insert_artifact(&ArtifactRow { run_id: &run.id, task, attempt: n, name, kind, path: &path.to_string_lossy(), sha256: &sha, bytes: bytes.len() as i64, created_at: now_ms() })?;
-        let seq = self.emit(run, ev("artifact.created", agent, format!("提交产物 {name}")).task(task).attempt(n).data(json!({
-            "name": name, "kind": kind, "desc": desc, "path": path, "hash": &sha[..12], "bytes": bytes.len()
-        })));
+        let sha: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+        self.db.insert_artifact(&ArtifactRow {
+            run_id: &run.id,
+            task,
+            attempt: n,
+            name,
+            kind,
+            path: &path.to_string_lossy(),
+            sha256: &sha,
+            bytes: bytes.len() as i64,
+            created_at: now_ms(),
+        })?;
+        let seq = self.emit(
+            run,
+            ev("artifact.created", agent, format!("提交产物 {name}")).task(task).attempt(n).data(json!({
+                "name": name, "kind": kind, "desc": desc, "path": path, "hash": &sha[..12], "bytes": bytes.len()
+            })),
+        );
         let mut st = run.st.lock().unwrap();
         if let Some(t) = Run::task_mut(&mut st, task) {
-            t.artifacts
-                .retain(|a| a["kind"] != kind || kind == "report");
-            t.artifacts.push(
-                json!({ "name": name, "kind": kind, "desc": desc, "path": path, "seq": seq }),
-            );
+            t.artifacts.retain(|a| a["kind"] != kind || kind == "report");
+            t.artifacts.push(json!({ "name": name, "kind": kind, "desc": desc, "path": path, "seq": seq }));
         }
         Ok(())
     }

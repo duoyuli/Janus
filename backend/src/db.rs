@@ -167,14 +167,7 @@ impl Db {
         Ok(Db(Mutex::new(conn)))
     }
 
-    pub fn insert_run(
-        &self,
-        id: &str,
-        goal: &str,
-        cwd: &str,
-        config: &Value,
-        now: i64,
-    ) -> Result<()> {
+    pub fn insert_run(&self, id: &str, goal: &str, cwd: &str, config: &Value, now: i64) -> Result<()> {
         self.0.lock().unwrap().execute(
             "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES (?1, ?2, ?3, ?4, 'planning', ?5)",
             params![id, goal, cwd, config.to_string(), now],
@@ -183,10 +176,7 @@ impl Db {
     }
 
     pub fn set_run_status(&self, id: &str, status: RunStatus) -> Result<()> {
-        self.0.lock().unwrap().execute(
-            "UPDATE runs SET status = ?2 WHERE id = ?1",
-            params![id, status.as_str()],
-        )?;
+        self.0.lock().unwrap().execute("UPDATE runs SET status = ?2 WHERE id = ?1", params![id, status.as_str()])?;
         Ok(())
     }
 
@@ -227,9 +217,7 @@ impl Db {
                 task: r.get(6)?,
                 attempt: r.get(7)?,
                 text: r.get(8)?,
-                data: r
-                    .get::<_, Option<String>>(9)?
-                    .and_then(|s| serde_json::from_str(&s).ok()),
+                data: r.get::<_, Option<String>>(9)?.and_then(|s| serde_json::from_str(&s).ok()),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -261,7 +249,8 @@ impl Db {
     /// The newest 50 runs, for the app's list and the role statistics.
     pub fn runs(&self) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, goal, cwd, config, status, created_at FROM runs ORDER BY created_at DESC LIMIT 50")?;
+        let mut stmt = conn
+            .prepare("SELECT id, goal, cwd, config, status, created_at FROM runs ORDER BY created_at DESC LIMIT 50")?;
         let rows = stmt.query_map([], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -276,15 +265,7 @@ impl Db {
             .optional()?)
     }
 
-    pub fn start_attempt(
-        &self,
-        run_id: &str,
-        task: &str,
-        n: i64,
-        agent: &str,
-        runtime: &str,
-        now: i64,
-    ) -> Result<()> {
+    pub fn start_attempt(&self, run_id: &str, task: &str, n: i64, agent: &str, runtime: &str, now: i64) -> Result<()> {
         self.0.lock().unwrap().execute(
             "INSERT OR REPLACE INTO attempts (run_id, task, n, agent, runtime, status, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![run_id, task, n, agent, runtime, AttemptStatus::Starting.as_str(), now],
@@ -292,7 +273,14 @@ impl Db {
         Ok(())
     }
 
-    pub fn update_attempt(&self, run_id: &str, task: &str, n: i64, status: AttemptStatus, update: AttemptUpdate<'_>) -> Result<()> {
+    pub fn update_attempt(
+        &self,
+        run_id: &str,
+        task: &str,
+        n: i64,
+        status: AttemptStatus,
+        update: AttemptUpdate<'_>,
+    ) -> Result<()> {
         let AttemptUpdate { session, workspace, error, ended } = update;
         self.0.lock().unwrap().execute(
             "UPDATE attempts SET status = ?4,
@@ -307,9 +295,7 @@ impl Db {
     /// Attempts left running by a previous process; recovery closes them instead of guessing.
     pub fn orphaned_attempts(&self) -> Result<Vec<(String, String, i64)>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT run_id, task, n FROM attempts WHERE status IN ('starting', 'running')",
-        )?;
+        let mut stmt = conn.prepare("SELECT run_id, task, n FROM attempts WHERE status IN ('starting', 'running')")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -336,7 +322,9 @@ impl Db {
 
     pub fn unfinished_runs(&self) -> Result<Vec<String>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id FROM runs WHERE status NOT IN ('delivered', 'accepted', 'cancelled', 'failed', 'interrupted')")?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM runs WHERE status NOT IN ('delivered', 'accepted', 'cancelled', 'failed', 'interrupted')",
+        )?;
         let rows = stmt.query_map([], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -369,18 +357,14 @@ impl Db {
 
     /// Give a claimed command id back after its action failed, so a retry can act.
     pub fn release_command(&self, run_id: &str, command_id: &str) -> Result<()> {
-        self.0.lock().unwrap().execute("DELETE FROM commands WHERE run_id = ?1 AND command_id = ?2", params![run_id, command_id])?;
+        self.0
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM commands WHERE run_id = ?1 AND command_id = ?2", params![run_id, command_id])?;
         Ok(())
     }
 
-    pub fn acquire_lease(
-        &self,
-        run_id: &str,
-        name: &str,
-        owner: &str,
-        now: i64,
-        ttl_ms: i64,
-    ) -> Result<Option<i64>> {
+    pub fn acquire_lease(&self, run_id: &str, name: &str, owner: &str, now: i64, ttl_ms: i64) -> Result<Option<i64>> {
         let conn = self.0.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
         let existing: Option<(String, i64, i64)> = tx
@@ -436,23 +420,16 @@ impl Db {
     }
 
     pub fn delete_config(&self, kind: &str, id: &str) -> Result<()> {
-        self.0.lock().unwrap().execute(
-            "DELETE FROM configs WHERE kind = ?1 AND id = ?2",
-            params![kind, id],
-        )?;
+        self.0.lock().unwrap().execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", params![kind, id])?;
         Ok(())
     }
-
 }
 
 fn lease_owner_alive(owner: &str) -> bool {
     let Some(pid) = owner.strip_prefix("janus-") else {
         return true;
     };
-    std::process::Command::new("kill")
-        .args(["-0", pid])
-        .status()
-        .is_ok_and(|status| status.success())
+    std::process::Command::new("kill").args(["-0", pid]).status().is_ok_and(|status| status.success())
 }
 
 #[cfg(test)]
@@ -485,10 +462,16 @@ mod tests {
         let (db, path) = temp_db("commands");
         db.insert_run("r1", "test", "/tmp", &json!({}), 1).unwrap();
         assert!(db.claim_command("r1", "c1", &json!({ "type": "pause" }), 2).unwrap());
-        assert!(!db.claim_command("r1", "c1", &json!({ "type": "pause" }), 3).unwrap(), "a second claim of one id fails");
+        assert!(
+            !db.claim_command("r1", "c1", &json!({ "type": "pause" }), 3).unwrap(),
+            "a second claim of one id fails"
+        );
         assert!(db.claim_command("r1", "c2", &json!({ "type": "pause" }), 3).unwrap());
         db.release_command("r1", "c1").unwrap();
-        assert!(db.claim_command("r1", "c1", &json!({ "type": "pause" }), 4).unwrap(), "a released id can be claimed again");
+        assert!(
+            db.claim_command("r1", "c1", &json!({ "type": "pause" }), 4).unwrap(),
+            "a released id can be claimed again"
+        );
         let _ = std::fs::remove_file(path);
     }
 
@@ -496,15 +479,9 @@ mod tests {
     fn lease_fencing_rejects_live_other_owner_and_increments_after_expiry() {
         let (db, path) = temp_db("leases");
         db.insert_run("r1", "test", "/tmp", &json!({}), 1).unwrap();
-        assert_eq!(
-            db.acquire_lease("r1", "run", "a", 10, 100).unwrap(),
-            Some(1)
-        );
+        assert_eq!(db.acquire_lease("r1", "run", "a", 10, 100).unwrap(), Some(1));
         assert_eq!(db.acquire_lease("r1", "run", "b", 20, 100).unwrap(), None);
-        assert_eq!(
-            db.acquire_lease("r1", "run", "b", 200, 100).unwrap(),
-            Some(2)
-        );
+        assert_eq!(db.acquire_lease("r1", "run", "b", 200, 100).unwrap(), Some(2));
         let _ = std::fs::remove_file(path);
     }
 }

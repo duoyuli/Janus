@@ -18,18 +18,16 @@ impl App {
             self.spec_for(&m.runtime)?;
         }
         if let Some(lead) = team.iter().find(|m| m.lead).filter(|m| !lead_capable(&m.kind)) {
-            bail!("主控「{}」用的是 {}，只有 Claude Code 或 Codex 能做主控（需要 /goal），请在工作区里换一个主控", lead.name, lead.runtime_name);
+            bail!(
+                "主控「{}」用的是 {}，只有 Claude Code 或 Codex 能做主控（需要 /goal），请在工作区里换一个主控",
+                lead.name,
+                lead.runtime_name
+            );
         }
-        let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"])
-            .await
-            .is_ok();
+        let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await.is_ok();
         let mut team = team;
         let base_ref = if is_git {
-            git(&cwd, &["rev-parse", "HEAD"])
-                .await
-                .unwrap_or_default()
-                .trim()
-                .to_string()
+            git(&cwd, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string()
         } else {
             String::new()
         };
@@ -40,20 +38,11 @@ impl App {
             "" => "按附图完成".to_string(),
             g => g.to_string(),
         };
-        let config = json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
-        self.db.insert_run(
-            &id,
-            &goal,
-            &cwd.to_string_lossy(),
-            &config,
-            now_ms(),
-        )?;
+        let config =
+            json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
+        self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
         let owner = format!("janus-{}", std::process::id());
-        if self
-            .db
-            .acquire_lease(&id, "run", &owner, now_ms(), 10 * 60 * 1000)?
-            .is_none()
-        {
+        if self.db.acquire_lease(&id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
             bail!("Run 已被另一个 Janus 实例接管");
         }
         let run = Arc::new(Run {
@@ -68,10 +57,7 @@ impl App {
             seq: AtomicI64::new(0),
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
-            st: StdMutex::new(RunState {
-                status: RunStatus::Planning,
-                ..Default::default()
-            }),
+            st: StdMutex::new(RunState { status: RunStatus::Planning, ..Default::default() }),
             wake: Notify::new(),
             driving: Default::default(),
             lead_nudge: Notify::new(),
@@ -93,16 +79,18 @@ impl App {
             };
             run.driving.store(false, Ordering::SeqCst);
             if let Err(err) = result
-                && err.downcast_ref::<Cancelled>().is_none() && !run.st.lock().unwrap().cancelled {
-                    app.emit(
-                        &run,
-                        ev("run.failed", "janus", format!("Run 失败：{err:#}"))
-                            .data(json!({ "error": format!("{err:#}") })),
-                    );
-                    app.set_status(&run, RunStatus::Failed);
-                    // A failed run is rebuilt from its event log when the person continues it.
-                    app.runs.lock().unwrap().remove(&run.id);
-                }
+                && err.downcast_ref::<Cancelled>().is_none()
+                && !run.st.lock().unwrap().cancelled
+            {
+                app.emit(
+                    &run,
+                    ev("run.failed", "janus", format!("Run 失败：{err:#}"))
+                        .data(json!({ "error": format!("{err:#}") })),
+                );
+                app.set_status(&run, RunStatus::Failed);
+                // A failed run is rebuilt from its event log when the person continues it.
+                app.runs.lock().unwrap().remove(&run.id);
+            }
         });
     }
 
@@ -113,12 +101,7 @@ impl App {
             let st = run.st.lock().unwrap();
             !st.cancelled && !st.tasks.is_empty()
         };
-        if executable
-            && run
-                .driving
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-        {
+        if executable && run.driving.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
             self.launch(run.clone(), Phase::Execute);
         }
     }
@@ -129,10 +112,9 @@ impl App {
         let root = self.cfg.data_dir.join("runs").join(run_id).join("skills");
         for m in team.iter_mut() {
             for s in m.skills.iter_mut() {
-                let (Some(id), Some(src)) = (
-                    s["id"].as_str().map(str::to_owned),
-                    s["path"].as_str().map(PathBuf::from),
-                ) else {
+                let (Some(id), Some(src)) =
+                    (s["id"].as_str().map(str::to_owned), s["path"].as_str().map(PathBuf::from))
+                else {
                     continue;
                 };
                 let dest = root.join(&id);
@@ -151,10 +133,13 @@ impl App {
         } else {
             "非 Git 目录：任务直接在这个目录中执行，没有 diff".to_string()
         };
-        self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(json!({
-            "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note,
-            "images": run.goal_images
-        })));
+        self.emit(
+            run,
+            ev("run.created", "user", format!("创建目标：{}", run.goal)).data(json!({
+                "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note,
+                "images": run.goal_images
+            })),
+        );
         self.goal(run, false).await
     }
 
@@ -178,11 +163,8 @@ impl App {
             let over_budget = now_ms() > run.deadline_ms.load(Ordering::SeqCst);
             let (starts, blocked, outcome) = {
                 let mut st = run.st.lock().unwrap();
-                let statuses: HashMap<String, TaskStatus> = st
-                    .tasks
-                    .iter()
-                    .map(|t| (t.def.id.clone(), t.status))
-                    .collect();
+                let statuses: HashMap<String, TaskStatus> =
+                    st.tasks.iter().map(|t| (t.def.id.clone(), t.status)).collect();
                 let succeeded: HashSet<String> = statuses
                     .iter()
                     .filter_map(|(id, status)| (*status == TaskStatus::Succeeded).then_some(id.clone()))
@@ -212,33 +194,26 @@ impl App {
                 }
                 let mut starts = vec![];
                 if !st.paused && !over_budget {
-                    let mut busy: HashSet<String> = st
-                        .tasks
-                        .iter()
-                        .filter(|t| t.status == TaskStatus::Running)
-                        .map(|t| t.agent.clone())
-                        .collect();
+                    let mut busy: HashSet<String> =
+                        st.tasks.iter().filter(|t| t.status == TaskStatus::Running).map(|t| t.agent.clone()).collect();
                     for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
                         if t.def.deps.iter().all(|d| succeeded.contains(d)) && !busy.contains(&t.agent) {
                             busy.insert(t.agent.clone());
                             t.set_status(TaskStatus::Running);
                             t.attempts += 1;
-                            let attempt_id =
-                                format!("{}-{}-{}-{}", run.id, t.def.id, t.attempts, now_ms());
+                            let attempt_id = format!("{}-{}-{}-{}", run.id, t.def.id, t.attempts, now_ms());
                             t.active_attempt = Some(attempt_id.clone());
-                            starts.push((
-                                t.def.id.clone(),
-                                t.attempts,
-                                t.agent.clone(),
-                                attempt_id,
-                            ));
+                            starts.push((t.def.id.clone(), t.attempts, t.agent.clone(), attempt_id));
                         }
                     }
                 }
                 let active = st.tasks.iter().any(|t| t.status == TaskStatus::Running);
                 // A task that could start but for a pause or the budget is still work to do: the
                 // run waits for the person instead of delivering without it.
-                let runnable = st.tasks.iter().any(|t| t.status == TaskStatus::Pending && t.def.deps.iter().all(|d| succeeded.contains(d)));
+                let runnable = st
+                    .tasks
+                    .iter()
+                    .any(|t| t.status == TaskStatus::Pending && t.def.deps.iter().all(|d| succeeded.contains(d)));
                 let finished = !active && !runnable;
                 let all_terminal = st.tasks.iter().all(|t| t.status.terminal());
                 // The lead decides what a failure means (it reads it on the board), so nothing
@@ -260,38 +235,25 @@ impl App {
             for (id, dep) in blocked {
                 self.emit(
                     run,
-                    ev(
-                        "task.blocked",
-                        "janus",
-                        format!("{id} 被失败的硬依赖 {dep} 阻塞"),
-                    )
-                    .task(&id)
-                    .data(json!({ "dependency": dep, "kind": "hard" })),
+                    ev("task.blocked", "janus", format!("{id} 被失败的硬依赖 {dep} 阻塞"))
+                        .task(&id)
+                        .data(json!({ "dependency": dep, "kind": "hard" })),
                 );
             }
             for (id, n, agent, attempt_id) in starts {
                 if n == 1 {
                     self.emit(
                         run,
-                        ev(
-                            "task.ready",
-                            "janus",
-                            format!("{id} 的依赖已满足，进入 ready"),
-                        )
-                        .task(&id)
-                        .data(json!({ "tasks": [id] })),
+                        ev("task.ready", "janus", format!("{id} 的依赖已满足，进入 ready"))
+                            .task(&id)
+                            .data(json!({ "tasks": [id] })),
                     );
                     self.emit(
                         run,
                         ev(
                             "task.assigned",
                             "janus",
-                            format!(
-                                "{id} 分配给 {}",
-                                run.member(&agent)
-                                    .map(|m| m.name.as_str())
-                                    .unwrap_or(&agent)
-                            ),
+                            format!("{id} 分配给 {}", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent)),
                         )
                         .task(&id)
                         .to(&agent)
@@ -300,14 +262,10 @@ impl App {
                 }
                 self.emit(
                     run,
-                    ev(
-                        "attempt.launch_requested",
-                        "janus",
-                        format!("准备启动 {id} 第 {n} 次尝试"),
-                    )
-                    .task(&id)
-                    .attempt(n)
-                    .data(json!({ "attemptId": attempt_id })),
+                    ev("attempt.launch_requested", "janus", format!("准备启动 {id} 第 {n} 次尝试"))
+                        .task(&id)
+                        .attempt(n)
+                        .data(json!({ "attemptId": attempt_id })),
                 );
                 let (app, run, id) = (self.clone(), run.clone(), id.clone());
                 tokio::spawn(async move { app.run_attempt(&run, &id, n, &attempt_id).await });
@@ -328,12 +286,8 @@ impl App {
                         self.set_status(run, RunStatus::WaitingInput);
                         self.emit(
                             run,
-                            ev(
-                                "run.budget_exhausted",
-                                "janus",
-                                "Run 达到墙钟预算，等待你追加预算、接受部分结果或取消",
-                            )
-                            .data(json!({ "budgetMs": RUN_BUDGET_MS })),
+                            ev("run.budget_exhausted", "janus", "Run 达到墙钟预算，等待你追加预算、接受部分结果或取消")
+                                .data(json!({ "budgetMs": RUN_BUDGET_MS })),
                         );
                     }
                 }
@@ -378,7 +332,12 @@ impl App {
             .collect();
         for (task, n, idle) in due {
             if task == LEAD_WATCH {
-                self.emit(run, ev("lead.stalled", "janus", format!("主控已有 {} 没有任何动静", span(idle))).to("user").data(json!({ "reason": "idle", "idleMs": idle })));
+                self.emit(
+                    run,
+                    ev("lead.stalled", "janus", format!("主控已有 {} 没有任何动静", span(idle)))
+                        .to("user")
+                        .data(json!({ "reason": "idle", "idleMs": idle })),
+                );
                 continue;
             }
             self.emit(
@@ -414,7 +373,12 @@ impl App {
             (w.attempt, w.repeats)
         };
         if task == LEAD_WATCH {
-            self.emit(run, ev("lead.stalled", "janus", format!("主控连续 {repeats} 次做同样的调用：{}", short(title, 60))).to("user").data(json!({ "reason": "loop", "tool": title, "repeats": repeats })));
+            self.emit(
+                run,
+                ev("lead.stalled", "janus", format!("主控连续 {repeats} 次做同样的调用：{}", short(title, 60)))
+                    .to("user")
+                    .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
+            );
             return;
         }
         self.emit(
@@ -484,10 +448,24 @@ impl App {
                     .map(|v| {
                         let passed = v.status == TaskStatus::Succeeded;
                         if !passed {
-                            risks.push(format!("{}：独立验证 {} 的状态是 {}，结论没有得到确认", t.def.id, v.def.id, v.status.label()));
+                            risks.push(format!(
+                                "{}：独立验证 {} 的状态是 {}，结论没有得到确认",
+                                t.def.id,
+                                v.def.id,
+                                v.status.label()
+                            ));
                         }
                         let vr = v.result.clone().unwrap_or_default();
-                        Verification { task: v.def.id.clone(), status: v.status.as_str(), label: v.status.label(), passed, summary: vr.summary, checks: vr.checks, evidence: vr.evidence, risks: vr.risks }
+                        Verification {
+                            task: v.def.id.clone(),
+                            status: v.status.as_str(),
+                            label: v.status.label(),
+                            passed,
+                            summary: vr.summary,
+                            checks: vr.checks,
+                            evidence: vr.evidence,
+                            risks: vr.risks,
+                        }
                     })
                     .collect();
                 acceptance.push(TaskAcceptance {
@@ -503,9 +481,10 @@ impl App {
                 });
             }
             if let Some(last) = st.tasks.last()
-                && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report") {
-                    deliverables.push(report.clone());
-                }
+                && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report")
+            {
+                deliverables.push(report.clone());
+            }
             // The lead reports how the goal went, in its last message.
             let (text, suggestions) = match &st.lead_done {
                 Some(Ok(text)) => split_brief_suggestions(text),
@@ -521,10 +500,7 @@ impl App {
                 "risks": risks,
             })
         };
-        self.emit(
-            run,
-            ev("run.delivered", "janus", "主控完成了目标，交付结果已准备好").data(result),
-        );
+        self.emit(run, ev("run.delivered", "janus", "主控完成了目标，交付结果已准备好").data(result));
         self.set_status(run, RunStatus::Delivered);
     }
 }

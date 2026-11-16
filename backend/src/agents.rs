@@ -22,26 +22,26 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod catalog;
-mod connections;
 mod checks;
-mod roles;
-mod workspaces;
-mod session_options;
-mod local_config;
+mod connections;
 mod extensions;
+mod local_config;
+mod roles;
+mod session_options;
+mod workspaces;
 
-use catalog::*;
-use roles::*;
-use workspaces::*;
-use session_options::*;
-use local_config::*;
-use extensions::*;
 pub use catalog::kinds;
-pub use extensions::{create_skill, import_skill, list_skills, project_skills, skill_library};
+use catalog::*;
+use extensions::*;
 pub(crate) use extensions::{check_skill_id, read_skill};
+pub use extensions::{create_skill, import_skill, list_skills, project_skills, skill_library};
 pub use local_config::local_preview;
+use local_config::*;
 pub(crate) use roles::reserved_mcp_name;
+use roles::*;
+use session_options::*;
 pub use session_options::{is_plan_value, model_label, plan_off_value, session_label, session_options};
+use workspaces::*;
 
 const CONNECTION: &str = "connection";
 pub(crate) const ROLE: &str = "role";
@@ -77,9 +77,7 @@ pub(crate) fn split_command(cmd: &str) -> Result<Vec<String>> {
 
 pub fn which(bin: &str) -> Option<String> {
     let out = std::process::Command::new("which").arg(bin).output().ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 /// One value for the UI to switch on, instead of combining `status` with `login` and `loggedIn`.
@@ -116,13 +114,8 @@ pub(crate) fn slug(s: &str) -> Option<String> {
 pub fn check_id(id: &str) -> Result<()> {
     let ok = !id.is_empty()
         && id.len() <= 40
-        && id
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && id
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        && id.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
     if !ok {
         bail!("ID「{id}」不合法：只能用小写字母、数字和 -，并以字母或数字开头");
     }
@@ -153,12 +146,7 @@ fn new_id(prefix: &str) -> String {
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
+    let mut f = std::fs::OpenOptions::new().create(true).write(true).truncate(true).mode(0o600).open(path)?;
     f.write_all(bytes)?;
     Ok(())
 }

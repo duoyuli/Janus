@@ -16,7 +16,10 @@ impl App {
         }
         let command = body["commandId"].as_str().filter(|s| !s.trim().is_empty());
         if let Some(id) = command
-            && !self.db.claim_command(run_id, id, &json!({ "type": body["type"] }), now_ms()).map_err(ActionRefused::Invalid)?
+            && !self
+                .db
+                .claim_command(run_id, id, &json!({ "type": body["type"] }), now_ms())
+                .map_err(ActionRefused::Invalid)?
         {
             return Ok(ActionReply::Duplicate);
         }
@@ -34,13 +37,17 @@ impl App {
         if let Some(expected) = body["expectedSequence"].as_i64() {
             let actual = self.db.max_seq(run_id).map_err(ActionRefused::Invalid)?;
             if expected != actual {
-                return Err(ActionRefused::Conflict(format!("状态已变化：expectedSequence={expected}，当前为 {actual}")));
+                return Err(ActionRefused::Conflict(format!(
+                    "状态已变化：expectedSequence={expected}，当前为 {actual}"
+                )));
             }
         }
         let kind = body["type"].as_str().unwrap_or("");
         let run = match self.run(run_id) {
             // The run is live (a failed driver removes its run, see `launch`): nothing to resume.
-            Some(_) if kind == "resumeRun" => return Err(ActionRefused::Conflict("这个 Run 正在进行，不需要从中断处继续".into())),
+            Some(_) if kind == "resumeRun" => {
+                return Err(ActionRefused::Conflict("这个 Run 正在进行，不需要从中断处继续".into()));
+            }
             Some(run) => run,
             None => match kind {
                 // Acceptance needs no live agents, so it also works for runs delivered before a restart.
@@ -48,7 +55,11 @@ impl App {
                 "resumeRun" => return self.resume_run(run_id).await.map(|_| ()).map_err(ActionRefused::Invalid),
                 // Talking to an agent brings an interrupted run back first.
                 "message" => self.resume_run(run_id).await.map_err(ActionRefused::Invalid)?,
-                _ => return Err(ActionRefused::Conflict("这个任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into())),
+                _ => {
+                    return Err(ActionRefused::Conflict(
+                        "这个任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
+                    ));
+                }
             },
         };
         self.action(&run, body).map_err(ActionRefused::Invalid)
@@ -85,14 +96,10 @@ impl App {
                 }
                 self.emit(
                     run,
-                    ev(
-                        "answer.delivered",
-                        "janus",
-                        format!("通过 ACP 将回答发回 {task} 的会话"),
-                    )
-                    .task(task)
-                    .to(&agent)
-                    .data(json!({ "key": key })),
+                    ev("answer.delivered", "janus", format!("通过 ACP 将回答发回 {task} 的会话"))
+                        .task(task)
+                        .to(&agent)
+                        .data(json!({ "key": key })),
                 );
             }
             "approve" | "input" => {
@@ -176,12 +183,8 @@ impl App {
                 run.deadline_ms.store(deadline, Ordering::SeqCst);
                 self.emit(
                     run,
-                    ev(
-                        "run.budget_extended",
-                        "user",
-                        format!("追加 Run 预算 {minutes} 分钟"),
-                    )
-                    .data(json!({ "minutes": minutes, "addedMs": added })),
+                    ev("run.budget_extended", "user", format!("追加 Run 预算 {minutes} 分钟"))
+                        .data(json!({ "minutes": minutes, "addedMs": added })),
                 );
                 if status == RunStatus::WaitingInput {
                     self.set_status(run, RunStatus::Running);
@@ -191,7 +194,10 @@ impl App {
             }
             "cancel" => {
                 let status = run.st.lock().unwrap().status;
-                if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput | RunStatus::Delivered) {
+                if !matches!(
+                    status,
+                    RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput | RunStatus::Delivered
+                ) {
                     bail!("Run 现在是「{status}」，不能停止");
                 }
                 let conns: Vec<Arc<AcpConn>> = {
@@ -222,7 +228,14 @@ impl App {
                         let text = crate::attachments::with_lines(&text, &images);
                         // Shown the moment it is sent; its session routes it once it can.
                         let to = if agent.is_empty() {
-                            run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.agent.clone()).unwrap_or_default()
+                            run.st
+                                .lock()
+                                .unwrap()
+                                .tasks
+                                .iter()
+                                .find(|t| t.def.id == task)
+                                .map(|t| t.agent.clone())
+                                .unwrap_or_default()
                         } else {
                             agent.to_string()
                         };
@@ -234,7 +247,11 @@ impl App {
                         if id.is_empty() || a["value"].is_null() {
                             bail!("切换会话选项要给出 id 和 value");
                         }
-                        Steer::Control(id.to_string(), a["value"].clone(), a["via"].as_str().unwrap_or("config").to_string())
+                        Steer::Control(
+                            id.to_string(),
+                            a["value"].clone(),
+                            a["via"].as_str().unwrap_or("config").to_string(),
+                        )
                     }
                     "takeover" => Steer::TakeOver,
                     "release" => Steer::Release,
@@ -256,10 +273,7 @@ impl App {
                         self.route_message(run, agent, "", 0, &m.id, "next");
                         run.st.lock().unwrap().notes.entry(agent.to_string()).or_default().push(m);
                     }
-                    (None, _) => bail!(
-                        "{} 现在没有打开的会话",
-                        if agent.is_empty() { task } else { agent }
-                    ),
+                    (None, _) => bail!("{} 现在没有打开的会话", if agent.is_empty() { task } else { agent }),
                 }
             }
             "accept" => {
@@ -313,12 +327,7 @@ impl App {
         let conversation = matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
         if !matches!(
             previous,
-            Some(
-                RunStatus::Interrupted
-                    | RunStatus::Failed
-                    | RunStatus::Delivered
-                    | RunStatus::Accepted
-            )
+            Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
         ) {
             bail!("只有中断、失败、已交付或已验收的任务可以继续");
         }
@@ -339,11 +348,7 @@ impl App {
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
         let owner = format!("janus-{}", std::process::id());
-        if self
-            .db
-            .acquire_lease(run_id, "run", &owner, now_ms(), 10 * 60 * 1000)?
-            .is_none()
-        {
+        if self.db.acquire_lease(run_id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
             bail!("Run 已被另一个 Janus 实例接管");
         }
         let run = Arc::new(Run {
@@ -359,11 +364,7 @@ impl App {
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             st: StdMutex::new(RunState {
-                status: if conversation {
-                    previous.unwrap_or(RunStatus::Delivered)
-                } else {
-                    RunStatus::Running
-                },
+                status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
                 ..Default::default()
             }),
             wake: Notify::new(),
@@ -397,10 +398,7 @@ impl App {
             }
             let agent = def.assignee.clone();
             let mine = |kind: &str| -> Vec<&Event> {
-                events
-                    .iter()
-                    .filter(|e| e.kind == kind && e.task.as_deref() == Some(id.as_str()))
-                    .collect()
+                events.iter().filter(|e| e.kind == kind && e.task.as_deref() == Some(id.as_str())).collect()
             };
             let attempts = mine("attempt.started").len() as i64;
             // The current retry budget starts at the last user retry.
@@ -429,7 +427,8 @@ impl App {
                     })
                 });
             let succeeded = events
-                .iter().rfind(|e| {
+                .iter()
+                .rfind(|e| {
                     e.task.as_deref() == Some(id.as_str())
                         && matches!(e.kind.as_str(), "task.succeeded" | "task.reopened")
                 })
@@ -457,10 +456,15 @@ impl App {
                 .and_then(|e| e.data.as_ref().and_then(|d| d["session"].as_str().map(str::to_owned)));
             let last_task_event = events
                 .iter()
-                .filter(|e| e.task.as_deref() == Some(id.as_str())).rfind(|e| {
+                .filter(|e| e.task.as_deref() == Some(id.as_str()))
+                .rfind(|e| {
                     matches!(
                         e.kind.as_str(),
-                        "task.succeeded" | "task.failed" | "task.blocked" | "task.skipped_by_decision" | "task.reopened"
+                        "task.succeeded"
+                            | "task.failed"
+                            | "task.blocked"
+                            | "task.skipped_by_decision"
+                            | "task.reopened"
                     )
                 })
                 .map(|e| e.kind.as_str());
@@ -485,10 +489,12 @@ impl App {
                 done += 1;
             } else {
                 open += 1;
-                if status == TaskStatus::Pending && interrupted_attempt
-                    && let Some(sid) = last_session {
-                        run.st.lock().unwrap().resume_session.insert(id.clone(), sid);
-                    }
+                if status == TaskStatus::Pending
+                    && interrupted_attempt
+                    && let Some(sid) = last_session
+                {
+                    run.st.lock().unwrap().resume_session.insert(id.clone(), sid);
+                }
             }
             let mut task = Task::new(def, agent);
             // Rebuilding the board, not a transition: the event log already decided this state.
@@ -497,14 +503,31 @@ impl App {
             task.result = result;
             task.blocked_by = blocked_by;
             task.skipped_because = (status == TaskStatus::SkippedByDecision)
-                .then(|| mine("task.skipped_by_decision").last().and_then(|e| e.data.as_ref()?["dependency"].as_str().map(str::to_owned)))
+                .then(|| {
+                    mine("task.skipped_by_decision")
+                        .last()
+                        .and_then(|e| e.data.as_ref()?["dependency"].as_str().map(str::to_owned))
+                })
                 .flatten();
             task.succeeded_seq = succeeded.map(|e| e.seq);
             task.artifacts = artifacts;
             task.retry_base = retry_base;
-            let since = events.iter().rposition(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str())).map(|j| events[j].seq).unwrap_or(0);
-            task.amendments = mine("result.amended").iter().filter(|e| e.seq > since).filter_map(|e| e.data.as_ref().and_then(|d| d["text"].as_str().map(str::to_owned))).collect();
-            for p in mine("task.claimed").iter().filter_map(|e| e.data.as_ref()?["paths"].as_array().cloned()).flatten().filter_map(|p| p.as_str().map(str::to_owned)) {
+            let since = events
+                .iter()
+                .rposition(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str()))
+                .map(|j| events[j].seq)
+                .unwrap_or(0);
+            task.amendments = mine("result.amended")
+                .iter()
+                .filter(|e| e.seq > since)
+                .filter_map(|e| e.data.as_ref().and_then(|d| d["text"].as_str().map(str::to_owned)))
+                .collect();
+            for p in mine("task.claimed")
+                .iter()
+                .filter_map(|e| e.data.as_ref()?["paths"].as_array().cloned())
+                .flatten()
+                .filter_map(|p| p.as_str().map(str::to_owned))
+            {
                 if !task.def.owns.contains(&p) {
                     task.def.owns.push(p);
                 }
@@ -518,7 +541,8 @@ impl App {
             let mut st = run.st.lock().unwrap();
             for e in &events {
                 let (Some(task), Some(d)) = (e.task.as_deref(), e.data.as_ref()) else { continue };
-                let paths: Vec<String> = d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+                let paths: Vec<String> =
+                    d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
                 match e.kind.as_str() {
                     "tool.call" if !paths.is_empty() => st.traces.record(task, &paths, e.seq),
                     "task.conflict" => {
@@ -552,15 +576,26 @@ impl App {
                 let later = &events[i + 1..];
                 let waiting = match d["id"].as_str() {
                     Some(id) => {
-                        let routed = later.iter().rev().find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
-                        let joined = routed.is_some_and(|x| matches!(x.data.as_ref().unwrap()["delivery"].as_str(), Some("steer" | "prompt")));
-                        let delivered = later.iter().any(|x| x.kind == "message.delivered" && x.data.as_ref().is_some_and(|x| x["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id))));
+                        let routed = later
+                            .iter()
+                            .rev()
+                            .find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
+                        let joined = routed.is_some_and(|x| {
+                            matches!(x.data.as_ref().unwrap()["delivery"].as_str(), Some("steer" | "prompt"))
+                        });
+                        let delivered = later.iter().any(|x| {
+                            x.kind == "message.delivered"
+                                && x.data
+                                    .as_ref()
+                                    .is_some_and(|x| x["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id)))
+                        });
                         (!joined && !delivered).then(|| Msg { id: id.to_string(), text })
                     }
                     // Recorded before messages had ids: only queued and next ones waited.
                     None => {
                         let waited = matches!(d["delivery"].as_str(), Some("next" | "queued"));
-                        let delivered = later.iter().any(|x| x.kind == "message.delivered" && x.to.as_deref() == Some(agent));
+                        let delivered =
+                            later.iter().any(|x| x.kind == "message.delivered" && x.to.as_deref() == Some(agent));
                         (waited && !delivered).then(|| Msg { id: format!("old-{}", e.seq), text })
                     }
                 };
@@ -569,10 +604,7 @@ impl App {
                 }
             }
         }
-        self.runs
-            .lock()
-            .unwrap()
-            .insert(run_id.to_string(), run.clone());
+        self.runs.lock().unwrap().insert(run_id.to_string(), run.clone());
         if conversation {
             // No scheduler and no automatic goal: the lead session comes back for a regular
             // conversation, and the message that asked for it is queued as a note.
@@ -610,13 +642,27 @@ impl App {
 
     pub fn recover(&self) -> Result<()> {
         for (run_id, task, n) in self.db.orphaned_attempts()? {
-            self.db.update_attempt(&run_id, &task, n, AttemptStatus::Interrupted, AttemptUpdate { error: Some("编排器重启"), ended: Some(now_ms()), ..Default::default() })?;
+            self.db.update_attempt(
+                &run_id,
+                &task,
+                n,
+                AttemptStatus::Interrupted,
+                AttemptUpdate { error: Some("编排器重启"), ended: Some(now_ms()), ..Default::default() },
+            )?;
         }
         for run_id in self.db.unfinished_runs()? {
             let seq = self.db.max_seq(&run_id)? + 1;
             self.store(Event {
-                run_id: run_id.clone(), seq, ts: now_ms(), kind: "run.interrupted".into(), actor: "janus".into(), to: None, task: None, attempt: None,
-                text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(), data: None,
+                run_id: run_id.clone(),
+                seq,
+                ts: now_ms(),
+                kind: "run.interrupted".into(),
+                actor: "janus".into(),
+                to: None,
+                task: None,
+                attempt: None,
+                text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(),
+                data: None,
             });
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
         }

@@ -108,7 +108,10 @@ pub fn gaps(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet
     let mut out = vec![];
     if def.verifies.is_some() {
         if !touched.is_empty() {
-            out.push(format!("验证任务改了文件：{}。验证者只检查不改文件，这些改动没有经过独立验证", list(&touched.iter().collect::<Vec<_>>())));
+            out.push(format!(
+                "验证任务改了文件：{}。验证者只检查不改文件，这些改动没有经过独立验证",
+                list(&touched.iter().collect::<Vec<_>>())
+            ));
         }
         return out;
     }
@@ -125,7 +128,9 @@ pub fn gaps(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet
         Some(changed) if !edited && !changed.iter().any(in_owns) => {
             out.push(format!("负责 {}，但工作目录里这些文件相对 HEAD 没有改动", def.owns.join("、")));
         }
-        None if !edited => out.push(format!("负责 {}，但没有看到改动这些文件的工具调用（也可能是用命令改的）", def.owns.join("、"))),
+        None if !edited => {
+            out.push(format!("负责 {}，但没有看到改动这些文件的工具调用（也可能是用命令改的）", def.owns.join("、")))
+        }
         _ => {}
     }
     out
@@ -170,7 +175,10 @@ mod tests {
         // A verifier changes nothing.
         let g = gaps(&def(&[], Some("T0")), &set(&["src/a.rs"]), Some(&set(&["src/a.rs"])));
         assert!(g.len() == 1 && g[0].contains("验证任务改了文件"), "{g:?}");
-        assert!(gaps(&def(&[], Some("T0")), &set(&[]), Some(&set(&["src/a.rs"]))).is_empty(), "another task's change is not the verifier's");
+        assert!(
+            gaps(&def(&[], Some("T0")), &set(&[]), Some(&set(&["src/a.rs"]))).is_empty(),
+            "another task's change is not the verifier's"
+        );
         // Nothing declared: nothing to hold it to.
         assert!(gaps(&def(&[], None), &set(&["x"]), Some(&set(&[]))).is_empty());
     }
@@ -194,7 +202,10 @@ mod tests {
         assert_eq!(scope(&def(&["src"], None), &set(&["src/a.rs", "README.md"])), vec!["src", "README.md"]);
         assert!(scope(&def(&[], None), &set(&[])).is_empty(), "no record: the whole tree");
         assert_eq!(changed_files(" a.rs\n\nb.rs\n", "new.txt\n"), set(&["a.rs", "b.rs", "new.txt"]));
-        assert_eq!(diff_summary(" 2 files changed, 10 insertions(+), 3 deletions(-)\n", 1), "2 个文件 · +10 −3 · 1 个新文件");
+        assert_eq!(
+            diff_summary(" 2 files changed, 10 insertions(+), 3 deletions(-)\n", 1),
+            "2 个文件 · +10 −3 · 1 个新文件"
+        );
         assert_eq!(diff_summary(" 1 file changed, 1 deletion(-)\n", 0), "1 个文件 · +0 −1");
         assert_eq!(diff_summary("", 2), "2 个新文件");
     }

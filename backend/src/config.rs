@@ -20,13 +20,11 @@ pub struct Settings {
 
 // @project-doc docs/operations/deployment.md#layout
 static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
-    let home = std::env::var("JANUS_HOME").map(PathBuf::from).unwrap_or_else(|_| {
-        PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".janus")
-    });
-    let file: toml::Table = std::fs::read_to_string(home.join("config.toml"))
-        .ok()
-        .and_then(|t| t.parse().ok())
-        .unwrap_or_default();
+    let home = std::env::var("JANUS_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".janus"));
+    let file: toml::Table =
+        std::fs::read_to_string(home.join("config.toml")).ok().and_then(|t| t.parse().ok()).unwrap_or_default();
     let pick = |env: &str, key: &str, default: &str| {
         std::env::var(env)
             .ok()
@@ -34,11 +32,7 @@ static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
             .or_else(|| file.get(key).and_then(|v| v.as_str()).map(str::to_owned))
             .unwrap_or_else(|| default.to_string())
     };
-    Settings {
-        addr: pick("JANUS_ADDR", "addr", "127.0.0.1:7878"),
-        node: pick("JANUS_NODE", "node", "node"),
-        home,
-    }
+    Settings { addr: pick("JANUS_ADDR", "addr", "127.0.0.1:7878"), node: pick("JANUS_NODE", "node", "node"), home }
 });
 
 pub fn settings() -> &'static Settings {

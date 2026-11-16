@@ -7,14 +7,26 @@ impl App {
     /// Messages left for an agent while it had no open session, handed over with its next prompt.
     /// Record a message the moment it is sent, before any session has picked it up.
     // @project-doc docs/interfaces/events.md#message_flow
-    pub(super) fn post_message(&self, run: &Run, actor: &str, to: &str, task: &str, text: &str, images: &[Value]) -> Msg {
+    pub(super) fn post_message(
+        &self,
+        run: &Run,
+        actor: &str,
+        to: &str,
+        task: &str,
+        text: &str,
+        images: &[Value],
+    ) -> Msg {
         static NEXT: AtomicI64 = AtomicI64::new(0);
         let id = format!("m{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
         let mut data = json!({ "id": id, "text": text, "delivery": "pending" });
         if !images.is_empty() {
             data["images"] = json!(images);
         }
-        let label = if images.is_empty() { short(text, 80) } else { format!("{}（附 {} 张图片）", short(text.lines().next().unwrap_or(""), 60), images.len()) };
+        let label = if images.is_empty() {
+            short(text, 80)
+        } else {
+            format!("{}（附 {} 张图片）", short(text.lines().next().unwrap_or(""), 60), images.len())
+        };
         let mut e = ev("user.message", actor, label).to(to).data(data);
         if !task.is_empty() {
             e = e.task(task);
@@ -59,34 +71,20 @@ impl App {
     }
 
     pub(super) fn take_notes(&self, run: &Run, agent: &str) -> String {
-        let notes = run
-            .st
-            .lock()
-            .unwrap()
-            .notes
-            .remove(agent)
-            .unwrap_or_default();
+        let notes = run.st.lock().unwrap().notes.remove(agent).unwrap_or_default();
         if notes.is_empty() {
             return String::new();
         }
         let ids: Vec<&str> = notes.iter().map(|m| m.id.as_str()).collect();
         self.emit(
             run,
-            ev(
-                "message.delivered",
-                "janus",
-                format!("把你留给 {agent} 的 {} 条消息带进这次会话", notes.len()),
-            )
-            .to(agent)
-            .data(json!({ "ids": ids })),
+            ev("message.delivered", "janus", format!("把你留给 {agent} 的 {} 条消息带进这次会话", notes.len()))
+                .to(agent)
+                .data(json!({ "ids": ids })),
         );
         format!(
             "\n\n用户补充的信息（请优先考虑）：\n{}",
-            notes
-                .iter()
-                .map(|n| format!("- {}", n.text))
-                .collect::<Vec<_>>()
-                .join("\n")
+            notes.iter().map(|n| format!("- {}", n.text)).collect::<Vec<_>>().join("\n")
         )
     }
 }

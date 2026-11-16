@@ -22,18 +22,9 @@ impl App {
         };
         let connection = str_of(body, "connection");
         // The session controls this role chose, checked against what its agent declares.
-        let session = if connection.is_empty() {
-            json!({})
-        } else {
-            role_session(body, &self.connection(connection)?)
-        };
+        let session = if connection.is_empty() { json!({}) } else { role_session(body, &self.connection(connection)?) };
         let init = match str_of(body, "init") {
-            "" => name
-                .chars()
-                .filter(|c| !c.is_whitespace())
-                .take(2)
-                .collect::<String>()
-                .to_uppercase(),
+            "" => name.chars().filter(|c| !c.is_whitespace()).take(2).collect::<String>().to_uppercase(),
             i => i.to_string(),
         };
         let skills: Vec<String> = body["skills"]
@@ -54,9 +45,10 @@ impl App {
             let name = str_of(&entry, "name").to_string();
             let mut env = entry["env"].as_object().cloned().unwrap_or_default();
             if env.is_empty()
-                && let Some(prev) = old_secrets[&name].as_object() {
-                    env = prev.clone();
-                }
+                && let Some(prev) = old_secrets[&name].as_object()
+            {
+                env = prev.clone();
+            }
             entry["envKeys"] = json!(env.keys().collect::<Vec<_>>());
             entry.as_object_mut().unwrap().remove("env");
             secrets.insert(name, Value::Object(env));
@@ -98,11 +90,12 @@ impl App {
     }
 
     pub fn delete_role(&self, id: &str) -> Result<()> {
-        if let Some(ws) = self.db.list_config(WORKSPACE)?.iter().find(|w| {
-            w["members"]
-                .as_array()
-                .is_some_and(|m| m.iter().any(|m| m["role"] == id))
-        }) {
+        if let Some(ws) = self
+            .db
+            .list_config(WORKSPACE)?
+            .iter()
+            .find(|w| w["members"].as_array().is_some_and(|m| m.iter().any(|m| m["role"] == id)))
+        {
             bail!("工作区「{}」正在使用这个角色，请先移除", str_of(ws, "name"));
         }
         let _ = std::fs::remove_file(self.role_secrets_path(id)?);
@@ -133,20 +126,14 @@ impl App {
 
     pub(super) fn write_role_secrets(&self, id: &str, secrets: &Value) -> Result<()> {
         let path = self.role_secrets_path(id)?;
-        if secrets.as_object().is_none_or(|m| {
-            m.values()
-                .all(|v| v.as_object().is_none_or(|e| e.is_empty()))
-        }) {
+        if secrets.as_object().is_none_or(|m| m.values().all(|v| v.as_object().is_none_or(|e| e.is_empty()))) {
             let _ = std::fs::remove_file(&path);
             return Ok(());
         }
         let dir = path.parent().unwrap();
         std::fs::create_dir_all(dir)?;
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(
-            dir.parent().unwrap(),
-            std::fs::Permissions::from_mode(0o700),
-        )?;
+        std::fs::set_permissions(dir.parent().unwrap(), std::fs::Permissions::from_mode(0o700))?;
         write_private(&path, serde_json::to_string_pretty(secrets)?.as_bytes())
     }
 
@@ -328,13 +315,19 @@ mod id_tests {
         for bad in ["../../outside", "a/b", "Upper", "-lead", "x".repeat(41).as_str()] {
             let err = app.save_role(&json!({ "id": bad, "name": "R" })).unwrap_err().to_string();
             assert!(err.contains("不合法"), "role id {bad}: {err}");
-            let err = app.save_workspace(&json!({ "id": bad, "name": "W", "path": dir.to_string_lossy() })).unwrap_err().to_string();
+            let err = app
+                .save_workspace(&json!({ "id": bad, "name": "W", "path": dir.to_string_lossy() }))
+                .unwrap_err()
+                .to_string();
             assert!(err.contains("不合法"), "workspace id {bad}: {err}");
         }
         assert!(app.delete_role("../../outside").is_err());
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep", "nothing outside the secrets folder is removed");
         // An agent's id names the folder its deletion removes.
-        let err = app.save_connection(&json!({ "id": "../x", "kind": "custom", "name": "A", "command": "true" })).unwrap_err().to_string();
+        let err = app
+            .save_connection(&json!({ "id": "../x", "kind": "custom", "name": "A", "command": "true" }))
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("不合法"), "{err}");
         assert!(app.delete_connection("..").is_err());
         assert!(outside.exists(), "deleting an agent never leaves the agents folder");

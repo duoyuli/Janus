@@ -41,15 +41,8 @@ pub struct RuntimeSpec {
 }
 
 pub enum Incoming {
-    Notification {
-        method: String,
-        params: Value,
-    },
-    Request {
-        id: RequestId,
-        method: String,
-        params: Value,
-    },
+    Notification { method: String, params: Value },
+    Request { id: RequestId, method: String, params: Value },
     Closed,
 }
 
@@ -80,10 +73,7 @@ impl AcpConn {
         if let Some(dir) = stderr_log.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(stderr_log)?;
+        let log = std::fs::OpenOptions::new().create(true).append(true).open(stderr_log)?;
         let mut cmd = Command::new(&spec.program);
         cmd.env_clear();
         #[cfg(unix)]
@@ -116,10 +106,7 @@ impl AcpConn {
                 .name("janus")
                 .on_receive_notification(
                     async move |msg: UntypedMessage, _cx| {
-                        let _ = notification_tx.send(Incoming::Notification {
-                            method: msg.method,
-                            params: msg.params,
-                        });
+                        let _ = notification_tx.send(Incoming::Notification { method: msg.method, params: msg.params });
                         Ok::<(), AcpError>(())
                     },
                     agent_client_protocol::on_receive_notification!(),
@@ -129,16 +116,9 @@ impl AcpConn {
                         // The person may answer much later, so hand the responder to the
                         // orchestrator instead of answering inside the dispatch loop.
                         let id = responder.raw_id().clone();
-                        handler_pending
-                            .lock()
-                            .unwrap()
-                            .insert(id.clone(), responder);
+                        handler_pending.lock().unwrap().insert(id.clone(), responder);
                         if request_tx
-                            .send(Incoming::Request {
-                                id: id.clone(),
-                                method: msg.method,
-                                params: msg.params,
-                            })
+                            .send(Incoming::Request { id: id.clone(), method: msg.method, params: msg.params })
                             .is_err()
                         {
                             handler_pending.lock().unwrap().remove(&id);
@@ -199,11 +179,7 @@ impl AcpConn {
             }
             Err(_) => {
                 task.abort();
-                bail!(
-                    "{} 的 ACP initialize 失败：超过 {} 分钟没有响应",
-                    spec.name,
-                    ACP_REQUEST_TIMEOUT.as_secs() / 60
-                );
+                bail!("{} 的 ACP initialize 失败：超过 {} 分钟没有响应", spec.name, ACP_REQUEST_TIMEOUT.as_secs() / 60);
             }
         };
         let conn = AcpConn {
@@ -220,8 +196,7 @@ impl AcpConn {
     }
 
     pub async fn request(&self, method: &str, params: Value) -> Result<Value> {
-        self.request_timeout(method, params, Some(ACP_REQUEST_TIMEOUT))
-            .await
+        self.request_timeout(method, params, Some(ACP_REQUEST_TIMEOUT)).await
     }
 
     /// `None` waits until the agent answers or exits: the caller enforces its own deadline,
@@ -234,9 +209,7 @@ impl AcpConn {
     ) -> Result<Value> {
         let sent = self.cx.send_request(UntypedMessage::new(method, params)?);
         let waited = match timeout {
-            Some(limit) => tokio::time::timeout(limit, sent.block_task())
-                .await
-                .map_err(|_| limit),
+            Some(limit) => tokio::time::timeout(limit, sent.block_task()).await.map_err(|_| limit),
             None => Ok(sent.block_task().await),
         };
         match waited {
@@ -248,9 +221,7 @@ impl AcpConn {
 
     pub async fn respond(&self, id: RequestId, result: Value) -> Result<()> {
         if let Some(responder) = self.pending.lock().unwrap().remove(&id) {
-            responder
-                .respond(result)
-                .map_err(|err| anyhow!("回应 ACP 请求失败：{err}"))?;
+            responder.respond(result).map_err(|err| anyhow!("回应 ACP 请求失败：{err}"))?;
         }
         Ok(())
     }
@@ -259,16 +230,13 @@ impl AcpConn {
         if let Some(responder) = self.pending.lock().unwrap().remove(&id) {
             let mut err = AcpError::method_not_found();
             err.message = message.to_string();
-            responder
-                .respond_with_error(err)
-                .map_err(|err| anyhow!("回应 ACP 请求失败：{err}"))?;
+            responder.respond_with_error(err).map_err(|err| anyhow!("回应 ACP 请求失败：{err}"))?;
         }
         Ok(())
     }
 
     pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
-        self.cx
-            .send_notification(UntypedMessage::new(method, params)?)?;
+        self.cx.send_notification(UntypedMessage::new(method, params)?)?;
         Ok(())
     }
 
@@ -279,15 +247,9 @@ impl AcpConn {
         let mut child = self.child.lock().await;
         #[cfg(unix)]
         if let Some(pid) = child.id() {
-            let _ = tokio::process::Command::new("kill")
-                .args(["-TERM", &format!("-{pid}")])
-                .status()
-                .await;
+            let _ = tokio::process::Command::new("kill").args(["-TERM", &format!("-{pid}")]).status().await;
         }
-        if tokio::time::timeout(std::time::Duration::from_secs(5), child.wait())
-            .await
-            .is_err()
-        {
+        if tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await.is_err() {
             let _ = child.kill().await;
             let _ = child.wait().await;
         }

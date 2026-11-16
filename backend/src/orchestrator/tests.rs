@@ -35,24 +35,45 @@ fn mcp_servers_use_declared_keys_and_keep_values_out_of_the_snapshot() {
     assert_eq!(stdio_only[0]["name"], "local");
 
     let snapshot = serde_json::to_string(&m).unwrap();
-    assert!(!snapshot.contains("env-secret") && !snapshot.contains("header-secret"), "values stay out of the run record: {snapshot}");
+    assert!(
+        !snapshot.contains("env-secret") && !snapshot.contains("header-secret"),
+        "values stay out of the run record: {snapshot}"
+    );
     assert!(snapshot.contains("LOCAL_TOKEN") && snapshot.contains("Authorization"), "definitions and key names remain");
 }
 
 #[test]
 fn task_prompts_carry_the_shared_material() {
     let mut run = test_run(2);
-    let def = TaskDef { id: "T1".into(), title: "t".into(), desc: "d".into(), deps: vec![], accept: vec!["a".into()], assignee: run.team[1].id.clone(), max_attempts: 2, owns: vec![], verifies: None };
+    let def = TaskDef {
+        id: "T1".into(),
+        title: "t".into(),
+        desc: "d".into(),
+        deps: vec![],
+        accept: vec!["a".into()],
+        assignee: run.team[1].id.clone(),
+        max_attempts: 2,
+        owns: vec![],
+        verifies: None,
+    };
     let m = run.team[1].clone();
-    assert!(!task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None).contains("工作区共享资料"), "nothing when there is none");
+    assert!(
+        !task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None).contains("工作区共享资料"),
+        "nothing when there is none"
+    );
     run.brief = "目标用户是独立开发者".into();
     let p = task_prompt(&run, &m, &def, Path::new("/tmp"), &[], &[], false, None);
-    assert!(p.contains("工作区共享资料（用户维护的长期背景，与任务说明冲突时以任务说明为准）：\n目标用户是独立开发者"), "{p}");
+    assert!(
+        p.contains("工作区共享资料（用户维护的长期背景，与任务说明冲突时以任务说明为准）：\n目标用户是独立开发者"),
+        "{p}"
+    );
 }
 
 #[test]
 fn the_leads_suggestions_for_the_shared_material_are_split_off() {
-    let (rest, s) = split_brief_suggestions("完成了。\n\n### 建议更新共享资料：\n1. 定价页在 docs/pricing.md\n* 免费版限 3 个项目\n\n## 风险\n无");
+    let (rest, s) = split_brief_suggestions(
+        "完成了。\n\n### 建议更新共享资料：\n1. 定价页在 docs/pricing.md\n* 免费版限 3 个项目\n\n## 风险\n无",
+    );
     assert_eq!(s, vec!["定价页在 docs/pricing.md", "免费版限 3 个项目"]);
     assert_eq!(rest, "完成了。\n\n## 风险\n无");
     let (rest, s) = split_brief_suggestions("完成了，没有新的事实。");
@@ -78,7 +99,15 @@ fn standing_instructions_pick_the_system_layer_when_there_is_one() {
 
 #[test]
 fn developer_instructions_merge_into_codex_config() {
-    let spec = |env: Vec<(String, String)>| crate::acp::RuntimeSpec { id: "c".into(), kind: "codex".into(), name: "Codex".into(), program: "node".into(), args: vec![], env, pin: None };
+    let spec = |env: Vec<(String, String)>| crate::acp::RuntimeSpec {
+        id: "c".into(),
+        kind: "codex".into(),
+        name: "Codex".into(),
+        program: "node".into(),
+        args: vec![],
+        env,
+        pin: None,
+    };
     let gw = r#"{"model_provider":"janus"}"#.to_string();
     let out = with_developer_instructions(spec(vec![("CODEX_CONFIG".into(), gw)]), "规则");
     let cfg: Value = serde_json::from_str(&out.env[0].1).unwrap();
@@ -93,8 +122,16 @@ fn developer_instructions_merge_into_codex_config() {
 #[test]
 fn the_lead_summary_joins_the_last_reply_back_together() {
     let e = |seq: i64, kind: &str, text: &str| Event {
-        run_id: "r".into(), seq, ts: 0, kind: kind.into(), actor: "lead".into(), to: None, task: None, attempt: None,
-        text: text.into(), data: Some(json!({ "text": text })),
+        run_id: "r".into(),
+        seq,
+        ts: 0,
+        kind: kind.into(),
+        actor: "lead".into(),
+        to: None,
+        task: None,
+        attempt: None,
+        text: text.into(),
+        data: Some(json!({ "text": text })),
     };
     let evs = vec![
         e(1, "agent.message", "先看看代码。"),
@@ -117,10 +154,7 @@ fn the_lead_summary_joins_the_last_reply_back_together() {
 #[test]
 fn claude_sessions_allow_only_the_board_tools() {
     let meta = session_meta();
-    assert_eq!(
-        meta["claudeCode"]["options"]["settings"]["permissions"]["allow"],
-        json!(["mcp__janus"])
-    );
+    assert_eq!(meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
 }
 
 /// Both official adapters report /goal under `_meta.jetbrains.air`.
@@ -150,7 +184,10 @@ fn long_results_are_clipped_on_the_board() {
     let edit = json!({ "kind": "edit", "locations": [{ "path": "/w/src/a.rs" }, { "path": "/w/src/a.rs" }] });
     assert_eq!(edited_paths(&edit, Path::new("/w")), ["src/a.rs"]);
     assert!(edited_paths(&json!({ "kind": "read", "locations": [{ "path": "/w/a" }] }), Path::new("/w")).is_empty());
-    assert_eq!(edited_paths(&json!({ "kind": "edit", "rawInput": { "file_path": "/w/b.md" } }), Path::new("/w")), ["b.md"]);
+    assert_eq!(
+        edited_paths(&json!({ "kind": "edit", "rawInput": { "file_path": "/w/b.md" } }), Path::new("/w")),
+        ["b.md"]
+    );
 }
 
 fn test_run(team_size: usize) -> Run {
@@ -192,10 +229,7 @@ fn test_run(team_size: usize) -> Run {
         seq: AtomicI64::new(0),
         emitting: StdMutex::new(()),
         deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
-        st: StdMutex::new(RunState {
-            status: RunStatus::Planning,
-            ..Default::default()
-        }),
+        st: StdMutex::new(RunState { status: RunStatus::Planning, ..Default::default() }),
         wake: Notify::new(),
         driving: Default::default(),
         lead_nudge: Notify::new(),
@@ -248,7 +282,18 @@ fn an_event_that_was_not_written_is_not_broadcast() {
     let app = test_app(&dir);
     app.db.insert_run("r1", "g", "/tmp", &json!({}), 1).unwrap();
     let mut rx = app.tx.subscribe();
-    let event = |text: &str| Event { run_id: "r1".into(), seq: 1, ts: 1, kind: "run.created".into(), actor: "user".into(), to: None, task: None, attempt: None, text: text.into(), data: None };
+    let event = |text: &str| Event {
+        run_id: "r1".into(),
+        seq: 1,
+        ts: 1,
+        kind: "run.created".into(),
+        actor: "user".into(),
+        to: None,
+        task: None,
+        attempt: None,
+        text: text.into(),
+        data: None,
+    };
     assert!(app.store(event("written")));
     assert_eq!(rx.try_recv().unwrap().text, "written");
     // The same seq again: the database refuses it, and nobody hears of it.

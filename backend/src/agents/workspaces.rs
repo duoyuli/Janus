@@ -8,9 +8,7 @@ impl App {
     }
 
     pub fn workspace(&self, id: &str) -> Result<Value> {
-        self.db
-            .get_config(WORKSPACE, id)?
-            .ok_or_else(|| anyhow!("执行环境 {id} 不存在"))
+        self.db.get_config(WORKSPACE, id)?.ok_or_else(|| anyhow!("执行环境 {id} 不存在"))
     }
 
     // @project-doc docs/domains/agents_and_roles.md#workspaces
@@ -40,7 +38,10 @@ impl App {
             bail!("请从成员中选择一个主控");
         }
         let lead_role = self.db.get_config(ROLE, lead)?.unwrap_or_default();
-        let lead_kind = self.connection(str_of(&lead_role, "connection")).map(|c| str_of(&c, "base").to_string()).unwrap_or_default();
+        let lead_kind = self
+            .connection(str_of(&lead_role, "connection"))
+            .map(|c| str_of(&c, "base").to_string())
+            .unwrap_or_default();
         if !crate::orchestrator::lead_capable(&lead_kind) {
             bail!("主控只能是 Claude Code 或 Codex 的角色（需要 /goal），「{}」不是", str_of(&lead_role, "name"));
         }
@@ -48,10 +49,7 @@ impl App {
             bail!("除了主控，至少还需要一名成员");
         }
         let name = match str_of(body, "name") {
-            "" => path
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "workspace".into()),
+            "" => path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "workspace".into()),
             n => n.to_string(),
         };
         let brief = str_of(body, "brief").trim();

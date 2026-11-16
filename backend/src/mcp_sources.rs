@@ -240,9 +240,7 @@ pub fn assign_keys(found: &[FoundServer], before: &[Value]) -> Vec<(String, Foun
         .zip(kept)
         .map(|(server, kept)| {
             let key = kept.unwrap_or_else(|| {
-                let base = slug(&server.title)
-                    .filter(|k| !reserved_mcp_name(k))
-                    .unwrap_or_else(|| "mcp".into());
+                let base = slug(&server.title).filter(|k| !reserved_mcp_name(k)).unwrap_or_else(|| "mcp".into());
                 let key = (1..)
                     .map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
                     .find(|k| !taken.contains(k))
@@ -295,10 +293,7 @@ fn read_secret(path: &Path) -> Value {
 
 fn set_keys(secret: &Value, field: &str, keys: &[Value]) -> Vec<Value> {
     keys.iter()
-        .filter(|k| {
-            k.as_str()
-                .is_some_and(|k| secret[field][k].as_str().is_some_and(|v| !v.is_empty()))
-        })
+        .filter(|k| k.as_str().is_some_and(|k| secret[field][k].as_str().is_some_and(|v| !v.is_empty())))
         .cloned()
         .collect()
 }
@@ -351,8 +346,10 @@ impl App {
                 v["id"] = json!(format!("{id}/{key}"));
                 v["sourceId"] = json!(id);
                 v["source"] = json!(str_of(src, "repo"));
-                v["envSet"] = json!(set_keys(&secret, "env", s["envKeys"].as_array().map(Vec::as_slice).unwrap_or(&[])));
-                v["headerSet"] = json!(set_keys(&secret, "headers", s["headerKeys"].as_array().map(Vec::as_slice).unwrap_or(&[])));
+                v["envSet"] =
+                    json!(set_keys(&secret, "env", s["envKeys"].as_array().map(Vec::as_slice).unwrap_or(&[])));
+                v["headerSet"] =
+                    json!(set_keys(&secret, "headers", s["headerKeys"].as_array().map(Vec::as_slice).unwrap_or(&[])));
                 Some(v)
             })
             .collect()
@@ -537,11 +534,8 @@ impl App {
         let result: Result<(Value, Vec<(String, FoundServer)>)> = (|| {
             let (found, warnings) = scan(&fresh, &fresh.join(str_of(&src, "path")));
             if found.is_empty() {
-                let why = warnings
-                    .first()
-                    .and_then(|w| w["error"].as_str())
-                    .map(|e| format!("：{e}"))
-                    .unwrap_or_default();
+                let why =
+                    warnings.first().and_then(|w| w["error"].as_str()).map(|e| format!("：{e}")).unwrap_or_default();
                 bail!("这个位置没有找到可用的 mcp.json 或 .mcp.json{why}");
             }
             let before = src["servers"].as_array().cloned().unwrap_or_default();
@@ -666,7 +660,8 @@ mod tests {
         assert_eq!(docs.headers, vec![("Authorization".into(), "Bearer t".into())]);
         assert_eq!(warnings.len(), 1, "SSE is reported, not used");
 
-        let vscode = r#"{ "servers": { "fetch": { "type": "stdio", "command": "uvx", "args": ["mcp-server-fetch"] } } }"#;
+        let vscode =
+            r#"{ "servers": { "fetch": { "type": "stdio", "command": "uvx", "args": ["mcp-server-fetch"] } } }"#;
         let (found, warnings) = parse_manifest(vscode, ".vscode/mcp.json").unwrap();
         assert!(warnings.is_empty());
         assert_eq!(found[0].command, "uvx");
@@ -689,7 +684,8 @@ mod tests {
             headers: vec![],
             description: String::new(),
         };
-        let first = assign_keys(&[server("a/mcp.json", "fetch"), server("b/mcp.json", "fetch"), server("", "My Tool")], &[]);
+        let first =
+            assign_keys(&[server("a/mcp.json", "fetch"), server("b/mcp.json", "fetch"), server("", "My Tool")], &[]);
         let keys: Vec<&str> = first.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(keys, ["fetch", "fetch-2", "my-tool"]);
         // b's fetch keeps fetch-2 although a's is gone and a new fetch appears.
@@ -744,7 +740,8 @@ mod tests {
     }
 
     fn source_json(app: &App, id: &str) -> Value {
-        serde_json::from_str(&std::fs::read_to_string(app.mcp_sources_root().join(id).join("source.json")).unwrap()).unwrap()
+        serde_json::from_str(&std::fs::read_to_string(app.mcp_sources_root().join(id).join("source.json")).unwrap())
+            .unwrap()
     }
 
     #[tokio::test]
@@ -761,7 +758,10 @@ mod tests {
                 }}}}"#
             ),
         );
-        manifest(&upstream.join(".vscode"), r#"{"servers":{"fetch":{"type":"stdio","command":"uvx","args":["mcp-server-fetch"]}}}"#);
+        manifest(
+            &upstream.join(".vscode"),
+            r#"{"servers":{"fetch":{"type":"stdio","command":"uvx","args":["mcp-server-fetch"]}}}"#,
+        );
         std::fs::create_dir_all(upstream.join("node_modules/x")).unwrap();
         std::fs::write(upstream.join("node_modules/x/mcp.json"), r#"{"mcpServers":{"nope":{"command":"x"}}}"#).unwrap();
         sh(&upstream, &["init", "-q"]);
@@ -774,7 +774,11 @@ mod tests {
         let id = src["id"].as_str().unwrap().to_string();
         assert_eq!(id, "acme-tools");
         let ids: Vec<&str> = src["servers"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["acme-tools/fetch", "acme-tools/docs", "acme-tools/filesystem"], "sorted by manifest path, node_modules skipped");
+        assert_eq!(
+            ids,
+            ["acme-tools/fetch", "acme-tools/docs", "acme-tools/filesystem"],
+            "sorted by manifest path, node_modules skipped"
+        );
         assert!(app.add_mcp_source_at(at(), &url).await.is_err(), "the same repository twice");
 
         // Values only in the 0600 secrets file; the listed source and source.json carry key names.
@@ -787,7 +791,8 @@ mod tests {
         assert!(!listed.contains(TOKEN), "the API never returns values: {listed}");
         assert!(!source_json(&app, &id).to_string().contains(TOKEN), "source.json never holds values");
         let listed = app.list_mcp_sources();
-        let server = listed["sources"][0]["servers"].as_array().unwrap().iter().find(|s| s["key"] == "filesystem").unwrap();
+        let server =
+            listed["sources"][0]["servers"].as_array().unwrap().iter().find(|s| s["key"] == "filesystem").unwrap();
         assert_eq!(server["envKeys"], json!(["ROOT", "TOKEN"]), "declared keys only");
         assert_eq!(server["envSet"], json!(["ROOT", "TOKEN"]));
         assert_eq!(app.mcp_resource("acme-tools/filesystem").unwrap()["name"], "filesystem");
@@ -796,7 +801,12 @@ mod tests {
 
         // A role mounts the resource and keeps its own hand-written MCP.
         app.db
-            .put_config("connection", "fake", &json!({ "id": "fake", "kind": "custom", "base": "custom", "name": "Fake", "command": "true" }), now_ms())
+            .put_config(
+                "connection",
+                "fake",
+                &json!({ "id": "fake", "kind": "custom", "base": "custom", "name": "Fake", "command": "true" }),
+                now_ms(),
+            )
             .unwrap();
         let role = app
             .save_role(&json!({
@@ -818,16 +828,27 @@ mod tests {
         assert_eq!(member.mcp_env["filesystem"]["TOKEN"], TOKEN);
         assert_eq!(member.mcp_env["local"]["LOCAL_TOKEN"], LOCAL_TOKEN);
         let snapshot = serde_json::to_string(member).unwrap();
-        assert!(!snapshot.contains(TOKEN) && !snapshot.contains(LOCAL_TOKEN), "the run record holds no values: {snapshot}");
+        assert!(
+            !snapshot.contains(TOKEN) && !snapshot.contains(LOCAL_TOKEN),
+            "the run record holds no values: {snapshot}"
+        );
         assert!(app.delete_mcp_source(&id).unwrap_err().to_string().contains("审查"));
 
         // Two servers with one name cannot be mounted together.
-        app.db.put_config(ROLE, "dup", &json!({ "id": "dup", "name": "dup", "mcp": [{ "name": "fetch", "command": "x" }] }), now_ms()).unwrap();
+        app.db
+            .put_config(
+                ROLE,
+                "dup",
+                &json!({ "id": "dup", "name": "dup", "mcp": [{ "name": "fetch", "command": "x" }] }),
+                now_ms(),
+            )
+            .unwrap();
         let err = app.save_role(&json!({ "id": "dup", "name": "dup", "mcpRefs": ["acme-tools/fetch"], "mcp": [{ "name": "fetch", "command": "x" }] })).unwrap_err();
         assert!(err.to_string().contains("重复"), "{err}");
 
         // Setting a value through the API updates the secret and never returns it.
-        let updated = app.write_mcp_secret("acme-tools/filesystem", &json!({ "env": { "TOKEN": "rotated-value" } })).unwrap();
+        let updated =
+            app.write_mcp_secret("acme-tools/filesystem", &json!({ "env": { "TOKEN": "rotated-value" } })).unwrap();
         assert_eq!(updated["envSet"], json!(["ROOT", "TOKEN"]));
         assert!(!serde_json::to_string(&updated).unwrap().contains("rotated"));
         assert_eq!(app.mcp_secret("acme-tools/filesystem")["env"]["TOKEN"], "rotated-value");
@@ -837,21 +858,29 @@ mod tests {
 
         // Upstream moves on: docs goes away, a new server appears, filesystem keeps its id.
         std::fs::remove_dir_all(upstream.join("servers")).unwrap();
-        manifest(&upstream.join("servers"), r#"{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@mcp/fs"],"env":{"ROOT":"/tmp","TOKEN":"new-token"}},"search":{"command":"search-mcp"}}}"#);
+        manifest(
+            &upstream.join("servers"),
+            r#"{"mcpServers":{"filesystem":{"command":"npx","args":["-y","@mcp/fs"],"env":{"ROOT":"/tmp","TOKEN":"new-token"}},"search":{"command":"search-mcp"}}}"#,
+        );
         commit(&upstream, "next");
         let checked = app.check_mcp_sources().await;
         assert_eq!(checked["sources"][0]["updateAvailable"], true, "{checked}");
         let src = app.update_mcp_source(&id).await.unwrap();
         assert_eq!(src["updateAvailable"], false);
         let ids: Vec<&str> = src["servers"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["acme-tools/fetch", "acme-tools/filesystem", "acme-tools/search"], "the untouched .vscode manifest stays");
+        assert_eq!(
+            ids,
+            ["acme-tools/fetch", "acme-tools/filesystem", "acme-tools/search"],
+            "the untouched .vscode manifest stays"
+        );
         assert_eq!(app.mcp_secret("acme-tools/filesystem")["env"]["ROOT"], "/tmp", "saved values win on update");
         assert!(app.mcp_secret_path(&id, "docs").exists(), "a removed server's values stay for runs already started");
 
         // The role keeps the old hand-written MCP after saving; a stale ref is dropped like a skill.
         let role = app.db.get_config(ROLE, "r").unwrap().unwrap();
         assert_eq!(role["mcp"][0]["name"], "local");
-        let saved = app.save_role(&json!({ "id": "r", "name": "审查", "mcpRefs": ["acme-tools/docs"], "mcp": [] })).unwrap();
+        let saved =
+            app.save_role(&json!({ "id": "r", "name": "审查", "mcpRefs": ["acme-tools/docs"], "mcp": [] })).unwrap();
         assert_eq!(saved["mcpRefs"], json!([]), "a resource an update removed is not kept");
 
         app.db.delete_config(ROLE, "r").unwrap();
@@ -923,7 +952,13 @@ mod tests {
             .unwrap();
 
         // waiting_input is not over: the person may still extend the budget and continue the run.
-        for status in [RunStatus::Planning, RunStatus::Running, RunStatus::WaitingInput, RunStatus::Interrupted, RunStatus::Failed] {
+        for status in [
+            RunStatus::Planning,
+            RunStatus::Running,
+            RunStatus::WaitingInput,
+            RunStatus::Interrupted,
+            RunStatus::Failed,
+        ] {
             app.db.set_run_status("r-wait", status).unwrap();
             let err = app.delete_mcp_source(&id).unwrap_err().to_string();
             assert!(err.contains("r-wait"), "{}: {err}", status.as_str());
@@ -963,7 +998,10 @@ mod tests {
         assert!(err.contains("正在拉取"), "{err}");
         assert!(app.read_mcp_source(&a).is_some(), "a is still there");
         // b is not held up by a.
-        tokio::time::timeout(Duration::from_secs(30), app.update_mcp_source(&b)).await.expect("b does not wait for a").unwrap();
+        tokio::time::timeout(Duration::from_secs(30), app.update_mcp_source(&b))
+            .await
+            .expect("b does not wait for a")
+            .unwrap();
         app.delete_mcp_source(&b).unwrap();
 
         drop(held);

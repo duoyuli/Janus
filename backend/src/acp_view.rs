@@ -5,7 +5,7 @@
 //! `orchestrator::on_update` only calls in here.
 // @project-doc docs/interfaces/acp_integration.md#session_view
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -64,13 +64,19 @@ pub fn event_for(u: &Value, turn: &mut Turn) -> Option<Shown> {
         }
         "current_mode_update" => {
             let mode = u["currentModeId"].as_str()?;
-            Some(("session.control", format!("模式切换为 {mode}"), json!({ "id": "mode", "value": mode, "via": "mode" })))
+            Some((
+                "session.control",
+                format!("模式切换为 {mode}"),
+                json!({ "id": "mode", "value": mode, "via": "mode" }),
+            ))
         }
         "config_option_update" => {
             let controls = crate::agents::session_options(&json!({ "configOptions": u["configOptions"] }));
             Some(("session.controls", "会话选项已更新".into(), controls))
         }
-        "usage_update" => Some(("session.usage", String::new(), json!({ "used": u["used"], "size": u["size"], "cost": u["cost"] }))),
+        "usage_update" => {
+            Some(("session.usage", String::new(), json!({ "used": u["used"], "size": u["size"], "cost": u["cost"] })))
+        }
         _ => None,
     }
 }
@@ -221,19 +227,34 @@ mod tests {
         assert_eq!(data["commands"][0]["name"], "compact");
         assert_eq!(data["commands"][1]["hint"], "目标");
         assert!(event_for(&cmds, &mut t).is_none());
-        assert!(event_for(&json!({ "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "想一想" } }), &mut t).is_none());
+        assert!(
+            event_for(
+                &json!({ "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "想一想" } }),
+                &mut t
+            )
+            .is_none()
+        );
         assert_eq!(t.thought, "想一想");
-        let (kind, _, data) = event_for(&json!({ "sessionUpdate": "current_mode_update", "currentModeId": "plan" }), &mut t).unwrap();
+        let (kind, _, data) =
+            event_for(&json!({ "sessionUpdate": "current_mode_update", "currentModeId": "plan" }), &mut t).unwrap();
         assert_eq!((kind, &data["value"]), ("session.control", &json!("plan")));
     }
 
     #[test]
     fn prompt_usage_keeps_every_count_and_the_quota_by_model() {
         assert!(prompt_usage(&json!({ "stopReason": "end_turn" })).is_none());
-        assert!(prompt_usage(&json!({ "stopReason": "end_turn", "usage": null })).is_none(), "Codex sends null when it has no count");
-        let (kind, _, data) = prompt_usage(&json!({ "usage": { "inputTokens": 10, "outputTokens": 2, "totalTokens": 12 } })).unwrap();
+        assert!(
+            prompt_usage(&json!({ "stopReason": "end_turn", "usage": null })).is_none(),
+            "Codex sends null when it has no count"
+        );
+        let (kind, _, data) =
+            prompt_usage(&json!({ "usage": { "inputTokens": 10, "outputTokens": 2, "totalTokens": 12 } })).unwrap();
         assert_eq!(kind, "session.usage");
-        assert_eq!((data["totalTokens"].as_i64(), data["cachedWriteTokens"].is_null()), (Some(12), true), "a missing count is null, not 0");
+        assert_eq!(
+            (data["totalTokens"].as_i64(), data["cachedWriteTokens"].is_null()),
+            (Some(12), true),
+            "a missing count is null, not 0"
+        );
         assert!(data.get("models").is_none());
         // The Claude Code adapter: `usage` is the main loop; the quota rows add a subagent.
         let claude = json!({
@@ -250,15 +271,25 @@ mod tests {
         let (_, _, data) = prompt_usage(&claude).unwrap();
         assert_eq!((data["cachedReadTokens"].as_i64(), data["cachedWriteTokens"].as_i64()), (Some(5000), Some(100)));
         assert_eq!(data["models"].as_array().unwrap().len(), 2);
-        assert_eq!((data["models"][1]["model"].as_str(), data["models"][1]["totalTokens"].as_i64()), (Some("claude-haiku"), Some(900)));
-        assert_eq!(data["models"][0]["cachedReadTokens"].as_i64(), Some(5000), "cachedInputTokens is read as cache reads");
+        assert_eq!(
+            (data["models"][1]["model"].as_str(), data["models"][1]["totalTokens"].as_i64()),
+            (Some("claude-haiku"), Some(900))
+        );
+        assert_eq!(
+            data["models"][0]["cachedReadTokens"].as_i64(),
+            Some(5000),
+            "cachedInputTokens is read as cache reads"
+        );
         // Codex spells cache writes and reasoning its own way; `usage` may be null while the quota has rows.
         let codex = json!({ "usage": null, "_meta": { "quota": { "token_count": null, "model_usage": [
             { "model": "gpt-5", "token_count": { "totalTokens": 3000, "inputTokens": 500, "cachedInputTokens": 2000, "cacheWriteInputTokens": 0, "outputTokens": 500, "reasoningOutputTokens": 200 } }
         ] } } });
         let (_, _, data) = prompt_usage(&codex).unwrap();
         assert!(data["totalTokens"].is_null());
-        assert_eq!((data["models"][0]["thoughtTokens"].as_i64(), data["models"][0]["cachedWriteTokens"].as_i64()), (Some(200), Some(0)));
+        assert_eq!(
+            (data["models"][0]["thoughtTokens"].as_i64(), data["models"][0]["cachedWriteTokens"].as_i64()),
+            (Some(200), Some(0))
+        );
     }
 
     #[test]

@@ -133,9 +133,7 @@ pub fn parse_env(text: &str) -> Result<serde_json::Map<String, Value>> {
             continue;
         }
         let line = line.strip_prefix("export ").map(str::trim).unwrap_or(line);
-        let (k, v) = line
-            .split_once('=')
-            .ok_or_else(|| anyhow!("环境变量第 {} 行缺少 =", i + 1))?;
+        let (k, v) = line.split_once('=').ok_or_else(|| anyhow!("环境变量第 {} 行缺少 =", i + 1))?;
         let k = k.trim();
         if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             bail!("环境变量第 {} 行的名字无效：{k}", i + 1);

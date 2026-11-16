@@ -55,20 +55,12 @@ impl App {
             // next tool call: an agent may say what it is about to do, then write a long file for minutes.
             let unshown = out.len() > flushed || !turn.thought.is_empty();
             let quiet = async move {
-                if unshown {
-                    tokio::time::sleep(MESSAGE_QUIET).await
-                } else {
-                    std::future::pending().await
-                }
+                if unshown { tokio::time::sleep(MESSAGE_QUIET).await } else { std::future::pending().await }
             };
             let settle_wait = following && turn.tools.is_empty() && asks < crate::goal_settle::ASKS;
             let settle_at = heard + self.cfg.goal_settle;
             let settle = async move {
-                if settle_wait {
-                    tokio::time::sleep_until(settle_at).await
-                } else {
-                    std::future::pending().await
-                }
+                if settle_wait { tokio::time::sleep_until(settle_at).await } else { std::future::pending().await }
             };
             tokio::select! {
                 _ = settle => {
@@ -230,21 +222,14 @@ impl App {
         cmd: Steer,
         ctx: &Ctx<'_>,
     ) -> Result<()> {
-        let (agent, task, n) = (
-            ctx.agent,
-            ctx.task.unwrap_or_default(),
-            ctx.attempt.unwrap_or(0),
-        );
+        let (agent, task, n) = (ctx.agent, ctx.task.unwrap_or_default(), ctx.attempt.unwrap_or(0));
         match cmd {
             Steer::Message(m) => {
                 // Mid-turn steering joins the running turn; without it the message waits for the
                 // turn to end. A short timeout: while this waits, the session loop answers nothing
                 // else, and the agent may itself be waiting for us (for example on a permission
                 // request).
-                let injected = c.steering
-                    && self
-                        .steer_into_turn(run, conn, sid, &m.text)
-                        .await;
+                let injected = c.steering && self.steer_into_turn(run, conn, sid, &m.text).await;
                 self.route_message(run, agent, task, n, &m.id, if injected { "steer" } else { "queued" });
                 if injected {
                     self.delivered_steer(run, ctx, &m.id);
@@ -253,10 +238,7 @@ impl App {
                 }
             }
             Steer::Redirect(m) => {
-                let injected = c.steering
-                    && self
-                        .steer_into_turn(run, conn, sid, &m.text)
-                        .await;
+                let injected = c.steering && self.steer_into_turn(run, conn, sid, &m.text).await;
                 if injected {
                     self.route_message(run, agent, task, n, &m.id, "steer");
                     self.delivered_steer(run, ctx, &m.id);
@@ -273,8 +255,7 @@ impl App {
             }
             Steer::Interrupt | Steer::Finish => {
                 let finish = matches!(cmd, Steer::Finish);
-                conn.notify("session/cancel", json!({ "sessionId": sid }))
-                    .await?;
+                conn.notify("session/cancel", json!({ "sessionId": sid })).await?;
                 c.interrupted = true;
                 if finish {
                     c.finish = true;
@@ -283,7 +264,10 @@ impl App {
                     run.set_human(watch_key(ctx), n, true);
                 }
                 let text = if finish {
-                    format!("停止 {} 这一轮，并以当前结果完成任务", run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent))
+                    format!(
+                        "停止 {} 这一轮，并以当前结果完成任务",
+                        run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)
+                    )
                 } else {
                     format!("打断 {} 这一轮，转为人工接管", run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent))
                 };
@@ -305,7 +289,10 @@ impl App {
                         ev(
                             "control.taken",
                             "user",
-                            format!("接管 {} 的会话：这一轮结束后等你的消息", run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)),
+                            format!(
+                                "接管 {} 的会话：这一轮结束后等你的消息",
+                                run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)
+                            ),
                         )
                         .task(task)
                         .attempt(n)
@@ -314,8 +301,18 @@ impl App {
                 }
             }
             Steer::Control(id, value, via) => {
-                if let Err(err) = self.set_control(run, conn, sid, ControlChange { id: &id, value: &value, via: &via }, ctx).await {
-                    self.show(run, ("session.control", format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)), json!({ "id": id, "failed": true })), ctx);
+                if let Err(err) =
+                    self.set_control(run, conn, sid, ControlChange { id: &id, value: &value, via: &via }, ctx).await
+                {
+                    self.show(
+                        run,
+                        (
+                            "session.control",
+                            format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)),
+                            json!({ "id": id, "failed": true }),
+                        ),
+                        ctx,
+                    );
                 }
             }
             Steer::Release => {
@@ -327,7 +324,10 @@ impl App {
                         ev(
                             "control.released",
                             "user",
-                            format!("交还托管：{} 继续自主完成任务", run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)),
+                            format!(
+                                "交还托管：{} 继续自主完成任务",
+                                run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)
+                            ),
                         )
                         .task(task)
                         .attempt(n)
@@ -349,8 +349,7 @@ impl App {
         if raw.trim().is_empty() {
             return;
         }
-        let mut e = ev("agent.message", ctx.agent, short(raw.trim(), 80))
-            .data(json!({ "text": short(raw, 8000) }));
+        let mut e = ev("agent.message", ctx.agent, short(raw.trim(), 80)).data(json!({ "text": short(raw, 8000) }));
         if let Some(t) = ctx.task {
             e = e.task(t);
         }
@@ -394,30 +393,54 @@ impl App {
                 .into_iter()
                 .filter_map(|(other, common)| {
                     let (a, b) = if task < other.as_str() { (task, other.as_str()) } else { (other.as_str(), task) };
-                    let fresh: Vec<String> = common.into_iter().filter(|p| st.traces.first_report("same", a, b, p)).collect();
+                    let fresh: Vec<String> =
+                        common.into_iter().filter(|p| st.traces.first_report("same", a, b, p)).collect();
                     (!fresh.is_empty()).then_some((other, fresh))
                 })
                 .collect();
             let owned: Vec<(String, Vec<String>)> = owned
                 .into_iter()
                 .filter_map(|(other, files)| {
-                    let fresh: Vec<String> = files.into_iter().filter(|p| st.traces.first_report("owned", task, &other, p)).collect();
+                    let fresh: Vec<String> =
+                        files.into_iter().filter(|p| st.traces.first_report("owned", task, &other, p)).collect();
                     (!fresh.is_empty()).then_some((other, fresh))
                 })
                 .collect();
             (shared, owned)
         };
-        let name = |id: &str| run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == id).and_then(|t| run.member(&t.agent)).map(|m| m.name.clone()).unwrap_or_default();
+        let name = |id: &str| {
+            run.st
+                .lock()
+                .unwrap()
+                .tasks
+                .iter()
+                .find(|t| t.def.id == id)
+                .and_then(|t| run.member(&t.agent))
+                .map(|m| m.name.clone())
+                .unwrap_or_default()
+        };
         for (other, files) in shared {
             let list = files.join("、");
-            self.emit(run, ev("task.conflict", "janus", format!("{task} 和 {other} 都改了 {}", short(&list, 80))).task(task).to("lead").data(json!({ "other": other, "paths": files })));
+            self.emit(
+                run,
+                ev("task.conflict", "janus", format!("{task} 和 {other} 都改了 {}", short(&list, 80)))
+                    .task(task)
+                    .to("lead")
+                    .data(json!({ "other": other, "paths": files })),
+            );
             for (me, them) in [(task, other.as_str()), (other.as_str(), task)] {
                 self.notify(run, me, &format!("[Janus 提醒] 任务 {them}（{}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时用 janus.board_post 写一条 blocker 告诉主控。", name(them)));
             }
         }
         for (other, files) in owned {
             let list = files.join("、");
-            self.emit(run, ev("task.conflict", "janus", format!("{task} 改了 {other} 负责的 {}", short(&list, 80))).task(task).to("lead").data(json!({ "other": other, "paths": files, "owned": true })));
+            self.emit(
+                run,
+                ev("task.conflict", "janus", format!("{task} 改了 {other} 负责的 {}", short(&list, 80)))
+                    .task(task)
+                    .to("lead")
+                    .data(json!({ "other": other, "paths": files, "owned": true })),
+            );
             self.notify(run, task, &format!("[Janus 提醒] {list} 归任务 {other}（{}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，用 janus.board_post 写一条 blocker 说明原因，由主控协调。", name(&other)));
         }
     }
@@ -454,8 +477,20 @@ impl App {
         // The board (or, for the lead, the person) stops seeing the stall once the agent moves again.
         if quiet == Some(true) {
             match ctx.task {
-                Some(task) => self.emit(run, ev("task.stalled", "janus", format!("{task} 又有动静了")).task(task).attempt(n).to("lead").data(json!({ "reason": "idle", "resolved": true }))),
-                None => self.emit(run, ev("lead.stalled", "janus", "主控又有动静了").to("user").data(json!({ "reason": "idle", "resolved": true }))),
+                Some(task) => self.emit(
+                    run,
+                    ev("task.stalled", "janus", format!("{task} 又有动静了"))
+                        .task(task)
+                        .attempt(n)
+                        .to("lead")
+                        .data(json!({ "reason": "idle", "resolved": true })),
+                ),
+                None => self.emit(
+                    run,
+                    ev("lead.stalled", "janus", "主控又有动静了")
+                        .to("user")
+                        .data(json!({ "reason": "idle", "resolved": true })),
+                ),
             };
         }
         // The /goal state comes as session info, { goal: { objective, status } } or null once
@@ -466,11 +501,19 @@ impl App {
                 let goal = goal_meta.unwrap();
                 let status = goal["status"].as_str().map(str::to_owned);
                 run.st.lock().unwrap().goal_status = status.clone();
-                self.emit(run, ev("goal.status", ctx.agent, match status.as_deref() {
-                    Some("active") => "目标进行中".to_string(),
-                    Some(other) => format!("目标状态：{other}"),
-                    None => "目标已清除".to_string(),
-                }).data(json!({ "status": status, "objective": goal["objective"] })));
+                self.emit(
+                    run,
+                    ev(
+                        "goal.status",
+                        ctx.agent,
+                        match status.as_deref() {
+                            Some("active") => "目标进行中".to_string(),
+                            Some(other) => format!("目标状态：{other}"),
+                            None => "目标已清除".to_string(),
+                        },
+                    )
+                    .data(json!({ "status": status, "objective": goal["objective"] })),
+                );
             }
             "agent_message_chunk" => {
                 if let Some(t) = u["content"]["text"].as_str() {
@@ -485,15 +528,7 @@ impl App {
                 }
                 let id = u["toolCallId"].as_str().unwrap_or("").to_string();
                 let entry = turn.tools.entry(id.clone()).or_insert_with(|| json!({}));
-                for key in [
-                    "title",
-                    "kind",
-                    "rawInput",
-                    "rawOutput",
-                    "content",
-                    "status",
-                    "locations",
-                ] {
+                for key in ["title", "kind", "rawInput", "rawOutput", "content", "status", "locations"] {
                     if !u[key].is_null() {
                         entry[key] = u[key].clone();
                     }
@@ -556,8 +591,7 @@ impl App {
                         _ if title.contains("test") || title.contains("测试") => AgentPhase::RunningTest,
                         _ => AgentPhase::RunningTool,
                     };
-                    let mut e = ev("agent.status", ctx.agent, short(&title, 80))
-                        .data(json!({ "phase": phase }));
+                    let mut e = ev("agent.status", ctx.agent, short(&title, 80)).data(json!({ "phase": phase }));
                     if let Some(t) = ctx.task {
                         e = e.task(t);
                     }
@@ -604,14 +638,42 @@ impl App {
     /// Switch one of the session's controls while it is open: an ACP session mode, or a config
     /// option (the model, the effort, a permission mode). The agent's answer is the new state.
     // @project-doc docs/interfaces/acp_integration.md#session_controls
-    pub(super) async fn set_control(&self, run: &Run, conn: &AcpConn, sid: &str, change: ControlChange<'_>, ctx: &Ctx<'_>) -> Result<()> {
+    pub(super) async fn set_control(
+        &self,
+        run: &Run,
+        conn: &AcpConn,
+        sid: &str,
+        change: ControlChange<'_>,
+        ctx: &Ctx<'_>,
+    ) -> Result<()> {
         let ControlChange { id, value, via } = change;
         if via == "mode" {
             conn.request("session/set_mode", json!({ "sessionId": sid, "modeId": value })).await?;
-            self.show(run, ("session.control", format!("你把模式切换为 {}", value.as_str().unwrap_or_default()), json!({ "id": id, "value": value, "via": "mode", "by": "user" })), ctx);
+            self.show(
+                run,
+                (
+                    "session.control",
+                    format!("你把模式切换为 {}", value.as_str().unwrap_or_default()),
+                    json!({ "id": id, "value": value, "via": "mode", "by": "user" }),
+                ),
+                ctx,
+            );
         } else {
-            let r = conn.request("session/set_config_option", json!({ "sessionId": sid, "configId": id, "value": value })).await?;
-            self.show(run, ("session.control", format!("你把 {id} 切换为 {}", value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string())), json!({ "id": id, "value": value, "via": "config", "by": "user" })), ctx);
+            let r = conn
+                .request("session/set_config_option", json!({ "sessionId": sid, "configId": id, "value": value }))
+                .await?;
+            self.show(
+                run,
+                (
+                    "session.control",
+                    format!(
+                        "你把 {id} 切换为 {}",
+                        value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string())
+                    ),
+                    json!({ "id": id, "value": value, "via": "config", "by": "user" }),
+                ),
+                ctx,
+            );
             if r["configOptions"].is_array() {
                 self.show(run, ("session.controls", "会话选项已更新".into(), crate::agents::session_options(&r)), ctx);
             }
@@ -650,11 +712,7 @@ impl App {
         };
         let allow = pick("allow_once")
             .or_else(|| pick("allow"))
-            .or_else(|| {
-                options
-                    .first()
-                    .and_then(|o| o["optionId"].as_str().map(str::to_owned))
-            })
+            .or_else(|| options.first().and_then(|o| o["optionId"].as_str().map(str::to_owned)))
             .unwrap_or_default();
         let reject = pick("reject").unwrap_or_else(|| allow.clone());
         let tool = &params["toolCall"];
@@ -757,10 +815,19 @@ pub(super) fn edited_paths(entry: &Value, cwd: &Path) -> Vec<String> {
     if !matches!(entry["kind"].as_str(), Some("edit" | "delete" | "move")) {
         return vec![];
     }
-    let mut raw: Vec<String> = entry["locations"].as_array().into_iter().flatten().filter_map(|l| l["path"].as_str().map(str::to_owned)).collect();
+    let mut raw: Vec<String> = entry["locations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l["path"].as_str().map(str::to_owned))
+        .collect();
     if raw.is_empty() {
         let input = &entry["rawInput"];
-        raw.extend(["file_path", "filePath", "path", "notebook_path"].iter().filter_map(|k| input[*k].as_str().map(str::to_owned)));
+        raw.extend(
+            ["file_path", "filePath", "path", "notebook_path"]
+                .iter()
+                .filter_map(|k| input[*k].as_str().map(str::to_owned)),
+        );
         if let Some(changes) = input["changes"].as_object() {
             raw.extend(changes.keys().cloned());
         }
@@ -794,11 +861,7 @@ pub(super) fn summarize_input(raw: &Value, title: &str) -> String {
         Value::Null => title.to_string(),
         Value::String(s) => s.clone(),
         v => match &v["command"] {
-            Value::Array(parts) => parts
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(" "),
+            Value::Array(parts) => parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
             Value::String(s) => s.clone(),
             _ => v
                 .get("path")

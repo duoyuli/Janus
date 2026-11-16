@@ -30,14 +30,13 @@ impl App {
         let tool_input = req["params"]["arguments"].clone();
         let call_id = id.to_string();
         if tool_call {
-            let mut e = ev("tool.started", who, format!("调用 janus.{tool_name}，等待返回"))
-                .data(json!({
-                    "callId": call_id,
-                    "tool": format!("janus.{tool_name}"),
-                    "input": summarize_input(&tool_input, &tool_name),
-                    "args": tool_input,
-                    "status": "pending"
-                }));
+            let mut e = ev("tool.started", who, format!("调用 janus.{tool_name}，等待返回")).data(json!({
+                "callId": call_id,
+                "tool": format!("janus.{tool_name}"),
+                "input": summarize_input(&tool_input, &tool_name),
+                "args": tool_input,
+                "status": "pending"
+            }));
             if !lead {
                 e = e.task(who);
             }
@@ -76,7 +75,11 @@ impl App {
                     Err(text) => json!({ "content": [{ "type": "text", "text": text }], "isError": true }),
                 }
             }
-            m => return Ok(Some(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("unknown method {m}") } }))),
+            m => {
+                return Ok(Some(
+                    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("unknown method {m}") } }),
+                ));
+            }
         };
         if tool_call {
             let failed = result["isError"] == true;
@@ -122,11 +125,8 @@ impl App {
 
     pub(super) fn board_team(&self, run: &Run) -> String {
         let st = run.st.lock().unwrap();
-        let tasks: Vec<String> = st
-            .tasks
-            .iter()
-            .map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status, t.def.title))
-            .collect();
+        let tasks: Vec<String> =
+            st.tasks.iter().map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status, t.def.title)).collect();
         drop(st);
         format!(
             "协作者：\n{}\n\n看板上的任务：\n{}\n\n用量（只读，缺失写「未上报」而不是 0）：\n{}",
@@ -137,7 +137,11 @@ impl App {
     }
 
     /// Validate an orchestration and, if it holds, put its tasks on the board for the scheduler.
-    pub(super) fn board_orchestrate(self: &Arc<Self>, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+    pub(super) fn board_orchestrate(
+        self: &Arc<Self>,
+        run: &Arc<Run>,
+        args: &Value,
+    ) -> std::result::Result<String, String> {
         let defs = {
             let st = run.st.lock().unwrap();
             let board: Vec<(TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (t.def.clone(), t.status)).collect();
@@ -146,17 +150,30 @@ impl App {
         let defs = match defs {
             Ok(defs) => defs,
             Err(errors) => {
-                self.emit(run, ev("orchestration.rejected", "lead", format!("编排没有通过校验：{}", short(&errors.join("；"), 120))).data(json!({ "errors": errors, "submitted": args })));
-                return Err(format!("编排没有通过校验，没有任何任务开始。请修正后重新提交：\n- {}", errors.join("\n- ")));
+                self.emit(
+                    run,
+                    ev(
+                        "orchestration.rejected",
+                        "lead",
+                        format!("编排没有通过校验：{}", short(&errors.join("；"), 120)),
+                    )
+                    .data(json!({ "errors": errors, "submitted": args })),
+                );
+                return Err(format!(
+                    "编排没有通过校验，没有任何任务开始。请修正后重新提交：\n- {}",
+                    errors.join("\n- ")
+                ));
             }
         };
         let tasks: Vec<Value> = defs
             .iter()
-            .map(|d| json!({
-                "id": d.id, "title": d.title, "desc": d.desc, "deps": d.deps,
-                "accept": d.accept, "maxAttempts": d.max_attempts, "agent": d.assignee,
-                "owns": d.owns, "verifies": d.verifies,
-            }))
+            .map(|d| {
+                json!({
+                    "id": d.id, "title": d.title, "desc": d.desc, "deps": d.deps,
+                    "accept": d.accept, "maxAttempts": d.max_attempts, "agent": d.assignee,
+                    "owns": d.owns, "verifies": d.verifies,
+                })
+            })
             .collect();
         let n = {
             let mut st = run.st.lock().unwrap();
@@ -165,7 +182,11 @@ impl App {
             }
             st.tasks.len()
         };
-        self.emit(run, ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个任务写入看板，开始执行", defs.len())).data(json!({ "tasks": tasks, "total": n })));
+        self.emit(
+            run,
+            ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个任务写入看板，开始执行", defs.len()))
+                .data(json!({ "tasks": tasks, "total": n })),
+        );
         // After delivery the scheduler has returned; new work written in a conversation starts it again.
         self.ensure_driver(run);
         run.wake.notify_one();
@@ -223,11 +244,25 @@ impl App {
             (t.agent.clone(), question, st.live.get(task).cloned())
         };
         if let Some(key) = question {
-            self.emit(run, ev("question.answered", "lead", format!("主控回答：{}", short(text, 40))).task(task).to(&agent).data(json!({ "key": key, "answer": text, "via": "lead" })));
+            self.emit(
+                run,
+                ev("question.answered", "lead", format!("主控回答：{}", short(text, 40)))
+                    .task(task)
+                    .to(&agent)
+                    .data(json!({ "key": key, "answer": text, "via": "lead" })),
+            );
             self.resolve(run, &key, json!({ "answer": text, "note": "" })).map_err(|e| format!("{e:#}"))?;
             return Ok(format!("已回答 {task} 的提问，{agent} 会接着做。"));
         }
-        let status = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.status).unwrap_or(TaskStatus::Pending);
+        let status = run
+            .st
+            .lock()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|t| t.def.id == task)
+            .map(|t| t.status)
+            .unwrap_or(TaskStatus::Pending);
         if live.is_none() && status.terminal() {
             // A reply to a finished task would otherwise wait for whatever this agent does next.
             return Err(format!(
@@ -239,7 +274,9 @@ impl App {
         match live {
             Some(tx) => {
                 tx.send(Steer::Redirect(msg)).map_err(|_| format!("{task} 的会话刚刚结束"))?;
-                Ok(format!("已把消息发给正在执行 {task} 的 {agent}：能插话时插入当前这一轮，否则打断当前这一轮后立即发送。"))
+                Ok(format!(
+                    "已把消息发给正在执行 {task} 的 {agent}：能插话时插入当前这一轮，否则打断当前这一轮后立即发送。"
+                ))
             }
             None => {
                 self.route_message(run, &agent, task, 0, &msg.id, "next");
@@ -254,7 +291,9 @@ impl App {
     pub(super) fn board_retry(self: &Arc<Self>, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
         let task = args["task"].as_str().unwrap_or("").trim();
         let instructions = args["instructions"].as_str().map(str::trim).filter(|s| !s.is_empty());
-        let accept: Option<Vec<String>> = args["accept"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect());
+        let accept: Option<Vec<String>> = args["accept"].as_array().map(|a| {
+            a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect()
+        });
         if accept.as_ref().is_some_and(|a| a.is_empty()) {
             return Err("accept 不能是空的：写出可核对的验收标准，或不传以沿用原来的".into());
         }
@@ -286,7 +325,9 @@ impl App {
             let mut st = run.st.lock().unwrap();
             let mut queue = vec![task.to_string()];
             while let Some(up) = queue.pop() {
-                for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::SkippedByDecision && t.skipped_because.as_deref() == Some(up.as_str())) {
+                for t in st.tasks.iter_mut().filter(|t| {
+                    t.status == TaskStatus::SkippedByDecision && t.skipped_because.as_deref() == Some(up.as_str())
+                }) {
                     t.set_status(TaskStatus::Pending);
                     t.skipped_because = None;
                     t.retry_base = t.attempts;
@@ -304,7 +345,12 @@ impl App {
         }
         self.emit(run, ev("task.reopened", "lead", format!("主控要求重新执行 {task}")).task(task).data(data));
         for (id, up) in &revived {
-            self.emit(run, ev("task.reopened", "janus", format!("{up} 重新执行，因它取消的 {id} 恢复等待")).task(id).data(json!({ "reason": "upstream.retry", "upstream": up })));
+            self.emit(
+                run,
+                ev("task.reopened", "janus", format!("{up} 重新执行，因它取消的 {id} 恢复等待"))
+                    .task(id)
+                    .data(json!({ "reason": "upstream.retry", "upstream": up })),
+            );
         }
         self.ensure_driver(run);
         run.wake.notify_one();
@@ -326,7 +372,14 @@ impl App {
         if reason.is_empty() {
             return Err("reason 不能为空：写明你核对了什么，为什么没达到的部分不影响目标".into());
         }
-        let refused = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).and_then(|t| crate::teamwork::accept_refused(&t.def));
+        let refused = run
+            .st
+            .lock()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|t| t.def.id == task)
+            .and_then(|t| crate::teamwork::accept_refused(&t.def));
         if let Some(why) = refused {
             return Err(why);
         }
@@ -338,7 +391,9 @@ impl App {
             return Err(format!("{task} 不是因没通过验收核对而失败的任务，没有可以接受的结果"));
         };
         let d = submitted.data.clone().unwrap_or_default();
-        let strings = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default() };
+        let strings = |v: &Value| -> Vec<String> {
+            v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+        };
         let mut result = TaskResult {
             summary: d["summary"].as_str().unwrap_or("").to_string(),
             evidence: strings(&d["evidence"]),
@@ -435,7 +490,10 @@ impl App {
                 return Err(format!("看板上没有任务 {task}"));
             };
             if t.status != TaskStatus::Succeeded {
-                return Err(format!("{task} 现在是「{}」，只能修订已完成任务的结论；还在执行的任务用 janus.reply", t.status.label()));
+                return Err(format!(
+                    "{task} 现在是「{}」，只能修订已完成任务的结论；还在执行的任务用 janus.reply",
+                    t.status.label()
+                ));
             }
             t.amendments.push(text.to_string());
             let downstream: Vec<&Task> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).collect();
@@ -443,17 +501,33 @@ impl App {
                 .iter()
                 .filter_map(|x| st.live.get(&x.def.id).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone())))
                 .collect();
-            let done: Vec<String> = downstream.iter().filter(|x| x.status == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect();
+            let done: Vec<String> =
+                downstream.iter().filter(|x| x.status == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect();
             (running, done)
         };
-        self.emit(run, ev("result.amended", "lead", format!("主控修订 {task} 的结论：{}", short(text, 60))).task(task).data(json!({ "text": text })));
+        self.emit(
+            run,
+            ev("result.amended", "lead", format!("主控修订 {task} 的结论：{}", short(text, 60)))
+                .task(task)
+                .data(json!({ "text": text })),
+        );
         for (id, agent, tx) in &running {
-            let msg = self.post_message(run, "lead", agent, id, &format!("{LEAD_REPLY}上游任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"), &[]);
+            let msg = self.post_message(
+                run,
+                "lead",
+                agent,
+                id,
+                &format!("{LEAD_REPLY}上游任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"),
+                &[],
+            );
             let _ = tx.send(Steer::Redirect(msg));
         }
         let mut out = format!("已修订 {task} 的结论。");
         if !running.is_empty() {
-            out.push_str(&format!("正在执行的 {} 已收到修订。", running.iter().map(|r| r.0.as_str()).collect::<Vec<_>>().join("、")));
+            out.push_str(&format!(
+                "正在执行的 {} 已收到修订。",
+                running.iter().map(|r| r.0.as_str()).collect::<Vec<_>>().join("、")
+            ));
         }
         if !done.is_empty() {
             out.push_str(&format!("{} 已经基于旧结论完成，需要的话用 janus.retry 重做。", done.join("、")));
@@ -466,7 +540,10 @@ impl App {
     /// A running one is stopped.
     pub(super) fn board_cancel(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
         let reason = args["reason"].as_str().unwrap_or("").trim().to_string();
-        let wanted: Vec<String> = args["tasks"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).collect()).unwrap_or_default();
+        let wanted: Vec<String> = args["tasks"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).collect())
+            .unwrap_or_default();
         if wanted.is_empty() {
             return Err("tasks 不能为空".into());
         }
@@ -479,7 +556,9 @@ impl App {
             let mut queue: Vec<(String, Option<String>)> = wanted.iter().map(|id| (id.clone(), None)).collect();
             while let Some((id, because)) = queue.pop() {
                 let t = Run::task_mut(&mut st, &id).unwrap();
-                if matches!(t.status, TaskStatus::Succeeded | TaskStatus::SkippedByDecision) || dropped.iter().any(|(d, _)| d == &id) {
+                if matches!(t.status, TaskStatus::Succeeded | TaskStatus::SkippedByDecision)
+                    || dropped.iter().any(|(d, _)| d == &id)
+                {
                     continue;
                 }
                 t.set_status(TaskStatus::SkippedByDecision);
@@ -501,7 +580,12 @@ impl App {
                 Some(dep) => format!("{id} 依赖的 {dep} 被主控取消，一并取消"),
                 None => format!("主控取消 {id}：{}", if reason.is_empty() { "不再需要" } else { &reason }),
             };
-            self.emit(run, ev("task.skipped_by_decision", "lead", text).task(id).data(json!({ "reason": reason, "dependency": because })));
+            self.emit(
+                run,
+                ev("task.skipped_by_decision", "lead", text)
+                    .task(id)
+                    .data(json!({ "reason": reason, "dependency": because })),
+            );
         }
         run.wake.notify_one();
         if dropped.is_empty() {
@@ -518,7 +602,10 @@ impl App {
         if question.is_empty() || why.is_empty() {
             return Err("question 和 why 都不能为空：why 写明为什么只有用户能决定、不同答案会怎样影响结果".into());
         }
-        let options: Vec<String> = args["options"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+        let options: Vec<String> = args["options"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
         let recommend = args["recommend"].as_str().unwrap_or("");
         static NEXT: AtomicI64 = AtomicI64::new(0);
         let key = format!("q-lead-{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
@@ -544,21 +631,37 @@ impl App {
             return Err(format!("看板上没有任务 {task}"));
         };
         let name = |agent: &str| run.member(agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.to_string());
-        let label = |id: &str| format!("{id}（{}）", st.tasks.iter().find(|x| x.def.id == id).map(|x| x.status.label()).unwrap_or("不在看板上"));
+        let label = |id: &str| {
+            format!(
+                "{id}（{}）",
+                st.tasks.iter().find(|x| x.def.id == id).map(|x| x.status.label()).unwrap_or("不在看板上")
+            )
+        };
         let mine = |e: &&Event| e.task.as_deref() == Some(task);
         let mut out = vec![
-            format!("任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次", t.def.title, name(&t.agent), t.agent, t.status.label(), t.attempts),
+            format!(
+                "任务 {task}「{}」· 执行者 {}（{}）· {} · 已尝试 {} 次",
+                t.def.title,
+                name(&t.agent),
+                t.agent,
+                t.status.label(),
+                t.attempts
+            ),
             format!("说明：{}", t.def.desc),
         ];
         out.extend(usage.task_lines(task, &Self::usage_names(run)));
-        out.push(format!("验收标准：\n{}", t.def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")));
+        out.push(format!(
+            "验收标准：\n{}",
+            t.def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")
+        ));
         if !t.def.owns.is_empty() {
             out.push(format!("负责的文件：{}", t.def.owns.join("、")));
         }
         if let Some(v) = &t.def.verifies {
             out.push(format!("独立验证：{v}"));
         }
-        let downstream: Vec<String> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).map(|x| label(&x.def.id)).collect();
+        let downstream: Vec<String> =
+            st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).map(|x| label(&x.def.id)).collect();
         if !t.def.deps.is_empty() {
             out.push(format!("上游：{}", t.def.deps.iter().map(|d| label(d)).collect::<Vec<_>>().join("、")));
         }
@@ -571,12 +674,21 @@ impl App {
                 out.push(format!("  {}", c.line()));
             }
             let evidence = Summary::of(&t.def.accept, &r.checks);
-            out.push(format!("证据汇总：\n{}", evidence.lines().iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("\n")));
+            out.push(format!(
+                "证据汇总：\n{}",
+                evidence.lines().iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("\n")
+            ));
             if !r.evidence.is_empty() {
-                out.push(format!("证据：\n{}", r.evidence.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")));
+                out.push(format!(
+                    "证据：\n{}",
+                    r.evidence.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")
+                ));
             }
             if !r.risks.is_empty() {
-                out.push(format!("风险：\n{}", r.risks.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")));
+                out.push(format!(
+                    "风险：\n{}",
+                    r.risks.iter().map(|x| format!("- {x}")).collect::<Vec<_>>().join("\n")
+                ));
             }
         }
         // Those who verified this task independently: their own conclusion, kept apart from the
@@ -589,7 +701,10 @@ impl App {
                     out.push(format!("  {}", c.line()));
                 }
                 if !r.evidence.is_empty() {
-                    out.push(format!("  独立证据：\n{}", r.evidence.iter().map(|x| format!("  - {x}")).collect::<Vec<_>>().join("\n")));
+                    out.push(format!(
+                        "  独立证据：\n{}",
+                        r.evidence.iter().map(|x| format!("  - {x}")).collect::<Vec<_>>().join("\n")
+                    ));
                 }
             }
             if let Some(f) = st.last_verification.get(&v.def.id).filter(|_| v.status != TaskStatus::Succeeded) {
@@ -602,8 +717,17 @@ impl App {
         if let Some(v) = st.last_verification.get(task).filter(|_| t.status != TaskStatus::Succeeded) {
             out.push(format!("最近一次没通过验收核对：\n{v}"));
         }
-        if let Some(e) = events.iter().rev().filter(mine).find(|e| e.kind == "attempt.failed").filter(|_| t.status != TaskStatus::Succeeded) {
-            out.push(format!("最近一次尝试失败：{}", e.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or(&e.text)));
+        if let Some(e) = events
+            .iter()
+            .rev()
+            .filter(mine)
+            .find(|e| e.kind == "attempt.failed")
+            .filter(|_| t.status != TaskStatus::Succeeded)
+        {
+            out.push(format!(
+                "最近一次尝试失败：{}",
+                e.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or(&e.text)
+            ));
         }
         let files = st.traces.files(task);
         if !files.is_empty() {
@@ -615,8 +739,19 @@ impl App {
                 out.push(note);
             }
         }
-        if let Some(gaps) = events.iter().rev().filter(mine).find(|e| e.kind == "task.succeeded").filter(|_| t.status == TaskStatus::Succeeded).and_then(|e| e.data.as_ref()?["traceGaps"].as_array().cloned()).filter(|g| !g.is_empty()) {
-            out.push(format!("痕迹核对（结果和工作目录对不上的地方）：\n{}", gaps.iter().filter_map(|g| g.as_str()).map(|g| format!("- {g}")).collect::<Vec<_>>().join("\n")));
+        if let Some(gaps) = events
+            .iter()
+            .rev()
+            .filter(mine)
+            .find(|e| e.kind == "task.succeeded")
+            .filter(|_| t.status == TaskStatus::Succeeded)
+            .and_then(|e| e.data.as_ref()?["traceGaps"].as_array().cloned())
+            .filter(|g| !g.is_empty())
+        {
+            out.push(format!(
+                "痕迹核对（结果和工作目录对不上的地方）：\n{}",
+                gaps.iter().filter_map(|g| g.as_str()).map(|g| format!("- {g}")).collect::<Vec<_>>().join("\n")
+            ));
         }
         let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
         if !arts.is_empty() {
@@ -633,13 +768,60 @@ impl App {
                     d["other"] = json!(e.task.clone().unwrap_or_default());
                 }
                 match e.kind.as_str() {
-                    "board.posted" => Some(format!("- [{}] {}", match d["kind"].as_str() { Some("blocker") => "阻塞", Some("note") => "备注", _ => "进展" }, d["text"].as_str().unwrap_or(&e.text))),
+                    "board.posted" => Some(format!(
+                        "- [{}] {}",
+                        match d["kind"].as_str() {
+                            Some("blocker") => "阻塞",
+                            Some("note") => "备注",
+                            _ => "进展",
+                        },
+                        d["text"].as_str().unwrap_or(&e.text)
+                    )),
                     "question.asked" => Some(format!("- [提问] {}", d["question"].as_str().unwrap_or(&e.text))),
                     "question.answered" => Some(format!("- [回答] {}", d["answer"].as_str().unwrap_or(&e.text))),
-                    "task.conflict" if d["owned"] == true && theirs(&e) => Some(format!("- [越界] {} 改了这个任务负责的 {}", d["other"].as_str().unwrap_or("?"), d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、"))),
-                    "task.conflict" if d["owned"] == true => Some(format!("- [越界] 改了 {} 负责的 {}", d["other"].as_str().unwrap_or("?"), d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、"))),
-                    "task.conflict" => Some(format!("- [冲突] 和 {} 同时改了 {}", d["other"].as_str().unwrap_or("?"), d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、"))),
-                    "task.claimed" => Some(format!("- [认领] {}", d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、"))),
+                    "task.conflict" if d["owned"] == true && theirs(&e) => Some(format!(
+                        "- [越界] {} 改了这个任务负责的 {}",
+                        d["other"].as_str().unwrap_or("?"),
+                        d["paths"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    )),
+                    "task.conflict" if d["owned"] == true => Some(format!(
+                        "- [越界] 改了 {} 负责的 {}",
+                        d["other"].as_str().unwrap_or("?"),
+                        d["paths"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    )),
+                    "task.conflict" => Some(format!(
+                        "- [冲突] 和 {} 同时改了 {}",
+                        d["other"].as_str().unwrap_or("?"),
+                        d["paths"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    )),
+                    "task.claimed" => Some(format!(
+                        "- [认领] {}",
+                        d["paths"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    )),
                     _ => None,
                 }
             })
@@ -660,7 +842,8 @@ impl App {
         }
         let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
         let st = run.st.lock().unwrap();
-        let deps: Vec<String> = st.tasks.iter().find(|t| t.def.id == me).map(|t| t.def.deps.clone()).unwrap_or_default();
+        let deps: Vec<String> =
+            st.tasks.iter().find(|t| t.def.id == me).map(|t| t.def.deps.clone()).unwrap_or_default();
         let my_files = st.traces.files(me);
         let lines: Vec<String> = st
             .tasks
@@ -687,11 +870,20 @@ impl App {
                 if let Some(s) = t.succeeded_seq.filter(|_| t.status == TaskStatus::Succeeded) {
                     let stale = st.traces.edited_after(&t.def.id, s);
                     if !stale.is_empty() {
-                        tags.push(format!("完成后 {} 又被改过，结论可能已过期", stale.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>().join("、")));
+                        tags.push(format!(
+                            "完成后 {} 又被改过，结论可能已过期",
+                            stale.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>().join("、")
+                        ));
                     }
                 }
                 let who = run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent);
-                format!("- {}「{}」· {who} · {}{}", t.def.id, t.def.title, t.status.label(), if tags.is_empty() { String::new() } else { format!(" · {}", tags.join(" · ")) })
+                format!(
+                    "- {}「{}」· {who} · {}{}",
+                    t.def.id,
+                    t.def.title,
+                    t.status.label(),
+                    if tags.is_empty() { String::new() } else { format!(" · {}", tags.join(" · ")) }
+                )
             })
             .collect();
         let posts: Vec<String> = events
@@ -699,7 +891,13 @@ impl App {
             .filter(|e| e.kind == "board.posted" && e.task.as_deref() != Some(me))
             .rev()
             .take(5)
-            .map(|e| format!("- {}：{}", e.task.as_deref().unwrap_or("?"), short(e.data.as_ref().and_then(|d| d["text"].as_str()).unwrap_or(&e.text), INLINE_ITEM)))
+            .map(|e| {
+                format!(
+                    "- {}：{}",
+                    e.task.as_deref().unwrap_or("?"),
+                    short(e.data.as_ref().and_then(|d| d["text"].as_str()).unwrap_or(&e.text), INLINE_ITEM)
+                )
+            })
             .collect();
         Ok(format!(
             "看板上的其他任务：\n{}\n\n最近写回看板的内容：\n{}\n\n要看某个任务的完整说明、结果和修订，传 task 再调用一次。",
@@ -718,9 +916,27 @@ impl App {
             k @ ("progress" | "blocker" | "note") => k,
             other => return Err(format!("kind 只能是 progress、blocker 或 note，不能是 {other}")),
         };
-        let agent = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.agent.clone()).ok_or_else(|| format!("看板上没有任务 {task}"))?;
-        let label = match kind { "blocker" => "阻塞", "note" => "备注", _ => "进展" };
-        self.emit(run, ev("board.posted", &agent, format!("{label}：{}", short(text, 80))).task(task).to("lead").data(json!({ "kind": kind, "text": text })));
+        let agent = run
+            .st
+            .lock()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|t| t.def.id == task)
+            .map(|t| t.agent.clone())
+            .ok_or_else(|| format!("看板上没有任务 {task}"))?;
+        let label = match kind {
+            "blocker" => "阻塞",
+            "note" => "备注",
+            _ => "进展",
+        };
+        self.emit(
+            run,
+            ev("board.posted", &agent, format!("{label}：{}", short(text, 80)))
+                .task(task)
+                .to("lead")
+                .data(json!({ "kind": kind, "text": text })),
+        );
         Ok("已写到共享看板，主控会看到。".into())
     }
 
@@ -751,8 +967,17 @@ impl App {
         if fresh.is_empty() {
             return Ok("这些文件已经由你的任务负责。".into());
         }
-        self.emit(run, ev("task.claimed", &agent, format!("认领 {}", short(&fresh.join("、"), 80))).task(task).to("lead").data(json!({ "paths": fresh })));
-        Ok(format!("已认领 {}，到任务结束为止归你负责。其他同时进行的任务改它们时，Janus 会提醒对方和主控。", fresh.join("、")))
+        self.emit(
+            run,
+            ev("task.claimed", &agent, format!("认领 {}", short(&fresh.join("、"), 80)))
+                .task(task)
+                .to("lead")
+                .data(json!({ "paths": fresh })),
+        );
+        Ok(format!(
+            "已认领 {}，到任务结束为止归你负责。其他同时进行的任务改它们时，Janus 会提醒对方和主控。",
+            fresh.join("、")
+        ))
     }
 }
 
