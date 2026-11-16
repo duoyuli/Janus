@@ -643,12 +643,18 @@ impl Run {
     }
 }
 
+/// Everything `App` reads about where it lives and how it runs. Code reads these, never the
+/// process's settings, so an `App` over another home (a test's) stays inside it.
 pub struct Config {
     /// Janus home (~/.janus): the database, ACP adapters (adapters/), run data (artifacts/,
     /// logs/, runs/) and everything else that belongs to this machine's user, not to a checkout.
     pub data_dir: PathBuf,
     /// Coding agent configs and credentials, kept in the user's Janus home: ~/.janus/agents.
     pub agents_dir: PathBuf,
+    /// Where this Janus listens, for the MCP URLs handed to agents.
+    pub addr: String,
+    /// The Node executable the ACP adapters run on and are installed with.
+    pub node: String,
     /// How long an attempt may show no sign of work before the watchdog tells the lead.
     pub stall_after: Duration,
     /// How long a lead's session stays quiet with its goal still active before Janus asks it (`goal_settle`).
@@ -660,6 +666,8 @@ pub struct App {
     pub cfg: Config,
     pub tx: broadcast::Sender<Event>,
     pub runs: StdMutex<HashMap<String, Arc<Run>>>,
+    pub adapter_state: crate::adapters::AdapterState,
+    pub prices: crate::prices::PriceBook,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
@@ -913,16 +921,21 @@ pub fn to_base36(mut n: u64) -> String {
 /// An `App` over a fresh database in `dir`, for tests.
 #[cfg(test)]
 pub(crate) fn test_app(dir: &Path) -> Arc<App> {
+    std::fs::create_dir_all(dir).unwrap();
     let (tx, _) = broadcast::channel(4096);
     Arc::new(App {
         db: Db::open(&dir.join("janus.db")).unwrap(),
         cfg: Config {
             data_dir: dir.join("data"),
             agents_dir: dir.join("agents"),
+            addr: "127.0.0.1:7878".into(),
+            node: "node".into(),
             stall_after: STALL_AFTER,
             goal_settle: crate::goal_settle::SETTLE,
         },
         tx,
         runs: StdMutex::new(HashMap::new()),
+        adapter_state: Default::default(),
+        prices: Default::default(),
     })
 }

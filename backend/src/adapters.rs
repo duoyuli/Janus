@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 pub struct AdapterDef {
     pub id: &'static str,
@@ -81,39 +81,77 @@ struct Job {
     ended: i64,
 }
 
-static JOBS: LazyLock<Mutex<HashMap<String, Job>>> = LazyLock::new(Default::default);
-/// The newest version npm offers, from the last check: (version, checked at).
-static LATEST: LazyLock<Mutex<HashMap<String, (String, i64)>>> = LazyLock::new(Default::default);
+/// Version directories that sessions run from, and how many sessions each.
+type Pins = Arc<Mutex<HashMap<PathBuf, usize>>>;
 
-/// Version directories that sessions run from, and how many: `prune` never removes one of them.
-static IN_USE: LazyLock<Mutex<HashMap<PathBuf, usize>>> = LazyLock::new(Default::default);
+/// What this Janus is doing with its adapters: the install or check running for each, the newest
+/// versions npm offered, and the version directories sessions run from. `App` holds it, so two
+/// homes (or tests running in parallel) never share it.
+#[derive(Default)]
+pub struct AdapterState {
+    jobs: Mutex<HashMap<String, Job>>,
+    /// The newest version npm offers, from the last check: (version, checked at).
+    latest: Mutex<HashMap<String, (String, i64)>>,
+    /// `prune` never removes a pinned version.
+    pins: Pins,
+}
+
+impl AdapterState {
+    fn begin(&self, id: &str, action: &str) -> Result<()> {
+        let mut jobs = self.jobs.lock().unwrap();
+        if jobs.get(id).is_some_and(|j| j.state == JobState::Running) {
+            bail!("{id} 的适配器已经在{}中", if action == "install" { "安装" } else { "处理" });
+        }
+        jobs.insert(
+            id.to_string(),
+            Job { state: JobState::Running, action: action.into(), detail: String::new(), started: now_ms(), ended: 0 },
+        );
+        Ok(())
+    }
+
+    fn finish(&self, id: &str, r: Result<String>) {
+        let mut jobs = self.jobs.lock().unwrap();
+        if let Some(j) = jobs.get_mut(id) {
+            j.ended = now_ms();
+            match r {
+                Ok(detail) => (j.state, j.detail) = (JobState::Ok, detail),
+                Err(err) => (j.state, j.detail) = (JobState::Error, format!("{err:#}")),
+            }
+        }
+    }
+
+    fn running(&self, id: &str) -> bool {
+        self.jobs.lock().unwrap().get(id).is_some_and(|j| j.state == JobState::Running)
+    }
+
+    fn pin(&self, dir: PathBuf) -> Arc<VersionPin> {
+        *self.pins.lock().unwrap().entry(dir.clone()).or_default() += 1;
+        Arc::new(VersionPin { dir, pins: self.pins.clone() })
+    }
+
+    fn pinned(&self, dir: &Path) -> bool {
+        dir.canonicalize().is_ok_and(|d| self.pins.lock().unwrap().contains_key(&d))
+    }
+}
 
 /// Held by a session started from an adapter version, for as long as it runs (`RuntimeSpec::pin`):
 /// the version's files stay while a session still needs them, however many upgrades come.
 #[derive(Debug)]
-pub struct VersionPin(PathBuf);
-
-impl VersionPin {
-    fn new(dir: PathBuf) -> Arc<VersionPin> {
-        *IN_USE.lock().unwrap().entry(dir.clone()).or_default() += 1;
-        Arc::new(VersionPin(dir))
-    }
+pub struct VersionPin {
+    dir: PathBuf,
+    pins: Pins,
 }
 
 impl Drop for VersionPin {
     fn drop(&mut self) {
-        let mut used = IN_USE.lock().unwrap();
-        if let Some(n) = used.get_mut(&self.0) {
+        let mut used = self.pins.lock().unwrap();
+        if let Some(n) = used.get_mut(&self.dir) {
             *n -= 1;
             if *n == 0 {
-                used.remove(&self.0);
+                used.remove(&self.dir);
             }
         }
     }
-}
-
-fn in_use(dir: &Path) -> bool {
-    dir.canonicalize().is_ok_and(|d| IN_USE.lock().unwrap().contains_key(&d))
 }
 
 impl App {
@@ -139,7 +177,7 @@ impl App {
         let dir = self.adapter_current(id).ok_or_else(|| {
             anyhow!("{} 的 ACP 适配器还没有安装：在「设置 → Agents」中运行配置检查会自动安装", d.name)
         })?;
-        Ok((entry_in(d, &dir)?, VersionPin::new(dir)))
+        Ok((entry_in(d, &dir)?, self.adapter_state.pin(dir)))
     }
 
     /// The version `current` points to, if the adapter is installed.
@@ -149,8 +187,8 @@ impl App {
 
     /// Every adapter with its installed versions, the newest known version and the current job.
     pub fn adapters(&self) -> Value {
-        let jobs = JOBS.lock().unwrap().clone();
-        let latest = LATEST.lock().unwrap().clone();
+        let jobs = self.adapter_state.jobs.lock().unwrap().clone();
+        let latest = self.adapter_state.latest.lock().unwrap().clone();
         let list: Vec<Value> = ADAPTERS
             .iter()
             .map(|d| {
@@ -194,12 +232,12 @@ impl App {
     /// Start installing (the newest version, or `version`) in the background.
     pub fn start_adapter_install(self: &Arc<Self>, id: &str, version: Option<String>) -> Result<()> {
         def(id)?;
-        begin(id, "install")?;
+        self.adapter_state.begin(id, "install")?;
         let app = self.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
             let r = app.install_adapter(&id, version.as_deref());
-            finish(&id, r.map(|v| format!("已安装 {v}")));
+            app.adapter_state.finish(&id, r.map(|v| format!("已安装 {v}")));
         });
         Ok(())
     }
@@ -207,12 +245,12 @@ impl App {
     /// Look up the newest version npm offers, in the background.
     pub fn start_adapter_check(self: &Arc<Self>, id: &str) -> Result<()> {
         def(id)?;
-        begin(id, "check")?;
+        self.adapter_state.begin(id, "check")?;
         let app = self.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
             let r = app.latest_adapter_version(&id);
-            finish(&id, r.map(|v| format!("最新版本 {v}")));
+            app.adapter_state.finish(&id, r.map(|v| format!("最新版本 {v}")));
         });
         Ok(())
     }
@@ -220,7 +258,7 @@ impl App {
     /// Make an installed version current again (roll back, or forward).
     pub fn use_adapter_version(&self, id: &str, version: &str) -> Result<()> {
         def(id)?;
-        if JOBS.lock().unwrap().get(id).is_some_and(|j| j.state == JobState::Running) {
+        if self.adapter_state.running(id) {
             bail!("{id} 的适配器正在安装，等它结束后再切换");
         }
         let dir = self.adapters_dir().join(id);
@@ -241,9 +279,9 @@ impl App {
         if self.adapter_current(id).is_some() {
             return Ok(None);
         }
-        begin(id, "install")?;
+        self.adapter_state.begin(id, "install")?;
         let r = self.install_adapter(id, None);
-        finish(id, r.as_ref().map(|v| format!("已安装 {v}")).map_err(|e| anyhow!("{e:#}")));
+        self.adapter_state.finish(id, r.as_ref().map(|v| format!("已安装 {v}")).map_err(|e| anyhow!("{e:#}")));
         r.map(Some)
     }
 
@@ -264,7 +302,7 @@ impl App {
         if v.is_empty() {
             bail!("没有查到最新版本");
         }
-        LATEST.lock().unwrap().insert(id.to_string(), (v.clone(), now_ms()));
+        self.adapter_state.latest.lock().unwrap().insert(id.to_string(), (v.clone(), now_ms()));
         Ok(v)
     }
 
@@ -282,7 +320,7 @@ impl App {
             &format!("开始安装 {}{}", d.package, version.map(|v| format!("@{v}")).unwrap_or_default()),
         );
         let built = (|| -> Result<String> {
-            let node = &crate::config::settings().node;
+            let node = &self.cfg.node;
             check_node(node, d)?;
             std::fs::create_dir_all(&staging)?;
             std::fs::write(staging.join("package.json"), r#"{ "name": "janus-adapter", "private": true }"#)?;
@@ -329,7 +367,7 @@ impl App {
         }
         let previous = std::fs::read_link(dir.join("current")).ok().map(|p| p.to_string_lossy().to_string());
         switch_current(&dir, &v)?;
-        prune(&dir, &v, previous.as_deref());
+        prune(&dir, &v, previous.as_deref(), &self.adapter_state);
         self.adapter_note(id, &format!("已安装 {v} 并设为当前版本"));
         Ok(v)
     }
@@ -367,10 +405,10 @@ fn switch_current(dir: &Path, version: &str) -> Result<()> {
 }
 
 /// Keep the current and the previous version; remove older ones and leftover staging dirs.
-fn prune(dir: &Path, current: &str, previous: Option<&str>) {
+fn prune(dir: &Path, current: &str, previous: Option<&str>, state: &AdapterState) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().to_string();
-        if name == "current" || name == current || Some(name.as_str()) == previous || in_use(&e.path()) {
+        if name == "current" || name == current || Some(name.as_str()) == previous || state.pinned(&e.path()) {
             continue;
         }
         let stale_staging = name.starts_with(".staging-") || name.starts_with(".current-");
@@ -425,29 +463,6 @@ fn logged(cmd: &mut Command, log: &Path) -> Result<()> {
     Ok(())
 }
 
-fn begin(id: &str, action: &str) -> Result<()> {
-    let mut jobs = JOBS.lock().unwrap();
-    if jobs.get(id).is_some_and(|j| j.state == JobState::Running) {
-        bail!("{id} 的适配器已经在{}中", if action == "install" { "安装" } else { "处理" });
-    }
-    jobs.insert(
-        id.to_string(),
-        Job { state: JobState::Running, action: action.into(), detail: String::new(), started: now_ms(), ended: 0 },
-    );
-    Ok(())
-}
-
-fn finish(id: &str, r: Result<String>) {
-    let mut jobs = JOBS.lock().unwrap();
-    if let Some(j) = jobs.get_mut(id) {
-        j.ended = now_ms();
-        match r {
-            Ok(detail) => (j.state, j.detail) = (JobState::Ok, detail),
-            Err(err) => (j.state, j.detail) = (JobState::Error, format!("{err:#}")),
-        }
-    }
-}
-
 fn tail(path: &Path, lines: usize) -> String {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let all: Vec<&str> = text.lines().collect();
@@ -470,7 +485,7 @@ mod tests {
         switch_current(&dir, "1.1.0").unwrap();
         switch_current(&dir, "1.2.0").unwrap();
         assert_eq!(std::fs::read_link(dir.join("current")).unwrap(), PathBuf::from("1.2.0"));
-        prune(&dir, "1.2.0", Some("1.1.0"));
+        prune(&dir, "1.2.0", Some("1.1.0"), &AdapterState::default());
         let mut left: Vec<String> =
             std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
         left.sort();
@@ -488,11 +503,13 @@ mod tests {
             std::fs::create_dir_all(dir.join(v)).unwrap();
             std::fs::write(dir.join(v).join(".janus-adapter.json"), "{}").unwrap();
         }
-        let session = VersionPin::new(dir.join("1.0.0").canonicalize().unwrap());
-        prune(&dir, "1.2.0", Some("1.1.0"));
+        let state = AdapterState::default();
+        let session = state.pin(dir.join("1.0.0").canonicalize().unwrap());
+        prune(&dir, "1.2.0", Some("1.1.0"), &state);
+        assert!(!AdapterState::default().pinned(&dir.join("1.0.0")), "pins belong to one Janus, not to the process");
         assert!(dir.join("1.0.0").is_dir(), "a running session keeps its version");
         drop(session);
-        prune(&dir, "1.2.0", Some("1.1.0"));
+        prune(&dir, "1.2.0", Some("1.1.0"), &state);
         assert!(!dir.join("1.0.0").exists(), "once the session ends the version goes");
         assert!(dir.join("1.1.0").is_dir() && dir.join("1.2.0").is_dir());
         let _ = std::fs::remove_dir_all(&dir);

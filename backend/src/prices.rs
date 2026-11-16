@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 pub const SOURCE: &str = "https://models.dev/api.json";
@@ -214,30 +214,36 @@ fn path(home: &Path) -> PathBuf {
     home.join("prices").join("models.json")
 }
 
-static CURRENT: LazyLock<RwLock<Option<Arc<Table>>>> = LazyLock::new(|| RwLock::new(None));
+/// The price table in use, kept in memory once read from its file or synced. `App` holds it,
+/// next to the home its file lives in.
+#[derive(Default)]
+pub struct PriceBook(RwLock<Option<Arc<Table>>>);
 
-/// The table in use: in memory, else the one saved in `home`, else none yet.
-pub fn current(home: &Path) -> Option<Arc<Table>> {
-    if let Some(t) = CURRENT.read().unwrap().clone() {
-        return Some(t);
+impl crate::orchestrator::App {
+    /// The table in use: in memory, else the one saved in Janus home, else none yet.
+    pub fn prices(&self) -> Option<Arc<Table>> {
+        if let Some(t) = self.prices.0.read().unwrap().clone() {
+            return Some(t);
+        }
+        let t: Table = serde_json::from_slice(&std::fs::read(path(&self.cfg.data_dir)).ok()?).ok()?;
+        let t = Arc::new(t);
+        *self.prices.0.write().unwrap() = Some(t.clone());
+        Some(t)
     }
-    let t: Table = serde_json::from_slice(&std::fs::read(path(home)).ok()?).ok()?;
-    let t = Arc::new(t);
-    *CURRENT.write().unwrap() = Some(t.clone());
-    Some(t)
-}
 
-/// Download the list and replace the table when `force`, or when it is missing or a day old. The
-/// table in use stays when anything fails.
-pub async fn sync(home: PathBuf, force: bool) -> Result<Arc<Table>> {
-    let now = crate::orchestrator::now_ms();
-    if !force && let Some(t) = current(&home).filter(|t| now - t.fetched_at < SYNC_AFTER_MS) {
-        return Ok(t);
+    /// Download the list and replace the table when `force`, or when it is missing or a day old.
+    /// The table in use stays when anything fails.
+    pub async fn sync_prices(&self, force: bool) -> Result<Arc<Table>> {
+        let now = crate::orchestrator::now_ms();
+        if !force && let Some(t) = self.prices().filter(|t| now - t.fetched_at < SYNC_AFTER_MS) {
+            return Ok(t);
+        }
+        let home = self.cfg.data_dir.clone();
+        let table = Arc::new(tokio::task::spawn_blocking(move || fetch(&home, now)).await??);
+        *self.prices.0.write().unwrap() = Some(table.clone());
+        crate::config::log(format!("janus: model prices from {SOURCE}: {} models", table.models.len()));
+        Ok(table)
     }
-    let table = Arc::new(tokio::task::spawn_blocking(move || fetch(&home, now)).await??);
-    *CURRENT.write().unwrap() = Some(table.clone());
-    crate::config::log(format!("janus: model prices from {SOURCE}: {} models", table.models.len()));
-    Ok(table)
 }
 
 /// `curl` over HTTPS only, with a time and a size limit, into the prices directory; the new table
@@ -371,5 +377,20 @@ mod tests {
             (groups[0].estimate, groups[0].models[0].estimate, groups[0].models[1].estimate),
             (Some(20.0), Some(20.0), None)
         );
+    }
+
+    /// The table in use belongs to one Janus: another home has none until it syncs its own.
+    #[test]
+    fn each_janus_reads_its_own_price_table() {
+        let base = std::env::temp_dir().join(format!("janus-prices-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (one, other) =
+            (crate::orchestrator::test_app(&base.join("a")), crate::orchestrator::test_app(&base.join("b")));
+        let file = super::path(&one.cfg.data_dir);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, serde_json::to_vec(&Table::from_models_dev(&api(), 1)).unwrap()).unwrap();
+        assert!(one.prices().is_some_and(|t| t.fetched_at == 1));
+        assert!(other.prices().is_none(), "another home has no table yet");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

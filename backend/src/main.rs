@@ -122,7 +122,7 @@ async fn meta(State(app): State<Arc<App>>) -> Json<Value> {
         },
         "dataDir": app.cfg.data_dir,
         "agentsDir": app.cfg.agents_dir,
-        "db": app.cfg.agents_dir.parent().map(|h| h.join("janus.db")),
+        "db": app.cfg.data_dir.join("janus.db"),
     }))
 }
 
@@ -267,12 +267,12 @@ async fn suggest_id(State(app): State<Arc<App>>, Query(q): Query<SuggestQuery>) 
         .into_response())
 }
 
-async fn create_skill(Json(body): Json<Value>) -> ApiResult {
-    Ok(Json(agents::create_skill(&body).map_err(bad)?).into_response())
+async fn create_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    Ok(Json(app.create_skill(&body).map_err(bad)?).into_response())
 }
 
-async fn import_skill(Json(body): Json<Value>) -> ApiResult {
-    Ok(Json(agents::import_skill(body["path"].as_str().unwrap_or("")).map_err(bad)?).into_response())
+async fn import_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    Ok(Json(app.import_skill(body["path"].as_str().unwrap_or("")).map_err(bad)?).into_response())
 }
 
 async fn delete_skill(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
@@ -344,7 +344,7 @@ async fn usage_bill(State(app): State<Arc<App>>, Query(p): Query<Period>) -> Api
     if p.to <= p.from || p.to - p.from > MAX_DAYS * 24 * 60 * 60 * 1000 {
         return Err((StatusCode::BAD_REQUEST, format!("区间要在 1 毫秒到 {MAX_DAYS} 天之间")));
     }
-    let prices = prices::current(&config::settings().home);
+    let prices = app.prices();
     Ok(Json(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0), prices.as_deref()).map_err(bad)?)
         .into_response())
 }
@@ -358,14 +358,13 @@ struct PriceQuery {
 /// List prices of the given models from the synced models.dev list (`backend/src/prices.rs`), so
 /// the app can price a task's bill; `null` for a model without a price.
 // @project-doc docs/interfaces/http_api.md#prices
-async fn get_prices(Query(q): Query<PriceQuery>) -> ApiResult {
-    Ok(Json(price_reply(prices::current(&config::settings().home).as_deref(), q.models.as_deref().unwrap_or("")))
-        .into_response())
+async fn get_prices(State(app): State<Arc<App>>, Query(q): Query<PriceQuery>) -> ApiResult {
+    Ok(Json(price_reply(app.prices().as_deref(), q.models.as_deref().unwrap_or(""))).into_response())
 }
 
 /// Download the models.dev list now instead of waiting for the daily sync.
-async fn sync_prices() -> ApiResult {
-    let table = prices::sync(config::settings().home.clone(), true).await.map_err(bad)?;
+async fn sync_prices(State(app): State<Arc<App>>) -> ApiResult {
+    let table = app.sync_prices(true).await.map_err(bad)?;
     Ok(Json(price_reply(Some(&table), "")).into_response())
 }
 
@@ -502,16 +501,21 @@ async fn main() -> Result<()> {
     let (tx, _) = tokio::sync::broadcast::channel(4096);
     let agents_dir = home.join("agents");
     std::fs::create_dir_all(&agents_dir)?;
+    let settings = config::settings();
     let app = Arc::new(App {
         db,
         cfg: Config {
             data_dir: home.clone(),
             agents_dir,
+            addr: settings.addr.clone(),
+            node: settings.node.clone(),
             stall_after: orchestrator::STALL_AFTER,
             goal_settle: goal_settle::SETTLE,
         },
         tx,
         runs: Mutex::new(HashMap::new()),
+        adapter_state: Default::default(),
+        prices: Default::default(),
     });
     app.recover()?;
     app.seed_roles()?;
@@ -541,11 +545,11 @@ async fn main() -> Result<()> {
 
     // Model prices: check every hour, download models.dev's list again once a day.
     {
-        let home = home.clone();
+        let app = app.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             loop {
-                if let Err(err) = prices::sync(home.clone(), false).await {
+                if let Err(err) = app.sync_prices(false).await {
                     config::log(format!("janus: model prices not synced: {err:#}"));
                 }
                 tokio::time::sleep(prices::CHECK_EVERY).await;
@@ -593,9 +597,9 @@ async fn main() -> Result<()> {
         .route("/mcp/{run}/{token}/{who}", post(mcp).get(mcp_stream))
         // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).
         .layer(axum::extract::DefaultBodyLimit::max(160 * 1024 * 1024))
-        .with_state(app);
+        .with_state(app.clone());
 
-    let addr = &config::settings().addr;
+    let addr = &app.cfg.addr;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     config::log(format!("janus {}: http://{addr}  ·  home {}", env!("CARGO_PKG_VERSION"), home.display()));
     axum::serve(listener, router).await?;

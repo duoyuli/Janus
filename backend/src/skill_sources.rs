@@ -5,7 +5,7 @@
 //! roles mount it as `<source id>/<key>`, beside the plain ids of the library's own skills. Runs
 //! never read a source: like any skill, it is copied into the run's snapshot when the run starts.
 
-use crate::agents::{ROLE, check_skill_id, list_skills, read_skill, slug, str_of};
+use crate::agents::{ROLE, check_skill_id, read_skill, slug, str_of};
 use crate::orchestrator::{App, now_ms};
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -338,7 +338,7 @@ impl App {
 
     /// The library's own skills, then every source's.
     pub fn all_skills(&self) -> Value {
-        let mut out = list_skills();
+        let mut out = self.list_skills();
         let list = out["skills"].as_array_mut().unwrap();
         for src in self.sources() {
             list.extend(self.source_skills(&src));
@@ -351,7 +351,7 @@ impl App {
         let dir = match id.split_once('/') {
             None => {
                 check_skill_id(id).ok()?;
-                crate::agents::skill_library().join(id)
+                self.skill_library().join(id)
             }
             Some((src, key)) => {
                 let s = self.read_source(src)?;

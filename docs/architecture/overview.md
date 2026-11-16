@@ -54,9 +54,9 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | 文件 | 职责 |
 | --- | --- |
 | `backend/src/main.rs` | 命令行参数、启动顺序、HTTP 路由与处理函数 |
-| `backend/src/config.rs` | Janus home、配置项（环境变量与 `config.toml`）、Janus 日志 |
+| `backend/src/config.rs` | Janus home、配置项（环境变量与 `config.toml`）、Janus 日志。配置只在启动时读一次，写进 `App.cfg`（home、监听地址、Node 路径）；其余代码只读 `App.cfg`，所以指向另一个 home 的 `App`（例如测试的）不会碰到用户的 `~/.janus` |
 | `backend/src/git_probe.rs` | 只读 Git 查询的共用入口：设置 `GIT_OPTIONAL_LOCKS=0`，不与同一工作目录中 Agent 的 git 操作抢 `index.lock`。和 HEAD 比较用 `git diff-index`，因为 `git diff` 不受这个变量控制，仍会刷新索引 |
-| `backend/src/adapters.rs` | `App` 的适配器部分：清单、按需安装、检查更新、升级与回滚 |
+| `backend/src/adapters.rs` | `App` 的适配器部分：清单、按需安装、检查更新、升级与回滚。进行中的安装、查到的最新版本和会话占用的版本（`AdapterState`）由 `App` 持有，不是进程级的全局变量 |
 | `backend/src/acp.rs` | 基于官方 `agent-client-protocol` SDK 的 ACP 客户端：启动子进程、`initialize`、请求与通知收发、超时 |
 | `backend/src/agents.rs` | `App` 的设置部分的公共部分：设置对象的类型名、命令拆分、id 与 slug 等共用函数；子模块如下 |
 | `backend/src/agents/catalog.rs` | Agent 类型、登录方式和环境变量预设 |
@@ -85,7 +85,7 @@ ACP 适配器（~/.janus/adapters/，按需安装）
 | `backend/src/evidence.rs` | 验收证据：check 的证据方法、结果核对（`gaps`）、证据汇总（`Summary`）和交付中每个任务的验收记录 |
 | `backend/src/usage.rs` | Run 级用量账本：从事件日志实时派生的只读汇总，覆盖 Run、任务、成员、尝试和单个会话；每轮的 token 相加并按模型归集，上下文快照不计入，缺失如实标注，不改调度、预算和交付 |
 | `backend/src/bill.rs` | 按时间段的用量账单：跨 Run 按 Agent 和模型汇总区间里的 token 和上报的费用 |
-| `backend/src/prices.rs` | 模型价格：每天从 models.dev 同步，每个模型取厂商的 API 价格，给账单估算花费 |
+| `backend/src/prices.rs` | 模型价格：每天从 models.dev 同步，每个模型取厂商的 API 价格，给账单估算花费。正在用的价格表（`PriceBook`）由 `App` 持有 |
 | `backend/src/traces.rs` | 任务在工作目录里留下的痕迹：每个任务改过的文件和每个文件最后的修改者、diff 产物的范围、结果与痕迹的对账、完成后又被改过的文件 |
 | `backend/src/status.rs` | Run、任务、尝试和 Agent 阶段的状态枚举；Run 和任务的合法转移集中在 `can_transition_to` |
 | `backend/src/skill_sources.rs` | `App` 的 Skill 来源部分：解析 GitHub 链接、克隆、查找 Skill、更新与删除，以及按 id 找到 Skill（自建或来源） |

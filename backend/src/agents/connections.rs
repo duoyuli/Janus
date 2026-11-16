@@ -261,7 +261,7 @@ impl App {
         }
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
         let base = str_of(&c, "base").to_string();
-        let mut program = crate::config::settings().node.clone();
+        let mut program = self.cfg.node.clone();
         let mut args = vec![];
         let adapter = match base.as_str() {
             "codex" => {

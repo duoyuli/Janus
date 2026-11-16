@@ -7,7 +7,7 @@ impl App {
     /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
     pub(super) fn mcp_server(&self, run: &Run, who: &str) -> Value {
         let token = session_token(&run.st.lock().unwrap().mcp_token, who);
-        json!({ "type": "http", "name": "janus", "url": format!("http://{}/mcp/{}/{}/{}", janus_addr(), run.id, token, who), "headers": [] })
+        json!({ "type": "http", "name": "janus", "url": format!("http://{}/mcp/{}/{}/{}", self.cfg.addr, run.id, token, who), "headers": [] })
     }
 
     /// One MCP request (streamable HTTP, JSON responses) from a session of this run. `who` is
@@ -987,11 +987,6 @@ impl App {
             fresh.join("、")
         ))
     }
-}
-
-/// Where this Janus listens, for the MCP URLs handed to agents.
-pub(super) fn janus_addr() -> String {
-    crate::config::settings().addr.clone()
 }
 
 // @project-doc docs/interfaces/board_mcp.md#transport

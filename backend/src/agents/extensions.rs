@@ -4,6 +4,13 @@
 use super::*;
 
 impl App {
+    /// Janus's own skill library, in this Janus's home. Agents never read the user's agent skill
+    /// folders; a skill enters Janus by being written here (created in the UI, or copied once
+    /// from a folder the user picks).
+    pub fn skill_library(&self) -> PathBuf {
+        self.cfg.data_dir.join("skills")
+    }
+
     pub fn delete_skill(&self, id: &str) -> Result<()> {
         check_skill_id(id)?;
         if let Some(role) = self
@@ -14,14 +21,69 @@ impl App {
         {
             bail!("角色「{}」挂载了这个 Skill，请先移除", str_of(role, "name"));
         }
-        std::fs::remove_dir_all(skill_library().join(id)).context("删除 Skill 失败")
+        std::fs::remove_dir_all(self.skill_library().join(id)).context("删除 Skill 失败")
     }
-}
 
-/// Janus's own skill library. Agents never read the user's agent skill folders; a skill enters
-/// Janus by being written here (created in the UI, or copied once from a folder the user picks).
-pub fn skill_library() -> PathBuf {
-    crate::config::settings().home.join("skills")
+    pub fn list_skills(&self) -> Value {
+        let root = self.skill_library();
+        let mut out: Vec<Value> = std::fs::read_dir(&root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .filter_map(|d| read_skill(&d, "Janus"))
+            .collect();
+        out.sort_by(|a, b| {
+            a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
+        });
+        json!({ "skills": out, "root": root })
+    }
+
+    fn unique_skill_id(&self, want: &str) -> Result<String> {
+        let base = slug(want).unwrap_or_else(|| "skill".into());
+        let root = self.skill_library();
+        (1..1000)
+            .map(|i| if i == 1 { base.clone() } else { format!("{base}-{i}") })
+            .find(|id| !root.join(id).exists())
+            .context("没有可用的 Skill ID")
+    }
+
+    /// Write a new skill into the library from the editor.
+    pub fn create_skill(&self, body: &Value) -> Result<Value> {
+        let name = str_of(body, "name");
+        let content = body["content"].as_str().unwrap_or("").trim();
+        if name.is_empty() || content.is_empty() {
+            bail!("Skill 需要名称和内容");
+        }
+        let id = self.unique_skill_id(name)?;
+        let dir = self.skill_library().join(&id);
+        std::fs::create_dir_all(&dir)?;
+        let text = if content.starts_with("---") {
+            content.to_string()
+        } else {
+            format!(
+                "---\nname: {name}\ndescription: {}\n---\n\n{content}\n",
+                str_of(body, "description").replace('\n', " ")
+            )
+        };
+        std::fs::write(dir.join("SKILL.md"), text)?;
+        read_skill(&dir, "Janus").context("写入 Skill 失败")
+    }
+
+    /// Copy a skill folder the user picked into the library. Only regular files are copied,
+    /// symlinks are resolved to their content, and nothing outside the chosen folder is followed.
+    pub fn import_skill(&self, path: &str) -> Result<Value> {
+        let src = PathBuf::from(expand_home(path.trim())).canonicalize().context("文件夹不存在")?;
+        if !src.join("SKILL.md").is_file() {
+            bail!("这个文件夹里没有 SKILL.md");
+        }
+        let id = self.unique_skill_id(&src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())?;
+        let dest = self.skill_library().join(&id);
+        let mut total = 0u64;
+        copy_tree(&src, &src, &dest, &mut total)?;
+        read_skill(&dest, "Janus").context("导入 Skill 失败")
+    }
 }
 
 pub(crate) fn check_skill_id(id: &str) -> Result<()> {
@@ -67,67 +129,6 @@ pub(crate) fn read_skill(dir: &Path, source: &str) -> Option<Value> {
 pub(super) fn short_desc(s: &str) -> String {
     let s: String = s.chars().take(240).collect();
     if s.chars().count() == 240 { format!("{s}…") } else { s }
-}
-
-pub fn list_skills() -> Value {
-    let root = skill_library();
-    let mut out: Vec<Value> = std::fs::read_dir(&root)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .filter_map(|d| read_skill(&d, "Janus"))
-        .collect();
-    out.sort_by(|a, b| {
-        a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase())
-    });
-    json!({ "skills": out, "root": root })
-}
-
-pub(super) fn unique_skill_id(want: &str) -> Result<String> {
-    let base = slug(want).unwrap_or_else(|| "skill".into());
-    let root = skill_library();
-    (1..1000)
-        .map(|i| if i == 1 { base.clone() } else { format!("{base}-{i}") })
-        .find(|id| !root.join(id).exists())
-        .context("没有可用的 Skill ID")
-}
-
-/// Write a new skill into the library from the editor.
-pub fn create_skill(body: &Value) -> Result<Value> {
-    let name = str_of(body, "name");
-    let content = body["content"].as_str().unwrap_or("").trim();
-    if name.is_empty() || content.is_empty() {
-        bail!("Skill 需要名称和内容");
-    }
-    let id = unique_skill_id(name)?;
-    let dir = skill_library().join(&id);
-    std::fs::create_dir_all(&dir)?;
-    let text = if content.starts_with("---") {
-        content.to_string()
-    } else {
-        format!(
-            "---\nname: {name}\ndescription: {}\n---\n\n{content}\n",
-            str_of(body, "description").replace('\n', " ")
-        )
-    };
-    std::fs::write(dir.join("SKILL.md"), text)?;
-    read_skill(&dir, "Janus").context("写入 Skill 失败")
-}
-
-/// Copy a skill folder the user picked into the library. Only regular files are copied, symlinks
-/// are resolved to their content, and nothing outside the chosen folder is followed.
-pub fn import_skill(path: &str) -> Result<Value> {
-    let src = PathBuf::from(expand_home(path.trim())).canonicalize().context("文件夹不存在")?;
-    if !src.join("SKILL.md").is_file() {
-        bail!("这个文件夹里没有 SKILL.md");
-    }
-    let id = unique_skill_id(&src.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())?;
-    let dest = skill_library().join(&id);
-    let mut total = 0u64;
-    copy_tree(&src, &src, &dest, &mut total)?;
-    read_skill(&dest, "Janus").context("导入 Skill 失败")
 }
 
 pub(super) fn copy_tree(root: &Path, from: &Path, to: &Path, total: &mut u64) -> Result<()> {
@@ -212,4 +213,23 @@ pub(super) fn resolve_mcp(m: &Value) -> Result<Value> {
         },
     };
     Ok(json!({ "name": name, "transport": "stdio", "command": expand_home(&command), "args": args, "env": env }))
+}
+
+#[cfg(test)]
+mod library_tests {
+    use super::*;
+
+    /// The library belongs to one Janus: a skill written through an `App` lands in that App's home,
+    /// whatever home the process was started with.
+    #[test]
+    fn the_skill_library_is_in_the_apps_own_home() {
+        let dir = std::env::temp_dir().join(format!("janus-skill-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        let skill = app.create_skill(&json!({ "name": "Release notes", "content": "Write them." })).unwrap();
+        assert!(PathBuf::from(skill["path"].as_str().unwrap()).starts_with(&dir), "{skill}");
+        assert_eq!(app.list_skills()["skills"].as_array().unwrap().len(), 1);
+        assert!(app.skill_dir("release-notes").is_some_and(|d| d.starts_with(&dir)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

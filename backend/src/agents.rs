@@ -32,9 +32,9 @@ mod workspaces;
 
 pub use catalog::kinds;
 use catalog::*;
+pub use extensions::project_skills;
 use extensions::*;
 pub(crate) use extensions::{check_skill_id, read_skill};
-pub use extensions::{create_skill, import_skill, list_skills, project_skills, skill_library};
 pub use local_config::local_preview;
 use local_config::*;
 pub(crate) use roles::reserved_mcp_name;
