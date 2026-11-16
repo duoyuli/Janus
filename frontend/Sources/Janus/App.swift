@@ -107,7 +107,7 @@ struct StatusMenu: View {
         Divider()
         Button("新目标") { show(); model.newGoal() }.disabled(store == nil)
         Button("设置…") { show(); store?.openSettings(store?.settingsTab ?? "agents") }.disabled(store == nil)
-        Button("检查更新…") { Task { await Updater.shared.check(manual: true) } }
+        Button("检查更新…") { show(); store?.openSettings("updates"); Task { await Updater.shared.check() } }
         Button("打开 Janus 日志") { model.openLogs() }
         Divider()
         Button("退出 Janus") { NSApp.terminate(nil) }.keyboardShortcut("q")
@@ -129,7 +129,10 @@ struct JanusCommands: Commands {
         let run = store?.run
         let onRun: Bool = { if case .run = store?.screen { return run != nil } else { return false } }()
         CommandGroup(after: .appInfo) {
-            Button("检查更新…") { Task { await Updater.shared.check(manual: true) } }
+            Button("检查更新…") {
+                store?.openSettings("updates")
+                Task { await Updater.shared.check() }
+            }.disabled(store == nil)
         }
         CommandGroup(replacing: .appSettings) {
             Button("设置…") { store?.openSettings(store?.settingsTab ?? "agents") }.keyboardShortcut(",").disabled(store == nil)
@@ -224,6 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         followWindows()
         NSApp.activate(ignoringOtherApps: true)
         Task { await model.start() }
+        Updater.shared.onQuit = { [weak model] in model?.backend.stop() }
         Updater.shared.start()
         Snapshots.start(model)
         // Killed rather than quit (kill, Ctrl-C in a terminal): still stop the server it started.

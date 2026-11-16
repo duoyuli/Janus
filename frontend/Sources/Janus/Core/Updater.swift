@@ -68,6 +68,8 @@ final class Updater {
     private(set) var checkedAt: Date?
     /// Set while installing, so quitting does not ask about running tasks a second time.
     private(set) var quitting = false
+    /// Stops the server the app started before it exits to install a new version.
+    var onQuit: (() -> Void)?
 
     let current: String
     let repo: String?
@@ -113,12 +115,10 @@ final class Updater {
         }
     }
 
-    /// Ask GitHub for the latest release. `manual` reports the outcome in an alert.
-    func check(manual: Bool = false) async {
-        guard enabled, let repo else {
-            if manual { info("从源码运行的 Janus 不检查更新", "安装包里的 Janus.app 才会在应用内更新。") }
-            return
-        }
+    /// Ask GitHub for the latest release. The result is shown where the update page reads it;
+    /// nothing pops up.
+    func check() async {
+        guard enabled, let repo else { return }
         if state.isWorking { return }
         state = .checking
         do {
@@ -127,17 +127,12 @@ final class Updater {
             if Self.isNewer(rel.version, than: current) && Self.systemAllows(rel.minimumSystemVersion) {
                 latest = rel
                 state = .available
-                if manual { offer() }
             } else {
                 latest = nil
                 state = .upToDate
-                if manual {
-                    info(Self.isNewer(rel.version, than: current) ? "Janus \(rel.version) 需要 macOS \(rel.minimumSystemVersion) 以上" : "Janus 已是最新版本", "当前版本 \(current)。")
-                }
             }
         } catch {
             state = .failed("检查更新失败：\(error.localizedDescription)")
-            if manual { info("检查更新失败", error.localizedDescription) }
         }
     }
 
@@ -189,18 +184,6 @@ final class Updater {
     }
 
     // MARK: Installing
-
-    /// Ask, then install and relaunch.
-    func offer() {
-        guard let r = latest else { return }
-        let notes = r.notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let size = ByteCountFormatter.string(fromByteCount: Int64(downloadSize), countStyle: .file)
-        let reused = Self.plan(r, installedNode: installedNode).count < r.parts.count ? "，Node.js 没有变化，沿用本机的" : ""
-        let body = "当前 \(current)。需要下载 \(size)\(reused)。\n\n更新时 Janus 会退出并重新打开；正在执行的任务会中断，重新打开后可以「从中断处继续」。"
-            + (notes.isEmpty ? "" : "\n\n" + String(notes.prefix(700)) + (notes.count > 700 ? "…" : ""))
-        guard confirm("更新到 Janus \(r.version)？", body, ok: "更新并重新打开", destructive: false) else { return }
-        Task { await install() }
-    }
 
     func install() async {
         guard let r = latest else { return }
@@ -315,7 +298,10 @@ final class Updater {
         p.standardError = FileHandle.nullDevice
         try p.run()
         quitting = true
+        onQuit?()
         NSApp.terminate(nil)
+        // A modal panel can hold termination; the installer only needs this process to end.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { exit(0) }
     }
 
     static let installScript = """
@@ -364,13 +350,6 @@ final class Updater {
             throw UpdateError("\((cmd as NSString).lastPathComponent) 失败：\(String(decoding: msg, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))")
         }
         return ""
-    }
-
-    private func info(_ title: String, _ text: String) {
-        let a = NSAlert()
-        a.messageText = title
-        a.informativeText = text
-        a.runModal()
     }
 }
 

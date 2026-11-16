@@ -127,7 +127,7 @@ struct Sidebar: View {
                         .buttonStyle(.borderless)
                         .help("Agent、数字员工和 ACP（⌘,）")
                 }
-                UpdateBadge(updater: Updater.shared)
+                UpdateBadge(updater: Updater.shared) { store.openSettings("updates") }
                 if !store.sourceUpdates.isEmpty {
                     Button { store.openSettings("library") } label: {
                         Label("\(store.sourceUpdates.count) 个资源来源有更新", systemImage: "arrow.down.circle")
@@ -230,19 +230,21 @@ struct NoWorkspaceView: View {
     }
 }
 
-/// A new Janus in the sidebar: one click to update, the progress while it installs, or why it failed.
+/// A new Janus in the sidebar: one click opens the updates pane, the progress while it installs,
+/// or why it failed.
 struct UpdateBadge: View {
     let updater: Updater
+    var open: () -> Void = {}
 
     var body: some View {
         switch updater.state {
         case .available:
-            Button { updater.offer() } label: {
+            Button { open() } label: {
                 Label("Janus \(updater.latest?.version ?? "") 可以更新", systemImage: "arrow.down.app.fill")
                     .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
-            .help("下载更新（\(ByteCountFormatter.string(fromByteCount: Int64(updater.downloadSize), countStyle: .file))），完成后自动重新打开")
+            .help("在设置 → 更新中查看更新内容并安装")
         case .downloading, .verifying, .relaunching:
             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(updater.state.workingText ?? "").font(.caption).foregroundStyle(.secondary) }
         case .failed(let text) where updater.latest != nil:
