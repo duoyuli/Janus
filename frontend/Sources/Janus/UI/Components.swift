@@ -22,22 +22,23 @@ extension Color {
         })
     }
 
-    // The Janus palette: cool slate surfaces, near-black (or near-white) for primary actions,
-    // and one signal cyan used sparingly: the current stage, "now", links. Depth comes from
-    // tone and hairlines, not from tinted panels or shadows (docs/architecture/frontend.md#design_tokens).
+    // The Janus palette: cool slate surfaces in light, and in dark the neutral grays and soft
+    // blue accent of Zed's One Dark; near-black (or near-white) for primary actions. Depth comes
+    // from tone and hairlines, not from tinted panels and shadows
+    // (docs/architecture/frontend.md#design_tokens).
 
-    /// Signal cyan: links, the current stage, "now", work in progress.
-    static let accent = Color(light: "#0757c2", dark: "#4cc2ff")
+    /// Signal blue: links, the current stage, "now", work in progress.
+    static let accent = Color(light: "#0757c2", dark: "#61afef")
     /// Primary actions: ink on the page, and the text on it.
-    static let ink = Color(light: "#15181d", dark: "#eef1f5")
-    static let onInk = Color(light: "#ffffff", dark: "#0a0e13")
+    static let ink = Color(light: "#15181d", dark: "#e5e9f0")
+    static let onInk = Color(light: "#ffffff", dark: "#1e2227")
     /// The content area behind the cards.
-    static let page = Color(light: "#f3f5f8", dark: "#0a0e13")
-    static let card = Color(light: "#ffffff", dark: "#121821")
-    static let soft = Color(light: "#eef1f5", dark: "#0e131a")
-    static let line = Color(light: "#e1e6ec", dark: "#1f2836")
-    /// The sidebar: one step off the page, in the same cool family as the cards.
-    static let sidebar = Color(light: "#e9edf2", dark: "#0f141b")
+    static let page = Color(light: "#f3f5f8", dark: "#1e2227")
+    static let card = Color(light: "#ffffff", dark: "#282c34")
+    static let soft = Color(light: "#eef1f5", dark: "#1b1f24")
+    static let line = Color(light: "#e1e6ec", dark: "#3a3f4a")
+    /// The sidebar: one step off the page, in the same family as the cards.
+    static let sidebar = Color(light: "#e9edf2", dark: "#21252b")
 }
 
 extension Font {
@@ -72,10 +73,10 @@ extension Tone {
         switch self {
         case .gray: return Color(nsColor: .secondaryLabelColor)
         case .blue: return .accent
-        case .green: return Color(light: "#087049", dark: "#3ddc97")
-        case .amber: return Color(light: "#8a5800", dark: "#f5b544")
-        case .red: return Color(light: "#c0283f", dark: "#ff6b81")
-        case .violet: return Color(light: "#6a42d6", dark: "#a78bfa")
+        case .green: return Color(light: "#087049", dark: "#98c379")
+        case .amber: return Color(light: "#8a5800", dark: "#e5c07b")
+        case .red: return Color(light: "#c0283f", dark: "#ef8089")
+        case .violet: return Color(light: "#6a42d6", dark: "#c678dd")
         }
     }
 }
