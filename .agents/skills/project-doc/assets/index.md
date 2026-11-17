@@ -9,10 +9,26 @@
 
 > 这是 Project Doc 根索引。加载 project-doc skill 后，在本仓库的第一个任务中完整阅读本文件，再按「阅读时机」进入相关分类。已读内容按 skill 的「阅读与上下文复用」规则复用；内容缺失或需要刷新时再重读。
 
+## 项目
+
+{{用一到两句话说明项目是什么、为谁解决什么问题。}}
+
+<!-- 可选：每个任务都用得上的全局上下文，保持简短。细节放进分类文档，这里只链接。 -->
+## 核心术语
+
+| 术语 | 含义 | 代码中的名字 |
+| --- | --- | --- |
+| {{term}} | {{meaning}} | {{code_name}} |
+
+## 仓库结构
+
+- `{{top_level_path}}`：{{purpose}}，见[{{document_title}}]({{document_path}})。
+
 ## 文档范围
 
 {{用一到两句话描述文档库覆盖的持久工程知识，以及不属于文档库的内容。}}
 
+<!-- 可选：只在确有不属于任何分类的文档时保留。项目概览类内容写在上面，不单独成文。 -->
 ## 根目录文档
 
 - [{{document_title}}]({{document_path}})：{{one_sentence_summary}}。阅读时机：{{read_when}}。
@@ -24,6 +40,8 @@
 - [接口](interfaces/index.md)：{{interfaces_summary}}。阅读时机：{{interfaces_read_when}}。
 - [运维](operations/index.md)：{{operations_summary}}。阅读时机：{{operations_read_when}}。
 - [决策](decisions/index.md)：{{decisions_summary}}。阅读时机：{{decisions_read_when}}。
+- [研究](research/index.md)：{{research_summary}}。阅读时机：{{research_read_when}}。报告是判断，不是当前实现的说明。
+- [审查](review/index.md)：{{review_summary}}。阅读时机：{{review_read_when}}。报告是时点快照，不代表当前实现。
 
 <!-- 搭建期间保留此章节。在文件创建之前将路径显示为代码，创建后再添加链接。 -->
 ## 搭建状态
@@ -51,5 +69,7 @@
 
 <!-- 搭建期间按需使用 planned、in_progress、verified 或 blocked。搭建完成后移除状态。 -->
 ~~~
+
+分类需要总览（共同原则、组件关系、主流程）时，写在「文档列表」之后的章节里并加稳定 ID，不另建 `overview.md`。
 
 每篇文档在分类索引中只保留一个规范条目。相关分类或文档之间使用普通链接，并将摘要保留在规范条目中。

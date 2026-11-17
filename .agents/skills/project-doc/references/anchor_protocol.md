@@ -1,11 +1,13 @@
 # 锚点协议
 
+本协议规定 `@project-doc` 代码锚点的写法、放置位置和变更规则。新增、移动、删除或修复锚点，以及修改被锚点引用的章节 ID 时阅读。
+
 ## 导航
 
 - [语法](#语法)
 - [注释形式](#注释形式)
 - [放置位置](#放置位置)
-- [阅读行为](#阅读行为)
+- [损坏的锚点](#损坏的锚点)
 - [变更规则](#变更规则)
 - [检查](#检查)
 
@@ -14,54 +16,53 @@
 代码锚点是单行上固定的、可检索的标记：
 
 ```text
-@project-doc docs/<path>.md#<section_id>
+@project-doc docs/<category>/<YYYYMMDD>-<topic>.md#<section_id>
 ```
 
-`docs/` 是默认文档根目录。若项目使用其他根目录，使用其相对于仓库根目录的实际路径。绝对路径、`../`、编辑器 URI、远程仓库 URL 以及相对于当前文件的相对路径，在环境或文件位置发生变化时都会失效。
+`docs/` 是默认文档根目录，项目使用其他根目录时写它相对于仓库根目录的实际路径。
 
-每个锚点必须遵守以下规则：
+每个锚点遵守以下规则：
 
 - 标记写作小写的 `@project-doc`。
-- 使用相对于仓库根目录、指向已索引 Markdown 文档的路径。
-- 路径中的文件名与目录名使用小写 `snake_case`。
-- `section_id` 匹配 `[a-z][a-z0-9_]*`。
-- 每行放置一个目标。当一个入口点依赖多个章节时，使用多行锚点。
+- 路径相对于仓库根目录，指向已索引的 Markdown 文档。绝对路径、`../`、编辑器 URI、远程仓库 URL 和相对于当前文件的路径在环境或文件位置变化时会失效，不使用。
+- 路径中的文件名与目录名遵循[文档库协议](library_protocol.md#位置与成员)的成员命名，`section_id` 匹配 `[a-z][a-z0-9_]*`。
+- 每行一个目标。一个入口点依赖多个章节时写多行锚点。
 
-在目标标题前放置 HTML ID：
+章节 ID 写在目标标题前：
 
 ```markdown
 <a id="account_selection"></a>
 ## Account selection
 ```
 
-在锚点中使用此 ID。Markdown 渲染器根据文字生成标题 slug。标题用词可按需润色；仅在章节主题发生变化时才修改稳定 ID。
+锚点使用这个 ID，不使用渲染器由标题文字生成的 slug。标题用词可以随时润色，章节主题变化时才修改 ID。
 
 ## 注释形式
 
 使用目标语言的注释语法包裹锚点。将锚点单独放在一行注释中：
 
 ```go
-// @project-doc docs/architecture/request_routing.md#account_selection
+// @project-doc docs/architecture/20260312-request_routing.md#account_selection
 func selectAccount(...) {
 ```
 
 ```typescript
-// @project-doc docs/interfaces/session_contract.md#refresh_rules
+// @project-doc docs/interfaces/20260312-session_contract.md#refresh_rules
 export async function refreshSession(...) {
 ```
 
 ```python
-# @project-doc docs/domains/billing.md#balance_invariant
+# @project-doc docs/domains/20260405-billing.md#balance_invariant
 def apply_charge(...):
 ```
 
 ```sql
--- @project-doc docs/domains/usage.md#aggregation_boundary
+-- @project-doc docs/domains/20260405-usage.md#aggregation_boundary
 CREATE TABLE usage_records (...);
 ```
 
 ```html
-<!-- @project-doc docs/interfaces/authentication.md#login_flow -->
+<!-- @project-doc docs/interfaces/20260518-authentication.md#login_flow -->
 <LoginForm />
 ```
 
@@ -76,7 +77,7 @@ CREATE TABLE usage_records (...);
 3. 实现公开约定的代码入口点。
 4. 无单一入口点时，最接近规则实现的手写代码。
 
-将锚点放置在其修饰的符号或配置块旁。集中在文件头的锚点无法明确其描述的具体代码。多个实际入口点可以引用同一个章节。将锚点复制到每一个相关文件中会产生过多的维护负担。
+锚点放在它说明的符号或配置块旁；集中在文件头的锚点看不出对应哪段代码。多个实际入口点可以引用同一个章节，但不要把锚点复制到每一个相关文件中，那样维护负担过重。
 
 默认跳过以下位置：
 
@@ -87,16 +88,9 @@ CREATE TABLE usage_records (...);
 
 若目标文件无法包含注释，将锚点放置在其生成源、schema、加载器、校验器或最近的手写入口点中。当测试本身定义了跨模块契约且没有更合适的生产入口点时，测试可以携带锚点。
 
-## 阅读行为
+## 损坏的锚点
 
-当智能体在代码中遇到锚点时：
-
-1. 解析其相对于仓库根目录的路径与章节 ID。
-2. 在解释、审查或修改代码之前，按 [阅读与上下文复用](../SKILL.md#reading_and_context_reuse) 阅读或复用目标章节。再次遇到相同锚点时予以复用。
-3. 阅读理解该章节所需的范围与直接依赖。按需阅读整篇文档。
-4. 将无效路径或 ID 记录为文档与代码的不一致。
-
-在只读任务中报告损坏的锚点及其位置。在获得修改授权时，修复锚点、文档或两者。依据可靠证据选择替换目标。仅凭相似名称猜测章节可能会将读者引向错误的规则。
+遇到锚点时怎样阅读目标章节见 [SKILL.md](../SKILL.md)。路径或章节 ID 无效的锚点是文档与代码的不一致：只读任务报告锚点及其位置；已授权修改时修复锚点、文档或两者。替换目标要有可靠证据（变更历史、章节内容、调用方），仅凭名称相似猜测会把读者引向错误的规则。
 
 ## 变更规则
 

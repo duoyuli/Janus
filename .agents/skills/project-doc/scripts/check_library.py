@@ -17,6 +17,8 @@ import sys
 from pathlib import Path, PurePosixPath
 
 SNAKE = re.compile(r"^[a-z][a-z0-9_]*$")
+# 文档文件名：创建日期加主题，例如 20261201-run_lifecycle；index 不加日期。
+DOC_NAME = re.compile(r"^(19|20)\d\d(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])-[a-z][a-z0-9_]*$")
 ANCHOR = re.compile(r"@project-doc\s+(\S+)")
 ID_TAG = re.compile(r'<a id="([^"]*)"></a>')
 # 索引条目：「- [标题](路径)」，允许搭建期状态前缀。
@@ -93,9 +95,11 @@ def main():
         if len(listed_in) > 1:
             report(path, f"在多个索引中有规范条目：{', '.join(listed_in)}")
         rel = PurePosixPath(path).relative_to(doc_root)
-        for part in [*rel.parts[:-1], rel.stem]:
+        for part in rel.parts[:-1]:
             if not SNAKE.match(part):
-                report(path, f"路径段不是小写 snake_case：{part}")
+                report(path, f"目录名不是小写 snake_case：{part}")
+        if rel.stem != "index" and not DOC_NAME.match(rel.stem):
+            report(path, f"文件名不是 YYYYMMDD-<snake_case 主题>.md：{rel.name}")
 
     # 分类目录中未被索引的 Markdown。
     for d in sorted(routed_dirs):
