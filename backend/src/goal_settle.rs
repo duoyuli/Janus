@@ -7,7 +7,7 @@
 //! directly; a lead that confirms gets its goal cleared through `_session/goal`, and the run
 //! goes on to delivery. A lead that is not done goes on working; after a few asks the watchdog
 //! is left to tell the person.
-// @project-doc docs/domains/goal_mode.md#goal_settle
+// @project-doc docs/domains/20261031-goal_mode.md#goal_settle
 
 use std::time::Duration;
 

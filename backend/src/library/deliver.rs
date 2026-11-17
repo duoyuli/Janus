@@ -2,7 +2,7 @@
 //! into its bundle, laid out the way its agent reads them. When a session opens, the bundle and
 //! the MCP servers are handed over through the session's own parameters. Nothing here writes an
 //! agent's configuration.
-// @project-doc docs/domains/resource_library.md#delivery
+// @project-doc docs/domains/20261116-resource_library.md#delivery
 
 use super::{Body, Item, ItemKind, McpServer, McpValues, place_skill};
 use crate::agents::Runtime;

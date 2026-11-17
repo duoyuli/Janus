@@ -15,7 +15,7 @@ import Security
 ///
 /// The app downloads with URLSession, which sets no quarantine flag, so Gatekeeper does not stop
 /// the new version the way it stops a DMG downloaded in a browser.
-// @project-doc docs/architecture/frontend.md#updates
+// @project-doc docs/architecture/20261031-frontend.md#updates
 @Observable @MainActor
 final class Updater {
     static let shared = Updater()

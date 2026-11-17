@@ -4,7 +4,7 @@ use super::*;
 
 /// Provider types for the "New provider" dialog: built-in runtimes, presets that
 /// route a built-in runtime through another vendor, and any ACP agent started by a custom command.
-// @project-doc docs/domains/agents_and_roles.md#providers
+// @project-doc docs/domains/20261031-agents_and_roles.md#providers
 pub fn kinds() -> Value {
     let runtime = |cmd: &str| json!({ "cmd": cmd, "placeholder": format!("/path/to/{cmd}"), "detected": which(cmd) });
     let claude_preset = |id: &str,

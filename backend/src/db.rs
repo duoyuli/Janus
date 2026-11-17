@@ -76,7 +76,7 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
 }
 
 impl Db {
-    // @project-doc docs/architecture/data_model.md#sqlite_tables
+    // @project-doc docs/architecture/20261031-data_model.md#sqlite_tables
     pub fn open(path: &Path) -> Result<Db> {
         let conn = Connection::open(path)?;
         conn.execute_batch(

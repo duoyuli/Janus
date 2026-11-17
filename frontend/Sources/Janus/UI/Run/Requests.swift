@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Every request an agent puts in front of the person shares one card: who asks and where, what it
 /// is about, then the agent's own options or a form built from its JSON Schema.
-// @project-doc docs/architecture/frontend.md#request_cards
+// @project-doc docs/architecture/20261031-frontend.md#request_cards
 struct RequestCard: View {
     let run: RunModel
     let st: RunState

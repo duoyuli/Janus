@@ -11,15 +11,15 @@
 # Signing: JANUS_SIGN_IDENTITY (a certificate's name or SHA-1 in the keychain, optionally from
 # JANUS_SIGN_KEYCHAIN) gives every release the same identity, so macOS keeps the app's permissions
 # across updates and the in-app updater can check an update comes from the same signer. Without it
-# the app is signed ad hoc (docs/operations/ci_release.md#signing).
+# the app is signed ad hoc (docs/operations/20261101-ci_release.md#signing).
 #
-# Besides the DMG, the update parts the in-app updater downloads (docs/operations/ci_release.md#update_parts):
+# Besides the DMG, the update parts the in-app updater downloads (docs/operations/20261101-ci_release.md#update_parts):
 # Janus-<version>-app.tar.gz (the bundle without Node.js), Janus-<version>-node.tar.gz and update.json.
-# @project-doc docs/operations/deployment.md#macos_app
+# @project-doc docs/operations/20261031-deployment.md#macos_app
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-# Node.js for the ACP adapters: an LTS release of at least 22.19 (the Pi adapter's minimum).
+# Node.js for the ACP adapters: an LTS release of at least 22.19 (the minimum Janus accepts).
 NODE_VERSION="${NODE_VERSION:-24.22.0}"
 version=""
 make_dmg=1

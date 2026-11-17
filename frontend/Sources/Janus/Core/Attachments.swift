@@ -2,7 +2,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// An image waiting to be sent with a goal or a message. It goes to the server as base64
-/// (docs/interfaces/http_api.md#images), which stores it with the run.
+/// (docs/interfaces/20261031-http_api.md#images), which stores it with the run.
 struct PastedImage: Identifiable, Equatable {
     let id = UUID()
     let data: Data

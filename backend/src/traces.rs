@@ -6,7 +6,7 @@
 //! finished task whose files someone changed afterwards is marked as possibly out of date, and
 //! a result is checked against the files the task owns and edited (`gaps`). The board carries
 //! intent and decisions; facts the workspace already holds are read from it.
-// @project-doc docs/domains/goal_mode.md#traces
+// @project-doc docs/domains/20261031-goal_mode.md#traces
 
 use crate::orchestrator::TaskDef;
 use crate::teamwork::covers;

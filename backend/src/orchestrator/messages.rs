@@ -49,7 +49,7 @@ impl Delivery {
 impl App {
     /// Messages left for an agent while it had no open session, handed over with its next prompt.
     /// Record a message the moment it is sent, before any session has picked it up.
-    // @project-doc docs/interfaces/events.md#message_flow
+    // @project-doc docs/interfaces/20261031-events.md#message_flow
     pub(super) fn post_message(
         &self,
         run: &Run,

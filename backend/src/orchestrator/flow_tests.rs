@@ -28,7 +28,7 @@ fn sh(cwd: &Path, args: &[&str]) {
 }
 
 /// `members`: (role id, writable). The first one leads.
-// @project-doc docs/operations/testing.md#harness
+// @project-doc docs/operations/20261031-testing.md#harness
 fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
     let dir = std::env::temp_dir().join(format!("janus-flow-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

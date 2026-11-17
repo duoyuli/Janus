@@ -3,7 +3,7 @@ import SwiftUI
 // How acceptance evidence is shown: the method as text first, then the whole evidence, then the
 // independent verification, the trace gaps and the risks apart from it. Colour and glyphs repeat
 // what the text already says, so dark mode, VoiceOver and a black-and-white screenshot keep the
-// meaning (docs/architecture/frontend.md#evidence_methods).
+// meaning (docs/architecture/20261031-frontend.md#evidence_methods).
 
 /// One check's method, written out: 「测试」「命令」「检查」「推理判断」「未核实」, 「未说明」 for a
 /// check recorded without one, or the recorded value when it is not an allowed method.

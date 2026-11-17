@@ -2,7 +2,7 @@ import Foundation
 
 /// A unified diff as Janus saves it for a task (`git diff-index -p HEAD`, then a list of new
 /// untracked files): files, hunks and lines with their numbers on each side, for the review view.
-// @project-doc docs/architecture/frontend.md#diff_review
+// @project-doc docs/architecture/20261031-frontend.md#diff_review
 enum Diff {
     struct Line: Identifiable, Equatable {
         enum Kind { case context, added, removed }

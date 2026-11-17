@@ -236,7 +236,7 @@ struct RoleEditor: View {
     // MARK: Resources
 
     /// The library items this role uses, each with what the role's agent can do with it.
-    // @project-doc docs/domains/resource_library.md#roles
+    // @project-doc docs/domains/20261116-resource_library.md#roles
     @ViewBuilder private var resources: some View {
         let runtime = Library.runtime(store.connection(r["connection"].str))
         let chosen = r["resources"].strings

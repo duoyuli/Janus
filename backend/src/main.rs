@@ -52,7 +52,7 @@ fn janus_home() -> Result<PathBuf> {
 /// `<home>/janus.pid`, taken atomically and released when the process ends however it ends; the
 /// file also names the owner's pid, which the app reads to find a running Janus. Keep the
 /// returned file for as long as the process runs.
-// @project-doc docs/operations/deployment.md#single_instance
+// @project-doc docs/operations/20261031-deployment.md#single_instance
 fn lock_home(home: &std::path::Path) -> Result<std::fs::File> {
     use std::io::Write;
     let mut file =
@@ -205,7 +205,7 @@ fn reply<T: serde::Serialize>(v: anyhow::Result<T>) -> ApiResult {
     Ok(Json(v.map_err(bad)?).into_response())
 }
 
-// @project-doc docs/interfaces/http_api.md#library
+// @project-doc docs/interfaces/20261031-http_api.md#library
 async fn library(State(app): State<Arc<App>>) -> ApiResult {
     reply(app.library_view())
 }
@@ -326,7 +326,7 @@ async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Quer
 
 /// The run's read-only usage ledger over its whole event log (`backend/src/usage.rs`). A run always
 /// has its `run.created` event, so no events means no such run.
-// @project-doc docs/interfaces/http_api.md#run_usage
+// @project-doc docs/interfaces/20261031-http_api.md#run_usage
 async fn get_usage(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     let events = app.db.events(&id, 0).map_err(bad)?;
     if events.is_empty() {
@@ -362,7 +362,7 @@ struct PriceQuery {
 
 /// List prices of the given models from the synced models.dev list (`backend/src/prices.rs`), so
 /// the app can price a task's bill; `null` for a model without a price.
-// @project-doc docs/interfaces/http_api.md#prices
+// @project-doc docs/interfaces/20261031-http_api.md#prices
 async fn get_prices(State(app): State<Arc<App>>, Query(q): Query<PriceQuery>) -> ApiResult {
     Ok(Json(price_reply(app.prices().as_deref(), q.models.as_deref().unwrap_or(""))).into_response())
 }
@@ -384,7 +384,7 @@ fn price_reply(table: Option<&prices::Table>, models: &str) -> Value {
 }
 
 /// Files in a run's workspace whose path contains `q`, for the `@` menu of the composer.
-// @project-doc docs/interfaces/http_api.md#run_files
+// @project-doc docs/interfaces/20261031-http_api.md#run_files
 async fn run_files(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<FileQuery>) -> ApiResult {
     let run = app.db.run(&id).map_err(bad)?.ok_or((StatusCode::NOT_FOUND, "run not found".into()))?;
     let cwd = std::path::PathBuf::from(run["cwd"].as_str().unwrap_or_default());
@@ -481,7 +481,7 @@ async fn file(State(app): State<Arc<App>>, Query(q): Query<PathQuery>) -> ApiRes
     Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response())
 }
 
-// @project-doc docs/architecture/overview.md#startup
+// @project-doc docs/architecture/20261116-modules.md#startup
 #[tokio::main]
 async fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
@@ -491,7 +491,7 @@ async fn main() -> Result<()> {
         }
         Some("--help" | "-h") => {
             println!(
-                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node).\nSee docs/operations/deployment.md.",
+                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node).\nSee docs/operations/20261031-deployment.md.",
                 env!("CARGO_PKG_VERSION")
             );
             return Ok(());
@@ -554,7 +554,7 @@ async fn main() -> Result<()> {
         });
     }
 
-    // @project-doc docs/interfaces/http_api.md#routes
+    // @project-doc docs/interfaces/20261031-http_api.md#routes
     let router = Router::new()
         .route("/api/meta", get(meta))
         .route("/api/inspect", get(inspect))

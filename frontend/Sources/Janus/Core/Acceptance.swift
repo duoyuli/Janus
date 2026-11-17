@@ -3,7 +3,7 @@ import Foundation
 // Acceptance evidence as the events record it: each check, the method behind it, the numbers the
 // task page and the delivery show, and the delivery's per-task record. The app only groups what
 // was recorded; whether a task passed stays with `task.succeeded` and `verification.*`
-// (docs/architecture/frontend.md#evidence_methods). The backend side is `backend/src/evidence.rs`.
+// (docs/architecture/20261031-frontend.md#evidence_methods). The backend side is `backend/src/evidence.rs`.
 
 /// How a check says it was verified. Only these five values are methods; any other value is kept as
 /// recorded and shown as such instead of being read as a method.

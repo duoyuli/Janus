@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// A window showing a file the team produced: an artifact, a deliverable, a document an agent
 /// wrote. Markdown is rendered; everything else is shown as text. One window per file: opening
 /// it again brings that window forward and reads the file again.
-// @project-doc docs/architecture/frontend.md#markdown_viewer
+// @project-doc docs/architecture/20261031-frontend.md#markdown_viewer
 enum ArtifactWindow {
     @MainActor private static var windows: [String: NSWindow] = [:]
 

@@ -10,8 +10,8 @@
 //! kind of evidence a check claims to rest on, not whether that claim is true.
 //!
 //! The result check that uses these gaps is described in
-//! `docs/domains/run_lifecycle.md#verification`; the wire format is in
-//! `docs/interfaces/events.md#evidence_methods`.
+//! `docs/domains/20261031-run_lifecycle.md#verification`; the wire format is in
+//! `docs/interfaces/20261031-events.md#evidence_methods`.
 
 use serde::Serialize;
 use serde_json::Value;
@@ -246,7 +246,7 @@ pub struct Verification {
 
 /// One task's acceptance record in `run.delivered`: the numbers and reminders of its checks, every
 /// check, its independent verifications, where its result disagreed with the workspace, and its
-/// risks (docs/interfaces/events.md#evidence_methods).
+/// risks (docs/interfaces/20261031-events.md#evidence_methods).
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskAcceptance {

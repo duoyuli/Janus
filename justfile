@@ -1,4 +1,4 @@
-# Janus 的构建、部署和服务管理。`just` 列出全部命令，说明见 docs/operations/deployment.md。
+# Janus 的构建、部署和服务管理。`just` 列出全部命令，说明见 docs/operations/20261031-deployment.md。
 # Janus 保存的一切都在 JANUS_HOME（默认 ~/.janus），仓库只放代码。
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
@@ -28,7 +28,7 @@ fmt:
 lint:
     cd backend && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings
 
-# @project-doc docs/operations/deployment.md#macos_app
+# @project-doc docs/operations/20261031-deployment.md#macos_app
 # 从源码运行 macOS 原生应用（连接已在运行的 Janus，否则启动 JANUS_HOME/bin/janus）
 mac:
     cd frontend && swift run Janus
@@ -54,7 +54,7 @@ app:
 dmg:
     frontend/scripts/package.sh
 
-# @project-doc docs/operations/deployment.md#install
+# @project-doc docs/operations/20261031-deployment.md#install
 # 构建 release 二进制并安装到 JANUS_HOME/bin/janus（升级 Janus 也用它，之后 just restart）
 install:
     #!/usr/bin/env bash
@@ -120,8 +120,8 @@ uninstall:
 plist:
     @just _write-plist /dev/stdout
 
-# @project-doc docs/operations/deployment.md#run_as_service
-# launchd 启动的进程 PATH 很短，找不到 node、codex、claude、grok、git、npm，
+# @project-doc docs/operations/20261031-deployment.md#run_as_service
+# launchd 启动的进程 PATH 很短，找不到 node、codex、claude、git、npm，
 # 所以服务沿用执行 just start 时终端的 PATH。
 _write-plist target:
     #!/usr/bin/env bash
@@ -157,4 +157,4 @@ _addr:
     echo "${JANUS_ADDR:-${file:-127.0.0.1:7878}}"
 
 _macos:
-    @[ "$(uname)" = "Darwin" ] || { echo "服务命令使用 launchd（macOS）；其他系统用 just run 配合自己的进程管理器，见 docs/operations/deployment.md"; exit 1; }
+    @[ "$(uname)" = "Darwin" ] || { echo "服务命令使用 launchd（macOS）；其他系统用 just run 配合自己的进程管理器，见 docs/operations/20261031-deployment.md"; exit 1; }

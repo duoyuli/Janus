@@ -1,6 +1,6 @@
 import SwiftUI
 
-// The usage ledger on the run page and the task page (docs/architecture/frontend.md#usage_ledger).
+// The usage ledger on the run page and the task page (docs/architecture/20261031-frontend.md#usage_ledger).
 // The numbers come from `RunState.usage`; these views only lay them out.
 
 /// The run's usage ledger on the workbench: tokens, cost state, wall-clock time, completeness, the
@@ -8,7 +8,7 @@ import SwiftUI
 /// reminders. Every number comes from the same `session.usage` events the session cards read; a
 /// missing number is written in words and never as 0. The rows come from `UsageScope.summaryRows`,
 /// so a test reads exactly what this card shows.
-// @project-doc docs/architecture/frontend.md#usage_ledger
+// @project-doc docs/architecture/20261031-frontend.md#usage_ledger
 struct UsageSection: View {
     let run: RunModel
     let st: RunState
@@ -127,7 +127,7 @@ struct UsageRow: View {
 
 /// A task's usage as a bill: the total, who spent it on which model, each attempt, and the parts of
 /// the tokens; a task with no session yet says so instead of showing 0.
-// @project-doc docs/architecture/frontend.md#usage_bill
+// @project-doc docs/architecture/20261031-frontend.md#usage_bill
 struct TaskUsageCard: View {
     let run: RunModel
     let st: RunState

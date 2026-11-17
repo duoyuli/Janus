@@ -745,7 +745,7 @@ impl App {
         self.runs.lock().unwrap().get(id).cloned()
     }
 
-    // @project-doc docs/interfaces/events.md#event_shape
+    // @project-doc docs/interfaces/20261031-events.md#event_shape
     fn emit(&self, run: &Run, e: Ev) -> i64 {
         let _order = run.emitting.lock().unwrap_or_else(|p| p.into_inner());
         let seq = run.seq.fetch_add(1, Ordering::SeqCst) + 1;

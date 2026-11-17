@@ -7,7 +7,7 @@ use super::*;
 /// `controls`, everything else the agent lets a session choose. Each agent declares its own:
 /// Codex sandbox presets, Claude Code permission modes, Grok's permission mode and Plan toggle.
 /// Roles pick values from `controls`; nothing about them is hard-coded per agent.
-// @project-doc docs/domains/agents_and_roles.md#permission_modes
+// @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
 pub fn session_options(session: &Value) -> Value {
     let mut out = json!({ "controls": [] });
     let mut controls = vec![];
@@ -57,7 +57,7 @@ pub fn session_options(session: &Value) -> Value {
 
 /// A control that switches the agent into a plan mode: Codex's `plan-mode` (an on/off select),
 /// Grok's `plan_mode` (a boolean).
-// @project-doc docs/domains/agents_and_roles.md#no_plan_mode
+// @project-doc docs/domains/20261031-agents_and_roles.md#no_plan_mode
 pub fn is_plan_toggle(c: &Value) -> bool {
     str_of(c, "id").to_ascii_lowercase().contains("plan")
 }

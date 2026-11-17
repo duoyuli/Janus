@@ -88,7 +88,7 @@ impl RunStatus {
 
 /// A task on the shared board. These are the states the scheduler writes; the app additionally
 /// derives display states (`ready`, `assigned`, `verifying`, `verification_failed`,
-/// `waiting_input`, `waiting_approval`) from events, see `docs/domains/run_lifecycle.md`.
+/// `waiting_input`, `waiting_approval`) from events, see `docs/domains/20261031-run_lifecycle.md`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {

@@ -116,7 +116,7 @@ struct HomeView: View {
     }
 
     /// The workspace's shared material, readable where goals start; editing stays in the workspace settings.
-    // @project-doc docs/domains/agents_and_roles.md#workspace_brief
+    // @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
     @ViewBuilder private var sharedMaterial: some View {
         let brief = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
         let long = brief.split(separator: "\n", omittingEmptySubsequences: false).count > Self.previewLines || brief.count > 400

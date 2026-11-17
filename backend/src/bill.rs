@@ -3,7 +3,7 @@
 //! what happened inside it: the turns in the period, and the part of each session's running cost
 //! reached in the period. Payers are Agents (a member's runtime, such as Codex or Claude Code),
 //! each with its models. Read-only, computed from the event log on request; nothing is stored.
-//! See `docs/interfaces/http_api.md#usage_bill`.
+//! See `docs/interfaces/20261031-http_api.md#usage_bill`.
 
 use crate::db::Db;
 use crate::prices::{Estimate, Table};
@@ -41,7 +41,7 @@ pub struct PeriodBill {
 
 /// The bill of `[from, to)` (milliseconds), priced with `prices` when there are any. `offset_minutes`
 /// is the person's time zone, east of UTC, so active days are their days.
-// @project-doc docs/interfaces/http_api.md#usage_bill
+// @project-doc docs/interfaces/20261031-http_api.md#usage_bill
 pub fn period(db: &Db, from: i64, to: i64, offset_minutes: i64, prices: Option<&Table>) -> Result<PeriodBill> {
     let mut bill = PeriodBill { from, to, days: ((to - from + DAY_MS - 1) / DAY_MS) as usize, ..Default::default() };
     let mut days: HashSet<i64> = HashSet::new();

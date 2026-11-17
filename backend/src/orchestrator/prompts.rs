@@ -6,7 +6,7 @@ use super::*;
 /// Where a member's system layer reaches the model: Janus's instructions for the session and the
 /// person's standing rules. They hold for the whole session and outrank the task text, so they go
 /// in the system layer wherever the agent offers one.
-// @project-doc docs/interfaces/acp_integration.md#standing_instructions
+// @project-doc docs/interfaces/20261031-acp_integration.md#standing_instructions
 #[derive(Debug, PartialEq)]
 pub(super) enum Channel {
     /// Claude Code: `session/new` / `session/load` `_meta.systemPrompt.append`.
@@ -121,7 +121,7 @@ pub(super) fn task_prompt(
 /// How a collaborator works with Janus, for the whole session: verifying against the criteria,
 /// the working directory, the board, questions and the structured result. It goes in the system
 /// layer; an agent without one gets it at the end of its first prompt.
-// @project-doc docs/domains/goal_mode.md#collaborator_rules
+// @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
 pub(super) fn collaborator_rules(board: bool) -> String {
     let mut p = String::from(
         "你是 Janus 团队中的协作者：负责人把子任务交给你，你在项目的工作目录中完成它，并按下面的约定汇报。这些约定在整个会话中都有效。
@@ -194,7 +194,7 @@ pub(super) fn finished_by_user(text: &str) -> TaskResult {
     r
 }
 
-// @project-doc docs/domains/run_lifecycle.md#structured_result
+// @project-doc docs/domains/20261031-run_lifecycle.md#structured_result
 pub(super) fn parse_result(text: &str) -> TaskResult {
     let strings = |v: &Value| {
         v.as_array()

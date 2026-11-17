@@ -3,7 +3,7 @@ import Foundation
 /// A Markdown document's block structure, for reading deliverables inside the app: headings,
 /// paragraphs, nested and task lists, fenced code, quotes, GFM tables, rules and images. Inline
 /// marks are left in the text and rendered by `AttributedString(markdown:)`.
-// @project-doc docs/architecture/frontend.md#markdown_viewer
+// @project-doc docs/architecture/20261031-frontend.md#markdown_viewer
 enum MDDoc {
     indirect enum Node: Hashable {
         case heading(level: Int, text: String)

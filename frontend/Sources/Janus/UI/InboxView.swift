@@ -4,7 +4,7 @@ import SwiftUI
 /// choices: deal with it now (open the run), later (put it off, only when nothing waits on it),
 /// or leave it (a run that stopped). Runs that are just working are folded away by default, so
 /// the window is not a place to watch them work.
-// @project-doc docs/architecture/frontend.md#inbox
+// @project-doc docs/architecture/20261031-frontend.md#inbox
 struct InboxView: View {
     let store: AppStore
 

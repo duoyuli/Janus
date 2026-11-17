@@ -4,7 +4,7 @@ import SwiftUI
 /// The update pane (Settings › 更新): the version running, whether it is the latest, when it was
 /// last checked, and the release notes and install button of a newer one. Everything stays on
 /// this page; the update never opens a panel of its own.
-// @project-doc docs/architecture/frontend.md#updates
+// @project-doc docs/architecture/20261031-frontend.md#updates
 struct UpdatesView: View {
     private let updater = Updater.shared
 

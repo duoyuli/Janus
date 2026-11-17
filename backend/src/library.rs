@@ -5,7 +5,7 @@
 //! `secrets/library/<id>.json`. Roles refer to items by id. A run pins the items its members use
 //! (`Member::resources`) and copies their skills into per-member bundles (`deliver`), which
 //! sessions get at launch; nothing is ever written into an agent's own configuration.
-// @project-doc docs/domains/resource_library.md#model
+// @project-doc docs/domains/20261116-resource_library.md#model
 
 mod deliver;
 mod mcp;

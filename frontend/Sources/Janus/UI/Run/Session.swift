@@ -45,7 +45,7 @@ func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
 }
 
 /// One conversation view for every session.
-// @project-doc docs/architecture/frontend.md#session_messages
+// @project-doc docs/architecture/20261031-frontend.md#session_messages
 struct ChatCard: View {
     let run: RunModel
     let st: RunState

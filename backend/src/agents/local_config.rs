@@ -5,7 +5,7 @@ use super::*;
 
 /// What may be carried over from the user's own agents: how to reach a model, nothing else.
 /// Instructions, hooks, plugins, MCP, skills, permissions and sandbox policy stay behind.
-// @project-doc docs/operations/security.md#local_config_import
+// @project-doc docs/operations/20261031-security.md#local_config_import
 pub(super) const CODEX_KEEP: &[&str] = &[
     "model",
     "model_provider",

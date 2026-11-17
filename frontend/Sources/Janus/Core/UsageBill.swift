@@ -1,7 +1,7 @@
 import Foundation
 
 // A usage bill as the receipt shows it (`UsageReceipt`): a task's bill, built from the run's ledger,
-// or a period's bill across runs, read from `GET /api/usage` (docs/architecture/frontend.md#usage_bill).
+// or a period's bill across runs, read from `GET /api/usage` (docs/architecture/20261031-frontend.md#usage_bill).
 // Both list who paid (members of the task, or Agents) with their models. The cost the agents
 // reported stays apart from the estimate at models.dev list prices, which is never an invoice.
 

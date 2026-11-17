@@ -169,7 +169,7 @@ pub(super) fn member_tools() -> Value {
 
 /// Check an orchestration the lead submitted, against the team and the tasks already on the
 /// board. Every problem is reported at once, so one round of fixes is enough.
-// @project-doc docs/interfaces/board_mcp.md#orchestration_validation
+// @project-doc docs/interfaces/20261031-board_mcp.md#orchestration_validation
 pub(super) fn validate_orchestration(
     run: &Run,
     board: &[(TaskDef, TaskStatus)],
@@ -273,7 +273,7 @@ pub(super) fn validate_orchestration(
 }
 
 /// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
-// @project-doc docs/interfaces/board_mcp.md#wait
+// @project-doc docs/interfaces/20261031-board_mcp.md#wait
 /// Board events the lead has to act on, pushed into its session as they come (`push_board`).
 pub(super) fn needs_lead(e: &Event) -> bool {
     let d = e.data.as_ref();

@@ -64,7 +64,7 @@ pub struct AcpConn {
 }
 
 impl AcpConn {
-    // @project-doc docs/interfaces/acp_integration.md#transport
+    // @project-doc docs/interfaces/20261031-acp_integration.md#transport
     pub async fn spawn(
         spec: &RuntimeSpec,
         cwd: &Path,

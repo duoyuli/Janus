@@ -1,0 +1,180 @@
+# Agent、角色与工作区
+
+本文说明三类设置对象之间的关系和规则：Agent（Provider 连接）、角色、工作区，以及权限模式怎样进入一次会话。角色选择的 Skill 和 MCP 来自[资源库](20261116-resource_library.md)。运行环境的隔离方式见[安全边界](../operations/20261031-security.md#agent_isolation)，设置接口见 [HTTP API](../interfaces/20261031-http_api.md#setup)。
+
+关系：工作区由多个角色组成，每个角色绑定一个 Agent。Run 创建时把这三层合并成团队快照，之后修改设置不影响已有 Run。
+
+<a id="providers"></a>
+## Agent 类型
+
+`agents::kinds()` 定义了可创建的 Agent 类型：
+
+| 类型 | 分组 | 基础运行时 | 认证方式 | 配置目录变量 |
+| --- | --- | --- | --- | --- |
+| `codex` | 内置 | `codex` | 复制本机配置、ChatGPT 登录、自定义 API（OpenAI 或兼容 Responses API 的网关） | `CODEX_HOME` |
+| `claude` | 内置 | `claude` | 复制本机配置、Claude 订阅 OAuth Token、API Key | `CLAUDE_CONFIG_DIR` |
+| `deepseek-claude`、`minimax-claude`、`glm-claude` | 预设 | `claude` | 粘贴对应厂商的 token，通过预设的环境变量（可修改）把 Claude Code 指向厂商的 Anthropic 兼容接口 | `CLAUDE_CONFIG_DIR` |
+| `custom` | 自定义 | `custom` | 无；只使用填写的启动命令和环境变量 | 无 |
+
+规则：
+
+- Agent id 由名字生成（小写字母和 `-`），可以手动指定，不能重复。已有 Agent 不能修改类型。Agent、角色和工作区的 id 都只能用小写字母、数字和 `-`，以字母或数字开头，最长 40 个字符（`check_id`）：它们是 Janus home 中目录和文件的名字，保存和删除时都会校验。
+- 内置运行时通过 ACP 适配器启动。适配器在第一次检查用到它的 Agent 时自动安装，见 [ACP 适配器管理](../architecture/20261031-adapters.md#on_demand)。
+- 有正在运行的任务使用某个 Agent 时，不能删除它。
+- 「复制本机配置」只复制与模型接入有关的配置项和凭据，见[安全边界](../operations/20261031-security.md#local_config_import)。
+
+<a id="agent_env"></a>
+### 环境变量
+
+Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20261031-security.md)），它看到的变量按以下顺序叠加，同名时后面的覆盖前面的：
+
+1. 沙箱变量：`HOME`、XDG 目录、`TMPDIR` 等，指向 `~/.janus/agents/<id>/` 下的隔离目录。
+2. 类型的默认变量（`fixedEnv`，预设还有所选接入点的 `env`），例如 DeepSeek 预设的 `ANTHROPIC_BASE_URL` 和各档模型。
+3. 用户在 Agent 上填写的环境变量，以及「复制本机配置」带来的变量。值为空（`KEY=`）表示去掉这个变量。沙箱变量不能在这里改写。
+4. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和凭据（如预设 token 对应的 `ANTHROPIC_AUTH_TOKEN`）。Claude Code 还有一项默认值：`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，原因见 [Claude Code 会话的环境默认值](../interfaces/20261031-acp_integration.md#background_tasks)。
+
+编辑页把第 2 步的默认值直接填进环境变量框，用户可以逐项修改；切换接入点时只替换该接入点的变量，用户自己加的行保留。保存后这些值成为 Agent 自己的配置，之后预设的默认值变化不会影响已经填写的项。
+
+<a id="connection_check"></a>
+## 配置检查
+
+`test_connection` 按顺序执行以下步骤，结果在应用中逐步显示：
+
+1. **ACP 适配器**：内置运行时需要的适配器没有安装时，当场安装最新版本。自定义命令没有这一步。
+2. **运行时**：找到 CLI 和适配器入口。
+3. **凭据**：检查所选认证方式需要的凭据是否齐全。
+4. **启动 Agent**：启动子进程并完成 ACP `initialize`，60 秒超时。
+5. **打开会话**：`session/new`，读取 Agent 声明的模型、推理强度和会话控制项，保存到连接的 `options`。
+6. **试运行**：发送一句测试消息，确认有回复。
+
+第 5 步读到的控制项是角色编辑器的选项来源。Agent 升级后控制项变化时，重新检查即可刷新。
+
+`GET /api/connections` 为每个连接额外返回 `phase`，应用只按这一个值显示状态，不再自己组合 `status`、`login.state` 和 `loggedIn`。取值依次为 `logging_in`（登录命令正在运行）、`logged_out`（需要账号登录但本机没有 `auth.json`）、`testing`、`ok`、`error`、`untested`。
+
+<a id="permission_modes"></a>
+## 会话控制项与权限模式
+
+Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话中声明的控制项（`session_options`）：
+
+- `category` 为 `model` 的控制项是模型，`thought_level` 是推理强度。
+- 其余 `select` 和 `boolean` 类型的控制项都是会话控制项（`controls`）。
+- 用 ACP session modes 报告模式的 Agent，模式转换成 id 为 `mode` 的控制项。
+
+一个控制项满足以下任一条件时，被视为权限模式（`permission: true`），在角色编辑器的「权限」区域显示：
+
+- `category` 是 `mode` 或 `_permission`。
+- id（`-` 视为 `_`）是 `mode`、`permission_mode`、`plan_mode`、`approval_policy` 或 `sandbox`。
+
+各 Agent 声明的典型权限模式：Codex 的沙箱预设（Read-only / Agent / Full access 等）、Claude Code 的权限模式（Manual / Accept edits / Auto / Bypass 等）。具体选项以 Agent 实际声明为准。
+
+<a id="no_plan_mode"></a>
+### 不使用 Plan 模式
+
+Janus 不让任何 Agent 进入 Plan 模式。Plan 模式只出方案、不执行，而 Janus 的任务要真正完成；Codex 负责人在 Plan 模式下还会跳过 `/goal` 的自动推进（日志为 `skipping goal continuation ... reason=PlanMode`），Run 会一直停在「目标进行中」。
+
+- `session_options` 把 id 含 `plan` 的控制项（`is_plan_toggle`，例如 Codex 的 `plan-mode` 是 on / off 下拉，也可能是布尔开关）从 `controls` 中移到 `planToggles`，并从所有下拉控制项中去掉值为 `plan` 的选项（`is_plan_value`，例如 Claude Code 的 Plan 权限模式和旧版 Agent 的 `plan` session mode）。角色编辑器因此看不到这些选项；在这条规则之前检查过的 Agent，应用按同样规则过滤它保存的选项。
+- `role_session` 丢弃角色中与 Plan 有关的值：保存角色时清掉，启动会话时也不使用。
+- 打开会话时，`configure_session` 把仍处于开启状态的 Plan 控制项设为关闭值（`plan_off_value`：布尔为 `false`，下拉为 `off` 一类的选项）；下拉控制项的当前值是 `plan` 且角色没有指定时，改为第一个其他选项。关闭失败时会话以错误结束，不会带着 Plan 模式运行。
+
+Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和负责人收到的协作者名单都只显示 Agent 自己的权限模式名，实际能做什么由 Agent 按自己的模式执行，Janus 不做额外校验。设计取舍见 [ADR：权限交给 Agent 原生模式](../decisions/20261031-agent_native_permissions.md)。
+
+<a id="roles"></a>
+## 角色
+
+| 字段 | 说明 |
+| --- | --- |
+| `name`、`role`、`desc` | 名字、角色名、职责。职责会写进负责人的协作者名单 |
+| `connection` | 绑定的 Agent id |
+| `model`、`effort` | 模型和推理强度；留空表示使用 Agent 默认值 |
+| `session` | 选定的会话控制项值，`{控制项 id: 值}` |
+| `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在任务说明末尾，见 [ACP 集成](../interfaces/20261031-acp_integration.md#standing_instructions) |
+| `resources` | 选择的资源库资源（Skill 和 MCP 服务器）的 id，见[角色的选择](20261116-resource_library.md#roles) |
+| `lead` | 是否可以担任负责人 |
+| `color`、`init` | 应用中的颜色和缩写 |
+
+规则：
+
+- 保存时，`session` 中只保留与 Agent 声明的控制项匹配的值（`role_session`）。Agent 还没检查过、没有控制项时，先保留字符串和布尔值。
+- 保存时，`resources` 只保留资源库中存在的 id，并去掉重复；创建 Run 时同样跳过找不到的资源。资源的名字在同一类中唯一，`janus` 保留给看板，所以一个角色的 MCP 服务器不会重名。
+- 被工作区使用的角色不能删除。
+- 首次启动时写入 5 个默认角色，组成产品上线团队，见[默认角色](#product_launch_roles)。它们都还没有绑定 Agent，职责和角色指令已经填写。
+- 默认角色只写入一次（`seed_roles`，写入后记 `meta.seeded`）：之后删除或修改的默认角色保持用户的修改，修改代码中的默认角色（`SEEDS`）只影响新的 Janus home。
+
+<a id="product_launch_roles"></a>
+### 默认角色：产品上线团队
+
+默认角色按「一个 PMO 负责人推进产品从需求到上线」设计。PMO 只负责计划、进度、依赖、风险和协调，不定义产品范围和成功标准：产品范围、优先级、成功标准和产品验收归产品经理，市场侧成功指标归市场运营，质量结论归质量工程师。其他角色通过看板提交产出、证据和风险。角色指令的全文在 `backend/src/agents/roles.rs` 的 `SEEDS` 中。
+
+| id | 名字 | 角色名 | 职责 |
+| --- | --- | --- | --- |
+| `coordinator` | PMO | 负责人与项目推进 | 计划排期、进度跟踪、依赖协调、风险管理、跨角色沟通和交付汇总；可以担任负责人 |
+| `researcher` | 市场运营 | 市场研究、用户反馈与增长 | 目标市场、用户、竞品、市场侧成功指标、渠道、发布内容、用户反馈和增长验证 |
+| `product-manager` | 产品经理 | 需求定义与 PRD | 产品范围、需求分析、用户流程、优先级、产品成功标准、PRD 和产品验收 |
+| `implementer` | 研发工程师 | 产品实现 | 技术方案、前后端实现、数据与接口、自动化测试、技术风险和交付产物 |
+| `reviewer` | 质量工程师 | 测试与发布质量 | 测试策略、功能验证、回归验证、缺陷管理、发布风险和最终质量判断 |
+
+指令中的共同约定：
+
+- 区分已确认事实、推断和待验证假设；不把未运行的检查写成已通过，不把未完成的工作写成完成。
+- 每个协作者按验收标准逐条提交证据；需求歧义和冲突通过看板交给负责人，不自行改变产品目标。
+- PMO 按四个阶段推进。澄清：产品经理对照目标、工作区共享资料和已有证据，列出只有用户能回答、而且会明显改变范围、优先级或成功标准的问题（最多 5 个，带选项和建议），已有答案的不问；PMO 合并成一次交给用户，等待时先推进市场研究等不依赖答案的工作，没有要问的就跳过。定义：需要市场证据时先安排市场运营研究，再由产品经理写 PRD，PRD 注明用户的回答和采用的假设；PMO 提供目标、约束和排期，检查 PRD 能否在约束内完成，超出时请产品经理给出删减方案。执行：PMO 按 PRD 的功能编号和优先级把实现派给研发工程师、把验证派给质量工程师，验收标准直接引用 PRD 的编号；市场运营并行准备发布内容。验收：质量结论之后由产品经理做产品验收。
+- PRD 写成工作目录中的文件，功能和验收标准都编号（例如 AC-1），任务、提交的证据和质量结论都按编号对应。
+- 执行中的提问都先到负责人（见[提问的流转](20261031-goal_mode.md#question_routing)）。产品问题 PRD 有答案的，PMO 按 PRD 回复；没有答案的，PMO 安排产品经理裁定并更新 PRD，再把结论转给提问的角色。市场、质量、技术问题分别由市场运营、质量工程师、研发工程师决定，PMO 只决定排期、顺序和分工。名单中缺少某个角色时，PMO 在计划里说明由谁承担。
+- 改变范围、预算、周期、使用外部资源和不可逆操作交给用户决定，经负责人的 `ask_user` 交出；涉及产品取舍时先由产品经理给出建议。是否达到产品目标，以产品经理的产品验收和质量工程师的质量结论为准。
+- 用户在澄清中给出的回答、PRD 的位置和其他值得长期保留的决定，由 PMO 列进「建议更新共享资料」，见[工作区共享资料](#workspace_brief)。
+- 不可逆和对外的操作需要用户明确授权：所有角色不 commit、push 或部署；市场运营对发帖、投放、发送邮件、提交应用商店等对外操作只准备材料和步骤。
+- 研发写明上线所需的运行、配置、数据迁移和回滚方式，质量工程师在发布前确认这些和发布说明是否齐全。
+
+<a id="workspaces"></a>
+## 工作区
+
+| 字段 | 说明 |
+| --- | --- |
+| `path` | 工作目录，必须存在，保存为规范化的绝对路径 |
+| `members` | 成员列表，每项是 `{role: <角色 id>}` |
+| `lead` | 负责人的角色 id，必须在成员中 |
+| `name` | 默认取目录名 |
+| `brief` | 共享资料，见[工作区共享资料](#workspace_brief)；最多 8000 个字符（`BRIEF_LIMIT`），保存时去掉首尾空白 |
+
+规则：
+
+- 负责人必须是开启了「可以担任负责人」（角色字段 `lead`）并绑定 Claude Code 或 Codex 的角色，见[目标模式](20261031-goal_mode.md#lead_role)。
+- 除负责人外至少还要有一名成员。
+- Run 创建时，负责人的成员 id 变为 `lead`；如果某个角色的 id 本身是 `lead` 但不是负责人，改为 `lead-role`。
+
+<a id="workspace_brief"></a>
+### 工作区共享资料
+
+共享资料是用户为一个工作区维护的长期背景：产品定位、目标用户、约定、过去的决定、重要文件的位置。它解决每次 Run 都从零开始的问题：写进共享资料的事实，负责人和协作者不再重新调研，也不再问用户。
+
+- **查看与编辑**：工作区首页显示当前的共享资料，从那里或「工作区设置」进入编辑。只有用户能改。Agent 不能直接写入，避免错误的结论一直影响之后的 Run。
+- **快照**：Run 创建时随工作区写入 Run 快照（`config.workspace.brief`），之后的修改不影响这个 Run，从中断处继续时也用快照中的版本。
+- **注入**：`brief_section` 把它附在负责人说明（`goal_brief`）和每个任务提示（`task_prompt`）中，写明与本次目标或任务说明冲突时以后者为准。没有共享资料时什么都不加。
+- **积累**：负责人说明要求负责人在最后一条回复末尾，用「## 建议更新共享资料」标题列出这次确定的、值得长期保留的新事实，只写新增或需要修改的内容。`split_brief_suggestions` 把这一节从交付摘要中拆出来，放进 `run.delivered` 的 `briefSuggestions`（标题前的 `#` 和加粗、末尾的冒号可有可无，条目前的 `- `、`* `、`1. ` 会去掉，到下一个标题为止）。
+- **采纳**：应用在交付结果中显示这些条目和「加入共享资料…」按钮，按钮打开工作区设置，把条目以 `- ` 开头追加到共享资料末尾；用户可以修改，保存后才生效。
+
+为什么只让用户写入，而不是让 Agent 像 Grok Bot 的共享记忆那样直接维护：Janus 的 Run 由 Agent 自主推进，用户不一定逐条核对过程中的结论。共享资料会进入之后每一次 Run 的每一个会话，一条错误的结论会被反复当作事实使用。由负责人提出、用户确认，既能积累，又保留了用户的把关。
+
+<a id="role_stats"></a>
+## 角色的执行统计
+
+`role_stats`（`GET /api/stats/roles`）按角色汇总最近 50 个 Run（与 Run 列表相同的范围）中协作者任务的结果，用来判断该换 Agent 或模型、改角色指令，还是负责人的任务写法有问题：
+
+| 字段 | 含义 |
+| --- | --- |
+| `tasks` | 结束了的任务数（成功或失败；被重试的任务按最后一次的结果计） |
+| `succeeded` / `failed` | 成功 / 失败的任务数 |
+| `firstPass` | 第一次尝试就成功、且验收核对一次通过的任务数 |
+| `verificationFailed` | 至少有一次没通过验收核对的任务数（漏了标准、缺证据或自认没达到） |
+| `avgMinutes` | 成功任务从第一次开始到完成的平均分钟数 |
+
+任务按 Run 快照中成员的 `role_id` 归到角色，负责人不计入。统计按角色而不是按当时绑定的 Agent 归类，角色换过 Agent 或模型后，新旧数据会合在一起。
+
+角色编辑器在标题下显示这些数字；运行页的 Agent 面板在每个协作者的悬停提示中显示本次 Run 的「首次通过 / 已结束」和验证没通过的任务数。
+
+<a id="member_snapshot"></a>
+## 成员快照
+
+`team_for` 把工作区展开成 Run 的成员（`Member`），包括：角色字段、Agent 类型与名称、会话控制项、权限模式标签（`permission`，例如「Agent · Plan 开启」）、模型标签（例如「GPT-6.1 Sol，推理强度 high（Agent 默认）」）、角色指令和 Provider 的自定义提示词、固定下来的资源（`resources`，见 [Run 和会话怎样拿到资源](20261116-resource_library.md#delivery)）。
+
+这些字段同时用于：打开会话时设置控制项、负责人说明中的协作者名单、应用的「团队与权限」页。

@@ -1,5 +1,5 @@
 //! Flow tests of the person's actions as the HTTP API receives them (`App::request_action`,
-//! docs/interfaces/http_api.md#run_actions).
+//! docs/interfaces/20261031-http_api.md#run_actions).
 
 use super::*;
 

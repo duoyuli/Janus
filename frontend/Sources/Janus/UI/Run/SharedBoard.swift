@@ -5,7 +5,7 @@ import SwiftUI
 /// log. Rows are tasks, bars are their attempts, connectors are handoffs from upstream tasks, and
 /// decisions and open items sit on a lane above. A bar opens its task; a mark opens its event in
 /// the audit log, which is where details are read.
-// @project-doc docs/architecture/frontend.md#run_timeline
+// @project-doc docs/architecture/20261031-frontend.md#run_timeline
 struct ProgressBoard: View {
     let run: RunModel
     let st: RunState

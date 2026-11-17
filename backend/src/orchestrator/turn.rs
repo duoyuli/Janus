@@ -206,7 +206,7 @@ impl App {
     }
 
     /// Apply one session command while a turn is running.
-    // @project-doc docs/interfaces/acp_integration.md#steering
+    // @project-doc docs/interfaces/20261031-acp_integration.md#steering
     pub(super) async fn steer_turn(
         &self,
         run: &Run,
@@ -353,7 +353,7 @@ impl App {
     ///   notice in their running turn.
     /// - one of them belongs to another open task that may run alongside (`owns`, or a claim):
     ///   `data.owned` is true, and only the task that stepped over hears about it.
-    // @project-doc docs/domains/goal_mode.md#conflicts
+    // @project-doc docs/domains/20261031-goal_mode.md#conflicts
     pub(super) fn record_edits(&self, run: &Run, task: &str, paths: &[String], seq: i64) {
         let (shared, owned) = {
             let mut guard = run.st.lock().unwrap();
@@ -605,7 +605,7 @@ impl App {
 
     /// Switch one of the session's controls while it is open: an ACP session mode, or a config
     /// option (the model, the effort, a permission mode). The agent's answer is the new state.
-    // @project-doc docs/interfaces/acp_integration.md#session_controls
+    // @project-doc docs/interfaces/20261031-acp_integration.md#session_controls
     pub(super) async fn apply_control(
         &self,
         run: &Run,
@@ -677,7 +677,7 @@ impl App {
     /// agent may do without asking is its permission mode, chosen on the role; whatever it does
     /// ask lands here. While waiting, the session stays responsive: an interrupt or finish
     /// withdraws the request, an abort ends the attempt, and messages queue for the end of the turn.
-    // @project-doc docs/interfaces/acp_integration.md#user_request_replies
+    // @project-doc docs/interfaces/20261031-acp_integration.md#user_request_replies
     pub(super) async fn user_request(
         &self,
         run: &Run,

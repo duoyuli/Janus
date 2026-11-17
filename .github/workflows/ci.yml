@@ -1,5 +1,5 @@
 # Every push to main and every pull request: orchestrator lints and tests, and the macOS app's build and tests.
-# See docs/operations/ci_release.md.
+# See docs/operations/20261101-ci_release.md.
 name: CI
 
 on:

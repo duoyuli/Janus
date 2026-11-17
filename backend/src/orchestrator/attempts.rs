@@ -149,7 +149,7 @@ impl App {
         let channel = instruction_channel(member.kind);
         // The collaborator rules, then the person's standing rules, in the system layer. Codex and
         // Claude Code both take HTTP MCP servers, so their sessions always have the board.
-        // @project-doc docs/domains/goal_mode.md#collaborator_rules
+        // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
         let rules = collaborator_rules(true);
         let system_text = system_layer(&rules, &standing);
         let spec = with_system(self.spec_for(&member.runtime)?, &channel, &system_text);
@@ -505,7 +505,7 @@ impl App {
     /// criterion in whatever way it judges right and reports it, with the method it used; Janus
     /// checks that every criterion was answered, with evidence, that the method is allowed, and
     /// that none was reported unmet.
-    // @project-doc docs/domains/run_lifecycle.md#verification
+    // @project-doc docs/domains/20261031-run_lifecycle.md#verification
     pub(super) async fn verify_result(
         &self,
         run: &Run,
@@ -590,7 +590,7 @@ impl App {
     /// is limited to the files the task owns and edited (`traces::scope`); only without a record
     /// of either does it cover the whole tree, and then nothing is saved when the tree is as the
     /// last task left it.
-    // @project-doc docs/domains/goal_mode.md#traces
+    // @project-doc docs/domains/20261031-goal_mode.md#traces
     pub(super) fn record_changes(&self, run: &Run, id: &str, n: i64, agent: &str, workspace: &Path) -> Result<()> {
         if !run.git {
             return Ok(());

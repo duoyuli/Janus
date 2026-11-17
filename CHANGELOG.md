@@ -1,6 +1,6 @@
 # 更新记录
 
-Janus 的版本按日期命名，新版本写在最上面，每节列出用户能看到的变化。发布前先在 `CHANGELOG.md` 写下这一版的 change log：`Release` 工作流把对应小节作为 GitHub Release 的说明，找不到「`## <版本>`」这一节时发布失败。格式和发布步骤见 [CI 与发布](docs/operations/ci_release.md#release)。
+Janus 的版本按日期命名，新版本写在最上面，每节列出用户能看到的变化。发布前先在 `CHANGELOG.md` 写下这一版的 change log：`Release` 工作流把对应小节作为 GitHub Release 的说明，找不到「`## <版本>`」这一节时发布失败。格式和发布步骤见 [CI 与发布](docs/operations/20261101-ci_release.md#release)。
 
 ## 2026.11.16.5
 

@@ -1,8 +1,8 @@
 //! Model prices from models.dev, so the usage bill can show what the tokens would cost at API list
 //! prices. Janus downloads `https://models.dev/api.json` (data only: nothing in it is executed),
 //! keeps one price per model in `<home>/prices/models.json`, checks every hour and downloads again
-//! once a day. Decision and trust boundary: `docs/decisions/model_prices.md`,
-//! `docs/operations/security.md#model_prices`.
+//! once a day. Decision and trust boundary: `docs/decisions/20261115-model_prices.md`,
+//! `docs/operations/20261031-security.md#model_prices`.
 //!
 //! models.dev lists a model under its lab and under many hosts and resellers, at different prices.
 //! The lab that makes a model family lists its API price; a model its lab does not list takes the

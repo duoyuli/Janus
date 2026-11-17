@@ -3,7 +3,7 @@
 //! they changed, the commands and modes it offers, and how much of its context it has used.
 //! Each session update becomes an event (or nothing, when it repeats what was already said);
 //! `orchestrator::on_update` only calls in here.
-// @project-doc docs/interfaces/acp_integration.md#session_view
+// @project-doc docs/interfaces/20261031-acp_integration.md#session_view
 
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -86,8 +86,8 @@ pub fn event_for(u: &Value, turn: &mut Turn) -> Option<Shown> {
 /// so the usage ledger adds the turns of a session up. `_meta.quota.model_usage`, which both
 /// adapters send in the same shape, also counts subagents and compaction that `usage` leaves out;
 /// its rows are kept per model as `models` and the ledger prefers them
-/// (docs/interfaces/events.md#usage_accounting).
-// @project-doc docs/interfaces/events.md#usage_accounting
+/// (docs/interfaces/20261031-events.md#usage_accounting).
+// @project-doc docs/interfaces/20261031-events.md#usage_accounting
 pub fn prompt_usage(res: &Value) -> Option<Shown> {
     let usage = res.get("usage").filter(|u| u.is_object());
     let models: Vec<Value> = res

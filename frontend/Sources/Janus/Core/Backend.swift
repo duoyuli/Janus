@@ -9,7 +9,7 @@ import Observation
 /// `just dev`), the app uses it. Otherwise it starts the `janus-server` binary bundled in
 /// Janus.app, on the configured port or, when another program holds it, the next free one, and
 /// stops it again when the app quits. Either way the data stays in Janus home.
-// @project-doc docs/architecture/frontend.md#server_process
+// @project-doc docs/architecture/20261031-frontend.md#server_process
 @Observable @MainActor
 final class Backend {
     enum Phase: Equatable { case starting(String), ready, failed(String) }

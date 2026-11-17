@@ -24,9 +24,9 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 
 ## Why Janus
 
-- **Local by design.** The repository holds code only. Runs, adapters, configuration, artifacts, and logs stay in `~/.janus`, on the machine where the work happens.
+- **Local by design.** The repository holds code only. Task records, adapters, configuration, artifacts, and logs stay in `~/.janus`, on the machine where the work happens.
 - **One lead, many minds.** A lead agent owns the goal and chooses what to do itself and what to delegate. Collaborators bring different models — and different blind spots.
-- **Replayable by default.** Every session, orchestration step, approval, artifact, and delivery is written as an event, so a run can be inspected and resumed rather than reconstructed from memory.
+- **Replayable by default.** Every session, orchestration step, approval, artifact, and delivery is written as an event, so a task can be inspected and resumed rather than reconstructed from memory.
 - **Native permissions.** Each agent keeps the permission model it was built with. Janus does not add a second switchboard or a parallel approval layer.
 
 ## Core concepts
@@ -34,12 +34,12 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 | Concept | What it means |
 | --- | --- |
 | Agent (provider connection) | A launchable coding agent, such as Codex or Claude Code. Each agent has its own configuration directory and credentials. |
-| Role | Binds an agent and defines its name, responsibilities, model, reasoning effort, permission mode, and the skills and MCP servers it uses from the library. |
-| Resource library | Skills and MCP servers kept once and picked per role. Write a skill in the app, copy a local folder, paste an MCP config, or import from a GitHub repository. Each session gets its role's resources when it starts (as a plugin for Claude Code, an extra skills root for Codex, and MCP servers for both); no agent config file is written. |
-| Workspace | A local directory plus a set of role members, one of whom is the lead. |
-| Run | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
+| Digital employee | Binds an agent and defines its name, responsibilities, model, reasoning effort, permission mode, and the skills and MCP servers it uses from the library. |
+| Resource library | Skills and MCP servers kept once and picked per digital employee. Write a skill in the app, copy a local folder, paste an MCP config, or import from a GitHub repository. Each session gets its digital employee's resources when it starts (as a plugin for Claude Code, an extra skills root for Codex, and MCP servers for both); no agent config file is written. |
+| Workspace | A local directory plus a set of digital employees, one of whom is the lead. |
+| Task | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
 | Lead agent | The agent that drives the goal with `/goal`. It can be Claude Code or Codex, and decides whether to work directly or delegate through orchestration. |
-| Orchestration and shared board | The set of tasks submitted by the lead (assignee, dependencies, acceptance criteria). Janus validates them before execution; progress, blockers, and questions are written to the shared board. |
+| Orchestration and shared board | The set of subtasks submitted by the lead (assignee, dependencies, acceptance criteria). Janus validates them before execution; progress, blockers, and questions are written to the shared board. |
 
 ## Quick start
 
@@ -49,7 +49,7 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 2. On first launch, macOS may say the developer cannot be verified (the package is not signed with an Apple certificate). Open System Settings → Privacy & Security and choose Open Anyway.
 3. Requires an Apple silicon Mac (M series) and macOS 14 or later. The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex and Claude Code adapters bundle their CLIs.
 
-The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/deployment.md#macos_app).
+The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/20261031-deployment.md#macos_app).
 
 ### From source
 
@@ -73,29 +73,31 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 ### First run
 
-1. Add an agent under Settings → Agents and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back under Settings → ACP Adapters.
-2. Bind roles to agents under Settings → Roles, and choose a model and permission mode.
-3. Create a workspace: choose a directory, add members, and name a Claude Code or Codex role as the lead.
+1. Add an agent under Settings → Agents and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back under Settings → ACP.
+2. Bind digital employees to agents under Settings → Digital Employees, choose a model and permission mode, and turn on "can lead" for the ones that should lead.
+3. Create a workspace: choose a directory, enable digital employees, and name one bound to Claude Code or Codex as the lead.
 4. Enter a goal on the workspace home page and hand it to the lead.
 
-The repository holds code only. Janus data, adapters, configuration, and logs live in `~/.janus`; see [Deployment](docs/operations/deployment.md).
+The repository holds code only. Janus data, adapters, configuration, and logs live in `~/.janus`; see [Deployment](docs/operations/20261031-deployment.md).
 
-`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace, since tasks edit files in place. Verify it with `python3 -m unittest discover -s examples/calc`.
+`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace, since subtasks edit files in place. Verify it with `python3 -m unittest discover -s examples/calc`.
 
 ## Documentation
 
-Engineering documentation starts at [docs/index.md](docs/index.md) and is organized into five areas:
+Engineering documentation starts at [docs/index.md](docs/index.md) and is organized into seven areas:
 
 | Area | Contents |
 | --- | --- |
 | [Architecture](docs/architecture/index.md) | Components and process model, storage layout, ACP adapter management, macOS app |
-| [Domains](docs/domains/index.md) | Run lifecycle, goal mode and shared board, agents / roles / workspaces and permission modes |
+| [Domains](docs/domains/index.md) | Task (run) lifecycle, goal mode and shared board, agents / digital employees / workspaces and permission modes, resource library |
 | [Interfaces](docs/interfaces/index.md) | HTTP API, events, board MCP tools, ACP integration, configuration |
 | [Operations](docs/operations/index.md) | Deployment, CI and releases, runbook, testing, security boundaries |
 | [Decisions](docs/decisions/index.md) | Architecture decision records (ADRs) |
+| [Research](docs/research/index.md) | Reports on external multi-agent and agent-team work, with takeaways for this project |
+| [Review](docs/review/index.md) | Code review and audit reports |
 
 Agents working in this repository should read [AGENTS.md](AGENTS.md) first (`CLAUDE.md` points to the same file).
 
 ## Scope
 
-Janus is built for one machine and one person: organizing multiple coding agents to develop, research, review, document, and verify work. Tasks modify the directory you choose, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/security.md) before pointing it at a real project.
+Janus is built for one machine and one person: organizing multiple coding agents to develop, research, review, document, and verify work. Subtasks modify the directory you choose, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/20261031-security.md) before pointing it at a real project.

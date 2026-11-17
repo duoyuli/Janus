@@ -89,7 +89,7 @@ impl App {
 
     /// First start: a usable set of roles that only lacks agent bindings. It happens once
     /// (`meta.seeded`): a default role the person deleted or edited afterwards stays that way.
-    // @project-doc docs/domains/agents_and_roles.md#roles
+    // @project-doc docs/domains/20261031-agents_and_roles.md#roles
     pub fn seed_roles(&self) -> Result<()> {
         if self.db.get_config("meta", "seeded")?.is_some() {
             return Ok(());

@@ -1,7 +1,7 @@
 # Pushing a tag v<version> builds Janus.app for Apple silicon with the server and Node.js inside,
 # packs it into Janus-<version>.dmg and publishes it on the GitHub release of that tag.
 # Running the workflow by hand builds the DMG as a workflow artifact only.
-# See docs/operations/ci_release.md.
+# See docs/operations/20261101-ci_release.md.
 name: Release
 
 on:
@@ -109,7 +109,7 @@ jobs:
             echo "CHANGELOG.md 缺少「## ${version}」一节：发布前先写这一版的 change log"
             exit 1
           fi
-          install="下载 Janus-${version}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」；之后的版本在应用内一键更新，不需要再次允许。只支持 Apple 芯片（M 系列）的 Mac，macOS 14 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/deployment.md。"
+          install="下载 Janus-${version}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」；之后的版本在应用内一键更新，不需要再次允许。只支持 Apple 芯片（M 系列）的 Mac，macOS 14 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/20261031-deployment.md。"
           body="$(printf '%s\n\n---\n\n%s' "$notes" "$install")"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --clobber

@@ -8,7 +8,7 @@
 //! the agent declares `promptCapabilities.image`; the path stays in the text either way, so an
 //! agent without image input can still open the file.
 
-// @project-doc docs/domains/run_lifecycle.md#attachments
+// @project-doc docs/domains/20261031-run_lifecycle.md#attachments
 use crate::orchestrator::now_ms;
 use anyhow::{Context, Result, bail};
 use base64::Engine;

@@ -2,7 +2,7 @@ import Foundation
 
 // The run's read-only usage ledger, derived from the event log like the rest of the run page
 // (`derive` stores it in `RunState.usage`, so a replayed prefix gets its own numbers). The rules are
-// the backend's (`backend/src/usage.rs`, docs/architecture/frontend.md#usage_ledger): every
+// the backend's (`backend/src/usage.rs`, docs/architecture/20261031-frontend.md#usage_ledger): every
 // `session/prompt` report is one turn and turns add up, the quota rows by model replace the
 // main-loop usage, context snapshots are never tokens, cost is a running total per session, and
 // missing numbers are words, never 0. `UsageLedgerTests` reads `backend/testdata/usage_cases.json`,
@@ -467,7 +467,7 @@ private func usageOwner(_ e: Event) -> String {
 }
 
 /// The ledger of one slice of the event log. Pure: the same events always give the same numbers.
-// @project-doc docs/architecture/frontend.md#usage_ledger
+// @project-doc docs/architecture/20261031-frontend.md#usage_ledger
 func usageLedger(_ events: [Event]) -> UsageLedger {
     struct SessionBuild {
         var actor: String, task: String?, attempt: Int?

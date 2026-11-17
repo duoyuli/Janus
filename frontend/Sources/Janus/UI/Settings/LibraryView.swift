@@ -4,7 +4,7 @@ import SwiftUI
 /// The resource library (Settings › 资源库): skills and MCP servers kept once and picked per role,
 /// and the GitHub sources they can come from. A session gets its role's resources when it starts;
 /// MCP values live only in Janus home and are never shown again.
-// @project-doc docs/domains/resource_library.md#model
+// @project-doc docs/domains/20261116-resource_library.md#model
 struct LibraryView: View {
     let store: AppStore
     @Local private var tab = "skill"

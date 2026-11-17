@@ -4,7 +4,7 @@ import SwiftUI
 /// Reviewing a task's changes inside Janus: the diff file by file, a comment on any line, and the
 /// comments sent back as one message, to the lead (which decides: reply, redo, or accept) or to
 /// the agent that did the task.
-// @project-doc docs/architecture/frontend.md#diff_review
+// @project-doc docs/architecture/20261031-frontend.md#diff_review
 enum DiffWindow {
     @MainActor private static var windows: [String: NSWindow] = [:]
 

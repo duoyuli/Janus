@@ -89,7 +89,7 @@ struct RunView: View {
 
 /// The run's Markdown files, one click from anywhere in the run: deliverables, artifacts, and
 /// documents the agents wrote or mentioned.
-// @project-doc docs/architecture/frontend.md#markdown_viewer
+// @project-doc docs/architecture/20261031-frontend.md#markdown_viewer
 struct DocumentsMenu: View {
     let run: RunModel
 
@@ -543,7 +543,7 @@ struct AgentsPanel: View {
 
 /// What the lead suggests keeping in the workspace's shared material. Nothing is written until the
 /// person opens the workspace settings with the lines added and saves there.
-// @project-doc docs/domains/agents_and_roles.md#workspace_brief
+// @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
 struct BriefSuggestions: View {
     let run: RunModel
     let lines: [String]
@@ -580,7 +580,7 @@ struct BriefSuggestions: View {
 
 /// Beside the lead's conversation: the team's work, one view at a time. Tasks (click one to open
 /// it), changes (each task's latest diff, to review), files the run produced, and the team.
-// @project-doc docs/architecture/frontend.md#run_page
+// @project-doc docs/architecture/20261031-frontend.md#run_page
 struct RunInspector: View {
     let run: RunModel
     let st: RunState

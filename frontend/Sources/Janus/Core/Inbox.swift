@@ -28,7 +28,7 @@ struct InboxEntry: Identifiable, Equatable {
 
 /// The global inbox: what every run is waiting on the person for, gathered from the same
 /// derivation the run page uses (`derive`, `boardFacts`), so the two never disagree.
-// @project-doc docs/architecture/frontend.md#inbox
+// @project-doc docs/architecture/20261031-frontend.md#inbox
 enum Inbox {
     /// The person's open items of one live run.
     static func entries(run: JSON, state: RunState, workspace: String) -> [InboxEntry] {

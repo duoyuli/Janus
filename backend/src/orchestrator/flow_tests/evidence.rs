@@ -1,6 +1,6 @@
 //! Flow tests of acceptance evidence: evidence methods on the board, in `task_detail` and in the
 //! delivery, after a restart, and an illegal method failing the result check
-//! (docs/interfaces/events.md#evidence_methods).
+//! (docs/interfaces/20261031-events.md#evidence_methods).
 
 use super::*;
 

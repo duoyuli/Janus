@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The agent's plan, as its own interface shows it: a checklist above the conversation, folded
 /// to one line once every step is done.
-// @project-doc docs/architecture/frontend.md#session_view
+// @project-doc docs/architecture/20261031-frontend.md#session_view
 struct PlanStrip: View {
     let steps: [SessionView.Step]
     @Local private var open = true

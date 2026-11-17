@@ -6,7 +6,7 @@ use super::*;
 /// What a session opens with besides its working directory: the member's resources the way its
 /// agent takes them, Janus's own servers (the board), and the system layer. A reloaded session
 /// gets the same, so it keeps its skills, servers and instructions.
-// @project-doc docs/interfaces/acp_integration.md#session_meta
+// @project-doc docs/interfaces/20261031-acp_integration.md#session_meta
 pub(super) struct Opening {
     pub mcp_servers: Vec<Value>,
     pub meta: Value,
@@ -173,7 +173,7 @@ pub(super) fn session_values(m: &Member) -> Value {
 
 /// Apply the role's model, effort and session controls (permission mode and whatever else its
 /// agent declares). Returns what was applied, so the attempt records the exact settings it ran with.
-// @project-doc docs/interfaces/acp_integration.md#session_setup
+// @project-doc docs/interfaces/20261031-acp_integration.md#session_setup
 pub(super) async fn configure_session(conn: &AcpConn, session: &Value, m: &Member) -> Result<Value> {
     let sid = session["sessionId"].as_str().unwrap_or_default();
     let mut opts = crate::agents::session_options(session);

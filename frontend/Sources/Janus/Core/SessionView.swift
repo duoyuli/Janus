@@ -3,7 +3,7 @@ import Foundation
 /// What a session's events say about it now, beside the conversation itself: the agent's latest
 /// plan, the controls it offers (model, effort, mode …) with their current values, its slash
 /// commands, and its context and token usage. Read from the same events the chat shows.
-// @project-doc docs/architecture/frontend.md#session_view
+// @project-doc docs/architecture/20261031-frontend.md#session_view
 enum SessionView {
     struct Step: Equatable { let content: String; let status: String }
 

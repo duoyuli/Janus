@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Development aid: with `JANUS_SNAPSHOT_DIR` set, the app reads one command per line from
 /// `<dir>/cmd` and saves pictures of its own window, so screens can be checked without screen
-/// recording rights (docs/operations/testing.md#macos_app).
+/// recording rights (docs/operations/20261031-testing.md#macos_app).
 ///
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
 ///     role <id> | agent-edit <id> | close-sheet | doc <path> | size <w>x<h> | shot <name>

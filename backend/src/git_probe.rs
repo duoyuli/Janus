@@ -8,7 +8,7 @@ use std::process::Command;
 /// `GIT_OPTIONAL_LOCKS=0` stops `git status` and friends from refreshing the index. Older git
 /// ignores the variable. The variable covers `status`, but porcelain `git diff` refreshes the
 /// index regardless: compare against HEAD with the plumbing `git diff-index`, which never does.
-/// See docs/research/multi_agent_collaboration_2026_11_12.md (P0).
+/// See docs/research/20261112-multi_agent_collaboration.md (P0).
 pub fn read_only(cwd: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::new("git");
     cmd.args(args).current_dir(cwd).env("GIT_OPTIONAL_LOCKS", "0");

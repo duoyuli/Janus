@@ -297,7 +297,7 @@ struct InboxButton: View {
 /// The workspace in use, as a dropdown: the whole card opens the menu to pick a workspace (which
 /// opens its home page), create one, or set it up. Highlighted while its
 /// home page is shown. The sidebar below lists only this workspace's run history.
-// @project-doc docs/architecture/frontend.md#screens
+// @project-doc docs/architecture/20261031-frontend.md#screens
 struct WorkspacePicker: View {
     let store: AppStore
     let current: JSON?

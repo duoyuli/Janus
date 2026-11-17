@@ -273,7 +273,7 @@ private func goalRun() -> Log {
 }
 
 /// The scheduler's seven states plus the six the app derives for display are each a case of
-/// `TaskStatus` (a new one needs a case, its label and a line in docs/domains/run_lifecycle.md);
+/// `TaskStatus` (a new one needs a case, its label and a line in docs/domains/20261031-run_lifecycle.md);
 /// the run states are each a `RunStatus`, and nothing else is.
 @Test func everyStatusTheServerSendsIsACase() {
     let scheduler = ["pending", "running", "blocked", "succeeded", "failed", "cancelled", "skipped_by_decision"]

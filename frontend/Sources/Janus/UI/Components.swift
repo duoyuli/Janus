@@ -25,7 +25,7 @@ extension Color {
     // The Janus palette: cool slate surfaces in light, and in dark the neutral grays and soft
     // blue accent of Zed's One Dark; near-black (or near-white) for primary actions. Depth comes
     // from tone and hairlines, not from tinted panels and shadows
-    // (docs/architecture/frontend.md#design_tokens).
+    // (docs/architecture/20261031-frontend.md#design_tokens).
 
     /// Signal blue: links, the current stage, "now", work in progress.
     static let accent = Color(light: "#0757c2", dark: "#61afef")

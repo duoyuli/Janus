@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-// @project-doc docs/interfaces/configuration.md#settings
+// @project-doc docs/interfaces/20261031-configuration.md#settings
 pub struct Settings {
     /// Janus home: `JANUS_HOME`, default `~/.janus`.
     pub home: PathBuf,
@@ -18,7 +18,7 @@ pub struct Settings {
     pub node: String,
 }
 
-// @project-doc docs/operations/deployment.md#layout
+// @project-doc docs/operations/20261031-deployment.md#layout
 static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
     let home = std::env::var("JANUS_HOME")
         .map(PathBuf::from)

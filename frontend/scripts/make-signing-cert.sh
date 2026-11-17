@@ -7,7 +7,7 @@
 # to Janus survive updates, and the in-app updater accepts only updates signed with it. It is
 # not an Apple Developer ID, so it does not replace Gatekeeper's first-launch approval of a
 # downloaded DMG; updates installed from inside the app never need that approval
-# (docs/operations/ci_release.md#signing).
+# (docs/operations/20261101-ci_release.md#signing).
 #
 # Nothing is uploaded: the script prints the commands that store the certificate as the
 # repository's Actions secrets. Keep the output directory private; whoever has the .p12 can sign

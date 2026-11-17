@@ -3,7 +3,7 @@ import Foundation
 /// The Markdown files of a run, for the 文档 menu: what the lead delivered, the artifacts Janus
 /// saved, and files the agents wrote or mentioned (absolute paths, or paths relative to the
 /// run's directory). Scanning only collects candidates; the menu shows those that exist.
-// @project-doc docs/architecture/frontend.md#markdown_viewer
+// @project-doc docs/architecture/20261031-frontend.md#markdown_viewer
 enum RunDocs {
     enum Source: Int, Comparable {
         case deliverable, artifact, mentioned

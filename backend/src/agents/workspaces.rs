@@ -11,7 +11,7 @@ impl App {
         self.db.get_config(WORKSPACE, id)?.ok_or_else(|| anyhow!("执行环境 {id} 不存在"))
     }
 
-    // @project-doc docs/domains/agents_and_roles.md#workspaces
+    // @project-doc docs/domains/20261031-agents_and_roles.md#workspaces
     pub fn save_workspace(&self, body: &Value) -> Result<Value> {
         let path = PathBuf::from(expand_home(str_of(body, "path")));
         if !path.is_dir() {

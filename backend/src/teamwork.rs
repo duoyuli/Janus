@@ -8,7 +8,7 @@
 //! and its failure cannot be waved through with `accept`: the lead orchestrates a fix and a new
 //! verification, or cancels the verification on the record. None of this adds task states or
 //! event types; it is the orchestration's own data, checked when it is submitted.
-// @project-doc docs/domains/goal_mode.md#team_structure
+// @project-doc docs/domains/20261031-goal_mode.md#team_structure
 
 use crate::orchestrator::TaskDef;
 use crate::status::TaskStatus;

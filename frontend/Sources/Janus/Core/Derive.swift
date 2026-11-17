@@ -2,7 +2,7 @@ import Foundation
 
 // The run page keeps no business state of its own: every view is derived from the event log by
 // `derive` and `boardFacts`. A new or changed event type must be handled here as well
-// (docs/architecture/frontend.md#event_derivation).
+// (docs/architecture/20261031-frontend.md#event_derivation).
 
 struct Event: Identifiable, Hashable {
     let seq: Int
@@ -179,7 +179,7 @@ struct RunState {
     var result: RunResult?
     var events: [Event] = []
     /// The read-only usage ledger for exactly these events, so a replayed prefix gets its own
-    /// numbers (docs/architecture/frontend.md#usage_ledger).
+    /// numbers (docs/architecture/20261031-frontend.md#usage_ledger).
     var usage = UsageLedger.empty
 
     var orderedTasks: [TaskState] { order.compactMap { tasks[$0] } }
@@ -192,7 +192,7 @@ struct RunState {
     func verifiers(of task: String) -> [TaskState] { orderedTasks.filter { $0.verifies == task } }
 }
 
-// @project-doc docs/architecture/frontend.md#event_derivation
+// @project-doc docs/architecture/20261031-frontend.md#event_derivation
 func derive(_ events: [Event]) -> RunState {
     var s = RunState()
     s.events = events
@@ -470,7 +470,7 @@ struct BoardFacts {
     var decisions: [DecisionFact] = []
 }
 
-// @project-doc docs/architecture/frontend.md#event_derivation
+// @project-doc docs/architecture/20261031-frontend.md#event_derivation
 func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     var f = BoardFacts()
     var notes: [String: [(seq: Int, text: String)]] = [:]

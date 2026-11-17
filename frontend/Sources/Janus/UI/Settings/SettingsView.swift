@@ -4,7 +4,7 @@ import SwiftUI
 /// Agents, the resource library, digital employees (roles), the usage bill and updates. Clicking the
 /// dimmed area or pressing Esc closes it and shows the screen underneath unchanged; the last pane
 /// opened comes back next time. The bottom of the sidebar picks the app's appearance.
-// @project-doc docs/architecture/frontend.md#screens
+// @project-doc docs/architecture/20261031-frontend.md#screens
 struct SettingsView: View {
     let store: AppStore
     @Local private var appearance = Appearance.saved

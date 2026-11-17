@@ -30,7 +30,7 @@ pub struct AdapterDef {
     pub package: &'static str,
 }
 
-// @project-doc docs/architecture/adapters.md#catalog
+// @project-doc docs/architecture/20261031-adapters.md#catalog
 pub const ADAPTERS: &[AdapterDef] = &[
     AdapterDef { id: "codex", name: "Codex", package: "@agentclientprotocol/codex-acp" },
     AdapterDef { id: "claude", name: "Claude Code", package: "@agentclientprotocol/claude-agent-acp" },
@@ -165,7 +165,7 @@ impl App {
         link.canonicalize().ok().filter(|p| p.is_dir())
     }
 
-    // @project-doc docs/architecture/adapters.md#running_sessions
+    // @project-doc docs/architecture/20261031-adapters.md#running_sessions
     /// The script a session of this adapter runs, and a pin that keeps its version installed
     /// while the session holds it.
     pub fn adapter_entry(&self, id: &str) -> Result<(PathBuf, Arc<VersionPin>)> {
@@ -267,7 +267,7 @@ impl App {
         Ok(())
     }
 
-    // @project-doc docs/architecture/adapters.md#on_demand
+    // @project-doc docs/architecture/20261031-adapters.md#on_demand
     /// Install the adapter now unless it is there already; for the connection check, which an
     /// agent needs to pass before it is used.
     pub fn ensure_adapter(&self, id: &str) -> Result<Option<String>> {
@@ -302,7 +302,7 @@ impl App {
         Ok(v)
     }
 
-    // @project-doc docs/architecture/adapters.md#install_steps
+    // @project-doc docs/architecture/20261031-adapters.md#install_steps
     /// Install a version in a staging directory, then make it current. Returns the version.
     fn install_adapter(&self, id: &str, version: Option<&str>) -> Result<String> {
         let d = def(id)?;
@@ -391,7 +391,7 @@ fn entry_in(d: &AdapterDef, dir: &Path) -> Result<PathBuf> {
     Ok(entry)
 }
 
-// @project-doc docs/architecture/adapters.md#layout
+// @project-doc docs/architecture/20261031-adapters.md#layout
 /// Point `current` at `version`, atomically: a new link renamed over the old one.
 fn switch_current(dir: &Path, version: &str) -> Result<()> {
     let tmp = dir.join(format!(".current-{}", now_ms()));
@@ -415,7 +415,8 @@ fn prune(dir: &Path, current: &str, previous: Option<&str>, state: &AdapterState
     }
 }
 
-/// Node must be new enough for the newest adapters (Claude needs 22; Pi needs 22.19).
+/// Node must be new enough for the adapters. The floor is 22.19: it was the Pi adapter's minimum
+/// and has not been lowered since Pi was dropped.
 fn check_node(node: &str, d: &AdapterDef) -> Result<()> {
     let out = run_text(Command::new(node).arg("--version"))
         .with_context(|| format!("找不到 Node（{node}），安装 {} 的适配器需要它", d.name))?;

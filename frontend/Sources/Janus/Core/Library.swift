@@ -3,7 +3,7 @@ import Foundation
 /// How the resource library's items read in the app: their origin, the state of an MCP server's
 /// values, and whether a role's agent can use them. The rules are the server's (`support` on each
 /// item); this only words them.
-// @project-doc docs/domains/resource_library.md#roles
+// @project-doc docs/domains/20261116-resource_library.md#roles
 enum Library {
     /// The runtime a connection runs on: `claude` (presets too), `codex` or `custom`.
     static func runtime(_ connection: JSON?) -> String { connection?["base"].str ?? "" }

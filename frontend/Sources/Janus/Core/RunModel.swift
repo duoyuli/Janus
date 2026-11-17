@@ -9,7 +9,7 @@ enum RunPage: Hashable {
 }
 
 /// One open run: its events, live stream, the state derived from them, and the person's drafts.
-// @project-doc docs/architecture/frontend.md#server_sync
+// @project-doc docs/architecture/20261031-frontend.md#server_sync
 @Observable @MainActor
 final class RunModel {
     let id: String
@@ -147,7 +147,7 @@ final class RunModel {
         }
     }
 
-    /// A Run action (docs/interfaces/http_api.md#run_actions): de-duplicated by `commandId`,
+    /// A Run action (docs/interfaces/20261031-http_api.md#run_actions): de-duplicated by `commandId`,
     /// guarded by `expectedSequence`; a 409 refreshes once and tries again.
     @discardableResult
     func act(_ body: JSON) async -> Bool {

@@ -54,7 +54,7 @@ impl App {
     /// does it alone or brings in the team. Bringing them in means submitting an orchestration
     /// (tasks, assignees, dependencies) through Janus's MCP tools; Janus validates it, runs it
     /// with the same scheduler as a plan, and the shared board carries everything in between.
-    // @project-doc docs/domains/goal_mode.md#lead_session
+    // @project-doc docs/domains/20261031-goal_mode.md#lead_session
     pub(super) async fn goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<()> {
         {
             let mut st = run.st.lock().unwrap();
@@ -145,7 +145,7 @@ impl App {
     /// counts as seen. Only for a lead whose agent takes steering: queued until its turn ends,
     /// the message would hide those entries from `wait` in the meantime. Nothing is pushed while
     /// the lead is inside `wait`, which hands it the same entries.
-    // @project-doc docs/domains/goal_mode.md#board_push
+    // @project-doc docs/domains/20261031-goal_mode.md#board_push
     pub(super) fn push_board(&self, run: &Run) {
         let (tx, cursor, sid) = {
             let st = run.st.lock().unwrap();
@@ -189,7 +189,7 @@ impl App {
 
     /// Goal mode: once the lead's session has ended nobody reads the board, so a collaborator's
     /// question still waiting for the lead goes to the person instead.
-    // @project-doc docs/domains/goal_mode.md#question_routing
+    // @project-doc docs/domains/20261031-goal_mode.md#question_routing
     pub(super) fn escalate_open_questions(&self, run: &Run) {
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let key_of = |e: &Event| e.data.as_ref().and_then(|d| d["key"].as_str().map(str::to_owned));
@@ -239,7 +239,7 @@ impl App {
         // The brief, with the messages left for the lead, goes in the system layer before the
         // standing rules. Codex reads it from its environment, so it is known before the adapter
         // starts; the notes are taken only once the session is open.
-        // @project-doc docs/domains/goal_mode.md#lead_brief
+        // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
         let (notes, note_ids) = self.peek_notes(run, "lead");
         let brief = format!("{}{notes}", self.goal_brief(run, resumed));
         let system = system_layer(&brief, &standing);
@@ -652,7 +652,7 @@ impl App {
 
     /// What the lead knows about its team and how to work with it. Everything it learns about
     /// the collaborators comes from here (and the `team` tool, which repeats it).
-    // @project-doc docs/domains/goal_mode.md#lead_brief
+    // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
     pub(super) fn goal_brief(&self, run: &Run, resumed: bool) -> String {
         let mut p = format!(
             "你是 Janus 团队的负责人，负责完成用户交给你的目标。你可以自己从头做到尾；也可以在需要时把一部分工作交给下面的协作者。是否需要协作、交给谁、怎么拆，都由你判断，不要为了协作而协作。
@@ -820,7 +820,7 @@ pub(super) fn lead_summary(text: &str) -> String {
 
 /// The workspace's shared material as a section of a prompt; nothing when the workspace has none.
 /// `wins` names what takes precedence when the two disagree.
-// @project-doc docs/domains/agents_and_roles.md#workspace_brief
+// @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
 pub(super) fn brief_section(brief: &str, wins: &str) -> String {
     if brief.trim().is_empty() {
         return String::new();
@@ -830,7 +830,7 @@ pub(super) fn brief_section(brief: &str, wins: &str) -> String {
 
 /// Splits the lead's last message into its summary and the lines it suggests adding to the
 /// workspace's shared material: the list under a `BRIEF_HEADING` heading, up to the next heading.
-// @project-doc docs/domains/agents_and_roles.md#workspace_brief
+// @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
 pub(super) fn split_brief_suggestions(text: &str) -> (String, Vec<String>) {
     let lines: Vec<&str> = text.lines().collect();
     let is_heading = |l: &str| {

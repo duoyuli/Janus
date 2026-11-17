@@ -1,6 +1,6 @@
 //! The run's usage ledger: a read-only summary derived from the event log, for the run, the lead
 //! and collaborator subtotals, each task, member, attempt and session. The rules are in
-//! `docs/interfaces/events.md#usage_accounting`; the app derives the same ledger from the same
+//! `docs/interfaces/20261031-events.md#usage_accounting`; the app derives the same ledger from the same
 //! events (`frontend/Sources/Janus/Core/UsageLedger.swift`), and `backend/testdata/usage_cases.json`
 //! holds the cases both sides must agree on.
 //!

@@ -3,8 +3,8 @@
 use super::*;
 
 impl App {
-    // @project-doc docs/domains/run_lifecycle.md#create_run
-    // @project-doc docs/domains/run_lifecycle.md#workspace_model
+    // @project-doc docs/domains/20261031-run_lifecycle.md#create_run
+    // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
     pub async fn create_run(self: &Arc<Self>, req: NewRun) -> Result<String> {
         if req.goal.trim().is_empty() && req.images.is_empty() {
             bail!("目标不能为空");
@@ -107,7 +107,7 @@ impl App {
 
     /// Copy each member's skills into its bundle, so later edits to the library do not change
     /// the run and no agent reads the library itself.
-    // @project-doc docs/domains/resource_library.md#delivery
+    // @project-doc docs/domains/20261116-resource_library.md#delivery
     pub(super) fn bundle_team(&self, run_id: &str, team: &[Member]) -> Result<()> {
         for m in team {
             crate::library::bundle(&self.store_dir(), m.kind, &m.resources, &self.bundle_dir(run_id, &m.id))?;
@@ -133,8 +133,8 @@ impl App {
 
     /// The scheduling loop. It recomputes the run's status from the task graph on every pass and
     /// only returns once the run is delivered or cancelled, so every later decision still has a driver to act on it.
-    // @project-doc docs/domains/run_lifecycle.md#scheduling
-    // @project-doc docs/domains/run_lifecycle.md#delivery_conditions
+    // @project-doc docs/domains/20261031-run_lifecycle.md#scheduling
+    // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
     pub(super) async fn execute(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
         enum Outcome {
             Deliver,
@@ -296,7 +296,7 @@ impl App {
     /// form, a takeover). Each quiet spell is reported once. The watchdog only reports; the lead
     /// decides whether to wait, redirect, retry or cancel. The lead's own session is watched the
     /// same way and reported to the person (`lead.stalled`): nobody above the lead would notice.
-    // @project-doc docs/domains/run_lifecycle.md#watchdog
+    // @project-doc docs/domains/20261031-run_lifecycle.md#watchdog
     pub(super) fn watchdog(&self, run: &Run) {
         let now = now_ms();
         let limit = self.cfg.stall_after.as_millis() as i64;
@@ -340,7 +340,7 @@ impl App {
     }
 
     /// Count a finished tool call; every `LOOP_REPEAT` identical calls in a row, tell the lead.
-    // @project-doc docs/domains/run_lifecycle.md#watchdog
+    // @project-doc docs/domains/20261031-run_lifecycle.md#watchdog
     pub(super) fn watch_call(&self, run: &Run, session: &SessionKey, kind: &str, title: &str, input: &str) {
         use std::hash::{Hash, Hasher};
         let mut h = std::hash::DefaultHasher::new();

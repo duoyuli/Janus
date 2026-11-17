@@ -12,7 +12,7 @@ impl App {
 
     /// One MCP request (streamable HTTP, JSON responses) from a session of this run. `who` is
     /// "lead" or the task id of the collaborator's session. Notifications get no response.
-    // @project-doc docs/interfaces/board_mcp.md#transport
+    // @project-doc docs/interfaces/20261031-board_mcp.md#transport
     pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, who: &str, req: Value) -> Result<Option<Value>> {
         let run = self.run(run_id).context("这个任务不在运行")?;
         // The URL's token is bound to its `who`, so a collaborator cannot rename itself to `lead`
@@ -430,7 +430,7 @@ impl App {
     /// How each role's tasks went in recent runs (the ones `runs()` lists): how many finished,
     /// passed on their first attempt, failed verification, and how long a success took. The
     /// numbers behind choosing a role's agent and model, or rewriting its instructions.
-    // @project-doc docs/domains/agents_and_roles.md#role_stats
+    // @project-doc docs/domains/20261031-agents_and_roles.md#role_stats
     pub fn role_stats(&self) -> Result<Value> {
         let mut out: HashMap<String, RoleStat> = HashMap::new();
         let runs = self.db.runs()?;
@@ -628,7 +628,7 @@ impl App {
     /// Everything the board knows about one task, by id: what the board messages and handoffs only
     /// summarise. Its upstream and downstream tasks are named, so a caller can follow the chain
     /// one task at a time.
-    // @project-doc docs/interfaces/board_mcp.md#task_detail
+    // @project-doc docs/interfaces/20261031-board_mcp.md#task_detail
     pub(super) fn task_detail(&self, run: &Run, task: &str) -> std::result::Result<String, String> {
         let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
         // The usage ledger is read-only and never a reason to fail: a task without usage still
@@ -843,7 +843,7 @@ impl App {
     /// A collaborator's view of the rest of the board: the other tasks, how they relate to its
     /// own (upstream, downstream, the same files) and what they wrote back lately. With `task`,
     /// the full detail of that one.
-    // @project-doc docs/interfaces/board_mcp.md#peers
+    // @project-doc docs/interfaces/20261031-board_mcp.md#peers
     pub(super) fn board_peers(&self, run: &Run, me: &str, args: &Value) -> std::result::Result<String, String> {
         if let Some(t) = args["task"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
             return self.task_detail(run, t);
@@ -950,7 +950,7 @@ impl App {
 
     /// A collaborator claims files it is about to change (`teamwork::claim`); the lead sees it on
     /// the board, and the claim counts as `owns` until the task ends.
-    // @project-doc docs/interfaces/board_mcp.md#claim
+    // @project-doc docs/interfaces/20261031-board_mcp.md#claim
     pub(super) fn board_claim(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<String, String> {
         let mut errors = vec![];
         let paths = crate::teamwork::read_owns(&args["paths"], "paths", &mut errors);
@@ -989,7 +989,7 @@ impl App {
     }
 }
 
-// @project-doc docs/interfaces/board_mcp.md#transport
+// @project-doc docs/interfaces/20261031-board_mcp.md#transport
 /// The token in one session's MCP URL: derived from the run's secret and the session's `who`, so
 /// it only opens the board as that member.
 pub(super) fn session_token(run_token: &str, who: &str) -> String {

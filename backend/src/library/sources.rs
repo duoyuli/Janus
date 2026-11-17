@@ -3,7 +3,7 @@
 //! `<home>/library/sources/<id>/repo` and lists what it offers; nothing is imported until the
 //! person picks. An update fetches again and gives each imported item the content the repository
 //! has now.
-// @project-doc docs/domains/resource_library.md#sources
+// @project-doc docs/domains/20261116-resource_library.md#sources
 
 use super::{Body, Item, ItemKind, Origin, mcp, mcp_revision, skill, store};
 use crate::orchestrator::{App, now_ms};

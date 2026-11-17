@@ -206,8 +206,8 @@ impl App {
     }
 
     /// How to start this provider's ACP agent, with its isolated home and credentials.
-    // @project-doc docs/operations/security.md#agent_isolation
-    // @project-doc docs/interfaces/configuration.md#agent_env
+    // @project-doc docs/operations/20261031-security.md#agent_isolation
+    // @project-doc docs/interfaces/20261031-configuration.md#agent_env
     pub fn spec_for(&self, id: &str) -> Result<RuntimeSpec> {
         let c = self.connection(id)?;
         let desc = kinds()
@@ -223,7 +223,7 @@ impl App {
         // Sandbox first, then a preset's defaults, then the variables configured on this agent (which
         // override the defaults; an empty value unsets one), then its isolation and credentials, so
         // nothing the user typed can point the agent back at the host's own directories.
-        // @project-doc docs/domains/agents_and_roles.md#agent_env
+        // @project-doc docs/domains/20261031-agents_and_roles.md#agent_env
         let mut env = self.sandbox_env(id)?;
         env.extend(preset_env(&desc, &c));
         for (k, v) in c["env"]
@@ -263,7 +263,7 @@ impl App {
                 set("CLAUDE_CONFIG_DIR", home);
                 // Janus reads a returned turn as the agent's answer. A command or subagent Claude
                 // Code sends to the background would end the turn before the work is done.
-                // @project-doc docs/interfaces/acp_integration.md#background_tasks
+                // @project-doc docs/interfaces/20261031-acp_integration.md#background_tasks
                 set("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1".into());
                 // The adapter ships its own Claude CLI. A path chosen on the agent overrides it.
                 if let Some(b) = configured_bin(&c) {

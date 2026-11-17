@@ -151,7 +151,7 @@ struct TimeScale {
 /// who did it; a connector runs from each upstream task to the task it handed over to. Decisions
 /// and open items sit on a lane above. Idle stretches are cut down to a labeled break, and tasks
 /// not started yet wait after "now".
-// @project-doc docs/architecture/frontend.md#run_timeline
+// @project-doc docs/architecture/20261031-frontend.md#run_timeline
 struct RunTimeline: View {
     let run: RunModel
     let tasks: [TimelineTask]

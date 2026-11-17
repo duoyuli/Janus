@@ -1,7 +1,7 @@
 import Foundation
 
 /// A failed request: the orchestrator answers errors with a status and a Chinese message meant to
-/// be shown as it is (docs/interfaces/http_api.md#errors).
+/// be shown as it is (docs/interfaces/20261031-http_api.md#errors).
 struct APIError: LocalizedError {
     let status: Int
     let message: String

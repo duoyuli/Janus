@@ -9,7 +9,7 @@ impl App {
     /// and an action that fails gives the id back so it can be retried. `expectedSequence`, when
     /// given, must still be the run's last event. A run that is not live can be accepted,
     /// resumed, or talked to (which resumes it).
-    // @project-doc docs/interfaces/http_api.md#run_actions
+    // @project-doc docs/interfaces/20261031-http_api.md#run_actions
     pub async fn request_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<ActionReply, ActionRefused> {
         if self.db.run(run_id).map_err(ActionRefused::Invalid)?.is_none() {
             return Err(ActionRefused::NotFound);
@@ -65,7 +65,7 @@ impl App {
         self.action(&run, body).map_err(ActionRefused::Invalid)
     }
 
-    // @project-doc docs/interfaces/http_api.md#run_actions
+    // @project-doc docs/interfaces/20261031-http_api.md#run_actions
     pub fn action(self: &Arc<Self>, run: &Arc<Run>, a: &Value) -> Result<()> {
         let kind = a["type"].as_str().unwrap_or("");
         let key = a["key"].as_str().unwrap_or("");
@@ -315,7 +315,7 @@ impl App {
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
     /// Bring an interrupted run back from its event log: finished tasks stay finished, unfinished
     /// ones start again (reopening their old session when possible), and planning resumes where it was.
-    // @project-doc docs/domains/run_lifecycle.md#recovery
+    // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
     pub async fn resume_run(self: &Arc<Self>, run_id: &str) -> Result<Arc<Run>> {
         if let Some(run) = self.run(run_id) {
             return Ok(run);

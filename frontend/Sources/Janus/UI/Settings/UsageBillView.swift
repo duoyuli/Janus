@@ -4,7 +4,7 @@ import SwiftUI
 /// The usage bill over a period, across every run: Agents and their models, the token total and its
 /// parts, active days and the cache hit rate, from `GET /api/usage`. The last period picked comes
 /// back next time.
-// @project-doc docs/architecture/frontend.md#usage_bill
+// @project-doc docs/architecture/20261031-frontend.md#usage_bill
 struct UsageBillView: View {
     let store: AppStore
     @AppStorage("janus.usagePeriod") private var period: UsagePeriod = .days30

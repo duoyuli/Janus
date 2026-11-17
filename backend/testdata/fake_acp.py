@@ -34,7 +34,7 @@ import re
 import select
 import sys
 
-# @project-doc docs/operations/testing.md#fake_agent
+# @project-doc docs/operations/20261031-testing.md#fake_agent
 DIR = os.environ["FAKE_DIR"]
 
 

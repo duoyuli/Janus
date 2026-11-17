@@ -1,5 +1,5 @@
 //! Flow tests of the usage ledger over real runs against the scripted agent
-//! (docs/interfaces/events.md#usage_accounting).
+//! (docs/interfaces/20261031-events.md#usage_accounting).
 
 use super::*;
 

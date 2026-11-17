@@ -5,7 +5,7 @@ import UserNotifications
 /// request, a decision, a delivered run. Clicking one opens that run. What was already waiting
 /// when the app started is not announced again, and nothing is posted while the window is in
 /// front: the inbox and the menu bar count show it there.
-// @project-doc docs/architecture/frontend.md#notifications
+// @project-doc docs/architecture/20261031-frontend.md#notifications
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
