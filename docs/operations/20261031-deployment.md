@@ -54,7 +54,7 @@
 
 1. 在 GitHub Release 中下载 `Janus-<版本>.dmg`，打开后把 Janus 拖进「应用程序」。
 2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 → 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
-3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 14 或更高。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js。Codex 和 Claude Code 的适配器在第一次使用时从 npm 下载，并自带对应的 CLI。
+3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 15 或更高（只支持最近三个 macOS 大版本，见 [macOS 应用](../architecture/20261031-frontend.md)）。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js。Codex 和 Claude Code 的适配器在第一次使用时从 npm 下载，并自带对应的 CLI。
 
 应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/20261031-frontend.md#server_process)。
 

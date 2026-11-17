@@ -6,7 +6,7 @@ import PackageDescription
 
 let package = Package(
     name: "Janus",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("15.0")],
     targets: [
         .executableTarget(name: "Janus", path: "Sources/Janus"),
         .testTarget(name: "JanusTests", dependencies: ["Janus"], path: "Tests/JanusTests"),

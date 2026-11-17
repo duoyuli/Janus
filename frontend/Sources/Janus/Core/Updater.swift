@@ -160,7 +160,7 @@ final class Updater {
         guard m["version"].truthy, parts.contains(where: { $0.name == "app" }), parts.allSatisfy({ $0.url != nil && $0.sha256.count == 64 }) else {
             throw UpdateError("update.json 不完整")
         }
-        return Release(version: m["version"].str, parts: parts, minimumSystemVersion: m["minimumSystemVersion"].string ?? "14.0", notes: notes, page: page)
+        return Release(version: m["version"].str, parts: parts, minimumSystemVersion: m["minimumSystemVersion"].string ?? "15.0", notes: notes, page: page)
     }
 
     /// Dotted versions compared number by number: 2026.11.01.2 is newer than 2026.11.01.

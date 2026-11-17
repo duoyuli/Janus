@@ -45,7 +45,7 @@ Janus 是罗马神话中的门神，也是开端与转换之神。他有两张�
 
 1. 在 [GitHub Releases](https://github.com/duoyuli/Janus/releases) 下载 `Janus-<版本>.dmg`，把 Janus 拖进「应用程序」。
 2. 第一次打开时，macOS 会提示无法验证开发者（安装包没有用 Apple 证书签名）：到「系统设置 → 隐私与安全性」点「仍要打开」。
-3. 需要 Apple 芯片（M 系列）的 Mac、macOS 14 以上。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node。Codex 和 Claude Code 的适配器自带对应的 CLI。
+3. 需要 Apple 芯片（M 系列）的 Mac、macOS 15 以上：Janus 只支持最近三个 macOS 大版本（15、26、27）。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node。Codex 和 Claude Code 的适配器自带对应的 CLI。
 
 应用自带 Janus 服务，打开即用；如果你已经用 `just start` 运行了 Janus，应用会直接连接它。详见[部署方案](docs/operations/20261031-deployment.md#macos_app)。
 

@@ -47,7 +47,7 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 
 1. Download `Janus-<version>.dmg` from [GitHub Releases](https://github.com/duoyuli/Janus/releases) and drag Janus into Applications.
 2. On first launch, macOS may say the developer cannot be verified (the package is not signed with an Apple certificate). Open System Settings → Privacy & Security and choose Open Anyway.
-3. Requires an Apple silicon Mac (M series) and macOS 14 or later. The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex and Claude Code adapters bundle their CLIs.
+3. Requires an Apple silicon Mac (M series) and macOS 15 or later: Janus supports the three latest major versions of macOS (15, 26 and 27). The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex and Claude Code adapters bundle their CLIs.
 
 The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/20261031-deployment.md#macos_app).
 

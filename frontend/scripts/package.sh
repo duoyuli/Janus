@@ -115,7 +115,7 @@ part_json() { # name file content
   printf '{"name":"%s","file":"%s","sha256":"%s","size":%s,"content":"%s"}' "$1" "$2" \
     "$(shasum -a 256 "$out/$2" | cut -c1-64)" "$(stat -f %z "$out/$2")" "$3"
 }
-printf '{"version":"%s","build":%s,"minimumSystemVersion":"14.0","parts":[%s,%s]}\n' "$version" "$build" \
+printf '{"version":"%s","build":%s,"minimumSystemVersion":"15.0","parts":[%s,%s]}\n' "$version" "$build" \
   "$(part_json app "$app_part" "$version")" "$(part_json node "$node_part" "$node_hash")" >"$out/update.json"
 cat "$out/update.json"
 
