@@ -361,9 +361,24 @@ struct ComposerField: NSViewRepresentable {
         var pasteboard: NSPasteboard = .general
 
         override func keyDown(with event: NSEvent) {
-            // Return (36) or Enter (76) with ⌘ sends; anything else edits as usual.
-            if [36, 76].contains(event.keyCode), event.modifierFlags.contains(.command) { onSubmit(); return }
+            // Return (36) or Enter (76) with ⌘ sends; anything else edits as usual. An input
+            // method's composition is not in the draft yet, so wait for it to be committed.
+            if [36, 76].contains(event.keyCode), event.modifierFlags.contains(.command) {
+                if !hasMarkedText() { onSubmit() }
+                return
+            }
             super.keyDown(with: event)
+        }
+
+        /// Applies text from SwiftUI, except while an input method is composing. The marked
+        /// text is already in `string` but has not reached the bindings yet; writing the old
+        /// text back would end the composition and drop what the person is typing.
+        func syncText(_ text: String) {
+            guard string != text, !hasMarkedText() else { return }
+            let length = (text as NSString).length
+            let caret = selectedRange().location
+            string = text
+            setSelectedRange(NSRange(location: caret == NSNotFound ? length : min(caret, length), length: 0))
         }
 
         override func paste(_ sender: Any?) {
@@ -421,7 +436,8 @@ struct ComposerField: NSViewRepresentable {
         init(_ parent: ComposerField) { self.parent = parent }
         func textDidChange(_ n: Notification) {
             guard let tv = n.object as? NSTextView else { return }
-            parent.text = tv.string
+            // Only committed text goes into the draft; a composition belongs to the input method.
+            if !tv.hasMarkedText() { parent.text = tv.string }
             measure(tv)
         }
         func measure(_ tv: NSTextView) {
@@ -464,7 +480,7 @@ struct ComposerField: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let tv = scroll.documentView as? TextView else { return }
-        if tv.string != text { tv.string = text }
+        tv.syncText(text)
         tv.isEditable = !disabled
         tv.isSelectable = !disabled
         tv.onImages = onImages
