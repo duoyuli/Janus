@@ -246,7 +246,9 @@ struct ChatScroll: View {
                 .onPreferenceChange(ChatEnd.self) { y in
                     var again = false
                     update { again = $0.moved(endY: y, height: outer.size.height, last: last) }
-                    if again { proxy.scrollTo(Self.end, anchor: .bottom) }
+                    // On the next turn of the main loop, not inside the layout pass that reported
+                    // the position: on macOS 15 a scroll asked for there did not move the view.
+                    if again { DispatchQueue.main.async { proxy.scrollTo(Self.end, anchor: .bottom) } }
                 }
                 .onAppear { toEnd(proxy) }
                 .onChange(of: last) {
@@ -327,7 +329,7 @@ struct ChatFollow: Equatable {
     var atEnd = true
     /// How close to the bottom still counts as being there.
     static let slack: CGFloat = 32
-    static let landingTries = 5
+    static let landingTries = 8
 
     /// The end of the list is `endY` below the top of a viewport `height` tall, measured with the
     /// session's newest event `last`. True when the view should scroll to the end (again).
