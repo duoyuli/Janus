@@ -1,33 +1,9 @@
 import Foundation
 
-// A usage bill as the receipt shows it (`UsageReceipt`): a task's bill, built from the run's ledger,
-// or a period's bill across runs, read from `GET /api/usage` (docs/architecture/20261031-frontend.md#usage_bill).
-// Both list who paid (members of the task, or Agents) with their models. The cost the agents
-// reported stays apart from the estimate at models.dev list prices, which is never an invoice.
-
-/// A model's list price from models.dev, USD per million tokens (`backend/src/prices.rs`).
-struct UsagePrice: Equatable {
-    let input: Double
-    let output: Double
-    let cacheRead: Double?
-    let cacheWrite: Double?
-
-    init?(_ j: JSON) {
-        guard let input = j["input"].double, let output = j["output"].double else { return nil }
-        self.input = input
-        self.output = output
-        cacheRead = j["cacheRead"].double
-        cacheWrite = j["cacheWrite"].double
-    }
-
-    /// What `t` costs at this price; nil without input or output (a total alone cannot be priced).
-    /// A cache price the list leaves out is the input price, as in the backend.
-    func cost(_ t: UsageTokens) -> Double? {
-        guard t.input != nil || t.output != nil else { return nil }
-        func at(_ n: Int?, _ usd: Double) -> Double { Double(n ?? 0) * usd / 1_000_000 }
-        return at(t.input, input) + at(t.output, output) + at(t.cachedRead, cacheRead ?? input) + at(t.cachedWrite, cacheWrite ?? input)
-    }
-}
+// A usage bill as the receipt shows it (`UsageReceipt`): a period's bill across runs, read from
+// `GET /api/usage` (docs/architecture/20261031-frontend.md#usage_bill). It lists who paid (Agents)
+// with their models. The cost the agents reported stays apart from the estimate at models.dev list
+// prices, which is never an invoice.
 
 /// What a bill's tokens would cost at list prices, and what could not be priced.
 struct UsageEstimate: Equatable {
@@ -37,13 +13,6 @@ struct UsageEstimate: Equatable {
     var fetchedAt: Date?
 }
 
-/// A titled list of rows under the bill's totals, such as a task's attempts.
-struct UsageBillSection: Equatable, Identifiable {
-    let title: String
-    let rows: [UsageLine]
-    var id: String { title }
-}
-
 struct UsageBill: Equatable {
     var title: String
     /// What the bill covers and when it was made.
@@ -51,10 +20,9 @@ struct UsageBill: Equatable {
     var tokens = UsageTokens()
     var cost = UsageCost()
     var stats: [UsageLine] = []
-    /// The heading over the payers: 「成员 / 模型」 or 「AGENT / 模型」.
+    /// The heading over the payers: 「AGENT / 模型」.
     var groupsTitle: String
     var groups: [UsageBillGroup] = []
-    var sections: [UsageBillSection] = []
     var notes: [String] = []
     /// At models.dev list prices; nil before prices are known.
     var estimate: UsageEstimate?
@@ -72,29 +40,6 @@ struct UsageBill: Equatable {
     var headlineDetail: String {
         let cost = UsageScope(cost: cost).costDetail
         return [tokens.total.map { "\(usageNum($0)) tokens" }, cost == "未上报" ? "Agent 未上报费用" : "Agent 上报费用 \(cost)"].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    /// The bill with its models priced: each model line and group gets its estimate, and the notes
-    /// say what could not be priced (`prices::Table::price` in the backend).
-    func priced(with prices: [String: UsagePrice], fetchedAt: Date?) -> UsageBill {
-        var bill = self
-        var e = UsageEstimate(fetchedAt: fetchedAt)
-        for gi in bill.groups.indices {
-            for mi in bill.groups[gi].models.indices {
-                let m = bill.groups[gi].models[mi]
-                if let usd = prices[m.model]?.cost(m.tokens) {
-                    bill.groups[gi].models[mi].estimate = usd
-                    bill.groups[gi].estimate = (bill.groups[gi].estimate ?? 0) + usd
-                    e.amount += usd
-                } else {
-                    e.unpricedTurns += m.turns
-                    if !e.unpricedModels.contains(m.model) { e.unpricedModels.append(m.model) }
-                }
-            }
-        }
-        bill.estimate = e
-        bill.notes = bill.priceNotes + bill.notes
-        return bill
     }
 
     /// What the estimate rests on, first among the notes.
@@ -117,7 +62,6 @@ struct UsageBill: Equatable {
             }
         }
         out += [""] + totalRows.map { "\($0.label)：\($0.value)" }
-        for section in sections { out += ["", section.title] + section.rows.map { "\($0.label)：\($0.value)" } }
         return (out + (notes.isEmpty ? [] : [""] + notes)).joined(separator: "\n")
     }
 
@@ -133,31 +77,6 @@ struct UsageBill: Equatable {
 }
 
 extension UsageBill {
-    /// A task's bill from the run's ledger: the task's totals, each member by model, each attempt.
-    static func task(_ t: TaskState, ledger: UsageLedger, name: (String) -> String) -> UsageBill? {
-        guard let scope = ledger.task(t.id), !scope.notStarted else { return nil }
-        let attempts = ledger.attempts(of: t.id)
-        var stats = [UsageLine(label: "数据", value: scope.completeness.label),
-                     UsageLine(label: "尝试", value: "\(attempts.count) 次"),
-                     UsageLine(label: "请求", value: "\(scope.turns) 轮"),
-                     UsageLine(label: "会话", value: "\(scope.sessions) 个"),
-                     UsageLine(label: "耗时", value: [scope.durationText, scope.waitText].compactMap { $0 }.joined(separator: " · "))]
-        if let context = scope.contextDetail { stats.append(UsageLine(label: "上下文", value: context)) }
-        var notes: [String] = []
-        if scope.completeness == .partial { notes.insert("\(scope.missingSessions) 个会话没有上报 token，数字是下界。", at: 0) }
-        return UsageBill(
-            title: "子任务用量账单",
-            meta: [UsageLine(label: "子任务", value: "\(t.id)「\(t.title)」")],
-            tokens: scope.tokens, cost: scope.cost, stats: stats,
-            groupsTitle: "成员 / 模型", groups: ledger.bill(ofTask: t.id, name: name),
-            sections: attempts.isEmpty ? [] : [UsageBillSection(title: "每次尝试", rows: attempts.map { a in
-                UsageLine(label: "#\(a.n) \(a.state.label) · \(name(a.actor))",
-                          value: [a.usage.tokens.total.map { "\(usageNum($0)) tokens" } ?? "未上报", a.durationMs.map { L.dur(Double($0)) }].compactMap { $0 }.joined(separator: " · ")
-                              + (a.note.map { "（\($0)）" } ?? ""))
-            })],
-            notes: notes)
-    }
-
     /// A period's bill as `GET /api/usage` returns it.
     static func period(_ j: JSON, issued: Date) -> UsageBill {
         let day = DateFormatter()

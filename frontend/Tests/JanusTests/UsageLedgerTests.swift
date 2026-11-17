@@ -3,9 +3,9 @@ import Testing
 @testable import Janus
 
 /// The store the tests' run models point at. `RunModel.store` is unowned, as the app's store lives as
-/// long as the app; a store made inside a test would be freed while a view's `.task` (the task
-/// bill's price lookup) can still reach it, so the tests share one that is never freed. Its API
-/// points at a closed port, so nothing leaves the machine.
+/// long as the app; a store made inside a test would be freed while a view could still reach it, so
+/// the tests share one that is never freed. Its API points at a closed port, so nothing leaves the
+/// machine.
 @MainActor let testStore = AppStore(api: API(base: URL(string: "http://127.0.0.1:9")!))
 
 /// Builds an event log the way the orchestrator records one.
@@ -164,10 +164,6 @@ private struct Log {
     #expect(a["T1#2"]?.state == .cancelled && a["T1#2"]?.note == "负责人取消了这个子任务")
     #expect(a["T2#1"]?.state == .cancelled && a["T2#1"]?.note == "任务被取消" && a["T2#1"]?.durationMs == 4100)
     #expect(l.task("T1")?.tokens.total == 1600, "a failed attempt's usage still counts")
-    #expect(a["T1#1"]?.line(name: "实现者") == "#1 · 失败 · 实现者 · 700 tokens（完整） · 2 秒")
-    let bill = l.bill(ofTask: "T1", name: { $0 == "m1" ? "实现者" : $0 })
-    #expect(bill.map(\.name) == ["实现者"] && bill[0].tokens.total == 1600 && bill[0].turns == 2)
-    #expect(bill[0].models.map(\.model) == [unknownModel], "no session named a model")
 }
 
 /// Wall-clock time and the time spent waiting for a person are kept apart.
@@ -213,25 +209,7 @@ private struct Log {
     #expect(usageLedger(Array(log.events.prefix(4))).remindersLine == nil)
 }
 
-/// A task's bill is priced per model at list prices, the same formula as the backend: cache prices
-/// the list leaves out are the input price, a total alone is not priced, and the rest is counted.
-@Test func usageBillsArePricedPerModel() throws {
-    let astra = try #require(UsagePrice(["input": 10, "output": 50, "cacheRead": 1, "cacheWrite": nil]))
-    let t = UsageTokens(total: 2_300_000, input: 1_000_000, output: 100_000, cachedRead: 1_000_000, cachedWrite: 200_000)
-    #expect(abs((astra.cost(t) ?? 0) - 18) < 1e-9, "10 + 5 + 1 + 2 (a write at the input price)")
-    #expect(astra.cost(UsageTokens(total: 5)) == nil)
-    #expect(UsagePrice(["input": 1]) == nil, "no output price, no price")
-
-    let bill = UsageBill(title: "任务用量账单", tokens: UsageTokens(total: 2_000_010), groupsTitle: "成员 / 模型", groups: [
-        UsageBillGroup(id: "m1", name: "实现者", models: [
-            UsageModelLine(model: "gpt-6-astra", tokens: UsageTokens(total: 2_000_000, input: 2_000_000, output: 0), turns: 3),
-            UsageModelLine(model: "mystery", tokens: UsageTokens(total: 10, input: 10), turns: 2),
-        ]),
-    ])
-    #expect(bill.headline == "2M" && bill.headlineCaption == "TOKEN 总量", "unpriced, the headline is tokens")
-    let priced = bill.priced(with: ["gpt-6-astra": astra], fetchedAt: nil)
-    #expect(priced.headline == "$20.00" && priced.headlineCaption.contains("models.dev"))
-    #expect(priced.groups[0].estimate == 20 && priced.groups[0].models[1].estimate == nil)
-    #expect(priced.notes.contains { $0.contains("2 轮没有价格（mystery）") }, "\(priced.notes)")
+/// Estimates are written as US dollars, to the cent; a tiny amount is not rounded to zero.
+@Test func usageUSDIsWrittenInDollars() {
     #expect(usageUSD(6389.624) == "$6,389.62" && usageUSD(0.004) == "<$0.01" && usageUSD(0) == "$0.00")
 }

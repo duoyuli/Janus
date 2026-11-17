@@ -4,7 +4,9 @@ import SwiftUI
 /// The run's progress board: one timeline of how this run moved forward, rebuilt from the event
 /// log. Rows are tasks, bars are their attempts, connectors are handoffs from upstream tasks, and
 /// decisions and open items sit on a lane above. A bar opens its task; a mark opens its event in
-/// the audit log, which is where details are read.
+/// the audit log, which is where details are read. Above the lead's conversation it stays folded
+/// to one line until opened (W1 F8/U3): it answers what the team is doing, not how every event
+/// looked.
 // @project-doc docs/architecture/20261031-frontend.md#run_timeline
 struct ProgressBoard: View {
     let run: RunModel
@@ -17,31 +19,29 @@ struct ProgressBoard: View {
         let milestones = milestoneMarks(f)
         if !tasks.isEmpty || !milestones.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .center) {
+                HStack(alignment: .center, spacing: 8) {
                     Text("进展").font(.display(.title3))
-                    Text(verbatim: summary).font(.caption).foregroundStyle(.secondary)
+                    Button(run.progressOpen ? "收起进展" : "展开进展") { run.progressOpen.toggle() }
+                        .buttonStyle(.link).font(.callout)
+                        .help("展开后显示这次任务的进展时间线，回答什么时候、谁做了什么、交给了谁")
+                        .accessibilityLabel(run.progressOpen ? "收起进展" : "展开进展")
                     Spacer()
                     Button("在审计日志中查看全部") { run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
                         .buttonStyle(.link).font(.callout)
                 }
                 .padding(.top, 6)
-                Card(padding: 12) {
-                    RunTimeline(run: run, tasks: tasks, milestones: milestones, now: now, live: run.state.active && !run.isReplaying) { m in
-                        run.replay = nil
-                        run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""
-                        run.highlight = m.seq
-                        run.show(.audit)
+                if run.progressOpen {
+                    Card(padding: 12) {
+                        RunTimeline(run: run, tasks: tasks, milestones: milestones, now: now, live: run.state.active && !run.isReplaying) { m in
+                            run.replay = nil
+                            run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""
+                            run.highlight = m.seq
+                            run.show(.audit)
+                        }
                     }
                 }
             }
         }
-    }
-
-    /// "3 个子任务 · 完成 2"
-    private var summary: String {
-        guard !st.order.isEmpty else { return "" }
-        let done = st.orderedTasks.filter { $0.status == .succeeded }.count
-        return "\(st.order.count) 个子任务 · 完成 \(done)"
     }
 
     private var nowMs: Double {

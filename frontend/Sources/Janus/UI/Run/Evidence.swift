@@ -152,29 +152,98 @@ struct RiskList: View {
     }
 }
 
-/// One task's acceptance in the delivery: totals and method counts, every check, then — apart from
-/// the executor's evidence — the independent verification, the trace gaps and the risks.
+/// One task's acceptance in the delivery: one line by default, opened on demand (W1 F6/A5). The
+/// collapsed row carries the id, a one-line title, the passed count, the method counts and text
+/// markers; the body repeats nothing of the row except the full title, then — exactly as before —
+/// every check with its method and whole evidence, the reminders, the independent verification,
+/// the trace gaps and the risks.
 struct DeliveryTaskView: View {
+    let run: RunModel
     let record: DeliveryAcceptance
+    /// The content width; under 838 the numbers take a second line instead of truncating (F9).
+    var width: CGFloat
 
     var body: some View {
-        let s = record.summary
+        let row = record.row
+        // The person's switch wins for this opening of the run; otherwise the row's own default.
+        let open = run.taskOpen[record.task] ?? row.needsAttention
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                TaskTag(id: record.task)
-                Text(record.title).font(.callout.weight(.semibold)).textSelection(.enabled)
-                let status = record.status.label
-                Pill(status.0, status.1)
-                Text(verbatim: "通过 \(s.passed) / \(s.criteria) 条")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .help("验收标准 \(s.criteria) 条，通过 \(s.passed) 条")
+            if BoardLayout.deliveryRowStacks(width) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        header(row, open: open, titleLimit: 1)
+                        Spacer(minLength: 4)
+                        disclosure(open)
+                    }
+                    numbers(row)
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    header(row, open: open, titleLimit: 1)
+                    Spacer(minLength: 4)
+                    disclosure(open)
+                }
             }
-            Text(verbatim: "证据：\(s.countsText)")
+            if open { expanded }
+        }
+    }
+
+    /// The id, title, passed count and method counts; in the wide layout they share the row, in the
+    /// narrow one the numbers sit below. One VoiceOver element with the row's full reading.
+    @ViewBuilder private func header(_ row: DeliveryTaskRow, open: Bool, titleLimit: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            TaskTag(id: record.task)
+            Text(record.title).font(.callout.weight(.semibold)).textSelection(.enabled)
+                .lineLimit(titleLimit).truncationMode(.tail)
+            if !BoardLayout.deliveryRowStacks(width) {
+                Text(verbatim: row.metrics).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                if !row.markers.isEmpty {
+                    Text(verbatim: row.markers.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(Tone.amber.color)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.voice(open: open))
+    }
+
+    @ViewBuilder private func numbers(_ row: DeliveryTaskRow) -> some View {
+        Text(verbatim: row.metrics).font(.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        if !row.markers.isEmpty {
+            Text(verbatim: row.markers.joined(separator: " · "))
+                .font(.caption).foregroundStyle(Tone.amber.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func disclosure(_ open: Bool) -> some View {
+        Button { run.taskOpen[record.task] = !open } label: {
+            HStack(spacing: 4) {
+                Image(systemName: open ? "chevron.down" : "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                Text(open ? "收起" : "展开").font(.caption)
+            }
+            .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+        .help(open ? "收起这个子任务的验收证据" : "展开这个子任务的验收标准、证据、独立验证、痕迹和风险")
+        .accessibilityLabel(open ? "收起 \(record.task) 的验收证据" : "展开 \(record.task) 的验收证据")
+    }
+
+    @ViewBuilder private var expanded: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // The row title was shortened to one line; the body starts with the whole one.
+            Text(record.title).font(.callout.weight(.semibold)).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(verbatim: "证据：\(record.summary.countsText)")
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             ForEach(CriterionCheck.rows(accept: [], checks: record.checks)) { row in
                 CheckLine(n: row.n, criterion: row.criterion, check: row.check)
             }
-            EvidenceReminders(reminders: s.reminders)
+            EvidenceReminders(reminders: record.summary.reminders)
             if !record.verifications.isEmpty {
                 Divider()
                 Text("独立验证").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -190,5 +259,6 @@ struct DeliveryTaskView: View {
                 }
             }
         }
+        .padding(.leading, 2)
     }
 }

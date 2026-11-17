@@ -59,6 +59,5 @@ import Testing
     #expect(missing.contextDetail == nil)
     // An empty ledger keeps the words, so the run card cannot show "0 tokens".
     #expect(UsageLedger.empty.runLine == "未上报 · 费用：未上报 · 耗时 没有时长记录")
-    #expect(UsageLedger.empty.deliveryLine == "用量 未上报 · 费用：未上报 · 耗时 没有时长记录")
     #expect(UsageLedger.empty.remindersLine == nil)
 }

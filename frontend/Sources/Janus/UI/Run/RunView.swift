@@ -202,21 +202,33 @@ struct BoardView: View {
 
     var body: some View {
         let st = run.shown
-        ScrollView {
-            // The lead's conversation is the run: the goal, how it is being pursued and what it
-            // asks. What the team is doing sits beside it; what waits on the person, above it.
-            VStack(alignment: .leading, spacing: 18) {
-                RunCard(run: run, st: st)
-                InboxSection(run: run, st: st)
-                if st.result != nil { ResultCard(run: run, st: st) }
-                AdaptiveColumns(side: 340, minMain: 480, spacing: 18) {
-                    ChatCard(run: run, st: st, title: "负责人", info: agentSession(st, "lead"), target: .agent("lead"))
-                        .frame(height: 640)
-                    RunInspector(run: run, st: st)
+        GeometryReader { geo in
+            // The card column's width: the scroll view minus the 20-point padding on both sides.
+            let contentWidth = max(0, geo.size.width - 40)
+            let lead = agentSession(st, "lead")
+            // A run with nothing to say yet: no tasks, and the lead has only been created.
+            let empty = st.order.isEmpty && !lead.evs.contains { $0.type != "run.created" }
+            let heights = BoardLayout.cardHeights(
+                contentHeight: geo.size.height, twoColumn: BoardLayout.isTwoColumn(contentWidth), empty: empty)
+            ScrollView {
+                // The lead's conversation is the run: the goal, how it is being pursued and what it
+                // asks. What the team is doing sits beside it; what waits on the person, above it.
+                VStack(alignment: .leading, spacing: 18) {
+                    RunCard(run: run, st: st, width: contentWidth)
+                    InboxSection(run: run, st: st)
+                    if st.result != nil { ResultCard(run: run, st: st, width: contentWidth) }
+                    // The progress timeline answers "what is the team doing", so it sits above the
+                    // conversation, folded to one line until asked for (W1 U3/F8).
+                    ProgressBoard(run: run, st: st)
+                    AdaptiveColumns(side: 340, minMain: 480, spacing: 18) {
+                        ChatCard(run: run, st: st, title: "负责人", info: lead, target: .agent("lead"))
+                            .frame(height: heights.chat)
+                        RunInspector(run: run, st: st)
+                            .frame(height: heights.inspector)
+                    }
                 }
-                ProgressBoard(run: run, st: st)
+                .padding(20)
             }
-            .padding(20)
         }
     }
 }
@@ -224,36 +236,22 @@ struct BoardView: View {
 struct RunCard: View {
     let run: RunModel
     let st: RunState
+    /// The card's content width: under 640 the actions move below the title (W1 F9).
+    var width: CGFloat
 
     var body: some View {
         let r = st.run
-        let (label, tone) = status
-        let title = L.goalTitle(r.goal)
-        let long = r.goal.trimmingCharacters(in: .whitespacesAndNewlines) != title
-        let done = st.orderedTasks.filter { $0.status == .succeeded }.count
-        let stages = ["推进目标", "协作", "交付", "验收"]
-        let idx = stageIndex
-        let active = !r.status.isFinished
         Card(padding: 18) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Pill(label, tone)
-                    Text(title.isEmpty ? "正在连接编排器…" : title).font(.display(.title2)).textSelection(.enabled)
-                    if long {
-                        Button(run.goalOpen ? "收起完整目标" : "查看完整目标") { run.goalOpen.toggle() }.buttonStyle(.link)
-                        if run.goalOpen { MarkdownText(text: r.goal).padding(.top, 4) }
-                    }
-                    StoredImages(paths: r.images, size: 64)
+            if BoardLayout.runCardStacks(width) {
+                VStack(alignment: .leading, spacing: 10) {
+                    heading
+                    actions
                 }
-                Spacer()
-                if run.canAct && active {
-                    if r.status == .running || r.paused {
-                        Button { Task { await run.togglePause() } } label: {
-                            Label(r.paused ? "继续" : "暂停", systemImage: r.paused ? "play.fill" : "pause.fill")
-                        }
-                        .help(r.paused ? "继续调度子任务（⇧⌘P）" : "暂停后不再启动新子任务，进行中的尝试会继续（⇧⌘P）")
-                    }
-                    Button("停止…", role: .destructive) { cancelRun(run) }.help("结束这个任务的所有会话")
+            } else {
+                HStack(alignment: .top) {
+                    heading
+                    Spacer()
+                    actions
                 }
             }
             if r.status == .failed { Note(text: r.error, tone: .red) }
@@ -266,43 +264,83 @@ struct RunCard: View {
                 .padding(10)
                 .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
-            // Team, workspace and start time are on the 团队与权限 page. The wall-clock time is
-            // in the usage section below, from the same events.
-            HStack(spacing: 16) {
-                if !st.order.isEmpty { meta("子任务", "\(done) / \(st.order.count)") }
-            }
-            UsageSection(run: run, st: st)
-            // A progress indicator, not controls: dots on a line, nothing that looks pressable.
-            HStack(spacing: 0) {
-                ForEach(Array(stages.enumerated()), id: \.offset) { i, s in
-                    if i > 0 {
-                        Rectangle().fill(i <= idx ? Color.secondary.opacity(0.6) : Color.line).frame(height: 1.5).frame(maxWidth: .infinity)
-                            .padding(.horizontal, 6)
-                    }
-                    HStack(spacing: 6) {
-                        ZStack {
-                            Circle().fill(i < idx ? Color.secondary.opacity(0.7) : i == idx ? Color.accent : .clear).frame(width: 14, height: 14)
-                                .shadow(color: i == idx && active ? Color.accent.opacity(0.7) : .clear, radius: 5)
-                            Circle().strokeBorder(i < idx ? Color.clear : i == idx ? Color.accent : Color.secondary.opacity(0.5), lineWidth: 1.5).frame(width: 14, height: 14)
-                            if i < idx { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.white) }
-                        }
-                        Text(s)
-                            .font(.callout.weight(i == idx ? .semibold : .regular))
-                            .foregroundStyle(i < idx ? Color.primary : i == idx ? Color.accent : .secondary)
-                            .fixedSize()
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(s)，\(i < idx ? "已完成" : i == idx ? "当前阶段" : "未开始")")
-                }
-            }
-            .padding(.top, 2)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("阶段")
+            summaryRow
+            // Reminders stay directly under the summary whether or not the ledger is open; the
+            // ledger never repeats them (W1 F4). Text only: nothing here pauses, stops or budgets
+            // the run.
+            if let line = st.usage.remindersLine { Note(text: line, tone: .amber) }
+            if run.usageOpen { UsageSection(run: run, st: st) }
         }
     }
 
-    private func meta(_ k: String, _ v: String) -> some View {
-        HStack(spacing: 4) { Text(k).foregroundStyle(.secondary); Text(v).fontWeight(.medium) }.font(.callout)
+    /// The status capsule, the goal's title (with the full goal behind a link when it is longer),
+    /// and any images attached to the goal.
+    @ViewBuilder private var heading: some View {
+        let r = st.run
+        let title = L.goalTitle(r.goal)
+        let long = r.goal.trimmingCharacters(in: .whitespacesAndNewlines) != title
+        let s = status
+        VStack(alignment: .leading, spacing: 6) {
+            Pill(s.0, s.1)
+            Text(title.isEmpty ? "正在连接编排器…" : title).font(.display(.title2)).textSelection(.enabled)
+            if long {
+                Button(run.goalOpen ? "收起完整目标" : "查看完整目标") { run.goalOpen.toggle() }.buttonStyle(.link)
+                if run.goalOpen { MarkdownText(text: r.goal).padding(.top, 4) }
+            }
+            StoredImages(paths: r.images, size: 64)
+        }
+    }
+
+    /// Pause and stop, only while the run is live and still going. Team, workspace and start time
+    /// are on the 团队与权限 page; the wall-clock time is in the summary line.
+    @ViewBuilder private var actions: some View {
+        let r = st.run
+        if run.canAct && !r.status.isFinished {
+            HStack(spacing: 8) {
+                if r.status == .running || r.paused {
+                    Button { Task { await run.togglePause() } } label: {
+                        Label(r.paused ? "继续" : "暂停", systemImage: r.paused ? "play.fill" : "pause.fill")
+                    }
+                    .help(r.paused ? "继续调度子任务（⇧⌘P）" : "暂停后不再启动新子任务，进行中的尝试会继续（⇧⌘P）")
+                }
+                Button("停止…", role: .destructive) { cancelRun(run) }.help("结束这个任务的所有会话")
+            }
+        }
+    }
+
+    /// One line of numbers, with the ledger's disclosure at its end when anything was reported
+    /// (W1 F2). The line is one VoiceOver element with full digits; the control is its own.
+    private var summaryRow: some View {
+        let u = st.usage
+        let tasks = st.order.count
+        let done = st.orderedTasks.filter { $0.status == .succeeded }.count
+        let voice = u.runCardVoice(tasks: tasks, done: done)
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(verbatim: u.runCardLine(tasks: tasks, done: done))
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .help(voice)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(voice)
+            Spacer(minLength: 4)
+            if u.showsLedgerControl(open: run.usageOpen) { usageToggle }
+        }
+    }
+
+    /// A disclosure, not a link: it opens the ledger inside this card.
+    private var usageToggle: some View {
+        Button { run.usageOpen.toggle() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: run.usageOpen ? "chevron.down" : "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                Text("用量明细").font(.callout)
+            }
+            .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+        .help("展开这次任务的 Token、构成、费用、耗时、上下文和各子任务的用量")
+        .accessibilityLabel(run.usageOpen ? "收起用量明细" : "展开用量明细")
     }
 
     private var status: (String, Tone) {
@@ -324,14 +362,6 @@ struct RunCard: View {
         if !st.inbox.isEmpty { return ("等你处理 \(st.inbox.count) 项", .amber) }
         return ("团队执行中", .blue)
     }
-
-    private var stageIndex: Int {
-        let r = st.run
-        if r.status == .accepted { return 4 }
-        if r.status == .delivered { return 3 }
-        if st.orderedTasks.contains(where: { !$0.status.isEnded }) { return 1 }
-        return 0
-    }
 }
 
 struct InboxSection: View {
@@ -351,6 +381,8 @@ struct InboxSection: View {
 struct ResultCard: View {
     let run: RunModel
     let st: RunState
+    /// The content width; under 838 the acceptance rows wrap their numbers (W1 F9).
+    var width: CGFloat
 
     var body: some View {
         if let r = st.result {
@@ -362,22 +394,73 @@ struct ResultCard: View {
             // Every task's acceptance record: totals, method counts, all checks, the independent
             // verification, the trace gaps and the risks.
             let acceptance = deliveryAcceptance(st)
+            let overview = deliveryOverview(acceptance, runRisks: risks)
             let long = d["summary"].str.count > 360
             let canAccept = r.accepted == nil && !run.isReplaying
             SectionHeader(title: "交付结果")
             Card(padding: 18, tint: Tone.green.color) {
+                // The acceptance state replaces the old "已交付" capsule: the card itself is the
+                // delivery, and one green capsule is enough (W1 F5).
                 HStack(spacing: 8) {
-                    Pill("已交付", .green)
                     if let a = r.accepted { Pill("✓ 你已于 \(L.clock(a)) 验收", .green) }
                     SeqButton(seq: r.seq, run: run)
                     Spacer()
                 }
                 Text("目标已完成").font(.display(.title3))
-                MarkdownText(text: d["summary"].str, lineLimit: long && !run.resultOpen ? 8 : nil)
-                if long { Button(run.resultOpen ? "收起" : "展开全文") { run.resultOpen.toggle() }.buttonStyle(.link) }
-                // The same one-line summary as the board and the task page: tokens with their
-                // completeness, the cost state, the wall-clock time — never an estimate.
-                Text(verbatim: st.usage.deliveryLine).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                if long && !run.resultOpen {
+                    // A real eight-line preview: `MarkdownText` draws one Text per block, so a
+                    // line limit on it would cap each paragraph instead of the whole summary.
+                    Text(MD.inline(d["summary"].str)).lineLimit(8).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("展开全文") { run.resultOpen.toggle() }.buttonStyle(.link)
+                } else {
+                    MarkdownText(text: d["summary"].str)
+                    if long { Button("收起") { run.resultOpen.toggle() }.buttonStyle(.link) }
+                }
+                // The overview: totals, methods, risks and trace gaps for every task at once, so
+                // the action below can be judged without opening a row (W1 F5/A14).
+                if !acceptance.isEmpty {
+                    Text(verbatim: overview.text)
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .accessibilityLabel("验收概览：\(overview.text)")
+                }
+                // The run-level risks, before the action: what the person is accepting. Long lists
+                // keep the first few lines and fold the rest in place, so the action stays on the
+                // first screen (W1 A14); the expanded list is the same text, untruncated.
+                if !risks.isEmpty {
+                    let riskList = runRiskList(risks, open: run.risksOpen)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 5) {
+                            Text("风险与限制").font(.callout.weight(.semibold))
+                            // Named so it reads against the overview's two counts: this section
+                            // is the run-level risks; the tasks' risks are in the rows below.
+                            Text(verbatim: "运行级 \(risks.count) 条").font(.caption).foregroundStyle(.secondary)
+                        }
+                        ForEach(riskList.shown.indices, id: \.self) { i in
+                            HStack(alignment: .firstTextBaseline) { Text("⚠").foregroundStyle(Tone.amber.color).accessibilityLabel("风险"); tagged(riskList.shown[i]) }
+                        }
+                        if let label = riskList.toggleLabel(open: run.risksOpen) {
+                            Button(label) { run.risksOpen.toggle() }
+                                .buttonStyle(.link)
+                                .help(run.risksOpen ? "收起运行级风险，只列出前 \(RunRiskList.previewLimit) 条" : "展开全部运行级风险，内容不截断")
+                        }
+                    }
+                }
+                // Before the deliverables and the checks: the action does not require reading
+                // every row first, and its text says what is still worth reading (W1 U1).
+                if canAccept {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(overview.issuesText.map { "有 \($0)。逐条核对后再验收。" } ?? "核对证据后验收。")
+                            .font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 8)
+                        Button(overview.risks > 0 ? "核对后接受风险并验收" : "验收通过") { Task { await run.act(["type": "accept"]) } }.buttonStyle(.primary)
+                    }
+                    .padding(12)
+                    .background((overview.risks > 0 ? Tone.amber.color : Color.secondary).opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                }
                 Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 12) {
                     if !deliverables.isEmpty { GridRow {
                         section("交付物", deliverables.count)
@@ -403,26 +486,11 @@ struct ResultCard: View {
                     if !acceptance.isEmpty { GridRow {
                         section("逐条验收", acceptance.count)
                         VStack(alignment: .leading, spacing: 12) {
-                            ForEach(acceptance) { record in DeliveryTaskView(record: record) }
-                        }
-                    } }
-                    if !risks.isEmpty { GridRow {
-                        section("风险与限制", risks.count)
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(risks.indices, id: \.self) { i in HStack(alignment: .firstTextBaseline) { Text("⚠").foregroundStyle(Tone.amber.color).accessibilityLabel("风险"); tagged(risks[i]) } }
+                            ForEach(acceptance) { record in DeliveryTaskView(run: run, record: record, width: width) }
                         }
                     } }
                 }
                 if !suggestions.isEmpty { BriefSuggestions(run: run, lines: suggestions) }
-                if canAccept {
-                    HStack {
-                        Text(risks.isEmpty ? "核对证据后验收。" : "有 \(risks.count) 条风险由 Agent 自己报告，或在核对结果时发现。请逐条核对证据后再验收。").font(.callout)
-                        Spacer()
-                        Button(risks.isEmpty ? "验收通过" : "核对后接受风险并验收") { Task { await run.act(["type": "accept"]) } }.buttonStyle(.primary)
-                    }
-                    .padding(12)
-                    .background((risks.isEmpty ? Color.secondary : Tone.amber.color).opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
-                }
                 HStack {
                     Button("在审计日志中逐条核对") { run.show(.audit) }.buttonStyle(.link)
                 }
@@ -584,13 +652,13 @@ struct BriefSuggestions: View {
 struct RunInspector: View {
     let run: RunModel
     let st: RunState
-    @AppStorage("janus.inspectorTab") private var tab = "tasks"
 
     var body: some View {
         let diffs = latest(st.artifacts.filter { $0.kind == "git_diff" })
         let files = latest(st.artifacts.filter { $0.kind != "git_diff" })
+        let tab = self.tab
         Card(padding: 12) {
-            Picker("查看", selection: $tab) {
+            Picker("查看", selection: tabBinding) {
                 Text(verbatim: "子任务 \(st.order.count)").tag("tasks")
                 Text(verbatim: "改动 \(diffs.count)").tag("changes")
                 Text(verbatim: "产物 \(files.count)").tag("files")
@@ -608,7 +676,31 @@ struct RunInspector: View {
                 }
             }
         }
-        .frame(height: 640)
+        .onAppear {
+            // Chosen once per opening: the last tab the person picked, otherwise team before any
+            // task exists and tasks after. Tasks appearing later do not switch it under them
+            // (W1 U2/A15).
+            if run.inspectorTab == nil {
+                run.inspectorTab = RunModel.initialInspectorTab(
+                    saved: UserDefaults.standard.string(forKey: "janus.inspectorTab"),
+                    hasTasks: !st.orderedTasks.isEmpty)
+            }
+        }
+    }
+
+    /// The tab for this opening; before `onAppear` resolves it, the same rule applies.
+    private var tab: String {
+        run.inspectorTab ?? RunModel.initialInspectorTab(
+            saved: UserDefaults.standard.string(forKey: "janus.inspectorTab"),
+            hasTasks: !st.orderedTasks.isEmpty)
+    }
+
+    private var tabBinding: Binding<String> {
+        Binding(get: { tab }, set: { v in
+            run.inspectorTab = v
+            // A manual choice is the one that outlasts this run.
+            UserDefaults.standard.set(v, forKey: "janus.inspectorTab")
+        })
     }
 
     @ViewBuilder private var tasks: some View {

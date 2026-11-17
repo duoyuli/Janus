@@ -107,9 +107,9 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(SessionView.usage([]) == nil)
 }
 
-/// The usage card and the task usage card really draw: the same rows the data tests assert are
-/// rendered into PNGs (light and dark), so a person can look at the result instead of trusting the
-/// strings alone.
+/// The usage card and the period bill really draw: the same rows the data tests assert are rendered
+/// into PNGs (light and dark), so a person can look at the result instead of trusting the strings
+/// alone.
 @Test @MainActor func usageCardsRenderInBothAppearances() throws {
     var events: [Event] = []
     func add(_ type: String, actor: String = "janus", task: String? = nil, attempt: Int? = nil, data: JSON = [:]) {
@@ -166,15 +166,15 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
         try data.write(to: dir.appendingPathComponent(name))
         return data.count
     }
-    let runCard = try render("run-usage-light.png", dark: false, Card { UsageSection(run: run, st: st) })
-    let runCardDark = try render("run-usage-dark.png", dark: true, Card { UsageSection(run: run, st: st) })
-    let detail = try render("run-usage-detail-light.png", dark: false, Card { UsageSection(run: run, st: st, initiallyOpen: true) })
+    let runCard = try render("run-card-light.png", dark: false, RunCard(run: run, st: st, width: 620))
+    let runCardDark = try render("run-card-dark.png", dark: true, RunCard(run: run, st: st, width: 620))
+    let runCardNarrow = try render("run-card-narrow-light.png", dark: false, RunCard(run: run, st: st, width: 560).frame(width: 560))
+    let detail = try render("run-usage-detail-light.png", dark: false, Card { UsageSection(run: run, st: st) })
     // The session card's header is the other place the numbers appear: it labels them 本会话/上一轮.
     let chat = ChatCard(run: run, st: st, title: "调研者", info: taskSession(st, st.tasks["T1"]!), target: .task("T1"))
         .frame(width: 560, height: 260)
     let session = try render("session-header-light.png", dark: false, chat)
     #expect(detail > 10_000 && session > 10_000)
-    let taskCard = try render("task-usage-light.png", dark: false, Card { TaskUsageCard(run: run, st: st, task: st.tasks["T1"]!) })
     // The period bill of the settings pane, from a response shaped like `GET /api/usage`.
     let period: JSON = [
         "from": 1_760_000_000_000, "to": 1_762_592_000_000, "runs": 12, "turns": 3192, "sessions": 40, "unreportedSessions": 3,
@@ -194,6 +194,6 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(bill.notes.first?.contains("models.dev") == true && bill.notes.contains { $0.contains("12 轮没有价格") })
     let periodCard = try render("period-bill-light.png", dark: false, Card(padding: 22) { UsageReceipt(bill: bill) }.frame(width: 520))
     #expect(periodCard > 10_000)
-    #expect(runCard > 10_000 && runCardDark > 10_000 && taskCard > 10_000, "the cards drew: \(runCard)/\(runCardDark)/\(taskCard) bytes")
+    #expect(runCard > 10_000 && runCardDark > 10_000, "the cards drew: \(runCard)/\(runCardDark) bytes")
     print("usage card screenshots: \(dir.path)")
 }

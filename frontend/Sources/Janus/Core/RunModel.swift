@@ -43,6 +43,16 @@ final class RunModel {
     // Board view state
     var goalOpen = false
     var resultOpen = false
+    /// The usage ledger's detail, and the progress timeline, are folded in the run card and above
+    /// the conversation until opened here (W1 F3, F8). They last for this opening of the run.
+    var usageOpen = false
+    var progressOpen = false
+    /// The run-level risk list past its preview, opened in place (W1 A14).
+    var risksOpen = false
+    /// Each acceptance row's own switch; a task without an entry uses its default.
+    var taskOpen: [String: Bool] = [:]
+    /// The inspector tab chosen for this opening; nil until the board first appears.
+    var inspectorTab: String?
     // Audit view state
     var invariantsOpen = false
     var auditCat = "all"
@@ -197,5 +207,13 @@ final class RunModel {
     func agentName(_ id: String) -> String {
         let w = who(id)
         return w.runtime.isEmpty ? w.name : "\(w.name) · \(w.runtime)"
+    }
+
+    /// The inspector tab a run opens on: the last one the person chose, otherwise by state —
+    /// team before any task exists, tasks afterwards. It is resolved once per opening, so tasks
+    /// appearing later do not switch the tab under the person (W1 U2/A15).
+    static func initialInspectorTab(saved: String?, hasTasks: Bool) -> String {
+        guard let saved, !saved.isEmpty else { return hasTasks ? "tasks" : "team" }
+        return saved
     }
 }

@@ -1,24 +1,21 @@
 import SwiftUI
 
-// The usage ledger on the run page and the task page (docs/architecture/20261031-frontend.md#usage_ledger).
-// The numbers come from `RunState.usage`; these views only lay them out.
+// The usage ledger on the run page and the receipt the settings' usage bill draws
+// (docs/architecture/20261031-frontend.md#usage_ledger). The numbers come from `RunState.usage`;
+// these views only lay them out.
 
-/// The run's usage ledger on the workbench: tokens, cost state, wall-clock time, completeness, the
-/// lead and collaborator subtotals, context snapshots, task and member detail, and the read-only
-/// reminders. Every number comes from the same `session.usage` events the session cards read; a
-/// missing number is written in words and never as 0. The rows come from `UsageScope.summaryRows`,
-/// so a test reads exactly what this card shows.
+/// The run's usage ledger, opened from the run card's summary line (W1 F3). It is the expanded
+/// body only: the summary line already names the totals and their completeness, so the body does
+/// not repeat the card title, the completeness capsule or the reminders. Tokens, makeup, cost,
+/// wall-clock time, context snapshots, the lead and collaborator subtotals and the task and member
+/// detail all come from `UsageScope.summaryRows`, so a test reads exactly what this card shows. A
+/// missing number is written in words and never as 0.
 // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
 struct UsageSection: View {
     let run: RunModel
     let st: RunState
-    @Local private var detail: Bool
-
-    init(run: RunModel, st: RunState, initiallyOpen: Bool = false) {
-        self.run = run
-        self.st = st
-        _detail = Local(initialValue: initiallyOpen)
-    }
+    /// The second-level task and member list, closed until asked for.
+    @Local private var detail = false
 
     /// What each row means, shown on hover.
     static let help: [String: String] = [
@@ -35,12 +32,14 @@ struct UsageSection: View {
         let subtotal = u.subtotalLine
         VStack(alignment: .leading, spacing: 9) {
             Divider()
+            ForEach(u.run.summaryRows) { row in
+                UsageRow(label: row.label, value: row.value).help(Self.help[row.label] ?? "")
+            }
+            UsageRow(label: subtotal.label, value: subtotal.value).help(Self.help[subtotal.label] ?? "")
             HStack(spacing: 8) {
-                Text("用量").font(.callout.weight(.semibold))
-                Pill(u.run.completeness.label, u.run.completeness.tone)
-                if u.run.sessions > 0 { Text(verbatim: "\(u.run.sessions) 个会话").font(.caption).foregroundStyle(.secondary) }
+                Text(verbatim: "\(u.run.sessions) 个会话").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                // A disclosure, not a link: it opens detail inside this card.
+                // A disclosure, not a link: it opens the task and member list at this level.
                 Button { detail.toggle() } label: {
                     HStack(spacing: 4) {
                         Image(systemName: detail ? "chevron.down" : "chevron.right")
@@ -53,17 +52,10 @@ struct UsageSection: View {
                 .help("按子任务和成员展开这次任务的用量，每个数字都来自 session.usage 事件")
                 .accessibilityLabel(detail ? "收起子任务与成员明细" : "展开子任务与成员明细")
             }
-            ForEach(u.run.summaryRows) { row in
-                UsageRow(label: row.label, value: row.value).help(Self.help[row.label] ?? "")
-            }
-            UsageRow(label: subtotal.label, value: subtotal.value).help(Self.help[subtotal.label] ?? "")
             if detail { details(u) }
-            // Reminders live in this card only: nothing is paused, cancelled, retried or budgeted
-            // from here, and nothing is added to the inbox.
-            if let line = u.remindersLine { Note(text: line, tone: .amber) }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("这次任务的用量")
+        .accessibilityLabel("这次任务的用量明细")
     }
 
     @ViewBuilder private func details(_ u: UsageLedger) -> some View {
@@ -125,45 +117,6 @@ struct UsageRow: View {
     }
 }
 
-/// A task's usage as a bill: the total, who spent it on which model, each attempt, and the parts of
-/// the tokens; a task with no session yet says so instead of showing 0.
-// @project-doc docs/architecture/20261031-frontend.md#usage_bill
-struct TaskUsageCard: View {
-    let run: RunModel
-    let st: RunState
-    let task: TaskState
-    /// List prices of the bill's models, from the backend's models.dev table.
-    @Local private var prices: [String: UsagePrice] = [:]
-    @Local private var pricesAt: Date?
-
-    var body: some View {
-        let bill = UsageBill.task(task, ledger: st.usage, name: { run.who($0).name })
-        let models = Set(bill?.groups.flatMap { $0.models.map(\.model) } ?? []).sorted()
-        Card {
-            if let bill {
-                UsageReceipt(bill: pricesAt == nil && prices.isEmpty ? bill : bill.priced(with: prices, fetchedAt: pricesAt))
-            } else {
-                Text("用量").font(.headline)
-                Text("未开始（这个子任务还没有会话）").font(.callout).foregroundStyle(.secondary)
-                    .accessibilityLabel("用量未开始，这个子任务还没有会话")
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(task.id) 的用量账单")
-        .task(id: models) { await loadPrices(models) }
-    }
-
-    /// Ask the backend for the models' list prices; without them the bill shows tokens only.
-    private func loadPrices(_ models: [String]) async {
-        guard !models.isEmpty else { return }
-        let query = models.joined(separator: ",").addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        guard let j = try? await run.store.api.get("/api/prices?models=\(query)") else { return }
-        let found: [String: UsagePrice] = j["prices"].object.compactMapValues { UsagePrice($0) }
-        prices = found
-        if let ms = j["fetchedAt"].double { pricesAt = Date(timeIntervalSince1970: ms / 1000) }
-    }
-}
-
 /// A bill laid out like a receipt: what it covers, the headline total, the numbers behind it, who
 /// paid on which model, the parts of the tokens and the notes. Every value is text, selectable,
 /// and read by VoiceOver with its label; the dashed rules are decoration.
@@ -198,11 +151,6 @@ struct UsageReceipt: View {
             }
             ReceiptRule()
             ForEach(bill.totalRows) { ReceiptRow(line: $0) }
-            ForEach(bill.sections) { section in
-                ReceiptRule()
-                Text(section.title).font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
-                ForEach(section.rows) { ReceiptRow(line: $0) }
-            }
             if !bill.notes.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(bill.notes, id: \.self) { Text($0) }

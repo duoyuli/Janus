@@ -55,6 +55,23 @@ enum Snapshots {
             case "replay": r.replay = Int(kv.last ?? "") ?? 1; r.page = .board
             default: r.page = .board; r.replay = nil
             }
+        // Open or close the board's folded parts (`fold usage|progress|risks|tasks|all|T3 open|closed`),
+        // which a picture alone cannot reach.
+        case "fold":
+            guard let r = store.run else { return }
+            let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            let open = p.count < 2 || p[1] != "closed"
+            switch p.first {
+            case "usage": r.usageOpen = open
+            case "progress": r.progressOpen = open
+            case "risks": r.risksOpen = open
+            case "tasks": for t in r.shown.orderedTasks { r.taskOpen[t.id] = open }
+            case "all":
+                r.usageOpen = open; r.progressOpen = open; r.risksOpen = open
+                for t in r.shown.orderedTasks { r.taskOpen[t.id] = open }
+            case let id? where !id.isEmpty: r.taskOpen[id] = open
+            default: break
+            }
         case "role": store.editingRole = store.role(arg)
         case "workspace": store.editingWorkspace = store.workspace(arg)
         case "close-sheet": store.editingRole = nil; store.editingWorkspace = nil; store.showingSettings = false
@@ -106,7 +123,8 @@ enum Snapshots {
             // A sheet is its own window; picture the frontmost one.
             let wins = NSApp.windows.filter { $0.isVisible && $0.contentView != nil }
             let named = target.flatMap { t in wins.first { $0.title.hasPrefix(t) } }
-            guard let w = named ?? wins.first(where: { $0.isSheet }) ?? wins.first(where: { $0.isKeyWindow }) ?? wins.first, let v = w.contentView else { return }
+            guard let w = named ?? wins.first(where: { $0.isSheet }) ?? wins.first(where: { $0.isKeyWindow })
+                ?? wins.first(where: { $0.canBecomeMain }) ?? wins.first, let v = w.contentView else { return }
             let url = URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "shot" : arg).png")
             // The window server's picture of our own window is what is really on screen;
             // cacheDisplay is the fallback and loses translucent fills.
@@ -135,9 +153,12 @@ enum Snapshots {
     /// should not tie the build to an SDK that still declares it.
     private static func windowImage(_ number: Int) -> CGImage? {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+        // Window numbers are Ints but the API takes a UInt32; a menu bar or status window can be
+        // outside that range, and the conversion must not trap the app.
+        guard let id = UInt32(exactly: number),
+              let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let capture = unsafeBitCast(sym, to: Capture.self)
         // .optionIncludingWindow = 1 << 3; .boundsIgnoreFraming = 1 << 0, .bestResolution = 1 << 3
-        return capture(.null, 1 << 3, UInt32(number), (1 << 0) | (1 << 3))?.takeRetainedValue()
+        return capture(.null, 1 << 3, id, (1 << 0) | (1 << 3))?.takeRetainedValue()
     }
 }

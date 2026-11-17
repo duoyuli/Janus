@@ -53,13 +53,13 @@ struct UsageTokens: Equatable {
         return t
     }
 
-    /// One turn by model: the quota rows when the agent sent them (they name their model), else
-    /// `usage` on the session's current model (nil as model); empty for a context snapshot.
-    static func ofTurn(_ d: JSON) -> [(model: String?, tokens: UsageTokens)] {
-        let rows = d["models"].array.map { (model: $0["model"].string.flatMap { $0.isEmpty ? nil : $0 }, tokens: read($0)) }.filter { $0.tokens.total != nil }
+    /// One turn's token rows: the quota rows by model when the agent sent them, else `usage`;
+    /// empty for a context snapshot.
+    static func ofTurn(_ d: JSON) -> [UsageTokens] {
+        let rows = d["models"].array.map(read).filter { $0.total != nil }
         if !rows.isEmpty { return rows }
         let usage = read(d)
-        return usage.total == nil ? [] : [(nil, usage)]
+        return usage.total == nil ? [] : [usage]
     }
 
     /// Cache reads over input plus cache reads and writes; nil unless input and cache reads were reported.
@@ -159,18 +159,6 @@ private struct RunningCost {
     var total: Double { beforeReset + latest }
 }
 
-/// What one turn spent on one model; a turn reported by model has a row per model.
-struct UsageSpend: Equatable {
-    let ts: Int
-    let model: String
-    let tokens: UsageTokens
-    /// The first row of its turn, so a bill counts turns once.
-    let first: Bool
-}
-
-/// The model name of a turn whose agent named no model and whose session reported none.
-let unknownModel = "未知模型"
-
 /// Tokens and turns on one model, in a bill.
 struct UsageModelLine: Equatable, Identifiable {
     var model: String
@@ -181,7 +169,7 @@ struct UsageModelLine: Equatable, Identifiable {
     var id: String { model }
 }
 
-/// Who paid in a bill: a member, in a task's bill, or an Agent, in a period's bill (from the backend).
+/// Who paid in a period's bill: an Agent, with its models (from the backend).
 struct UsageBillGroup: Equatable, Identifiable {
     var id: String
     var name: String
@@ -191,27 +179,6 @@ struct UsageBillGroup: Equatable, Identifiable {
     var models: [UsageModelLine] = []
     /// The priced models' estimates added up; nil when none has a price.
     var estimate: Double?
-
-    mutating func spend(_ s: UsageSpend) {
-        tokens.add(s.tokens)
-        if s.first { turns += 1 }
-        if let i = models.firstIndex(where: { $0.model == s.model }) {
-            models[i].tokens.add(s.tokens)
-            models[i].turns += 1
-        } else {
-            models.append(UsageModelLine(model: s.model, tokens: s.tokens, turns: 1))
-        }
-    }
-
-    /// Most tokens first, for the groups of a bill and the models of each.
-    static func sorted(_ groups: [UsageBillGroup]) -> [UsageBillGroup] {
-        groups.map { g in
-            var g = g
-            g.models.sort { ($0.tokens.total ?? -1, $1.model) > ($1.tokens.total ?? -1, $0.model) }
-            return g
-        }
-        .sorted { ($0.tokens.total ?? -1, $1.name) > ($1.tokens.total ?? -1, $0.name) }
-    }
 }
 
 /// One ACP session (or one lead session): the unit the numbers are counted in.
@@ -227,8 +194,6 @@ struct UsageSession: Identifiable, Equatable {
     var cost: [UsageCostLine] = []
     var firstMs = 0
     var lastMs = 0
-    /// Each turn's tokens by model, for the task's bill.
-    var spend: [UsageSpend] = []
     var id: String { key }
 }
 
@@ -264,7 +229,7 @@ struct UsageScope: Equatable {
     }
 }
 
-/// One attempt of a task, with the usage it recorded and how it ended.
+/// One attempt of a task: how it ended and how long it took.
 struct UsageAttempt: Identifiable, Equatable {
     enum State: String {
         case unfinished, succeeded, failed, verificationFailed, expired, cancelled
@@ -289,7 +254,6 @@ struct UsageAttempt: Identifiable, Equatable {
     var startedMs = 0
     var endedMs: Int?
     var durationMs: Int?
-    var usage = UsageScope()
     var id: String { "\(task)#\(n)" }
 }
 
@@ -307,13 +271,52 @@ struct UsageLedger: Equatable {
     static let empty = UsageLedger()
 
     func task(_ id: String) -> UsageScope? { tasks.first { $0.id == id } }
-    func attempts(of task: String) -> [UsageAttempt] { attempts.filter { $0.task == task } }
 
     /// The run's tokens, cost and wall-clock time in one line: the backend's ledger line after
     /// 「用量：」 (`Ledger::summary_line`), which the shared cases compare.
     var runLine: String { "\(run.tokensText) · \(run.costText) · 耗时 \(run.durationText)" }
-    /// `用量 … · 费用：… · 耗时 …`, the delivery's line.
-    var deliveryLine: String { "用量 \(runLine)" }
+
+    /// Whether any session reported usage (tokens, a context snapshot or a cost): only then is
+    /// there a ledger to open. A session that opened and reported nothing is not one.
+    var hasUsage: Bool {
+        sessions.contains { $0.turns > 0 || $0.context.reports > 0 || !$0.cost.isEmpty }
+    }
+
+    /// Whether the run card offers the ledger's disclosure. A position with reports offers it;
+    /// once the ledger is open the control stays, so a replayed position that reported nothing
+    /// can still fold it again.
+    func showsLedgerControl(open: Bool) -> Bool { hasUsage || open }
+
+    /// The run card's one line of numbers: task progress, tokens as compactly reported, cost,
+    /// wall-clock time and the context ratio. Items nothing reported are left out; the time is
+    /// always written. `tasks` is the run's task count and `done` the succeeded ones.
+    func runCardLine(tasks: Int, done: Int) -> String {
+        cardParts(tasks: tasks, done: done, compact: true).joined(separator: " · ")
+    }
+
+    /// The same summary with every token and context digit, for VoiceOver and the hover tip.
+    func runCardVoice(tasks: Int, done: Int) -> String {
+        cardParts(tasks: tasks, done: done, compact: false).joined(separator: "，")
+    }
+
+    private func cardParts(tasks: Int, done: Int, compact: Bool) -> [String] {
+        var parts: [String] = []
+        if tasks > 0 { parts.append("子任务 \(done) / \(tasks)") }
+        if let total = run.tokens.total {
+            let n = compact ? usageCompact(total) : usageNum(total)
+            parts.append("用量 \(n) tokens（\(run.completeness.label)）")
+        }
+        if !run.cost.lines.isEmpty { parts.append("费用 \(run.costAmountsText ?? run.costDetail)") }
+        parts.append("耗时 \(run.durationText)")
+        if run.context.reports > 0 {
+            if compact {
+                parts.append("上下文 \(run.context.ratio.map(usagePercent) ?? "没有比例")")
+            } else if let detail = run.contextDetail {
+                parts.append("上下文 \(detail)")
+            }
+        }
+        return parts
+    }
 
     /// The reminders in one line, prefixed when the numbers are not complete.
     var remindersLine: String? {
@@ -350,6 +353,17 @@ extension UsageScope {
 
     /// The cost without its `费用：` label, for a row that already names it.
     var costDetail: String { String(costText.dropFirst("费用：".count)) }
+
+    /// The reported amounts without the 「N 个会话」 note `costText` adds: the run card's compact
+    /// line leaves the session count to the expanded ledger (W1 F2).
+    var costAmountsText: String? {
+        let parts = cost.lines.map { l in
+            l.currency.isEmpty ? "\(usageMoney(l.amount))（未标注币种）" : "\(usageMoney(l.amount)) \(l.currency)"
+        }
+        guard !parts.isEmpty else { return nil }
+        if parts.count == 1 { return parts[0] }
+        return parts.joined(separator: " + ") + "（币种或口径不同，未合并）"
+    }
 
     /// Wall-clock time; it never stands in for agent execution time.
     var durationText: String { durationMs.map { "\(L.dur(Double($0)))（墙钟）" } ?? "没有时长记录" }
@@ -400,28 +414,6 @@ extension UsageLedger {
 
     /// One member in the expanded detail: its tokens, or 「没有会话」, and how many sessions it used.
     func memberDetail(_ scope: UsageScope) -> String { "\(scope.notStarted ? "没有会话" : scope.tokensText) · \(scope.sessions) 个会话" }
-
-    /// A task's bill: each member that worked on it, with its tokens by model and its reported cost,
-    /// most tokens first (`task_bill` in the backend). A member that reported nothing has no models.
-    func bill(ofTask task: String, name: (String) -> String) -> [UsageBillGroup] {
-        var groups: [UsageBillGroup] = []
-        for s in sessions where s.task == task {
-            let i = groups.firstIndex { $0.id == s.actor } ?? {
-                groups.append(UsageBillGroup(id: s.actor, name: name(s.actor)))
-                return groups.count - 1
-            }()
-            for x in s.spend { groups[i].spend(x) }
-            groups[i].cost.add(s.cost)
-        }
-        return UsageBillGroup.sorted(groups)
-    }
-}
-
-extension UsageAttempt {
-    /// One attempt as the task card writes it: number, outcome, executor, tokens, time.
-    func line(name: String) -> String {
-        "#\(n) · \(state.label) · \(name) · \(usage.tokensText) · \(durationMs.map { L.dur(Double($0)) } ?? "没有时长记录")"
-    }
 }
 
 /// Thousands separators for token counts, the same on every page.
@@ -473,7 +465,6 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         var actor: String, task: String?, attempt: Int?
         var tokens = UsageTokens(), turns = 0, context = UsageContext()
         var cost: [String: RunningCost] = [:]
-        var spend: [UsageSpend] = []
         var firstMs: Int, lastMs: Int
     }
     struct AttemptBuild {
@@ -484,7 +475,6 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
     var created: Int?
     var last: Int?
     var current: [String: String] = [:]
-    var model: [String: String] = [:]
     var builds: [String: SessionBuild] = [:]
     var order: [String] = []
     var attempts: [String: AttemptBuild] = [:]
@@ -569,18 +559,10 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
             let key = touch(e, owner)
             guard var s = builds[key] else { break }
             if !rows.isEmpty { s.turns += 1 }
-            for (i, row) in rows.enumerated() {
-                s.tokens.add(row.tokens)
-                s.spend.append(UsageSpend(ts: ts, model: row.model ?? model[owner] ?? unknownModel, tokens: row.tokens, first: i == 0))
-            }
+            for row in rows { s.tokens.add(row) }
             if used != nil || size != nil { s.context.snapshot(used: used, size: size) }
             if let cost { s.cost[cost.currency, default: RunningCost()].reading(cost.amount) }
             builds[key] = s
-        // The model a session runs on: as it opened, and when someone switched it.
-        case "session.controls":
-            if let m = d["model"]["current"].string, !m.isEmpty { model[e.actor] = m }
-        case "session.control" where d["id"].str == "model" && d["failed"].bool != true:
-            if let m = d["value"].string, !m.isEmpty { model[e.actor] = m }
         case "attempt.failed":
             ended(e, .failed, d["error"].string)
         case "attempt.late_result":
@@ -627,7 +609,7 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         builds[key].map { b in
             (i, UsageSession(key: key, actor: b.actor, task: b.task, attempt: b.attempt, tokens: b.tokens, turns: b.turns, context: b.context,
                              cost: b.cost.keys.sorted().map { UsageCostLine(currency: $0, amount: b.cost[$0]?.total ?? 0) },
-                             firstMs: b.firstMs, lastMs: b.lastMs, spend: b.spend))
+                             firstMs: b.firstMs, lastMs: b.lastMs))
         }
     }
     .sorted { ($0.1.lastMs, $0.0) < ($1.1.lastMs, $1.0) }
@@ -660,10 +642,9 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
             b.note = cancel.note
             b.endedMs = max(b.endedMs ?? cancel.at, cancel.at)
         }
-        let usage = UsageScope.over(key, sessions.filter { $0.task == b.task && $0.attempt == b.n })
         let duration = b.endedMs.map { max(0, $0 - b.startedMs) } ?? (b.lastMs > b.startedMs ? b.lastMs - b.startedMs : nil)
         return UsageAttempt(task: b.task, n: b.n, actor: b.actor, state: b.state, note: b.note, startedMs: b.startedMs,
-                            endedMs: b.endedMs, durationMs: duration, usage: usage)
+                            endedMs: b.endedMs, durationMs: duration)
     }
     ledger.reminders = usageReminders(ledger, declared: declared.count)
     return ledger
