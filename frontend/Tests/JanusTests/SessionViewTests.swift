@@ -232,6 +232,10 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
 @Test func aJumpToTheNewestLandsBeforeLettingGo() {
     var f = ChatFollow()
     _ = f.moved(endY: 400, height: 400, last: 5)
+    // Already at the end: nothing will move, so there is no landing to wait for.
+    f.jumped()
+    #expect(f.landing == 0)
+    _ = f.moved(endY: 3000, height: 400, last: 5)
     f.jumped()
     var again = f.moved(endY: 470, height: 400, last: 5)
     #expect(again && f.following, "the end moved while the rows were measured: go again")

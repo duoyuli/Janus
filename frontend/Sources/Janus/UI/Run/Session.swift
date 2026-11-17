@@ -231,11 +231,14 @@ struct ChatScroll: View {
                         ForEach(groups) { row($0) }
                         // The end carries the bottom margin, so at the end nothing is left below.
                         Color.clear.frame(height: 2).id(Self.end)
-                            .background(GeometryReader { g in
-                                Color.clear.preference(key: ChatEnd.self, value: g.frame(in: .named(Self.space)).maxY)
-                            })
                     }
                     .padding([.horizontal, .top], 12)
+                    // Measured on all of the content, which exists whatever rows the lazy list has
+                    // built: the end row itself is not built until it nears the screen, and a
+                    // scroll that stopped short of it would never be reported.
+                    .background(GeometryReader { g in
+                        Color.clear.preference(key: ChatEnd.self, value: g.frame(in: .named(Self.space)).maxY)
+                    })
                 }
                 .coordinateSpace(.named(Self.space))
                 // Called on every frame of a scroll near the end: the state changes only when the
@@ -320,6 +323,8 @@ struct ChatFollow: Equatable {
     var landing = 0
     /// The session's newest event when the end was last measured.
     var seen = 0
+    /// The last measurement found the end in view.
+    var atEnd = true
     /// How close to the bottom still counts as being there.
     static let slack: CGFloat = 32
     static let landingTries = 5
@@ -328,6 +333,7 @@ struct ChatFollow: Equatable {
     /// session's newest event `last`. True when the view should scroll to the end (again).
     mutating func moved(endY: CGFloat, height: CGFloat, last: Int) -> Bool {
         let atEnd = endY <= height + Self.slack
+        self.atEnd = atEnd
         if last != seen {
             // New content pushed the end down: that is not the person scrolling away. It is
             // followed when they were at the bottom, and noted otherwise.
@@ -350,7 +356,8 @@ struct ChatFollow: Equatable {
     mutating func jumped() {
         following = true
         unseen = false
-        landing = Self.landingTries
+        // Already there, nothing moves, so no measurement would come to end the landing.
+        landing = atEnd ? 0 : Self.landingTries
     }
 
     /// Something new arrived. True when the view should scroll to it; otherwise the person is
@@ -361,8 +368,7 @@ struct ChatFollow: Equatable {
     }
 }
 
-/// Where the end of a conversation is, measured from the top of its visible area. While the end is
-/// not built (scrolled far up in the lazy list) nothing reports it and it counts as far away.
+/// Where the bottom of a conversation's content is, measured from the top of its visible area.
 private struct ChatEnd: PreferenceKey {
     static let defaultValue = CGFloat.infinity
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = min(value, nextValue()) }
