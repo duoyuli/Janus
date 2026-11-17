@@ -86,7 +86,9 @@ final class InboxModel {
         didSet { UserDefaults.standard.set(Array(settled), forKey: "janus.inbox.settled") }
     }
     private(set) var now = Date().timeIntervalSince1970 * 1000
-    @ObservationIgnored private var cache: [String: [Event]] = [:]
+    /// Each live run's events so far and the state derived from them, derived again only when new
+    /// events came in: most refreshes find nothing new.
+    @ObservationIgnored private var cache: [String: (events: [Event], state: RunState)] = [:]
     /// The folded sections of the inbox page; runs at work start folded every time.
     var showLater = false
     var showWorking = false
@@ -104,15 +106,21 @@ final class InboxModel {
                 continue
             }
             let id = row["id"].str
-            var events = cache[id] ?? []
-            guard let data = try? await store.api.get("/api/runs/\(id)?after=\(events.last?.seq ?? 0)") else { continue }
-            events += data["events"].array.map(Event.init)
-            cache[id] = events
-            out += Inbox.entries(run: data["run"], state: derive(events), workspace: ws)
+            let known = cache[id]
+            guard let data = try? await store.api.get("/api/runs/\(id)?after=\(known?.events.last?.seq ?? 0)") else { continue }
+            let new = data["events"].array.map(Event.init)
+            var c = known ?? (events: [], state: RunState())
+            if known == nil || !new.isEmpty {
+                c.events += new
+                c.state = derive(c.events)
+            }
+            cache[id] = c
+            out += Inbox.entries(run: data["run"], state: c.state, workspace: ws)
         }
         let liveIds = Set(live.map { $0["id"].str })
         cache = cache.filter { liveIds.contains($0.key) }
-        all = out
+        // Unchanged entries leave the views that show them alone.
+        if out != all { all = out }
         now = Date().timeIntervalSince1970 * 1000
         // A request that was answered elsewhere, or a run that moved on, is settled by itself.
         let keys = Set(out.map(\.key))

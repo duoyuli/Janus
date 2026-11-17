@@ -64,21 +64,24 @@ enum RunDocs {
         guard text.contains(".md") || text.contains(".markdown") else { return [] }
         var out: [String] = []
         var rest = text
-        let stop = #"\s"'`<>()\[\]{}|,;，。；：、（）「」！？*"#
-        let absolute = #"(?<![A-Za-z0-9_.\-/~])(?:~|/)[^\#(stop)]*?\.(?:md|markdown)(?![A-Za-z0-9_])"#
-        for m in matches(absolute, in: text) {
+        for m in absolute.all(in: text) {
             out.append(m)
             rest = rest.replacingOccurrences(of: m, with: " ")
         }
-        let relative = #"(?<![A-Za-z0-9_.\-/~])[\p{L}\p{N}_.\-]+(?:/[\p{L}\p{N}_.\-]+)*\.(?:md|markdown)(?![A-Za-z0-9_])"#
-        for m in matches(relative, in: rest) {
+        for m in relative.all(in: rest) {
             out.append(m)
-            if let r = m.range(of: #"[A-Za-z0-9_.\-][A-Za-z0-9_.\-/]*$"#, options: .regularExpression), r.lowerBound != m.startIndex { out.append(String(m[r])) }
+            if let r = latinTail.firstMatch(in: m, range: NSRange(m.startIndex..., in: m)).flatMap({ Range($0.range, in: m) }), r.lowerBound != m.startIndex { out.append(String(m[r])) }
             let parts = m.split(separator: "/").map(String.init).filter(isMarkdown)
             if parts.count > 1 { out += parts }
         }
         return out
     }
+
+    private static let stop = #"\s"'`<>()\[\]{}|,;，。；：、（）「」！？*"#
+    private static let absolute = regex(#"(?<![A-Za-z0-9_.\-/~])(?:~|/)[^\#(stop)]*?\.(?:md|markdown)(?![A-Za-z0-9_])"#)
+    private static let relative = regex(#"(?<![A-Za-z0-9_.\-/~])[\p{L}\p{N}_.\-]+(?:/[\p{L}\p{N}_.\-]+)*\.(?:md|markdown)(?![A-Za-z0-9_])"#)
+    /// The Latin end of a name glued to Chinese text: 「生成README.md」 → `README.md`.
+    private static let latinTail = regex(#"[A-Za-z0-9_.\-][A-Za-z0-9_.\-/]*$"#)
 
     static func normalize(_ path: String, cwd: String) -> String {
         var p = path
@@ -94,10 +97,5 @@ enum RunDocs {
         case .object(let o): return o.values.flatMap(strings)
         default: return []
         }
-    }
-
-    private static func matches(_ pattern: String, in s: String) -> [String] {
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
-        return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).compactMap { Range($0.range, in: s).map { String(s[$0]) } }
     }
 }

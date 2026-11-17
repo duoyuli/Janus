@@ -61,3 +61,25 @@ import Testing
     #expect(UsageLedger.empty.runLine == "未上报 · 费用：未上报 · 耗时 没有时长记录")
     #expect(UsageLedger.empty.remindersLine == nil)
 }
+
+/// The audit filter's categories, compared by prefix (each event is asked on every draw).
+@Test func eventCategoriesFollowTheirPrefixes() {
+    let cases: [(String, String)] = [
+        ("question.answered", "decisions"), ("input.answered", "decisions"), ("approval.granted", "decisions"), ("approval.denied", "decisions"),
+        ("risk.accepted", "decisions"), ("run.paused", "decisions"), ("run.resumed", "decisions"), ("run.cancelled", "decisions"),
+        ("question.asked", "messages"), ("question.escalated", "messages"), ("approval.requested", "messages"), ("input.requested", "messages"),
+        ("answer.delivered", "messages"), ("user.message", "messages"), ("message.delivered", "messages"), ("control.taken", "messages"),
+        ("session.prompt", "messages"), ("session.usage", "messages"),
+        ("agent.message", "progress"), ("agent.status", "progress"), ("tool.call", "progress"), ("tool.completed", "progress"),
+        ("artifact.created", "artifacts"), ("context.handoff", "artifacts"),
+        ("task.succeeded", "tasks"), ("attempt.started", "tasks"), ("run.created", "tasks"), ("message.routed", "tasks"), ("run.delivered", "tasks"),
+    ]
+    for (type, category) in cases { #expect(L.category(type) == category, "\(type)") }
+}
+
+/// Patterns compiled once behave like the string methods they replace.
+@Test func compiledPatternsMatchTheStringMethods() {
+    #expect(L.tilde("/Users/someone/work/a.md") == "~/work/a.md" && L.tilde("/opt/a.md") == "/opt/a.md")
+    #expect(L.goalTitle("## 做 **一件** [事](/tmp/x.md)\n第二行") == "做 一件 事")
+    #expect(MD.inline("看 `a.md` 和 **重点**").characters.count == "看 a.md 和 重点".count)
+}

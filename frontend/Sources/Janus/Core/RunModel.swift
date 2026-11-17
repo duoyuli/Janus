@@ -60,6 +60,10 @@ final class RunModel {
     var auditActor = ""
     var highlight: Int?
 
+    /// The run's Markdown files that exist, for the 文档 menu. Found again with each derive, not
+    /// on every event: checking the files on each draw of the toolbar slowed busy runs down.
+    private(set) var documents: [RunDocs.Doc] = []
+
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     /// Markdown files found in the events so far, and how many events were scanned.
     @ObservationIgnored private var docScan: [String: RunDocs.Doc] = [:]
@@ -83,7 +87,11 @@ final class RunModel {
             docScan = [:]
             docScanned = 0
             live = data["live"].bool ?? false
+            // A derive scheduled before this read would land on the events it replaced.
+            deriveTask?.cancel()
+            deriveTask = nil
             state = derive(events)
+            findDocuments()
             if let r = replay, r > events.count { replay = nil }
             loaded = true
             loadError = nil
@@ -128,13 +136,14 @@ final class RunModel {
         }
     }
 
-    /// The run's Markdown files that exist now, for the 文档 menu; scans only events not seen yet.
-    func documents() -> [RunDocs.Doc] {
+    /// Scans only the events not seen yet, then keeps the candidates that exist now.
+    private func findDocuments() {
         if docScanned < events.count {
             RunDocs.scan(events[docScanned...], cwd: state.run.cwd, into: &docScan)
             docScanned = events.count
         }
-        return RunDocs.existing(docScan)
+        let found = RunDocs.existing(docScan)
+        if found != documents { documents = found }
     }
 
     /// Read the whole run again from outside the stream task: `load` cancels `streamTask`, so
@@ -143,17 +152,25 @@ final class RunModel {
         Task { [weak self] in await self?.load() }
     }
 
-    /// Events arrive in bursts; derive once per burst.
+    /// Events arrive in bursts; derive once per burst, off the main thread: a long run takes
+    /// milliseconds that scrolling needs.
     private func scheduleDerive() {
         guard deriveTask == nil else { return }
         deriveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 60_000_000)
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
+            let events = self.events
+            let derived = await Task.detached(priority: .userInitiated) { derive(events) }.value
+            // Closed, or read again by `load`, whose own derive is newer.
+            guard !Task.isCancelled else { return }
             let before = self.state.run.status
-            self.state = derive(self.events)
+            self.state = derived
+            self.findDocuments()
             self.deriveTask = nil
+            // Events that came in while deriving get a round of their own.
+            if self.events.count > events.count { self.scheduleDerive() }
             // The sidebar lists run statuses; refresh it when this one's changes.
-            if self.state.run.status != before { await self.store.loadRuns() }
+            if derived.run.status != before { await self.store.loadRuns() }
         }
     }
 

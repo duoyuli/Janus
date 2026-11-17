@@ -6,10 +6,18 @@ import SwiftUI
 enum MD {
     enum Block: Hashable { case para(String), heading(String), list([String]) }
 
+    // A conversation draws every message again on each update: the patterns are compiled once.
+    private static let oneLineList = regex(#"([：:。；;）)])\s+-\s+(?=\S)"#)
+    private static let bullet = regex(#"^[-*•]\s+(.*)$"#)
+    private static let numbered = regex(#"^\d+[.、)]\s+(.*)$"#)
+    private static let heading = regex(#"^#{1,6}\s"#)
+    private static let headingMarks = regex(#"^#+\s*"#)
+    private static let marks = regex(#"`([^`\n]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+?)\*\*"#)
+
     static func blocks(_ text: String) -> [Block] {
         let raw = text.replacingOccurrences(of: "\r", with: "")
         // Agents sometimes send a whole list on one line ("…： - a - b"); split it only then.
-        let src = raw.contains("\n") ? raw : raw.replacingOccurrences(of: #"([：:。；;）)])\s+-\s+(?=\S)"#, with: "$1\n- ", options: .regularExpression)
+        let src = raw.contains("\n") ? raw : oneLineList.replacing(in: raw, with: "$1\n- ")
         var out: [Block] = []
         var list: [String]?
         var para: [String] = []
@@ -17,10 +25,10 @@ enum MD {
         func flushL() { if let l = list { out.append(.list(l)) }; list = nil }
         for line in src.split(separator: "\n", omittingEmptySubsequences: false) {
             let l = line.trimmingCharacters(in: .whitespaces)
-            let item = match(l, #"^[-*•]\s+(.*)$"#) ?? match(l, #"^\d+[.、)]\s+(.*)$"#)
+            let item = bullet.firstGroup(in: l) ?? numbered.firstGroup(in: l)
             if l.isEmpty { flushP(); flushL() }
             else if let item { flushP(); list = (list ?? []) + [item] }
-            else if l.range(of: #"^#{1,6}\s"#, options: .regularExpression) != nil { flushP(); flushL(); out.append(.heading(l.replacingOccurrences(of: #"^#+\s*"#, with: "", options: .regularExpression))) }
+            else if heading.found(in: l) { flushP(); flushL(); out.append(.heading(headingMarks.replacing(in: l, with: ""))) }
             else if list != nil { list![list!.count - 1] += " " + l }
             else { para.append(l) }
         }
@@ -28,19 +36,12 @@ enum MD {
         return out
     }
 
-    private static func match(_ s: String, _ pattern: String) -> String? {
-        guard let re = try? NSRegularExpression(pattern: pattern), let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)), m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: s) else { return nil }
-        return String(s[r])
-    }
-
     /// Inline marks as an AttributedString: bold, code, and local links shown as code.
     static func inline(_ s: String) -> AttributedString {
         var out = AttributedString()
-        let pattern = #"`([^`\n]+)`|\[([^\]\n]+)\]\(([^)\s]+)\)|\*\*([^*\n]+?)\*\*"#
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return AttributedString(s) }
         let ns = s as NSString
         var pos = 0
-        for m in re.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
+        for m in marks.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
             if m.range.location > pos { out += AttributedString(ns.substring(with: NSRange(location: pos, length: m.range.location - pos))) }
             if m.range(at: 1).location != NSNotFound {
                 var c = AttributedString(ns.substring(with: m.range(at: 1)))

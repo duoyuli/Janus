@@ -71,7 +71,8 @@ final class AppStore {
     }
 
     func loadRuns() async {
-        if let r = try? await api.get("/api/runs") { runs = r["runs"].array }
+        // Polled every few seconds: an unchanged list leaves the sidebar alone.
+        if let r = try? await api.get("/api/runs"), r["runs"].array != runs { runs = r["runs"].array }
     }
 
     func loadSetup() async {

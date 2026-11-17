@@ -53,7 +53,8 @@ struct TaskView: View {
                         if !evs.isEmpty {
                             Card {
                                 DisclosureGroup {
-                                    VStack(alignment: .leading, spacing: 8) { ForEach(evs) { e in TimelineRow(run: run, e: e) } }.padding(.top, 6)
+                                    // Lazy: a long task has hundreds of events, built only as they scroll into view.
+                                    LazyVStack(alignment: .leading, spacing: 8) { ForEach(evs) { e in TimelineRow(run: run, e: e) } }.padding(.top, 6)
                                 } label: {
                                     HStack { Text("执行轨迹").font(.headline); Text(verbatim: "\(evs.count) 条事件").font(.caption).foregroundStyle(.secondary) }
                                 }

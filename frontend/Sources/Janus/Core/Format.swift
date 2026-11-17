@@ -1,5 +1,31 @@
 import Foundation
 
+/// A pattern written in the code, kept in a `static let` so it is compiled once. Views are drawn
+/// again for every event; `String.range(of:options: .regularExpression)` compiles its pattern on
+/// each call, which made long conversations and the audit log stutter.
+func regex(_ pattern: String) -> NSRegularExpression {
+    // The patterns are constants in the source: one that does not compile is a programming error.
+    try! NSRegularExpression(pattern: pattern)
+}
+
+extension NSRegularExpression {
+    private func whole(_ s: String) -> NSRange { NSRange(s.startIndex..., in: s) }
+    func found(in s: String) -> Bool { firstMatch(in: s, range: whole(s)) != nil }
+    /// The text of the first match's first group.
+    func firstGroup(in s: String) -> String? {
+        guard let m = firstMatch(in: s, range: whole(s)), m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: s) else { return nil }
+        return String(s[r])
+    }
+    /// Every match, whole.
+    func all(in s: String) -> [String] {
+        matches(in: s, range: whole(s)).compactMap { Range($0.range, in: s).map { String(s[$0]) } }
+    }
+    /// Like `replacingOccurrences(of:with:options: .regularExpression)`: `$1` names a group.
+    func replacing(in s: String, with template: String) -> String {
+        stringByReplacingMatches(in: s, range: whole(s), withTemplate: template)
+    }
+}
+
 /// Display tones shared by pills, dots and event icons.
 enum Tone: String { case gray, blue, green, amber, red, violet }
 
@@ -37,38 +63,45 @@ enum L {
     static func tone(of type: String) -> Tone? { toneTable.first { $0.value.contains(type) }?.key }
 
     /// Event categories for the feed and the audit filter.
+    /// The audit filter asks this for every event on each draw, so it compares prefixes instead of
+    /// matching patterns.
     static func category(_ type: String) -> String {
-        func m(_ p: String) -> Bool { type.range(of: p, options: .regularExpression) != nil }
-        if m(#"^(question\.answered|input\.answered|approval\.(granted|denied)|risk\.|run\.(paused|resumed|cancelled))"#) { return "decisions" }
-        if m(#"^(question\.|approval\.requested|input\.requested|answer\.|user\.message|message\.delivered|control\.|session\.)"#) { return "messages" }
+        func m(_ prefixes: [String]) -> Bool { prefixes.contains { type.hasPrefix($0) } }
+        if m(["question.answered", "input.answered", "approval.granted", "approval.denied", "risk.", "run.paused", "run.resumed", "run.cancelled"]) { return "decisions" }
+        if m(["question.", "approval.requested", "input.requested", "answer.", "user.message", "message.delivered", "control.", "session."]) { return "messages" }
         if type == "agent.message" { return "progress" }
         if type.hasPrefix("artifact.") || type == "context.handoff" { return "artifacts" }
-        if m(#"^(agent\.status|tool\.|session\.prompt)"#) { return "progress" }
+        if m(["agent.status", "tool.", "session.prompt"]) { return "progress" }
         return "tasks"
     }
     static let categoryLabel: [(String, String)] = [("all", "全部"), ("tasks", "子任务"), ("messages", "消息"), ("artifacts", "产物"), ("decisions", "决策"), ("progress", "进度与工具")]
 
     // MARK: Time
 
-    static func clock(_ ms: Double) -> String {
+    // Formatters are made once: lists draw a time on every row.
+    private static func formatter(_ format: String, locale: Locale? = nil) -> DateFormatter {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
-        return f.string(from: Date(timeIntervalSince1970: ms / 1000))
+        if let locale { f.locale = locale }
+        f.dateFormat = format
+        return f
     }
+    private static let clockFormat = formatter("HH:mm:ss")
+    private static let zh = Locale(identifier: "zh_CN")
+    private static let timeFormat = formatter("HH:mm", locale: zh)
+    private static let dayFormat = formatter("M月d日 HH:mm", locale: zh)
+    private static let yearFormat = formatter("yyyy年M月d日 HH:mm", locale: zh)
+
+    static func clock(_ ms: Double) -> String { clockFormat.string(from: Date(timeIntervalSince1970: ms / 1000)) }
     /// A moment in the app's own words, whatever the system language: 今天 20:16, 昨天 09:05,
     /// 11月12日 20:16, or with the year when it is not this year.
     static func dateTime(_ ms: Double, now: Date = Date()) -> String {
         let date = Date(timeIntervalSince1970: ms / 1000)
         let cal = Calendar(identifier: .gregorian)
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "HH:mm"
-        let time = f.string(from: date)
+        let time = timeFormat.string(from: date)
         if cal.isDate(date, inSameDayAs: now) { return "今天 \(time)" }
         if let y = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(date, inSameDayAs: y) { return "昨天 \(time)" }
         if let t = cal.date(byAdding: .day, value: 1, to: now), cal.isDate(date, inSameDayAs: t) { return "明天 \(time)" }
-        f.dateFormat = cal.component(.year, from: date) == cal.component(.year, from: now) ? "M月d日 HH:mm" : "yyyy年M月d日 HH:mm"
-        return f.string(from: date)
+        return (cal.component(.year, from: date) == cal.component(.year, from: now) ? dayFormat : yearFormat).string(from: date)
     }
     static func dur(_ ms: Double) -> String {
         let s = max(0, Int((ms / 1000).rounded()))
@@ -90,15 +123,15 @@ enum L {
     // MARK: Text
 
     /// Home-relative path for display.
-    static func tilde(_ p: String) -> String {
-        p.replacingOccurrences(of: #"^/(?:Users|home)/[^/]+/"#, with: "~/", options: .regularExpression)
-    }
+    static func tilde(_ p: String) -> String { homeDir.replacing(in: p, with: "~/") }
+    private static let homeDir = regex(#"^/(?:Users|home)/[^/]+/"#)
     /// Markdown marks dropped, for previews cut to a length.
     static func plain(_ t: String) -> String {
-        t.replacingOccurrences(of: #"\[([^\]\n]+)\]\([^)\s]+\)"#, with: "$1", options: .regularExpression)
-            .replacingOccurrences(of: #"\*\*|`"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"(?m)^#+\s*"#, with: "", options: .regularExpression)
+        headingMarks.replacing(in: emphasis.replacing(in: link.replacing(in: t, with: "$1"), with: ""), with: "")
     }
+    private static let link = regex(#"\[([^\]\n]+)\]\([^)\s]+\)"#)
+    private static let emphasis = regex(#"\*\*|`"#)
+    private static let headingMarks = regex(#"(?m)^#+\s*"#)
     /// A goal can be a long pasted brief; lists and headers show its first line.
     static func goalTitle(_ g: String) -> String {
         let first = g.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""

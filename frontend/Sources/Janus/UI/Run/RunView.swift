@@ -95,7 +95,7 @@ struct DocumentsMenu: View {
 
     var body: some View {
         Menu {
-            let docs = run.documents()
+            let docs = run.documents
             if docs.isEmpty { Text("还没有 Markdown 文档") }
             ForEach([RunDocs.Source.deliverable, .artifact, .mentioned], id: \.self) { source in
                 let group = docs.filter { $0.source == source }
@@ -502,10 +502,12 @@ struct ResultCard: View {
         HStack(spacing: 5) { Text(t).font(.callout.weight(.semibold)); if n > 0 { Text(verbatim: "\(n)").font(.caption).foregroundStyle(.secondary) } }.frame(width: 90, alignment: .leading)
     }
 
+    private static let taskId = regex(#"^[A-Za-z][\w-]*$"#)
+
     /// "T1：text" from the orchestrator: the task id as a tag.
     private func tagged(_ x: String) -> some View {
         let parts = x.split(separator: "：", maxSplits: 1).map(String.init)
-        let isTag = parts.count == 2 && parts[0].range(of: #"^[A-Za-z][\w-]*$"#, options: .regularExpression) != nil
+        let isTag = parts.count == 2 && Self.taskId.found(in: parts[0])
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             if isTag { TaskTag(id: parts[0]) }
             Text(MD.inline(isTag ? parts[1] : x)).font(.callout).textSelection(.enabled)

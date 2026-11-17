@@ -23,11 +23,24 @@ enum JSON: Hashable {
         case nil, is NSNull: self = .null
         case let n as NSNumber:
             self = CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
-        case let s as String: self = .string(s)
+        case let s as String: self = .string(Self.native(s))
         case let a as [Any]: self = .array(a.map { JSON(any: $0) })
-        case let o as [String: Any]: self = .object(o.mapValues { JSON(any: $0) })
+        case let o as [String: Any]:
+            var d = [String: JSON](minimumCapacity: o.count)
+            for (k, v) in o { d[Self.native(k)] = JSON(any: v) }
+            self = .object(d)
         default: self = .null
         }
+    }
+
+    /// JSONSerialization hands back NSStrings bridged lazily, and every Swift operation on one
+    /// (splitting lines, comparing, hashing it as a key) goes through Foundation: ten times
+    /// slower. Events are read again on every derive and draw, so each string and key is copied
+    /// into native UTF-8 once, here, while parsing off the main thread.
+    private static func native(_ s: String) -> String {
+        var s = s
+        s.makeContiguousUTF8()
+        return s
     }
 
     var any: Any {

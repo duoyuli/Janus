@@ -101,6 +101,9 @@ struct AuditView: View {
         .padding(20)
     }
 
+    /// Event types only the orchestrator writes: a task's state changes and its attempts.
+    private static let orchestratorOnly = ["task.ready", "task.assigned", "task.succeeded", "task.reopened", "task.retry_scheduled", "attempt."]
+
     private func invariants(_ events: [Event]) -> [(String, Bool, String)] {
         var active: [String: Int] = [:], numbers: [String: [Int]] = [:]
         var overlap = 0, gaps = 0, noEvidence = 0, unsubmitted = 0, badQuestion = 0, badActor = 0
@@ -115,7 +118,7 @@ struct AuditView: View {
                 if !submitted.contains("\(task)#\(e.attempt ?? 0)") { unsubmitted += 1 }
             }
             if e.type == "question.asked" && !(e.data["question"].truthy && !e.data["options"].array.isEmpty) { badQuestion += 1 }
-            if e.type.range(of: #"^(task\.(ready|assigned|succeeded|reopened|retry_scheduled)|attempt\.)"#, options: .regularExpression) != nil && e.actor != "janus" { badActor += 1 }
+            if Self.orchestratorOnly.contains(where: { e.type.hasPrefix($0) }) && e.actor != "janus" { badActor += 1 }
         }
         for ns in numbers.values { for (i, n) in ns.enumerated() where n != i + 1 { gaps += 1 } }
         let attempts = numbers.values.reduce(0) { $0 + $1.count }
