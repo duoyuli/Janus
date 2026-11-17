@@ -5,7 +5,7 @@ import Testing
 
 /// The lead's conversation in a real window: scrolled up, new replies leave the view where the
 /// person put it; at the bottom, the view follows them.
-@Test @MainActor func aConversationKeepsThePlaceThePersonScrolledTo() throws {
+@Test @MainActor func aConversationKeepsThePlaceThePersonScrolledTo() async throws {
     func reply(_ n: Int) -> Event {
         // Messages to the lead alternate with its replies, so each is its own row. Some replies
         // are much longer, so the lazy list's estimates of rows it has not built are far off.
@@ -25,8 +25,18 @@ import Testing
     let host = NSHostingView(rootView: view())
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
     window.contentView = host
-    func settle() { for _ in 0..<10 { host.layoutSubtreeIfNeeded(); RunLoop.main.run(until: Date().addingTimeInterval(0.03)) } }
-    settle()
+    // Waits by giving the main actor up: a nested run loop inside a main-actor test does not run
+    // the main queue, where SwiftUI's updates and the view's own follow-up scrolls are queued.
+    func settle() async {
+        for _ in 0..<10 {
+            host.layoutSubtreeIfNeeded()
+            try? await Task.sleep(nanoseconds: 30_000_000)
+        }
+    }
+    var mainQueueAdvanced = false
+    DispatchQueue.main.async { mainQueueAdvanced = true }
+    await settle()
+    try #require(mainQueueAdvanced, "the fixture must run deferred scrolls before checking their result")
     // The conversation's scroll view is the one with the tallest content (the composer has one too).
     func scrollViews(_ v: NSView) -> [NSScrollView] { (v as? NSScrollView).map { [$0] } ?? [] + v.subviews.flatMap(scrollViews) }
     let chat = try #require(scrollViews(host).max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) })
@@ -34,24 +44,29 @@ import Testing
     func gapBelow() -> CGFloat { (chat.documentView?.frame.height ?? 0) - clip.bounds.maxY }
     #expect(gapBelow() < 2, "a conversation opens at its newest item")
 
-    // The person's own scrolling, by `dy` points (positive is up), within the content.
-    func scroll(_ dy: CGFloat) {
-        let top = max(0, min(clip.bounds.origin.y - dy, (chat.documentView?.frame.height ?? 0) - clip.bounds.height))
-        clip.scroll(to: NSPoint(x: 0, y: top))
-        chat.reflectScrolledClipView(clip)
-        settle()
+    // The person's own scrolling: one trackpad swipe of `dy` points (positive is up), sent as the
+    // gesture's phases so SwiftUI takes it as the person scrolling.
+    func swipe(_ dy: Int32) async throws {
+        for (phase, delta) in [(CGScrollPhase.began, Int32(0)), (.changed, dy / 2), (.changed, dy - dy / 2), (.ended, 0)] {
+            let cg = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: delta, wheel2: 0, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase.rawValue))
+            chat.scrollWheel(with: try #require(NSEvent(cgEvent: cg)))
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        await settle()
     }
 
     // Scroll up and let replies arrive: the view stays.
-    for _ in 0..<5 { scroll(400) }
+    for _ in 0..<5 { try await swipe(400) }
     let place = clip.bounds.origin.y
-    for n in 201...204 { events.append(reply(n)); host.rootView = view(); settle() }
+    for n in 201...204 { events.append(reply(n)); host.rootView = view(); await settle() }
     #expect(abs(clip.bounds.origin.y - place) < 2, "scrolled up, new replies do not move the view")
     #expect(gapBelow() > 100)
 
     // Back down to the end, and the next replies are followed.
-    for _ in 0..<60 where gapBelow() > 1 { scroll(-400) }
+    for _ in 0..<60 where gapBelow() > 1 { try await swipe(-400) }
     #expect(gapBelow() < 2)
-    for n in 205...208 { events.append(reply(n)); host.rootView = view(); settle() }
+    for n in 205...208 { events.append(reply(n)); host.rootView = view(); await settle() }
     #expect(gapBelow() < 2, "at the bottom, new replies are followed")
 }

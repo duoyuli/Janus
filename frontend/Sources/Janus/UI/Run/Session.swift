@@ -218,49 +218,43 @@ struct ChatScroll: View {
     /// Bumped when the person sends a message, which brings them to the newest.
     let sent: Int
     @Local private var follow = ChatFollow()
-
-    private static let end = "chat-end"
-    private static let space = "chat-scroll"
+    @Local private var position = ScrollPosition(edge: .bottom)
+    /// The person is scrolling: dragging, swiping, or the swipe running on.
+    @Local private var person = false
 
     var body: some View {
-        GeometryReader { outer in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if empty { Text("开始执行后，这里会实时显示对话、工具调用和你的消息。").foregroundStyle(.secondary) }
-                        ForEach(groups) { row($0) }
-                        // The end carries the bottom margin, so at the end nothing is left below.
-                        Color.clear.frame(height: 2).id(Self.end)
-                    }
-                    .padding([.horizontal, .top], 12)
-                    // Measured on all of the content, which exists whatever rows the lazy list has
-                    // built: the end row itself is not built until it nears the screen, and a
-                    // scroll that stopped short of it would never be reported.
-                    .background(GeometryReader { g in
-                        Color.clear.preference(key: ChatEnd.self, value: g.frame(in: .named(Self.space)).maxY)
-                    })
-                }
-                .coordinateSpace(.named(Self.space))
-                // Called on every frame of a scroll near the end: the state changes only when the
-                // answer does.
-                .onPreferenceChange(ChatEnd.self) { y in
-                    var again = false
-                    update { again = $0.moved(endY: y, height: outer.size.height, last: last) }
-                    // On the next turn of the main loop, not inside the layout pass that reported
-                    // the position: on macOS 15 a scroll asked for there did not move the view.
-                    if again { DispatchQueue.main.async { proxy.scrollTo(Self.end, anchor: .bottom) } }
-                }
-                .onAppear { toEnd(proxy) }
-                .onChange(of: last) {
-                    var scroll = false
-                    update { scroll = $0.arrived() }
-                    if scroll { toEnd(proxy) }
-                }
-                .onChange(of: sent) { toEnd(proxy) }
-                .onChange(of: density) { if follow.following { toEnd(proxy) } }
-                .overlay(alignment: .bottom) { if !follow.following { back(proxy) } }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                if empty { Text("开始执行后，这里会实时显示对话、工具调用和你的消息。").foregroundStyle(.secondary) }
+                ForEach(groups) { row($0) }
             }
+            .padding(12)
         }
+        .scrollPosition($position)
+        // Opens at the newest item; later changes of content leave the place to `follow`.
+        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .onScrollPhaseChange { _, phase in
+            let now = phase == .tracking || phase == .interacting || phase == .decelerating
+            if now != person { person = now }
+        }
+        // How much content lies below the visible area, reported on every scroll and every change
+        // of the content's size; the state changes only when the answer does.
+        .onScrollGeometryChange(for: ChatGeometry.self) { g in
+            let below = g.contentSize.height - g.visibleRect.maxY
+            return ChatGeometry(below: below, end: g.contentOffset.y + below)
+        } action: { _, g in
+            var again = false
+            update { again = $0.measured(below: g.below, last: last, person: person) }
+            // To the offset that shows the end now, on the next turn of the main loop. Asking for
+            // the bottom edge again while the position already says "bottom edge" (as it does from
+            // opening) did not move the view on macOS 15.
+            if again { DispatchQueue.main.async { position.scrollTo(y: g.end) } }
+        }
+        // A new reply while following: go to it at once; the measurements above finish the landing.
+        .onChange(of: last) { if follow.following && !person { toEnd() } }
+        .onChange(of: sent) { toEnd() }
+        .onChange(of: density) { if follow.following { toEnd() } }
+        .overlay(alignment: .bottom) { if !follow.following { back } }
     }
 
     @ViewBuilder private func row(_ g: ChatCard.Group1) -> some View {
@@ -284,8 +278,8 @@ struct ChatScroll: View {
     }
 
     /// Back to the newest item, following again.
-    private func back(_ proxy: ScrollViewProxy) -> some View {
-        Button { toEnd(proxy) } label: {
+    private var back: some View {
+        Button { toEnd() } label: {
             Label(follow.unseen ? "有新消息" : "回到最新", systemImage: "arrow.down")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(follow.unseen ? Color.accent : Color.secondary)
@@ -300,9 +294,9 @@ struct ChatScroll: View {
         .accessibilityLabel(follow.unseen ? "有新消息，回到最新" : "回到最新")
     }
 
-    private func toEnd(_ proxy: ScrollViewProxy) {
+    private func toEnd() {
         update { $0.jumped() }
-        proxy.scrollTo(Self.end, anchor: .bottom)
+        position.scrollTo(edge: .bottom)
     }
 
     private func update(_ change: (inout ChatFollow) -> Void) {
@@ -312,18 +306,26 @@ struct ChatScroll: View {
     }
 }
 
-/// Whether a conversation follows what arrives: only while its end is in view. Scrolled up, the
-/// person keeps their place, and what arrived meanwhile is noted for the way back.
+/// What a conversation's scroll view reports: how much content lies below the visible area, and
+/// the offset at which the end would be in view.
+struct ChatGeometry: Equatable {
+    var below: CGFloat
+    var end: CGFloat
+}
+
+/// Whether a conversation follows what arrives: only while its end is in view. Only the person's
+/// own scrolling lets go of the end or takes it up again; scrolled up, they keep their place, and
+/// what arrived meanwhile is noted for the way back.
 struct ChatFollow: Equatable {
-    /// The newest item is in view, so what arrives next is scrolled to.
+    /// The newest item is in view, so what moves the end is followed.
     var following = true
     /// Something arrived while the person was reading further up.
     var unseen = false
-    /// Scrolls to the end still allowed before it is reached. A lazy list only estimates the
-    /// rows it has not built, so the end moves while the view goes there; until it is in view,
-    /// that is the list being measured, not the person scrolling away.
+    /// Scrolls to the end still allowed before giving up. A lazy list only estimates the rows it
+    /// has not built, and on macOS 15 SwiftUI moves the offset while it measures them, so the end
+    /// moves while the view goes there.
     var landing = 0
-    /// The session's newest event when the end was last measured.
+    /// The session's newest event at the last measurement.
     var seen = 0
     /// The last measurement found the end in view.
     var atEnd = true
@@ -331,49 +333,40 @@ struct ChatFollow: Equatable {
     static let slack: CGFloat = 32
     static let landingTries = 8
 
-    /// The end of the list is `endY` below the top of a viewport `height` tall, measured with the
-    /// session's newest event `last`. True when the view should scroll to the end (again).
-    mutating func moved(endY: CGFloat, height: CGFloat, last: Int) -> Bool {
-        let atEnd = endY <= height + Self.slack
+    /// `below` points of content lie under the visible area, the session's newest event is
+    /// `last`, and `person` says whether the person is scrolling. True when the view should
+    /// scroll to the end.
+    mutating func measured(below: CGFloat, last: Int, person: Bool) -> Bool {
+        let atEnd = below <= Self.slack
+        let new = last != seen
         self.atEnd = atEnd
-        if last != seen {
-            // New content pushed the end down: that is not the person scrolling away. It is
-            // followed when they were at the bottom, and noted otherwise.
-            seen = last
-            if !following { unseen = true; return false }
-            if atEnd { return false }
-            landing = Self.landingTries
-            return true
-        }
-        if landing > 0 {
-            if !atEnd { landing -= 1; return true }
+        seen = last
+        if person {
+            following = atEnd
+            if atEnd { unseen = false } else if new { unseen = true }
             landing = 0
+            return false
         }
-        following = atEnd
-        if following { unseen = false }
-        return false
+        if !following {
+            if new { unseen = true }
+            return false
+        }
+        // Following, and not the person: new content, rows measured or the offset adjusted moved
+        // the end. Go after it, a few times at most.
+        if atEnd { landing = 0; return false }
+        if landing == 0 { landing = Self.landingTries; return true }
+        landing -= 1
+        // Never got there: let go, and the button takes the person back.
+        if landing == 0 { following = false; return false }
+        return true
     }
 
-    /// The view is sent to the newest item: opening, sending a message, the button, following.
+    /// The view is sent to the newest item: sending a message, the button, a new display level.
     mutating func jumped() {
         following = true
         unseen = false
-        // Already there, nothing moves, so no measurement would come to end the landing.
-        landing = atEnd ? 0 : Self.landingTries
+        landing = 0
     }
-
-    /// Something new arrived. True when the view should scroll to it; otherwise the person is
-    /// reading further up, so it is only noted.
-    mutating func arrived() -> Bool {
-        if !following { unseen = true }
-        return following
-    }
-}
-
-/// Where the bottom of a conversation's content is, measured from the top of its visible area.
-private struct ChatEnd: PreferenceKey {
-    static let defaultValue = CGFloat.infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = min(value, nextValue()) }
 }
 
 /// "N 秒没有新输出": while an agent works on its own, how long since it did something visible.
