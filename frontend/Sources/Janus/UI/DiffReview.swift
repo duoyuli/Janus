@@ -92,8 +92,10 @@ struct DiffReviewView: View {
                     }
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     Divider()
-                    if f.untracked {
-                        Text("新文件，还没有被 Git 跟踪；内容在工作目录里查看。").font(.callout).foregroundStyle(.secondary).padding(12)
+                    if f.untracked && f.hunks.isEmpty {
+                        Text("新文件，没有可显示的文本改动；内容在工作目录里查看。").font(.callout).foregroundStyle(.secondary).padding(12)
+                    } else if f.fromWorkingTree {
+                        Text("这次 diff 只记录了文件名；下面是工作目录中的当前内容。").font(.callout).foregroundStyle(.secondary).padding(12)
                     }
                     ForEach(f.hunks) { h in
                         Text(h.header).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
@@ -197,7 +199,19 @@ struct DiffReviewView: View {
         if let t = try? String(contentsOfFile: artifact.path, encoding: .utf8) { text = t }
         else { text = try? await run.api.text("/api/file?path=\(API.q(artifact.path))") }
         guard let text else { error = "读不了这个 diff"; return }
-        let parsed = Diff.parse(text)
+        var parsed = Diff.parse(text)
+        // Older artifacts list untracked files by name; show what the working tree holds now.
+        let cwd = run.shown.run.cwd
+        var nextID = (parsed.flatMap(\.hunks).flatMap(\.lines).map(\.id).max() ?? 0) + 1
+        if !cwd.isEmpty {
+            for i in parsed.indices where parsed[i].untracked && parsed[i].hunks.isEmpty {
+                let url = URL(fileURLWithPath: cwd, isDirectory: true).appendingPathComponent(parsed[i].path)
+                guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let (filled, next) = Diff.newFile(id: parsed[i].id, path: parsed[i].path, content: content, firstID: nextID)
+                parsed[i] = filled
+                nextID = next
+            }
+        }
         if parsed.isEmpty { error = "这个 diff 是空的" } else { files = parsed }
     }
 }

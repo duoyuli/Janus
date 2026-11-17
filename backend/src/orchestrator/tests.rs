@@ -362,3 +362,37 @@ fn cancelling_is_the_status() {
     assert!(app.add_pending(&run, "k2", owner, Ask::Question).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Untracked new files are part of a task's diff, content included, so a review can show them;
+/// the trailing list keeps marking them as new files.
+#[test]
+fn untracked_files_come_with_their_content() {
+    let dir = std::env::temp_dir().join(format!("janus-untracked-diff-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        let ok = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    std::fs::write(dir.join("a.txt"), "a\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+    std::fs::write(dir.join("研究.md"), "# 笔记\n内容\n").unwrap();
+
+    let diff = working_diff(&dir, &[]);
+    assert!(diff.contains("diff --git a/研究.md b/研究.md"), "{diff}");
+    assert!(diff.contains("\n+# 笔记\n"), "{diff}");
+    assert!(diff.contains("\n+内容\n"), "{diff}");
+    assert!(diff.contains("# 未跟踪的新文件\n研究.md"), "{diff}");
+
+    let scoped = working_diff(&dir, &["a.txt".into()]);
+    assert!(!scoped.contains("研究.md"), "outside the scope: {scoped}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

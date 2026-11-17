@@ -687,14 +687,33 @@ pub(super) fn git_scoped(cwd: &Path, args: &[&str], scope: &[String]) -> String 
 }
 
 /// What the working tree differs from HEAD by within `scope` (everything when empty), untracked
-/// files included.
+/// files included as diffs against an empty file.
 pub(super) fn working_diff(cwd: &Path, scope: &[String]) -> String {
     // `diff-index`, not `diff`: porcelain `git diff` refreshes the index even with optional locks
     // off (see `git_probe`).
     let mut diff = git_scoped(cwd, &["diff-index", "-p", "HEAD"], scope);
-    let untracked = git_scoped(cwd, &["ls-files", "--others", "--exclude-standard"], scope);
+    // Untracked files have no `diff-index` entry. Diff each against /dev/null so the artifact
+    // carries their content, then list them so a review can mark them as new files.
+    let untracked = git_scoped(cwd, &["ls-files", "--others", "--exclude-standard", "-z"], scope);
+    for path in untracked.split('\0').filter(|p| !p.is_empty()) {
+        diff.push_str(&git_out(
+            cwd,
+            &[
+                "-c",
+                "core.quotePath=false",
+                "diff",
+                "--no-index",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--",
+                "/dev/null",
+                path,
+            ],
+        ));
+    }
     if !untracked.trim().is_empty() {
-        diff.push_str(&format!("\n# 未跟踪的新文件\n{untracked}"));
+        diff.push_str(&format!("\n# 未跟踪的新文件\n{}", untracked.replace('\0', "\n")));
     }
     diff
 }

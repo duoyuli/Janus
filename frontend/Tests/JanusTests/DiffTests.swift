@@ -25,6 +25,20 @@ new file mode 100644
 notes.md
 """
 
+/// The newer form: an untracked file's diff comes before the list that names it.
+private let withUntrackedContent = """
+diff --git a/notes.md b/notes.md
+new file mode 100644
+--- /dev/null
++++ b/notes.md
+@@ -0,0 +1,2 @@
++# 笔记
++内容
+
+# 未跟踪的新文件
+notes.md
+"""
+
 /// The review view reads Janus's own diff artifact: files, hunks, both sides' line numbers, and
 /// the untracked files listed after it.
 @Test func diffsAreReadFileByFileWithLineNumbers() {
@@ -38,6 +52,49 @@ notes.md
     #expect(lines[2].new == 2 && lines[3].new == 3 && lines[4].old == 3 && lines[4].new == 4)
     #expect(files[1].added == 1 && !files[1].untracked)
     #expect(files[2].untracked && files[2].hunks.isEmpty)
+}
+
+/// An untracked file's content is part of the diff; the trailing list only marks it as new.
+@Test func anUntrackedFilesContentIsKeptAndMarked() {
+    let files = Diff.parse(withUntrackedContent)
+    #expect(files.map(\.path) == ["notes.md"])
+    let notes = files[0]
+    #expect(notes.untracked && notes.added == 2)
+    #expect(notes.hunks[0].lines.map(\.text) == ["# 笔记", "内容"])
+    #expect(notes.hunks[0].lines.map(\.new) == [1, 2])
+}
+
+/// An older artifact records only a new file's name; the review can fill in what is on disk.
+@Test func aNewFileDiffCanBeMadeFromItsCurrentContent() {
+    let (f, next) = Diff.newFile(id: 3, path: "notes.md", content: "# 笔记\n内容\n", firstID: 10)
+    #expect(f.id == 3 && f.untracked && f.fromWorkingTree)
+    #expect(f.hunks[0].lines.map(\.id) == [10, 11])
+    #expect(f.hunks[0].lines.map(\.text) == ["# 笔记", "内容"])
+    #expect(f.hunks[0].lines.map(\.new) == [1, 2])
+    #expect(next == 12)
+}
+
+/// A deleted tracked file keeps its path and its removed lines; the new-file handling does not
+/// touch it.
+@Test func aDeletedFileKeepsItsPathAndRemovedLines() {
+    let text = """
+    diff --git a/old.md b/old.md
+    deleted file mode 100644
+    index 1111111..0000000
+    --- a/old.md
+    +++ /dev/null
+    @@ -1,2 +0,0 @@
+    -# 旧内容
+    -正文
+    """
+    let files = Diff.parse(text)
+    #expect(files.count == 1)
+    let old = files[0]
+    #expect(old.path == "old.md" && !old.untracked && !old.fromWorkingTree)
+    #expect(old.added == 0 && old.removed == 2)
+    #expect(old.hunks[0].lines.map(\.kind) == [.removed, .removed])
+    #expect(old.hunks[0].lines.map(\.old) == [1, 2])
+    #expect(old.hunks[0].lines.map(\.new) == [nil, nil])
 }
 
 @Test func reviewCommentsBecomeOneMessage() {
