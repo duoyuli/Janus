@@ -56,6 +56,8 @@ struct ChatCard: View {
     /// (`normal`), or only what was said, asked and delivered (`summary`). One choice for all
     /// conversations, remembered on this Mac.
     @AppStorage("janus.chatDensity") private var density = "normal"
+    /// Counts the person's messages: sending one brings the conversation to its newest item.
+    @Local private var sent = 0
 
     var body: some View {
         let live = run.canAct
@@ -84,35 +86,9 @@ struct ChatCard: View {
             .padding(12)
             Divider()
             PlanStrip(steps: SessionView.plan(info.evs))
-            ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    if info.evs.isEmpty { Text("开始执行后，这里会实时显示对话、工具调用和你的消息。").foregroundStyle(.secondary) }
-                    ForEach(groups) { g in
-                        switch g.kind {
-                        case .item(let e): ChatItem(run: run, st: st, e: e, done: done)
-                        case .messages(let es): ChatItem(run: run, st: st, e: es[0], done: done, more: Array(es.dropFirst()))
-                        case .tools(let es):
-                            if density == "summary" {
-                                Text(verbatim: "· \(es.count) 个操作").font(.caption).foregroundStyle(.tertiary)
-                            } else if density == "normal" && es.count > 4 {
-                                DisclosureGroup(String("\(es.count - 2) 个操作")) {
-                                    VStack(alignment: .leading, spacing: 6) { ForEach(es.dropLast(2)) { ToolRow(run: run, e: $0) } }
-                                }
-                                .font(.callout).foregroundStyle(.secondary)
-                                ForEach(es.suffix(2)) { ToolRow(run: run, e: $0) }
-                            } else {
-                                ForEach(es) { ToolRow(run: run, e: $0) }
-                            }
-                        }
-                    }
-                    Color.clear.frame(height: 1).id("chat-end")
-                }
-                .padding(12)
-            }
-            .onAppear { proxy.scrollTo("chat-end", anchor: .bottom) }
-            .onChange(of: info.evs.count) { proxy.scrollTo("chat-end", anchor: .bottom) }
-            }
+            ChatScroll(run: run, st: st, groups: groups, density: density, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent)
+                // Each conversation keeps its own place; another task's session opens at its newest.
+                .id(target)
             PendingTray(st: st, target: target)
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
@@ -189,6 +165,7 @@ struct ChatCard: View {
             if !images.isEmpty { body["images"] = .array(images.map(\.json)) }
             run.sessionDrafts[target.key] = ""
             run.sessionImages[target.key] = []
+            sent += 1
         }
         Task { await run.act(body) }
     }
@@ -196,14 +173,12 @@ struct ChatCard: View {
     // Long runs of tool calls fold into one line, keeping the latest few in view.
     struct Group1: Identifiable { enum Kind { case item(Event), messages([Event]), tools([Event]) }; let id: Int; let kind: Kind }
 
-    /// Calls that came back: Janus's board tools (`tool.completed`) and the agent's own (`tool.call`
-    /// with the id its running row had).
-    private var done: Set<String> { Set(info.evs.filter { $0.type == "tool.completed" || ($0.type == "tool.call" && $0.data["callId"].truthy) }.map { "\($0.actor):\($0.data["callId"].str)" }) }
-
     private var groups: [Group1] {
         var out: [Group1] = []
         var run: [Event] = []
-        let done = done
+        // Calls that came back: Janus's board tools (`tool.completed`) and the agent's own
+        // (`tool.call` with the id its running row had).
+        let done = Set(info.evs.filter { $0.type == "tool.completed" || ($0.type == "tool.call" && $0.data["callId"].truthy) }.map { "\($0.actor):\($0.data["callId"].str)" })
         func flush() { if let f = run.first { out.append(Group1(id: -f.seq, kind: .tools(run))) }; run = [] }
         for e in info.evs {
             if ["tool.call", "tool.started", "tool.completed"].contains(e.type) {
@@ -228,6 +203,171 @@ struct ChatCard: View {
     }
 }
 
+/// The conversation itself, newest at the bottom. While the person is at the bottom it follows what
+/// arrives; once they scroll up it stays where they are, and a button takes them back to the
+/// newest. Rows are built lazily: a lead's session runs to thousands of events.
+// @project-doc docs/architecture/20261031-frontend.md#session_view
+struct ChatScroll: View {
+    let run: RunModel
+    let st: RunState
+    let groups: [ChatCard.Group1]
+    let density: String
+    let empty: Bool
+    /// The session's last event: it changes whenever anything arrives.
+    let last: Int
+    /// Bumped when the person sends a message, which brings them to the newest.
+    let sent: Int
+    @Local private var follow = ChatFollow()
+
+    private static let end = "chat-end"
+    private static let space = "chat-scroll"
+
+    var body: some View {
+        GeometryReader { outer in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        if empty { Text("开始执行后，这里会实时显示对话、工具调用和你的消息。").foregroundStyle(.secondary) }
+                        ForEach(groups) { row($0) }
+                        // The end carries the bottom margin, so at the end nothing is left below.
+                        Color.clear.frame(height: 2).id(Self.end)
+                            .background(GeometryReader { g in
+                                Color.clear.preference(key: ChatEnd.self, value: g.frame(in: .named(Self.space)).maxY)
+                            })
+                    }
+                    .padding([.horizontal, .top], 12)
+                }
+                .coordinateSpace(.named(Self.space))
+                // Called on every frame of a scroll near the end: the state changes only when the
+                // answer does.
+                .onPreferenceChange(ChatEnd.self) { y in
+                    var again = false
+                    update { again = $0.moved(endY: y, height: outer.size.height, last: last) }
+                    if again { proxy.scrollTo(Self.end, anchor: .bottom) }
+                }
+                .onAppear { toEnd(proxy) }
+                .onChange(of: last) {
+                    var scroll = false
+                    update { scroll = $0.arrived() }
+                    if scroll { toEnd(proxy) }
+                }
+                .onChange(of: sent) { toEnd(proxy) }
+                .onChange(of: density) { if follow.following { toEnd(proxy) } }
+                .overlay(alignment: .bottom) { if !follow.following { back(proxy) } }
+            }
+        }
+    }
+
+    @ViewBuilder private func row(_ g: ChatCard.Group1) -> some View {
+        let cwd = st.run.cwd
+        switch g.kind {
+        case .item(let e): ChatItem(run: run, st: st, e: e)
+        case .messages(let es): ChatItem(run: run, st: st, e: es[0], more: Array(es.dropFirst()))
+        case .tools(let es):
+            if density == "summary" {
+                Text(verbatim: "· \(es.count) 个操作").font(.caption).foregroundStyle(.tertiary)
+            } else if density == "normal" && es.count > 4 {
+                DisclosureGroup(String("\(es.count - 2) 个操作")) {
+                    VStack(alignment: .leading, spacing: 6) { ForEach(es.dropLast(2)) { ToolRow(run: run, e: $0, cwd: cwd) } }
+                }
+                .font(.callout).foregroundStyle(.secondary)
+                ForEach(es.suffix(2)) { ToolRow(run: run, e: $0, cwd: cwd) }
+            } else {
+                ForEach(es) { ToolRow(run: run, e: $0, cwd: cwd) }
+            }
+        }
+    }
+
+    /// Back to the newest item, following again.
+    private func back(_ proxy: ScrollViewProxy) -> some View {
+        Button { toEnd(proxy) } label: {
+            Label(follow.unseen ? "有新消息" : "回到最新", systemImage: "arrow.down")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(follow.unseen ? Color.accent : Color.secondary)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Color.card, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.line))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, 10)
+        .help("回到最新的消息，之后的新消息会继续显示在底部")
+        .accessibilityLabel(follow.unseen ? "有新消息，回到最新" : "回到最新")
+    }
+
+    private func toEnd(_ proxy: ScrollViewProxy) {
+        update { $0.jumped() }
+        proxy.scrollTo(Self.end, anchor: .bottom)
+    }
+
+    private func update(_ change: (inout ChatFollow) -> Void) {
+        var f = follow
+        change(&f)
+        if f != follow { follow = f }
+    }
+}
+
+/// Whether a conversation follows what arrives: only while its end is in view. Scrolled up, the
+/// person keeps their place, and what arrived meanwhile is noted for the way back.
+struct ChatFollow: Equatable {
+    /// The newest item is in view, so what arrives next is scrolled to.
+    var following = true
+    /// Something arrived while the person was reading further up.
+    var unseen = false
+    /// Scrolls to the end still allowed before it is reached. A lazy list only estimates the
+    /// rows it has not built, so the end moves while the view goes there; until it is in view,
+    /// that is the list being measured, not the person scrolling away.
+    var landing = 0
+    /// The session's newest event when the end was last measured.
+    var seen = 0
+    /// How close to the bottom still counts as being there.
+    static let slack: CGFloat = 32
+    static let landingTries = 5
+
+    /// The end of the list is `endY` below the top of a viewport `height` tall, measured with the
+    /// session's newest event `last`. True when the view should scroll to the end (again).
+    mutating func moved(endY: CGFloat, height: CGFloat, last: Int) -> Bool {
+        let atEnd = endY <= height + Self.slack
+        if last != seen {
+            // New content pushed the end down: that is not the person scrolling away. It is
+            // followed when they were at the bottom, and noted otherwise.
+            seen = last
+            if !following { unseen = true; return false }
+            if atEnd { return false }
+            landing = Self.landingTries
+            return true
+        }
+        if landing > 0 {
+            if !atEnd { landing -= 1; return true }
+            landing = 0
+        }
+        following = atEnd
+        if following { unseen = false }
+        return false
+    }
+
+    /// The view is sent to the newest item: opening, sending a message, the button, following.
+    mutating func jumped() {
+        following = true
+        unseen = false
+        landing = Self.landingTries
+    }
+
+    /// Something new arrived. True when the view should scroll to it; otherwise the person is
+    /// reading further up, so it is only noted.
+    mutating func arrived() -> Bool {
+        if !following { unseen = true }
+        return following
+    }
+}
+
+/// Where the end of a conversation is, measured from the top of its visible area. While the end is
+/// not built (scrolled far up in the lazy list) nothing reports it and it counts as far away.
+private struct ChatEnd: PreferenceKey {
+    static let defaultValue = CGFloat.infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = min(value, nextValue()) }
+}
+
 /// "N 秒没有新输出": while an agent works on its own, how long since it did something visible.
 struct QuietNote: View {
     let last: Double
@@ -246,9 +386,11 @@ struct ChatItem: View {
     let run: RunModel
     let st: RunState
     let e: Event
-    let done: Set<String>
     /// Further pieces of the same agent message, streamed after `e`.
     var more: [Event] = []
+
+    /// The structured result at the end of an agent's reply.
+    private static let resultBlock = regex(#"\s*```json\s*[\s\S]*?```\s*$"#)
 
     /// Items that render nothing (messages shown where they were routed, unknown messages).
     static func visible(_ e: Event, st: RunState) -> Bool {
@@ -293,8 +435,7 @@ struct ChatItem: View {
             // The result itself shows as its own line (`result.submitted`).
             // Pieces keep their own whitespace (code blocks may be cut anywhere): join them as they came.
             let text = ([e] + more).map { $0.data["text"].str }.joined()
-            let r = text.range(of: #"\s*```json\s*[\s\S]*?```\s*$"#, options: .regularExpression)
-            let words = (r.map { String(text[..<$0.lowerBound]) } ?? text).trimmingCharacters(in: .whitespacesAndNewlines)
+            let words = Self.resultBlock.replacing(in: text, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !words.isEmpty { bubble(agent: e.actor) { MarkdownText(text: words) } }
         case "agent.thought":
             DisclosureGroup {
@@ -416,6 +557,8 @@ struct CheckRow: View {
 struct ToolRow: View {
     let run: RunModel
     let e: Event
+    /// The run's directory, so paths inside it read as relative ones.
+    let cwd: String
 
     static func hidden(_ e: Event, done: Set<String>) -> Bool {
         let d = e.data
@@ -428,7 +571,7 @@ struct ToolRow: View {
     var body: some View {
         let d = e.data
         let board = d["tool"].str.hasPrefix("janus.")
-        let output = L.inWorkspace(d["output"].str, run.state.run.cwd)
+        let output = L.inWorkspace(d["output"].str, cwd)
         // The first line that says something: not a Markdown fence around the output.
         let firstLine = output.split(separator: "\n").map(String.init).first { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") && !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
         let (label, result) = board ? janusLabel(d["tool"].str, d["args"], output) : (d["input"].truthy ? d["input"].str : e.text, firstLine)

@@ -197,3 +197,51 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(runCard > 10_000 && runCardDark > 10_000, "the cards drew: \(runCard)/\(runCardDark) bytes")
     print("usage card screenshots: \(dir.path)")
 }
+
+/// A conversation follows new items only while its end is in view: scrolled up, the person keeps
+/// their place and what arrived is noted for the way back.
+@Test func aConversationFollowsOnlyFromTheBottom() {
+    var f = ChatFollow()
+    // Opening: the end is not built yet, so the view goes there.
+    var again = f.moved(endY: .infinity, height: 400, last: 10)
+    #expect(again && f.following)
+    again = f.moved(endY: 400 + ChatFollow.slack, height: 400, last: 10)
+    #expect(!again && f.following && f.landing == 0)
+    // At the end, a new reply that pushes the end out of view is followed.
+    again = f.moved(endY: 900, height: 400, last: 11)
+    var scroll = f.arrived()
+    #expect(again && scroll && f.following && !f.unseen)
+    _ = f.moved(endY: 400, height: 400, last: 11)
+    // The person scrolls up: the view stays, and replies are only noted.
+    again = f.moved(endY: 1200, height: 400, last: 11)
+    #expect(!again && !f.following && !f.unseen)
+    again = f.moved(endY: 1500, height: 400, last: 12)
+    scroll = f.arrived()
+    #expect(!again && !scroll && !f.following && f.unseen)
+    // A reply that does not move the end (scrolled far up, the end is not built) is noted too.
+    scroll = f.arrived()
+    #expect(!scroll && f.unseen)
+    // Back at the end by scrolling: following again, nothing left unseen.
+    again = f.moved(endY: 380, height: 400, last: 12)
+    scroll = f.arrived()
+    #expect(!again && scroll && f.following && !f.unseen)
+}
+
+/// Sent to the newest item, the view keeps going while the lazy list measures the rows on the
+/// way, a few times at most; once there, scrolling away lets go again.
+@Test func aJumpToTheNewestLandsBeforeLettingGo() {
+    var f = ChatFollow()
+    _ = f.moved(endY: 400, height: 400, last: 5)
+    f.jumped()
+    var again = f.moved(endY: 470, height: 400, last: 5)
+    #expect(again && f.following, "the end moved while the rows were measured: go again")
+    again = f.moved(endY: 400, height: 400, last: 5)
+    #expect(!again && f.following && f.landing == 0)
+    again = f.moved(endY: 900, height: 400, last: 5)
+    #expect(!again && !f.following, "once there, the person scrolls away")
+    // An end that never comes into view stops being chased.
+    f.jumped()
+    var tries = 0
+    while f.moved(endY: 5000, height: 400, last: 5) { tries += 1 }
+    #expect(tries == ChatFollow.landingTries && !f.following)
+}
