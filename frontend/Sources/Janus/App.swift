@@ -165,6 +165,10 @@ struct JanusCommands: Commands {
             Button("从中断处继续") { Task { await run?.act(["type": "resumeRun"]) } }
                 .disabled(!(onRun && run?.canAct == true && r?.status.canResume == true))
             Button("停止任务…") { if let run { cancelRun(run) } }.disabled(!active)
+            Button("删除任务…", role: .destructive) {
+                if let run { Task { await run.store.deleteRun(run.id) } }
+            }
+            .disabled(!(onRun && run?.loaded == true && !(run?.state.run.status.isActive ?? true)))
             Divider()
             Button("复制交付摘要") { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
             Button("回到实时") { run?.replay = nil }.disabled(!(run?.isReplaying ?? false))

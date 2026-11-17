@@ -491,4 +491,99 @@ impl App {
         self.emit(run, ev("run.delivered", "janus", "负责人完成了目标，交付结果已准备好").data(result));
         self.set_status(run, RunStatus::Delivered);
     }
+
+    /// Delete a run and everything Janus kept for it: its rows in SQLite and its directories under
+    /// Janus home (artifacts, logs, member bundles and attachments). A run that is still working
+    /// is refused, because its sessions and attempts would keep writing; stop it first. The
+    /// workspace's own files are not touched.
+    // @project-doc docs/interfaces/20261031-http_api.md#run_delete
+    pub async fn delete_run(self: &Arc<Self>, run_id: &str) -> Result<(), DeleteRefused> {
+        let row = self.db.run(run_id).map_err(DeleteRefused::Invalid)?;
+        let Some(row) = row else { return Err(DeleteRefused::NotFound) };
+        let status = RunStatus::parse(row["status"].as_str().unwrap_or(""));
+        if status.is_some_and(RunStatus::is_active) {
+            return Err(DeleteRefused::Conflict("任务还在进行，先停止任务再删除".into()));
+        }
+        // A delivered run keeps its lead conversation open for more work; take the run out of the
+        // live map first, then stop those sessions before the rows they could still write to are gone.
+        let live = self.runs.lock().unwrap().remove(run_id);
+        if let Some(run) = live {
+            let conns: Vec<Arc<AcpConn>> = {
+                let mut st = run.st.lock().unwrap();
+                st.pending.clear();
+                st.live.clear();
+                st.conns.drain().map(|(_, c)| c).collect()
+            };
+            for c in conns {
+                c.kill().await;
+            }
+        }
+        self.db.delete_run(run_id).map_err(DeleteRefused::Invalid)?;
+        for sub in ["artifacts", "logs", "runs"] {
+            let path = self.cfg.data_dir.join(sub).join(run_id);
+            if let Err(err) = std::fs::remove_dir_all(&path)
+                && err.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err(DeleteRefused::Invalid(anyhow!("删除 {} 失败：{err}", path.display())));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod delete_tests {
+    use super::*;
+
+    fn finished_app(name: &str) -> (Arc<App>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("janus-delete-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = test_app(&dir);
+        app.db.insert_run("r1", "g", "/tmp", &json!({}), 1).unwrap();
+        app.db.set_run_status("r1", RunStatus::Cancelled).unwrap();
+        let event = |seq, kind: &str| Event {
+            run_id: "r1".into(),
+            seq,
+            ts: 1,
+            kind: kind.into(),
+            actor: "user".into(),
+            to: None,
+            task: None,
+            attempt: None,
+            text: kind.into(),
+            data: None,
+        };
+        app.db.insert_event(&event(1, "run.created")).unwrap();
+        app.db.insert_event(&event(2, "run.cancelled")).unwrap();
+        for sub in ["artifacts", "logs", "runs"] {
+            std::fs::create_dir_all(app.cfg.data_dir.join(sub).join("r1")).unwrap();
+        }
+        (app, dir)
+    }
+
+    /// A run that can still write is refused; nothing is removed.
+    #[tokio::test]
+    async fn a_run_that_is_still_working_cannot_be_deleted() {
+        let (app, dir) = finished_app("active");
+        app.db.set_run_status("r1", RunStatus::Running).unwrap();
+        assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::Conflict(_))));
+        assert!(app.db.run("r1").unwrap().is_some());
+        assert_eq!(app.db.events("r1", 0).unwrap().len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A finished run takes its rows and every directory Janus kept for it; a second request
+    /// finds nothing to delete.
+    #[tokio::test]
+    async fn deleting_a_finished_run_removes_its_rows_and_directories() {
+        let (app, dir) = finished_app("finished");
+        app.delete_run("r1").await.unwrap();
+        assert!(app.db.run("r1").unwrap().is_none());
+        assert!(app.db.events("r1", 0).unwrap().is_empty());
+        for sub in ["artifacts", "logs", "runs"] {
+            assert!(!app.cfg.data_dir.join(sub).join("r1").exists(), "{sub}/r1 should be gone");
+        }
+        assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::NotFound)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

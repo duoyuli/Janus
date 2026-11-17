@@ -52,6 +52,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 - 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。应用用 `after` 参数从某个 `seq` 之后续读。
 - `events` 另有索引 `events_type_ts (type, ts)`，按时间段的用量账单用它找出区间里有 `session.usage` 的 Run，不必读全部事件（[用量账单](../interfaces/20261031-http_api.md#usage_bill)）。
 - 租约有效期 10 分钟。持有者是 `janus-<pid>`；该进程已经不存在时，其他实例可以接管。
+- 删除一个 Run 会删掉 `runs` 和其余各表中属于它的行，以及 `artifacts/<run>/`、`logs/<run>/`、`runs/<run>/` 三个目录；工作目录不受影响。正在进行的 Run 不能删除，规则见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)。
 
 <a id="snapshots"></a>
 ## Run 快照

@@ -82,6 +82,10 @@ struct Sidebar: View {
                     .badge(waiting)
                     .accessibilityValue(waiting == 0 ? label : "\(waiting) 项等你处理")
                     .tag(Screen.run(r["id"].str))
+                    .contextMenu {
+                        Button("删除任务…", role: .destructive) { Task { await store.deleteRun(r["id"].str) } }
+                            .disabled(RunStatus(r["status"].str).isActive)
+                    }
                 }
                 if runs.count > shownRuns {
                     Button { shownRuns = min(shownRuns + 10, runs.count) } label: {

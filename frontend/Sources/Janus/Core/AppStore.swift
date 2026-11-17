@@ -252,6 +252,39 @@ final class AppStore {
         } catch { show("创建失败：\(error.localizedDescription)") }
     }
 
+    /// Delete a run with everything Janus kept for it. A run that is still working is refused by
+    /// the server as well: stop it first. Asks before deleting unless the person chose not to be
+    /// asked again; the workspace's own files stay either way.
+    func deleteRun(_ id: String) async {
+        let row = runs.first { $0["id"].str == id }
+        // The open run's status comes from its event stream, which is fresher than the polled list.
+        let status = run?.id == id && run?.loaded == true
+            ? run?.state.run.status ?? .unknown
+            : row.map { RunStatus($0["status"].str) } ?? .unknown
+        if status.isActive {
+            show("任务还在进行，先停止任务再删除")
+            return
+        }
+        let title = L.goalTitle(row?["goal"].str ?? (run?.id == id ? run?.state.run.goal ?? "" : ""))
+        guard confirmDeleteRun(title) else { return }
+        do {
+            try await api.delete("/api/runs/\(id)")
+        } catch {
+            show("删除失败：\(error.localizedDescription)")
+            return
+        }
+        if run?.id == id {
+            run?.close()
+            run = nil
+        }
+        await loadRuns()
+        await inbox.refresh(self)
+        if case .run(let shown) = screen, shown == id {
+            if let ws = currentWorkspace { open(.home(ws["id"].str)) } else { open(.inbox) }
+        }
+        show("已删除任务")
+    }
+
     // MARK: Agent checks and logins run on the server; the app only polls.
 
     func testConnection(_ id: String) async {

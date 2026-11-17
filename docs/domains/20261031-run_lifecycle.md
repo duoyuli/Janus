@@ -210,6 +210,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - **回答与审批**：`answer`、`approve`、`input`。
 - **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_session/steering` 时，见[插话](../interfaces/20261031-acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/20261031-events.md#message_flow)。
 - **控制 Run**：`pause`、`resume`、`extendBudget`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
+- **删除 Run**：应用里删除一个已结束的 Run（`DELETE /api/runs/{id}`，见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)）。删除会移除它的事件、派生索引，以及 `~/.janus` 下的产物、日志、附件和成员资源包，不可恢复；工作目录中的文件不动。`planning`、`running` 或 `waiting_input` 的 Run 不能删除，要先停止。删除不是取消，也不影响其他 Run。
 
 取消 Run（`run.cancelled`）和取消任务（`task.skipped_by_decision`）在用量账本里的范围不同：前者把取消时刻仍在跑的所有尝试记「已取消」，备注「任务被取消」；后者只影响那个任务的尝试，备注「负责人取消了这个子任务」，同一个 Run 里其他任务的尝试保持「未完成」。两者都不改动取消前已经结束的尝试（失败、验证没通过、过期保持原状态），已经上报的用量照常计入。Janus 不为这两类取消写尝试级事件，杀连接后可能还有一条失败事件，也不算真的失败。见[用量口径](../interfaces/20261031-events.md#usage_accounting)。
 

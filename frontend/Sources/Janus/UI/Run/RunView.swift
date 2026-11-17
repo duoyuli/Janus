@@ -55,6 +55,16 @@ struct RunView: View {
                 } label: { Label("分享", systemImage: "square.and.arrow.up") }
                 .help("复制交付摘要或导出事件日志")
             }
+            ToolbarItem {
+                // One click removes a finished run; a run still working has to be stopped first.
+                let active = run.state.run.status.isActive
+                Button { Task { await run.store.deleteRun(run.id) } } label: {
+                    Label("删除任务", systemImage: "trash")
+                }
+                .disabled(!run.loaded || active)
+                .help(!run.loaded ? "正在读取任务" : active ? "任务还在进行，先停止任务再删除" : "删除这个任务及它的全部记录和产物，不可恢复")
+                .accessibilityLabel("删除任务")
+            }
         }
         // Links to local Markdown files in agent prose open in Janus.
         .environment(\.openURL, OpenURLAction { DocLinks.handle($0) })

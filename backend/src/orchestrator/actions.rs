@@ -154,7 +154,7 @@ impl App {
                 {
                     let mut st = run.st.lock().unwrap();
                     // Pausing or resuming a finished Run would leave `paused` set with nothing to drive.
-                    if !matches!(st.status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
+                    if !st.status.is_active() {
                         bail!("任务现在是「{}」，不能{}", st.status, if pause { "暂停" } else { "继续" });
                     }
                     st.paused = pause;
@@ -176,7 +176,7 @@ impl App {
             }
             "extendBudget" => {
                 let status = run.st.lock().unwrap().status;
-                if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
+                if !status.is_active() {
                     bail!("任务现在是「{status}」，不能追加预算");
                 }
                 let minutes = a["minutes"].as_i64().unwrap_or(60).clamp(1, 24 * 60);
@@ -653,6 +653,15 @@ pub enum ActionReply {
 pub enum ActionRefused {
     NotFound,
     /// The run's state does not allow it now.
+    Conflict(String),
+    Invalid(anyhow::Error),
+}
+
+/// Why a request to delete a run was turned down.
+#[derive(Debug)]
+pub enum DeleteRefused {
+    NotFound,
+    /// The run is still working; stop it first.
     Conflict(String),
     Invalid(anyhow::Error),
 }

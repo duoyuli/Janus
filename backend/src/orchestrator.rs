@@ -42,7 +42,7 @@ mod session;
 mod tests;
 mod turn;
 
-pub use actions::{ActionRefused, ActionReply};
+pub use actions::{ActionRefused, ActionReply, DeleteRefused};
 use attempts::*;
 use board::*;
 use board_tools::*;
@@ -791,7 +791,7 @@ impl App {
             debug_assert!(st.status.can_transition_to(status), "run {}: {:?} -> {:?}", run.id, st.status, status);
             st.status = status;
             // Pausing only makes sense while work can still start; a finished Run is not paused.
-            if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput) {
+            if !status.is_active() {
                 st.paused = false;
             }
         }

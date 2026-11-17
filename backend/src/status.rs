@@ -64,6 +64,12 @@ impl RunStatus {
         }
     }
 
+    /// Work can still start or is in progress: the states in which a run's sessions may still
+    /// write, so its data cannot be deleted out from under them.
+    pub fn is_active(self) -> bool {
+        matches!(self, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput)
+    }
+
     /// Whether the Run may move from `self` to `to`. Repeating a state is always allowed: the
     /// scheduling loop recomputes the status on every pass.
     pub fn can_transition_to(self, to: RunStatus) -> bool {
@@ -297,6 +303,21 @@ mod tests {
                 .all(|to| !RunStatus::Accepted.can_transition_to(*to))
         );
         assert!(RunStatus::Running.can_transition_to(RunStatus::Running));
+        // Only these states still have work that could write to the run.
+        assert!(
+            RunStatus::Planning.is_active() && RunStatus::Running.is_active() && RunStatus::WaitingInput.is_active()
+        );
+        assert!(
+            ![
+                RunStatus::Delivered,
+                RunStatus::Accepted,
+                RunStatus::Cancelled,
+                RunStatus::Failed,
+                RunStatus::Interrupted,
+            ]
+            .iter()
+            .any(|s| s.is_active())
+        );
     }
 
     #[test]

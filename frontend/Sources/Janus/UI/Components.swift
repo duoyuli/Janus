@@ -494,9 +494,15 @@ func copyText(_ s: String) {
     NSPasteboard.general.setString(s, forType: .string)
 }
 
-/// Asks before something that cannot be undone.
+/// Asks before something that cannot be undone. With `dontAskAgainFor`, the alert offers a
+/// "不再提醒" checkbox whose state is remembered in the given `UserDefaults` key; once set, the
+/// answer is yes without asking.
 @MainActor
-func confirm(_ title: String, _ message: String = "", ok: String = "继续", destructive: Bool = true) -> Bool {
+func confirm(
+    _ title: String, _ message: String = "", ok: String = "继续", destructive: Bool = true,
+    dontAskAgainFor key: String? = nil
+) -> Bool {
+    if let key, UserDefaults.standard.bool(forKey: key) { return true }
     let a = NSAlert()
     a.messageText = title
     a.informativeText = message
@@ -505,7 +511,28 @@ func confirm(_ title: String, _ message: String = "", ok: String = "继续", des
     // A Chinese "取消" is not recognized as Cancel, so give it Esc (and ⌘.) explicitly.
     a.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
     if destructive { a.buttons.first?.hasDestructiveAction = true }
-    return a.runModal() == .alertFirstButtonReturn
+    if key != nil {
+        a.showsSuppressionButton = true
+        a.suppressionButton?.title = "不再提醒"
+    }
+    let confirmed = a.runModal() == .alertFirstButtonReturn
+    if confirmed, let key, a.suppressionButton?.state == .on {
+        UserDefaults.standard.set(true, forKey: key)
+    }
+    return confirmed
+}
+
+/// The one warning before a run and everything Janus kept for it go away. The workspace's files
+/// are not touched, so they are not part of the warning's promise.
+@MainActor
+func confirmDeleteRun(_ title: String) -> Bool {
+    let name = title.isEmpty ? "这个任务" : "「\(title)」"
+    return confirm(
+        "删除任务？",
+        "\(name)的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。工作目录中的文件不受影响。",
+        ok: "删除",
+        dontAskAgainFor: "janus.deleteRunNoConfirm"
+    )
 }
 
 /// Asks before a sheet closes with edits that were not saved.

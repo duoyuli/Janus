@@ -24,7 +24,7 @@ use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use orchestrator::{ActionRefused, ActionReply, App, Config, NewRun, expand_home, git};
+use orchestrator::{ActionRefused, ActionReply, App, Config, DeleteRefused, NewRun, expand_home, git};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -316,6 +316,18 @@ async fn create_run(State(app): State<Arc<App>>, Json(req): Json<NewRun>) -> Api
     Ok(Json(json!({ "id": id })).into_response())
 }
 
+/// Remove a run with every record and file Janus kept for it. Only a run that is not working can
+/// go; the workspace's own files are not touched.
+// @project-doc docs/interfaces/20261031-http_api.md#run_delete
+async fn delete_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    match app.delete_run(&id).await {
+        Ok(()) => ok(),
+        Err(DeleteRefused::NotFound) => Err((StatusCode::NOT_FOUND, "任务不存在".into())),
+        Err(DeleteRefused::Conflict(why)) => Err((StatusCode::CONFLICT, why)),
+        Err(DeleteRefused::Invalid(err)) => Err(bad(err)),
+    }
+}
+
 /// One run and its events; with `after`, only the events past that seq, so a client that already
 /// holds the rest (the app's inbox) reads just what is new.
 async fn get_run(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Query(q): Query<After>) -> ApiResult {
@@ -587,7 +599,7 @@ async fn main() -> Result<()> {
         .route("/api/prices", get(get_prices))
         .route("/api/prices/sync", post(sync_prices))
         .route("/api/runs", get(list_runs).post(create_run))
-        .route("/api/runs/{id}", get(get_run))
+        .route("/api/runs/{id}", get(get_run).delete(delete_run))
         .route("/api/runs/{id}/stream", get(stream))
         .route("/api/runs/{id}/actions", post(action))
         .route("/api/runs/{id}/export", get(export))

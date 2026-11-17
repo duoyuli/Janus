@@ -265,6 +265,19 @@ impl Db {
             .optional()?)
     }
 
+    /// Remove a run's facts and the indexes beside them. The run's directories under Janus home
+    /// are the caller's; the event log goes with the row it belongs to.
+    pub fn delete_run(&self, run_id: &str) -> Result<()> {
+        let conn = self.0.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        for table in ["events", "attempts", "artifacts", "verifications", "commands", "leases"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE run_id = ?1"), params![run_id])?;
+        }
+        tx.execute("DELETE FROM runs WHERE id = ?1", params![run_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn start_attempt(&self, run_id: &str, task: &str, n: i64, agent: &str, runtime: &str, now: i64) -> Result<()> {
         self.0.lock().unwrap().execute(
             "INSERT OR REPLACE INTO attempts (run_id, task, n, agent, runtime, status, started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -452,6 +465,61 @@ mod tests {
             db.claim_command("r1", "c1", &json!({ "type": "pause" }), 4).unwrap(),
             "a released id can be claimed again"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn deleting_a_run_removes_its_rows_and_leaves_other_runs_whole() {
+        let (db, path) = temp_db("delete-run");
+        for (id, created) in [("r1", 1), ("r2", 2)] {
+            db.insert_run(id, "g", "/tmp", &json!({}), created).unwrap();
+            db.insert_event(&Event {
+                run_id: id.into(),
+                seq: 1,
+                ts: created,
+                kind: "run.created".into(),
+                actor: "user".into(),
+                to: None,
+                task: None,
+                attempt: None,
+                text: "g".into(),
+                data: None,
+            })
+            .unwrap();
+            db.start_attempt(id, "T1", 1, "m", "codex", created).unwrap();
+            db.insert_artifact(&ArtifactRow {
+                run_id: id,
+                task: "T1",
+                attempt: 1,
+                name: "T1-a1-report.md",
+                kind: "report",
+                path: "/p",
+                sha256: "s",
+                bytes: 1,
+                created_at: created,
+            })
+            .unwrap();
+            db.insert_verification(&VerificationRow {
+                run_id: id,
+                task: "T1",
+                attempt: 1,
+                attempt_id: "a",
+                status: "passed",
+                details: &json!({}),
+                created_at: created,
+            })
+            .unwrap();
+            db.claim_command(id, "c", &json!({}), created).unwrap();
+            db.acquire_lease(id, "run", "janus-1", created, 1000).unwrap();
+        }
+        db.delete_run("r1").unwrap();
+        assert!(db.run("r1").unwrap().is_none());
+        assert!(db.events("r1", 0).unwrap().is_empty());
+        assert_eq!(db.run("r2").unwrap().unwrap()["goal"], "g");
+        assert_eq!(db.events("r2", 0).unwrap().len(), 1);
+        // Deleting it again changes nothing else.
+        db.delete_run("r1").unwrap();
+        assert!(db.run("r2").unwrap().is_some());
         let _ = std::fs::remove_file(path);
     }
 
