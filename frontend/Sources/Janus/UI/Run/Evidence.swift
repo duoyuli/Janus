@@ -22,27 +22,27 @@ struct MethodTag: View {
         .padding(.horizontal, 6).padding(.vertical, 1.5)
         .background(style.tone.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
         .fixedSize()
-        .help(style.help.isEmpty ? "证据方法：\(style.text)" : "证据方法：\(style.text) · \(style.help)")
+        .help(style.help.isEmpty ? L.text("证据方法：\(style.text)") : L.text("证据方法：\(style.text) · \(style.help)"))
         // The text carries the meaning; VoiceOver reads it without the glyph or the tone.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("证据方法：\(style.text)")
+        .accessibilityLabel(L.text("证据方法：\(style.text)"))
     }
 
     private var style: (text: String, tone: Tone, symbol: String, help: String) {
-        guard let check else { return ("未核对", .gray, "minus.circle", "还没有核对这条标准") }
+        guard let check else { return (L.text("未核对"), .gray, "minus.circle", L.text("还没有核对这条标准")) }
         if let method = check.method {
             switch method {
-            case .test: return ("测试", .green, "checkmark.seal", "运行自动化测试得到的结果")
-            case .command: return ("命令", .blue, "terminal", "运行命令、脚本或检查工具得到的结果")
-            case .inspection: return ("检查", .blue, "doc.text.magnifyingglass", "检查代码、文件、界面或实际状态得到的结果")
-            case .reasoning: return ("推理判断", .amber, "brain", "根据推理或自我判断得到的结果，不是运行得到的结果")
-            case .unverified: return ("未核实", .amber, "questionmark.circle", "证据缺失、无法复现或暂时无法核实")
+            case .test: return (L.text("测试"), .green, "checkmark.seal", L.text("运行自动化测试得到的结果"))
+            case .command: return (L.text("命令"), .blue, "terminal", L.text("运行命令、脚本或检查工具得到的结果"))
+            case .inspection: return (L.text("检查"), .blue, "doc.text.magnifyingglass", L.text("检查代码、文件、界面或实际状态得到的结果"))
+            case .reasoning: return (L.text("推理判断"), .amber, "brain", L.text("根据推理或自我判断得到的结果，不是运行得到的结果"))
+            case .unverified: return (L.text("未核实"), .amber, "questionmark.circle", L.text("证据缺失、无法复现或暂时无法核实"))
             }
         }
         if check.badMethod != nil {
-            return (check.methodLabel, .red, "exclamationmark.triangle", "不是允许的取证方法，由核对报出")
+            return (check.methodLabel, .red, "exclamationmark.triangle", L.text("不是允许的取证方法，由核对报出"))
         }
-        return ("未说明", .gray, "minus.circle", "这次结果没有说明证据方法")
+        return (L.text("未说明"), .gray, "minus.circle", L.text("这次结果没有说明证据方法"))
     }
 }
 
@@ -64,14 +64,14 @@ struct CheckLine: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     MethodTag(check: check)
-                    Text(criterion.isEmpty ? "（没有写明标准）" : criterion)
+                    Text(criterion.isEmpty ? L.text("（没有写明标准）") : criterion)
                         .font(dense ? .footnote.weight(.medium) : .callout.weight(.medium))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let check {
                     if check.evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("没有给出证据").font(.caption).foregroundStyle(Tone.red.color)
+                        Text(L.text("没有给出证据")).font(.caption).foregroundStyle(Tone.red.color)
                     } else {
                         // The whole evidence, never shortened: this is what the person checks.
                         Text(MD.inline(check.evidence))
@@ -89,12 +89,12 @@ struct CheckLine: View {
 
     /// What VoiceOver reads: whether it passed, the method as words, the criterion and evidence.
     private var voice: String {
-        let head = n.map { "第 \($0) 条，" } ?? ""
-        guard let check else { return "\(head)未核对，\(criterion)" }
-        let state = check.passed ? "通过" : "没通过"
-        let method = "证据方法：\(check.methodLabel)"
+        let head = n.map { L.text("第 \($0) 条，") } ?? ""
+        guard let check else { return L.text("\(head)未核对，\(criterion)") }
+        let state = check.passed ? L.text("通过") : L.text("没通过")
+        let method = L.text("证据方法：\(check.methodLabel)")
         let evidence = check.evidence.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(head)\(state)，\(method)，\(criterion)\(evidence.isEmpty ? "，没有给出证据" : "，证据：\(evidence)")"
+        return "\(head)\(state)，\(method)，\(criterion)\(evidence.isEmpty ? L.text("，没有给出证据") : L.text("，证据：\(evidence)"))"
     }
 }
 
@@ -104,7 +104,7 @@ struct EvidenceReminders: View {
     let reminders: [String]
     var body: some View {
         if !reminders.isEmpty {
-            Note(text: "提醒（不影响是否通过）：\n\(reminders.map { "· \($0)" }.joined(separator: "\n"))", tone: .amber)
+            Note(text: L.text("提醒（不影响是否通过）：\n\(reminders.map { "· \($0)" }.joined(separator: "\n"))"), tone: .amber)
         }
     }
 }
@@ -121,9 +121,9 @@ struct VerificationList: View {
                     Text(v.task).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     Pill(v.label, v.passed ? .green : .amber)
                     if let vd = v.verdict {
-                        Pill("判定：\(vd.label)", vd == .approved ? .green : (vd == .rejected ? .red : .amber))
+                        Pill(L.text("判定：\(vd.label)"), vd == .approved ? .green : (vd == .rejected ? .red : .amber))
                     }
-                    Text(v.passed ? "已确认这个子任务的结论" : "结论没有得到确认")
+                    Text(v.passed ? L.text("已确认这个子任务的结论") : L.text("结论没有得到确认"))
                         .font(.caption).foregroundStyle(v.passed ? .secondary : Tone.amber.color)
                 }
                 if !v.summary.isEmpty { Text(MD.inline(v.summary)).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
@@ -227,13 +227,13 @@ struct DeliveryTaskView: View {
             HStack(spacing: 4) {
                 Image(systemName: open ? "chevron.down" : "chevron.right")
                     .font(.caption2.weight(.semibold))
-                Text(open ? "收起" : "展开").font(.caption)
+                Text(open ? L.text("收起") : L.text("展开")).font(.caption)
             }
             .foregroundStyle(Color.accent)
         }
         .buttonStyle(.plain)
-        .help(open ? "收起这个子任务的验收证据" : "展开这个子任务的验收标准、证据、独立验证、痕迹和风险")
-        .accessibilityLabel(open ? "收起 \(record.task) 的验收证据" : "展开 \(record.task) 的验收证据")
+        .help(open ? L.text("收起这个子任务的验收证据") : L.text("展开这个子任务的验收标准、证据、独立验证、痕迹和风险"))
+        .accessibilityLabel(open ? L.text("收起 \(record.task) 的验收证据") : L.text("展开 \(record.task) 的验收证据"))
     }
 
     @ViewBuilder private var expanded: some View {
@@ -241,7 +241,7 @@ struct DeliveryTaskView: View {
             // The row title was shortened to one line; the body starts with the whole one.
             Text(record.title).font(.callout.weight(.semibold)).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(verbatim: "证据：\(record.summary.countsText)")
+            Text(verbatim: L.text("证据：\(record.summary.countsText)"))
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             ForEach(CriterionCheck.rows(accept: [], checks: record.checks)) { row in
                 CheckLine(n: row.n, criterion: row.criterion, check: row.check)
@@ -249,15 +249,15 @@ struct DeliveryTaskView: View {
             EvidenceReminders(reminders: record.summary.reminders)
             if !record.verifications.isEmpty {
                 Divider()
-                Text("独立验证").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(L.text("独立验证")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 VerificationList(records: record.verifications).padding(.leading, 2)
             }
             if !record.traceGaps.isEmpty {
-                Note(text: "痕迹核对（结果和工作目录对不上）：\n\(record.traceGaps.map { "· \($0)" }.joined(separator: "\n"))", tone: .amber)
+                Note(text: L.text("痕迹核对（结果和工作目录对不上）：\n\(record.traceGaps.map { "· \($0)" }.joined(separator: "\n"))"), tone: .amber)
             }
             if !record.risks.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("风险").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(L.text("风险")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     RiskList(risks: record.risks, font: .caption)
                 }
             }

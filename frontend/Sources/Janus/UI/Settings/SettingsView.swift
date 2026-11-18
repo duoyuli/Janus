@@ -41,29 +41,29 @@ struct SettingsView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("设置")
+            Text(L.text("设置"))
                 .font(.display(.title2))
                 .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 10)
             VStack(spacing: 2) {
                 nav("adapters", "ACP", "shippingbox")
                 nav("agents", "Agent", "cpu")
-                nav("library", "资源库", "books.vertical", updates: store.sourceUpdates.count)
-                nav("roles", "数字员工", "person.2")
-                nav("usage", "用量账单", "list.bullet.rectangle")
-                nav("permissions", "macOS 权限", "lock.shield")
-                nav("updates", "更新", "arrow.triangle.2.circlepath")
+                nav("library", L.text("资源库"), "books.vertical", updates: store.sourceUpdates.count)
+                nav("roles", L.text("数字员工"), "person.2")
+                nav("usage", L.text("用量账单"), "list.bullet.rectangle")
+                nav("permissions", L.text("macOS 权限"), "lock.shield")
+                nav("updates", L.text("更新"), "arrow.triangle.2.circlepath")
             }
             .padding(.horizontal, 8)
             Spacer(minLength: 16)
             VStack(alignment: .leading, spacing: 6) {
-                Text("外观").font(.caption).foregroundStyle(.secondary)
-                Picker("外观", selection: $appearance) {
+                Text(L.text("外观")).font(.caption).foregroundStyle(.secondary)
+                Picker(L.text("外观"), selection: $appearance) {
                     ForEach(Appearance.allCases) { a in Text(a.title).tag(a) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .onChange(of: appearance) { _, a in a.apply() }
-                .help("系统、浅色或深色")
+                .help(L.text("系统、浅色或深色"))
             }
             .padding(12)
         }
@@ -90,7 +90,7 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .hoverable(7)
-        .help(updates > 0 ? "\(updates) 个来源有更新" : "")
+        .help(updates > 0 ? L.text("\(updates) 个来源有更新") : "")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 

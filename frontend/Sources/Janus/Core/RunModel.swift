@@ -188,7 +188,7 @@ final class RunModel {
                 // Resuming (or messaging an interrupted run) makes it live again: reconnect.
                 if !live, ["resumeRun", "message"].contains(body["type"].str) {
                     await load()
-                    store.show(body["type"].str == "resumeRun" ? "已从中断处继续" : "正在恢复会话")
+                    store.show(body["type"].str == "resumeRun" ? L.text("已从中断处继续") : L.text("正在恢复会话"))
                 }
                 return true
             } catch let err as APIError where err.status == 409 && attempt == 0 {
@@ -207,7 +207,10 @@ final class RunModel {
     struct Who { let id, name, initials, color, role, runtime, model: String; let lead: Bool; let m: JSON }
 
     func who(_ id: String) -> Who {
-        if id == "user" { return Who(id: id, name: "你", initials: "你", color: "#0f766e", role: "", runtime: "", model: "", lead: false, m: .null) }
+        if id == "user" {
+            let name = L.text("你")
+            return Who(id: id, name: name, initials: String(name.prefix(1)), color: "#0f766e", role: "", runtime: "", model: "", lead: false, m: .null)
+        }
         if id == "janus" { return Who(id: id, name: "Janus", initials: "JN", color: "#8a94a6", role: "", runtime: "", model: "", lead: false, m: .null) }
         guard let m = team.first(where: { $0["id"].str == id }) else {
             return Who(id: id, name: id, initials: "?", color: "#94a3b8", role: "", runtime: "", model: "", lead: false, m: .null)

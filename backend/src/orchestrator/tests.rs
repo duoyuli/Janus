@@ -62,22 +62,24 @@ fn task_prompts_carry_the_shared_material() {
         continues: None,
     };
     let m = run.team[1].clone();
-    assert!(!task_prompt(&run, &m, &def, &[], &[], None).contains("工作区共享资料"), "nothing when there is none");
+    assert!(!task_prompt(&run, &m, &def, &[], &[], None).contains("Shared workspace context"));
     run.brief = "目标用户是独立开发者".into();
     let p = task_prompt(&run, &m, &def, &[], &[], None);
     assert!(
-        p.contains("工作区共享资料（用户维护的长期背景，与子任务说明冲突时以子任务说明为准）：\n目标用户是独立开发者"),
+        p.contains("Shared workspace context (maintained by the user). In a conflict, follow the subtask instructions.\n目标用户是独立开发者"),
         "{p}"
     );
 }
 
 #[test]
 fn the_leads_suggestions_for_the_shared_material_are_split_off() {
-    let (rest, s) = split_brief_suggestions(
-        "完成了。\n\n### 建议更新共享资料：\n1. 定价页在 docs/pricing.md\n* 免费版限 3 个项目\n\n## 风险\n无",
-    );
-    assert_eq!(s, vec!["定价页在 docs/pricing.md", "免费版限 3 个项目"]);
-    assert_eq!(rest, "完成了。\n\n## 风险\n无");
+    for heading in ["### **Suggested Updates to Shared Context:**", "### 建议更新共享资料："] {
+        let (rest, s) = split_brief_suggestions(&format!(
+            "完成了。\n\n{heading}\n1. 定价页在 docs/pricing.md\n* 免费版限 3 个项目\n\n## 风险\n无"
+        ));
+        assert_eq!(s, vec!["定价页在 docs/pricing.md", "免费版限 3 个项目"]);
+        assert_eq!(rest, "完成了。\n\n## 风险\n无");
+    }
     let (rest, s) = split_brief_suggestions("完成了，没有新的事实。");
     assert!(s.is_empty());
     assert_eq!(rest, "完成了，没有新的事实。");
@@ -90,7 +92,11 @@ fn standing_instructions_pick_the_system_layer_when_there_is_one() {
     assert_eq!(instruction_channel(Runtime::Custom), Channel::Prompt);
     let m = member_with(Runtime::Codex, "用中文回答", "只报有依据的问题");
     let text = standing_instructions(&m);
-    assert!(text.find("用中文回答").unwrap() < text.find("只报有依据的问题").unwrap(), "provider first, then role");
+    assert_eq!(
+        text,
+        "The following standing instructions from the user apply throughout the session.\n\n\
+         Agent settings (Codex):\n用中文回答\n\nRole instructions (Reviewer):\n只报有依据的问题"
+    );
     assert!(standing_instructions(&member_with(Runtime::Codex, " ", "")).is_empty());
     // Only agents without a system layer get the rules in their prompt.
     assert!(prompt_instructions(&m).is_empty());
@@ -126,9 +132,12 @@ fn developer_instructions_merge_into_codex_config() {
 fn the_system_layer_holds_janus_rules_then_the_persons() {
     let rules = collaborator_rules(true);
     assert!(rules.contains("janus.board_post") && rules.contains("```json"), "{rules}");
+    assert!(rules.is_ascii(), "{rules}");
     assert!(!collaborator_rules(false).contains("janus.board_post"), "no board, no board tools");
-    let text = system_layer(&rules, "以下是用户为你设定的长期要求");
-    assert!(text.find("```json").unwrap() < text.find("长期要求").unwrap());
+    let standing = standing_instructions(&member_with(Runtime::Codex, "", "先运行现有测试"));
+    let text = system_layer(&rules, &standing);
+    assert!(text.starts_with("You are a collaborator on the Janus team."));
+    assert!(text.ends_with("Role instructions (Reviewer):\n先运行现有测试"));
     assert_eq!(system_layer(" ", ""), "");
     let spec = || crate::acp::RuntimeSpec {
         id: "c".into(),
@@ -273,7 +282,7 @@ fn the_lead_is_told_each_collaborator() {
     let mut run = test_run(2);
     run.team[1].desc = "独立检查变更，寻找风险与反例".into();
     let lines = team_lines(&run);
-    assert!(lines.contains("- m1：成员1（测试）· 职责：独立检查变更，寻找风险与反例 · Agent "), "{lines}");
+    assert!(lines.contains("- m1: 成员1 (测试) · Responsibilities: 独立检查变更，寻找风险与反例 · Agent: "), "{lines}");
     assert!(!lines.contains("m0"), "the lead is not its own collaborator: {lines}");
 }
 

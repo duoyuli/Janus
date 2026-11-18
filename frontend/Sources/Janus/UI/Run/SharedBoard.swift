@@ -20,13 +20,13 @@ struct ProgressBoard: View {
         if !tasks.isEmpty || !milestones.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 8) {
-                    Text("进展").font(.display(.title3))
-                    Button(run.progressOpen ? "收起进展" : "展开进展") { run.progressOpen.toggle() }
+                    Text(L.text("进展")).font(.display(.title3))
+                    Button(run.progressOpen ? L.text("收起进展") : L.text("展开进展")) { run.progressOpen.toggle() }
                         .buttonStyle(.link).font(.callout)
-                        .help("展开后显示这次任务的进展时间线，回答什么时候、谁做了什么、交给了谁")
-                        .accessibilityLabel(run.progressOpen ? "收起进展" : "展开进展")
+                        .help(L.text("展开后显示这次任务的进展时间线，回答什么时候、谁做了什么、交给了谁"))
+                        .accessibilityLabel(run.progressOpen ? L.text("收起进展") : L.text("展开进展"))
                     Spacer()
-                    Button("在审计日志中查看全部") { run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
+                    Button(L.text("在审计日志中查看全部")) { run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
                         .buttonStyle(.link).font(.callout)
                 }
                 .padding(.top, 6)
@@ -63,14 +63,14 @@ struct ProgressBoard: View {
             }
             if t.attempts.isEmpty, waits, t.status.isWaitingToStart {
                 let waiting = t.deps.filter { st.tasks[$0]?.status != .succeeded }
-                x.waiting = t.status == .blocked ? "等待 \(t.blockedBy) 修复" : waiting.isEmpty ? "等待调度" : "等待 \(waiting.joined(separator: "、"))"
+                x.waiting = t.status == .blocked ? L.text("等待 \(t.blockedBy) 修复") : waiting.isEmpty ? L.text("等待调度") : L.text("等待 \(waiting.joined(separator: L.text("、")))")
             }
             if let r = f.results.last(where: { $0.task == t.id }) {
                 // The mark itself stays small; its tooltip and VoiceOver label carry the evidence
                 // methods. Each check with its evidence is on the task page, the delivery and the
                 // audit log.
                 let evidence = EvidenceSummary(accept: t.accept, checks: r.checks)
-                let counts = r.checks.isEmpty ? "" : " · 证据 \(evidence.countsText)"
+                let counts = r.checks.isEmpty ? "" : L.text(" · 证据 \(evidence.countsText)")
                 x.result = TimelineMark(id: r.key, seq: r.seq, ts: r.ts, kind: .result, title: L.short(L.plain(r.summary), 120) + counts, by: r.by)
             }
             x.artifacts = f.arts.filter { $0.a.task == t.id && !$0.old }.map { a in
@@ -85,7 +85,7 @@ struct ProgressBoard: View {
     /// Decisions (the person's, the lead's) and open items, at the moment they happened.
     private func milestoneMarks(_ f: BoardFacts) -> [TimelineMark] {
         var out = f.decisions.map { x in
-            TimelineMark(id: x.key, seq: x.seq, ts: x.ts, kind: .decision, title: "\(x.title)：\(L.short(L.plain(x.text), 120))", by: x.by)
+            TimelineMark(id: x.key, seq: x.seq, ts: x.ts, kind: .decision, title: L.text("\(x.title)：\(L.short(L.plain(x.text), 120))"), by: x.by)
         }
         for x in f.open {
             guard let seq = x.seq, let e = st.event(seq) else { continue }

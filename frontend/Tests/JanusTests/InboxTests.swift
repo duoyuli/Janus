@@ -23,8 +23,8 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     ]
     let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城")
     #expect(entries.count == 2)
-    let approval = entries.first { $0.title.contains("请求你决定") }
-    let decision = entries.first { $0.title.contains("负责人请你决定") }
+    let approval = entries.first { $0.kind == "approval" }
+    let decision = entries.first { $0.kind == "question" }
     #expect(approval?.canWait == false && approval?.text == "npm publish" && approval?.workspace == "商城")
     #expect(decision?.canWait == true && decision?.ts == 1_005_000)
     #expect(entries.allSatisfy { $0.key.hasPrefix("r1/") && $0.goal == "上线支付页" && !$0.canSettle })
@@ -55,7 +55,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
 
 /// A plain choice is answered in the inbox: an approval's options in the app's words, and a
 /// decision's options with the lead's pick first; each click is the run page's own action.
-@Test func plainChoicesCanBeAnsweredFromTheInbox() {
+@Test func plainChoicesCanBeAnsweredFromTheInbox() throws {
     let events = [
         event(1, "run.created", actor: "user", data: ["mode": "goal", "goal": "上线支付页"]),
         event(2, "orchestration.accepted", actor: "lead", data: ["tasks": [["id": "T1", "title": "清理旧构建", "agent": "m1", "deps": [], "accept": ["干净"]]]]),
@@ -66,13 +66,13 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
         event(6, "input.requested", actor: "m1", task: "T1", data: ["key": "i-1", "message": "账号", "schema": ["type": "object"]]),
     ]
     let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城")
-    let approval = entries.first { $0.key.hasSuffix("approval") }!
-    #expect(approval.title == "实现者请求你决定" && approval.sub == "T1 · 清理旧构建", "named like the request card")
-    #expect(approval.actions.map(\.label) == ["允许一次", "始终允许", "拒绝"])
+    let approval = try #require(entries.first { $0.kind == "approval" })
+    #expect(approval.title == expectedCopy("「实现者」请求你决定", "实现者 asks you to decide") && approval.sub == "T1 · 清理旧构建", "named like the request card")
+    #expect(approval.actions.map(\.label) == [expectedCopy("允许一次", "Allow Once"), expectedCopy("始终允许", "Always Allow"), expectedCopy("拒绝", "Deny")])
     #expect(approval.actions[0].prominent && approval.actions[0].body["option"].str == "o1" && approval.actions[0].body["allow"] == true)
     #expect(approval.actions[2].body["allow"] == false && approval.actions[2].body["label"].str == "Reject", "the agent's own words go back")
-    #expect(approval.actions[1].help.contains("不再询问") && approval.actions[1].help.contains("Always allow"))
-    let decision = entries.first { $0.title.contains("负责人请你决定") }!
+    #expect(approval.actions[1].help.contains(expectedCopy("不再询问", "will be allowed automatically")) && approval.actions[1].help.contains("Always allow"))
+    let decision = try #require(entries.first { $0.kind == "question" })
     #expect(decision.actions.map(\.label) == ["国内", "海外"] && decision.actions[1].prominent)
     #expect(decision.actions[0].body["type"].str == "answer" && decision.actions[0].body["key"].str == "q-lead-1")
     #expect(entries.first { $0.key.hasSuffix("input") }?.actions.isEmpty == true, "a form opens the run")
@@ -80,6 +80,6 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
 
 @Test func permissionOptionsWithoutOptionsAllowOrRejectOnce() {
     let opts = L.permissionOptions(.null)
-    #expect(opts.map(\.label) == ["允许一次", "拒绝"] && opts.allSatisfy { $0.id.isEmpty })
+    #expect(opts.map(\.label) == [expectedCopy("允许一次", "Allow Once"), expectedCopy("拒绝", "Deny")] && opts.allSatisfy { $0.id.isEmpty })
     #expect(L.permissionOptions([["optionId": "x", "name": "Proceed", "kind": "other"]]).first?.label == "Proceed", "an unknown kind keeps the agent's words")
 }

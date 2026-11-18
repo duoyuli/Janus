@@ -35,7 +35,7 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 | --- | --- |
 | Agent (provider connection) | A launchable coding agent, such as Codex or Claude Code. Each agent has its own configuration directory and credentials. |
 | Digital employee | Binds an agent and defines its name, responsibilities, model, reasoning effort, permission mode, and the skills and MCP servers it uses from the library. |
-| Resource library | Skills and MCP servers kept once and picked per digital employee. Write a skill in the app, copy a local folder, paste an MCP config, or import from a GitHub repository. Each session gets its digital employee's resources when it starts (as a plugin for Claude Code, an extra skills root for Codex, and MCP servers for both); no agent config file is written. |
+| Resource library | Skills and MCP servers kept once and picked per digital employee. Write a skill in the app, select multiple skills to copy from a local folder, paste an MCP config, or import from a GitHub repository. Each session gets its digital employee's resources when it starts (as a plugin for Claude Code, an extra skills root for Codex, and MCP servers for both); no agent config file is written. |
 | Workspace | A local directory plus a set of digital employees, one of whom is the lead. |
 | Task | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
 | Lead agent | The agent that drives the goal with `/goal`. It can be Claude Code or Codex, and decides whether to work directly or delegate through orchestration. |
@@ -51,7 +51,9 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 
 The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/20261031-deployment.md#macos_app).
 
-After installation or an update, Janus shows a macOS permission checklist, also available under Settings → macOS 权限. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; each authorization still requires your confirmation in macOS. The first two record your manual confirmation, while Screen Recording uses a system check. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
+Janus supports Simplified Chinese and English. It follows your preferred languages and defaults to Simplified Chinese if none match. Set a language for Janus under System Settings → General → Language & Region → Applications, then reopen the app.
+
+After installation or an update, Janus shows a macOS permission checklist, also available under Settings → macOS Permissions. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; each authorization still requires your confirmation in macOS. The first two record your manual confirmation, while Screen Recording uses a system check. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
 
 ### From source
 
@@ -75,8 +77,8 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 ### First run
 
-1. Add an agent under Settings → Agents and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back under Settings → ACP.
-2. Bind digital employees to agents under Settings → Digital Employees, choose a model and permission mode, and turn on "can lead" for the ones that should lead.
+1. Add an agent under Settings → Agent and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back under Settings → ACP.
+2. Bind digital employees to agents under Settings → Digital Employees, choose a model and permission mode, and turn on “Can Be Lead” for the ones that should lead.
 3. Create a workspace: choose a directory, enable digital employees, and name one bound to Claude Code or Codex as the lead.
 4. Enter a goal on the workspace home page and hand it to the lead.
 

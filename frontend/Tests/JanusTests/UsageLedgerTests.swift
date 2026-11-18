@@ -40,13 +40,15 @@ private struct Log {
         let l = usageLedger(c["events"].array.map(Event.init))
         let want = c["expect"]
         #expect(l.run.tokens.total == want["runTotal"].int, "\(name): run total")
-        #expect(l.run.completeness.label == want["completeness"].str, "\(name): completeness")
-        #expect("用量：\(l.runLine)" == want["summary"].str, "\(name): \(l.runLine)")
+        #expect(l.run.completeness.label == L.catalogText(want["completeness"].str), "\(name): completeness")
+        if L.locale.identifier == "zh-Hans" {
+            #expect("用量：\(l.runLine)" == want["summary"].str, "\(name): \(l.runLine)")
+        }
         for (task, total) in want["tasks"].object {
             #expect(l.task(task)?.tokens.total == total.int, "\(name): task \(task)")
         }
         for (key, state) in want["attempts"].object {
-            #expect(l.attempts.first { $0.id == key }?.state.label == state.str, "\(name): attempt \(key)")
+            #expect(l.attempts.first { $0.id == key }?.state.label == L.catalogText(state.str), "\(name): attempt \(key)")
         }
         #expect(l.reminders.count == (want["reminders"].int ?? 0), "\(name): \(l.reminders)")
     }
@@ -63,7 +65,7 @@ private struct Log {
     let l = usageLedger(log.events)
     #expect(l.run.tokens.total == 4550 && l.run.tokens.input == 3900 && l.run.tokens.output == 650)
     #expect(l.run.turns == 4 && l.run.completeness == .complete)
-    #expect(l.run.tokensText == "4,550 tokens（完整）")
+    #expect(l.run.tokensText == expectedCopy("4,550 tokens（完整）", "4,550 tokens (Complete)"))
 }
 
 /// The quota rows by model also count subagents, so they replace the main-loop `usage` for that turn.
@@ -80,8 +82,8 @@ private struct Log {
     log.turn("m1", "T1", ["inputTokens": 500, "outputTokens": 100, "cachedReadTokens": 2000, "totalTokens": JSON.null])
     let l = usageLedger(log.events)
     #expect(l.run.tokens.total == 7560 + 2600)
-    #expect(l.run.breakdown == "输入 2,550 · 缓存读取 7,000 · 缓存写入 100 · 输出 510")
-    #expect(l.run.summaryRows.map(\.label) == ["Token", "构成", "费用", "耗时"])
+    #expect(l.run.breakdown == expectedCopy("输入 2,550 · 缓存读取 7,000 · 缓存写入 100 · 输出 510", "Input 2,550 · Cache Read 7,000 · Cache Write 100 · Output 510"))
+    #expect(l.run.summaryRows.map(\.label) == ["Token", expectedCopy("构成", "Breakdown"), expectedCopy("费用", "Cost"), expectedCopy("耗时", "Elapsed")])
 }
 
 /// Context snapshots are the window right now: never tokens, shown as the latest and the peak.
@@ -93,8 +95,8 @@ private struct Log {
     let l = usageLedger(log.events)
     #expect(l.run.tokens.total == nil && l.run.completeness == .missing)
     #expect(l.run.context == UsageContext(used: 52000, peak: 61000, size: 200000, reports: 5))
-    #expect(l.run.contextDetail == "52,000 / 200,000（26%） · 峰值 61,000")
-    #expect(l.run.tokensText == "未上报", "never 0 tokens")
+    #expect(l.run.contextDetail == expectedCopy("52,000 / 200,000（26%） · 峰值 61,000", "52,000 / 200,000 (26%) · Peak: 61,000"))
+    #expect(l.run.tokensText == expectedCopy("未上报", "Not reported"), "never 0 tokens")
 }
 
 /// Missing numbers are words, a session with no tokens makes the run partial, a reported 0 is 0,
@@ -107,11 +109,11 @@ private struct Log {
     log.turn("m1", "T1", ["totalTokens": 0])
     log.start("T2", "m2", session: "s2")
     let l = usageLedger(log.events)
-    #expect(l.task("T1")?.tokensText == "0 tokens（完整）")
-    #expect(l.task("T2")?.tokensText == "未上报")
-    #expect(l.task("T3")?.notStarted == true && l.taskDetail(l.task("T3")!) == "未开始")
+    #expect(l.task("T1")?.tokensText == expectedCopy("0 tokens（完整）", "0 tokens (Complete)"))
+    #expect(l.task("T2")?.tokensText == expectedCopy("未上报", "Not reported"))
+    #expect(l.task("T3")?.notStarted == true && l.taskDetail(l.task("T3")!) == expectedCopy("未开始", "Not started"))
     #expect(l.run.completeness == .partial)
-    #expect(l.subtotalLine.value == "负责人 未上报 · 协作者 0 tokens（部分上报）")
+    #expect(l.subtotalLine.value == expectedCopy("负责人 未上报 · 协作者 0 tokens（部分上报）", "Lead: Not reported · Collaborators: 0 tokens (Partially reported)"))
 }
 
 /// Cost is a running total per session: the latest reading, plus what came before a reset; a
@@ -126,8 +128,8 @@ private struct Log {
     log.start("T3", "m3", session: "s3")
     log.turn("m3", "T3", ["cost": ["amount": 5]])
     let l = usageLedger(log.events)
-    #expect(l.task("T1")?.costText == "费用：0.5 USD")
-    #expect(l.run.costText == "费用：0.5 USD + 40 credits + 5（未标注币种）（币种或口径不同，未合并）")
+    #expect(l.task("T1")?.costText == expectedCopy("费用：0.5 USD", "Cost: 0.5 USD"))
+    #expect(l.run.costText == expectedCopy("费用：0.5 USD + 40 credits + 5（未标注币种）（币种或口径不同，未合并）", "Cost: 0.5 USD + 40 credits + 5 (currency unspecified) (reported separately due to different currencies or billing methods)"))
     #expect(l.run.cost.reportedSessions == 3)
 }
 
@@ -161,8 +163,8 @@ private struct Log {
     let l = usageLedger(log.events)
     let a = Dictionary(uniqueKeysWithValues: l.attempts.map { ($0.id, $0) })
     #expect(a["T1#1"]?.state == .failed && a["T1#1"]?.note == "脚本失败" && a["T1#1"]?.durationMs == 2000)
-    #expect(a["T1#2"]?.state == .cancelled && a["T1#2"]?.note == "负责人取消了这个子任务")
-    #expect(a["T2#1"]?.state == .cancelled && a["T2#1"]?.note == "任务被取消" && a["T2#1"]?.durationMs == 4100)
+    #expect(a["T1#2"]?.state == .cancelled && a["T1#2"]?.note == expectedCopy("负责人取消了这个子任务", "The lead cancelled this subtask"))
+    #expect(a["T2#1"]?.state == .cancelled && a["T2#1"]?.note == expectedCopy("任务被取消", "Run cancelled") && a["T2#1"]?.durationMs == 4100)
     #expect(l.task("T1")?.tokens.total == 1600, "a failed attempt's usage still counts")
 }
 
@@ -176,7 +178,7 @@ private struct Log {
     log.add("task.succeeded", actor: "m1", task: "T1", attempt: 1, at: 59000, data: ["summary": "完成"])
     let l = usageLedger(log.events)
     #expect(l.run.durationMs == 59000 && l.run.waitMs == 30000)
-    #expect(l.task("T1")?.summaryRows.first { $0.label == "耗时" }?.value == "58 秒（墙钟） · 其中等待你 30 秒")
+    #expect(l.task("T1")?.summaryRows.first { $0.label == expectedCopy("耗时", "Elapsed") }?.value == expectedCopy("58 秒（墙钟） · 其中等待你 30 秒", "58 sec (wall time) · Waiting for you: 30 sec"))
 }
 
 /// The ledger follows the replay position: each prefix of the log has its own numbers.
@@ -205,7 +207,7 @@ private struct Log {
     log.turn("m1", "T1", ["totalTokens": 520_000])
     let l = usageLedger(log.events)
     #expect(l.reminders.count == 3, "\(l.reminders)")
-    #expect(l.remindersLine?.hasPrefix("提醒（按已上报数据）：") == true)
+    #expect(l.remindersLine?.hasPrefix(expectedCopy("提醒（按已上报数据）：", "Notice (reported data only): ")) == true)
     #expect(usageLedger(Array(log.events.prefix(4))).remindersLine == nil)
 }
 

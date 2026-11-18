@@ -12,19 +12,19 @@ enum Library {
     /// with the reason when it isn't a plain yes. Unknown runtimes (no agent chosen) say nothing.
     static func support(_ item: JSON, runtime: String) -> (state: String, why: String) {
         guard let s = item["support"].array.first(where: { $0["runtime"].str == runtime }) else { return ("yes", "") }
-        return (s["support"]["state"].str, s["support"]["why"].str)
+        return (s["support"]["state"].str, L.catalogText(s["support"]["why"].str))
     }
 
     /// Where an item came from, in a few words.
     static func origin(_ item: JSON) -> String {
         let o = item["origin"]
         switch o["type"].str {
-        case "folder": return "复制自 \(o["path"].str)"
+        case "folder": return L.text("复制自 \(o["path"].str)")
         case "git":
             let url = item["source"]["url"].str
             let from = url.replacingOccurrences(of: "https://github.com/", with: "")
-            return item["source"]["inSource"].truthy ? "来自 \(from)" : "来自 \(from) · 来源中已删除"
-        default: return item["kind"].str == "skill" ? "在 Janus 中新建" : "手动添加"
+            return item["source"]["inSource"].truthy ? L.text("来自 \(from)") : L.text("来自 \(from) · 来源中已删除")
+        default: return item["kind"].str == "skill" ? L.text("在 Janus 中新建") : L.text("手动添加")
         }
     }
 
@@ -43,13 +43,13 @@ enum Library {
         let vars = item["vars"].array
         guard !vars.isEmpty else { return ("", true) }
         let set = vars.filter { $0["set"].truthy }.count
-        let what = item["server"]["transport"].str == "stdio" ? "变量" : "Header"
-        return ("\(what) \(set)/\(vars.count) 已设置", set == vars.count)
+        let what = item["server"]["transport"].str == "stdio" ? L.text("变量") : "Header"
+        return (L.text("\(what) \(set)/\(vars.count) 已设置"), set == vars.count)
     }
 
     /// The roles using an item, for its row.
     static func usedBy(_ item: JSON) -> String {
         let names = item["roles"].array.map { $0["name"].str }
-        return names.isEmpty ? "还没有数字员工使用" : "\(names.joined(separator: "、")) 在用"
+        return names.isEmpty ? L.text("还没有数字员工使用") : L.text("\(names.joined(separator: L.text("、"))) 在用")
     }
 }

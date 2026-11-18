@@ -39,7 +39,7 @@ struct MenuBarLabel: View {
                 .frame(width: 16, height: 16)
             if n > 0 { Text("\(n)") }
         }
-        .accessibilityLabel(n > 0 ? "Janus，\(n) 项等你处理" : "Janus")
+        .accessibilityLabel(n > 0 ? L.text("Janus，\(n) 项等你处理") : "Janus")
         // The label lives as long as the app, so it is where a notification click finds a way
         // to open the window.
         .onAppear {
@@ -101,16 +101,16 @@ struct StatusMenu: View {
         let store = model.store
         let waiting = store?.inbox.open.count ?? 0
         let active = store?.runs.filter { RunStatus($0["status"].str).isActive }.count ?? 0
-        Button(waiting > 0 ? "收件箱：\(waiting) 项等你处理" : "收件箱：没有等你处理的事") { show(); store?.open(.inbox) }.disabled(store == nil)
-        Button("打开 Janus") { show() }
-        if active > 0 { Text("\(active) 个任务正在进行") }
+        Button(waiting > 0 ? L.text("收件箱：\(waiting) 项等你处理") : L.text("收件箱：没有等你处理的事")) { show(); store?.open(.inbox) }.disabled(store == nil)
+        Button(L.text("打开 Janus")) { show() }
+        if active > 0 { Text(L.text("\(active) 个任务正在进行")) }
         Divider()
-        Button("新目标") { show(); model.newGoal() }.disabled(store == nil)
-        Button("设置…") { show(); store?.openSettings(store?.settingsTab ?? "agents") }.disabled(store == nil)
-        Button("检查更新…") { show(); store?.openSettings("updates"); Task { await Updater.shared.check() } }
-        Button("打开 Janus 日志") { model.openLogs() }
+        Button(L.text("新目标")) { show(); model.newGoal() }.disabled(store == nil)
+        Button(L.text("设置…")) { show(); store?.openSettings(store?.settingsTab ?? "agents") }.disabled(store == nil)
+        Button(L.text("检查更新…")) { show(); store?.openSettings("updates"); Task { await Updater.shared.check() } }
+        Button(L.text("打开 Janus 日志")) { model.openLogs() }
         Divider()
-        Button("退出 Janus") { NSApp.terminate(nil) }.keyboardShortcut("q")
+        Button(L.text("退出 Janus")) { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 
     private func show() {
@@ -129,52 +129,52 @@ struct JanusCommands: Commands {
         let run = store?.run
         let onRun: Bool = { if case .run = store?.screen { return run != nil } else { return false } }()
         CommandGroup(after: .appInfo) {
-            Button("检查更新…") {
+            Button(L.text("检查更新…")) {
                 store?.openSettings("updates")
                 Task { await Updater.shared.check() }
             }.disabled(store == nil)
         }
         CommandGroup(replacing: .appSettings) {
-            Button("设置…") { store?.openSettings(store?.settingsTab ?? "agents") }.keyboardShortcut(",").disabled(store == nil)
+            Button(L.text("设置…")) { store?.openSettings(store?.settingsTab ?? "agents") }.keyboardShortcut(",").disabled(store == nil)
         }
         SidebarCommands()
         CommandGroup(replacing: .newItem) {
-            Button("新目标") { model.newGoal() }.keyboardShortcut("n").disabled(store == nil)
-            Button("新建工作区…") { store?.editingWorkspace = AppStore.blankWorkspace }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(store == nil)
+            Button(L.text("新目标")) { model.newGoal() }.keyboardShortcut("n").disabled(store == nil)
+            Button(L.text("新建工作区…")) { store?.editingWorkspace = AppStore.blankWorkspace }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(store == nil)
             Divider()
-            Button("打开 Markdown 文件…") { ArtifactWindow.choose() }.keyboardShortcut("o")
+            Button(L.text("打开 Markdown 文件…")) { ArtifactWindow.choose() }.keyboardShortcut("o")
         }
         CommandGroup(replacing: .importExport) {
-            Button("导出事件日志…") { run?.exportLog() }.keyboardShortcut("e", modifiers: [.command, .shift]).disabled(!onRun)
+            Button(L.text("导出事件日志…")) { run?.exportLog() }.keyboardShortcut("e", modifiers: [.command, .shift]).disabled(!onRun)
         }
         CommandGroup(before: .sidebar) {
-            Button("工作台") { run?.show(.board) }.keyboardShortcut("1").disabled(!onRun)
-            Button("审计与回放") { run?.show(.audit) }.keyboardShortcut("2").disabled(!onRun)
-            Button("团队与权限") { run?.show(.team) }.keyboardShortcut("3").disabled(!onRun)
-            Button("返回工作台") { run?.show(.board) }.keyboardShortcut("[").disabled(!onRun || !(run?.page.isDetail ?? false))
+            Button(L.text("工作台")) { run?.show(.board) }.keyboardShortcut("1").disabled(!onRun)
+            Button(L.text("审计与回放")) { run?.show(.audit) }.keyboardShortcut("2").disabled(!onRun)
+            Button(L.text("团队与权限")) { run?.show(.team) }.keyboardShortcut("3").disabled(!onRun)
+            Button(L.text("返回工作台")) { run?.show(.board) }.keyboardShortcut("[").disabled(!onRun || !(run?.page.isDetail ?? false))
             Divider()
-            Button("刷新") { Task { await model.refresh() } }.keyboardShortcut("r").disabled(store == nil)
+            Button(L.text("刷新")) { Task { await model.refresh() } }.keyboardShortcut("r").disabled(store == nil)
             Divider()
         }
-        CommandMenu("任务") {
+        CommandMenu(L.text("任务")) {
             let r = run?.state.run
             let active = onRun && run?.canAct == true && r.map { !$0.status.isFinished } == true
-            Button(r?.paused == true ? "继续" : "暂停") { Task { await run?.togglePause() } }
+            Button(r?.paused == true ? L.text("继续") : L.text("暂停")) { Task { await run?.togglePause() } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(!active || !(r?.status == .running || r?.paused == true))
-            Button("从中断处继续") { Task { await run?.act(["type": "resumeRun"]) } }
+            Button(L.text("从中断处继续")) { Task { await run?.act(["type": "resumeRun"]) } }
                 .disabled(!(onRun && run?.canAct == true && r?.status.canResume == true))
-            Button("停止任务…") { if let run { cancelRun(run) } }.disabled(!active)
-            Button("删除任务…", role: .destructive) {
+            Button(L.text("停止任务…")) { if let run { cancelRun(run) } }.disabled(!active)
+            Button(L.text("删除任务…"), role: .destructive) {
                 if let run { Task { await run.store.deleteRun(run.id) } }
             }
             .disabled(!(onRun && run?.loaded == true && !(run?.state.run.status.isActive ?? true)))
             Divider()
-            Button("复制交付摘要") { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
-            Button("回到实时") { run?.replay = nil }.disabled(!(run?.isReplaying ?? false))
+            Button(L.text("复制交付摘要")) { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
+            Button(L.text("回到实时")) { run?.replay = nil }.disabled(!(run?.isReplaying ?? false))
         }
         CommandGroup(replacing: .help) {
-            Button("打开 Janus 日志") { model.openLogs() }
+            Button(L.text("打开 Janus 日志")) { model.openLogs() }
         }
     }
 }
@@ -287,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Installing an update: the person already agreed to quit.
         if !Updater.shared.quitting, model.backend.owned, let s = model.store,
            s.runs.contains(where: { RunStatus($0["status"].str).isActive }) {
-            if !confirm("退出 Janus？", "还有正在执行的任务。退出会停止 Janus 服务，这些任务会中断，下次打开后可以「从中断处继续」。", ok: "退出") { return .terminateCancel }
+            if !confirm(L.text("退出 Janus？"), L.text("还有正在执行的任务。退出会停止 Janus 服务，这些任务会中断，下次打开后可以「从中断处继续」。"), ok: L.text("退出")) { return .terminateCancel }
         }
         model.backend.stop()
         return .terminateNow
@@ -325,7 +325,7 @@ struct StartupView: View {
                 .frame(width: 64, height: 64)
                 .background(Color.accent, in: RoundedRectangle(cornerRadius: 16))
             if case .failed(let err) = model.backend.phase {
-                Text("Janus 服务没有启动").font(.display(.title2))
+                Text(L.text("Janus 服务没有启动")).font(.display(.title2))
                 ScrollView {
                     Text(err).font(.system(.callout, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -333,8 +333,8 @@ struct StartupView: View {
                 .padding(10)
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 HStack {
-                    Button("打开日志目录") { model.openLogs() }
-                    Button("重试") { Task { await model.retry() } }.buttonStyle(.primary)
+                    Button(L.text("打开日志目录")) { model.openLogs() }
+                    Button(L.text("重试")) { Task { await model.retry() } }.buttonStyle(.primary)
                 }
             } else {
                 ProgressView().controlSize(.small)
@@ -347,6 +347,6 @@ struct StartupView: View {
 
     private func textOf(_ p: Backend.Phase) -> String {
         if case .starting(let t) = p { return t }
-        return "正在读取数据…"
+        return L.text("正在读取数据…")
     }
 }

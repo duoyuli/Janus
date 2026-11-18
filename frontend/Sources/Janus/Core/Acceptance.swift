@@ -12,11 +12,11 @@ enum EvidenceMethod: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .test: return "测试"
-        case .command: return "命令"
-        case .inspection: return "检查"
-        case .reasoning: return "推理判断"
-        case .unverified: return "未核实"
+        case .test: return L.text("测试")
+        case .command: return L.text("命令")
+        case .inspection: return L.text("检查")
+        case .reasoning: return L.text("推理判断")
+        case .unverified: return L.text("未核实")
         }
     }
 }
@@ -45,8 +45,8 @@ struct Check: Hashable {
     /// 「测试」/「推理判断」/「未核实」/「未说明」; an illegal value is shown as written.
     var methodLabel: String {
         if let method { return method.label }
-        if let badMethod { return "方法「\(badMethod)」不合法（未说明）" }
-        return "未说明"
+        if let badMethod { return L.text("方法「\(badMethod)」不合法（未说明）") }
+        return L.text("未说明")
     }
 }
 
@@ -98,20 +98,20 @@ struct EvidenceSummary: Hashable {
         for (i, c) in checks.enumerated() {
             let n = i + 1
             let trimmed = c.criterion.trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = trimmed.isEmpty ? "（没有写明标准）" : trimmed
+            let name = trimmed.isEmpty ? L.text("（没有写明标准）") : trimmed
             switch (c.method, c.badMethod) {
             case (.reasoning?, _):
-                reminders.append("第 \(n) 条「\(name)」是推理判断，不是运行得到的结果")
+                reminders.append(L.text("第 \(n) 条「\(name)」是推理判断，不是运行得到的结果"))
             case (.unverified?, _):
                 let why = c.evidence.trimmingCharacters(in: .whitespacesAndNewlines)
-                reminders.append("第 \(n) 条「\(name)」未核实：\(why.isEmpty ? "没有说明原因" : why)")
+                reminders.append(L.text("第 \(n) 条「\(name)」未核实：\(why.isEmpty ? L.text("没有说明原因") : why)"))
             case (.some, _):
                 break
             case (nil, .some):
                 invalid += 1
             case (nil, nil):
                 unspecified += 1
-                reminders.append("第 \(n) 条「\(name)」没有说明证据方法")
+                reminders.append(L.text("第 \(n) 条「\(name)」没有说明证据方法"))
             }
         }
     }
@@ -122,19 +122,23 @@ struct EvidenceSummary: Hashable {
         passed = j["passed"].int ?? 0
         methods = j["methods"].array.map { m in
             let method = m["method"].str
-            return EvidenceMethodCount(method: method, label: m["label"].string ?? EvidenceMethod(rawValue: method)?.label ?? method, count: m["count"].int ?? 0)
+            return EvidenceMethodCount(method: method, label: EvidenceMethod(rawValue: method)?.label ?? m["label"].string ?? method, count: m["count"].int ?? 0)
         }
         unspecified = j["unspecified"].int ?? 0
         invalid = j["invalid"].array.count
-        reminders = j["reminders"].strings
+        let recordedReminders = j["reminders"].strings
+        // Current deliveries carry the checks. Older records may only have the original text.
+        reminders = !recordedReminders.isEmpty && j["checks"].exists
+            ? EvidenceSummary(accept: [], checks: Check.list(j["checks"])).reminders
+            : recordedReminders
     }
 
     /// 「测试 2 条、命令 1 条、未说明 1 条」, as the board, the task page and the delivery read it.
     var countsText: String {
-        var parts = methods.map { "\($0.label) \($0.count) 条" }
-        if unspecified > 0 { parts.append("未说明 \(unspecified) 条") }
-        if invalid > 0 { parts.append("方法不合法 \(invalid) 条") }
-        return parts.isEmpty ? "没有记录" : parts.joined(separator: "、")
+        var parts = methods.map { L.text("\($0.label) \($0.count) 条") }
+        if unspecified > 0 { parts.append(L.text("未说明 \(unspecified) 条")) }
+        if invalid > 0 { parts.append(L.text("方法不合法 \(invalid) 条")) }
+        return parts.isEmpty ? L.text("没有记录") : parts.joined(separator: L.text("、"))
     }
 }
 
@@ -144,9 +148,9 @@ enum Verdict: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .approved: return "通过"
-        case .rejected: return "需要修改"
-        case .inconclusive: return "证据不足"
+        case .approved: return L.text("通过")
+        case .rejected: return L.text("需要修改")
+        case .inconclusive: return L.text("证据不足")
         }
     }
 
@@ -175,7 +179,7 @@ struct VerificationRecord: Identifiable {
     init?(_ j: JSON) {
         task = j["task"].str
         if task.isEmpty { return nil }
-        label = j["label"].str
+        label = TaskStatus(rawValue: j["status"].str)?.label.0 ?? j["label"].str
         let vd = j["verdict"].string.flatMap(Verdict.init(rawValue:))
         verdict = vd
         passed = j["passed"].bool ?? (vd == .approved)
@@ -248,14 +252,14 @@ struct DeliveryTaskRow: Equatable {
     let needsAttention: Bool
 
     /// 「通过 4 / 5 条 · 测试 1 条、命令 2 条、推理判断 1 条」
-    var metrics: String { "通过 \(passed) / \(criteria) 条 · \(methods)" }
+    var metrics: String { L.text("通过 \(passed) / \(criteria) 条 · \(methods)") }
 
     /// What VoiceOver reads: the id, title, passed count, method counts, markers and whether the
     /// row is open.
     func voice(open: Bool) -> String {
-        var parts = [task, title, "通过 \(passed) / \(criteria) 条", methods, open ? "已展开" : "已收起"]
+        var parts = [task, title, L.text("通过 \(passed) / \(criteria) 条"), methods, open ? L.text("已展开") : L.text("已收起")]
         parts += markers
-        return parts.joined(separator: "，")
+        return parts.joined(separator: L.text("，"))
     }
 }
 
@@ -264,9 +268,9 @@ extension DeliveryAcceptance {
     var row: DeliveryTaskRow {
         var markers: [String] = []
         if status != .succeeded { markers.append(status.label.0) }
-        if !risks.isEmpty { markers.append("风险 \(risks.count) 条") }
-        if !traceGaps.isEmpty { markers.append("痕迹 \(traceGaps.count) 处") }
-        if !summary.reminders.isEmpty { markers.append("提醒 \(summary.reminders.count) 条") }
+        if !risks.isEmpty { markers.append(L.text("风险 \(risks.count) 条")) }
+        if !traceGaps.isEmpty { markers.append(L.text("痕迹 \(traceGaps.count) 处")) }
+        if !summary.reminders.isEmpty { markers.append(L.text("提醒 \(summary.reminders.count) 条")) }
         let failed = summary.criteria - summary.passed
         let unconfirmed = verifications.filter { !$0.passed }.count
         return DeliveryTaskRow(
@@ -296,8 +300,8 @@ struct RunRiskList: Equatable {
     /// 「展开全部 50 条（余下 45 条）」 / 「收起，只看前 5 条」; nil when nothing is folded.
     func toggleLabel(open: Bool) -> String? {
         guard isFoldable else { return nil }
-        if open { return "收起，只看前 \(min(total, Self.previewLimit)) 条" }
-        return "展开全部 \(total) 条（余下 \(hiddenWhenFolded) 条）"
+        if open { return L.text("收起，只看前 \(min(total, Self.previewLimit)) 条") }
+        return L.text("展开全部 \(total) 条（余下 \(hiddenWhenFolded) 条）")
     }
 }
 
@@ -331,14 +335,14 @@ struct DeliveryOverview: Equatable {
 
     /// 「通过 32 / 45 条 · 测试 12 条、命令 8 条 · 运行级风险 50 条 · 子任务风险 47 条 · 痕迹 1 处」
     var text: String {
-        var parts = ["通过 \(passed) / \(criteria) 条"]
-        var methodsText = methods.map { "\($0.label) \($0.count) 条" }
-        if unspecified > 0 { methodsText.append("未说明 \(unspecified) 条") }
-        if invalid > 0 { methodsText.append("方法不合法 \(invalid) 条") }
-        if !methodsText.isEmpty { parts.append(methodsText.joined(separator: "、")) }
-        if runRisks > 0 { parts.append("运行级风险 \(runRisks) 条") }
-        if taskRisks > 0 { parts.append("子任务风险 \(taskRisks) 条") }
-        if traceGaps > 0 { parts.append("痕迹 \(traceGaps) 处") }
+        var parts = [L.text("通过 \(passed) / \(criteria) 条")]
+        var methodsText = methods.map { L.text("\($0.label) \($0.count) 条") }
+        if unspecified > 0 { methodsText.append(L.text("未说明 \(unspecified) 条")) }
+        if invalid > 0 { methodsText.append(L.text("方法不合法 \(invalid) 条")) }
+        if !methodsText.isEmpty { parts.append(methodsText.joined(separator: L.text("、"))) }
+        if runRisks > 0 { parts.append(L.text("运行级风险 \(runRisks) 条")) }
+        if taskRisks > 0 { parts.append(L.text("子任务风险 \(taskRisks) 条")) }
+        if traceGaps > 0 { parts.append(L.text("痕迹 \(traceGaps) 处")) }
         return parts.joined(separator: " · ")
     }
 
@@ -346,12 +350,12 @@ struct DeliveryOverview: Equatable {
     /// uses, or nil when nothing does.
     var issuesText: String? {
         var parts: [String] = []
-        if failed > 0 { parts.append("\(failed) 条标准未通过") }
-        if runRisks > 0 { parts.append("运行级风险 \(runRisks) 条") }
-        if taskRisks > 0 { parts.append("子任务风险 \(taskRisks) 条") }
-        if traceGaps > 0 { parts.append("\(traceGaps) 处痕迹对不上") }
-        if unconfirmedVerifications > 0 { parts.append("\(unconfirmedVerifications) 项独立验证未确认") }
-        return parts.isEmpty ? nil : parts.joined(separator: "、")
+        if failed > 0 { parts.append(L.text("\(failed) 条标准未通过")) }
+        if runRisks > 0 { parts.append(L.text("运行级风险 \(runRisks) 条")) }
+        if taskRisks > 0 { parts.append(L.text("子任务风险 \(taskRisks) 条")) }
+        if traceGaps > 0 { parts.append(L.text("\(traceGaps) 处痕迹对不上")) }
+        if unconfirmedVerifications > 0 { parts.append(L.text("\(unconfirmedVerifications) 项独立验证未确认")) }
+        return parts.isEmpty ? nil : parts.joined(separator: L.text("、"))
     }
 }
 

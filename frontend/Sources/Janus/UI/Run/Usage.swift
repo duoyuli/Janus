@@ -19,12 +19,12 @@ struct UsageSection: View {
 
     /// What each row means, shown on hover.
     static let help: [String: String] = [
-        "Token": "每一轮 Agent 上报的 token 相加（含子 Agent，Agent 按模型上报时以它为准）；缺失写「未上报」，不写 0；上下文快照不计入",
-        "构成": "Agent 上报的输入、缓存读取、缓存写入和输出；为 0 或没有上报的部分不列出",
-        "费用": "Agent 上报的原值，不同币种或口径不合并；没有上报时写「未上报」，不根据 token 估算",
-        "耗时": "墙钟时长：从任务创建到最后一条事件。等待你的时间单独写出，不当作 Agent 执行时间",
-        "上下文": "上下文快照只显示最近值、峰值和比例，不计入 token 总量",
-        "小计": "任务总计包含负责人；负责人和协作者分开列出，方便对比",
+        "Token": L.text("每一轮 Agent 上报的 token 相加（含子 Agent，Agent 按模型上报时以它为准）；缺失写「未上报」，不写 0；上下文快照不计入"),
+        L.text("构成"): L.text("Agent 上报的输入、缓存读取、缓存写入和输出；为 0 或没有上报的部分不列出"),
+        L.text("费用"): L.text("Agent 上报的原值，不同币种或口径不合并；没有上报时写「未上报」，不根据 token 估算"),
+        L.text("耗时"): L.text("墙钟时长：从任务创建到最后一条事件。等待你的时间单独写出，不当作 Agent 执行时间"),
+        L.text("上下文"): L.text("上下文快照只显示最近值、峰值和比例，不计入 token 总量"),
+        L.text("小计"): L.text("任务总计包含负责人；负责人和协作者分开列出，方便对比"),
     ]
 
     var body: some View {
@@ -37,31 +37,31 @@ struct UsageSection: View {
             }
             UsageRow(label: subtotal.label, value: subtotal.value).help(Self.help[subtotal.label] ?? "")
             HStack(spacing: 8) {
-                Text(verbatim: "\(u.run.sessions) 个会话").font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: L.text("\(u.run.sessions) 个会话")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 // A disclosure, not a link: it opens the task and member list at this level.
                 Button { detail.toggle() } label: {
                     HStack(spacing: 4) {
                         Image(systemName: detail ? "chevron.down" : "chevron.right")
                             .font(.caption2.weight(.semibold))
-                        Text(detail ? "收起明细" : "子任务与成员明细").font(.callout)
+                        Text(detail ? L.text("收起明细") : L.text("子任务与成员明细")).font(.callout)
                     }
                     .foregroundStyle(Color.accent)
                 }
                 .buttonStyle(.plain)
-                .help("按子任务和成员展开这次任务的用量，每个数字都来自 session.usage 事件")
-                .accessibilityLabel(detail ? "收起子任务与成员明细" : "展开子任务与成员明细")
+                .help(L.text("按子任务和成员展开这次任务的用量，每个数字都来自 session.usage 事件"))
+                .accessibilityLabel(detail ? L.text("收起子任务与成员明细") : L.text("展开子任务与成员明细"))
             }
             if detail { details(u) }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("这次任务的用量明细")
+        .accessibilityLabel(L.text("这次任务的用量明细"))
     }
 
     @ViewBuilder private func details(_ u: UsageLedger) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             if u.tasks.isEmpty && u.members.isEmpty {
-                Text("还没有子任务和会话。").font(.caption).foregroundStyle(.secondary)
+                Text(L.text("还没有子任务和会话。")).font(.caption).foregroundStyle(.secondary)
             }
             ForEach(u.tasks, id: \.id) { scope in
                 Button { run.show(.task(scope.id)) } label: {
@@ -75,7 +75,7 @@ struct UsageSection: View {
                     .hoverable(6)
                 }
                 .buttonStyle(.plain)
-                .help("\(u.taskDetail(scope)) · \(scope.costDetail)，点按打开子任务页")
+                .help(L.text("\(u.taskDetail(scope)) · \(scope.costDetail)，点按打开子任务页"))
             }
             if !u.tasks.isEmpty && !u.members.isEmpty { Divider() }
             ForEach(u.members, id: \.id) { member in
@@ -84,7 +84,7 @@ struct UsageSection: View {
                         let w = run.who(member.id)
                         Avatar(initials: w.initials, color: w.color, size: 14)
                         Text(w.name).font(.callout).lineLimit(1)
-                        if member.id == "lead", w.name != "负责人" { Text("负责人").font(.caption2).foregroundStyle(.secondary) }
+                        if member.id == "lead", w.name != L.text("负责人") { Text(L.text("负责人")).font(.caption2).foregroundStyle(.secondary) }
                         Spacer(minLength: 8)
                         Text(verbatim: u.memberDetail(member)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -92,7 +92,7 @@ struct UsageSection: View {
                     .hoverable(6)
                 }
                 .buttonStyle(.plain)
-                .help(u.memberDetail(member) + (member.contextDetail.map { " · 上下文 \($0)" } ?? ""))
+                .help(u.memberDetail(member) + (member.contextDetail.map { L.text(" · 上下文 \($0)") } ?? ""))
             }
         }
         .padding(.leading, 4)
@@ -113,7 +113,7 @@ struct UsageRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label)：\(value)")
+        .accessibilityLabel(L.text("\(label)：\(value)"))
     }
 }
 
@@ -131,7 +131,7 @@ struct UsageReceipt: View {
             VStack(spacing: 3) {
                 Text(bill.headlineCaption).font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(bill.headline).font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
-                    .help(bill.tokens.total.map { "\(usageNum($0)) tokens" } ?? "没有会话上报 token")
+                    .help(bill.tokens.total.map { "\(usageNum($0)) tokens" } ?? L.text("没有会话上报 token"))
                 Text(bill.headlineDetail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
@@ -144,7 +144,7 @@ struct UsageReceipt: View {
                 HStack {
                     Text(bill.groupsTitle)
                     Spacer()
-                    Text(bill.priced ? "估算 · TOKEN" : "TOKEN")
+                    Text(bill.priced ? L.text("估算 · TOKEN") : "TOKEN")
                 }
                 .font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
                 ForEach(bill.groups) { g in ReceiptGroup(group: g) }
@@ -199,7 +199,7 @@ private struct ReceiptAmount: View {
     let bold: Bool
 
     var body: some View {
-        let compact = tokens.total.map(usageCompact) ?? "未上报"
+        let compact = tokens.total.map(usageCompact) ?? L.text("未上报")
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             if let estimate {
                 Text(compact).font(.caption2).foregroundStyle(.secondary)
@@ -209,7 +209,7 @@ private struct ReceiptAmount: View {
             }
         }
         .monospacedDigit()
-        .help(tokens.total.map { "\(usageNum($0)) tokens · \(turns) 轮" } ?? "没有上报 token")
+        .help(tokens.total.map { L.text("\(usageNum($0)) tokens · \(turns) 轮") } ?? L.text("没有上报 token"))
     }
 }
 

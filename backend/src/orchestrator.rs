@@ -984,7 +984,7 @@ impl App {
 const LEAD_REPLY: &str = "负责人回复：";
 
 /// The heading the lead puts its suggested additions to the shared material under (see `goal_brief`).
-const BRIEF_HEADING: &str = "建议更新共享资料";
+const BRIEF_HEADING: &str = "Suggested Updates to Shared Context";
 
 /// Read-only git query (see `git_probe::read_only`); not for commands that write the repository.
 pub async fn git(cwd: &Path, args: &[&str]) -> Result<String> {

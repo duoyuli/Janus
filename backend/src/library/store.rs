@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 /// The most one skill may hold.
-const MAX_BYTES: u64 = 20 * 1024 * 1024;
+pub(super) const MAX_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_FILES: usize = 2000;
 const MAX_DEPTH: usize = 16;
 

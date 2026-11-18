@@ -33,7 +33,7 @@ Janus 是罗马神话中的门神，也是开端与转换之神。他有两张�
 | --- | --- |
 | Agent（Provider 连接） | 一个可启动的编码 Agent，例如 Codex 或 Claude Code。每个 Agent 有独立的配置目录和凭据。 |
 | 数字员工 | 绑定一个 Agent，并指定名字、职责、模型、推理强度、权限模式，以及从资源库中选用的 Skill 和 MCP 服务器。 |
-| 资源库 | Skill 和 MCP 服务器只保存一份，由数字员工按需选用。可以在应用中写 Skill、复制本机文件夹、粘贴 MCP 配置，或从 GitHub 仓库导入。每个会话启动时拿到所属数字员工的资源（Claude Code 是插件，Codex 是额外的 Skill 目录，两者都带 MCP 服务器），不写任何 Agent 的配置文件。 |
+| 资源库 | Skill 和 MCP 服务器只保存一份，由数字员工按需选用。可以在应用中写 Skill、从本机文件夹批量复制 Skill、粘贴 MCP 配置，或从 GitHub 仓库导入。每个会话启动时拿到所属数字员工的资源（Claude Code 是插件，Codex 是额外的 Skill 目录，两者都带 MCP 服务器），不写任何 Agent 的配置文件。 |
 | 工作区 | 一个本机目录，加上一组数字员工，其中一名是负责人。 |
 | 任务 | 在工作区中提交的一个目标，从创建到交付、验收的全过程。 |
 | 负责人 | 用 `/goal` 推进目标的 Agent，只能是 Claude Code 或 Codex。它决定自己做，还是通过编排交给协作者。 |
@@ -48,6 +48,8 @@ Janus 是罗马神话中的门神，也是开端与转换之神。他有两张�
 3. 需要 Apple 芯片（M 系列）的 Mac、macOS 15 以上：Janus 只支持最近三个 macOS 大版本（15、26、27）。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node。Codex 和 Claude Code 的适配器自带对应的 CLI。
 
 应用自带 Janus 服务，打开即用；如果你已经用 `just start` 运行了 Janus，应用会直接连接它。详见[部署方案](docs/operations/20261031-deployment.md#macos_app)。
+
+Janus 支持简体中文和英文，跟随 macOS 首选语言，无匹配时使用简体中文。可在「系统设置 → 通用 → 语言与地区 → 应用程序」为 Janus 选择语言，然后退出并重新打开应用。
 
 首次安装或升级后，应用自动显示 macOS 权限引导，也可以在「设置 → macOS 权限」继续。一键按顺序处理完整磁盘访问、应用程序管理和屏幕录制；授权仍需在系统界面确认。前两项显示手动确认记录，屏幕录制显示系统检查结果。独立服务启动的 Agent 可能需要单独授权，见 [macOS 权限](docs/architecture/20261031-frontend.md#macos_permissions)。
 

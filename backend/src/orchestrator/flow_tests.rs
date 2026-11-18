@@ -478,7 +478,7 @@ async fn shared_material_reaches_everyone_and_suggestions_come_back() {
     wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
     std::fs::write(
         h.dir.join("fake/lead-go"),
-        "做完了。\n\n## 建议更新共享资料\n- 定价页在 docs/pricing.md\n- 免费版限 3 个项目",
+        "做完了。\n\n## Suggested Updates to Shared Context\n- 定价页在 docs/pricing.md\n- 免费版限 3 个项目",
     )
     .unwrap();
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -489,13 +489,14 @@ async fn shared_material_reaches_everyone_and_suggestions_come_back() {
         .map(|e| e.data.as_ref().unwrap()["prompt"].as_str().unwrap_or("").to_string())
         .collect();
     assert!(
-        prompts.iter().any(|p| p.contains("工作区共享资料（") && p.contains("目标用户是独立开发者")),
+        prompts.iter().any(|p| p.contains("Shared workspace context") && p.contains("目标用户是独立开发者")),
         "the lead sees it: {prompts:?}"
     );
     let d = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap();
     assert_eq!(d["briefSuggestions"], json!(["定价页在 docs/pricing.md", "免费版限 3 个项目"]));
     assert!(
-        d["summary"].as_str().unwrap().starts_with("做完了。") && !d["summary"].as_str().unwrap().contains("建议更新"),
+        d["summary"].as_str().unwrap().starts_with("做完了。")
+            && !d["summary"].as_str().unwrap().contains(BRIEF_HEADING),
         "{d}"
     );
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -1792,7 +1793,7 @@ async fn pasted_images_reach_the_agent() {
         .find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "context"))
         .unwrap();
     assert!(
-        brief.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains(&format!("[附图 1] {goal_image}")),
+        brief.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains(&format!("[Image 1] {goal_image}")),
         "the brief names the goal's image"
     );
     assert!(
@@ -1810,7 +1811,7 @@ async fn pasted_images_reach_the_agent() {
     let sent = evs.iter().find(|e| e.kind == "user.message").unwrap();
     let d = sent.data.as_ref().unwrap();
     let path = d["images"][0]["path"].as_str().unwrap();
-    assert!(d["text"].as_str().unwrap().contains(&format!("[附图 1] {path}")), "{d}");
+    assert!(d["text"].as_str().unwrap().contains(&format!("[Image 1] {path}")), "{d}");
     assert_eq!(d["images"][0]["name"], "报错.png");
     assert!(!serde_json::to_string(&evs).unwrap().contains(&shot), "events hold paths, not bytes");
     std::fs::write(h.dir.join("fake/lead-go"), "看过了").unwrap();

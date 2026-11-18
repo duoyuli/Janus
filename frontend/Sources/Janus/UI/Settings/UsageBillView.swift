@@ -15,29 +15,29 @@ struct UsageBillView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("按时间段汇总所有任务里 Agent 上报的 token：每一轮都计入，按 Agent 和模型分开。金额按 models.dev 的 API 价格估算，Janus 每天同步一次价格；Agent 自己上报的费用另列。")
+                Text(L.text("按时间段汇总所有任务里 Agent 上报的 token：每一轮都计入，按 Agent 和模型分开。金额按 models.dev 的 API 价格估算，Janus 每天同步一次价格；Agent 自己上报的费用另列。"))
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
-                    Picker("区间", selection: $period) {
+                    Picker(L.text("区间"), selection: $period) {
                         ForEach(UsagePeriod.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                     .frame(maxWidth: 360)
                     Spacer()
-                    Button(syncing ? "正在同步价格…" : "同步价格") { Task { await syncPrices() } }
+                    Button(syncing ? L.text("正在同步价格…") : L.text("同步价格")) { Task { await syncPrices() } }
                         .disabled(syncing)
-                        .help("立即从 models.dev 下载最新的模型价格")
+                        .help(L.text("立即从 models.dev 下载最新的模型价格"))
                     if let bill {
-                        Button("复制账单") {
+                        Button(L.text("复制账单")) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(bill.text, forType: .string)
-                            store.show("已复制用量账单")
+                            store.show(L.text("已复制用量账单"))
                         }
                     }
                 }
                 if let failure {
-                    Note(text: "读取用量失败：\(failure)", tone: .red)
+                    Note(text: L.text("读取用量失败：\(failure)"), tone: .red)
                 } else if let bill {
                     Card(padding: 22) { UsageReceipt(bill: bill) }
                         .frame(maxWidth: 520)
@@ -58,7 +58,7 @@ struct UsageBillView: View {
             _ = try await store.api.post("/api/prices/sync", [:])
             await load()
         } catch {
-            store.show("同步价格失败：\(error.localizedDescription)")
+            store.show(L.text("同步价格失败：\(error.localizedDescription)"))
         }
     }
 

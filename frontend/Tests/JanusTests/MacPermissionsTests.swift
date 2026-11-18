@@ -143,7 +143,7 @@ import Testing
     system.settingsOpen = false
     let p = system.make()
     p.begin(.appManagement)
-    #expect(p.error?.contains("无法打开系统设置") == true)
+    #expect(p.error?.contains(expectedCopy("无法打开系统设置", "Could not open System Settings")) == true)
     #expect(p.status(.appManagement) == .needsConfirmation)
     system.settingsOpen = true
     p.openSettings(.appManagement)
@@ -151,6 +151,6 @@ import Testing
     system.saveFails = true
     p.confirmCurrent()
     #expect(p.status(.appManagement) == .manuallyConfirmed && p.flow == .complete)
-    #expect(p.error?.contains("无法保存") == true)
+    #expect(p.error?.contains(expectedCopy("无法保存", "Could not save")) == true)
     #expect(system.saved == nil)
 }

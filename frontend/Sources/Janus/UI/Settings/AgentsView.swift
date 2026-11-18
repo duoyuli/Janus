@@ -9,27 +9,27 @@ struct AgentsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("每个 Agent 在独立的进程和配置目录里运行，不影响你本机的 Agent。").font(.callout).foregroundStyle(.secondary)
+                    Text(L.text("每个 Agent 在独立的进程和配置目录里运行，不影响你本机的 Agent。")).font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("添加 Agent") { editing = newDraft(store.connections.isEmpty ? "codex" : "claude") }.buttonStyle(.primary)
+                    Button(L.text("添加 Agent")) { editing = newDraft(store.connections.isEmpty ? "codex" : "claude") }.buttonStyle(.primary)
                 }
                 if store.connections.isEmpty {
                     Card(padding: 20) {
-                        Text("还没有接入 Agent").font(.display(.title3))
-                        Text("把你本机已经在用的 Agent 迁移过来，配置和凭据会一并复制。").foregroundStyle(.secondary)
+                        Text(L.text("还没有接入 Agent")).font(.display(.title3))
+                        Text(L.text("把你本机已经在用的 Agent 迁移过来，配置和凭据会一并复制。")).foregroundStyle(.secondary)
                         HStack {
                             ForEach(["codex", "claude"].compactMap { store.kind($0) }, id: \.self) { k in
                                 Button { editing = newDraft(k["id"].str) } label: {
                                     HStack {
                                         Avatar(initials: k["init"].str, color: k["color"].str, size: 28)
-                                        VStack(alignment: .leading) { Text(k["name"].str).fontWeight(.semibold); Text("复制本机配置").font(.caption).foregroundStyle(.secondary) }
+                                        VStack(alignment: .leading) { Text(k["name"].str).fontWeight(.semibold); Text(L.text("复制本机配置")).font(.caption).foregroundStyle(.secondary) }
                                     }
                                     .padding(8)
                                 }
-                                .help("复制本机 \(k["name"].str) 的配置和凭据")
+                                .help(L.text("复制本机 \(k["name"].str) 的配置和凭据"))
                             }
                         }
-                        Button("查看全部类型，包括 API Key、预设和自定义命令") { editing = newDraft("codex") }.buttonStyle(.link)
+                        Button(L.text("查看全部类型，包括 API Key、预设和自定义命令")) { editing = newDraft("codex") }.buttonStyle(.link)
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -93,26 +93,26 @@ struct ConnectionRow: View {
                     .hoverable(6)
                 }
                 .buttonStyle(.plain)
-                .help("编辑 \(c["name"].str)")
+                .help(L.text("编辑 \(c["name"].str)"))
                 Spacer()
-                if roles.isEmpty { Button("新建数字员工", action: newRole).buttonStyle(.link) }
+                if roles.isEmpty { Button(L.text("新建数字员工"), action: newRole).buttonStyle(.link) }
                 else {
                     HStack(spacing: -4) { ForEach(roles.prefix(4), id: \.self) { r in Avatar(initials: r["init"].str, color: r["color"].str, size: 20) } }
-                    Text(verbatim: "\(roles.count) 个数字员工").font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: L.text("\(roles.count) 个数字员工")).font(.caption).foregroundStyle(.secondary)
                 }
                 Dot(tone: tone, text: label).frame(width: 90, alignment: .leading).accessibilityElement(children: .combine)
                 Menu {
-                    if let login { Button(String("\(c["loggedIn"].truthy ? "重新登录" : "登录") \(login["label"].str)")) { Task { await store.login(c["id"].str) } } }
-                    Button("检查配置") { Task { await store.testConnection(c["id"].str) } }
-                    Button("编辑…", action: edit)
-                    Button("在这个 Agent 上新建数字员工…", action: newRole)
+                    if let login { Button(String("\(c["loggedIn"].truthy ? L.text("重新登录") : L.text("登录")) \(login["label"].str)")) { Task { await store.login(c["id"].str) } } }
+                    Button(L.text("检查配置")) { Task { await store.testConnection(c["id"].str) } }
+                    Button(L.text("编辑…"), action: edit)
+                    Button(L.text("在这个 Agent 上新建数字员工…"), action: newRole)
                     Divider()
-                    Button("删除…", role: .destructive) { remove() }
-                } label: { Label("更多操作", systemImage: "ellipsis.circle") }
+                    Button(L.text("删除…"), role: .destructive) { remove() }
+                } label: { Label(L.text("更多操作"), systemImage: "ellipsis.circle") }
                 .labelStyle(.iconOnly)
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("更多操作")
+                .help(L.text("更多操作"))
             }
             extra(login)
         }
@@ -122,7 +122,7 @@ struct ConnectionRow: View {
     @ViewBuilder private func extra(_ login: JSON?) -> some View {
         if login != nil && c["login"]["state"].str == "running" {
             VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: "按提示完成 \(login!["label"].str) 登录，完成后会自动测试。").font(.callout)
+                Text(verbatim: L.text("按提示完成 \(login!["label"].str) 登录，完成后会自动测试。")).font(.callout)
                 if c["loginLog"].truthy {
                     let log = c["loginLog"].str.replacingOccurrences(of: "\u{1b}\\[[0-9;]*m", with: "", options: .regularExpression)
                     CodeBlock(text: log, maxHeight: 160)
@@ -130,17 +130,17 @@ struct ConnectionRow: View {
                 }
             }
         } else if let login, !c["loggedIn"].truthy {
-            HStack { Note(text: "还没有登录 \(login["label"].str)。", tone: .amber); Button("登录") { Task { await store.login(c["id"].str) } } }
+            HStack { Note(text: L.text("还没有登录 \(login["label"].str)。"), tone: .amber); Button(L.text("登录")) { Task { await store.login(c["id"].str) } } }
         } else if c["status"].str == "testing" {
             CheckList(c: c)
         } else if c["status"].str == "error" {
             HStack {
                 Note(text: c["error"].str, tone: .red)
-                Button("重新检查") { Task { await store.testConnection(c["id"].str) } }
-                Button("修改配置", action: edit)
+                Button(L.text("重新检查")) { Task { await store.testConnection(c["id"].str) } }
+                Button(L.text("修改配置"), action: edit)
             }
         } else if c["status"].str == "untested" {
-            HStack { Text("还没有检查配置，读到模型后才能给数字员工使用。").font(.callout).foregroundStyle(.secondary); Button("检查") { Task { await store.testConnection(c["id"].str) } }.buttonStyle(.link) }
+            HStack { Text(L.text("还没有检查配置，读到模型后才能给数字员工使用。")).font(.callout).foregroundStyle(.secondary); Button(L.text("检查")) { Task { await store.testConnection(c["id"].str) } }.buttonStyle(.link) }
         }
     }
 
@@ -156,36 +156,36 @@ struct ConnectionRow: View {
     /// label cannot disagree with the buttons below it.
     private var status: (String, Tone) {
         switch c["phase"].str {
-        case "logging_in": return ("等待登录", .amber)
-        case "logged_out": return ("未登录", .amber)
-        case "testing": return ("检查中…", .blue)
-        case "ok": return ("可用", .green)
-        case "error": return ("失败", .red)
-        default: return ("未测试", .gray)
+        case "logging_in": return (L.text("等待登录"), .amber)
+        case "logged_out": return (L.text("未登录"), .amber)
+        case "testing": return (L.text("检查中…"), .blue)
+        case "ok": return (L.text("可用"), .green)
+        case "error": return (L.text("失败"), .red)
+        default: return (L.text("未测试"), .gray)
         }
     }
 
     private func sub(_ k: JSON?) -> String {
-        let auth = k?["auths"].array.first { $0["id"].str == c["auth"].str }?["label"].string
+        let auth = k?["auths"].array.first { $0["id"].str == c["auth"].str }?["label"].string.map(L.catalogText)
         let model = c["options"]["model"]
         let perms = Setup.controls(c).filter { $0["permission"].truthy }
-        let permText: String? = c["options"].isNull ? nil : !c["options"]["controls"].exists ? "未读取权限模式" : perms.isEmpty ? "无权限模式" : perms.map { $0["type"].str == "boolean" ? $0["name"].str : $0["options"].array.map { $0["name"].str }.joined(separator: " / ") }.joined(separator: "；")
-        return [k?["name"].string, auth, model.exists ? "\(model["options"].array.count) 个模型" : nil, permText].compactMap { $0 }.joined(separator: "，")
+        let permText: String? = c["options"].isNull ? nil : !c["options"]["controls"].exists ? L.text("未读取权限模式") : perms.isEmpty ? L.text("无权限模式") : perms.map { $0["type"].str == "boolean" ? $0["name"].str : $0["options"].array.map { $0["name"].str }.joined(separator: " / ") }.joined(separator: L.text("；"))
+        return [k?["name"].string, auth, model.exists ? L.text("\(model["options"].array.count) 个模型") : nil, permText].compactMap { $0 }.joined(separator: L.text("，"))
     }
 
     private func remove() {
         let used = store.roles.filter { $0["connection"].str == c["id"].str }.map { $0["name"].str }
-        let msg = used.isEmpty ? "" : "这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：\(used.joined(separator: "、"))"
-        guard confirm("删除「\(c["name"].str)」和它的独立目录（包括登录凭据）？", msg, ok: "删除") else { return }
+        let msg = used.isEmpty ? "" : L.text("这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：\(used.joined(separator: L.text("、")))")
+        guard confirm(L.text("删除「\(c["name"].str)」和它的独立目录（包括登录凭据）？"), msg, ok: L.text("删除")) else { return }
         Task {
-            do { try await store.delete("connections", c["id"].str); store.show("已删除 \(c["name"].str)") } catch { await store.loadSetup(); store.show(error.localizedDescription) }
+            do { try await store.delete("connections", c["id"].str); store.show(L.text("已删除 \(c["name"].str)")) } catch { await store.loadSetup(); store.show(error.localizedDescription) }
         }
     }
 }
 
 struct CheckList: View {
     let c: JSON
-    static let steps = ["ACP 适配器", "运行时", "凭据", "启动 Agent", "打开会话", "试运行"]
+    static let steps = [L.text("ACP 适配器"), L.text("运行时"), L.text("凭据"), L.text("启动 Agent"), L.text("打开会话"), L.text("试运行")]
 
     var body: some View {
         let done = c["check"].array
@@ -253,8 +253,8 @@ struct ConnectionEditor: View {
                 HStack(spacing: 10) {
                     Avatar(initials: k["init"].str, color: k["color"].str, size: 34)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(editing ? "编辑 \(prev?["name"].str ?? k["name"].str)" : "添加 Agent").font(.display(.title3))
-                        Text(k["desc"].str).font(.caption).foregroundStyle(.secondary)
+                        Text(editing ? L.text("编辑 \(prev?["name"].str ?? k["name"].str)") : L.text("添加 Agent")).font(.display(.title3))
+                        Text(L.catalogText(k["desc"].str)).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
                 }
@@ -264,9 +264,9 @@ struct ConnectionEditor: View {
                 Divider()
                 HStack {
                     Spacer()
-                    Button("取消") { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
-                    Button("保存并检查") { save(test: true) }.disabled(saving).help("保存并检查运行时、凭据、启动、会话和一次真实回复")
-                    Button(saving ? "正在保存…" : editing ? "保存" : "创建") { save(test: false) }.buttonStyle(.primary).keyboardShortcut(.defaultAction).disabled(saving)
+                    Button(L.text("取消")) { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
+                    Button(L.text("保存并检查")) { save(test: true) }.disabled(saving).help(L.text("保存并检查运行时、凭据、启动、会话和一次真实回复"))
+                    Button(saving ? L.text("正在保存…") : editing ? L.text("保存") : L.text("创建")) { save(test: false) }.buttonStyle(.primary).keyboardShortcut(.defaultAction).disabled(saving)
                 }
                 .padding(14)
             }
@@ -289,19 +289,22 @@ struct ConnectionEditor: View {
 
     private func rail(_ editing: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            TextField("搜索 Agent 类型", text: $query).textFieldStyle(.roundedBorder).padding(10)
+            TextField(L.text("搜索 Agent 类型"), text: $query).textFieldStyle(.roundedBorder).padding(10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach([("builtin", "内置"), ("preset", "预设"), ("custom", "自定义")], id: \.0) { g in
+                    ForEach([("builtin", L.text("内置")), ("preset", L.text("预设")), ("custom", L.text("自定义"))], id: \.0) { g in
                         let q = query.lowercased()
-                        let items = store.meta["kinds"].array.filter { $0["group"].str == g.0 && (q.isEmpty || "\($0["name"].str) \($0["id"].str) \($0["desc"].str)".lowercased().contains(q)) }
+                        let items = store.meta["kinds"].array.filter {
+                            $0["group"].str == g.0 && (q.isEmpty
+                                || "\(L.catalogText($0["name"].str)) \($0["id"].str) \(L.catalogText($0["desc"].str))".lowercased().contains(q))
+                        }
                         if !items.isEmpty {
                             Text(g.1).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 8)
                             ForEach(items, id: \.self) { t in
                                 Button { pickType(t["id"].str) } label: {
                                     HStack(spacing: 8) {
                                         Avatar(initials: t["init"].str, color: t["color"].str, size: 20)
-                                        Text(t["name"].str).lineLimit(1)
+                                        Text(L.catalogText(t["name"].str)).lineLimit(1)
                                         Spacer()
                                         if t["id"].str == draft["kind"].str { Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityHidden(true) }
                                     }
@@ -329,19 +332,19 @@ struct ConnectionEditor: View {
         let auth = auths.first { $0["id"].str == draft["auth"].str } ?? auths.first
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
-                field("名称") { TextField(k["name"].str, text: str("name")).textFieldStyle(.roundedBorder) }
+                field(L.text("名称")) { TextField(L.catalogText(k["name"].str), text: str("name")).textFieldStyle(.roundedBorder) }
                 field("ID", hint: "~/.janus/agents/\(editing ? draft["id"].str : draft["newId"].str)") {
                     if editing { TextField("ID", text: .constant(draft["id"].str)).labelsHidden().textFieldStyle(.roundedBorder).disabled(true).font(.system(.body, design: .monospaced)) }
                     else { TextField("ID", text: Binding(get: { draft["newId"].str }, set: { draft["newId"] = JSON($0); idTouched = !$0.isEmpty }), prompt: Text(verbatim: "codex")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                 }
             }
             if k["command"].truthy {
-                field("启动命令") { TextField("npx -y @zed-industries/claude-code-acp", text: str("command")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
+                field(L.text("启动命令")) { TextField("npx -y @zed-industries/claude-code-acp", text: str("command")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
             }
             if let auth {
-                field("认证", hint: auth["desc"].str) {
-                    Picker("认证", selection: Binding(get: { auth["id"].str }, set: { draft["auth"] = JSON($0) })) {
-                        ForEach(auths, id: \.self) { a in Text(a["label"].str).tag(a["id"].str) }
+                field(L.text("认证"), hint: L.catalogText(auth["desc"].str)) {
+                    Picker(L.text("认证"), selection: Binding(get: { auth["id"].str }, set: { draft["auth"] = JSON($0) })) {
+                        ForEach(auths, id: \.self) { a in Text(L.catalogText(a["label"].str)).tag(a["id"].str) }
                     }
                     .pickerStyle(.segmented).labelsHidden()
                 }
@@ -353,17 +356,17 @@ struct ConnectionEditor: View {
                 }
                 if auth["login"].truthy, let prev {
                     HStack {
-                        Text(prev["loggedIn"].truthy ? "已登录 \(auth["label"].str)。" : "还没有登录。").font(.callout).foregroundStyle(.secondary)
-                        Button(prev["loggedIn"].truthy ? "重新登录" : "现在登录") { Task { await store.login(prev["id"].str) } }.buttonStyle(.link)
+                        Text(prev["loggedIn"].truthy ? L.text("已登录 \(auth["label"].str)。") : L.text("还没有登录。")).font(.callout).foregroundStyle(.secondary)
+                        Button(prev["loggedIn"].truthy ? L.text("重新登录") : L.text("现在登录")) { Task { await store.login(prev["id"].str) } }.buttonStyle(.link)
                     }
                 }
             }
             if k["token"].truthy {
                 let eps = k["endpoints"].array
                 if !eps.isEmpty {
-                    field("接入点") {
-                        Picker("接入点", selection: Binding(get: { draft["endpoint"].string ?? eps[0]["id"].str }, set: { pickEndpoint($0, k) })) {
-                            ForEach(eps, id: \.self) { e in Text(e["label"].str).tag(e["id"].str) }
+                    field(L.text("接入点")) {
+                        Picker(L.text("接入点"), selection: Binding(get: { draft["endpoint"].string ?? eps[0]["id"].str }, set: { pickEndpoint($0, k) })) {
+                            ForEach(eps, id: \.self) { e in Text(L.catalogText(e["label"].str)).tag(e["id"].str) }
                         }
                         .pickerStyle(.segmented).labelsHidden()
                     }
@@ -373,18 +376,18 @@ struct ConnectionEditor: View {
             }
             if let prev, !prev["check"].array.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack { Text("配置检查").font(.headline); Spacer(); if prev["status"].str != "testing" { Button("重新检查") { Task { await store.testConnection(prev["id"].str) } }.buttonStyle(.link) } else { Text("检查中…").font(.caption).foregroundStyle(.secondary) } }
+                    HStack { Text(L.text("配置检查")).font(.headline); Spacer(); if prev["status"].str != "testing" { Button(L.text("重新检查")) { Task { await store.testConnection(prev["id"].str) } }.buttonStyle(.link) } else { Text(L.text("检查中…")).font(.caption).foregroundStyle(.secondary) } }
                     CheckList(c: prev)
                 }
                 .padding(12)
                 .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
             }
-            DisclosureGroup("高级设置", isExpanded: Binding(get: { advanced || draft["prompt"].truthy || draft["bin"].truthy }, set: { advanced = $0 })) {
+            DisclosureGroup(L.text("高级设置"), isExpanded: Binding(get: { advanced || draft["prompt"].truthy || draft["bin"].truthy }, set: { advanced = $0 })) {
                 VStack(alignment: .leading, spacing: 12) {
                     if k["runtime"].truthy {
-                        field("运行时路径") { TextField(k["runtime"]["detected"].truthy ? k["runtime"]["detected"].str : k["runtime"]["placeholder"].str, text: str("bin")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
+                        field(L.text("运行时路径")) { TextField(k["runtime"]["detected"].truthy ? k["runtime"]["detected"].str : k["runtime"]["placeholder"].str, text: str("bin")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                     }
-                    field("自定义提示词", hint: "排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在子任务说明末尾）。") {
+                    field(L.text("自定义提示词"), hint: L.text("排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在子任务说明末尾）。")) {
                         TextEditor(text: str("prompt")).font(.body).frame(height: 70).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     }
                     if !k["token"].truthy { envField(k) }
@@ -405,23 +408,24 @@ struct ConnectionEditor: View {
 
     @ViewBuilder private func inputField(_ f: JSON, _ prev: JSON?) -> some View {
         let key = f["key"].str
-        let label = f["label"].str + (f["required"].truthy ? "" : "（可选）")
+        let name = L.catalogText(f["label"].str)
+        let label = name + (f["required"].truthy ? "" : L.text("（可选）"))
         if f["type"].str == "select" {
             field(label) {
-                Picker(f["label"].str, selection: str(key)) { ForEach(f["options"].array, id: \.self) { o in Text(o[1].str).tag(o[0].str) } }.labelsHidden()
+                Picker(name, selection: str(key)) { ForEach(f["options"].array, id: \.self) { o in Text(o[1].str).tag(o[0].str) } }.labelsHidden()
             }
         } else if f["type"].str == "secret" {
             let saved = prev?["secretsSet"].strings.contains(key) == true
-            field(label, hint: f["help"].str) {
-                SecureField(saved ? "已保存，留空表示不修改" : f["placeholder"].str, text: Binding(get: { secrets[key] ?? "" }, set: { secrets[key] = $0 })).textFieldStyle(.roundedBorder)
+            field(label, hint: L.catalogText(f["help"].str)) {
+                SecureField(saved ? L.text("已保存，留空表示不修改") : f["placeholder"].str, text: Binding(get: { secrets[key] ?? "" }, set: { secrets[key] = $0 })).textFieldStyle(.roundedBorder)
             }
         } else {
-            field(label, hint: f["help"].str) { TextField(f["placeholder"].str, text: str(key)).textFieldStyle(.roundedBorder) }
+            field(label, hint: L.catalogText(f["help"].str)) { TextField(f["placeholder"].str, text: str(key)).textFieldStyle(.roundedBorder) }
         }
     }
 
     private func envField(_ k: JSON) -> some View {
-        field("环境变量", hint: k["token"].truthy ? "预设的默认值已经填好，可以直接修改；写成 KEY= 表示不设置这个变量。\(k["token"]["envKey"].str) 由上面的 token 填入。" : "写成 KEY= 表示不设置这个变量。") {
+        field(L.text("环境变量"), hint: k["token"].truthy ? L.text("预设的默认值已经填好，可以直接修改；写成 KEY= 表示不设置这个变量。\(k["token"]["envKey"].str) 由上面的 token 填入。") : L.text("写成 KEY= 表示不设置这个变量。")) {
             TextEditor(text: str("envText")).font(.system(.callout, design: .monospaced)).frame(minHeight: 70, maxHeight: 200).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
         }
     }
@@ -430,18 +434,18 @@ struct ConnectionEditor: View {
         if let p = preview {
             if p["error"].truthy { Note(text: p["error"].str, tone: .red) }
             else if p["files"].array.isEmpty && p["env"].array.isEmpty {
-                HStack { Note(text: "在 \(p["source"].str) 没有找到 \(k["name"].str) 的配置。", tone: .amber); if !showSource { Button("更改来源") { showSource = true } } }
+                HStack { Note(text: L.text("在 \(p["source"].str) 没有找到 \(k["name"].str) 的配置。"), tone: .amber); if !showSource { Button(L.text("更改来源")) { showSource = true } } }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack { Text(verbatim: "从 \(L.tilde(p["source"].str)) 复制").fontWeight(.semibold); if !showSource { Button("更改") { showSource = true }.buttonStyle(.link) } }
+                    HStack { Text(verbatim: L.text("从 \(L.tilde(p["source"].str)) 复制")).fontWeight(.semibold); if !showSource { Button(L.text("更改")) { showSource = true }.buttonStyle(.link) } }
                     ForEach(p["files"].array, id: \.self) { f in HStack { Text(f["file"].str).font(.system(.caption, design: .monospaced)); Text(f["note"].str).font(.caption).foregroundStyle(.secondary) } }
-                    ForEach(p["env"].array, id: \.self) { e in HStack { Text("$" + e["name"].str).font(.system(.caption, design: .monospaced)); Text("shell 环境变量").font(.caption).foregroundStyle(.secondary) } }
+                    ForEach(p["env"].array, id: \.self) { e in HStack { Text("$" + e["name"].str).font(.system(.caption, design: .monospaced)); Text(L.text("shell 环境变量")).font(.caption).foregroundStyle(.secondary) } }
                 }
                 .padding(10)
                 .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
             }
         } else {
-            Text("正在检查本机配置…").font(.callout).foregroundStyle(.secondary)
+            Text(L.text("正在检查本机配置…")).font(.callout).foregroundStyle(.secondary)
         }
     }
 
@@ -487,7 +491,7 @@ struct ConnectionEditor: View {
                     saved = d
                     secrets = [:]
                 } else {
-                    store.show("已保存 \(c["name"].str)，正在检查配置")
+                    store.show(L.text("已保存 \(c["name"].str)，正在检查配置"))
                     dismiss()
                 }
                 if auth != nil && store.connection(id)?["loggedIn"].truthy != true { await store.login(id) } else { await store.testConnection(id) }

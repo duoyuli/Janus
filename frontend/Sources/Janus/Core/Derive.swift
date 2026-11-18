@@ -507,55 +507,56 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
                 conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy, byLead: d["byLead"].truthy))
             }
         case "task.claimed":
-            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "认领：\(d["paths"].strings.joined(separator: "、"))", artifacts: []))
+            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("认领：\(d["paths"].strings.joined(separator: L.text("、")))"), artifacts: []))
         case "task.split_requested":
             let reason = d["reason"].string ?? e.text
             let count = d["subtasks"].array.count
             if let task = e.task { splits[task] = (seq: e.seq, text: reason) }
-            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "请求拆分（建议 \(count) 个子任务）：\(reason)", artifacts: []))
+            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("请求拆分（建议 \(count) 个子任务）：\(reason)"), artifacts: []))
         case "result.submitted":
             f.results.append(ResultFact(key: "r\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, task: e.task ?? "", summary: d["summary"].string ?? e.text, evidence: d["evidence"].strings, risks: d["risks"].strings, checks: Check.list(d["checks"])))
         case "context.handoff":
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: d["from"].str, to: e.task ?? "", agent: e.to ?? "", summary: d["summary"].str, artifacts: d["artifacts"].strings))
         case "orchestration.accepted":
             let ts = d["tasks"].array
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人提交编排", text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : "（依赖 \(x["deps"].strings.joined(separator: "、"))）")" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人提交编排"), text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : L.text("（依赖 \(x["deps"].strings.joined(separator: L.text("、")))）"))" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
         case "orchestration.rejected":
             let errs = d["errors"].strings
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "编排没有通过校验", text: errs.isEmpty ? e.text : errs.joined(separator: "\n"), agents: ["lead"]))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("编排没有通过校验"), text: errs.isEmpty ? e.text : errs.joined(separator: "\n"), agents: ["lead"]))
         case "board.posted":
             let text = d["text"].string ?? e.text
             if d["kind"].str == "blocker" { blockers.append((key: "ob\(e.seq)", seq: e.seq, task: e.task ?? "", text: text, actor: e.actor)) }
-            else { f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "\(d["kind"].str == "note" ? "备注" : "进展")：\(text)", artifacts: [])) }
+            else { f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("\(d["kind"].str == "note" ? L.text("备注") : L.text("进展"))：\(text)"), artifacts: [])) }
         case "question.answered":
             if let task = e.task { splits[task] = nil }
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "回答 \(e.task ?? "") 的提问", text: d["answer"].str + (d["note"].truthy ? "；\(d["note"].str)" : ""), tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("回答 \(e.task ?? "") 的提问"), text: d["answer"].str + (d["note"].truthy ? L.text("；\(d["note"].str)") : ""), tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
         case "approval.granted", "approval.denied":
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == "approval.granted" ? "批准一次操作" : "拒绝一次操作", text: e.text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == "approval.granted" ? L.text("批准一次操作") : L.text("拒绝一次操作"), text: e.text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
         case "risk.accepted":
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "接受风险并验收", text: e.text))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("接受风险并验收"), text: e.text))
         case "result.amended":
             if let task = e.task { gaps[task] = nil }
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人修订 \(e.task ?? "") 的结论", text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人修订 \(e.task ?? "") 的结论"), text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
         case "task.skipped_by_decision":
             if let task = e.task { splits[task] = nil }
-            if e.actor == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人取消 \(e.task ?? "")", text: e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
+            if e.actor == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人取消 \(e.task ?? "")"), text: e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "task.reopened":
             if let task = e.task { gaps[task] = nil; splits[task] = nil }
             if e.actor == "lead" {
-                let parts = [d["instructions"].truthy ? "新说明：\(d["instructions"].str)" : nil, d["accept"].truthy ? "新的验收标准：\(d["accept"].strings.joined(separator: "；"))" : nil].compactMap { $0 }
-                f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人重做 \(e.task ?? "")", text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
+                let parts = [d["instructions"].truthy ? L.text("新说明：\(d["instructions"].str)") : nil, d["accept"].truthy ? L.text("新的验收标准：\(d["accept"].strings.joined(separator: L.text("；")))") : nil].compactMap { $0 }
+                f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人重做 \(e.task ?? "")"), text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
             }
         case "task.succeeded":
             if let task = e.task { splits[task] = nil; gaps[task] = d["traceGaps"].strings.isEmpty ? nil : (seq: e.seq, gaps: d["traceGaps"].strings) }
-            if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人接受 \(e.task ?? "") 的结果", text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
+            if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人接受 \(e.task ?? "") 的结果"), text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "user.message":
             if e.actor == "lead", let task = e.task { splits[task] = nil }
             let images = Attach.paths(d).count
-            let words = Attach.visibleText(d["text"].string ?? e.text)
-            let text = images == 0 ? words : [words, "（附 \(images) 张图片）"].filter { !$0.isEmpty }.joined(separator: " ")
+            let raw = d["text"].string ?? e.text
+            let words = images == 0 ? raw : Attach.visibleText(raw)
+            let text = images == 0 ? words : [words, L.text("（附 \(images) 张图片）")].filter { !$0.isEmpty }.joined(separator: " ")
             let dup = d["delivery"].str == "prompt" && f.decisions.contains { $0.msg && $0.to == e.to && $0.text == text }
-            if !dup { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "给 \(name(e.to ?? "")) 的补充", text: text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }, msg: true, to: e.to)) }
+            if !dup { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("给 \(name(e.to ?? "")) 的补充"), text: text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }, msg: true, to: e.to)) }
             if !d["id"].exists, ["next", "queued"].contains(d["delivery"].str) { notes[e.to ?? "", default: []].append((seq: e.seq, text: text)) }
         case "message.delivered": if !d["ids"].exists { notes[e.to ?? ""] = nil }
         default: break
@@ -586,24 +587,25 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         var actions: [QuickAction] = []
         switch i.kind {
         case "question" where i.task != nil:
-            title = L.cn(who, "的提问等你回答")
+            title = L.text("「\(who)」的提问等你回答")
             actions = (t?.question?.options ?? []).map { o in
                 QuickAction(label: o, prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": JSON(i.task ?? ""), "answer": JSON(o), "note": ""])
             }
         case "question":
-            title = "负责人请你决定：\(L.short(i.d["question"].str, 40))"
+            title = L.text("负责人请你决定：\(L.short(i.d["question"].str, 40))")
             actions = i.d["options"].strings.map { o in
-                QuickAction(label: o, help: o == i.d["recommend"].str ? "负责人建议" : "", prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": "", "answer": JSON(o), "note": ""])
+                QuickAction(label: o, help: o == i.d["recommend"].str ? L.text("负责人建议") : "", prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": "", "answer": JSON(o), "note": ""])
             }
         case "approval":
-            title = L.cn(who, "请求你决定")
+            title = L.text("「\(who)」请求你决定")
             actions = L.permissionOptions(i.d["options"]).map { o in
                 QuickAction(label: o.label, help: o.help, prominent: o.kind == "allow_once", body: ["type": "approve", "key": JSON(i.key), "task": JSON(i.task ?? ""), "agent": JSON(i.agent ?? ""), "allow": JSON(o.kind.hasPrefix("allow")), "option": o.id.isEmpty ? .null : JSON(o.id), "label": JSON(o.name)])
             }
-        case "input": title = L.cn(who, "需要你\(i.d["mode"].str == "url" ? "打开链接" : "填写")")
-        case "session": title = L.cn(who, "这一轮结束，等你的消息")
-        case "budget": title = "任务达到预算，等你追加或停止"
-        default: title = "等你处理"
+        case "input":
+            title = i.d["mode"].str == "url" ? L.text("「\(who)」请你打开链接") : L.text("「\(who)」请你填写表单")
+        case "session": title = L.text("「\(who)」这一轮结束，等你的消息")
+        case "budget": title = L.text("任务达到预算，等你追加或停止")
+        default: title = L.text("等你处理")
         }
         var text: String
         switch i.kind {
@@ -617,10 +619,10 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, sub: t.map { "\($0.id) · \($0.title)" } ?? "", kind: i.kind, actions: actions))
     }
     if let ls = leadStall, st.active {
-        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: "负责人可能卡住了", text: ls.text, tasks: [], agents: ["lead"], you: true, sub: "可以在负责人的会话里发消息、打断并接管，或者继续等", kind: "lead_stall"))
+        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: L.text("负责人可能卡住了"), text: ls.text, tasks: [], agents: ["lead"], you: true, sub: L.text("可以在负责人的会话里发消息、打断并接管，或者继续等"), kind: "lead_stall"))
     }
     // Everything else that holds work up is the lead's to settle, not the person's.
-    let lead = "负责人在处理，不需要你操作"
+    let lead = L.text("负责人在处理，不需要你操作")
     // A shared edit that an overstep already covers is the same fact: keep the overstep.
     let covered = { (c: (seq: Int, task: String, other: String, paths: [String], owned: Bool, byLead: Bool)) in
         !c.owned && conflicts.contains { o in o.owned && o.byLead == c.byLead && Set([o.task, o.other]) == Set([c.task, c.other]) && Set(c.paths).isSubset(of: Set(o.paths)) }
@@ -628,37 +630,37 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     for c in conflicts where !covered(c) {
         if c.byLead {
             guard !(st.tasks[c.task]?.status.isEnded ?? true) else { continue }
-            let title = c.owned ? "负责人改了 \(c.task) 负责的文件" : "负责人和 \(c.task) 改了同一个文件"
-            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: "、"), tasks: [c.task], agents: [st.tasks[c.task]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+            let title = c.owned ? L.text("负责人改了 \(c.task) 负责的文件") : L.text("负责人和 \(c.task) 改了同一个文件")
+            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: L.text("、")), tasks: [c.task], agents: [st.tasks[c.task]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
         } else if c.owned ? st.tasks[c.task]?.status == .running : (st.tasks[c.task]?.status == .running || st.tasks[c.other]?.status == .running) {
-            let title = c.owned ? "\(c.task) 改了 \(c.other) 负责的文件" : "\(c.task) 和 \(c.other) 改了同一个文件"
-            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: "、"), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+            let title = c.owned ? L.text("\(c.task) 改了 \(c.other) 负责的文件") : L.text("\(c.task) 和 \(c.other) 改了同一个文件")
+            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: L.text("、")), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
         }
     }
     for (task, sp) in splits.sorted(by: { $0.value.seq < $1.value.seq }) where !(st.tasks[task]?.status.isEnded ?? true) {
-        f.open.append(OpenFact(key: "osp\(task)\(sp.seq)", seq: sp.seq, title: "\(task) 请求拆分子任务", text: sp.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "split_request"))
+        f.open.append(OpenFact(key: "osp\(task)\(sp.seq)", seq: sp.seq, title: L.text("\(task) 请求拆分子任务"), text: sp.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "split_request"))
     }
     // Until the lead redoes or corrects the task, or the run is handed over.
     if !(st.run.status.isDone || st.run.status == .cancelled) {
         for (task, g) in gaps.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == .succeeded {
-            f.open.append(OpenFact(key: "og\(g.seq)", seq: g.seq, title: "\(task) 的结果和工作目录对不上", text: g.gaps.joined(separator: "\n"), tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "trace"))
+            f.open.append(OpenFact(key: "og\(g.seq)", seq: g.seq, title: L.text("\(task) 的结果和工作目录对不上"), text: g.gaps.joined(separator: "\n"), tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "trace"))
         }
     }
     for (task, s) in stalls.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == .running {
-        f.open.append(OpenFact(key: "os\(task)\(s.seq)", seq: s.seq, title: "\(task) 可能卡住了", text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "stall"))
+        f.open.append(OpenFact(key: "os\(task)\(s.seq)", seq: s.seq, title: L.text("\(task) 可能卡住了"), text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "stall"))
     }
     for b in blockers where !(st.tasks[b.task]?.status.isEnded ?? false) {
-        f.open.append(OpenFact(key: b.key, seq: b.seq, title: "\(b.task) 遇到阻塞", text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead, kind: "blocker"))
+        f.open.append(OpenFact(key: b.key, seq: b.seq, title: L.text("\(b.task) 遇到阻塞"), text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead, kind: "blocker"))
     }
     for t in st.orderedTasks where t.status == .waitingInput {
         guard let q = t.question, q.answer == nil, !st.inbox.contains(where: { $0.key == q.key }) else { continue }
-        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: "\(t.id) 问负责人", text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "lead_question"))
+        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: L.text("\(t.id) 问负责人"), text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "lead_question"))
     }
     for t in st.orderedTasks where t.status == .failed || t.status == .verificationFailed {
-        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: "\(t.id) 失败，等负责人决定", text: t.error.isEmpty ? t.verificationFailures.joined(separator: "；") : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: "负责人可以重做、接受结果或取消", kind: "failed"))
+        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: L.text("\(t.id) 失败，等负责人决定"), text: t.error.isEmpty ? t.verificationFailures.joined(separator: L.text("；")) : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: L.text("负责人可以重做、接受结果或取消"), kind: "failed"))
     }
     for t in st.orderedTasks where t.status == .blocked {
-        f.open.append(OpenFact(key: "ob\(t.id)", seq: nil, title: "\(t.id) 等待 \(t.blockedBy)", text: "依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。", tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "blocked"))
+        f.open.append(OpenFact(key: "ob\(t.id)", seq: nil, title: L.text("\(t.id) 等待 \(t.blockedBy)"), text: L.text("依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。"), tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "blocked"))
     }
     // Once the run is over, a message that never arrived is marked on its decision card.
     if st.run.status.isDone || st.run.status == .cancelled || st.run.status == .failed {

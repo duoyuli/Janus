@@ -72,7 +72,7 @@ enum Attach {
         // "Copy Image", and the person means the picture.
         if takesText(pb) { return [] }
         for (type, ext) in [(NSPasteboard.PasteboardType.png, "png"), (NSPasteboard.PasteboardType("public.jpeg"), "jpg"), (.tiff, "png")] {
-            if let d = pb.data(forType: type), let img = prepare(d, name: "粘贴的图片.\(ext)") { return [img] }
+            if let d = pb.data(forType: type), let img = prepare(d, name: L.text("粘贴的图片.\(ext)")) { return [img] }
         }
         return []
     }
@@ -95,19 +95,21 @@ enum Attach {
     }
 
     /// The person's words of a message, without the lines Janus added to name its images
-    /// (`[附图 N] <path>`, see backend/src/attachments.rs); the images are shown instead.
+    /// (`[Image N] <path>`, or `[附图 N] <path>` in older messages); thumbnails are shown instead.
     static func visibleText(_ text: String) -> String {
         let lines = text.components(separatedBy: "\n")
         let kept = lines.filter { line in
             let t = line.trimmingCharacters(in: .whitespaces)
-            if t.range(of: #"^\[附图 \d+\] "#, options: .regularExpression) != nil { return false }
-            if t == "附图：" { return false }
-            if t.range(of: #"^用户发来了 \d+ 张图片，请先查看：$"#, options: .regularExpression) != nil { return false }
+            if imageLine.found(in: t) || legacyImageIntro.found(in: t) { return false }
+            if ["Attached images:", "Review the user's attached images:", "附图："].contains(t) { return false }
             return true
         }
         guard kept.count != lines.count else { return text }
         return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private static let imageLine = regex(#"^\[(?:Image|附图) \d+\] "#)
+    private static let legacyImageIntro = regex(#"^用户发来了 \d+ 张图片，请先查看：$"#)
 
     /// The stored paths of a goal's or a message's images, from its event data.
     static func paths(_ d: JSON) -> [String] { d["images"].array.map { $0["path"].str }.filter { !$0.isEmpty } }

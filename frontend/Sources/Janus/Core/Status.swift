@@ -24,15 +24,15 @@ enum RunStatus: String {
     /// How the run lists name it.
     var listLabel: (String, Tone) {
         switch self {
-        case .planning: return ("负责人启动中", .blue)
-        case .waitingInput: return ("等你追加预算", .amber)
-        case .running: return ("执行中", .blue)
-        case .delivered: return ("已交付", .green)
-        case .accepted: return ("已验收", .green)
-        case .failed: return ("失败", .red)
-        case .cancelled: return ("已停止", .gray)
-        case .interrupted: return ("已中断", .gray)
-        case .unknown: return ("未知", .gray)
+        case .planning: return (L.text("负责人启动中"), .blue)
+        case .waitingInput: return (L.text("等你追加预算"), .amber)
+        case .running: return (L.text("执行中"), .blue)
+        case .delivered: return (L.text("已交付"), .green)
+        case .accepted: return (L.text("已验收"), .green)
+        case .failed: return (L.text("失败"), .red)
+        case .cancelled: return (L.text("已停止"), .gray)
+        case .interrupted: return (L.text("已中断"), .gray)
+        case .unknown: return (L.text("未知"), .gray)
         }
     }
 }
@@ -62,19 +62,19 @@ enum TaskStatus: String {
 
     var label: (String, Tone) {
         switch self {
-        case .pending: return ("等待依赖", .gray)
-        case .ready: return ("就绪", .gray)
-        case .assigned: return ("已分配", .blue)
-        case .running: return ("执行中", .blue)
-        case .waitingInput: return ("等你回答", .amber)
-        case .waitingApproval: return ("等你审批", .amber)
-        case .blocked: return ("依赖失败", .amber)
-        case .skippedByDecision: return ("负责人取消", .gray)
-        case .verifying: return ("核对中", .violet)
-        case .verificationFailed: return ("没通过验收", .red)
-        case .succeeded: return ("已完成", .green)
-        case .failed: return ("失败", .red)
-        case .cancelled: return ("已取消", .gray)
+        case .pending: return (L.text("等待依赖"), .gray)
+        case .ready: return (L.text("就绪"), .gray)
+        case .assigned: return (L.text("已分配"), .blue)
+        case .running: return (L.text("执行中"), .blue)
+        case .waitingInput: return (L.text("等你回答"), .amber)
+        case .waitingApproval: return (L.text("等你审批"), .amber)
+        case .blocked: return (L.text("依赖失败"), .amber)
+        case .skippedByDecision: return (L.text("负责人取消"), .gray)
+        case .verifying: return (L.text("核对中"), .violet)
+        case .verificationFailed: return (L.text("没通过验收"), .red)
+        case .succeeded: return (L.text("已完成"), .green)
+        case .failed: return (L.text("失败"), .red)
+        case .cancelled: return (L.text("已取消"), .gray)
         }
     }
 }
@@ -85,9 +85,9 @@ enum AttemptStatus: String {
 
     var label: (String, Tone) {
         switch self {
-        case .running: return ("进行中", .blue)
-        case .succeeded: return ("成功", .green)
-        case .failed: return ("失败", .red)
+        case .running: return (L.text("进行中"), .blue)
+        case .succeeded: return (L.text("成功"), .green)
+        case .failed: return (L.text("失败"), .red)
         }
     }
 

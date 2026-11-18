@@ -30,35 +30,35 @@ private func ledger(tokens: UsageTokens? = nil, completeness: UsageCompleteness 
         sessions: [UsageSession(key: "a", actor: "lead", task: nil, attempt: nil, turns: 2,
                                 context: UsageContext(used: 78_000, size: 200_000, reports: 4))])
     #expect(all.runCardLine(tasks: 10, done: 3)
-        == "子任务 3 / 10 · 用量 76.8M tokens（完整） · 费用 44.2864 USD · 耗时 47 分 58 秒（墙钟） · 上下文 39%")
+        == expectedCopy("子任务 3 / 10 · 用量 76.8M tokens（完整） · 费用 44.2864 USD · 耗时 47 分 58 秒（墙钟） · 上下文 39%", "Subtasks: 3 / 10 · Usage: 76.8M tokens (Complete) · Cost: 44.2864 USD · Elapsed: 47 min 58 sec (wall time) · Context: 39%"))
     // VoiceOver gets every digit, never the compact form.
     #expect(all.runCardVoice(tasks: 10, done: 3)
-        == "子任务 3 / 10，用量 76,800,000 tokens（完整），费用 44.2864 USD，耗时 47 分 58 秒（墙钟），上下文 78,000 / 200,000（39%） · 峰值 90,000")
+        == expectedCopy("子任务 3 / 10，用量 76,800,000 tokens（完整），费用 44.2864 USD，耗时 47 分 58 秒（墙钟），上下文 78,000 / 200,000（39%） · 峰值 90,000", "Subtasks: 3 / 10, Usage: 76,800,000 tokens (Complete), Cost: 44.2864 USD, Elapsed: 47 min 58 sec (wall time), Context: 78,000 / 200,000 (39%) · Peak: 90,000"))
 
     // The compact line keeps 「N 个会话」 out (it is in the expanded ledger), while a cost row
     // that names several sessions still says so.
     var manySessions = all
     manySessions.run.cost = UsageCost(lines: [UsageCostLine(currency: "USD", amount: 44.2864, sessions: 9)], reportedSessions: 9)
-    #expect(manySessions.runCardLine(tasks: 10, done: 3).contains("费用 44.2864 USD ·"))
-    #expect(!manySessions.runCardLine(tasks: 10, done: 3).contains("个会话"))
-    #expect(manySessions.run.costDetail == "44.2864 USD（9 个会话）")
+    #expect(manySessions.runCardLine(tasks: 10, done: 3).contains(expectedCopy("费用 44.2864 USD ·", "Cost: 44.2864 USD ·")))
+    #expect(!manySessions.runCardLine(tasks: 10, done: 3).contains(expectedCopy("个会话", "sessions")))
+    #expect(manySessions.run.costDetail == expectedCopy("44.2864 USD（9 个会话）", "44.2864 USD (9 sessions)"))
 }
 
 @Test func runCardLineLeavesOutWhatWasNotReported() {
     let partial = ledger(tokens: UsageTokens(total: 15_400), completeness: .partial, durationMs: 65_000,
                          sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1, turns: 1)])
-    #expect(partial.runCardLine(tasks: 3, done: 2) == "子任务 2 / 3 · 用量 15.4K tokens（部分上报） · 耗时 1 分 05 秒（墙钟）")
+    #expect(partial.runCardLine(tasks: 3, done: 2) == expectedCopy("子任务 2 / 3 · 用量 15.4K tokens（部分上报） · 耗时 1 分 05 秒（墙钟）", "Subtasks: 2 / 3 · Usage: 15.4K tokens (Partially reported) · Elapsed: 1 min 05 sec (wall time)"))
 
     // Only a context snapshot: no tokens, no cost, but the ledger opens and the ratio is shown.
     let contextOnly = ledger(durationMs: 2_000, context: UsageContext(used: 52_000, size: 200_000, reports: 2),
                              sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1,
                                                      context: UsageContext(used: 52_000, size: 200_000, reports: 2))])
-    #expect(contextOnly.runCardLine(tasks: 2, done: 1) == "子任务 1 / 2 · 耗时 2 秒（墙钟） · 上下文 26%")
+    #expect(contextOnly.runCardLine(tasks: 2, done: 1) == expectedCopy("子任务 1 / 2 · 耗时 2 秒（墙钟） · 上下文 26%", "Subtasks: 1 / 2 · Elapsed: 2 sec (wall time) · Context: 26%"))
     #expect(contextOnly.hasUsage)
 
     // Nothing reported at all: only the wall-clock time, and no ledger control.
     let fresh = ledger(durationMs: 400)
-    #expect(fresh.runCardLine(tasks: 0, done: 0) == "耗时 不到 1 秒（墙钟）")
+    #expect(fresh.runCardLine(tasks: 0, done: 0) == expectedCopy("耗时 不到 1 秒（墙钟）", "Elapsed: Under 1 sec (wall time)"))
     #expect(!fresh.hasUsage)
     #expect(!UsageLedger.empty.hasUsage)
 }
@@ -109,16 +109,16 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     let checks = [check("一", "test"), check("二", "command"), check("三", "command", passed: false),
                   check("四", "reasoning"), check("五", "inspection")]
     let r = record("T3", title: "清理旧构建", accept: accept, checks: checks).row
-    #expect(r.metrics == "通过 4 / 5 条 · 测试 1 条、命令 2 条、检查 1 条、推理判断 1 条")
-    #expect(r.markers == ["提醒 1 条"])
+    #expect(r.metrics == expectedCopy("通过 4 / 5 条 · 测试 1 条、命令 2 条、检查 1 条、推理判断 1 条", "Passed 4 of 5 · Test: 1, Command: 2, Inspection: 1, Reasoning: 1"))
+    #expect(r.markers == [expectedCopy("提醒 1 条", "Notes: 1")])
     #expect(r.needsAttention, "a failed criterion opens the row by default")
     #expect(r.voice(open: true)
-        == "T3，清理旧构建，通过 4 / 5 条，测试 1 条、命令 2 条、检查 1 条、推理判断 1 条，已展开，提醒 1 条")
+        == expectedCopy("T3，清理旧构建，通过 4 / 5 条，测试 1 条、命令 2 条、检查 1 条、推理判断 1 条，已展开，提醒 1 条", "T3, 清理旧构建, Passed 4 of 5, Test: 1, Command: 2, Inspection: 1, Reasoning: 1, Expanded, Notes: 1"))
 
     // Everything passed and nothing else reported: collapsed, no markers.
     let clean = record("T1", title: "调研", accept: ["一", "二"], checks: [check("一", "test"), check("二", "command")]).row
     #expect(clean.markers.isEmpty && !clean.needsAttention)
-    #expect(clean.voice(open: false) == "T1，调研，通过 2 / 2 条，测试 1 条、命令 1 条，已收起")
+    #expect(clean.voice(open: false) == expectedCopy("T1，调研，通过 2 / 2 条，测试 1 条、命令 1 条，已收起", "T1, 调研, Passed 2 of 2, Test: 1, Command: 1, Collapsed"))
 }
 
 @Test func deliveryRowsOpenOnAttentionAndOnlyMarkReminders() {
@@ -135,11 +135,11 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     // A reminder alone marks the row and leaves it folded.
     let reminder = record("T1", accept: ["一"], checks: [check("一", "reasoning")])
     #expect(!reminder.row.needsAttention)
-    #expect(reminder.row.markers == ["提醒 1 条"])
+    #expect(reminder.row.markers == [expectedCopy("提醒 1 条", "Notes: 1")])
 
     // A task that did not succeed says so in words.
     let failed = record("T2", status: .verificationFailed, accept: ["一"], checks: passed)
-    #expect(failed.row.markers == ["没通过验收"])
+    #expect(failed.row.markers == [expectedCopy("没通过验收", "Acceptance check failed")])
     #expect(!failed.row.needsAttention, "the default expansion rules do not include the status alone")
 }
 
@@ -153,8 +153,8 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     let o = deliveryOverview([first, second], runRisks: ["上线前要跑一次全量"])
     #expect(o.criteria == 8 && o.passed == 7 && o.failed == 1)
     #expect(o.runRisks == 1 && o.taskRisks == 1 && o.risks == 2)
-    #expect(o.text == "通过 7 / 8 条 · 测试 4 条、命令 2 条、检查 1 条、推理判断 1 条 · 运行级风险 1 条 · 子任务风险 1 条 · 痕迹 1 处")
-    #expect(o.issuesText == "1 条标准未通过、运行级风险 1 条、子任务风险 1 条、1 处痕迹对不上、1 项独立验证未确认")
+    #expect(o.text == expectedCopy("通过 7 / 8 条 · 测试 4 条、命令 2 条、检查 1 条、推理判断 1 条 · 运行级风险 1 条 · 子任务风险 1 条 · 痕迹 1 处", "Passed 7 of 8 · Test: 4, Command: 2, Inspection: 1, Reasoning: 1 · Run risks: 1 · Subtask risks: 1 · Trace discrepancies: 1"))
+    #expect(o.issuesText == expectedCopy("1 条标准未通过、运行级风险 1 条、子任务风险 1 条、1 处痕迹对不上、1 项独立验证未确认", "Failed criteria: 1, Run risks: 1, Subtask risks: 1, Trace discrepancies: 1, Unconfirmed independent reviews: 1"))
     #expect(deliveryOverview([], runRisks: []).issuesText == nil)
 }
 
@@ -167,10 +167,10 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     let many = (1...50).map { "r\($0)" }
     let folded = runRiskList(many, open: false)
     #expect(folded.shown.count == RunRiskList.previewLimit && folded.hiddenNow == 45)
-    #expect(folded.toggleLabel(open: false) == "展开全部 50 条（余下 45 条）")
+    #expect(folded.toggleLabel(open: false) == expectedCopy("展开全部 50 条（余下 45 条）", "Show all 50 (45 more)"))
     let open = runRiskList(many, open: true)
     #expect(open.shown == many && open.hiddenNow == 0)
-    #expect(open.toggleLabel(open: true) == "收起，只看前 5 条")
+    #expect(open.toggleLabel(open: true) == expectedCopy("收起，只看前 5 条", "Collapse to the first 5"))
     // At or under the preview there is no control, and opening changes nothing.
     let exact = runRiskList(Array(many.prefix(RunRiskList.previewLimit)), open: false)
     #expect(!exact.isFoldable && exact.toggleLabel(open: false) == nil && exact.shown.count == 5)

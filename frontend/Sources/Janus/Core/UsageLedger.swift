@@ -14,9 +14,9 @@ enum UsageCompleteness: String {
 
     var label: String {
         switch self {
-        case .missing: return "未上报"
-        case .complete: return "完整"
-        case .partial: return "部分上报"
+        case .missing: return L.text("未上报")
+        case .complete: return L.text("完整")
+        case .partial: return L.text("部分上报")
         }
     }
 
@@ -236,12 +236,12 @@ struct UsageAttempt: Identifiable, Equatable {
 
         var label: String {
             switch self {
-            case .unfinished: return "未完成"
-            case .succeeded: return "成功"
-            case .failed: return "失败"
-            case .verificationFailed: return "验证没通过"
-            case .expired: return "已过期但仍计入"
-            case .cancelled: return "已取消"
+            case .unfinished: return L.text("未完成")
+            case .succeeded: return L.text("成功")
+            case .failed: return L.text("失败")
+            case .verificationFailed: return L.text("验证没通过")
+            case .expired: return L.text("已过期但仍计入")
+            case .cancelled: return L.text("已取消")
             }
         }
     }
@@ -274,7 +274,7 @@ struct UsageLedger: Equatable {
 
     /// The run's tokens, cost and wall-clock time in one line: the backend's ledger line after
     /// 「用量：」 (`Ledger::summary_line`), which the shared cases compare.
-    var runLine: String { "\(run.tokensText) · \(run.costText) · 耗时 \(run.durationText)" }
+    var runLine: String { L.text("\(run.tokensText) · \(run.costText) · 耗时 \(run.durationText)") }
 
     /// Whether any session reported usage (tokens, a context snapshot or a cost): only then is
     /// there a ledger to open. A session that opened and reported nothing is not one.
@@ -296,23 +296,23 @@ struct UsageLedger: Equatable {
 
     /// The same summary with every token and context digit, for VoiceOver and the hover tip.
     func runCardVoice(tasks: Int, done: Int) -> String {
-        cardParts(tasks: tasks, done: done, compact: false).joined(separator: "，")
+        cardParts(tasks: tasks, done: done, compact: false).joined(separator: L.text("，"))
     }
 
     private func cardParts(tasks: Int, done: Int, compact: Bool) -> [String] {
         var parts: [String] = []
-        if tasks > 0 { parts.append("子任务 \(done) / \(tasks)") }
+        if tasks > 0 { parts.append(L.text("子任务 \(done) / \(tasks)")) }
         if let total = run.tokens.total {
             let n = compact ? usageCompact(total) : usageNum(total)
-            parts.append("用量 \(n) tokens（\(run.completeness.label)）")
+            parts.append(L.text("用量 \(n) tokens（\(run.completeness.label)）"))
         }
-        if !run.cost.lines.isEmpty { parts.append("费用 \(run.costAmountsText ?? run.costDetail)") }
-        parts.append("耗时 \(run.durationText)")
+        if !run.cost.lines.isEmpty { parts.append(L.text("费用 \(run.costAmountsText ?? run.costDetail)")) }
+        parts.append(L.text("耗时 \(run.durationText)"))
         if run.context.reports > 0 {
             if compact {
-                parts.append("上下文 \(run.context.ratio.map(usagePercent) ?? "没有比例")")
+                parts.append(L.text("上下文 \(run.context.ratio.map(usagePercent) ?? L.text("没有比例"))"))
             } else if let detail = run.contextDetail {
-                parts.append("上下文 \(detail)")
+                parts.append(L.text("上下文 \(detail)"))
             }
         }
         return parts
@@ -321,7 +321,7 @@ struct UsageLedger: Equatable {
     /// The reminders in one line, prefixed when the numbers are not complete.
     var remindersLine: String? {
         guard !reminders.isEmpty else { return nil }
-        return (run.completeness == .complete ? "提醒" : "提醒（按已上报数据）") + "：" + reminders.joined(separator: "；")
+        return (run.completeness == .complete ? L.text("提醒") : L.text("提醒（按已上报数据）")) + L.text("：") + reminders.joined(separator: L.text("；"))
     }
 }
 
@@ -329,54 +329,53 @@ struct UsageLedger: Equatable {
 
 extension UsageScope {
     /// `15,400 tokens（部分上报）`, or `未上报`: a number is only written when it was reported.
-    var tokensText: String { tokens.total.map { "\(usageNum($0)) tokens（\(completeness.label)）" } ?? "未上报" }
+    var tokensText: String { tokens.total.map { L.text("\(usageNum($0)) tokens（\(completeness.label)）") } ?? L.text("未上报") }
 
     /// `输入 1,200 · 缓存读取 5,000 · 输出 300`: what the tokens are made of, parts of 0 left out.
     var breakdown: String? {
-        let parts = [("输入", tokens.input), ("缓存读取", tokens.cachedRead), ("缓存写入", tokens.cachedWrite), ("输出", tokens.output)]
+        let parts = [(L.text("输入"), tokens.input), (L.text("缓存读取"), tokens.cachedRead), (L.text("缓存写入"), tokens.cachedWrite), (L.text("输出"), tokens.output)]
             .compactMap { label, n in n.flatMap { $0 > 0 ? "\(label) \(usageNum($0))" : nil } }
         guard !parts.isEmpty else { return nil }
-        let thought = tokens.thought.flatMap { $0 > 0 ? "（输出中推理 \(usageNum($0))）" : nil } ?? ""
+        let thought = tokens.thought.flatMap { $0 > 0 ? L.text("（输出中推理 \(usageNum($0))）") : nil } ?? ""
         return parts.joined(separator: " · ") + thought
     }
 
     /// `费用：未上报`, `费用：0.25 USD`, `费用：0.25 USD + 40 credits（币种或口径不同，未合并）`.
-    var costText: String {
-        let parts = cost.lines.map { l -> String in
-            if l.currency.isEmpty { return "\(usageMoney(l.amount))（未标注币种）" }
-            return l.sessions > 1 ? "\(usageMoney(l.amount)) \(l.currency)（\(l.sessions) 个会话）" : "\(usageMoney(l.amount)) \(l.currency)"
-        }
-        if parts.isEmpty { return "费用：未上报" }
-        if parts.count == 1, !cost.lines[0].currency.isEmpty { return "费用：\(parts[0])" }
-        return "费用：\(parts.joined(separator: " + "))（币种或口径不同，未合并）"
-    }
+    var costText: String { L.text("费用：\(costDetail)") }
 
-    /// The cost without its `费用：` label, for a row that already names it.
-    var costDetail: String { String(costText.dropFirst("费用：".count)) }
+    var costDetail: String {
+        let parts = cost.lines.map { l -> String in
+            if l.currency.isEmpty { return L.text("\(usageMoney(l.amount))（未标注币种）") }
+            return l.sessions > 1 ? L.text("\(usageMoney(l.amount)) \(l.currency)（\(l.sessions) 个会话）") : "\(usageMoney(l.amount)) \(l.currency)"
+        }
+        if parts.isEmpty { return L.text("未上报") }
+        if parts.count == 1, !cost.lines[0].currency.isEmpty { return parts[0] }
+        return parts.joined(separator: " + ") + L.text("（币种或口径不同，未合并）")
+    }
 
     /// The reported amounts without the 「N 个会话」 note `costText` adds: the run card's compact
     /// line leaves the session count to the expanded ledger (W1 F2).
     var costAmountsText: String? {
         let parts = cost.lines.map { l in
-            l.currency.isEmpty ? "\(usageMoney(l.amount))（未标注币种）" : "\(usageMoney(l.amount)) \(l.currency)"
+            l.currency.isEmpty ? L.text("\(usageMoney(l.amount))（未标注币种）") : "\(usageMoney(l.amount)) \(l.currency)"
         }
         guard !parts.isEmpty else { return nil }
         if parts.count == 1 { return parts[0] }
-        return parts.joined(separator: " + ") + "（币种或口径不同，未合并）"
+        return parts.joined(separator: " + ") + L.text("（币种或口径不同，未合并）")
     }
 
     /// Wall-clock time; it never stands in for agent execution time.
-    var durationText: String { durationMs.map { "\(L.dur(Double($0)))（墙钟）" } ?? "没有时长记录" }
+    var durationText: String { durationMs.map { L.text("\(L.dur(Double($0)))（墙钟）") } ?? L.text("没有时长记录") }
 
     /// `其中等待你 1 分 20 秒` when the range waited on a person.
-    var waitText: String? { waitMs.map { "其中等待你 \(L.dur(Double($0)))" } }
+    var waitText: String? { waitMs.map { L.text("其中等待你 \(L.dur(Double($0)))") } }
 
     /// `52,000 / 200,000（26%） · 峰值 61,000`; snapshots are never added to the tokens.
     var contextDetail: String? {
         guard context.reports > 0 else { return nil }
-        let used = context.used.map(usageNum) ?? "未上报"
-        var line = context.size.map { "\(used) / \(usageNum($0))（\(context.ratio.map(usagePercent) ?? "没有比例")）" } ?? used
-        if let peak = context.peak, let u = context.used, peak > u { line += " · 峰值 \(usageNum(peak))" }
+        let used = context.used.map(usageNum) ?? L.text("未上报")
+        var line = context.size.map { L.text("\(used) / \(usageNum($0))（\(context.ratio.map(usagePercent) ?? L.text("没有比例"))）") } ?? used
+        if let peak = context.peak, let u = context.used, peak > u { line += L.text(" · 峰值 \(usageNum(peak))") }
         return line
     }
 
@@ -386,10 +385,10 @@ extension UsageScope {
     /// Token, makeup, cost, wall-clock time and context: the rows of the run card and the task card.
     var summaryRows: [UsageLine] {
         var rows = [UsageLine(label: "Token", value: tokensText)]
-        if let breakdown { rows.append(UsageLine(label: "构成", value: breakdown)) }
-        rows.append(UsageLine(label: "费用", value: costDetail))
-        rows.append(UsageLine(label: "耗时", value: [durationText, waitText].compactMap { $0 }.joined(separator: " · ")))
-        if let contextDetail { rows.append(UsageLine(label: "上下文", value: contextDetail)) }
+        if let breakdown { rows.append(UsageLine(label: L.text("构成"), value: breakdown)) }
+        rows.append(UsageLine(label: L.text("费用"), value: costDetail))
+        rows.append(UsageLine(label: L.text("耗时"), value: [durationText, waitText].compactMap { $0 }.joined(separator: " · ")))
+        if let contextDetail { rows.append(UsageLine(label: L.text("上下文"), value: contextDetail)) }
         return rows
     }
 }
@@ -404,16 +403,16 @@ struct UsageLine: Equatable, Identifiable {
 
 extension UsageLedger {
     /// The run card's subtotal row: the lead is part of the run total and shown apart.
-    var subtotalLine: UsageLine { UsageLine(label: "小计", value: "负责人 \(lead.tokensText) · 协作者 \(collaborators.tokensText)") }
+    var subtotalLine: UsageLine { UsageLine(label: L.text("小计"), value: L.text("负责人 \(lead.tokensText) · 协作者 \(collaborators.tokensText)")) }
 
     /// One task in the expanded detail: its tokens and wall-clock time, or 「未开始」.
     func taskDetail(_ scope: UsageScope) -> String {
-        guard !scope.notStarted else { return "未开始" }
+        guard !scope.notStarted else { return L.text("未开始") }
         return ([scope.tokensText] + [scope.durationMs.map { L.dur(Double($0)) }].compactMap { $0 }).joined(separator: " · ")
     }
 
     /// One member in the expanded detail: its tokens, or 「没有会话」, and how many sessions it used.
-    func memberDetail(_ scope: UsageScope) -> String { "\(scope.notStarted ? "没有会话" : scope.tokensText) · \(scope.sessions) 个会话" }
+    func memberDetail(_ scope: UsageScope) -> String { L.text("\(scope.notStarted ? L.text("没有会话") : scope.tokensText) · \(scope.sessions) 个会话") }
 }
 
 /// Thousands separators for token counts, the same on every page.
@@ -567,14 +566,14 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         case "attempt.failed":
             ended(e, .failed, d["error"].string)
         case "attempt.late_result":
-            ended(e, .expired, "过期尝试的结果被忽略，用量照常计入")
+            ended(e, .expired, L.text("过期尝试的结果被忽略，用量照常计入"))
         case "verification.failed":
             let failures = d["failures"].strings
-            ended(e, .verificationFailed, failures.isEmpty ? nil : failures.joined(separator: "；"))
+            ended(e, .verificationFailed, failures.isEmpty ? nil : failures.joined(separator: L.text("；")))
         case "task.succeeded":
             ended(e, .succeeded, nil)
         case "task.failed":
-            ended(e, .failed, ["verification": "验收没通过", "attempts": "用完尝试次数"][d["reason"].str])
+            ended(e, .failed, ["verification": L.text("验收没通过"), "attempts": L.text("用完尝试次数")][d["reason"].str])
         case "task.skipped_by_decision":
             // The lead cancelled one task; Janus writes no attempt event for it (see below).
             if let task = e.task { taskCancelled[task] = min(taskCancelled[task] ?? ts, ts) }
@@ -633,9 +632,9 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         // records the cancel, so a failure event can still follow it. An attempt still running when
         // its cancel arrived was cancelled; what it reported stays counted.
         let cancel: (at: Int, note: String)? = switch (runCancelled, taskCancelled[b.task]) {
-        case let (run?, task?) where task <= run: (task, "负责人取消了这个子任务")
-        case let (run?, _): (run, "任务被取消")
-        case let (nil, task?): (task, "负责人取消了这个子任务")
+        case let (run?, task?) where task <= run: (task, L.text("负责人取消了这个子任务"))
+        case let (run?, _): (run, L.text("任务被取消"))
+        case let (nil, task?): (task, L.text("负责人取消了这个子任务"))
         case (nil, nil): nil
         }
         if let cancel, b.state != .succeeded, !(b.endedMs.map { $0 < cancel.at } ?? false) {
@@ -657,18 +656,18 @@ func usageReminders(_ ledger: UsageLedger, declared: Int) -> [String] {
     var out: [String] = []
     let total = ledger.run.tokens.total
     if let n = total, n >= 500_000 {
-        out.append("Token 用量偏高：已上报 \(usageNum(n)) tokens，达到默认提醒阈值 500,000")
+        out.append(L.text("Token 用量偏高：已上报 \(usageNum(n)) tokens，达到默认提醒阈值 500,000"))
     }
     if let n = total, n >= 50_000, let (task, used) = ledger.tasks.compactMap({ t in t.tokens.total.map { (t, $0) } }).max(by: { $0.1 < $1.1 }),
        Double(used) >= Double(n) * 0.6 {
-        out.append("大部分用量集中在一个子任务：\(task.id) 占 \(usageNum(n)) 的 \(usagePercent(Double(used) / Double(n)))")
+        out.append(L.text("大部分用量集中在一个子任务：\(task.id) 占 \(usageNum(n)) 的 \(usagePercent(Double(used) / Double(n)))"))
     }
     let collaborators = max(declared, ledger.members.filter { $0.id != "lead" }.count)
     if collaborators >= 5, !ledger.attempts.contains(where: { $0.state == .succeeded }), (ledger.run.durationMs ?? 0) >= 30 * 60 * 1000 {
-        out.append("协作者多但没有有效产出：\(collaborators) 个协作者，30 分钟内没有任何子任务成功")
+        out.append(L.text("协作者多但没有有效产出：\(collaborators) 个协作者，30 分钟内没有任何子任务成功"))
     }
     if let n = total, n >= 100_000, !ledger.run.cost.reported {
-        out.append("费用无法判断：有 token 用量，但没有任何会话上报费用")
+        out.append(L.text("费用无法判断：有 token 用量，但没有任何会话上报费用"))
     }
     return out
 }

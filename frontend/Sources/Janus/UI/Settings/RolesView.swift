@@ -9,21 +9,21 @@ struct RolesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("决定谁用什么模型、带什么指令和工具做事。").font(.callout).foregroundStyle(.secondary)
+                    Text(L.text("决定谁用什么模型、带什么指令和工具做事。")).font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("新建数字员工") { store.newRole() }.buttonStyle(.primary)
+                    Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
                 }
                 if store.okConnections.isEmpty {
                     HStack {
-                        Note(text: "还没有测试通过的 Agent。可以先编辑数字员工，测试通过后才能运行。", tone: .amber)
-                        Button("去测试") { store.openSettings("agents") }
+                        Note(text: L.text("还没有测试通过的 Agent。可以先编辑数字员工，测试通过后才能运行。"), tone: .amber)
+                        Button(L.text("去测试")) { store.openSettings("agents") }
                     }
                 }
                 if store.roles.isEmpty {
                     Card(padding: 20) {
-                        Text("还没有数字员工").font(.display(.title3))
-                        Text("数字员工决定谁做什么。先建一个负责人，再建几个负责具体工作的成员。").foregroundStyle(.secondary)
-                        Button("新建数字员工") { store.newRole() }.buttonStyle(.primary)
+                        Text(L.text("还没有数字员工")).font(.display(.title3))
+                        Text(L.text("数字员工决定谁做什么。先建一个负责人，再建几个负责具体工作的成员。")).foregroundStyle(.secondary)
+                        Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -42,13 +42,13 @@ struct RolesView: View {
         let k = c.flatMap { store.kind($0["kind"].str) }
         let kinds = r["resources"].strings.compactMap { store.libraryItem($0)?["kind"].str }
         let skills = kinds.filter { $0 == "skill" }.count, servers = kinds.filter { $0 == "mcp" }.count
-        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? "提示词" : "", skills == 0 ? "" : "\(skills) Skill", servers == 0 ? "" : "\(servers) MCP"].filter { !$0.isEmpty }
+        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? L.text("提示词") : "", skills == 0 ? "" : "\(skills) Skill", servers == 0 ? "" : "\(servers) MCP"].filter { !$0.isEmpty }
         return Button { store.editingRole = r } label: {
             HStack(spacing: 12) {
                 Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) { Text(r["name"].str).fontWeight(.semibold); if r["lead"].truthy { Pill("负责人", .violet) } }
-                    Text(([r["desc"].truthy ? r["desc"].str : r["role"].truthy ? r["role"].str : "还没有填写职责"] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 6) { Text(r["name"].str).fontWeight(.semibold); if r["lead"].truthy { Pill(L.text("负责人"), .violet) } }
+                    Text(([r["desc"].truthy ? r["desc"].str : r["role"].truthy ? r["role"].str : L.text("还没有填写职责")] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if let c {
@@ -56,12 +56,12 @@ struct RolesView: View {
                         Avatar(initials: k?["init"].str ?? "?", color: k?["color"].str ?? "#64748b", size: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(c["name"].str).font(.callout.weight(.medium))
-                            Text(verbatim: "\(r["model"].truthy ? r["model"].str : c["options"]["model"]["current"].truthy ? c["options"]["model"]["current"].str : "默认模型")\(r["effort"].truthy ? "，\(r["effort"].str)" : "")").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: "\(r["model"].truthy ? r["model"].str : c["options"]["model"]["current"].truthy ? c["options"]["model"]["current"].str : L.text("默认模型"))\(r["effort"].truthy ? L.text("，\(r["effort"].str)") : "")").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 200, alignment: .leading)
                 } else {
-                    Text("未选择 Agent").foregroundStyle(Tone.amber.color).frame(width: 200, alignment: .leading)
+                    Text(L.text("未选择 Agent")).foregroundStyle(Tone.amber.color).frame(width: 200, alignment: .leading)
                 }
                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
             }
@@ -70,15 +70,15 @@ struct RolesView: View {
             .hoverable(0)
         }
         .buttonStyle(.plain)
-        .help("编辑 \(r["name"].str)")
+        .help(L.text("编辑 \(r["name"].str)"))
     }
 
     /// "最近 27 个任务：10 个子任务 · 首次通过 70% · 验证失败 2 · 成功平均 5.2 分钟"
     static func statLine(_ x: JSON, runs: Int) -> String? {
         guard let tasks = x["tasks"].int, tasks > 0 else { return nil }
         let pct = { (n: Int) in "\(Int((Double(n) / Double(tasks) * 100).rounded()))%" }
-        let parts = ["\(tasks) 个子任务", "首次通过 \(pct(x["firstPass"].int ?? 0))", (x["failed"].int ?? 0) > 0 ? "失败 \(x["failed"].str)" : "", (x["verificationFailed"].int ?? 0) > 0 ? "验证没通过 \(x["verificationFailed"].str)" : "", x["avgMinutes"].truthy ? "成功平均 \(x["avgMinutes"].str) 分钟" : ""].filter { !$0.isEmpty }
-        return "最近 \(runs) 个任务：\(parts.joined(separator: " · "))"
+        let parts = [L.text("\(tasks) 个子任务"), L.text("首次通过 \(pct(x["firstPass"].int ?? 0))"), (x["failed"].int ?? 0) > 0 ? L.text("失败 \(x["failed"].str)") : "", (x["verificationFailed"].int ?? 0) > 0 ? L.text("验证没通过 \(x["verificationFailed"].str)") : "", x["avgMinutes"].truthy ? L.text("成功平均 \(x["avgMinutes"].str) 分钟") : ""].filter { !$0.isEmpty }
+        return L.text("最近 \(runs) 个任务：\(parts.joined(separator: " · "))")
     }
 }
 
@@ -101,7 +101,7 @@ struct RoleEditor: View {
                 Button { colors.toggle() } label: {
                     Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased(), color: r["color"].str, size: 34)
                 }
-                .buttonStyle(.plain).help("选择颜色").accessibilityLabel("数字员工颜色")
+                .buttonStyle(.plain).help(L.text("选择颜色")).accessibilityLabel(L.text("数字员工颜色"))
                 .popover(isPresented: $colors) {
                     HStack(spacing: 8) {
                         ForEach(AppStore.roleColors, id: \.self) { col in
@@ -118,9 +118,9 @@ struct RoleEditor: View {
                     .padding(12)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(r["id"].truthy ? "编辑数字员工" : "新建数字员工").font(.display(.title3))
+                    Text(r["id"].truthy ? L.text("编辑数字员工") : L.text("新建数字员工")).font(.display(.title3))
                     if let line = RolesView.statLine(store.roleStats["roles"][r["id"].str], runs: store.roleStats["runs"].int ?? 0) {
-                        Text(line).font(.caption).foregroundStyle(.secondary).help("首次通过：第一次尝试就完成，且验证一次通过")
+                        Text(line).font(.caption).foregroundStyle(.secondary).help(L.text("首次通过：第一次尝试就完成，且验证一次通过"))
                     }
                 }
                 Spacer()
@@ -130,67 +130,67 @@ struct RoleEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 12) {
-                        labeled("名称") { TextField("Reviewer", text: bind("name")).textFieldStyle(.roundedBorder) }
-                        labeled("定位") { TextField("评审", text: bind("role")).textFieldStyle(.roundedBorder) }
+                        labeled(L.text("名称")) { TextField("Reviewer", text: bind("name")).textFieldStyle(.roundedBorder) }
+                        labeled(L.text("定位")) { TextField(L.text("评审"), text: bind("role")).textFieldStyle(.roundedBorder) }
                     }
-                    labeled("职责") { TextField("独立检查变更，寻找风险与反例", text: bind("desc")).textFieldStyle(.roundedBorder) }
+                    labeled(L.text("职责")) { TextField(L.text("独立检查变更，寻找风险与反例"), text: bind("desc")).textFieldStyle(.roundedBorder) }
 
-                    section("由谁来做")
+                    section(L.text("由谁来做"))
                     HStack(alignment: .top, spacing: 12) {
                         labeled("Agent") {
                             Picker("Agent", selection: Binding(get: { r["connection"].str }, set: { r["connection"] = JSON($0); r["model"] = ""; r["effort"] = ""; r["session"] = [:] })) {
-                                Text("选择 Agent").tag("")
+                                Text(L.text("选择 Agent")).tag("")
                                 ForEach(store.connections, id: \.self) { x in Text(x["name"].str).tag(x["id"].str) }
                             }
                             .labelsHidden()
                         }
-                        labeled("模型") {
-                            if c == nil { Picker("模型", selection: .constant("")) { Text("先选择 Agent").tag("") }.labelsHidden().disabled(true) }
+                        labeled(L.text("模型")) {
+                            if c == nil { Picker(L.text("模型"), selection: .constant("")) { Text(L.text("先选择 Agent")).tag("") }.labelsHidden().disabled(true) }
                             else if !opt["model"]["options"].array.isEmpty {
-                                Picker("模型", selection: bind("model")) {
-                                    Text(verbatim: "默认（\(opt["model"]["current"].str)）").tag("")
+                                Picker(L.text("模型"), selection: bind("model")) {
+                                    Text(verbatim: L.text("默认（\(opt["model"]["current"].str)）")).tag("")
                                     ForEach(opt["model"]["options"].array, id: \.self) { o in Text(o["name"].truthy ? o["name"].str : o["value"].str).tag(o["value"].str) }
                                 }
                                 .labelsHidden()
-                            } else if c?["status"].str == "testing" { Text("读取模型中…").foregroundStyle(.secondary) }
-                            else { Button(c?["status"].str == "error" ? "检查未通过，重新检查" : "检查 Agent 以读取模型") { Task { await store.testConnection(c!["id"].str) } }.buttonStyle(.link) }
+                            } else if c?["status"].str == "testing" { Text(L.text("读取模型中…")).foregroundStyle(.secondary) }
+                            else { Button(c?["status"].str == "error" ? L.text("检查未通过，重新检查") : L.text("检查 Agent 以读取模型")) { Task { await store.testConnection(c!["id"].str) } }.buttonStyle(.link) }
                         }
-                        labeled("推理强度") {
+                        labeled(L.text("推理强度")) {
                             if !opt["effort"]["options"].array.isEmpty {
-                                Picker("推理强度", selection: bind("effort")) {
-                                    Text(verbatim: "默认（\(opt["effort"]["current"].str)）").tag("")
+                                Picker(L.text("推理强度"), selection: bind("effort")) {
+                                    Text(verbatim: L.text("默认（\(opt["effort"]["current"].str)）")).tag("")
                                     ForEach(opt["effort"]["options"].array, id: \.self) { o in Text(o["name"].truthy ? o["name"].str : o["value"].str).tag(o["value"].str) }
                                 }
                                 .labelsHidden()
-                            } else { Picker("推理强度", selection: .constant("")) { Text("默认").tag("") }.labelsHidden().disabled(true) }
+                            } else { Picker(L.text("推理强度"), selection: .constant("")) { Text(L.text("默认")).tag("") }.labelsHidden().disabled(true) }
                         }
                     }
 
-                    section("指令")
+                    section(L.text("指令"))
                     TextEditor(text: bind("prompt"))
                         .font(.body)
-                        .accessibilityLabel("指令")
+                        .accessibilityLabel(L.text("指令"))
                         .frame(minHeight: 120, maxHeight: 260)
                         .overlay(alignment: .topLeading) {
-                            if !r["prompt"].truthy { Text("告诉这个数字员工怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。").foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
+                            if !r["prompt"].truthy { Text(L.text("告诉这个数字员工怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。")).foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
                         }
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     Text(Setup.instructionsVia(c)).font(.caption).foregroundStyle(.secondary)
 
                     resources
 
-                    section("权限", trailing: Setup.controls(c).contains { $0["permission"].truthy } ? "\(c?["name"].str ?? "") 的权限模式" : "")
+                    section(L.text("权限"), trailing: Setup.controls(c).contains { $0["permission"].truthy } ? L.text("\(c?["name"].str ?? "") 的权限模式") : "")
                     permissions(c)
                     if c?["options"]["controls"].exists == true {
-                        Text("负责人规划时会看到这个模式，按它分配子任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。").font(.caption).foregroundStyle(.secondary)
+                        Text(L.text("负责人规划时会看到这个模式，按它分配子任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。")).font(.caption).foregroundStyle(.secondary)
                     }
                     otherControls(c)
 
-                    section("协作")
+                    section(L.text("协作"))
                     Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("可以担任负责人")
-                            Text(Setup.leadCapable(c) ? "用 /goal 推进目标，需要时编排协作者" : "只有 Claude Code 或 Codex 能做负责人（需要 /goal）").font(.caption).foregroundStyle(.secondary)
+                            Text(L.text("可以担任负责人"))
+                            Text(Setup.leadCapable(c) ? L.text("用 /goal 推进目标，需要时编排协作者") : L.text("只有 Claude Code 或 Codex 能做负责人（需要 /goal）")).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .toggleStyle(.switch)
@@ -200,12 +200,12 @@ struct RoleEditor: View {
             }
             Divider()
             HStack {
-                if r["id"].truthy { Button("删除…", role: .destructive) { remove() } }
+                if r["id"].truthy { Button(L.text("删除…"), role: .destructive) { remove() } }
                 Spacer()
-                Button("取消") { if r == original || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
-                Button(saving ? "正在保存…" : r["id"].truthy ? "保存" : "创建") { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
+                Button(L.text("取消")) { if r == original || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
+                Button(saving ? L.text("正在保存…") : r["id"].truthy ? L.text("保存") : L.text("创建")) { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
                     .disabled(saving || r["name"].str.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .help(r["name"].str.trimmingCharacters(in: .whitespaces).isEmpty ? "先填写名称" : "")
+                    .help(r["name"].str.trimmingCharacters(in: .whitespaces).isEmpty ? L.text("先填写名称") : "")
             }
             .padding(14)
         }
@@ -240,16 +240,16 @@ struct RoleEditor: View {
     @ViewBuilder private var resources: some View {
         let runtime = Library.runtime(store.connection(r["connection"].str))
         let chosen = r["resources"].strings
-        section("资源", count: chosen.count, action: picking ? nil : ("选择", { picking = true }))
+        section(L.text("资源"), count: chosen.count, action: picking ? nil : (L.text("选择"), { picking = true }))
         ForEach(chosen, id: \.self) { id in
             if let i = store.libraryItem(id) {
                 mounted(i["kind"].str == "skill" ? "sparkles" : "wrench.and.screwdriver", i["name"].str, detail(i, runtime), warn: warning(i, runtime)) { toggle(id) }
             } else {
-                mounted("questionmark.circle", id, "", warn: store.library == nil ? "" : "已从资源库删除，保存时移除") { toggle(id) }
+                mounted("questionmark.circle", id, "", warn: store.library == nil ? "" : L.text("已从资源库删除，保存时移除")) { toggle(id) }
             }
         }
         if picking { picker(runtime) }
-        Text("Skill 和 MCP 服务器在设置的「资源库」中添加和管理。会话启动时交给 Agent，不写进它的配置。").font(.caption).foregroundStyle(.secondary)
+        Text(L.text("Skill 和 MCP 服务器在设置的「资源库」中添加和管理。会话启动时交给 Agent，不写进它的配置。")).font(.caption).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private func picker(_ runtime: String) -> some View {
@@ -257,9 +257,9 @@ struct RoleEditor: View {
         let items = store.libraryItems.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str)".lowercased().contains(q) }
         VStack(alignment: .leading, spacing: 8) {
             if store.libraryItems.isEmpty {
-                Text("资源库还是空的。在设置的「资源库」中新建 Skill、添加 MCP 服务器，或从 GitHub 导入。").font(.callout).foregroundStyle(.secondary)
+                Text(L.text("资源库还是空的。在设置的「资源库」中新建 Skill、添加 MCP 服务器，或从 GitHub 导入。")).font(.callout).foregroundStyle(.secondary)
             } else {
-                TextField("搜索资源库", text: $pickQuery).textFieldStyle(.roundedBorder)
+                TextField(L.text("搜索资源库"), text: $pickQuery).textFieldStyle(.roundedBorder)
                 ForEach([("skill", "Skill"), ("mcp", "MCP")], id: \.0) { kind, title in
                     let list = items.filter { $0["kind"].str == kind }
                     if !list.isEmpty {
@@ -267,9 +267,9 @@ struct RoleEditor: View {
                         ForEach(list, id: \.self) { pickRow($0, runtime) }
                     }
                 }
-                if items.isEmpty { Text("没有匹配的资源").font(.callout).foregroundStyle(.secondary) }
+                if items.isEmpty { Text(L.text("没有匹配的资源")).font(.callout).foregroundStyle(.secondary) }
             }
-            HStack { Spacer(); Button("完成") { picking = false } }
+            HStack { Spacer(); Button(L.text("完成")) { picking = false } }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
@@ -323,7 +323,7 @@ struct RoleEditor: View {
                 if !warn.isEmpty { Text(warn).font(.caption).foregroundStyle(Tone.amber.color) }
             }
             Spacer()
-            Button(action: remove) { Label("移除 \(title)", systemImage: "xmark") }.labelStyle(.iconOnly).buttonStyle(.borderless).help("移除")
+            Button(action: remove) { Label(L.text("移除 \(title)"), systemImage: "xmark") }.labelStyle(.iconOnly).buttonStyle(.borderless).help(L.text("移除"))
         }
         .padding(8)
         .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7))
@@ -333,12 +333,12 @@ struct RoleEditor: View {
 
     @ViewBuilder private func permissions(_ c: JSON?) -> some View {
         if let c {
-            if c["status"].str == "testing" { Note(text: "正在检查 \(c["name"].str)，读取它的权限模式…") }
+            if c["status"].str == "testing" { Note(text: L.text("正在检查 \(c["name"].str)，读取它的权限模式…")) }
             else if !c["options"]["controls"].exists {
-                HStack { Note(text: "还没有读取 \(c["name"].str) 的权限模式。", tone: .amber); Button("检查 Agent") { Task { await store.testConnection(c["id"].str) } } }
+                HStack { Note(text: L.text("还没有读取 \(c["name"].str) 的权限模式。"), tone: .amber); Button(L.text("检查 Agent")) { Task { await store.testConnection(c["id"].str) } } }
             } else {
                 let perms = Setup.controls(c).filter { $0["permission"].truthy }
-                if perms.isEmpty { Note(text: "\(c["name"].str) 没有声明权限模式：工具调用直接执行，不会发起审批，可以修改工作目录中的文件。") }
+                if perms.isEmpty { Note(text: L.text("\(c["name"].str) 没有声明权限模式：工具调用直接执行，不会发起审批，可以修改工作目录中的文件。")) }
                 ForEach(perms, id: \.self) { x in
                     let v = Setup.value(r["session"], x)
                     if x["type"].str == "boolean" {
@@ -358,7 +358,7 @@ struct RoleEditor: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             HStack(spacing: 6) {
                                                 Text(o["name"].truthy ? o["name"].str : o["value"].str).fontWeight(.medium)
-                                                if o["value"] == x["current"] { Text("Agent 默认").font(.caption2).foregroundStyle(.secondary) }
+                                                if o["value"] == x["current"] { Text(L.text("Agent 默认")).font(.caption2).foregroundStyle(.secondary) }
                                             }
                                             if o["desc"].truthy { Text(o["desc"].str).font(.caption).foregroundStyle(.secondary) }
                                         }
@@ -379,14 +379,14 @@ struct RoleEditor: View {
                 }
             }
         } else {
-            Note(text: "先选择 Agent。权限选项由 Agent 自己声明，每种 Agent 都不一样。")
+            Note(text: L.text("先选择 Agent。权限选项由 Agent 自己声明，每种 Agent 都不一样。"))
         }
     }
 
     @ViewBuilder private func otherControls(_ c: JSON?) -> some View {
         let rest = Setup.controls(c).filter { !$0["permission"].truthy }
         if !rest.isEmpty {
-            section("会话选项", trailing: "\(c?["name"].str ?? "") 提供")
+            section(L.text("会话选项"), trailing: L.text("\(c?["name"].str ?? "") 提供"))
             ForEach(rest, id: \.self) { x in
                 let v = Setup.value(r["session"], x)
                 HStack {
@@ -396,7 +396,7 @@ struct RoleEditor: View {
                         Toggle(x["name"].str, isOn: Binding(get: { v.bool ?? false }, set: { setCtrl(x, JSON($0)) })).labelsHidden().toggleStyle(.switch)
                     } else {
                         Picker(x["name"].str, selection: Binding(get: { v.str }, set: { setCtrl(x, JSON($0)) })) {
-                            ForEach(x["options"].array, id: \.self) { o in Text((o["name"].truthy ? o["name"].str : o["value"].str) + (o["value"] == x["current"] ? "（默认）" : "")).tag(o["value"].str) }
+                            ForEach(x["options"].array, id: \.self) { o in Text((o["name"].truthy ? o["name"].str : o["value"].str) + (o["value"] == x["current"] ? L.text("（默认）") : "")).tag(o["value"].str) }
                         }
                         .labelsHidden().frame(width: 220)
                     }
@@ -417,7 +417,7 @@ struct RoleEditor: View {
         Task {
             do {
                 let saved = try await store.save("roles", r)
-                store.show("已保存数字员工 \(saved["name"].str)")
+                store.show(L.text("已保存数字员工 \(saved["name"].str)"))
                 dismiss()
             } catch { store.show(error.localizedDescription) }
             saving = false
@@ -425,7 +425,7 @@ struct RoleEditor: View {
     }
 
     private func remove() {
-        guard confirm("删除数字员工「\(r["name"].str)」？", ok: "删除") else { return }
+        guard confirm(L.text("删除数字员工「\(r["name"].str)」？"), ok: L.text("删除")) else { return }
         Task {
             do { try await store.delete("roles", r["id"].str); dismiss() } catch { store.show(error.localizedDescription) }
         }
@@ -441,10 +441,10 @@ struct AdaptersView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("第一次检查用到它的 Agent 时自动安装。升级或切回版本不影响正在运行的会话。").font(.callout).foregroundStyle(.secondary)
+                    Text(L.text("第一次检查用到它的 Agent 时自动安装。升级或切回版本不影响正在运行的会话。")).font(.callout).foregroundStyle(.secondary)
                     Spacer()
                     if data["dir"].truthy {
-                        Button(L.tilde(data["dir"].str)) { NSWorkspace.shared.open(URL(fileURLWithPath: data["dir"].str)) }.font(.system(.caption, design: .monospaced)).help("适配器安装目录")
+                        Button(L.tilde(data["dir"].str)) { NSWorkspace.shared.open(URL(fileURLWithPath: data["dir"].str)) }.font(.system(.caption, design: .monospaced)).help(L.text("适配器安装目录"))
                     }
                 }
                 if data.isNull { ProgressView() }
@@ -474,29 +474,29 @@ struct AdaptersView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(a["current"].truthy ? a["current"].str : "—").font(.system(.body, design: .monospaced))
-                        if running { Pill(job["action"].str == "install" ? "安装中" : "检查中", .blue) }
-                        else if !a["current"].truthy { Pill("未安装") }
-                        else if a["updateAvailable"].truthy { Pill("有新版本", .amber) }
-                        else { Pill("已安装", .green) }
+                        if running { Pill(job["action"].str == "install" ? L.text("安装中") : L.text("检查中"), .blue) }
+                        else if !a["current"].truthy { Pill(L.text("未安装")) }
+                        else if a["updateAvailable"].truthy { Pill(L.text("有新版本"), .amber) }
+                        else { Pill(L.text("已安装"), .green) }
                     }
-                    Text(a["latest"].truthy ? "最新 \(a["latest"].str)\(a["checkedAt"].truthy ? " · \(L.clock(a["checkedAt"].double ?? 0)) 检查" : "")" : "还没有检查更新").font(.caption).foregroundStyle(.secondary)
+                    Text(a["latest"].truthy ? L.text("最新 \(a["latest"].str)\(a["checkedAt"].truthy ? L.text(" · \(L.clock(a["checkedAt"].double ?? 0)) 检查") : "")") : L.text("还没有检查更新")).font(.caption).foregroundStyle(.secondary)
                     if let p = prev.first {
                         HStack(spacing: 4) {
-                            Text(verbatim: "上一个版本 \(p["version"].str)").font(.caption).foregroundStyle(.secondary)
-                            Button("切回") { Task { await store.adapterAction(id, "use", version: p["version"].str) } }.buttonStyle(.link).font(.caption).disabled(running)
+                            Text(verbatim: L.text("上一个版本 \(p["version"].str)")).font(.caption).foregroundStyle(.secondary)
+                            Button(L.text("切回")) { Task { await store.adapterAction(id, "use", version: p["version"].str) } }.buttonStyle(.link).font(.caption).disabled(running)
                         }
                     }
                 }
                 Spacer()
                 if !a["current"].truthy {
-                    Button("安装") { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running)
+                    Button(L.text("安装")) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running)
                 } else {
-                    if a["updateAvailable"].truthy { Button(String("升级到 \(a["latest"].str)")) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running) }
-                    Button("检查更新") { Task { await store.adapterAction(id, "check") } }.disabled(running)
+                    if a["updateAvailable"].truthy { Button(String(L.text("升级到 \(a["latest"].str)"))) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running) }
+                    Button(L.text("检查更新")) { Task { await store.adapterAction(id, "check") } }.disabled(running)
                 }
             }
             if running {
-                Text(job["action"].str == "install" ? "正在下载和构建，完成后自动设为当前版本…" : "正在查询最新版本…").font(.callout).foregroundStyle(.secondary)
+                Text(job["action"].str == "install" ? L.text("正在下载和构建，完成后自动设为当前版本…") : L.text("正在查询最新版本…")).font(.callout).foregroundStyle(.secondary)
                 if a["log"].truthy { CodeBlock(text: a["log"].str, maxHeight: 140) }
             } else if job["state"].str == "error" {
                 Note(text: job["detail"].str, tone: .red)

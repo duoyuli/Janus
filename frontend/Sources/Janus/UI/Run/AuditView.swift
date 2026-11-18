@@ -24,7 +24,7 @@ struct AuditView: View {
                     ForEach(invs, id: \.0) { inv in
                         HStack(spacing: 6) {
                             Text(inv.1 ? "✓" : "✕").fontWeight(.bold).foregroundStyle(inv.1 ? Tone.green.color : Tone.red.color)
-                                .accessibilityLabel(inv.1 ? "满足" : "不满足")
+                                .accessibilityLabel(inv.1 ? L.text("满足") : L.text("不满足"))
                             Text(inv.0).font(.callout)
                             Text(inv.2).font(.caption).foregroundStyle(.secondary)
                         }
@@ -34,27 +34,27 @@ struct AuditView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: broken == 0 ? "checkmark.seal" : "exclamationmark.triangle.fill").foregroundStyle(broken == 0 ? Tone.green.color : Tone.red.color).accessibilityHidden(true)
-                    Text(broken == 0 ? "系统不变量全部满足" : "\(broken) 条系统不变量不满足").font(.callout.weight(.medium))
-                    Text(verbatim: "\(invs.count) 条，基于 \(events.count) 条事件").font(.caption).foregroundStyle(.secondary)
+                    Text(broken == 0 ? L.text("系统不变量全部满足") : L.text("\(broken) 条系统不变量不满足")).font(.callout.weight(.medium))
+                    Text(verbatim: L.text("\(invs.count) 条，基于 \(events.count) 条事件")).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .help("工作台上的状态都由这些事件推导；子任务状态只由编排器改变。选中一条事件查看原文，点「回放到这里」看当时的工作台。")
+            .help(L.text("工作台上的状态都由这些事件推导；子任务状态只由编排器改变。选中一条事件查看原文，点「回放到这里」看当时的工作台。"))
             HStack(spacing: 10) {
-                Picker("事件类别", selection: Binding(get: { run.auditCat }, set: { run.auditCat = $0 })) {
+                Picker(L.text("事件类别"), selection: Binding(get: { run.auditCat }, set: { run.auditCat = $0 })) {
                     ForEach(L.categoryLabel, id: \.0) { Text($0.1).tag($0.0) }
                 }
                 .pickerStyle(.segmented).frame(maxWidth: 460)
-                Picker("子任务", selection: Binding(get: { run.auditTask }, set: { run.auditTask = $0 })) {
-                    Text("全部子任务").tag("")
+                Picker(L.text("子任务"), selection: Binding(get: { run.auditTask }, set: { run.auditTask = $0 })) {
+                    Text(L.text("全部子任务")).tag("")
                     ForEach(full.order, id: \.self) { id in Text(verbatim: "\(id) \(L.short(full.tasks[id]?.title ?? "", 14))").tag(id) }
                 }
                 .frame(width: 200)
-                Picker("参与者", selection: Binding(get: { run.auditActor }, set: { run.auditActor = $0 })) {
-                    Text("全部参与者").tag("")
+                Picker(L.text("参与者"), selection: Binding(get: { run.auditActor }, set: { run.auditActor = $0 })) {
+                    Text(L.text("全部参与者")).tag("")
                     ForEach(actors, id: \.self) { Text(run.who($0).name).tag($0) }
                 }
                 .frame(width: 160)
-                Text(verbatim: "\(rows.count) 条").font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: L.text("\(rows.count) 条")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
             .labelsHidden()
@@ -70,14 +70,14 @@ struct AuditView: View {
                                 Text((e.task ?? "—") + (e.attempt.map { " #\($0)" } ?? "")).font(.system(.caption, design: .monospaced)).frame(width: 90, alignment: .leading).lineLimit(1)
                                 Text(e.text).font(.callout).lineLimit(1)
                                 Spacer()
-                                Button("回放到这里") { run.replay = e.seq; run.page = .board }.controlSize(.small).help("把工作台回放到第 \(e.seq) 条事件时的状态")
+                                Button(L.text("回放到这里")) { run.replay = e.seq; run.page = .board }.controlSize(.small).help(L.text("把工作台回放到第 \(e.seq) 条事件时的状态"))
                             }
                             // A result event opened here shows each criterion with its evidence
                             // method and evidence, so the log does not have to be read as raw JSON.
                             if run.highlight == e.seq, !e.data["checks"].array.isEmpty,
                                ["result.submitted", "verification.passed", "verification.failed", "task.succeeded"].contains(e.type) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text("逐条验收").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                    Text(L.text("逐条验收")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                     ForEach(CriterionCheck.rows(accept: [], checks: Check.list(e.data["checks"]))) { row in
                                         CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
                                     }
@@ -123,11 +123,11 @@ struct AuditView: View {
         for ns in numbers.values { for (i, n) in ns.enumerated() where n != i + 1 { gaps += 1 } }
         let attempts = numbers.values.reduce(0) { $0 + $1.count }
         return [
-            ("每个子任务同一时间最多一个进行中的尝试", overlap == 0, "\(attempts) 次尝试"),
-            ("重试会新建尝试，旧记录保留", gaps == 0, "\(numbers.count) 个子任务"),
-            ("子任务状态只由编排器（Janus）改变", badActor == 0, "Agent 只提交进度与结果"),
-            ("标记完成前已提交结构化结果和证据", noEvidence == 0 && unsubmitted == 0, "\(events.filter { $0.type == "task.succeeded" }.count) 次完成"),
-            ("等待输入时附带可回答的问题", badQuestion == 0, "\(events.filter { $0.type == "question.asked" }.count) 个问题"),
+            (L.text("每个子任务同一时间最多一个进行中的尝试"), overlap == 0, L.text("\(attempts) 次尝试")),
+            (L.text("重试会新建尝试，旧记录保留"), gaps == 0, L.text("\(numbers.count) 个子任务")),
+            (L.text("子任务状态只由编排器（Janus）改变"), badActor == 0, L.text("Agent 只提交进度与结果")),
+            (L.text("标记完成前已提交结构化结果和证据"), noEvidence == 0 && unsubmitted == 0, L.text("\(events.filter { $0.type == "task.succeeded" }.count) 次完成")),
+            (L.text("等待输入时附带可回答的问题"), badQuestion == 0, L.text("\(events.filter { $0.type == "question.asked" }.count) 个问题")),
         ]
     }
 }
@@ -138,8 +138,8 @@ struct TeamView: View {
 
     /// What the run does to its directory, from facts rather than the sentence recorded at creation.
     private func wsNote(_ r: RunInfo) -> String {
-        if r.git { return r.workspace.isEmpty ? "Git 仓库，基线 \(String(r.baseRef.prefix(7)))" : r.workspace }
-        return "非 Git 目录：任务直接在这个目录中执行，没有 diff"
+        if r.git { return r.workspace.isEmpty ? L.text("Git 仓库，基线 \(String(r.baseRef.prefix(7)))") : r.workspace }
+        return L.text("非 Git 目录：任务直接在这个目录中执行，没有 diff")
     }
 
     var body: some View {
@@ -148,14 +148,14 @@ struct TeamView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("团队与权限").font(.display(.title2))
-                        Text("这个任务创建时的团队快照。").font(.callout).foregroundStyle(.secondary)
+                        Text(L.text("团队与权限")).font(.display(.title2))
+                        Text(L.text("这个任务创建时的团队快照。")).font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let ws = run.store.workspace(run.workspaceId) { Button("工作区设置…") { run.store.editingWorkspace = ws } }
+                    if let ws = run.store.workspace(run.workspaceId) { Button(L.text("工作区设置…")) { run.store.editingWorkspace = ws } }
                 }
                 Card {
-                    KV(rows: [("负责人", run.agentName("lead")), ("工作区", wsNote(full.run)), ("开始", L.dateTime(full.run.start))])
+                    KV(rows: [(L.text("负责人"), run.agentName("lead")), (L.text("工作区"), wsNote(full.run)), (L.text("开始"), L.dateTime(full.run.start))])
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {
                     ForEach(run.team, id: \.self) { m in
@@ -166,15 +166,15 @@ struct TeamView: View {
                             HStack(spacing: 10) {
                                 Avatar(initials: w.initials, color: w.color, size: 34)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(w.name + (w.lead ? " · 负责人" : "")).font(.headline)
+                                    Text(w.name + (w.lead ? L.text(" · 负责人") : "")).font(.headline)
                                     Text(verbatim: "\(w.role) · \(w.runtime) · ACP").font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Pill(pl, pt)
                             }
                             if m["desc"].truthy { Text(m["desc"].str).font(.callout) }
-                            KV(rows: [("权限", m["permission"].truthy ? m["permission"].str : "Agent 没有权限模式"),
-                                      ("Agent", "\(w.runtime) · \(w.model.isEmpty ? "默认模型" : w.model)\(m["effort"].truthy ? " · \(m["effort"].str)" : "")")])
+                            KV(rows: [(L.text("权限"), m["permission"].truthy ? m["permission"].str : L.text("Agent 没有权限模式")),
+                                      ("Agent", "\(w.runtime) · \(w.model.isEmpty ? L.text("默认模型") : w.model)\(m["effort"].truthy ? " · \(m["effort"].str)" : "")")])
                         }
                     }
                 }

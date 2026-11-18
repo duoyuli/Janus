@@ -37,7 +37,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 用户可以在目标和发给会话的消息里粘贴图片。实现在 `backend/src/attachments.rs`，接口见 [HTTP API](../interfaces/20261031-http_api.md#images)。
 
 - **保存**：图片随请求以 base64 上传，按文件头识别类型（PNG、JPEG、GIF、WebP，声明的类型不作数），每张最多 10 MB，一次最多 10 张；任何一张不合格时整条请求拒绝，不保存任何文件。文件写入 `~/.janus/runs/<run>/attachments/`，和这个 Run 的 Skill 快照放在一起。
-- **点名**：Agent 收到的文字中，每张图片单独占一行 `[附图 N] <路径>`。消息只有图片时，文字是「用户发来了 N 张图片，请先查看：」加这些行。目标的图片写进负责人说明，并提示负责人把路径写进任务说明，方便协作者参考。
+- **点名**：Agent 收到的文字中，每张图片单独占一行 `[Image N] <路径>`。只有图片的消息会带英文查看提示。历史消息的 `[附图 N]` 标记仍可解析。目标的图片写进负责人说明，并提示负责人把路径写进任务说明，方便协作者参考。
 - **发送**：每次 `session/prompt` 和 `_session/steering` 发出前，`prompt_blocks` 找出文字点名的附件，在 Agent 声明了 `promptCapabilities.image` 时作为 ACP 图片块附在文字后面。只读取 `runs/*/attachments/` 下的文件，所以文字里看起来像附图行的内容不能让 Janus 发出任意文件。官方 Claude、Codex 和 Grok 适配器都声明了这项能力；其他 Agent 没有声明时只收到路径，由 Agent 自己打开文件。
 - **跟随消息流转**：图片行就是消息文字的一部分，所以插话、排队、留言、交还托管和中断后恢复的消息都带着它们，不需要另外处理。
 - **事件**：`run.created` 和 `user.message` 的 `data.images` 列出保存的图片（`path`、`mimeType`、`name`、`size`），事件只记录路径，不包含图片数据。

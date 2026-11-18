@@ -71,7 +71,7 @@ struct Sidebar: View {
                 ForEach(runs.prefix(shownRuns), id: \.self) { r in
                     // A run waiting on the person says so, with how many, like the inbox.
                     let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
-                    let (label, tone) = waiting > 0 ? ("等你处理", Tone.amber) : RunStatus(r["status"].str).listLabel
+                    let (label, tone) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : RunStatus(r["status"].str).listLabel
                     HStack(spacing: 8) {
                         Circle().fill(tone.color).frame(width: 7, height: 7).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 1) {
@@ -80,16 +80,16 @@ struct Sidebar: View {
                         }
                     }
                     .badge(waiting)
-                    .accessibilityValue(waiting == 0 ? label : "\(waiting) 项等你处理")
+                    .accessibilityValue(waiting == 0 ? label : L.text("\(waiting) 项等你处理"))
                     .tag(Screen.run(r["id"].str))
                     .contextMenu {
-                        Button("删除任务…", role: .destructive) { Task { await store.deleteRun(r["id"].str) } }
+                        Button(L.text("删除任务…"), role: .destructive) { Task { await store.deleteRun(r["id"].str) } }
                             .disabled(RunStatus(r["status"].str).isActive)
                     }
                 }
                 if runs.count > shownRuns {
                     Button { shownRuns = min(shownRuns + 10, runs.count) } label: {
-                        Text("展示更多")
+                        Text(L.text("展示更多"))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .padding(.leading, 15)
@@ -98,7 +98,7 @@ struct Sidebar: View {
                     }
                     .buttonStyle(.plain)
                     .hoverable(6)
-                    .help("再显示 10 个任务记录")
+                    .help(L.text("再显示 10 个任务记录"))
                 }
             }
         }
@@ -109,10 +109,10 @@ struct Sidebar: View {
         .background(Color.sidebar.ignoresSafeArea())
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                sidebarLabel("全局")
+                sidebarLabel(L.text("全局"))
                 InboxButton(store: store)
                 Rectangle().fill(Color.line).frame(height: 1).padding(.top, 6)
-                sidebarLabel("工作区").padding(.top, 2)
+                sidebarLabel(L.text("工作区")).padding(.top, 2)
                 WorkspacePicker(store: store, current: ws)
                 if let ws { taskHistoryHeader(ws) }
             }
@@ -122,23 +122,23 @@ struct Sidebar: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Circle().fill(Tone.green.color).frame(width: 6, height: 6).accessibilityHidden(true)
-                    Text("服务已连接")
+                    Text(L.text("服务已连接"))
                         .font(.caption).foregroundStyle(.secondary)
-                        .help("Janus 服务地址：\(store.api.base.host ?? ""):\(String(store.api.base.port ?? 80))")
+                        .help(L.text("Janus 服务地址：\(store.api.base.host ?? ""):\(String(store.api.base.port ?? 80))"))
                     Spacer()
-                    Button { store.openSettings(store.settingsTab) } label: { Label("设置", systemImage: "gearshape") }
+                    Button { store.openSettings(store.settingsTab) } label: { Label(L.text("设置"), systemImage: "gearshape") }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .help("Agent、数字员工和 ACP（⌘,）")
+                        .help(L.text("Agent、数字员工和 ACP（⌘,）"))
                 }
                 UpdateBadge(updater: Updater.shared) { store.openSettings("updates") }
                 if !store.sourceUpdates.isEmpty {
                     Button { store.openSettings("library") } label: {
-                        Label("\(store.sourceUpdates.count) 个资源来源有更新", systemImage: "arrow.down.circle")
+                        Label(L.text("\(store.sourceUpdates.count) 个资源来源有更新"), systemImage: "arrow.down.circle")
                             .font(.caption).foregroundStyle(Tone.blue.color)
                     }
                     .buttonStyle(.plain)
-                    .help(store.sourceUpdates.map { $0["repo"].str }.joined(separator: "、") + "：GitHub 上有新的提交，打开资源库更新")
+                    .help(store.sourceUpdates.map { $0["repo"].str }.joined(separator: L.text("、")) + L.text("：GitHub 上有新的提交，打开资源库更新"))
                 }
                 if let n = store.serverNotice { Text(n).font(.caption2).foregroundStyle(Tone.amber.color).fixedSize(horizontal: false, vertical: true) }
             }
@@ -151,7 +151,7 @@ struct Sidebar: View {
     /// disclosure chevron that comes with one.
     private func taskHistoryHeader(_ ws: JSON) -> some View {
         HStack(spacing: 6) {
-            Text("任务记录")
+            Text(L.text("任务记录"))
             Spacer(minLength: 6)
             Button { store.open(.home(ws["id"].str)) } label: {
                 Image(systemName: "plus")
@@ -162,8 +162,8 @@ struct Sidebar: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .hoverable(5)
-            .help("新建任务：打开工作区，写下目标并交给负责人")
-            .accessibilityLabel("新建任务")
+            .help(L.text("新建任务：打开工作区，写下目标并交给负责人"))
+            .accessibilityLabel(L.text("新建任务"))
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -192,7 +192,7 @@ struct OnboardingBar: View {
         if !steps.allSatisfy(\.1) {
             Card(tint: .accent) {
                 HStack(spacing: 14) {
-                    Text("开始使用 Janus").font(.headline)
+                    Text(L.text("开始使用 Janus")).font(.headline)
                     ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
                         HStack(spacing: 5) {
                             Text(s.1 ? "✓" : "\(i + 1)")
@@ -222,9 +222,9 @@ struct NoWorkspaceView: View {
             VStack(alignment: .leading, spacing: 16) {
                 OnboardingBar(store: store)
                 Card {
-                    Text("还没有工作区").font(.display(.title3))
-                    Text("工作区指定任务在哪个目录执行、由哪些数字员工参与。").foregroundStyle(.secondary)
-                    Button("新建工作区") { store.editingWorkspace = AppStore.blankWorkspace }
+                    Text(L.text("还没有工作区")).font(.display(.title3))
+                    Text(L.text("工作区指定任务在哪个目录执行、由哪些数字员工参与。")).foregroundStyle(.secondary)
+                    Button(L.text("新建工作区")) { store.editingWorkspace = AppStore.blankWorkspace }
                         .buttonStyle(.primary)
                 }
             }
@@ -244,17 +244,17 @@ struct UpdateBadge: View {
         switch updater.state {
         case .available:
             Button { open() } label: {
-                Label("Janus \(updater.latest?.version ?? "") 可以更新", systemImage: "arrow.down.app.fill")
+                Label(L.text("Janus \(updater.latest?.version ?? "") 可以更新"), systemImage: "arrow.down.app.fill")
                     .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
-            .help("在设置 → 更新中查看更新内容并安装")
+            .help(L.text("在设置 → 更新中查看更新内容并安装"))
         case .downloading, .verifying, .relaunching:
             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(updater.state.workingText ?? "").font(.caption).foregroundStyle(.secondary) }
         case .failed(let text) where updater.latest != nil:
             VStack(alignment: .leading, spacing: 2) {
                 Text(text).font(.caption2).foregroundStyle(Tone.red.color).fixedSize(horizontal: false, vertical: true)
-                Button("重试更新") { Task { await updater.install() } }.buttonStyle(.link).font(.caption)
+                Button(L.text("重试更新")) { Task { await updater.install() } }.buttonStyle(.link).font(.caption)
             }
         default:
             EmptyView()
@@ -279,7 +279,7 @@ struct InboxButton: View {
                 Image(systemName: "tray")
                     .frame(width: 18)
                     .foregroundStyle(on ? Color.accent : Color.secondary)
-                Text("收件箱").fontWeight(on ? .semibold : .regular)
+                Text(L.text("收件箱")).fontWeight(on ? .semibold : .regular)
                 Spacer(minLength: 4)
                 if n > 0 { Pill("\(n)", .amber) }
             }
@@ -291,8 +291,8 @@ struct InboxButton: View {
         }
         .buttonStyle(.plain)
         .hoverable(8)
-        .help("所有工作区中需要你处理的事")
-        .accessibilityLabel(n > 0 ? "收件箱，所有工作区，\(n) 项等你处理" : "收件箱，所有工作区")
+        .help(L.text("所有工作区中需要你处理的事"))
+        .accessibilityLabel(n > 0 ? L.text("收件箱，所有工作区，\(n) 项等你处理") : L.text("收件箱，所有工作区"))
         .accessibilityAddTraits(on ? .isSelected : [])
         .padding(.horizontal, 10)
     }
@@ -319,16 +319,16 @@ struct WorkspacePicker: View {
                 }
             }
             if !store.workspaces.isEmpty { Divider() }
-            Button("新建工作区…") { store.editingWorkspace = AppStore.blankWorkspace }
+            Button(L.text("新建工作区…")) { store.editingWorkspace = AppStore.blankWorkspace }
             if let current {
-                Button("工作区设置…") { store.editingWorkspace = current }
-                Button("在 Finder 中显示") { NSWorkspace.shared.open(URL(fileURLWithPath: current["path"].str)) }
+                Button(L.text("工作区设置…")) { store.editingWorkspace = current }
+                Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: current["path"].str)) }
             }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "folder.fill").foregroundStyle(onHome ? Color.white : Color.accentColor)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(current?["name"].str ?? "选择工作区").fontWeight(.semibold).lineLimit(1)
+                    Text(current?["name"].str ?? L.text("选择工作区")).fontWeight(.semibold).lineLimit(1)
                     if let current {
                         Text(L.tilde(current["path"].str)).font(.caption).lineLimit(1).truncationMode(.middle)
                             .foregroundStyle(onHome ? Color.white.opacity(0.8) : Color.secondary)
@@ -347,8 +347,8 @@ struct WorkspacePicker: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .help("切换或新建工作区")
-        .accessibilityLabel("工作区：\(current?["name"].str ?? "未选择")")
+        .help(L.text("切换或新建工作区"))
+        .accessibilityLabel(L.text("工作区：\(current?["name"].str ?? L.text("未选择"))"))
         .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 4)
     }
 }

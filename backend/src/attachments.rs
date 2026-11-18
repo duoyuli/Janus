@@ -2,7 +2,7 @@
 //!
 //! The app sends them base64 with the goal or the message. They are stored in
 //! `<home>/runs/<run>/attachments/`, and the text the agent receives names each one on a line of
-//! its own (`[附图 N] <path>`). That text is what every delivery path already carries (steering,
+//! its own (`[Image N] <path>`). That text is what every delivery path already carries (steering,
 //! queued turns, notes for the next session, restored messages after a restart), so the images
 //! travel with it. When a prompt goes out, each named attachment is added as an ACP image block if
 //! the agent declares `promptCapabilities.image`; the path stays in the text either way, so an
@@ -21,8 +21,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// At most this many images in one goal or message, each at most this large after decoding.
 pub const MAX_IMAGES: usize = 10;
 pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
-/// How a line naming an attachment starts: `[附图 1] /path/to/file.png`.
-const MARKER: &str = "[附图 ";
+/// How a line naming an attachment starts: `[Image 1] /path/to/file.png`.
+const MARKER: &str = "[Image ";
+const LEGACY_MARKER: &str = "[附图 ";
 
 /// The image type, from the file's first bytes. The declared type is not trusted.
 fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
@@ -77,7 +78,7 @@ pub fn save(data_dir: &Path, run_id: &str, images: &[Value]) -> Result<Vec<Value
     Ok(out)
 }
 
-/// The lines naming stored images, `[附图 N] <path>`.
+/// The lines naming stored images, `[Image N] <path>`.
 pub fn lines(saved: &[Value]) -> String {
     saved
         .iter()
@@ -93,9 +94,9 @@ pub fn with_lines(text: &str, saved: &[Value]) -> String {
         return text.to_string();
     }
     if text.is_empty() {
-        format!("用户发来了 {} 张图片，请先查看：\n{}", saved.len(), lines(saved))
+        format!("Review the user's attached images:\n{}", lines(saved))
     } else {
-        format!("{text}\n\n附图：\n{}", lines(saved))
+        format!("{text}\n\nAttached images:\n{}", lines(saved))
     }
 }
 
@@ -118,7 +119,9 @@ pub fn prompt_blocks(data_dir: &Path, text: &str, images: bool) -> Vec<Value> {
     let runs = data_dir.join("runs");
     let mut seen = HashSet::new();
     for line in text.lines() {
-        let Some((_, path)) = line.trim().strip_prefix(MARKER).and_then(|r| r.split_once("] ")) else { continue };
+        let line = line.trim();
+        let marker = line.strip_prefix(MARKER).or_else(|| line.strip_prefix(LEGACY_MARKER));
+        let Some((_, path)) = marker.and_then(|r| r.split_once("] ")) else { continue };
         let path = PathBuf::from(path.trim());
         if !seen.insert(path.clone()) || !is_attachment(&runs, &path) {
             continue;
@@ -154,8 +157,8 @@ mod tests {
         assert!(path.contains("/runs/r1/attachments/"), "{path}");
 
         let text = with_lines("看看这个报错", &saved);
-        assert_eq!(text, format!("看看这个报错\n\n附图：\n[附图 1] {path}"));
-        assert!(with_lines("", &saved).starts_with("用户发来了 1 张图片"));
+        assert_eq!(text, format!("看看这个报错\n\nAttached images:\n[Image 1] {path}"));
+        assert!(with_lines("", &saved).starts_with("Review the user's attached images:"));
 
         let blocks = prompt_blocks(&home, &text, true);
         assert_eq!(blocks.len(), 2);
@@ -163,6 +166,8 @@ mod tests {
         assert_eq!(blocks[1]["type"], "image");
         assert_eq!(blocks[1]["mimeType"], "image/png");
         assert_eq!(blocks[1]["data"], data);
+        let legacy = prompt_blocks(&home, &format!("[附图 1] {path}"), true);
+        assert_eq!(legacy.get(1), blocks.get(1), "historical messages still attach their images");
         assert_eq!(prompt_blocks(&home, &text, false).len(), 1, "an agent without image input gets the path only");
         let twice = format!("{text}\n{text}");
         assert_eq!(prompt_blocks(&home, &twice, true).len(), 2, "one block per file");
@@ -170,7 +175,7 @@ mod tests {
         // A marker naming a file outside the attachments folders is ignored.
         let other = home.join("secret.png");
         std::fs::write(&other, PNG).unwrap();
-        assert_eq!(prompt_blocks(&home, &format!("[附图 1] {}", other.display()), true).len(), 1);
+        assert_eq!(prompt_blocks(&home, &format!("[Image 1] {}", other.display()), true).len(), 1);
         let sneaky = format!("[附图 1] {}/runs/r1/attachments/../../../secret.png", home.display());
         assert_eq!(prompt_blocks(&home, &sneaky, true).len(), 1);
 

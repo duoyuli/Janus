@@ -10,9 +10,9 @@ enum MacPermission: String, CaseIterable, Codable, Identifiable {
     var manual: Bool { self != .screenRecording }
     var title: String {
         switch self {
-        case .fullDisk: "完整磁盘访问"
-        case .appManagement: "应用程序管理"
-        case .screenRecording: "屏幕录制"
+        case .fullDisk: L.text("完整磁盘访问")
+        case .appManagement: L.text("应用程序管理")
+        case .screenRecording: L.text("屏幕录制")
         }
     }
     var icon: String {
@@ -24,9 +24,9 @@ enum MacPermission: String, CaseIterable, Codable, Identifiable {
     }
     var purpose: String {
         switch self {
-        case .fullDisk: "让 Agent 按任务需要访问受保护的文件。文件自身的读写权限和系统保护仍然生效。"
-        case .appManagement: "让 Agent 按任务需要更新、替换或移除应用程序。"
-        case .screenRecording: "让 Agent 的截屏工具读取屏幕内容。检查权限时不会截图。"
+        case .fullDisk: L.text("让 Agent 按任务需要访问受保护的文件。文件自身的读写权限和系统保护仍然生效。")
+        case .appManagement: L.text("让 Agent 按任务需要更新、替换或移除应用程序。")
+        case .screenRecording: L.text("让 Agent 的截屏工具读取屏幕内容。检查权限时不会截图。")
         }
     }
     var settingsURL: URL {
@@ -45,11 +45,11 @@ enum MacPermissionStatus: Equatable {
 
     var label: String {
         switch self {
-        case .unavailable: "请使用安装包"
-        case .needsConfirmation: "需手动确认"
-        case .manuallyConfirmed: "已手动确认"
-        case .granted: "已授权"
-        case .notGranted: "未检测到授权"
+        case .unavailable: L.text("请使用安装包")
+        case .needsConfirmation: L.text("需手动确认")
+        case .manuallyConfirmed: L.text("已手动确认")
+        case .granted: L.text("已授权")
+        case .notGranted: L.text("未检测到授权")
         }
     }
     var tone: Tone {
@@ -185,7 +185,7 @@ final class MacPermissions {
         else {
             // The return value alone is not cached as a grant: the preflight check is the source.
             if !system.requestScreen() {
-                actionError = "尚未获得屏幕录制权限。请在系统提示中允许；若没有提示，请打开系统设置。"
+                actionError = L.text("尚未获得屏幕录制权限。请在系统提示中允许；若没有提示，请打开系统设置。")
             }
             refresh()
             if screenAllowed { actionError = nil }
@@ -196,7 +196,7 @@ final class MacPermissions {
         guard available else { return }
         actionError = nil
         if !system.openSettings(permission) {
-            actionError = "无法打开系统设置。请手动打开「系统设置 → 隐私与安全性 → \(permission.title)」。"
+            actionError = L.text("无法打开系统设置。请手动打开「系统设置 → 隐私与安全性 → \(permission.title)」。")
         }
     }
 
@@ -225,7 +225,7 @@ final class MacPermissions {
     private func persist() {
         guard let record else { return }
         do { try save(record); persistenceError = nil }
-        catch { persistenceError = "无法保存权限确认记录，下次启动可能再次提醒：\(error.localizedDescription)" }
+        catch { persistenceError = L.text("无法保存权限确认记录，下次启动可能再次提醒：\(error.localizedDescription)") }
     }
 
     static func unavailable() -> MacPermissions {

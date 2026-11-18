@@ -119,22 +119,22 @@ private func goalRun() -> Log {
     var log = goalRun()
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "idleMs": 600000])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == "T1 可能卡住了" && !$0.you })
+    #expect(f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") && !$0.you })
     log.add("tool.call", actor: "researcher", task: "T1", attempt: 1, data: ["tool": "read", "status": "completed"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "T1 可能卡住了" })
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") })
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "idleMs": 600000])
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "resolved": true])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "T1 可能卡住了" }, "the backend saw the agent move again")
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") }, "the backend saw the agent move again")
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "loop", "repeats": 5])
     log.add("attempt.started", to: "researcher", task: "T1", attempt: 2, data: ["session": "s2"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "T1 可能卡住了" }, "a new attempt starts clean")
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") }, "a new attempt starts clean")
     log.add("task.stalled", to: "lead", task: "T1", attempt: 2, data: ["reason": "loop", "repeats": 5])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "T1 可能卡住了" })
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") })
 }
 
 @Test func leadStallsAndConflictsOpenOnTheBoard() {
@@ -142,13 +142,13 @@ private func goalRun() -> Log {
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "idleMs": 600000])
     log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"]])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == "负责人可能卡住了" && $0.you }, "nobody but the person watches the lead")
-    #expect(f.open.contains { $0.title == "T1 和 T2 改了同一个文件" && $0.text == "calc.py" && !$0.you })
+    #expect(f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") && $0.you }, "nobody but the person watches the lead")
+    #expect(f.open.contains { $0.title == expectedCopy("T1 和 T2 改了同一个文件", "T1 and T2 edited the same file") && $0.text == "calc.py" && !$0.you })
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "resolved": true])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "负责人可能卡住了" })
-    #expect(!f.open.contains { $0.title.contains("改了同一个文件") }, "neither task is running any more")
+    #expect(!f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") })
+    #expect(!f.open.contains { $0.title.contains(expectedCopy("改了同一个文件", "edited the same file")) }, "neither task is running any more")
 }
 
 /// A repeated-call report has no explicit resolution: the lead doing anything again closes it.
@@ -156,10 +156,10 @@ private func goalRun() -> Log {
     var log = goalRun()
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "loop", "tool": "Read", "repeats": 5])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == "负责人可能卡住了" && $0.you })
+    #expect(f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") && $0.you })
     log.add("agent.message", actor: "lead", text: "换个办法")
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == "负责人可能卡住了" })
+    #expect(!f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") })
 }
 
 @Test func tracesOpenOnTheBoardUntilTheLeadActs() {
@@ -169,8 +169,8 @@ private func goalRun() -> Log {
     var st = derive(log.events)
     #expect(st.tasks["T1"]?.owns == ["notes.md"], "a claim adds to what the task owns")
     var f = boardFacts(st) { $0 }
-    #expect(f.open.contains { $0.title == "T1 改了 T2 负责的文件" && $0.text == "calc.py" && !$0.you })
-    #expect(f.handoffs.contains { $0.summary == "认领：notes.md" })
+    #expect(f.open.contains { $0.title == expectedCopy("T1 改了 T2 负责的文件", "T1 edited files owned by T2") && $0.text == "calc.py" && !$0.you })
+    #expect(f.handoffs.contains { $0.summary == expectedCopy("认领：notes.md", "Claimed: notes.md") })
     // The same edit also seen as both tasks editing one file: the overstep says it all.
     log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"]])
     f = boardFacts(derive(log.events)) { $0 }
@@ -181,11 +181,11 @@ private func goalRun() -> Log {
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x", "traceGaps": ["改了负责范围（notes.md）以外的文件：calc.py"]])
     st = derive(log.events)
     f = boardFacts(st) { $0 }
-    #expect(!f.open.contains { $0.title.contains("负责的文件") }, "the task that stepped over stopped")
+    #expect(!f.open.contains { $0.title.contains(expectedCopy("负责的文件", "edited files owned by")) }, "the task that stepped over stopped")
     #expect(st.tasks["T1"]?.traceGaps.count == 1)
-    #expect(f.open.contains { $0.title == "T1 的结果和工作目录对不上" && $0.text.contains("calc.py") })
+    #expect(f.open.contains { $0.title == expectedCopy("T1 的结果和工作目录对不上", "The result for T1 differs from the workspace") && $0.text.contains("calc.py") })
     log.add("result.amended", actor: "lead", task: "T1", data: ["text": "calc.py 的改动由 T2 负责"])
-    #expect(!boardFacts(derive(log.events)) { $0 }.open.contains { $0.title.contains("对不上") }, "the lead corrected it")
+    #expect(!boardFacts(derive(log.events)) { $0 }.open.contains { $0.title.contains(expectedCopy("对不上", "differs from the workspace")) }, "the lead corrected it")
     log.add("task.reopened", actor: "lead", task: "T1", data: ["reason": "lead.retry"])
     #expect(derive(log.events).tasks["T1"]?.traceGaps.isEmpty == true)
 }
@@ -212,8 +212,8 @@ private func goalRun() -> Log {
     #expect(f.results.count == 1)
     #expect(f.results[0].usedBy == ["T2"])
     #expect(f.handoffs.map(\.to) == ["T2"])
-    #expect(f.decisions.map(\.title).contains("负责人提交编排"))
-    #expect(f.decisions.map(\.title).contains("给 lead 的补充"))
+    #expect(f.decisions.map(\.title).contains(expectedCopy("负责人提交编排", "Lead submitted a plan")))
+    #expect(f.decisions.map(\.title).contains(expectedCopy("给 lead 的补充", "Follow-up for lead")))
 }
 
 @Test func jsonParsesBooleansAndNumbersApart() throws {
@@ -295,7 +295,9 @@ private func goalRun() -> Log {
 /// The five methods read back with the words the task page shows; a value outside the set stays as
 /// written instead of becoming one of them, and a check with none is 「未说明」, not 「推理判断」.
 @Test func evidenceMethodsLabelThemselves() {
-    for (raw, label) in [("test", "测试"), ("command", "命令"), ("inspection", "检查"), ("reasoning", "推理判断"), ("unverified", "未核实")] {
+    for (raw, label) in [("test", expectedCopy("测试", "Test")), ("command", expectedCopy("命令", "Command")),
+                         ("inspection", expectedCopy("检查", "Inspection")), ("reasoning", expectedCopy("推理判断", "Reasoning")),
+                         ("unverified", expectedCopy("未核实", "Unverified"))] {
         let c = Check(["criterion": "标准1", "passed": true, "method": JSON(raw), "evidence": "证据"])
         #expect(c.method?.rawValue == raw)
         #expect(c.methodLabel == label)
@@ -303,12 +305,12 @@ private func goalRun() -> Log {
     // A check that names no method: shown as 未说明, never as reasoning.
     let none = Check(["criterion": "标准1", "passed": true, "evidence": "看起来没问题"])
     #expect(none.method == nil && none.badMethod == nil)
-    #expect(none.methodLabel == "未说明")
+    #expect(none.methodLabel == expectedCopy("未说明", "Unspecified"))
     // An illegal value is kept as recorded and never mapped onto an allowed method.
     let bad = Check(["criterion": "标准1", "passed": true, "method": "vibes", "evidence": "看着没问题"])
     #expect(bad.method == nil)
     #expect(bad.badMethod == "vibes")
-    #expect(bad.methodLabel == "方法「vibes」不合法（未说明）")
+    #expect(bad.methodLabel == expectedCopy("方法「vibes」不合法（未说明）", "Invalid method “vibes” (unspecified)"))
 }
 
 /// Every criterion gets a row even with no check, and every check is kept even when the result
@@ -343,12 +345,12 @@ private func goalRun() -> Log {
     #expect(s.unspecified == 1)
     #expect(s.invalid == 1)
     #expect(s.reminders.count == 3, "\(s.reminders)")
-    #expect(s.reminders.contains { $0.contains("推理判断") && $0.contains("不是运行得到的结果") })
-    #expect(s.reminders.contains { $0.contains("未核实") && $0.contains("本机没有 Xcode") })
-    #expect(s.reminders.contains { $0.contains("没有说明证据方法") })
+    #expect(s.reminders.contains { $0.contains(expectedCopy("推理判断", "assessed by reasoning")) && $0.contains(expectedCopy("不是运行得到的结果", "without an executed check")) })
+    #expect(s.reminders.contains { $0.contains(expectedCopy("未核实", "was not verified")) && $0.contains("本机没有 Xcode") })
+    #expect(s.reminders.contains { $0.contains(expectedCopy("没有说明证据方法", "has no evidence method")) })
     #expect(s.methods.map(\.method) == ["test", "reasoning", "unverified"], "counts keep the five methods' order: \(s.methods)")
-    #expect(s.countsText == "测试 1 条、推理判断 1 条、未核实 1 条、未说明 1 条、方法不合法 1 条", "\(s.countsText)")
-    #expect(EvidenceSummary(accept: [], checks: []).countsText == "没有记录")
+    #expect(s.countsText == expectedCopy("测试 1 条、推理判断 1 条、未核实 1 条、未说明 1 条、方法不合法 1 条", "Test: 1, Reasoning: 1, Unverified: 1, Unspecified: 1, Invalid methods: 1"), "\(s.countsText)")
+    #expect(EvidenceSummary(accept: [], checks: []).countsText == expectedCopy("没有记录", "No records"))
 }
 
 /// The task page reads the checks, methods, evidence and risks from the conclusion event too, so a
@@ -386,7 +388,7 @@ private func goalRun() -> Log {
     #expect(t2?.risks == ["没有覆盖负数"], "the executor's risks stay with the task")
     #expect(t2?.evidence.count == 2, "both pieces of evidence are kept")
     #expect(st.verifiers(of: "T2").map(\.id) == ["V1"])
-    #expect(st.verifiers(of: "T2").first?.checks.first?.methodLabel == "命令")
+    #expect(st.verifiers(of: "T2").first?.checks.first?.methodLabel == expectedCopy("命令", "Command"))
     #expect(st.verifiers(of: "T1").isEmpty)
 }
 
@@ -418,9 +420,9 @@ private func goalRun() -> Log {
     #expect(records.count == 1)
     let a = try #require(records.first)
     #expect((a.summary.passed, a.summary.criteria) == (2, 2))
-    #expect(a.checks.count == 2 && a.checks[1].methodLabel == "未核实")
-    #expect(a.summary.countsText == "测试 1 条、未核实 1 条")
-    #expect(a.verifications.first?.passed == false && a.verifications.first?.label == "失败", "a failed verification is shown apart from the executor's checks")
+    #expect(a.checks.count == 2 && a.checks[1].methodLabel == expectedCopy("未核实", "Unverified"))
+    #expect(a.summary.countsText == expectedCopy("测试 1 条、未核实 1 条", "Test: 1, Unverified: 1"))
+    #expect(a.verifications.first?.passed == false && a.verifications.first?.label == expectedCopy("失败", "Failed"), "a failed verification is shown apart from the executor's checks")
     #expect(a.traceGaps.count == 1 && a.risks == ["旧版本没有回归测试"])
     #expect(a.summary.reminders.count == 1)
 }
@@ -443,8 +445,8 @@ private func goalRun() -> Log {
     let s1 = derive(log.events)
     let f1 = boardFacts(s1) { $0 }
     #expect(s1.tasks["T2"]?.continues == "T1")
-    #expect(f1.open.contains { $0.kind == "split_request" && $0.title == "T1 请求拆分子任务" })
-    #expect(f1.open.contains { $0.kind == "overstep" && $0.title == "负责人改了 T1 负责的文件" })
+    #expect(f1.open.contains { $0.kind == "split_request" && $0.title == expectedCopy("T1 请求拆分子任务", "T1 requested a subtask split") })
+    #expect(f1.open.contains { $0.kind == "overstep" && $0.title == expectedCopy("负责人改了 T1 负责的文件", "The lead edited files owned by T1") })
 
     // Finishing T1 and having V1 submit `verdict: "rejected"` clears the split request and marks V1 unconfirmed.
     log.add("task.succeeded", task: "T1", attempt: 1, data: [
