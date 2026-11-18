@@ -48,7 +48,7 @@ chmod 600 janus-signing.p12 janus-signing.password
 sha1="$(openssl x509 -in cert.pem -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
 
 cat <<EOF
-已生成 $dir/janus-signing.p12（证书 SHA-1 $sha1）。
+已生成 $dir/janus-signing.p12（证书 SHA-1 ${sha1}）。
 
 1. 存为仓库的 Actions secrets，之后的 Release 都用它签名：
    gh secret set MACOS_SIGNING_P12 --body "\$(base64 -i '$dir/janus-signing.p12')"
@@ -56,5 +56,5 @@ cat <<EOF
 
 2. 本机打包也想用它签名时（可选）：
    security import '$dir/janus-signing.p12' -k login.keychain-db -P "\$(cat '$dir/janus-signing.password')" -T /usr/bin/codesign
-   JANUS_SIGN_IDENTITY=$sha1 just dmg
+   JANUS_SIGN_IDENTITY=${sha1} just dmg
 EOF

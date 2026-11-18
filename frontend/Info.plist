@@ -4,7 +4,7 @@
 <dict>
   <key>CFBundleName</key><string>Janus</string>
   <key>CFBundleDisplayName</key><string>Janus</string>
-  <key>CFBundleIdentifier</key><string>local.janus.app</string>
+  <key>CFBundleIdentifier</key><string>io.github.duoyuli.janus</string>
   <key>CFBundleExecutable</key><string>Janus</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>

@@ -12,7 +12,7 @@
 
 - 应用自己从 GitHub Release 下载更新：URLSession 下载的文件没有隔离标记，Gatekeeper 不会拦下。只有第一次从 DMG 安装时需要手动允许。
 - 发布拆成两个部分：不含 Node.js 的应用（约 5 MB）和 Node.js。`update.json` 记录每个部分的 SHA-256 和内容哈希，Node.js 没有变化时沿用本机的副本，只下载应用部分。
-- 发布用一张固定的自签名代码签名证书签名（`frontend/scripts/make-signing-cert.sh` 生成，存为 Actions secrets）。指定要求变成 `identifier "local.janus.app" and certificate leaf = H"…"`，各个版本都是同一个应用，权限不再丢失。更新器要求新版本满足当前版本的指定要求，别人签名的包会被拒绝。
+- 发布用一张固定的自签名代码签名证书签名（`frontend/scripts/make-signing-cert.sh` 生成，存为 Actions secrets）。指定要求变成 `identifier "io.github.duoyuli.janus" and certificate leaf = H"…"`（2026.11.18.5 之前的 bundle id 是 `local.janus.app`），各个版本都是同一个应用，权限不再丢失。更新器要求新版本满足当前版本的指定要求，别人签名的包会被拒绝。
 - 更新在退出后替换：脚本等应用退出，把旧版本移到 `~/.janus/updates/previous/`，放入新版本并重新打开。
 
 ## 取舍
