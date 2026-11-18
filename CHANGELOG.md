@@ -4,6 +4,14 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.18.3
+
+- 数字员工编辑器中，「可以担任负责人」移到职责下方。职责和指令的说明更简洁；指令的说明对所有 Agent 统一，表示它会作为系统提示词交给 Coding Agent。
+- 重写了默认数字员工的职责和指令。职责写明适合派给它的工作；PMO 按目标规模选择流程，小目标直接派给合适的人，并按职责而不是名字找人；研究要求注明来源和日期，PRD 的功能和验收标准都编号，研发先读项目约定并运行检查，质量工程师独立验证时只检查不改文件。已有的默认数字员工不会自动更新。
+
+- In the digital employee editor, "Can lead" now sits under Responsibilities. The notes under Responsibilities and Instructions are shorter, and the Instructions note is the same for every Agent: the instructions are given to the coding agent as its system prompt.
+- The default digital employees have rewritten responsibilities and instructions. Responsibilities say what work suits each one. The PMO picks a process by goal size, sends small goals straight to the right person, and finds people by responsibility rather than name. Research cites sources with dates, PRDs number features and acceptance criteria, engineering reads project conventions and runs checks, and QA does not edit files when it verifies. Existing default digital employees are not updated automatically.
+
 ## 2026.11.18.2
 
 - 「macOS 权限」和「更新」并入「通用」设置。侧栏的「可以更新」和菜单中的「检查更新…」直接打开「通用」中的更新部分。切换外观后，语言下拉框会立即跟随。
