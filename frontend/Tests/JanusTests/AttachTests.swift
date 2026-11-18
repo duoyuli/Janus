@@ -111,6 +111,8 @@ private func board() -> NSPasteboard { NSPasteboard(name: .init("janus-test-\(UU
 @Test func theLinesNamingImagesAreHidden() {
     #expect(Attach.visibleText("看看这个报错\n\n附图：\n[附图 1] /h/runs/r/attachments/1.png\n[附图 2] /h/runs/r/attachments/2.png") == "看看这个报错")
     #expect(Attach.visibleText("用户发来了 1 张图片，请先查看：\n[附图 1] /h/runs/r/attachments/1.png") == "")
+    #expect(Attach.visibleText("看看这个报错\n\nAttached images:\n[Image 1] /h/runs/r/attachments/1.png") == "看看这个报错")
+    #expect(Attach.visibleText("Review the user's attached images:\n[Image 1] /h/runs/r/attachments/1.png") == "")
     #expect(Attach.visibleText("普通消息\n附图在后面") == "普通消息\n附图在后面", "text without image lines is unchanged")
     #expect(Attach.paths(["images": [["path": "/a.png"], ["path": ""]]]) == ["/a.png"])
 }

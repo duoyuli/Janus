@@ -75,7 +75,7 @@ Claude Code：
 
 - `claudeCode.options` 原样交给官方 Claude Code 适配器，适配器把它展开进 SDK 的选项。`settings.permissions.allow` 让 Janus 自己的看板工具（只读写这个 Run 的看板）不用审批；没有它时，Claude Code 在默认模式下每次协作者写进展都会请用户批准（真实运行中发现）。Codex 通过工具的只读标注得到同样的效果。角色选择的权限模式对其他所有工具照常生效。
 - `plugins`：成员有 Skill 时才有。资源包作为本地插件加载，只在这个会话中有效，不写进配置目录；Skill 在会话中显示为 `janus:<名字>`，见[资源库](../domains/20261116-resource_library.md#delivery)。
-- `systemPrompt.append`：负责人会话放负责人说明和用户的长期要求，协作者会话放长期要求（见下一节）。只追加，不替换 Claude Code 自带的系统提示。
+- `systemPrompt.append`：负责人会话放负责人说明和用户的长期要求，协作者会话放协作约定和用户的长期要求（见下一节）。只追加，不替换 Claude Code 自带的系统提示。
 
 Codex：
 
@@ -94,6 +94,8 @@ Codex：
 
 1. **Janus 的说明**：负责人会话是负责人说明（`goal_brief`，交付后的对话是 `conversation_brief`），协作者会话是协作约定（`collaborator_rules`），见[目标模式](../domains/20261031-goal_mode.md#collaborator_rules)。
 2. **用户的长期要求**：Provider 的「自定义提示词」和角色的「指令」，`standing_instructions` 把两者合成一段（Provider 在前，角色在后）。
+
+Janus 编写的系统层说明和段落标签始终用英文，独立于界面语言。数字员工指令、Provider 自定义提示词、共享资料、用户留言和历史对话保留原文。
 
 `instruction_channel` 按运行时选择注入方式：
 

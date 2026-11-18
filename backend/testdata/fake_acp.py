@@ -154,9 +154,9 @@ def wait_cancel(seconds):
 def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
-    if "以上是背景信息" in text:
-        log("brief " + ("janus.orchestrate" in text and "ok" or "missing") + (" resumed" if "这是从中断处继续" in text else ""))
-        say(sid, "已了解")
+    if "Wait for the goal before starting work." in text:
+        log("brief " + ("janus.orchestrate" in text and "ok" or "missing") + (" resumed" if "Resuming after an interruption." in text else ""))
+        say(sid, "Acknowledged")
         return {"stopReason": "end_turn"}
     if text.startswith("[Janus] 你的这一轮已经结束"):
         # Janus asks whether a goal that never settled is done.

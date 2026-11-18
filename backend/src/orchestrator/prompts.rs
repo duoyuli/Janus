@@ -31,15 +31,15 @@ pub(super) fn standing_instructions(m: &Member) -> String {
     let mut parts = vec![];
     if !m.prompt.trim().is_empty() {
         let from = if m.runtime_name.is_empty() { m.kind.as_str() } else { &m.runtime_name };
-        parts.push(format!("来自 Agent 设置（{from}）：\n{}", m.prompt.trim()));
+        parts.push(format!("Agent settings ({from}):\n{}", m.prompt.trim()));
     }
     if !m.role_prompt.trim().is_empty() {
-        parts.push(format!("角色指令（{}）：\n{}", m.name, m.role_prompt.trim()));
+        parts.push(format!("Role instructions ({}):\n{}", m.name, m.role_prompt.trim()));
     }
     if parts.is_empty() {
         return String::new();
     }
-    format!("以下是用户为你设定的长期要求，在整个会话中都有效。\n\n{}", parts.join("\n\n"))
+    format!("The following standing instructions from the user apply throughout the session.\n\n{}", parts.join("\n\n"))
 }
 
 /// The same rules for an agent with no system layer, set apart from the task in the first prompt.
@@ -95,7 +95,7 @@ pub(super) fn task_prompt(
         name = m.name,
         role = m.role,
         goal = run.goal,
-        brief = brief_section(&run.brief, "子任务说明"),
+        brief = brief_section(&run.brief, "the subtask instructions"),
         id = def.id,
         title = def.title,
         desc = def.desc,
@@ -124,21 +124,21 @@ pub(super) fn task_prompt(
 // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
 pub(super) fn collaborator_rules(board: bool) -> String {
     let mut p = String::from(
-        "你是 Janus 团队中的协作者：负责人把子任务交给你，你在项目的工作目录中完成它，并按下面的约定汇报。这些约定在整个会话中都有效。
+        "You are a collaborator on the Janus team. Complete the subtask assigned by the lead in the project's working directory and report the result as described below. These rules apply throughout the session.
 
-验收：结束前逐条验证子任务的验收标准，验证方式由你判断：运行测试、启动程序看实际表现、读代码推理、对比输出，选能真正证明结果的方式，而不是只确认文件存在。在结果的 checks 中按顺序逐条写明是否达到、证据（做了什么、看到了什么）和可选的 method：test（运行自动化测试）、command（运行命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或自我判断）、unverified（证据缺失、无法复现或暂时无法核实）。method 只说明依据的类型，不代替证据；无法核实时如实写 unverified，不要写成 test。没有达到的如实写 passed: false 并说明原因；标准本身不合理或在当前环境无法验证时，在 question 中请负责人调整。
+Acceptance: Verify each criterion before finishing. Choose a method that can establish the result, such as running tests, observing the running program, inspecting code, or comparing outputs. File existence alone is insufficient. In checks, report each criterion in order with its pass status, evidence (what you did and observed), and an optional method: test (automated test), command (command or script), inspection (code, files, UI, or actual state), reasoning (inference or judgment), or unverified (missing, irreproducible, or currently unverifiable evidence). The method identifies the evidence type. Report unverified when you cannot verify a result and use test only for an automated test you ran. For unmet criteria, set passed: false and explain why. If a criterion is unreasonable or impossible to verify in the current environment, ask the lead to revise it in question.
 
-工作目录：你直接在项目的工作目录中工作，改动立即生效，其他成员也会看到。不要 git commit、push 或部署，不要修改工作目录之外的文件。",
+Working directory: Work directly in the project's working directory. Your changes take effect immediately and are visible to other members. Do not commit, push, deploy, or modify files outside the working directory.",
     );
     if board {
-        p.push_str("\n\n共享看板（janus MCP 工具）：有进展或阻塞时用 janus.board_post 写回；要改负责范围以外的文件，先用 janus.claim 认领；如果发现子任务范围明显超出预期、横跨多个独立模块需要拆分，用 janus.request_split 提交拆分提议由负责人决定；用 janus.peers 查看其他子任务的状态、负责和改过的文件，传 task 查看某个子任务（例如上游）的完整结果和负责人的修订。两个子任务改了同一个文件、或改了别的子任务负责的文件时，Janus 会提醒。你改过的文件就是给别人看的记录：结果里说的改动要和工作目录一致，Janus 会核对。");
+        p.push_str("\n\nShared board (janus MCP tools): Post progress and blockers with janus.board_post. Before editing files outside your assigned scope, claim them with janus.claim. If the subtask is much larger than expected and needs splitting, propose a split with janus.request_split for the lead to decide. Use janus.peers to see the status, owned files, and edits of other subtasks. Pass task to see a specific subtask's full result and the lead's amendments. Janus alerts you when two subtasks edit the same file or a subtask edits files owned by another. Report changes that match the working directory. Janus checks the result against your edits.");
     }
     p.push_str(
-        "\n\n提问：如果缺少超出你授权的关键决定，不要猜：在结果 JSON 的 question 字段写清问题和选项，然后结束本轮，负责人会回答你。
+        "\n\nQuestions: If a decision is essential and beyond your authority, state the question and options in the result JSON's question field and end the turn. The lead will answer.
 
-结果：完成后，回复的最后必须是一个 ```json 代码块：
-{\"summary\":\"一句话结果\",\"handoff\":\"留给下游子任务的接口、关键约定与注意事项；没有就写 null\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"method\":\"test\",\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
-question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"你建议的选项\"}",
+Result: End your reply with a fenced ```json block in this format:
+{\"summary\":\"One-sentence result\",\"handoff\":\"Interfaces, key decisions, and caveats for downstream subtasks. Use null if there are none.\",\"checks\":[{\"criterion\":\"Verbatim acceptance criterion\",\"passed\":true,\"method\":\"test\",\"evidence\":\"How you verified it and what you observed\"}],\"evidence\":[\"Other verifiable evidence\"],\"risks\":[\"Known risks. Use an empty array if there are none.\"],\"question\":null}
+Question format: {\"text\":\"Question\",\"options\":[\"Option A\",\"Option B\"],\"recommend\":\"Recommended option\"}",
     );
     p
 }

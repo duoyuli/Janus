@@ -215,7 +215,7 @@ fn notes_text(notes: &[Msg]) -> String {
         return String::new();
     }
     format!(
-        "\n\n用户补充的信息（请优先考虑）：\n{}",
+        "\n\nAdditional information from the user. Give it priority:\n{}",
         notes.iter().map(|n| format!("- {}", n.text)).collect::<Vec<_>>().join("\n")
     )
 }

@@ -264,13 +264,13 @@ pub fn accept_refused(def: &TaskDef) -> Option<String> {
 
 /// The part of the lead's brief on how to organise the team.
 pub fn lead_guide() -> &'static str {
-    "团队怎么组织：
-- 先估计规模：一个人能在一轮里做完、或者步骤彼此紧密依赖的工作，你自己做；能按文件、模块或问题干净切开的，才分给协作者。同时执行的子任务一般不超过协作者人数，每个子任务的产出是一处可以单独核对的改动。
-- 契约先行：拆分多模块并行编码子任务前，如果模块之间共享数据结构、接口签名、路由或事件协议，先安排一个前置子任务（或由你自己）把共享契约和类型定义落盘，再扇出并行的模块实现子任务，避免两边各自假设不同的接口。
-- 每个子任务的说明写清三件事：负责什么、不能碰什么、做到什么算完成。会改文件的子任务用 owns 列出它负责的文件或目录（相对工作目录，目录包含其下所有文件）；可能同时执行的子任务 owns 不能重叠，Janus 校验时会拒绝重叠的编排。
-- 协作者开始改文件前可以用 janus.claim 认领 owns 以外的文件，你会在看板上看到 [认领]；同时进行的子任务改了别人负责的文件，看板上是 [越界]；协作者发现任务过大时可以用 janus.request_split 提交拆分提议，由你判断是否重新编排。
-- 子任务完成时 Janus 会拿结果和它在工作目录里留下的改动对账：没改负责的文件、改了范围以外的文件、验证者改了文件，都会在 [完成] 条目下列为「痕迹核对」。以工作目录的现状为准，不要只看结果摘要。
-- 重要的改动安排独立验证：再提交一个子任务，verifies 写被验证子任务的 id，交给另一个协作者（团队里有不同模型或 Agent 时，优先交给不同模型的协作者交叉核验）。验证子任务自动在被验证的子任务完成后开始，只检查不改文件，用 verdict 给出 approved / rejected / inconclusive 判定。验证判定 rejected 或没通过时不能用 janus.accept 放行：派修复子任务（交给原执行者时可写 continues 复用原会话，免去重读代码）和新的验证子任务，或者 janus.cancel 取消验证并写明理由。没有第二个协作者时，你自己核对。"
+    "Organizing the team:
+- Estimate the scope first. Handle work one person can finish in a turn and work with tightly coupled steps yourself. Delegate work that divides cleanly by file, module, or question. Keep parallel work within the available collaborator instances and give each subtask an independently verifiable change.
+- Establish shared contracts first. When parallel modules share data structures, signatures, routes, or event protocols, define those contracts and types in an upstream subtask or implement them yourself before dispatching the parallel work.
+- State what each subtask owns, what it must leave untouched, and what counts as done. Use owns for files or directories relative to the working directory. A directory covers all files below it. Janus rejects overlaps between subtasks that could run at the same time.
+- Collaborators can call janus.claim before editing files outside owns. The board reports claims and out-of-scope edits to files another active subtask owns. If a subtask needs splitting, the collaborator can propose a split with janus.request_split, and you decide whether to revise the plan.
+- On completion, Janus checks each result against the subtask's edits. The completion entry flags missing changes to owned files, changes outside the assigned scope, and edits made by a verifier. Inspect the current working directory before relying on a summary.
+- Arrange independent verification for important changes. Assign another collaborator a subtask with verifies set to the id being verified. Prefer a different model when the team has multiple models or Agents. The verification subtask starts after the target finishes. The verifier inspects the result without changing files and returns an approved, rejected, or inconclusive verdict. You cannot bypass an unsuccessful verification with janus.accept. Assign a fix and a new verification, or cancel the verification with janus.cancel and state why. When assigning the fix to the original collaborator, continues can reuse its session and avoid rereading the code. If a second collaborator is unavailable, verify the result yourself."
 }
 
 #[cfg(test)]

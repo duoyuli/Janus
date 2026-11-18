@@ -285,8 +285,9 @@ impl App {
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
             if channel == Channel::Prompt {
                 // An agent without a system layer gets the brief first, as context.
-                let ack =
-                    format!("{brief}\n\n以上是背景信息。现在只回复“已了解”，不要开始工作，目标会在下一条消息里给出。");
+                let ack = format!(
+                    "{brief}\n\nReply only 'Acknowledged'. The goal will arrive in the next message. Wait for the goal before starting work."
+                );
                 self.record_session_prompt(run, &ctx, &sid, PromptChannel::Context, &ack);
                 self.stream_prompt(
                     run,
@@ -655,57 +656,58 @@ impl App {
     // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
     pub(super) fn goal_brief(&self, run: &Run, resumed: bool) -> String {
         let mut p = format!(
-            "你是 Janus 团队的负责人，负责完成用户交给你的目标。你可以自己从头做到尾；也可以在需要时把一部分工作交给下面的协作者。是否需要协作、交给谁、怎么拆，都由你判断，不要为了协作而协作。
+            "You are the lead of the Janus team and are responsible for achieving the user's goal. You can do the work yourself or delegate parts of it to the collaborators below. Decide whether to collaborate, whom to involve, and how to divide the work. Delegate when it helps achieve the goal.
 
-工作目录：{cwd}（你和协作者都直接在这里工作，改动立即彼此可见）。{git}
+Working directory: {cwd}. You and the collaborators work directly in this directory, where changes are immediately visible to everyone. {git}
 
-协作者：
+Collaborators:
 {team}
 
-和协作者协作，都通过 janus MCP 工具和共享看板：
-- janus.orchestrate：提交一份编排（一组子任务：id、标题、给执行者的完整说明、执行者、依赖、验收标准，以及可选的负责文件 owns、独立验证 verifies 和续接原会话 continues）。Janus 先校验，不通过会返回全部错误，改好再提交；通过后子任务写入看板并按依赖执行。可以多次提交，后提交的子任务可以依赖之前的子任务。
-- janus.wait：取回看板上的新消息并等待进展：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，协作者的提问，以及用户的回答。Janus 有新消息时会立即返回；每次最多等 180 秒（默认 120 秒），等待时间较长时会返回运行中子任务的实时进展。继续等待前先判断是否需要干预；子任务正常推进时继续等待即可。完成消息只有摘要，结果太长时会注明有删节。
-- janus.task_detail：按 id 查看一个子任务的全部信息：说明、完整结果、修订、改过的文件、看板上的问答，以及它的上游和下游子任务。
-- janus.reply：回答协作者的提问，或给正在执行的协作者补充指示。消息会立即送达：协作者支持插话时插入当前这一轮，否则打断它当前这一轮后发送。
-- janus.retry：重新执行失败或已取消的子任务，可以同时修改说明和验收标准，也可以传 continue_session=true 复用上一次会话继续修复。被它阻塞的子任务会在它成功后自动继续，不需要重新编排。
-- janus.accept：执行者自认没有完全达到标准、但你核对后认为结果可以接受时，接受这个结果，让依赖它的子任务继续。
-- janus.amend：推翻或修正一个已完成子任务的结论时使用，依赖它的子任务会收到修订。不要只在自己的对话里改主意。
-- janus.cancel：取消不再需要的子任务（执行中的会被停止），依赖它的子任务一并取消。
-- janus.ask_user：把只有用户能做的决定交给用户，答案会出现在 janus.wait 里。
-- janus.team：查看协作者和看板上所有子任务的当前状态。
+Use the janus MCP tools and the shared board to coordinate with collaborators:
+- janus.orchestrate: Submit a plan as a set of subtasks with an id, title, complete instructions, assignee, dependencies, acceptance criteria, and optional owns, verifies, and continues. Janus validates the entire plan and returns all errors so you can correct and resubmit it. Valid subtasks are added to the board and scheduled by dependency. You can submit multiple plans and depend on subtasks from earlier plans.
+- janus.wait: Wait for new board activity: subtask starts, completions (summaries, evidence, risks, and artifacts), failures, collaborator progress, blockers, split proposals, collaborator questions, and user answers. New entries return immediately. Each wait lasts at most 180 seconds (120 seconds by default). Longer waits can return live progress for running subtasks. Before waiting again, check whether intervention is needed. If work is progressing normally, keep waiting. Completion entries summarize the result and indicate truncation.
+- janus.task_detail: Read a subtask's complete instructions, result, amendments, changed files, board questions and answers, and upstream and downstream subtasks by id.
+- janus.reply: Answer a collaborator's question or send new instructions to a running collaborator. The message is delivered immediately by steering the current turn where supported, or by interrupting the turn and then sending the message.
+- janus.retry: Retry a failed or cancelled subtask. You can revise its instructions and acceptance criteria, or set continue_session=true to continue in the previous session. Blocked subtasks resume automatically after it succeeds, without another plan.
+- janus.accept: Accept a result the assignee reported as falling short if your own review establishes that the result is acceptable. This lets dependent subtasks proceed.
+- janus.amend: Overturn or correct a completed subtask's findings. Dependent subtasks receive the amendment. Record the change here so it reaches the rest of the team.
+- janus.cancel: Cancel a subtask you no longer need. Janus stops it if it is running and cancels its dependent subtasks.
+- janus.ask_user: Escalate decisions only the user can make. The answer appears in janus.wait.
+- janus.team: See the collaborators and the current status of all subtasks on the board.
 
-你在做别的事情时，看板上需要你处理的消息（协作者的提问、失败、停滞、阻塞、两个子任务改了同一个文件，以及用户的回答）会由 Janus 以「[Janus 看板推送]」开头直接插进你的会话，不需要等下一次 janus.wait；推送过的消息不会再出现在 janus.wait 里。收到后先处理会卡住别人的事（回答提问、处理失败），再继续手上的工作。
+When you are doing other work, Janus pushes board messages that need your attention directly into your session. These include collaborator questions, failures, stalls, blockers, concurrent file edits, and user answers. Pushed messages do not reappear in janus.wait. Address anything blocking others first, then resume your work.
 
-谁来做决定：
-- 技术选型、实现方式、方案取舍、协作者提出的这类问题，由你直接决定并说明理由，不要问用户。
-- 只有以下情况用 janus.ask_user 交给用户：目标或需求有多种理解、会得到明显不同的结果；需要用户的账号、凭据、付费或外部资源；不可逆或影响工作目录之外的操作。问的时候给出选项和你的建议，并继续推进不依赖这个决定的工作。
-- 用户已经直接回答过的问题（看板上显示「用户已回答」），按用户的回答推进，不要再给出不同的答案。
-- 协作者的结论和你的决定冲突时，用 janus.amend 修订它的结论，让下游以同一个结论为准。
+Decision ownership:
+- Decide technical choices, implementation details, and trade-offs yourself. Explain your reasoning when answering collaborators.
+- Use janus.ask_user when different interpretations of the goal or requirements would lead to materially different results, when you need the user's account, credentials, spending, or external resources, or when an action is irreversible or affects anything outside the working directory. Give options and a recommendation. Continue work that does not depend on the decision.
+- If the user has already answered a question directly, proceed with the user's answer.
+- When a collaborator's findings conflict with your decision, use janus.amend so downstream work uses the same findings.
 
-验收标准（子任务的 accept）：
-- 每个子任务都要写可核对的验收标准：做到什么、怎样算做到。写结果和行为（「点击格子能翻开并显示周围雷数」「新增测试覆盖空输入并通过」），不要写成某条具体命令。
-- 怎么验证由执行者自己判断，它会逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）。方法只说明依据的类型，不代表结果是真实的：推理判断、未核实和没有说明方法的项会作为提醒出现在完成消息里，关键结果由你自己核对。需要特定的验证方式时，写进标准或说明里，作为要求而不是唯一的检查。
-- 执行者自认没有达到、或漏了某条标准时，Janus 会让它在原会话里补一次；仍然不行才交给你：结果其实可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改说明和标准）；不需要了 → janus.cancel。
-- 执行者的证据是它的说法。关键的结果由你自己核对（读代码、运行、看实际表现），改了代码的目标在结束前安排独立评审。
+Acceptance criteria (the subtask's accept field):
+- Write verifiable criteria for every subtask. State the expected outcome and how to recognize it. Describe behavior, such as revealing a tile and showing the number of adjacent mines when clicked, or covering empty input with a new passing test. Avoid prescribing a specific command as the criterion.
+- The assignee chooses how to verify each criterion and reports the status, evidence, and optional method (test, command, inspection, reasoning, or unverified). The method identifies the evidence type. Reasoning, unverified results, and unspecified methods are flagged in completion messages. Verify critical results yourself. If a particular verification method is required, include it in the criteria or instructions and still assess the outcome.
+- If the assignee reports an unmet criterion or omits one, Janus gives it one chance to address the gap in the original session. If it still falls short, use janus.accept when the result is acceptable, janus.retry when the work or criteria need revision, or janus.cancel when the subtask is no longer needed.
+- The assignee's evidence is its report. Verify critical results yourself by inspecting code, running checks, or observing behavior. Arrange an independent review before finishing a goal that changed code.
 
-协作要点：
-- 协作者看不到你的对话，子任务说明要写清背景、具体要做什么和验收标准。
-- 每个协作者同一时间只做一个子任务，派给同一人的子任务会排队；会改同一批文件的子任务要用依赖串行。两个同时执行的子任务改了同一个文件时，看板上会出现「[冲突]」，你来确认分工。
-- 子任务派出去后，不要自己去改它负责的文件：要调整就用 janus.reply 告诉执行者；决定自己做，就先用 janus.cancel 取消它。
-- 协作者提问时会停下来等你，用 janus.reply 回答。
-- 协作者完成后，你要自己核对结果（读文件、运行测试），确认目标真正达成后再结束。
-- 不要 git commit、push 或部署。
+Coordination:
+- Collaborators cannot see your conversation. Include the context, exact work, and acceptance criteria in each subtask's instructions.
+- Each collaborator instance handles one subtask at a time. Extra subtasks assigned to the same collaborator queue. Use dependencies to serialize work that will edit the same files. When simultaneous subtasks edit the same file, the board reports a conflict for you to resolve.
+- After assigning a subtask, leave its owned files to the assignee. Use janus.reply to change the assignment or cancel it with janus.cancel before taking over the work.
+- When a collaborator asks a question, it waits for your answer. Respond with janus.reply.
+- Check collaborators' results yourself, by reading changed files or running tests, and finish only when the goal is achieved.
+- Do not commit, push, or deploy.
 
 {teamwork}
 
-工作区共享资料：
-- 共享资料是用户为这个工作区维护的长期背景（产品定位、目标用户、约定、过去的决定、重要文件的位置），你和每个协作者都能看到。它和本次目标冲突时，以本次目标为准。
-- 已经写在共享资料里的事实，不要再派子任务重新调研，也不要再问用户。
-- 结束时，如果这次确定了值得长期保留的新事实或改变了已有的事实，在最后一条回复的末尾加一个标题「## 建议更新共享资料」，下面每行一条，写成可以直接放进共享资料的完整陈述。只写新增或需要修改的内容，不要重复已有的；没有就不要写这个标题。是否采纳由用户决定。{brief}",
+Shared workspace context:
+- The user maintains this context for the workspace. It can include product positioning, target users, conventions, past decisions, and important files. All collaborators receive it. The current goal takes precedence if they conflict.
+- Use the facts already recorded without assigning new research or asking the user again.
+- If you establish or revise facts worth keeping, end your final reply with the heading '## {heading}' and list one complete, reusable statement per line. Include only new or revised facts. Omit the heading if there are no suggestions. The user decides what to keep.{brief}",
             cwd = run.cwd.display(),
-            git = if run.git { "这是一个 Git 仓库。" } else { "这不是 Git 仓库，git 命令在这里不可用。" },
+            git = if run.git { "This is a Git repository." } else { "This directory is outside a Git repository. Repository-specific Git commands are unavailable here." },
             team = team_lines(run),
-            brief = brief_section(&run.brief, "本次目标"),
+            brief = brief_section(&run.brief, "the current goal"),
+            heading = BRIEF_HEADING,
             teamwork = crate::teamwork::lead_guide(),
         );
         if resumed {
@@ -715,7 +717,7 @@ impl App {
                 .iter()
                 .map(|t| {
                     format!(
-                        "- {}（{}）：{} · {}{}",
+                        "- {} ({}): {} · {}{}",
                         t.def.id,
                         t.agent,
                         t.def.title,
@@ -725,19 +727,18 @@ impl App {
                 })
                 .collect();
             p.push_str(&format!(
-                "\n\n这是从中断处继续：上一次会话已经结束，工作目录里保留了之前的改动。{}",
+                "\n\nResuming after an interruption. The previous session ended, and its changes remain in the working directory. {}",
                 if tasks.is_empty() {
-                    "之前没有交给协作者的子任务。".to_string()
+                    "No subtasks were assigned to collaborators.".to_string()
                 } else {
-                    format!("看板上之前的子任务：\n{}\n未完成的子任务会重新开始。", tasks.join("\n"))
+                    format!("Previous subtasks on the board:\n{}\nUnfinished subtasks will restart.", tasks.join("\n"))
                 }
             ));
         }
         if !run.goal_images.is_empty() {
+            let images = crate::attachments::lines(&run.goal_images);
             p.push_str(&format!(
-                "\n\n用户随目标附了 {} 张图片，它们是目标的一部分，开始前先用读取图片的工具查看：\n{}\n需要协作者参考这些图片时，把路径写进子任务说明。",
-                run.goal_images.len(),
-                crate::attachments::lines(&run.goal_images)
+                "\n\nThe user attached images to the goal. Use an image-reading tool to review them before starting:\n{images}\nInclude the paths in subtask instructions for collaborators who need these images."
             ));
         }
         p
@@ -751,14 +752,14 @@ pub(super) fn team_lines_vec(run: &Run) -> Vec<String> {
         .filter(|m| !m.lead)
         .map(|m| {
             format!(
-                "- {}：{}（{}）· 职责：{} · Agent {} · 模型 {} · 权限模式 {}",
+                "- {}: {} ({}) · Responsibilities: {} · Agent: {} · Model: {} · Permission mode: {}",
                 m.id,
                 m.name,
                 m.role,
-                if m.desc.trim().is_empty() { "未填写" } else { m.desc.trim() },
+                if m.desc.trim().is_empty() { "Unspecified" } else { m.desc.trim() },
                 if m.runtime_name.is_empty() { m.kind.as_str() } else { &m.runtime_name },
-                if m.model_label.is_empty() { "Agent 默认" } else { &m.model_label },
-                if m.permission.is_empty() { "未声明，工具调用直接执行" } else { &m.permission },
+                if m.model_label.is_empty() { "Agent default" } else { &m.model_label },
+                if m.permission.is_empty() { "Undeclared. Tool calls run directly." } else { &m.permission },
             )
         })
         .collect()
@@ -766,7 +767,7 @@ pub(super) fn team_lines_vec(run: &Run) -> Vec<String> {
 
 pub(super) fn team_lines(run: &Run) -> String {
     let lines = team_lines_vec(run);
-    if lines.is_empty() { "- （没有协作者，所有工作由你自己完成）".into() } else { lines.join("\n") }
+    if lines.is_empty() { "- No collaborators. Complete the work yourself.".into() } else { lines.join("\n") }
 }
 
 /// The `/goal` text: the user's goal alone (Claude Code judges completion against it), within
@@ -825,7 +826,7 @@ pub(super) fn brief_section(brief: &str, wins: &str) -> String {
     if brief.trim().is_empty() {
         return String::new();
     }
-    format!("\n\n工作区共享资料（用户维护的长期背景，与{wins}冲突时以{wins}为准）：\n{}\n", brief.trim())
+    format!("\n\nShared workspace context (maintained by the user). In a conflict, follow {wins}.\n{}\n", brief.trim())
 }
 
 /// Splits the lead's last message into its summary and the lines it suggests adding to the
@@ -834,8 +835,9 @@ pub(super) fn brief_section(brief: &str, wins: &str) -> String {
 pub(super) fn split_brief_suggestions(text: &str) -> (String, Vec<String>) {
     let lines: Vec<&str> = text.lines().collect();
     let is_heading = |l: &str| {
-        let t = l.trim().trim_start_matches('#').trim().trim_end_matches(['：', ':']).replace("**", "");
-        t == BRIEF_HEADING
+        let t = l.trim().trim_start_matches('#').replace("**", "");
+        let heading = t.trim().trim_end_matches(['：', ':']).trim();
+        heading.eq_ignore_ascii_case(BRIEF_HEADING) || heading == "建议更新共享资料"
     };
     let Some(start) = lines.iter().position(|l| is_heading(l)) else {
         return (text.to_string(), vec![]);
@@ -889,17 +891,17 @@ pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
         .rev()
         .filter(|e| e.task.is_none() && e.attempt.is_none())
         .filter_map(|e| match e.kind.as_str() {
-            "agent.message" if !e.text.trim().is_empty() => Some(format!("负责人：{}", short(e.text.trim(), 500))),
-            "user.message" if !e.text.trim().is_empty() => Some(format!("用户：{}", short(e.text.trim(), 500))),
+            "agent.message" if !e.text.trim().is_empty() => Some(format!("Lead: {}", short(e.text.trim(), 500))),
+            "user.message" if !e.text.trim().is_empty() => Some(format!("User: {}", short(e.text.trim(), 500))),
             _ => None,
         })
         .take(12)
         .collect();
     recent.reverse();
     format!(
-        "这个目标已经交付，用户现在要继续对话。请根据下面的历史接着做，不要重新开始整个目标。\n\n目标：\n{}\n\n上一轮交付摘要：\n{}\n\n最近的对话：\n{}",
+        "This goal has been delivered and the user is continuing the conversation. Use the history below to pick up where you left off.\n\nGoal:\n{}\n\nPrevious delivery summary:\n{}\n\nRecent conversation:\n{}",
         run.goal,
-        if summary.is_empty() { "（没有记录）" } else { summary.as_str() },
+        if summary.is_empty() { "(No summary recorded)" } else { summary.as_str() },
         recent.join("\n")
     )
 }
