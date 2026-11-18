@@ -503,7 +503,7 @@ async fn main() -> Result<()> {
         }
         Some("--help" | "-h") => {
             println!(
-                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node).\nSee docs/operations/20261031-deployment.md.",
+                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node), JANUS_MAX_CONCURRENT_ATTEMPTS (max_concurrent_attempts), JANUS_RUN_TOKEN_BUDGET (run_token_budget), JANUS_RUN_COST_BUDGET_USD (run_cost_budget_usd).\nSee docs/operations/20261031-deployment.md.",
                 env!("CARGO_PKG_VERSION")
             );
             return Ok(());
@@ -528,6 +528,9 @@ async fn main() -> Result<()> {
             node: settings.node.clone(),
             stall_after: orchestrator::STALL_AFTER,
             goal_settle: goal_settle::SETTLE,
+            max_concurrent_attempts: settings.max_concurrent_attempts,
+            run_token_budget: settings.run_token_budget,
+            run_cost_budget_usd: settings.run_cost_budget_usd,
         },
         tx,
         runs: Mutex::new(HashMap::new()),

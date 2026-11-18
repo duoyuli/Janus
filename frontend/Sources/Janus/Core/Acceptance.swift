@@ -138,10 +138,32 @@ struct EvidenceSummary: Hashable {
     }
 }
 
+/// An independent verifier's judgment on the target task (`verdict` in `evidence.rs`).
+enum Verdict: String, CaseIterable {
+    case approved, rejected, inconclusive
+
+    var label: String {
+        switch self {
+        case .approved: return "通过"
+        case .rejected: return "需要修改"
+        case .inconclusive: return "证据不足"
+        }
+    }
+
+    static func effective(verdict: Verdict?, acceptCount: Int, checks: [Check]) -> Verdict {
+        if let verdict { return verdict }
+        if checks.count < acceptCount || checks.prefix(acceptCount).contains(where: { !$0.passed }) {
+            return .rejected
+        }
+        return .approved
+    }
+}
+
 /// One independent verification of a task: a task whose `verifies` names it, with its own result.
 struct VerificationRecord: Identifiable {
     let task: String
     let label: String
+    let verdict: Verdict?
     let passed: Bool
     let summary: String
     let checks: [Check]
@@ -154,7 +176,9 @@ struct VerificationRecord: Identifiable {
         task = j["task"].str
         if task.isEmpty { return nil }
         label = j["label"].str
-        passed = j["passed"].bool ?? false
+        let vd = j["verdict"].string.flatMap(Verdict.init(rawValue:))
+        verdict = vd
+        passed = j["passed"].bool ?? (vd == .approved)
         summary = j["summary"].str
         checks = Check.list(j["checks"])
         evidence = j["evidence"].strings
@@ -165,7 +189,9 @@ struct VerificationRecord: Identifiable {
     init(_ v: TaskState) {
         task = v.id
         label = v.status.label.0
-        passed = v.status == .succeeded
+        let eff = v.status == .succeeded ? Verdict.effective(verdict: v.verdict, acceptCount: v.accept.count, checks: v.checks) : nil
+        verdict = eff
+        passed = eff == .approved
         summary = v.summary
         checks = v.checks
         evidence = v.evidence

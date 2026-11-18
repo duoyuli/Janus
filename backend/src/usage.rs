@@ -329,6 +329,9 @@ pub struct Session {
     /// The session's identity in the log: the actor with its ACP session id, or with its task and
     /// attempt when no id is known.
     pub key: String,
+    /// The ACP session id, when the log names one.
+    #[serde(skip)]
+    pub sid: Option<String>,
     pub actor: String,
     pub task: Option<String>,
     pub attempt: Option<i64>,
@@ -499,6 +502,12 @@ pub struct Ledger {
 }
 
 impl Ledger {
+    /// The ledger's sessions with ACP session id `sid`, oldest first: one per task that ran in it
+    /// (a follow-up task that continues a session gets its own).
+    pub fn sessions_of<'a>(&'a self, sid: &'a str) -> impl DoubleEndedIterator<Item = &'a Session> + 'a {
+        self.sessions.iter().filter(move |s| s.sid.as_deref() == Some(sid))
+    }
+
     pub fn task(&self, id: &str) -> Option<&Scope> {
         self.tasks.iter().find(|t| t.id == id)
     }
@@ -769,6 +778,7 @@ fn session_actor(e: &Event) -> &str {
 /// A session while it is being collected.
 #[derive(Default)]
 struct SessionBuild {
+    sid: Option<String>,
     actor: String,
     task: Option<String>,
     attempt: Option<i64>,
@@ -981,19 +991,20 @@ impl Scan {
     }
 
     /// Note that the actor is in its current session, even if it never reports usage, and return
-    /// the session's key.
+    /// the session's key. Scoped by task as well as session id so a downstream task that warms up
+    /// from an earlier task's ACP session (`continues`) gets its own slice of turns in the ledger,
+    /// while a resumed attempt of the same task stays in one session.
     fn touch(&mut self, e: &Event, actor: &str) -> String {
-        let key = match self.current_session.get(actor) {
-            Some(sid) => format!("{actor}:{sid}"),
-            None => format!(
-                "{actor}:{}/{}",
-                e.task.as_deref().unwrap_or("-"),
-                e.attempt.map(|n| n.to_string()).unwrap_or_else(|| "-".into())
-            ),
+        let task_part = e.task.as_deref().unwrap_or("-");
+        let sid = self.current_session.get(actor).cloned();
+        let key = match &sid {
+            Some(sid) => format!("{actor}:{task_part}:{sid}"),
+            None => format!("{actor}:{task_part}/{}", e.attempt.map(|n| n.to_string()).unwrap_or_else(|| "-".into())),
         };
         let s = self.sessions.entry(key.clone()).or_insert_with(|| {
             self.order.push(key.clone());
             SessionBuild {
+                sid,
                 actor: actor.to_string(),
                 task: e.task.clone(),
                 attempt: e.attempt,
@@ -1045,6 +1056,7 @@ impl Scan {
             .filter_map(|key| self.sessions.remove(key).map(|b| (key, b)))
             .map(|(key, b)| Session {
                 key: key.clone(),
+                sid: b.sid,
                 actor: b.actor,
                 task: b.task,
                 attempt: b.attempt,
@@ -1610,6 +1622,22 @@ mod tests {
         assert_eq!(l.run.completeness, Completeness::Partial, "the lead reported context but no tokens");
         assert_eq!(l.reminders.len(), 3, "{:?}", l.reminders);
         assert!(l.reminders_line().unwrap().starts_with("提醒（按已上报数据）："));
+    }
+
+    #[test]
+    fn continued_session_attributes_each_tasks_turns_without_double_counting() {
+        let mut e = vec![];
+        created(&mut e);
+        started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+        usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 600 }));
+        e.push(ev(4, 4_000, "task.succeeded", "m1", Some("T1"), Some(1), json!({ "summary": "初稿" })));
+        started(&mut e, 5, 5_000, "m1", "T2", 1, "s1");
+        usage(&mut e, 6, 6_000, "m1", Some("T2"), Some(1), json!({ "totalTokens": 250 }));
+        e.push(ev(7, 7_000, "task.succeeded", "m1", Some("T2"), Some(1), json!({ "summary": "修复" })));
+        let l = ledger(&e);
+        assert_eq!(l.task("T1").unwrap().tokens.total, Some(600));
+        assert_eq!(l.task("T2").unwrap().tokens.total, Some(250));
+        assert_eq!(l.run.tokens.total, Some(850));
     }
 
     #[test]

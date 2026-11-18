@@ -128,6 +128,13 @@ impl App {
                 }
                 _ = expire => {
                     let _ = conn.notify("session/cancel", json!({ "sessionId": sid })).await;
+                    if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(2), &mut prompt).await
+                        && let Some(u) = crate::acp_view::prompt_usage(&res)
+                    {
+                        self.show(run, u, ctx);
+                    }
+                    self.flush_thought(run, &mut turn.thought, ctx);
+                    self.flush_message(run, &out, &mut flushed, ctx);
                     bail!("超过 {} 分钟没有完成", limit.unwrap_or_default().as_secs() / 60);
                 }
                 cmd = steer => {
@@ -431,6 +438,93 @@ impl App {
         }
     }
 
+    /// The lead's own session edited these files: record them in `traces` so finished tasks'
+    /// conclusions are marked stale (`负责人 改`), and warn both the lead and any running
+    /// collaborator task whose owned or concurrently edited files were touched. A task that has
+    /// not started yet will read the lead's change when it does (the lead settling a shared
+    /// contract before fanning out), so it is not a conflict.
+    pub(super) fn record_lead_edits(&self, run: &Run, paths: &[String], seq: i64) {
+        let (shared, owned) = {
+            let mut guard = run.st.lock().unwrap();
+            let st = &mut *guard;
+            st.traces.record_lead(paths, seq);
+            let mut shared: Vec<(String, Vec<String>)> = vec![];
+            let mut owned: Vec<(String, Vec<String>)> = vec![];
+            for t in st.tasks.iter().filter(|t| t.status == TaskStatus::Running) {
+                let id = &t.def.id;
+                let owned_files: Vec<String> = paths
+                    .iter()
+                    .filter(|p| t.def.owns.iter().any(|o| crate::teamwork::overlaps(o, p)))
+                    .filter(|p| {
+                        st.traces.first_actor_report(
+                            Overlap::Owned,
+                            crate::traces::Actor::Lead,
+                            crate::traces::Actor::task(id),
+                            p,
+                        )
+                    })
+                    .cloned()
+                    .collect();
+                if !owned_files.is_empty() {
+                    owned.push((id.clone(), owned_files));
+                } else {
+                    let theirs = st.traces.files(id);
+                    let common: Vec<String> = paths
+                        .iter()
+                        .filter(|p| theirs.contains(*p))
+                        .filter(|p| {
+                            st.traces.first_actor_report(
+                                Overlap::Same,
+                                crate::traces::Actor::Lead,
+                                crate::traces::Actor::task(id),
+                                p,
+                            )
+                        })
+                        .cloned()
+                        .collect();
+                    if !common.is_empty() {
+                        shared.push((id.clone(), common));
+                    }
+                }
+            }
+            (shared, owned)
+        };
+        for (other, files) in owned {
+            let list = files.join("、");
+            self.emit(
+                run,
+                ev("task.conflict", "janus", format!("负责人改了 {other} 负责的 {}", short(&list, 80)))
+                    .task(&other)
+                    .to("lead")
+                    .data(json!({ "other": "lead", "byLead": true, "owned": true, "paths": files })),
+            );
+            self.notify(
+                run,
+                &other,
+                &format!(
+                    "[Janus 提醒] 负责人刚刚修改了归你负责的 {list}。继续修改前先重新读取最新内容，以负责人的改动为准。"
+                ),
+            );
+        }
+        for (other, files) in shared {
+            let list = files.join("、");
+            self.emit(
+                run,
+                ev("task.conflict", "janus", format!("负责人和 {other} 都改了 {}", short(&list, 80)))
+                    .task(&other)
+                    .to("lead")
+                    .data(json!({ "other": "lead", "byLead": true, "paths": files })),
+            );
+            self.notify(
+                run,
+                &other,
+                &format!(
+                    "[Janus 提醒] 负责人刚刚也修改了 {list}。再改这些文件前先重新读取最新内容，不要覆盖负责人的改动。"
+                ),
+            );
+        }
+    }
+
     /// A notice from Janus into a task's running turn, for an agent that takes steering: queued
     /// until the turn ends, it would arrive after the fact, so other agents do not get it.
     pub(super) fn notify(&self, run: &Run, task: &str, text: &str) {
@@ -506,6 +600,10 @@ impl App {
                 if let Some(t) = u["content"]["text"].as_str() {
                     out.push_str(t);
                 }
+                run.with_watch(&key, n, |w| {
+                    w.phase = AgentPhase::Thinking;
+                    w.last_tool.clear();
+                });
             }
             "tool_call" | "tool_call_update" => {
                 let first = u["sessionUpdate"] == "tool_call";
@@ -522,6 +620,7 @@ impl App {
                 }
                 let status = entry["status"].as_str().unwrap_or("pending").to_string();
                 let title = entry["title"].as_str().unwrap_or("工具调用").to_string();
+                let phase = tool_phase(entry["kind"].as_str().unwrap_or(""), &title);
                 // A call still running is shown at once, like in the agent's own interface; its
                 // finished record (`tool.call`, same `callId`) replaces it.
                 if first && !matches!(status.as_str(), "completed" | "failed") {
@@ -531,6 +630,12 @@ impl App {
                 }
                 if matches!(status.as_str(), "completed" | "failed") {
                     let entry = turn.tools.remove(&id).unwrap();
+                    if turn.tools.is_empty() {
+                        run.with_watch(&key, n, |w| {
+                            w.phase = AgentPhase::Thinking;
+                            w.last_tool = short(&title, 60);
+                        });
+                    }
                     let kind = entry["kind"].as_str().unwrap_or("tool").to_string();
                     let input = summarize_input(&entry["rawInput"], &title);
                     let edited = if status == "completed" { edited_paths(&entry, &run.cwd) } else { vec![] };
@@ -554,22 +659,25 @@ impl App {
                     if ctx.task.is_some() || !title.contains("janus") {
                         self.watch_call(run, &key, &kind, &title, &input);
                     }
-                    if let (Some(task), false) = (ctx.task, edited.is_empty()) {
-                        self.record_edits(run, task, &edited, seq);
+                    if !edited.is_empty() {
+                        match ctx.task {
+                            Some(task) => self.record_edits(run, task, &edited, seq),
+                            None if ctx.agent == "lead" => self.record_lead_edits(run, &edited, seq),
+                            None => {}
+                        }
                     }
-                } else if now_ms() - turn.last_status > 1500 {
-                    turn.last_status = now_ms();
-                    let kind = entry["kind"].as_str().unwrap_or("");
-                    let phase = match kind {
-                        "read" | "search" | "fetch" => AgentPhase::ReadingFiles,
-                        "edit" | "delete" | "move" => AgentPhase::Editing,
-                        _ if title.contains("test") || title.contains("测试") => AgentPhase::RunningTest,
-                        _ => AgentPhase::RunningTool,
-                    };
-                    self.emit(
-                        run,
-                        ev("agent.status", ctx.agent, short(&title, 80)).scope(ctx).data(json!({ "phase": phase })),
-                    );
+                } else {
+                    run.with_watch(&key, n, |w| {
+                        w.phase = phase;
+                        w.last_tool = short(&title, 60);
+                    });
+                    if now_ms() - turn.last_status > 1500 {
+                        turn.last_status = now_ms();
+                        self.emit(
+                            run,
+                            ev("agent.status", ctx.agent, short(&title, 80)).scope(ctx).data(json!({ "phase": phase })),
+                        );
+                    }
                 }
             }
             _ => {
@@ -909,5 +1017,14 @@ pub(super) fn summarize_output(entry: &Value) -> String {
         Value::Null => String::new(),
         Value::String(s) => short(&unwrap_output(s), 300),
         v => short(&unwrap_output(&v.to_string()), 300),
+    }
+}
+
+fn tool_phase(kind: &str, title: &str) -> AgentPhase {
+    match kind {
+        "read" | "search" | "fetch" => AgentPhase::ReadingFiles,
+        "edit" | "delete" | "move" => AgentPhase::Editing,
+        _ if title.contains("test") || title.contains("测试") => AgentPhase::RunningTest,
+        _ => AgentPhase::RunningTool,
     }
 }

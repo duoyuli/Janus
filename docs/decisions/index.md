@@ -29,6 +29,8 @@
 - [内置运行时只保留 Codex 和 Claude Code](20261116-codex_and_claude_only.md)：删除 Grok 和 Pi，基础运行时用枚举 `Runtime` 表达，自定义命令保留。阅读时机：想新增一种内置 Agent 之前。
 
 - [集中引导 macOS 权限，升级后重新检查](20261117-macos_permission_guidance.md)：完整磁盘访问、应用程序管理和屏幕录制的集中引导，区分系统检测与手动确认。阅读时机：修改系统权限检查、授权入口、升级后提醒或 Agent 的权限归属说明。
+- [基于 `session/load` 复用前置任务会话](20261118-session_continuation.md)：修复任务和重试通过 `continues` / `continue_session` 恢复原执行者会话，上下文超过 75% 或不支持时自动回退新建会话。阅读时机：修改任务会话打开流程、`continues` 编排校验或 `retry` 行为之前。
+- [工作区角色并发槽位与 Run 级并发上限](20261118-role_slots_and_concurrency_cap.md)：协作者角色可配置多个并发分片（共享 `role_id`），调度器按 `max_concurrent_attempts` 限制单次 Run 同时运行的尝试数。阅读时机：修改 `team_for` 成员展开、工作区成员配置或调度并发上限之前。
 
 ## 历史决策
 

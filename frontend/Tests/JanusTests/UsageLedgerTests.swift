@@ -213,3 +213,19 @@ private struct Log {
 @Test func usageUSDIsWrittenInDollars() {
     #expect(usageUSD(6389.624) == "$6,389.62" && usageUSD(0.004) == "<$0.01" && usageUSD(0) == "$0.00")
 }
+
+/// When `T2` continues `T1`'s ACP session (`continues`), each task keeps its own turn tokens.
+@Test func usageContinuedSessionAttributesEachTasksTurns() {
+    var log = Log()
+    log.add("run.created", actor: "user", data: ["goal": "g"])
+    log.start("T1", "m1", session: "s1")
+    log.turn("m1", "T1", ["totalTokens": 600])
+    log.add("task.succeeded", actor: "m1", task: "T1", attempt: 1, data: ["summary": "初版"])
+    log.start("T2", "m1", session: "s1")
+    log.turn("m1", "T2", ["totalTokens": 250])
+    log.add("task.succeeded", actor: "m1", task: "T2", attempt: 1, data: ["summary": "修复"])
+    let l = usageLedger(log.events)
+    #expect(l.task("T1")?.tokens.total == 600)
+    #expect(l.task("T2")?.tokens.total == 250)
+    #expect(l.run.tokens.total == 850)
+}

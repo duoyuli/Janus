@@ -23,7 +23,7 @@
 2. 为每个成员构建运行环境（`spec_for`），缺少 CLI 或适配器没有安装时直接报错。
 3. 负责人必须是 Claude Code 或 Codex（`Runtime::leads`）。
 4. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线。
-5. 写入 Run 快照，复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
+5. 写入 Run 快照（含可选 `tokenLimit`、`costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
 6. 申请 Run 租约（10 分钟）。
 7. 启动驱动任务，进入负责人的目标会话（`goal`）。
 
@@ -74,11 +74,14 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 一个任务可以启动，需要同时满足：
 
 - 状态为 `pending`。
-- 所有依赖（`deps`）都已 `succeeded`。
-- 执行者当前没有别的任务在执行。每个成员同一时间只做一个任务，派给同一人的任务排队。
-- Run 没有暂停、没有取消，也没有超出预算。
+- 所有依赖（`deps`）都已 `succeeded`，并且没有被未通过的独立验证挡住（见下文）。
+- 执行者当前没有别的任务在执行。每个成员实例同一时间只做一个任务，派给同一实例的任务排队；工作区中配置了 `slots > 1` 的角色会展开为多个成员实例，可并行执行不同任务，见 [Agent、角色与工作区](20261031-agents_and_roles.md#workspaces)。
+- 当前正在运行的协作者尝试总数低于 `max_concurrent_attempts`（默认 3，见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md)）。超出上限时，已就绪的任务保持 `pending`，等有槽位空出后自动启动。
+- Run 没有暂停、没有取消，也没有超出墙钟、Token 或已上报美元费用预算。
 
 依赖失败（失败、取消、阻塞或被跳过）时，下游任务变为 `blocked`（`task.blocked`）。有多个依赖失败时，处理好一个后任务仍保持 `blocked`，并再写一条 `task.blocked` 指向还没处理的依赖。
+
+独立验证任务判定 `rejected` 或 `inconclusive` 时自身是 `succeeded`，但被验证的工作没有得到确认。在判定写入之前就编排好、依赖这个验证任务的任务，是按「验证会通过」安排的，同样变为 `blocked`（`task.blocked` 带 `data.verdict`），不会在没确认的工作上继续；负责人读到判定之后再编排、依赖它的任务（例如修复任务）照常开始。判断依据是任务写入看板时的事件序号（`Task::planned_seq`）和验证任务 `task.succeeded` 的序号（`DepGate::holds`），重启后从 `orchestration.accepted` 的序号重建。
 
 尝试结束、负责人 `cancel` / `retry` / `accept` 都会改任务状态。尝试结束时，确认这次尝试仍是任务当前的尝试（`active_attempt`）和写入结果在同一把锁内完成；负责人已经取消或重试了这个任务时，这次尝试的结果按过期处理（`attempt.late_result`），尝试记录标为 `cancelled`，不会覆盖负责人的决定。
 
@@ -87,10 +90,10 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 每次尝试是一个新的 ACP 子进程和会话（`App::attempt`）：
 
-1. 打开会话，接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
+1. 打开会话（或热续接原会话）：默认调用 `session/new`；若从中断处恢复未完成尝试，或任务声明了 `continues`（首次尝试） / 负责人 `retry` 指定了 `continue_session: true`，且目标会话最新上下文占用未超过 75%、Agent 支持 `loadSession`，则调用 `session/load` 复用原会话，否则回退到新建会话并记录原因（`attempt.started` 的 `data.continuation`，见 [ADR：热会话续接](../decisions/20261118-session_continuation.md)）。接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/20261031-acp_integration.md#session_setup)。
-3. 发送任务提示（`task_prompt`）：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含负责人的修订）、同时进行的任务和上次失败原因。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
-4. 收集流式输出、工具调用、审批请求和表单请求。
+3. 发送任务提示（`task_prompt`）：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含一句话摘要、专门给下游的 `handoff` 交接说明、前 5 条上游风险、负责人的修订、改过的文件及后续被他人或负责人修改的提醒）、同时进行的任务和上次失败原因；独立验证任务还会收到被验证任务的专属 diff 路径、实际改动文件、痕迹核对异常、弱证据条目提醒和风险（`teamwork::VerifiedContext`）。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
+4. 收集流式输出、工具调用、审批请求和表单请求。单轮超时发送 `session/cancel` 后，仍等待最多 2 秒读取返回值中的 `prompt_usage`；若尝试异常结束且该会话尚未上报任何 token，则从 Janus 隔离目录（Claude Code 的 `CLAUDE_CONFIG_DIR`，即 `~/.janus/agents/<id>/home`）下的 `projects/**/<sid>.jsonl` 按 `message.id` 去重补齐用量。
 5. 解析回复中最后一个 ```` ```json ```` 代码块作为结构化结果。
 
 <a id="structured_result"></a>
@@ -99,6 +102,8 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 ```json
 {
   "summary": "一句话结果",
+  "handoff": "给下游子任务的接口约定、关键决策与注意事项（没有下游依赖时可填 null）",
+  "verdict": "approved",
   "checks": [{ "criterion": "验收标准原文", "passed": true, "method": "test", "evidence": "怎么验证的、看到了什么" }],
   "evidence": ["其他可核对的证据"],
   "risks": ["已知风险，没有就留空数组"],
@@ -106,18 +111,21 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 }
 ```
 
+- `handoff` 可选（最长 1200 个字符），供上游执行者写给下游的接口签名、边界约定和注意事项，与给负责人扫读的一句话 `summary` 分离。
+- `verdict` 供独立验证任务（带 `verifies`）填写对被验证产物的判定：`approved`（达标）、`rejected`（存在阻断问题，需原执行者修改）或 `inconclusive`（当前环境证据不足）；未填时按 `checks` 是否全部通过推导（任一条 `passed: false` 推导为 `rejected`），填写了允许值以外的内容时核对报错。
 - `checks` 按验收标准的顺序逐条给出，验证方式由 Agent 自己决定。
 - `method` 可选，说明这条依据的类型：`test`、`command`、`inspection`、`reasoning`、`unverified`，含义见[证据方法](../interfaces/20261031-events.md#evidence_methods)。省略它的结果没有方法，解析、恢复、核对和展示都按「未说明」处理，不当作 `reasoning`，也不因此判失败；存在但不是允许值时，原样保留在结果里并由核对报错，不会静默换成合法方法。证据方法由 `backend/src/evidence.rs` 解析和汇总，结构化结果的读取（`parse_result`）、事件里结果的重建和恢复（`resume_run`）都用同一段逻辑。
 - 没有 JSON 块时，摘要取回复第一行，并记一条风险「Agent 没有按约定返回结构化结果」。
-- `question` 不为空表示 Agent 在提问：`{"text": "问题", "options": ["A", "B"], "recommend": "A"}`。回答作为下一轮提示发回同一个会话。同一次尝试最多连续提问 4 轮。提问由谁回答见[提问的流转](20261031-goal_mode.md#question_routing)。
+- `question` 不为空表示 Agent 在提问：`{"text": "问题", "options": ["A", "B"], "recommend": "A"}`。回答作为下一轮提示发回同一个会话。同一次尝试最多连续普通提问 4 轮（伴有 `request_split` 拆分提议的暂停不计入这 4 轮，总暂停硬上限为 8 轮）。提问由谁回答见[提问的流转](20261031-goal_mode.md#question_routing)。
 
 <a id="verification"></a>
 ## 验证
 
-结果提交后，Janus 核对结果（`verify_result` / `evidence::gaps`，`verification.*` 事件）。Janus 不运行任何验证命令，验证由协作者按验收标准自己完成，见[验收标准](../interfaces/20261031-board_mcp.md#acceptance_criteria)。核对的内容：
+结果提交后，Janus 核对结果（`verify_result` / `evidence::gaps_for`，`verification.*` 事件）。Janus 不运行任何验证命令，验证由协作者按验收标准自己完成，见[验收标准](../interfaces/20261031-board_mcp.md#acceptance_criteria)。核对将「任务自身是否完成了核查工作」与「独立验证者对目标产物的审批结论」分开：
 
 - `summary` 不能为空。
-- 每条验收标准都有对应的 check（按顺序），check 有证据，且没有 `passed: false`。
+- 普通执行任务：每条验收标准都有对应的 check（按顺序），check 有证据，且没有 `passed: false`。
+- 独立验证任务（带 `verifies`）：每条标准都必须核对并给出具体证据，`verdict` 若填写必须是 `approved`、`rejected` 或 `inconclusive`，且 `verdict: "approved"` 不能与 `passed: false` 矛盾。只读验证者发现真实缺陷并给出可复现证据、填 `passed: false` 或 `verdict: "rejected"` / `"inconclusive"` 时，它的核查工作已经完成，第一轮即通过结果结构核对并标记验证任务完成（`task.succeeded`），不会触发无意义的自我修复轮；同时在看板和交付中把目标产物标为未通过确认（`[验证未通过]`、`Verification.passed == false`），唤醒负责人派修复任务和复验任务。
 - check 给出 `method` 时必须是允许的值；其他值作为「不是允许值」的失败项报出，不会被改成合法方法。
 - `reasoning`、`unverified` 和没有 `method` 只记提醒，不阻断：提醒随核对结果记录在 `verification.*` 和 `task.succeeded` 的 `data.acceptance` 中，看板的完成消息、`task_detail` 和交付都显示。
 
@@ -146,7 +154,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | 单次尝试 | 30 分钟 |
 | 单个 ACP 请求 | 30 分钟 |
 | 发送打断等控制指令 | 15 秒 |
-| Run 预算 | 6 小时，可用 `extendBudget` 追加；从中断处继续时重新计 6 小时（继续是用户的决定，服务重启后 Run 不会自己继续） |
+| Run 预算 | 墙钟 6 小时，以及可选的 Token 上限（`maxTokens` / `JANUS_RUN_TOKEN_BUDGET`）和已上报 `USD` 费用上限（`maxCostUsd` / `JANUS_RUN_COST_BUDGET_USD`），均可用 `extendBudget` 追加；未上报用量（`None`）永不触发暂停；调度循环每次唤醒都检查，但只在新的 `session.usage` 写入后才重算用量账本（`App::spent`，`Run.usage_version` 记录变化）；从中断处继续时墙钟重新计 6 小时 |
 
 <a id="watchdog"></a>
 ### 停滞检测
@@ -156,12 +164,12 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | 情况 | 判断 | `data.reason` |
 | --- | --- | --- |
 | 没有动静 | 尝试的会话 10 分钟（`STALL_AFTER`，即 `Config.stall_after`）没有发出任何更新：文本、思考、工具调用和工具进度都算 | `idle` |
-| 原地打转 | 连续 5 次（`LOOP_REPEAT`）完成同一个工具调用：类型、标题和输入摘要都相同 | `loop` |
+| 原地打转 | 连续 5 次（`LOOP_REPEAT`）完成同一个调用（`period: 1`，连续次数不受滑窗限制），或在最近 12 次工具调用的滑窗内连续 4 轮重复 2 步交替序列（`ABABABAB`，`period: 2`）、连续 3 轮重复 3 步循环序列（`ABCABCABC`，`period: 3`） | `loop` |
 
 规则：
 
 - 等人的时间不算：尝试在等提问的回答、审批或表单（`Run::held` 返回的守卫存在期间），或会话被用户接管或打断（`Run::set_human`）时，计时从头开始。这些状态由尝试自己在内存中标记，停滞检测不读事件日志。
-- 同一段没有动静的时间只报告一次。会话再发出任何更新后重新计时，并写入一条 `data.resolved` 为 `true` 的 `task.stalled`，应用据此撤下「可能卡住了」，负责人不会读到它。原地打转每满 5 次报告一次。
+- 同一段没有动静的时间只报告一次。会话再发出任何更新后重新计时，并写入一条 `data.resolved` 为 `true` 的 `task.stalled`，应用据此撤下「可能卡住了」，负责人不会读到它。同一个调用每连续满 5 次报告一次（5、10、15……），换了调用后重新计数。
 - 负责人会话按同样的规则检查（看门狗按会话记录，负责人的会话是 `SessionKey::Lead`），结果写 `lead.stalled`，`to` 为 `user`：负责人之上没有别人会发现它卡住。应用在「需要你处理」中显示「负责人可能卡住了」，再有动静时撤下。负责人调用 Janus 看板工具不计入原地打转，反复 `wait` 是正常的。
 - 停滞检测只报告，不打断、不重试也不取消。负责人在 `wait` 中读到 `[停滞]`，自己判断继续等、`reply`、`retry` 还是 `cancel`，见[目标模式与共享看板](20261031-goal_mode.md#failures_in_goal_mode)。
 - 计时状态只在内存中（`Run.watch`），重启后从头开始；`task.stalled` 不影响恢复。
@@ -199,7 +207,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | `failed` | Run 失败，例如负责人会话异常结束 |
 | `interrupted` | 编排器重启时 Run 还未结束 |
 
-状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning`、`running` 和 `waiting_input` 可以暂停、继续或追加预算；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；已验收的 Run 在会话里继续工作或再次交付时重新打开；`cancelled` 状态会同时置位 `cancelled` 标记。
+状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning`、`running` 和 `waiting_input` 可以暂停、继续或追加预算；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；已验收的 Run 在会话里继续工作或再次交付时重新打开；取消直接由 `status == RunStatus::Cancelled` 表示，不另存布尔标记。
 
 
 <a id="user_actions"></a>
@@ -226,7 +234,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 重新申请租约，从 `runs.config` 重建团队，从事件日志重建任务：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、证据、风险、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。
+- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）和 Run 的 Token / 费用预算上限（含追加预算事件）。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（带 `continueSession` 的重试保留该标记）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
 - 排队但还没送达的消息保留下来。
 - 负责人以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。
 

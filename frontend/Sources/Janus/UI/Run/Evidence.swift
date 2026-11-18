@@ -120,6 +120,9 @@ struct VerificationList: View {
                 HStack(spacing: 6) {
                     Text(v.task).font(.system(size: 11, weight: .semibold, design: .monospaced))
                     Pill(v.label, v.passed ? .green : .amber)
+                    if let vd = v.verdict {
+                        Pill("判定：\(vd.label)", vd == .approved ? .green : (vd == .rejected ? .red : .amber))
+                    }
                     Text(v.passed ? "已确认这个子任务的结论" : "结论没有得到确认")
                         .font(.caption).foregroundStyle(v.passed ? .secondary : Tone.amber.color)
                 }

@@ -12,12 +12,16 @@
 | `JANUS_HOME` | 无 | `$HOME/.janus` | Janus home：数据、适配器、配置和日志，见[部署方案](../operations/20261031-deployment.md#layout) |
 | `JANUS_ADDR` | `addr` | `127.0.0.1:7878` | HTTP 监听地址；也是写进看板 MCP URL 的地址 |
 | `JANUS_NODE` | `node` | `node` | 运行 ACP 适配器的 Node 可执行文件；安装适配器前也用它检查 Node 版本 |
+| `JANUS_MAX_CONCURRENT_ATTEMPTS` | `max_concurrent_attempts` | `3` | 单个 Run 同时运行的协作者尝试上限（范围 1 到 32），见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md) |
+| `JANUS_RUN_TOKEN_BUDGET` | `run_token_budget` | 无（不限） | 新建 Run 的默认 Token 预算上限（正整数；非正数忽略），只对照已上报的 Token 总量 |
+| `JANUS_RUN_COST_BUDGET_USD` | `run_cost_budget_usd` | 无（不限） | 新建 Run 的默认美元费用预算上限（正浮点数；非正数忽略），只对照 Agent 上报的 `USD` 累计费用，不混入价格估算 |
 
 `config.toml` 示例：
 
 ```toml
 addr = "127.0.0.1:7878"
 node = "/opt/homebrew/bin/node"
+max_concurrent_attempts = 3
 ```
 
 `JANUS_ADDR` 改成非回环地址会把全部接口暴露出去，见[安全边界](../operations/20261031-security.md#network_exposure)。

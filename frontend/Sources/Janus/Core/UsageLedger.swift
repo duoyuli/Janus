@@ -492,7 +492,8 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
     /// The actor is in its current session, even if it never reports usage; returns the key.
     @discardableResult func touch(_ e: Event, _ owner: String) -> String {
         let ts = Int(e.ts)
-        let key = current[owner].map { "\(owner):\($0)" } ?? "\(owner):\(e.task ?? "-")/\(e.attempt.map(String.init) ?? "-")"
+        let taskPart = e.task ?? "-"
+        let key = current[owner].map { "\(owner):\(taskPart):\($0)" } ?? "\(owner):\(taskPart)/\(e.attempt.map(String.init) ?? "-")"
         if var s = builds[key] {
             s.firstMs = min(s.firstMs, ts)
             s.lastMs = max(s.lastMs, ts)

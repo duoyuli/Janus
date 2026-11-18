@@ -131,13 +131,13 @@ pub(super) fn collaborator_rules(board: bool) -> String {
 工作目录：你直接在项目的工作目录中工作，改动立即生效，其他成员也会看到。不要 git commit、push 或部署，不要修改工作目录之外的文件。",
     );
     if board {
-        p.push_str("\n\n共享看板（janus MCP 工具）：有进展或阻塞时用 janus.board_post 写回；要改负责范围以外的文件，先用 janus.claim 认领；用 janus.peers 查看其他子任务的状态、负责和改过的文件，传 task 查看某个子任务（例如上游）的完整结果和负责人的修订。两个子任务改了同一个文件、或改了别的子任务负责的文件时，Janus 会提醒。你改过的文件就是给别人看的记录：结果里说的改动要和工作目录一致，Janus 会核对。");
+        p.push_str("\n\n共享看板（janus MCP 工具）：有进展或阻塞时用 janus.board_post 写回；要改负责范围以外的文件，先用 janus.claim 认领；如果发现子任务范围明显超出预期、横跨多个独立模块需要拆分，用 janus.request_split 提交拆分提议由负责人决定；用 janus.peers 查看其他子任务的状态、负责和改过的文件，传 task 查看某个子任务（例如上游）的完整结果和负责人的修订。两个子任务改了同一个文件、或改了别的子任务负责的文件时，Janus 会提醒。你改过的文件就是给别人看的记录：结果里说的改动要和工作目录一致，Janus 会核对。");
     }
     p.push_str(
         "\n\n提问：如果缺少超出你授权的关键决定，不要猜：在结果 JSON 的 question 字段写清问题和选项，然后结束本轮，负责人会回答你。
 
 结果：完成后，回复的最后必须是一个 ```json 代码块：
-{\"summary\":\"一句话结果\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"method\":\"test\",\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
+{\"summary\":\"一句话结果\",\"handoff\":\"留给下游子任务的接口、关键约定与注意事项；没有就写 null\",\"checks\":[{\"criterion\":\"验收标准原文\",\"passed\":true,\"method\":\"test\",\"evidence\":\"怎么验证的、看到了什么\"}],\"evidence\":[\"其他可核对的证据\"],\"risks\":[\"已知风险，没有就留空数组\"],\"question\":null}
 question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"你建议的选项\"}",
     );
     p
@@ -194,6 +194,47 @@ pub(super) fn finished_by_user(text: &str) -> TaskResult {
     r
 }
 
+pub(super) const HANDOFF_LIMIT: usize = 1200;
+
+fn parse_verdict(raw: &Value) -> (Option<Verdict>, Option<String>) {
+    if raw.is_null() {
+        return (None, None);
+    }
+    let written = raw.as_str().map(str::trim).unwrap_or_default();
+    if written.is_empty() && raw.is_string() {
+        return (None, None);
+    }
+    let text = raw.as_str().map(|s| s.trim().to_string()).unwrap_or_else(|| raw.to_string());
+    match raw.as_str().map(str::trim).and_then(Verdict::parse) {
+        Some(v) => (Some(v), None),
+        None => (None, Some(text)),
+    }
+}
+
+fn parse_handoff(v: &Value) -> Option<String> {
+    v["handoff"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(|s| short(s, HANDOFF_LIMIT))
+}
+
+/// Rebuild a `TaskResult` recorded in an event (`result.submitted` or `task.succeeded`).
+pub(super) fn result_from_event(d: &Value) -> TaskResult {
+    let strings = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).filter(|s| !s.trim().is_empty()).collect())
+            .unwrap_or_default()
+    };
+    let (verdict, verdict_error) = parse_verdict(&d["verdict"]);
+    TaskResult {
+        summary: d["summary"].as_str().unwrap_or("").to_string(),
+        handoff: parse_handoff(d),
+        evidence: strings(&d["evidence"]),
+        risks: strings(&d["risks"]),
+        checks: checks_from(d),
+        verdict,
+        verdict_error,
+        question: None,
+    }
+}
+
 // @project-doc docs/domains/20261031-run_lifecycle.md#structured_result
 pub(super) fn parse_result(text: &str) -> TaskResult {
     let strings = |v: &Value| {
@@ -202,14 +243,20 @@ pub(super) fn parse_result(text: &str) -> TaskResult {
             .unwrap_or_default()
     };
     match extract_json(text) {
-        Some(v) => TaskResult {
-            summary: v["summary"].as_str().map(str::to_owned).unwrap_or_else(|| first_line(text)),
-            evidence: strings(&v["evidence"]),
-            risks: strings(&v["risks"]),
-            checks: v["checks"].as_array().map(|a| a.iter().map(Check::from_json).collect()).unwrap_or_default(),
-            question: Some(v["question"].clone())
-                .filter(|q| q.is_object() || q.as_str().is_some_and(|s| !s.is_empty())),
-        },
+        Some(v) => {
+            let (verdict, verdict_error) = parse_verdict(&v["verdict"]);
+            TaskResult {
+                summary: v["summary"].as_str().map(str::to_owned).unwrap_or_else(|| first_line(text)),
+                handoff: parse_handoff(&v),
+                evidence: strings(&v["evidence"]),
+                risks: strings(&v["risks"]),
+                checks: v["checks"].as_array().map(|a| a.iter().map(Check::from_json).collect()).unwrap_or_default(),
+                verdict,
+                verdict_error,
+                question: Some(v["question"].clone())
+                    .filter(|q| q.is_object() || q.as_str().is_some_and(|s| !s.trim().is_empty())),
+            }
+        }
         None => TaskResult {
             summary: first_line(text),
             risks: vec!["Agent 没有按约定返回结构化结果，摘要取自回复第一行".into()],

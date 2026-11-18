@@ -43,7 +43,8 @@ pub(super) fn lead_tools() -> Value {
                                 "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的子任务 id" },
                                 "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）" },
                                 "owns": { "type": "array", "items": { "type": "string" }, "description": "这个子任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的子任务不能重叠" },
-                                "verifies": { "type": "string", "description": "独立验证：被验证子任务的 id。交给另一个协作者，自动在被验证的子任务完成后开始，只检查不改文件" }
+                                "verifies": { "type": "string", "description": "独立验证：被验证子任务的 id。交给另一个协作者，自动在被验证的子任务完成后开始，只检查不改文件" },
+                                "continues": { "type": "string", "description": "续接原会话：同一个协作者之前子任务的 id（适合验证未通过后的修复或增量修改，自动加入依赖；上下文超过 75% 或不支持时自动回退新建会话）" }
                             }
                         }
                     }
@@ -53,8 +54,8 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "wait",
-            "description": "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展和阻塞，以及协作者的提问。有新消息立即返回，否则最多等 timeout_sec 秒。",
-            "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 45 } } },
+            "description": "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，以及协作者的提问。有新消息立即返回，否则最多等 timeout_sec 秒（默认 120，最大 180），超时返回运行中子任务的实时进展。",
+            "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 180 } } },
             "annotations": board_read()
         },
         {
@@ -76,7 +77,8 @@ pub(super) fn lead_tools() -> Value {
                 "properties": {
                     "task": { "type": "string" },
                     "instructions": { "type": "string", "description": "新的完整说明；不填则沿用原说明" },
-                    "accept": { "type": "array", "items": { "type": "string" }, "description": "新的验收标准；不填则沿用" }
+                    "accept": { "type": "array", "items": { "type": "string" }, "description": "新的验收标准；不填则沿用" },
+                    "continue_session": { "type": "boolean", "description": "为 true 时优先恢复上一次尝试的会话继续修复（默认 false 新建干净会话）" }
                 }
             },
             "annotations": board_act()
@@ -164,6 +166,31 @@ pub(super) fn member_tools() -> Value {
         "description": "查看看板上其他子任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的子任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个子任务的完整说明、结果和负责人的修订，例如上游子任务的证据。",
         "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
         "annotations": board_read()
+    }, {
+        "name": "request_split",
+        "description": "发现子任务规模远超预期、需要拆成多个子任务或调整负责边界时，向负责人提交拆分提议。负责人会立即收到推送并用 orchestrate / amend / reply 处理。验证子任务不能请求拆分。",
+        "inputSchema": {
+            "type": "object",
+            "required": ["reason", "subtasks"],
+            "properties": {
+                "reason": { "type": "string", "description": "为什么需要拆分或调整边界" },
+                "completed": { "type": "string", "description": "当前已经完成、可保留的前置部分（可选）" },
+                "subtasks": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "required": ["title"],
+                        "properties": {
+                            "title": { "type": "string" },
+                            "owns": { "type": "array", "items": { "type": "string" } },
+                            "accept": { "type": "array", "items": { "type": "string" } }
+                        }
+                    }
+                }
+            }
+        },
+        "annotations": board_read()
     }])
 }
 
@@ -224,6 +251,7 @@ pub(super) fn validate_orchestration(
         }
         let owns = crate::teamwork::read_owns(&t["owns"], &label, &mut errors);
         let verifies = t["verifies"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+        let continues = t["continues"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
         ids.push(id.clone());
         defs.push(TaskDef {
             id,
@@ -235,6 +263,7 @@ pub(super) fn validate_orchestration(
             max_attempts: MAX_ATTEMPTS,
             owns,
             verifies,
+            continues,
         });
     }
     for d in &defs {
@@ -272,6 +301,29 @@ pub(super) fn validate_orchestration(
     if errors.is_empty() { Ok(defs) } else { Err(errors) }
 }
 
+/// Events that wake an active `janus.wait` call so the lead never polls in a sleep loop.
+pub(super) fn wakes_board_wait(e: &Event) -> bool {
+    matches!(
+        e.kind.as_str(),
+        "attempt.started"
+            | "task.succeeded"
+            | "task.conflict"
+            | "task.claimed"
+            | "task.split_requested"
+            | "attempt.failed"
+            | "task.failed"
+            | "task.blocked"
+            | "question.answered"
+            | "board.posted"
+            | "question.asked"
+            | "approval.requested"
+            | "input.requested"
+            | "task.stalled"
+            | "task.skipped_by_decision"
+            | "run.cancelled"
+    )
+}
+
 /// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
 // @project-doc docs/interfaces/20261031-board_mcp.md#wait
 /// Board events the lead has to act on, pushed into its session as they come (`push_board`).
@@ -279,11 +331,14 @@ pub(super) fn needs_lead(e: &Event) -> bool {
     let d = e.data.as_ref();
     let field = |k: &str| d.map(|d| d[k].clone()).unwrap_or_default();
     match e.kind.as_str() {
-        "question.asked" | "task.failed" | "task.blocked" | "task.conflict" => true,
+        "question.asked" | "task.failed" | "task.blocked" | "task.conflict" | "task.split_requested" => true,
         "task.stalled" => field("resolved") != true,
         "board.posted" => field("kind") == "blocker",
-        // A result that disagrees with what the task left in the workspace.
-        "task.succeeded" => field("traceGaps").as_array().is_some_and(|g| !g.is_empty()),
+        // A result that disagrees with the workspace, or an independent verification that rejected/questioned the target.
+        "task.succeeded" => {
+            field("traceGaps").as_array().is_some_and(|g| !g.is_empty())
+                || matches!(field("verdict").as_str(), Some("rejected" | "inconclusive"))
+        }
         // The person's answer, to the lead's own question or to a collaborator's; not the lead's.
         "question.answered" => field("via") != "lead",
         _ => false,
@@ -341,7 +396,10 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 .tasks
                 .iter()
                 .filter(|v| v.def.verifies.as_deref() == Some(task) && v.status.terminal())
-                .map(|v| format!("{} {}", v.def.id, v.status.label()))
+                .map(|v| match v.verdict() {
+                    Some(vd) => format!("{} 判定{}", v.def.id, vd.label()),
+                    None => format!("{} {}", v.def.id, v.status.label()),
+                })
                 .collect();
             let clipped = more_evidence
                 || more_risks
@@ -349,7 +407,20 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 || r.summary.chars().count() > INLINE_SUMMARY
                 || r.checks.iter().any(|c| c.line().chars().count() > 60 + INLINE_ITEM);
             let gaps: Vec<&str> = d["traceGaps"].as_array().into_iter().flatten().filter_map(|g| g.as_str()).collect();
-            let mut msg = format!("- [完成] {task}「{title}」· {name}：{}", short(&r.summary, INLINE_SUMMARY));
+            let verdict = t.verdict();
+            let mut msg = match (&verifies, verdict) {
+                (Some(target), Some(vd @ (Verdict::Rejected | Verdict::Inconclusive))) => format!(
+                    "- [验证未通过] {task}「{title}」· {name} 完成对 {target} 的独立验证，判定「{}」（{}）：{}",
+                    vd.label(),
+                    vd.as_str(),
+                    short(&r.summary, INLINE_SUMMARY)
+                ),
+                (Some(target), Some(Verdict::Approved)) => format!(
+                    "- [完成] {task}「{title}」· {name}（独立验证 {target}：通过）：{}",
+                    short(&r.summary, INLINE_SUMMARY)
+                ),
+                _ => format!("- [完成] {task}「{title}」· {name}：{}", short(&r.summary, INLINE_SUMMARY)),
+            };
             msg.push_str(&format!("\n  验收标准：{} 条，通过 {} 条", totals.criteria, totals.passed));
             msg.push_str(&format!("\n  证据：{}", totals.counts()));
             if !reminders.is_empty() {
@@ -370,6 +441,11 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             if !arts.is_empty() {
                 msg.push_str(&format!("\n  产物：{}", arts.join("、")));
             }
+            if let (Some(target), Some(Verdict::Rejected | Verdict::Inconclusive)) = (&verifies, verdict) {
+                msg.push_str(&format!(
+                    "\n  请处理：不能用 janus.accept 放行；用 janus.orchestrate 派修复子任务（交给 {target} 原执行者时可设 continues=\"{target}\" 复用会话，依赖 {task}）和新的验证子任务，或用 janus.cancel 取消并写明理由。"
+                ));
+            }
             if !gaps.is_empty() {
                 msg.push_str(&format!("\n  痕迹核对（结果和工作目录对不上）：{}。以工作目录的现状为准核对；需要返工用 janus.retry，结论要更正用 janus.amend。", gaps.join("；")));
             }
@@ -378,6 +454,10 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             }
             msg
         }
+        "task.conflict" if d["byLead"] == true => format!(
+            "- [冲突] 你（负责人）修改了正在进行的子任务 {task}「{title}」（{name}）负责或正在修改的文件：{}。子任务派出去后请避免直接改它的文件；需要调整请用 janus.reply 或先 janus.cancel。",
+            d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
+        ),
         "task.conflict" if d["owned"] == true => format!(
             "- [越界] {task}「{title}」· {name} 改了 {} 负责的 {}，两个子任务可能同时在改。Janus 已提醒 {task} 不要再改：确认分工，用 janus.reply 告诉它怎样配合；确实要它改，就让负责的一方先完成，或者取消并重新编排。",
             d["other"].as_str().unwrap_or("?"),
@@ -414,10 +494,16 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             "- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（可改说明）、janus.cancel 取消，或自己做。",
             d["error"].as_str().unwrap_or(&e.text)
         ),
-        "task.blocked" => format!(
-            "- [无法开始] {task}「{title}」：依赖 {} 失败。用 janus.retry 或 janus.accept 处理 {0} 后会自动继续；不再需要就 janus.cancel。",
-            d["dependency"].as_str().unwrap_or("?")
-        ),
+        "task.blocked" => match d["verdict"].as_str() {
+            Some(vd) => format!(
+                "- [无法开始] {task}「{title}」：依赖的独立验证 {} 判定 {vd}，被验证的工作没有得到确认。按 {0} 的结论派修复和新的验证子任务；{task} 不会再开始，用 janus.cancel 取消它，需要时在新的编排中让它依赖新的验证子任务。",
+                d["dependency"].as_str().unwrap_or("?")
+            ),
+            None => format!(
+                "- [无法开始] {task}「{title}」：依赖 {} 失败。用 janus.retry 或 janus.accept 处理 {0} 后会自动继续；不再需要就 janus.cancel。",
+                d["dependency"].as_str().unwrap_or("?")
+            ),
+        },
         // A collaborator's question the person answered in its session: the lead must not answer again.
         "question.answered" if d["via"] != "lead" => format!(
             "- [用户已回答] {task} 的提问由用户直接回答：{}。不要再回答这个问题，按用户的回答推进。",
@@ -430,6 +516,33 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 _ => "进展",
             };
             format!("- [{label}] {task} · {name}：{}", d["text"].as_str().unwrap_or(&e.text))
+        }
+        "task.split_requested" => {
+            let items: Vec<String> = d["subtasks"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(i, s)| {
+                    let owns = s["owns"]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、"))
+                        .filter(|o| !o.is_empty())
+                        .map(|o| format!("（owns: {o}）"))
+                        .unwrap_or_default();
+                    format!("{}. {}{owns}", i + 1, s["title"].as_str().unwrap_or("子任务"))
+                })
+                .collect();
+            let completed = d["completed"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("\n  已完成部分：{}", short(s, INLINE_ITEM)))
+                .unwrap_or_default();
+            format!(
+                "- [请求拆分] {task}「{title}」· {name} 请求拆分：{}{completed}\n  建议拆出：{}\n  请决定：采纳时用 janus.orchestrate 提交新子任务并用 janus.cancel / janus.amend 处理 {task}；不需要拆分时用 janus.reply 指示它继续完成。",
+                short(d["reason"].as_str().unwrap_or(&e.text), INLINE_ITEM),
+                items.join("；")
+            )
         }
         "question.asked" => {
             let options: Vec<String> = d["options"]
@@ -444,6 +557,11 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         }
         "approval.requested" | "input.requested" => format!("- [等用户] {task} · {name} 在等用户处理：{}", e.text),
         "task.stalled" if d["resolved"] == true => return None,
+        "task.stalled" if d["reason"] == "loop" && d["period"].as_u64().unwrap_or(1) > 1 => format!(
+            "- [停滞] {task}「{title}」· {name} 连续 {} 轮重复调用序列（{}），可能在交替死循环。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消，或自己做。",
+            d["repeats"].as_i64().unwrap_or(4),
+            short(d["tool"].as_str().unwrap_or(""), 80)
+        ),
         "task.stalled" if d["reason"] == "loop" => format!(
             "- [停滞] {task}「{title}」· {name} 连续 {} 次做同样的调用（{}），可能在原地打转。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消，或自己做。",
             d["repeats"].as_i64().unwrap_or(LOOP_REPEAT as i64),

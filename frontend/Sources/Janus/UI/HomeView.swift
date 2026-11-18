@@ -97,6 +97,12 @@ struct HomeView: View {
     /// The team in one line; models, permissions and tools are in the workspace settings.
     private func team(_ members: [(JSON, JSON?)]) -> some View {
         let lead = store.role(ws["lead"].str)
+        let totalSlots = members.reduce(0) { acc, pair in
+            acc + (pair.0["role"].str == ws["lead"].str ? 1 : max(1, pair.0["slots"].int ?? 1))
+        }
+        let countLabel = totalSlots > members.count
+            ? "\(members.count) 个数字员工（共 \(totalSlots) 个并发实例）"
+            : "\(members.count) 个数字员工"
         return HStack(spacing: 10) {
             Text("团队").foregroundStyle(.secondary)
             HStack(spacing: -4) {
@@ -109,7 +115,7 @@ struct HomeView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: "、"))
-            Text(verbatim: "\(members.count) 个数字员工\(lead.map { $0["name"].str == "负责人" ? " · 有负责人" : " · 负责人：\($0["name"].str)" } ?? "")").font(.callout).foregroundStyle(.secondary)
+            Text(verbatim: "\(countLabel)\(lead.map { $0["name"].str == "负责人" ? " · 有负责人" : " · 负责人：\($0["name"].str)" } ?? "")").font(.callout).foregroundStyle(.secondary)
             Spacer()
             Button("管理团队…") { store.editingWorkspace = ws }.buttonStyle(.link)
         }
@@ -184,6 +190,7 @@ struct WorkspaceEditor: View {
     @Local private var path = ""
     @Local private var lead = ""
     @Local private var on: Set<String> = []
+    @Local private var slots: [String: Int] = [:]
     @Local private var brief = ""
     @Local private var inspect: JSON?
     @Local private var saving = false
@@ -236,6 +243,14 @@ struct WorkspaceEditor: View {
                                 }
                                 Spacer()
                                 Text(Setup.permLabel(r["session"], c).isEmpty ? "—" : Setup.permLabel(r["session"], c)).font(.caption).foregroundStyle(.secondary)
+                                if on.contains(id) && lead != id {
+                                    let count = min(8, max(1, slots[id] ?? 1))
+                                    Stepper(value: Binding(get: { count }, set: { slots[id] = min(8, max(1, $0)) }), in: 1...8) {
+                                        Text(verbatim: "\(count) 个实例").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                    }
+                                    .controlSize(.small)
+                                    .help("并发实例数：大于 1 时，这个数字员工可同时执行多个子任务")
+                                }
                                 if r["lead"].truthy && Setup.leadCapable(c) {
                                     Button { lead = id } label: {
                                         Label("负责人", systemImage: lead == id ? "largecircle.fill.circle" : "circle")
@@ -286,7 +301,10 @@ struct WorkspaceEditor: View {
 
     /// Edits not saved yet, so Cancel and Esc ask before throwing them away.
     private var dirty: Bool { initial.map { $0 != snapshot } ?? false }
-    private var snapshot: [String] { [name, path, lead, on.sorted().joined(separator: ","), brief] }
+    private var snapshot: [String] {
+        let slotSpec = on.sorted().map { id in "\(id):\(lead == id ? 1 : min(8, max(1, slots[id] ?? 1)))" }.joined(separator: ",")
+        return [name, path, lead, slotSpec, brief]
+    }
     /// The backend's `BRIEF_LIMIT`: the shared material goes into every session's prompt.
     static let briefLimit = 8000
     @Local private var initial: [String]?
@@ -298,7 +316,13 @@ struct WorkspaceEditor: View {
         name = original["name"].str
         brief = original["brief"].str
         path = original["path"].str
-        let members = original["members"].array.map { $0["role"].str }
+        let rawMembers = original["members"].array
+        let members = rawMembers.map { $0["role"].str }
+        var loadedSlots: [String: Int] = [:]
+        for m in rawMembers {
+            loadedSlots[m["role"].str] = min(8, max(1, m["slots"].int ?? 1))
+        }
+        slots = loadedSlots
         on = Set(isNew ? store.roles.filter { $0["connection"].truthy }.map { $0["id"].str } : members)
         lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0["lead"].truthy && Setup.leadCapable(store.connection($0["connection"].str)) }?["id"].str ?? ""
     }
@@ -315,7 +339,10 @@ struct WorkspaceEditor: View {
 
     private func save() {
         saving = true
-        let members = store.roles.map { $0["id"].str }.filter { on.contains($0) }.map { JSON.object(["role": JSON($0)]) }
+        let members = store.roles.map { $0["id"].str }.filter { on.contains($0) }.map { id -> JSON in
+            let n = lead == id ? 1 : min(8, max(1, slots[id] ?? 1))
+            return n > 1 ? JSON.object(["role": JSON(id), "slots": JSON(n)]) : JSON.object(["role": JSON(id)])
+        }
         let body: JSON = ["id": original["id"], "name": JSON(name), "path": JSON(path), "lead": JSON(lead), "members": .array(members), "brief": JSON(brief)]
         Task {
             do {

@@ -2,6 +2,14 @@
 
 use super::*;
 
+/// Why an attempt tries `session/load` instead of opening a fresh ACP session.
+enum SessionResume {
+    /// Resuming an attempt that was still open when the orchestrator restarted.
+    Interrupted(String),
+    /// Continuing a finished upstream task's session (`continues`) or a retry (`continue_session`).
+    Followup { from: String, session: String },
+}
+
 impl App {
     pub(super) async fn run_attempt(self: &Arc<Self>, run: &Arc<Run>, id: &str, n: i64, attempt_id: &str) {
         let result = self.attempt(run, id, n, attempt_id).await;
@@ -106,27 +114,86 @@ impl App {
         let (def, agent, upstream, handoffs, last_error, team_note) = {
             let st = run.st.lock().unwrap();
             let t = st.tasks.iter().find(|t| t.def.id == id).context("task missing")?;
-            let verified =
-                t.def.verifies.as_deref().and_then(|v| st.tasks.iter().find(|x| x.def.id == v)).map(|x| &x.def);
-            let team_note = crate::teamwork::task_section(&t.def, verified);
-            let (upstream, handoffs): (Vec<String>, Vec<Value>) = t.def.deps.iter().filter_map(|d| st.tasks.iter().find(|x| &x.def.id == d)).map(|u| {
-                let r = u.result.clone().unwrap_or_default();
-                let files: Vec<String> = u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
-                let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
-                let amended = if u.amendments.is_empty() { String::new() } else { format!("\n  负责人修订了这个结论，以修订为准：{}", u.amendments.join("；")) };
-                // Where to look, not only what it said: the files it changed, and which of them
-                // others changed after it finished.
-                let edited: Vec<String> = st.traces.files(&u.def.id).into_iter().collect();
-                let stale = u.succeeded_seq.map(|s| st.traces.edited_after(&u.def.id, s)).unwrap_or_default();
-                let traces = format!(
-                    "{}{}",
-                    if edited.is_empty() { String::new() } else { format!("\n  改过的文件：{}（以工作目录里的现状为准）", edited.join("、")) },
-                    if stale.is_empty() { String::new() } else { format!("\n  {}", crate::traces::stale_note(&stale)) }
-                );
-                let line = format!("- {} {}（{}，状态 {}）：{}{amended}{traces}\n  产物：{}", u.def.id, u.def.title, u.agent, u.status, short(&r.summary, INLINE_SUMMARY), if files.is_empty() { "无".into() } else { files.join("，") });
-                let handoff = json!({ "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary, "artifacts": names, "risks": r.risks.len(), "amendments": u.amendments, "files": edited, "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>() });
-                (line, handoff)
-            }).unzip();
+            let v_task = t.def.verifies.as_deref().and_then(|v| st.tasks.iter().find(|x| x.def.id == v));
+            let team_note = match v_task {
+                Some(vt) => {
+                    let diff_path =
+                        vt.artifacts.iter().rev().find(|a| a["kind"] == "git_diff").and_then(|a| a["path"].as_str());
+                    let edited_files: Vec<String> = st.traces.files(&vt.def.id).into_iter().collect();
+                    let vr = vt.result.as_ref();
+                    let weak_checks = vr.map(|r| Summary::of(&vt.def.accept, &r.checks).reminders).unwrap_or_default();
+                    let risks = vr.map(|r| r.risks.as_slice()).unwrap_or(&[]);
+                    let vc = crate::teamwork::VerifiedContext {
+                        def: &vt.def,
+                        diff_path,
+                        edited_files: &edited_files,
+                        trace_gaps: &vt.trace_gaps,
+                        weak_checks: &weak_checks,
+                        risks,
+                    };
+                    crate::teamwork::task_section(&t.def, Some(&vc))
+                }
+                None => crate::teamwork::task_section(&t.def, None),
+            };
+            let (upstream, handoffs): (Vec<String>, Vec<Value>) = t
+                .def
+                .deps
+                .iter()
+                .filter_map(|d| st.tasks.iter().find(|x| &x.def.id == d))
+                .map(|u| {
+                    let r = u.result.clone().unwrap_or_default();
+                    let files: Vec<String> =
+                        u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
+                    let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
+                    let amended = if u.amendments.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n  负责人修订了这个结论，以修订为准：{}", u.amendments.join("；"))
+                    };
+                    let handoff_note = r.handoff.as_deref().map(|h| format!("\n  交接说明：{h}")).unwrap_or_default();
+                    let risk_note = if r.risks.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "\n  上游风险：{}",
+                            r.risks.iter().take(5).map(|x| short(x, INLINE_ITEM)).collect::<Vec<_>>().join("；")
+                        )
+                    };
+                    // Where to look, not only what it said: the files it changed, and which of them
+                    // others changed after it finished.
+                    let edited: Vec<String> = st.traces.files(&u.def.id).into_iter().collect();
+                    let stale = u.succeeded_seq.map(|s| st.traces.edited_after(&u.def.id, s)).unwrap_or_default();
+                    let traces = format!(
+                        "{}{}",
+                        if edited.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n  改过的文件：{}（以工作目录里的现状为准）", edited.join("、"))
+                        },
+                        if stale.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\n  {}", crate::traces::stale_note(&stale))
+                        }
+                    );
+                    let line = format!(
+                        "- {} {}（{}，状态 {}）：{}{handoff_note}{risk_note}{amended}{traces}\n  产物：{}",
+                        u.def.id,
+                        u.def.title,
+                        u.agent,
+                        u.status,
+                        short(&r.summary, INLINE_SUMMARY),
+                        if files.is_empty() { "无".into() } else { files.join("，") }
+                    );
+                    let handoff = json!({
+                        "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary,
+                        "handoff": r.handoff, "artifacts": names, "risks": r.risks.len(), "riskItems": r.risks,
+                        "amendments": u.amendments, "files": edited,
+                        "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>()
+                    });
+                    (line, handoff)
+                })
+                .unzip();
             (t.def.clone(), t.agent.clone(), upstream, handoffs, self.db_last_error(&run.id, id), team_note)
         };
         let peers: Vec<String> = {
@@ -160,11 +227,34 @@ impl App {
         let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("{id}-a{n}.log"));
         let owner = Owner { session: SessionKey::task(id), attempt: n };
         let (conn, mut rx, mut ctl) = self.open_session(run, &owner, &agent, &spec, &log, "Agent ").await?;
+        let mut opened_sid = String::new();
         let outcome = async {
-        // A task interrupted by a restart reopens its old session when the agent can load it.
-        let previous = run.st.lock().unwrap().resume_session.remove(id);
+        // A task interrupted by a restart reopens its old session; a follow-up task (`continues`)
+        // or warm retry (`continue_session`) loads the target session when context headroom allows.
+        let resume = {
+            let mut st = run.st.lock().unwrap();
+            if let Some(old) = st.resume_session.remove(id) {
+                Some(SessionResume::Interrupted(old))
+            } else {
+                let want_self = Run::task_mut(&mut st, id).is_some_and(|t| std::mem::take(&mut t.continue_session));
+                drop(st);
+                if want_self {
+                    self.last_task_session(&run.id, id)
+                        .map(|session| SessionResume::Followup { from: id.to_string(), session })
+                } else if n == 1 {
+                    def.continues.as_deref().and_then(|prev| {
+                        self.last_task_session(&run.id, prev)
+                            .map(|session| SessionResume::Followup { from: prev.to_string(), session })
+                    })
+                } else {
+                    None
+                }
+            }
+        };
         let opened = tokio::time::timeout(STARTUP_TIMEOUT, async {
             let mut resumed = false;
+            let mut followup_from: Option<String> = None;
+            let mut continuation: Option<Value> = None;
             // Collaborators write progress and blockers to the shared board. The board is an HTTP
             // MCP server; a custom agent that only takes stdio servers works without it and
             // reports through its result and questions.
@@ -174,8 +264,8 @@ impl App {
                 vec![]
             };
             let opening = self.opening(run, &member, &conn.capabilities, board, system);
-            let session = match previous {
-                Some(old) if conn.capabilities["loadSession"] == true => {
+            let session = match resume {
+                Some(SessionResume::Interrupted(old)) if conn.capabilities["loadSession"] == true => {
                     match conn.request("session/load", opening.load_params(&old, &workspace)).await {
                         Ok(r) => {
                             // The reload replays history as updates; it is already in the event log.
@@ -189,36 +279,74 @@ impl App {
                         Err(_) => new_session(&conn, &workspace, &opening).await?,
                     }
                 }
+                Some(SessionResume::Followup { from, session: old }) => {
+                    let over_budget = self.session_context_ratio(run, &old).is_some_and(|r| r > 0.75);
+                    if over_budget {
+                        continuation = Some(
+                            json!({ "from": from, "session": old, "loaded": false, "fallback": "context_over_75pct" }),
+                        );
+                        new_session(&conn, &workspace, &opening).await?
+                    } else if conn.capabilities["loadSession"] != true {
+                        continuation =
+                            Some(json!({ "from": from, "session": old, "loaded": false, "fallback": "unsupported" }));
+                        new_session(&conn, &workspace, &opening).await?
+                    } else {
+                        match conn.request("session/load", opening.load_params(&old, &workspace)).await {
+                            Ok(r) => {
+                                drain_replay(&conn, &mut rx).await;
+                                followup_from = Some(from.clone());
+                                continuation = Some(json!({ "from": from, "session": old, "loaded": true }));
+                                let mut r = if r.is_object() { r } else { json!({}) };
+                                r["sessionId"] = json!(old);
+                                r
+                            }
+                            Err(_) => {
+                                continuation = Some(
+                                    json!({ "from": from, "session": old, "loaded": false, "fallback": "load_failed" }),
+                                );
+                                new_session(&conn, &workspace, &opening).await?
+                            }
+                        }
+                    }
+                }
                 _ => new_session(&conn, &workspace, &opening).await?,
             };
             let mut applied = configure_session(&conn, &session, &member).await?;
             applied["resources"] = json!(opening.resources);
-            Ok::<_, anyhow::Error>((session, applied, resumed))
+            Ok::<_, anyhow::Error>((session, applied, resumed, followup_from, continuation))
         })
         .await
         .map_err(|_| anyhow!("打开 ACP 会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-        let (session, applied, resumed) = opened;
+        let (session, applied, resumed, followup_from, continuation) = opened;
         let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
+        opened_sid.clone_from(&sid);
         let prompt = if resumed {
             format!(
                 "编排器中断后，这个会话已经恢复。请从中断的地方继续完成原来的子任务，完成后按最初的要求以 ```json 结构化结果结束。{}",
                 self.take_notes(run, &agent)
             )
         } else {
-            // An agent without a system layer gets the rules after the task.
+            // An agent without a system layer gets the rules after the task (unless continuing an
+            // existing session where the rules were already sent in the first turn).
             let rules = match channel {
-                Channel::Prompt => format!(
+                Channel::Prompt if followup_from.is_none() => format!(
                     "\n\n{}{}",
                     collaborator_rules(conn.capabilities["mcpCapabilities"]["http"] == true),
                     prompt_instructions(&member)
                 ),
-                Channel::System | Channel::Developer => String::new(),
+                Channel::Prompt | Channel::System | Channel::Developer => String::new(),
             };
-            format!(
+            let body = format!(
                 "{}{team_note}{}{rules}",
                 task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
                 self.take_notes(run, &agent)
-            )
+            );
+            match &followup_from {
+                Some(from) => format!(
+                    "你在子任务 {from} 的原会话中继续工作，之前的上下文和文件阅读记录仍在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{body}"
+                ),
+                None => body,
+            }
         };
         self.db.update_attempt(
             &run.id,
@@ -227,10 +355,21 @@ impl App {
             AttemptStatus::Running,
             AttemptUpdate { session: Some(&sid), workspace: Some(&workspace.to_string_lossy()), ..Default::default() },
         )?;
-        self.emit(run, ev("attempt.started", "janus", format!("启动 {id} 第 {n} 次尝试 · {}", spec.name)).task(id).attempt(n).to(&agent).data(json!({
+        let mut started_data = json!({
             "attemptId": attempt_id, "session": sid, "workspace": format!("工作目录 {}", workspace.display()), "path": workspace, "runtime": spec.name, "kind": spec.kind, "agentInfo": conn.agent_info,
             "config": applied, "enforcement": enforcement(&applied), "prompt": prompt, "resumed": resumed
-        })));
+        });
+        if let Some(cont) = continuation {
+            started_data["continuation"] = cont;
+        }
+        self.emit(
+            run,
+            ev("attempt.started", "janus", format!("启动 {id} 第 {n} 次尝试 · {}", spec.name))
+                .task(id)
+                .attempt(n)
+                .to(&agent)
+                .data(started_data),
+        );
         // What each upstream task handed to this session: the fact behind "who used whose result".
         if !resumed {
             for h in handoffs {
@@ -256,6 +395,8 @@ impl App {
         let mut text = String::new();
         let mut round = 0;
         let mut asked = 0;
+        let mut total_pauses = 0;
+        let mut last_question_seq = 0i64;
         // A failed verification goes back to the same session once: the agent still has the context
         // to fix its work, or to say why the command does not fit. A second failure goes to the lead.
         let mut fixes = 0;
@@ -307,8 +448,11 @@ impl App {
                 let Some(q) = parsed.question.clone() else {
                     break parsed;
                 };
-                asked += 1;
-                if asked > 4 {
+                total_pauses += 1;
+                if !self.has_split_request_since(&run.id, id, last_question_seq) {
+                    asked += 1;
+                }
+                if asked > 4 || total_pauses > 8 {
                     bail!("连续 4 轮仍在提问，没有完成子任务");
                 }
                 let key = format!("q-{id}-{n}-{round}");
@@ -317,7 +461,7 @@ impl App {
                     .as_array()
                     .map(|a| a.iter().filter_map(|o| o.as_str().map(str::to_owned)).collect())
                     .unwrap_or_default();
-                self.emit(
+                last_question_seq = self.emit(
                     run,
                     ev("question.asked", &agent, short(&question, 60)).task(id).attempt(n).to("lead").data(json!({
                         "key": key, "question": question, "options": options, "blocking": true
@@ -365,6 +509,16 @@ impl App {
             if result.evidence.is_empty() {
                 result.evidence.push(format!("最终回复：{id}-a{n}-report.md"));
             }
+            let mut submitted_data = json!({
+                "attemptId": attempt_id,
+                "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "checks": result.checks
+            });
+            if let Some(h) = &result.handoff {
+                submitted_data["handoff"] = json!(h);
+            }
+            if let Some(vd) = result.verdict.map(Verdict::as_str).or(result.verdict_error.as_deref()) {
+                submitted_data["verdict"] = json!(vd);
+            }
             self.emit(
                 run,
                 ev(
@@ -374,10 +528,7 @@ impl App {
                 )
                 .task(id)
                 .attempt(n)
-                .data(json!({
-                    "attemptId": attempt_id,
-                    "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "checks": result.checks
-                })),
+                .data(submitted_data),
             );
             match self.verify_result(run, id, n, attempt_id, &def, &mut result).await {
                 Ok(()) => break 'session result,
@@ -398,6 +549,10 @@ impl App {
         .await;
         // The agent stops before its changes are recorded, so nothing moves under the record.
         self.close_session(run, &owner, Some(&conn), &format!("{id} 的这次尝试已经结束，撤回待处理的请求")).await;
+        if outcome.is_err() && !opened_sid.is_empty() {
+            let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
+            self.recover_native_usage(run, &member, &opened_sid, &ctx);
+        }
         let result = outcome?;
         self.check_aborted(run, id, &mut ctl)?;
         self.record_changes(run, id, n, &agent, &workspace)?;
@@ -425,6 +580,7 @@ impl App {
                 Some(t) => {
                     t.set_status(TaskStatus::Succeeded);
                     t.result = Some(result.clone());
+                    t.trace_gaps = gaps.clone();
                     t.active_attempt = None;
                     true
                 }
@@ -447,18 +603,26 @@ impl App {
             );
             return Ok(());
         }
+        let mut succeeded_data = json!({
+            "attemptId": attempt_id,
+            // The conclusion carries the whole result, so the app, the delivery and a resumed
+            // run read it from this one event.
+            "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "traceGaps": gaps,
+            "checks": result.checks, "acceptance": Summary::of(&def.accept, &result.checks)
+        });
+        if let Some(h) = &result.handoff {
+            succeeded_data["handoff"] = json!(h);
+        }
+        if def.verifies.is_some() {
+            let vd = crate::evidence::effective_verdict(result.verdict, def.accept.len(), &result.checks);
+            succeeded_data["verdict"] = json!(vd.as_str());
+        }
         let seq = self.emit(
             run,
             ev("task.succeeded", "janus", format!("校验结构化结果与证据后，将 {id} 标记为完成"))
                 .task(id)
                 .attempt(n)
-                .data(json!({
-                    "attemptId": attempt_id,
-                    // The conclusion carries the whole result, so the app, the delivery and a resumed
-                    // run read it from this one event.
-                    "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "traceGaps": gaps,
-                    "checks": result.checks, "acceptance": Summary::of(&def.accept, &result.checks)
-                })),
+                .data(succeeded_data),
         );
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), id) {
             t.succeeded_seq = Some(seq);
@@ -522,7 +686,14 @@ impl App {
                 .attempt(n)
                 .data(json!({ "attemptId": attempt_id, "accept": def.accept })),
         );
-        let failures = crate::evidence::gaps(&def.accept, &result.summary, &result.checks);
+        let failures = crate::evidence::gaps_for(
+            &def.accept,
+            &result.summary,
+            &result.checks,
+            def.verifies.is_some(),
+            result.verdict,
+            result.verdict_error.as_deref(),
+        );
         // The numbers and the weaker evidence that only warrants a reminder, recorded with the
         // verdict so the app and a resumed run do not have to rebuild them differently.
         let summary = Summary::of(&def.accept, &result.checks);
@@ -581,6 +752,46 @@ impl App {
             .find(|e| matches!(e.kind.as_str(), "attempt.failed" | "task.succeeded") && e.task.as_deref() == Some(task))
             .filter(|e| e.kind == "attempt.failed")
             .and_then(|e| e.data?["error"].as_str().map(str::to_owned))
+    }
+
+    /// Last non-empty ACP `sessionId` opened for `task` in this run.
+    pub(super) fn last_task_session(&self, run_id: &str, task: &str) -> Option<String> {
+        self.db
+            .events(run_id, 0)
+            .ok()?
+            .into_iter()
+            .rev()
+            .filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(task))
+            .find_map(|e| e.data?["session"].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
+    }
+
+    /// Latest `used / size` context ratio reported for ACP session `sid` in the run, if any.
+    pub(super) fn session_context_ratio(&self, run: &Run, sid: &str) -> Option<f64> {
+        self.usage(run).sessions_of(sid).rev().find_map(|s| s.context.ratio())
+    }
+
+    /// Whether `task` submitted a `task.split_requested` event after `since_seq`.
+    pub(super) fn has_split_request_since(&self, run_id: &str, task: &str, since_seq: i64) -> bool {
+        self.db
+            .events(run_id, since_seq)
+            .is_ok_and(|evts| evts.iter().any(|e| e.kind == "task.split_requested" && e.task.as_deref() == Some(task)))
+    }
+
+    /// Best-effort fallback when an attempt fails or times out before `session/prompt` returns its
+    /// usage: scan Janus's own isolated Claude Code home, which the agent gets as
+    /// `CLAUDE_CONFIG_DIR` (`<agents_dir>/<runtime>/home/projects/**/<sid>.jsonl`, never
+    /// `~/.claude`), and record deduplicated message token counts if none were reported yet.
+    pub(super) fn recover_native_usage(&self, run: &Run, member: &Member, sid: &str, ctx: &Ctx<'_>) {
+        if self.usage(run).sessions_of(sid).any(|s| s.turns > 0) {
+            return;
+        }
+        let projects = self.cfg.agents_dir.join(&member.runtime).join("home").join("projects");
+        let Some(jsonl_path) = find_session_jsonl(&projects, &format!("{sid}.jsonl"), 3) else { return };
+        let Ok(content) = std::fs::read_to_string(jsonl_path) else { return };
+        if let Some(mut data) = parse_claude_session_jsonl(&content) {
+            data["session"] = json!(sid);
+            self.show(run, ("session.usage", "从隔离会话日志补齐用量".into(), data), ctx);
+        }
     }
 
     /// Working in place there is nothing to commit. In a Git directory, keep what the working
@@ -716,4 +927,129 @@ pub(super) fn working_diff(cwd: &Path, scope: &[String]) -> String {
         diff.push_str(&format!("\n# 未跟踪的新文件\n{}", untracked.replace('\0', "\n")));
     }
     diff
+}
+
+fn find_session_jsonl(dir: &Path, filename: &str, depth: u8) -> Option<PathBuf> {
+    if depth == 0 {
+        return None;
+    }
+    let direct = dir.join(filename);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_dir()
+            && let Some(found) = find_session_jsonl(&path, filename, depth - 1)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Parse an isolated Claude Code `<sid>.jsonl` transcript into a single `session.usage` payload,
+/// deduplicating repeated streaming entries that share the same `message.id` (keeping the final
+/// usage snapshot of each message).
+pub(super) fn parse_claude_session_jsonl(content: &str) -> Option<Value> {
+    #[derive(Clone, Default)]
+    struct MsgUsage {
+        model: String,
+        input: i64,
+        output: i64,
+        cache_read: i64,
+        cache_write: i64,
+    }
+    let mut order: Vec<String> = vec![];
+    let mut by_id: HashMap<String, MsgUsage> = HashMap::new();
+    for (idx, line) in content.lines().enumerate() {
+        let Ok(v) = serde_json::from_str::<Value>(line.trim()) else { continue };
+        let msg = &v["message"];
+        let usage = &msg["usage"];
+        if !usage.is_object() {
+            continue;
+        }
+        let input = usage["input_tokens"].as_i64().unwrap_or(0);
+        let output = usage["output_tokens"].as_i64().unwrap_or(0);
+        let cache_read = usage["cache_read_input_tokens"].as_i64().unwrap_or(0);
+        let cache_write = usage["cache_creation_input_tokens"].as_i64().unwrap_or(0);
+        if input + output + cache_read + cache_write <= 0 {
+            continue;
+        }
+        let key =
+            msg["id"].as_str().filter(|s| !s.is_empty()).map(str::to_owned).unwrap_or_else(|| format!("anon-{idx}"));
+        let model = msg["model"].as_str().unwrap_or("").to_string();
+        if !by_id.contains_key(&key) {
+            order.push(key.clone());
+        }
+        by_id.insert(key, MsgUsage { model, input, output, cache_read, cache_write });
+    }
+    if order.is_empty() {
+        return None;
+    }
+    let (mut tot_in, mut tot_out, mut tot_read, mut tot_write) = (0i64, 0i64, 0i64, 0i64);
+    let mut per_model: BTreeMap<String, (i64, i64, i64, i64)> = BTreeMap::new();
+    for key in &order {
+        let m = &by_id[key];
+        tot_in += m.input;
+        tot_out += m.output;
+        tot_read += m.cache_read;
+        tot_write += m.cache_write;
+        if !m.model.is_empty() {
+            let e = per_model.entry(m.model.clone()).or_default();
+            e.0 += m.input;
+            e.1 += m.output;
+            e.2 += m.cache_read;
+            e.3 += m.cache_write;
+        }
+    }
+    let total = tot_in + tot_out + tot_read + tot_write;
+    let mut data = json!({
+        "inputTokens": tot_in,
+        "outputTokens": tot_out,
+        "cachedReadTokens": tot_read,
+        "cachedWriteTokens": tot_write,
+        "totalTokens": total,
+        "source": "native_log",
+    });
+    if !per_model.is_empty() {
+        let models: Vec<Value> = per_model
+            .into_iter()
+            .map(|(model, (i, o, cr, cw))| {
+                json!({
+                    "model": model,
+                    "inputTokens": i,
+                    "outputTokens": o,
+                    "cachedReadTokens": cr,
+                    "cachedWriteTokens": cw,
+                    "totalTokens": i + o + cr + cw,
+                })
+            })
+            .collect();
+        data["models"] = json!(models);
+    }
+    Some(data)
+}
+
+#[cfg(test)]
+mod native_usage_tests {
+    use super::*;
+
+    #[test]
+    fn claude_jsonl_deduplicates_message_ids_and_groups_by_model() {
+        let log = [
+            json!({ "type": "assistant", "message": { "id": "msg_1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 100, "output_tokens": 10, "cache_read_input_tokens": 500, "cache_creation_input_tokens": 50 } } }).to_string(),
+            json!({ "type": "assistant", "message": { "id": "msg_1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 100, "output_tokens": 45, "cache_read_input_tokens": 500, "cache_creation_input_tokens": 50 } } }).to_string(),
+            json!({ "type": "assistant", "message": { "id": "msg_2", "model": "claude-haiku-4-5", "usage": { "input_tokens": 80, "output_tokens": 20, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 } } }).to_string(),
+        ]
+        .join("\n");
+        let parsed = parse_claude_session_jsonl(&log).unwrap();
+        assert_eq!(parsed["inputTokens"], 180);
+        assert_eq!(parsed["outputTokens"], 65);
+        assert_eq!(parsed["cachedReadTokens"], 500);
+        assert_eq!(parsed["cachedWriteTokens"], 50);
+        assert_eq!(parsed["totalTokens"], 795);
+        assert_eq!(parsed["source"], "native_log");
+        assert_eq!(parsed["models"].as_array().unwrap().len(), 2);
+    }
 }

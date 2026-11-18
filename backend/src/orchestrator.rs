@@ -12,7 +12,7 @@
 use crate::acp::{AcpConn, Incoming};
 use crate::agents::Runtime;
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
-use crate::evidence::{Check, Summary, TaskAcceptance, Verification};
+use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
 use crate::git_probe;
 use crate::status::{AgentPhase, AttemptStatus, RunStatus, TaskStatus};
 use crate::traces::Overlap;
@@ -20,7 +20,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -151,6 +151,12 @@ pub struct NewRun {
     /// Images pasted with the goal: `[{data (base64), name}]`, see `attachments`.
     #[serde(default)]
     pub images: Vec<Value>,
+    /// Optional per-run token budget overriding `Config.run_token_budget`.
+    #[serde(default, rename = "maxTokens")]
+    pub max_tokens: Option<i64>,
+    /// Optional per-run USD cost budget overriding `Config.run_cost_budget_usd`.
+    #[serde(default, rename = "maxCostUsd")]
+    pub max_cost_usd: Option<f64>,
 }
 
 /// A task on the board, as the lead orchestrated it (see `validate_orchestration`).
@@ -175,16 +181,13 @@ pub struct TaskDef {
     /// The task this one independently verifies (see `teamwork`).
     #[serde(default)]
     pub verifies: Option<String>,
+    /// An earlier task of the same assignee whose ACP session this task continues via `session/load`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues: Option<String>,
 }
 
 fn default_max_attempts() -> i64 {
     MAX_ATTEMPTS
-}
-
-impl TaskDef {
-    fn dep_failed(&self, statuses: &HashMap<String, TaskStatus>) -> Option<String> {
-        self.deps.iter().find(|id| statuses.get(*id).is_some_and(|s| s.failed_dependency())).cloned()
-    }
 }
 
 /// What a person can do inside a running attempt's ACP session.
@@ -315,17 +318,26 @@ impl std::error::Error for VerificationFailed {}
 #[derive(Clone, Debug, Default)]
 struct TaskResult {
     summary: String,
+    /// Downstream handoff notes (interfaces, contracts, gotchas), separate from the one-line summary.
+    handoff: Option<String>,
     evidence: Vec<String>,
     risks: Vec<String>,
     /// The agent's own check of each acceptance criterion, in order; `evidence::Check` carries the
     /// method behind each one.
     checks: Vec<Check>,
+    /// For a `verifies` task: its explicit judgment on the verified target (`approved`, `rejected`, `inconclusive`).
+    verdict: Option<Verdict>,
+    /// An unknown `verdict` string kept verbatim so `verify_result` reports it instead of coercing it.
+    verdict_error: Option<String>,
     question: Option<Value>,
 }
 
 struct Task {
     def: TaskDef,
     agent: String,
+    /// The run's last event when the lead wrote this task to the board: what the lead knew when
+    /// it planned the task (see `DepGate::holds`).
+    planned_seq: i64,
     status: TaskStatus,
     attempts: i64,
     result: Option<TaskResult>,
@@ -338,16 +350,21 @@ struct Task {
     retry_base: i64,
     /// The lead's corrections to this task's conclusion, handed on with it (`result.amended`).
     amendments: Vec<String>,
+    /// Where the finished task's result disagreed with the workspace (`traces::gaps`).
+    trace_gaps: Vec<String>,
+    /// The lead asked `retry` to reload this task's last session (`continue_session: true`).
+    continue_session: bool,
     /// The upstream task whose cancellation dropped this one (`task.skipped_by_decision` with a
     /// `dependency`); retrying that task brings this one back.
     skipped_because: Option<String>,
 }
 
 impl Task {
-    fn new(def: TaskDef, agent: String) -> Task {
+    fn new(def: TaskDef, agent: String, planned_seq: i64) -> Task {
         Task {
             def,
             agent,
+            planned_seq,
             status: TaskStatus::Pending,
             attempts: 0,
             result: None,
@@ -357,6 +374,8 @@ impl Task {
             active_attempt: None,
             retry_base: 0,
             amendments: vec![],
+            trace_gaps: vec![],
+            continue_session: false,
             skipped_because: None,
         }
     }
@@ -369,6 +388,56 @@ impl Task {
         }
         debug_assert!(self.status.can_transition_to(to), "task {}: {:?} -> {:?}", self.def.id, self.status, to);
         self.status = to;
+    }
+
+    /// A finished independent verification's judgment of the task it verifies; `None` for any
+    /// other task and for a verification that has not succeeded.
+    fn verdict(&self) -> Option<Verdict> {
+        if self.def.verifies.is_none() || self.status != TaskStatus::Succeeded {
+            return None;
+        }
+        Some(match &self.result {
+            Some(r) => effective_verdict(r.verdict, self.def.accept.len(), &r.checks),
+            None => effective_verdict(None, self.def.accept.len(), &[]),
+        })
+    }
+}
+
+/// What keeps tasks from starting on their dependencies, as of one scheduler pass.
+struct DepGate {
+    /// Tasks that failed, were cancelled, blocked or skipped.
+    failed: HashSet<String>,
+    /// Verifications that finished without approving their target: the verdict and when it was
+    /// recorded (`i64::MAX` until its event is stored).
+    rejected: HashMap<String, (Verdict, i64)>,
+}
+
+impl DepGate {
+    fn of(tasks: &[Task]) -> DepGate {
+        DepGate {
+            failed: tasks.iter().filter(|t| t.status.failed_dependency()).map(|t| t.def.id.clone()).collect(),
+            rejected: tasks
+                .iter()
+                .filter_map(|t| {
+                    let vd = t.verdict().filter(|vd| *vd != Verdict::Approved)?;
+                    Some((t.def.id.clone(), (vd, t.succeeded_seq.unwrap_or(i64::MAX))))
+                })
+                .collect(),
+        }
+    }
+
+    /// The first dependency that keeps `t` from starting, with the verdict when it is a
+    /// verification that did not approve its target. Such a verification holds back only the
+    /// tasks planned before its verdict, which assumed the work would pass; a task the lead
+    /// orchestrates after reading the verdict (the fix) depends on it knowingly and starts.
+    fn holds(&self, t: &Task) -> Option<(String, Option<Verdict>)> {
+        t.def.deps.iter().find_map(|id| {
+            if self.failed.contains(id) {
+                return Some((id.clone(), None));
+            }
+            let (vd, at) = self.rejected.get(id)?;
+            (*at > t.planned_seq).then(|| (id.clone(), Some(*vd)))
+        })
     }
 }
 
@@ -472,6 +541,22 @@ impl Driving {
     }
 }
 
+/// Which run-level ceiling stopped new work (`run.budget_exhausted`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum BudgetHit {
+    WallClock,
+    Tokens { used: i64, limit: i64 },
+    CostUsd { used: f64, limit: f64 },
+}
+
+/// What a run has spent against its token and USD ceilings, from its usage ledger; `None` when
+/// nothing was reported.
+#[derive(Clone, Copy, Debug, Default)]
+struct Spent {
+    tokens: Option<i64>,
+    usd: Option<f64>,
+}
+
 /// What a run is made of, from its creation or its record. Everything else about it starts empty.
 struct RunRecord {
     id: String,
@@ -485,6 +570,8 @@ struct RunRecord {
     /// The last event already in the log; the next one gets the following seq.
     last_seq: i64,
     status: RunStatus,
+    token_limit: i64,
+    cost_limit_micros: i64,
 }
 
 pub struct Run {
@@ -503,11 +590,22 @@ pub struct Run {
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
     emitting: StdMutex<()>,
     deadline_ms: AtomicI64,
+    /// Optional token ceiling (`0` = unlimited).
+    token_limit: AtomicI64,
+    /// Optional USD cost ceiling in micro-dollars (`0` = unlimited).
+    cost_limit_micros: AtomicI64,
+    /// Bumped each time a `session.usage` event is stored, so the budget check rebuilds the
+    /// usage ledger only after usage changed, not on every scheduler pass.
+    usage_version: AtomicI64,
+    /// What the run had spent at a `usage_version` (see `App::spent`).
+    spent: StdMutex<Option<(i64, Spent)>>,
     st: StdMutex<RunState>,
     wake: Notify,
     driving: Driving,
     /// Something the lead should hear about reached the board (see `push_board`).
     lead_nudge: Notify,
+    /// Any board-relevant event or task terminal change arrived (wakes `board_wait` immediately).
+    board_wake: Notify,
     /// The watchdog's view of each open session. Its own lock: session updates touch it often,
     /// and nothing else is held while it is.
     watch: StdMutex<HashMap<SessionKey, Watch>>,
@@ -551,10 +649,11 @@ struct Pending {
 }
 
 /// What the watchdog knows about a running attempt: when its session last showed any sign of
-/// work, and the tool call it has been repeating.
+/// work, what phase/tool it is currently in, and recent tool calls for loop detection.
 #[derive(Default)]
 struct Watch {
     attempt: i64,
+    started_ms: i64,
     last_ms: i64,
     /// This quiet spell was already reported; any sign of work starts a new one.
     idle_noticed: bool,
@@ -562,9 +661,11 @@ struct Watch {
     human: bool,
     /// Questions, approvals and forms of this attempt waiting on a person (`Held` guards).
     waits: u32,
-    /// The last finished tool call (a hash of kind, title and input) and how often in a row.
-    call: u64,
-    repeats: u32,
+    /// Current phase and latest tool title, shown in `janus.wait` live pulse on timeout.
+    phase: AgentPhase,
+    last_tool: String,
+    /// Recent finished tool calls, for loop detection.
+    calls: lifecycle::CallLoop,
 }
 
 /// While alive, the session waits on a person and the watchdog leaves it alone; dropping it
@@ -598,10 +699,15 @@ impl Run {
             seq: AtomicI64::new(r.last_seq),
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
+            token_limit: AtomicI64::new(r.token_limit.max(0)),
+            cost_limit_micros: AtomicI64::new(r.cost_limit_micros.max(0)),
+            usage_version: AtomicI64::new(0),
+            spent: StdMutex::new(None),
             st: StdMutex::new(RunState { status: r.status, ..Default::default() }),
             wake: Notify::new(),
             driving: Driving::default(),
             lead_nudge: Notify::new(),
+            board_wake: Notify::new(),
             watch: Default::default(),
         }
     }
@@ -649,6 +755,12 @@ pub struct Config {
     pub stall_after: Duration,
     /// How long a lead's session stays quiet with its goal still active before Janus asks it (`goal_settle`).
     pub goal_settle: Duration,
+    /// Maximum collaborator task attempts running concurrently in a run (`1..=32`).
+    pub max_concurrent_attempts: usize,
+    /// Default per-run token budget (`None` = unlimited).
+    pub run_token_budget: Option<i64>,
+    /// Default per-run reported USD cost budget (`None` = unlimited).
+    pub run_cost_budget_usd: Option<f64>,
 }
 
 pub struct App {
@@ -762,8 +874,20 @@ impl App {
             data: e.data,
         };
         let nudge = needs_lead(&event);
-        if self.store(event) && nudge {
-            run.lead_nudge.notify_one();
+        let wakes_board = wakes_board_wait(&event);
+        let usage = event.kind == "session.usage";
+        let stored = self.store(event);
+        drop(_order);
+        if stored {
+            if usage {
+                run.usage_version.fetch_add(1, Ordering::SeqCst);
+            }
+            if wakes_board {
+                run.board_wake.notify_waiters();
+            }
+            if nudge {
+                run.lead_nudge.notify_one();
+            }
         }
         seq
     }
@@ -923,6 +1047,9 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
             node: "node".into(),
             stall_after: STALL_AFTER,
             goal_settle: crate::goal_settle::SETTLE,
+            max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
+            run_token_budget: None,
+            run_cost_budget_usd: None,
         },
         tx,
         runs: StdMutex::new(HashMap::new()),

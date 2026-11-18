@@ -37,8 +37,17 @@ impl App {
             "" => "按附图完成".to_string(),
             g => g.to_string(),
         };
-        let config =
+        let token_limit = req.max_tokens.filter(|&n| n > 0).or(self.cfg.run_token_budget).unwrap_or(0);
+        let cost_limit_usd = req.max_cost_usd.filter(|n| n.is_finite() && *n > 0.0).or(self.cfg.run_cost_budget_usd);
+        let cost_limit_micros = cost_limit_usd.map(|c| (c * 1_000_000.0).round() as i64).unwrap_or(0);
+        let mut config =
             json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
+        if token_limit > 0 {
+            config["tokenLimit"] = json!(token_limit);
+        }
+        if let Some(c) = cost_limit_usd {
+            config["costLimitUsd"] = json!(c);
+        }
         self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
         let owner = format!("janus-{}", std::process::id());
         if self.db.acquire_lease(&id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
@@ -55,6 +64,8 @@ impl App {
             goal_images,
             last_seq: 0,
             status: RunStatus::Planning,
+            token_limit,
+            cost_limit_micros,
         }));
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.launch(run, Phase::Start);
@@ -131,6 +142,52 @@ impl App {
         self.goal(run, false).await
     }
 
+    /// Check whether wall-clock, token or reported USD cost ceiling has been reached. Unreported
+    /// usage (`None`) never triggers a pause.
+    pub(super) fn check_budget(&self, run: &Run) -> Option<BudgetHit> {
+        if now_ms() > run.deadline_ms.load(Ordering::SeqCst) {
+            return Some(BudgetHit::WallClock);
+        }
+        let token_limit = run.token_limit.load(Ordering::SeqCst);
+        let cost_limit_micros = run.cost_limit_micros.load(Ordering::SeqCst);
+        if token_limit <= 0 && cost_limit_micros <= 0 {
+            return None;
+        }
+        let spent = self.spent(run);
+        if token_limit > 0
+            && let Some(used) = spent.tokens
+            && used >= token_limit
+        {
+            return Some(BudgetHit::Tokens { used, limit: token_limit });
+        }
+        if cost_limit_micros > 0
+            && let Some(usd) = spent.usd
+            && (usd * 1_000_000.0).round() as i64 >= cost_limit_micros
+        {
+            return Some(BudgetHit::CostUsd { used: usd, limit: cost_limit_micros as f64 / 1_000_000.0 });
+        }
+        None
+    }
+
+    /// Tokens and reported USD the run has spent. The ledger is rebuilt from the event log only
+    /// when a `session.usage` event arrived since the last time, so the scheduler can ask on
+    /// every pass without rereading the whole log.
+    pub(super) fn spent(&self, run: &Run) -> Spent {
+        let version = run.usage_version.load(Ordering::SeqCst);
+        if let Some((at, spent)) = *run.spent.lock().unwrap()
+            && at == version
+        {
+            return spent;
+        }
+        let ledger = self.usage(run);
+        let spent = Spent {
+            tokens: ledger.run.tokens.total,
+            usd: ledger.run.cost.lines.iter().find(|l| l.currency.eq_ignore_ascii_case("USD")).map(|l| l.amount),
+        };
+        *run.spent.lock().unwrap() = Some((version, spent));
+        spent
+    }
+
     /// The scheduling loop. It recomputes the run's status from the task graph on every pass and
     /// only returns once the run is delivered or cancelled, so every later decision still has a driver to act on it.
     // @project-doc docs/domains/20261031-run_lifecycle.md#scheduling
@@ -140,7 +197,7 @@ impl App {
             Deliver,
             /// Goal mode: the lead's session broke off; the person continues the run to restart it.
             LeadFailed(String),
-            Budget,
+            Budget(BudgetHit),
             Paused,
             Running,
         }
@@ -148,45 +205,49 @@ impl App {
             if run.st.lock().unwrap().cancelled() {
                 return Err(Cancelled.into());
             }
-            let over_budget = now_ms() > run.deadline_ms.load(Ordering::SeqCst);
+            let budget_hit = self.check_budget(run);
+            let over_budget = budget_hit.is_some();
+            let cap = self.cfg.max_concurrent_attempts.max(1);
             let (starts, blocked, outcome) = {
                 let mut st = run.st.lock().unwrap();
-                let statuses: HashMap<String, TaskStatus> =
-                    st.tasks.iter().map(|t| (t.def.id.clone(), t.status)).collect();
-                let succeeded: HashSet<String> = statuses
-                    .iter()
-                    .filter_map(|(id, status)| (*status == TaskStatus::Succeeded).then_some(id.clone()))
-                    .collect();
+                let gate = DepGate::of(&st.tasks);
+                let succeeded: HashSet<String> =
+                    st.tasks.iter().filter(|t| t.status == TaskStatus::Succeeded).map(|t| t.def.id.clone()).collect();
                 let mut blocked = vec![];
                 for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
-                    if let Some(dep) = t.def.dep_failed(&statuses) {
+                    if let Some((dep, vd)) = gate.holds(t) {
                         t.set_status(TaskStatus::Blocked);
                         t.blocked_by = Some(dep.clone());
-                        blocked.push((t.def.id.clone(), dep));
+                        blocked.push((t.def.id.clone(), dep, vd));
                     }
                 }
                 // A blocked task waits again once none of its dependencies is failed any more (the
                 // lead retried or accepted them); one still failed keeps it blocked, and is named.
                 for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Blocked) {
-                    match t.def.dep_failed(&statuses) {
+                    match gate.holds(t) {
                         None => {
                             t.set_status(TaskStatus::Pending);
                             t.blocked_by = None;
                         }
-                        Some(dep) if t.blocked_by.as_ref() != Some(&dep) => {
+                        Some((dep, vd)) if t.blocked_by.as_ref() != Some(&dep) => {
                             t.blocked_by = Some(dep.clone());
-                            blocked.push((t.def.id.clone(), dep));
+                            blocked.push((t.def.id.clone(), dep, vd));
                         }
                         Some(_) => {}
                     }
                 }
                 let mut starts = vec![];
                 if !st.paused && !over_budget {
+                    let mut running_count = st.tasks.iter().filter(|t| t.status == TaskStatus::Running).count();
                     let mut busy: HashSet<String> =
                         st.tasks.iter().filter(|t| t.status == TaskStatus::Running).map(|t| t.agent.clone()).collect();
                     for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
+                        if running_count >= cap {
+                            break;
+                        }
                         if t.def.deps.iter().all(|d| succeeded.contains(d)) && !busy.contains(&t.agent) {
                             busy.insert(t.agent.clone());
+                            running_count += 1;
                             t.set_status(TaskStatus::Running);
                             t.attempts += 1;
                             let attempt_id = format!("{}-{}-{}-{}", run.id, t.def.id, t.attempts, now_ms());
@@ -196,8 +257,8 @@ impl App {
                     }
                 }
                 let active = st.tasks.iter().any(|t| t.status == TaskStatus::Running);
-                // A task that could start but for a pause or the budget is still work to do: the
-                // run waits for the person instead of delivering without it.
+                // A task that could start but for a pause, concurrency cap or budget is still work
+                // to do: the run waits instead of delivering without it.
                 let runnable = st
                     .tasks
                     .iter()
@@ -211,8 +272,8 @@ impl App {
                     Outcome::LeadFailed(err.clone())
                 } else if finished && st.lead.goal.ended() {
                     Outcome::Deliver
-                } else if over_budget && !all_terminal {
-                    Outcome::Budget
+                } else if let (Some(hit), false) = (budget_hit, all_terminal) {
+                    Outcome::Budget(hit)
                 } else if !active && starts.is_empty() && st.paused {
                     Outcome::Paused
                 } else {
@@ -220,13 +281,16 @@ impl App {
                 };
                 (starts, blocked, outcome)
             };
-            for (id, dep) in blocked {
-                self.emit(
-                    run,
-                    ev("task.blocked", "janus", format!("{id} 被失败的硬依赖 {dep} 阻塞"))
-                        .task(&id)
-                        .data(json!({ "dependency": dep, "kind": "hard" })),
-                );
+            for (id, dep, vd) in blocked {
+                let mut data = json!({ "dependency": dep, "kind": "hard" });
+                let text = match vd {
+                    Some(vd) => {
+                        data["verdict"] = json!(vd);
+                        format!("{id} 被独立验证 {dep} 的判定「{}」阻塞", vd.label())
+                    }
+                    None => format!("{id} 被失败的硬依赖 {dep} 阻塞"),
+                };
+                self.emit(run, ev("task.blocked", "janus", text).task(&id).data(data));
             }
             for (id, n, agent, attempt_id) in starts {
                 if n == 1 {
@@ -267,16 +331,26 @@ impl App {
                     // Like any failed run: continuing it rebuilds the board and restarts the lead.
                     bail!("负责人的会话异常结束：{err}");
                 }
-                Outcome::Budget => {
-                    // Announced each time the run comes to wait on the budget, including when the
-                    // lead adds work after the run went back to running.
+                Outcome::Budget(hit) => {
+                    // Announced each time the run comes to wait on a budget ceiling, including when
+                    // the lead adds work after the run went back to running.
                     if run.st.lock().unwrap().status != RunStatus::WaitingInput {
                         self.set_status(run, RunStatus::WaitingInput);
-                        self.emit(
-                            run,
-                            ev("run.budget_exhausted", "janus", "任务达到墙钟预算，等待你追加预算、接受部分结果或取消")
-                                .data(json!({ "budgetMs": RUN_BUDGET_MS })),
-                        );
+                        let (text, data) = match hit {
+                            BudgetHit::WallClock => (
+                                "任务达到墙钟预算，等待你追加预算、接受部分结果或取消".to_string(),
+                                json!({ "kind": "wall_clock", "budgetMs": RUN_BUDGET_MS }),
+                            ),
+                            BudgetHit::Tokens { used, limit } => (
+                                format!("任务已用 {used} tokens（达到上限 {limit}），等待你追加预算或停止"),
+                                json!({ "kind": "tokens", "usedTokens": used, "tokenLimit": limit }),
+                            ),
+                            BudgetHit::CostUsd { used, limit } => (
+                                format!("任务已上报费用 ${used:.2}（达到上限 ${limit:.2}），等待你追加预算或停止"),
+                                json!({ "kind": "cost_usd", "usedCostUsd": used, "costLimitUsd": limit }),
+                            ),
+                        };
+                        self.emit(run, ev("run.budget_exhausted", "janus", text).data(data));
                     }
                 }
                 Outcome::Running | Outcome::Paused => {
@@ -339,43 +413,41 @@ impl App {
         }
     }
 
-    /// Count a finished tool call; every `LOOP_REPEAT` identical calls in a row, tell the lead.
+    /// Record a finished tool call and detect period-1 (`AAAAA`), period-2 (`ABABABAB`) and
+    /// period-3 (`ABCABCABC`) loops, alerting the lead (or the person, for the lead itself).
     // @project-doc docs/domains/20261031-run_lifecycle.md#watchdog
     pub(super) fn watch_call(&self, run: &Run, session: &SessionKey, kind: &str, title: &str, input: &str) {
         use std::hash::{Hash, Hasher};
         let mut h = std::hash::DefaultHasher::new();
         (kind, title, input).hash(&mut h);
         let call = h.finish();
-        let (n, repeats) = {
+        let hit = {
             let mut watch = run.watch.lock().unwrap();
             let Some(w) = watch.get_mut(session) else { return };
-            if w.call == call {
-                w.repeats += 1;
-            } else {
-                w.call = call;
-                w.repeats = 1;
-            }
-            if w.repeats % LOOP_REPEAT != 0 {
-                return;
-            }
-            (w.attempt, w.repeats)
+            w.calls.record(call, title).map(|(p, r, pat)| (w.attempt, p, r, pat))
+        };
+        let Some((n, period, repeats, pattern)) = hit else { return };
+        let text_body = if period == 1 {
+            format!("连续 {repeats} 次做同样的调用：{pattern}")
+        } else {
+            format!("连续 {repeats} 轮重复调用序列：{pattern}")
         };
         let SessionKey::Task(task) = session else {
             self.emit(
                 run,
-                ev("lead.stalled", "janus", format!("负责人连续 {repeats} 次做同样的调用：{}", short(title, 60)))
+                ev("lead.stalled", "janus", format!("负责人{text_body}"))
                     .to("user")
-                    .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
+                    .data(json!({ "reason": "loop", "tool": pattern, "repeats": repeats, "period": period })),
             );
             return;
         };
         self.emit(
             run,
-            ev("task.stalled", "janus", format!("{task} 连续 {repeats} 次做同样的调用：{}", short(title, 60)))
+            ev("task.stalled", "janus", format!("{task} {text_body}"))
                 .task(task)
                 .attempt(n)
                 .to("lead")
-                .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
+                .data(json!({ "reason": "loop", "tool": pattern, "repeats": repeats, "period": period })),
         );
     }
 
@@ -427,28 +499,24 @@ impl App {
                     evidence.push(json!({ "text": format!("{}：{}", t.def.id, e), "seq": t.succeeded_seq }));
                 }
                 risks.extend(r.risks.iter().map(|x| format!("{}：{}", t.def.id, x)));
-                // Who checked this task independently, and how that went. A verifier that did not
-                // pass stays visible as a risk of the task it was meant to confirm.
+                // Who checked this task independently, and how that went. Completing a review
+                // (`Succeeded`) and confirming the work (`Verdict::Approved`) are distinct: a
+                // verifier that rejects the work has `passed == false`. Every verifier that did not
+                // confirm the task leaves a risk on the delivery: independent verifiers check
+                // different things, so one's approval does not cancel another's rejection.
                 let verifications: Vec<Verification> = st
                     .tasks
                     .iter()
                     .filter(|v| v.def.verifies.as_deref() == Some(t.def.id.as_str()))
                     .map(|v| {
-                        let passed = v.status == TaskStatus::Succeeded;
-                        if !passed {
-                            risks.push(format!(
-                                "{}：独立验证 {} 的状态是 {}，结论没有得到确认",
-                                t.def.id,
-                                v.def.id,
-                                v.status.label()
-                            ));
-                        }
                         let vr = v.result.clone().unwrap_or_default();
+                        let verdict = v.verdict();
                         Verification {
                             task: v.def.id.clone(),
                             status: v.status.as_str(),
                             label: v.status.label(),
-                            passed,
+                            verdict,
+                            passed: verdict == Some(Verdict::Approved),
                             summary: vr.summary,
                             checks: vr.checks,
                             evidence: vr.evidence,
@@ -456,6 +524,14 @@ impl App {
                         }
                     })
                     .collect();
+                for v in verifications.iter().filter(|v| !v.passed) {
+                    let why = match v.verdict {
+                        Some(vd) => format!("判定为「{}」", vd.label()),
+                        None => format!("状态是 {}", v.label),
+                    };
+                    risks.push(format!("{}：独立验证 {} {why}，结论没有得到确认", t.def.id, v.task));
+                }
+                let gaps = if t.trace_gaps.is_empty() { trace_gaps(&t.def.id) } else { t.trace_gaps.clone() };
                 acceptance.push(TaskAcceptance {
                     task: t.def.id.clone(),
                     title: t.def.title.clone(),
@@ -464,7 +540,7 @@ impl App {
                     summary: Summary::of(&t.def.accept, &r.checks),
                     checks: r.checks.clone(),
                     verifications,
-                    trace_gaps: trace_gaps(&t.def.id),
+                    trace_gaps: gaps,
                     risks: r.risks.clone(),
                 });
             }
@@ -528,6 +604,104 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+/// Recent finished tool calls of one session, for loop detection: a ring buffer of the last
+/// `WINDOW` calls `(fingerprint, short_title)` for multi-step cycles, and the length of the
+/// current run of identical calls, which keeps counting past the window.
+#[derive(Default)]
+pub(super) struct CallLoop {
+    recent: VecDeque<(u64, String)>,
+    /// Calls remaining before another multi-step loop report may fire.
+    cooldown: u32,
+    /// How many times in a row the latest call was made.
+    streak: u32,
+}
+
+impl CallLoop {
+    const WINDOW: usize = 12;
+
+    /// Record a call and detect period-1 (`AAAAA`, reported at every 5th repeat), period-2
+    /// (`ABABABAB`, 4 cycles = 8 calls) or period-3 (`ABCABCABC`, 3 cycles = 9 calls) loops.
+    pub(super) fn record(&mut self, call: u64, title: &str) -> Option<(u32, u32, String)> {
+        let recent = &mut self.recent;
+        self.streak = if recent.back().is_some_and(|(h, _)| *h == call) { self.streak + 1 } else { 1 };
+        recent.push_back((call, short(title, 36)));
+        if recent.len() > Self::WINDOW {
+            recent.pop_front();
+        }
+        let same = self.streak;
+        if same >= LOOP_REPEAT && same.is_multiple_of(LOOP_REPEAT) {
+            self.cooldown = 0;
+            return Some((1, same, short(title, 60)));
+        }
+        if self.cooldown > 0 {
+            self.cooldown -= 1;
+            return None;
+        }
+        if recent.len() >= 8 {
+            let s = recent.len() - 8;
+            let (h0, t0) = &recent[s];
+            let (h1, t1) = &recent[s + 1];
+            if h0 != h1 && (0..8).all(|i| recent[s + i].0 == if i % 2 == 0 { *h0 } else { *h1 }) {
+                self.cooldown = 7;
+                return Some((2, 4, format!("{t0} → {t1}")));
+            }
+        }
+        if recent.len() >= 9 {
+            let s = recent.len() - 9;
+            let (h0, t0) = &recent[s];
+            let (h1, t1) = &recent[s + 1];
+            let (h2, t2) = &recent[s + 2];
+            if !(h0 == h1 && h1 == h2) && (0..9).all(|i| recent[s + i].0 == recent[s + (i % 3)].0) {
+                self.cooldown = 8;
+                return Some((3, 3, format!("{t0} → {t1} → {t2}")));
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod loop_tests {
+    use super::*;
+
+    #[test]
+    fn loop_detector_catches_single_and_alternating_cycles() {
+        let mut calls = CallLoop::default();
+        for i in 1..=4 {
+            assert!(calls.record(10, "cat x").is_none(), "step {i}");
+        }
+        assert_eq!(calls.record(10, "cat x"), Some((1, 5, "cat x".into())));
+
+        let mut calls = CallLoop::default();
+        for i in 0..7 {
+            let (h, t) = if i % 2 == 0 { (1, "Edit foo.rs") } else { (2, "cargo test") };
+            assert!(calls.record(h, t).is_none());
+        }
+        assert_eq!(calls.record(2, "cargo test"), Some((2, 4, "Edit foo.rs → cargo test".into())));
+        // Cooldown prevents firing again on the very next step.
+        assert!(calls.record(1, "Edit foo.rs").is_none());
+
+        let mut calls = CallLoop::default();
+        let steps = [(1, "read"), (2, "edit"), (3, "test")];
+        for i in 0..8 {
+            let (h, t) = steps[i % 3];
+            assert!(calls.record(h, t).is_none());
+        }
+        assert_eq!(calls.record(3, "test"), Some((3, 3, "read → edit → test".into())));
+    }
+
+    #[test]
+    fn a_repeated_call_is_reported_every_fifth_time_past_the_window() {
+        let mut calls = CallLoop::default();
+        let reports: Vec<u32> = (0..50).filter_map(|_| calls.record(10, "cat x")).map(|(_, n, _)| n).collect();
+        assert_eq!(reports, vec![5, 10, 15, 20, 25, 30, 35, 40, 45, 50]);
+        // A different call ends the streak; the count starts over.
+        assert!(calls.record(11, "ls").is_none());
+        let again: Vec<u32> = (0..5).filter_map(|_| calls.record(10, "cat x")).map(|(_, n, _)| n).collect();
+        assert_eq!(again, vec![5]);
     }
 }
 

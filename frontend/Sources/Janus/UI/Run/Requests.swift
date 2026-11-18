@@ -395,17 +395,33 @@ struct BudgetAsk: View {
     let item: InboxItem
 
     var body: some View {
+        let kind = item.d["kind"].str
+        let heading = switch kind {
+        case "tokens": "任务已达到 Token 预算"
+        case "cost_usd": "任务已达到费用预算"
+        default: "任务已达到墙钟预算"
+        }
+        let extendLabel = switch kind {
+        case "tokens": "追加 500,000 Tokens"
+        case "cost_usd": "追加 5 USD"
+        default: "追加 60 分钟"
+        }
+        let extendBody: JSON = switch kind {
+        case "tokens": ["type": "extendBudget", "tokens": 500_000]
+        case "cost_usd": ["type": "extendBudget", "costUsd": 5.0]
+        default: ["type": "extendBudget", "minutes": 60]
+        }
         Card(tint: Tone.amber.color) {
             HStack {
                 Pill("预算", .amber)
-                Text("任务已达到墙钟预算").font(.headline)
+                Text(heading).font(.headline)
                 Spacer()
                 SeqButton(seq: item.seq, run: run)
             }
             Note(text: item.d["text"].str, tone: .red)
             HStack {
                 Button("停止任务…", role: .destructive) { cancelRun(run) }.disabled(!run.canAct)
-                Button("追加 60 分钟") { Task { await run.act(["type": "extendBudget", "minutes": 60]) } }.buttonStyle(.primary).disabled(!run.canAct)
+                Button(extendLabel) { Task { await run.act(extendBody) } }.buttonStyle(.primary).disabled(!run.canAct)
             }
         }
     }
