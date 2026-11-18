@@ -92,6 +92,9 @@ final class TaskState {
     /// Files the task owns: from its orchestration, plus what it claimed while working.
     var owns: [String] = []
     var verifies = ""
+    var continues = ""
+    var handoff = ""
+    var verdict: Verdict?
     /// Where the finished result disagrees with what the task left in the workspace.
     var traceGaps: [String] = []
 
@@ -104,6 +107,7 @@ final class TaskState {
         accept = x["accept"].strings
         owns = x["owns"].strings
         verifies = x["verifies"].str
+        continues = x["continues"].str
     }
 }
 
@@ -236,7 +240,7 @@ func derive(_ events: [Event]) -> RunState {
         case "goal.status": ag("lead").note = e.text
         case "run.budget_exhausted":
             s.run.status = .waitingInput; s.inbox.removeAll { $0.kind == "budget" }
-            s.inbox.append(InboxItem(kind: "budget", key: "budget", seq: e.seq, d: ["text": JSON(e.text)]))
+            s.inbox.append(InboxItem(kind: "budget", key: "budget", seq: e.seq, d: ["text": JSON(e.text), "kind": d["kind"], "used": d["used"], "limit": d["limit"]]))
         case "run.budget_extended": s.run.status = .running; s.inbox.removeAll { $0.kind == "budget" }
         case "decision.withdrawn":
             dropKey(d["key"].str)
@@ -252,6 +256,8 @@ func derive(_ events: [Event]) -> RunState {
         case "result.submitted":
             t?.checks = Check.list(d["checks"])
             t?.risks = d["risks"].strings
+            t?.handoff = d["handoff"].str
+            if let vd = d["verdict"].string.flatMap(Verdict.init(rawValue:)) { t?.verdict = vd }
         case "verification.started": t?.status = .verifying
         // The checks and their methods the backend checked; `task.succeeded` repeats them with the
         // conclusion, so a replayed or resumed run still shows them from one place.
@@ -370,7 +376,7 @@ func derive(_ events: [Event]) -> RunState {
         case "session.prompt": if let t, d["channel"].str == "fix" { t.status = .running }
         case "task.reopened":
             guard let t else { break }
-            t.amendments = []; t.traceGaps = []
+            t.amendments = []; t.traceGaps = []; t.verdict = nil; t.handoff = ""
             if let ins = d["instructions"].string, !ins.isEmpty { t.desc = ins }
             // Tasks held by this one's failure wait for it again instead of showing as stuck.
             for x in s.orderedTasks where x.status == .blocked && x.blockedBy == t.id { x.status = .pending }
@@ -379,6 +385,8 @@ func derive(_ events: [Event]) -> RunState {
         case "task.succeeded":
             guard let t else { break }
             t.status = .succeeded; t.progress = 100; t.summary = d["summary"].str; t.evidence = d["evidence"].strings
+            t.handoff = d["handoff"].str
+            if let vd = d["verdict"].string.flatMap(Verdict.init(rawValue:)) { t.verdict = vd }
             // The conclusion carries the whole result: its checks with their methods and its risks.
             t.checks = Check.list(d["checks"]); t.risks = d["risks"].strings
             if d["acceptedBy"].str != "lead" { t.traceGaps = d["traceGaps"].strings }
@@ -480,8 +488,10 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     var stalls: [String: (seq: Int, text: String)] = [:]
     // The lead's own stall goes to the person: nobody else watches the lead.
     var leadStall: (seq: Int, text: String)?
-    // Two running tasks that edited the same files, or one that edited files the other owns.
-    var conflicts: [(seq: Int, task: String, other: String, paths: [String], owned: Bool)] = []
+    // Two running tasks that edited the same files, or one (or the lead) that edited files the other owns.
+    var conflicts: [(seq: Int, task: String, other: String, paths: [String], owned: Bool, byLead: Bool)] = []
+    // Collaborator split proposals waiting on the lead's decision.
+    var splits: [String: (seq: Int, text: String)] = [:]
     // Finished results that disagree with what their task left in the workspace.
     var gaps: [String: (seq: Int, gaps: [String])] = [:]
     for e in st.events {
@@ -492,9 +502,17 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         switch e.type {
         case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
         case "lead.stalled": leadStall = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text)
-        case "task.conflict": if let task = e.task { conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy)) }
+        case "task.conflict":
+            if let task = e.task {
+                conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy, byLead: d["byLead"].truthy))
+            }
         case "task.claimed":
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "认领：\(d["paths"].strings.joined(separator: "、"))", artifacts: []))
+        case "task.split_requested":
+            let reason = d["reason"].string ?? e.text
+            let count = d["subtasks"].array.count
+            if let task = e.task { splits[task] = (seq: e.seq, text: reason) }
+            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "请求拆分（建议 \(count) 个子任务）：\(reason)", artifacts: []))
         case "result.submitted":
             f.results.append(ResultFact(key: "r\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, task: e.task ?? "", summary: d["summary"].string ?? e.text, evidence: d["evidence"].strings, risks: d["risks"].strings, checks: Check.list(d["checks"])))
         case "context.handoff":
@@ -510,6 +528,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             if d["kind"].str == "blocker" { blockers.append((key: "ob\(e.seq)", seq: e.seq, task: e.task ?? "", text: text, actor: e.actor)) }
             else { f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: "\(d["kind"].str == "note" ? "备注" : "进展")：\(text)", artifacts: [])) }
         case "question.answered":
+            if let task = e.task { splits[task] = nil }
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "回答 \(e.task ?? "") 的提问", text: d["answer"].str + (d["note"].truthy ? "；\(d["note"].str)" : ""), tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
         case "approval.granted", "approval.denied":
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == "approval.granted" ? "批准一次操作" : "拒绝一次操作", text: e.text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
@@ -519,17 +538,19 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             if let task = e.task { gaps[task] = nil }
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人修订 \(e.task ?? "") 的结论", text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
         case "task.skipped_by_decision":
+            if let task = e.task { splits[task] = nil }
             if e.actor == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人取消 \(e.task ?? "")", text: e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "task.reopened":
-            if let task = e.task { gaps[task] = nil }
+            if let task = e.task { gaps[task] = nil; splits[task] = nil }
             if e.actor == "lead" {
                 let parts = [d["instructions"].truthy ? "新说明：\(d["instructions"].str)" : nil, d["accept"].truthy ? "新的验收标准：\(d["accept"].strings.joined(separator: "；"))" : nil].compactMap { $0 }
                 f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人重做 \(e.task ?? "")", text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
             }
         case "task.succeeded":
-            if let task = e.task { gaps[task] = d["traceGaps"].strings.isEmpty ? nil : (seq: e.seq, gaps: d["traceGaps"].strings) }
+            if let task = e.task { splits[task] = nil; gaps[task] = d["traceGaps"].strings.isEmpty ? nil : (seq: e.seq, gaps: d["traceGaps"].strings) }
             if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: "负责人接受 \(e.task ?? "") 的结果", text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
         case "user.message":
+            if e.actor == "lead", let task = e.task { splits[task] = nil }
             let images = Attach.paths(d).count
             let words = Attach.visibleText(d["text"].string ?? e.text)
             let text = images == 0 ? words : [words, "（附 \(images) 张图片）"].filter { !$0.isEmpty }.joined(separator: " ")
@@ -601,12 +622,21 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     // Everything else that holds work up is the lead's to settle, not the person's.
     let lead = "负责人在处理，不需要你操作"
     // A shared edit that an overstep already covers is the same fact: keep the overstep.
-    let covered = { (c: (seq: Int, task: String, other: String, paths: [String], owned: Bool)) in
-        !c.owned && conflicts.contains { o in o.owned && Set([o.task, o.other]) == Set([c.task, c.other]) && Set(c.paths).isSubset(of: Set(o.paths)) }
+    let covered = { (c: (seq: Int, task: String, other: String, paths: [String], owned: Bool, byLead: Bool)) in
+        !c.owned && conflicts.contains { o in o.owned && o.byLead == c.byLead && Set([o.task, o.other]) == Set([c.task, c.other]) && Set(c.paths).isSubset(of: Set(o.paths)) }
     }
-    for c in conflicts where !covered(c) && (c.owned ? st.tasks[c.task]?.status == .running : (st.tasks[c.task]?.status == .running || st.tasks[c.other]?.status == .running)) {
-        let title = c.owned ? "\(c.task) 改了 \(c.other) 负责的文件" : "\(c.task) 和 \(c.other) 改了同一个文件"
-        f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: "、"), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+    for c in conflicts where !covered(c) {
+        if c.byLead {
+            guard !(st.tasks[c.task]?.status.isEnded ?? true) else { continue }
+            let title = c.owned ? "负责人改了 \(c.task) 负责的文件" : "负责人和 \(c.task) 改了同一个文件"
+            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: "、"), tasks: [c.task], agents: [st.tasks[c.task]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+        } else if c.owned ? st.tasks[c.task]?.status == .running : (st.tasks[c.task]?.status == .running || st.tasks[c.other]?.status == .running) {
+            let title = c.owned ? "\(c.task) 改了 \(c.other) 负责的文件" : "\(c.task) 和 \(c.other) 改了同一个文件"
+            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: "、"), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+        }
+    }
+    for (task, sp) in splits.sorted(by: { $0.value.seq < $1.value.seq }) where !(st.tasks[task]?.status.isEnded ?? true) {
+        f.open.append(OpenFact(key: "osp\(task)\(sp.seq)", seq: sp.seq, title: "\(task) 请求拆分子任务", text: sp.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "split_request"))
     }
     // Until the lead redoes or corrects the task, or the run is handed over.
     if !(st.run.status.isDone || st.run.status == .cancelled) {

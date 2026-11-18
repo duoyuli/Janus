@@ -424,3 +424,45 @@ private func goalRun() -> Log {
     #expect(a.traceGaps.count == 1 && a.risks == ["旧版本没有回归测试"])
     #expect(a.summary.reminders.count == 1)
 }
+
+@Test func verifierVerdictSplitProposalsLeadConflictsAndTokenBudgetDeriveCleanly() throws {
+    var log = Log()
+    log.add("run.created", actor: "user", data: ["mode": "goal", "goal": "核验与协作", "cwd": "/tmp/x", "git": true])
+    log.add("orchestration.accepted", actor: "lead", data: ["tasks": [
+        ["id": "T1", "title": "实现", "agent": "dev", "deps": [], "owns": ["src/api.rs"], "accept": ["接口可用"]],
+        ["id": "V1", "title": "核验", "agent": "qa", "deps": ["T1"], "verifies": "T1", "accept": ["边界通过"]],
+        ["id": "T2", "title": "修复", "agent": "dev", "deps": ["V1"], "continues": "T1", "accept": ["修复通过"]],
+    ]])
+    log.add("attempt.started", to: "dev", task: "T1", attempt: 1, data: ["session": "s1"])
+    log.add("task.split_requested", actor: "dev", to: "lead", task: "T1", data: [
+        "reason": "模块过大", "subtasks": [["title": "解析器"], ["title": "生成器"]],
+    ])
+    log.add("task.conflict", to: "lead", task: "T1", data: [
+        "other": "lead", "byLead": true, "owned": true, "paths": ["src/api.rs"],
+    ])
+    let s1 = derive(log.events)
+    let f1 = boardFacts(s1) { $0 }
+    #expect(s1.tasks["T2"]?.continues == "T1")
+    #expect(f1.open.contains { $0.kind == "split_request" && $0.title == "T1 请求拆分子任务" })
+    #expect(f1.open.contains { $0.kind == "overstep" && $0.title == "负责人改了 T1 负责的文件" })
+
+    // Finishing T1 and having V1 submit `verdict: "rejected"` clears the split request and marks V1 unconfirmed.
+    log.add("task.succeeded", task: "T1", attempt: 1, data: [
+        "summary": "初版", "handoff": "parse() 返回 Result", "checks": [["criterion": "接口可用", "passed": true, "method": "test", "evidence": "ok"]],
+    ])
+    log.add("attempt.started", to: "qa", task: "V1", attempt: 1, data: ["session": "s2"])
+    log.add("task.succeeded", task: "V1", attempt: 1, data: [
+        "summary": "空输入崩溃", "verdict": "rejected",
+        "checks": [["criterion": "边界通过", "passed": false, "method": "test", "evidence": "cargo test panic"]],
+    ])
+    log.add("run.budget_exhausted", text: "Token 预算用完", data: ["kind": "tokens", "used": 1200, "limit": 1000])
+    let s2 = derive(log.events)
+    #expect(s2.tasks["T1"]?.handoff == "parse() 返回 Result")
+    #expect(s2.tasks["V1"]?.status == .succeeded)
+    #expect(s2.tasks["V1"]?.verdict == .rejected)
+    let vr = VerificationRecord(try #require(s2.tasks["V1"]))
+    #expect(vr.verdict == .rejected && vr.passed == false, "completed negative review is not an approval")
+    #expect(s2.inbox.first { $0.kind == "budget" }?.d["kind"].str == "tokens")
+    let f2 = boardFacts(s2) { $0 }
+    #expect(!f2.open.contains { $0.kind == "split_request" })
+}
