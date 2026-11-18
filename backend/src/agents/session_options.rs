@@ -135,6 +135,42 @@ pub fn role_session(role: &Value, conn: &Value) -> Value {
     Value::Object(out)
 }
 
+/// The value a control takes when a role leaves it open: the runtime's default mode for the agent's
+/// mode control when the agent offers it, otherwise the agent's own current value.
+// @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
+pub fn control_default(c: &Value, kind: Option<Runtime>) -> Value {
+    let preferred = kind.and_then(Runtime::default_mode).filter(|_| c["category"] == "mode");
+    match preferred {
+        Some(v) if c["options"].as_array().is_some_and(|o| o.iter().any(|x| x["value"] == v)) => json!(v),
+        _ => c["current"].clone(),
+    }
+}
+
+/// Marks each of a connection's controls with `default`, the value it takes when a role leaves it open.
+pub fn mark_defaults(conn: &mut Value) {
+    let kind = Runtime::of(str_of(conn, "base")).ok();
+    if let Some(controls) = conn["options"]["controls"].as_array_mut() {
+        for c in controls {
+            c["default"] = control_default(c, kind);
+        }
+    }
+}
+
+/// The control values a member's sessions open with: the role's choices, plus the default for any
+/// control the role left open whose default differs from the agent's current value.
+pub fn member_session(role: &Value, conn: &Value) -> Value {
+    let mut session = role_session(role, conn);
+    let kind = Runtime::of(str_of(conn, "base")).ok();
+    for c in conn["options"]["controls"].as_array().into_iter().flatten() {
+        let id = str_of(c, "id");
+        let default = control_default(c, kind);
+        if session.get(id).is_none() && default != c["current"] {
+            session[id] = default;
+        }
+    }
+    session
+}
+
 /// The model and reasoning effort a role runs with, by display name: the role's choice, or the
 /// agent's default (marked as such) when the role left it open.
 pub fn model_label(role: &Value, conn: &Value) -> String {
@@ -293,5 +329,36 @@ mod session_option_tests {
 
         // Pi: nothing declared.
         assert_eq!(session_options(&json!({ "configOptions": [] }))["controls"], json!([]));
+    }
+
+    #[test]
+    fn an_open_mode_starts_codex_in_full_access_and_claude_code_bypassing_permissions() {
+        let mode = |current: &str, values: &[&str]| {
+            session_options(
+                &json!({ "configOptions": [{ "id": "mode", "name": "Mode", "category": "mode", "type": "select",
+                "currentValue": current, "options": values.iter().map(|v| json!({ "value": v, "name": v })).collect::<Vec<_>>() }] }),
+            )
+        };
+        let codex = json!({ "base": "codex", "options": mode("agent", &["read-only", "agent", "agent-full-access"]) });
+        let claude = json!({ "base": "claude", "options": mode("auto", &["default", "acceptEdits", "auto", "bypassPermissions"]) });
+        assert_eq!(member_session(&json!({}), &codex), json!({ "mode": "agent-full-access" }));
+        assert_eq!(member_session(&json!({}), &claude), json!({ "mode": "bypassPermissions" }));
+        assert_eq!(session_label(&member_session(&json!({}), &codex), &codex), "agent-full-access");
+        // A role's own choice wins, and is what it keeps when saved.
+        let manual = json!({ "session": { "mode": "default" } });
+        assert_eq!(member_session(&manual, &claude), json!({ "mode": "default" }));
+        assert_eq!(role_session(&json!({}), &claude), json!({}), "an open mode stays open on the role");
+        // An agent that does not offer the default, and a custom agent, keep their own current value.
+        let older = json!({ "base": "codex", "options": mode("agent", &["read-only", "agent"]) });
+        assert_eq!(member_session(&json!({}), &older), json!({}));
+        let custom = json!({ "base": "custom", "options": mode("ask", &["ask", "always-approve"]) });
+        assert_eq!(member_session(&json!({}), &custom), json!({}));
+        // The connections the app sees carry the same default, so the role editor selects it.
+        let mut shown = codex.clone();
+        mark_defaults(&mut shown);
+        assert_eq!(shown["options"]["controls"][0]["default"], "agent-full-access");
+        let mut shown = custom.clone();
+        mark_defaults(&mut shown);
+        assert_eq!(shown["options"]["controls"][0]["default"], "ask");
     }
 }

@@ -67,6 +67,8 @@ Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话�
 
 各 Agent 声明的典型权限模式：Codex 的沙箱预设（Read-only / Agent / Full access 等）、Claude Code 的权限模式（Manual / Accept edits / Auto / Bypass 等）。具体选项以 Agent 实际声明为准。
 
+角色没有选择权限模式时，Codex 默认用 Full access（`agent-full-access`），Claude Code 默认用 Bypass permissions（`bypassPermissions`），由 `Runtime::default_mode` 指定；Agent 不提供这个选项、或是自定义命令的 Agent 时，沿用 Agent 自己的当前模式（`control_default`）。默认值不写进角色：创建 Run 时 `member_session` 把它补进成员的 `session`，设置接口返回的连接给每个控制项带上 `default`，角色编辑器按它选中并标注「默认」，选回默认值时去掉角色中的这一项。设计取舍见 [ADR：Codex 和 Claude Code 默认不受限运行](../decisions/20261118-unrestricted_default_mode.md)。
+
 <a id="no_plan_mode"></a>
 ### 不使用 Plan 模式
 
@@ -86,7 +88,7 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 | `name`、`role`、`desc` | 名字、角色名、职责。职责会写进负责人的协作者名单 |
 | `connection` | 绑定的 Agent id |
 | `model`、`effort` | 模型和推理强度；留空表示使用 Agent 默认值 |
-| `session` | 选定的会话控制项值，`{控制项 id: 值}` |
+| `session` | 选定的会话控制项值，`{控制项 id: 值}`；没有选择的控制项用它的默认值，见[会话控制项与权限模式](#permission_modes) |
 | `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在任务说明末尾，见 [ACP 集成](../interfaces/20261031-acp_integration.md#standing_instructions) |
 | `resources` | 选择的资源库资源（Skill 和 MCP 服务器）的 id，见[角色的选择](20261116-resource_library.md#roles) |
 | `lead` | 是否可以担任负责人 |
@@ -176,6 +178,6 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用和�
 <a id="member_snapshot"></a>
 ## 成员快照
 
-`team_for` 把工作区展开成 Run 的成员（`Member`），包括：角色字段、Agent 类型与名称、会话控制项、权限模式标签（`permission`，例如「Agent · Plan 开启」）、模型标签（例如「GPT-6.1 Sol，推理强度 high（Agent 默认）」）、角色指令和 Provider 的自定义提示词、固定下来的资源（`resources`，见 [Run 和会话怎样拿到资源](20261116-resource_library.md#delivery)）。
+`team_for` 把工作区展开成 Run 的成员（`Member`），包括：角色字段、Agent 类型与名称、会话控制项（角色的选择加上没有选择的权限模式的默认值）、权限模式标签（`permission`，例如「Agent · Plan 开启」）、模型标签（例如「GPT-6.1 Sol，推理强度 high（Agent 默认）」）、角色指令和 Provider 的自定义提示词、固定下来的资源（`resources`，见 [Run 和会话怎样拿到资源](20261116-resource_library.md#delivery)）。
 
 这些字段同时用于：打开会话时设置控制项、负责人说明中的协作者名单、应用的「团队与权限」页。

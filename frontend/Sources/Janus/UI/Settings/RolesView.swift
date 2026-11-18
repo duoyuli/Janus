@@ -358,7 +358,7 @@ struct RoleEditor: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             HStack(spacing: 6) {
                                                 Text(o["name"].truthy ? o["name"].str : o["value"].str).fontWeight(.medium)
-                                                if o["value"] == x["current"] { Text(L.text("Agent 默认")).font(.caption2).foregroundStyle(.secondary) }
+                                                if o["value"] == x["default"] { Text(L.text("默认")).font(.caption2).foregroundStyle(.secondary) }
                                             }
                                             if o["desc"].truthy { Text(o["desc"].str).font(.caption).foregroundStyle(.secondary) }
                                         }
@@ -396,7 +396,7 @@ struct RoleEditor: View {
                         Toggle(x["name"].str, isOn: Binding(get: { v.bool ?? false }, set: { setCtrl(x, JSON($0)) })).labelsHidden().toggleStyle(.switch)
                     } else {
                         Picker(x["name"].str, selection: Binding(get: { v.str }, set: { setCtrl(x, JSON($0)) })) {
-                            ForEach(x["options"].array, id: \.self) { o in Text((o["name"].truthy ? o["name"].str : o["value"].str) + (o["value"] == x["current"] ? L.text("（默认）") : "")).tag(o["value"].str) }
+                            ForEach(x["options"].array, id: \.self) { o in Text((o["name"].truthy ? o["name"].str : o["value"].str) + (o["value"] == x["default"] ? L.text("（默认）") : "")).tag(o["value"].str) }
                         }
                         .labelsHidden().frame(width: 220)
                     }
@@ -405,10 +405,10 @@ struct RoleEditor: View {
         }
     }
 
-    /// Choosing the agent's default drops the key, so the role follows the agent if its default changes.
+    /// Choosing the default drops the key, so the role follows the default if it changes.
     private func setCtrl(_ x: JSON, _ v: JSON) {
         var s = r["session"].isNull ? [:] : r["session"]
-        if v == x["current"] { var o = s.object; o[x["id"].str] = nil; s = .object(o) } else { s[x["id"].str] = v }
+        if v == x["default"] { var o = s.object; o[x["id"].str] = nil; s = .object(o) } else { s[x["id"].str] = v }
         r["session"] = s
     }
 

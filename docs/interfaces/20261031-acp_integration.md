@@ -115,7 +115,7 @@ Skill、MCP 和权限模式不属于系统层，它们按各 Agent 自己的机�
 打开会话后，`configure_session` 按以下顺序应用角色的选择：
 
 1. 模型和推理强度：角色指定的值与当前值不同时，调用 `session/set_config_option`。Agent 不提供角色指定的模型时，会话以错误结束，提示重新选择模型；不提供指定的推理强度时，沿用当前值。改变模型后重新读取选项，因为可选的推理强度可能随模型变化。
-2. 会话控制项：对角色 `session` 中的每个值，按控制项的来源调用 `session/set_config_option`（`configId` + `value`）或 `session/set_mode`（`modeId`）。
+2. 会话控制项：对成员 `session` 中的每个值（角色的选择，加上角色没有选择时 Codex 的 Full access 或 Claude Code 的 Bypass permissions，见[会话控制项与权限模式](../domains/20261031-agents_and_roles.md#permission_modes)），按控制项的来源调用 `session/set_config_option`（`configId` + `value`）或 `session/set_mode`（`modeId`）。
 3. Plan 模式：开启着的 Plan 控制项设为关闭值（布尔为 `false`，Codex 的下拉为 `off`）；当前值为 `plan` 的下拉控制项改为第一个其他选项。规则见 [不使用 Plan 模式](../domains/20261031-agents_and_roles.md#no_plan_mode)。
 
 实际生效的设置记录在 `agent.status` 事件的 `data.config` 中。

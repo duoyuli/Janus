@@ -101,7 +101,7 @@ impl App {
             if lead && role["lead"] != true {
                 bail!("数字员工「{}」没有开启「可以担任负责人」，请在工作区里换一个负责人", str_of(&role, "name"));
             }
-            let session = role_session(&role, &conn);
+            let session = member_session(&role, &conn);
             let permission = session_label(&session, &conn);
             let model_label = model_label(&role, &conn);
             // The library items the role uses, pinned as they are now. Values are read when a

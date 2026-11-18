@@ -128,7 +128,6 @@
 "Agent 没有权限模式" = "The Agent has no permission mode";
 "Agent 的原话：%@" = "Agent’s wording: %@";
 "Agent 长时间思考或写较长的内容时不会有更新" = "Long reasoning or writing can leave the Agent without updates";
-"Agent 默认" = "Agent Default";
 "Agent、数字员工和 ACP（⌘,）" = "Agents, digital employees, and ACP (⌘,)";
 "Agent「%@」还没有测试通过或未登录，以下数字员工无法运行：%@。" = "Agent “%@” has not passed its check or is signed out. The affected digital employees are %@.";
 "Claude 的 mcpServers、VS Code 的 servers，或一个带 name 的服务器" = "Claude mcpServers, VS Code servers, or a server with a name field";

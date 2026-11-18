@@ -74,6 +74,18 @@ impl Runtime {
     pub fn leads(self) -> bool {
         matches!(self, Runtime::Claude | Runtime::Codex) || (cfg!(test) && self == Runtime::Custom)
     }
+
+    /// The permission mode a session starts in when its role leaves the mode open: Codex's Full
+    /// access and Claude Code's Bypass permissions, so goals run without stopping for approvals.
+    /// A custom agent keeps its own default.
+    // @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
+    pub fn default_mode(self) -> Option<&'static str> {
+        match self {
+            Runtime::Codex => Some("agent-full-access"),
+            Runtime::Claude => Some("bypassPermissions"),
+            Runtime::Custom => None,
+        }
+    }
 }
 pub(crate) const ROLE: &str = "role";
 

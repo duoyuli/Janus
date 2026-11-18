@@ -46,6 +46,7 @@ impl App {
                 c["loginLog"] = json!(self.redact(&id, &tail(&dir.join("login.log"), 12)));
             }
             c["phase"] = json!(connection_phase(c));
+            mark_defaults(c);
         }
         Ok(out)
     }

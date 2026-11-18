@@ -21,9 +21,11 @@ enum Setup {
     /// Only agents with /goal can lead (same rule as the orchestrator).
     static func leadCapable(_ c: JSON?) -> Bool { ["claude", "codex"].contains(c?["base"].str ?? "") }
 
+    /// The role's value for a control, or the control's `default` (what a session starts with when the role leaves it
+    /// open: Codex's Full access and Claude Code's Bypass permissions for their mode, otherwise the agent's own value).
     static func value(_ session: JSON, _ ctrl: JSON) -> JSON {
         let v = session[ctrl["id"].str]
-        return v.isNull ? ctrl["current"] : v
+        return v.isNull ? ctrl["default"] : v
     }
 
     /// "Agent · Plan 关闭": a role's permission choices in the agent's own words.
