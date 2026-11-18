@@ -439,8 +439,10 @@ impl App {
     }
 
     /// The lead's own session edited these files: record them in `traces` so finished tasks'
-    /// conclusions are marked stale (`负责人 改`), and warn both the lead and any open collaborator
-    /// task whose owned or concurrently edited files were touched.
+    /// conclusions are marked stale (`负责人 改`), and warn both the lead and any running
+    /// collaborator task whose owned or concurrently edited files were touched. A task that has
+    /// not started yet will read the lead's change when it does (the lead settling a shared
+    /// contract before fanning out), so it is not a conflict.
     pub(super) fn record_lead_edits(&self, run: &Run, paths: &[String], seq: i64) {
         let (shared, owned) = {
             let mut guard = run.st.lock().unwrap();
@@ -448,7 +450,7 @@ impl App {
             st.traces.record_lead(paths, seq);
             let mut shared: Vec<(String, Vec<String>)> = vec![];
             let mut owned: Vec<(String, Vec<String>)> = vec![];
-            for t in st.tasks.iter().filter(|t| !t.status.terminal()) {
+            for t in st.tasks.iter().filter(|t| t.status == TaskStatus::Running) {
                 let id = &t.def.id;
                 let owned_files: Vec<String> = paths
                     .iter()
@@ -465,7 +467,7 @@ impl App {
                     .collect();
                 if !owned_files.is_empty() {
                     owned.push((id.clone(), owned_files));
-                } else if t.status == TaskStatus::Running {
+                } else {
                     let theirs = st.traces.files(id);
                     let common: Vec<String> = paths
                         .iter()

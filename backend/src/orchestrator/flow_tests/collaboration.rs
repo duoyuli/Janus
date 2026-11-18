@@ -261,7 +261,7 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
     let h = harness(
         "collab-loop-lead-edits",
         &[("lead", true), ("m1", true), ("m2", true)],
-        json!({ "T1": ["handoff"], "T2": ["loop2"], "T3": ["ask", "ok"], "T4": ["ok"] }),
+        json!({ "T1": ["handoff"], "T2": ["loop2"], "T3": ["ask", "ok"], "T4": ["ok"], "T5": ["ok"] }),
     );
     let run = start(
         &h,
@@ -281,14 +281,17 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
         .unwrap();
     assert_eq!((stalled["reason"].as_str(), stalled["period"].as_u64()), (Some("loop"), Some(2)), "{stalled}");
 
-    // C-06: Start `T3` owning `owned.rs` (waiting on `ask`), then have the Lead edit both `owned.rs`
-    // (active task's file -> `byLead` conflict) and `api.rs` (finished `T1`'s file -> `负责人 改` stale note).
+    // C-06: Start `T3` owning `owned.rs` (waiting on `ask`), then have the Lead edit `owned.rs`
+    // (active task's file -> `byLead` conflict), `api.rs` (finished `T1`'s file -> `负责人 改` stale
+    // note) and `later.rs` (owned by `T5`, which has not started: settling it first is no conflict).
     let (_, err) = tool(
         &h.app,
         &run,
         "lead",
         "orchestrate",
-        json!({ "tasks": [task("T3", "m1", json!({ "owns": ["owned.rs"] }))] }),
+        json!({ "tasks": [
+            task("T3", "m1", json!({ "owns": ["owned.rs"] })),
+            task("T5", "m2", json!({ "owns": ["later.rs"], "deps": ["T3"] }))] }),
     )
     .await;
     assert!(!err);
@@ -298,9 +301,13 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
     let seq = h.app.emit(
         &r,
         ev("tool.call", "lead", "Edit owned.rs & api.rs")
-            .data(json!({ "tool": "edit", "status": "completed", "paths": ["owned.rs", "api.rs"] })),
+            .data(json!({ "tool": "edit", "status": "completed", "paths": ["owned.rs", "api.rs", "later.rs"] })),
     );
-    h.app.record_lead_edits(&r, &["owned.rs".into(), "api.rs".into()], seq);
+    h.app.record_lead_edits(&r, &["owned.rs".into(), "api.rs".into(), "later.rs".into()], seq);
+    assert!(
+        !events(&h.app, &run).iter().any(|e| e.kind == "task.conflict" && e.task.as_deref() == Some("T5")),
+        "a task that has not started is not in conflict with the lead's edit"
+    );
 
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("连续 4 轮重复调用序列"), "{board}");
@@ -311,7 +318,10 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
 
     let (_, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T3", "text": "alpha" })).await;
     assert!(!err);
-    wait_until(&h.app, &run, "T3 done", |e| task_event(e, "task.succeeded", "T3")).await;
+    wait_until(&h.app, &run, "T3 and T5 done", |e| {
+        task_event(e, "task.succeeded", "T3") && task_event(e, "task.succeeded", "T5")
+    })
+    .await;
 
     let (_, err) =
         tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("T4", "m2", json!({ "deps": ["T1"] }))] }))
