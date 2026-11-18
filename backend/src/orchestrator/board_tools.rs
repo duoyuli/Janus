@@ -443,8 +443,24 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             }
             if let (Some(target), Some(Verdict::Rejected | Verdict::Inconclusive)) = (&verifies, verdict) {
                 msg.push_str(&format!(
-                    "\n  请处理：不能用 janus.accept 放行；用 janus.orchestrate 派修复子任务（交给 {target} 原执行者时可设 continues=\"{target}\" 复用会话，依赖 {task}）和新的验证子任务，或用 janus.cancel 取消并写明理由。"
+                    "\n  请处理：不能用 janus.accept 放行；用 janus.orchestrate 派修复子任务（交给 {target} 原执行者时可设 continues=\"{target}\" 复用会话，依赖 {task}）和新的验证子任务。"
                 ));
+                let downstream: Vec<_> = st
+                    .tasks
+                    .iter()
+                    .filter(|d| {
+                        matches!(d.status, TaskStatus::Pending | TaskStatus::Blocked)
+                            && d.def.deps.iter().any(|dep| dep == task)
+                            && d.planned_seq < e.seq
+                    })
+                    .map(|d| d.def.id.as_str())
+                    .collect();
+                if !downstream.is_empty() {
+                    msg.push_str(&format!(
+                        " 已有下游任务 {} 受此判定阻塞；可用 janus.cancel 取消其中不再需要的任务并写明理由。",
+                        downstream.join("、")
+                    ));
+                }
             }
             if !gaps.is_empty() {
                 msg.push_str(&format!("\n  痕迹核对（结果和工作目录对不上）：{}。以工作目录的现状为准核对；需要返工用 janus.retry，结论要更正用 janus.amend。", gaps.join("；")));

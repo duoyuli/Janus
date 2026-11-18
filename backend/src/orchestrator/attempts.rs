@@ -176,8 +176,23 @@ impl App {
                             format!("\n  {}", crate::traces::stale_note(&stale))
                         }
                     );
+                    let verdict = u.verdict();
+                    let review = verdict
+                        .map(|v| {
+                            let mut note = format!("\n  独立验证判定：{}（{}）", v.label(), v.as_str());
+                            for c in r.checks.iter().filter(|c| !c.passed) {
+                                note.push_str(&format!(
+                                    "\n  未通过：[{}] {}：{}",
+                                    c.method_label(),
+                                    short(&c.criterion, INLINE_ITEM),
+                                    short(&c.evidence, INLINE_SUMMARY)
+                                ));
+                            }
+                            note
+                        })
+                        .unwrap_or_default();
                     let line = format!(
-                        "- {} {}（{}，状态 {}）：{}{handoff_note}{risk_note}{amended}{traces}\n  产物：{}",
+                        "- {} {}（{}，状态 {}）：{}{review}{handoff_note}{risk_note}{amended}{traces}\n  产物：{}",
                         u.def.id,
                         u.def.title,
                         u.agent,
@@ -185,12 +200,16 @@ impl App {
                         short(&r.summary, INLINE_SUMMARY),
                         if files.is_empty() { "无".into() } else { files.join("，") }
                     );
-                    let handoff = json!({
+                    let mut handoff = json!({
                         "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary,
                         "handoff": r.handoff, "artifacts": names, "risks": r.risks.len(), "riskItems": r.risks,
                         "amendments": u.amendments, "files": edited,
                         "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>()
                     });
+                    if let Some(v) = verdict {
+                        handoff["verdict"] = json!(v.as_str());
+                        handoff["checks"] = json!(r.checks);
+                    }
                     (line, handoff)
                 })
                 .unzip();

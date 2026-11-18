@@ -180,18 +180,18 @@ impl App {
                 obj
             })
             .collect();
-        let n = {
+        let (n, planned) = {
             let mut st = run.st.lock().unwrap();
             let planned = run.seq.load(Ordering::SeqCst);
             for d in &defs {
                 st.tasks.push(Task::new(d.clone(), d.assignee.clone(), planned));
             }
-            st.tasks.len()
+            (st.tasks.len(), planned)
         };
         self.emit(
             run,
             ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个子任务写入看板，开始执行", defs.len()))
-                .data(json!({ "tasks": tasks, "total": n })),
+                .data(json!({ "tasks": tasks, "total": n, "plannedSeq": planned })),
         );
         // After delivery the scheduler has returned; new work written in a conversation starts it again.
         self.ensure_driver(run);
@@ -631,6 +631,17 @@ impl App {
         }
         run.wake.notify_one();
         if dropped.is_empty() {
+            let st = run.st.lock().unwrap();
+            if let Some(t) = st.tasks.iter().find(|t| {
+                wanted.contains(&t.def.id)
+                    && t.status == TaskStatus::Succeeded
+                    && matches!(t.verdict(), Some(Verdict::Rejected | Verdict::Inconclusive))
+            }) {
+                return Err(format!(
+                    "{} 的独立验证已完成，原判定保留。请派修复和新的验证子任务，或取消不再需要的受阻下游任务。",
+                    t.def.id
+                ));
+            }
             return Ok("这些子任务都已经结束，没有需要取消的。".into());
         }
         Ok(format!("已取消：{}。", dropped.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")))

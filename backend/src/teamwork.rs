@@ -6,7 +6,7 @@
 //! `record_edits` stays as the backstop for what was not declared. A verification task
 //! (`verifies`) is done by another member, starts after the task it checks, changes no files,
 //! and its failure cannot be waved through with `accept`: the lead orchestrates a fix and a new
-//! verification, or cancels the verification on the record. None of this adds task states or
+//! verification, or cancels obsolete downstream work on the record. None of this adds task states or
 //! event types; it is the orchestration's own data, checked when it is submitted.
 // @project-doc docs/domains/20261031-goal_mode.md#team_structure
 
@@ -253,7 +253,7 @@ pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>) -> St
 }
 
 /// Why `accept` is refused for a task, if it verifies another one: a failed verification is
-/// settled by fixing and verifying again, or by cancelling the verification on the record.
+/// settled by fixing and verifying again, or by cancelling obsolete downstream work on the record.
 pub fn accept_refused(def: &TaskDef) -> Option<String> {
     let target = def.verifies.as_deref()?;
     Some(format!(
@@ -270,7 +270,7 @@ pub fn lead_guide() -> &'static str {
 - State what each subtask owns, what it must leave untouched, and what counts as done. Use owns for files or directories relative to the working directory. A directory covers all files below it. Janus rejects overlaps between subtasks that could run at the same time.
 - Collaborators can call janus.claim before editing files outside owns. The board reports claims and out-of-scope edits to files another active subtask owns. If a subtask needs splitting, the collaborator can propose a split with janus.request_split, and you decide whether to revise the plan.
 - On completion, Janus checks each result against the subtask's edits. The completion entry flags missing changes to owned files, changes outside the assigned scope, and edits made by a verifier. Inspect the current working directory before relying on a summary.
-- Arrange independent verification for important changes. Assign another collaborator a subtask with verifies set to the id being verified. Prefer a different model when the team has multiple models or Agents. The verification subtask starts after the target finishes. The verifier inspects the result without changing files and returns an approved, rejected, or inconclusive verdict. You cannot bypass an unsuccessful verification with janus.accept. Assign a fix and a new verification, or cancel the verification with janus.cancel and state why. When assigning the fix to the original collaborator, continues can reuse its session and avoid rereading the code. If a second collaborator is unavailable, verify the result yourself."
+- Arrange independent verification for important changes. Assign another collaborator a subtask with verifies set to the id being verified. Prefer a different model when the team has multiple models or Agents. The verification subtask starts after the target finishes. The verifier inspects the result without changing files and returns an approved, rejected, or inconclusive verdict. You cannot bypass an unsuccessful verification with janus.accept. Assign a fix and a new verification, or cancel the downstream tasks that no longer need to run and state why. A completed verification retains its verdict. When assigning the fix to the original collaborator, continues can reuse its session and avoid rereading the code. If a second collaborator is unavailable, verify the result yourself."
 }
 
 #[cfg(test)]

@@ -98,7 +98,8 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
         json!([
             task("T1", "m1", json!({ "owns": ["api.rs"], "accept": ["parse 接口完整"] })),
             task("TD", "m1", json!({ "deps": ["T1"], "accept": ["调用端对接完成"] })),
-            task("V1", "m2", json!({ "verifies": "T1", "accept": ["独立核验 parse 边界"] }))
+            task("V1", "m2", json!({ "verifies": "T1", "accept": ["独立核验 parse 边界"] })),
+            task("SHIP", "m1", json!({ "deps": ["V1"] }))
         ]),
     )
     .await;
@@ -131,6 +132,19 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     assert!(td_prompt.contains("交接说明：接口签名：parse(input: &str)"), "{td_prompt}");
     assert!(td_prompt.contains("上游风险：空字符串边界尚未压测"), "{td_prompt}");
 
+    let v1_done = evs.iter().find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("V1")).unwrap();
+    let live = h.app.run(&run).unwrap();
+    let guidance = board_entry(&live, v1_done).unwrap();
+    assert!(guidance.contains("下游任务 SHIP") && guidance.contains("janus.cancel"), "{guidance}");
+    let (note, invalid) = tool(&h.app, &run, "lead", "cancel", json!({"tasks":["V1"],"reason":"过时"})).await;
+    assert!(invalid && note.contains("原判定保留"), "{note}");
+    let planned = evs.iter().find(|e| e.kind == "orchestration.accepted").unwrap().data.as_ref().unwrap()["plannedSeq"]
+        .as_i64()
+        .unwrap();
+    assert_eq!(live.st.lock().unwrap().tasks.iter().find(|t| t.def.id == "SHIP").unwrap().planned_seq, planned);
+    let (cancelled, err) = tool(&h.app, &run, "lead", "cancel", json!({"tasks":["SHIP"],"reason":"先修复"})).await;
+    assert!(!err && cancelled.contains("已取消：SHIP"), "{cancelled}");
+    assert!(task_event(&events(&h.app, &run), "task.skipped_by_decision", "SHIP"));
     // C-07: Verifier `V1` gets scoped diff artifact, edited files, weak-evidence reminders and risks.
     let v1_prompt = prompt_of("V1");
     assert!(v1_prompt.contains("专属 diff 产物：") && v1_prompt.contains("T1-a1.diff"), "{v1_prompt}");
@@ -192,6 +206,21 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
         "{}",
         t2_started["prompt"]
     );
+    let handoff = evs
+        .iter()
+        .find(|e| {
+            e.kind == "context.handoff"
+                && e.task.as_deref() == Some("T2")
+                && e.data.as_ref().is_some_and(|d| d["from"] == "V1")
+        })
+        .unwrap()
+        .data
+        .as_ref()
+        .unwrap();
+    assert_eq!(handoff["verdict"], "rejected");
+    assert_eq!(handoff["checks"][0]["passed"], false);
+    let prompt = t2_started["prompt"].as_str().unwrap();
+    assert!(prompt.contains("rejected") && prompt.contains(handoff["checks"][0]["evidence"].as_str().unwrap()));
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     assert!(calls.contains(&format!("load {t1_sid}")), "{calls}");
 
@@ -201,6 +230,62 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     let t2_acc = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T2").unwrap();
     assert_eq!(t2_acc["verifications"][0]["verdict"], "approved");
     assert_eq!(t2_acc["verifications"][0]["passed"], true);
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Recover both event orders. A task planned before a rejection stays held even when its
+/// accepted event follows the rejection. A repair actually planned later must still run.
+#[tokio::test(flavor = "multi_thread")]
+async fn recovery_uses_the_recorded_plan_boundary_and_preserves_legacy_holds() {
+    let h = harness("recover-plan-order", &[("lead", false), ("m1", true), ("m2", false)], json!({}));
+    let original = start(&h, json!([task("SEED", "m1", json!({}))])).await;
+    finish_lead(&h);
+    wait_until(&h.app, &original, "seed delivered", |e| has(e, "run.delivered")).await;
+    let row = h.app.db.run(&original).unwrap().unwrap();
+    let id = "replay-order";
+    let mut config = row["config"].clone();
+    config["costLimitUsd"] = json!(4.0);
+    h.app.db.insert_run(id, "恢复交错序列", row["cwd"].as_str().unwrap(), &config, now_ms()).unwrap();
+    let def = |id, agent, deps: &[&str]| json!({"id":id,"title":id,"agent":agent,"deps":deps,"accept":["完成"]});
+    let mut verifier = def("V1", "m2", &["T1"]);
+    verifier["verifies"] = json!("T1");
+    let facts = [
+        ("orchestration.accepted", None, json!({"tasks":[def("T1","m1",&[]),verifier],"plannedSeq":0})),
+        ("task.succeeded", Some("T1"), json!({"summary":"初版"})),
+        ("task.succeeded", Some("V1"), json!({"summary":"独立核验","verdict":"rejected"})),
+        ("orchestration.accepted", None, json!({"tasks":[def("BEFORE","m1",&["V1"])],"plannedSeq":2})),
+        ("orchestration.accepted", None, json!({"tasks":[def("LEGACY","m1",&["V1"])]})),
+        ("task.blocked", Some("LEGACY"), json!({"dependency":"V1","verdict":"rejected"})),
+        ("orchestration.accepted", None, json!({"tasks":[def("FIX","m1",&["V1"])],"plannedSeq":6})),
+        ("session.usage", Some("T1"), json!({"session":"warm","cost":{"amount":2,"currency":"USD"}})),
+        ("session.usage", Some("FIX"), json!({"session":"warm","cost":{"amount":3,"currency":"USD"}})),
+    ];
+    for (i, (kind, task, data)) in facts.into_iter().enumerate() {
+        h.app
+            .db
+            .insert_event(&crate::usage::event_from_json(
+                id,
+                &json!({"seq":i+1,"ts":now_ms(),"type":kind,"task":task,"actor":"m1","data":data}),
+            ))
+            .unwrap();
+    }
+    h.app.recover().unwrap();
+    let live = h.app.resume_run(id).await.unwrap();
+    wait_until(&h.app, id, "repair completed", |e| task_event(e, "task.succeeded", "FIX")).await;
+    {
+        let st = live.st.lock().unwrap();
+        for id in ["BEFORE", "LEGACY"] {
+            assert_eq!(st.tasks.iter().find(|t| t.def.id == id).unwrap().status, TaskStatus::Blocked);
+        }
+    }
+    assert_eq!(live.costs.lock().unwrap().usd, Some(3.0));
+    let log = events(&h.app, id);
+    assert!(
+        !has(&log, "run.budget_exhausted")
+            && !task_event(&log, "attempt.started", "BEFORE")
+            && !task_event(&log, "attempt.started", "LEGACY")
+    );
+    wait_until(&h.app, id, "recovered delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

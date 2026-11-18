@@ -406,15 +406,18 @@ impl App {
         }
         // The board's tasks are every orchestration the lead got accepted.
         // Each with the last event before its orchestration: what the lead knew when it planned it.
-        let board: Vec<(i64, Value)> = events
+        let board: Vec<_> = events
             .iter()
             .filter(|e| e.kind == "orchestration.accepted")
-            .filter_map(|e| e.data.as_ref().and_then(|d| d["tasks"].as_array()).map(|t| (e.seq - 1, t.clone())))
-            .flat_map(|(planned, tasks)| tasks.into_iter().map(move |t| (planned, t)))
+            .filter_map(|e| {
+                let d = e.data.as_ref()?;
+                Some((e.seq, d["plannedSeq"].as_i64(), d["tasks"].as_array()?))
+            })
+            .flat_map(|(seq, planned, tasks)| tasks.iter().map(move |t| (seq, planned, t)))
             .collect();
         let (mut done, mut open) = (0, 0);
         let mut tasks = vec![];
-        for (planned, item) in board {
+        for (accepted_seq, planned, item) in board {
             let mut def: TaskDef = serde_json::from_value(item.clone())?;
             def.assignee = item["agent"].as_str().unwrap_or("").to_string();
             let id = def.id.clone();
@@ -512,13 +515,8 @@ impl App {
                 _ => TaskStatus::Pending,
             };
             // What a blocked task waits on: its failed dependency.
-            let blocked_by = events
-                .iter()
-                .rev()
-                .find(|e| e.task.as_deref() == Some(id.as_str()) && e.kind == "task.blocked")
-                .and_then(|e| e.data.as_ref())
-                .and_then(|d| d["dependency"].as_str())
-                .map(str::to_owned);
+            let blocked = events.iter().rfind(|e| e.task.as_deref() == Some(id.as_str()) && e.kind == "task.blocked");
+            let blocked_by = blocked.and_then(|e| e.data.as_ref()?["dependency"].as_str()).map(str::to_owned);
             if status == TaskStatus::Succeeded {
                 done += 1;
             } else {
@@ -530,6 +528,19 @@ impl App {
                     run.st.lock().unwrap().resume_session.insert(id.clone(), sid);
                 }
             }
+            // A recorded negative gate is evidence of ordering even in logs written before plannedSeq.
+            let planned = planned.unwrap_or_else(|| {
+                let mut before = accepted_seq - 1;
+                if let (TaskStatus::Blocked, Some(block), Some(dep)) = (status, blocked, blocked_by.as_deref())
+                    && block.data.as_ref().is_some_and(|d| d["verdict"].is_string())
+                    && let Some(result) = events
+                        .iter()
+                        .rfind(|e| e.seq < block.seq && e.kind == "task.succeeded" && e.task.as_deref() == Some(dep))
+                {
+                    before = before.min(result.seq - 1);
+                }
+                before
+            });
             let mut task = Task::new(def, agent, planned);
             // Rebuilding the board, not a transition: the event log already decided this state.
             task.status = status;

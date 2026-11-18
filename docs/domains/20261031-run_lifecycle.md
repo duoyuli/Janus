@@ -234,7 +234,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 重新申请租约，从 `runs.config` 重建团队，从事件日志重建任务：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）和 Run 的 Token / 费用预算上限（含追加预算事件）。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（带 `continueSession` 的重试保留该标记）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
+- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。从快照和追加预算事件恢复美元费用上限。旧版 Token 预算只作为用量参考值显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（带 `continueSession` 的重试保留该标记）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
 - 排队但还没送达的消息保留下来。
 - 负责人以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。
 

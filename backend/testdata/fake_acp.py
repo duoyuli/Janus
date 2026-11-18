@@ -285,7 +285,7 @@ def prompt(msg):
     if outcome == "reject":
         checks = [{"criterion": c, "passed": False, "method": "test", "evidence": "运行 cargo test 复现空输入崩溃"}
                   for c in CRITERIA.get(sid, [])]
-        body = {"summary": f"{task} 发现阻断缺陷", "verdict": "rejected", "checks": checks,
+        body = {"summary": f"{task} 完成独立检查", "verdict": "rejected", "checks": checks,
                 "evidence": ["cargo test parse_empty panic"], "risks": ["空输入直接崩溃"], "question": None}
         say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
         return {"stopReason": "end_turn", "usage": tokens(800)}
