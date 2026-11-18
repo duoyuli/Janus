@@ -5,7 +5,8 @@
 //! has now.
 // @project-doc docs/domains/20261116-resource_library.md#sources
 
-use super::{Body, Item, ItemKind, Origin, mcp, mcp_revision, skill, store};
+use super::offers::{self, Offer, ScanMode};
+use super::{Body, Item, ItemKind, Origin, imported_offer, mcp, mcp_revision, skill, store};
 use crate::orchestrator::{App, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -14,9 +15,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const SOURCE: &str = "library_source";
-/// How deep a skill folder or manifest may sit in a repository, and how much one may offer.
-const MAX_DEPTH: usize = 8;
-const MAX_OFFERS: usize = 500;
 const CLONE_TIMEOUT: Duration = Duration::from_secs(180);
 /// How often the server asks each source's remote whether it moved on.
 pub const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -50,16 +48,6 @@ pub struct Source {
     /// Manifest entries that could not be read.
     #[serde(default)]
     pub warnings: Vec<String>,
-}
-
-/// Something a source can give the library: a skill folder, or a server `<manifest>#<name>`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Offer {
-    pub kind: ItemKind,
-    pub path: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
 }
 
 /// A folder of a GitHub repository, as a link names it.
@@ -183,89 +171,6 @@ async fn fetch(dir: &Path, clone_url: &str, git_ref: &str) -> Result<String> {
     Ok(commit)
 }
 
-/// Whether `start` really lies inside `repo`: a symbolic link among the link's folders could
-/// otherwise lead the scan out of the clone.
-fn inside(repo: &Path, start: &Path) -> bool {
-    match (repo.canonicalize(), start.canonicalize()) {
-        (Ok(r), Ok(s)) => s.starts_with(r),
-        _ => false,
-    }
-}
-
-/// Folders under `start` holding a regular `SKILL.md`, and the `mcp.json` / `.mcp.json` files,
-/// relative to `repo`. Symbolic links are never followed, `.git` and `node_modules` are skipped,
-/// and a skill's own subfolders are not searched (they hold its material).
-fn scan(repo: &Path, start: &Path) -> (Vec<String>, Vec<String>) {
-    fn walk(repo: &Path, dir: &Path, depth: usize, skills: &mut Vec<String>, manifests: &mut Vec<String>) {
-        if depth > MAX_DEPTH || skills.len() + manifests.len() >= MAX_OFFERS {
-            return;
-        }
-        let rel = |p: &Path| p.strip_prefix(repo).unwrap_or(Path::new("")).to_string_lossy().into_owned();
-        if std::fs::symlink_metadata(dir.join("SKILL.md")).is_ok_and(|m| m.is_file()) {
-            skills.push(rel(dir));
-            return;
-        }
-        for name in ["mcp.json", ".mcp.json"] {
-            if std::fs::symlink_metadata(dir.join(name)).is_ok_and(|m| m.is_file()) {
-                manifests.push(rel(&dir.join(name)));
-            }
-        }
-        let mut subs: Vec<PathBuf> = std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-            .filter(|e| !matches!(e.file_name().to_str(), Some(".git" | "node_modules")))
-            .map(|e| e.path())
-            .collect();
-        subs.sort();
-        for s in subs {
-            walk(repo, &s, depth + 1, skills, manifests);
-        }
-    }
-    let (mut skills, mut manifests) = (vec![], vec![]);
-    if std::fs::symlink_metadata(start).is_ok_and(|m| m.is_dir()) && inside(repo, start) {
-        walk(repo, start, 0, &mut skills, &mut manifests);
-    }
-    (skills, manifests)
-}
-
-/// What a checkout offers, with warnings for manifest entries that can't be used.
-fn offers(repo: &Path, path: &str) -> (Vec<Offer>, Vec<String>) {
-    let (skills, manifests) = scan(repo, &repo.join(path));
-    let mut out = vec![];
-    let mut warnings = vec![];
-    for rel in skills {
-        let dir = repo.join(&rel);
-        let folder = if rel.is_empty() { repo.file_name() } else { dir.file_name() };
-        let meta = skill::parse_meta(
-            &std::fs::read_to_string(dir.join("SKILL.md")).unwrap_or_default(),
-            &folder.map(|f| f.to_string_lossy().to_string()).unwrap_or_default(),
-        );
-        out.push(Offer {
-            kind: ItemKind::Skill,
-            path: rel,
-            name: meta.name,
-            description: skill::short(&meta.description),
-        });
-    }
-    for rel in manifests {
-        match std::fs::read_to_string(repo.join(&rel)).context("读取失败").and_then(|t| mcp::parse_config(&t)) {
-            Ok((found, warns)) => {
-                warnings.extend(warns.into_iter().map(|w| format!("{rel}：{w}")));
-                out.extend(found.into_iter().map(|f| Offer {
-                    kind: ItemKind::Mcp,
-                    path: format!("{rel}#{}", f.name),
-                    name: f.name,
-                    description: f.description,
-                }));
-            }
-            Err(e) => warnings.push(format!("{rel}：{e:#}")),
-        }
-    }
-    (out, warnings)
-}
-
 /// The server a manifest entry `<manifest>#<name>` describes in a checkout.
 fn server_at(repo: &Path, path: &str) -> Result<mcp::Found> {
     let (manifest, name) = path.rsplit_once('#').context("服务器路径无效")?;
@@ -304,9 +209,7 @@ impl App {
             .items()?
             .into_iter()
             .filter_map(|i| match &i.origin {
-                Origin::Git { source, path } if source == &s.id => {
-                    Some(json!({ "path": path, "item": i.id, "name": i.name }))
-                }
+                Origin::Git { source, path } if source == &s.id => Some(imported_offer(path, &i)),
                 _ => None,
             })
             .collect();
@@ -331,7 +234,8 @@ impl App {
         let dir = self.source_dir(&id)?;
         let added = async {
             let commit = fetch(&dir, clone_url, &at.git_ref).await?;
-            let (offers, warnings) = offers(&dir.join("repo"), &at.path);
+            let repo = dir.join("repo");
+            let (offers, warnings) = offers::discover(&repo, &repo.join(&at.path), ScanMode::SkillsAndMcp);
             if offers.is_empty() {
                 bail!("{} 中没有找到 Skill（SKILL.md）或 MCP 服务器（mcp.json）", at.url());
             }
@@ -371,14 +275,7 @@ impl App {
             let offer = s.offers.iter().find(|o| &o.path == path).ok_or_else(|| anyhow!("来源中没有 {path}"))?;
             let origin = Origin::Git { source: id.to_string(), path: path.clone() };
             let item = match offer.kind {
-                ItemKind::Skill => {
-                    let dir = repo.join(path);
-                    let revision = store::put(&self.store_dir(), &dir)?;
-                    let meta = skill::read_meta(&dir)?;
-                    let name =
-                        self.free_name(ItemKind::Skill, &skill::skill_name(&meta.name).unwrap_or("skill".into()))?;
-                    self.new_item(name, skill::short(&meta.description), origin, revision, Body::Skill)
-                }
+                ItemKind::Skill => self.import_skill_at(&repo.join(path), origin)?,
                 ItemKind::Mcp => {
                     let f = server_at(&repo, path)?;
                     let name = self.free_name(ItemKind::Mcp, &f.name)?;
@@ -390,10 +287,10 @@ impl App {
                         Body::Mcp { server: f.server.clone() },
                     );
                     self.write_values(&item.id, &f.values.kept_for(&f.server))?;
+                    self.put_item(&item)?;
                     item
                 }
             };
-            self.put_item(&item)?;
             added.push(item);
         }
         Ok(added)
@@ -408,7 +305,7 @@ impl App {
         let dir = self.source_dir(id)?;
         let commit = fetch(&dir, &s.clone_url, &s.git_ref).await?;
         let repo = dir.join("repo");
-        (s.offers, s.warnings) = offers(&repo, &s.path);
+        (s.offers, s.warnings) = offers::discover(&repo, &repo.join(&s.path), ScanMode::SkillsAndMcp);
         let now = now_ms();
         (s.commit, s.latest, s.fetched_at, s.checked_at, s.check_error) =
             (commit.clone(), commit, now, now, String::new());

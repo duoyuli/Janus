@@ -9,6 +9,7 @@
 
 mod deliver;
 mod mcp;
+mod offers;
 mod skill;
 mod sources;
 mod store;
@@ -24,7 +25,7 @@ use crate::orchestrator::{App, expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 const ITEM: &str = "library_item";
@@ -94,6 +95,18 @@ impl Item {
             Body::Mcp { .. } => ItemKind::Mcp,
         }
     }
+}
+
+fn imported_offer(path: &str, item: &Item) -> Value {
+    json!({ "path": path, "item": item.id, "name": item.name })
+}
+
+fn resolve_skill_folder(path: &str) -> Result<PathBuf> {
+    let dir = PathBuf::from(expand_home(path)).canonicalize().context("文件夹不存在")?;
+    if !dir.is_dir() {
+        bail!("请选择文件夹");
+    }
+    Ok(dir)
 }
 
 /// The board MCP's name is reserved, in any case and with any punctuation around it.
@@ -217,12 +230,84 @@ impl App {
     /// Copy a skill folder the person picked into the library.
     pub async fn import_skill_folder(&self, path: &str) -> Result<Item> {
         let _guard = self.library.lock.lock().await;
-        let src = PathBuf::from(expand_home(path.trim())).canonicalize().context("文件夹不存在")?;
-        let revision = store::put(&self.store_dir(), &src)?;
-        let meta = skill::read_meta(&src)?;
+        self.import_local_skill(&resolve_skill_folder(path.trim())?)
+    }
+
+    /// Preview the skills in a selected local folder without copying them.
+    pub fn scan_skill_folder(&self, path: &str) -> Result<Value> {
+        let root = resolve_skill_folder(path)?;
+        let (offers, warnings) = offers::discover(&root, &root, offers::ScanMode::Skills);
+        if offers.is_empty() {
+            bail!("所选文件夹中没有找到 Skill（SKILL.md）");
+        }
+        let imports = self.folder_imports()?;
+        let imported: Vec<Value> = offers
+            .iter()
+            .filter_map(|offer| imports.get(&root.join(&offer.path)).map(|item| imported_offer(&offer.path, item)))
+            .collect();
+        Ok(json!({ "path": root, "offers": offers, "imported": imported, "warnings": warnings }))
+    }
+
+    /// Copy the selected skills. A failed copy is reported separately so it can be retried.
+    pub async fn import_skill_selection(&self, path: &str, paths: &[String]) -> Result<Value> {
+        let _guard = self.library.lock.lock().await;
+        let root = resolve_skill_folder(path)?;
+        if paths.is_empty() {
+            bail!("请至少选择一个 Skill");
+        }
+        let available: HashSet<_> = offers::skill_paths(&root).into_iter().collect();
+        if let Some(path) = paths.iter().find(|path| !available.contains(*path)) {
+            bail!("所选文件夹中没有 Skill 路径「{path}」。请重新选择文件夹");
+        }
+        let imports = self.folder_imports()?;
+        let mut seen = HashSet::new();
+        let (mut imported, mut warnings) = (Vec::new(), Vec::new());
+        for path in paths.iter().filter(|p| seen.insert(p.as_str())) {
+            let dir = root.join(path);
+            if let Some(item) = imports.get(&dir) {
+                imported.push(imported_offer(path, item));
+                continue;
+            }
+            let copied = (|| {
+                let src = dir.canonicalize().context("Skill 文件夹不存在")?;
+                if src != dir {
+                    bail!("Skill 文件夹的位置已变化");
+                }
+                self.import_local_skill(&src)
+            })();
+            match copied {
+                Ok(item) => imported.push(imported_offer(path, &item)),
+                Err(err) => warnings.push(format!("{}：{err:#}", dir.display())),
+            }
+        }
+        if !warnings.is_empty() {
+            self.sweep_store()?;
+        }
+        Ok(json!({ "imported": imported, "warnings": warnings }))
+    }
+
+    fn folder_imports(&self) -> Result<HashMap<PathBuf, Item>> {
+        let mut imports = HashMap::new();
+        for item in self.items()? {
+            if let Origin::Folder { path } = &item.origin {
+                imports.entry(PathBuf::from(path)).or_insert(item);
+            }
+        }
+        Ok(imports)
+    }
+
+    fn import_local_skill(&self, dir: &Path) -> Result<Item> {
+        self.import_skill_at(dir, Origin::Folder { path: dir.to_string_lossy().into_owned() })
+    }
+
+    fn import_skill_at(&self, dir: &Path, origin: Origin) -> Result<Item> {
+        let store = self.store_dir();
+        let revision = store::put(&store, dir)?;
+        let text = std::fs::read_to_string(store.join(&revision).join("SKILL.md")).context("读取 SKILL.md 失败")?;
+        let folder = dir.file_name().unwrap_or_default().to_string_lossy();
+        let meta = skill::parse_meta(&text, &folder);
         let base = skill::skill_name(&meta.name).unwrap_or_else(|| "skill".into());
         let name = self.free_name(ItemKind::Skill, &base)?;
-        let origin = Origin::Folder { path: src.to_string_lossy().to_string() };
         let item = self.new_item(name, skill::short(&meta.description), origin, revision, Body::Skill);
         self.put_item(&item)?;
         Ok(item)

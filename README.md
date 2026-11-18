@@ -35,7 +35,7 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 | --- | --- |
 | Agent (provider connection) | A launchable coding agent, such as Codex or Claude Code. Each agent has its own configuration directory and credentials. |
 | Digital employee | Binds an agent and defines its name, responsibilities, model, reasoning effort, permission mode, and the skills and MCP servers it uses from the library. |
-| Resource library | Skills and MCP servers kept once and picked per digital employee. Write a skill in the app, copy a local folder, paste an MCP config, or import from a GitHub repository. Each session gets its digital employee's resources when it starts (as a plugin for Claude Code, an extra skills root for Codex, and MCP servers for both); no agent config file is written. |
+| Resource library | Skills and MCP servers kept once and picked per digital employee. Write a skill in the app, select multiple skills to copy from a local folder, paste an MCP config, or import from a GitHub repository. Each session gets its digital employee's resources when it starts (as a plugin for Claude Code, an extra skills root for Codex, and MCP servers for both); no agent config file is written. |
 | Workspace | A local directory plus a set of digital employees, one of whom is the lead. |
 | Task | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
 | Lead agent | The agent that drives the goal with `/goal`. It can be Claude Code or Codex, and decides whether to work directly or delegate through orchestration. |

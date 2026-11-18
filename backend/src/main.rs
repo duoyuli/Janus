@@ -231,8 +231,20 @@ async fn edit_skill(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, J
     reply(app.edit_skill(&id, &body).await)
 }
 
+// @project-doc docs/interfaces/20261031-http_api.md#folder_skills
+async fn scan_skill_folder(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.scan_skill_folder(body["path"].as_str().unwrap_or("")))
+}
+
 async fn import_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
-    reply(app.import_skill_folder(body["path"].as_str().unwrap_or("")).await)
+    let path = body["path"].as_str().unwrap_or("");
+    if let Some(paths) = body.get("paths") {
+        let paths =
+            Vec::<String>::deserialize(paths).map_err(|_| bad(anyhow::anyhow!("Skill 路径必须是字符串列表")))?;
+        reply(app.import_skill_selection(path, &paths).await)
+    } else {
+        reply(app.import_skill_folder(path).await)
+    }
 }
 
 async fn create_mcp(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
@@ -580,6 +592,7 @@ async fn main() -> Result<()> {
         .route("/api/library/items/{id}", get(library_item).delete(delete_library_item))
         .route("/api/library/items/{id}/refresh", post(refresh_library_item))
         .route("/api/library/skills", post(create_skill))
+        .route("/api/library/skills/scan", post(scan_skill_folder))
         .route("/api/library/skills/import", post(import_skill))
         .route("/api/library/skills/{id}", axum::routing::put(edit_skill))
         .route("/api/library/mcp", post(create_mcp))

@@ -71,6 +71,85 @@ async fn folder_skills_are_copied_and_refreshed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[tokio::test]
+async fn folder_selection_imports_only_picked_skills() {
+    let (app, dir) = app("folder-selection");
+    let root = dir.join("local skills");
+    let alpha = root.join("alpha");
+    let beta = root.join(".agents/skills/beta");
+    let outside = dir.join("outside");
+    skill_folder(&alpha, "alpha", "v1");
+    skill_folder(&alpha.join("examples/inner"), "inner", "part of alpha");
+    skill_folder(&beta, "beta", "v1");
+    skill_folder(&root.join("unselected"), "unselected", "v1");
+    skill_folder(&root.join("node_modules/ignored"), "ignored", "v1");
+    skill_folder(&root.join(".git/ignored"), "ignored", "v1");
+    skill_folder(&outside, "outside", "v1");
+    std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+    std::fs::write(root.join("mcp.json"), r#"{"mcpServers":{"search":{"command":"search-mcp"}}}"#).unwrap();
+    let root = root.canonicalize().unwrap();
+    let path = root.to_str().unwrap();
+
+    let preview = app.scan_skill_folder(path).unwrap();
+    let offered: Vec<_> = preview["offers"].as_array().unwrap().iter().map(|o| o["path"].as_str().unwrap()).collect();
+    assert_eq!(offered, [".agents/skills/beta", "alpha", "unselected"]);
+    assert!(app.items().unwrap().is_empty(), "preview does not import");
+    let single = app.scan_skill_folder(alpha.to_str().unwrap()).unwrap();
+    assert_eq!(single["offers"].as_array().unwrap().len(), 1);
+    assert_eq!(single["offers"][0]["path"], "");
+    assert_eq!(single["offers"][0]["name"], "alpha");
+
+    for invalid in ["../outside", outside.to_str().unwrap(), "link", "alpha/examples/inner"] {
+        let error = app.import_skill_selection(path, &["alpha".into(), invalid.into()]).await.unwrap_err();
+        assert!(error.to_string().contains("没有 Skill 路径"));
+        assert!(app.items().unwrap().is_empty(), "invalid selection must not import alpha");
+    }
+
+    let picked = [".agents/skills/beta".into(), "alpha".into(), "alpha".into()];
+    let imported = app.import_skill_selection(path, &picked).await.unwrap();
+    assert_eq!(imported["warnings"], json!([]));
+    assert_eq!(imported["imported"].as_array().unwrap().len(), 2);
+    let alpha_id = imported["imported"][1]["item"].as_str().unwrap();
+    let alpha_item = app.item(alpha_id).unwrap();
+    assert_eq!(alpha_item.origin, Origin::Folder { path: alpha.canonicalize().unwrap().to_str().unwrap().into() });
+    assert!(app.store_dir().join(&alpha_item.revision).join("examples/inner/SKILL.md").is_file());
+    assert_eq!(app.import_skill_selection(path, &picked).await.unwrap(), imported);
+    let single_import = app.import_skill_selection(alpha.to_str().unwrap(), &[String::new()]).await.unwrap();
+    assert_eq!(single_import["imported"][0]["item"], alpha_id);
+    assert_eq!(app.items().unwrap().len(), 2);
+    let preview = app.scan_skill_folder(path).unwrap();
+    assert_eq!(preview["imported"], imported["imported"]);
+
+    skill_folder(&alpha, "alpha", "v2");
+    assert_ne!(app.refresh_item(alpha_id).await.unwrap().revision, alpha_item.revision);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn folder_selection_keeps_successes_when_one_copy_fails() {
+    let (app, dir) = app("folder-retry");
+    let root = dir.join("skills");
+    let bad = root.join("bad");
+    skill_folder(&root.join("good"), "good", "v1");
+    skill_folder(&bad, "bad", "v1");
+    let large = bad.join("too-large");
+    std::fs::File::create(&large).unwrap().set_len(21 * 1024 * 1024).unwrap();
+    let picked = ["good".into(), "bad".into()];
+
+    let result = app.import_skill_selection(root.to_str().unwrap(), &picked).await.unwrap();
+    assert_eq!(result["imported"].as_array().unwrap().len(), 1);
+    assert_eq!(result["imported"][0]["path"], "good");
+    assert!(result["warnings"][0].as_str().unwrap().contains("超过 20MB"));
+    std::fs::remove_file(large).unwrap();
+
+    let retry = app.import_skill_selection(root.to_str().unwrap(), &picked).await.unwrap();
+    assert_eq!(retry["warnings"], json!([]));
+    assert_eq!(retry["imported"][0], result["imported"][0]);
+    assert_eq!(retry["imported"][1]["path"], "bad");
+    assert_eq!(app.items().unwrap().len(), 2);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Server values live in their own 0600 file, never in the item, the view or the database.
 #[tokio::test]
 async fn mcp_values_stay_out_of_records() {

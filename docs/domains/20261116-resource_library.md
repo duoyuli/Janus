@@ -2,7 +2,7 @@
 
 本文说明资源库的规则：资源有哪些、从哪里来、怎样更新，角色怎样选择，Run 怎样固定资源，会话怎样拿到它们。设计取舍见 [ADR：资源库统一管理 Skill 和 MCP，在会话启动时注入](../decisions/20261116-launch_time_resources.md)，接口见 [HTTP API](../interfaces/20261031-http_api.md#library)，凭据和第三方内容的边界见[安全边界](../operations/20261031-security.md#library)。
 
-实现在 `backend/src/library.rs` 和 `backend/src/library/`：`store`（Skill 内容）、`skill`（`SKILL.md`）、`mcp`（服务器定义和值）、`sources`（Git 来源）、`deliver`（资源包和会话参数）。
+实现在 `backend/src/library.rs` 和 `backend/src/library/`。`offers` 扫描可导入的资源，`store` 和 `skill` 管理 Skill 内容及 `SKILL.md`，`mcp` 管理服务器定义和值，`sources` 管理 Git 来源，`deliver` 生成资源包和会话参数。
 
 <a id="model"></a>
 ## 资源
@@ -32,7 +32,8 @@ Skill 是一个带 `SKILL.md` 的目录，名称和描述来自 front matter。
 
 - **名字**：小写字母、数字和 `-`，最长 64 个字符。导入时由 front matter 的 `name`（没有时取目录名）转换而来，转换后为空时用 `skill`。交给 Agent 的 `SKILL.md` 中，front matter 的 `name` 改成资源库中的名字；缺少描述时补上资源的描述。
 - **新建**：在编辑器中填写名字、描述和正文；也可以粘贴完整的 `SKILL.md`，这时描述以文件中的为准。没有描述时拒绝保存，因为 Agent 按描述判断何时使用 Skill。只有新建的 Skill 可以在 Janus 中编辑。
-- **从本机目录复制**：复制一次，之后与原目录无关；「刷新」从原目录再复制一次，内容变了才生成新版本。
+- 选择「从文件夹复制…」后，可以选单个 Skill 目录或包含多个 Skill 的父目录。Janus 使用与 [Git 来源](#sources) 相同的目录扫描规则，最多列出 500 个 Skill。列表默认勾选所有尚未导入的条目，可以逐项调整或全不选，再点「导入所选」一次复制。
+- 本机导入按每个 Skill 的原目录记录来源，已复制的条目显示「已导入」。复制失败的条目会显示原因，可以单独重试。内容以复制时的版本为准，使用「刷新」可以重新复制原目录。
 - **存放**：按内容的 sha256 放在 `~/.janus/library/store/<hash>/`，内容相同只存一份，存下后不再修改。复制时跳过隐藏文件（`.git`、`.env` 等）和 `node_modules`；符号链接只在指向目录内部时才读取；单个 Skill 最多 2000 个文件、20MB。没有资源使用的内容在每次修改后清理。
 
 <a id="mcp"></a>
