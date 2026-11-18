@@ -82,7 +82,7 @@
 | --- | --- |
 | `Contents/MacOS/Janus` | 应用 |
 | `Contents/MacOS/janus-server` | Janus 服务（release 构建的 `janus`） |
-| `Contents/Resources/{en,zh-Hans}.lproj/` | Swift Package 构建出的中英文资源，供 macOS 选择应用语言和本地化权限用途说明 |
+| `Contents/Resources/{en,zh-Hans}.lproj/` | 打包脚本从 `frontend/Sources/Janus/` 原样复制语言目录，保留语言标识的大小写，供 macOS 选择应用语言和本地化权限用途说明 |
 | `Contents/Resources/node/` | Node.js 的 `node`、`npm`、`npx`，供 ACP 适配器运行和安装 |
 
 <a id="prerequisites"></a>

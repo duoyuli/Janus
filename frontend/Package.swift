@@ -9,7 +9,12 @@ let package = Package(
     defaultLocalization: "zh-Hans",
     platforms: [.macOS("15.0")],
     targets: [
-        .executableTarget(name: "Janus", path: "Sources/Janus"),
+        .executableTarget(
+            name: "Janus",
+            path: "Sources/Janus",
+            // Keep the language tags intact on SwiftPM versions that lowercase processed localizations.
+            resources: [.copy("en.lproj"), .copy("zh-Hans.lproj")]
+        ),
         .testTarget(name: "JanusTests", dependencies: ["Janus"], path: "Tests/JanusTests"),
     ]
 )
