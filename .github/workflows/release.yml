@@ -22,7 +22,7 @@ jobs:
     name: Build Janus.dmg
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
@@ -83,7 +83,7 @@ jobs:
           # Bare file names, so `shasum -a 256 -c SHA256SUMS.txt` works next to the download.
           (cd dist && shasum -a 256 Janus-*.dmg Janus-*.tar.gz update.json | tee SHA256SUMS.txt)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Janus-${{ steps.v.outputs.version }}
           path: |
