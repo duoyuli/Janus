@@ -982,10 +982,11 @@ async fn messages_are_shown_then_routed_and_delivered() {
         })
     })
     .await;
-    let t2 = events(&h.app, &run)
-        .into_iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2"))
-        .unwrap();
+    // The note is taken (and reported delivered) while T2's prompt is written, a moment before
+    // the attempt is recorded as started.
+    let started = |e: &Event| e.kind == "attempt.started" && e.task.as_deref() == Some("T2");
+    wait_until(&h.app, &run, "T2 started", |e| e.iter().any(started)).await;
+    let t2 = events(&h.app, &run).into_iter().find(started).unwrap();
     assert!(
         t2.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("下一个子任务注意测试"),
         "the note is in T2's prompt"
