@@ -181,10 +181,12 @@ mod workspace_tests {
             .put_config(
                 "connection",
                 "codex-1",
-                &json!({
-                    "id": "codex-1", "kind": "codex", "base": "codex", "name": "Codex",
-                    "options": { "controls": [] }
-                }),
+                &test_connection(
+                    "codex-1",
+                    "codex",
+                    "codex",
+                    json!({ "name": "Codex", "options": { "controls": [] } }),
+                ),
                 now_ms(),
             )
             .unwrap();
@@ -225,7 +227,12 @@ mod workspace_tests {
             .put_config(
                 "connection",
                 "codex-1",
-                &json!({ "id": "codex-1", "kind": "codex", "base": "codex", "name": "Codex", "options": { "controls": [] } }),
+                &test_connection(
+                    "codex-1",
+                    "codex",
+                    "codex",
+                    json!({ "name": "Codex", "options": { "controls": [] } }),
+                ),
                 now_ms(),
             )
             .unwrap();

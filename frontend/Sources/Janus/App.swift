@@ -211,6 +211,13 @@ final class AppModel {
         await start()
     }
 
+    /// The running service is another release: stop it and start this app's own.
+    func stopRunningAndStart() async {
+        store = nil
+        await backend.stopRunning()
+        await start()
+    }
+
     func refresh() async {
         guard let s = store else { return }
         await s.loadSetup()
@@ -331,7 +338,14 @@ struct StartupView: View {
                 .foregroundStyle(.white)
                 .frame(width: 64, height: 64)
                 .background(Color.accent, in: RoundedRectangle(cornerRadius: 16))
-            if case .failed(let err) = model.backend.phase {
+            if case .stale(let text) = model.backend.phase {
+                Text(L.text("Janus 服务不是这个版本")).font(.display(.title2))
+                Text(text).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 520)
+                HStack {
+                    Button(L.text("打开日志目录")) { model.openLogs() }
+                    Button(L.text("停止旧服务并重试")) { Task { await model.stopRunningAndStart() } }.buttonStyle(.primary)
+                }
+            } else if case .failed(let err) = model.backend.phase {
                 Text(L.text("Janus 服务没有启动")).font(.display(.title2))
                 ScrollView {
                     Text(err).font(.system(.callout, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)

@@ -30,7 +30,7 @@ Janus 是单机、单用户的工具：编排器只在本机运行，任务直�
 
 ## 仓库结构
 
-- `backend/`：Rust 编排器（Cargo 包名 `janus`），各模块的职责见[模块与启动顺序](architecture/20261116-modules.md#modules)。`backend/testdata/` 放测试用的脚本化 ACP Agent 和前后端共用的用量用例。
+- `backend/`：Rust 编排器（Cargo 包名 `janus`），各模块的职责见[模块与启动顺序](architecture/20261116-modules.md#modules)。`backend/testdata/` 放测试用的脚本化 ACP Agent、前后端共用的用量用例、数据结构快照和旧版本写出的样本数据，`backend/scripts/` 放数据升级的端到端测试脚本（[数据升级测试](operations/20261031-testing.md#upgrade_tests)）。
 - `frontend/`：macOS 应用（SwiftUI，Swift Package），源码结构见 [macOS 应用](architecture/20261031-frontend.md#source_layout)。`frontend/scripts/` 放打包脚本。
 - `docs/`：本文档库。`README.md` 是产品入口，`CHANGELOG.md` 是更新记录，`LESSONS.md` 是清理 Agent 合并的代码时积累的经验教训和 `AGENTS.md` 每条合并规则的来由，它们都在仓库根目录，不属于本库。
 - `justfile`：开发、构建、安装和服务命令，见[部署方案](operations/20261031-deployment.md)。

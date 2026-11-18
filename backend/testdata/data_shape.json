@@ -1,0 +1,87 @@
+{
+  "dataVersion": 2,
+  "tables": [
+    "CREATE INDEX events_type_ts ON events (type, ts)",
+    "CREATE TABLE artifacts ( run_id TEXT NOT NULL REFERENCES runs(id), task TEXT NOT NULL, attempt INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, created_at INTEGER NOT NULL )",
+    "CREATE TABLE attempts ( run_id TEXT NOT NULL REFERENCES runs(id), task TEXT NOT NULL, n INTEGER NOT NULL, agent TEXT NOT NULL, runtime TEXT NOT NULL, session TEXT, workspace TEXT, status TEXT NOT NULL, error TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, PRIMARY KEY (run_id, task, n) )",
+    "CREATE TABLE commands ( run_id TEXT NOT NULL REFERENCES runs(id), command_id TEXT NOT NULL, result TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (run_id, command_id) )",
+    "CREATE TABLE configs ( kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (kind, id) )",
+    "CREATE TABLE events ( run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, actor TEXT NOT NULL, to_agent TEXT, task TEXT, attempt INTEGER, text TEXT NOT NULL, data TEXT, PRIMARY KEY (run_id, seq) )",
+    "CREATE TABLE leases ( run_id TEXT NOT NULL REFERENCES runs(id), name TEXT NOT NULL, owner TEXT NOT NULL, fencing INTEGER NOT NULL, expires_at INTEGER NOT NULL, PRIMARY KEY (run_id, name) )",
+    "CREATE TABLE runs ( id TEXT PRIMARY KEY, goal TEXT NOT NULL, cwd TEXT NOT NULL, config TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL )",
+    "CREATE TABLE verifications ( run_id TEXT NOT NULL REFERENCES runs(id), task TEXT NOT NULL, attempt INTEGER NOT NULL, attempt_id TEXT NOT NULL, status TEXT NOT NULL, details TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (run_id, task, attempt, attempt_id) )"
+  ],
+  "kinds": {
+    "role": {
+      "required": [
+        "id",
+        "name",
+        "desc",
+        "prompt",
+        "resources",
+        "connection",
+        "model",
+        "effort",
+        "session",
+        "lead",
+        "color",
+        "init"
+      ],
+      "optional": [
+        "seed"
+      ]
+    },
+    "workspace": {
+      "required": [
+        "id",
+        "name",
+        "path",
+        "lead",
+        "members",
+        "brief"
+      ],
+      "optional": []
+    },
+    "connection": {
+      "required": [
+        "id",
+        "kind",
+        "base",
+        "name",
+        "auth",
+        "bin",
+        "prompt",
+        "env",
+        "status",
+        "createdAt"
+      ],
+      "optional": [
+        "command",
+        "endpoint",
+        "importedEnv",
+        "testStartedAt",
+        "check",
+        "checkedAt",
+        "elapsedMs",
+        "error",
+        "errorLog",
+        "agentInfo",
+        "options",
+        "reply",
+        "login"
+      ]
+    }
+  },
+  "connectionFields": [
+    "baseUrl",
+    "source"
+  ],
+  "workspaceMembers": {
+    "required": [
+      "role"
+    ],
+    "optional": [
+      "slots"
+    ]
+  }
+}

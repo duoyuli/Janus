@@ -224,10 +224,17 @@ async fn items_in_use_are_kept() {
         .save_mcp(None, &json!({ "name": "fs", "command": "mcp-fs", "vars": [{ "name": "K", "value": "v" }] }))
         .await
         .unwrap();
-    app.db.put_config(ROLE, "r1", &json!({ "id": "r1", "name": "研发", "resources": [item.id] }), now_ms()).unwrap();
+    app.db
+        .put_config(
+            ROLE,
+            "r1",
+            &crate::agents::test_role("r1", json!({ "name": "研发", "resources": [item.id] })),
+            now_ms(),
+        )
+        .unwrap();
     let err = app.delete_item(&item.id).await.unwrap_err().to_string();
     assert!(err.contains("研发"), "{err}");
-    app.db.put_config(ROLE, "r1", &json!({ "id": "r1", "name": "研发", "resources": [] }), now_ms()).unwrap();
+    app.db.put_config(ROLE, "r1", &crate::agents::test_role("r1", json!({ "name": "研发" })), now_ms()).unwrap();
     app.delete_item(&item.id).await.unwrap();
     assert!(!app.values_path(&item.id).unwrap().exists());
     let _ = std::fs::remove_dir_all(&dir);

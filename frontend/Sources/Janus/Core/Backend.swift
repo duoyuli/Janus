@@ -9,10 +9,14 @@ import Observation
 /// `just dev`), the app uses it. Otherwise it starts the `janus-server` binary bundled in
 /// Janus.app, on the configured port or, when another program holds it, the next free one, and
 /// stops it again when the app quits. Either way the data stays in Janus home.
+///
+/// A running Janus of another release is not used: data upgrades run when a service starts, so an
+/// installed app on an older service would show data the new release has not upgraded. The app
+/// says so and offers to stop that service and start its own (`stopRunning`).
 // @project-doc docs/architecture/20261031-frontend.md#server_process
 @Observable @MainActor
 final class Backend {
-    enum Phase: Equatable { case starting(String), ready, failed(String) }
+    enum Phase: Equatable { case starting(String), ready, failed(String), stale(String) }
 
     private(set) var phase: Phase = .starting(L.text("正在启动 Janus 服务…"))
     /// Whether the app started the server itself (and so owns its lifetime).
@@ -63,14 +67,13 @@ final class Backend {
         phase = .starting(L.text("正在连接 Janus 服务…"))
         addr = configured
         notice = nil
-        if await servesThisHome(configured) { owned = false; phase = .ready; return }
+        if let meta = await homeMeta(configured) { use(running: meta); return }
         // A Janus already owns this home (single instance), maybe on another port: use it.
         if let other = runningOwnerAddr() {
-            if await servesThisHome(other) {
+            if let meta = await homeMeta(other) {
                 addr = other
                 notice = other == configured ? nil : L.text("已在运行的 Janus 使用 \(other)")
-                owned = false
-                phase = .ready
+                use(running: meta)
                 return
             }
             phase = .failed(L.text("另一个 Janus 正在使用 \(home.path)，但连不上它（\(other)）。先退出那个 Janus（以服务方式运行时执行 just stop），再点重试。"))
@@ -114,6 +117,32 @@ final class Backend {
         await start()
     }
 
+    /// Use a Janus found running, unless it is another release than this app.
+    private func use(running meta: JSON) {
+        owned = false
+        let app = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        if Self.isStale(server: meta["version"].string, app: app) {
+            let server = meta["version"].string ?? L.text("旧版本")
+            phase = .stale(L.text("正在运行的 Janus 服务是 \(server)，这个应用是 \(app)。数据升级和新功能要在新版服务启动后才生效。停止它之后，应用会启动自带的服务。以服务方式运行（just start）时，请先执行 just stop。"))
+            return
+        }
+        phase = .ready
+    }
+
+    /// Whether a running service is another release than an installed app. An app run from
+    /// source (version "0") uses whatever runs.
+    nonisolated static func isStale(server: String?, app: String) -> Bool {
+        app != "0" && server != app
+    }
+
+    /// Stop the Janus holding `<home>/janus.pid` (SIGTERM, waiting up to 5 seconds for it to exit).
+    func stopRunning() async {
+        if let pid = (try? String(contentsOf: home.appendingPathComponent("janus.pid"), encoding: .utf8)).flatMap({ Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }),
+           pid != process?.processIdentifier, kill(pid, SIGTERM) == 0 {
+            for _ in 0..<50 where kill(pid, 0) == 0 { try? await Task.sleep(nanoseconds: 100_000_000) }
+        }
+    }
+
     /// Stops the server the app started (SIGTERM). A server it found running is left alone.
     func stop() {
         guard let p = process, p.isRunning else { return }
@@ -128,15 +157,20 @@ final class Backend {
     /// Whether a Janus answers at `addr` with this Janus home's data. Something else on the port
     /// (another program, or a Janus of another home) does not count.
     private func servesThisHome(_ addr: String, timeout: TimeInterval = 1.5) async -> Bool {
-        guard let url = URL(string: "http://\(addr)/api/meta") else { return false }
+        await homeMeta(addr, timeout: timeout) != nil
+    }
+
+    /// `/api/meta` of the Janus at `addr`, if it serves this Janus home.
+    private func homeMeta(_ addr: String, timeout: TimeInterval = 1.5) async -> JSON? {
+        guard let url = URL(string: "http://\(addr)/api/meta") else { return nil }
         var req = URLRequest(url: url)
         req.timeoutInterval = timeout
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = timeout
         guard let (data, resp) = try? await URLSession(configuration: cfg).data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let meta = try? JSON.parse(data), meta["kinds"].exists, let dir = meta["dataDir"].string else { return false }
-        return Self.samePath(dir, home.path)
+              let meta = try? JSON.parse(data), meta["kinds"].exists, let dir = meta["dataDir"].string else { return nil }
+        return Self.samePath(dir, home.path) ? meta : nil
     }
 
     nonisolated static func samePath(_ a: String, _ b: String) -> Bool {

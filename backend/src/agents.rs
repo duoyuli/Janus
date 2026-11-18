@@ -34,6 +34,7 @@ pub use catalog::kinds;
 use catalog::*;
 pub use local_config::local_preview;
 use local_config::*;
+pub(crate) use roles::record_seed_origins;
 use session_options::*;
 pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
 use workspaces::*;
@@ -198,6 +199,32 @@ fn tail(path: &Path, lines: usize) -> String {
     let text = std::fs::read_to_string(path).unwrap_or_default();
     let all: Vec<&str> = text.lines().collect();
     all[all.len().saturating_sub(lines)..].join("\n")
+}
+
+/// A connection with every field a saved one has, plus `extra`, for tests that write one directly.
+#[cfg(test)]
+pub(crate) fn test_connection(id: &str, kind: &str, base: &str, extra: Value) -> Value {
+    let mut c = json!({
+        "id": id, "kind": kind, "base": base, "name": id, "auth": "", "bin": "", "prompt": "", "env": {},
+        "status": "ok", "createdAt": 1,
+    });
+    for (k, v) in extra.as_object().cloned().unwrap_or_default() {
+        c[k] = v;
+    }
+    c
+}
+
+/// A role with every field a saved one has, plus `extra`, for tests that write one directly.
+#[cfg(test)]
+pub(crate) fn test_role(id: &str, extra: Value) -> Value {
+    let mut r = json!({
+        "id": id, "name": id, "desc": "", "prompt": "", "resources": [], "connection": "", "model": "", "effort": "",
+        "session": {}, "lead": false, "color": "#64748b", "init": "",
+    });
+    for (k, v) in extra.as_object().cloned().unwrap_or_default() {
+        r[k] = v;
+    }
+    r
 }
 
 #[cfg(test)]

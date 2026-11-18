@@ -4,8 +4,17 @@
 use super::*;
 
 impl App {
+    /// Roles as the app sees them: a default role the person edited also carries `seedUpdates`,
+    /// the newer default text of the edited fields.
     pub fn roles(&self) -> Result<Vec<Value>> {
-        self.db.list_config(ROLE)
+        let mut roles = self.db.list_config(ROLE)?;
+        for r in roles.iter_mut() {
+            let updates = seed_updates(r);
+            if updates.as_object().is_some_and(|u| !u.is_empty()) {
+                r["seedUpdates"] = updates;
+            }
+        }
+        Ok(roles)
     }
 
     pub fn save_role(&self, body: &Value) -> Result<Value> {
@@ -43,6 +52,11 @@ impl App {
             "lead": body["lead"].as_bool().unwrap_or(false),
             "color": match str_of(body, "color") { "" => "#64748b", c => c }, "init": init,
         });
+        let mut role = role;
+        // Where a default role came from is Janus's record, not something the editor sends.
+        if let Some(seed) = self.db.get_config(ROLE, &id)?.map(|r| r["seed"].clone()).filter(|s| !s.is_null()) {
+            role["seed"] = seed;
+        }
         self.db.put_config(ROLE, &id, &role, now_ms())?;
         Ok(role)
     }
@@ -87,18 +101,137 @@ impl App {
         Ok(())
     }
 
-    /// First start: a usable set of roles that only lacks agent bindings. It happens once
-    /// (`meta.seeded`): a default role the person deleted or edited afterwards stays that way.
-    // @project-doc docs/domains/20261031-agents_and_roles.md#roles
-    pub fn seed_roles(&self) -> Result<()> {
-        if self.db.get_config("meta", "seeded")?.is_some() {
-            return Ok(());
+    /// The default roles. A first start creates them, each remembering in `seed` which default
+    /// it came from and the hash of the text it was given. On later starts a role's `desc` or
+    /// `prompt` the person never edited moves to the text this build ships; an edited one stays as
+    /// it is, and the app offers the new text (`seed_updates`). A default role the person deleted
+    /// stays deleted.
+    // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
+    pub fn sync_seeds(&self) -> Result<()> {
+        if self.db.get_config("meta", "seeded")?.is_none() {
+            for r in &SEEDS {
+                let mut role = self.save_role(&json!({ "id": r.id, "name": r.name, "desc": r.desc, "color": r.color, "init": r.init, "lead": r.lead, "prompt": r.prompt }))?;
+                role["seed"] = json!({ "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
+                self.db.put_config(ROLE, r.id, &role, now_ms())?;
+            }
+            return self.db.put_config("meta", "seeded", &json!(true), now_ms());
         }
-        for r in &SEEDS {
-            self.save_role(&json!({ "id": r.id, "name": r.name, "desc": r.desc, "color": r.color, "init": r.init, "lead": r.lead, "prompt": r.prompt }))?;
+        for (r, mut role) in self.seeded_roles()? {
+            let mut changed = false;
+            for (field, text) in [("desc", r.desc), ("prompt", r.prompt)] {
+                let shipped = text_hash(text);
+                let given = role["seed"][field].as_str().unwrap_or_default().to_string();
+                if given == shipped {
+                    continue;
+                }
+                let now = text_hash(str_of(&role, field));
+                if now == given || now == shipped {
+                    role[field] = json!(text);
+                    role["seed"][field] = json!(shipped);
+                    changed = true;
+                }
+            }
+            if changed {
+                self.db.put_config(ROLE, r.id, &role, now_ms())?;
+            }
         }
-        self.db.put_config("meta", "seeded", &json!(true), now_ms())
+        Ok(())
     }
+
+    /// The default roles that still exist, each with the default it came from.
+    fn seeded_roles(&self) -> Result<Vec<(&'static RoleSeed, Value)>> {
+        Ok(SEEDS
+            .iter()
+            .filter_map(|r| {
+                let role = self.db.get_config(ROLE, r.id).ok().flatten()?;
+                (role["seed"]["id"] == r.id).then_some((r, role))
+            })
+            .collect())
+    }
+
+    /// Adopt (`adopt: true`) or decline the newer default text of one field of a default role the
+    /// person edited. Either way the role stops offering it until a later build ships another.
+    pub fn seed_choice(&self, id: &str, field: &str, adopt: bool) -> Result<Value> {
+        let (r, mut role) = self
+            .seeded_roles()?
+            .into_iter()
+            .find(|(r, _)| r.id == id)
+            .ok_or_else(|| anyhow!("{id} 不是默认数字员工"))?;
+        let text = match field {
+            "desc" => r.desc,
+            "prompt" => r.prompt,
+            _ => bail!("只能更新职责（desc）或指令（prompt）"),
+        };
+        if adopt {
+            role[field] = json!(text);
+        }
+        role["seed"][field] = json!(text_hash(text));
+        self.db.put_config(ROLE, id, &role, now_ms())?;
+        Ok(role)
+    }
+}
+
+/// The newer default text a default role's edited fields could take, `{field: text}`; empty when
+/// there is none. Shown in the role editor.
+fn seed_updates(role: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    if let Some(r) = SEEDS.iter().find(|r| role["seed"]["id"] == r.id) {
+        for (field, text) in [("desc", r.desc), ("prompt", r.prompt)] {
+            let shipped = text_hash(text);
+            if role["seed"][field] != shipped.as_str() && text_hash(str_of(role, field)) != shipped {
+                out.insert(field.into(), json!(text));
+            }
+        }
+    }
+    Value::Object(out)
+}
+
+/// The hash a default text is remembered by: the first 16 hex digits of its SHA-256.
+fn text_hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Every `desc` and `prompt` each default role has shipped with, newest first, by hash. Data
+/// version 2 uses it to tell an untouched default role from one the person edited.
+const SEED_HISTORY: &[(&str, &str, &[&str])] = &[
+    ("coordinator", "desc", &["11c26d05577fd4dd", "c073bc2d506f6974"]),
+    ("coordinator", "prompt", &["a81c047b83d8845d", "00dfa19b6610feb6", "0cad66d4ff1444f7", "7dfaede38661aa89"]),
+    ("researcher", "desc", &["8f15e8966e580c22", "3c1578d280be92ab"]),
+    ("researcher", "prompt", &["07d89d72db780be3", "ecde922ff521160c", "f371c15c3915aeb9"]),
+    ("product-manager", "desc", &["55820f7da51d1b35", "6575fe20b36ad7cb"]),
+    ("product-manager", "prompt", &["c1e2e315f041c00e", "7c9157e10580d1c8", "0c45315e34958031", "8432df1724ece14d"]),
+    ("implementer", "desc", &["3f1d72fd83df989f", "0cff94e51cadbae7"]),
+    ("implementer", "prompt", &["e688dd4dbc6bc43d", "a256fd34f7e21459", "e3dabe553ae3b911"]),
+    ("reviewer", "desc", &["3a457fb394888f0b", "b91cafdf208c7a65"]),
+    ("reviewer", "prompt", &["9cc3fe77d56480b7", "7ffd4c34321ef2e0"]),
+];
+
+/// Data version 2: default roles created before roles remembered their origin get a `seed`. A
+/// field whose text is one Janus shipped counts as untouched (and moves to the current text on
+/// start); an edited one is marked as given the newest earlier text, so the app offers the
+/// current one instead of replacing it.
+pub(crate) fn record_seed_origins(tx: &rusqlite::Transaction) -> Result<usize> {
+    crate::migrations::edit_configs(tx, ROLE, |id, role| {
+        let Some(r) = SEEDS.iter().find(|r| r.id == id) else { return false };
+        if role.contains_key("seed") {
+            return false;
+        }
+        let mut seed = json!({ "id": r.id });
+        for (field, text) in [("desc", r.desc), ("prompt", r.prompt)] {
+            let shipped = text_hash(text);
+            let history: Vec<&str> =
+                SEED_HISTORY.iter().filter(|h| h.0 == id && h.1 == field).flat_map(|h| h.2.iter().copied()).collect();
+            let now = text_hash(role.get(field).and_then(Value::as_str).unwrap_or_default());
+            seed[field] = json!(if now == shipped || history.contains(&now.as_str()) {
+                now
+            } else {
+                history.iter().find(|h| **h != shipped).map_or(shipped.clone(), |h| h.to_string())
+            });
+        }
+        role.insert("seed".into(), seed);
+        true
+    })
 }
 
 /// A default role, created on a first start with no agent bound yet.
@@ -181,14 +314,75 @@ mod seed_tests {
     #[test]
     fn a_first_start_seeds_every_default_role() {
         let (app, dir) = app("fresh");
-        app.seed_roles().unwrap();
-        for id in ["coordinator", "researcher", "product-manager", "implementer", "reviewer"] {
-            assert!(!role(&app, id).unwrap()["prompt"].as_str().unwrap().is_empty(), "{id}");
+        app.sync_seeds().unwrap();
+        for r in &SEEDS {
+            let role = role(&app, r.id).unwrap();
+            assert_eq!(
+                (role["prompt"].as_str().unwrap(), role["seed"]["prompt"].as_str().unwrap()),
+                (r.prompt, text_hash(r.prompt).as_str())
+            );
         }
         // A deleted default role stays deleted on the next start.
         app.db.delete_config(ROLE, "reviewer").unwrap();
-        app.seed_roles().unwrap();
+        app.sync_seeds().unwrap();
         assert!(role(&app, "reviewer").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A default role as an earlier build left it: given `old` for both texts.
+    fn given(app: &App, id: &str, desc: &str, prompt: &str) {
+        let mut r = role(app, id).unwrap();
+        r["desc"] = json!(desc);
+        r["prompt"] = json!(prompt);
+        r["seed"]["desc"] = json!(text_hash("旧职责"));
+        r["seed"]["prompt"] = json!(text_hash("旧指令"));
+        app.db.put_config(ROLE, id, &r, 1).unwrap();
+    }
+
+    /// A newer build moves untouched default text forward and leaves edited text alone, offering
+    /// the new text instead. The person can take it or keep theirs.
+    #[test]
+    fn new_default_text_replaces_only_what_the_person_never_edited() {
+        let (app, dir) = app("sync");
+        app.sync_seeds().unwrap();
+        let implementer = SEEDS.iter().find(|r| r.id == "implementer").unwrap();
+        given(&app, "implementer", "旧职责", "旧指令");
+        given(&app, "reviewer", "旧职责", "我改过的指令");
+        app.sync_seeds().unwrap();
+
+        let r = role(&app, "implementer").unwrap();
+        assert_eq!(
+            (r["desc"].as_str().unwrap(), r["prompt"].as_str().unwrap()),
+            (implementer.desc, implementer.prompt)
+        );
+        assert!(seed_updates(&r).as_object().unwrap().is_empty());
+        let reviewer = SEEDS.iter().find(|r| r.id == "reviewer").unwrap();
+        let r = role(&app, "reviewer").unwrap();
+        assert_eq!(r["prompt"], "我改过的指令", "edited text is the person's");
+        assert_eq!(r["desc"], reviewer.desc, "the untouched field still moves");
+        assert_eq!(seed_updates(&r), json!({ "prompt": reviewer.prompt }));
+        let listed = app.roles().unwrap().into_iter().find(|r| r["id"] == "reviewer").unwrap();
+        assert_eq!(listed["seedUpdates"]["prompt"], reviewer.prompt, "the app is offered the new text");
+
+        // Saving from the editor keeps the origin; the editor cannot set it.
+        let mut body = r.clone();
+        body["seed"] = json!({ "id": "implementer" });
+        app.save_role(&body).unwrap();
+        assert_eq!(role(&app, "reviewer").unwrap()["seed"], r["seed"]);
+
+        // Keeping the person's text stops the offer; a later start leaves it alone.
+        let kept = app.seed_choice("reviewer", "prompt", false).unwrap();
+        assert_eq!(kept["prompt"], "我改过的指令");
+        app.sync_seeds().unwrap();
+        let r = role(&app, "reviewer").unwrap();
+        assert_eq!(r["prompt"], "我改过的指令");
+        assert!(seed_updates(&r).as_object().unwrap().is_empty());
+
+        // Taking the new text replaces it.
+        given(&app, "reviewer", reviewer.desc, "又改了一次");
+        let taken = app.seed_choice("reviewer", "prompt", true).unwrap();
+        assert_eq!(taken["prompt"], reviewer.prompt);
+        assert!(app.seed_choice("reviewer", "name", true).is_err(), "only desc and prompt have default text");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

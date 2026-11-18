@@ -130,7 +130,7 @@ mod tests {
     fn a_period_bill_counts_only_its_turns_and_its_part_of_the_cost() {
         let path = std::env::temp_dir().join(format!("janus-bill-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        let db = Db::open(&path).unwrap();
+        let db = Db::open(&path).unwrap().0;
         let day = DAY_MS;
         db.insert_run("r1", "g", "/tmp", &team(), 0).unwrap();
         let events = [

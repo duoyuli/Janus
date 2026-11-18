@@ -76,95 +76,19 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
 }
 
 impl Db {
-    // @project-doc docs/architecture/20261031-data_model.md#sqlite_tables
-    pub fn open(path: &Path) -> Result<Db> {
-        let conn = Connection::open(path)?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA foreign_keys = ON;
-             CREATE TABLE IF NOT EXISTS runs (
-               id TEXT PRIMARY KEY,
-               goal TEXT NOT NULL,
-               cwd TEXT NOT NULL,
-               config TEXT NOT NULL,
-               status TEXT NOT NULL,
-               created_at INTEGER NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS events (
-               run_id TEXT NOT NULL REFERENCES runs(id),
-               seq INTEGER NOT NULL,
-               ts INTEGER NOT NULL,
-               type TEXT NOT NULL,
-               actor TEXT NOT NULL,
-               to_agent TEXT,
-               task TEXT,
-               attempt INTEGER,
-               text TEXT NOT NULL,
-               data TEXT,
-               PRIMARY KEY (run_id, seq)
-             );
-             CREATE INDEX IF NOT EXISTS events_type_ts ON events (type, ts);
-             CREATE TABLE IF NOT EXISTS attempts (
-               run_id TEXT NOT NULL REFERENCES runs(id),
-               task TEXT NOT NULL,
-               n INTEGER NOT NULL,
-               agent TEXT NOT NULL,
-               runtime TEXT NOT NULL,
-               session TEXT,
-               workspace TEXT,
-               status TEXT NOT NULL,
-               error TEXT,
-               started_at INTEGER NOT NULL,
-               ended_at INTEGER,
-               PRIMARY KEY (run_id, task, n)
-             );
-             CREATE TABLE IF NOT EXISTS artifacts (
-               run_id TEXT NOT NULL REFERENCES runs(id),
-               task TEXT NOT NULL,
-               attempt INTEGER NOT NULL,
-               name TEXT NOT NULL,
-               kind TEXT NOT NULL,
-               path TEXT NOT NULL,
-               sha256 TEXT NOT NULL,
-               bytes INTEGER NOT NULL,
-               created_at INTEGER NOT NULL
-             );
-             -- Setup objects: agent connections, roles and execution environments.
-             -- Secrets never go here; they stay in each connection's own directory.
-             CREATE TABLE IF NOT EXISTS configs (
-               kind TEXT NOT NULL,
-               id TEXT NOT NULL,
-               data TEXT NOT NULL,
-               updated_at INTEGER NOT NULL,
-               PRIMARY KEY (kind, id)
-             );
-             CREATE TABLE IF NOT EXISTS verifications (
-               run_id TEXT NOT NULL REFERENCES runs(id),
-               task TEXT NOT NULL,
-               attempt INTEGER NOT NULL,
-               attempt_id TEXT NOT NULL,
-               status TEXT NOT NULL,
-               details TEXT NOT NULL,
-               created_at INTEGER NOT NULL,
-               PRIMARY KEY (run_id, task, attempt, attempt_id)
-             );
-             CREATE TABLE IF NOT EXISTS commands (
-               run_id TEXT NOT NULL REFERENCES runs(id),
-               command_id TEXT NOT NULL,
-               result TEXT NOT NULL,
-               created_at INTEGER NOT NULL,
-               PRIMARY KEY (run_id, command_id)
-             );
-             CREATE TABLE IF NOT EXISTS leases (
-               run_id TEXT NOT NULL REFERENCES runs(id),
-               name TEXT NOT NULL,
-               owner TEXT NOT NULL,
-               fencing INTEGER NOT NULL,
-               expires_at INTEGER NOT NULL,
-               PRIMARY KEY (run_id, name)
-             );",
-        )?;
-        Ok(Db(Mutex::new(conn)))
+    /// Opens the database and brings it up to this build's data version (see `migrations`), saying
+    /// what the upgrade did.
+    // @project-doc docs/architecture/20261031-data_model.md#migrations
+    pub fn open(path: &Path) -> Result<(Db, crate::migrations::Report)> {
+        let mut conn = Connection::open(path)?;
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
+        let report = crate::migrations::upgrade(&mut conn, Some(path))?;
+        Ok((Db(Mutex::new(conn)), report))
+    }
+
+    /// The data version of this database (`PRAGMA user_version`).
+    pub fn data_version(&self) -> Result<u32> {
+        Ok(self.0.lock().unwrap().pragma_query_value(None, "user_version", |r| r.get(0))?)
     }
 
     pub fn insert_run(&self, id: &str, goal: &str, cwd: &str, config: &Value, now: i64) -> Result<()> {
@@ -387,6 +311,12 @@ impl Db {
     }
 
     pub fn put_config(&self, kind: &str, id: &str, data: &Value, now: i64) -> Result<()> {
+        // Every write in tests must have the shape the current migrations leave behind.
+        #[cfg(test)]
+        {
+            let problems = crate::data_shape::check(kind, data);
+            assert!(problems.is_empty(), "{kind} {id} 的字段不符合登记的数据结构：{problems:?}");
+        }
         self.0.lock().unwrap().execute(
             "INSERT INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (kind, id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
@@ -433,7 +363,7 @@ mod tests {
     fn temp_db(name: &str) -> (Db, std::path::PathBuf) {
         let path = std::env::temp_dir().join(format!("janus-{name}-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        (Db::open(&path).unwrap(), path)
+        (Db::open(&path).unwrap().0, path)
     }
 
     /// The app's list stops at the newest 50 runs; a run by id is found however old it is.

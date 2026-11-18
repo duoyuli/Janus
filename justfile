@@ -20,6 +20,14 @@ dev:
 test:
     cd backend && cargo test
 
+# 数据升级的端到端测试：从最近 3 个发布版本写入数据，再用当前版本升级并逐项核对（可加 --from <标签>）
+e2e-upgrade *args:
+    python3 -I backend/scripts/upgrade_e2e.py {{args}}
+
+# 改了存储的数据结构并加了迁移后，更新 backend/testdata/data_shape.json
+data-shape:
+    cd backend && cargo run -q -- migrate --shape > testdata/data_shape.json
+
 # 按 backend/rustfmt.toml 格式化 Rust 代码
 fmt:
     cd backend && cargo fmt

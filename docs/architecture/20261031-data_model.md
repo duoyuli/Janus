@@ -33,7 +33,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 <a id="sqlite_tables"></a>
 ## SQLite 表
 
-表结构定义在 `Db::open`（`backend/src/db.rs`），启动时用 `CREATE TABLE IF NOT EXISTS` 创建。
+数据版本 0 的表结构是 `migrations::BASELINE`（`backend/src/migrations.rs`），之后的表结构变化都是迁移，见[数据升级](#migrations)。
 
 | 表 | 主键 | 内容 |
 | --- | --- | --- |
@@ -41,7 +41,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
-| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`） |
+| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
 | `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入，失败时删除，用于按 `commandId` 只执行一次 |
 | `leases` | `(run_id, name)` | Run 租约，防止两个 Janus 实例驱动同一个 Run |
@@ -53,6 +53,25 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 - `events` 另有索引 `events_type_ts (type, ts)`，按时间段的用量账单用它找出区间里有 `session.usage` 的 Run，不必读全部事件（[用量账单](../interfaces/20261031-http_api.md#usage_bill)）。
 - 租约有效期 10 分钟。持有者是 `janus-<pid>`；该进程已经不存在时，其他实例可以接管。
 - 删除一个 Run 会删掉 `runs` 和其余各表中属于它的行，以及 `artifacts/<run>/`、`logs/<run>/`、`runs/<run>/` 三个目录；工作目录不受影响。正在进行的 Run 不能删除，规则见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)。
+
+<a id="migrations"></a>
+## 数据升级
+
+`janus.db` 的数据版本记在 `PRAGMA user_version`，当前版本是 `migrations::latest()`。设计取舍见 [ADR：数据随版本自动升级](../decisions/20261118-data_migrations.md)。
+
+- **执行时机**：服务启动时 `Db::open` 先建出数据版本 0 的表，再按顺序执行版本号大于当前版本的迁移（`migrations::upgrade`）。每条迁移在一个事务中执行并写入自己的版本号，失败时回滚，服务不启动。新数据库同样从 0 执行到最新，不需要备份。
+- **备份**：库里已有数据时，升级前用 `VACUUM INTO` 复制到 `<Janus home>/backups/janus-v<旧版本>-<毫秒时间>.db`，只保留最近 5 份。日志写明从哪个版本升到哪个版本、每条迁移改了几处和备份位置。
+- **更新的数据**：数据版本高于当前版本时拒绝打开，提示升级 Janus 或从 `backups/` 恢复。
+- **迁移的写法**：`MIGRATIONS` 中每条是一个版本号、一句说明和若干步骤。`Sql` 改表结构；`Add` 加字段，旧对象取给定的默认值（已有这个字段的不变）；`Drop` 删字段；`Rename` 改名；其他情况用 `Custom` 函数。字段步骤的目标是某类设置对象（`Target::Config(kind)`）或 Run 快照中的每个成员（`Target::RunMember`），重复执行不会再改动。事件不迁移。
+- **登记的结构**：`data_shape.rs` 登记每类设置对象的必填和可选字段（`connection` 另外允许 Agent 类型目录中登录方式的普通字段），资源库对象和 Run 快照成员按读回再写出必须不变检查。测试中每次 `put_config` 都按它检查；`janus migrate --dry-run` 在库的副本上执行升级，列出每条迁移改了几处和仍不符合当前结构的对象，不修改原库。
+- **快照**：表结构和登记的字段记在 `backend/testdata/data_shape.json`（`janus migrate --shape` 生成，`just data-shape` 写入）。结构变了但数据版本没变时测试失败，提示先加迁移。
+
+已有的迁移：
+
+| 版本 | 内容 |
+| --- | --- |
+| 1 | 删除数字员工的「定位」（`role`），删除 Run 快照成员的 `role` 和 `model_label` |
+| 2 | 默认数字员工记录来源（`seed`），见[默认角色：产品上线团队](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 
 <a id="snapshots"></a>
 ## Run 快照

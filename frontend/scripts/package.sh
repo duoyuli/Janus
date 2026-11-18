@@ -40,7 +40,7 @@ rm -rf "$work" "$out/Janus.app"
 mkdir -p "$work"
 
 echo "==> Janus server (Rust)"
-(cd "$root/backend" && cargo build --release --locked)
+(cd "$root/backend" && JANUS_VERSION="$version" cargo build --release --locked)
 cp "$root/backend/target/release/janus" "$work/janus-server"
 
 echo "==> Janus app (SwiftUI)"

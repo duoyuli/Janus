@@ -5,11 +5,13 @@ mod agents;
 mod attachments;
 mod bill;
 mod config;
+mod data_shape;
 mod db;
 mod evidence;
 mod git_probe;
 mod goal_settle;
 mod library;
+mod migrations;
 mod orchestrator;
 mod prices;
 mod status;
@@ -116,10 +118,19 @@ async fn meta(State(app): State<Arc<App>>) -> Json<Value> {
         "local": {
             "codex": agents::which("codex"), "claude": agents::which("claude"),
         },
+        "version": VERSION,
+        "dataVersion": app.db.data_version().unwrap_or_default(),
         "dataDir": app.cfg.data_dir,
         "agentsDir": app.cfg.agents_dir,
         "db": app.cfg.data_dir.join("janus.db"),
     }))
+}
+
+/// Take or decline the newer default text of an edited default role: `{field, adopt}`.
+async fn seed_choice(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Json(body): Json<Value>) -> ApiResult {
+    let field = body["field"].as_str().unwrap_or_default();
+    let role = app.seed_choice(&id, field, body["adopt"].as_bool().unwrap_or(false)).map_err(bad)?;
+    Ok(Json(role).into_response())
 }
 
 /// Everything the setup screens need in one request.
@@ -505,18 +516,37 @@ async fn file(State(app): State<Arc<App>>, Query(q): Query<PathQuery>) -> ApiRes
     Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response())
 }
 
+/// The release this build is: the date version a package build sets (`JANUS_VERSION`), else
+/// the crate version. The app compares it with its own to tell a stale service.
+pub const VERSION: &str = match option_env!("JANUS_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 // @project-doc docs/architecture/20261116-modules.md#startup
 #[tokio::main]
 async fn main() -> Result<()> {
-    match std::env::args().nth(1).as_deref() {
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
         Some("--version" | "-V") => {
-            println!("janus {}", env!("CARGO_PKG_VERSION"));
+            println!("janus {VERSION}");
+            return Ok(());
+        }
+        Some("migrate") => {
+            match args.next().as_deref() {
+                Some("--dry-run") => print!("{}", migrations::dry_run(&janus_home()?.join("janus.db"))?),
+                Some("--shape") => println!("{}", serde_json::to_string_pretty(&data_shape::snapshot()?)?),
+                _ => anyhow::bail!(
+                    "janus migrate --dry-run 预览这份数据升级到数据版本 {} 会改什么（不修改数据）；janus migrate --shape 输出当前的数据结构快照。升级本身在服务启动时自动执行。",
+                    migrations::latest()
+                ),
+            }
             return Ok(());
         }
         Some("--help" | "-h") => {
             println!(
-                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node), JANUS_MAX_CONCURRENT_ATTEMPTS (max_concurrent_attempts), JANUS_RUN_TOKEN_BUDGET (run_token_budget), JANUS_RUN_COST_BUDGET_USD (run_cost_budget_usd).\nSee docs/operations/20261031-deployment.md.",
-                env!("CARGO_PKG_VERSION")
+                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n`janus migrate --dry-run` previews the data upgrade without changing anything.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node), JANUS_MAX_CONCURRENT_ATTEMPTS (max_concurrent_attempts), JANUS_RUN_TOKEN_BUDGET (run_token_budget), JANUS_RUN_COST_BUDGET_USD (run_cost_budget_usd).\nSee docs/operations/20261031-deployment.md.",
+                VERSION
             );
             return Ok(());
         }
@@ -526,7 +556,14 @@ async fn main() -> Result<()> {
     let home = janus_home()?;
     let _home_lock = lock_home(&home)?;
     let db_path = home.join("janus.db");
-    let db = db::Db::open(&db_path)?;
+    let (db, upgrade) = db::Db::open(&db_path)?;
+    if !upgrade.applied.is_empty() {
+        let backup = upgrade.backup.as_ref().map(|b| format!("，升级前的备份：{}", b.display())).unwrap_or_default();
+        config::log(format!("数据从版本 {} 升级到 {}{backup}", upgrade.from, upgrade.to));
+        for (version, name, changed) in &upgrade.applied {
+            config::log(format!("  {version}「{name}」：改动 {changed} 处"));
+        }
+    }
     let (tx, _) = tokio::sync::broadcast::channel(4096);
     let agents_dir = home.join("agents");
     std::fs::create_dir_all(&agents_dir)?;
@@ -551,7 +588,7 @@ async fn main() -> Result<()> {
         library: Default::default(),
     });
     app.recover()?;
-    app.seed_roles()?;
+    app.sync_seeds()?;
     app.reset_stale_checks()?;
     // Library sources: ask their remotes for news shortly after start, then every few hours.
     {
@@ -607,6 +644,7 @@ async fn main() -> Result<()> {
         .route("/api/setup", get(setup))
         .route("/api/setup/{kind}", post(save))
         .route("/api/setup/{kind}/{id}", delete(remove))
+        .route("/api/roles/{id}/seed", post(seed_choice))
         .route("/api/connections/{id}/test", post(test_connection))
         .route("/api/connections/{id}/login", post(login_connection))
         .route("/api/file", get(file))
@@ -628,7 +666,7 @@ async fn main() -> Result<()> {
 
     let addr = &app.cfg.addr;
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    config::log(format!("janus {}: http://{addr}  ·  home {}", env!("CARGO_PKG_VERSION"), home.display()));
+    config::log(format!("janus {VERSION}: http://{addr}  ·  home {}", home.display()));
     axum::serve(listener, router).await?;
     Ok(())
 }

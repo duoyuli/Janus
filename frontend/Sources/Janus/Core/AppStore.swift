@@ -253,6 +253,14 @@ final class AppStore {
         return saved
     }
 
+    /// Take (`adopt`) or decline the newer default text of a field the person edited on a default
+    /// digital employee. Returns the role as saved.
+    func seedChoice(_ role: String, _ field: String, adopt: Bool) async throws -> JSON {
+        let saved = try await api.post("/api/roles/\(role)/seed", ["field": JSON(field), "adopt": JSON(adopt)])
+        await loadSetup()
+        return saved
+    }
+
     func delete(_ kind: String, _ id: String) async throws {
         try await api.delete("/api/setup/\(kind)/\(id)")
         await loadSetup()

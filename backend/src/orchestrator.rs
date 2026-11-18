@@ -1019,7 +1019,7 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
     std::fs::create_dir_all(dir).unwrap();
     let (tx, _) = broadcast::channel(4096);
     Arc::new(App {
-        db: Db::open(&dir.join("janus.db")).unwrap(),
+        db: Db::open(&dir.join("janus.db")).unwrap().0,
         cfg: Config {
             data_dir: dir.join("data"),
             agents_dir: dir.join("agents"),

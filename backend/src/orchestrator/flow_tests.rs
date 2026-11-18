@@ -46,21 +46,24 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
     // What a check of the fake agent reads: whether a member writes follows from its mode.
     let modes: Vec<Value> =
         ["read-only", "ask", "agent", "full"].iter().map(|v| json!({ "value": v, "name": v })).collect();
-    app.db.put_config("connection", "fake", &json!({
-        "id": "fake", "kind": "custom", "base": "custom", "name": "Fake", "command": format!("python3 {}", script_path.display()),
+    app.db.put_config("connection", "fake", &crate::agents::test_connection("fake", "custom", "custom", json!({
+        "name": "Fake", "command": format!("python3 {}", script_path.display()),
         "env": { "FAKE_DIR": fake.to_string_lossy() },
         "options": { "controls": [{ "id": "mode", "name": "Mode", "category": "mode", "type": "select", "via": "config", "current": "ask", "permission": true, "options": modes }] }
-    }), now_ms()).unwrap();
+    })), now_ms()).unwrap();
     for (i, (id, writable)) in members.iter().enumerate() {
         app.db
             .put_config(
                 "role",
                 id,
-                &json!({
-                    "id": id, "name": id, "connection": "fake",
-                    "lead": i == 0,
-                    "session": if *writable { json!({}) } else { json!({ "mode": "read-only" }) },
-                }),
+                &crate::agents::test_role(
+                    id,
+                    json!({
+                        "connection": "fake",
+                        "lead": i == 0,
+                        "session": if *writable { json!({}) } else { json!({ "mode": "read-only" }) },
+                    }),
+                ),
                 now_ms(),
             )
             .unwrap();
@@ -71,7 +74,7 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
             "workspace",
             "ws",
             &json!({
-                "id": "ws", "name": "ws", "path": repo.canonicalize().unwrap(), "lead": members[0].0, "members": ms
+                "id": "ws", "name": "ws", "path": repo.canonicalize().unwrap(), "lead": members[0].0, "members": ms, "brief": ""
             }),
             now_ms(),
         )

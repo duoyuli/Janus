@@ -14,6 +14,7 @@
 ├── bin/janus                 # 安装的 Janus 二进制（just install）
 ├── config.toml               # 用户配置，可选
 ├── janus.db                  # SQLite：Agent、角色、工作区、Run、事件
+├── backups/                  # 数据升级前的数据库备份 janus-v<旧数据版本>-<毫秒时间>.db，保留最近 5 份
 ├── janus.pid                 # 单实例锁，内容是正在运行的 Janus 的进程号
 ├── agents/<agent-id>/        # 每个 Agent 的隔离配置目录、HOME、临时目录和凭据
 ├── secrets/library/          # 资源库 MCP 服务器的环境变量和 HTTP header 值
@@ -40,6 +41,7 @@
 | 用户级数据 | `janus.db`、`agents/`、`secrets/`、`library/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
 | 全局依赖 | `adapters/` | 第一次用到时下载，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
 | 应用更新 | `updates/` | 只有最近一次的新版本和上一个版本，可以随时删除 |
+| 升级备份 | `backups/` | 数据升级前的 `janus.db` 副本，退回旧版本或升级出问题时用；确认新版本正常后可以删除，见[升级](#upgrade) |
 | 价格数据 | `prices/` | 从 models.dev 同步的模型价格，可以随时删除，下次同步时重新下载，见 [ADR：按 models.dev 的价格估算用量](../decisions/20261115-model_prices.md) |
 | 配置与日志 | `config.toml`、`logs/` | 配置项见[配置](../interfaces/20261031-configuration.md#settings) |
 | 程序 | `bin/janus` | 服务的二进制，不依赖仓库 |
@@ -163,7 +165,10 @@ just install
 | ACP 适配器 | 在「设置 → ACP」中检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
 | Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → Agent」重新检查 |
 
-数据库结构由 Janus 启动时自动创建；不需要单独迁移。
+数据随版本自动升级：新版本的服务第一次启动时，先把 `janus.db` 备份到 `backups/`，再把表结构、设置对象、Run 快照和默认数字员工升级到这个版本的数据版本，日志 `logs/janus.log` 写明升级了什么和备份位置。不需要单独运行升级脚本；想先看看会改什么，执行 `janus migrate --dry-run`（在副本上执行，不修改数据）。详见[数据升级](../architecture/20261031-data_model.md#migrations)。
+
+- 升级要由新版本的服务执行。安装包里的应用连上其他版本的服务（例如还在运行的 `just dev` 或旧的 launchd 服务）时会提示，点「停止旧服务并重试」后改用应用自带的服务；以服务方式运行时先 `just stop`，或 `just install && just restart` 升级服务。
+- 退回旧版本：旧版本不能打开升级过的数据，会拒绝启动。先退出 Janus，把 `backups/` 中升级前的备份复制为 `janus.db`（同时删除 `janus.db-wal` 和 `janus.db-shm`），再打开旧版本；升级后新写入的数据不在备份里。
 
 <a id="backup"></a>
 ## 备份与迁移到另一台机器

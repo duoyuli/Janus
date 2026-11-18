@@ -142,7 +142,7 @@ impl AcpConn {
                                     // AIR clients get the goal extension and the AIR tool-call report.
                                     "_meta": { "jetbrains": { "air": {} } }
                                 },
-                                "clientInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") }
+                                "clientInfo": { "name": "janus", "version": crate::VERSION }
                             }),
                         )?)
                         .block_task()

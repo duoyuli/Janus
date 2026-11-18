@@ -134,6 +134,7 @@ struct RoleEditor: View {
                         TextField(L.text("独立检查变更，寻找风险与反例"), text: bind("desc")).textFieldStyle(.roundedBorder)
                         Text(L.text("负责人会根据这段描述，把合适的子任务交给它。写下它擅长什么、负责交付什么。")).font(.caption).foregroundStyle(.secondary)
                     }
+                    seedUpdate("desc", L.text("默认职责有新版本。你改过这一项，所以升级时没有替换。"))
                     Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L.text("可以担任负责人"))
@@ -153,6 +154,7 @@ struct RoleEditor: View {
                         }
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     Text(L.text("这段指令会作为系统提示词交给 Coding Agent，在整个会话中持续生效。")).font(.caption).foregroundStyle(.secondary)
+                    seedUpdate("prompt", L.text("默认指令有新版本。你改过这一项，所以升级时没有替换。"))
 
                     resources
 
@@ -214,6 +216,43 @@ struct RoleEditor: View {
 
     private func bind(_ k: String) -> Binding<String> {
         Binding(get: { r[k].str }, set: { v in r[k] = JSON(v); if k == "name" && !r["id"].truthy { r["init"] = "" } })
+    }
+
+    /// A default digital employee whose `field` the person edited, when Janus ships newer default
+    /// text for it: show the new text and let them take it or keep theirs.
+    @ViewBuilder private func seedUpdate(_ field: String, _ note: String) -> some View {
+        if r["id"].truthy, let text = r["seedUpdates"][field].string {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(note).font(.callout)
+                DisclosureGroup(L.text("查看新版")) {
+                    Text(text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+                }
+                HStack {
+                    Button(L.text("采用新版")) { chooseSeed(field, adopt: true) }.buttonStyle(.primary)
+                    Button(L.text("保留我的")) { chooseSeed(field, adopt: false) }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Tone.blue.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func chooseSeed(_ field: String, adopt: Bool) {
+        Task {
+            do {
+                let saved = try await store.seedChoice(r["id"].str, field, adopt: adopt)
+                r[field] = saved[field]
+                r["seed"] = saved["seed"]
+                var updates = r["seedUpdates"].object
+                updates[field] = nil
+                r["seedUpdates"] = .object(updates)
+                store.show(adopt ? L.text("已采用新版") : L.text("已保留你的版本"))
+            } catch {
+                store.show(error.localizedDescription)
+            }
+        }
     }
 
     private func labeled<C: View>(_ label: String, @ViewBuilder content: () -> C) -> some View {

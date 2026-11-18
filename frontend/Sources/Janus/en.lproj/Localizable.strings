@@ -1221,3 +1221,14 @@
 "只扫描到第 8 层，部分子目录未扫描。请选择更具体的子目录。" = "Some folders are deeper than the 8-level scan limit. Select a more specific folder to include them.";
 "负责人会根据这段描述，把合适的子任务交给它。写下它擅长什么、负责交付什么。" = "The lead uses this description to hand it the right subtasks. Say what it is good at and what it delivers.";
 "这段指令会作为系统提示词交给 Coding Agent，在整个会话中持续生效。" = "These instructions are given to the coding agent as its system prompt and apply for the whole session.";
+"默认职责有新版本。你改过这一项，所以升级时没有替换。" = "There are newer default responsibilities. You edited yours, so the upgrade kept them.";
+"默认指令有新版本。你改过这一项，所以升级时没有替换。" = "There are newer default instructions. You edited yours, so the upgrade kept them.";
+"查看新版" = "Show the New Version";
+"采用新版" = "Use the New Version";
+"保留我的" = "Keep Mine";
+"已采用新版" = "Switched to the new version";
+"已保留你的版本" = "Kept your version";
+"Janus 服务不是这个版本" = "The Janus Service Is a Different Version";
+"停止旧服务并重试" = "Stop It and Retry";
+"旧版本" = "an older version";
+"正在运行的 Janus 服务是 %@，这个应用是 %@。数据升级和新功能要在新版服务启动后才生效。停止它之后，应用会启动自带的服务。以服务方式运行（just start）时，请先执行 just stop。" = "The running Janus service is %@ and this app is %@. Data upgrades and new features take effect only when a service of the new version starts. Stop it and the app starts its own service. If Janus runs as a service (just start), run just stop first.";

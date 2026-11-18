@@ -502,3 +502,13 @@ private func goalRun() -> Log {
     #expect(state.run.status == .delivered && !state.inbox.contains { $0.kind == "budget" })
     #expect(Inbox.entries(row: ["id":"r1","status":"delivered"], workspace: "").map(\.kind) == ["delivered"])
 }
+
+/// An installed app does not use a Janus service of another release (its data upgrade has not run);
+/// an app run from source uses whatever runs.
+@Test func aServiceOfAnotherReleaseIsStale() {
+    #expect(!Backend.isStale(server: "2026.11.19", app: "2026.11.19"))
+    #expect(Backend.isStale(server: "2026.11.18.3", app: "2026.11.19"))
+    #expect(Backend.isStale(server: "0.1.0", app: "2026.11.19"), "a service from source")
+    #expect(Backend.isStale(server: nil, app: "2026.11.19"), "a service too old to say its version")
+    #expect(!Backend.isStale(server: "0.1.0", app: "0"), "the app from source")
+}
