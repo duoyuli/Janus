@@ -109,8 +109,8 @@ jobs:
             echo "CHANGELOG.md 缺少「## ${version}」一节：发布前先写这一版的 change log"
             exit 1
           fi
-          install="下载 Janus-${version}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」；之后可在应用内一键更新。macOS 的资源访问权限仍可能需要重新授权，可在「设置 → macOS 权限」逐项处理。只支持 Apple 芯片（M 系列）的 Mac，macOS 15 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/20261031-deployment.md。"
-          install_en="Download Janus-${version}.dmg, open it and drag Janus into Applications. The package is not signed with an Apple developer certificate, so on first launch choose Open Anyway under System Settings → Privacy & Security; later versions update inside the app. macOS resource permissions may still need renewed authorization; use Settings → macOS 权限 to review them. Apple silicon Macs (M series) only, macOS 15 or later. The package bundles Node.js; you only need the agent CLIs you plan to use, see docs/operations/20261031-deployment.md in the repository."
+          install="下载 Janus-${version}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 → 隐私与安全性」中点「仍要打开」；之后可在应用内一键更新。macOS 的资源访问权限仍可能需要重新授权，可在「设置 → 通用 → macOS 权限」逐项处理。只支持 Apple 芯片（M 系列）的 Mac，macOS 15 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/20261031-deployment.md。"
+          install_en="Download Janus-${version}.dmg, open it and drag Janus into Applications. The package is not signed with an Apple developer certificate, so on first launch choose Open Anyway under System Settings → Privacy & Security; later versions update inside the app. macOS resource permissions may still need renewed authorization; use Settings → General → macOS Permissions to review them. Apple silicon Macs (M series) only, macOS 15 or later. The package bundles Node.js; you only need the agent CLIs you plan to use, see docs/operations/20261031-deployment.md in the repository."
           body="$(printf '%s\n\n---\n\n%s\n\n%s' "$notes" "$install" "$install_en")"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --clobber

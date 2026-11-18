@@ -10,6 +10,12 @@ enum Screen: Hashable {
     case newWorkspace
 }
 
+/// The sections of the general settings pane that other places link to directly.
+enum GeneralSection: Hashable {
+    case updates
+    case permissions
+}
+
 /// Global state: setup objects (Agents, roles, workspaces), runs, adapters and the resource library.
 /// Everything is read from the orchestrator; nothing here is the source of truth.
 @Observable @MainActor
@@ -188,16 +194,24 @@ final class AppStore {
     }
     func rememberWorkspace(_ id: String) { UserDefaults.standard.set(id, forKey: "janus.ws") }
 
-    /// The settings page's pane: Agents, roles, libraries or ACP adapters. The last one opened comes back.
+    /// The settings page's pane: general, Agents, roles, libraries or ACP adapters. The last one opened comes back.
     var settingsTab: String = UserDefaults.standard.string(forKey: "janus.settingsTab") ?? "general" {
         didSet { UserDefaults.standard.set(settingsTab, forKey: "janus.settingsTab") }
     }
     /// The settings page covers the main window; closing it shows the screen underneath again.
     var showingSettings = false
+    /// A section of the general pane to scroll to once it shows; the pane clears it after scrolling.
+    var generalSection: GeneralSection?
 
     func openSettings(_ tab: String) {
         settingsTab = tab
         showingSettings = true
+    }
+
+    /// Opens the general pane scrolled to one of its sections.
+    func openSettings(_ section: GeneralSection) {
+        generalSection = section
+        openSettings("general")
     }
     var currentWorkspace: JSON? { workspace(currentWorkspaceId) ?? workspaces.first }
 

@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The settings panel (⌘,): a floating card in the middle of the window, a pane each for general preferences, ACP adapters,
-/// Agents, the resource library, digital employees (roles), the usage bill, macOS permissions and updates. Clicking the
-/// dimmed area or pressing Esc closes it and shows the screen underneath unchanged; the last pane
-/// opened comes back next time. Language and appearance are local preferences.
+/// The settings panel (⌘,): a floating card in the middle of the window, a pane each for general preferences (language,
+/// appearance, updates and macOS permissions), ACP adapters, Agents, the resource library, digital employees (roles)
+/// and the usage bill. Clicking the dimmed area or pressing Esc closes it and shows the screen underneath unchanged;
+/// the last pane opened comes back next time. Language and appearance are local preferences.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct SettingsView: View {
     let store: AppStore
@@ -50,8 +50,6 @@ struct SettingsView: View {
                 nav("library", L.text("资源库"), "books.vertical", updates: store.sourceUpdates.count)
                 nav("roles", L.text("数字员工"), "person.2")
                 nav("usage", L.text("用量账单"), "list.bullet.rectangle")
-                nav("permissions", L.text("macOS 权限"), "lock.shield")
-                nav("updates", L.text("更新"), "arrow.triangle.2.circlepath")
             }
             .padding(.horizontal, 8)
             Spacer(minLength: 0)
@@ -89,10 +87,8 @@ struct SettingsView: View {
         case "library": LibraryView(store: store)
         case "adapters": AdaptersView(store: store)
         case "usage": UsageBillView(store: store)
-        case "permissions": MacPermissionsView(permissions: store.permissions)
-        case "updates": UpdatesView()
         case "agents": AgentsView(store: store)
-        default: GeneralSettingsView()
+        default: GeneralSettingsView(store: store)
         }
     }
 }

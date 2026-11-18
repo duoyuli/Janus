@@ -131,7 +131,7 @@ struct Sidebar: View {
                         .buttonStyle(.borderless)
                         .help(L.text("Agent、数字员工和 ACP（⌘,）"))
                 }
-                UpdateBadge(updater: Updater.shared) { store.openSettings("updates") }
+                UpdateBadge(updater: Updater.shared) { store.openSettings(.updates) }
                 if !store.sourceUpdates.isEmpty {
                     Button { store.openSettings("library") } label: {
                         Label(L.text("\(store.sourceUpdates.count) 个资源来源有更新"), systemImage: "arrow.down.circle")
@@ -248,7 +248,7 @@ struct UpdateBadge: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
-            .help(L.text("在设置 → 更新中查看更新内容并安装"))
+            .help(L.text("在设置 → 通用 → 更新中查看更新内容并安装"))
         case .downloading, .verifying, .relaunching:
             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(updater.state.workingText ?? "").font(.caption).foregroundStyle(.secondary) }
         case .failed(let text) where updater.latest != nil:

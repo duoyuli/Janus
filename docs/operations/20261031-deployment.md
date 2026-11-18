@@ -59,9 +59,9 @@
 
 应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/20261031-frontend.md#server_process)。
 
-升级：有新版本时，侧栏底部显示「Janus <版本> 可以更新」，点击打开「设置 → 更新」，在那里点「更新到 <版本>」后应用下载更新、退出并重新打开；菜单栏 Janus 图标菜单中的「检查更新…」也打开这一页并立即检查。应用内更新不需要再到「隐私与安全性」中允许，见[应用内更新](../architecture/20261031-frontend.md#updates)。应用不在可写的目录中（例如直接从 DMG 中运行）时不能自动更新，先把它拖进「应用程序」。
+升级：有新版本时，侧栏底部显示「Janus <版本> 可以更新」，点击打开「设置 → 通用」并滚到「更新」一节，在那里点「更新到 <版本>」后应用下载更新、退出并重新打开；菜单栏 Janus 图标菜单中的「检查更新…」也打开这一节并立即检查。应用内更新不需要再到「隐私与安全性」中允许，见[应用内更新](../architecture/20261031-frontend.md#updates)。应用不在可写的目录中（例如直接从 DMG 中运行）时不能自动更新，先把它拖进「应用程序」。
 
-首次安装或升级后的权限引导见 [macOS 权限](../architecture/20261031-frontend.md#macos_permissions)。ad-hoc 签名的版本更新后，完整磁盘访问、应用程序管理或屏幕录制可能需要重新授权；这与首次打开安装包时的 Gatekeeper 放行分别处理。用户可稍后在「设置 → macOS 权限」继续。
+首次安装或升级后的权限引导见 [macOS 权限](../architecture/20261031-frontend.md#macos_permissions)。ad-hoc 签名的版本更新后，完整磁盘访问、应用程序管理或屏幕录制可能需要重新授权；这与首次打开安装包时的 Gatekeeper 放行分别处理。用户可稍后在「设置 → 通用 → macOS 权限」继续。
 
 ### 从源码构建
 
@@ -159,7 +159,7 @@ just install
 | 升级对象 | 做法 |
 | --- | --- |
 | Janus 本身（服务） | 更新仓库代码后执行 `just install`，再执行 `just restart` |
-| Janus 本身（macOS 应用） | 在「设置 → 更新」中点「更新到 <版本>」；侧栏底部的「可以更新」和菜单栏 Janus 图标菜单中的「检查更新…」都打开这一页。上一个版本保留在 `~/.janus/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
+| Janus 本身（macOS 应用） | 在「设置 → 通用 → 更新」中点「更新到 <版本>」；侧栏底部的「可以更新」和菜单栏 Janus 图标菜单中的「检查更新…」都打开这一节。上一个版本保留在 `~/.janus/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
 | ACP 适配器 | 在「设置 → ACP」中检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
 | Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → Agent」重新检查 |
 

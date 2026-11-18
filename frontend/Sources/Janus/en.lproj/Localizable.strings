@@ -218,7 +218,7 @@
 "不满足" = "Violated";
 "为什么要你决定：%@" = "Why your decision is needed: %@";
 "为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明" = "Plan and launch a feature for this product. Identify the target users and success criteria, write a PRD, implement and test the feature, and prepare release notes.";
-"之后可从「设置 → macOS 权限」继续。" = "Resume setup from Settings → macOS Permissions.";
+"之后可从「设置 → 通用 → macOS 权限」继续。" = "Resume setup from Settings → General → macOS Permissions.";
 "之后同类操作不再询问" = "Future operations of this kind will be allowed automatically";
 "之后同类操作直接拒绝" = "Future operations of this kind will be denied automatically";
 "也没有正在进行的任务。" = "There are no active runs.";
@@ -422,7 +422,7 @@
 "在当前回放位置，这个子任务还不存在。" = "This subtask did not exist at the selected replay position.";
 "在浏览器中打开发布页" = "Open Release Page in Browser";
 "在渲染后的文档和 Markdown 源文本之间切换" = "Switch between the rendered document and the Markdown source";
-"在设置 → 更新中查看更新内容并安装" = "View the release and install it in Settings → Updates";
+"在设置 → 通用 → 更新中查看更新内容并安装" = "View the release and install it in Settings → General → Updates";
 "在这个 Agent 上新建数字员工…" = "Create Digital Employee with This Agent…";
 "在预览中打开" = "Open in Preview";
 "地址，例如 https://example.com/mcp" = "URL, for example https://example.com/mcp";

@@ -24,7 +24,7 @@
 3. 有 `MACOS_SIGNING_P12` secret 时，把证书导入临时钥匙串，设置 `JANUS_SIGN_IDENTITY` 和 `JANUS_SIGN_KEYCHAIN`，见[签名](#signing)；没有时用 ad-hoc 签名。
 4. 执行 `frontend/scripts/package.sh --version <标签去掉 v>`，得到 `dist/Janus.app`、`dist/Janus-<版本>.dmg` 和[更新部分](#update_parts)。
 5. 检查应用、服务和内置 Node.js 都是 arm64，校验签名；把两个更新部分重新拼装成应用再校验一次签名（更新器就是这样拼装的）；计算 SHA-256 写入 `SHA256SUMS.txt`（只写文件名，下载后在同一目录执行 `shasum -a 256 -c SHA256SUMS.txt` 即可核对）。
-6. 上传为工作流产物，并创建同名的 GitHub Release（已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节（中英双语）加上中英文的首次打开步骤和系统权限提示组成；找不到这一节时工作流失败。首次打开的 Gatekeeper 放行与资源访问授权分别说明，升级后可在「设置 → macOS 权限」处理后者。
+6. 上传为工作流产物，并创建同名的 GitHub Release（已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节（中英双语）加上中英文的首次打开步骤和系统权限提示组成；找不到这一节时工作流失败。首次打开的 Gatekeeper 放行与资源访问授权分别说明，升级后可在「设置 → 通用 → macOS 权限」处理后者。
 
 发布一个版本（版本号按日期，见[版本号](#versioning)）：
 

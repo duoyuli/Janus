@@ -109,7 +109,7 @@ struct StatusMenu: View {
         Divider()
         Button(L.text("新目标")) { show(); model.newGoal() }.disabled(store == nil)
         Button(L.text("设置…")) { show(); store?.openSettings(store?.settingsTab ?? "general") }.disabled(store == nil)
-        Button(L.text("检查更新…")) { show(); store?.openSettings("updates"); Task { await Updater.shared.check() } }
+        Button(L.text("检查更新…")) { show(); store?.openSettings(.updates); Task { await Updater.shared.check() } }
         Button(L.text("打开 Janus 日志")) { model.openLogs() }
         Divider()
         Button(L.text("退出 Janus")) { NSApp.terminate(nil) }.keyboardShortcut("q")
@@ -132,7 +132,7 @@ struct JanusCommands: Commands {
         let onRun: Bool = { if case .run = store?.screen { return run != nil } else { return false } }()
         CommandGroup(after: .appInfo) {
             Button(L.text("检查更新…")) {
-                store?.openSettings("updates")
+                store?.openSettings(.updates)
                 Task { await Updater.shared.check() }
             }.disabled(store == nil)
         }

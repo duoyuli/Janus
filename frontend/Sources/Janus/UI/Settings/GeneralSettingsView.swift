@@ -1,39 +1,73 @@
 import SwiftUI
 
+/// Settings › 通用: language and appearance, then the update and macOS permission sections. Other places
+/// (the update badge, "Check for Updates…") open this pane at a section through `AppStore.generalSection`.
+// @project-doc docs/architecture/20261031-frontend.md#screens
 struct GeneralSettingsView: View {
+    let store: AppStore
     @Local private var appearance = Appearance.saved
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                Text(L.text("通用"))
-                    .font(.display(.title))
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.bottom, 6)
-                HStack(spacing: 22) {
-                    settingLabel(L.text("语言"), detail: L.text("选择 Janus 的界面语言，更改后立即生效。"))
-                    Spacer(minLength: 0)
-                    Picker(L.text("语言"), selection: Bindable(LanguageSettings.shared).selection) {
-                        ForEach(AppLanguage.allCases, id: \.self) { item in
-                            Text(verbatim: item.title).tag(item)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.large)
-                    .frame(width: 166)
-                }
-                Divider()
-                HStack(spacing: 22) {
-                    settingLabel(L.text("外观"), detail: L.text("选择 Janus 的界面外观，更改后立即生效。"))
-                    Spacer(minLength: 0)
-                    appearanceControl
-                }
+        ScrollViewReader { proxy in
+            ScrollView {
+                content
             }
-            .frame(maxWidth: 760, alignment: .leading)
-            .padding(28)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .onAppear { scroll(proxy) }
+            .onChange(of: store.generalSection) { scroll(proxy) }
         }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy) {
+        guard let section = store.generalSection else { return }
+        store.generalSection = nil
+        // On first appearance the sections are laid out after this call; scroll on the next turn.
+        DispatchQueue.main.async { withAnimation { proxy.scrollTo(section, anchor: .top) } }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text(L.text("通用"))
+                .font(.display(.title))
+                .accessibilityAddTraits(.isHeader)
+                .padding(.bottom, 6)
+            HStack(spacing: 22) {
+                settingLabel(L.text("语言"), detail: L.text("选择 Janus 的界面语言，更改后立即生效。"))
+                Spacer(minLength: 0)
+                Picker(L.text("语言"), selection: Bindable(LanguageSettings.shared).selection) {
+                    ForEach(AppLanguage.allCases, id: \.self) { item in
+                        Text(verbatim: item.title).tag(item)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.large)
+                .frame(width: 166)
+            }
+            Divider()
+            HStack(spacing: 22) {
+                settingLabel(L.text("外观"), detail: L.text("选择 Janus 的界面外观，更改后立即生效。"))
+                Spacer(minLength: 0)
+                appearanceControl
+            }
+            Divider()
+            sectionTitle(L.text("更新"))
+                .id(GeneralSection.updates)
+            UpdatesView()
+            Divider()
+            sectionTitle(L.text("macOS 权限"))
+                .id(GeneralSection.permissions)
+            MacPermissionsView(permissions: store.permissions)
+        }
+        .frame(maxWidth: 760, alignment: .leading)
+        .padding(28)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.display(.title2))
+            .accessibilityAddTraits(.isHeader)
+            .padding(.top, 6)
     }
 
     private func settingLabel(_ title: String, detail: String) -> some View {
