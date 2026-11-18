@@ -1157,7 +1157,7 @@
 "风险（执行者报告）" = "Risks Reported by the Agent";
 "风险：" = "Risks:";
 "风险：%@" = "Risks: %@";
-"首次安装或更新后，已有授权可能需要重新确认。" = "After an installation or update, you may need to confirm existing permissions again.";
+"首次安装，或 Janus 的签名身份变化后，需要重新授权。授权之后，同一签名的更新会保留这些权限。" = "Grant these after the first installation, or when Janus’s signing identity changes. Updates with the same signature keep them.";
 "首次通过 %@" = "Passed first time: %@";
 "首次通过：第一次尝试就完成，且验证一次通过" = "Passed first time means the first attempt completed and passed verification on its first check";
 "验收标准" = "Acceptance Criteria";
@@ -1232,3 +1232,7 @@
 "停止旧服务并重试" = "Stop It and Retry";
 "旧版本" = "an older version";
 "正在运行的 Janus 服务是 %@，这个应用是 %@。数据升级和新功能要在新版服务启动后才生效。停止它之后，应用会启动自带的服务。以服务方式运行（just start）时，请先执行 just stop。" = "The running Janus service is %@ and this app is %@. Data upgrades and new features take effect only when a service of the new version starts. Stop it and the app starts its own service. If Janus runs as a service (just start), run just stop first.";
+"系统设置里已经打开，这里仍未检测到？" = "Turned on in System Settings but still not detected?";
+"1. macOS 要等 Janus 重新打开后，新的屏幕录制授权才生效。点「重新打开 Janus」。" = "1. macOS applies a new Screen Recording permission only after Janus reopens. Click Reopen Janus.";
+"2. 重新打开后仍未检测到，说明列表里打开的是更新前的旧 Janus。在「系统设置 → 隐私与安全性 → 屏幕录制」中选中 Janus，点「−」删除，回到这里点「申请授权」重新开启，再重新打开 Janus。" = "2. Still not detected after reopening? The switch belongs to Janus from before the update. In System Settings → Privacy & Security → Screen Recording, select Janus and click −, then click Request Access here, turn it on again, and reopen Janus.";
+"重新打开 Janus" = "Reopen Janus";

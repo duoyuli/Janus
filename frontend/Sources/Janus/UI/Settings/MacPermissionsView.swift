@@ -45,6 +45,27 @@ struct MacPermissionsView: View {
         .onAppear { permissions.refresh() }
     }
 
+    /// Screen Recording switched on in System Settings but not seen here: either Janus has not been
+    /// reopened since (macOS applies the grant to a new process only), or the switch belongs to the
+    /// Janus before an update, which macOS treats as another app.
+    private func screenRecordingHelp(settings: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L.text("系统设置里已经打开，这里仍未检测到？")).font(.callout.weight(.semibold))
+            Text(L.text("1. macOS 要等 Janus 重新打开后，新的屏幕录制授权才生效。点「重新打开 Janus」。"))
+            Text(L.text("2. 重新打开后仍未检测到，说明列表里打开的是更新前的旧 Janus。在「系统设置 → 隐私与安全性 → 屏幕录制」中选中 Janus，点「−」删除，回到这里点「申请授权」重新开启，再重新打开 Janus。"))
+            HStack {
+                Button(L.text("重新打开 Janus")) { permissions.relaunch() }
+                if settings { Button(L.text("打开系统设置")) { permissions.openSettings(.screenRecording) } }
+            }
+            .padding(.top, 2)
+        }
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.soft, in: RoundedRectangle(cornerRadius: 8))
+    }
+
     private func permissionCard(_ permission: MacPermission) -> some View {
         let state = permissions.status(permission)
         let active = permissions.current == permission
@@ -64,6 +85,9 @@ struct MacPermissionsView: View {
                     if permission.manual {
                         Text(L.text("需在系统设置中查看；手动确认不代表应用检测到了授权。"))
                             .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if permission == .screenRecording && state == .notGranted {
+                        screenRecordingHelp(settings: !active)
                     }
                 }
             }
@@ -105,7 +129,7 @@ struct MacPermissionReview: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L.text("检查 Janus 的系统权限")).font(.display(.title2))
-                    Text(L.text("首次安装或更新后，已有授权可能需要重新确认。"))
+                    Text(L.text("首次安装，或 Janus 的签名身份变化后，需要重新授权。授权之后，同一签名的更新会保留这些权限。"))
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()

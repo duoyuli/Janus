@@ -1,7 +1,6 @@
 import AppKit
 import CoreGraphics
 import Observation
-import Security
 
 enum MacPermission: String, CaseIterable, Codable, Identifiable {
     case fullDisk, appManagement, screenRecording
@@ -69,26 +68,17 @@ enum MacPermissionStatus: Equatable {
 // @project-doc docs/operations/20261031-security.md#macos_permissions
 @Observable @MainActor
 final class MacPermissions {
+    /// Who macOS grants permissions to: the bundle id and the signing identity (designated
+    /// requirement). Releases signed with the same certificate share it, so an update keeps the
+    /// grants and the person's confirmations and shows no new review; a new identity (an ad-hoc
+    /// build, another certificate or bundle id) starts over.
     struct Installation: Codable, Equatable {
         var bundleID: String
-        var path: String
-        var version: String
-        var build: String
-        var codeHash: String?
+        var requirement: String?
 
         static func current(_ bundle: Bundle = .main) -> Self? {
             guard bundle.bundleURL.pathExtension == "app", let id = bundle.bundleIdentifier else { return nil }
-            var code: SecStaticCode?
-            var info: CFDictionary?
-            var hash: String?
-            if SecStaticCodeCreateWithPath(bundle.bundleURL as CFURL, [], &code) == errSecSuccess, let code,
-               SecCodeCopySigningInformation(code, [], &info) == errSecSuccess, let info,
-               let data = (info as NSDictionary)[kSecCodeInfoUnique] as? Data {
-                hash = data.map { String(format: "%02x", $0) }.joined()
-            }
-            return Self(bundleID: id, path: bundle.bundleURL.resolvingSymlinksInPath().path,
-                        version: bundle.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
-                        build: bundle.infoDictionary?["CFBundleVersion"] as? String ?? "", codeHash: hash)
+            return Self(bundleID: id, requirement: CodeSigning.designatedRequirement(bundle.bundleURL)?.text)
         }
     }
 
@@ -103,6 +93,9 @@ final class MacPermissions {
         var requestScreen: () -> Bool
         var openSettings: (MacPermission) -> Bool
         var revealApp: () -> Void
+        /// Quit and open Janus again: macOS applies a new Screen Recording grant only to a
+        /// process started after it.
+        var relaunch: () -> Void
     }
 
     enum Flow: Equatable {
@@ -205,6 +198,11 @@ final class MacPermissions {
         system.revealApp()
     }
 
+    func relaunch() {
+        guard available else { return }
+        system.relaunch()
+    }
+
     func confirmCurrent() {
         guard let permission = current, permission.manual, available else { return }
         record?.confirmed.insert(permission)
@@ -229,11 +227,12 @@ final class MacPermissions {
     }
 
     static func unavailable() -> MacPermissions {
-        MacPermissions(installation: nil, system: System(screenAllowed: { false }, requestScreen: { false }, openSettings: { _ in false }, revealApp: {}))
+        MacPermissions(installation: nil, system: System(screenAllowed: { false }, requestScreen: { false }, openSettings: { _ in false }, revealApp: {}, relaunch: {}))
     }
 
     static func live(home: URL) -> MacPermissions {
         guard let installation = Installation.current() else { return unavailable() }
+        let app = Bundle.main.bundleURL.resolvingSymlinksInPath().path
         let file = home.appendingPathComponent("permissions/review.json")
         let record = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Record.self, from: $0) }
         let system = System(screenAllowed: { CGPreflightScreenCaptureAccess() }, requestScreen: { CGRequestScreenCaptureAccess() }, openSettings: { permission in
@@ -241,7 +240,19 @@ final class MacPermissions {
             // Settings anchors may change between macOS releases. Keep a path to the privacy pane.
             return NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
         }, revealApp: {
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: installation.path)])
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: app)])
+        }, relaunch: {
+            // Open the app again once this process has exited; give up after a minute, in case the
+            // quit is cancelled, so Janus does not reopen out of the blue later.
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/sh")
+            p.arguments = ["-c", "for i in $(seq 1 300); do kill -0 \"$1\" 2>/dev/null || { /usr/bin/open \"$2\"; exit 0; }; sleep 0.2; done",
+                           "relaunch", String(getpid()), app]
+            p.standardInput = FileHandle.nullDevice
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            NSApp.terminate(nil)
         })
         return MacPermissions(installation: installation, record: record, system: system) { record in
             let fm = FileManager.default

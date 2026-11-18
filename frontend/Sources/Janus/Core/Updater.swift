@@ -273,13 +273,8 @@ final class Updater {
     }
 
     nonisolated static func stableRequirement(_ app: URL) -> SecRequirement? {
-        var code: SecStaticCode?
-        var req: SecRequirement?
-        var text: CFString?
-        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
-              SecCodeCopyDesignatedRequirement(code, [], &req) == errSecSuccess, let req,
-              SecRequirementCopyString(req, [], &text) == errSecSuccess, let text else { return nil }
-        return (text as String).contains("cdhash") ? nil : req
+        guard let (req, text) = CodeSigning.designatedRequirement(app) else { return nil }
+        return text.contains("cdhash") ? nil : req
     }
 
     /// Hand over to a script that waits for this process to end, moves the old bundle to

@@ -10,10 +10,11 @@ import Testing
     var checks = 0
     var requests = 0
     var opened: [MacPermission] = []
+    var relaunches = 0
     var saved: MacPermissions.Record?
 
     nonisolated static var installation: MacPermissions.Installation {
-        .init(bundleID: "local.janus.test", path: "/Applications/Janus Test.app", version: "1", build: "10", codeHash: "first-code")
+        .init(bundleID: "local.janus.test", requirement: #"identifier "local.janus.test" and certificate leaf = H"aa""#)
     }
 
     func make(record: MacPermissions.Record? = nil, installation: MacPermissions.Installation? = PermissionSystem.installation) -> MacPermissions {
@@ -26,7 +27,7 @@ import Testing
         }, openSettings: { [self] permission in
             opened.append(permission)
             return settingsOpen
-        }, revealApp: {})) { [self] record in
+        }, revealApp: {}, relaunch: { [self] in relaunches += 1 })) { [self] record in
             if saveFails { throw CocoaError(.fileWriteNoPermission) }
             saved = record
         }
@@ -49,25 +50,22 @@ import Testing
     #expect(system.checks == 3, "even ordinary restarts query the live screen-recording state")
 }
 
-@Test @MainActor func anUpdateInvalidatesManualPermissionConfirmations() {
+/// An update signed by the same certificate is the same app to macOS: no new review, and the
+/// person's confirmations stand. A new signing identity or bundle id starts over.
+@Test @MainActor func onlyANewSigningIdentityInvalidatesManualPermissionConfirmations() {
     let system = PermissionSystem()
     let old = MacPermissions.Record(installation: PermissionSystem.installation, reminded: true, confirmed: [.fullDisk, .appManagement])
-    let unchanged = system.make(record: old)
-    #expect(unchanged.status(.fullDisk) == .manuallyConfirmed)
-    for field in [\MacPermissions.Installation.version, \.build, \.path] {
-        var next = PermissionSystem.installation
-        next[keyPath: field] += "-changed"
-        let updated = system.make(record: old, installation: next)
-        updated.prepareForLaunch()
-        #expect(updated.reviewPresented)
-        #expect(updated.status(.fullDisk) == .needsConfirmation)
-        #expect(updated.status(.appManagement) == .needsConfirmation)
+    let update = system.make(record: old)
+    update.prepareForLaunch()
+    #expect(!update.reviewPresented && update.status(.fullDisk) == .manuallyConfirmed)
+    let adhoc = MacPermissions.Installation(bundleID: "local.janus.test", requirement: #"cdhash H"bb""#)
+    let renamed = MacPermissions.Installation(bundleID: "io.github.janus.test", requirement: PermissionSystem.installation.requirement)
+    for next in [adhoc, renamed] {
+        let changed = system.make(record: old, installation: next)
+        changed.prepareForLaunch()
+        #expect(changed.reviewPresented)
+        #expect(changed.status(.fullDisk) == .needsConfirmation && changed.status(.appManagement) == .needsConfirmation)
     }
-    var rebuilt = PermissionSystem.installation
-    rebuilt.codeHash = "another-binary-at-the-same-version"
-    let updated = system.make(record: old, installation: rebuilt)
-    updated.prepareForLaunch()
-    #expect(updated.reviewPresented && updated.record?.confirmed.isEmpty == true)
 }
 
 @Test @MainActor func permissionGuidanceIsSequentialAndDenialIsNotAConfirmation() {
@@ -153,4 +151,13 @@ import Testing
     #expect(p.status(.appManagement) == .manuallyConfirmed && p.flow == .complete)
     #expect(p.error?.contains(expectedCopy("无法保存", "Could not save")) == true)
     #expect(system.saved == nil)
+}
+
+/// Granted in System Settings but not seen: Janus can only offer to reopen; a source run cannot.
+@Test @MainActor func relaunchingIsOfferedOnlyForTheInstalledApp() {
+    let system = PermissionSystem()
+    system.make().relaunch()
+    #expect(system.relaunches == 1)
+    system.make(installation: nil).relaunch()
+    #expect(system.relaunches == 1, "a source run has no app to reopen")
 }
