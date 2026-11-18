@@ -406,8 +406,7 @@ impl App {
         let hit = {
             let mut watch = run.watch.lock().unwrap();
             let Some(w) = watch.get_mut(session) else { return };
-            detect_call_loop(&mut w.recent_calls, &mut w.loop_cooldown, call, title)
-                .map(|(p, r, pat)| (w.attempt, p, r, pat))
+            w.calls.record(call, title).map(|(p, r, pat)| (w.attempt, p, r, pat))
         };
         let Some((n, period, repeats, pattern)) = hit else { return };
         let text_body = if period == 1 {
@@ -590,48 +589,60 @@ impl App {
     }
 }
 
-/// Detect period-1 (`AAAAA`, 5 calls), period-2 (`ABABABAB`, 4 cycles = 8 calls) or period-3
-/// (`ABCABCABC`, 3 cycles = 9 calls) tool-call loops over a bounded ring buffer of 12 calls.
-pub(super) fn detect_call_loop(
-    recent: &mut VecDeque<(u64, String)>,
-    cooldown: &mut u32,
-    call: u64,
-    title: &str,
-) -> Option<(u32, u32, String)> {
+/// Recent finished tool calls of one session, for loop detection: a ring buffer of the last
+/// `WINDOW` calls `(fingerprint, short_title)` for multi-step cycles, and the length of the
+/// current run of identical calls, which keeps counting past the window.
+#[derive(Default)]
+pub(super) struct CallLoop {
+    recent: VecDeque<(u64, String)>,
+    /// Calls remaining before another multi-step loop report may fire.
+    cooldown: u32,
+    /// How many times in a row the latest call was made.
+    streak: u32,
+}
+
+impl CallLoop {
     const WINDOW: usize = 12;
-    recent.push_back((call, short(title, 36)));
-    if recent.len() > WINDOW {
-        recent.pop_front();
-    }
-    let same = recent.iter().rev().take_while(|(h, _)| *h == call).count() as u32;
-    if same >= LOOP_REPEAT && same.is_multiple_of(LOOP_REPEAT) {
-        *cooldown = 0;
-        return Some((1, same, short(title, 60)));
-    }
-    if *cooldown > 0 {
-        *cooldown -= 1;
-        return None;
-    }
-    if recent.len() >= 8 {
-        let s = recent.len() - 8;
-        let (h0, t0) = &recent[s];
-        let (h1, t1) = &recent[s + 1];
-        if h0 != h1 && (0..8).all(|i| recent[s + i].0 == if i % 2 == 0 { *h0 } else { *h1 }) {
-            *cooldown = 7;
-            return Some((2, 4, format!("{t0} → {t1}")));
+
+    /// Record a call and detect period-1 (`AAAAA`, reported at every 5th repeat), period-2
+    /// (`ABABABAB`, 4 cycles = 8 calls) or period-3 (`ABCABCABC`, 3 cycles = 9 calls) loops.
+    pub(super) fn record(&mut self, call: u64, title: &str) -> Option<(u32, u32, String)> {
+        let recent = &mut self.recent;
+        self.streak = if recent.back().is_some_and(|(h, _)| *h == call) { self.streak + 1 } else { 1 };
+        recent.push_back((call, short(title, 36)));
+        if recent.len() > Self::WINDOW {
+            recent.pop_front();
         }
-    }
-    if recent.len() >= 9 {
-        let s = recent.len() - 9;
-        let (h0, t0) = &recent[s];
-        let (h1, t1) = &recent[s + 1];
-        let (h2, t2) = &recent[s + 2];
-        if !(h0 == h1 && h1 == h2) && (0..9).all(|i| recent[s + i].0 == recent[s + (i % 3)].0) {
-            *cooldown = 8;
-            return Some((3, 3, format!("{t0} → {t1} → {t2}")));
+        let same = self.streak;
+        if same >= LOOP_REPEAT && same.is_multiple_of(LOOP_REPEAT) {
+            self.cooldown = 0;
+            return Some((1, same, short(title, 60)));
         }
+        if self.cooldown > 0 {
+            self.cooldown -= 1;
+            return None;
+        }
+        if recent.len() >= 8 {
+            let s = recent.len() - 8;
+            let (h0, t0) = &recent[s];
+            let (h1, t1) = &recent[s + 1];
+            if h0 != h1 && (0..8).all(|i| recent[s + i].0 == if i % 2 == 0 { *h0 } else { *h1 }) {
+                self.cooldown = 7;
+                return Some((2, 4, format!("{t0} → {t1}")));
+            }
+        }
+        if recent.len() >= 9 {
+            let s = recent.len() - 9;
+            let (h0, t0) = &recent[s];
+            let (h1, t1) = &recent[s + 1];
+            let (h2, t2) = &recent[s + 2];
+            if !(h0 == h1 && h1 == h2) && (0..9).all(|i| recent[s + i].0 == recent[s + (i % 3)].0) {
+                self.cooldown = 8;
+                return Some((3, 3, format!("{t0} → {t1} → {t2}")));
+            }
+        }
+        None
     }
-    None
 }
 
 #[cfg(test)]
@@ -640,34 +651,39 @@ mod loop_tests {
 
     #[test]
     fn loop_detector_catches_single_and_alternating_cycles() {
-        let mut recent = VecDeque::new();
-        let mut cd = 0;
+        let mut calls = CallLoop::default();
         for i in 1..=4 {
-            assert!(detect_call_loop(&mut recent, &mut cd, 10, "cat x").is_none(), "step {i}");
+            assert!(calls.record(10, "cat x").is_none(), "step {i}");
         }
-        assert_eq!(detect_call_loop(&mut recent, &mut cd, 10, "cat x"), Some((1, 5, "cat x".into())));
+        assert_eq!(calls.record(10, "cat x"), Some((1, 5, "cat x".into())));
 
-        recent.clear();
-        cd = 0;
+        let mut calls = CallLoop::default();
         for i in 0..7 {
             let (h, t) = if i % 2 == 0 { (1, "Edit foo.rs") } else { (2, "cargo test") };
-            assert!(detect_call_loop(&mut recent, &mut cd, h, t).is_none());
+            assert!(calls.record(h, t).is_none());
         }
-        assert_eq!(
-            detect_call_loop(&mut recent, &mut cd, 2, "cargo test"),
-            Some((2, 4, "Edit foo.rs → cargo test".into()))
-        );
+        assert_eq!(calls.record(2, "cargo test"), Some((2, 4, "Edit foo.rs → cargo test".into())));
         // Cooldown prevents firing again on the very next step.
-        assert!(detect_call_loop(&mut recent, &mut cd, 1, "Edit foo.rs").is_none());
+        assert!(calls.record(1, "Edit foo.rs").is_none());
 
-        recent.clear();
-        cd = 0;
+        let mut calls = CallLoop::default();
         let steps = [(1, "read"), (2, "edit"), (3, "test")];
         for i in 0..8 {
             let (h, t) = steps[i % 3];
-            assert!(detect_call_loop(&mut recent, &mut cd, h, t).is_none());
+            assert!(calls.record(h, t).is_none());
         }
-        assert_eq!(detect_call_loop(&mut recent, &mut cd, 3, "test"), Some((3, 3, "read → edit → test".into())));
+        assert_eq!(calls.record(3, "test"), Some((3, 3, "read → edit → test".into())));
+    }
+
+    #[test]
+    fn a_repeated_call_is_reported_every_fifth_time_past_the_window() {
+        let mut calls = CallLoop::default();
+        let reports: Vec<u32> = (0..50).filter_map(|_| calls.record(10, "cat x")).map(|(_, n, _)| n).collect();
+        assert_eq!(reports, vec![5, 10, 15, 20, 25, 30, 35, 40, 45, 50]);
+        // A different call ends the streak; the count starts over.
+        assert!(calls.record(11, "ls").is_none());
+        let again: Vec<u32> = (0..5).filter_map(|_| calls.record(10, "cat x")).map(|(_, n, _)| n).collect();
+        assert_eq!(again, vec![5]);
     }
 }
 

@@ -651,11 +651,8 @@ struct Watch {
     /// Current phase and latest tool title, shown in `janus.wait` live pulse on timeout.
     phase: AgentPhase,
     last_tool: String,
-    /// Ring buffer of recent finished tool calls `(fingerprint, short_title)` (up to 12) for
-    /// period-1 (`AAAAA`), period-2 (`ABABABAB`) and period-3 (`ABCABCABC`) loop detection.
-    recent_calls: VecDeque<(u64, String)>,
-    /// Calls remaining before another multi-step loop report may fire.
-    loop_cooldown: u32,
+    /// Recent finished tool calls, for loop detection.
+    calls: lifecycle::CallLoop,
 }
 
 /// While alive, the session waits on a person and the watchdog leaves it alone; dropping it
