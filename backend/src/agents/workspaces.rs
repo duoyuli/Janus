@@ -25,15 +25,20 @@ impl App {
                 id.to_string()
             }
         };
+        let lead = str_of(body, "lead");
         let mut members = vec![];
         for m in body["members"].as_array().cloned().unwrap_or_default() {
             let role = self
                 .db
                 .get_config(ROLE, str_of(&m, "role"))?
                 .ok_or_else(|| anyhow!("数字员工 {} 不存在", str_of(&m, "role")))?;
-            members.push(json!({ "role": role["id"] }));
+            let slots = if role["id"] == lead { 1 } else { m["slots"].as_i64().unwrap_or(1).clamp(1, MAX_SLOTS) };
+            let mut entry = json!({ "role": role["id"] });
+            if slots > 1 {
+                entry["slots"] = json!(slots);
+            }
+            members.push(entry);
         }
-        let lead = str_of(body, "lead");
         if !members.iter().any(|m| m["role"] == lead) {
             bail!("请从成员中选择一个负责人");
         }
@@ -68,10 +73,21 @@ impl App {
         self.db.delete_config(WORKSPACE, id)
     }
 
-    /// Snapshot the environment into the run's team. The lead keeps the fixed member id "lead".
+    /// Snapshot the environment into the run's team. The lead keeps the fixed member id "lead";
+    /// a collaborator role with `slots > 1` expands into multiple independent members that all
+    /// record the same `role_id`.
+    // @project-doc docs/domains/20261031-agents_and_roles.md#member_snapshot
     pub fn team_for(&self, ws: &Value) -> Result<(PathBuf, Vec<Member>)> {
+        let raw_members = ws["members"].as_array().cloned().unwrap_or_default();
+        let mut reserved: std::collections::HashSet<String> = ["lead".to_string()].into_iter().collect();
+        for m in &raw_members {
+            if m["role"] != ws["lead"] && m["slots"].as_i64().unwrap_or(1) <= 1 {
+                let rid = str_of(m, "role");
+                reserved.insert(if rid == "lead" { "lead-role".into() } else { rid.into() });
+            }
+        }
         let mut team = vec![];
-        for m in ws["members"].as_array().cloned().unwrap_or_default() {
+        for m in raw_members {
             let role = self
                 .db
                 .get_config(ROLE, str_of(&m, "role"))?
@@ -97,34 +113,46 @@ impl App {
                 .filter_map(Value::as_str)
                 .filter_map(|id| self.item(id).ok())
                 .collect();
-            team.push(Member {
-                // "lead" is reserved for whichever role leads this environment.
-                id: if lead {
-                    "lead".into()
-                } else if role["id"] == "lead" {
-                    "lead-role".into()
+            let slots = if lead { 1 } else { m["slots"].as_i64().unwrap_or(1).clamp(1, MAX_SLOTS) as usize };
+            let base_id = if role["id"] == "lead" { "lead-role" } else { str_of(&role, "id") };
+            let base_name = str_of(&role, "name");
+            let kind = Runtime::of(str_of(&conn, "base"))?;
+            for k in 1..=slots {
+                let (id, name) = if lead {
+                    ("lead".to_string(), base_name.to_string())
+                } else if slots == 1 {
+                    (base_id.to_string(), base_name.to_string())
                 } else {
-                    str_of(&role, "id").into()
-                },
-                name: str_of(&role, "name").into(),
-                role: str_of(&role, "role").into(),
-                desc: str_of(&role, "desc").into(),
-                runtime: conn_id.into(),
-                lead,
-                color: str_of(&role, "color").into(),
-                init: str_of(&role, "init").into(),
-                model: str_of(&role, "model").into(),
-                effort: str_of(&role, "effort").into(),
-                session,
-                permission,
-                model_label,
-                kind: Runtime::of(str_of(&conn, "base"))?,
-                prompt: str_of(&conn, "prompt").into(),
-                role_prompt: str_of(&role, "prompt").into(),
-                resources,
-                role_id: str_of(&role, "id").into(),
-                runtime_name: str_of(&conn, "name").into(),
-            });
+                    let mut candidate = format!("{base_id}-{k}");
+                    let mut n = 2usize;
+                    while !reserved.insert(candidate.clone()) {
+                        candidate = format!("{base_id}-{k}-{n}");
+                        n += 1;
+                    }
+                    (candidate, format!("{base_name} #{k}"))
+                };
+                team.push(Member {
+                    id,
+                    name,
+                    role: str_of(&role, "role").into(),
+                    desc: str_of(&role, "desc").into(),
+                    runtime: conn_id.into(),
+                    lead,
+                    color: str_of(&role, "color").into(),
+                    init: str_of(&role, "init").into(),
+                    model: str_of(&role, "model").into(),
+                    effort: str_of(&role, "effort").into(),
+                    session: session.clone(),
+                    permission: permission.clone(),
+                    model_label: model_label.clone(),
+                    kind,
+                    prompt: str_of(&conn, "prompt").into(),
+                    role_prompt: str_of(&role, "prompt").into(),
+                    resources: resources.clone(),
+                    role_id: str_of(&role, "id").into(),
+                    runtime_name: str_of(&conn, "name").into(),
+                });
+            }
         }
         if !team.iter().any(|m| m.lead) {
             bail!("执行环境没有负责人");
@@ -134,6 +162,7 @@ impl App {
 }
 
 pub(super) const WORKSPACE: &str = "workspace";
+pub(super) const MAX_SLOTS: i64 = 8;
 
 /// The most a workspace's shared material may hold: it goes into every session's prompt.
 pub(super) const BRIEF_LIMIT: usize = 8000;
@@ -186,6 +215,40 @@ mod workspace_tests {
         app.save_role(&json!({ "id": "can-lead", "name": "负责人", "connection": c["id"], "lead": false })).unwrap();
         let err = app.team_for(&saved).unwrap_err().to_string();
         assert!(err.contains("没有开启「可以担任负责人」"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collaborator_slots_expand_with_shared_role_id_and_avoid_id_collisions() {
+        let dir = std::env::temp_dir().join(format!("janus-workspace-slots-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = test_app(&dir);
+        app.db
+            .put_config(
+                "connection",
+                "codex-1",
+                &json!({ "id": "codex-1", "kind": "codex", "base": "codex", "name": "Codex", "options": { "controls": [] } }),
+                now_ms(),
+            )
+            .unwrap();
+        app.save_role(&json!({ "id": "lead-r", "name": "PMO", "connection": "codex-1", "lead": true })).unwrap();
+        app.save_role(&json!({ "id": "dev", "name": "研发", "connection": "codex-1" })).unwrap();
+        app.save_role(&json!({ "id": "dev-1", "name": "专员", "connection": "codex-1" })).unwrap();
+        let ws = app
+            .save_workspace(&json!({
+                "name": "W", "path": dir.to_string_lossy(), "lead": "lead-r",
+                "members": [{ "role": "lead-r", "slots": 4 }, { "role": "dev", "slots": 3 }, { "role": "dev-1" }]
+            }))
+            .unwrap();
+        assert!(ws["members"][0]["slots"].is_null(), "lead never stores >1 slots");
+        assert_eq!(ws["members"][1]["slots"], 3);
+        let (_, team) = app.team_for(&ws).unwrap();
+        let ids: Vec<&str> = team.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["lead", "dev-1-2", "dev-2", "dev-3", "dev-1"]);
+        let devs: Vec<&Member> = team.iter().filter(|m| m.role_id == "dev").collect();
+        assert_eq!(devs.len(), 3);
+        assert_eq!(devs[0].name, "研发 #1");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
