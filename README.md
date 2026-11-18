@@ -51,7 +51,7 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 
 The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/20261031-deployment.md#macos_app).
 
-Janus supports Simplified Chinese and English. It follows your preferred languages and defaults to Simplified Chinese if none match. Set a language for Janus under System Settings → General → Language & Region → Applications, then reopen the app.
+Press ⌘, to open Janus Settings. In General → Language, choose Follow System, 简体中文, or English. Changes take effect immediately and persist across launches.
 
 After installation or an update, Janus shows a macOS permission checklist, also available under Settings → macOS Permissions. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; each authorization still requires your confirmation in macOS. The first two record your manual confirmation, while Screen Recording uses a system check. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
 

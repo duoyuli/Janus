@@ -32,11 +32,14 @@ enum Tone: String { case gray, blue, green, amber, red, violet }
 /// Labels and small formatting helpers.
 enum L {
     static let agentPhase: [String: (String, Tone)] = [
-        "idle": (L.text("空闲"), .gray), "thinking": (L.text("规划中"), .blue), "coordinating": (L.text("协调中"), .blue), "reading_files": (L.text("读取文件"), .blue),
-        "editing": (L.text("修改文件"), .blue), "running_tool": (L.text("调用工具"), .blue), "running_test": (L.text("运行测试"), .blue),
-        "waiting_for_input": (L.text("等待输入"), .amber), "waiting_for_agent": (L.text("等待协作者"), .amber), "waiting_approval": (L.text("等待审批"), .amber), "error": (L.text("异常"), .red),
+        "idle": ("空闲", .gray), "thinking": ("规划中", .blue), "coordinating": ("协调中", .blue), "reading_files": ("读取文件", .blue),
+        "editing": ("修改文件", .blue), "running_tool": ("调用工具", .blue), "running_test": ("运行测试", .blue),
+        "waiting_for_input": ("等待输入", .amber), "waiting_for_agent": ("等待协作者", .amber), "waiting_approval": ("等待审批", .amber), "error": ("异常", .red),
     ]
-    static func phase(_ s: String) -> (String, Tone) { agentPhase[s] ?? agentPhase["idle"]! }
+    static func phase(_ s: String) -> (String, Tone) {
+        let (key, tone) = agentPhase[s] ?? agentPhase["idle"]!
+        return (catalogText(key), tone)
+    }
 
     static let icon: [String: String] = [
         "run.created": "✦", "run.cancelled": "■", "run.paused": "Ⅱ", "run.resumed": "▶",
@@ -74,36 +77,23 @@ enum L {
         if m(["agent.status", "tool.", "session.prompt"]) { return "progress" }
         return "tasks"
     }
-    static let categoryLabel: [(String, String)] = [("all", L.text("全部")), ("tasks", L.text("子任务")), ("messages", L.text("消息")), ("artifacts", L.text("产物")), ("decisions", L.text("决策")), ("progress", L.text("进度与工具"))]
+    static var categoryLabel: [(String, String)] { [("all", L.text("全部")), ("tasks", L.text("子任务")), ("messages", L.text("消息")), ("artifacts", L.text("产物")), ("decisions", L.text("决策")), ("progress", L.text("进度与工具"))] }
 
     // MARK: Time
 
-    // Formatters are made once: lists draw a time on every row.
-    private static func formatter(_ format: String) -> DateFormatter {
-        let f = DateFormatter()
-        f.locale = L.locale
-        f.dateFormat = format
-        return f
-    }
-    private static let clockFormat = formatter("HH:mm:ss")
-    private static let timeFormat = formatter("HH:mm")
-    private static let dayFormat = formatter(L.text("M月d日 HH:mm"))
-    private static let yearFormat = formatter(L.text("yyyy年M月d日 HH:mm"))
-    private static let calendarDateFormat = formatter(L.text("yyyy年M月d日"))
-
-    static func clock(_ ms: Double) -> String { clockFormat.string(from: Date(timeIntervalSince1970: ms / 1000)) }
-    static func calendarDate(_ date: Date) -> String { calendarDateFormat.string(from: date) }
-    static func datedTime(_ date: Date) -> String { yearFormat.string(from: date) }
+    static func clock(_ ms: Double) -> String { language.clock.string(from: Date(timeIntervalSince1970: ms / 1000)) }
+    static func calendarDate(_ date: Date) -> String { language.calendarDate.string(from: date) }
+    static func datedTime(_ date: Date) -> String { language.year.string(from: date) }
 
     /// A moment in the app language, with the year when it is not this year.
     static func dateTime(_ ms: Double, now: Date = Date()) -> String {
         let date = Date(timeIntervalSince1970: ms / 1000)
         let cal = Calendar(identifier: .gregorian)
-        let time = timeFormat.string(from: date)
+        let time = language.time.string(from: date)
         if cal.isDate(date, inSameDayAs: now) { return L.text("今天 \(time)") }
         if let y = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(date, inSameDayAs: y) { return L.text("昨天 \(time)") }
         if let t = cal.date(byAdding: .day, value: 1, to: now), cal.isDate(date, inSameDayAs: t) { return L.text("明天 \(time)") }
-        return (cal.component(.year, from: date) == cal.component(.year, from: now) ? dayFormat : yearFormat).string(from: date)
+        return (cal.component(.year, from: date) == cal.component(.year, from: now) ? language.day : language.year).string(from: date)
     }
     static func dur(_ ms: Double) -> String {
         let s = max(0, Int((ms / 1000).rounded()))

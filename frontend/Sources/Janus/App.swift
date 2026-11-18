@@ -9,6 +9,7 @@ struct JanusApp: App {
     var body: some Scene {
         Window("Janus", id: "main") {
             RootView(model: delegate.model)
+                .environment(\.locale, L.locale)
                 .frame(minWidth: 980, minHeight: 640)
         }
         .defaultSize(width: 1320, height: 860)
@@ -19,6 +20,7 @@ struct JanusApp: App {
         // Settings are a panel over the main window (⌘,), not a window of their own.
         MenuBarExtra {
             StatusMenu(model: delegate.model)
+                .environment(\.locale, L.locale)
         } label: {
             MenuBarLabel(model: delegate.model)
         }
@@ -106,7 +108,7 @@ struct StatusMenu: View {
         if active > 0 { Text(L.text("\(active) 个任务正在进行")) }
         Divider()
         Button(L.text("新目标")) { show(); model.newGoal() }.disabled(store == nil)
-        Button(L.text("设置…")) { show(); store?.openSettings(store?.settingsTab ?? "agents") }.disabled(store == nil)
+        Button(L.text("设置…")) { show(); store?.openSettings(store?.settingsTab ?? "general") }.disabled(store == nil)
         Button(L.text("检查更新…")) { show(); store?.openSettings("updates"); Task { await Updater.shared.check() } }
         Button(L.text("打开 Janus 日志")) { model.openLogs() }
         Divider()
@@ -135,7 +137,7 @@ struct JanusCommands: Commands {
             }.disabled(store == nil)
         }
         CommandGroup(replacing: .appSettings) {
-            Button(L.text("设置…")) { store?.openSettings(store?.settingsTab ?? "agents") }.keyboardShortcut(",").disabled(store == nil)
+            Button(L.text("设置…")) { store?.openSettings(store?.settingsTab ?? "general") }.keyboardShortcut(",").disabled(store == nil)
         }
         SidebarCommands()
         CommandGroup(replacing: .newItem) {
@@ -307,6 +309,11 @@ struct RootView: View {
         }
         .sheet(isPresented: Binding(get: { model.permissions.reviewPresented }, set: { if !$0 { model.permissions.dismissReview() } })) {
             MacPermissionReview(permissions: model.permissions)
+        }
+        .onChange(of: L.locale.identifier) {
+            guard let store = model.store else { return }
+            store.run?.refreshLocalizedState()
+            Task { await store.inbox.refresh(store) }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.permissions.refresh()

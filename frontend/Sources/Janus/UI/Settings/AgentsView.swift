@@ -185,7 +185,7 @@ struct ConnectionRow: View {
 
 struct CheckList: View {
     let c: JSON
-    static let steps = [L.text("ACP 适配器"), L.text("运行时"), L.text("凭据"), L.text("启动 Agent"), L.text("打开会话"), L.text("试运行")]
+    static var steps: [String] { [L.text("ACP 适配器"), L.text("运行时"), L.text("凭据"), L.text("启动 Agent"), L.text("打开会话"), L.text("试运行")] }
 
     var body: some View {
         let done = c["check"].array

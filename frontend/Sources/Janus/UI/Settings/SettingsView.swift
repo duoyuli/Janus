@@ -1,13 +1,12 @@
 import SwiftUI
 
-/// The settings panel (⌘,): a floating card in the middle of the window, a pane each for ACP adapters,
+/// The settings panel (⌘,): a floating card in the middle of the window, a pane each for general preferences, ACP adapters,
 /// Agents, the resource library, digital employees (roles), the usage bill, macOS permissions and updates. Clicking the
 /// dimmed area or pressing Esc closes it and shows the screen underneath unchanged; the last pane
-/// opened comes back next time. The bottom of the sidebar picks the app's appearance.
+/// opened comes back next time. Language and appearance are local preferences.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct SettingsView: View {
     let store: AppStore
-    @Local private var appearance = Appearance.saved
 
     var body: some View {
         ZStack {
@@ -45,6 +44,7 @@ struct SettingsView: View {
                 .font(.display(.title2))
                 .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 10)
             VStack(spacing: 2) {
+                nav("general", L.text("通用"), "gearshape")
                 nav("adapters", "ACP", "shippingbox")
                 nav("agents", "Agent", "cpu")
                 nav("library", L.text("资源库"), "books.vertical", updates: store.sourceUpdates.count)
@@ -54,18 +54,7 @@ struct SettingsView: View {
                 nav("updates", L.text("更新"), "arrow.triangle.2.circlepath")
             }
             .padding(.horizontal, 8)
-            Spacer(minLength: 16)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L.text("外观")).font(.caption).foregroundStyle(.secondary)
-                Picker(L.text("外观"), selection: $appearance) {
-                    ForEach(Appearance.allCases) { a in Text(a.title).tag(a) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .onChange(of: appearance) { _, a in a.apply() }
-                .help(L.text("系统、浅色或深色"))
-            }
-            .padding(12)
+            Spacer(minLength: 0)
         }
         .frame(width: 196)
         .background(Color.sidebar)
@@ -102,7 +91,8 @@ struct SettingsView: View {
         case "usage": UsageBillView(store: store)
         case "permissions": MacPermissionsView(permissions: store.permissions)
         case "updates": UpdatesView()
-        default: AgentsView(store: store)
+        case "agents": AgentsView(store: store)
+        default: GeneralSettingsView()
         }
     }
 }

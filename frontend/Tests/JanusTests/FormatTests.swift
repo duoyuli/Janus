@@ -42,6 +42,23 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     #expect(HomeView.problems([["name": "审查者", "connection": "c2"]], connection: { conns[$0] }).isEmpty)
 }
 
+@Test func appLanguageSwitchesResourcesAndPersistsTheChoice() throws {
+    let suite = "JanusTests.language." + UUID().uuidString
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let settings = LanguageSettings(defaults: defaults)
+    #expect(settings.selection == .system)
+    for (choice, label, pattern) in [(AppLanguage.english, "Settings", "MMM d, HH:mm"), (.chinese, "设置", "M月d日 HH:mm")] {
+        settings.selection = choice
+        let current = L.resources(for: settings.selection)
+        #expect(L.text("设置", bundle: current.bundle) == label)
+        #expect(current.day.dateFormat == pattern)
+        #expect(LanguageSettings(defaults: defaults).selection == choice)
+    }
+    settings.selection = .system
+    #expect(LanguageSettings(defaults: defaults).selection == .system)
+}
+
 @Test func bothLocalizationResourcesPreserveInterpolatedValues() throws {
     let englishURL = try #require(Bundle.module.url(forResource: "en", withExtension: "lproj"))
     let chineseURL = try #require(Bundle.module.url(forResource: "zh-Hans", withExtension: "lproj"))

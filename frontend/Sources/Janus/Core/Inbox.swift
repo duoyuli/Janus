@@ -88,7 +88,7 @@ final class InboxModel {
     private(set) var now = Date().timeIntervalSince1970 * 1000
     /// Each live run's events so far and the state derived from them, derived again only when new
     /// events came in: most refreshes find nothing new.
-    @ObservationIgnored private var cache: [String: (events: [Event], state: RunState)] = [:]
+    @ObservationIgnored private var cache: [String: (events: [Event], state: RunState, locale: Locale)] = [:]
     /// The folded sections of the inbox page; runs at work start folded every time.
     var showLater = false
     var showWorking = false
@@ -97,6 +97,7 @@ final class InboxModel {
     var later: [InboxEntry] { Inbox.split(all, snoozed: snoozed, settled: settled, now: now).later }
 
     func refresh(_ store: AppStore) async {
+        let locale = L.locale
         var out: [InboxEntry] = []
         let live = store.runs.filter { RunStatus($0["status"].str).isActive }
         for row in store.runs {
@@ -108,15 +109,18 @@ final class InboxModel {
             let id = row["id"].str
             let known = cache[id]
             guard let data = try? await store.api.get("/api/runs/\(id)?after=\(known?.events.last?.seq ?? 0)") else { continue }
+            guard locale == L.locale else { return }
             let new = data["events"].array.map(Event.init)
-            var c = known ?? (events: [], state: RunState())
-            if known == nil || !new.isEmpty {
+            var c = known ?? (events: [], state: RunState(), locale: locale)
+            if known == nil || c.locale != locale || !new.isEmpty {
+                c.locale = locale
                 c.events += new
                 c.state = derive(c.events)
             }
             cache[id] = c
             out += Inbox.entries(run: data["run"], state: c.state, workspace: ws)
         }
+        guard locale == L.locale else { return }
         let liveIds = Set(live.map { $0["id"].str })
         cache = cache.filter { liveIds.contains($0.key) }
         // Unchanged entries leave the views that show them alone.

@@ -110,7 +110,7 @@ struct DocumentsMenu: View {
             ForEach([RunDocs.Source.deliverable, .artifact, .mentioned], id: \.self) { source in
                 let group = docs.filter { $0.source == source }
                 if !group.isEmpty {
-                    Section(Self.title[source] ?? "") {
+                    Section(L.catalogText(Self.title[source] ?? "")) {
                         ForEach(group, id: \.path) { d in
                             Button(Self.label(d.path, cwd: run.state.run.cwd)) { ArtifactWindow.open(run: run, path: d.path, title: (d.path as NSString).lastPathComponent) }
                         }
@@ -123,7 +123,7 @@ struct DocumentsMenu: View {
         .help(L.text("查看这个任务交付、保存或提到的 Markdown 文档"))
     }
 
-    static let title: [RunDocs.Source: String] = [.deliverable: L.text("交付物"), .artifact: L.text("子任务产物"), .mentioned: L.text("Agent 写过或提到的文档")]
+    static let title: [RunDocs.Source: String] = [.deliverable: "交付物", .artifact: "子任务产物", .mentioned: "Agent 写过或提到的文档"]
 
     /// Inside the run's directory, the path from there; elsewhere, the path with ~.
     static func label(_ path: String, cwd: String) -> String {

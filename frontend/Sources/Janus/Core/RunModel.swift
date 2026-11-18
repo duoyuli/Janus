@@ -102,6 +102,13 @@ final class RunModel {
         }
     }
 
+    func refreshLocalizedState() {
+        deriveTask?.cancel()
+        deriveTask = nil
+        scheduleDerive()
+        replayState = replay.map { derive(Array(events.prefix($0))) }
+    }
+
     func close() {
         streamTask?.cancel()
         deriveTask?.cancel()

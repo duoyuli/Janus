@@ -18,24 +18,25 @@ struct UsageSection: View {
     @Local private var detail = false
 
     /// What each row means, shown on hover.
-    static let help: [String: String] = [
+    private var help: [String: String] { [
         "Token": L.text("每一轮 Agent 上报的 token 相加（含子 Agent，Agent 按模型上报时以它为准）；缺失写「未上报」，不写 0；上下文快照不计入"),
         L.text("构成"): L.text("Agent 上报的输入、缓存读取、缓存写入和输出；为 0 或没有上报的部分不列出"),
         L.text("费用"): L.text("Agent 上报的原值，不同币种或口径不合并；没有上报时写「未上报」，不根据 token 估算"),
         L.text("耗时"): L.text("墙钟时长：从任务创建到最后一条事件。等待你的时间单独写出，不当作 Agent 执行时间"),
         L.text("上下文"): L.text("上下文快照只显示最近值、峰值和比例，不计入 token 总量"),
         L.text("小计"): L.text("任务总计包含负责人；负责人和协作者分开列出，方便对比"),
-    ]
+    ] }
 
     var body: some View {
         let u = st.usage
         let subtotal = u.subtotalLine
+        let rowHelp = help
         VStack(alignment: .leading, spacing: 9) {
             Divider()
             ForEach(u.run.summaryRows) { row in
-                UsageRow(label: row.label, value: row.value).help(Self.help[row.label] ?? "")
+                UsageRow(label: row.label, value: row.value).help(rowHelp[row.label] ?? "")
             }
-            UsageRow(label: subtotal.label, value: subtotal.value).help(Self.help[subtotal.label] ?? "")
+            UsageRow(label: subtotal.label, value: subtotal.value).help(rowHelp[subtotal.label] ?? "")
             HStack(spacing: 8) {
                 Text(verbatim: L.text("\(u.run.sessions) 个会话")).font(.caption).foregroundStyle(.secondary)
                 Spacer()

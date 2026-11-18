@@ -1221,3 +1221,8 @@
 "自定义命令的 Agent 没有在启动时加载 Skill 的入口" = "Custom Agents cannot load skills at session startup";
 "要看 Agent 是否声明 HTTP MCP 能力" = "Depends on whether the Agent declares HTTP MCP support";
 "要看 Agent 是否声明 SSE MCP 能力" = "Depends on whether the Agent declares SSE MCP support";
+"语言" = "Language";
+"跟随系统" = "Follow System";
+"通用" = "General";
+"选择 Janus 的界面外观，更改后立即生效。" = "Choose the appearance for Janus. Changes take effect immediately.";
+"选择 Janus 的界面语言，更改后立即生效。" = "Choose the language for Janus. Changes take effect immediately.";

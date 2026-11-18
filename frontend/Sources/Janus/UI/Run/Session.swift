@@ -626,7 +626,7 @@ struct PendingTray: View {
                     let (l, tone) = Self.labels[m.delivery] ?? ("", .gray)
                     HStack(spacing: 8) {
                         if m.delivery == "pending" { ProgressView().controlSize(.mini) }
-                        Pill(l, tone)
+                        Pill(L.catalogText(l), tone)
                         Text(m.text).font(.callout).lineLimit(2)
                     }
                 }
@@ -637,7 +637,7 @@ struct PendingTray: View {
         }
     }
 
-    static let labels: [String: (String, Tone)] = ["pending": (L.text("发送中…"), .blue), "queued": (L.text("排队 · 这一轮结束后发送"), .amber), "next": (L.text("留言 · 下次会话开始时带给它"), .gray), "interrupt": (L.text("正在打断这一轮，马上送达"), .blue)]
+    static let labels: [String: (String, Tone)] = ["pending": ("发送中…", .blue), "queued": ("排队 · 这一轮结束后发送", .amber), "next": ("留言 · 下次会话开始时带给它", .gray), "interrupt": ("正在打断这一轮，马上送达", .blue)]
 
     private var pending: [Msg] {
         st.msgs.values.filter { m in
@@ -688,7 +688,7 @@ struct AgentView: View {
                         HStack {
                             Button(String("\(t.id) \(t.title)")) { run.show(.task(t.id)) }.buttonStyle(.link).lineLimit(2)
                             Spacer()
-                            Pill(l, tone)
+                            Pill(L.catalogText(l), tone)
                         }
                     }
                 }
