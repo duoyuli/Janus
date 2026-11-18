@@ -83,3 +83,20 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(opts.map(\.label) == [expectedCopy("允许一次", "Allow Once"), expectedCopy("拒绝", "Deny")] && opts.allSatisfy { $0.id.isEmpty })
     #expect(L.permissionOptions([["optionId": "x", "name": "Proceed", "kind": "other"]]).first?.label == "Proceed", "an unknown kind keeps the agent's words")
 }
+
+@Test func idleRefreshReusesEntriesForLongRunsUntilAnInputChanges() {
+    let zh = Locale(identifier: "zh-Hans")
+    for id in ["long-a", "long-b"] {
+        let row: JSON = ["id": JSON(id), "status": "running", "goal": "目标"]
+        let events = (1...20000).map { event($0, "agent.message") }
+        let entries = Inbox.entries(row: ["id": JSON(id), "status": "delivered"], workspace: "W")
+        let cached = InboxModel.CachedRun(events: events, row: row, workspace: "W", locale: zh, entries: entries)
+        #expect(cached.unchangedEntries(newEvents: [], row: row, workspace: "W", locale: zh) == entries)
+        #expect(cached.unchangedEntries(newEvents: [["seq": 20001]], row: row, workspace: "W", locale: zh) == nil)
+        #expect(cached.unchangedEntries(newEvents: [], row: row, workspace: "W", locale: Locale(identifier: "en")) == nil)
+        #expect(cached.unchangedEntries(newEvents: [], row: row, workspace: "Renamed", locale: zh) == nil)
+        var renamed = row
+        renamed["goal"] = "新目标"
+        #expect(cached.unchangedEntries(newEvents: [], row: renamed, workspace: "W", locale: zh) == nil)
+    }
+}

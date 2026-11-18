@@ -86,9 +86,20 @@ final class InboxModel {
         didSet { UserDefaults.standard.set(Array(settled), forKey: "janus.inbox.settled") }
     }
     private(set) var now = Date().timeIntervalSince1970 * 1000
-    /// Each live run's events so far and the state derived from them, derived again only when new
-    /// events came in: most refreshes find nothing new.
-    @ObservationIgnored private var cache: [String: (events: [Event], state: RunState, locale: Locale)] = [:]
+    struct CachedRun {
+        var events: [Event]
+        var row: JSON
+        var workspace: String
+        var locale: Locale
+        var entries: [InboxEntry]
+
+        func unchangedEntries(newEvents: [JSON], row: JSON, workspace: String, locale: Locale) -> [InboxEntry]? {
+            guard newEvents.isEmpty, self.row == row, self.workspace == workspace, self.locale == locale else { return nil }
+            return entries
+        }
+    }
+    @ObservationIgnored private var cache: [String: CachedRun] = [:]
+    @ObservationIgnored private var refreshGeneration = 0
     /// The folded sections of the inbox page; runs at work start folded every time.
     var showLater = false
     var showWorking = false
@@ -97,6 +108,8 @@ final class InboxModel {
     var later: [InboxEntry] { Inbox.split(all, snoozed: snoozed, settled: settled, now: now).later }
 
     func refresh(_ store: AppStore) async {
+        refreshGeneration += 1
+        let generation = refreshGeneration
         let locale = L.locale
         var out: [InboxEntry] = []
         let live = store.runs.filter { RunStatus($0["status"].str).isActive }
@@ -108,19 +121,32 @@ final class InboxModel {
             }
             let id = row["id"].str
             let known = cache[id]
-            guard let data = try? await store.api.get("/api/runs/\(id)?after=\(known?.events.last?.seq ?? 0)") else { continue }
-            guard locale == L.locale else { return }
-            let new = data["events"].array.map(Event.init)
-            var c = known ?? (events: [], state: RunState(), locale: locale)
-            if known == nil || c.locale != locale || !new.isEmpty {
-                c.locale = locale
-                c.events += new
-                c.state = derive(c.events)
+            guard let data = try? await store.api.get("/api/runs/\(id)?after=\(known?.events.last?.seq ?? 0)") else {
+                out += known?.entries ?? []
+                continue
             }
-            cache[id] = c
-            out += Inbox.entries(run: data["run"], state: c.state, workspace: ws)
+            guard generation == refreshGeneration, locale == L.locale else { return }
+            let row = data["run"]
+            let new = data["events"].array
+            guard RunStatus(row["status"].str).isActive else {
+                cache[id] = nil
+                out += Inbox.entries(row: row, workspace: ws)
+                continue
+            }
+            if let unchanged = known?.unchangedEntries(newEvents: new, row: row, workspace: ws, locale: locale) {
+                out += unchanged
+                continue
+            }
+            let updated = await Task.detached(priority: .utility) {
+                let events = (known?.events ?? []) + new.map(Event.init)
+                let entries = Inbox.entries(run: row, state: derive(events), workspace: ws)
+                return CachedRun(events: events, row: row, workspace: ws, locale: locale, entries: entries)
+            }.value
+            guard generation == refreshGeneration, locale == L.locale else { return }
+            cache[id] = updated
+            out += updated.entries
         }
-        guard locale == L.locale else { return }
+        guard generation == refreshGeneration, locale == L.locale else { return }
         let liveIds = Set(live.map { $0["id"].str })
         cache = cache.filter { liveIds.contains($0.key) }
         // Unchanged entries leave the views that show them alone.
