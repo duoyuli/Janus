@@ -154,7 +154,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | 单次尝试 | 30 分钟 |
 | 单个 ACP 请求 | 30 分钟 |
 | 发送打断等控制指令 | 15 秒 |
-| Run 预算 | 墙钟 6 小时，以及可选的 Token 上限（`maxTokens` / `JANUS_RUN_TOKEN_BUDGET`）和已上报 `USD` 费用上限（`maxCostUsd` / `JANUS_RUN_COST_BUDGET_USD`），均可用 `extendBudget` 追加；未上报用量（`None`）永不触发暂停；从中断处继续时墙钟重新计 6 小时 |
+| Run 预算 | 墙钟 6 小时，以及可选的 Token 上限（`maxTokens` / `JANUS_RUN_TOKEN_BUDGET`）和已上报 `USD` 费用上限（`maxCostUsd` / `JANUS_RUN_COST_BUDGET_USD`），均可用 `extendBudget` 追加；未上报用量（`None`）永不触发暂停；调度循环每次唤醒都检查，但只在新的 `session.usage` 写入后才重算用量账本（`App::spent`，`Run.usage_version` 记录变化）；从中断处继续时墙钟重新计 6 小时 |
 
 <a id="watchdog"></a>
 ### 停滞检测

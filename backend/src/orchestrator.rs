@@ -549,6 +549,14 @@ enum BudgetHit {
     CostUsd { used: f64, limit: f64 },
 }
 
+/// What a run has spent against its token and USD ceilings, from its usage ledger; `None` when
+/// nothing was reported.
+#[derive(Clone, Copy, Debug, Default)]
+struct Spent {
+    tokens: Option<i64>,
+    usd: Option<f64>,
+}
+
 /// What a run is made of, from its creation or its record. Everything else about it starts empty.
 struct RunRecord {
     id: String,
@@ -586,6 +594,11 @@ pub struct Run {
     token_limit: AtomicI64,
     /// Optional USD cost ceiling in micro-dollars (`0` = unlimited).
     cost_limit_micros: AtomicI64,
+    /// Bumped each time a `session.usage` event is stored, so the budget check rebuilds the
+    /// usage ledger only after usage changed, not on every scheduler pass.
+    usage_version: AtomicI64,
+    /// What the run had spent at a `usage_version` (see `App::spent`).
+    spent: StdMutex<Option<(i64, Spent)>>,
     st: StdMutex<RunState>,
     wake: Notify,
     driving: Driving,
@@ -688,6 +701,8 @@ impl Run {
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             token_limit: AtomicI64::new(r.token_limit.max(0)),
             cost_limit_micros: AtomicI64::new(r.cost_limit_micros.max(0)),
+            usage_version: AtomicI64::new(0),
+            spent: StdMutex::new(None),
             st: StdMutex::new(RunState { status: r.status, ..Default::default() }),
             wake: Notify::new(),
             driving: Driving::default(),
@@ -860,9 +875,13 @@ impl App {
         };
         let nudge = needs_lead(&event);
         let wakes_board = wakes_board_wait(&event);
+        let usage = event.kind == "session.usage";
         let stored = self.store(event);
         drop(_order);
         if stored {
+            if usage {
+                run.usage_version.fetch_add(1, Ordering::SeqCst);
+            }
             if wakes_board {
                 run.board_wake.notify_waiters();
             }

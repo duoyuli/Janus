@@ -193,7 +193,7 @@ impl App {
                     explicit_tokens.or_else(|| matches!(default_hit, Some(BudgetHit::Tokens { .. })).then_some(500_000))
                 {
                     let added = tokens.clamp(1_000, 100_000_000);
-                    let used = self.usage(run).run.tokens.total.unwrap_or(0);
+                    let used = self.spent(run).tokens.unwrap_or(0);
                     let new_limit = run.token_limit.load(Ordering::SeqCst).max(used) + added;
                     run.token_limit.store(new_limit, Ordering::SeqCst);
                     self.emit(
@@ -206,15 +206,7 @@ impl App {
                 {
                     let added = cost_usd.clamp(0.01, 10_000.0);
                     let added_micros = (added * 1_000_000.0).round() as i64;
-                    let used_micros = self
-                        .usage(run)
-                        .run
-                        .cost
-                        .lines
-                        .iter()
-                        .find(|l| l.currency.eq_ignore_ascii_case("USD"))
-                        .map(|l| (l.amount * 1_000_000.0).round() as i64)
-                        .unwrap_or(0);
+                    let used_micros = self.spent(run).usd.map(|usd| (usd * 1_000_000.0).round() as i64).unwrap_or(0);
                     let new_micros = run.cost_limit_micros.load(Ordering::SeqCst).max(used_micros) + added_micros;
                     run.cost_limit_micros.store(new_micros, Ordering::SeqCst);
                     let new_usd = new_micros as f64 / 1_000_000.0;

@@ -153,21 +153,39 @@ impl App {
         if token_limit <= 0 && cost_limit_micros <= 0 {
             return None;
         }
-        let ledger = self.usage(run);
+        let spent = self.spent(run);
         if token_limit > 0
-            && let Some(used) = ledger.run.tokens.total
+            && let Some(used) = spent.tokens
             && used >= token_limit
         {
             return Some(BudgetHit::Tokens { used, limit: token_limit });
         }
         if cost_limit_micros > 0
-            && let Some(usd) =
-                ledger.run.cost.lines.iter().find(|l| l.currency.eq_ignore_ascii_case("USD")).map(|l| l.amount)
+            && let Some(usd) = spent.usd
             && (usd * 1_000_000.0).round() as i64 >= cost_limit_micros
         {
             return Some(BudgetHit::CostUsd { used: usd, limit: cost_limit_micros as f64 / 1_000_000.0 });
         }
         None
+    }
+
+    /// Tokens and reported USD the run has spent. The ledger is rebuilt from the event log only
+    /// when a `session.usage` event arrived since the last time, so the scheduler can ask on
+    /// every pass without rereading the whole log.
+    pub(super) fn spent(&self, run: &Run) -> Spent {
+        let version = run.usage_version.load(Ordering::SeqCst);
+        if let Some((at, spent)) = *run.spent.lock().unwrap()
+            && at == version
+        {
+            return spent;
+        }
+        let ledger = self.usage(run);
+        let spent = Spent {
+            tokens: ledger.run.tokens.total,
+            usd: ledger.run.cost.lines.iter().find(|l| l.currency.eq_ignore_ascii_case("USD")).map(|l| l.amount),
+        };
+        *run.spent.lock().unwrap() = Some((version, spent));
+        spent
     }
 
     /// The scheduling loop. It recomputes the run's status from the task graph on every pass and
