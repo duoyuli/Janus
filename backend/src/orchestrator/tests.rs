@@ -247,7 +247,6 @@ fn test_run(team_size: usize) -> Run {
             .map(|i| Member {
                 id: format!("m{i}"),
                 name: format!("成员{i}"),
-                role: "测试".into(),
                 desc: String::new(),
                 runtime: String::new(),
                 lead: i == 0,
@@ -257,7 +256,6 @@ fn test_run(team_size: usize) -> Run {
                 effort: String::new(),
                 session: json!({}),
                 permission: String::new(),
-                model_label: String::new(),
                 kind: Runtime::Custom,
                 runtime_name: String::new(),
                 prompt: String::new(),
@@ -280,8 +278,10 @@ fn test_run(team_size: usize) -> Run {
 fn the_lead_is_told_each_collaborator() {
     let mut run = test_run(2);
     run.team[1].desc = "独立检查变更，寻找风险与反例".into();
+    run.team[1].runtime_name = "Codex".into();
+    run.team[1].permission = "Full access".into();
     let lines = team_lines(&run);
-    assert!(lines.contains("- m1: 成员1 (测试) · Responsibilities: 独立检查变更，寻找风险与反例 · Agent: "), "{lines}");
+    assert_eq!(lines, "- m1: 成员1 · Responsibilities: 独立检查变更，寻找风险与反例", "only who and what for");
     assert!(!lines.contains("m0"), "the lead is not its own collaborator: {lines}");
 }
 

@@ -671,7 +671,7 @@ struct AgentView: View {
                 Avatar(initials: w.initials, color: w.color, size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(w.name).font(.display(.title2))
-                    Text([w.role, w.runtime, w.model].filter { !$0.isEmpty }.joined(separator: " · ")).foregroundStyle(.secondary)
+                    Text([w.runtime, w.model].filter { !$0.isEmpty }.joined(separator: " · ")).foregroundStyle(.secondary)
                 }
                 Spacer()
             }

@@ -57,7 +57,7 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
                 "role",
                 id,
                 &json!({
-                    "id": id, "name": id, "role": "测试", "connection": "fake",
+                    "id": id, "name": id, "connection": "fake",
                     "lead": i == 0,
                     "session": if *writable { json!({}) } else { json!({ "mode": "read-only" }) },
                 }),
@@ -1703,7 +1703,7 @@ async fn library_mcp_reaches_the_session_with_its_values() {
         h.app.create_skill(&json!({ "name": "notes", "description": "记笔记", "content": "写下来。" })).await.unwrap();
     let ids: Vec<&str> = imported.iter().chain([&local, &skill]).map(|i| i.id.as_str()).collect();
     h.app
-        .save_role(&json!({ "id": "lead", "name": "lead", "role": "测试", "connection": "fake", "lead": true, "resources": ids }))
+        .save_role(&json!({ "id": "lead", "name": "lead", "connection": "fake", "lead": true, "resources": ids }))
         .unwrap();
 
     let run = h

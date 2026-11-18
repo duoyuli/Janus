@@ -557,42 +557,6 @@ impl Ledger {
         )
     }
 
-    /// The usage part of `team`: the run, its makeup, the lead and collaborator subtotals, one line
-    /// per task, the context and the reminders.
-    pub fn board_lines(&self, names: &Names) -> String {
-        let mut out = vec![self.summary_line()];
-        out.extend(breakdown_text(&self.run.tokens));
-        out.push(format!(
-            "负责人 {} · 协作者小计 {}",
-            tokens_text(&self.lead.tokens, self.lead.completeness),
-            tokens_text(&self.collaborators.tokens, self.collaborators.completeness)
-        ));
-        if self.run.tokens.total.is_none() {
-            out.push("（没有任何会话上报 token；下面的数字位置写「未上报」，不是 0）".into());
-        }
-        for t in &self.tasks {
-            if t.sessions == 0 {
-                out.push(format!("{} 未开始（还没有会话）", t.id));
-                continue;
-            }
-            let attempts: Vec<&Attempt> = self.attempts.iter().filter(|a| a.task == t.id).collect();
-            let mut agents: Vec<String> = attempts.iter().map(|a| who(&a.actor, names)).collect();
-            agents.sort();
-            agents.dedup();
-            out.push(format!(
-                "{} {} · {} · {} 次尝试 · 耗时 {}",
-                t.id,
-                tokens_text(&t.tokens, t.completeness),
-                if agents.is_empty() { "没有执行者记录".into() } else { agents.join("、") },
-                attempts.len(),
-                duration_text(t.duration_ms),
-            ));
-        }
-        out.extend(context_text(&self.run.context));
-        out.extend(self.reminders_line());
-        out.join("\n")
-    }
-
     /// The usage part of `task_detail`: the task, its makeup and context, each attempt and the
     /// members that spent it.
     pub fn task_lines(&self, task: &str, names: &Names) -> Vec<String> {
@@ -655,16 +619,6 @@ impl Ledger {
         }
         BillGroup::sort(&mut groups);
         groups
-    }
-
-    /// The reminders in one line, prefixed when the numbers are not complete.
-    pub fn reminders_line(&self) -> Option<String> {
-        if self.reminders.is_empty() {
-            return None;
-        }
-        let prefix =
-            if self.run.completeness == Completeness::Complete { "提醒" } else { "提醒（按已上报数据）" };
-        Some(format!("{prefix}：{}", self.reminders.join("；")))
     }
 }
 
@@ -1399,8 +1353,10 @@ mod tests {
         let l = ledger(&e);
         assert_eq!(l.run.tokens.total, Some(7560), "6600 + 900 from the quota, then 60 from a turn without it");
         assert_eq!((l.run.tokens.cached_read, l.run.tokens.cached_write), (Some(5000), Some(100)));
-        let lines = l.board_lines(&Names::new());
-        assert!(lines.contains("构成：输入 2,050 · 缓存读取 5,000 · 缓存写入 100 · 输出 410"), "{lines}");
+        assert_eq!(
+            breakdown_text(&l.run.tokens).as_deref(),
+            Some("构成：输入 2,050 · 缓存读取 5,000 · 缓存写入 100 · 输出 410")
+        );
     }
 
     #[test]
@@ -1437,7 +1393,7 @@ mod tests {
             (l.run.context.used, l.run.context.peak, l.run.context.size, l.run.context.reports),
             (Some(52000), Some(61000), Some(200000), 5)
         );
-        let line = l.board_lines(&Names::new());
+        let line = context_text(&l.run.context).unwrap();
         assert!(line.contains("上下文 52,000 / 200,000（26%） · 峰值 61,000"), "{line}");
     }
 
@@ -1511,7 +1467,13 @@ mod tests {
         usage(&mut e, 3, 3_000, "lead", None, None, json!({ "totalTokens": 1500 }));
         let only_lead = ledger(&e);
         assert_eq!(only_lead.run.tokens.total, Some(1500));
-        assert!(only_lead.board_lines(&Names::new()).contains("负责人 1,500 tokens（完整） · 协作者小计 未上报"));
+        assert_eq!(
+            (
+                tokens_text(&only_lead.lead.tokens, only_lead.lead.completeness),
+                tokens_text(&only_lead.collaborators.tokens, only_lead.collaborators.completeness)
+            ),
+            ("1,500 tokens（完整）".to_string(), "未上报".to_string())
+        );
         started(&mut e, 4, 4_000, "m1", "T1", 1, "s1");
         usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 800 }));
         let l = ledger(&e);
@@ -1652,7 +1614,6 @@ mod tests {
         let l = ledger(&e);
         assert_eq!(l.run.completeness, Completeness::Partial, "the lead reported context but no tokens");
         assert_eq!(l.reminders.len(), 3, "{:?}", l.reminders);
-        assert!(l.reminders_line().unwrap().starts_with("提醒（按已上报数据）："));
     }
 
     #[test]

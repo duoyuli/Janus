@@ -119,7 +119,7 @@ struct TaskView: View {
                             }
                         }
                         Card {
-                            KV(rows: [(L.text("执行者"), "\(w.name)\(w.role.isEmpty ? "" : L.text("（\(w.role)）"))")])
+                            KV(rows: [(L.text("执行者"), w.name)])
                             depRow(L.text("上游"), t.deps, st)
                             depRow(L.text("下游"), st.order.filter { st.tasks[$0]?.deps.contains(t.id) == true }, st)
                             if !t.attempts.isEmpty {

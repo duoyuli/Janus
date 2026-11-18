@@ -130,10 +130,9 @@ impl App {
             st.tasks.iter().map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status, t.def.title)).collect();
         drop(st);
         format!(
-            "协作者：\n{}\n\n看板上的子任务：\n{}\n\n用量（只读，缺失写「未上报」而不是 0）：\n{}",
+            "协作者：\n{}\n\n看板上的子任务：\n{}",
             team_lines(run),
             if tasks.is_empty() { "（还没有）".into() } else { tasks.join("\n") },
-            self.usage(run).board_lines(&Self::usage_names(run))
         )
     }
 

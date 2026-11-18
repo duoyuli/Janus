@@ -18,7 +18,7 @@ pub(super) fn lead_tools() -> Value {
     json!([
         {
             "name": "team",
-            "description": "查看协作者（职责、Agent、模型、权限模式）和共享看板上所有子任务的当前状态。",
+            "description": "查看协作者（名字和职责）和共享看板上所有子任务的当前状态。",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": board_read()
         },

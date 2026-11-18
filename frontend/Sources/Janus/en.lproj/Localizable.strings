@@ -459,7 +459,6 @@
 "完整" = "Complete";
 "完整磁盘访问" = "Full Disk Access";
 "定义数字员工（含一个负责人）" = "Create Digital Employees, Including a Lead";
-"定位" = "Role";
 "审批" = "Approval";
 "审计与回放" = "Audit & Replay";
 "审阅" = "Review";
@@ -982,7 +981,6 @@
 "证据缺失、无法复现或暂时无法核实" = "Evidence is missing, cannot be reproduced, or cannot be checked right now";
 "证据：" = "Evidence:";
 "证据：%@" = "Evidence: %@";
-"评审" = "Reviewer";
 "试运行" = "Trial Run";
 "详情" = "Details";
 "详细" = "Detailed";
@@ -1030,7 +1028,8 @@
 "负责人改了 %@ 负责的文件" = "The lead edited files owned by %@";
 "负责人正在启动" = "Starting the lead";
 "负责人没有给它派子任务" = "The lead has assigned no subtasks";
-"负责人规划时会看到这个模式，按它分配子任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。" = "The lead uses this mode to assign subtasks. The Agent decides which actions require your approval. Its approval requests, forms, and links appear under Needs Your Attention with the options it supplies.";
+"Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。" = "The Agent decides which actions require your approval. Its approval requests, forms, and links appear under Needs Your Attention with the options it supplies.";
+"负责人只凭名称和职责认识团队成员，并据此把子任务派给合适的人。写清这个数字员工擅长什么、对什么结果负责。" = "The lead knows team members only by name and responsibilities, and uses them to assign subtasks to the right person. Describe what this digital employee is good at and which results it owns.";
 "负责人请你决定：%@" = "Lead asks you to decide: %@";
 "负责人读到意见后决定：让执行者修改、重做这个子任务，或者自己处理" = "The lead will decide whether to ask the Agent to revise, reopen the subtask, or handle it directly";
 "负责人负责规划和协调。" = "The lead plans and coordinates the work.";

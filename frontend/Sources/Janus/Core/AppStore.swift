@@ -243,7 +243,7 @@ final class AppStore {
     static let roleColors = ["#c96442", "#7b6cc2", "#3f7d5b", "#b5852b", "#2f7f8c", "#b04d6d", "#5f6b7a", "#8a6a4f"]
 
     func newRole(connection: String = "") {
-        editingRole = ["id": "", "name": JSON(L.text("新数字员工")), "role": "", "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []]
+        editingRole = ["id": "", "name": JSON(L.text("新数字员工")), "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []]
     }
 
     @discardableResult

@@ -35,7 +35,7 @@ use catalog::*;
 pub use local_config::local_preview;
 use local_config::*;
 use session_options::*;
-pub use session_options::{is_plan_value, model_label, plan_off_value, session_label, session_options};
+pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
 use workspaces::*;
 
 const CONNECTION: &str = "connection";

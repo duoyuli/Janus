@@ -36,7 +36,7 @@ impl App {
             }
         }
         let role = json!({
-            "id": id, "name": name, "role": str_of(body, "role"), "desc": str_of(body, "desc"),
+            "id": id, "name": name, "desc": str_of(body, "desc"),
             "prompt": body["prompt"].as_str().unwrap_or("").trim(), "resources": resources,
             "connection": connection, "model": str_of(body, "model"), "effort": str_of(body, "effort"),
             "session": session,
@@ -95,7 +95,7 @@ impl App {
             return Ok(());
         }
         for r in &SEEDS {
-            self.save_role(&json!({ "id": r.id, "name": r.name, "role": r.role, "desc": r.desc, "color": r.color, "init": r.init, "lead": r.lead, "prompt": r.prompt }))?;
+            self.save_role(&json!({ "id": r.id, "name": r.name, "desc": r.desc, "color": r.color, "init": r.init, "lead": r.lead, "prompt": r.prompt }))?;
         }
         self.db.put_config("meta", "seeded", &json!(true), now_ms())
     }
@@ -105,7 +105,6 @@ impl App {
 pub(super) struct RoleSeed {
     id: &'static str,
     name: &'static str,
-    role: &'static str,
     desc: &'static str,
     color: &'static str,
     init: &'static str,
@@ -118,7 +117,6 @@ pub(super) const SEEDS: [RoleSeed; 5] = [
     RoleSeed {
         id: "coordinator",
         name: "PMO",
-        role: "负责人与项目推进",
         desc: "负责计划排期、进度跟踪、依赖协调、风险管理、跨角色沟通和交付汇总；不定义产品范围和成功标准",
         color: "#5452e8",
         init: "LD",
@@ -128,7 +126,6 @@ pub(super) const SEEDS: [RoleSeed; 5] = [
     RoleSeed {
         id: "researcher",
         name: "市场运营",
-        role: "市场研究、用户反馈与增长",
         desc: "负责目标市场、用户、竞品、市场侧成功指标、渠道、发布内容、用户反馈和增长验证",
         color: "#7c3aed",
         init: "MK",
@@ -138,7 +135,6 @@ pub(super) const SEEDS: [RoleSeed; 5] = [
     RoleSeed {
         id: "product-manager",
         name: "产品经理",
-        role: "需求定义与 PRD",
         desc: "负责产品范围、需求分析、用户流程、优先级、产品成功标准、PRD 和产品验收",
         color: "#2563eb",
         init: "PD",
@@ -148,7 +144,6 @@ pub(super) const SEEDS: [RoleSeed; 5] = [
     RoleSeed {
         id: "implementer",
         name: "研发工程师",
-        role: "产品实现",
         desc: "负责技术方案、前后端实现、数据与接口、自动化测试、技术风险和交付产物",
         color: "#11845a",
         init: "RD",
@@ -158,7 +153,6 @@ pub(super) const SEEDS: [RoleSeed; 5] = [
     RoleSeed {
         id: "reviewer",
         name: "质量工程师",
-        role: "测试与发布质量",
         desc: "负责测试策略、功能验证、回归验证、缺陷管理、发布风险和最终质量判断",
         color: "#b0670a",
         init: "QA",

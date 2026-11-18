@@ -103,7 +103,6 @@ impl App {
             }
             let session = member_session(&role, &conn);
             let permission = session_label(&session, &conn);
-            let model_label = model_label(&role, &conn);
             // The library items the role uses, pinned as they are now. Values are read when a
             // session opens; an item deleted since the role was saved is left out.
             let resources: Vec<crate::library::Item> = role["resources"]
@@ -134,7 +133,6 @@ impl App {
                 team.push(Member {
                     id,
                     name,
-                    role: str_of(&role, "role").into(),
                     desc: str_of(&role, "desc").into(),
                     runtime: conn_id.into(),
                     lead,
@@ -144,7 +142,6 @@ impl App {
                     effort: str_of(&role, "effort").into(),
                     session: session.clone(),
                     permission: permission.clone(),
-                    model_label: model_label.clone(),
                     kind,
                     prompt: str_of(&conn, "prompt").into(),
                     role_prompt: str_of(&role, "prompt").into(),

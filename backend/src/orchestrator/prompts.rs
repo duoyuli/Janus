@@ -81,7 +81,7 @@ pub(super) fn task_prompt(
     last_error: Option<&str>,
 ) -> String {
     let mut p = format!(
-        "你是 Janus 团队中的 {name}（{role}），负责人把一个子任务交给了你。
+        "你是 Janus 团队中的 {name}，负责人把一个子任务交给了你。
 
 总目标：{goal}{brief}
 你的子任务 {id}：{title}
@@ -93,7 +93,6 @@ pub(super) fn task_prompt(
 
 工作目录：{ws}",
         name = m.name,
-        role = m.role,
         goal = run.goal,
         brief = brief_section(&run.brief, "the subtask instructions"),
         id = def.id,

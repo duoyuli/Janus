@@ -604,7 +604,7 @@ struct AgentsPanel: View {
             .hoverable(8)
         }
         .buttonStyle(.plain)
-        .help(([w.role, w.runtime, w.model].filter { !$0.isEmpty } + meta).joined(separator: " · ") + L.text("\n点按查看 \(w.name) 的对话"))
+        .help(([w.runtime, w.model].filter { !$0.isEmpty } + meta).joined(separator: " · ") + L.text("\n点按查看 \(w.name) 的对话"))
     }
 
     /// A collaborator without a task in progress is idle, whatever its last status said.

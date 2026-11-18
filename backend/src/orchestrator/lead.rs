@@ -745,28 +745,18 @@ Shared workspace context:
     }
 }
 
-/// One line per collaborator, as the lead is told about them: duty, agent, model, permission mode.
-pub(super) fn team_lines_vec(run: &Run) -> Vec<String> {
-    run.team
+/// One line per collaborator, as the lead is told about them: who it is and what it is responsible
+/// for. The lead picks assignees by responsibility alone; agent, model and permission mode stay out.
+pub(super) fn team_lines(run: &Run) -> String {
+    let lines: Vec<String> = run
+        .team
         .iter()
         .filter(|m| !m.lead)
         .map(|m| {
-            format!(
-                "- {}: {} ({}) · Responsibilities: {} · Agent: {} · Model: {} · Permission mode: {}",
-                m.id,
-                m.name,
-                m.role,
-                if m.desc.trim().is_empty() { "Unspecified" } else { m.desc.trim() },
-                if m.runtime_name.is_empty() { m.kind.as_str() } else { &m.runtime_name },
-                if m.model_label.is_empty() { "Agent default" } else { &m.model_label },
-                if m.permission.is_empty() { "Undeclared. Tool calls run directly." } else { &m.permission },
-            )
+            let desc = m.desc.trim();
+            format!("- {}: {} · Responsibilities: {}", m.id, m.name, if desc.is_empty() { "Unspecified" } else { desc })
         })
-        .collect()
-}
-
-pub(super) fn team_lines(run: &Run) -> String {
-    let lines = team_lines_vec(run);
+        .collect();
     if lines.is_empty() { "- No collaborators. Complete the work yourself.".into() } else { lines.join("\n") }
 }
 

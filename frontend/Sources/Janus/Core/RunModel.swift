@@ -211,16 +211,16 @@ final class RunModel {
 
     // MARK: Team
 
-    struct Who { let id, name, initials, color, role, runtime, model: String; let lead: Bool; let m: JSON }
+    struct Who { let id, name, initials, color, runtime, model: String; let lead: Bool; let m: JSON }
 
     func who(_ id: String) -> Who {
         if id == "user" {
             let name = L.text("你")
-            return Who(id: id, name: name, initials: String(name.prefix(1)), color: "#0f766e", role: "", runtime: "", model: "", lead: false, m: .null)
+            return Who(id: id, name: name, initials: String(name.prefix(1)), color: "#0f766e", runtime: "", model: "", lead: false, m: .null)
         }
-        if id == "janus" { return Who(id: id, name: "Janus", initials: "JN", color: "#8a94a6", role: "", runtime: "", model: "", lead: false, m: .null) }
+        if id == "janus" { return Who(id: id, name: "Janus", initials: "JN", color: "#8a94a6", runtime: "", model: "", lead: false, m: .null) }
         guard let m = team.first(where: { $0["id"].str == id }) else {
-            return Who(id: id, name: id, initials: "?", color: "#94a3b8", role: "", runtime: "", model: "", lead: false, m: .null)
+            return Who(id: id, name: id, initials: "?", color: "#94a3b8", runtime: "", model: "", lead: false, m: .null)
         }
         let name = m["name"].str
         let initials = m["init"].truthy ? m["init"].str : m["lead"].truthy ? "LD" : String(name.prefix(2)).uppercased()
@@ -228,7 +228,7 @@ final class RunModel {
         let own = m["color"].str
         let color = Avatar.neutral.contains(own.lowercased()) ? (m["lead"].truthy ? Avatar.lead : Avatar.slate) : own
         let rt = m["runtime_name"].truthy ? m["runtime_name"].str : store.connection(m["runtime"].str)?["name"].str ?? m["runtime"].str
-        return Who(id: id, name: name, initials: initials, color: color, role: m["role"].str, runtime: rt, model: m["model"].str, lead: m["lead"].truthy, m: m)
+        return Who(id: id, name: name, initials: initials, color: color, runtime: rt, model: m["model"].str, lead: m["lead"].truthy, m: m)
     }
 
     func agentName(_ id: String) -> String {

@@ -171,41 +171,6 @@ pub fn member_session(role: &Value, conn: &Value) -> Value {
     session
 }
 
-/// The model and reasoning effort a role runs with, by display name: the role's choice, or the
-/// agent's default (marked as such) when the role left it open.
-pub fn model_label(role: &Value, conn: &Value) -> String {
-    let pick = |cat: &str, key: &str| -> Option<(String, bool)> {
-        let opt = &conn["options"][cat];
-        let chosen = str_of(role, key);
-        let (value, default) =
-            if chosen.is_empty() { (opt["current"].as_str()?.to_string(), true) } else { (chosen.to_string(), false) };
-        let name = opt["options"]
-            .as_array()
-            .and_then(|o| o.iter().find(|x| x["value"] == value.as_str()))
-            .and_then(|x| x["name"].as_str())
-            .filter(|n| !n.is_empty())
-            .map(str::to_owned)
-            .unwrap_or(value);
-        Some((name, default))
-    };
-    let model = pick("model", "model");
-    let effort = pick("effort", "effort");
-    let mut s = match &model {
-        Some((m, _)) => m.clone(),
-        None => return String::new(),
-    };
-    if let Some((e, _)) = &effort {
-        s.push_str(&format!("，推理强度 {e}"));
-    }
-    match (model.map(|m| m.1), effort.map(|e| e.1)) {
-        (Some(true), Some(true) | None) => s.push_str("（Agent 默认）"),
-        (Some(true), Some(false)) => s.push_str("（模型为 Agent 默认）"),
-        (Some(false), Some(true)) => s.push_str("（推理强度为 Agent 默认）"),
-        _ => {}
-    }
-    s
-}
-
 /// A human label for a role's permission choices, e.g. "Agent · Plan 开启".
 pub fn session_label(session: &Value, conn: &Value) -> String {
     let controls = conn["options"]["controls"].as_array().cloned().unwrap_or_default();
@@ -314,18 +279,6 @@ mod session_option_tests {
             1,
             "the plan session mode is not offered"
         );
-
-        // Model and effort as the lead is told them.
-        let opts = json!({ "options": {
-            "model": { "current": "gpt-6", "options": [{ "value": "gpt-6", "name": "GPT-6" }, { "value": "sol", "name": "GPT-6.1 Sol" }] },
-            "effort": { "current": "medium", "options": [{ "value": "medium", "name": "medium" }, { "value": "high", "name": "high" }] } } });
-        assert_eq!(model_label(&json!({ "model": "sol", "effort": "high" }), &opts), "GPT-6.1 Sol，推理强度 high");
-        assert_eq!(model_label(&json!({}), &opts), "GPT-6，推理强度 medium（Agent 默认）");
-        assert_eq!(
-            model_label(&json!({ "model": "sol" }), &opts),
-            "GPT-6.1 Sol，推理强度 medium（推理强度为 Agent 默认）"
-        );
-        assert_eq!(model_label(&json!({}), &json!({})), "");
 
         // Pi: nothing declared.
         assert_eq!(session_options(&json!({ "configOptions": [] }))["controls"], json!([]));

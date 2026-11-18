@@ -167,7 +167,7 @@ struct TeamView: View {
                                 Avatar(initials: w.initials, color: w.color, size: 34)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(w.name + (w.lead ? L.text(" · 负责人") : "")).font(.headline)
-                                    Text(verbatim: "\(w.role) · \(w.runtime) · ACP").font(.caption).foregroundStyle(.secondary)
+                                    Text(verbatim: "\(w.runtime) · ACP").font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Pill(pl, pt)

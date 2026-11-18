@@ -48,7 +48,7 @@ struct RolesView: View {
                 Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) { Text(r["name"].str).fontWeight(.semibold); if r["lead"].truthy { Pill(L.text("负责人"), .violet) } }
-                    Text(([r["desc"].truthy ? r["desc"].str : r["role"].truthy ? r["role"].str : L.text("还没有填写职责")] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(([r["desc"].truthy ? r["desc"].str : L.text("还没有填写职责")] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if let c {
@@ -129,11 +129,24 @@ struct RoleEditor: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 12) {
-                        labeled(L.text("名称")) { TextField("Reviewer", text: bind("name")).textFieldStyle(.roundedBorder) }
-                        labeled(L.text("定位")) { TextField(L.text("评审"), text: bind("role")).textFieldStyle(.roundedBorder) }
+                    labeled(L.text("名称")) { TextField("Reviewer", text: bind("name")).textFieldStyle(.roundedBorder) }
+                    labeled(L.text("职责")) {
+                        TextField(L.text("独立检查变更，寻找风险与反例"), text: bind("desc")).textFieldStyle(.roundedBorder)
+                        Text(L.text("负责人只凭名称和职责认识团队成员，并据此把子任务派给合适的人。写清这个数字员工擅长什么、对什么结果负责。")).font(.caption).foregroundStyle(.secondary)
                     }
-                    labeled(L.text("职责")) { TextField(L.text("独立检查变更，寻找风险与反例"), text: bind("desc")).textFieldStyle(.roundedBorder) }
+
+                    section(L.text("指令"))
+                    TextEditor(text: bind("prompt"))
+                        .font(.body)
+                        .accessibilityLabel(L.text("指令"))
+                        .frame(minHeight: 120, maxHeight: 260)
+                        .overlay(alignment: .topLeading) {
+                            if !r["prompt"].truthy { Text(L.text("告诉这个数字员工怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。")).foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
+                        }
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
+                    Text(Setup.instructionsVia(c)).font(.caption).foregroundStyle(.secondary)
+
+                    resources
 
                     section(L.text("由谁来做"))
                     HStack(alignment: .top, spacing: 12) {
@@ -166,23 +179,10 @@ struct RoleEditor: View {
                         }
                     }
 
-                    section(L.text("指令"))
-                    TextEditor(text: bind("prompt"))
-                        .font(.body)
-                        .accessibilityLabel(L.text("指令"))
-                        .frame(minHeight: 120, maxHeight: 260)
-                        .overlay(alignment: .topLeading) {
-                            if !r["prompt"].truthy { Text(L.text("告诉这个数字员工怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。")).foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
-                        }
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
-                    Text(Setup.instructionsVia(c)).font(.caption).foregroundStyle(.secondary)
-
-                    resources
-
                     section(L.text("权限"), trailing: Setup.controls(c).contains { $0["permission"].truthy } ? L.text("\(c?["name"].str ?? "") 的权限模式") : "")
                     permissions(c)
                     if c?["options"]["controls"].exists == true {
-                        Text(L.text("负责人规划时会看到这个模式，按它分配子任务。Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。")).font(.caption).foregroundStyle(.secondary)
+                        Text(L.text("Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。")).font(.caption).foregroundStyle(.secondary)
                     }
                     otherControls(c)
 

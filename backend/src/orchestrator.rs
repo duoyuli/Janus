@@ -100,7 +100,6 @@ impl std::error::Error for Cancelled {}
 pub struct Member {
     pub id: String,
     pub name: String,
-    pub role: String,
     #[serde(default)]
     pub desc: String,
     pub runtime: String,
@@ -119,13 +118,10 @@ pub struct Member {
     /// by control id. Applied to every session this member opens.
     #[serde(default)]
     pub session: Value,
-    /// The permission mode in the agent's own words, e.g. "Agent (full access) · Off". Handed
-    /// to the lead, which assigns work by it; Janus itself does not check it.
+    /// The permission mode in the agent's own words, e.g. "Full access", shown in the run's audit
+    /// view; Janus itself does not check it.
     #[serde(default)]
     pub permission: String,
-    /// Model and reasoning effort as the lead is told them, e.g. "GPT-6.1 Sol · high（Agent 默认）".
-    #[serde(default)]
-    pub model_label: String,
     pub kind: Runtime,
     #[serde(default)]
     pub runtime_name: String,

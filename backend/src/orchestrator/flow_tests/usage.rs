@@ -55,13 +55,10 @@ async fn usage_ledger_covers_a_run_and_survives_a_restart() {
         l.summary_line()
     );
 
-    // The board and a task's detail carry the same numbers, and answer when usage is missing.
+    // The team view shows who is on the team, not what they spent; a task's detail carries the
+    // numbers and answers when usage is missing.
     let (text, err) = tool(&h.app, &run, "lead", "team", json!({})).await;
-    assert!(
-        !err && text.contains("用量（只读") && text.contains("5,500 tokens") && text.contains("T2 未上报"),
-        "{text}"
-    );
-    assert!(text.contains("构成：输入 4,200 · 缓存读取 200 · 输出 1,100"), "{text}");
+    assert!(!err && !text.contains("tokens") && !text.contains("用量"), "{text}");
     let (text, err) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
     assert!(
         !err && text.contains("2,000 tokens") && text.contains("0.25 USD") && text.contains("上下文 61,000 / 200,000"),
