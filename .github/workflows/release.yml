@@ -59,6 +59,8 @@ jobs:
           security unlock-keychain -p "$kp" "$kc"
           security import "$RUNNER_TEMP/signing.p12" -k "$kc" -P "$PASSWORD" -T /usr/bin/codesign >/dev/null
           security set-key-partition-list -S apple-tool:,apple: -s -k "$kp" "$kc" >/dev/null
+          # codesign finds the private key only in a keychain on the user's search list, even with --keychain.
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           rm -f "$RUNNER_TEMP/signing.p12"
           id="$(security find-identity -p codesigning "$kc" | awk '$1 ~ /^[0-9]+\)$/ { print $2; exit }')"
           [ -n "$id" ] || { echo "The certificate in MACOS_SIGNING_P12 has no code-signing identity"; exit 1; }
