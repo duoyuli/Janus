@@ -25,6 +25,13 @@ import Testing
     let host = NSHostingView(rootView: view())
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
     window.contentView = host
+    // Deliver display cycles as well as layout passes while other main-actor tests run.
+    // Synthetic swipes below go straight to the scroll view; real pointer input must not enter.
+    window.isReleasedWhenClosed = false
+    window.ignoresMouseEvents = true
+    window.alphaValue = 0
+    window.orderFrontRegardless()
+    defer { window.close() }
     // Waits by giving the main actor up: a nested run loop inside a main-actor test does not run
     // the main queue, where SwiftUI's updates and the view's own follow-up scrolls are queued.
     func settle() async {
