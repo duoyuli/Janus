@@ -182,13 +182,21 @@ struct JanusCommands: Commands {
 /// The backend and, once it answers, the store every view reads.
 @Observable @MainActor
 final class AppModel {
-    let backend = Backend()
+    let backend: Backend
+    let permissions: MacPermissions
     var store: AppStore?
 
+    init() {
+        let backend = Backend()
+        self.backend = backend
+        permissions = .live(home: backend.home)
+    }
+
     func start() async {
+        permissions.prepareForLaunch()
         await backend.start()
         if backend.phase == .ready {
-            let s = AppStore(api: API(base: backend.base))
+            let s = AppStore(api: API(base: backend.base), permissions: permissions)
             s.serverNotice = backend.notice
             store = s
             await s.boot()
@@ -296,6 +304,12 @@ struct RootView: View {
             } else {
                 StartupView(model: model)
             }
+        }
+        .sheet(isPresented: Binding(get: { model.permissions.reviewPresented }, set: { if !$0 { model.permissions.dismissReview() } })) {
+            MacPermissionReview(permissions: model.permissions)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.permissions.refresh()
         }
     }
 }

@@ -28,6 +28,8 @@
 - [资源库统一管理 Skill 和 MCP，在会话启动时注入](20261116-launch_time_resources.md)：角色引用资源库中的资源，Run 创建时固定版本并生成每个成员的资源包，会话启动时通过 `plugins`、`additionalRoots`、`mcpServers` 和系统层注入，不写 Agent 的配置文件。阅读时机：修改资源库、角色的资源、资源包，或会话怎样拿到 Skill、MCP 和指令之前。
 - [内置运行时只保留 Codex 和 Claude Code](20261116-codex_and_claude_only.md)：删除 Grok 和 Pi，基础运行时用枚举 `Runtime` 表达，自定义命令保留。阅读时机：想新增一种内置 Agent 之前。
 
+- [集中引导 macOS 权限，升级后重新检查](20261117-macos_permission_guidance.md)：完整磁盘访问、应用程序管理和屏幕录制的集中引导，区分系统检测与手动确认。阅读时机：修改系统权限检查、授权入口、升级后提醒或 Agent 的权限归属说明。
+
 ## 历史决策
 
 - [先出计划、用户确认、再按 DAG 执行](20261031-plan_first_flow.md)：已被「负责人以 /goal 推进目标」取代，代码已删除。阅读时机：想重新引入先规划后执行的流程之前。

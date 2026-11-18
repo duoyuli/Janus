@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The settings panel (⌘,): a floating card in the middle of the window, a pane each for ACP adapters,
-/// Agents, the resource library, digital employees (roles), the usage bill and updates. Clicking the
+/// Agents, the resource library, digital employees (roles), the usage bill, macOS permissions and updates. Clicking the
 /// dimmed area or pressing Esc closes it and shows the screen underneath unchanged; the last pane
 /// opened comes back next time. The bottom of the sidebar picks the app's appearance.
 // @project-doc docs/architecture/20261031-frontend.md#screens
@@ -50,6 +50,7 @@ struct SettingsView: View {
                 nav("library", "资源库", "books.vertical", updates: store.sourceUpdates.count)
                 nav("roles", "数字员工", "person.2")
                 nav("usage", "用量账单", "list.bullet.rectangle")
+                nav("permissions", "macOS 权限", "lock.shield")
                 nav("updates", "更新", "arrow.triangle.2.circlepath")
             }
             .padding(.horizontal, 8)
@@ -99,6 +100,7 @@ struct SettingsView: View {
         case "library": LibraryView(store: store)
         case "adapters": AdaptersView(store: store)
         case "usage": UsageBillView(store: store)
+        case "permissions": MacPermissionsView(permissions: store.permissions)
         case "updates": UpdatesView()
         default: AgentsView(store: store)
         }

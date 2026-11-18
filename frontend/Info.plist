@@ -18,6 +18,7 @@
   <!-- In-app updates come from this repository's GitHub releases (update.json and its parts). -->
   <key>JanusUpdateRepo</key><string>duoyuli/Janus</string>
   <key>NSHumanReadableCopyright</key><string>Janus · 本地优先的多 Agent 协作工作空间</string>
+  <key>NSAppBundlesUsageDescription</key><string>允许 Janus 和由它启动的 Agent 按你的任务更新或管理应用程序。</string>
   <!-- The app only talks to its own server on the loopback address. -->
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>

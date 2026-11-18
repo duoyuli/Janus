@@ -74,7 +74,9 @@ enum Snapshots {
             }
         case "role": store.editingRole = store.role(arg)
         case "workspace": store.editingWorkspace = store.workspace(arg)
-        case "close-sheet": store.editingRole = nil; store.editingWorkspace = nil; store.showingSettings = false
+        case "close-sheet":
+            store.editingRole = nil; store.editingWorkspace = nil; store.showingSettings = false
+            model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
         case "wake-all": for e in store.inbox.later { store.inbox.wake(e.key) }
@@ -86,6 +88,7 @@ enum Snapshots {
             let entries = { (xs: [InboxEntry]) in JSON.array(xs.map { ["key": JSON($0.key), "title": JSON($0.title), "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle)] }) }
             let j: JSON = [
                 "screen": JSON(String(describing: store.screen)), "settings": JSON(store.showingSettings),
+                "settingsTab": JSON(store.settingsTab), "permissionsReview": JSON(model.permissions.reviewPresented),
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),

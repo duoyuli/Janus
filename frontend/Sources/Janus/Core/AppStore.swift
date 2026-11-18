@@ -15,6 +15,7 @@ enum Screen: Hashable {
 @Observable @MainActor
 final class AppStore {
     let api: API
+    let permissions: MacPermissions
     var meta: JSON = .null
     var connections: [JSON] = []
     var roles: [JSON] = []
@@ -42,8 +43,9 @@ final class AppStore {
     @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
-    init(api: API) {
+    init(api: API, permissions: MacPermissions? = nil) {
         self.api = api
+        self.permissions = permissions ?? .unavailable()
     }
 
     // MARK: Loading

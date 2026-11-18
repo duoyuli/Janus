@@ -49,6 +49,8 @@ Janus 是罗马神话中的门神，也是开端与转换之神。他有两张�
 
 应用自带 Janus 服务，打开即用；如果你已经用 `just start` 运行了 Janus，应用会直接连接它。详见[部署方案](docs/operations/20261031-deployment.md#macos_app)。
 
+首次安装或升级后，应用自动显示 macOS 权限引导，也可以在「设置 → macOS 权限」继续。一键按顺序处理完整磁盘访问、应用程序管理和屏幕录制；授权仍需在系统界面确认。前两项显示手动确认记录，屏幕录制显示系统检查结果。独立服务启动的 Agent 可能需要单独授权，见 [macOS 权限](docs/architecture/20261031-frontend.md#macos_permissions)。
+
 ### 从源码运行
 
 #### 前置条件

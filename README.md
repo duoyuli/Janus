@@ -51,6 +51,8 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 
 The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/20261031-deployment.md#macos_app).
 
+After installation or an update, Janus shows a macOS permission checklist, also available under Settings → macOS 权限. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; each authorization still requires your confirmation in macOS. The first two record your manual confirmation, while Screen Recording uses a system check. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
+
 ### From source
 
 #### Prerequisites
