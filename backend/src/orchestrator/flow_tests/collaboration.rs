@@ -550,23 +550,28 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
         .unwrap();
     let proj_dir = h.app.cfg.agents_dir.join("fake").join("home/projects/demo");
     std::fs::create_dir_all(&proj_dir).unwrap();
+    let r = h.app.run(&run).unwrap();
+    let member = r.member("m1").unwrap().clone();
+    let ctx = Ctx { agent: "m1", task: Some("T_CRASH"), attempt: Some(1), goal: false };
+    let path = proj_dir.join(format!("{crash_sid}.jsonl"));
+    let prior = json!({"message":{"id":"prior","usage":{"input_tokens":80}}}).to_string();
+    std::fs::write(&path, format!("{prior}\n")).unwrap();
+    h.app.show(&r, ("session.usage", "上一轮".into(), json!({"totalTokens":80, "session":crash_sid})), &ctx);
+    let turn = h.app.native_turn(&r, &member, &crash_sid, None).unwrap();
     std::fs::write(
-        proj_dir.join(format!("{crash_sid}.jsonl")),
+        &path,
         format!(
-            "{}\n{}\n",
+            "{prior}\n{}\n{}\n",
             json!({ "type": "assistant", "message": { "id": "m1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 300, "output_tokens": 50, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 0 } } }),
             json!({ "type": "assistant", "message": { "id": "m1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 300, "output_tokens": 80, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 0 } } })
         ),
     )
     .unwrap();
-    let r = h.app.run(&run).unwrap();
-    let member = r.member("m1").unwrap().clone();
-    let ctx = Ctx { agent: "m1", task: Some("T_CRASH"), attempt: Some(1), goal: false };
-    h.app.recover_native_usage(&r, &member, &crash_sid, &ctx);
+    h.app.recover_native_usage(&r, &turn, &ctx);
     // Calling a second time is a no-op: the ledger already has the recovered turn for this session.
-    h.app.recover_native_usage(&r, &member, &crash_sid, &ctx);
+    h.app.recover_native_usage(&r, &turn, &ctx);
     let ledger = h.app.usage(&r);
-    assert_eq!(ledger.task("T_CRASH").unwrap().tokens.total, Some(480));
+    assert_eq!(ledger.task("T_CRASH").unwrap().tokens.total, Some(560));
 
     // Exercise `stream_prompt` short timeout directly against `cancel-usage` to verify post-cancel `prompt_usage`.
     let spec = h.app.spec_for("fake").unwrap();

@@ -93,7 +93,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 1. 打开会话（或热续接原会话）：默认调用 `session/new`；若从中断处恢复未完成尝试，或任务声明了 `continues`（首次尝试） / 负责人 `retry` 指定了 `continue_session: true`，且目标会话最新上下文占用未超过 75%、Agent 支持 `loadSession`，则调用 `session/load` 复用原会话，否则回退到新建会话并记录原因（`attempt.started` 的 `data.continuation`，见 [ADR：热会话续接](../decisions/20261118-session_continuation.md)）。接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/20261031-acp_integration.md#session_setup)。
 3. 发送任务提示（`task_prompt`）：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含一句话摘要、专门给下游的 `handoff` 交接说明、前 5 条上游风险、负责人的修订、改过的文件及后续被他人或负责人修改的提醒）、同时进行的任务和上次失败原因；独立验证任务还会收到被验证任务的专属 diff 路径、实际改动文件、痕迹核对异常、弱证据条目提醒和风险（`teamwork::VerifiedContext`）。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
-4. 收集流式输出、工具调用、审批请求和表单请求。单轮超时发送 `session/cancel` 后，仍等待最多 2 秒读取返回值中的 `prompt_usage`；若尝试异常结束且该会话尚未上报任何 token，则从 Janus 隔离目录（Claude Code 的 `CLAUDE_CONFIG_DIR`，即 `~/.janus/agents/<id>/home`）下的 `projects/**/<sid>.jsonl` 按 `message.id` 去重补齐用量。
+4. 收集流式输出、工具调用、审批请求和表单请求。单轮超时发送 `session/cancel` 后，仍等待最多 2 秒读取返回值中的 `prompt_usage`；每轮发送前记录事件序号和会话日志末尾位置。若尝试异常结束且本轮尚未上报 Token，则从 Janus 隔离目录（Claude Code 的 `CLAUDE_CONFIG_DIR`，即 `~/.janus/agents/<id>/home`）下的 `projects/**/<sid>.jsonl` 读取本轮新增记录，按 `message.id` 取最后一次读数补齐用量。同一会话前面几轮的读数照常保留。
 5. 解析回复中最后一个 ```` ```json ```` 代码块作为结构化结果。
 
 <a id="structured_result"></a>

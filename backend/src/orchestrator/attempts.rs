@@ -227,7 +227,7 @@ impl App {
         let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("{id}-a{n}.log"));
         let owner = Owner { session: SessionKey::task(id), attempt: n };
         let (conn, mut rx, mut ctl) = self.open_session(run, &owner, &agent, &spec, &log, "Agent ").await?;
-        let mut opened_sid = String::new();
+        let mut native_turn = None;
         let outcome = async {
         // A task interrupted by a restart reopens its old session; a follow-up task (`continues`)
         // or warm retry (`continue_session`) loads the target session when context headroom allows.
@@ -319,7 +319,6 @@ impl App {
         .map_err(|_| anyhow!("打开 ACP 会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
         let (session, applied, resumed, followup_from, continuation) = opened;
         let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
-        opened_sid.clone_from(&sid);
         let prompt = if resumed {
             format!(
                 "编排器中断后，这个会话已经恢复。请从中断的地方继续完成原来的子任务，完成后按最初的要求以 ```json 结构化结果结束。{}",
@@ -403,6 +402,7 @@ impl App {
         let result = 'session: loop {
             let mut result = loop {
                 if let Some(p) = next.take() {
+                    native_turn = self.native_turn(run, &member, &sid, native_turn.take().and_then(|t: NativeTurn| t.path));
                     text = self
                         .stream_prompt(
                             run,
@@ -549,9 +549,11 @@ impl App {
         .await;
         // The agent stops before its changes are recorded, so nothing moves under the record.
         self.close_session(run, &owner, Some(&conn), &format!("{id} 的这次尝试已经结束，撤回待处理的请求")).await;
-        if outcome.is_err() && !opened_sid.is_empty() {
+        if outcome.is_err()
+            && let Some(turn) = native_turn
+        {
             let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
-            self.recover_native_usage(run, &member, &opened_sid, &ctx);
+            self.recover_native_usage(run, &turn, &ctx);
         }
         let result = outcome?;
         self.check_aborted(run, id, &mut ctl)?;
@@ -777,20 +779,56 @@ impl App {
             .is_ok_and(|evts| evts.iter().any(|e| e.kind == "task.split_requested" && e.task.as_deref() == Some(task)))
     }
 
-    /// Best-effort fallback when an attempt fails or times out before `session/prompt` returns its
-    /// usage: scan Janus's own isolated Claude Code home, which the agent gets as
-    /// `CLAUDE_CONFIG_DIR` (`<agents_dir>/<runtime>/home/projects/**/<sid>.jsonl`, never
-    /// `~/.claude`), and record deduplicated message token counts if none were reported yet.
-    pub(super) fn recover_native_usage(&self, run: &Run, member: &Member, sid: &str, ctx: &Ctx<'_>) {
-        if self.usage(run).sessions_of(sid).any(|s| s.turns > 0) {
+    /// Mark the transcript and event stream immediately before sending this prompt. A follow-up
+    /// or retry can reuse the same native session and must only recover its own turn.
+    pub(super) fn native_turn(
+        &self,
+        run: &Run,
+        member: &Member,
+        sid: &str,
+        known_path: Option<PathBuf>,
+    ) -> Option<NativeTurn> {
+        if member.kind == Runtime::Codex || sid.is_empty() || Path::new(sid).file_name()?.to_str()? != sid {
+            return None;
+        }
+        let projects = self.cfg.agents_dir.join(&member.runtime).join("home/projects");
+        let path = known_path.or_else(|| find_session_jsonl(&projects, &format!("{sid}.jsonl"), 3));
+        let offset = match &path {
+            Some(p) => p.metadata().ok()?.len(),
+            None => 0,
+        };
+        Some(NativeTurn { projects, sid: sid.into(), path, offset, after_seq: run.seq.load(Ordering::SeqCst) })
+    }
+
+    pub(super) fn recover_native_usage(&self, run: &Run, turn: &NativeTurn, ctx: &Ctx<'_>) {
+        use std::io::{Read, Seek, SeekFrom};
+        let Some(path) =
+            turn.path.clone().or_else(|| find_session_jsonl(&turn.projects, &format!("{}.jsonl", turn.sid), 3))
+        else {
+            return;
+        };
+        let Ok(mut file) = std::fs::File::open(path) else { return };
+        if !file.metadata().is_ok_and(|m| m.len() > turn.offset) || file.seek(SeekFrom::Start(turn.offset)).is_err() {
             return;
         }
-        let projects = self.cfg.agents_dir.join(&member.runtime).join("home").join("projects");
-        let Some(jsonl_path) = find_session_jsonl(&projects, &format!("{sid}.jsonl"), 3) else { return };
-        let Ok(content) = std::fs::read_to_string(jsonl_path) else { return };
-        if let Some(mut data) = parse_claude_session_jsonl(&content) {
-            data["session"] = json!(sid);
-            self.show(run, ("session.usage", "从隔离会话日志补齐用量".into(), data), ctx);
+        // A cancelled prompt may still have returned its usage. A previous fallback for this
+        // turn is also a report. Context-only snapshots do not count.
+        let Ok(events) = self.db.events(&run.id, turn.after_seq) else { return };
+        if events.iter().any(|e| {
+            e.kind == "session.usage"
+                && e.actor == ctx.agent
+                && e.task.as_deref() == ctx.task
+                && e.attempt == ctx.attempt
+                && e.data.as_ref().is_some_and(|d| !crate::usage::Tokens::of_turn(d).is_empty())
+        }) {
+            return;
+        }
+        let mut content = String::new();
+        if file.read_to_string(&mut content).is_ok()
+            && let Some(mut data) = parse_claude_session_jsonl(&content)
+        {
+            data["session"] = json!(turn.sid);
+            self.show(run, ("session.usage", "从隔离会话日志补齐本轮用量".into(), data), ctx);
         }
     }
 
@@ -929,17 +967,28 @@ pub(super) fn working_diff(cwd: &Path, scope: &[String]) -> String {
     diff
 }
 
+pub(super) struct NativeTurn {
+    projects: PathBuf,
+    sid: String,
+    path: Option<PathBuf>,
+    offset: u64,
+    after_seq: i64,
+}
+
 fn find_session_jsonl(dir: &Path, filename: &str, depth: u8) -> Option<PathBuf> {
     if depth == 0 {
         return None;
     }
     let direct = dir.join(filename);
-    if direct.is_file() {
+    if std::fs::symlink_metadata(&direct).is_ok_and(|m| m.is_file()) {
         return Some(direct);
+    }
+    if depth == 1 {
+        return None;
     }
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let path = entry.path();
-        if path.is_dir()
+        if entry.file_type().is_ok_and(|t| t.is_dir())
             && let Some(found) = find_session_jsonl(&path, filename, depth - 1)
         {
             return Some(found);
@@ -995,13 +1044,11 @@ pub(super) fn parse_claude_session_jsonl(content: &str) -> Option<Value> {
         tot_out += m.output;
         tot_read += m.cache_read;
         tot_write += m.cache_write;
-        if !m.model.is_empty() {
-            let e = per_model.entry(m.model.clone()).or_default();
-            e.0 += m.input;
-            e.1 += m.output;
-            e.2 += m.cache_read;
-            e.3 += m.cache_write;
-        }
+        let e = per_model.entry(m.model.clone()).or_default();
+        e.0 += m.input;
+        e.1 += m.output;
+        e.2 += m.cache_read;
+        e.3 += m.cache_write;
     }
     let total = tot_in + tot_out + tot_read + tot_write;
     let mut data = json!({
@@ -1012,7 +1059,7 @@ pub(super) fn parse_claude_session_jsonl(content: &str) -> Option<Value> {
         "totalTokens": total,
         "source": "native_log",
     });
-    if !per_model.is_empty() {
+    if per_model.keys().any(|model| !model.is_empty()) {
         let models: Vec<Value> = per_model
             .into_iter()
             .map(|(model, (i, o, cr, cw))| {
