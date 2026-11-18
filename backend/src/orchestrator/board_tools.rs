@@ -396,17 +396,9 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 .tasks
                 .iter()
                 .filter(|v| v.def.verifies.as_deref() == Some(task) && v.status.terminal())
-                .map(|v| {
-                    if v.status == TaskStatus::Succeeded {
-                        let vd = v
-                            .result
-                            .as_ref()
-                            .map(|vr| effective_verdict(vr.verdict, v.def.accept.len(), &vr.checks))
-                            .unwrap_or(Verdict::Approved);
-                        format!("{} 判定{}", v.def.id, vd.label())
-                    } else {
-                        format!("{} {}", v.def.id, v.status.label())
-                    }
+                .map(|v| match v.verdict() {
+                    Some(vd) => format!("{} 判定{}", v.def.id, vd.label()),
+                    None => format!("{} {}", v.def.id, v.status.label()),
                 })
                 .collect();
             let clipped = more_evidence
@@ -415,7 +407,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 || r.summary.chars().count() > INLINE_SUMMARY
                 || r.checks.iter().any(|c| c.line().chars().count() > 60 + INLINE_ITEM);
             let gaps: Vec<&str> = d["traceGaps"].as_array().into_iter().flatten().filter_map(|g| g.as_str()).collect();
-            let verdict = verifies.as_ref().map(|_| effective_verdict(r.verdict, t.def.accept.len(), &r.checks));
+            let verdict = t.verdict();
             let mut msg = match (&verifies, verdict) {
                 (Some(target), Some(vd @ (Verdict::Rejected | Verdict::Inconclusive))) => format!(
                     "- [验证未通过] {task}「{title}」· {name} 完成对 {target} 的独立验证，判定「{}」（{}）：{}",
@@ -502,10 +494,16 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             "- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（可改说明）、janus.cancel 取消，或自己做。",
             d["error"].as_str().unwrap_or(&e.text)
         ),
-        "task.blocked" => format!(
-            "- [无法开始] {task}「{title}」：依赖 {} 失败。用 janus.retry 或 janus.accept 处理 {0} 后会自动继续；不再需要就 janus.cancel。",
-            d["dependency"].as_str().unwrap_or("?")
-        ),
+        "task.blocked" => match d["verdict"].as_str() {
+            Some(vd) => format!(
+                "- [无法开始] {task}「{title}」：依赖的独立验证 {} 判定 {vd}，被验证的工作没有得到确认。按 {0} 的结论派修复和新的验证子任务；{task} 不会再开始，用 janus.cancel 取消它，需要时在新的编排中让它依赖新的验证子任务。",
+                d["dependency"].as_str().unwrap_or("?")
+            ),
+            None => format!(
+                "- [无法开始] {task}「{title}」：依赖 {} 失败。用 janus.retry 或 janus.accept 处理 {0} 后会自动继续；不再需要就 janus.cancel。",
+                d["dependency"].as_str().unwrap_or("?")
+            ),
+        },
         // A collaborator's question the person answered in its session: the lead must not answer again.
         "question.answered" if d["via"] != "lead" => format!(
             "- [用户已回答] {task} 的提问由用户直接回答：{}。不要再回答这个问题，按用户的回答推进。",

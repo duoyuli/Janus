@@ -423,15 +423,16 @@ impl App {
         }));
 
         // The board's tasks are every orchestration the lead got accepted.
-        let board: Vec<Value> = events
+        // Each with the last event before its orchestration: what the lead knew when it planned it.
+        let board: Vec<(i64, Value)> = events
             .iter()
             .filter(|e| e.kind == "orchestration.accepted")
-            .filter_map(|e| e.data.as_ref().and_then(|d| d["tasks"].as_array().cloned()))
-            .flatten()
+            .filter_map(|e| e.data.as_ref().and_then(|d| d["tasks"].as_array()).map(|t| (e.seq - 1, t.clone())))
+            .flat_map(|(planned, tasks)| tasks.into_iter().map(move |t| (planned, t)))
             .collect();
         let (mut done, mut open) = (0, 0);
         let mut tasks = vec![];
-        for item in board {
+        for (planned, item) in board {
             let mut def: TaskDef = serde_json::from_value(item.clone())?;
             def.assignee = item["agent"].as_str().unwrap_or("").to_string();
             let id = def.id.clone();
@@ -547,7 +548,7 @@ impl App {
                     run.st.lock().unwrap().resume_session.insert(id.clone(), sid);
                 }
             }
-            let mut task = Task::new(def, agent);
+            let mut task = Task::new(def, agent, planned);
             // Rebuilding the board, not a transition: the event log already decided this state.
             task.status = status;
             task.attempts = attempts;

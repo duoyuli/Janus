@@ -190,12 +190,6 @@ fn default_max_attempts() -> i64 {
     MAX_ATTEMPTS
 }
 
-impl TaskDef {
-    fn dep_failed(&self, statuses: &HashMap<String, TaskStatus>) -> Option<String> {
-        self.deps.iter().find(|id| statuses.get(*id).is_some_and(|s| s.failed_dependency())).cloned()
-    }
-}
-
 /// What a person can do inside a running attempt's ACP session.
 pub enum Steer {
     Message(Msg),
@@ -341,6 +335,9 @@ struct TaskResult {
 struct Task {
     def: TaskDef,
     agent: String,
+    /// The run's last event when the lead wrote this task to the board: what the lead knew when
+    /// it planned the task (see `DepGate::holds`).
+    planned_seq: i64,
     status: TaskStatus,
     attempts: i64,
     result: Option<TaskResult>,
@@ -363,10 +360,11 @@ struct Task {
 }
 
 impl Task {
-    fn new(def: TaskDef, agent: String) -> Task {
+    fn new(def: TaskDef, agent: String, planned_seq: i64) -> Task {
         Task {
             def,
             agent,
+            planned_seq,
             status: TaskStatus::Pending,
             attempts: 0,
             result: None,
@@ -390,6 +388,56 @@ impl Task {
         }
         debug_assert!(self.status.can_transition_to(to), "task {}: {:?} -> {:?}", self.def.id, self.status, to);
         self.status = to;
+    }
+
+    /// A finished independent verification's judgment of the task it verifies; `None` for any
+    /// other task and for a verification that has not succeeded.
+    fn verdict(&self) -> Option<Verdict> {
+        if self.def.verifies.is_none() || self.status != TaskStatus::Succeeded {
+            return None;
+        }
+        Some(match &self.result {
+            Some(r) => effective_verdict(r.verdict, self.def.accept.len(), &r.checks),
+            None => effective_verdict(None, self.def.accept.len(), &[]),
+        })
+    }
+}
+
+/// What keeps tasks from starting on their dependencies, as of one scheduler pass.
+struct DepGate {
+    /// Tasks that failed, were cancelled, blocked or skipped.
+    failed: HashSet<String>,
+    /// Verifications that finished without approving their target: the verdict and when it was
+    /// recorded (`i64::MAX` until its event is stored).
+    rejected: HashMap<String, (Verdict, i64)>,
+}
+
+impl DepGate {
+    fn of(tasks: &[Task]) -> DepGate {
+        DepGate {
+            failed: tasks.iter().filter(|t| t.status.failed_dependency()).map(|t| t.def.id.clone()).collect(),
+            rejected: tasks
+                .iter()
+                .filter_map(|t| {
+                    let vd = t.verdict().filter(|vd| *vd != Verdict::Approved)?;
+                    Some((t.def.id.clone(), (vd, t.succeeded_seq.unwrap_or(i64::MAX))))
+                })
+                .collect(),
+        }
+    }
+
+    /// The first dependency that keeps `t` from starting, with the verdict when it is a
+    /// verification that did not approve its target. Such a verification holds back only the
+    /// tasks planned before its verdict, which assumed the work would pass; a task the lead
+    /// orchestrates after reading the verdict (the fix) depends on it knowingly and starts.
+    fn holds(&self, t: &Task) -> Option<(String, Option<Verdict>)> {
+        t.def.deps.iter().find_map(|id| {
+            if self.failed.contains(id) {
+                return Some((id.clone(), None));
+            }
+            let (vd, at) = self.rejected.get(id)?;
+            (*at > t.planned_seq).then(|| (id.clone(), Some(*vd)))
+        })
     }
 }
 

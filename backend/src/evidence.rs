@@ -288,7 +288,7 @@ pub struct Verification {
     pub status: &'static str,
     pub label: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub verdict: Option<&'static str>,
+    pub verdict: Option<Verdict>,
     pub passed: bool,
     pub summary: String,
     pub checks: Vec<Check>,

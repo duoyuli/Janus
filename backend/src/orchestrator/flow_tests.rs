@@ -571,11 +571,14 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
         "orchestrate",
         json!({ "tasks": [
         task("T1", "m1", json!({ "owns": ["src"], "accept": ["src 里有新函数"] })),
-        task("V1", "m2", json!({ "verifies": "T1", "accept": ["测试通过"] }))] }),
+        task("V1", "m2", json!({ "verifies": "T1", "accept": ["测试通过"] })),
+        task("D1", "m1", json!({ "deps": ["V1"] }))] }),
     )
     .await;
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "V1 reviewed", |e| task_event(e, "task.succeeded", "V1")).await;
+    // What depends on a verification that rejected the work does not start on it.
+    wait_until(&h.app, &run, "D1 blocked", |e| task_event(e, "task.blocked", "D1")).await;
     let evs = events(&h.app, &run);
     let at =
         |kind: &str, task: &str| evs.iter().position(|e| e.kind == kind && e.task.as_deref() == Some(task)).unwrap();
@@ -597,6 +600,9 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
 
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[验证未通过] V1") && board.contains("独立验证") && board.contains("rejected"), "{board}");
+    assert!(board.contains("[无法开始] D1") && board.contains("V1 判定 rejected"), "{board}");
+    let blocked = evs.iter().find(|e| e.kind == "task.blocked" && e.task.as_deref() == Some("D1")).unwrap();
+    assert_eq!(blocked.data.as_ref().unwrap()["verdict"], "rejected", "{blocked:?}");
     let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "V1", "reason": "我看过了" })).await;
     assert!(err && text.contains("不能直接接受"), "{text}");
 
@@ -611,6 +617,10 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     assert!(
         d["risks"].as_array().unwrap().iter().any(|r| r.as_str().is_some_and(|r| r.contains("独立验证 V1"))),
         "{d}"
+    );
+    assert!(
+        !events(&h.app, &run).iter().any(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("D1")),
+        "D1 never ran on rejected work"
     );
     let _ = std::fs::remove_dir_all(&h.dir);
 }

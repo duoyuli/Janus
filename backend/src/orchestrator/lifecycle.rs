@@ -192,31 +192,28 @@ impl App {
             let cap = self.cfg.max_concurrent_attempts.max(1);
             let (starts, blocked, outcome) = {
                 let mut st = run.st.lock().unwrap();
-                let statuses: HashMap<String, TaskStatus> =
-                    st.tasks.iter().map(|t| (t.def.id.clone(), t.status)).collect();
-                let succeeded: HashSet<String> = statuses
-                    .iter()
-                    .filter_map(|(id, status)| (*status == TaskStatus::Succeeded).then_some(id.clone()))
-                    .collect();
+                let gate = DepGate::of(&st.tasks);
+                let succeeded: HashSet<String> =
+                    st.tasks.iter().filter(|t| t.status == TaskStatus::Succeeded).map(|t| t.def.id.clone()).collect();
                 let mut blocked = vec![];
                 for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
-                    if let Some(dep) = t.def.dep_failed(&statuses) {
+                    if let Some((dep, vd)) = gate.holds(t) {
                         t.set_status(TaskStatus::Blocked);
                         t.blocked_by = Some(dep.clone());
-                        blocked.push((t.def.id.clone(), dep));
+                        blocked.push((t.def.id.clone(), dep, vd));
                     }
                 }
                 // A blocked task waits again once none of its dependencies is failed any more (the
                 // lead retried or accepted them); one still failed keeps it blocked, and is named.
                 for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Blocked) {
-                    match t.def.dep_failed(&statuses) {
+                    match gate.holds(t) {
                         None => {
                             t.set_status(TaskStatus::Pending);
                             t.blocked_by = None;
                         }
-                        Some(dep) if t.blocked_by.as_ref() != Some(&dep) => {
+                        Some((dep, vd)) if t.blocked_by.as_ref() != Some(&dep) => {
                             t.blocked_by = Some(dep.clone());
-                            blocked.push((t.def.id.clone(), dep));
+                            blocked.push((t.def.id.clone(), dep, vd));
                         }
                         Some(_) => {}
                     }
@@ -266,13 +263,16 @@ impl App {
                 };
                 (starts, blocked, outcome)
             };
-            for (id, dep) in blocked {
-                self.emit(
-                    run,
-                    ev("task.blocked", "janus", format!("{id} 被失败的硬依赖 {dep} 阻塞"))
-                        .task(&id)
-                        .data(json!({ "dependency": dep, "kind": "hard" })),
-                );
+            for (id, dep, vd) in blocked {
+                let mut data = json!({ "dependency": dep, "kind": "hard" });
+                let text = match vd {
+                    Some(vd) => {
+                        data["verdict"] = json!(vd);
+                        format!("{id} 被独立验证 {dep} 的判定「{}」阻塞", vd.label())
+                    }
+                    None => format!("{id} 被失败的硬依赖 {dep} 阻塞"),
+                };
+                self.emit(run, ev("task.blocked", "janus", text).task(&id).data(data));
             }
             for (id, n, agent, attempt_id) in starts {
                 if n == 1 {
@@ -484,23 +484,22 @@ impl App {
                 risks.extend(r.risks.iter().map(|x| format!("{}：{}", t.def.id, x)));
                 // Who checked this task independently, and how that went. Completing a review
                 // (`Succeeded`) and confirming the work (`Verdict::Approved`) are distinct: a
-                // verifier that rejects the work has `passed == false`. Only when the latest
-                // verifier of this task did not confirm it does a risk remain on the delivery.
+                // verifier that rejects the work has `passed == false`. Every verifier that did not
+                // confirm the task leaves a risk on the delivery: independent verifiers check
+                // different things, so one's approval does not cancel another's rejection.
                 let verifications: Vec<Verification> = st
                     .tasks
                     .iter()
                     .filter(|v| v.def.verifies.as_deref() == Some(t.def.id.as_str()))
                     .map(|v| {
                         let vr = v.result.clone().unwrap_or_default();
-                        let verdict = (v.status == TaskStatus::Succeeded)
-                            .then(|| effective_verdict(vr.verdict, v.def.accept.len(), &vr.checks));
-                        let passed = verdict == Some(Verdict::Approved);
+                        let verdict = v.verdict();
                         Verification {
                             task: v.def.id.clone(),
                             status: v.status.as_str(),
                             label: v.status.label(),
-                            verdict: verdict.map(Verdict::as_str),
-                            passed,
+                            verdict,
+                            passed: verdict == Some(Verdict::Approved),
                             summary: vr.summary,
                             checks: vr.checks,
                             evidence: vr.evidence,
@@ -508,12 +507,12 @@ impl App {
                         }
                     })
                     .collect();
-                if let Some(latest) = verifications.last().filter(|v| !v.passed) {
-                    let why = match latest.verdict.and_then(Verdict::parse) {
+                for v in verifications.iter().filter(|v| !v.passed) {
+                    let why = match v.verdict {
                         Some(vd) => format!("判定为「{}」", vd.label()),
-                        None => format!("状态是 {}", latest.label),
+                        None => format!("状态是 {}", v.label),
                     };
-                    risks.push(format!("{}：独立验证 {} {why}，结论没有得到确认", t.def.id, latest.task));
+                    risks.push(format!("{}：独立验证 {} {why}，结论没有得到确认", t.def.id, v.task));
                 }
                 let gaps = if t.trace_gaps.is_empty() { trace_gaps(&t.def.id) } else { t.trace_gaps.clone() };
                 acceptance.push(TaskAcceptance {

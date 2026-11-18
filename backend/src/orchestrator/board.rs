@@ -182,8 +182,9 @@ impl App {
             .collect();
         let n = {
             let mut st = run.st.lock().unwrap();
+            let planned = run.seq.load(Ordering::SeqCst);
             for d in &defs {
-                st.tasks.push(Task::new(d.clone(), d.assignee.clone()));
+                st.tasks.push(Task::new(d.clone(), d.assignee.clone(), planned));
             }
             st.tasks.len()
         };
@@ -715,8 +716,7 @@ impl App {
         }
         if let Some(r) = &t.result {
             out.push(format!("结果：{}", r.summary));
-            if t.def.verifies.is_some() && t.status == TaskStatus::Succeeded {
-                let vd = effective_verdict(r.verdict, t.def.accept.len(), &r.checks);
+            if let Some(vd) = t.verdict() {
                 out.push(format!("验证判定：{}（{}）", vd.label(), vd.as_str()));
             }
             if let Some(h) = &r.handoff {
@@ -746,15 +746,8 @@ impl App {
         // Those who verified this task independently: their own conclusion, kept apart from the
         // evidence the executor reported.
         for v in st.tasks.iter().filter(|v| v.def.verifies.as_deref() == Some(task)) {
-            let verdict_tag = (v.status == TaskStatus::Succeeded)
-                .then(|| {
-                    v.result.as_ref().map(|vr| {
-                        let vd = effective_verdict(vr.verdict, v.def.accept.len(), &vr.checks);
-                        format!(" · 判定：{}（{}）", vd.label(), vd.as_str())
-                    })
-                })
-                .flatten()
-                .unwrap_or_default();
+            let verdict_tag =
+                v.verdict().map(|vd| format!(" · 判定：{}（{}）", vd.label(), vd.as_str())).unwrap_or_default();
             out.push(format!("独立验证 {}：{}{verdict_tag}", v.def.id, v.status.label()));
             if let Some(r) = &v.result {
                 out.push(format!("  {}", r.summary));

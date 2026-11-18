@@ -74,12 +74,14 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 一个任务可以启动，需要同时满足：
 
 - 状态为 `pending`。
-- 所有依赖（`deps`）都已 `succeeded`。
+- 所有依赖（`deps`）都已 `succeeded`，并且没有被未通过的独立验证挡住（见下文）。
 - 执行者当前没有别的任务在执行。每个成员实例同一时间只做一个任务，派给同一实例的任务排队；工作区中配置了 `slots > 1` 的角色会展开为多个成员实例，可并行执行不同任务，见 [Agent、角色与工作区](20261031-agents_and_roles.md#workspaces)。
 - 当前正在运行的协作者尝试总数低于 `max_concurrent_attempts`（默认 3，见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md)）。超出上限时，已就绪的任务保持 `pending`，等有槽位空出后自动启动。
 - Run 没有暂停、没有取消，也没有超出墙钟、Token 或已上报美元费用预算。
 
 依赖失败（失败、取消、阻塞或被跳过）时，下游任务变为 `blocked`（`task.blocked`）。有多个依赖失败时，处理好一个后任务仍保持 `blocked`，并再写一条 `task.blocked` 指向还没处理的依赖。
+
+独立验证任务判定 `rejected` 或 `inconclusive` 时自身是 `succeeded`，但被验证的工作没有得到确认。在判定写入之前就编排好、依赖这个验证任务的任务，是按「验证会通过」安排的，同样变为 `blocked`（`task.blocked` 带 `data.verdict`），不会在没确认的工作上继续；负责人读到判定之后再编排、依赖它的任务（例如修复任务）照常开始。判断依据是任务写入看板时的事件序号（`Task::planned_seq`）和验证任务 `task.succeeded` 的序号（`DepGate::holds`），重启后从 `orchestration.accepted` 的序号重建。
 
 尝试结束、负责人 `cancel` / `retry` / `accept` 都会改任务状态。尝试结束时，确认这次尝试仍是任务当前的尝试（`active_attempt`）和写入结果在同一把锁内完成；负责人已经取消或重试了这个任务时，这次尝试的结果按过期处理（`attempt.late_result`），尝试记录标为 `cancelled`，不会覆盖负责人的决定。
 
