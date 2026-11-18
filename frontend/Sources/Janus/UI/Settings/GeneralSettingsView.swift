@@ -42,6 +42,9 @@ struct GeneralSettingsView: View {
                 .pickerStyle(.menu)
                 .controlSize(.large)
                 .frame(width: 166)
+                // The menu picker is an AppKit pop-up button that keeps the bezel it was drawn with when
+                // `NSApp.appearance` changes; rebuilding it makes it follow the new appearance.
+                .id(appearance)
             }
             Divider()
             HStack(spacing: 22) {
