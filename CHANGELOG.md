@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.18.4
+
+- 升级后第一次启动时，Janus 自动把已有数据升级到新版本：先把数据库备份到 `~/.janus/backups/`，再更新数据结构，例如去掉数字员工和历史任务中已经不用的「定位」字段。想先看看会改什么，可以运行 `janus migrate --dry-run`。
+- 默认数字员工的职责和指令随版本更新：没改过的自动换成新版；改过的保留你的内容，并在编辑器中提示有新版，可以选择「采用新版」或「保留我的」。
+- 应用连接到其他版本的 Janus 服务时（例如还在运行的旧服务）会提示，并可以一键停止旧服务、改用应用自带的服务，避免数据没有升级。
+- 旧版本的 Janus 不会打开已经升级过的数据；要退回旧版本，请先从 `~/.janus/backups/` 恢复升级前的备份。
+
+- On the first start after an upgrade, Janus upgrades your existing data: it backs up the database to `~/.janus/backups/` and then updates the stored data, for example removing the unused Role field from digital employees and past tasks. Run `janus migrate --dry-run` to preview the changes.
+- The default digital employees' responsibilities and instructions now update with each release. Text you never edited moves to the new version. Text you edited stays yours, and the editor offers the new version with "Use the New Version" and "Keep Mine".
+- When the app finds a Janus service of another version running (for example an old service still in the background), it says so and can stop that service and start its own, so your data does get upgraded.
+- An older Janus will not open upgraded data. To go back to an older version, first restore the pre-upgrade backup from `~/.janus/backups/`.
+
 ## 2026.11.18.3
 
 - 数字员工编辑器中，「可以担任负责人」移到职责下方。职责和指令的说明更简洁；指令的说明对所有 Agent 统一，表示它会作为系统提示词交给 Coding Agent。
