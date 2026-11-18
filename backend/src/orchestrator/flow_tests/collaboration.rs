@@ -1,7 +1,7 @@
 //! End-to-end tests for the multi-agent collaboration improvements (`C-01`..`C-13`): event-driven
 //! `wait` + live task pulse, verifier `verdict` + targeted context, structured `handoff`, multi-step
 //! loop detection, Lead edit conflict/stale tracking, warm session continuation (`continues` /
-//! `continue_session`), role `slots` + concurrency cap, token budget pause/resume, collaborator
+//! `continue_session`), role `slots` + concurrency cap, observational token budget, collaborator
 //! `request_split`, and abnormal-session usage capture.
 
 use super::*;
@@ -401,7 +401,7 @@ async fn role_slots_and_concurrency_cap_schedule_parallel_work_safely() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn token_budget_pauses_run_and_resumes_on_extend_budget() {
+async fn token_reference_keeps_usage_visible_and_downstream_work_running() {
     let h =
         harness("collab-token-budget", &[("lead", false), ("m1", true)], json!({ "T1": ["handoff"], "T2": ["ok"] }));
     let run = h
@@ -433,19 +433,18 @@ async fn token_budget_pauses_run_and_resumes_on_extend_budget() {
     .await;
     assert!(!err);
 
-    // `T1` reports 1,200 tokens >= 1,000 limit -> Run pauses in `waiting_input` before starting `T2`.
-    wait_until(&h.app, &run, "token budget exhausted", |e| has(e, "run.budget_exhausted")).await;
-    assert_eq!(status(&h.app, &run), "waiting_input");
-    let exhausted =
-        events(&h.app, &run).into_iter().find(|e| e.kind == "run.budget_exhausted").and_then(|e| e.data).unwrap();
-    assert_eq!(exhausted["kind"], "tokens", "{exhausted}");
-    assert!(!task_event(&events(&h.app, &run), "attempt.started", "T2"));
-
-    // Extending budget resumes `T2` automatically.
-    act(&h, &run, json!({ "type": "extendBudget", "tokens": 5_000 }));
-    wait_until(&h.app, &run, "T2 finishes after budget extension", |e| task_event(e, "task.succeeded", "T2")).await;
+    wait_until(&h.app, &run, "T2 finishes without extending any budget", |e| task_event(e, "task.succeeded", "T2"))
+        .await;
+    let live = h.app.run(&run).unwrap();
+    assert!(h.app.usage(&live).run.tokens.total.unwrap() >= 1_200);
+    assert_eq!(h.app.db.run(&run).unwrap().unwrap()["config"]["tokenLimit"], 1_000);
+    let deadline = live.deadline_ms.load(Ordering::SeqCst);
+    assert!(h.app.action(&live, &json!({ "type": "extendBudget", "tokens": 5000 })).is_err());
+    assert_eq!(live.deadline_ms.load(Ordering::SeqCst), deadline);
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let log = events(&h.app, &run);
+    assert!(!has(&log, "run.budget_exhausted") && !has(&log, "run.budget_extended"));
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

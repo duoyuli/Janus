@@ -64,7 +64,6 @@ impl App {
             goal_images,
             last_seq: 0,
             status: RunStatus::Planning,
-            token_limit,
             cost_limit_micros,
         }));
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
@@ -142,50 +141,20 @@ impl App {
         self.goal(run, false).await
     }
 
-    /// Check whether wall-clock, token or reported USD cost ceiling has been reached. Unreported
+    /// Check whether wall-clock or reported USD cost ceiling has been reached. Unreported
     /// usage (`None`) never triggers a pause.
     pub(super) fn check_budget(&self, run: &Run) -> Option<BudgetHit> {
         if now_ms() > run.deadline_ms.load(Ordering::SeqCst) {
             return Some(BudgetHit::WallClock);
         }
-        let token_limit = run.token_limit.load(Ordering::SeqCst);
         let cost_limit_micros = run.cost_limit_micros.load(Ordering::SeqCst);
-        if token_limit <= 0 && cost_limit_micros <= 0 {
-            return None;
-        }
-        let spent = self.spent(run);
-        if token_limit > 0
-            && let Some(used) = spent.tokens
-            && used >= token_limit
-        {
-            return Some(BudgetHit::Tokens { used, limit: token_limit });
-        }
         if cost_limit_micros > 0
-            && let Some(usd) = spent.usd
+            && let Some(usd) = run.costs.lock().unwrap().usd
             && (usd * 1_000_000.0).round() as i64 >= cost_limit_micros
         {
             return Some(BudgetHit::CostUsd { used: usd, limit: cost_limit_micros as f64 / 1_000_000.0 });
         }
         None
-    }
-
-    /// Tokens and reported USD the run has spent. The ledger is rebuilt from the event log only
-    /// when a `session.usage` event arrived since the last time, so the scheduler can ask on
-    /// every pass without rereading the whole log.
-    pub(super) fn spent(&self, run: &Run) -> Spent {
-        let version = run.usage_version.load(Ordering::SeqCst);
-        if let Some((at, spent)) = *run.spent.lock().unwrap()
-            && at == version
-        {
-            return spent;
-        }
-        let ledger = self.usage(run);
-        let spent = Spent {
-            tokens: ledger.run.tokens.total,
-            usd: ledger.run.cost.lines.iter().find(|l| l.currency.eq_ignore_ascii_case("USD")).map(|l| l.amount),
-        };
-        *run.spent.lock().unwrap() = Some((version, spent));
-        spent
     }
 
     /// The scheduling loop. It recomputes the run's status from the task graph on every pass and
@@ -340,10 +309,6 @@ impl App {
                             BudgetHit::WallClock => (
                                 "任务达到墙钟预算，等待你追加预算、接受部分结果或取消".to_string(),
                                 json!({ "kind": "wall_clock", "budgetMs": RUN_BUDGET_MS }),
-                            ),
-                            BudgetHit::Tokens { used, limit } => (
-                                format!("任务已用 {used} tokens（达到上限 {limit}），等待你追加预算或停止"),
-                                json!({ "kind": "tokens", "usedTokens": used, "tokenLimit": limit }),
                             ),
                             BudgetHit::CostUsd { used, limit } => (
                                 format!("任务已上报费用 ${used:.2}（达到上限 ${limit:.2}），等待你追加预算或停止"),

@@ -47,6 +47,14 @@ private struct Log {
         for (task, total) in want["tasks"].object {
             #expect(l.task(task)?.tokens.total == total.int, "\(name): task \(task)")
         }
+        for (task, usd) in want["taskUsd"].object {
+            #expect(l.task(task)?.cost.lines.first?.amount == usd.double)
+        }
+        for (id, usd) in want["attemptUsd"].object {
+            let attempt = try #require(l.attempts.first { $0.id == id })
+            let slices = l.sessions.filter { $0.task == attempt.task && $0.attempt == attempt.n }
+            #expect(UsageScope.over(id, slices).cost.lines.first?.amount == usd.double)
+        }
         for (key, state) in want["attempts"].object {
             #expect(l.attempts.first { $0.id == key }?.state.label == L.catalogText(state.str), "\(name): attempt \(key)")
         }

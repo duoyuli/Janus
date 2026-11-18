@@ -152,6 +152,8 @@ struct InboxItem: Identifiable {
 
 struct RunInfo {
     var status = RunStatus.unknown
+    /// Latest reference recorded by older clients that supported token extensions.
+    var extendedTokenReference: Double?
     var goal = ""
     /// Stored paths of the images pasted with the goal.
     var images: [String] = []
@@ -239,9 +241,15 @@ func derive(_ events: [Event]) -> RunState {
             ag("lead").phase = "coordinating"
         case "goal.status": ag("lead").note = e.text
         case "run.budget_exhausted":
+            guard d["kind"].str != "tokens" else { break }
             s.run.status = .waitingInput; s.inbox.removeAll { $0.kind == "budget" }
             s.inbox.append(InboxItem(kind: "budget", key: "budget", seq: e.seq, d: ["text": JSON(e.text), "kind": d["kind"]]))
-        case "run.budget_extended": s.run.status = .running; s.inbox.removeAll { $0.kind == "budget" }
+        case "run.budget_extended":
+            if d["kind"].str == "tokens" {
+                s.run.extendedTokenReference = d["tokenLimit"].double
+                break
+            }
+            s.run.status = .running; s.inbox.removeAll { $0.kind == "budget" }
         case "decision.withdrawn":
             dropKey(d["key"].str)
             if let t, t.status.waitsOnPerson { t.status = .running }
@@ -394,6 +402,7 @@ func derive(_ events: [Event]) -> RunState {
             if let at = t.attempts.last, at.status == .running { at.status = .succeeded }
             let a = ag(t.agent); a.phase = t.agent == "lead" ? "coordinating" : "idle"; a.note = ""; a.progress = nil
         case "run.delivered":
+            s.inbox.removeAll { $0.kind == "budget" }
             s.run.status = .delivered; s.result = RunResult(d: d, seq: e.seq)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
         case "risk.accepted": s.run.status = .accepted; s.result?.accepted = e.ts

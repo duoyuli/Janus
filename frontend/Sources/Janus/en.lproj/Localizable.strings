@@ -248,7 +248,7 @@
 "价格更新于 %@。" = " Prices updated %@.";
 "任务" = "Runs";
 "任务失败" = "Run Failed";
-"任务已达到 Token 预算" = "Run reached its token budget";
+"Token 用量参考值：%@" = "Token usage reference: %@";
 "任务已达到墙钟预算" = "Run reached its wall time budget";
 "任务已达到费用预算" = "Run reached its cost budget";
 "任务总计包含负责人；负责人和协作者分开列出，方便对比" = "The run total includes the lead. Lead and collaborator subtotals are shown separately.";
@@ -1111,7 +1111,6 @@
 "连不上 Janus 后端：%@" = "Could not connect to the Janus service: %@";
 "连不上 Janus 服务：%@" = "Could not connect to the Janus service: %@";
 "追加 5 USD" = "Add 5 USD";
-"追加 500,000 Tokens" = "Add 500,000 Tokens";
 "追加 60 分钟" = "Add 60 Minutes";
 "退出" = "Quit";
 "退出 Janus" = "Quit Janus";

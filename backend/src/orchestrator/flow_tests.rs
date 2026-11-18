@@ -1645,6 +1645,11 @@ async fn restart_restores_failed_and_blocked() {
     // Simulate the process going away: stop the old driver without writing anything.
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
+    // Older runs can have both reported usage and a persisted token ceiling at restart.
+    let old = h.app.run(&run).unwrap();
+    h.app.emit(&old, ev("session.usage", "m1", "用量").task("T1").attempt(1).data(json!({ "totalTokens": 2_000 })));
+    h.app.emit(&old, ev("run.budget_extended", "user", "旧预算").data(json!({ "kind": "tokens", "tokenLimit": 1000 })));
+    h.app.emit(&old, ev("run.budget_exhausted", "janus", "旧预算用完").data(json!({ "kind": "tokens" })));
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
     assert_eq!(status(&app2, &run), "interrupted");

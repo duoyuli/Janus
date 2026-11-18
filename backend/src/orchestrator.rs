@@ -151,7 +151,7 @@ pub struct NewRun {
     /// Images pasted with the goal: `[{data (base64), name}]`, see `attachments`.
     #[serde(default)]
     pub images: Vec<Value>,
-    /// Optional per-run token budget overriding `Config.run_token_budget`.
+    /// Optional display-only token reference overriding `Config.run_token_budget`.
     #[serde(default, rename = "maxTokens")]
     pub max_tokens: Option<i64>,
     /// Optional per-run USD cost budget overriding `Config.run_cost_budget_usd`.
@@ -545,16 +545,7 @@ impl Driving {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum BudgetHit {
     WallClock,
-    Tokens { used: i64, limit: i64 },
     CostUsd { used: f64, limit: f64 },
-}
-
-/// What a run has spent against its token and USD ceilings, from its usage ledger; `None` when
-/// nothing was reported.
-#[derive(Clone, Copy, Debug, Default)]
-struct Spent {
-    tokens: Option<i64>,
-    usd: Option<f64>,
 }
 
 /// What a run is made of, from its creation or its record. Everything else about it starts empty.
@@ -570,7 +561,6 @@ struct RunRecord {
     /// The last event already in the log; the next one gets the following seq.
     last_seq: i64,
     status: RunStatus,
-    token_limit: i64,
     cost_limit_micros: i64,
 }
 
@@ -590,15 +580,10 @@ pub struct Run {
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
     emitting: StdMutex<()>,
     deadline_ms: AtomicI64,
-    /// Optional token ceiling (`0` = unlimited).
-    token_limit: AtomicI64,
     /// Optional USD cost ceiling in micro-dollars (`0` = unlimited).
     cost_limit_micros: AtomicI64,
-    /// Bumped each time a `session.usage` event is stored, so the budget check rebuilds the
-    /// usage ledger only after usage changed, not on every scheduler pass.
-    usage_version: AtomicI64,
-    /// What the run had spent at a `usage_version` (see `App::spent`).
-    spent: StdMutex<Option<(i64, Spent)>>,
+    /// Updated in persistence order, seeded from the same events on recovery.
+    costs: StdMutex<crate::usage::SessionCosts>,
     st: StdMutex<RunState>,
     wake: Notify,
     driving: Driving,
@@ -699,10 +684,8 @@ impl Run {
             seq: AtomicI64::new(r.last_seq),
             emitting: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
-            token_limit: AtomicI64::new(r.token_limit.max(0)),
             cost_limit_micros: AtomicI64::new(r.cost_limit_micros.max(0)),
-            usage_version: AtomicI64::new(0),
-            spent: StdMutex::new(None),
+            costs: StdMutex::default(),
             st: StdMutex::new(RunState { status: r.status, ..Default::default() }),
             wake: Notify::new(),
             driving: Driving::default(),
@@ -757,7 +740,7 @@ pub struct Config {
     pub goal_settle: Duration,
     /// Maximum collaborator task attempts running concurrently in a run (`1..=32`).
     pub max_concurrent_attempts: usize,
-    /// Default per-run token budget (`None` = unlimited).
+    /// Default reference shown alongside reported token usage.
     pub run_token_budget: Option<i64>,
     /// Default per-run reported USD cost budget (`None` = unlimited).
     pub run_cost_budget_usd: Option<f64>,
@@ -875,13 +858,9 @@ impl App {
         };
         let nudge = needs_lead(&event);
         let wakes_board = wakes_board_wait(&event);
-        let usage = event.kind == "session.usage";
-        let stored = self.store(event);
+        let stored = self.store(event, Some(run));
         drop(_order);
         if stored {
-            if usage {
-                run.usage_version.fetch_add(1, Ordering::SeqCst);
-            }
             if wakes_board {
                 run.board_wake.notify_waiters();
             }
@@ -895,10 +874,15 @@ impl App {
     /// Write an event, then broadcast it. The log is the source of truth: an event that could not
     /// be written is not broadcast either, so the app never shows what a reload would not find.
     /// Its `seq` stays unused.
-    fn store(&self, event: Event) -> bool {
+    fn store(&self, event: Event, run: Option<&Run>) -> bool {
         if let Err(err) = self.db.insert_event(&event) {
             crate::config::log(format!("janus: failed to persist event {}#{}: {err:#}", event.run_id, event.seq));
             return false;
+        }
+        if let Some(run) = run
+            && matches!(event.kind.as_str(), "attempt.started" | "agent.status" | "session.usage")
+        {
+            run.costs.lock().unwrap().observe(&event);
         }
         let _ = self.tx.send(event);
         true

@@ -144,19 +144,26 @@ struct UsageCost: Equatable {
     }
 }
 
-/// One session's running cost in one currency: what earlier segments reached before a reset, and
-/// the latest reading.
-private struct RunningCost {
-    var beforeReset = 0.0
-    var latest = 0.0
+private enum CostSession: Hashable {
+    case native(String)
+    case attempt(String?, Int?)
+}
 
-    mutating func reading(_ amount: Double) {
-        if amount <= 0, latest > 0 { return } // a crashed result reports zero
-        if amount < latest { beforeReset += latest } // the running total restarted (`/clear`)
-        latest = amount
+private struct UsageOwner: Hashable {
+    let actor: String
+    let task: String?
+    let attempt: Int?
+    init(_ actor: String, _ event: Event) {
+        self.actor = actor
+        task = event.task
+        attempt = event.attempt
     }
+}
 
-    var total: Double { beforeReset + latest }
+private struct CostKey: Hashable {
+    var owner: String
+    var session: CostSession
+    var currency: String
 }
 
 /// Tokens and turns on one model, in a bill.
@@ -463,7 +470,7 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
     struct SessionBuild {
         var actor: String, task: String?, attempt: Int?
         var tokens = UsageTokens(), turns = 0, context = UsageContext()
-        var cost: [String: RunningCost] = [:]
+        var cost: [String: Double] = [:]
         var firstMs: Int, lastMs: Int
     }
     struct AttemptBuild {
@@ -473,7 +480,8 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
     }
     var created: Int?
     var last: Int?
-    var current: [String: String] = [:]
+    var current: [UsageOwner: String] = [:]
+    var previousCosts: [CostKey: Double] = [:]
     var builds: [String: SessionBuild] = [:]
     var order: [String] = []
     var attempts: [String: AttemptBuild] = [:]
@@ -492,7 +500,8 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
     @discardableResult func touch(_ e: Event, _ owner: String) -> String {
         let ts = Int(e.ts)
         let taskPart = e.task ?? "-"
-        let key = current[owner].map { "\(owner):\(taskPart):\($0)" } ?? "\(owner):\(taskPart)/\(e.attempt.map(String.init) ?? "-")"
+        let sid = e.data["session"].string.flatMap { $0.isEmpty ? nil : $0 } ?? current[UsageOwner(owner, e)]
+        let key = sid.map { "\(owner):\(taskPart)/\(e.attempt ?? 0):\($0)" } ?? "\(owner):\(taskPart)/\(e.attempt.map(String.init) ?? "-")"
         if var s = builds[key] {
             s.firstMs = min(s.firstMs, ts)
             s.lastMs = max(s.lastMs, ts)
@@ -543,9 +552,11 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         case "attempt.started", "agent.status":
             let owner = usageOwner(e)
             if let sid = d["session"].string, !sid.isEmpty {
-                current[owner] = sid
+                current[UsageOwner(owner, e)] = sid
             } else if e.type == "agent.status" {
                 break
+            } else {
+                current.removeValue(forKey: UsageOwner(owner, e))
             }
             // An opened session can be one whose usage never arrives: it counts as unreported.
             touch(e, owner)
@@ -561,7 +572,19 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
             if !rows.isEmpty { s.turns += 1 }
             for row in rows { s.tokens.add(row) }
             if used != nil || size != nil { s.context.snapshot(used: used, size: size) }
-            if let cost { s.cost[cost.currency, default: RunningCost()].reading(cost.amount) }
+            if let cost {
+                let currency = cost.currency.uppercased() == "USD" ? "USD" : cost.currency
+                let sid = d["session"].string.flatMap { $0.isEmpty ? nil : $0 } ?? current[UsageOwner(owner, e)]
+                let session = sid.map(CostSession.native) ?? .attempt(e.task, e.attempt)
+                let key = CostKey(owner: owner, session: session, currency: currency)
+                let previous = previousCosts[key] ?? 0
+                var delta = 0.0
+                if cost.amount > 0 || previous <= 0 {
+                    delta = cost.amount < previous ? cost.amount : cost.amount - previous
+                    previousCosts[key] = cost.amount
+                }
+                s.cost[currency, default: 0] += delta
+            }
             builds[key] = s
         case "attempt.failed":
             ended(e, .failed, d["error"].string)
@@ -608,7 +631,7 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
     let sessions: [UsageSession] = order.enumerated().compactMap { i, key in
         builds[key].map { b in
             (i, UsageSession(key: key, actor: b.actor, task: b.task, attempt: b.attempt, tokens: b.tokens, turns: b.turns, context: b.context,
-                             cost: b.cost.keys.sorted().map { UsageCostLine(currency: $0, amount: b.cost[$0]?.total ?? 0) },
+                             cost: b.cost.keys.sorted().map { UsageCostLine(currency: $0, amount: b.cost[$0] ?? 0) },
                              firstMs: b.firstMs, lastMs: b.lastMs))
         }
     }

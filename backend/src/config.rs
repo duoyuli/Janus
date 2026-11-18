@@ -18,7 +18,7 @@ pub struct Settings {
     pub node: String,
     /// Maximum collaborator task attempts running at the same time in one run (`1..=32`, default `3`).
     pub max_concurrent_attempts: usize,
-    /// Optional per-run token ceiling; reaching it pauses the run in `waiting_input`.
+    /// Optional reference for displaying reported token usage.
     pub run_token_budget: Option<i64>,
     /// Optional per-run reported USD cost ceiling; reaching it pauses the run in `waiting_input`.
     pub run_cost_budget_usd: Option<f64>,

@@ -23,7 +23,7 @@
 2. 为每个成员构建运行环境（`spec_for`），缺少 CLI 或适配器没有安装时直接报错。
 3. 负责人必须是 Claude Code 或 Codex（`Runtime::leads`）。
 4. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线。
-5. 写入 Run 快照（含可选 `tokenLimit`、`costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
+5. 写入 Run 快照（含可选的 Token 展示参考值 `tokenLimit` 和费用上限 `costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
 6. 申请 Run 租约（10 分钟）。
 7. 启动驱动任务，进入负责人的目标会话（`goal`）。
 
@@ -77,7 +77,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - 所有依赖（`deps`）都已 `succeeded`，并且没有被未通过的独立验证挡住（见下文）。
 - 执行者当前没有别的任务在执行。每个成员实例同一时间只做一个任务，派给同一实例的任务排队；工作区中配置了 `slots > 1` 的角色会展开为多个成员实例，可并行执行不同任务，见 [Agent、角色与工作区](20261031-agents_and_roles.md#workspaces)。
 - 当前正在运行的协作者尝试总数低于 `max_concurrent_attempts`（默认 3，见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md)）。超出上限时，已就绪的任务保持 `pending`，等有槽位空出后自动启动。
-- Run 没有暂停、没有取消，也没有超出墙钟、Token 或已上报美元费用预算。
+- Run 没有暂停、没有取消，也没有超出墙钟或已上报美元费用预算。
 
 依赖失败（失败、取消、阻塞或被跳过）时，下游任务变为 `blocked`（`task.blocked`）。有多个依赖失败时，处理好一个后任务仍保持 `blocked`，并再写一条 `task.blocked` 指向还没处理的依赖。
 
@@ -154,7 +154,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | 单次尝试 | 30 分钟 |
 | 单个 ACP 请求 | 30 分钟 |
 | 发送打断等控制指令 | 15 秒 |
-| Run 预算 | 墙钟 6 小时，以及可选的 Token 上限（`maxTokens` / `JANUS_RUN_TOKEN_BUDGET`）和已上报 `USD` 费用上限（`maxCostUsd` / `JANUS_RUN_COST_BUDGET_USD`），均可用 `extendBudget` 追加；未上报用量（`None`）永不触发暂停；调度循环每次唤醒都检查，但只在新的 `session.usage` 写入后才重算用量账本（`App::spent`，`Run.usage_version` 记录变化）；从中断处继续时墙钟重新计 6 小时 |
+| Run 预算 | 墙钟 6 小时，以及可选的已上报 `USD` 费用上限（`maxCostUsd` / `JANUS_RUN_COST_BUDGET_USD`），均可用 `extendBudget` 追加；未上报用量（`None`）永不触发暂停；调度循环每次唤醒时读取内存中的美元合计。费用读数持久化后按原生会话更新增量，从中断处继续时按事件顺序重建一次；从中断处继续时墙钟重新计 6 小时 |
 
 <a id="watchdog"></a>
 ### 停滞检测

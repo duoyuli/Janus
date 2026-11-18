@@ -109,7 +109,7 @@ impl Tokens {
     /// The tokens of one turn by model: the quota rows when the agent sent them (they name their
     /// model), else `usage` on the session's current model (`None` as model). Empty when the event
     /// carries no token count (a context snapshot).
-    fn of_turn(data: &Value) -> Vec<(Option<String>, Tokens)> {
+    pub(crate) fn of_turn(data: &Value) -> Vec<(Option<String>, Tokens)> {
         let rows: Vec<(Option<String>, Tokens)> = data["models"]
             .as_array()
             .into_iter()
@@ -230,27 +230,67 @@ impl Cost {
     }
 }
 
-/// One session's running cost in one currency: what earlier segments reached before a reset, and
-/// the latest reading of the current segment.
-#[derive(Clone, Copy, Debug, Default)]
-struct RunningCost {
-    before_reset: f64,
-    latest: f64,
+#[derive(Hash, PartialEq, Eq)]
+enum CostSession {
+    Native(String),
+    Attempt(Option<String>, Option<i64>),
 }
 
-impl RunningCost {
-    fn reading(&mut self, amount: f64) {
-        if amount <= 0.0 && self.latest > 0.0 {
-            return; // a crashed result reports zero; the running total did not go anywhere
-        }
-        if amount < self.latest {
-            self.before_reset += self.latest; // the running total restarted (`/clear`)
-        }
-        self.latest = amount;
+/// Convert cumulative native-session readings into deltas before assigning them to tasks.
+/// The running scheduler and historical bills consume the same ordered events.
+#[derive(Default)]
+pub(crate) struct SessionCosts {
+    current: HashMap<(String, Option<String>, Option<i64>), String>,
+    previous: HashMap<(String, CostSession, String), f64>,
+    pub(crate) usd: Option<f64>,
+}
+
+impl SessionCosts {
+    fn sid<'a>(&'a self, e: &'a Event, actor: &str) -> Option<&'a str> {
+        e.data
+            .as_ref()
+            .and_then(|d| d["session"].as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| self.current.get(&(actor.to_owned(), e.task.clone(), e.attempt)).map(String::as_str))
     }
 
-    fn total(self) -> f64 {
-        self.before_reset + self.latest
+    pub(crate) fn observe(&mut self, e: &Event) -> Option<(String, f64)> {
+        let actor = session_actor(e);
+        let d = e.data.as_ref().unwrap_or(&Value::Null);
+        let sid = d["session"].as_str().filter(|s| !s.is_empty());
+        match e.kind.as_str() {
+            "attempt.started" | "agent.status" => {
+                let owner = (actor.into(), e.task.clone(), e.attempt);
+                if let Some(sid) = sid {
+                    self.current.insert(owner, sid.into());
+                } else if e.kind == "attempt.started" {
+                    self.current.remove(&owner);
+                }
+                None
+            }
+            "session.usage" => {
+                let amount = d["cost"]["amount"].as_f64()?;
+                let name = d["cost"]["currency"].as_str().unwrap_or("");
+                let currency = if name.eq_ignore_ascii_case("USD") { "USD" } else { name };
+                let session = match self.sid(e, actor) {
+                    Some(id) => CostSession::Native(id.into()),
+                    None => CostSession::Attempt(e.task.clone(), e.attempt),
+                };
+                let previous = self.previous.entry((actor.into(), session, currency.into())).or_default();
+                let delta = if amount <= 0.0 && *previous > 0.0 {
+                    0.0 // A zero after a positive reading is an abnormal result.
+                } else {
+                    let delta = if amount < *previous { amount } else { amount - *previous };
+                    *previous = amount;
+                    delta
+                };
+                if currency == "USD" {
+                    *self.usd.get_or_insert(0.0) += delta;
+                }
+                Some((currency.into(), delta))
+            }
+            _ => None,
+        }
     }
 }
 
@@ -345,35 +385,21 @@ pub struct Session {
     /// Each turn's tokens by model, for bills.
     #[serde(skip)]
     pub spend: Vec<Spend>,
-    /// Each cost reading (time, currency, amount), for a bill over part of the session.
+    /// Each cost increment (time, currency, delta), for a bill over part of the session.
     #[serde(skip)]
     pub readings: Vec<(i64, String, f64)>,
 }
 
 impl Session {
-    /// The cost the session reached between `from` and `to`: its running total at `to` minus the
-    /// running total at `from`, per currency.
+    /// Deltas are attributed to the timestamp and task of the reading that earned them.
     pub fn cost_between(&self, from: i64, to: i64) -> Vec<CostLine> {
-        let mut at_from: BTreeMap<&str, RunningCost> = BTreeMap::new();
-        let mut at_to: BTreeMap<&str, RunningCost> = BTreeMap::new();
-        let mut in_window: HashSet<&str> = HashSet::new();
-        for (ts, currency, amount) in self.readings.iter().filter(|(ts, _, _)| *ts < to) {
-            at_to.entry(currency).or_default().reading(*amount);
-            if *ts < from {
-                at_from.entry(currency).or_default().reading(*amount);
-            } else {
-                in_window.insert(currency);
+        let mut amounts = BTreeMap::new();
+        for (ts, currency, delta) in &self.readings {
+            if (from..to).contains(ts) {
+                *amounts.entry(currency.clone()).or_insert(0.0) += delta;
             }
         }
-        at_to
-            .into_iter()
-            .filter(|(currency, _)| in_window.contains(currency))
-            .map(|(currency, c)| CostLine {
-                currency: currency.to_string(),
-                amount: c.total() - at_from.get(currency).map_or(0.0, |c| c.total()),
-                sessions: 1,
-            })
-            .collect()
+        amounts.into_iter().map(|(currency, amount)| CostLine { currency, amount, sessions: 1 }).collect()
     }
 }
 
@@ -785,7 +811,7 @@ struct SessionBuild {
     tokens: Tokens,
     turns: usize,
     context: Context,
-    cost: BTreeMap<String, RunningCost>,
+    cost: BTreeMap<String, f64>,
     spend: Vec<Spend>,
     readings: Vec<(i64, String, f64)>,
     first_ms: i64,
@@ -810,7 +836,7 @@ struct Scan {
     created_ms: Option<i64>,
     last_ms: Option<i64>,
     /// Each actor's current ACP session, for the events that do not name one.
-    current_session: HashMap<String, String>,
+    costs: SessionCosts,
     /// Each actor's current model, from its session's controls.
     current_model: HashMap<String, String>,
     sessions: HashMap<String, SessionBuild>,
@@ -838,13 +864,12 @@ impl Scan {
         }
         let empty = Value::Null;
         let data = e.data.as_ref().unwrap_or(&empty);
+        let cost = self.costs.observe(e);
         match e.kind.as_str() {
             "run.created" => self.created_ms = Some(e.ts),
             "attempt.started" | "agent.status" => {
                 let actor = session_actor(e).to_string();
-                if let Some(sid) = data["session"].as_str().filter(|s| !s.is_empty()) {
-                    self.current_session.insert(actor.clone(), sid.to_string());
-                } else if e.kind == "agent.status" {
+                if e.kind == "agent.status" && data["session"].as_str().is_none_or(str::is_empty) {
                     return;
                 }
                 // An opened session can be one whose usage never arrives: it counts as unreported.
@@ -855,7 +880,7 @@ impl Scan {
                     self.attempt(task, n, &actor, e.ts);
                 }
             }
-            "session.usage" => self.usage(e, data),
+            "session.usage" => self.usage(e, data, cost),
             // The model a session runs on: as it opened, and when someone switched it.
             "session.controls" => {
                 if let Some(model) = data["model"]["current"].as_str().filter(|m| !m.is_empty()) {
@@ -961,12 +986,9 @@ impl Scan {
     }
 
     /// One `session.usage`: a turn's tokens, a context snapshot, a cost reading, or several.
-    fn usage(&mut self, e: &Event, data: &Value) {
+    fn usage(&mut self, e: &Event, data: &Value, cost: Option<(String, f64)>) {
         let rows = Tokens::of_turn(data);
         let (used, size) = (data["used"].as_i64(), data["size"].as_i64());
-        let cost = data["cost"]["amount"]
-            .as_f64()
-            .map(|amount| (data["cost"]["currency"].as_str().unwrap_or("").to_string(), amount));
         if rows.is_empty() && used.is_none() && size.is_none() && cost.is_none() {
             return;
         }
@@ -985,7 +1007,7 @@ impl Scan {
             s.context.snapshot(used, size);
         }
         if let Some((currency, amount)) = cost {
-            s.cost.entry(currency.clone()).or_default().reading(amount);
+            *s.cost.entry(currency.clone()).or_default() += amount;
             s.readings.push((e.ts, currency, amount));
         }
     }
@@ -993,12 +1015,12 @@ impl Scan {
     /// Note that the actor is in its current session, even if it never reports usage, and return
     /// the session's key. Scoped by task as well as session id so a downstream task that warms up
     /// from an earlier task's ACP session (`continues`) gets its own slice of turns in the ledger,
-    /// while a resumed attempt of the same task stays in one session.
+    /// and each attempt retains its own share.
     fn touch(&mut self, e: &Event, actor: &str) -> String {
         let task_part = e.task.as_deref().unwrap_or("-");
-        let sid = self.current_session.get(actor).cloned();
+        let sid = self.costs.sid(e, actor).map(str::to_owned);
         let key = match &sid {
-            Some(sid) => format!("{actor}:{task_part}:{sid}"),
+            Some(sid) => format!("{actor}:{task_part}/{n}:{sid}", n = e.attempt.unwrap_or_default()),
             None => format!("{actor}:{task_part}/{}", e.attempt.map(|n| n.to_string()).unwrap_or_else(|| "-".into())),
         };
         let s = self.sessions.entry(key.clone()).or_insert_with(|| {
@@ -1063,11 +1085,7 @@ impl Scan {
                 tokens: b.tokens,
                 turns: b.turns,
                 context: b.context,
-                cost: b
-                    .cost
-                    .into_iter()
-                    .map(|(currency, c)| CostLine { currency, amount: c.total(), sessions: 1 })
-                    .collect(),
+                cost: b.cost.into_iter().map(|(currency, amount)| CostLine { currency, amount, sessions: 1 }).collect(),
                 first_ms: b.first_ms,
                 last_ms: b.last_ms,
                 spend: b.spend,
@@ -1267,6 +1285,19 @@ mod tests {
             assert_eq!(l.text, want["summary"].as_str().unwrap(), "{name}: summary line");
             for (task, total) in want["tasks"].as_object().into_iter().flatten() {
                 assert_eq!(l.task(task).and_then(|t| t.tokens.total), total.as_i64(), "{name}: task {task}");
+            }
+            for (task, usd) in want["taskUsd"].as_object().into_iter().flatten() {
+                assert_eq!(l.task(task).unwrap().cost.lines[0].amount, usd.as_f64().unwrap(), "{name}: {task}");
+            }
+            for (task_attempt, usd) in want["attemptUsd"].as_object().into_iter().flatten() {
+                let attempt = l.attempts.iter().find(|a| format!("{}#{}", a.task, a.n) == *task_attempt).unwrap();
+                assert_eq!(attempt.cost.lines[0].amount, usd.as_f64().unwrap(), "{name}: {task_attempt}");
+            }
+            if let Some(window) = want["windowUsd"].as_array() {
+                let from = window[0].as_i64().unwrap();
+                let to = window[1].as_i64().unwrap();
+                let total: f64 = l.sessions.iter().flat_map(|s| s.cost_between(from, to)).map(|line| line.amount).sum();
+                assert_eq!(total, window[2].as_f64().unwrap(), "{name}: bill window");
             }
             for (key, state) in want["attempts"].as_object().into_iter().flatten() {
                 let a = l

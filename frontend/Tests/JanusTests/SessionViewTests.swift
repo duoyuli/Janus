@@ -194,7 +194,7 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(bill.notes.first?.contains("models.dev") == true && bill.notes.contains { $0.contains(expectedCopy("12 轮没有价格", "excluded from the estimate: 12")) })
     let periodCard = try render("period-bill-light.png", dark: false, Card(padding: 22) { UsageReceipt(bill: bill) }.frame(width: 520))
     #expect(periodCard > 10_000)
-    #expect(runCard > 10_000 && runCardDark > 10_000, "the cards drew: \(runCard)/\(runCardDark) bytes")
+    #expect(runCard > 10_000 && runCardDark > 10_000 && runCardNarrow > 10_000, "the cards drew: \(runCard)/\(runCardDark)/\(runCardNarrow) bytes")
     print("usage card screenshots: \(dir.path)")
 }
 

@@ -179,34 +179,20 @@ impl App {
                 if !status.is_active() {
                     bail!("任务现在是「{status}」，不能追加预算");
                 }
-                let hit = self.check_budget(run);
-                let explicit_tokens = a["tokens"].as_i64();
+                if a.get("tokens").is_some() {
+                    bail!("Token 预算仅供查看，无需追加");
+                }
                 let explicit_cost = a["costUsd"].as_f64();
                 let explicit_minutes = a["minutes"].as_i64();
-                let default_hit = if explicit_tokens.is_none() && explicit_cost.is_none() && explicit_minutes.is_none()
-                {
-                    hit
-                } else {
-                    None
-                };
-                if let Some(tokens) =
-                    explicit_tokens.or_else(|| matches!(default_hit, Some(BudgetHit::Tokens { .. })).then_some(500_000))
-                {
-                    let added = tokens.clamp(1_000, 100_000_000);
-                    let used = self.spent(run).tokens.unwrap_or(0);
-                    let new_limit = run.token_limit.load(Ordering::SeqCst).max(used) + added;
-                    run.token_limit.store(new_limit, Ordering::SeqCst);
-                    self.emit(
-                        run,
-                        ev("run.budget_extended", "user", format!("追加 Token 预算 {}", crate::usage::num(added)))
-                            .data(json!({ "kind": "tokens", "tokens": added, "tokenLimit": new_limit })),
-                    );
-                } else if let Some(cost_usd) =
-                    explicit_cost.or_else(|| matches!(default_hit, Some(BudgetHit::CostUsd { .. })).then_some(5.0))
-                {
+                let cost = explicit_cost.or_else(|| {
+                    (explicit_minutes.is_none() && matches!(self.check_budget(run), Some(BudgetHit::CostUsd { .. })))
+                        .then_some(5.0)
+                });
+                if let Some(cost_usd) = cost {
                     let added = cost_usd.clamp(0.01, 10_000.0);
                     let added_micros = (added * 1_000_000.0).round() as i64;
-                    let used_micros = self.spent(run).usd.map(|usd| (usd * 1_000_000.0).round() as i64).unwrap_or(0);
+                    let used_micros =
+                        run.costs.lock().unwrap().usd.map(|usd| (usd * 1_000_000.0).round() as i64).unwrap_or(0);
                     let new_micros = run.cost_limit_micros.load(Ordering::SeqCst).max(used_micros) + added_micros;
                     run.cost_limit_micros.store(new_micros, Ordering::SeqCst);
                     let new_usd = new_micros as f64 / 1_000_000.0;
@@ -336,18 +322,21 @@ impl App {
             bail!("只有已交付的任务 可以验收");
         }
         let seq = self.db.max_seq(run_id)? + 1;
-        self.store(Event {
-            run_id: run_id.into(),
-            seq,
-            ts: now_ms(),
-            kind: "risk.accepted".into(),
-            actor: "user".into(),
-            to: None,
-            task: None,
-            attempt: None,
-            text: "核对证据后验收通过".into(),
-            data: None,
-        });
+        self.store(
+            Event {
+                run_id: run_id.into(),
+                seq,
+                ts: now_ms(),
+                kind: "risk.accepted".into(),
+                actor: "user".into(),
+                to: None,
+                task: None,
+                attempt: None,
+                text: "核对证据后验收通过".into(),
+                data: None,
+            },
+            None,
+        );
         self.db.set_run_status(run_id, RunStatus::Accepted)
     }
 
@@ -383,14 +372,10 @@ impl App {
             self.spec_for(&m.runtime)?;
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
-        let mut token_limit = config["tokenLimit"].as_i64().unwrap_or(0);
         let mut cost_limit_micros =
             config["costLimitUsd"].as_f64().map(|c| (c * 1_000_000.0).round() as i64).unwrap_or(0);
         for e in events.iter().filter(|e| e.kind == "run.budget_extended") {
             let Some(d) = e.data.as_ref() else { continue };
-            if let Some(tl) = d["tokenLimit"].as_i64() {
-                token_limit = tl;
-            }
             if let Some(cl) = d["costLimitUsd"].as_f64() {
                 cost_limit_micros = (cl * 1_000_000.0).round() as i64;
             }
@@ -410,10 +395,15 @@ impl App {
             goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
             last_seq: self.db.max_seq(run_id)?,
             status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
-            token_limit,
             cost_limit_micros,
         }));
 
+        {
+            let mut costs = run.costs.lock().unwrap();
+            for event in &events {
+                costs.observe(event);
+            }
+        }
         // The board's tasks are every orchestration the lead got accepted.
         // Each with the last event before its orchestration: what the lead knew when it planned it.
         let board: Vec<(i64, Value)> = events
@@ -696,18 +686,21 @@ impl App {
         }
         for run_id in self.db.unfinished_runs()? {
             let seq = self.db.max_seq(&run_id)? + 1;
-            self.store(Event {
-                run_id: run_id.clone(),
-                seq,
-                ts: now_ms(),
-                kind: "run.interrupted".into(),
-                actor: "janus".into(),
-                to: None,
-                task: None,
-                attempt: None,
-                text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(),
-                data: None,
-            });
+            self.store(
+                Event {
+                    run_id: run_id.clone(),
+                    seq,
+                    ts: now_ms(),
+                    kind: "run.interrupted".into(),
+                    actor: "janus".into(),
+                    to: None,
+                    task: None,
+                    attempt: None,
+                    text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(),
+                    data: None,
+                },
+                None,
+            );
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
         }
         Ok(())

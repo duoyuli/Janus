@@ -275,6 +275,10 @@ struct RunCard: View {
                 .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
             summaryRow
+            if let reference = r.extendedTokenReference ?? run.runJSON["config"]["tokenLimit"].double, reference > 0 {
+                Text(verbatim: L.text("Token 用量参考值：\(reference.formatted(.number.locale(L.locale)))"))
+                    .font(.callout).foregroundStyle(.secondary)
+            }
             // Reminders stay directly under the summary whether or not the ledger is open; the
             // ledger never repeats them (W1 F4). Text only: nothing here pauses, stops or budgets
             // the run.

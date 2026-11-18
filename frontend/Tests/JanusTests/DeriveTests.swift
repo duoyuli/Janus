@@ -464,7 +464,31 @@ private func goalRun() -> Log {
     #expect(s2.tasks["V1"]?.verdict == .rejected)
     let vr = VerificationRecord(try #require(s2.tasks["V1"]))
     #expect(vr.verdict == .rejected && vr.passed == false, "completed negative review is not an approval")
-    #expect(s2.inbox.first { $0.kind == "budget" }?.d["kind"].str == "tokens")
+    #expect(s2.run.status == .running && !s2.inbox.contains { $0.kind == "budget" })
     let f2 = boardFacts(s2) { $0 }
     #expect(!f2.open.contains { $0.kind == "split_request" })
+}
+
+
+@Test func legacyTokenEventsPreserveAnUnrelatedBudgetDecision() {
+    var log = Log()
+    log.add("run.created")
+    log.add("run.budget_exhausted", data: ["kind": "cost_usd"])
+    log.add("run.budget_exhausted", data: ["kind": "tokens", "usedTokens": 1200, "tokenLimit": 1000])
+    log.add("run.budget_extended", data: ["kind": "tokens", "tokenLimit": 6200])
+    let s = derive(log.events)
+    #expect(s.run.extendedTokenReference == 6200)
+    #expect(s.run.status == .waitingInput)
+    #expect(s.inbox.filter { $0.kind == "budget" }.map { $0.d["kind"].str } == ["cost_usd"])
+}
+
+
+@Test func deliveryWithdrawsTheBudgetCardInDetailAndInbox() {
+    var log = goalRun()
+    log.add("run.budget_exhausted", data: ["kind": "cost_usd"])
+    #expect(derive(log.events).inbox.contains { $0.kind == "budget" })
+    log.add("run.delivered", data: ["summary": "已完成"])
+    let state = derive(log.events)
+    #expect(state.run.status == .delivered && !state.inbox.contains { $0.kind == "budget" })
+    #expect(Inbox.entries(row: ["id":"r1","status":"delivered"], workspace: "").map(\.kind) == ["delivered"])
 }

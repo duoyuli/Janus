@@ -401,17 +401,14 @@ struct BudgetAsk: View {
     var body: some View {
         let kind = item.d["kind"].str
         let heading = switch kind {
-        case "tokens": L.text("任务已达到 Token 预算")
         case "cost_usd": L.text("任务已达到费用预算")
         default: L.text("任务已达到墙钟预算")
         }
         let extendLabel = switch kind {
-        case "tokens": L.text("追加 500,000 Tokens")
         case "cost_usd": L.text("追加 5 USD")
         default: L.text("追加 60 分钟")
         }
         let extendBody: JSON = switch kind {
-        case "tokens": ["type": "extendBudget", "tokens": 500_000]
         case "cost_usd": ["type": "extendBudget", "costUsd": 5.0]
         default: ["type": "extendBudget", "minutes": 60]
         }

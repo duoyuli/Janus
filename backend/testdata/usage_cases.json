@@ -120,5 +120,36 @@
       "attempts": { "T1#1": "已取消", "T2#1": "已取消", "T3#1": "失败" },
       "reminders": 0
     }
+  },
+  {
+    "name": "cumulative cost follows the native session across tasks and attempts",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user", "data": {} },
+      { "seq": 2, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "warm" } },
+      { "seq": 3, "ts": 2000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "totalTokens": 80, "cost": { "currency": "USD", "amount": 2 } } },
+      { "seq": 4, "ts": 3000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T2", "attempt": 1, "data": { "session": "warm" } },
+      { "seq": 5, "ts": 4000, "type": "session.usage", "actor": "m1", "task": "T2", "attempt": 1, "data": { "totalTokens": 100, "cost": { "currency": "USD", "amount": 3 } } },
+      { "seq": 6, "ts": 5000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T2", "attempt": 2, "data": { "session": "warm" } },
+      { "seq": 7, "ts": 6000, "type": "session.usage", "actor": "m1", "task": "T2", "attempt": 2, "data": { "totalTokens": 20, "cost": { "currency": "USD", "amount": 0.5 } } }
+    ],
+    "expect": {
+      "runTotal": 200, "completeness": "完整", "summary": "用量：200 tokens（完整） · 费用：3.5 USD（3 个会话） · 耗时 6 秒（墙钟）",
+      "tasks": { "T1": 80, "T2": 120 }, "taskUsd": { "T1": 2, "T2": 1.5 },
+      "attemptUsd": { "T1#1": 2, "T2#1": 1, "T2#2": 0.5 }, "windowUsd": [4000, 6000, 1], "reminders": 0
+    }
+  },
+  {
+    "name": "parallel slots resolve their own session when usage omits the session id",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user" },
+      { "seq": 2, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "A", "attempt": 1, "data": { "session": "alpha" } },
+      { "seq": 3, "ts": 2000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "B", "attempt": 1, "data": { "session": "beta" } },
+      { "seq": 4, "ts": 3000, "type": "session.usage", "actor": "m1", "task": "A", "attempt": 1, "data": { "totalTokens": 50, "cost": { "currency": "USD", "amount": 1 } } },
+      { "seq": 5, "ts": 4000, "type": "session.usage", "actor": "m1", "task": "B", "attempt": 1, "data": { "totalTokens": 50, "cost": { "currency": "USD", "amount": 2 } } }
+    ],
+    "expect": {
+      "runTotal": 100, "completeness": "完整", "summary": "用量：100 tokens（完整） · 费用：3 USD（2 个会话） · 耗时 4 秒（墙钟）",
+      "tasks": { "A": 50, "B": 50 }, "taskUsd": { "A": 1, "B": 2 }, "attemptUsd": { "A#1": 1, "B#1": 2 }
+    }
   }
 ]
