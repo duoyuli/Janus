@@ -237,6 +237,9 @@ impl App {
             let repo = dir.join("repo");
             let (offers, warnings) = offers::discover(&repo, &repo.join(&at.path), ScanMode::SkillsAndMcp);
             if offers.is_empty() {
+                if !warnings.is_empty() {
+                    bail!("{}：{}", at.url(), warnings.join("；"));
+                }
                 bail!("{} 中没有找到 Skill（SKILL.md）或 MCP 服务器（mcp.json）", at.url());
             }
             let now = now_ms();

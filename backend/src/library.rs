@@ -237,7 +237,7 @@ impl App {
     pub fn scan_skill_folder(&self, path: &str) -> Result<Value> {
         let root = resolve_skill_folder(path)?;
         let (offers, warnings) = offers::discover(&root, &root, offers::ScanMode::Skills);
-        if offers.is_empty() {
+        if offers.is_empty() && warnings.is_empty() {
             bail!("所选文件夹中没有找到 Skill（SKILL.md）");
         }
         let imports = self.folder_imports()?;

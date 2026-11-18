@@ -71,6 +71,26 @@ async fn folder_skills_are_copied_and_refreshed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn folder_preview_distinguishes_a_full_page_from_a_truncated_scan() {
+    let (app, dir) = app("scan-limits");
+    let root = dir.join("skills");
+    for n in 0..500 {
+        skill_folder(&root.join(format!("s{n:03}")), "skill", "test");
+    }
+    let scan = |p: &Path| app.scan_skill_folder(p.to_str().unwrap()).unwrap();
+    assert_eq!(scan(&root)["warnings"], json!([]));
+    skill_folder(&root.join("s500"), "extra", "test");
+    let limited = scan(&root);
+    assert_eq!(limited["offers"].as_array().unwrap().len(), 500);
+    assert!(limited["warnings"][0].as_str().unwrap().contains("500"));
+    let deep = dir.join("deep");
+    skill_folder(&deep.join("a/b/c/d/e/f/g/h/i"), "deep", "test");
+    assert!(scan(&deep)["warnings"][0].as_str().unwrap().contains("8"));
+    assert_eq!(scan(&deep.join("a"))["offers"].as_array().unwrap().len(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[tokio::test]
 async fn folder_selection_imports_only_picked_skills() {
     let (app, dir) = app("folder-selection");
@@ -220,6 +240,7 @@ async fn git_sources_offer_import_and_update() {
     let upstream = dir.join("upstream");
     skill_folder(&upstream.join("skills/pdf"), "pdf", "v1");
     skill_folder(&upstream.join(".claude/skills/review"), "review", "v1");
+    skill_folder(&upstream.join("deep/a/b/c/d/e/f/g/h/i"), "too-deep", "v1");
     skill_folder(&upstream.join("skills/pdf/examples/inner"), "inner", "x"); // part of pdf
     std::fs::create_dir_all(upstream.join("node_modules/x")).unwrap();
     std::fs::write(upstream.join("node_modules/x/SKILL.md"), "no").unwrap();
@@ -235,6 +256,8 @@ async fn git_sources_offer_import_and_update() {
 
     let url = format!("file://{}", upstream.display());
     let at = || sources::RepoAt { repo: "acme/kit".into(), git_ref: String::new(), path: String::new() };
+    let deep = sources::RepoAt { path: "deep".into(), ..at() };
+    assert!(app.add_source_at(deep, &url).await.unwrap_err().to_string().contains("第 8 层"));
     let src = app.add_source_at(at(), &url).await.unwrap();
     let id = src["id"].as_str().unwrap().to_string();
     let offered: Vec<&str> = src["offers"].as_array().unwrap().iter().map(|o| o["path"].as_str().unwrap()).collect();

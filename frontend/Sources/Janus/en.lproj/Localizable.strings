@@ -1225,3 +1225,5 @@
 "通用" = "General";
 "选择 Janus 的界面外观，更改后立即生效。" = "Choose the appearance for Janus. Changes take effect immediately.";
 "选择 Janus 的界面语言，更改后立即生效。" = "Choose the language for Janus. Changes take effect immediately.";
+"已达到 500 个候选路径，部分资源未列出。请选择更具体的子目录。" = "Only the first 500 candidate paths are listed. Select a more specific folder to see the remaining resources.";
+"只扫描到第 8 层，部分子目录未扫描。请选择更具体的子目录。" = "Some folders are deeper than the 8-level scan limit. Select a more specific folder to include them.";

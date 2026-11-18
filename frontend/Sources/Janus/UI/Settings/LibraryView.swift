@@ -225,7 +225,7 @@ struct LibraryView: View {
             }
         }
         ForEach(preview["warnings"].strings, id: \.self) { w in
-            Text("⚠ \(w)").font(.caption).foregroundStyle(Tone.amber.color)
+            Text("⚠ \(L.catalogText(w))").font(.caption).foregroundStyle(Tone.amber.color)
         }
         if !available.isEmpty {
             HStack {
