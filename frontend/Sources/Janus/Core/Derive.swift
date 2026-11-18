@@ -240,7 +240,7 @@ func derive(_ events: [Event]) -> RunState {
         case "goal.status": ag("lead").note = e.text
         case "run.budget_exhausted":
             s.run.status = .waitingInput; s.inbox.removeAll { $0.kind == "budget" }
-            s.inbox.append(InboxItem(kind: "budget", key: "budget", seq: e.seq, d: ["text": JSON(e.text), "kind": d["kind"], "used": d["used"], "limit": d["limit"]]))
+            s.inbox.append(InboxItem(kind: "budget", key: "budget", seq: e.seq, d: ["text": JSON(e.text), "kind": d["kind"]]))
         case "run.budget_extended": s.run.status = .running; s.inbox.removeAll { $0.kind == "budget" }
         case "decision.withdrawn":
             dropKey(d["key"].str)
