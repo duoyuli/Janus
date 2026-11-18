@@ -4,6 +4,14 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.18.5
+
+- 从这个版本起，Janus 用固定的证书签名，应用标识改为 `io.github.duoyuli.janus`。macOS 会把之后的每个版本当作同一个应用，屏幕录制、完整磁盘访问等授权在更新后不再丢失。从旧版本升级到这个版本时，权限引导会弹出，需要最后重新授权一次（包括通知），应用的语言、外观等偏好设置恢复默认；`~/.janus` 中的数据不受影响。之后的更新不再弹出权限引导。
+- 屏幕录制已经在系统设置里打开、Janus 却检测不到时，权限页会说明原因并提供「重新打开 Janus」：macOS 要在应用重新打开后才让新授权生效；如果系统设置里打开的是更新前的旧 Janus，先在列表中删除它，再重新授权。
+
+- Starting with this release, Janus is signed with a fixed certificate and its app identifier is `io.github.duoyuli.janus`. macOS treats every later version as the same app, so Screen Recording, Full Disk Access and other permissions survive updates. Upgrading from an earlier version shows the permission checklist for one last round of granting (notifications too), and app preferences such as language and appearance return to their defaults; your data in `~/.janus` is unaffected. Later updates no longer show the checklist.
+- When Screen Recording is on in System Settings but Janus does not detect it, the permissions page explains why and offers "Reopen Janus": macOS applies a new grant only after the app reopens, and a switch left over from the Janus before an update has to be removed and granted again.
+
 ## 2026.11.18.4
 
 - 升级后第一次启动时，Janus 自动把已有数据升级到新版本：先把数据库备份到 `~/.janus/backups/`，再更新数据结构，例如去掉数字员工和历史任务中已经不用的「定位」字段。想先看看会改什么，可以运行 `janus migrate --dry-run`。
