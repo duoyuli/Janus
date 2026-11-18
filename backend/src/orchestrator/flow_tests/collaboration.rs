@@ -540,14 +540,16 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
     let run = start(&h, json!([task("T_CRASH", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T_CRASH failed", |e| task_event(e, "task.failed", "T_CRASH")).await;
 
-    // Part 2: Verify `recover_native_usage` reads Janus's isolated `<agents_dir>/fake/home/.claude/projects/.../<sid>.jsonl`
+    // Part 2: Verify `recover_native_usage` reads Janus's isolated `<agents_dir>/fake/home/projects/.../<sid>.jsonl`
+    // (the agent's `CLAUDE_CONFIG_DIR` is `<agents_dir>/fake/home`)
     // when an attempt crashed without reporting ACP usage, and never double-counts once reported.
+    // Janus recovers usage as the attempt ends, while its session is the agent's current one: the last attempt's.
     let crash_sid = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T_CRASH"))
+        .rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T_CRASH"))
         .and_then(|e| e.data?["session"].as_str().map(str::to_owned))
         .unwrap();
-    let proj_dir = h.app.cfg.agents_dir.join("fake").join("home/.claude/projects/demo");
+    let proj_dir = h.app.cfg.agents_dir.join("fake").join("home/projects/demo");
     std::fs::create_dir_all(&proj_dir).unwrap();
     std::fs::write(
         proj_dir.join(format!("{crash_sid}.jsonl")),
@@ -562,7 +564,7 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
     let member = r.member("m1").unwrap().clone();
     let ctx = Ctx { agent: "m1", task: Some("T_CRASH"), attempt: Some(1), goal: false };
     h.app.recover_native_usage(&r, &member, &crash_sid, &ctx);
-    // Calling a second time is a no-op because `session_has_reported_tokens` sees the recovered event.
+    // Calling a second time is a no-op: the ledger already has the recovered turn for this session.
     h.app.recover_native_usage(&r, &member, &crash_sid, &ctx);
     let ledger = h.app.usage(&r);
     assert_eq!(ledger.task("T_CRASH").unwrap().tokens.total, Some(480));

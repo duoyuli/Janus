@@ -280,7 +280,7 @@ impl App {
                     }
                 }
                 Some(SessionResume::Followup { from, session: old }) => {
-                    let over_budget = self.session_context_ratio(&run.id, &old).is_some_and(|r| r > 0.75);
+                    let over_budget = self.session_context_ratio(run, &old).is_some_and(|r| r > 0.75);
                     if over_budget {
                         continuation = Some(
                             json!({ "from": from, "session": old, "loaded": false, "fallback": "context_over_75pct" }),
@@ -765,37 +765,9 @@ impl App {
             .find_map(|e| e.data?["session"].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
     }
 
-    /// Latest `used / size` context ratio reported for `target_sid` in `run_id`, if any.
-    pub(super) fn session_context_ratio(&self, run_id: &str, target_sid: &str) -> Option<f64> {
-        let events = self.db.events(run_id, 0).ok()?;
-        let mut current: HashMap<String, String> = HashMap::new();
-        let mut latest: Option<(i64, i64)> = None;
-        for e in &events {
-            let Some(d) = e.data.as_ref() else { continue };
-            match e.kind.as_str() {
-                "attempt.started" => {
-                    if let (Some(actor), Some(sid)) = (e.to.as_deref(), d["session"].as_str().filter(|s| !s.is_empty()))
-                    {
-                        current.insert(actor.to_string(), sid.to_string());
-                    }
-                }
-                "agent.status" => {
-                    if let Some(sid) = d["session"].as_str().filter(|s| !s.is_empty()) {
-                        current.insert(e.actor.clone(), sid.to_string());
-                    }
-                }
-                "session.usage" if current.get(&e.actor).is_some_and(|s| s == target_sid) => {
-                    if let (Some(u), Some(s)) = (d["used"].as_i64(), d["size"].as_i64())
-                        && u > 0
-                        && s > 0
-                    {
-                        latest = Some((u, s));
-                    }
-                }
-                _ => {}
-            }
-        }
-        latest.map(|(u, s)| u as f64 / s as f64)
+    /// Latest `used / size` context ratio reported for ACP session `sid` in the run, if any.
+    pub(super) fn session_context_ratio(&self, run: &Run, sid: &str) -> Option<f64> {
+        self.usage(run).sessions_of(sid).rev().find_map(|s| s.context.ratio())
     }
 
     /// Whether `task` submitted a `task.split_requested` event after `since_seq`.
@@ -805,48 +777,15 @@ impl App {
             .is_ok_and(|evts| evts.iter().any(|e| e.kind == "task.split_requested" && e.task.as_deref() == Some(task)))
     }
 
-    /// Whether `target_sid` already reported any token count in `session.usage` across `run_id`.
-    fn session_has_reported_tokens(&self, run_id: &str, target_sid: &str) -> bool {
-        let Ok(events) = self.db.events(run_id, 0) else { return false };
-        let mut current: HashMap<String, String> = HashMap::new();
-        for e in &events {
-            let Some(d) = e.data.as_ref() else { continue };
-            match e.kind.as_str() {
-                "attempt.started" => {
-                    if let (Some(actor), Some(sid)) = (e.to.as_deref(), d["session"].as_str().filter(|s| !s.is_empty()))
-                    {
-                        current.insert(actor.to_string(), sid.to_string());
-                    }
-                }
-                "agent.status" => {
-                    if let Some(sid) = d["session"].as_str().filter(|s| !s.is_empty()) {
-                        current.insert(e.actor.clone(), sid.to_string());
-                    }
-                }
-                "session.usage"
-                    if d["session"].as_str() == Some(target_sid)
-                        || current.get(&e.actor).is_some_and(|s| s == target_sid) =>
-                {
-                    let has_top = ["totalTokens", "inputTokens", "outputTokens"].iter().any(|k| d[*k].is_i64());
-                    let has_models = d["models"].as_array().is_some_and(|m| !m.is_empty());
-                    if has_top || has_models {
-                        return true;
-                    }
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
     /// Best-effort fallback when an attempt fails or times out before `session/prompt` returns its
-    /// usage: scan Janus's own isolated `<agents_dir>/<runtime>/home/.claude/projects/**/<sid>.jsonl`
-    /// (never `~/.claude`) and record deduplicated message token counts if none were reported yet.
+    /// usage: scan Janus's own isolated Claude Code home, which the agent gets as
+    /// `CLAUDE_CONFIG_DIR` (`<agents_dir>/<runtime>/home/projects/**/<sid>.jsonl`, never
+    /// `~/.claude`), and record deduplicated message token counts if none were reported yet.
     pub(super) fn recover_native_usage(&self, run: &Run, member: &Member, sid: &str, ctx: &Ctx<'_>) {
-        if self.session_has_reported_tokens(&run.id, sid) {
+        if self.usage(run).sessions_of(sid).any(|s| s.turns > 0) {
             return;
         }
-        let projects = self.cfg.agents_dir.join(&member.runtime).join("home").join(".claude").join("projects");
+        let projects = self.cfg.agents_dir.join(&member.runtime).join("home").join("projects");
         let Some(jsonl_path) = find_session_jsonl(&projects, &format!("{sid}.jsonl"), 3) else { return };
         let Ok(content) = std::fs::read_to_string(jsonl_path) else { return };
         if let Some(mut data) = parse_claude_session_jsonl(&content) {

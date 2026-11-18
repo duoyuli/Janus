@@ -329,6 +329,9 @@ pub struct Session {
     /// The session's identity in the log: the actor with its ACP session id, or with its task and
     /// attempt when no id is known.
     pub key: String,
+    /// The ACP session id, when the log names one.
+    #[serde(skip)]
+    pub sid: Option<String>,
     pub actor: String,
     pub task: Option<String>,
     pub attempt: Option<i64>,
@@ -499,6 +502,12 @@ pub struct Ledger {
 }
 
 impl Ledger {
+    /// The ledger's sessions with ACP session id `sid`, oldest first: one per task that ran in it
+    /// (a follow-up task that continues a session gets its own).
+    pub fn sessions_of<'a>(&'a self, sid: &'a str) -> impl DoubleEndedIterator<Item = &'a Session> + 'a {
+        self.sessions.iter().filter(move |s| s.sid.as_deref() == Some(sid))
+    }
+
     pub fn task(&self, id: &str) -> Option<&Scope> {
         self.tasks.iter().find(|t| t.id == id)
     }
@@ -769,6 +778,7 @@ fn session_actor(e: &Event) -> &str {
 /// A session while it is being collected.
 #[derive(Default)]
 struct SessionBuild {
+    sid: Option<String>,
     actor: String,
     task: Option<String>,
     attempt: Option<i64>,
@@ -986,13 +996,15 @@ impl Scan {
     /// while a resumed attempt of the same task stays in one session.
     fn touch(&mut self, e: &Event, actor: &str) -> String {
         let task_part = e.task.as_deref().unwrap_or("-");
-        let key = match self.current_session.get(actor) {
+        let sid = self.current_session.get(actor).cloned();
+        let key = match &sid {
             Some(sid) => format!("{actor}:{task_part}:{sid}"),
             None => format!("{actor}:{task_part}/{}", e.attempt.map(|n| n.to_string()).unwrap_or_else(|| "-".into())),
         };
         let s = self.sessions.entry(key.clone()).or_insert_with(|| {
             self.order.push(key.clone());
             SessionBuild {
+                sid,
                 actor: actor.to_string(),
                 task: e.task.clone(),
                 attempt: e.attempt,
@@ -1044,6 +1056,7 @@ impl Scan {
             .filter_map(|key| self.sessions.remove(key).map(|b| (key, b)))
             .map(|(key, b)| Session {
                 key: key.clone(),
+                sid: b.sid,
                 actor: b.actor,
                 task: b.task,
                 attempt: b.attempt,
