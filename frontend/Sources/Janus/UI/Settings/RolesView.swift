@@ -132,8 +132,16 @@ struct RoleEditor: View {
                     labeled(L.text("名称")) { TextField("Reviewer", text: bind("name")).textFieldStyle(.roundedBorder) }
                     labeled(L.text("职责")) {
                         TextField(L.text("独立检查变更，寻找风险与反例"), text: bind("desc")).textFieldStyle(.roundedBorder)
-                        Text(L.text("负责人只凭名称和职责认识团队成员，并据此把子任务派给合适的人。写清这个数字员工擅长什么、对什么结果负责。")).font(.caption).foregroundStyle(.secondary)
+                        Text(L.text("负责人会根据这段描述，把合适的子任务交给它。写下它擅长什么、负责交付什么。")).font(.caption).foregroundStyle(.secondary)
                     }
+                    Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L.text("可以担任负责人"))
+                            Text(Setup.leadCapable(c) ? L.text("用 /goal 推进目标，需要时编排协作者") : L.text("只有 Claude Code 或 Codex 能做负责人（需要 /goal）")).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .disabled(!Setup.leadCapable(c))
 
                     section(L.text("指令"))
                     TextEditor(text: bind("prompt"))
@@ -144,7 +152,7 @@ struct RoleEditor: View {
                             if !r["prompt"].truthy { Text(L.text("告诉这个数字员工怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。")).foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
                         }
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
-                    Text(Setup.instructionsVia(c)).font(.caption).foregroundStyle(.secondary)
+                    Text(L.text("这段指令会作为系统提示词交给 Coding Agent，在整个会话中持续生效。")).font(.caption).foregroundStyle(.secondary)
 
                     resources
 
@@ -185,16 +193,6 @@ struct RoleEditor: View {
                         Text(L.text("Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。")).font(.caption).foregroundStyle(.secondary)
                     }
                     otherControls(c)
-
-                    section(L.text("协作"))
-                    Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L.text("可以担任负责人"))
-                            Text(Setup.leadCapable(c) ? L.text("用 /goal 推进目标，需要时编排协作者") : L.text("只有 Claude Code 或 Codex 能做负责人（需要 /goal）")).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .disabled(!Setup.leadCapable(c))
                 }
                 .padding(18)
             }

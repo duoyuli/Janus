@@ -32,7 +32,6 @@
 "%@ · %@，点按打开子任务页" = "%@ · %@, open subtask";
 "%@ · %lld 个会话" = "%@ · Sessions: %lld";
 "%@ · 尝试 %lld · sha256 %@…" = "%@ · Attempt %lld · SHA-256 %@…";
-"%@ 不支持系统提示，指令附在每次子任务说明的末尾。" = "%@ has no system prompt channel. The instructions are appended to each subtask prompt.";
 "%@ 不是有效的监听地址，检查 JANUS_ADDR 或 config.toml 的 addr。" = "%@ is not a valid listening address. Check JANUS_ADDR or addr in config.toml.";
 "%@ 协作者写回看板：%@" = "%@ Collaborator posted to the board: %@";
 "%@ 可能卡住了" = "%@ may be stalled";
@@ -261,10 +260,8 @@
 "传输方式" = "Transport";
 "估算 · TOKEN" = "ESTIMATE · TOKENS";
 "估算按 models.dev 的 API 价格（不含长上下文加价），不是账单。" = "Estimated at models.dev API rates, excluding long-context surcharges. This is not an invoice.";
-"作为 Codex 的开发者指令注入，整个会话都有效，优先于子任务说明。" = "Injected as Codex developer instructions. Applies throughout the session and takes priority over subtask instructions.";
 "作为新一轮发送" = "Send as a new turn";
 "作为新的一轮发送" = "Sent as a new turn";
-"作为系统提示追加在 Claude Code 自带的提示之后，整个会话都有效，优先于子任务说明。" = "Appended to Claude Code’s system prompt. Applies throughout the session and takes priority over subtask instructions.";
 "你" = "You";
 "你接管了这个会话。Agent 这一轮已经结束，在你发消息、交还托管或结束子任务之前，它会一直等待。" = "You took over this session. The Agent has finished its turn and will wait until you send a message, return control, or finish the subtask.";
 "你的回答" = "Your Answer";
@@ -346,7 +343,6 @@
 "加入共享资料…" = "Add to Shared Context…";
 "区间" = "Period";
 "升级到 %@" = "Upgrade to %@";
-"协作" = "Collaboration";
 "协作者多但没有有效产出：%lld 个协作者，30 分钟内没有任何子任务成功" = "No subtasks completed in 30 minutes with %lld collaborators";
 "协调中" = "Coordinating";
 "原因" = "Reason";
@@ -927,7 +923,6 @@
 "系统、浅色或深色" = "System, Light, or Dark";
 "系统不变量全部满足" = "All system invariants satisfied";
 "系统提示" = "System Prompt";
-"绑定 Agent 后，按它支持的方式注入。" = "The instructions are added once an Agent is connected, using the channel it supports.";
 "结束这个任务的所有会话" = "End all sessions in this run";
 "结果" = "Result";
 "结果和工作目录对不上" = "Result Differs from Workspace";
@@ -1029,7 +1024,6 @@
 "负责人正在启动" = "Starting the lead";
 "负责人没有给它派子任务" = "The lead has assigned no subtasks";
 "Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。" = "The Agent decides which actions require your approval. Its approval requests, forms, and links appear under Needs Your Attention with the options it supplies.";
-"负责人只凭名称和职责认识团队成员，并据此把子任务派给合适的人。写清这个数字员工擅长什么、对什么结果负责。" = "The lead knows team members only by name and responsibilities, and uses them to assign subtasks to the right person. Describe what this digital employee is good at and which results it owns.";
 "负责人请你决定：%@" = "Lead asks you to decide: %@";
 "负责人读到意见后决定：让执行者修改、重做这个子任务，或者自己处理" = "The lead will decide whether to ask the Agent to revise, reopen the subtask, or handle it directly";
 "负责人负责规划和协调。" = "The lead plans and coordinates the work.";
@@ -1225,3 +1219,5 @@
 "选择 Janus 的界面语言，更改后立即生效。" = "Choose the language for Janus. Changes take effect immediately.";
 "已达到 500 个候选路径，部分资源未列出。请选择更具体的子目录。" = "Only the first 500 candidate paths are listed. Select a more specific folder to see the remaining resources.";
 "只扫描到第 8 层，部分子目录未扫描。请选择更具体的子目录。" = "Some folders are deeper than the 8-level scan limit. Select a more specific folder to include them.";
+"负责人会根据这段描述，把合适的子任务交给它。写下它擅长什么、负责交付什么。" = "The lead uses this description to hand it the right subtasks. Say what it is good at and what it delivers.";
+"这段指令会作为系统提示词交给 Coding Agent，在整个会话中持续生效。" = "These instructions are given to the coding agent as its system prompt and apply for the whole session.";
