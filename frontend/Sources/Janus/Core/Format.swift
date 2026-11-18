@@ -32,9 +32,9 @@ enum Tone: String { case gray, blue, green, amber, red, violet }
 /// Labels and small formatting helpers.
 enum L {
     static let agentPhase: [String: (String, Tone)] = [
-        "idle": ("空闲", .gray), "thinking": ("规划中", .blue), "coordinating": ("协调中", .blue), "reading_files": ("读取文件", .blue),
-        "editing": ("修改文件", .blue), "running_tool": ("调用工具", .blue), "running_test": ("运行测试", .blue),
-        "waiting_for_input": ("等待输入", .amber), "waiting_for_agent": ("等待协作者", .amber), "waiting_approval": ("等待审批", .amber), "error": ("异常", .red),
+        "idle": (L.text("空闲"), .gray), "thinking": (L.text("规划中"), .blue), "coordinating": (L.text("协调中"), .blue), "reading_files": (L.text("读取文件"), .blue),
+        "editing": (L.text("修改文件"), .blue), "running_tool": (L.text("调用工具"), .blue), "running_test": (L.text("运行测试"), .blue),
+        "waiting_for_input": (L.text("等待输入"), .amber), "waiting_for_agent": (L.text("等待协作者"), .amber), "waiting_approval": (L.text("等待审批"), .amber), "error": (L.text("异常"), .red),
     ]
     static func phase(_ s: String) -> (String, Tone) { agentPhase[s] ?? agentPhase["idle"]! }
 
@@ -74,48 +74,50 @@ enum L {
         if m(["agent.status", "tool.", "session.prompt"]) { return "progress" }
         return "tasks"
     }
-    static let categoryLabel: [(String, String)] = [("all", "全部"), ("tasks", "子任务"), ("messages", "消息"), ("artifacts", "产物"), ("decisions", "决策"), ("progress", "进度与工具")]
+    static let categoryLabel: [(String, String)] = [("all", L.text("全部")), ("tasks", L.text("子任务")), ("messages", L.text("消息")), ("artifacts", L.text("产物")), ("decisions", L.text("决策")), ("progress", L.text("进度与工具"))]
 
     // MARK: Time
 
     // Formatters are made once: lists draw a time on every row.
-    private static func formatter(_ format: String, locale: Locale? = nil) -> DateFormatter {
+    private static func formatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()
-        if let locale { f.locale = locale }
+        f.locale = L.locale
         f.dateFormat = format
         return f
     }
     private static let clockFormat = formatter("HH:mm:ss")
-    private static let zh = Locale(identifier: "zh_CN")
-    private static let timeFormat = formatter("HH:mm", locale: zh)
-    private static let dayFormat = formatter("M月d日 HH:mm", locale: zh)
-    private static let yearFormat = formatter("yyyy年M月d日 HH:mm", locale: zh)
+    private static let timeFormat = formatter("HH:mm")
+    private static let dayFormat = formatter(L.text("M月d日 HH:mm"))
+    private static let yearFormat = formatter(L.text("yyyy年M月d日 HH:mm"))
+    private static let calendarDateFormat = formatter(L.text("yyyy年M月d日"))
 
     static func clock(_ ms: Double) -> String { clockFormat.string(from: Date(timeIntervalSince1970: ms / 1000)) }
-    /// A moment in the app's own words, whatever the system language: 今天 20:16, 昨天 09:05,
-    /// 11月12日 20:16, or with the year when it is not this year.
+    static func calendarDate(_ date: Date) -> String { calendarDateFormat.string(from: date) }
+    static func datedTime(_ date: Date) -> String { yearFormat.string(from: date) }
+
+    /// A moment in the app language, with the year when it is not this year.
     static func dateTime(_ ms: Double, now: Date = Date()) -> String {
         let date = Date(timeIntervalSince1970: ms / 1000)
         let cal = Calendar(identifier: .gregorian)
         let time = timeFormat.string(from: date)
-        if cal.isDate(date, inSameDayAs: now) { return "今天 \(time)" }
-        if let y = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(date, inSameDayAs: y) { return "昨天 \(time)" }
-        if let t = cal.date(byAdding: .day, value: 1, to: now), cal.isDate(date, inSameDayAs: t) { return "明天 \(time)" }
+        if cal.isDate(date, inSameDayAs: now) { return L.text("今天 \(time)") }
+        if let y = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(date, inSameDayAs: y) { return L.text("昨天 \(time)") }
+        if let t = cal.date(byAdding: .day, value: 1, to: now), cal.isDate(date, inSameDayAs: t) { return L.text("明天 \(time)") }
         return (cal.component(.year, from: date) == cal.component(.year, from: now) ? dayFormat : yearFormat).string(from: date)
     }
     static func dur(_ ms: Double) -> String {
         let s = max(0, Int((ms / 1000).rounded()))
-        if ms < 1000 { return "不到 1 秒" }
-        if s < 60 { return "\(s) 秒" }
-        if s < 3600 { return "\(s / 60) 分 \(String(format: "%02d", s % 60)) 秒" }
-        return "\(s / 3600) 小时 \(s % 3600 / 60) 分"
+        if ms < 1000 { return L.text("不到 1 秒") }
+        if s < 60 { return L.text("\(s) 秒") }
+        if s < 3600 { return L.text("\(s / 60) 分 \(String(format: "%02d", s % 60)) 秒") }
+        return L.text("\(s / 3600) 小时 \(s % 3600 / 60) 分")
     }
     static func ago(_ ts: Double, _ now: Double) -> String {
         let s = max(0, Int(((now - ts) / 1000).rounded()))
-        if s < 10 { return "刚刚" }
-        if s < 60 { return "\(s) 秒前" }
-        if s < 3600 { return "\(s / 60) 分钟前" }
-        if s < 86400 { return "\(s / 3600) 小时前" }
+        if s < 10 { return L.text("刚刚") }
+        if s < 60 { return L.text("\(s) 秒前") }
+        if s < 3600 { return L.text("\(s / 60) 分钟前") }
+        if s < 86400 { return L.text("\(s / 3600) 小时前") }
         return dateTime(ts, now: Date(timeIntervalSince1970: now / 1000))
     }
     static func nowMs() -> Double { Date().timeIntervalSince1970 * 1000 }
@@ -142,22 +144,15 @@ enum L {
     struct PermissionOption { let id, name, kind, label, help: String }
     static func permissionOptions(_ options: JSON) -> [PermissionOption] {
         let list = options.array.isEmpty ? [["optionId": "", "name": "", "kind": "allow_once"], ["optionId": "", "name": "", "kind": "reject_once"]] as [JSON] : options.array
-        let words = ["allow_once": "允许一次", "allow_always": "始终允许", "reject_once": "拒绝", "reject_always": "始终拒绝"]
-        let notes = ["allow_always": "之后同类操作不再询问", "reject_always": "之后同类操作直接拒绝"]
+        let words = ["allow_once": L.text("允许一次"), "allow_always": L.text("始终允许"), "reject_once": L.text("拒绝"), "reject_always": L.text("始终拒绝")]
+        let notes = ["allow_always": L.text("之后同类操作不再询问"), "reject_always": L.text("之后同类操作直接拒绝")]
         return list.map { o in
             let kind = o["kind"].str
             let name = o["name"].truthy ? o["name"].str : o["optionId"].str
             let label = words[kind] ?? name
-            let help = [notes[kind], name.isEmpty || name == label ? nil : "Agent 的原话：\(name)"].compactMap { $0 }.joined(separator: "。")
+            let help = [notes[kind], name.isEmpty || name == label ? nil : L.text("Agent 的原话：\(name)")].compactMap { $0 }.joined(separator: L.text("。"))
             return PermissionOption(id: o["optionId"].str, name: name.isEmpty ? label : name, kind: kind, label: label, help: help)
         }
-    }
-
-    /// Two pieces of a sentence joined the Chinese way: a space only where Chinese meets Latin
-    /// letters or digits (「Codex 请求你决定」, 「实现者请求你决定」).
-    static func cn(_ a: String, _ b: String) -> String {
-        let latin = { (c: Character?) in c.map { $0.isASCII && ($0.isLetter || $0.isNumber) } ?? false }
-        return latin(a.last) || latin(b.first) ? "\(a) \(b)" : a + b
     }
 
     /// Paths inside the workspace written relative to it, as the agent's own interface shows them.

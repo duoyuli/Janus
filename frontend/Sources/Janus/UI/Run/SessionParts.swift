@@ -14,7 +14,7 @@ struct PlanStrip: View {
                 Button { open.toggle() } label: {
                     HStack(spacing: 6) {
                         Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                        Text("计划").font(.caption.weight(.semibold))
+                        Text(L.text("计划")).font(.caption.weight(.semibold))
                         Text(verbatim: "\(done)/\(steps.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         if !open, let now = steps.first(where: { $0.status == "in_progress" }) { Text(now.content).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         Spacer()
@@ -27,7 +27,7 @@ struct PlanStrip: View {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             Image(systemName: s.status == "completed" ? "checkmark.circle.fill" : s.status == "in_progress" ? "circle.dotted" : "circle")
                                 .font(.caption).foregroundStyle(s.status == "completed" ? Color.secondary : s.status == "in_progress" ? Color.accent : Color.secondary.opacity(0.6))
-                                .accessibilityLabel(s.status == "completed" ? "已完成" : s.status == "in_progress" ? "进行中" : "未开始")
+                                .accessibilityLabel(s.status == "completed" ? L.text("已完成") : s.status == "in_progress" ? L.text("进行中") : L.text("未开始"))
                             Text(s.content).font(.callout)
                                 .strikethrough(s.status == "completed", color: .secondary)
                                 .foregroundStyle(s.status == "completed" ? Color.secondary : Color.primary)
@@ -56,7 +56,7 @@ struct Suggestions: View {
         let asking = SessionView.asking(draft)
         let rows: [(SessionView.Asking, String, String)] = {
             switch asking {
-            case .command(let q): return commands.filter { q.isEmpty || $0.name.lowercased().hasPrefix(q.lowercased()) }.prefix(8).map { (.command($0.name), "/\($0.name)", [$0.description, $0.hint.isEmpty ? "" : "参数：\($0.hint)"].filter { !$0.isEmpty }.joined(separator: " · ")) }
+            case .command(let q): return commands.filter { q.isEmpty || $0.name.lowercased().hasPrefix(q.lowercased()) }.prefix(8).map { (.command($0.name), "/\($0.name)", [$0.description, $0.hint.isEmpty ? "" : L.text("参数：\($0.hint)")].filter { !$0.isEmpty }.joined(separator: " · ")) }
             case .file: return files.prefix(8).map { (.file($0), "@\($0)", "") }
             case nil: return []
             }
@@ -105,10 +105,10 @@ struct SessionControls: View {
                         }
                     }
                 } label: {
-                    Text(verbatim: "\(c.name)：\(c.options.first { $0.value == c.current }?.name ?? c.current)").font(.caption)
+                    Text(verbatim: L.text("\(c.name)：\(c.options.first { $0.value == c.current }?.name ?? c.current)")).font(.caption)
                 }
                 .menuStyle(.borderlessButton).fixedSize()
-                .help("切换这个会话的\(c.name)，立即生效")
+                .help(L.text("切换这个会话的\(c.name)，立即生效"))
             }
         }
     }

@@ -70,17 +70,17 @@ struct ChatCard: View {
                 if let u = SessionView.usage(info.evs) {
                     // This session's own numbers, labelled: `本会话 上下文 26% · 上一轮 1,500 tokens`.
                     // They stay apart from the run's cumulative total on the run card.
-                    Text(verbatim: u.labels ?? u.percent.map { "上下文 \($0)%" } ?? "\(SessionView.tokens(u.tokens ?? 0)) tokens")
+                    Text(verbatim: u.labels ?? u.percent.map { L.text("上下文 \($0)%") } ?? "\(SessionView.tokens(u.tokens ?? 0)) tokens")
                         .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-                        .help([u.used.map { "上下文已用 \(SessionView.tokens($0))" }, u.size.map { "共 \(SessionView.tokens($0))" }, u.tokens.map { "上一轮 \(SessionView.tokens($0)) tokens" }].compactMap { $0 }.joined(separator: " · ") + "\n本会话的数字不计入任务累计用量")
+                        .help([u.used.map { L.text("上下文已用 \(SessionView.tokens($0))") }, u.size.map { L.text("共 \(SessionView.tokens($0))") }, u.tokens.map { L.text("上一轮 \(SessionView.tokens($0)) tokens") }].compactMap { $0 }.joined(separator: " · ") + L.text("\n本会话的数字不计入任务累计用量"))
                 }
-                Picker("显示", selection: $density) {
-                    Text("详细").tag("detail")
-                    Text("普通").tag("normal")
-                    Text("摘要").tag("summary")
+                Picker(L.text("显示"), selection: $density) {
+                    Text(L.text("详细")).tag("detail")
+                    Text(L.text("普通")).tag("normal")
+                    Text(L.text("摘要")).tag("summary")
                 }
                 .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
-                .help("详细：每次工具调用都显示；普通：连续的工具调用折叠；摘要：只看对话、请求和结果")
+                .help(L.text("详细：每次工具调用都显示；普通：连续的工具调用折叠；摘要：只看对话、请求和结果"))
                 Pill(state, tone)
             }
             .padding(12)
@@ -107,42 +107,42 @@ struct ChatCard: View {
     }
 
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
-        let ph = "给 Agent 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送"
+        let ph = L.text("给 Agent 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送")
         if info.open && live {
             if info.human {
                 if info.idle {
-                    return ("人工接管 · 等你的消息", .amber, AnyView(HStack { btn("finish", "以当前结果完成"); btn("release", "交还托管"); btn("sessSend", "发送", true) }), ph, true)
+                    return (L.text("人工接管 · 等你的消息"), .amber, AnyView(HStack { btn("finish", L.text("以当前结果完成")); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
                 }
-                return ("人工接管 · 正在处理", .blue, AnyView(HStack { btn("interrupt", "打断这一轮", danger: true); btn("release", "交还托管"); btn("sessSend", "发送", true) }), ph, true)
+                return (L.text("人工接管 · 正在处理"), .blue, AnyView(HStack { btn("interrupt", L.text("打断这一轮"), danger: true); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
             }
-            return ("托管中 · 自主执行", .blue, AnyView(HStack { btn("interrupt", "打断并接管", danger: true); btn("takeover", "接管"); btn("sessSend", "插话", true) }), ph, true)
+            return (L.text("托管中 · 自主执行"), .blue, AnyView(HStack { btn("interrupt", L.text("打断并接管"), danger: true); btn("takeover", L.text("接管")); btn("sessSend", L.text("插话"), true) }), ph, true)
         }
         if info.resume {
-            return ("已中断", .gray, AnyView(HStack { Button("从中断处继续") { Task { await run.act(["type": "resumeRun"]) } }; btn("sessSend", "发送并继续", true) }), "补充信息或直接写「继续」，发送后从中断处恢复", true)
+            return (L.text("已中断"), .gray, AnyView(HStack { Button(L.text("从中断处继续")) { Task { await run.act(["type": "resumeRun"]) } }; btn("sessSend", L.text("发送并继续"), true) }), L.text("补充信息或直接写「继续」，发送后从中断处恢复"), true)
         }
         if info.converse {
             // The first goal is done; the same session now takes ordinary prompts. A slash command
             // starts a new goal and Janus follows it again. A historical run has no session yet,
             // so sending the first message reopens it.
             return (
-                live ? "可以继续对话" : "可以恢复对话",
+                live ? L.text("可以继续对话") : L.text("可以恢复对话"),
                 .gray,
-                AnyView(btn("sessSend", "发送", true)),
-                live ? "写下接下来要做的，或用 /goal 设置新的目标" : "写下任务，发送后恢复负责人会话",
+                AnyView(btn("sessSend", L.text("发送"), true)),
+                live ? L.text("写下接下来要做的，或用 /goal 设置新的目标") : L.text("写下任务，发送后恢复负责人会话"),
                 true
             )
         }
         if info.leave && live {
-            return ("当前没有会话", .gray, AnyView(btn("sessSend", "留言", true)), "留言会在它下一次会话开始时带给它", true)
+            return (L.text("当前没有会话"), .gray, AnyView(btn("sessSend", L.text("留言"), true)), L.text("留言会在它下一次会话开始时带给它"), true)
         }
-        return ("会话已结束", .gray, AnyView(EmptyView()), live ? "这个会话已经结束" : "只读查看", false)
+        return (L.text("会话已结束"), .gray, AnyView(EmptyView()), live ? L.text("这个会话已经结束") : L.text("只读查看"), false)
     }
 
     private func btn(_ act: String, _ label: String, _ primary: Bool = false, danger: Bool = false) -> some View {
         Group {
             if primary {
                 Button(label) { send(act == "sessSend" ? "message" : act) }.buttonStyle(.primary)
-                    .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? "先写下要发送的内容，或者粘贴图片" : "⌘↩")
+                    .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? L.text("先写下要发送的内容，或者粘贴图片") : "⌘↩")
             }
             // ⌘. stops the turn, as it stops a running command elsewhere on the Mac.
             else if danger { Button(label, role: .destructive) { send(act) }.keyboardShortcut(".", modifiers: .command).help("⌘.") }
@@ -154,7 +154,7 @@ struct ChatCard: View {
     private var images: [PastedImage] { run.sessionImages[target.key] ?? [] }
 
     private func send(_ type: String) {
-        if type == "finish" && !confirm("用当前产出完成这个子任务？", "子任务里已有的改动会照常记录成 diff。", ok: "完成", destructive: false) { return }
+        if type == "finish" && !confirm(L.text("用当前产出完成这个子任务？"), L.text("子任务里已有的改动会照常记录成 diff。"), ok: L.text("完成"), destructive: false) { return }
         var body = target.body
         body["type"] = JSON(type)
         if type == "message" {
@@ -225,7 +225,7 @@ struct ChatScroll: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
-                if empty { Text("开始执行后，这里会实时显示对话、工具调用和你的消息。").foregroundStyle(.secondary) }
+                if empty { Text(L.text("开始执行后，这里会实时显示对话、工具调用和你的消息。")).foregroundStyle(.secondary) }
                 ForEach(groups) { row($0) }
             }
             .padding(12)
@@ -264,9 +264,9 @@ struct ChatScroll: View {
         case .messages(let es): ChatItem(run: run, st: st, e: es[0], more: Array(es.dropFirst()))
         case .tools(let es):
             if density == "summary" {
-                Text(verbatim: "· \(es.count) 个操作").font(.caption).foregroundStyle(.tertiary)
+                Text(verbatim: L.text("· \(es.count) 个操作")).font(.caption).foregroundStyle(.tertiary)
             } else if density == "normal" && es.count > 4 {
-                DisclosureGroup(String("\(es.count - 2) 个操作")) {
+                DisclosureGroup(String(L.text("\(es.count - 2) 个操作"))) {
                     VStack(alignment: .leading, spacing: 6) { ForEach(es.dropLast(2)) { ToolRow(run: run, e: $0, cwd: cwd) } }
                 }
                 .font(.callout).foregroundStyle(.secondary)
@@ -280,7 +280,7 @@ struct ChatScroll: View {
     /// Back to the newest item, following again.
     private var back: some View {
         Button { toEnd() } label: {
-            Label(follow.unseen ? "有新消息" : "回到最新", systemImage: "arrow.down")
+            Label(follow.unseen ? L.text("有新消息") : L.text("回到最新"), systemImage: "arrow.down")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(follow.unseen ? Color.accent : Color.secondary)
                 .padding(.horizontal, 10).padding(.vertical, 5)
@@ -290,8 +290,8 @@ struct ChatScroll: View {
         }
         .buttonStyle(.plain)
         .padding(.bottom, 10)
-        .help("回到最新的消息，之后的新消息会继续显示在底部")
-        .accessibilityLabel(follow.unseen ? "有新消息，回到最新" : "回到最新")
+        .help(L.text("回到最新的消息，之后的新消息会继续显示在底部"))
+        .accessibilityLabel(follow.unseen ? L.text("有新消息，回到最新") : L.text("回到最新"))
     }
 
     private func toEnd() {
@@ -376,8 +376,8 @@ struct QuietNote: View {
         TimelineView(.periodic(from: .now, by: 5)) { ctx in
             let s = Int((ctx.date.timeIntervalSince1970 * 1000 - last) / 1000)
             if last > 0 && s >= 20 {
-                Text(verbatim: "\(s < 120 ? "\(s) 秒" : "\(s / 60) 分钟")没有新输出").font(.caption).foregroundStyle(.secondary)
-                    .help("Agent 长时间思考或写较长的内容时不会有更新")
+                Text(verbatim: L.text("\(s < 120 ? L.text("\(s) 秒") : L.text("\(s / 60) 分钟"))没有新输出")).font(.caption).foregroundStyle(.secondary)
+                    .help(L.text("Agent 长时间思考或写较长的内容时不会有更新"))
             }
         }
     }
@@ -424,12 +424,12 @@ struct ChatItem: View {
         case "attempt.started":
             VStack(alignment: .leading, spacing: 4) {
                 Divider()
-                Text(verbatim: "\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(d["resumed"].truthy ? " · 恢复了原会话" : "")")
+                Text(verbatim: L.text("\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(d["resumed"].truthy ? L.text(" · 恢复了原会话") : "")"))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                DisclosureGroup("编排器发出的子任务说明") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
+                DisclosureGroup(L.text("编排器发出的子任务说明")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
         case "run.created":
-            divider("目标 · \(L.goalTitle(d["goal"].str))")
+            divider(L.text("目标 · \(L.goalTitle(d["goal"].str))"))
             StoredImages(paths: Attach.paths(d), size: 56)
         case "agent.message":
             // The structured result block is for the orchestrator; in the chat it collapses to a label.
@@ -442,40 +442,40 @@ struct ChatItem: View {
             DisclosureGroup {
                 Text(d["text"].str).font(.callout).italic().foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 2)
             } label: {
-                Text(verbatim: "思考 · \(L.short(d["text"].str.replacingOccurrences(of: "\n", with: " "), 60))").font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: L.text("思考 · \(L.short(d["text"].str.replacingOccurrences(of: "\n", with: " "), 60))")).font(.caption).foregroundStyle(.secondary)
             }
         case "session.control":
             note("\(d["failed"].truthy ? "⚠" : "↺") \(e.text)", d["failed"].truthy ? .amber : nil)
         case "session.prompt":
-            let via = d["via"].str == "developer" ? "开发者指令" : "系统提示"
-            let label = d["channel"].str == "instructions" ? "用户的长期要求 · \(via)"
-                : d["channel"].str == "system" ? "Janus 的说明 · \(via)"
-                : ["context": "团队上下文", "goal": "目标提示", "followup": "继续提示", "fix": "验证没有通过 · 发回给它修复", "board": "看板推送 · 插入正在进行的这一轮", "goal_check": "目标确认 · 负责人停下了，目标还标着进行中"][d["channel"].str] ?? "Janus 提示"
+            let via = d["via"].str == "developer" ? L.text("开发者指令") : L.text("系统提示")
+            let label = d["channel"].str == "instructions" ? L.text("用户的长期要求 · \(via)")
+                : d["channel"].str == "system" ? L.text("Janus 的说明 · \(via)")
+                : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("验证没有通过 · 发回给它修复"), "board": L.text("看板推送 · 插入正在进行的这一轮"), L.text("goal_check"): L.text("目标确认 · 负责人停下了，目标还标着进行中")][d["channel"].str] ?? L.text("Janus 提示")
             VStack(alignment: .leading, spacing: 4) {
-                HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text("Janus 发给 Agent").font(.caption).foregroundStyle(.secondary) }
-                DisclosureGroup("查看内容") { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
+                HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text(L.text("Janus 发给 Agent")).font(.caption).foregroundStyle(.secondary) }
+                DisclosureGroup(L.text("查看内容")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
             .padding(8)
             .background(Tone.blue.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         // Goal mode: a collaborator asks the lead, which answers on the board.
-        case "question.asked": note("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : "（\(d["options"].strings.joined(separator: " / "))）") · 负责人会回答，不需要你处理", .amber)
-        case "context.handoff": note("⇄ 上游子任务 \(d["from"].string ?? e.text) 的结果已带入本次子任务", nil)
-        case "board.posted": note("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)", nil)
+        case "question.asked": note(L.text("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : L.text("（\(d["options"].strings.joined(separator: " / "))）")) · 负责人会回答，不需要你处理"), .amber)
+        case "context.handoff": note(L.text("⇄ 上游子任务 \(d["from"].string ?? e.text) 的结果已带入本次子任务"), nil)
+        case "board.posted": note(L.text("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)"), nil)
         case "task.conflict" where d["owned"].truthy:
-            note("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: "、"))。已提醒 \(e.task ?? "") 不要再改，并告诉负责人", .amber)
-        case "task.conflict": note("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时在改 \(d["paths"].strings.joined(separator: "、"))。已提醒双方先读最新内容，并告诉负责人", .amber)
+            note(L.text("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: L.text("、")))。已提醒 \(e.task ?? "") 不要再改，并告诉负责人"), .amber)
+        case "task.conflict": note(L.text("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时在改 \(d["paths"].strings.joined(separator: L.text("、")))。已提醒双方先读最新内容，并告诉负责人"), .amber)
         case "user.message":
-            let via = ["steer": "已插入正在进行的这一轮", "queued": "这一轮结束后发送", "prompt": "作为新一轮发送", "next": "下次会话时带给它"][d["delivery"].str] ?? ""
+            let via = ["steer": L.text("已插入正在进行的这一轮"), "queued": L.text("这一轮结束后发送"), "prompt": L.text("作为新一轮发送"), "next": L.text("下次会话时带给它")][d["delivery"].str] ?? ""
             userBubble(d["text"].str, images: Attach.paths(d), via: via, insert: false)
         case "message.routed":
             if let m = st.msgs[d["id"].str] {
-                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? "负责人插话" : "插话") · \(m.deliveredSeq != nil ? "Agent 已读到" : "已插入这一轮，当前操作结束后读到")", insert: true) }
-                else { userBubble(m.text, images: m.images, via: (m.by == "lead" ? "负责人 · " : "") + "作为新的一轮发送", insert: false) }
+                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? L.text("负责人插话") : L.text("插话")) · \(m.deliveredSeq != nil ? L.text("Agent 已读到") : L.text("已插入这一轮，当前操作结束后读到"))", insert: true) }
+                else { userBubble(m.text, images: m.images, via: (m.by == "lead" ? L.text("负责人 · ") : "") + L.text("作为新的一轮发送"), insert: false) }
             }
         case "message.delivered":
             if d["ids"].exists {
                 ForEach(d["ids"].strings.compactMap { st.msgs[$0] }.filter { $0.delivery != "steer" }, id: \.id) { m in
-                    userBubble(m.text, images: m.images, via: (m.by == "lead" ? "负责人 · " : "") + (m.delivery == "next" ? "留言 · 在这次会话开始时带入" : m.delivery == "interrupt" ? "打断上一轮后立即发送" : "排队消息 · 上一轮结束后发送"), insert: false)
+                    userBubble(m.text, images: m.images, via: (m.by == "lead" ? L.text("负责人 · ") : "") + (m.delivery == "next" ? L.text("留言 · 在这次会话开始时带入") : m.delivery == "interrupt" ? L.text("打断上一轮后立即发送") : L.text("排队消息 · 上一轮结束后发送")), insert: false)
                 }
             } else { note("\(L.icon[e.type] ?? "·") \(e.text)", L.tone(of: e.type)) }
         // One line in the conversation; each criterion is a click away (and on the task page).
@@ -485,15 +485,15 @@ struct ChatItem: View {
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(checks.indices, id: \.self) { i in CheckRow(c: checks[i]) }
-                    if !d["evidence"].array.isEmpty { Text(verbatim: "证据：\(d["evidence"].strings.joined(separator: "；"))").font(.caption).foregroundStyle(.secondary) }
-                    if !d["risks"].array.isEmpty { Text(verbatim: "风险：\(d["risks"].strings.joined(separator: "；"))").font(.caption).foregroundStyle(Tone.amber.color) }
+                    if !d["evidence"].array.isEmpty { Text(verbatim: L.text("证据：\(d["evidence"].strings.joined(separator: L.text("；")))")).font(.caption).foregroundStyle(.secondary) }
+                    if !d["risks"].array.isEmpty { Text(verbatim: L.text("风险：\(d["risks"].strings.joined(separator: L.text("；")))")).font(.caption).foregroundStyle(Tone.amber.color) }
                 }
                 .padding(.top, 4)
             } label: {
                 HStack(spacing: 6) {
-                    Text(verbatim: "⇪ 提交结果：\(d["summary"].string ?? e.text)").font(.callout.weight(.semibold)).lineLimit(2)
-                    if !checks.isEmpty { Pill("\(passed)/\(checks.count) 通过", passed == checks.count ? .green : .amber) }
-                    if !d["risks"].array.isEmpty { Pill("\(d["risks"].array.count) 个风险", .amber) }
+                    Text(verbatim: L.text("⇪ 提交结果：\(d["summary"].string ?? e.text)")).font(.callout.weight(.semibold)).lineLimit(2)
+                    if !checks.isEmpty { Pill(L.text("\(passed)/\(checks.count) 通过"), passed == checks.count ? .green : .amber) }
+                    if !d["risks"].array.isEmpty { Pill(L.text("\(d["risks"].array.count) 个风险"), .amber) }
                 }
             }
             .padding(8)
@@ -502,8 +502,8 @@ struct ChatItem: View {
         // A request still waiting is answered right here, with the same card as the inbox.
         case "approval.requested", "input.requested":
             if let item = st.inbox.first(where: { $0.key == d["key"].str }) { RequestCard(run: run, st: st, item: item) }
-            else { note("\(L.icon[e.type] ?? "·") \(run.who(e.actor).name)：\(e.text)", L.tone(of: e.type)) }
-        default: note("\(L.icon[e.type] ?? "·") \(run.who(e.actor).name)：\(e.text)", L.tone(of: e.type))
+            else { note(L.text("\(L.icon[e.type] ?? "·") \(run.who(e.actor).name)：\(e.text)"), L.tone(of: e.type)) }
+        default: note(L.text("\(L.icon[e.type] ?? "·") \(run.who(e.actor).name)：\(e.text)"), L.tone(of: e.type))
         }
     }
 
@@ -585,10 +585,10 @@ struct ToolRow: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(board ? "看板" : (d["tool"].truthy ? d["tool"].str : "工具")).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 4).background((board ? Color.accent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                    Text(board ? L.text("看板") : (d["tool"].truthy ? d["tool"].str : L.text("工具"))).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 4).background((board ? Color.accent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
                     Text(label).font(.callout).lineLimit(1).truncationMode(.tail)
-                    if e.type == "tool.started" { Pill(d["live"].truthy ? "进行中" : "等待返回", .blue) } else if d["status"].str == "failed" { Pill("失败", .red) }
-                    if !d["diffs"].array.isEmpty { Text(verbatim: "改了 \(d["diffs"].array.count) 个文件").font(.caption).foregroundStyle(.secondary) }
+                    if e.type == "tool.started" { Pill(d["live"].truthy ? L.text("进行中") : L.text("等待返回"), .blue) } else if d["status"].str == "failed" { Pill(L.text("失败"), .red) }
+                    if !d["diffs"].array.isEmpty { Text(verbatim: L.text("改了 \(d["diffs"].array.count) 个文件")).font(.caption).foregroundStyle(.secondary) }
                 }
                 if !result.isEmpty { Text("→ " + L.short(result, 160)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             }
@@ -598,15 +598,15 @@ struct ToolRow: View {
     private func janusLabel(_ tool: String, _ a: JSON, _ out: String) -> (String, String) {
         let first = out.split(separator: "\n").first.map(String.init) ?? ""
         switch tool {
-        case "janus.orchestrate": return ("提交编排：\(a["tasks"].array.map { "\($0["id"].str) \($0["title"].str) → \(run.who($0["assignee"].str).name)" }.joined(separator: "；"))", first)
-        case "janus.wait": return ("等待看板上的进展", first)
-        case "janus.reply": return ("回复 \(a["task"].str)：\(a["text"].str)", first)
-        case "janus.retry": return ("重新执行 \(a["task"].str)\(a["instructions"].truthy ? "（改了说明）" : "")\(a["accept"].truthy ? "（改了验收标准）" : "")", first)
-        case "janus.accept": return ("接受 \(a["task"].str) 的结果：\(a["reason"].str)", first)
-        case "janus.cancel": return ("取消 \(a["tasks"].strings.joined(separator: "、"))\(a["reason"].truthy ? "：\(a["reason"].str)" : "")", first)
-        case "janus.ask_user": return ("请你决定：\(a["question"].str)", first)
-        case "janus.team": return ("查看团队和子任务状态", "")
-        case "janus.board_post": return ("写回看板：\(a["text"].str)", "")
+        case "janus.orchestrate": return (L.text("提交编排：\(a["tasks"].array.map { "\($0["id"].str) \($0["title"].str) → \(run.who($0["assignee"].str).name)" }.joined(separator: L.text("；")))"), first)
+        case "janus.wait": return (L.text("等待看板上的进展"), first)
+        case "janus.reply": return (L.text("回复 \(a["task"].str)：\(a["text"].str)"), first)
+        case "janus.retry": return (L.text("重新执行 \(a["task"].str)\(a["instructions"].truthy ? L.text("（改了说明）") : "")\(a["accept"].truthy ? L.text("（改了验收标准）") : "")"), first)
+        case "janus.accept": return (L.text("接受 \(a["task"].str) 的结果：\(a["reason"].str)"), first)
+        case "janus.cancel": return (L.text("取消 \(a["tasks"].strings.joined(separator: L.text("、")))\(a["reason"].truthy ? L.text("：\(a["reason"].str)") : "")"), first)
+        case "janus.ask_user": return (L.text("请你决定：\(a["question"].str)"), first)
+        case "janus.team": return (L.text("查看团队和子任务状态"), "")
+        case "janus.board_post": return (L.text("写回看板：\(a["text"].str)"), "")
         default: return (tool, first)
         }
     }
@@ -621,7 +621,7 @@ struct PendingTray: View {
         let list = pending
         if !list.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: "待发送 \(list.count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(verbatim: L.text("待发送 \(list.count)")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(list, id: \.id) { m in
                     let (l, tone) = Self.labels[m.delivery] ?? ("", .gray)
                     HStack(spacing: 8) {
@@ -637,7 +637,7 @@ struct PendingTray: View {
         }
     }
 
-    static let labels: [String: (String, Tone)] = ["pending": ("发送中…", .blue), "queued": ("排队 · 这一轮结束后发送", .amber), "next": ("留言 · 下次会话开始时带给它", .gray), "interrupt": ("正在打断这一轮，马上送达", .blue)]
+    static let labels: [String: (String, Tone)] = ["pending": (L.text("发送中…"), .blue), "queued": (L.text("排队 · 这一轮结束后发送"), .amber), "next": (L.text("留言 · 下次会话开始时带给它"), .gray), "interrupt": (L.text("正在打断这一轮，马上送达"), .blue)]
 
     private var pending: [Msg] {
         st.msgs.values.filter { m in
@@ -678,11 +678,11 @@ struct AgentView: View {
             AdaptiveColumns(side: 300) {
                 // A fixed height like the task page: the conversation scrolls inside its card,
                 // not the page around it.
-                ChatCard(run: run, st: st, title: "对话", info: agentSession(st, agentId), target: .agent(agentId))
+                ChatCard(run: run, st: st, title: L.text("对话"), info: agentSession(st, agentId), target: .agent(agentId))
                     .frame(height: 640)
                 Card(padding: 12) {
-                    HStack { Text("负责的子任务").font(.headline); Spacer(); Text(verbatim: "\(tasks.count) 个").font(.caption).foregroundStyle(.secondary) }
-                    if tasks.isEmpty { Text(agentId == "lead" ? "负责人负责规划和协调。" : "还没有分配子任务。").font(.callout).foregroundStyle(.secondary) }
+                    HStack { Text(L.text("负责的子任务")).font(.headline); Spacer(); Text(verbatim: L.text("\(tasks.count) 个")).font(.caption).foregroundStyle(.secondary) }
+                    if tasks.isEmpty { Text(agentId == "lead" ? L.text("负责人负责规划和协调。") : L.text("还没有分配子任务。")).font(.callout).foregroundStyle(.secondary) }
                     ForEach(tasks, id: \.id) { t in
                         let (l, tone) = t.status.label
                         HStack {

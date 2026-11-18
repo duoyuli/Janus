@@ -24,7 +24,7 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(SessionView.plan(evs).map(\.status) == ["completed", "in_progress"])
     let c = SessionView.controls(evs)
     #expect(c.map(\.id) == ["model", "mode"], "a control with one choice is not offered")
-    #expect(c[0].current == "a" && c[1].current == "full" && c[1].name == "模式" && c[1].via == "mode")
+    #expect(c[0].current == "a" && c[1].current == "full" && c[1].name == expectedCopy("模式", "Mode") && c[1].via == "mode")
     #expect(SessionView.commands(evs).first?.name == "compact")
     let u = SessionView.usage(evs)
     #expect(u?.percent == 25 && u?.tokens == 1500)
@@ -86,24 +86,24 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     let u = SessionView.usage(evs)
     // The header keeps reading the same two numbers it did before.
     #expect(u?.percent == 25 && u?.tokens == 1500)
-    #expect(u?.contextLabel == "本会话 上下文 25%")
-    #expect(u?.turnLabel == "上一轮 1,500 tokens")
-    #expect(u?.labels == "本会话 上下文 25% · 上一轮 1,500 tokens")
+    #expect(u?.contextLabel == expectedCopy("本会话 上下文 25%", "Session context: 25%"))
+    #expect(u?.turnLabel == expectedCopy("上一轮 1,500 tokens", "Last turn: 1,500 tokens"))
+    #expect(u?.labels == expectedCopy("本会话 上下文 25% · 上一轮 1,500 tokens", "Session context: 25% · Last turn: 1,500 tokens"))
 
     // An agent that only reports context has no last-turn number; a 0 before it read anything is
     // not shown, as before.
     let contextOnly = [ev(1, "session.usage", ["used": 0, "size": 200000]), ev(2, "session.usage", ["used": 21000, "size": 200000])]
     let c = SessionView.usage(contextOnly)
     #expect(c?.tokens == nil && c?.turnLabel == nil)
-    #expect(c?.contextLabel == "本会话 上下文 10%", "\(c?.contextLabel ?? "nil")")
+    #expect(c?.contextLabel == expectedCopy("本会话 上下文 10%", "Session context: 10%"), "\(c?.contextLabel ?? "nil")")
     #expect(c?.percent == 10)
 
     // Only a last-turn number: the context label stays absent instead of showing 0.
     let turnOnly = [ev(1, "session.usage", ["totalTokens": 700])]
     let t = SessionView.usage(turnOnly)
     #expect(t?.contextLabel == nil)
-    #expect(t?.turnLabel == "上一轮 700 tokens")
-    #expect(t?.labels == "上一轮 700 tokens")
+    #expect(t?.turnLabel == expectedCopy("上一轮 700 tokens", "Last turn: 700 tokens"))
+    #expect(t?.labels == expectedCopy("上一轮 700 tokens", "Last turn: 700 tokens"))
     #expect(SessionView.usage([]) == nil)
 }
 
@@ -148,7 +148,7 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
 
     let st = run.shown
     #expect(st.usage.run.completeness == .partial, "the rendered card says partial")
-    #expect(st.usage.run.summaryRows.first?.value.contains("部分上报") == true)
+    #expect(st.usage.run.summaryRows.first?.value.contains(expectedCopy("部分上报", "Partially reported")) == true)
 
     let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("janus-usage", isDirectory: true)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -191,7 +191,7 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     ]
     let bill = UsageBill.period(period, issued: Date(timeIntervalSince1970: 1_762_590_000))
     #expect(bill.headline == "$6,389.62" && bill.totalRows.last?.value == "97%", "\(bill.headline) \(bill.totalRows)")
-    #expect(bill.notes.first?.contains("models.dev") == true && bill.notes.contains { $0.contains("12 轮没有价格") })
+    #expect(bill.notes.first?.contains("models.dev") == true && bill.notes.contains { $0.contains(expectedCopy("12 轮没有价格", "excluded from the estimate: 12")) })
     let periodCard = try render("period-bill-light.png", dark: false, Card(padding: 22) { UsageReceipt(bill: bill) }.frame(width: 520))
     #expect(periodCard > 10_000)
     #expect(runCard > 10_000 && runCardDark > 10_000, "the cards drew: \(runCard)/\(runCardDark) bytes")

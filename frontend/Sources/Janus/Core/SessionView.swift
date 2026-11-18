@@ -31,14 +31,14 @@ enum SessionView {
         /// It is a snapshot of one session, never part of the run's token total.
         var contextLabel: String? {
             guard let used else { return nil }
-            guard let percent else { return "本会话 上下文 \(usageNum(used))" }
-            return "本会话 上下文 \(percent)%"
+            guard let percent else { return L.text("本会话 上下文 \(usageNum(used))") }
+            return L.text("本会话 上下文 \(percent)%")
         }
 
         /// The last turn's tokens, labelled: `上一轮 1,500 tokens`.
         var turnLabel: String? {
             guard let tokens else { return nil }
-            return "上一轮 \(usageNum(tokens)) tokens"
+            return L.text("上一轮 \(usageNum(tokens)) tokens")
         }
 
         /// Both labels in the words the run page uses, for the help text and the ledger.
@@ -64,10 +64,10 @@ enum SessionView {
             guard opts.count > 1 else { return }
             out.append(Control(id: id, name: name, via: via, current: c["current"].str, options: opts))
         }
-        if d["model"].truthy { add(d["model"]["id"].str, "模型", "config", d["model"]) }
-        if d["effort"].truthy { add(d["effort"]["id"].str, "推理强度", "config", d["effort"]) }
+        if d["model"].truthy { add(d["model"]["id"].str, L.text("模型"), "config", d["model"]) }
+        if d["effort"].truthy { add(d["effort"]["id"].str, L.text("推理强度"), "config", d["effort"]) }
         for c in d["controls"].array where c["type"].str == "select" || c["options"].array.count > 1 {
-            add(c["id"].str, c["category"].str == "mode" ? "模式" : c["name"].str, c["via"].str == "mode" ? "mode" : "config", c)
+            add(c["id"].str, c["category"].str == "mode" ? L.text("模式") : c["name"].str, c["via"].str == "mode" ? "mode" : "config", c)
         }
         for e in evs[(i + 1)...] where e.type == "session.control" && !e.data["failed"].truthy {
             if let k = out.firstIndex(where: { $0.id == e.data["id"].str || ($0.via == "mode" && e.data["via"].str == "mode") }) {

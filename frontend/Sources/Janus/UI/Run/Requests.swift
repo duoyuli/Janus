@@ -37,7 +37,7 @@ struct AskShell<Body: View, Controls: View>: View {
 
     var body: some View {
         let w = run.who(agent)
-        let whereText = item.task.map { "\($0) · \(st.tasks[$0]?.title ?? "")" } ?? "负责人会话"
+        let whereText = item.task.map { "\($0) · \(st.tasks[$0]?.title ?? "")" } ?? L.text("负责人会话")
         Card(tint: tone.color) {
             HStack(spacing: 8) {
                 Pill(pill, tone)
@@ -48,7 +48,7 @@ struct AskShell<Body: View, Controls: View>: View {
                 SeqButton(seq: item.seq, run: run)
             }
             content
-            KV(rows: [("来自", "\(w.name) · \(whereText)")] + foot)
+            KV(rows: [(L.text("来自"), "\(w.name) · \(whereText)")] + foot)
             controls
         }
     }
@@ -65,7 +65,7 @@ struct OptionButtons: View {
                 Button {
                     picked = picked == o ? nil : o
                 } label: {
-                    ChoiceLabel(title: o, sub: o == recommend ? "负责人建议" : "", subTint: true, on: picked == o)
+                    ChoiceLabel(title: o, sub: o == recommend ? L.text("负责人建议") : "", subTint: true, on: picked == o)
                 }
                 .buttonStyle(.plain)
                 .disabled(disabled)
@@ -111,16 +111,18 @@ struct QuestionAsk: View {
         let q = t?.question
         let from = q?.from ?? t?.agent ?? ""
         let downstream = st.order.filter { st.tasks[$0]?.deps.contains(item.task ?? "") == true }
-        AskShell(run: run, st: st, item: item, pill: "问题", agent: from, title: L.cn(run.who(from).name, "在 \(item.task ?? "") 中提问")+"\(q?.blocking == true ? " · 阻塞中" : "")") {
+        let question = L.text("「\(run.who(from).name)」在 \(item.task ?? "") 中提问")
+        let title = question + (q?.blocking == true ? L.text(" · 阻塞中") : "")
+        AskShell(run: run, st: st, item: item, pill: L.text("问题"), agent: from, title: title) {
             Text(q?.question ?? "").font(.body).textSelection(.enabled)
-            if item.d["reason"].truthy { Text(verbatim: "↳ 负责人 Agent 转交给你：\(item.d["reason"].str)").font(.callout).foregroundStyle(.secondary) }
+            if item.d["reason"].truthy { Text(verbatim: L.text("↳ 负责人 Agent 转交给你：\(item.d["reason"].str)")).font(.callout).foregroundStyle(.secondary) }
         } controls: {
             OptionButtons(options: q?.options ?? [], recommend: item.d["recommend"].str, picked: pick, disabled: !run.canAct)
-            TextField("补充说明（可选），会和回答一起发给 Agent", text: note, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...6).disabled(!run.canAct)
-            Button("提交回答") { answer(task: item.task ?? "") }.buttonStyle(.primary).disabled(!run.canAct || run.picks[item.key] == nil)
-                .help(run.picks[item.key] == nil ? "先选择一个选项" : "")
+            TextField(L.text("补充说明（可选），会和回答一起发给 Agent"), text: note, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...6).disabled(!run.canAct)
+            Button(L.text("提交回答")) { answer(task: item.task ?? "") }.buttonStyle(.primary).disabled(!run.canAct || run.picks[item.key] == nil)
+                .help(run.picks[item.key] == nil ? L.text("先选择一个选项") : "")
             // Notes go under the buttons, so a narrow card does not squeeze them into a strip.
-            Text(verbatim: "回答会写入事件日志，并通过 ACP 发回会话。\(downstream.isEmpty ? "" : "受影响的下游子任务：\(downstream.joined(separator: "、"))。")").font(.caption).foregroundStyle(.secondary)
+            Text(verbatim: L.text("回答会写入事件日志，并通过 ACP 发回会话。\(downstream.isEmpty ? "" : L.text("受影响的下游子任务：\(downstream.joined(separator: L.text("、")))。"))")).font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -141,18 +143,18 @@ struct LeadAsk: View {
 
     var body: some View {
         let options = item.d["options"].strings
-        AskShell(run: run, st: st, item: item, pill: "需要你决定", agent: "lead", title: "负责人请你决定：\(item.d["question"].str)") {
-            if item.d["reason"].truthy { Text(verbatim: "为什么要你决定：\(item.d["reason"].str)").font(.callout).foregroundStyle(.secondary) }
+        AskShell(run: run, st: st, item: item, pill: L.text("需要你决定"), agent: "lead", title: L.text("负责人请你决定：\(item.d["question"].str)")) {
+            if item.d["reason"].truthy { Text(verbatim: L.text("为什么要你决定：\(item.d["reason"].str)")).font(.callout).foregroundStyle(.secondary) }
         } controls: {
             if !options.isEmpty {
                 OptionButtons(options: options, recommend: item.d["recommend"].str, picked: Binding(get: { run.picks[item.key] }, set: { run.picks[item.key] = $0 }), disabled: !run.canAct)
             }
-            TextField(options.isEmpty ? "你的回答" : "补充说明（可选）", text: Binding(get: { run.notes[item.key] ?? "" }, set: { run.notes[item.key] = $0 }), axis: .vertical)
+            TextField(options.isEmpty ? L.text("你的回答") : L.text("补充说明（可选）"), text: Binding(get: { run.notes[item.key] ?? "" }, set: { run.notes[item.key] = $0 }), axis: .vertical)
                 .textFieldStyle(.roundedBorder).lineLimit(2...6).disabled(!run.canAct)
             let empty = run.picks[item.key] == nil && (run.notes[item.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            Button("提交") { submit() }.buttonStyle(.primary).disabled(!run.canAct || empty)
-                .help(empty ? (options.isEmpty ? "先写下你的回答" : "先选择一个选项，或写下你的回答") : "")
-            Text("负责人在等这个决定期间，会继续做不依赖它的工作。").font(.caption).foregroundStyle(.secondary)
+            Button(L.text("提交")) { submit() }.buttonStyle(.primary).disabled(!run.canAct || empty)
+                .help(empty ? (options.isEmpty ? L.text("先写下你的回答") : L.text("先选择一个选项，或写下你的回答")) : "")
+            Text(L.text("负责人在等这个决定期间，会继续做不依赖它的工作。")).font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -177,7 +179,9 @@ struct ApprovalAsk: View {
         let d = item.d
         let opts = L.permissionOptions(d["options"])
         let diffs = d["content"].array.filter { $0["type"].str == "diff" }
-        return AskShell(run: run, st: st, item: item, pill: "审批", tone: .red, agent: agent, title: L.cn(run.who(agent).name, "请求你决定：")+"\(d["title"].truthy ? d["title"].str : "执行操作")", foot: d["policy"].truthy ? [("原因", d["policy"].str)] : []) {
+        let operation = d["title"].truthy ? d["title"].str : L.text("执行操作")
+        let title = L.text("「\(run.who(agent).name)」请求你决定：\(operation)")
+        return AskShell(run: run, st: st, item: item, pill: L.text("审批"), tone: .red, agent: agent, title: title, foot: d["policy"].truthy ? [(L.text("原因"), d["policy"].str)] : []) {
             if d["command"].truthy && d["command"] != d["title"] { CodeBlock(text: "$ \(L.inWorkspace(d["command"].str, st.run.cwd))") }
             ForEach(diffs.indices, id: \.self) { i in
                 InlineDiff(path: L.inWorkspace(diffs[i]["path"].str, st.run.cwd), old: diffs[i]["oldText"].str, new: diffs[i]["newText"].str)
@@ -196,7 +200,7 @@ struct ApprovalAsk: View {
             }
             if d["impact"].truthy { Text(d["impact"].str).font(.caption).foregroundStyle(.secondary) }
             if let always = opts.first(where: { $0.kind == "allow_always" }) {
-                Text("「\(always.label)」：\(always.help)").font(.caption).foregroundStyle(.secondary)
+                Text(L.text("「\(always.label)」：\(always.help)")).font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -212,27 +216,27 @@ struct InputAsk: View {
         let agent = item.agent ?? ""
         let d = item.d
         if d["mode"].str == "url" {
-            AskShell(run: run, st: st, item: item, pill: "打开链接", agent: agent, title: L.cn(run.who(agent).name, "需要你在浏览器里完成一步")) {
+            AskShell(run: run, st: st, item: item, pill: L.text("打开链接"), agent: agent, title: L.text("「\(run.who(agent).name)」需要你在浏览器里完成一步")) {
                 Text(d["message"].str)
                 if d["url"].truthy { Link(d["url"].str, destination: URL(string: d["url"].str) ?? URL(string: "about:blank")!).font(.system(.callout, design: .monospaced)) }
             } controls: {
                 HStack {
-                    Button("拒绝") { send("decline") }.disabled(!run.canAct)
-                    Button("我已完成") { send("accept") }.buttonStyle(.primary).disabled(!run.canAct)
+                    Button(L.text("拒绝")) { send("decline") }.disabled(!run.canAct)
+                    Button(L.text("我已完成")) { send("accept") }.buttonStyle(.primary).disabled(!run.canAct)
                 }
             }
         } else {
-            AskShell(run: run, st: st, item: item, pill: "需要填写", agent: agent, title: L.cn(run.who(agent).name, "需要你提供信息")) {
+            AskShell(run: run, st: st, item: item, pill: L.text("需要填写"), agent: agent, title: L.text("「\(run.who(agent).name)」需要你提供信息")) {
                 Text(d["message"].str)
                 SchemaForm(run: run, key: item.key, schema: d["schema"])
             } controls: {
                 let missing = missingRequired
                 HStack {
-                    Button("取消请求", role: .destructive) { send("cancel") }.disabled(!run.canAct).help("告诉 Agent 取消这次请求")
-                    Button("跳过") { send("decline") }.disabled(!run.canAct).help("不提供这些信息，让 Agent 继续")
-                    Button("提交") { send("accept") }.buttonStyle(.primary).disabled(!run.canAct || !missing.isEmpty)
+                    Button(L.text("取消请求"), role: .destructive) { send("cancel") }.disabled(!run.canAct).help(L.text("告诉 Agent 取消这次请求"))
+                    Button(L.text("跳过")) { send("decline") }.disabled(!run.canAct).help(L.text("不提供这些信息，让 Agent 继续"))
+                    Button(L.text("提交")) { send("accept") }.buttonStyle(.primary).disabled(!run.canAct || !missing.isEmpty)
                 }
-                Text(missing.isEmpty ? "内容通过 ACP 原样交回 Agent。" : "还有必填项：\(missing.joined(separator: "、"))")
+                Text(missing.isEmpty ? L.text("内容通过 ACP 原样交回 Agent。") : L.text("还有必填项：\(missing.joined(separator: L.text("、")))"))
                     .font(.caption).foregroundStyle(missing.isEmpty ? Color.secondary : Tone.amber.color)
             }
         }
@@ -283,7 +287,7 @@ struct SchemaForm: View {
                         if p["description"].truthy { Text(p["description"].str).font(.caption).foregroundStyle(.secondary) }
                         field(k, p)
                         if let c = customs[k] {
-                            TextField(schema["properties"][c]["description"].truthy ? schema["properties"][c]["description"].str : "或者写下你自己的回答", text: textBinding(c)).textFieldStyle(.roundedBorder)
+                            TextField(schema["properties"][c]["description"].truthy ? schema["properties"][c]["description"].str : L.text("或者写下你自己的回答"), text: textBinding(c)).textFieldStyle(.roundedBorder)
                         }
                     }
                 }
@@ -377,14 +381,14 @@ struct SessionAsk: View {
         let w = run.who(agent)
         Card(tint: Tone.amber.color) {
             HStack(spacing: 8) {
-                Pill("会话", .amber)
+                Pill(L.text("会话"), .amber)
                 Avatar(initials: w.initials, color: w.color, size: 20)
-                Text(item.task.map { L.cn(w.name, "在 \($0) 中等你的消息") } ?? L.cn(w.name, "在等你的消息")).font(.headline)
+                Text(item.task.map { L.text("「\(w.name)」在 \($0) 中等你的消息") } ?? L.text("「\(w.name)」在等你的消息")).font(.headline)
                 Spacer()
                 if let e = st.event(item.seq) { Text(L.clock(e.ts)).font(.caption).foregroundStyle(.secondary) }
             }
-            if item.task != nil { Text("你接管了这个会话。Agent 这一轮已经结束，在你发消息、交还托管或结束子任务之前，它会一直等待。").font(.callout).foregroundStyle(.secondary) }
-            Button(item.task != nil ? "打开会话" : "打开对话") { run.show(item.task.map { .task($0) } ?? .agent(agent)) }.buttonStyle(.primary)
+            if item.task != nil { Text(L.text("你接管了这个会话。Agent 这一轮已经结束，在你发消息、交还托管或结束子任务之前，它会一直等待。")).font(.callout).foregroundStyle(.secondary) }
+            Button(item.task != nil ? L.text("打开会话") : L.text("打开对话")) { run.show(item.task.map { .task($0) } ?? .agent(agent)) }.buttonStyle(.primary)
         }
     }
 }
@@ -397,14 +401,14 @@ struct BudgetAsk: View {
     var body: some View {
         let kind = item.d["kind"].str
         let heading = switch kind {
-        case "tokens": "任务已达到 Token 预算"
-        case "cost_usd": "任务已达到费用预算"
-        default: "任务已达到墙钟预算"
+        case "tokens": L.text("任务已达到 Token 预算")
+        case "cost_usd": L.text("任务已达到费用预算")
+        default: L.text("任务已达到墙钟预算")
         }
         let extendLabel = switch kind {
-        case "tokens": "追加 500,000 Tokens"
-        case "cost_usd": "追加 5 USD"
-        default: "追加 60 分钟"
+        case "tokens": L.text("追加 500,000 Tokens")
+        case "cost_usd": L.text("追加 5 USD")
+        default: L.text("追加 60 分钟")
         }
         let extendBody: JSON = switch kind {
         case "tokens": ["type": "extendBudget", "tokens": 500_000]
@@ -413,14 +417,14 @@ struct BudgetAsk: View {
         }
         Card(tint: Tone.amber.color) {
             HStack {
-                Pill("预算", .amber)
+                Pill(L.text("预算"), .amber)
                 Text(heading).font(.headline)
                 Spacer()
                 SeqButton(seq: item.seq, run: run)
             }
             Note(text: item.d["text"].str, tone: .red)
             HStack {
-                Button("停止任务…", role: .destructive) { cancelRun(run) }.disabled(!run.canAct)
+                Button(L.text("停止任务…"), role: .destructive) { cancelRun(run) }.disabled(!run.canAct)
                 Button(extendLabel) { Task { await run.act(extendBody) } }.buttonStyle(.primary).disabled(!run.canAct)
             }
         }
@@ -429,7 +433,7 @@ struct BudgetAsk: View {
 
 @MainActor
 func cancelRun(_ run: RunModel) {
-    if confirm("停止这个任务？", "所有进行中的 Agent 会话都会结束，工作目录中已有的改动会保留。停止后不能再继续。", ok: "停止") { Task { await run.act(["type": "cancel"]) } }
+    if confirm(L.text("停止这个任务？"), L.text("所有进行中的 Agent 会话都会结束，工作目录中已有的改动会保留。停止后不能再继续。"), ok: L.text("停止")) { Task { await run.act(["type": "cancel"]) } }
 }
 
 struct CodeBlock: View {

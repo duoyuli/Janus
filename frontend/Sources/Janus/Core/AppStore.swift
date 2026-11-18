@@ -69,7 +69,7 @@ final class AppStore {
     }
 
     func loadMeta() async {
-        do { meta = try await api.get("/api/meta") } catch { show("连不上 Janus 后端：\(error.localizedDescription)") }
+        do { meta = try await api.get("/api/meta") } catch { show(L.text("连不上 Janus 后端：\(error.localizedDescription)")) }
     }
 
     func loadRuns() async {
@@ -83,7 +83,7 @@ final class AppStore {
             connections = s["connections"].array
             roles = s["roles"].array
             workspaces = s["workspaces"].array
-        } catch { show("读取设置失败：\(error.localizedDescription)") }
+        } catch { show(L.text("读取设置失败：\(error.localizedDescription)")) }
         // How each role's tasks went in recent runs; the list works without it.
         roleStats = (try? await api.get("/api/stats/roles")) ?? .null
     }
@@ -122,7 +122,7 @@ final class AppStore {
             _ = try await api.post("/api/library/sources/check", timeout: 240)
             await loadLibrary()
             let n = sourceUpdates.count
-            show(n == 0 ? "所有来源都是最新的" : "\(n) 个来源有更新")
+            show(n == 0 ? L.text("所有来源都是最新的") : L.text("\(n) 个来源有更新"))
         } catch { show(error.localizedDescription) }
     }
 
@@ -141,9 +141,9 @@ final class AppStore {
             updatingSources.remove(id)
         }
         await loadLibrary()
-        if !failed.isEmpty { show("更新失败：\(failed.joined(separator: "；"))"); return }
-        var msg = updated.isEmpty ? "已更新来源，导入的资源没有变化" : "已更新 \(updated.joined(separator: "、"))"
-        if !missing.isEmpty { msg += "；\(missing.joined(separator: "、")) 已不在来源中，保持原样" }
+        if !failed.isEmpty { show(L.text("更新失败：\(failed.joined(separator: L.text("；")))")); return }
+        var msg = updated.isEmpty ? L.text("已更新来源，导入的资源没有变化") : L.text("已更新 \(updated.joined(separator: L.text("、")))")
+        if !missing.isEmpty { msg += L.text("；\(missing.joined(separator: L.text("、"))) 已不在来源中，保持原样") }
         show(msg)
     }
 
@@ -219,9 +219,9 @@ final class AppStore {
     /// What is still missing before a first task can run, in order.
     /// Each step names where it is done: a settings pane, or "workspace" for the new-workspace sheet.
     var onboarding: [(String, Bool, String)] {
-        [("接入一个 Agent", !okConnections.isEmpty, "agents"),
-         ("定义数字员工（含一个负责人）", boundRoles.contains { $0["lead"].truthy } && boundRoles.count >= 2, "roles"),
-         ("新建工作区", !workspaces.isEmpty, "workspace")]
+        [(L.text("接入一个 Agent"), !okConnections.isEmpty, "agents"),
+         (L.text("定义数字员工（含一个负责人）"), boundRoles.contains { $0["lead"].truthy } && boundRoles.count >= 2, "roles"),
+         (L.text("新建工作区"), !workspaces.isEmpty, "workspace")]
     }
 
     // MARK: Setup objects
@@ -229,7 +229,7 @@ final class AppStore {
     static let roleColors = ["#c96442", "#7b6cc2", "#3f7d5b", "#b5852b", "#2f7f8c", "#b04d6d", "#5f6b7a", "#8a6a4f"]
 
     func newRole(connection: String = "") {
-        editingRole = ["id": "", "name": "新数字员工", "role": "", "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []]
+        editingRole = ["id": "", "name": JSON(L.text("新数字员工")), "role": "", "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []]
     }
 
     @discardableResult
@@ -251,7 +251,7 @@ final class AppStore {
             goalImages = []
             await loadRuns()
             open(.run(r["id"].str))
-        } catch { show("创建失败：\(error.localizedDescription)") }
+        } catch { show(L.text("创建失败：\(error.localizedDescription)")) }
     }
 
     /// Delete a run with everything Janus kept for it. A run that is still working is refused by
@@ -264,7 +264,7 @@ final class AppStore {
             ? run?.state.run.status ?? .unknown
             : row.map { RunStatus($0["status"].str) } ?? .unknown
         if status.isActive {
-            show("任务还在进行，先停止任务再删除")
+            show(L.text("任务还在进行，先停止任务再删除"))
             return
         }
         let title = L.goalTitle(row?["goal"].str ?? (run?.id == id ? run?.state.run.goal ?? "" : ""))
@@ -272,7 +272,7 @@ final class AppStore {
         do {
             try await api.delete("/api/runs/\(id)")
         } catch {
-            show("删除失败：\(error.localizedDescription)")
+            show(L.text("删除失败：\(error.localizedDescription)"))
             return
         }
         if run?.id == id {
@@ -284,13 +284,13 @@ final class AppStore {
         if case .run(let shown) = screen, shown == id {
             if let ws = currentWorkspace { open(.home(ws["id"].str)) } else { open(.inbox) }
         }
-        show("已删除任务")
+        show(L.text("已删除任务"))
     }
 
     // MARK: Agent checks and logins run on the server; the app only polls.
 
     func testConnection(_ id: String) async {
-        do { _ = try await api.post("/api/connections/\(id)/test") } catch { show("无法开始检查：\(error.localizedDescription)"); return }
+        do { _ = try await api.post("/api/connections/\(id)/test") } catch { show(L.text("无法开始检查：\(error.localizedDescription)")); return }
         await loadSetup()
         watchChecks()
     }
@@ -306,7 +306,7 @@ final class AppStore {
                 await self.loadSetup()
                 let now = Set(self.connections.filter { $0["status"].str == "testing" }.map { $0["id"].str })
                 for id in before.subtracting(now) {
-                    if let c = self.connection(id) { self.show(c["status"].str == "ok" ? "\(c["name"].str) 检查通过" : "\(c["name"].str) 检查未通过：\(c["error"].str)") }
+                    if let c = self.connection(id) { self.show(c["status"].str == "ok" ? L.text("\(c["name"].str) 检查通过") : L.text("\(c["name"].str) 检查未通过：\(c["error"].str)")) }
                 }
                 before = now
                 if now.isEmpty { self.polls["checks"] = nil; return }
@@ -316,7 +316,7 @@ final class AppStore {
 
     func login(_ id: String) async {
         do { _ = try await api.post("/api/connections/\(id)/login") } catch { show(error.localizedDescription); return }
-        show("已开始登录：按卡片上的提示完成，完成后会自动测试。")
+        show(L.text("已开始登录：按卡片上的提示完成，完成后会自动测试。"))
         polls["login"]?.cancel()
         polls["login"] = Task { [weak self] in
             while !Task.isCancelled {
@@ -336,7 +336,7 @@ final class AppStore {
     // MARK: Adapters: installs and checks run in the background; poll until they end.
 
     func loadAdapters() async {
-        do { adapters = try await api.get("/api/adapters") } catch { adapters = ["adapters": [], "dir": ""]; show("读取适配器失败：\(error.localizedDescription)"); return }
+        do { adapters = try await api.get("/api/adapters") } catch { adapters = ["adapters": [], "dir": ""]; show(L.text("读取适配器失败：\(error.localizedDescription)")); return }
         let busy = adapters["adapters"].array.contains { $0["job"]["state"].str == "running" }
         if busy && polls["adapters"] == nil {
             polls["adapters"] = Task { [weak self] in
@@ -346,7 +346,7 @@ final class AppStore {
                     guard let a = try? await self.api.get("/api/adapters") else { continue }
                     self.adapters = a
                     if !a["adapters"].array.contains(where: { $0["job"]["state"].str == "running" }) {
-                        for x in a["adapters"].array where (x["job"]["ended"].double ?? 0) > L.nowMs() - 2500 { self.show("\(x["name"].str)：\(x["job"]["detail"].str)") }
+                        for x in a["adapters"].array where (x["job"]["ended"].double ?? 0) > L.nowMs() - 2500 { self.show(L.text("\(x["name"].str)：\(x["job"]["detail"].str)")) }
                         self.polls["adapters"] = nil
                         return
                     }

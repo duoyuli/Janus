@@ -60,23 +60,23 @@ struct ArtifactView: View {
                 Text(L.tilde(path)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(path)
                 Spacer()
                 if markdown {
-                    Picker("显示", selection: $source) {
-                        Text("预览").tag(false)
-                        Text("源文本").tag(true)
+                    Picker(L.text("显示"), selection: $source) {
+                        Text(L.text("预览")).tag(false)
+                        Text(L.text("源文本")).tag(true)
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
-                    .help("在渲染后的文档和 Markdown 源文本之间切换")
+                    .help(L.text("在渲染后的文档和 Markdown 源文本之间切换"))
                 }
-                Button { generation += 1 } label: { Label("重新读取", systemImage: "arrow.clockwise") }
-                    .labelStyle(.iconOnly).help("重新读取文件（Agent 可能还在修改它）")
+                Button { generation += 1 } label: { Label(L.text("重新读取"), systemImage: "arrow.clockwise") }
+                    .labelStyle(.iconOnly).help(L.text("重新读取文件（Agent 可能还在修改它）"))
                 Menu {
-                    Button("复制内容") { copyText(text ?? "") }.disabled(text == nil)
-                    Button("复制路径") { copyText(path) }
+                    Button(L.text("复制内容")) { copyText(text ?? "") }.disabled(text == nil)
+                    Button(L.text("复制路径")) { copyText(path) }
                     Divider()
-                    Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
-                    Button("用默认应用打开") { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
-                } label: { Label("更多", systemImage: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).labelStyle(.iconOnly).fixedSize().help("复制、在 Finder 中显示或用其他应用打开")
+                    Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) }
+                    Button(L.text("用默认应用打开")) { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+                } label: { Label(L.text("更多"), systemImage: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).labelStyle(.iconOnly).fixedSize().help(L.text("复制、在 Finder 中显示或用其他应用打开"))
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             Divider()
@@ -102,7 +102,7 @@ struct ArtifactView: View {
         // The app runs as this user: read the file directly. Paths the app cannot read go
         // through the server, which serves only Janus's artifacts directory.
         if let t = try? String(contentsOfFile: path, encoding: .utf8) { text = t; error = nil; return }
-        guard let api else { error = "读不了这个文件"; return }
+        guard let api else { error = L.text("读不了这个文件"); return }
         do { text = try await api.text("/api/file?path=\(API.q(path))"); error = nil } catch { self.error = error.localizedDescription }
     }
 }
@@ -196,7 +196,7 @@ private struct MDBlock: View {
                         Group {
                             if let checked = items[i].checked {
                                 Image(systemName: checked ? "checkmark.square.fill" : "square").foregroundStyle(checked ? Color.accentColor : .secondary)
-                                    .accessibilityLabel(checked ? "已完成" : "未完成")
+                                    .accessibilityLabel(checked ? L.text("已完成") : L.text("未完成"))
                             } else {
                                 Text(verbatim: ordered ? "\(start + i)." : "•").foregroundStyle(.secondary).monospacedDigit()
                             }
@@ -217,7 +217,7 @@ private struct MDBlock: View {
                 HStack(spacing: 6) {
                     if !lang.isEmpty { Text(lang).font(.caption2).foregroundStyle(.tertiary) }
                     Button { copyText(text) } label: { Image(systemName: "doc.on.doc") }
-                        .buttonStyle(.borderless).font(.caption).help("复制代码")
+                        .buttonStyle(.borderless).font(.caption).help(L.text("复制代码"))
                 }
                 .padding(6)
             }

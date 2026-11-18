@@ -12,8 +12,8 @@ struct TaskView: View {
             content(st, t)
         } else {
             VStack(spacing: 10) {
-                Text(run.isReplaying ? "在当前回放位置，这个子任务还不存在。" : "这个任务里没有 \(taskId)。").foregroundStyle(.secondary)
-                Button("返回工作台") { run.show(.board) }
+                Text(run.isReplaying ? L.text("在当前回放位置，这个子任务还不存在。") : L.text("这个任务里没有 \(taskId)。")).foregroundStyle(.secondary)
+                Button(L.text("返回工作台")) { run.show(.board) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -35,19 +35,19 @@ struct TaskView: View {
                         HStack(spacing: 6) {
                             TaskTag(id: t.id)
                             Pill(label, tone)
-                            if t.attempts.count > 1 { Pill("第 \(t.attempts.count) 次尝试") }
+                            if t.attempts.count > 1 { Pill(L.text("第 \(t.attempts.count) 次尝试")) }
                         }
                         Text(t.title).font(.display(.title2)).textSelection(.enabled)
                         if !t.desc.isEmpty { Text(t.desc).foregroundStyle(.secondary).textSelection(.enabled) }
-                        let structure = [t.owns.isEmpty ? nil : "负责 \(t.owns.joined(separator: "、"))", t.verifies.isEmpty ? nil : "独立验证 \(t.verifies)"].compactMap { $0 }
+                        let structure = [t.owns.isEmpty ? nil : L.text("负责 \(t.owns.joined(separator: L.text("、")))"), t.verifies.isEmpty ? nil : L.text("独立验证 \(t.verifies)")].compactMap { $0 }
                         if !structure.isEmpty { Text(verbatim: structure.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                     }
                     Spacer()
-                    Button("在审计日志中查看") { run.auditCat = "all"; run.auditTask = t.id; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
+                    Button(L.text("在审计日志中查看")) { run.auditCat = "all"; run.auditTask = t.id; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
                 }
                 AdaptiveColumns(side: 330) {
                     VStack(alignment: .leading, spacing: 14) {
-                        ChatCard(run: run, st: st, title: "会话", info: taskSession(st, t), target: .task(t.id))
+                        ChatCard(run: run, st: st, title: L.text("会话"), info: taskSession(st, t), target: .task(t.id))
                             .frame(height: 560)
                         // The full trace is long and repeats the audit log; it stays folded until asked for.
                         if !evs.isEmpty {
@@ -56,7 +56,7 @@ struct TaskView: View {
                                     // Lazy: a long task has hundreds of events, built only as they scroll into view.
                                     LazyVStack(alignment: .leading, spacing: 8) { ForEach(evs) { e in TimelineRow(run: run, e: e) } }.padding(.top, 6)
                                 } label: {
-                                    HStack { Text("执行轨迹").font(.headline); Text(verbatim: "\(evs.count) 条事件").font(.caption).foregroundStyle(.secondary) }
+                                    HStack { Text(L.text("执行轨迹")).font(.headline); Text(verbatim: L.text("\(evs.count) 条事件")).font(.caption).foregroundStyle(.secondary) }
                                 }
                             }
                         }
@@ -70,29 +70,29 @@ struct TaskView: View {
                         if !t.accept.isEmpty || !t.checks.isEmpty || !t.summary.isEmpty {
                             Card {
                                 HStack(spacing: 8) {
-                                    Text("验收标准").font(.headline)
+                                    Text(L.text("验收标准")).font(.headline)
                                     Spacer()
                                     if summary.criteria > 0 {
-                                        Text(verbatim: "\(summary.criteria) 条 · 通过 \(summary.passed) 条").font(.caption).foregroundStyle(.secondary)
+                                        Text(verbatim: L.text("\(summary.criteria) 条 · 通过 \(summary.passed) 条")).font(.caption).foregroundStyle(.secondary)
                                     }
                                 }
                                 if !t.traceGaps.isEmpty {
-                                    Note(text: "和工作目录对不上：\n\(t.traceGaps.map { "· \($0)" }.joined(separator: "\n"))", tone: .amber)
+                                    Note(text: L.text("和工作目录对不上：\n\(t.traceGaps.map { "· \($0)" }.joined(separator: "\n"))"), tone: .amber)
                                 }
                                 // One row per criterion, and every check is kept even when it names no criterion.
                                 ForEach(CriterionCheck.rows(accept: t.accept, checks: t.checks)) { row in
                                     CheckLine(n: row.n, criterion: row.criterion, check: row.check)
                                 }
                                 if !t.checks.isEmpty {
-                                    Text(verbatim: "证据：\(summary.countsText)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                                    Text(verbatim: L.text("证据：\(summary.countsText)")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                                 }
                                 EvidenceReminders(reminders: summary.reminders)
                                 if !t.verificationFailures.isEmpty {
-                                    Note(text: "最近一次核对没有通过：\n\(t.verificationFailures.map { "· \($0)" }.joined(separator: "\n"))", tone: .red)
+                                    Note(text: L.text("最近一次核对没有通过：\n\(t.verificationFailures.map { "· \($0)" }.joined(separator: "\n"))"), tone: .red)
                                 }
                                 if !t.evidence.isEmpty {
                                     Divider()
-                                    Text("执行者提交的其他证据").font(.callout).foregroundStyle(.secondary)
+                                    Text(L.text("执行者提交的其他证据")).font(.callout).foregroundStyle(.secondary)
                                     VStack(alignment: .leading, spacing: 3) {
                                         ForEach(t.evidence.indices, id: \.self) { i in
                                             Text(MD.inline(t.evidence[i])).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -101,30 +101,30 @@ struct TaskView: View {
                                 }
                                 if !verifiers.isEmpty {
                                     Divider()
-                                    Text("独立验证").font(.callout).foregroundStyle(.secondary)
+                                    Text(L.text("独立验证")).font(.callout).foregroundStyle(.secondary)
                                     VerificationList(records: verifiers.map(VerificationRecord.init))
                                 }
                                 if !t.risks.isEmpty {
                                     Divider()
-                                    Text("风险（执行者报告）").font(.callout).foregroundStyle(.secondary)
+                                    Text(L.text("风险（执行者报告）")).font(.callout).foregroundStyle(.secondary)
                                     VStack(alignment: .leading, spacing: 3) { RiskList(risks: t.risks) }
                                 }
                                 if !t.summary.isEmpty {
                                     Divider()
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text("结果").font(.callout).foregroundStyle(.secondary)
+                                        Text(L.text("结果")).font(.callout).foregroundStyle(.secondary)
                                         Text(MD.inline(t.summary)).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                     }
                                 }
                             }
                         }
                         Card {
-                            KV(rows: [("执行者", "\(w.name)\(w.role.isEmpty ? "" : "（\(w.role)）")")])
-                            depRow("上游", t.deps, st)
-                            depRow("下游", st.order.filter { st.tasks[$0]?.deps.contains(t.id) == true }, st)
+                            KV(rows: [(L.text("执行者"), "\(w.name)\(w.role.isEmpty ? "" : L.text("（\(w.role)）"))")])
+                            depRow(L.text("上游"), t.deps, st)
+                            depRow(L.text("下游"), st.order.filter { st.tasks[$0]?.deps.contains(t.id) == true }, st)
                             if !t.attempts.isEmpty {
                                 Divider()
-                                Text("尝试").font(.callout).foregroundStyle(.secondary)
+                                Text(L.text("尝试")).font(.callout).foregroundStyle(.secondary)
                                 ForEach(t.attempts.indices, id: \.self) { i in
                                     let a = t.attempts[i]
                                     let (al, at) = a.status.label
@@ -141,27 +141,27 @@ struct TaskView: View {
                                 }
                             }
                             Divider()
-                            DisclosureGroup("运行环境") {
+                            DisclosureGroup(L.text("运行环境")) {
                                 let cfg = lastStart["config"]
                                 let rt = [lastStart["runtime"].truthy ? lastStart["runtime"].str : w.runtime,
                                           cfg["model"].truthy ? cfg["model"].str + (cfg["effort"].truthy ? " (\(cfg["effort"].str))" : "") : nil,
-                                          cfg["label"].truthy || cfg["mode"].truthy ? "权限 \(cfg["label"].truthy ? cfg["label"].str : cfg["mode"].str)" : nil,
+                                          cfg["label"].truthy || cfg["mode"].truthy ? L.text("权限 \(cfg["label"].truthy ? cfg["label"].str : cfg["mode"].str)") : nil,
                                           lastStart["agentInfo"].truthy ? "\(lastStart["agentInfo"]["name"].str) \(lastStart["agentInfo"]["version"].str)" : nil].compactMap { $0 }.joined(separator: " · ")
-                                KV(rows: [("运行时", rt), ("隔离方式", lastStart["enforcement"].truthy ? lastStart["enforcement"].str : "—"),
-                                          ("会话", t.attempts.last?.session ?? "—"), ("工作区", t.attempts.last?.workspace ?? "工作目录")])
+                                KV(rows: [(L.text("运行时"), rt), (L.text("隔离方式"), lastStart["enforcement"].truthy ? lastStart["enforcement"].str : "—"),
+                                          (L.text("会话"), t.attempts.last?.session ?? "—"), (L.text("工作区"), t.attempts.last?.workspace ?? L.text("工作目录"))])
                                     .padding(.top, 6)
                             }
                             .font(.callout)
                         }
                         if !t.artifacts.isEmpty {
                             Card {
-                                HStack { Text("产物").font(.headline); Text(verbatim: "\(t.artifacts.count)").font(.caption).foregroundStyle(.secondary) }
+                                HStack { Text(L.text("产物")).font(.headline); Text(verbatim: "\(t.artifacts.count)").font(.caption).foregroundStyle(.secondary) }
                                 ForEach(t.artifacts, id: \.seq) { a in
                                     VStack(alignment: .leading, spacing: 2) {
-                                        HStack { Text(a.name).fontWeight(.semibold); Spacer(); Button(a.kind == "git_diff" ? "审阅" : "查看") { if a.kind == "git_diff" { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) } }.buttonStyle(.link) }
+                                        HStack { Text(a.name).fontWeight(.semibold); Spacer(); Button(a.kind == "git_diff" ? L.text("审阅") : L.text("查看")) { if a.kind == "git_diff" { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) } }.buttonStyle(.link) }
                                         if !a.desc.isEmpty { Text(a.desc).font(.caption).foregroundStyle(.secondary) }
                                     }
-                                    .help("\(L.tilde(a.path)) · 尝试 \(a.attempt) · sha256 \(a.hash)…")
+                                    .help(L.text("\(L.tilde(a.path)) · 尝试 \(a.attempt) · sha256 \(a.hash)…"))
                                 }
                             }
                         }
@@ -176,7 +176,7 @@ struct TaskView: View {
         HStack(alignment: .top) {
             Text(label).foregroundStyle(.secondary).frame(width: 72, alignment: .leading)
             VStack(alignment: .leading, spacing: 3) {
-                if ids.isEmpty { Text("无").foregroundStyle(.secondary) }
+                if ids.isEmpty { Text(L.text("无")).foregroundStyle(.secondary) }
                 ForEach(ids, id: \.self) { d in Button(String("\(d) \(st.tasks[d]?.title ?? "")")) { run.page = .task(d) }.buttonStyle(.link) }
             }
         }
@@ -192,7 +192,7 @@ struct TimelineRow: View {
         let d = e.data
         if e.type == "attempt.started" {
             HStack(spacing: 10) {
-                Text(verbatim: "尝试 \(e.attempt ?? 0)").fontWeight(.semibold)
+                Text(verbatim: L.text("尝试 \(e.attempt ?? 0)")).fontWeight(.semibold)
                 Text(d["runtime"].str).foregroundStyle(.secondary)
                 Text(L.short(d["session"].str, 40)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                 Text(d["workspace"].str).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -220,17 +220,17 @@ struct TimelineRow: View {
     @ViewBuilder private func detail(_ d: JSON) -> some View {
         switch e.type {
         case "tool.call", "tool.started", "tool.completed":
-            Text(verbatim: "\(d["tool"].str) \(L.short(d["input"].str, 200))\n\(e.type == "tool.started" ? "等待返回…" : "→ " + L.short(d["output"].str, 200))").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-        case "question.asked": Note(text: "\(d["question"].str)\n选项：\(d["options"].strings.joined(separator: " / "))")
-        case "question.answered": if d["note"].truthy { Note(text: "补充说明：\(d["note"].str)") }
+            Text(verbatim: "\(d["tool"].str) \(L.short(d["input"].str, 200))\n\(e.type == "tool.started" ? L.text("等待返回…") : "→ " + L.short(d["output"].str, 200))").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+        case "question.asked": Note(text: L.text("\(d["question"].str)\n选项：\(d["options"].strings.joined(separator: " / "))"))
+        case "question.answered": if d["note"].truthy { Note(text: L.text("补充说明：\(d["note"].str)")) }
         case "attempt.failed": Note(text: d["error"].str, tone: .red)
-        case "task.retry_scheduled": Note(text: "重试策略：\(d["strategy"].str)")
+        case "task.retry_scheduled": Note(text: L.text("重试策略：\(d["strategy"].str)"))
         case "artifact.created": Note(text: "\(d["desc"].str)\n\(L.tilde(d["path"].str)) · sha256 \(d["hash"].str)…")
         case "result.submitted":
             ForEach(CriterionCheck.rows(accept: [], checks: Check.list(d["checks"]))) { row in
                 CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
             }
-            if !d["risks"].array.isEmpty { Note(text: "风险：\(d["risks"].strings.joined(separator: "；"))", tone: .amber) }
+            if !d["risks"].array.isEmpty { Note(text: L.text("风险：\(d["risks"].strings.joined(separator: L.text("；")))"), tone: .amber) }
         case "approval.requested": CodeBlock(text: "$ \(d["command"].str)")
         default: EmptyView()
         }

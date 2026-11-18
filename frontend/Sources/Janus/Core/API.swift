@@ -75,7 +75,7 @@ final class API: Sendable {
     private func send(_ req: URLRequest) async throws -> JSON {
         let data: Data, resp: URLResponse
         do { (data, resp) = try await session.data(for: req) } catch {
-            throw APIError(status: 0, message: "连不上 Janus 服务：\(error.localizedDescription)")
+            throw APIError(status: 0, message: L.text("连不上 Janus 服务：\(error.localizedDescription)"))
         }
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
@@ -97,7 +97,7 @@ final class API: Sendable {
                 do {
                     let (bytes, resp) = try await streams.bytes(for: req)
                     let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                    guard status == 200 else { throw APIError(status: status, message: "事件流打开失败（HTTP \(status)）") }
+                    guard status == 200 else { throw APIError(status: status, message: L.text("事件流打开失败（HTTP \(status)）")) }
                     var name = ""
                     for try await line in bytes.lines {
                         if line.hasPrefix("event:") {

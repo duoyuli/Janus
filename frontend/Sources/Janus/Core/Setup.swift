@@ -30,18 +30,18 @@ enum Setup {
     static func permLabel(_ session: JSON, _ c: JSON?) -> String {
         controls(c).filter { $0["permission"].truthy }.map { x -> String in
             let v = value(session, x)
-            if let b = v.bool { return "\(x["name"].str) \(b ? "开启" : "关闭")" }
+            if let b = v.bool { return "\(x["name"].str) \(b ? L.text("开启") : L.text("关闭"))" }
             return x["options"].array.first { $0["value"] == v }?["name"].str ?? v.str
         }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// Where the role's instructions reach the agent; same rule as the orchestrator's `instruction_channel`.
     static func instructionsVia(_ c: JSON?) -> String {
-        guard let c else { return "绑定 Agent 后，按它支持的方式注入。" }
+        guard let c else { return L.text("绑定 Agent 后，按它支持的方式注入。") }
         switch c["base"].str {
-        case "claude": return "作为系统提示追加在 Claude Code 自带的提示之后，整个会话都有效，优先于子任务说明。"
-        case "codex": return "作为 Codex 的开发者指令注入，整个会话都有效，优先于子任务说明。"
-        default: return "\(c["name"].str) 不支持系统提示，指令附在每次子任务说明的末尾。"
+        case "claude": return L.text("作为系统提示追加在 Claude Code 自带的提示之后，整个会话都有效，优先于子任务说明。")
+        case "codex": return L.text("作为 Codex 的开发者指令注入，整个会话都有效，优先于子任务说明。")
+        default: return L.text("\(c["name"].str) 不支持系统提示，指令附在每次子任务说明的末尾。")
         }
     }
 

@@ -18,13 +18,13 @@ struct TimelineMark: Identifiable {
 
     /// Open items, by kind: glyph and name. The person's are red, the lead's amber.
     static let openKinds: [String: (String, String)] = [
-        "approval": ("hand.raised.fill", "等你审批"), "input": ("square.and.pencil", "等你填写"),
-        "question": ("questionmark.bubble.fill", "等你决定"), "session": ("text.bubble.fill", "等你的消息"),
-        "budget": ("hourglass.bottomhalf.filled", "预算用完"), "lead_stall": ("hourglass", "负责人可能卡住"),
-        "conflict": ("arrow.triangle.merge", "同时改了一个文件"), "overstep": ("arrow.right.to.line", "越界"),
-        "trace": ("doc.badge.ellipsis", "结果和工作目录对不上"), "stall": ("hourglass", "可能卡住"),
-        "blocker": ("exclamationmark.octagon.fill", "阻塞"), "lead_question": ("questionmark.circle.fill", "问负责人"),
-        "failed": ("xmark.octagon.fill", "失败"), "blocked": ("pause.circle.fill", "等依赖"),
+        "approval": ("hand.raised.fill", L.text("等你审批")), "input": ("square.and.pencil", L.text("等你填写")),
+        "question": ("questionmark.bubble.fill", L.text("等你决定")), "session": ("text.bubble.fill", L.text("等你的消息")),
+        "budget": ("hourglass.bottomhalf.filled", L.text("预算用完")), "lead_stall": ("hourglass", L.text("负责人可能卡住")),
+        "conflict": ("arrow.triangle.merge", L.text("同时改了一个文件")), "overstep": ("arrow.right.to.line", L.text("越界")),
+        "trace": ("doc.badge.ellipsis", L.text("结果和工作目录对不上")), "stall": ("hourglass", L.text("可能卡住")),
+        "blocker": ("exclamationmark.octagon.fill", L.text("阻塞")), "lead_question": ("questionmark.circle.fill", L.text("问负责人")),
+        "failed": ("xmark.octagon.fill", L.text("失败")), "blocked": ("pause.circle.fill", L.text("等依赖")),
     ]
 
     var symbol: String {
@@ -45,10 +45,10 @@ struct TimelineMark: Identifiable {
     }
     var kindName: String {
         switch kind {
-        case .result: return "结论"
-        case .artifact: return "产物"
-        case .decision: return "决定"
-        case .open: return Self.openKinds[what]?.1 ?? "待处理"
+        case .result: return L.text("结论")
+        case .artifact: return L.text("产物")
+        case .decision: return L.text("决定")
+        case .open: return Self.openKinds[what]?.1 ?? L.text("待处理")
         }
     }
 }
@@ -196,8 +196,8 @@ struct RunTimeline: View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear.frame(height: axisH)
             if !milestones.isEmpty {
-                Label("决定与待处理", systemImage: "diamond")
-                    .help("◆ 决定 · 红色：等你处理 · 橙色：负责人在处理。悬停图标看是什么，点按打开")
+                Label(L.text("决定与待处理"), systemImage: "diamond")
+                    .help(L.text("◆ 决定 · 红色：等你处理 · 橙色：负责人在处理。悬停图标看是什么，点按打开"))
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(height: laneH, alignment: .center)
             }
@@ -245,11 +245,11 @@ struct RunTimeline: View {
     }
 
     private func labelHelp(_ t: TimelineTask) -> String {
-        var lines = ["\(t.id) \(t.title)", "执行者：\(run.who(t.agent).name) · \(t.status.label.0)"]
-        let ups = t.deps.map { d in "\(d)（\(run.who(tasks.first { $0.id == d }?.agent ?? "").name)）" }
-        if !ups.isEmpty { lines.append("上游交接：\(ups.joined(separator: "、"))") }
-        if let w = t.waiting { lines.append("还没开始 · \(w)") }
-        lines.append("点按查看子任务")
+        var lines = ["\(t.id) \(t.title)", L.text("执行者：\(run.who(t.agent).name) · \(t.status.label.0)")]
+        let ups = t.deps.map { d in L.text("\(d)（\(run.who(tasks.first { $0.id == d }?.agent ?? "").name)）") }
+        if !ups.isEmpty { lines.append(L.text("上游交接：\(ups.joined(separator: L.text("、")))")) }
+        if let w = t.waiting { lines.append(L.text("还没开始 · \(w)")) }
+        lines.append(L.text("点按查看子任务"))
         return lines.joined(separator: "\n")
     }
 
@@ -278,7 +278,7 @@ struct RunTimeline: View {
             if live {
                 let px = s.x(now)
                 Rectangle().fill(Color.accent).frame(width: 1.5, height: height - axisH).offset(x: px, y: axisH)
-                Text("现在").font(.caption2.weight(.semibold)).foregroundStyle(Color.accent)
+                Text(L.text("现在")).font(.caption2.weight(.semibold)).foregroundStyle(Color.accent)
                     .padding(.horizontal, 4).background(Color.card)
                     .fixedSize().offset(x: px - 12, y: 3)
             }
@@ -300,13 +300,13 @@ struct RunTimeline: View {
             .overlay { Image(systemName: "ellipsis").font(.caption).foregroundStyle(.secondary) }
             .frame(width: TimeScale.breakW - 8, height: height - axisH)
             .offset(x: x + 4, y: axisH)
-        .help("这段时间没有进展：\(Self.idle(ms))")
-        .accessibilityLabel("空闲 \(Self.idle(ms))")
+        .help(L.text("这段时间没有进展：\(Self.idle(ms))"))
+        .accessibilityLabel(L.text("空闲 \(Self.idle(ms))"))
     }
 
     static func idle(_ ms: Double) -> String {
         let m = Int((ms / 60_000).rounded())
-        return m < 60 ? "\(m) 分钟" : m % 60 == 0 ? "\(m / 60) 小时" : "\(m / 60) 小时 \(m % 60) 分"
+        return m < 60 ? L.text("\(m) 分钟") : m % 60 == 0 ? L.text("\(m / 60) 小时") : L.text("\(m / 60) 小时 \(m % 60) 分")
     }
 
     // MARK: Rows
@@ -337,8 +337,8 @@ struct RunTimeline: View {
             }
             .buttonStyle(.plain)
             .offset(x: x0, y: y)
-            .help("\(t.id) \(t.title)\n还没开始 · \(note)\n点按查看子任务")
-            .accessibilityLabel("\(t.id) \(t.title)，还没开始，\(note)")
+            .help(L.text("\(t.id) \(t.title)\n还没开始 · \(note)\n点按查看子任务"))
+            .accessibilityLabel(L.text("\(t.id) \(t.title)，还没开始，\(note)"))
         }
         if let last = t.bars.last, t.result != nil || !t.artifacts.isEmpty {
             outcome(t).offset(x: Swift.min(s.x(last.end) + 6, w - 52), y: y + 2)
@@ -351,7 +351,7 @@ struct RunTimeline: View {
         // Work in progress is the one thing in signal cyan; finished work is its agent's tone.
         let fill = failed ? Tone.red.color : b.running ? Color.accent : color
         let dur = L.dur(b.end - b.start)
-        let text = b.running ? "进行中" : b.attempt == 1 ? dur : width > 130 ? "第 \(b.attempt) 次 · \(dur)" : "第 \(b.attempt) 次"
+        let text = b.running ? L.text("进行中") : b.attempt == 1 ? dur : width > 130 ? L.text("第 \(b.attempt) 次 · \(dur)") : L.text("第 \(b.attempt) 次")
         return Button { run.show(.task(t.id)) } label: {
             // A finished attempt is a solid bar in its agent's color; one still running is its outline.
             Text(verbatim: text)
@@ -366,17 +366,17 @@ struct RunTimeline: View {
                 .hoverable(5)
         }
         .buttonStyle(.plain)
-        .help("\(t.id) \(t.title)\n尝试 \(b.attempt) · \(label) · \(L.clock(b.start)) – \(b.running ? "进行中" : L.clock(b.end))（\(L.dur(b.end - b.start))）\n点按查看子任务")
-        .accessibilityLabel("\(t.id) \(t.title)，尝试 \(b.attempt)，\(label)，用时 \(L.dur(b.end - b.start))")
+        .help(L.text("\(t.id) \(t.title)\n尝试 \(b.attempt) · \(label) · \(L.clock(b.start)) – \(b.running ? L.text("进行中") : L.clock(b.end))（\(L.dur(b.end - b.start))）\n点按查看子任务"))
+        .accessibilityLabel(L.text("\(t.id) \(t.title)，尝试 \(b.attempt)，\(label)，用时 \(L.dur(b.end - b.start))"))
     }
 
     /// What a task produced, right after its last bar: the conclusion and the artifacts.
     private func outcome(_ t: TimelineTask) -> some View {
         HStack(spacing: 2) {
-            if let r = t.result { markButton(r, help: "结论 · \(L.clock(r.ts))\n\(r.title)\n点按在审计日志中查看") { Image(systemName: r.symbol) } }
+            if let r = t.result { markButton(r, help: L.text("结论 · \(L.clock(r.ts))\n\(r.title)\n点按在审计日志中查看")) { Image(systemName: r.symbol) } }
             if let a = t.artifacts.last {
                 let names = t.artifacts.map(\.title).joined(separator: "\n")
-                markButton(a, help: "产物 \(t.artifacts.count) 个\n\(names)\n点按在审计日志中查看") {
+                markButton(a, help: L.text("产物 \(t.artifacts.count) 个\n\(names)\n点按在审计日志中查看")) {
                     HStack(spacing: 1) {
                         Image(systemName: a.symbol)
                         if t.artifacts.count > 1 { Text(verbatim: "\(t.artifacts.count)").font(.caption2.monospacedDigit()) }
@@ -398,7 +398,7 @@ struct RunTimeline: View {
         }
         .buttonStyle(.plain)
         .help(help)
-        .accessibilityLabel("\(m.kindName)，\(m.title)")
+        .accessibilityLabel(L.text("\(m.kindName)，\(m.title)"))
     }
 
     // MARK: Handoffs
@@ -455,7 +455,7 @@ struct RunTimeline: View {
     }
 
     private func milestone(_ m: TimelineMark, _ px: CGFloat) -> some View {
-        let who = m.by == "user" ? "你" : run.who(m.by).name
+        let who = m.by == "user" ? L.text("你") : run.who(m.by).name
         return Button { onOpen(m) } label: {
             Image(systemName: m.symbol)
                 .font(.system(size: 13))
@@ -467,7 +467,7 @@ struct RunTimeline: View {
         }
         .buttonStyle(.plain)
         .offset(x: px - 10, y: axisH + (laneH - 20) / 2)
-        .help("\(m.kindName) · \(who) · \(L.clock(m.ts))\n\(m.title)\n点按在审计日志中查看")
-        .accessibilityLabel("\(m.kindName)，\(who)，\(L.clock(m.ts))，\(m.title)")
+        .help(L.text("\(m.kindName) · \(who) · \(L.clock(m.ts))\n\(m.title)\n点按在审计日志中查看"))
+        .accessibilityLabel(L.text("\(m.kindName)，\(who)，\(L.clock(m.ts))，\(m.title)"))
     }
 }

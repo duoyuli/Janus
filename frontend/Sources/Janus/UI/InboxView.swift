@@ -15,11 +15,11 @@ struct InboxView: View {
         let working = store.runs.filter { RunStatus($0["status"].str).isActive }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SectionHeader(title: "需要你处理", sub: "所有工作区", count: open.isEmpty ? nil : open.count)
+                SectionHeader(title: L.text("需要你处理"), sub: L.text("所有工作区"), count: open.isEmpty ? nil : open.count)
                 if open.isEmpty {
                     Card {
-                        Text("没有需要你处理的事。").font(.headline)
-                        Text(working.isEmpty ? "也没有正在进行的任务。" : "\(working.count) 个任务在进行，有需要你决定的事会出现在这里。").foregroundStyle(.secondary)
+                        Text(L.text("没有需要你处理的事。")).font(.headline)
+                        Text(working.isEmpty ? L.text("也没有正在进行的任务。") : L.text("\(working.count) 个任务在进行，有需要你决定的事会出现在这里。")).foregroundStyle(.secondary)
                     }
                 } else {
                     Card(padding: 4) {
@@ -38,8 +38,8 @@ struct InboxView: View {
                                 HStack(alignment: .firstTextBaseline) {
                                     summary(e, now: inbox.now)
                                     Spacer()
-                                    Text("到 \(L.dateTime(inbox.snoozed[e.key] ?? 0))").font(.caption).foregroundStyle(.secondary)
-                                    Button("现在处理") { inbox.wake(e.key) }
+                                    Text(L.text("到 \(L.dateTime(inbox.snoozed[e.key] ?? 0))")).font(.caption).foregroundStyle(.secondary)
+                                    Button(L.text("现在处理")) { inbox.wake(e.key) }
                                 }
                                 .padding(.horizontal, 10).padding(.vertical, 8)
                                 if e != later.last { Divider() }
@@ -47,13 +47,13 @@ struct InboxView: View {
                         }
                         .padding(.top, 6)
                     } label: {
-                        Text("稍后处理（\(later.count)）").font(.headline)
+                        Text(L.text("稍后处理（\(later.count)）")).font(.headline)
                     }
                 }
 
                 DisclosureGroup(isExpanded: Binding(get: { inbox.showWorking }, set: { inbox.showWorking = $0 })) {
                     Card(padding: 4) {
-                        if working.isEmpty { Text("没有正在进行的任务").foregroundStyle(.secondary).padding(10) }
+                        if working.isEmpty { Text(L.text("没有正在进行的任务")).foregroundStyle(.secondary).padding(10) }
                         ForEach(working, id: \.self) { r in
                             let (label, tone) = RunStatus(r["status"].str).listLabel
                             Button { store.open(.run(r["id"].str)) } label: {
@@ -75,15 +75,15 @@ struct InboxView: View {
                     }
                     .padding(.top, 6)
                 } label: {
-                    Text("进行中（\(working.count)）").font(.headline)
+                    Text(L.text("进行中（\(working.count)）")).font(.headline)
                 }
-                .help("正在工作的任务默认收起：有需要你的地方，它会出现在上面")
+                .help(L.text("正在工作的任务默认收起：有需要你的地方，它会出现在上面"))
             }
             .padding(24)
             .frame(maxWidth: 820, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("收件箱")
+        .navigationTitle(L.text("收件箱"))
     }
 
     /// What kind of thing it is, at a glance: red holds an agent up, the rest can wait.
@@ -108,23 +108,23 @@ struct InboxView: View {
             summary(e, now: now)
             Spacer()
             if e.canWait {
-                Menu("稍后") {
-                    Button("1 小时后") { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
-                    Button("4 小时后") { store.inbox.snooze(e.key, until: Date().addingTimeInterval(4 * 3600)) }
-                    Button("明天上午 9 点") { store.inbox.snooze(e.key, until: Self.tomorrowMorning()) }
+                Menu(L.text("稍后")) {
+                    Button(L.text("1 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
+                    Button(L.text("4 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(4 * 3600)) }
+                    Button(L.text("明天上午 9 点")) { store.inbox.snooze(e.key, until: Self.tomorrowMorning()) }
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("放到「稍后处理」，到时间再回到这里。没有人在等它，推迟不会卡住任务")
+                .help(L.text("放到「稍后处理」，到时间再回到这里。没有人在等它，推迟不会卡住任务"))
             }
             if e.canSettle {
-                Button("标记已处理") { store.inbox.settle(e.key) }
-                    .help("不再提醒这个任务；它保持现在的状态，仍可以在任务记录中打开")
+                Button(L.text("标记已处理")) { store.inbox.settle(e.key) }
+                    .help(L.text("不再提醒这个任务；它保持现在的状态，仍可以在任务记录中打开"))
             }
             if e.actions.isEmpty {
-                Button("去处理") { store.open(.run(e.run)) }.buttonStyle(.primary)
+                Button(L.text("去处理")) { store.open(.run(e.run)) }.buttonStyle(.primary)
             } else {
-                Button("详情") { store.open(.run(e.run)) }.help("打开这个任务，看完整的请求")
+                Button(L.text("详情")) { store.open(.run(e.run)) }.help(L.text("打开这个任务，看完整的请求"))
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 12)

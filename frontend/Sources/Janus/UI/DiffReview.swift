@@ -17,7 +17,7 @@ enum DiffWindow {
             return
         }
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 760), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        w.title = "审阅 \(artifact.task) 的改动 · \(artifact.name)"
+        w.title = L.text("审阅 \(artifact.task) 的改动 · \(artifact.name)")
         w.isReleasedWhenClosed = false
         w.contentView = NSHostingView(rootView: view)
         w.setFrameAutosaveName("JanusDiffReview")
@@ -62,12 +62,12 @@ struct DiffReviewView: View {
 
     private var fileList: some View {
         List(selection: $selected) {
-            Section("\(files.count) 个文件") {
+            Section(L.text("\(files.count) 个文件")) {
                 ForEach(files) { f in
                     HStack {
                         Text((f.path as NSString).lastPathComponent).lineLimit(1)
                         Spacer()
-                        if f.untracked { Text("新文件").font(.caption).foregroundStyle(.secondary) }
+                        if f.untracked { Text(L.text("新文件")).font(.caption).foregroundStyle(.secondary) }
                         else { Text(verbatim: "+\(f.added) −\(f.removed)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
                     }
                     .help(f.path)
@@ -93,9 +93,9 @@ struct DiffReviewView: View {
                     .padding(.horizontal, 12).padding(.vertical, 9)
                     Divider()
                     if f.untracked && f.hunks.isEmpty {
-                        Text("新文件，没有可显示的文本改动；内容在工作目录里查看。").font(.callout).foregroundStyle(.secondary).padding(12)
+                        Text(L.text("新文件，没有可显示的文本改动；内容在工作目录里查看。")).font(.callout).foregroundStyle(.secondary).padding(12)
                     } else if f.fromWorkingTree {
-                        Text("这次 diff 只记录了文件名；下面是工作目录中的当前内容。").font(.callout).foregroundStyle(.secondary).padding(12)
+                        Text(L.text("这次 diff 只记录了文件名；下面是工作目录中的当前内容。")).font(.callout).foregroundStyle(.secondary).padding(12)
                     }
                     ForEach(f.hunks) { h in
                         Text(h.header).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
@@ -124,8 +124,8 @@ struct DiffReviewView: View {
                 }
                 .buttonStyle(.plain).frame(width: 24)
                 .opacity(hovered == l.id && run.canAct ? 1 : 0)
-                .help("对这一行写审阅意见")
-                .accessibilityLabel("对这一行写审阅意见")
+                .help(L.text("对这一行写审阅意见"))
+                .accessibilityLabel(L.text("对这一行写审阅意见"))
                 Text(verbatim: (l.kind == .added ? "+" : l.kind == .removed ? "−" : " ") + l.text)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -138,11 +138,11 @@ struct DiffReviewView: View {
             .onHover { hovered = $0 ? l.id : (hovered == l.id ? nil : hovered) }
             if editing == l.id {
                 VStack(alignment: .trailing, spacing: 6) {
-                    TextField("这一行要怎么改", text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...5)
+                    TextField(L.text("这一行要怎么改"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...5)
                     HStack {
-                        if comments[l.id] != nil { Button("删除", role: .destructive) { comments[l.id] = nil; editing = nil } }
-                        Button("取消") { editing = nil }.keyboardShortcut(.cancelAction)
-                        Button("添加") {
+                        if comments[l.id] != nil { Button(L.text("删除"), role: .destructive) { comments[l.id] = nil; editing = nil } }
+                        Button(L.text("取消")) { editing = nil }.keyboardShortcut(.cancelAction)
+                        Button(L.text("添加")) {
                             let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                             comments[l.id] = t.isEmpty ? nil : (f.path, l, t)
                             editing = nil
@@ -156,7 +156,7 @@ struct DiffReviewView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "text.bubble").foregroundStyle(Color.accent)
                     Text(c.text).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-                    Button("编辑") { editing = l.id; draft = c.text }.buttonStyle(.link).font(.caption)
+                    Button(L.text("编辑")) { editing = l.id; draft = c.text }.buttonStyle(.link).font(.caption)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(Color.soft)
@@ -169,16 +169,16 @@ struct DiffReviewView: View {
         let name = run.who(agent).name
         let ready = !comments.isEmpty || !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return HStack(spacing: 10) {
-            TextField("总体意见（可选）", text: $summary).textFieldStyle(.roundedBorder)
-            Text(verbatim: "\(comments.count) 条意见").font(.callout).foregroundStyle(.secondary).fixedSize()
+            TextField(L.text("总体意见（可选）"), text: $summary).textFieldStyle(.roundedBorder)
+            Text(verbatim: L.text("\(comments.count) 条意见")).font(.callout).foregroundStyle(.secondary).fixedSize()
             if let sent { Text(sent).font(.callout).foregroundStyle(Tone.green.color).fixedSize() }
-            Button("发给\(name)") { send(to: agent, label: name) }
+            Button(L.text("发给\(name)")) { send(to: agent, label: name) }
                 .disabled(!run.canAct || !ready || agent.isEmpty)
-                .help("直接发给做这个子任务的 Agent：它在会话里时插入这一轮，否则在它下次会话开始时带给它")
-            Button("交给负责人") { send(to: "lead", label: "负责人") }
+                .help(L.text("直接发给做这个子任务的 Agent：它在会话里时插入这一轮，否则在它下次会话开始时带给它"))
+            Button(L.text("交给负责人")) { send(to: "lead", label: L.text("负责人")) }
                 .buttonStyle(.primary)
                 .disabled(!run.canAct || !ready)
-                .help(run.canAct ? "负责人读到意见后决定：让执行者修改、重做这个子任务，或者自己处理" : "这个任务已经结束，不能再发消息")
+                .help(run.canAct ? L.text("负责人读到意见后决定：让执行者修改、重做这个子任务，或者自己处理") : L.text("这个任务已经结束，不能再发消息"))
         }
         .padding(12)
         .background(Color.card)
@@ -189,7 +189,7 @@ struct DiffReviewView: View {
         let text = Diff.message(task: artifact.task, artifact: artifact.name, comments: list, summary: summary)
         Task {
             if await run.act(["type": "message", "agent": JSON(agent), "text": JSON(text)]) {
-                comments = [:]; summary = ""; sent = "已发给\(label)"
+                comments = [:]; summary = ""; sent = L.text("已发给\(label)")
             }
         }
     }
@@ -198,7 +198,7 @@ struct DiffReviewView: View {
         let text: String?
         if let t = try? String(contentsOfFile: artifact.path, encoding: .utf8) { text = t }
         else { text = try? await run.api.text("/api/file?path=\(API.q(artifact.path))") }
-        guard let text else { error = "读不了这个 diff"; return }
+        guard let text else { error = L.text("读不了这个 diff"); return }
         var parsed = Diff.parse(text)
         // Older artifacts list untracked files by name; show what the working tree holds now.
         let cwd = run.shown.run.cwd
@@ -212,6 +212,6 @@ struct DiffReviewView: View {
                 nextID = next
             }
         }
-        if parsed.isEmpty { error = "这个 diff 是空的" } else { files = parsed }
+        if parsed.isEmpty { error = L.text("这个 diff 是空的") } else { files = parsed }
     }
 }

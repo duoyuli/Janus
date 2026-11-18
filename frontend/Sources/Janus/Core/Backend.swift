@@ -14,7 +14,7 @@ import Observation
 final class Backend {
     enum Phase: Equatable { case starting(String), ready, failed(String) }
 
-    private(set) var phase: Phase = .starting("正在启动 Janus 服务…")
+    private(set) var phase: Phase = .starting(L.text("正在启动 Janus 服务…"))
     /// Whether the app started the server itself (and so owns its lifetime).
     private(set) var owned = false
     let home: URL
@@ -60,7 +60,7 @@ final class Backend {
     }
 
     func start() async {
-        phase = .starting("正在连接 Janus 服务…")
+        phase = .starting(L.text("正在连接 Janus 服务…"))
         addr = configured
         notice = nil
         if await servesThisHome(configured) { owned = false; phase = .ready; return }
@@ -68,31 +68,31 @@ final class Backend {
         if let other = runningOwnerAddr() {
             if await servesThisHome(other) {
                 addr = other
-                notice = other == configured ? nil : "已在运行的 Janus 使用 \(other)"
+                notice = other == configured ? nil : L.text("已在运行的 Janus 使用 \(other)")
                 owned = false
                 phase = .ready
                 return
             }
-            phase = .failed("另一个 Janus 正在使用 \(home.path)，但连不上它（\(other)）。先退出那个 Janus（以服务方式运行时执行 just stop），再点重试。")
+            phase = .failed(L.text("另一个 Janus 正在使用 \(home.path)，但连不上它（\(other)）。先退出那个 Janus（以服务方式运行时执行 just stop），再点重试。"))
             return
         }
         guard let bin = Self.serverBinary() else {
-            phase = .failed("找不到 Janus 服务程序。安装包里的 Janus.app 自带服务；从源码运行时先执行 just install，或设置 JANUS_SERVER_BIN。")
+            phase = .failed(L.text("找不到 Janus 服务程序。安装包里的 Janus.app 自带服务；从源码运行时先执行 just install，或设置 JANUS_SERVER_BIN。"))
             return
         }
         // The port can be taken between the check and the server binding it: try a few.
         var tried: Set<UInt16> = []
         for _ in 0..<3 {
             guard let (host, port) = Self.split(configured), let free = Self.freePort(host: host, from: port, skipping: tried) else {
-                phase = .failed("\(configured) 不是有效的监听地址，检查 JANUS_ADDR 或 config.toml 的 addr。")
+                phase = .failed(L.text("\(configured) 不是有效的监听地址，检查 JANUS_ADDR 或 config.toml 的 addr。"))
                 return
             }
             tried.insert(free)
             addr = "\(host):\(free)"
-            notice = free == port ? nil : "端口 \(port) 被其他程序占用，改用 \(free)"
-            phase = .starting(notice.map { "\($0)，正在启动 Janus 服务…" } ?? "正在启动 Janus 服务…")
+            notice = free == port ? nil : L.text("端口 \(String(port)) 被其他程序占用，改用 \(String(free))")
+            phase = .starting(notice.map { L.text("\($0)，正在启动 Janus 服务…") } ?? L.text("正在启动 Janus 服务…"))
             do { try launch(bin) } catch {
-                phase = .failed("启动 Janus 服务失败：\(error.localizedDescription)")
+                phase = .failed(L.text("启动 Janus 服务失败：\(error.localizedDescription)"))
                 return
             }
             for _ in 0..<100 {
@@ -101,7 +101,7 @@ final class Backend {
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
             guard case .failed = phase else {
-                phase = .failed("Janus 服务 30 秒内没有响应。\n\n\(logTail())")
+                phase = .failed(L.text("Janus 服务 30 秒内没有响应。\n\n\(logTail())"))
                 return
             }
             // Lost the race for the port: try the next one; any other failure stands.
@@ -234,7 +234,7 @@ final class Backend {
                 guard let self else { return }
                 let expected = self.stopping
                 self.stopping = false
-                if !expected { self.phase = .failed("Janus 服务退出了（退出码 \(proc.terminationStatus)）。\n\n\(self.logTail())") }
+                if !expected { self.phase = .failed(L.text("Janus 服务退出了（退出码 \(proc.terminationStatus)）。\n\n\(self.logTail())")) }
             }
         }
         try p.run()

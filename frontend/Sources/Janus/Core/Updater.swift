@@ -38,9 +38,9 @@ final class Updater {
         /// What the sidebar shows while installing.
         var workingText: String? {
             switch self {
-            case .downloading(let part, let index, let count, let size): "正在下载 \(part)（\(index)/\(count)，\(size)）…"
-            case .verifying: "正在校验新版本…"
-            case .relaunching: "正在重新打开…"
+            case .downloading(let part, let index, let count, let size): L.text("正在下载 \(part)（\(index)/\(count)，\(size)）…")
+            case .verifying: L.text("正在校验新版本…")
+            case .relaunching: L.text("正在重新打开…")
             default: nil
             }
         }
@@ -132,7 +132,7 @@ final class Updater {
                 state = .upToDate
             }
         } catch {
-            state = .failed("检查更新失败：\(error.localizedDescription)")
+            state = .failed(L.text("检查更新失败：\(error.localizedDescription)"))
         }
     }
 
@@ -141,15 +141,15 @@ final class Updater {
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 20
         let (data, resp) = try await URLSession.shared.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError("GitHub 返回 \((resp as? HTTPURLResponse)?.statusCode ?? 0)") }
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError(L.text("GitHub 返回 \((resp as? HTTPURLResponse)?.statusCode ?? 0)")) }
         let rel = try JSON.parse(data)
         var assets: [String: URL] = [:]
         for a in rel["assets"].array { if let u = URL(string: a["browser_download_url"].str) { assets[a["name"].str] = u } }
-        guard let manifestURL = assets["update.json"] else { throw UpdateError("最新的发布 \(rel["tag_name"].str) 没有 update.json，只能下载 DMG 手动安装") }
+        guard let manifestURL = assets["update.json"] else { throw UpdateError(L.text("最新的发布 \(rel["tag_name"].str) 没有 update.json，只能下载 DMG 手动安装")) }
         var mreq = URLRequest(url: manifestURL)
         mreq.timeoutInterval = 30
         let (mdata, mresp) = try await URLSession.shared.data(for: mreq)
-        guard (mresp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError("下载 update.json 失败") }
+        guard (mresp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError(L.text("下载 update.json 失败")) }
         return try release(from: JSON.parse(mdata), assets: assets, notes: rel["body"].str, page: URL(string: rel["html_url"].str))
     }
 
@@ -158,7 +158,7 @@ final class Updater {
             Part(name: p["name"].str, file: p["file"].str, sha256: p["sha256"].str.lowercased(), size: p["size"].int ?? 0, content: p["content"].str, url: assets[p["file"].str])
         }
         guard m["version"].truthy, parts.contains(where: { $0.name == "app" }), parts.allSatisfy({ $0.url != nil && $0.sha256.count == 64 }) else {
-            throw UpdateError("update.json 不完整")
+            throw UpdateError(L.text("update.json 不完整"))
         }
         return Release(version: m["version"].str, parts: parts, minimumSystemVersion: m["minimumSystemVersion"].string ?? "15.0", notes: notes, page: page)
     }
@@ -188,12 +188,12 @@ final class Updater {
     func install() async {
         guard let r = latest else { return }
         if bundle.path.contains("/AppTranslocation/") {
-            state = .failed("Janus 正从隔离位置运行，不能自动更新。先把 Janus 拖到「应用程序」文件夹，再从那里打开。")
+            state = .failed(L.text("Janus 正从隔离位置运行，不能自动更新。先把 Janus 拖到「应用程序」文件夹，再从那里打开。"))
             return
         }
         let parent = bundle.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
-            state = .failed("没有写入 \(parent.path) 的权限，不能替换 Janus.app。请下载 DMG 手动安装。")
+            state = .failed(L.text("没有写入 \(parent.path) 的权限，不能替换 Janus.app。请下载 DMG 手动安装。"))
             return
         }
         let stage = home.appendingPathComponent("updates/\(r.version)")
@@ -216,7 +216,7 @@ final class Updater {
             state = .relaunching
             try relaunch(into: app)
         } catch {
-            state = .failed("更新失败：\(error.localizedDescription)")
+            state = .failed(L.text("更新失败：\(error.localizedDescription)"))
         }
     }
 
@@ -224,16 +224,16 @@ final class Updater {
         for (i, p) in parts.enumerated() {
             let size = ByteCountFormatter.string(fromByteCount: Int64(p.size), countStyle: .file)
             state = .downloading(part: p.name == "node" ? "Node.js" : "Janus", index: i + 1, count: parts.count, size: size)
-            guard let url = p.url else { throw UpdateError("缺少 \(p.file) 的下载地址") }
+            guard let url = p.url else { throw UpdateError(L.text("缺少 \(p.file) 的下载地址")) }
             var req = URLRequest(url: url)
             req.timeoutInterval = 120
             let (tmp, resp) = try await URLSession.shared.download(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError("下载 \(p.file) 失败") }
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError(L.text("下载 \(p.file) 失败")) }
             let dest = stage.appendingPathComponent(p.file)
             try? FileManager.default.removeItem(at: dest)
             try FileManager.default.moveItem(at: tmp, to: dest)
             let got = try await Task.detached { try Self.sha256(dest) }.value
-            guard got == p.sha256 else { throw UpdateError("\(p.file) 的校验和不符，可能下载不完整") }
+            guard got == p.sha256 else { throw UpdateError(L.text("\(p.file) 的校验和不符，可能下载不完整")) }
         }
     }
 
@@ -242,7 +242,7 @@ final class Updater {
         try await Task.detached {
             let app = stage.appendingPathComponent("Janus.app")
             try? FileManager.default.removeItem(at: app)
-            guard let appPart = parts.first(where: { $0.name == "app" }) else { throw UpdateError("缺少应用部分") }
+            guard let appPart = parts.first(where: { $0.name == "app" }) else { throw UpdateError(L.text("缺少应用部分")) }
             try run("/usr/bin/tar", ["-xzf", stage.appendingPathComponent(appPart.file).path, "-C", stage.path])
             let res = app.appendingPathComponent("Contents/Resources")
             if let node = parts.first(where: { $0.name == "node" }) {
@@ -261,14 +261,14 @@ final class Updater {
     nonisolated static func verify(_ app: URL, like current: URL, version: String) async throws {
         try await Task.detached {
             var code: SecStaticCode?
-            guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else { throw UpdateError("读不到新版本的签名") }
+            guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else { throw UpdateError(L.text("读不到新版本的签名")) }
             let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
             let status = SecStaticCodeCheckValidity(code, flags, stableRequirement(current))
             guard status == errSecSuccess else {
-                throw UpdateError(status == errSecCSReqFailed ? "新版本的签名者与当前的 Janus 不同，已拒绝安装" : "新版本的签名无效（\(status)）")
+                throw UpdateError(status == errSecCSReqFailed ? L.text("新版本的签名者与当前的 Janus 不同，已拒绝安装") : L.text("新版本的签名无效（\(status)）"))
             }
             let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
-            guard info?["CFBundleShortVersionString"] as? String == version else { throw UpdateError("新版本的版本号与发布不符") }
+            guard info?["CFBundleShortVersionString"] as? String == version else { throw UpdateError(L.text("新版本的版本号与发布不符")) }
         }.value
     }
 
@@ -347,7 +347,7 @@ final class Updater {
         let msg = err.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         guard p.terminationStatus == 0 else {
-            throw UpdateError("\((cmd as NSString).lastPathComponent) 失败：\(String(decoding: msg, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))")
+            throw UpdateError(L.text("\((cmd as NSString).lastPathComponent) 失败：\(String(decoding: msg, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))"))
         }
         return ""
     }

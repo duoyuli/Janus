@@ -57,9 +57,9 @@ enum Inbox {
             InboxEntry(key: "\(id)/\(what)", run: id, goal: row["goal"].str, workspace: workspace, title: title, text: "", sub: sub, ts: at, canWait: wait, canSettle: settle, kind: what)
         }
         switch RunStatus(row["status"].str) {
-        case .delivered: return [entry("delivered", "已交付，等你验收", "核对证据和风险后验收", wait: true, settle: false)]
-        case .interrupted: return [entry("interrupted", "已中断，可以从中断处继续", "继续，或者标记为已处理", wait: true, settle: true)]
-        case .failed: return [entry("failed", "失败了，可以从中断处继续", "查看原因后继续，或者标记为已处理", wait: true, settle: true)]
+        case .delivered: return [entry("delivered", L.text("已交付，等你验收"), L.text("核对证据和风险后验收"), wait: true, settle: false)]
+        case .interrupted: return [entry("interrupted", L.text("已中断，可以从中断处继续"), L.text("继续，或者标记为已处理"), wait: true, settle: true)]
+        case .failed: return [entry("failed", L.text("失败了，可以从中断处继续"), L.text("查看原因后继续，或者标记为已处理"), wait: true, settle: true)]
         default: return []
         }
     }

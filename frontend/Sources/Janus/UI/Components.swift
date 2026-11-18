@@ -213,8 +213,8 @@ struct SeqButton: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-            .help("在审计日志中查看这条事件")
-            .accessibilityLabel("事件 \(seq)，在审计日志中查看")
+            .help(L.text("在审计日志中查看这条事件"))
+            .accessibilityLabel(L.text("事件 \(seq)，在审计日志中查看"))
         }
     }
 }
@@ -230,7 +230,7 @@ struct Bar: View {
         }
         .frame(height: 4)
         .accessibilityElement()
-        .accessibilityLabel("进度")
+        .accessibilityLabel(L.text("进度"))
         .accessibilityValue("\(Int(max(0, min(100, value))))%")
     }
 }
@@ -264,8 +264,8 @@ struct Composer: View {
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
                         .disabled(disabled || images.wrappedValue.count >= Attach.maxImages)
-                        .help("添加图片（也可以直接 ⌘V 粘贴截图，或把图片拖进来）")
-                        .accessibilityLabel("添加图片")
+                        .help(L.text("添加图片（也可以直接 ⌘V 粘贴截图，或把图片拖进来）"))
+                        .accessibilityLabel(L.text("添加图片"))
                 }
             }
         }
@@ -286,7 +286,7 @@ struct Composer: View {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = true
-        panel.message = "选择要附上的图片"
+        panel.message = L.text("选择要附上的图片")
         guard panel.runModal() == .OK else { return }
         add(panel.urls.compactMap { Attach.prepare(try? Data(contentsOf: $0), name: $0.lastPathComponent) }, to: images)
     }
@@ -304,7 +304,7 @@ struct AttachmentStrip: View {
                         Button { images.removeAll { $0.id == img.id } } label: {
                             Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.6))
                         }
-                        .buttonStyle(.plain).offset(x: 5, y: -5).help("移除这张图片").accessibilityLabel("移除 \(img.name)")
+                        .buttonStyle(.plain).offset(x: 5, y: -5).help(L.text("移除这张图片")).accessibilityLabel(L.text("移除 \(img.name)"))
                     }
                 }
             }
@@ -338,7 +338,7 @@ struct StoredImages: View {
             HStack(spacing: 6) {
                 ForEach(paths, id: \.self) { p in
                     Button { NSWorkspace.shared.open(URL(fileURLWithPath: p)) } label: { Thumb(image: NSImage(contentsOfFile: p), size: size) }
-                        .buttonStyle(.plain).help("在预览中打开").accessibilityLabel("图片 \((p as NSString).lastPathComponent)")
+                        .buttonStyle(.plain).help(L.text("在预览中打开")).accessibilityLabel(L.text("图片 \((p as NSString).lastPathComponent)"))
                 }
             }
         }
@@ -499,7 +499,7 @@ func copyText(_ s: String) {
 /// answer is yes without asking.
 @MainActor
 func confirm(
-    _ title: String, _ message: String = "", ok: String = "继续", destructive: Bool = true,
+    _ title: String, _ message: String = "", ok: String = L.text("继续"), destructive: Bool = true,
     dontAskAgainFor key: String? = nil
 ) -> Bool {
     if let key, UserDefaults.standard.bool(forKey: key) { return true }
@@ -509,11 +509,11 @@ func confirm(
     a.alertStyle = destructive ? .warning : .informational
     a.addButton(withTitle: ok)
     // A Chinese "取消" is not recognized as Cancel, so give it Esc (and ⌘.) explicitly.
-    a.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+    a.addButton(withTitle: L.text("取消")).keyEquivalent = "\u{1b}"
     if destructive { a.buttons.first?.hasDestructiveAction = true }
     if key != nil {
         a.showsSuppressionButton = true
-        a.suppressionButton?.title = "不再提醒"
+        a.suppressionButton?.title = L.text("不再提醒")
     }
     let confirmed = a.runModal() == .alertFirstButtonReturn
     if confirmed, let key, a.suppressionButton?.state == .on {
@@ -526,11 +526,11 @@ func confirm(
 /// are not touched, so they are not part of the warning's promise.
 @MainActor
 func confirmDeleteRun(_ title: String) -> Bool {
-    let name = title.isEmpty ? "这个任务" : "「\(title)」"
+    let name = title.isEmpty ? L.text("这个任务") : L.text("「\(title)」")
     return confirm(
-        "删除任务？",
-        "\(name)的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。工作目录中的文件不受影响。",
-        ok: "删除",
+        L.text("删除任务？"),
+        L.text("\(name)的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。工作目录中的文件不受影响。"),
+        ok: L.text("删除"),
         dontAskAgainFor: "janus.deleteRunNoConfirm"
     )
 }
@@ -538,7 +538,7 @@ func confirmDeleteRun(_ title: String) -> Bool {
 /// Asks before a sheet closes with edits that were not saved.
 @MainActor
 func confirmDiscard() -> Bool {
-    confirm("放弃未保存的更改？", "关闭后，这次的修改不会保存。", ok: "放弃更改")
+    confirm(L.text("放弃未保存的更改？"), L.text("关闭后，这次的修改不会保存。"), ok: L.text("放弃更改"))
 }
 
 /// Pointer feedback for custom clickable surfaces (cards, rows, chips): a light tint while hovered.

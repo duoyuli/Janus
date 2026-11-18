@@ -6,6 +6,7 @@ import PackageDescription
 
 let package = Package(
     name: "Janus",
+    defaultLocalization: "zh-Hans",
     platforms: [.macOS("15.0")],
     targets: [
         .executableTarget(name: "Janus", path: "Sources/Janus"),

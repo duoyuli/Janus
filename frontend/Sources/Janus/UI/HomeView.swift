@@ -7,9 +7,9 @@ struct HomeView: View {
     let ws: JSON
 
     private let suggestions = [
-        ("新功能上线", "为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明"),
-        ("竞品与定位", "调研这个产品的主要竞品和目标用户，整理定位差异和三个最值得做的机会，给出依据"),
-        ("发布前检查", "检查这个产品是否可以发布：核对主要用户流程、已知缺陷、回滚方式和发布说明，给出质量结论"),
+        (L.text("新功能上线"), L.text("为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明")),
+        (L.text("竞品与定位"), L.text("调研这个产品的主要竞品和目标用户，整理定位差异和三个最值得做的机会，给出依据")),
+        (L.text("发布前检查"), L.text("检查这个产品是否可以发布：核对主要用户流程、已知缺陷、回滚方式和发布说明，给出质量结论")),
     ]
 
     var body: some View {
@@ -30,14 +30,14 @@ struct HomeView: View {
                     }
                     Spacer()
                     Menu {
-                        Button("在 Finder 中显示") { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
-                        Button("工作区设置…") { store.editingWorkspace = ws }
-                    } label: { Label("工作区操作", systemImage: "ellipsis.circle") }
-                    .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help("工作区操作")
+                        Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
+                        Button(L.text("工作区设置…")) { store.editingWorkspace = ws }
+                    } label: { Label(L.text("工作区操作"), systemImage: "ellipsis.circle") }
+                    .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help(L.text("工作区操作"))
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: "说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给负责人", minHeight: 96) { start(problems) }
+                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给负责人"), minHeight: 96) { start(problems) }
                     HStack {
                         // Examples only help before the first run.
                         if runs.isEmpty {
@@ -47,10 +47,10 @@ struct HomeView: View {
                         }
                         Spacer()
                         let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
-                        Button("交给负责人") { start(problems) }
+                        Button(L.text("交给负责人")) { start(problems) }
                             .buttonStyle(.primary)
                             .disabled(!problems.isEmpty || empty)
-                            .help(!problems.isEmpty ? "还有数字员工不能运行" : empty ? "先写下你想要的结果" : "⌘↩")
+                            .help(!problems.isEmpty ? L.text("还有数字员工不能运行") : empty ? L.text("先写下你想要的结果") : "⌘↩")
                     }
                 }
                 // One line per cause, with the place that fixes it.
@@ -67,7 +67,7 @@ struct HomeView: View {
 
                 if !waiting.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("等你处理").font(.headline)
+                        Text(L.text("等你处理")).font(.headline)
                         Card(padding: 4) {
                             ForEach(waiting, id: \.self) { r in
                                 let (l, t) = RunStatus(r["status"].str).listLabel
@@ -101,23 +101,23 @@ struct HomeView: View {
             acc + (pair.0["role"].str == ws["lead"].str ? 1 : max(1, pair.0["slots"].int ?? 1))
         }
         let countLabel = totalSlots > members.count
-            ? "\(members.count) 个数字员工（共 \(totalSlots) 个并发实例）"
-            : "\(members.count) 个数字员工"
+            ? L.text("\(members.count) 个数字员工（共 \(totalSlots) 个并发实例）")
+            : L.text("\(members.count) 个数字员工")
         return HStack(spacing: 10) {
-            Text("团队").foregroundStyle(.secondary)
+            Text(L.text("团队")).foregroundStyle(.secondary)
             HStack(spacing: -4) {
                 ForEach(members.indices, id: \.self) { i in
                     let r = members[i].1
                     Avatar(initials: r?["init"].str ?? "?", color: r?["color"].str ?? "#64748b", size: 22)
                         .overlay(RoundedRectangle(cornerRadius: 22 * 0.28).strokeBorder(Color.page, lineWidth: 1.5))
-                        .help(r?["name"].str ?? "已删除的数字员工")
+                        .help(r?["name"].str ?? L.text("已删除的数字员工"))
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: "、"))
-            Text(verbatim: "\(countLabel)\(lead.map { $0["name"].str == "负责人" ? " · 有负责人" : " · 负责人：\($0["name"].str)" } ?? "")").font(.callout).foregroundStyle(.secondary)
+            .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: L.text("、")))
+            Text(verbatim: "\(countLabel)\(lead.map { $0["name"].str == L.text("负责人") ? L.text(" · 有负责人") : L.text(" · 负责人：\($0["name"].str)") } ?? "")").font(.callout).foregroundStyle(.secondary)
             Spacer()
-            Button("管理团队…") { store.editingWorkspace = ws }.buttonStyle(.link)
+            Button(L.text("管理团队…")) { store.editingWorkspace = ws }.buttonStyle(.link)
         }
     }
 
@@ -128,11 +128,11 @@ struct HomeView: View {
         let long = brief.split(separator: "\n", omittingEmptySubsequences: false).count > Self.previewLines || brief.count > 400
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("共享资料").font(.headline)
-                Text("每次任务开始时交给负责人和协作者").font(.callout).foregroundStyle(.secondary)
+                Text(L.text("共享资料")).font(.headline)
+                Text(L.text("每次任务开始时交给负责人和协作者")).font(.callout).foregroundStyle(.secondary)
                 Spacer()
-                Button(brief.isEmpty ? "添加…" : "编辑…") { store.editingWorkspace = ws }.buttonStyle(.link)
-                    .help("产品定位、目标用户、约定、重要文件的位置：写下后，之后的任务不必重新调研或再问你")
+                Button(brief.isEmpty ? L.text("添加…") : L.text("编辑…")) { store.editingWorkspace = ws }.buttonStyle(.link)
+                    .help(L.text("产品定位、目标用户、约定、重要文件的位置：写下后，之后的任务不必重新调研或再问你"))
             }
             if !brief.isEmpty {
                 Card {
@@ -141,7 +141,7 @@ struct HomeView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if long {
-                        Button(briefExpanded ? "收起" : "展开全部") { briefExpanded.toggle() }.buttonStyle(.link)
+                        Button(briefExpanded ? L.text("收起") : L.text("展开全部")) { briefExpanded.toggle() }.buttonStyle(.link)
                     }
                 }
             }
@@ -158,9 +158,12 @@ struct HomeView: View {
     static func problems(_ roles: [JSON?], connection: (String) -> JSON?) -> [Problem] {
         var out: [Problem] = []
         let deleted = roles.filter { $0 == nil }.count
-        if deleted > 0 { out.append(Problem(text: "工作区里有 \(deleted) 个数字员工已被删除，请在工作区设置中移除或换成别的数字员工。", action: "打开数字员工设置", tab: "roles")) }
+        if deleted > 0 { out.append(Problem(text: L.text("工作区里有 \(deleted) 个数字员工已被删除，请在工作区设置中移除或换成别的数字员工。"), action: L.text("打开数字员工设置"), tab: "roles")) }
         let unbound = roles.compactMap { $0 }.filter { connection($0["connection"].str) == nil }.map { $0["name"].str }
-        if !unbound.isEmpty { out.append(Problem(text: L.cn(unbound.joined(separator: "、"), "还没有选择 Agent。"), action: "打开数字员工设置", tab: "roles")) }
+        if !unbound.isEmpty {
+            let names = unbound.joined(separator: L.text("、"))
+            out.append(Problem(text: L.text("尚未绑定 Agent 的数字员工：\(names)。"), action: L.text("打开数字员工设置"), tab: "roles"))
+        }
         var untested: [(String, [String])] = []
         for r in roles.compactMap({ $0 }) {
             guard let c = connection(r["connection"].str), c["phase"].str != "ok" else { continue }
@@ -168,7 +171,8 @@ struct HomeView: View {
             if let i = untested.firstIndex(where: { $0.0 == name }) { untested[i].1.append(r["name"].str) } else { untested.append((name, [r["name"].str])) }
         }
         for (agent, names) in untested {
-            out.append(Problem(text: "Agent「\(agent)」还没有测试通过或未登录，" + L.cn(names.joined(separator: "、"), "因此不能运行。"), action: "去测试", tab: "agents"))
+            let affected = names.joined(separator: L.text("、"))
+            out.append(Problem(text: L.text("Agent「\(agent)」还没有测试通过或未登录，以下数字员工无法运行：\(affected)。"), action: L.text("去测试"), tab: "agents"))
         }
         return out
     }
@@ -199,66 +203,66 @@ struct WorkspaceEditor: View {
         let isNew = original["id"].str.isEmpty
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(isNew ? "新建工作区" : "工作区设置 · \(original["name"].str)").font(.display(.title2))
+                Text(isNew ? L.text("新建工作区") : L.text("工作区设置 · \(original["name"].str)")).font(.display(.title2))
                 Spacer()
             }
             .padding(20)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("项目目录").font(.headline)
+                    Text(L.text("项目目录")).font(.headline)
                     HStack {
                         TextField("/path/to/your/repo", text: $path).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
-                        Button("选择文件夹…") { pickFolder() }
+                        Button(L.text("选择文件夹…")) { pickFolder() }
                     }
                     Text(inspectLine).font(.callout).foregroundStyle(inspect?["exists"].bool == false ? Tone.red.color : .secondary)
-                    TextField("名称（可选，默认用目录名）", text: $name).textFieldStyle(.roundedBorder)
+                    TextField(L.text("名称（可选，默认用目录名）"), text: $name).textFieldStyle(.roundedBorder)
 
-                    Text("共享资料").font(.headline).padding(.top, 6)
-                    Text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次任务开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。").font(.callout).foregroundStyle(.secondary)
+                    Text(L.text("共享资料")).font(.headline).padding(.top, 6)
+                    Text(L.text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次任务开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。")).font(.callout).foregroundStyle(.secondary)
                     TextEditor(text: $brief)
                         .font(.body)
                         .frame(height: 140)
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(brief.count > Self.briefLimit ? Tone.red.color : Color.line))
-                        .accessibilityLabel("共享资料")
+                        .accessibilityLabel(L.text("共享资料"))
                     HStack {
-                        if let saved = initial?.last, saved != brief, !isNew { Text("还没保存：保存后，之后的任务才会用到新的共享资料。").font(.caption).foregroundStyle(Tone.amber.color) }
+                        if let saved = initial?.last, saved != brief, !isNew { Text(L.text("还没保存：保存后，之后的任务才会用到新的共享资料。")).font(.caption).foregroundStyle(Tone.amber.color) }
                         Spacer()
                         Text(verbatim: "\(brief.count) / \(Self.briefLimit)").font(.caption).foregroundStyle(brief.count > Self.briefLimit ? Tone.red.color : .secondary)
                     }
 
-                    Text("启用的数字员工").font(.headline).padding(.top, 6)
-                    if store.roles.isEmpty { Note(text: "还没有数字员工，先去「设置 → 数字员工」创建。") }
+                    Text(L.text("启用的数字员工")).font(.headline).padding(.top, 6)
+                    if store.roles.isEmpty { Note(text: L.text("还没有数字员工，先去「设置 → 数字员工」创建。")) }
                     VStack(spacing: 0) {
                         ForEach(store.roles, id: \.self) { r in
                             let id = r["id"].str
                             let c = store.connection(r["connection"].str)
                             HStack(spacing: 10) {
-                                Toggle("启用 \(r["name"].str)", isOn: Binding(get: { on.contains(id) }, set: { v in if v { on.insert(id) } else { on.remove(id); if lead == id { lead = "" } } }))
+                                Toggle(L.text("启用 \(r["name"].str)"), isOn: Binding(get: { on.contains(id) }, set: { v in if v { on.insert(id) } else { on.remove(id); if lead == id { lead = "" } } }))
                                     .labelsHidden().disabled(c == nil)
                                 Avatar(initials: r["init"].str.isEmpty ? String(r["name"].str.prefix(2)).uppercased() : r["init"].str, color: r["color"].str, size: 24)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(r["name"].str).font(.body.weight(.medium))
-                                    Text(c.map { "\($0["name"].str) · \(r["model"].truthy ? r["model"].str : "默认模型")" } ?? "未绑定 Agent").font(.caption).foregroundStyle(.secondary)
+                                    Text(c.map { "\($0["name"].str) · \(r["model"].truthy ? r["model"].str : L.text("默认模型"))" } ?? L.text("未绑定 Agent")).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 Text(Setup.permLabel(r["session"], c).isEmpty ? "—" : Setup.permLabel(r["session"], c)).font(.caption).foregroundStyle(.secondary)
                                 if on.contains(id) && lead != id {
                                     let count = min(8, max(1, slots[id] ?? 1))
                                     Stepper(value: Binding(get: { count }, set: { slots[id] = min(8, max(1, $0)) }), in: 1...8) {
-                                        Text(verbatim: "\(count) 个实例").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                        Text(verbatim: L.text("\(count) 个实例")).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                                     }
                                     .controlSize(.small)
-                                    .help("并发实例数：大于 1 时，这个数字员工可同时执行多个子任务")
+                                    .help(L.text("并发实例数：大于 1 时，这个数字员工可同时执行多个子任务"))
                                 }
                                 if r["lead"].truthy && Setup.leadCapable(c) {
                                     Button { lead = id } label: {
-                                        Label("负责人", systemImage: lead == id ? "largecircle.fill.circle" : "circle")
+                                        Label(L.text("负责人"), systemImage: lead == id ? "largecircle.fill.circle" : "circle")
                                     }
                                     .buttonStyle(.borderless)
                                     .disabled(!on.contains(id))
-                                    .help(!on.contains(id) ? "先启用这个数字员工" : "设为负责人")
-                                    .accessibilityLabel("\(r["name"].str) 担任负责人")
+                                    .help(!on.contains(id) ? L.text("先启用这个数字员工") : L.text("设为负责人"))
+                                    .accessibilityLabel(L.text("\(r["name"].str) 担任负责人"))
                                     .accessibilityAddTraits(lead == id ? .isSelected : [])
                                 }
                             }
@@ -273,11 +277,11 @@ struct WorkspaceEditor: View {
             Divider()
             HStack {
                 if !isNew {
-                    Button("删除工作区…", role: .destructive) { remove() }
+                    Button(L.text("删除工作区…"), role: .destructive) { remove() }
                 }
                 Spacer()
-                Button("取消") { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
-                Button(saving ? "正在保存…" : isNew ? "创建工作区" : "保存") { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
+                Button(L.text("取消")) { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
+                Button(saving ? L.text("正在保存…") : isNew ? L.text("创建工作区") : L.text("保存")) { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
                     .disabled(saving || path.trimmingCharacters(in: .whitespaces).isEmpty || inspect?["exists"].bool == false || brief.count > Self.briefLimit)
             }
             .padding(16)
@@ -291,12 +295,12 @@ struct WorkspaceEditor: View {
     }
 
     private var inspectLine: String {
-        if path.trimmingCharacters(in: .whitespaces).isEmpty { return "请填写一个目录" }
-        guard let i = inspect else { return "检查中…" }
-        if i["exists"].bool == false { return "目录不存在" }
-        if !i["git"].truthy { return "不是 Git 仓库：任务直接在这个目录中执行，Janus 不会生成改动的 diff" }
+        if path.trimmingCharacters(in: .whitespaces).isEmpty { return L.text("请填写一个目录") }
+        guard let i = inspect else { return L.text("检查中…") }
+        if i["exists"].bool == false { return L.text("目录不存在") }
+        if !i["git"].truthy { return L.text("不是 Git 仓库：任务直接在这个目录中执行，Janus 不会生成改动的 diff") }
         let dirty = i["dirty"].int ?? 0
-        return "✓ Git 仓库 · 当前分支 \(i["branch"].str) · \(dirty > 0 ? "⚠ 有 \(dirty) 个未提交改动（任务会直接在这些改动之上工作）" : "工作区干净")"
+        return L.text("✓ Git 仓库 · 当前分支 \(i["branch"].str) · \(dirty > 0 ? L.text("⚠ 有 \(dirty) 个未提交改动（任务会直接在这些改动之上工作）") : L.text("工作区干净"))")
     }
 
     /// Edits not saved yet, so Cancel and Esc ask before throwing them away.
@@ -332,7 +336,7 @@ struct WorkspaceEditor: View {
         p.canChooseDirectories = true
         p.canChooseFiles = false
         p.allowsMultipleSelection = false
-        p.prompt = "使用这个文件夹"
+        p.prompt = L.text("使用这个文件夹")
         if !path.isEmpty { p.directoryURL = URL(fileURLWithPath: path) }
         if p.runModal() == .OK, let u = p.url { path = u.path }
     }
@@ -347,7 +351,7 @@ struct WorkspaceEditor: View {
         Task {
             do {
                 let ws = try await store.save("workspaces", body)
-                store.show("已保存工作区 \(ws["name"].str)")
+                store.show(L.text("已保存工作区 \(ws["name"].str)"))
                 dismiss()
                 store.open(.home(ws["id"].str))
             } catch { store.show(error.localizedDescription) }
@@ -356,7 +360,7 @@ struct WorkspaceEditor: View {
     }
 
     private func remove() {
-        guard confirm("删除工作区「\(original["name"].str)」？", "已有的任务记录会保留。", ok: "删除") else { return }
+        guard confirm(L.text("删除工作区「\(original["name"].str)」？"), L.text("已有的任务记录会保留。"), ok: L.text("删除")) else { return }
         Task {
             do {
                 try await store.delete("workspaces", original["id"].str)
