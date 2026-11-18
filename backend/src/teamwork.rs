@@ -48,37 +48,61 @@ pub fn covers(owned: &str, path: &str) -> bool {
 
 /// Check the team structure of the new tasks against each other and against the open tasks
 /// already on the board, after the basic checks of `validate_orchestration`. A verification task
-/// gets the task it checks added to its dependencies.
+/// gets the task it checks added to its dependencies; a continuation task gets the task whose
+/// session it reuses added to its dependencies.
 pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut Vec<String>) {
     let mut add_deps: Vec<(usize, String)> = vec![];
     {
         let all: HashMap<&str, &TaskDef> =
             board.iter().map(|(d, _)| (d.id.as_str(), d)).chain(new.iter().map(|d| (d.id.as_str(), d))).collect();
         for (i, d) in new.iter().enumerate() {
-            let Some(target) = d.verifies.as_deref() else { continue };
             let label = format!("子任务 {}", d.id);
-            match all.get(target) {
-                None => errors.push(format!("{label}：verifies 指向的子任务 {target} 不存在")),
-                Some(_) if target == d.id => errors.push(format!("{label}：不能验证自己")),
-                Some(t) => {
-                    if t.assignee == d.assignee {
-                        errors.push(format!(
-                            "{label}：验证 {target} 的必须是另一个协作者，不能是它的执行者 {}",
-                            d.assignee
-                        ));
-                    }
-                    if !d.deps.iter().any(|x| x == target) {
-                        add_deps.push((i, target.to_string()));
+            if let Some(target) = d.verifies.as_deref() {
+                match all.get(target) {
+                    None => errors.push(format!("{label}：verifies 指向的子任务 {target} 不存在")),
+                    Some(_) if target == d.id => errors.push(format!("{label}：不能验证自己")),
+                    Some(t) => {
+                        if t.assignee == d.assignee {
+                            errors.push(format!(
+                                "{label}：验证 {target} 的必须是另一个协作者，不能是它的执行者 {}",
+                                d.assignee
+                            ));
+                        }
+                        if !d.deps.iter().any(|x| x == target) {
+                            add_deps.push((i, target.to_string()));
+                        }
                     }
                 }
+                if !d.owns.is_empty() {
+                    errors.push(format!("{label}：验证子任务只检查、不改文件，不要写 owns"));
+                }
             }
-            if !d.owns.is_empty() {
-                errors.push(format!("{label}：验证子任务只检查、不改文件，不要写 owns"));
+            if let Some(prev) = d.continues.as_deref() {
+                if d.verifies.is_some() {
+                    errors.push(format!("{label}：验证子任务需要独立核对，不能使用 continues"));
+                }
+                match all.get(prev) {
+                    None => errors.push(format!("{label}：continues 指向的子任务 {prev} 不存在")),
+                    Some(_) if prev == d.id => errors.push(format!("{label}：不能续接自己")),
+                    Some(t) => {
+                        if t.assignee != d.assignee {
+                            errors.push(format!(
+                                "{label}：continues 指向的 {prev} 由 {} 执行，只有同一个协作者能续接原会话（当前是 {}）",
+                                t.assignee, d.assignee
+                            ));
+                        }
+                        if !d.deps.iter().any(|x| x == prev) {
+                            add_deps.push((i, prev.to_string()));
+                        }
+                    }
+                }
             }
         }
     }
     for (i, dep) in add_deps {
-        new[i].deps.push(dep);
+        if !new[i].deps.contains(&dep) {
+            new[i].deps.push(dep);
+        }
     }
 
     let all: HashMap<&str, &TaskDef> =
@@ -89,13 +113,13 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
     let deps: HashMap<&str, &[String]> = all.iter().map(|(id, d)| (*id, d.deps.as_slice())).collect();
     let upstream = |id: &str| upstream_of(id, &deps);
     let ups: HashMap<&str, HashSet<String>> = open.iter().map(|d| (d.id.as_str(), upstream(&d.id))).collect();
-    // The dependency a verifier gets on its task must not close a loop.
-    for d in new.iter().filter(|d| d.verifies.as_deref().is_some_and(|t| t != d.id && upstream(t).contains(&d.id))) {
-        errors.push(format!(
-            "子任务 {}：它验证的 {} 依赖它，依赖之间有环",
-            d.id,
-            d.verifies.as_deref().unwrap_or_default()
-        ));
+    // The dependency a verifier or continuation gets on its target must not close a loop.
+    for d in new.iter() {
+        for target in [d.verifies.as_deref(), d.continues.as_deref()].into_iter().flatten() {
+            if target != d.id && upstream(target).contains(&d.id) {
+                errors.push(format!("子任务 {}：它关联的 {target} 依赖它，依赖之间有环", d.id));
+            }
+        }
     }
     let fresh: HashSet<&str> = new.iter().map(|d| d.id.as_str()).collect();
     for (i, a) in open.iter().enumerate() {
@@ -167,9 +191,21 @@ pub fn claim(me: &TaskDef, paths: &[String], board: &[(&TaskDef, TaskStatus)]) -
     Ok(paths.iter().filter(|p| !me.owns.iter().any(|o| covers(o, p))).cloned().collect())
 }
 
+/// Targeted workspace facts handed to an independent verifier about the task it checks: its scoped
+/// diff artifact, the files it actually edited, any trace discrepancies, weak-evidence reminders
+/// (`reasoning` / `unverified` / unspecified), and risks the executor reported.
+pub struct VerifiedContext<'a> {
+    pub def: &'a TaskDef,
+    pub diff_path: Option<&'a str>,
+    pub edited_files: &'a [String],
+    pub trace_gaps: &'a [String],
+    pub weak_checks: &'a [String],
+    pub risks: &'a [String],
+}
+
 /// What a collaborator's task prompt adds for the team structure: the files it owns, or, for a
-/// verification task, what it checks and how. `verified` is the task it verifies.
-pub fn task_section(def: &TaskDef, verified: Option<&TaskDef>) -> String {
+/// verification task, what it checks, the targeted evidence package, and how to report `verdict`.
+pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>) -> String {
     let mut p = String::new();
     if !def.owns.is_empty() {
         p.push_str(&format!(
@@ -177,13 +213,41 @@ pub fn task_section(def: &TaskDef, verified: Option<&TaskDef>) -> String {
             def.owns.join("、")
         ));
     }
-    if let Some(v) = verified {
+    if let Some(vc) = verified {
+        let v = vc.def;
         p.push_str(&format!(
-            "\n\n你是子任务 {id}「{title}」的独立验证者，它由别的协作者完成。不要修改任何文件，也不要替它修问题：读它的改动（git diff 或它改过的文件，用 janus.peers 传 task={id} 查看完整结果），运行测试、启动程序或复现它声称的行为，逐条核对它的验收标准：\n{accept}\n不要只复述执行者的结论：结果的 checks 中每条都写明你实际执行的命令或操作和看到的输出；发现的问题写成能复现的步骤，没有达到的如实写 passed: false。",
+            "\n\n你是子任务 {id}「{title}」的独立验证者，它由别的协作者完成。不要修改任何文件，也不要替它修问题：读它的改动（用 janus.peers 传 task={id} 可查看完整结果），运行测试、启动程序或复现它声称的行为，逐条核对它的验收标准：\n{accept}",
             id = v.id,
             title = v.title,
             accept = v.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n"),
         ));
+        if let Some(diff) = vc.diff_path.filter(|s| !s.is_empty()) {
+            p.push_str(&format!("\n专属 diff 产物：{diff}（可直接读取核对改动范围）"));
+        }
+        if !vc.edited_files.is_empty() {
+            p.push_str(&format!("\n执行者实际改动的文件：{}", vc.edited_files.join("、")));
+        }
+        if !vc.trace_gaps.is_empty() {
+            p.push_str(&format!(
+                "\n痕迹核对异常（结果与工作目录不一致，请重点核查）：\n{}",
+                vc.trace_gaps.iter().map(|g| format!("- {g}")).collect::<Vec<_>>().join("\n")
+            ));
+        }
+        if !vc.weak_checks.is_empty() {
+            p.push_str(&format!(
+                "\n执行者证据较弱的条目（仅靠推理、未核实或未说明方法，请优先用 test 或 command 实测）：\n{}",
+                vc.weak_checks.iter().map(|w| format!("- {w}")).collect::<Vec<_>>().join("\n")
+            ));
+        }
+        if !vc.risks.is_empty() {
+            p.push_str(&format!(
+                "\n执行者上报的风险：\n{}",
+                vc.risks.iter().map(|r| format!("- {r}")).collect::<Vec<_>>().join("\n")
+            ));
+        }
+        p.push_str(
+            "\n不要只复述执行者的结论：结果的 checks 中每条都写明你实际执行的命令或操作和看到的输出；完成检查后，在结构化结果 JSON 中用 verdict 写明对被验证产物的判定：\"approved\"（产物达标）、\"rejected\"（存在阻断问题，需要原执行者修改）或 \"inconclusive\"（当前环境证据不足以判定）。即使发现阻断问题填了 passed: false 或 verdict: \"rejected\"，也请给出具体可复现的证据并正常提交结果——你的工作是独立检查和报告，不是修复。",
+        );
     }
     p
 }
@@ -193,7 +257,7 @@ pub fn task_section(def: &TaskDef, verified: Option<&TaskDef>) -> String {
 pub fn accept_refused(def: &TaskDef) -> Option<String> {
     let target = def.verifies.as_deref()?;
     Some(format!(
-        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。请用 janus.task_detail 查看 {id} 发现的问题，再用 janus.orchestrate 派一个修复子任务（可以交给 {target} 的执行者，依赖 {id}）和一个新的验证子任务（verifies 指向修复子任务）；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
+        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。请用 janus.task_detail 查看 {id} 发现的问题，再用 janus.orchestrate 派一个修复子任务（交给 {target} 的执行者时可设 continues=\"{target}\" 复用原会话，依赖 {id}）和一个新的验证子任务（verifies 指向修复子任务）；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
         id = def.id
     ))
 }
@@ -202,10 +266,11 @@ pub fn accept_refused(def: &TaskDef) -> Option<String> {
 pub fn lead_guide() -> &'static str {
     "团队怎么组织：
 - 先估计规模：一个人能在一轮里做完、或者步骤彼此紧密依赖的工作，你自己做；能按文件、模块或问题干净切开的，才分给协作者。同时执行的子任务一般不超过协作者人数，每个子任务的产出是一处可以单独核对的改动。
+- 契约先行：拆分多模块并行编码子任务前，如果模块之间共享数据结构、接口签名、路由或事件协议，先安排一个前置子任务（或由你自己）把共享契约和类型定义落盘，再扇出并行的模块实现子任务，避免两边各自假设不同的接口。
 - 每个子任务的说明写清三件事：负责什么、不能碰什么、做到什么算完成。会改文件的子任务用 owns 列出它负责的文件或目录（相对工作目录，目录包含其下所有文件）；可能同时执行的子任务 owns 不能重叠，Janus 校验时会拒绝重叠的编排。
-- 协作者开始改文件前可以用 janus.claim 认领 owns 以外的文件，你会在看板上看到 [认领]；同时进行的子任务改了别人负责的文件，看板上是 [越界]。
+- 协作者开始改文件前可以用 janus.claim 认领 owns 以外的文件，你会在看板上看到 [认领]；同时进行的子任务改了别人负责的文件，看板上是 [越界]；协作者发现任务过大时可以用 janus.request_split 提交拆分提议，由你判断是否重新编排。
 - 子任务完成时 Janus 会拿结果和它在工作目录里留下的改动对账：没改负责的文件、改了范围以外的文件、验证者改了文件，都会在 [完成] 条目下列为「痕迹核对」。以工作目录的现状为准，不要只看结果摘要。
-- 重要的改动安排独立验证：再提交一个子任务，verifies 写被验证子任务的 id，交给另一个协作者。验证子任务自动在被验证的子任务完成后开始，只检查不改文件，验收标准要求它给出实际运行的命令和输出。验证没通过时不能用 janus.accept 放行：派修复子任务和新的验证子任务，或者 janus.cancel 取消验证并写明理由。没有第二个协作者时，你自己核对。"
+- 重要的改动安排独立验证：再提交一个子任务，verifies 写被验证子任务的 id，交给另一个协作者（团队里有不同模型或 Agent 时，优先交给不同模型的协作者交叉核验）。验证子任务自动在被验证的子任务完成后开始，只检查不改文件，用 verdict 给出 approved / rejected / inconclusive 判定。验证判定 rejected 或没通过时不能用 janus.accept 放行：派修复子任务（交给原执行者时可写 continues 复用原会话，免去重读代码）和新的验证子任务，或者 janus.cancel 取消验证并写明理由。没有第二个协作者时，你自己核对。"
 }
 
 #[cfg(test)]
@@ -224,6 +289,7 @@ mod tests {
             max_attempts: 2,
             owns: owns.iter().map(|x| x.to_string()).collect(),
             verifies: verifies.map(str::to_owned),
+            continues: None,
         }
     }
 
@@ -357,11 +423,50 @@ mod tests {
         let work = def("T1", "m1", &[], &["src", "README.md"], None);
         let p = task_section(&work, None);
         assert!(p.contains("你负责的文件：src、README.md") && !p.contains("独立验证者"), "{p}");
-        let p = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&work));
+        let edited = vec!["src/lib.rs".to_string()];
+        let gaps = vec!["负责 README.md，但没有改动".to_string()];
+        let weak = vec!["第 1 条是推理判断".to_string()];
+        let risks = vec!["边界未覆盖".to_string()];
+        let vc = VerifiedContext {
+            def: &work,
+            diff_path: Some("/tmp/T1-a1.diff"),
+            edited_files: &edited,
+            trace_gaps: &gaps,
+            weak_checks: &weak,
+            risks: &risks,
+        };
+        let p = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&vc));
         assert!(
-            p.contains("子任务 T1「T1」的独立验证者") && p.contains("- T1 做完") && p.contains("不要修改任何文件"),
+            p.contains("子任务 T1「T1」的独立验证者")
+                && p.contains("- T1 做完")
+                && p.contains("不要修改任何文件")
+                && p.contains("/tmp/T1-a1.diff")
+                && p.contains("src/lib.rs")
+                && p.contains("负责 README.md")
+                && p.contains("推理判断")
+                && p.contains("verdict"),
             "{p}"
         );
         assert!(task_section(&def("T2", "m1", &[], &[], None), None).is_empty());
+    }
+
+    #[test]
+    fn continuation_requires_the_same_assignee_and_orders_after_target() {
+        let mut fix = def("T2", "m1", &[], &["src"], None);
+        fix.continues = Some("T1".into());
+        let mut batch = [def("T1", "m1", &[], &["src"], None), fix];
+        assert!(errors(&mut batch, &[]).is_empty());
+        assert_eq!(batch[1].deps, vec!["T1"], "continues adds target to deps so owns do not clash");
+
+        let mut wrong_member = def("T2", "m2", &[], &[], None);
+        wrong_member.continues = Some("T1".into());
+        let mut verifier_cont = def("V1", "m2", &[], &[], Some("T1"));
+        verifier_cont.continues = Some("T1".into());
+        let mut self_cont = def("T3", "m1", &[], &[], None);
+        self_cont.continues = Some("T3".into());
+        let e = errors(&mut [def("T1", "m1", &[], &[], None), wrong_member, verifier_cont, self_cont], &[]);
+        assert!(e.iter().any(|x| x.contains("T2") && x.contains("同一个协作者")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("V1") && x.contains("验证子任务")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("T3") && x.contains("不能续接自己")), "{e:?}");
     }
 }

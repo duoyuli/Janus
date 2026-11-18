@@ -47,7 +47,7 @@ impl App {
                 "protocolVersion": req["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "janus", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；用 peers 查看其他子任务的状态、改过的文件和完整结果。" },
+                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；子任务过大需要拆分时用 request_split 提议；用 peers 查看其他子任务的状态、改过的文件和完整结果。" },
             }),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
@@ -68,6 +68,7 @@ impl App {
                     (false, "board_post") => self.board_post(&run, who, args),
                     (false, "peers") => self.board_peers(&run, who, args),
                     (false, "claim") => self.board_claim(&run, who, args),
+                    (false, "request_split") => self.board_request_split(&run, who, args),
                     _ => Err(format!("没有这个工具：{name}")),
                 };
                 match out {
@@ -168,11 +169,15 @@ impl App {
         let tasks: Vec<Value> = defs
             .iter()
             .map(|d| {
-                json!({
+                let mut obj = json!({
                     "id": d.id, "title": d.title, "desc": d.desc, "deps": d.deps,
                     "accept": d.accept, "maxAttempts": d.max_attempts, "agent": d.assignee,
                     "owns": d.owns, "verifies": d.verifies,
-                })
+                });
+                if let Some(c) = &d.continues {
+                    obj["continues"] = json!(c);
+                }
+                obj
             })
             .collect();
         let n = {
@@ -198,16 +203,24 @@ impl App {
 
     /// Board entries for the lead since it last looked, waiting up to the given time for some.
     pub(super) async fn board_wait(&self, run: &Run, args: &Value) -> String {
+        struct WaitGuard<'a>(&'a Run);
+        impl Drop for WaitGuard<'_> {
+            fn drop(&mut self) {
+                self.0.st.lock().unwrap().lead.waiting = false;
+            }
+        }
         run.st.lock().unwrap().lead.waiting = true;
-        let out = self.board_wait_inner(run, args).await;
-        run.st.lock().unwrap().lead.waiting = false;
-        out
+        let _guard = WaitGuard(run);
+        self.board_wait_inner(run, args).await
     }
 
     pub(super) async fn board_wait_inner(&self, run: &Run, args: &Value) -> String {
-        let limit = Duration::from_secs(args["timeout_sec"].as_u64().unwrap_or(40).clamp(1, 45));
+        let limit = Duration::from_secs(args["timeout_sec"].as_u64().unwrap_or(120).clamp(1, 180));
         let until = tokio::time::Instant::now() + limit;
         loop {
+            let notified = run.board_wake.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             let cursor = run.st.lock().unwrap().lead.cursor;
             let events = self.db.events(&run.id, cursor).unwrap_or_default();
             let last = events.last().map(|e| e.seq).unwrap_or(cursor);
@@ -216,14 +229,27 @@ impl App {
             if !entries.is_empty() {
                 return format!("看板上的新消息：\n{}", entries.join("\n"));
             }
-            let open = run.st.lock().unwrap().tasks.iter().any(|t| !t.status.terminal());
+            let (open, cancelled) = {
+                let st = run.st.lock().unwrap();
+                (st.tasks.iter().any(|t| !t.status.terminal()), st.cancelled())
+            };
             if !open {
                 return "看板上没有新消息，也没有在执行或等待的子任务。".into();
             }
-            if tokio::time::Instant::now() >= until || run.st.lock().unwrap().cancelled() {
-                return format!("{} 秒内看板上没有新消息，子任务仍在进行。可以再次调用 janus.wait。", limit.as_secs());
+            let now = tokio::time::Instant::now();
+            if now >= until || cancelled {
+                let pulse = running_pulse(run);
+                return if pulse.is_empty() {
+                    format!("{} 秒内看板上没有新消息，子任务仍在进行。继续等待前先判断是否需要干预。", limit.as_secs())
+                } else {
+                    format!(
+                        "{} 秒内看板上没有新消息，子任务实时进展：\n{}\n子任务正常推进时继续等待即可；只有发现方向偏离或阻塞时才需要介入。",
+                        limit.as_secs(),
+                        pulse
+                    )
+                };
             }
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            let _ = tokio::time::timeout_at(until, notified).await;
         }
     }
 
@@ -301,6 +327,7 @@ impl App {
         if accept.as_ref().is_some_and(|a| a.is_empty()) {
             return Err("accept 不能是空的：写出可核对的验收标准，或不传以沿用原来的".into());
         }
+        let continue_session = args["continue_session"].as_bool().unwrap_or(false);
         {
             let mut st = run.st.lock().unwrap();
             let Some(t) = Run::task_mut(&mut st, task) else {
@@ -313,6 +340,8 @@ impl App {
             t.active_attempt = None;
             t.retry_base = t.attempts;
             t.skipped_because = None;
+            t.continue_session = continue_session;
+            t.trace_gaps.clear();
             // A new run of the task brings a new conclusion; earlier corrections were about the old one.
             t.amendments.clear();
             if let Some(i) = instructions {
@@ -346,6 +375,9 @@ impl App {
         }
         if let Some(a) = &accept {
             data["accept"] = json!(a);
+        }
+        if continue_session {
+            data["continueSession"] = json!(true);
         }
         self.emit(run, ev("task.reopened", "lead", format!("负责人要求重新执行 {task}")).task(task).data(data));
         for (id, up) in &revived {
@@ -395,17 +427,8 @@ impl App {
             return Err(format!("{task} 不是因没通过验收核对而失败的子任务，没有可以接受的结果"));
         };
         let d = submitted.data.clone().unwrap_or_default();
-        let strings = |v: &Value| -> Vec<String> {
-            v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default()
-        };
-        let mut result = TaskResult {
-            summary: d["summary"].as_str().unwrap_or("").to_string(),
-            evidence: strings(&d["evidence"]),
-            risks: strings(&d["risks"]),
-            // The accepted result keeps the checks, so its evidence methods are still shown.
-            checks: checks_from(&d),
-            ..Default::default()
-        };
+        // The accepted result keeps the checks and handoff, so its evidence methods are still shown.
+        let mut result = result_from_event(&d);
         let error = failed.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or("验证失败").to_string();
         result.risks.push(format!("{error}；负责人接受了结果：{reason}"));
         {
@@ -417,9 +440,20 @@ impl App {
             t.set_status(TaskStatus::Succeeded);
             t.result = Some(result.clone());
         }
-        let seq = self.emit(run, ev("task.succeeded", "lead", format!("负责人接受 {task} 的结果：{}", short(reason, 60))).task(task).attempt(submitted.attempt.unwrap_or(0)).data(json!({
-            "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "checks": result.checks, "acceptedBy": "lead", "reason": reason
-        })));
+        let mut event_data = json!({
+            "summary": result.summary, "evidence": result.evidence, "risks": result.risks,
+            "checks": result.checks, "acceptedBy": "lead", "reason": reason
+        });
+        if let Some(h) = &result.handoff {
+            event_data["handoff"] = json!(h);
+        }
+        let seq = self.emit(
+            run,
+            ev("task.succeeded", "lead", format!("负责人接受 {task} 的结果：{}", short(reason, 60)))
+                .task(task)
+                .attempt(submitted.attempt.unwrap_or(0))
+                .data(event_data),
+        );
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), task) {
             t.succeeded_seq = Some(seq);
         }
@@ -668,6 +702,9 @@ impl App {
         if let Some(v) = &t.def.verifies {
             out.push(format!("独立验证：{v}"));
         }
+        if let Some(c) = &t.def.continues {
+            out.push(format!("续接会话：{c}"));
+        }
         let downstream: Vec<String> =
             st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).map(|x| label(&x.def.id)).collect();
         if !t.def.deps.is_empty() {
@@ -678,6 +715,13 @@ impl App {
         }
         if let Some(r) = &t.result {
             out.push(format!("结果：{}", r.summary));
+            if t.def.verifies.is_some() && t.status == TaskStatus::Succeeded {
+                let vd = effective_verdict(r.verdict, t.def.accept.len(), &r.checks);
+                out.push(format!("验证判定：{}（{}）", vd.label(), vd.as_str()));
+            }
+            if let Some(h) = &r.handoff {
+                out.push(format!("交接说明：{h}"));
+            }
             for c in &r.checks {
                 out.push(format!("  {}", c.line()));
             }
@@ -702,7 +746,16 @@ impl App {
         // Those who verified this task independently: their own conclusion, kept apart from the
         // evidence the executor reported.
         for v in st.tasks.iter().filter(|v| v.def.verifies.as_deref() == Some(task)) {
-            out.push(format!("独立验证 {}：{}", v.def.id, v.status.label()));
+            let verdict_tag = (v.status == TaskStatus::Succeeded)
+                .then(|| {
+                    v.result.as_ref().map(|vr| {
+                        let vd = effective_verdict(vr.verdict, v.def.accept.len(), &vr.checks);
+                        format!(" · 判定：{}（{}）", vd.label(), vd.as_str())
+                    })
+                })
+                .flatten()
+                .unwrap_or_default();
+            out.push(format!("独立验证 {}：{}{verdict_tag}", v.def.id, v.status.label()));
             if let Some(r) = &v.result {
                 out.push(format!("  {}", r.summary));
                 for c in &r.checks {
@@ -766,7 +819,9 @@ impl App {
             out.push(format!("产物：{}", arts.join("、")));
         }
         // A conflict is recorded on the task whose edit found it; both sides see it here.
-        let theirs = |e: &&Event| e.kind == "task.conflict" && e.data.as_ref().is_some_and(|d| d["other"] == task);
+        let theirs = |e: &&Event| {
+            e.kind == "task.conflict" && e.data.as_ref().is_some_and(|d| d["byLead"] != true && d["other"] == task)
+        };
         let talk: Vec<String> = events
             .iter()
             .filter(|e| mine(e) || theirs(e))
@@ -787,6 +842,16 @@ impl App {
                     )),
                     "question.asked" => Some(format!("- [提问] {}", d["question"].as_str().unwrap_or(&e.text))),
                     "question.answered" => Some(format!("- [回答] {}", d["answer"].as_str().unwrap_or(&e.text))),
+                    "task.conflict" if d["byLead"] == true => Some(format!(
+                        "- [冲突] 负责人改了这个子任务的文件：{}",
+                        d["paths"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    )),
                     "task.conflict" if d["owned"] == true && theirs(&e) => Some(format!(
                         "- [越界] {} 改了这个子任务负责的 {}",
                         d["other"].as_str().unwrap_or("?"),
@@ -829,6 +894,11 @@ impl App {
                             .filter_map(|p| p.as_str())
                             .collect::<Vec<_>>()
                             .join("、")
+                    )),
+                    "task.split_requested" => Some(format!(
+                        "- [请求拆分] {}（建议 {} 个子任务）",
+                        d["reason"].as_str().unwrap_or(&e.text),
+                        d["subtasks"].as_array().map(Vec::len).unwrap_or(0)
                     )),
                     _ => None,
                 }
@@ -987,6 +1057,103 @@ impl App {
             fresh.join("、")
         ))
     }
+
+    /// A collaborator proposes splitting an oversized task into smaller subtasks; only the lead
+    /// may actually submit an orchestration (`janus.orchestrate`).
+    // @project-doc docs/interfaces/20261031-board_mcp.md#request_split
+    pub(super) fn board_request_split(
+        &self,
+        run: &Run,
+        task: &str,
+        args: &Value,
+    ) -> std::result::Result<String, String> {
+        let reason = args["reason"].as_str().unwrap_or("").trim();
+        if reason.is_empty() {
+            return Err("reason 不能为空：请写明为什么要拆分这个子任务".into());
+        }
+        let completed = args["completed"].as_str().map(str::trim).filter(|s| !s.is_empty());
+        let Some(items) = args["subtasks"].as_array().filter(|a| !a.is_empty()) else {
+            return Err("subtasks 必须是非空数组".into());
+        };
+        let agent = {
+            let st = run.st.lock().unwrap();
+            let me = st.tasks.iter().find(|t| t.def.id == task).ok_or_else(|| format!("看板上没有子任务 {task}"))?;
+            if me.def.verifies.is_some() {
+                return Err(format!("{task} 是验证子任务，只检查不改文件，不能请求拆分子任务"));
+            }
+            me.agent.clone()
+        };
+        let mut errors = vec![];
+        let mut subtasks = vec![];
+        for (i, item) in items.iter().enumerate() {
+            let title = item["title"].as_str().unwrap_or("").trim();
+            if title.is_empty() {
+                errors.push(format!("第 {} 个建议子任务缺少 title", i + 1));
+                continue;
+            }
+            let owns = crate::teamwork::read_owns(&item["owns"], &format!("建议子任务 {title}"), &mut errors);
+            let accept: Vec<String> = item["accept"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::trim))
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            subtasks.push(json!({ "title": title, "owns": owns, "accept": accept }));
+        }
+        if !errors.is_empty() {
+            return Err(errors.join("\n"));
+        }
+        let mut data = json!({ "reason": reason, "subtasks": subtasks });
+        if let Some(c) = completed {
+            data["completed"] = json!(c);
+        }
+        self.emit(
+            run,
+            ev("task.split_requested", &agent, format!("请求拆分子任务：{}", short(reason, 80)))
+                .task(task)
+                .to("lead")
+                .data(data),
+        );
+        Ok("拆分提议已发给负责人。若必须等负责人调整编排才能继续，可在结果 JSON 的 question 中说明并暂停等待回复。"
+            .into())
+    }
+}
+
+/// One-line live heartbeat per running task (plus pending count) when `janus.wait` times out.
+fn running_pulse(run: &Run) -> String {
+    let now = now_ms();
+    let watches: HashMap<SessionKey, (i64, AgentPhase, String)> = run
+        .watch
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, w)| (k.clone(), (w.started_ms, w.phase, w.last_tool.clone())))
+        .collect();
+    let st = run.st.lock().unwrap();
+    let mut lines = vec![];
+    for t in st.tasks.iter().filter(|t| t.status == TaskStatus::Running) {
+        let who = run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent);
+        let edited = st.traces.files(&t.def.id).len();
+        let detail = match watches.get(&SessionKey::task(&t.def.id)) {
+            Some((started, phase, tool)) => {
+                let elapsed = span((now - *started).max(0));
+                let tool_part = if tool.is_empty() { String::new() } else { format!("（{}）", short(tool, 40)) };
+                format!("{}{tool_part}，已运行 {elapsed}", phase.label())
+            }
+            None => "正在启动会话".to_string(),
+        };
+        let files_part = if edited > 0 { format!("，已改 {edited} 个文件") } else { String::new() };
+        lines.push(format!("- {}「{}」· {who}：{detail}{files_part}", t.def.id, t.def.title));
+    }
+    let pending = st.tasks.iter().filter(|t| t.status == TaskStatus::Pending).count();
+    if pending > 0 {
+        lines.push(format!("- 另有 {pending} 个子任务等待启动或等待依赖完成"));
+    }
+    lines.join("\n")
 }
 
 // @project-doc docs/interfaces/20261031-board_mcp.md#transport

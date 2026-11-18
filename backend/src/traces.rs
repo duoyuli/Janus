@@ -21,22 +21,54 @@ pub enum Overlap {
     Owned,
 }
 
+/// Who edited a file in the workspace: the lead session or a specific board task. Kept as an enum
+/// rather than a string so a task literally named `lead` never collides with the lead itself.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Actor {
+    Lead,
+    Task(String),
+}
+
+impl Actor {
+    pub fn task(id: &str) -> Actor {
+        Actor::Task(id.to_string())
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            Actor::Lead => "负责人",
+            Actor::Task(id) => id.as_str(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Traces {
     /// Files each task edited (relative to the workspace), from its tool calls.
     touched: HashMap<String, BTreeSet<String>>,
+    /// Files the lead edited directly in its own session.
+    lead_touched: BTreeSet<String>,
     /// Who edited each file last, and the seq of that tool call.
-    last_edit: HashMap<String, (String, i64)>,
-    /// Reports already made: (kind, task, other task, file).
-    reported: HashSet<(Overlap, String, String, String)>,
+    last_edit: HashMap<String, (Actor, i64)>,
+    /// Reports already made: (kind, actor, other, file).
+    reported: HashSet<(Overlap, Actor, Actor, String)>,
 }
 
 impl Traces {
     /// A tool call of `task`, recorded at `seq`, edited `paths`.
     pub fn record(&mut self, task: &str, paths: &[String], seq: i64) {
         self.touched.entry(task.into()).or_default().extend(paths.iter().cloned());
+        let who = Actor::task(task);
         for p in paths {
-            self.last_edit.insert(p.clone(), (task.into(), seq));
+            self.last_edit.insert(p.clone(), (who.clone(), seq));
+        }
+    }
+
+    /// A tool call of the lead's own session, recorded at `seq`, edited `paths`.
+    pub fn record_lead(&mut self, paths: &[String], seq: i64) {
+        self.lead_touched.extend(paths.iter().cloned());
+        for p in paths {
+            self.last_edit.insert(p.clone(), (Actor::Lead, seq));
         }
     }
 
@@ -45,24 +77,29 @@ impl Traces {
     }
 
     /// Whether this is the first report of `kind` for the pair and file. `Same` is one report
-    /// for both orders of the pair; `Owned` is about the task that stepped over.
+    /// for both orders of the pair; `Owned` is about the actor that stepped over.
     pub fn first_report(&mut self, kind: Overlap, task: &str, other: &str, path: &str) -> bool {
-        let (a, b) = match kind {
-            Overlap::Same if other < task => (other, task),
-            _ => (task, other),
-        };
-        self.reported.insert((kind, a.into(), b.into(), path.into()))
+        self.first_actor_report(kind, Actor::task(task), Actor::task(other), path)
     }
 
-    /// Files `task` edited that another task edited after `since` (the seq it finished at), with
-    /// who did: its result describes them as they were.
+    pub fn first_actor_report(&mut self, kind: Overlap, actor: Actor, other: Actor, path: &str) -> bool {
+        let (a, b) = match kind {
+            Overlap::Same if other < actor => (other, actor),
+            _ => (actor, other),
+        };
+        self.reported.insert((kind, a, b, path.into()))
+    }
+
+    /// Files `task` edited that another task (or the lead) edited after `since` (the seq it
+    /// finished at), with who did: its result describes them as they were.
     pub fn edited_after(&self, task: &str, since: i64) -> Vec<(String, String)> {
+        let me = Actor::task(task);
         self.touched
             .get(task)
             .into_iter()
             .flatten()
             .filter_map(|p| match self.last_edit.get(p) {
-                Some((by, seq)) if by != task && *seq > since => Some((p.clone(), by.clone())),
+                Some((by, seq)) if by != &me && *seq > since => Some((p.clone(), by.label().to_string())),
                 _ => None,
             })
             .collect()
@@ -165,6 +202,7 @@ mod tests {
             max_attempts: 2,
             owns: owns.iter().map(|x| x.to_string()).collect(),
             verifies: verifies.map(str::to_owned),
+            continues: None,
         }
     }
 
@@ -214,6 +252,15 @@ mod tests {
         assert!(!t.first_report(Overlap::Same, "T2", "T1", "a.rs"), "the same pair the other way round");
         assert!(t.first_report(Overlap::Owned, "T2", "T1", "a.rs"), "another kind is another report");
         assert!(t.first_report(Overlap::Owned, "T1", "T2", "a.rs"), "stepping over is about who did");
+
+        // The lead's own edits mark an earlier task's files stale, and never collide with a task named "lead".
+        t.record("lead", &["c.rs".into()], 25);
+        t.record_lead(&["b.rs".into(), "c.rs".into()], 35);
+        assert_eq!(
+            t.edited_after("T1", 20),
+            vec![("a.rs".to_string(), "T2".to_string()), ("b.rs".to_string(), "负责人".to_string())]
+        );
+        assert_eq!(t.edited_after("lead", 30), vec![("c.rs".to_string(), "负责人".to_string())]);
     }
 
     #[test]

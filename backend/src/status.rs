@@ -208,9 +208,10 @@ impl AttemptStatus {
 
 /// What an agent's session is doing, as `agent.status` events report it. The app maps unknown
 /// values to `idle`, but this is the complete set Janus emits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentPhase {
+    #[default]
     Idle,
     Thinking,
     Coordinating,
@@ -244,6 +245,22 @@ impl AgentPhase {
             AgentPhase::WaitingForAgent => "waiting_for_agent",
             AgentPhase::WaitingApproval => "waiting_approval",
             AgentPhase::Error => "error",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AgentPhase::Idle => "空闲",
+            AgentPhase::Thinking => "思考中",
+            AgentPhase::Coordinating => "协调中",
+            AgentPhase::ReadingFiles => "读取文件",
+            AgentPhase::Editing => "修改文件",
+            AgentPhase::RunningTool => "调用工具",
+            AgentPhase::RunningTest => "运行测试",
+            AgentPhase::WaitingForInput => "等待输入",
+            AgentPhase::WaitingForAgent => "等待协作者",
+            AgentPhase::WaitingApproval => "等待用户审批",
+            AgentPhase::Error => "出错",
         }
     }
 }

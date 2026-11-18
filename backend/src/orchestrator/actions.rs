@@ -179,16 +179,62 @@ impl App {
                 if !status.is_active() {
                     bail!("任务现在是「{status}」，不能追加预算");
                 }
-                let minutes = a["minutes"].as_i64().unwrap_or(60).clamp(1, 24 * 60);
-                let added = minutes * 60 * 1000;
-                // Counted from now when the budget already ran out, so one extension is enough.
-                let deadline = run.deadline_ms.load(Ordering::SeqCst).max(now_ms()) + added;
-                run.deadline_ms.store(deadline, Ordering::SeqCst);
-                self.emit(
-                    run,
-                    ev("run.budget_extended", "user", format!("追加任务预算 {minutes} 分钟"))
-                        .data(json!({ "minutes": minutes, "addedMs": added })),
-                );
+                let hit = self.check_budget(run);
+                let explicit_tokens = a["tokens"].as_i64();
+                let explicit_cost = a["costUsd"].as_f64();
+                let explicit_minutes = a["minutes"].as_i64();
+                let default_hit = if explicit_tokens.is_none() && explicit_cost.is_none() && explicit_minutes.is_none()
+                {
+                    hit
+                } else {
+                    None
+                };
+                if let Some(tokens) =
+                    explicit_tokens.or_else(|| matches!(default_hit, Some(BudgetHit::Tokens { .. })).then_some(500_000))
+                {
+                    let added = tokens.clamp(1_000, 100_000_000);
+                    let used = self.usage(run).run.tokens.total.unwrap_or(0);
+                    let new_limit = run.token_limit.load(Ordering::SeqCst).max(used) + added;
+                    run.token_limit.store(new_limit, Ordering::SeqCst);
+                    self.emit(
+                        run,
+                        ev("run.budget_extended", "user", format!("追加 Token 预算 {}", crate::usage::num(added)))
+                            .data(json!({ "kind": "tokens", "tokens": added, "tokenLimit": new_limit })),
+                    );
+                } else if let Some(cost_usd) =
+                    explicit_cost.or_else(|| matches!(default_hit, Some(BudgetHit::CostUsd { .. })).then_some(5.0))
+                {
+                    let added = cost_usd.clamp(0.01, 10_000.0);
+                    let added_micros = (added * 1_000_000.0).round() as i64;
+                    let used_micros = self
+                        .usage(run)
+                        .run
+                        .cost
+                        .lines
+                        .iter()
+                        .find(|l| l.currency.eq_ignore_ascii_case("USD"))
+                        .map(|l| (l.amount * 1_000_000.0).round() as i64)
+                        .unwrap_or(0);
+                    let new_micros = run.cost_limit_micros.load(Ordering::SeqCst).max(used_micros) + added_micros;
+                    run.cost_limit_micros.store(new_micros, Ordering::SeqCst);
+                    let new_usd = new_micros as f64 / 1_000_000.0;
+                    self.emit(
+                        run,
+                        ev("run.budget_extended", "user", format!("追加费用预算 {added:.2} USD"))
+                            .data(json!({ "kind": "cost_usd", "costUsd": added, "costLimitUsd": new_usd })),
+                    );
+                } else {
+                    let minutes = explicit_minutes.unwrap_or(60).clamp(1, 24 * 60);
+                    let added = minutes * 60 * 1000;
+                    // Counted from now when the budget already ran out, so one extension is enough.
+                    let deadline = run.deadline_ms.load(Ordering::SeqCst).max(now_ms()) + added;
+                    run.deadline_ms.store(deadline, Ordering::SeqCst);
+                    self.emit(
+                        run,
+                        ev("run.budget_extended", "user", format!("追加任务预算 {minutes} 分钟"))
+                            .data(json!({ "kind": "wall_clock", "minutes": minutes, "addedMs": added })),
+                    );
+                }
                 if status == RunStatus::WaitingInput {
                     self.set_status(run, RunStatus::Running);
                 }
@@ -214,6 +260,7 @@ impl App {
                 }
                 self.emit(run, ev("run.cancelled", "user", "取消这个目标"));
                 self.set_status(run, RunStatus::Cancelled);
+                run.board_wake.notify_waiters();
                 run.lead_nudge.notify_one();
                 run.wake.notify_one();
             }
@@ -344,6 +391,18 @@ impl App {
             self.spec_for(&m.runtime)?;
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
+        let mut token_limit = config["tokenLimit"].as_i64().unwrap_or(0);
+        let mut cost_limit_micros =
+            config["costLimitUsd"].as_f64().map(|c| (c * 1_000_000.0).round() as i64).unwrap_or(0);
+        for e in events.iter().filter(|e| e.kind == "run.budget_extended") {
+            let Some(d) = e.data.as_ref() else { continue };
+            if let Some(tl) = d["tokenLimit"].as_i64() {
+                token_limit = tl;
+            }
+            if let Some(cl) = d["costLimitUsd"].as_f64() {
+                cost_limit_micros = (cl * 1_000_000.0).round() as i64;
+            }
+        }
         let owner = format!("janus-{}", std::process::id());
         if self.db.acquire_lease(run_id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
             bail!("任务已被另一个 Janus 实例接管");
@@ -359,6 +418,8 @@ impl App {
             goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
             last_seq: self.db.max_seq(run_id)?,
             status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
+            token_limit,
+            cost_limit_micros,
         }));
 
         // The board's tasks are every orchestration the lead got accepted.
@@ -374,7 +435,9 @@ impl App {
             let mut def: TaskDef = serde_json::from_value(item.clone())?;
             def.assignee = item["agent"].as_str().unwrap_or("").to_string();
             let id = def.id.clone();
-            // The lead may have retried it with new instructions or acceptance criteria.
+            // The lead may have retried it with new instructions, acceptance criteria, or session continuation.
+            let mut last_reopen_seq = 0i64;
+            let mut continue_session = false;
             for e in events.iter().filter(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str())) {
                 let d = e.data.clone().unwrap_or_default();
                 if let Some(i) = d["instructions"].as_str() {
@@ -383,11 +446,16 @@ impl App {
                 if let Some(a) = d["accept"].as_array() {
                     def.accept = a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect();
                 }
+                last_reopen_seq = e.seq;
+                continue_session = d["continueSession"] == true;
             }
             let agent = def.assignee.clone();
             let mine = |kind: &str| -> Vec<&Event> {
                 events.iter().filter(|e| e.kind == kind && e.task.as_deref() == Some(id.as_str())).collect()
             };
+            if mine("attempt.started").iter().any(|e| e.seq > last_reopen_seq) {
+                continue_session = false;
+            }
             let attempts = mine("attempt.started").len() as i64;
             // The current retry budget starts at the last user retry.
             let retry_base = events
@@ -424,20 +492,15 @@ impl App {
             // A finished task's conclusion carries its whole result; an unfinished one has the last
             // result it submitted.
             let concluded = succeeded.and_then(|e| e.data.clone());
-            let result = concluded.or_else(|| mine("result.submitted").last().and_then(|e| e.data.clone())).map(|d| {
-                let strings = |v: &Value| {
-                    v.as_array()
-                        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
-                        .unwrap_or_default()
-                };
-                TaskResult {
-                    summary: d["summary"].as_str().unwrap_or("").to_string(),
-                    evidence: strings(&d["evidence"]),
-                    risks: strings(&d["risks"]),
-                    checks: checks_from(&d),
-                    ..Default::default()
-                }
-            });
+            let result = concluded
+                .as_ref()
+                .or_else(|| mine("result.submitted").last().and_then(|e| e.data.as_ref()))
+                .map(result_from_event);
+            let trace_gaps: Vec<String> = concluded
+                .as_ref()
+                .and_then(|d| d["traceGaps"].as_array())
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default();
             let artifacts: Vec<Value> = mine("artifact.created").iter().filter_map(|e| e.data.clone()).collect();
             let last_session = mine("attempt.started")
                 .last()
@@ -498,6 +561,8 @@ impl App {
                 })
                 .flatten();
             task.succeeded_seq = succeeded.map(|e| e.seq);
+            task.trace_gaps = trace_gaps;
+            task.continue_session = continue_session;
             task.artifacts = artifacts;
             task.retry_base = retry_base;
             let since = events
@@ -528,16 +593,30 @@ impl App {
         {
             let mut st = run.st.lock().unwrap();
             for e in &events {
-                let (Some(task), Some(d)) = (e.task.as_deref(), e.data.as_ref()) else { continue };
+                let Some(d) = e.data.as_ref() else { continue };
                 let paths: Vec<String> =
                     d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
-                match e.kind.as_str() {
-                    "tool.call" if !paths.is_empty() => st.traces.record(task, &paths, e.seq),
-                    "task.conflict" => {
-                        let other = d["other"].as_str().unwrap_or_default();
+                match (e.kind.as_str(), e.task.as_deref()) {
+                    ("tool.call", Some(task)) if !paths.is_empty() => st.traces.record(task, &paths, e.seq),
+                    ("tool.call", None) if e.actor == "lead" && !paths.is_empty() => {
+                        st.traces.record_lead(&paths, e.seq);
+                    }
+                    ("task.conflict", Some(task)) => {
                         let kind = if d["owned"] == true { Overlap::Owned } else { Overlap::Same };
-                        for p in &paths {
-                            st.traces.first_report(kind, task, other, p);
+                        if d["byLead"] == true {
+                            for p in &paths {
+                                st.traces.first_actor_report(
+                                    kind,
+                                    crate::traces::Actor::Lead,
+                                    crate::traces::Actor::task(task),
+                                    p,
+                                );
+                            }
+                        } else {
+                            let other = d["other"].as_str().unwrap_or_default();
+                            for p in &paths {
+                                st.traces.first_report(kind, task, other, p);
+                            }
                         }
                     }
                     _ => {}

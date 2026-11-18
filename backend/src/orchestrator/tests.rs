@@ -59,6 +59,7 @@ fn task_prompts_carry_the_shared_material() {
         max_attempts: 2,
         owns: vec![],
         verifies: None,
+        continues: None,
     };
     let m = run.team[1].clone();
     assert!(!task_prompt(&run, &m, &def, &[], &[], None).contains("工作区共享资料"), "nothing when there is none");
@@ -154,6 +155,7 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
         max_attempts: 2,
         owns: vec![],
         verifies: None,
+        continues: None,
     };
     let task = task_prompt(&run, &run.team[1], &def, &[], &[], None);
     assert!(
@@ -261,6 +263,8 @@ fn test_run(team_size: usize) -> Run {
         goal_images: vec![],
         last_seq: 0,
         status: RunStatus::Planning,
+        token_limit: 0,
+        cost_limit_micros: 0,
     })
 }
 

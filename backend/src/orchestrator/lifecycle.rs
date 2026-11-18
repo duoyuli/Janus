@@ -37,8 +37,17 @@ impl App {
             "" => "按附图完成".to_string(),
             g => g.to_string(),
         };
-        let config =
+        let token_limit = req.max_tokens.filter(|&n| n > 0).or(self.cfg.run_token_budget).unwrap_or(0);
+        let cost_limit_usd = req.max_cost_usd.filter(|n| n.is_finite() && *n > 0.0).or(self.cfg.run_cost_budget_usd);
+        let cost_limit_micros = cost_limit_usd.map(|c| (c * 1_000_000.0).round() as i64).unwrap_or(0);
+        let mut config =
             json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
+        if token_limit > 0 {
+            config["tokenLimit"] = json!(token_limit);
+        }
+        if let Some(c) = cost_limit_usd {
+            config["costLimitUsd"] = json!(c);
+        }
         self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
         let owner = format!("janus-{}", std::process::id());
         if self.db.acquire_lease(&id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
@@ -55,6 +64,8 @@ impl App {
             goal_images,
             last_seq: 0,
             status: RunStatus::Planning,
+            token_limit,
+            cost_limit_micros,
         }));
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.launch(run, Phase::Start);
@@ -131,6 +142,34 @@ impl App {
         self.goal(run, false).await
     }
 
+    /// Check whether wall-clock, token or reported USD cost ceiling has been reached. Unreported
+    /// usage (`None`) never triggers a pause.
+    pub(super) fn check_budget(&self, run: &Run) -> Option<BudgetHit> {
+        if now_ms() > run.deadline_ms.load(Ordering::SeqCst) {
+            return Some(BudgetHit::WallClock);
+        }
+        let token_limit = run.token_limit.load(Ordering::SeqCst);
+        let cost_limit_micros = run.cost_limit_micros.load(Ordering::SeqCst);
+        if token_limit <= 0 && cost_limit_micros <= 0 {
+            return None;
+        }
+        let ledger = self.usage(run);
+        if token_limit > 0
+            && let Some(used) = ledger.run.tokens.total
+            && used >= token_limit
+        {
+            return Some(BudgetHit::Tokens { used, limit: token_limit });
+        }
+        if cost_limit_micros > 0
+            && let Some(usd) =
+                ledger.run.cost.lines.iter().find(|l| l.currency.eq_ignore_ascii_case("USD")).map(|l| l.amount)
+            && (usd * 1_000_000.0).round() as i64 >= cost_limit_micros
+        {
+            return Some(BudgetHit::CostUsd { used: usd, limit: cost_limit_micros as f64 / 1_000_000.0 });
+        }
+        None
+    }
+
     /// The scheduling loop. It recomputes the run's status from the task graph on every pass and
     /// only returns once the run is delivered or cancelled, so every later decision still has a driver to act on it.
     // @project-doc docs/domains/20261031-run_lifecycle.md#scheduling
@@ -140,7 +179,7 @@ impl App {
             Deliver,
             /// Goal mode: the lead's session broke off; the person continues the run to restart it.
             LeadFailed(String),
-            Budget,
+            Budget(BudgetHit),
             Paused,
             Running,
         }
@@ -148,7 +187,9 @@ impl App {
             if run.st.lock().unwrap().cancelled() {
                 return Err(Cancelled.into());
             }
-            let over_budget = now_ms() > run.deadline_ms.load(Ordering::SeqCst);
+            let budget_hit = self.check_budget(run);
+            let over_budget = budget_hit.is_some();
+            let cap = self.cfg.max_concurrent_attempts.max(1);
             let (starts, blocked, outcome) = {
                 let mut st = run.st.lock().unwrap();
                 let statuses: HashMap<String, TaskStatus> =
@@ -182,11 +223,16 @@ impl App {
                 }
                 let mut starts = vec![];
                 if !st.paused && !over_budget {
+                    let mut running_count = st.tasks.iter().filter(|t| t.status == TaskStatus::Running).count();
                     let mut busy: HashSet<String> =
                         st.tasks.iter().filter(|t| t.status == TaskStatus::Running).map(|t| t.agent.clone()).collect();
                     for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
+                        if running_count >= cap {
+                            break;
+                        }
                         if t.def.deps.iter().all(|d| succeeded.contains(d)) && !busy.contains(&t.agent) {
                             busy.insert(t.agent.clone());
+                            running_count += 1;
                             t.set_status(TaskStatus::Running);
                             t.attempts += 1;
                             let attempt_id = format!("{}-{}-{}-{}", run.id, t.def.id, t.attempts, now_ms());
@@ -196,8 +242,8 @@ impl App {
                     }
                 }
                 let active = st.tasks.iter().any(|t| t.status == TaskStatus::Running);
-                // A task that could start but for a pause or the budget is still work to do: the
-                // run waits for the person instead of delivering without it.
+                // A task that could start but for a pause, concurrency cap or budget is still work
+                // to do: the run waits instead of delivering without it.
                 let runnable = st
                     .tasks
                     .iter()
@@ -211,8 +257,8 @@ impl App {
                     Outcome::LeadFailed(err.clone())
                 } else if finished && st.lead.goal.ended() {
                     Outcome::Deliver
-                } else if over_budget && !all_terminal {
-                    Outcome::Budget
+                } else if let (Some(hit), false) = (budget_hit, all_terminal) {
+                    Outcome::Budget(hit)
                 } else if !active && starts.is_empty() && st.paused {
                     Outcome::Paused
                 } else {
@@ -267,16 +313,26 @@ impl App {
                     // Like any failed run: continuing it rebuilds the board and restarts the lead.
                     bail!("负责人的会话异常结束：{err}");
                 }
-                Outcome::Budget => {
-                    // Announced each time the run comes to wait on the budget, including when the
-                    // lead adds work after the run went back to running.
+                Outcome::Budget(hit) => {
+                    // Announced each time the run comes to wait on a budget ceiling, including when
+                    // the lead adds work after the run went back to running.
                     if run.st.lock().unwrap().status != RunStatus::WaitingInput {
                         self.set_status(run, RunStatus::WaitingInput);
-                        self.emit(
-                            run,
-                            ev("run.budget_exhausted", "janus", "任务达到墙钟预算，等待你追加预算、接受部分结果或取消")
-                                .data(json!({ "budgetMs": RUN_BUDGET_MS })),
-                        );
+                        let (text, data) = match hit {
+                            BudgetHit::WallClock => (
+                                "任务达到墙钟预算，等待你追加预算、接受部分结果或取消".to_string(),
+                                json!({ "kind": "wall_clock", "budgetMs": RUN_BUDGET_MS }),
+                            ),
+                            BudgetHit::Tokens { used, limit } => (
+                                format!("任务已用 {used} tokens（达到上限 {limit}），等待你追加预算或停止"),
+                                json!({ "kind": "tokens", "usedTokens": used, "tokenLimit": limit }),
+                            ),
+                            BudgetHit::CostUsd { used, limit } => (
+                                format!("任务已上报费用 ${used:.2}（达到上限 ${limit:.2}），等待你追加预算或停止"),
+                                json!({ "kind": "cost_usd", "usedCostUsd": used, "costLimitUsd": limit }),
+                            ),
+                        };
+                        self.emit(run, ev("run.budget_exhausted", "janus", text).data(data));
                     }
                 }
                 Outcome::Running | Outcome::Paused => {
@@ -339,43 +395,42 @@ impl App {
         }
     }
 
-    /// Count a finished tool call; every `LOOP_REPEAT` identical calls in a row, tell the lead.
+    /// Record a finished tool call and detect period-1 (`AAAAA`), period-2 (`ABABABAB`) and
+    /// period-3 (`ABCABCABC`) loops, alerting the lead (or the person, for the lead itself).
     // @project-doc docs/domains/20261031-run_lifecycle.md#watchdog
     pub(super) fn watch_call(&self, run: &Run, session: &SessionKey, kind: &str, title: &str, input: &str) {
         use std::hash::{Hash, Hasher};
         let mut h = std::hash::DefaultHasher::new();
         (kind, title, input).hash(&mut h);
         let call = h.finish();
-        let (n, repeats) = {
+        let hit = {
             let mut watch = run.watch.lock().unwrap();
             let Some(w) = watch.get_mut(session) else { return };
-            if w.call == call {
-                w.repeats += 1;
-            } else {
-                w.call = call;
-                w.repeats = 1;
-            }
-            if w.repeats % LOOP_REPEAT != 0 {
-                return;
-            }
-            (w.attempt, w.repeats)
+            detect_call_loop(&mut w.recent_calls, &mut w.loop_cooldown, call, title)
+                .map(|(p, r, pat)| (w.attempt, p, r, pat))
+        };
+        let Some((n, period, repeats, pattern)) = hit else { return };
+        let text_body = if period == 1 {
+            format!("连续 {repeats} 次做同样的调用：{pattern}")
+        } else {
+            format!("连续 {repeats} 轮重复调用序列：{pattern}")
         };
         let SessionKey::Task(task) = session else {
             self.emit(
                 run,
-                ev("lead.stalled", "janus", format!("负责人连续 {repeats} 次做同样的调用：{}", short(title, 60)))
+                ev("lead.stalled", "janus", format!("负责人{text_body}"))
                     .to("user")
-                    .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
+                    .data(json!({ "reason": "loop", "tool": pattern, "repeats": repeats, "period": period })),
             );
             return;
         };
         self.emit(
             run,
-            ev("task.stalled", "janus", format!("{task} 连续 {repeats} 次做同样的调用：{}", short(title, 60)))
+            ev("task.stalled", "janus", format!("{task} {text_body}"))
                 .task(task)
                 .attempt(n)
                 .to("lead")
-                .data(json!({ "reason": "loop", "tool": title, "repeats": repeats })),
+                .data(json!({ "reason": "loop", "tool": pattern, "repeats": repeats, "period": period })),
         );
     }
 
@@ -427,27 +482,24 @@ impl App {
                     evidence.push(json!({ "text": format!("{}：{}", t.def.id, e), "seq": t.succeeded_seq }));
                 }
                 risks.extend(r.risks.iter().map(|x| format!("{}：{}", t.def.id, x)));
-                // Who checked this task independently, and how that went. A verifier that did not
-                // pass stays visible as a risk of the task it was meant to confirm.
+                // Who checked this task independently, and how that went. Completing a review
+                // (`Succeeded`) and confirming the work (`Verdict::Approved`) are distinct: a
+                // verifier that rejects the work has `passed == false`. Only when the latest
+                // verifier of this task did not confirm it does a risk remain on the delivery.
                 let verifications: Vec<Verification> = st
                     .tasks
                     .iter()
                     .filter(|v| v.def.verifies.as_deref() == Some(t.def.id.as_str()))
                     .map(|v| {
-                        let passed = v.status == TaskStatus::Succeeded;
-                        if !passed {
-                            risks.push(format!(
-                                "{}：独立验证 {} 的状态是 {}，结论没有得到确认",
-                                t.def.id,
-                                v.def.id,
-                                v.status.label()
-                            ));
-                        }
                         let vr = v.result.clone().unwrap_or_default();
+                        let verdict = (v.status == TaskStatus::Succeeded)
+                            .then(|| effective_verdict(vr.verdict, v.def.accept.len(), &vr.checks));
+                        let passed = verdict == Some(Verdict::Approved);
                         Verification {
                             task: v.def.id.clone(),
                             status: v.status.as_str(),
                             label: v.status.label(),
+                            verdict: verdict.map(Verdict::as_str),
                             passed,
                             summary: vr.summary,
                             checks: vr.checks,
@@ -456,6 +508,14 @@ impl App {
                         }
                     })
                     .collect();
+                if let Some(latest) = verifications.last().filter(|v| !v.passed) {
+                    let why = match latest.verdict.and_then(Verdict::parse) {
+                        Some(vd) => format!("判定为「{}」", vd.label()),
+                        None => format!("状态是 {}", latest.label),
+                    };
+                    risks.push(format!("{}：独立验证 {} {why}，结论没有得到确认", t.def.id, latest.task));
+                }
+                let gaps = if t.trace_gaps.is_empty() { trace_gaps(&t.def.id) } else { t.trace_gaps.clone() };
                 acceptance.push(TaskAcceptance {
                     task: t.def.id.clone(),
                     title: t.def.title.clone(),
@@ -464,7 +524,7 @@ impl App {
                     summary: Summary::of(&t.def.accept, &r.checks),
                     checks: r.checks.clone(),
                     verifications,
-                    trace_gaps: trace_gaps(&t.def.id),
+                    trace_gaps: gaps,
                     risks: r.risks.clone(),
                 });
             }
@@ -528,6 +588,87 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+/// Detect period-1 (`AAAAA`, 5 calls), period-2 (`ABABABAB`, 4 cycles = 8 calls) or period-3
+/// (`ABCABCABC`, 3 cycles = 9 calls) tool-call loops over a bounded ring buffer of 12 calls.
+pub(super) fn detect_call_loop(
+    recent: &mut VecDeque<(u64, String)>,
+    cooldown: &mut u32,
+    call: u64,
+    title: &str,
+) -> Option<(u32, u32, String)> {
+    const WINDOW: usize = 12;
+    recent.push_back((call, short(title, 36)));
+    if recent.len() > WINDOW {
+        recent.pop_front();
+    }
+    let same = recent.iter().rev().take_while(|(h, _)| *h == call).count() as u32;
+    if same >= LOOP_REPEAT && same.is_multiple_of(LOOP_REPEAT) {
+        *cooldown = 0;
+        return Some((1, same, short(title, 60)));
+    }
+    if *cooldown > 0 {
+        *cooldown -= 1;
+        return None;
+    }
+    if recent.len() >= 8 {
+        let s = recent.len() - 8;
+        let (h0, t0) = &recent[s];
+        let (h1, t1) = &recent[s + 1];
+        if h0 != h1 && (0..8).all(|i| recent[s + i].0 == if i % 2 == 0 { *h0 } else { *h1 }) {
+            *cooldown = 7;
+            return Some((2, 4, format!("{t0} → {t1}")));
+        }
+    }
+    if recent.len() >= 9 {
+        let s = recent.len() - 9;
+        let (h0, t0) = &recent[s];
+        let (h1, t1) = &recent[s + 1];
+        let (h2, t2) = &recent[s + 2];
+        if !(h0 == h1 && h1 == h2) && (0..9).all(|i| recent[s + i].0 == recent[s + (i % 3)].0) {
+            *cooldown = 8;
+            return Some((3, 3, format!("{t0} → {t1} → {t2}")));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod loop_tests {
+    use super::*;
+
+    #[test]
+    fn loop_detector_catches_single_and_alternating_cycles() {
+        let mut recent = VecDeque::new();
+        let mut cd = 0;
+        for i in 1..=4 {
+            assert!(detect_call_loop(&mut recent, &mut cd, 10, "cat x").is_none(), "step {i}");
+        }
+        assert_eq!(detect_call_loop(&mut recent, &mut cd, 10, "cat x"), Some((1, 5, "cat x".into())));
+
+        recent.clear();
+        cd = 0;
+        for i in 0..7 {
+            let (h, t) = if i % 2 == 0 { (1, "Edit foo.rs") } else { (2, "cargo test") };
+            assert!(detect_call_loop(&mut recent, &mut cd, h, t).is_none());
+        }
+        assert_eq!(
+            detect_call_loop(&mut recent, &mut cd, 2, "cargo test"),
+            Some((2, 4, "Edit foo.rs → cargo test".into()))
+        );
+        // Cooldown prevents firing again on the very next step.
+        assert!(detect_call_loop(&mut recent, &mut cd, 1, "Edit foo.rs").is_none());
+
+        recent.clear();
+        cd = 0;
+        let steps = [(1, "read"), (2, "edit"), (3, "test")];
+        for i in 0..8 {
+            let (h, t) = steps[i % 3];
+            assert!(detect_call_loop(&mut recent, &mut cd, h, t).is_none());
+        }
+        assert_eq!(detect_call_loop(&mut recent, &mut cd, 3, "test"), Some((3, 3, "read → edit → test".into())));
     }
 }
 

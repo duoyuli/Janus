@@ -6,6 +6,7 @@ use super::*;
 
 // Newer flows live in their own files under `orchestrator/flow_tests/`, so this file stops growing.
 mod actions;
+mod collaboration;
 mod evidence;
 mod owners;
 mod usage;
@@ -574,11 +575,17 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     )
     .await;
     assert!(!err, "{text}");
-    wait_until(&h.app, &run, "V1 failed", |e| task_event(e, "task.failed", "V1")).await;
+    wait_until(&h.app, &run, "V1 reviewed", |e| task_event(e, "task.succeeded", "V1")).await;
     let evs = events(&h.app, &run);
     let at =
         |kind: &str, task: &str| evs.iter().position(|e| e.kind == kind && e.task.as_deref() == Some(task)).unwrap();
     assert!(at("task.succeeded", "T1") < at("attempt.started", "V1"), "the verifier waits for the work");
+    assert!(
+        !evs.iter().any(|e| e.kind == "session.prompt"
+            && e.task.as_deref() == Some("V1")
+            && e.data.as_ref().is_some_and(|d| d["channel"] == "fix")),
+        "a verifier reporting a defect with evidence never gets a pointless fix round"
+    );
     let prompt = |task: &str| -> String {
         evs.iter()
             .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(task))
@@ -589,20 +596,18 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     assert!(prompt("V1").contains("独立验证者") && prompt("V1").contains("- src 里有新函数"), "{}", prompt("V1"));
 
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(board.contains("[验证没通过] V1") && board.contains("验证 T1"), "{board}");
+    assert!(board.contains("[验证未通过] V1") && board.contains("独立验证") && board.contains("rejected"), "{board}");
     let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "V1", "reason": "我看过了" })).await;
     assert!(err && text.contains("不能直接接受"), "{text}");
-    assert!(!task_event(&events(&h.app, &run), "task.succeeded", "V1"));
-    let (_, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["V1"], "reason": "改由负责人核对" })).await;
-    assert!(!err);
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    // The delivery says a verifier that did not pass did not confirm the task.
+    // The delivery says a verifier whose verdict rejected the work did not confirm the task.
     let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
     let t1 = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T1").unwrap().clone();
     assert_eq!(t1["verifications"][0]["task"], "V1", "{t1}");
-    assert_eq!(t1["verifications"][0]["passed"], false, "a cancelled verifier is not a pass: {t1}");
+    assert_eq!(t1["verifications"][0]["verdict"], "rejected", "{t1}");
+    assert_eq!(t1["verifications"][0]["passed"], false, "a rejected verdict is not a pass: {t1}");
     assert!(
         d["risks"].as_array().unwrap().iter().any(|r| r.as_str().is_some_and(|r| r.contains("独立验证 V1"))),
         "{d}"
@@ -687,7 +692,7 @@ async fn goal_mode_orchestrates_through_the_board() {
         .unwrap();
     let names: Vec<&str> =
         member["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["board_post", "claim", "peers"]);
+    assert_eq!(names, ["board_post", "claim", "peers", "request_split"]);
     // Claims are a collaborator's: the lead assigns files through `owns` instead.
     let (text, err) = tool(&h.app, &run, "lead", "claim", json!({ "paths": ["x"] })).await;
     assert!(err && text.contains("没有这个工具"), "{text}");
@@ -1748,6 +1753,8 @@ async fn pasted_images_reach_the_agent() {
             goal: "照着图改".into(),
             workspace: "ws".into(),
             images: vec![json!({ "data": png, "name": "设计稿.png" })],
+            max_tokens: None,
+            max_cost_usd: None,
         })
         .await
         .unwrap();

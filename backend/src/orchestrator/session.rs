@@ -66,7 +66,11 @@ impl App {
 
     /// The session is open and working: the watchdog follows it from now on.
     pub(super) fn watch_session(&self, run: &Run, key: &SessionKey, attempt: i64) {
-        run.watch.lock().unwrap().insert(key.clone(), Watch { attempt, last_ms: now_ms(), ..Default::default() });
+        let now = now_ms();
+        run.watch.lock().unwrap().insert(
+            key.clone(),
+            Watch { attempt, started_ms: now, last_ms: now, phase: AgentPhase::Thinking, ..Default::default() },
+        );
     }
 
     /// Take back what `open_session` and `watch_session` set up, withdraw the decisions the

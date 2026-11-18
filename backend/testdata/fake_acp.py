@@ -247,6 +247,55 @@ def prompt(msg):
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                 "sessionUpdate": "tool_call", "toolCallId": f"loop-{i}", "title": "cat missing.txt", "kind": "read",
                 "status": "completed", "rawInput": {"command": ["cat", "missing.txt"]}}}})
+    if outcome == "loop2":
+        for i in range(8):
+            even = i % 2 == 0
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                "sessionUpdate": "tool_call", "toolCallId": f"loop2-{i}",
+                "title": "Edit a.rs" if even else "cargo test",
+                "kind": "edit" if even else "execute",
+                "status": "completed",
+                "rawInput": {"file_path": "a.rs"} if even else {"command": ["cargo", "test"]}}}})
+    if outcome == "busy-tool":
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "tool_call", "toolCallId": f"busy-{task}", "title": "cargo test --workspace",
+            "kind": "execute", "status": "in_progress", "rawInput": {"command": ["cargo", "test", "--workspace"]}}}})
+        if wait_cancel(2.5):
+            return {"stopReason": "cancelled"}
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "tool_call_update", "toolCallId": f"busy-{task}", "status": "completed"}}})
+    if outcome == "cancel-usage":
+        if wait_cancel(60):
+            return {"stopReason": "cancelled", "usage": tokens(900)}
+    if outcome == "high-ctx":
+        snapshot(sid, 160000, 200000)
+        say(sid, result(sid, summary=f"{task} 高上下文完成"))
+        return {"stopReason": "end_turn", "usage": tokens(1500)}
+    if outcome == "handoff":
+        with open("api.rs", "w") as f:
+            f.write("pub fn parse() {}\n")
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "tool_call", "toolCallId": f"edit-{task}", "title": "Edit api.rs", "kind": "edit",
+            "status": "completed", "locations": [{"path": os.path.join(os.getcwd(), "api.rs")}],
+            "rawInput": {"file_path": "api.rs"}}}})
+        say(sid, result(sid, methods=["reasoning"], summary=f"{task} 完成核心接口",
+                        handoff="接口签名：parse(input: &str) -> Result<Ast>，错误统一用 ParseError",
+                        risks=["空字符串边界尚未压测"]))
+        return {"stopReason": "end_turn", "usage": tokens(1200)}
+    if outcome == "reject":
+        checks = [{"criterion": c, "passed": False, "method": "test", "evidence": "运行 cargo test 复现空输入崩溃"}
+                  for c in CRITERIA.get(sid, [])]
+        body = {"summary": f"{task} 发现阻断缺陷", "verdict": "rejected", "checks": checks,
+                "evidence": ["cargo test parse_empty panic"], "risks": ["空输入直接崩溃"], "question": None}
+        say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
+        return {"stopReason": "end_turn", "usage": tokens(800)}
+    if outcome == "approve":
+        checks = [{"criterion": c, "passed": True, "method": "test", "evidence": "运行 cargo test 全部通过"}
+                  for c in CRITERIA.get(sid, [])]
+        body = {"summary": f"{task} 独立验证通过", "verdict": "approved", "checks": checks,
+                "evidence": ["cargo test 0 failed"], "risks": [], "question": None}
+        say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
+        return {"stopReason": "end_turn", "usage": tokens(600)}
     if outcome == "rich":
         def upd(u):
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}})
@@ -301,12 +350,21 @@ for line in sys.stdin:
     try:
         if method == "initialize":
             caps = {"mcpCapabilities": {"http": True}, "promptCapabilities": {"image": True}}
+            if not os.path.exists(os.path.join(DIR, "no-load")):
+                caps["loadSession"] = True
             res = {"protocolVersion": 1, "agentInfo": {"name": "fake"}, "agentCapabilities": caps}
             if os.path.exists(os.path.join(DIR, "steer")):
                 res["_meta"] = {"steering": {"supported": True}}
         elif method == "session/new":
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
+        elif method == "session/load":
+            if os.path.exists(os.path.join(DIR, "fail-load")):
+                raise RuntimeError("session load failed")
+            sid = msg["params"]["sessionId"]
+            log(f"load {sid}")
+            log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
+            res = {"sessionId": sid, "configOptions": config_options()}
         elif method == "session/set_config_option":
             CONFIG[msg["params"]["configId"]] = msg["params"]["value"]
             log(f"set {msg['params']['configId']} {json.dumps(msg['params']['value'])}")

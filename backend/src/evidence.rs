@@ -231,12 +231,64 @@ impl Summary {
 }
 
 /// One independent verification of a task (a task whose `verifies` names it), as the delivery
-/// records it. A verifier that did not succeed has not confirmed the task.
+/// records it. Completing the review (`status == "succeeded"`) and confirming the target's output
+/// (`verdict == Approved`) are separate facts: a verifier that finds blocking defects finishes its
+/// review cleanly with `verdict: "rejected"` and `passed: false`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Verdict {
+    /// The verified task's output meets its acceptance criteria.
+    Approved,
+    /// Blocking issues were found; the executor needs to revise its work.
+    Rejected,
+    /// Evidence is insufficient to confirm the target's output right now.
+    Inconclusive,
+}
+
+impl Verdict {
+    pub const ALL: [Verdict; 3] = [Verdict::Approved, Verdict::Rejected, Verdict::Inconclusive];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Verdict::Approved => "approved",
+            Verdict::Rejected => "rejected",
+            Verdict::Inconclusive => "inconclusive",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Verdict::Approved => "通过",
+            Verdict::Rejected => "需要修改",
+            Verdict::Inconclusive => "证据不足",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Verdict> {
+        Verdict::ALL.into_iter().find(|v| v.as_str() == raw)
+    }
+}
+
+/// Effective verdict of a completed verification task: an explicit `verdict` wins; when omitted,
+/// any unmet check (or missing check) means `Rejected`, otherwise `Approved`.
+pub fn effective_verdict(verdict: Option<Verdict>, accept_len: usize, checks: &[Check]) -> Verdict {
+    if let Some(v) = verdict {
+        return v;
+    }
+    if checks.len() < accept_len || checks.iter().take(accept_len).any(|c| !c.passed) {
+        Verdict::Rejected
+    } else {
+        Verdict::Approved
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Verification {
     pub task: String,
     pub status: &'static str,
     pub label: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<&'static str>,
     pub passed: bool,
     pub summary: String,
     pub checks: Vec<Check>,
@@ -262,20 +314,32 @@ pub struct TaskAcceptance {
     pub risks: Vec<String>,
 }
 
-/// What keeps a result from passing: no summary, an acceptance criterion with no check or no
-/// evidence, a check the agent itself reports unmet, or a `method` that is not allowed. A missing
-/// method is not a gap, only a reminder.
-pub fn gaps(accept: &[String], summary: &str, checks: &[Check]) -> Vec<String> {
+/// Result validation aware of whether the task is an independent verifier (`is_verifier`).
+/// A read-only verifier's job is to inspect and report, not to edit files: when it checks every
+/// criterion with concrete evidence and reports `passed: false` or `verdict: "rejected"` /
+/// `"inconclusive"`, its review is complete and valid, not a failed attempt to be retried in place.
+pub fn gaps_for(
+    accept: &[String],
+    summary: &str,
+    checks: &[Check],
+    is_verifier: bool,
+    verdict: Option<Verdict>,
+    verdict_error: Option<&str>,
+) -> Vec<String> {
     let mut gaps = vec![];
     if summary.trim().is_empty() {
         gaps.push("结构化结果缺少 summary".to_string());
+    }
+    if let Some(raw) = verdict_error {
+        let allowed = Verdict::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>().join("、");
+        gaps.push(format!("结构化结果的 verdict「{raw}」不是允许值，只能是 {allowed}"));
     }
     for (i, criterion) in accept.iter().enumerate() {
         let Some(c) = checks.get(i) else {
             gaps.push(format!("没有核对第 {} 条验收标准「{criterion}」", i + 1));
             continue;
         };
-        if !c.passed {
+        if !is_verifier && !c.passed {
             gaps.push(format!(
                 "自认没有达到「{criterion}」：{}",
                 if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() }
@@ -286,6 +350,9 @@ pub fn gaps(accept: &[String], summary: &str, checks: &[Check]) -> Vec<String> {
         if let Some(raw) = &c.method_error {
             gaps.push(invalid_method(i, criterion, raw));
         }
+    }
+    if is_verifier && verdict == Some(Verdict::Approved) && checks.iter().take(accept.len()).any(|c| !c.passed) {
+        gaps.push("verdict 写了 approved，但有验收标准填了 passed: false，请统一判定与逐条结论".to_string());
     }
     gaps
 }
@@ -315,6 +382,10 @@ mod tests {
 
     fn accept(n: usize) -> Vec<String> {
         (0..n).map(|i| format!("标准{}", i + 1)).collect()
+    }
+
+    fn gaps(accept: &[String], summary: &str, checks: &[Check]) -> Vec<String> {
+        gaps_for(accept, summary, checks, false, None, None)
     }
 
     #[test]
@@ -421,5 +492,40 @@ mod tests {
         assert_eq!(lines[1], "通过：6 条");
         assert!(lines[2].starts_with("证据：测试 1 条"), "{lines:?}");
         assert!(lines[3].starts_with("提醒（不影响是否通过）："), "{lines:?}");
+    }
+
+    #[test]
+    fn verifier_verdicts_separate_review_completion_from_product_approval() {
+        let unmet = Check::from_json(&json!({
+            "criterion": "标准1", "passed": false, "method": "test", "evidence": "cargo test 报 1 个失败"
+        }));
+        // A read-only verifier reporting a real defect with evidence has completed its review.
+        assert!(
+            gaps_for(&accept(1), "发现阻断缺陷", std::slice::from_ref(&unmet), true, Some(Verdict::Rejected), None)
+                .is_empty()
+        );
+        assert_eq!(effective_verdict(None, 1, std::slice::from_ref(&unmet)), Verdict::Rejected);
+        // Without evidence, even a negative check is incomplete.
+        let bare = Check::from_json(&json!({ "criterion": "标准1", "passed": false, "evidence": " " }));
+        assert!(
+            gaps_for(&accept(1), "发现问题", &[bare], true, Some(Verdict::Rejected), None)
+                .iter()
+                .any(|g| g.contains("没有给出证据"))
+        );
+        // Contradicting `approved` with `passed: false` or naming an unknown verdict fails the check.
+        assert!(
+            gaps_for(&accept(1), "没问题", &[unmet], true, Some(Verdict::Approved), None)
+                .iter()
+                .any(|g| g.contains("approved"))
+        );
+        assert!(
+            gaps_for(&accept(1), "存疑", &[check("标准1", Some("test"), "ok")], true, None, Some("maybe"))
+                .iter()
+                .any(|g| g.contains("不是允许值"))
+        );
+        assert_eq!(
+            effective_verdict(Some(Verdict::Rejected), 1, &[check("标准1", Some("test"), "已完成核查")]),
+            Verdict::Rejected
+        );
     }
 }

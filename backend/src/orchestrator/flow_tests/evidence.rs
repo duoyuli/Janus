@@ -43,7 +43,7 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
         board.contains("提醒（不影响是否通过）") && board.contains("推理判断") && board.contains("未核实"),
         "{board}"
     );
-    assert!(board.contains("独立验证：V1 已完成"), "{board}");
+    assert!(board.contains("独立验证：V1 判定通过"), "{board}");
 
     // `task_detail`: each criterion with its method, and the verifier's own result apart.
     let (detail, _) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
