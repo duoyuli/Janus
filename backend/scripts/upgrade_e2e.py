@@ -127,13 +127,17 @@ def build_old(tag, tmp):
     return binary, seeds_in(old_roles)
 
 
-def old_member(id_, name, runtime, lead, role_id):
-    """A run member as the 2026.11.18 releases wrote it: with the role label and the model label."""
-    return {
-        "id": id_, "name": name, "role": "旧定位", "desc": "旧职责", "runtime": runtime, "lead": lead, "color": "#5452e8",
-        "init": "LD", "model": "", "effort": "", "session": {}, "permission": "Auto", "model_label": "Opus（Agent 默认）",
+def old_member(id_, name, runtime, lead, role_id, version):
+    """A run member as a release at data `version` wrote it. Data version 0 still had the role
+    label and the model label; a later migration that changes members adds its shape here."""
+    m = {
+        "id": id_, "name": name, "desc": "旧职责", "runtime": runtime, "lead": lead, "color": "#5452e8",
+        "init": "LD", "model": "", "effort": "", "session": {}, "permission": "Auto",
         "kind": "claude", "runtime_name": "Claude", "prompt": "", "role_prompt": "", "resources": [], "role_id": role_id,
     }
+    if version == 0:
+        m.update({"role": "旧定位", "model_label": "Opus（Agent 默认）"})
+    return m
 
 
 def write_old_data(ws):
@@ -157,8 +161,9 @@ def write_old_data(ws):
     return conn, custom, tester
 
 
-def insert_old_run(home):
-    team = [old_member("lead", "PMO", "claude", True, "coordinator"), old_member("implementer", "研发工程师", "claude", False, "implementer")]
+def insert_old_run(home, version):
+    team = [old_member("lead", "PMO", "claude", True, "coordinator", version),
+            old_member("implementer", "研发工程师", "claude", False, "implementer", version)]
     db = sqlite3.connect(os.path.join(home, "janus.db"))
     db.execute(
         "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES ('run-old', '旧目标', '/tmp', ?, 'delivered', 1)",
@@ -214,21 +219,28 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         before = api("GET", "/api/setup")
     finally:
         old.stop()
-    insert_old_run(home)
+    old_version = db_version(home)
+    insert_old_run(home, old_version)
+    upgrades = old_version < latest
+    say(f"  {tag} 的数据版本是 {old_version}" + ("" if upgrades else "，已是最新，没有要升级的"))
     if dump:
         dump_fixture(home, ws, dump)
 
     env = dict(os.environ, JANUS_HOME=home)
     preview = subprocess.run([new_bin, "migrate", "--dry-run"], env=env, capture_output=True, text=True)
-    check(preview.returncode == 0 and f"→ {latest}" in preview.stdout and "所有数据都符合" in preview.stdout,
-          f"migrate --dry-run 预览升级到 {latest} 且没有遗留问题：{preview.stdout.strip() or preview.stderr.strip()}")
-    check(db_version(home) == 0 and not backups(home), "预览没有改动数据")
+    expect = f"数据版本 {old_version} → {latest}" if upgrades else "已是最新"
+    check(preview.returncode == 0 and expect in preview.stdout and "所有数据都符合" in preview.stdout,
+          f"migrate --dry-run 预览（{expect}）且没有遗留问题：{preview.stdout.strip() or preview.stderr.strip()}")
+    check(db_version(home) == old_version and not backups(home), "预览没有改动数据")
 
     new = Server(new_bin, home, log)
     meta = new.start()
     try:
         check(meta.get("dataVersion") == latest, f"数据版本升到 {latest}（实际 {meta.get('dataVersion')}）")
-        check(len(backups(home)) == 1 and backups(home)[0].startswith("janus-v0-"), f"升级前做了备份：{backups(home)}")
+        if upgrades:
+            check(len(backups(home)) == 1 and backups(home)[0].startswith(f"janus-v{old_version}-"), f"升级前做了备份：{backups(home)}")
+        else:
+            check(not backups(home), "没有要升级的数据时不备份")
         setup = api("GET", "/api/setup")
         roles = {r["id"]: r for r in setup["roles"]}
         check(all("role" not in r for r in setup["roles"]), "数字员工不再带「定位」字段")
@@ -240,7 +252,12 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         rv = roles["reviewer"]
         check(rv["prompt"] == "我自己写的质量要求：先跑全部测试。", "改过指令的 reviewer 保留用户的文本")
         check(rv["desc"] == current_seeds["reviewer"][0], "reviewer 没改过的职责换成当前默认文本")
-        check(rv.get("seedUpdates", {}).get("prompt") == current_seeds["reviewer"][1], "reviewer 提示有新版默认指令")
+        # Data from before data version 2 does not say which default an edited field started from,
+        # so the current default is offered once; later, only a changed default is offered.
+        if old_seeds["reviewer"][1] != current_seeds["reviewer"][1] or old_version < 2:
+            check(rv.get("seedUpdates", {}).get("prompt") == current_seeds["reviewer"][1], "reviewer 提示有新版默认指令")
+        else:
+            check("seedUpdates" not in rv, "默认指令没有新版本时 reviewer 不提示")
         t = roles[tester["id"]]
         b = {r["id"]: r for r in before["roles"]}[tester["id"]]
         check({k: v for k, v in t.items() if k != "role"} == {k: v for k, v in b.items() if k != "role"}, "自定义数字员工除「定位」外不变")
@@ -262,7 +279,7 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
     check("已是最新" in after.stdout and "所有数据都符合" in after.stdout, f"升级后 migrate --dry-run 没有遗留问题：{after.stdout.strip()}")
     meta = new.start()
     new.stop()
-    check(meta.get("dataVersion") == latest and len(backups(home)) == 1, "再次启动不重复升级、不再备份")
+    check(meta.get("dataVersion") == latest and len(backups(home)) == (1 if upgrades else 0), "再次启动不重复升级、不再备份")
 
     newer = os.path.join(tmp, "home-newer-" + tag)
     shutil.copytree(home, newer, ignore=shutil.ignore_patterns("janus.pid"))
