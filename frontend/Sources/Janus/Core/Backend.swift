@@ -19,8 +19,8 @@ final class Backend {
     enum Phase: Equatable { case starting(String), ready, failed(String), stale(String) }
 
     private(set) var phase: Phase = .starting(L.text("正在启动 Janus 服务…"))
-    /// Whether the app started the server itself (and so owns its lifetime).
-    private(set) var owned = false
+    /// Whether the app started the server it uses (and so owns its lifetime): it holds the process.
+    var owned: Bool { process != nil }
     let home: URL
     /// The address Janus is configured for.
     let configured: String
@@ -63,7 +63,10 @@ final class Backend {
         return FileManager.default.isExecutableFile(atPath: node.path) ? node : nil
     }
 
+    /// Connect to a Janus serving this home, or start one. A server this app started earlier is
+    /// stopped first: found again on its port it would pass for one the app does not own.
     func start() async {
+        stop()
         phase = .starting(L.text("正在连接 Janus 服务…"))
         addr = configured
         notice = nil
@@ -112,14 +115,8 @@ final class Backend {
         }
     }
 
-    func retry() async {
-        stop()
-        await start()
-    }
-
     /// Use a Janus found running, unless it is another release than this app.
     private func use(running meta: JSON) {
-        owned = false
         let app = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         if Self.isStale(server: meta["version"].string, app: app) {
             let server = meta["version"].string ?? L.text("旧版本")
@@ -143,9 +140,11 @@ final class Backend {
         }
     }
 
-    /// Stops the server the app started (SIGTERM). A server it found running is left alone.
+    /// Stops the server the app started (SIGTERM). A server it found running is left alone. One
+    /// that already exited is let go too, so the app no longer counts as owning a server.
     func stop() {
-        guard let p = process, p.isRunning else { return }
+        guard let p = process else { return }
+        guard p.isRunning else { process = nil; return }
         stopping = true
         p.terminate()
         let deadline = Date().addingTimeInterval(3)
@@ -273,7 +272,6 @@ final class Backend {
         }
         try p.run()
         process = p
-        owned = true
     }
 
     func logTail(lines: Int = 12) -> String {

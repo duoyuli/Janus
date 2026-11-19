@@ -214,9 +214,9 @@ final class AppModel {
         }
     }
 
+    /// `Backend.start` stops the server this app started before looking again.
     func retry() async {
         store = nil
-        await backend.retry()
         await start()
     }
 
