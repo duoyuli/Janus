@@ -36,7 +36,7 @@ Janus 是单机、单用户的工具：编排器只在本机运行，任务直�
 - `docs/`：本文档库。`README.md` 是产品入口，`CHANGELOG.md` 是更新记录，`LESSONS.md` 是清理 Agent 合并的代码时积累的经验教训和 `AGENTS.md` 每条合并规则的来由，它们都在仓库根目录，不属于本库。
 - `justfile`：开发、构建、安装和服务命令，见[部署方案](operations/20261031-deployment.md)。
 - `.github/workflows/`：测试和发布工作流，见 [CI 与发布](operations/20261101-ci_release.md)。
-- `examples/calc/`：最小示例项目（自带 `.git`），用作工作区前先复制到仓库之外。
+- `examples/calc/`：最小示例项目（普通文件，随仓库提交），用作工作区前先复制到仓库之外。
 
 仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/20261031-deployment.md#layout)。`.gitignore` 只忽略构建输出：`backend/target/`、`frontend/.build/`、`dist/` 和 `.DS_Store`。
 
