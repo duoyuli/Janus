@@ -6,6 +6,15 @@ import SwiftUI
 struct JanusApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    init() {
+        // The window opens at every launch. AppKit's saved state ($TMPDIR/<bundle id>.savedState)
+        // would restore what was open at the last quit: after quitting from the menu bar with the
+        // window closed, or after any other process with the same bundle id (a test build) quit,
+        // Janus would start with only its menu bar icon. The window's size and place come from its
+        // frame autosave, not from this state.
+        UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
+    }
+
     var body: some Scene {
         Window("Janus", id: "main") {
             RootView(model: delegate.model)
