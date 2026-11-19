@@ -32,6 +32,7 @@ mod workspaces;
 
 pub use catalog::kinds;
 use catalog::*;
+pub use checks::CheckState;
 pub use local_config::local_preview;
 use local_config::*;
 pub(crate) use roles::record_seed_origins;

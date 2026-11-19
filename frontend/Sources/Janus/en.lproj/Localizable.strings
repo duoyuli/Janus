@@ -45,6 +45,7 @@
 "%@ 未确认（%@）" = "%@ unconfirmed (%@)";
 "%@ 检查未通过：%@" = "%@ failed the check: %@";
 "%@ 检查通过" = "%@ passed the check";
+"%@ 的检查没有完成，需要时重新检查" = "The check of %@ did not finish. Check again if needed.";
 "%@ 没有变化" = "%@ is unchanged";
 "%@ 没有声明权限模式：工具调用直接执行，不会发起审批，可以修改工作目录中的文件。" = "%@ declares no permission mode. Its tools run without requesting approval and may modify files in the working directory.";
 "%@ 的权限模式" = "Permission modes for %@";

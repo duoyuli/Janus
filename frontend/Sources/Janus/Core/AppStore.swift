@@ -328,7 +328,13 @@ final class AppStore {
                 await self.loadSetup()
                 let now = Set(self.connections.filter { $0["status"].str == "testing" }.map { $0["id"].str })
                 for id in before.subtracting(now) {
-                    if let c = self.connection(id) { self.show(c["status"].str == "ok" ? L.text("\(c["name"].str) 检查通过") : L.text("\(c["name"].str) 检查未通过：\(c["error"].str)")) }
+                    guard let c = self.connection(id) else { continue }
+                    switch c["status"].str {
+                    case "ok": self.show(L.text("\(c["name"].str) 检查通过"))
+                    case "error": self.show(L.text("\(c["name"].str) 检查未通过：\(c["error"].str)"))
+                    // Replaced by a save of the connection, or cut off by a restart: no result.
+                    default: self.show(L.text("\(c["name"].str) 的检查没有完成，需要时重新检查"))
+                    }
                 }
                 before = now
                 if now.isEmpty { self.polls["checks"] = nil; return }

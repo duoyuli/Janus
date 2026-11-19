@@ -49,7 +49,9 @@ Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20
 
 第 5 步读到的控制项是角色编辑器的选项来源。Agent 升级后控制项变化时，重新检查即可刷新。
 
-`GET /api/connections` 为每个连接额外返回 `phase`，应用只按这一个值显示状态，不再自己组合 `status`、`login.state` 和 `loggedIn`。取值依次为 `logging_in`（登录命令正在运行）、`logged_out`（需要账号登录但本机没有 `auth.json`）、`testing`、`ok`、`error`、`untested`。
+一个连接同一时间只记录一次检查的结果。检查开始时把 `status` 写成 `testing`，`testStartedAt` 写成开始时间；服务在内存中记着每个连接正在跑的检查（`App.checks`）。检查进行中再次发起，返回正在跑的这一次；记录还是 `testing` 但这次检查已经不在跑（检查中途 panic），就开始新的一次。每一步和最终结果只在记录的 `testStartedAt` 仍是自己的开始时间时写入：保存连接会写入不带开始时间的新记录，新检查会写入自己的开始时间，被取代的旧检查跑完后什么也不写，不会用旧配置的结果覆盖新的。应用轮询到检查从 `testing` 变为 `untested`（被保存取代或服务重启）时，提示检查没有完成，而不是「检查未通过」。
+
+`GET /api/connections` 为每个连接额外返回 `phase`，应用只按这一个值显示状态，不再自己组合 `status`、`login.state` 和 `loggedIn`。取值依次为 `logging_in`（登录命令正在运行；服务重启时登录命令随旧进程结束，启动时把留下的 `login.state=running` 改为 `failed`，和中途重启的配置检查改回 `untested` 一样，见 `reset_stale_checks`）、`logged_out`（需要账号登录但本机没有 `auth.json`）、`testing`、`ok`、`error`、`untested`。
 
 <a id="permission_modes"></a>
 ## 会话控制项与权限模式

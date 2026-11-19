@@ -748,6 +748,8 @@ pub struct App {
     pub tx: broadcast::Sender<Event>,
     pub runs: StdMutex<HashMap<String, Arc<Run>>>,
     pub adapter_state: crate::adapters::AdapterState,
+    /// Configuration checks running now, see `start_check`.
+    pub checks: crate::agents::CheckState,
     pub prices: crate::prices::PriceBook,
     pub library: crate::library::LibraryState,
 }
@@ -1034,6 +1036,7 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
         tx,
         runs: StdMutex::new(HashMap::new()),
         adapter_state: Default::default(),
+        checks: Default::default(),
         prices: Default::default(),
         library: Default::default(),
     })

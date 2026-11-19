@@ -584,6 +584,7 @@ async fn main() -> Result<()> {
         tx,
         runs: Mutex::new(HashMap::new()),
         adapter_state: Default::default(),
+        checks: Default::default(),
         prices: Default::default(),
         library: Default::default(),
     });

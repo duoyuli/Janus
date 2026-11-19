@@ -2,43 +2,64 @@
 //! and signing in to an agent account.
 
 use super::*;
+use std::sync::Mutex as StdMutex;
 
 impl App {
-    /// Start a configuration check in the background, so it finishes even if the app that asked goes away.
+    /// Start a configuration check in the background, so it finishes even if the app that asked
+    /// goes away. Asking again while it runs returns the running check.
     pub fn start_check(self: &Arc<Self>, id: &str) -> Result<Value> {
+        let mut running = self.checks.0.lock().unwrap();
         let mut c = self.connection(id)?;
-        if c["status"] == "testing" && c["testStartedAt"].as_i64().is_some_and(|t| now_ms() - t < 200_000) {
+        if c["status"] == "testing" && running.get(id).is_some_and(|t| c["testStartedAt"].as_i64() == Some(*t)) {
             return Ok(c);
         }
+        let started = now_ms();
         c["status"] = json!("testing");
-        c["testStartedAt"] = json!(now_ms());
+        c["testStartedAt"] = json!(started);
         c["check"] = json!([]);
         self.db.put_config(CONNECTION, id, &c, now_ms())?;
+        running.insert(id.to_string(), started);
+        drop(running);
         let app = self.clone();
         let id = id.to_string();
         tokio::spawn(async move {
-            if let Err(err) = app.test_connection(&id).await {
+            let _ended = CheckEnded { app: app.clone(), id: id.clone(), started };
+            if let Err(err) = app.test_connection(&id, started).await {
                 crate::config::log(format!("janus: check {id} failed to record: {err:#}"));
             }
         });
         Ok(c)
     }
 
-    /// A check left half-done by a restart reads as "not tested" again.
+    /// A check or a login left half-done by a restart: the task that would have recorded its end
+    /// went with the old process (and `kill_on_drop` took the login command with it). The check
+    /// reads as "not tested" again and the login as failed, so the next login starts a new one.
     pub fn reset_stale_checks(&self) -> Result<()> {
-        for mut c in self.db.list_config(CONNECTION)?.into_iter().filter(|c| c["status"] == "testing") {
-            c["status"] = json!("untested");
+        for mut c in self.db.list_config(CONNECTION)? {
+            let testing = c["status"] == "testing";
+            let logging_in = c["login"]["state"] == "running";
+            if !testing && !logging_in {
+                continue;
+            }
+            if testing {
+                c["status"] = json!("untested");
+            }
+            if logging_in {
+                c["login"] = json!({ "state": "failed", "at": now_ms() });
+            }
             self.db.put_config(CONNECTION, str_of(&c, "id"), &c, now_ms())?;
         }
         Ok(())
     }
 
     /// Record one step of the check so the app can show progress while it runs.
-    pub(super) fn check_step(&self, id: &str, steps: &mut Vec<Value>, name: &str, ok: Option<bool>, detail: String) {
-        steps.retain(|s| s["step"] != name);
-        steps.push(json!({ "step": name, "ok": ok, "detail": self.redact(id, &detail) }));
-        if let Ok(mut c) = self.connection(id) {
-            c["check"] = json!(steps);
+    fn check_step(&self, id: &str, check: &mut Check, name: &str, ok: Option<bool>, detail: String) {
+        check.steps.retain(|s| s["step"] != name);
+        check.steps.push(json!({ "step": name, "ok": ok, "detail": self.redact(id, &detail) }));
+        if let Ok(mut c) = self.connection(id)
+            && check.owns(&c)
+        {
+            c["check"] = json!(check.steps);
             let _ = self.db.put_config(CONNECTION, id, &c, now_ms());
         }
     }
@@ -118,31 +139,31 @@ impl App {
         }
     }
 
-    /// The full configuration check: runtime → credentials → ACP handshake → session and models → one real reply.
-    pub async fn test_connection(self: &Arc<Self>, id: &str) -> Result<Value> {
+    /// The full configuration check: runtime → credentials → ACP handshake → session and models →
+    /// one real reply. A check that a newer one or a save of the connection replaced records nothing.
+    async fn test_connection(self: &Arc<Self>, id: &str, started: i64) -> Result<()> {
         let dir = self.agent_dir(id);
         let probe = dir.join("probe");
         std::fs::create_dir_all(&probe)?;
         let log = dir.join("test.log");
         let _ = std::fs::remove_file(&log);
-        let started = now_ms();
-        let mut steps: Vec<Value> = vec![];
+        let mut check = Check { started, steps: vec![] };
         let c0 = self.connection(id)?;
 
         let outcome: Result<Value> = async {
             // An agent's adapter is installed the first time it is needed: here, before the check uses it.
             if let Some(adapter) = crate::adapters::for_base(str_of(&c0, "base")) {
-                self.check_step(id, &mut steps, "ACP 适配器", None, format!("检查 {} 的适配器…", adapter.name));
+                self.check_step(id, &mut check, "ACP 适配器", None, format!("检查 {} 的适配器…", adapter.name));
                 let app = self.clone();
                 let installed = tokio::task::spawn_blocking(move || app.ensure_adapter(adapter.id)).await?;
                 match installed {
-                    Ok(Some(v)) => self.check_step(id, &mut steps, "ACP 适配器", Some(true), format!("已安装 {} {v}", adapter.package)),
+                    Ok(Some(v)) => self.check_step(id, &mut check, "ACP 适配器", Some(true), format!("已安装 {} {v}", adapter.package)),
                     Ok(None) => {
                         let v = self.adapter_version(adapter.id).unwrap_or_default();
-                        self.check_step(id, &mut steps, "ACP 适配器", Some(true), format!("{} {v}", adapter.package));
+                        self.check_step(id, &mut check, "ACP 适配器", Some(true), format!("{} {v}", adapter.package));
                     }
                     Err(err) => {
-                        self.check_step(id, &mut steps, "ACP 适配器", Some(false), format!("安装失败：{err:#}"));
+                        self.check_step(id, &mut check, "ACP 适配器", Some(false), format!("安装失败：{err:#}"));
                         return Err(err);
                     }
                 }
@@ -150,35 +171,35 @@ impl App {
             let spec = match self.spec_for(id) {
                 Ok(spec) => spec,
                 Err(err) => {
-                    self.check_step(id, &mut steps, "运行时", Some(false), format!("{err:#}"));
+                    self.check_step(id, &mut check, "运行时", Some(false), format!("{err:#}"));
                     return Err(err);
                 }
             };
             let program = spec.args.first().cloned().unwrap_or_else(|| spec.program.clone());
-            self.check_step(id, &mut steps, "运行时", Some(true), program);
+            self.check_step(id, &mut check, "运行时", Some(true), program);
 
             let (cred_ok, cred) = self.credential_check(&c0);
-            self.check_step(id, &mut steps, "凭据", Some(cred_ok), cred.clone());
+            self.check_step(id, &mut check, "凭据", Some(cred_ok), cred.clone());
             if !cred_ok {
                 bail!("{cred}");
             }
 
-            self.check_step(id, &mut steps, "启动 Agent", None, "通过 ACP 握手…".into());
+            self.check_step(id, &mut check, "启动 Agent", None, "通过 ACP 握手…".into());
             let (conn, mut rx) = match tokio::time::timeout(Duration::from_secs(60), AcpConn::spawn(&spec, &probe, &log)).await {
                 Ok(Ok(x)) => x,
                 Ok(Err(err)) => {
-                    self.check_step(id, &mut steps, "启动 Agent", Some(false), format!("{err:#}"));
+                    self.check_step(id, &mut check, "启动 Agent", Some(false), format!("{err:#}"));
                     return Err(err);
                 }
                 Err(_) => {
-                    self.check_step(id, &mut steps, "启动 Agent", Some(false), "60 秒内没有完成 ACP 握手".into());
+                    self.check_step(id, &mut check, "启动 Agent", Some(false), "60 秒内没有完成 ACP 握手".into());
                     bail!("60 秒内没有完成 ACP 握手");
                 }
             };
-            self.check_step(id, &mut steps, "启动 Agent", Some(true), format!("{} {}", conn.agent_info["name"].as_str().unwrap_or("agent"), conn.agent_info["version"].as_str().unwrap_or("")));
+            self.check_step(id, &mut check, "启动 Agent", Some(true), format!("{} {}", conn.agent_info["name"].as_str().unwrap_or("agent"), conn.agent_info["version"].as_str().unwrap_or("")));
 
             let result: Result<Value> = async {
-                self.check_step(id, &mut steps, "打开会话", None, "读取模型列表…".into());
+                self.check_step(id, &mut check, "打开会话", None, "读取模型列表…".into());
                 let session = match tokio::time::timeout(Duration::from_secs(60), conn.request("session/new", json!({ "cwd": probe, "mcpServers": [] }))).await {
                     Ok(r) => r,
                     Err(_) => Err(anyhow!("60 秒内没有打开会话")),
@@ -186,7 +207,7 @@ impl App {
                 let session = match session {
                     Ok(s) => s,
                     Err(err) => {
-                        self.check_step(id, &mut steps, "打开会话", Some(false), auth_hint(&format!("{err:#}")));
+                        self.check_step(id, &mut check, "打开会话", Some(false), auth_hint(&format!("{err:#}")));
                         return Err(err);
                     }
                 };
@@ -198,9 +219,9 @@ impl App {
                     _ => format!("{}（开关）", str_of(c, "name")),
                 }).collect();
                 let models = if models > 0 { format!("{models} 个模型，默认 {}", options["model"]["current"].as_str().unwrap_or("")) } else { "Agent 没有提供模型列表".into() };
-                self.check_step(id, &mut steps, "打开会话", Some(true), if perms.is_empty() { format!("{models}；没有声明权限模式") } else { format!("{models}；{}", perms.join("；")) });
+                self.check_step(id, &mut check, "打开会话", Some(true), if perms.is_empty() { format!("{models}；没有声明权限模式") } else { format!("{models}；{}", perms.join("；")) });
 
-                self.check_step(id, &mut steps, "试运行", None, "发送一句测试消息…".into());
+                self.check_step(id, &mut check, "试运行", None, "发送一句测试消息…".into());
                 let prompt = conn.request("session/prompt", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": "Reply with exactly the word PONG and nothing else." }] }));
                 tokio::pin!(prompt);
                 let mut reply = String::new();
@@ -226,14 +247,14 @@ impl App {
                     }
                 };
                 if let Err(err) = run {
-                    self.check_step(id, &mut steps, "试运行", Some(false), auth_hint(&format!("{err:#}")));
+                    self.check_step(id, &mut check, "试运行", Some(false), auth_hint(&format!("{err:#}")));
                     return Err(err);
                 }
                 if reply.trim().is_empty() {
-                    self.check_step(id, &mut steps, "试运行", Some(false), "Agent 没有返回任何内容，可能是模型或凭据有误".into());
+                    self.check_step(id, &mut check, "试运行", Some(false), "Agent 没有返回任何内容，可能是模型或凭据有误".into());
                     bail!("Agent 没有返回任何内容");
                 }
-                self.check_step(id, &mut steps, "试运行", Some(true), format!("回复：{}", crate::orchestrator::short(reply.trim(), 40)));
+                self.check_step(id, &mut check, "试运行", Some(true), format!("回复：{}", crate::orchestrator::short(reply.trim(), 40)));
                 Ok(json!({ "agentInfo": conn.agent_info, "options": options, "reply": reply.trim() }))
             }
             .await;
@@ -243,9 +264,12 @@ impl App {
         .await;
 
         let mut c = self.connection(id)?;
+        if !check.owns(&c) {
+            return Ok(());
+        }
         c["checkedAt"] = json!(now_ms());
         c["elapsedMs"] = json!(now_ms() - started);
-        c["check"] = json!(steps);
+        c["check"] = json!(check.steps);
         match outcome {
             Ok(found) => {
                 c["status"] = json!("ok");
@@ -256,7 +280,8 @@ impl App {
                 c["reply"] = json!(crate::orchestrator::short(found["reply"].as_str().unwrap_or(""), 80));
             }
             Err(err) => {
-                let failed = steps
+                let failed = check
+                    .steps
                     .iter()
                     .find(|s| s["ok"] == false)
                     .map(|s| format!("{}：{}", str_of(s, "step"), str_of(s, "detail")))
@@ -267,7 +292,7 @@ impl App {
             }
         }
         self.db.put_config(CONNECTION, id, &c, now_ms())?;
-        Ok(c)
+        Ok(())
     }
 
     /// Codex ChatGPT login through the adapter's bundled CLI, into the connection's own
@@ -318,5 +343,111 @@ impl App {
             }
         });
         Ok(())
+    }
+}
+
+/// The configuration checks running in this process: when each connection's started. A record
+/// that reads `testing` with another start time was cut off (a panic in the check), so asking
+/// again starts a new one instead of returning it.
+#[derive(Default)]
+pub struct CheckState(StdMutex<HashMap<String, i64>>);
+
+/// One running check: its steps so far, and when it started, which tells whether the stored
+/// record is still its own. Saving the connection writes a record without that start time, and
+/// a newer check writes its own: either way this one stops recording.
+struct Check {
+    started: i64,
+    steps: Vec<Value>,
+}
+
+impl Check {
+    fn owns(&self, c: &Value) -> bool {
+        c["testStartedAt"].as_i64() == Some(self.started)
+    }
+}
+
+/// Takes a check off the running list when it ends, also when it panics.
+struct CheckEnded {
+    app: Arc<App>,
+    id: String,
+    started: i64,
+}
+
+impl Drop for CheckEnded {
+    fn drop(&mut self) {
+        if let Ok(mut running) = self.app.checks.0.lock()
+            && running.get(&self.id) == Some(&self.started)
+        {
+            running.remove(&self.id);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orchestrator::test_app;
+
+    /// A restart in the middle of a check or a login leaves neither stuck: the connection no
+    /// longer reads as testing or logging in, and the next login is not taken for one running.
+    #[test]
+    fn a_restart_ends_a_check_or_login_left_running() {
+        let dir = std::env::temp_dir().join(format!("janus-stale-checks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = test_app(&dir);
+        let login = json!({ "auth": "chatgpt", "login": { "state": "running", "at": 1 } });
+        let check = json!({ "status": "testing", "testStartedAt": 1 });
+        let settled = json!({ "status": "ok", "login": { "state": "done", "at": 1 } });
+        for (id, extra) in [("logging-in", login), ("testing", check), ("settled", settled)] {
+            let c = crate::agents::test_connection(id, "codex", "codex", extra);
+            app.db.put_config(CONNECTION, id, &c, 1).unwrap();
+        }
+
+        app.reset_stale_checks().unwrap();
+
+        let all = app.connections().unwrap();
+        let get = |id: &str| all.iter().find(|c| c["id"] == id).unwrap().clone();
+        let logging_in = get("logging-in");
+        assert_eq!(logging_in["login"]["state"], "failed");
+        assert_eq!(logging_in["phase"], "logged_out", "the card offers to log in again");
+        assert_eq!(get("testing")["status"], "untested");
+        let settled = get("settled");
+        assert_eq!((settled["status"].as_str(), settled["login"]["at"].as_i64()), (Some("ok"), Some(1)), "left alone");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Asking for a check while one runs returns it; once it is no longer running (it panicked),
+    /// asking starts a new one. A check that a save or a newer check replaced records nothing.
+    #[tokio::test]
+    async fn only_the_latest_check_of_a_connection_records_its_result() {
+        let dir = std::env::temp_dir().join(format!("janus-check-owner-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = test_app(&dir);
+        // An agent that never answers the handshake keeps its check running.
+        let slow = crate::agents::test_connection("slow", "custom", "custom", json!({ "command": "sleep 30" }));
+        app.db.put_config(CONNECTION, "slow", &slow, 1).unwrap();
+        let first = app.start_check("slow").unwrap();
+        let again = app.start_check("slow").unwrap();
+        assert_eq!(again["testStartedAt"], first["testStartedAt"], "the running check is returned");
+        app.checks.0.lock().unwrap().clear();
+        std::thread::sleep(Duration::from_millis(2));
+        let fresh = app.start_check("slow").unwrap();
+        assert_ne!(fresh["testStartedAt"], first["testStartedAt"], "a check no longer running is started anew");
+
+        // An agent that exits at once ends its check quickly; the record now belongs to another.
+        let gone = crate::agents::test_connection(
+            "gone",
+            "custom",
+            "custom",
+            json!({ "command": "true", "status": "testing", "testStartedAt": 2, "check": [] }),
+        );
+        app.db.put_config(CONNECTION, "gone", &gone, 1).unwrap();
+        app.test_connection("gone", 1).await.unwrap();
+        let after = app.connection("gone").unwrap();
+        assert_eq!((after["status"].as_str(), after["check"].clone()), (Some("testing"), json!([])), "untouched");
+        app.test_connection("gone", 2).await.unwrap();
+        assert_eq!(app.connection("gone").unwrap()["status"], "error", "its own check records the result");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
