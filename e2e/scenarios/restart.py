@@ -1,12 +1,12 @@
 """The server going away mid-run: what is kept, what is interrupted, and how work continues."""
 
-from lib import wait
+from lib import drawn, wait
 from scenarios import scenario, task
 
 
 @scenario("restart", serial=True)
 def restart(ctx, c):
-    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续；已交付的 Run 重启后还能继续对话；应用重新连上"""
+    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续；已交付的 Run 回放时会话只读，重启后还能继续对话；应用重新连上"""
     t = ctx.team("restart", members=("m1", "m2", "m3"), script={"T1": ["write:a.txt"], "T2": ["slow", "ok"], "T3": ["ok"]})
     run = t.run("跨越重启的目标")
     run.orchestrate(task("T1", t.member("m1"), owns=["a.txt"]), task("T2", t.member("m2")), task("T3", t.member("m3"), deps=["T2"]))
@@ -46,6 +46,14 @@ def restart(ctx, c):
     # A run delivered before the restart takes a message: the lead's session reopens.
     done.act("message", agent="lead", text="重启后还记得吗")
     sent = done.wait_event("user.message")["seq"]
+    # Replaying it shows the lead's session read-only: a draft typed there stays and is not sent.
+    if ctx.ui(c, done.id, lambda r, s: r["status"] == "delivered", "重启前交付的 Run 在应用中已交付"):
+        shot = f"{done.id}-replay-draft"
+        ctx.app.do(f"open run:{done.id}", "page replay:3", "draft lead 回放时写的草稿", f"shot {shot}")
+        c(drawn(ctx.app.picture(shot)), f"应用：回放中负责人会话显示「回放中」、输入框只读、草稿保留（{shot}.png）")
+        ctx.app.do("page board")
+        c(not done.has("user.message"), "回放中写的草稿没有发出去")
+
     wait(lambda: [e for e in done.events() if e["type"] == "agent.message" and e["actor"] == "lead" and e["seq"] > sent], "负责人回复")
     c("load " in d.fake.calls(), "只有事件记录的历史 Run 发消息时加载原会话（session/load）")
     ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and all(x["status"] == "succeeded" for x in r["tasks"]),

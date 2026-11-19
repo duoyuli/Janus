@@ -76,6 +76,21 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(!agentSession(st, "lead").converse)
 }
 
+/// Replaying a delivered or interrupted run shows its sessions read-only: the composer the live
+/// run offers there is not offered at a replayed position, so a draft is never sent into nothing.
+@Test func replayedSessionsTakeNoMessages() {
+    var st = RunState()
+    st.run.goal = "目标"
+    st.run.status = .delivered
+    let lead = agentSession(st, "lead")
+    #expect(SessionComposer(lead, live: false, replaying: false) == .converse, "a historical run reopens on send")
+    #expect(SessionComposer(lead, live: false, replaying: true) == .replay)
+    st.run.status = .interrupted
+    let interrupted = agentSession(st, "lead")
+    #expect(SessionComposer(interrupted, live: false, replaying: false) == .interrupted)
+    #expect(SessionComposer(interrupted, live: false, replaying: true) == .replay)
+}
+
 /// The session card keeps its own numbers: this session's context and the last turn, labelled apart
 /// from the run's cumulative total.
 @Test func sessionUsageIsLabelledApartFromTheRunTotal() {

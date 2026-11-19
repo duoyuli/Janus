@@ -28,6 +28,32 @@ func taskSession(_ st: RunState, _ t: TaskState) -> SessionInfo {
     SessionInfo(evs: st.events.filter { ($0.task == t.id || ($0.type == "task.conflict" && $0.data["other"].str == t.id)) && isSessionEvent($0) }, open: t.live, human: t.human, idle: t.idle, resume: st.run.status.canResume, leave: false, converse: false)
 }
 
+/// What a session's composer offers. Replaying shows a past position, so nothing can be sent
+/// whatever the session allowed at the time.
+enum SessionComposer: Equatable {
+    case replay
+    /// The person has taken over the open session; `idle` when it waits for their message.
+    case human(idle: Bool)
+    /// The open session runs on its own; a message cuts in.
+    case managed
+    /// The run stopped part-way; sending resumes it.
+    case interrupted
+    /// The lead's goal is done and its session takes ordinary prompts (reopened first when not live).
+    case converse
+    /// No open session; a message waits for the agent's next one.
+    case leave
+    case ended
+
+    init(_ info: SessionInfo, live: Bool, replaying: Bool) {
+        if replaying { self = .replay }
+        else if info.open && live { self = info.human ? .human(idle: info.idle) : .managed }
+        else if info.resume { self = .interrupted }
+        else if info.converse { self = .converse }
+        else if info.leave && live { self = .leave }
+        else { self = .ended }
+    }
+}
+
 /// Everything one agent did in this run, and where a message to it goes right now.
 func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
     let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && e.type == "run.created") }
@@ -108,19 +134,19 @@ struct ChatCard: View {
 
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
         let ph = L.text("给 Agent 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送")
-        if info.open && live {
-            if info.human {
-                if info.idle {
-                    return (L.text("人工接管 · 等你的消息"), .amber, AnyView(HStack { btn("finish", L.text("以当前结果完成")); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
-                }
-                return (L.text("人工接管 · 正在处理"), .blue, AnyView(HStack { btn("interrupt", L.text("打断这一轮"), danger: true); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
-            }
+        let composer = SessionComposer(info, live: live, replaying: run.isReplaying)
+        switch composer {
+        case .replay:
+            return (L.text("回放中"), .gray, AnyView(EmptyView()), L.text("回放时只读查看，回到实时后才能发消息"), false)
+        case .human(idle: true):
+            return (L.text("人工接管 · 等你的消息"), .amber, AnyView(HStack { btn("finish", L.text("以当前结果完成")); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
+        case .human(idle: false):
+            return (L.text("人工接管 · 正在处理"), .blue, AnyView(HStack { btn("interrupt", L.text("打断这一轮"), danger: true); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
+        case .managed:
             return (L.text("托管中 · 自主执行"), .blue, AnyView(HStack { btn("interrupt", L.text("打断并接管"), danger: true); btn("takeover", L.text("接管")); btn("sessSend", L.text("插话"), true) }), ph, true)
-        }
-        if info.resume {
+        case .interrupted:
             return (L.text("已中断"), .gray, AnyView(HStack { Button(L.text("从中断处继续")) { Task { await run.act(["type": "resumeRun"]) } }; btn("sessSend", L.text("发送并继续"), true) }), L.text("补充信息或直接写「继续」，发送后从中断处恢复"), true)
-        }
-        if info.converse {
+        case .converse:
             // The first goal is done; the same session now takes ordinary prompts. A slash command
             // starts a new goal and Janus follows it again. A historical run has no session yet,
             // so sending the first message reopens it.
@@ -131,11 +157,11 @@ struct ChatCard: View {
                 live ? L.text("写下接下来要做的，或用 /goal 设置新的目标") : L.text("写下任务，发送后恢复负责人会话"),
                 true
             )
-        }
-        if info.leave && live {
+        case .leave:
             return (L.text("当前没有会话"), .gray, AnyView(btn("sessSend", L.text("留言"), true)), L.text("留言会在它下一次会话开始时带给它"), true)
+        case .ended:
+            return (L.text("会话已结束"), .gray, AnyView(EmptyView()), live ? L.text("这个会话已经结束") : L.text("只读查看"), false)
         }
-        return (L.text("会话已结束"), .gray, AnyView(EmptyView()), live ? L.text("这个会话已经结束") : L.text("只读查看"), false)
     }
 
     private func btn(_ act: String, _ label: String, _ primary: Bool = false, danger: Bool = false) -> some View {
@@ -163,9 +189,20 @@ struct ChatCard: View {
             guard !text.isEmpty || !images.isEmpty else { return }
             body["text"] = JSON(text)
             if !images.isEmpty { body["images"] = .array(images.map(\.json)) }
-            run.sessionDrafts[target.key] = ""
-            run.sessionImages[target.key] = []
+            let key = target.key
+            run.sessionDrafts[key] = ""
+            run.sessionImages[key] = []
             sent += 1
+            // A message that did not go out comes back into the composer, unless the person has
+            // started another one meanwhile.
+            Task {
+                if await run.act(body) { return }
+                if (run.sessionDrafts[key] ?? "").isEmpty && (run.sessionImages[key] ?? []).isEmpty {
+                    run.sessionDrafts[key] = text
+                    run.sessionImages[key] = images
+                }
+            }
+            return
         }
         Task { await run.act(body) }
     }

@@ -395,6 +395,8 @@
 "回到最新" = "Back to Latest";
 "回到最新的消息，之后的新消息会继续显示在底部" = "Jump to the latest message and follow new messages";
 "回复 %@：%@" = "Reply to %@: %@";
+"回放中" = "Replaying";
+"回放时只读查看，回到实时后才能发消息" = "Read-only while replaying. Return to live to send messages.";
 "回放位置" = "Replay Position";
 "回放到这里" = "Replay to Here";
 "回放模式" = "Replay Mode";
