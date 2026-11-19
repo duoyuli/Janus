@@ -66,7 +66,11 @@ impl App {
             Some(run) => run,
             None => match kind {
                 // Acceptance needs no live agents, so it also works for runs delivered before a restart.
-                "accept" => return self.accept_archived(run_id).map_err(ActionRefused::Invalid),
+                "accept" => match self.accept_archived(run_id).await.map_err(ActionRefused::Invalid)? {
+                    None => return Ok(()),
+                    // A message brought it back meanwhile: it is accepted as a live run.
+                    Some(run) => run,
+                },
                 "resumeRun" => return self.resume_run(run_id).await.map(|_| ()).map_err(ActionRefused::Invalid),
                 // Talking to an agent brings an interrupted run back first.
                 "message" => self.resume_run(run_id).await.map_err(ActionRefused::Invalid)?,
@@ -332,7 +336,11 @@ impl App {
         Ok(())
     }
 
-    pub fn accept_archived(&self, run_id: &str) -> Result<()> {
+    pub async fn accept_archived(&self, run_id: &str) -> Result<Option<Arc<Run>>> {
+        let _turn = self.revival.lock().await;
+        if let Some(run) = self.run(run_id) {
+            return Ok(Some(run));
+        }
         let status = self.db.run(run_id)?.map(|r| r["status"].clone()).context("run not found")?;
         if status.as_str() != Some("delivered") {
             bail!("只有已交付的任务 可以验收");
@@ -353,7 +361,8 @@ impl App {
             },
             None,
         );
-        self.db.set_run_status(run_id, RunStatus::Accepted)
+        self.db.set_run_status(run_id, RunStatus::Accepted)?;
+        Ok(None)
     }
 
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
@@ -361,6 +370,7 @@ impl App {
     /// ones start again (reopening their old session when possible), and planning resumes where it was.
     // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
     pub async fn resume_run(self: &Arc<Self>, run_id: &str) -> Result<Arc<Run>> {
+        let _turn = self.revival.lock().await;
         if let Some(run) = self.run(run_id) {
             return Ok(run);
         }
@@ -395,10 +405,6 @@ impl App {
             if let Some(cl) = d["costLimitUsd"].as_f64() {
                 cost_limit_micros = (cl * 1_000_000.0).round() as i64;
             }
-        }
-        let owner = format!("janus-{}", std::process::id());
-        if self.db.acquire_lease(run_id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
-            bail!("任务已被另一个 Janus 实例接管");
         }
         let run = Arc::new(Run::new(RunRecord {
             id: run_id.to_string(),

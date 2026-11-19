@@ -194,7 +194,7 @@ impl Db {
     pub fn delete_run(&self, run_id: &str) -> Result<()> {
         let conn = self.0.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
-        for table in ["events", "attempts", "artifacts", "verifications", "commands", "leases"] {
+        for table in ["events", "attempts", "artifacts", "verifications", "commands"] {
             tx.execute(&format!("DELETE FROM {table} WHERE run_id = ?1"), params![run_id])?;
         }
         tx.execute("DELETE FROM runs WHERE id = ?1", params![run_id])?;
@@ -315,35 +315,6 @@ impl Db {
         Ok(())
     }
 
-    pub fn acquire_lease(&self, run_id: &str, name: &str, owner: &str, now: i64, ttl_ms: i64) -> Result<Option<i64>> {
-        let conn = self.0.lock().unwrap();
-        let tx = conn.unchecked_transaction()?;
-        let existing: Option<(String, i64, i64)> = tx
-            .query_row(
-                "SELECT owner, fencing, expires_at FROM leases WHERE run_id = ?1 AND name = ?2",
-                params![run_id, name],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .optional()?;
-        let fencing = match existing {
-            Some((current_owner, _current_fencing, expires))
-                if expires > now && current_owner != owner && lease_owner_alive(&current_owner) =>
-            {
-                return Ok(None);
-            }
-            Some((current_owner, current_fencing, _)) if current_owner == owner => current_fencing,
-            Some((_, current_fencing, _)) => current_fencing + 1,
-            None => 1,
-        };
-        tx.execute(
-            "INSERT INTO leases (run_id, name, owner, fencing, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(run_id, name) DO UPDATE SET owner=excluded.owner, fencing=excluded.fencing, expires_at=excluded.expires_at",
-            params![run_id, name, owner, fencing, now + ttl_ms],
-        )?;
-        tx.commit()?;
-        Ok(Some(fencing))
-    }
-
     pub fn put_config(&self, kind: &str, id: &str, data: &Value, now: i64) -> Result<()> {
         // Every write in tests must have the shape the current migrations leave behind.
         #[cfg(test)]
@@ -380,13 +351,6 @@ impl Db {
         self.0.lock().unwrap().execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", params![kind, id])?;
         Ok(())
     }
-}
-
-fn lease_owner_alive(owner: &str) -> bool {
-    let Some(pid) = owner.strip_prefix("janus-") else {
-        return true;
-    };
-    std::process::Command::new("kill").args(["-0", pid]).status().is_ok_and(|status| status.success())
 }
 
 #[cfg(test)]
@@ -475,7 +439,6 @@ mod tests {
             })
             .unwrap();
             db.claim_command(id, "c", &json!({}), created).unwrap();
-            db.acquire_lease(id, "run", "janus-1", created, 1000).unwrap();
         }
         db.delete_run("r1").unwrap();
         assert!(db.run("r1").unwrap().is_none());
@@ -485,16 +448,6 @@ mod tests {
         // Deleting it again changes nothing else.
         db.delete_run("r1").unwrap();
         assert!(db.run("r2").unwrap().is_some());
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[test]
-    fn lease_fencing_rejects_live_other_owner_and_increments_after_expiry() {
-        let (db, path) = temp_db("leases");
-        db.insert_run("r1", "test", "/tmp", &json!({}), 1).unwrap();
-        assert_eq!(db.acquire_lease("r1", "run", "a", 10, 100).unwrap(), Some(1));
-        assert_eq!(db.acquire_lease("r1", "run", "b", 20, 100).unwrap(), None);
-        assert_eq!(db.acquire_lease("r1", "run", "b", 200, 100).unwrap(), Some(2));
         let _ = std::fs::remove_file(path);
     }
 }

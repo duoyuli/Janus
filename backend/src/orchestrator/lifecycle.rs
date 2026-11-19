@@ -50,10 +50,6 @@ impl App {
             config["costLimitUsd"] = json!(c);
         }
         self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
-        let owner = format!("janus-{}", std::process::id());
-        if self.db.acquire_lease(&id, "run", &owner, now_ms(), 10 * 60 * 1000)?.is_none() {
-            bail!("任务已被另一个 Janus 实例接管");
-        }
         let run = Arc::new(Run::new(RunRecord {
             id: id.clone(),
             goal,
@@ -540,6 +536,7 @@ impl App {
     /// workspace's own files are not touched.
     // @project-doc docs/interfaces/20261031-http_api.md#run_delete
     pub async fn delete_run(self: &Arc<Self>, run_id: &str) -> Result<(), DeleteRefused> {
+        let _turn = self.revival.lock().await;
         let row = self.db.run(run_id).map_err(DeleteRefused::Invalid)?;
         let Some(row) = row else { return Err(DeleteRefused::NotFound) };
         let status = RunStatus::parse(row["status"].as_str().unwrap_or(""));
@@ -550,6 +547,7 @@ impl App {
         // live map first, then stop those sessions before the rows they could still write to are gone.
         let live = self.runs.lock().unwrap().remove(run_id);
         if let Some(run) = live {
+            *run.emitting.lock().unwrap_or_else(|p| p.into_inner()) = true;
             let conns: Vec<Arc<AcpConn>> = {
                 let mut st = run.st.lock().unwrap();
                 st.pending.clear();

@@ -587,6 +587,7 @@ async fn main() -> Result<()> {
         checks: Default::default(),
         prices: Default::default(),
         library: Default::default(),
+        revival: Default::default(),
     });
     app.recover()?;
     app.sync_seeds()?;

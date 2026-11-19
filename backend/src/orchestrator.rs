@@ -586,7 +586,8 @@ pub struct Run {
     seq: AtomicI64,
     /// Held while an event takes its seq, is stored and broadcast, so the stream carries a
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
-    emitting: StdMutex<()>,
+    /// `true` once the run is deleted: what its sessions still say on the way out is not written.
+    emitting: StdMutex<bool>,
     deadline_ms: AtomicI64,
     /// Optional USD cost ceiling in micro-dollars (`0` = unlimited).
     cost_limit_micros: AtomicI64,
@@ -690,7 +691,7 @@ impl Run {
             brief: r.brief,
             goal_images: r.goal_images,
             seq: AtomicI64::new(r.last_seq),
-            emitting: StdMutex::new(()),
+            emitting: StdMutex::new(false),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             cost_limit_micros: AtomicI64::new(r.cost_limit_micros.max(0)),
             costs: StdMutex::default(),
@@ -764,6 +765,10 @@ pub struct App {
     pub checks: crate::agents::CheckState,
     pub prices: crate::prices::PriceBook,
     pub library: crate::library::LibraryState,
+    /// Taken while a run that is not live is brought back, accepted from the archive or deleted,
+    /// so two requests for it (two messages sent quickly, a message and a delete) take turns and
+    /// the second finds what the first did.
+    pub revival: tokio::sync::Mutex<()>,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
@@ -852,7 +857,10 @@ impl App {
 
     // @project-doc docs/interfaces/20261031-events.md#event_shape
     fn emit(&self, run: &Run, e: Ev) -> i64 {
-        let _order = run.emitting.lock().unwrap_or_else(|p| p.into_inner());
+        let deleted = run.emitting.lock().unwrap_or_else(|p| p.into_inner());
+        if *deleted {
+            return 0;
+        }
         let seq = run.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let event = Event {
             run_id: run.id.clone(),
@@ -869,7 +877,7 @@ impl App {
         let nudge = needs_lead(&event);
         let wakes_board = wakes_board_wait(&event);
         let stored = self.store(event, Some(run));
-        drop(_order);
+        drop(deleted);
         if stored {
             if wakes_board {
                 run.board_wake.notify_waiters();
@@ -1051,5 +1059,6 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
         checks: Default::default(),
         prices: Default::default(),
         library: Default::default(),
+        revival: Default::default(),
     })
 }

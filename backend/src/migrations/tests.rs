@@ -82,10 +82,16 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     }
     drop(conn);
 
-    // Opening again changes nothing and takes no second backup.
+    // Opening again changes nothing and takes no second backup; a table a migration dropped
+    // (the run leases) does not come back with the baseline.
     let (_db, again) = crate::db::Db::open(&path).unwrap();
     assert!(again.applied.is_empty() && again.backup.is_none());
     assert_eq!(std::fs::read_dir(backup.parent().unwrap()).unwrap().count(), 1);
+    let leases: i64 = Connection::open(&path)
+        .unwrap()
+        .query_row("SELECT count(*) FROM sqlite_master WHERE name = 'leases'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(leases, 0);
 }
 
 #[test]

@@ -79,6 +79,11 @@ pub const MIGRATIONS: &[Migration] = &[
         // released its id); one a crash left behind could not be told apart and counts as done.
         steps: &[Step::Sql("ALTER TABLE commands ADD COLUMN state TEXT NOT NULL DEFAULT 'done';")],
     },
+    Migration {
+        version: 4,
+        name: "去掉 Run 租约：一个 Janus home 只有一个服务，由目录锁保证",
+        steps: &[Step::Sql("DROP TABLE IF EXISTS leases;")],
+    },
 ];
 
 /// The data version this build reads and writes.
@@ -189,8 +194,12 @@ const KEEP_BACKUPS: usize = 5;
 /// refused: this build does not know what that data means and could damage it.
 pub fn upgrade(conn: &mut Connection, db: Option<&Path>) -> Result<Report> {
     let fresh: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table'", [], |r| r.get(0))?;
-    conn.execute_batch(BASELINE)?;
     let from: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    // Only a database at version 0 (new, or from before migrations) still needs the baseline:
+    // later ones have it already, and running it again would bring back tables a migration dropped.
+    if from == 0 {
+        conn.execute_batch(BASELINE)?;
+    }
     let to = latest();
     if from > to {
         let backups = db.and_then(Path::parent).map(|d| d.join("backups").display().to_string()).unwrap_or_default();

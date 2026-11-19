@@ -1,12 +1,14 @@
 """The server going away mid-run: what is kept, what is interrupted, and how work continues."""
 
+import threading
+
 from lib import drawn, wait
 from scenarios import scenario, task
 
 
 @scenario("restart", serial=True)
 def restart(ctx, c):
-    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续；已交付的 Run 回放时会话只读，重启后还能继续对话；应用重新连上"""
+    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续；已交付的 Run 回放时会话只读，重启后还能继续对话，同时发来的两条消息只恢复一次会话；应用重新连上"""
     t = ctx.team("restart", members=("m1", "m2", "m3"), script={"T1": ["write:a.txt"], "T2": ["slow", "ok"], "T3": ["ok"]})
     run = t.run("跨越重启的目标")
     run.orchestrate(task("T1", t.member("m1"), owns=["a.txt"]), task("T2", t.member("m2")), task("T3", t.member("m3"), deps=["T2"]))
@@ -43,9 +45,6 @@ def restart(ctx, c):
     run.finish("重启后也完成了")
     c(run.status() == "delivered", "恢复的 Run 交付")
 
-    # A run delivered before the restart takes a message: the lead's session reopens.
-    done.act("message", agent="lead", text="重启后还记得吗")
-    sent = done.wait_event("user.message")["seq"]
     # Replaying it shows the lead's session read-only: a draft typed there stays and is not sent.
     if ctx.ui(c, done.id, lambda r, s: r["status"] == "delivered", "重启前交付的 Run 在应用中已交付"):
         shot = f"{done.id}-replay-draft"
@@ -54,7 +53,24 @@ def restart(ctx, c):
         ctx.app.do("page board")
         c(not done.has("user.message"), "回放中写的草稿没有发出去")
 
+    # A run delivered before the restart takes a message: the lead's session reopens. Two sent at
+    # once bring it back once, and both reach the lead.
+    texts = ("重启后还记得吗", "再补一句")
+    sends = [threading.Thread(target=done.act, args=("message",), kwargs={"agent": "lead", "text": t}) for t in texts]
+    for s in sends:
+        s.start()
+    for s in sends:
+        s.join()
+    said = wait(lambda: done.has("user.message")[1:] and done.has("user.message"), "两条消息都记下")
+    sent = max(e["seq"] for e in said)
     wait(lambda: [e for e in done.events() if e["type"] == "agent.message" and e["actor"] == "lead" and e["seq"] > sent], "负责人回复")
-    c("load " in d.fake.calls(), "只有事件记录的历史 Run 发消息时加载原会话（session/load）")
+    c(d.fake.calls().count("load ") == 1, "两条消息同时发给只有事件记录的历史 Run，只加载一次原会话（session/load）")
+
+    def reached(m):
+        mid = m["data"]["id"]
+        return any(e["type"] == "message.routed" and e["data"].get("id") == mid and e["data"].get("delivery") in ("steer", "prompt")
+                   or e["type"] == "message.delivered" and mid in e["data"].get("ids", []) for e in done.events())
+    wait(lambda: all(reached(m) for m in said), "两条消息都送到负责人")
+    c(True, "同时发来的两条消息都送到恢复的负责人会话")
     ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and all(x["status"] == "succeeded" for x in r["tasks"]),
            "恢复后的 Run 在应用中已交付，任务都已完成", pages=("board", "audit"))

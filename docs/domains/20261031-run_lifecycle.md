@@ -24,8 +24,7 @@
 3. 负责人必须是 Claude Code 或 Codex（`Runtime::leads`）。
 4. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线。
 5. 写入 Run 快照（含可选的 Token 展示参考值 `tokenLimit` 和费用上限 `costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
-6. 申请 Run 租约（10 分钟）。
-7. 启动驱动任务，进入负责人的目标会话（`goal`）。
+6. 启动驱动任务，进入负责人的目标会话（`goal`）。
 
 Run id 是 `r` 加当前毫秒时间戳的 base36 编码（`agents::new_id`）；同一毫秒内创建的 Run 依次加一，id 不会重复。
 
@@ -236,7 +235,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - 仍在进行的尝试标记为 `interrupted`。
 - 未结束的 Run 写入 `run.interrupted` 事件，状态改为 `interrupted`。
 
-用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 重新申请租约，从 `runs.config` 重建团队，从事件日志重建任务：
+用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 从 `runs.config` 重建团队，从事件日志重建任务。恢复、验收历史交付（`accept_archived`）和删除一个不在运行的 Run 先拿 `App.revival`，一次只做一件：两条消息同时发给已中断或已交付的 Run 时，第二条等第一条把 Run 恢复好，再发进同一个 Run，不会各自恢复出一个负责人会话；恢复期间到达的验收按运行中的 Run 处理：
 
 - 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。从快照和追加预算事件恢复美元费用上限。旧版 Token 预算只作为用量参考值显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（带 `continueSession` 的重试保留该标记）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
 - 排队但还没送达的消息保留下来。

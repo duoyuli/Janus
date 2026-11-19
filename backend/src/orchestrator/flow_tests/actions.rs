@@ -77,3 +77,51 @@ async fn runs_created_together_get_distinct_ids() {
     }
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// Requests for a run that is not live take turns: two messages sent at once to a delivered run
+/// whose session is gone bring it back once (one lead session, both messages said), and once
+/// the run is deleted, nothing its closing session says is written for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_that_is_not_live_comes_back_once() {
+    let h = harness("actions-revive", &[("lead", false), ("m1", false)], json!({ "T1": ["ok"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+
+    // Only the event log is left, as after a restart.
+    let old = h.app.runs.lock().unwrap().remove(&run).unwrap();
+    let conns: Vec<Arc<AcpConn>> = old.st.lock().unwrap().conns.drain().map(|(_, c)| c).collect();
+    for c in conns {
+        c.kill().await;
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let calls = h.dir.join("fake/calls.log");
+    let loads = || std::fs::read_to_string(&calls).unwrap().lines().filter(|l| l.starts_with("load ")).count();
+    let loaded_before = loads();
+
+    let send = |text: &'static str| {
+        let (app, run) = (h.app.clone(), run.clone());
+        tokio::spawn(async move {
+            app.request_action(&run, &json!({ "type": "message", "agent": "lead", "text": text })).await
+        })
+    };
+    let (a, b) = (send("第一条"), send("第二条"));
+    assert!(matches!(a.await.unwrap(), Ok(ActionReply::Done)));
+    assert!(matches!(b.await.unwrap(), Ok(ActionReply::Done)));
+    wait_until(&h.app, &run, "both messages said", |evs| {
+        ["第一条", "第二条"].iter().all(|t| {
+            evs.iter().any(|e| {
+                e.kind == "session.prompt"
+                    && e.data.as_ref().is_some_and(|d| d["prompt"].as_str().is_some_and(|p| p.contains(t)))
+            })
+        })
+    })
+    .await;
+    assert_eq!(loads() - loaded_before, 1, "one lead session reopened");
+
+    h.app.delete_run(&run).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(h.app.db.events(&run, 0).unwrap().is_empty(), "nothing written after the delete");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
