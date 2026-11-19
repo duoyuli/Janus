@@ -105,14 +105,15 @@ def setup(ctx, c):
         c({"coordinator", "implementer"} <= {r["id"] for r in st["roles"]}, "应用：读到默认数字员工")
         for tab in ("general", "agents", "roles", "library", "adapters", "usage", "permissions", "updates"):
             ctx.app.do(f"open settings:{tab}", f"shot settings-{tab}")
-            c(_drawn(ctx, f"settings-{tab}"), f"应用：设置 → {tab} 画出来了")
+            c(*_drawn(ctx, f"settings-{tab}", f"应用：设置 → {tab} 画出来了"))
         ctx.app.do("close-sheet", "role implementer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
-        c(_drawn(ctx, "role-editor") and _drawn(ctx, "workspace-editor"), "应用：数字员工和工作区编辑器画出来了")
+        c(*_drawn(ctx, "role-editor", "应用：数字员工编辑器画出来了"))
+        c(*_drawn(ctx, "workspace-editor", "应用：工作区编辑器画出来了"))
         ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and {t["id"]: t["status"] for t in r["tasks"]} == {"T1": "succeeded", "V1": "succeeded"}
                and next(t for t in r["tasks"] if t["id"] == "V1")["verdict"] == "approved",
                "Run 已交付，T1、V1 已完成，V1 判定通过", pages=("board", "team", "audit", "task:T1", "task:V1", "agent:lead"))
 
 
-def _drawn(ctx, name):
-    from lib import drawn
-    return drawn(ctx.app.picture(name))
+def _drawn(ctx, name, what):
+    from lib import picture_check
+    return picture_check(ctx.app.picture(name), what)

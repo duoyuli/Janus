@@ -8,6 +8,7 @@ snapshot command channel. Only the standard library: the scripts run with `pytho
 
 import json
 import os
+import plistlib
 import shutil
 import signal
 import subprocess
@@ -309,8 +310,30 @@ class App:
         subprocess.run(["defaults", "delete", self.suite], capture_output=True)
 
 
+def screen_locked():
+    """While the login session's screen is locked the window server gives windows no display
+    cycles: every picture comes out as a tiny blank image, whatever the app shows."""
+    out = subprocess.run(["ioreg", "-n", "Root", "-d1", "-a"], capture_output=True).stdout
+    try:
+        return bool(plistlib.loads(out).get("IOConsoleLocked"))
+    except Exception:
+        return False
+
+
+LOCKED_NOTE = "屏幕已锁定，截图是空白的，没有检查；解锁后重跑 just e2e-product 再看截图"
+
+
+def picture_check(path, what):
+    """(ok, what) for a page picture. On a locked screen the check is skipped and says so,
+    instead of passing or failing on a blank picture."""
+    if screen_locked():
+        return True, f"{what}（{LOCKED_NOTE}）"
+    return drawn(path), what
+
+
 def drawn(path):
-    """A picture that exists and is not a single flat colour (what a blank window gives)."""
+    """A picture of a real window (not the tiny blank one a locked screen gives) that is not a
+    single flat colour (what a blank window gives)."""
     if not os.path.exists(path) or os.path.getsize(path) < 2000:
         return False
     # sips reports the size; a flat picture compresses to almost nothing for its size.
@@ -320,7 +343,7 @@ def drawn(path):
         h = int(out.split("pixelHeight:")[1].split()[0])
     except (IndexError, ValueError):
         return False
-    return os.path.getsize(path) > w * h / 400
+    return w >= 300 and h >= 200 and os.path.getsize(path) > w * h / 400
 
 
 def run_scenario(fn, ctx, name):

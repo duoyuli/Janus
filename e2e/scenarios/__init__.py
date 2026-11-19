@@ -11,7 +11,7 @@ import os
 import threading
 import time
 
-from lib import FAKE_AGENT, ApiError, Failure, Fake, drawn, git_repo, http, wait
+from lib import FAKE_AGENT, ApiError, Failure, Fake, git_repo, http, picture_check, wait
 
 
 class Scenario:
@@ -96,7 +96,7 @@ class Ctx:
             name = run_id + "-" + "".join(ch if ch.isalnum() else "-" for ch in page).strip("-")
             cmd = page if " " in page else f"page {page}"
             self.app.do(f"open run:{run_id}", cmd, f"shot {name}")
-            c(drawn(self.app.picture(name)), f"应用：{page} 页画出来了（{name}.png）")
+            c(*picture_check(self.app.picture(name), f"应用：{page} 页画出来了（{name}.png）"))
         return st
 
 
