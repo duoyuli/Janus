@@ -40,3 +40,27 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// Runs created at the same moment get distinct ids: the second used to fail on the runs table's
+/// unique id when both landed in the same millisecond.
+#[tokio::test(flavor = "multi_thread")]
+async fn runs_created_together_get_distinct_ids() {
+    let h = harness("actions-ids", &[("lead", false), ("m1", false)], json!({}));
+    let made: Vec<_> = (0..8)
+        .map(|i| {
+            let app = h.app.clone();
+            tokio::spawn(async move {
+                app.create_run(NewRun { goal: format!("目标 {i}"), workspace: "ws".into(), ..Default::default() }).await
+            })
+        })
+        .collect();
+    let mut ids = std::collections::HashSet::new();
+    for m in made {
+        ids.insert(m.await.unwrap().unwrap());
+    }
+    assert_eq!(ids.len(), 8);
+    for id in &ids {
+        h.app.action(&h.app.run(id).unwrap(), &json!({ "type": "cancel" })).unwrap();
+    }
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

@@ -27,7 +27,7 @@
 6. 申请 Run 租约（10 分钟）。
 7. 启动驱动任务，进入负责人的目标会话（`goal`）。
 
-Run id 是 `r` 加当前毫秒时间戳的 base36 编码。
+Run id 是 `r` 加当前毫秒时间戳的 base36 编码（`agents::new_id`）；同一毫秒内创建的 Run 依次加一，id 不会重复。
 
 Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_roles.md#workspace_brief)，之后修改工作区的共享资料不影响这个 Run，从中断处继续时也使用快照中的版本。
 

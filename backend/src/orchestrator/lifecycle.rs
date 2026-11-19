@@ -30,7 +30,8 @@ impl App {
         } else {
             String::new()
         };
-        let id = format!("r{}", to_base36(now_ms() as u64));
+        // Unique even for runs created in the same millisecond (side by side, as the e2e test does).
+        let id = crate::agents::new_id("r");
         self.bundle_team(&id, &team)?;
         let goal_images = crate::attachments::save(&self.cfg.data_dir, &id, &req.images)?;
         let goal = match req.goal.trim() {
