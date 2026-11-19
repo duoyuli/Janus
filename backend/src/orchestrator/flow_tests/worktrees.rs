@@ -72,6 +72,13 @@ async fn deleting_a_run_keeps_its_uncommitted_work_as_a_patch() {
     wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    // The delivery is written before the run's status moves on; only a finished run can go.
+    for _ in 0..100 {
+        if status(&h.app, &run) == "delivered" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let cwd = cwd_of(&h, &run);
     h.app.delete_run(&run).await.unwrap();
     assert!(!cwd.exists());
