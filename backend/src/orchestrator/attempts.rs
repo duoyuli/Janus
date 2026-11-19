@@ -6,7 +6,8 @@ use super::*;
 enum SessionResume {
     /// Resuming an attempt that was still open when the orchestrator restarted.
     Interrupted(String),
-    /// Continuing a finished upstream task's session (`continues`) or a retry (`continue_session`).
+    /// Continuing a finished upstream task's session (`continues`), the task's own last session
+    /// (a retry with `session: "continue"`, or a verification checking reworked work).
     Followup { from: String, session: String },
 }
 
@@ -111,8 +112,10 @@ impl App {
     }
 
     pub(super) async fn attempt(self: &Arc<Self>, run: &Arc<Run>, id: &str, n: i64, attempt_id: &str) -> Result<()> {
-        let (def, agent, upstream, handoffs, last_error, team_note) = {
-            let st = run.st.lock().unwrap();
+        let (def, agent, upstream, handoffs, last_error, team_note, reopen, review) = {
+            let mut st = run.st.lock().unwrap();
+            // How this attempt was asked to start, once: a later automatic retry starts afresh.
+            let reopen = Run::task_mut(&mut st, id).and_then(|t| t.reopen.take());
             let t = st.tasks.iter().find(|t| t.def.id == id).context("task missing")?;
             let v_task = t.def.verifies.as_deref().and_then(|v| st.tasks.iter().find(|x| x.def.id == v));
             let team_note = match v_task {
@@ -135,85 +138,114 @@ impl App {
                 }
                 None => crate::teamwork::task_section(&t.def, None),
             };
-            let (upstream, handoffs): (Vec<String>, Vec<Value>) = t
-                .def
-                .deps
-                .iter()
-                .filter_map(|d| st.tasks.iter().find(|x| &x.def.id == d))
-                .map(|u| {
-                    let r = u.result.clone().unwrap_or_default();
-                    let files: Vec<String> =
-                        u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
-                    let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
-                    let amended = if u.amendments.is_empty() {
+            // What an upstream task hands this one: a line for the prompt and the handoff record.
+            // A verification whose findings the lead's retry hands over (`from`) is described the
+            // same way.
+            let describe = |u: &Task| -> (String, Value) {
+                let r = u.result.clone().unwrap_or_default();
+                let files: Vec<String> =
+                    u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
+                let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
+                let amended = if u.amendments.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n  负责人修订了这个结论，以修订为准：{}", u.amendments.join("；"))
+                };
+                let handoff_note = r.handoff.as_deref().map(|h| format!("\n  交接说明：{h}")).unwrap_or_default();
+                let risk_note = if r.risks.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "\n  上游风险：{}",
+                        r.risks.iter().take(5).map(|x| short(x, INLINE_ITEM)).collect::<Vec<_>>().join("；")
+                    )
+                };
+                // Where to look, not only what it said: the files it changed, and which of them
+                // others changed after it finished.
+                let edited: Vec<String> = st.traces.files(&u.def.id).into_iter().collect();
+                let stale = u.succeeded_seq.map(|s| st.traces.edited_after(&u.def.id, s)).unwrap_or_default();
+                let traces = format!(
+                    "{}{}",
+                    if edited.is_empty() {
                         String::new()
                     } else {
-                        format!("\n  负责人修订了这个结论，以修订为准：{}", u.amendments.join("；"))
-                    };
-                    let handoff_note = r.handoff.as_deref().map(|h| format!("\n  交接说明：{h}")).unwrap_or_default();
-                    let risk_note = if r.risks.is_empty() {
-                        String::new()
-                    } else {
-                        format!(
-                            "\n  上游风险：{}",
-                            r.risks.iter().take(5).map(|x| short(x, INLINE_ITEM)).collect::<Vec<_>>().join("；")
-                        )
-                    };
-                    // Where to look, not only what it said: the files it changed, and which of them
-                    // others changed after it finished.
-                    let edited: Vec<String> = st.traces.files(&u.def.id).into_iter().collect();
-                    let stale = u.succeeded_seq.map(|s| st.traces.edited_after(&u.def.id, s)).unwrap_or_default();
-                    let traces = format!(
-                        "{}{}",
-                        if edited.is_empty() {
-                            String::new()
-                        } else {
-                            format!("\n  改过的文件：{}（以工作目录里的现状为准）", edited.join("、"))
-                        },
-                        if stale.is_empty() {
-                            String::new()
-                        } else {
-                            format!("\n  {}", crate::traces::stale_note(&stale))
+                        format!("\n  改过的文件：{}（以工作目录里的现状为准）", edited.join("、"))
+                    },
+                    if stale.is_empty() { String::new() } else { format!("\n  {}", crate::traces::stale_note(&stale)) }
+                );
+                let verdict = u.last_verdict();
+                let review = verdict
+                    .map(|v| {
+                        let mut note = format!("\n  独立验证判定：{}（{}）", v.label(), v.as_str());
+                        for c in r.checks.iter().filter(|c| !c.passed) {
+                            note.push_str(&format!(
+                                "\n  未通过：[{}] {}：{}",
+                                c.method_label(),
+                                short(&c.criterion, INLINE_ITEM),
+                                short(&c.evidence, INLINE_SUMMARY)
+                            ));
                         }
-                    );
-                    let verdict = u.verdict();
-                    let review = verdict
-                        .map(|v| {
-                            let mut note = format!("\n  独立验证判定：{}（{}）", v.label(), v.as_str());
-                            for c in r.checks.iter().filter(|c| !c.passed) {
-                                note.push_str(&format!(
-                                    "\n  未通过：[{}] {}：{}",
-                                    c.method_label(),
-                                    short(&c.criterion, INLINE_ITEM),
-                                    short(&c.evidence, INLINE_SUMMARY)
-                                ));
-                            }
-                            note
-                        })
-                        .unwrap_or_default();
-                    let line = format!(
-                        "- {} {}（{}，状态 {}）：{}{review}{handoff_note}{risk_note}{amended}{traces}\n  产物：{}",
-                        u.def.id,
-                        u.def.title,
-                        u.agent,
-                        u.status,
-                        short(&r.summary, INLINE_SUMMARY),
-                        if files.is_empty() { "无".into() } else { files.join("，") }
-                    );
-                    let mut handoff = json!({
-                        "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary,
-                        "handoff": r.handoff, "artifacts": names, "risks": r.risks.len(), "riskItems": r.risks,
-                        "amendments": u.amendments, "files": edited,
-                        "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>()
-                    });
-                    if let Some(v) = verdict {
-                        handoff["verdict"] = json!(v.as_str());
-                        handoff["checks"] = json!(r.checks);
-                    }
-                    (line, handoff)
-                })
-                .unzip();
-            (t.def.clone(), t.agent.clone(), upstream, handoffs, self.db_last_error(&run.id, id), team_note)
+                        note
+                    })
+                    .unwrap_or_default();
+                let line = format!(
+                    "- {} {}（{}，状态 {}）：{}{review}{handoff_note}{risk_note}{amended}{traces}\n  产物：{}",
+                    u.def.id,
+                    u.def.title,
+                    u.agent,
+                    u.status,
+                    short(&r.summary, INLINE_SUMMARY),
+                    if files.is_empty() { "无".into() } else { files.join("，") }
+                );
+                let mut handoff = json!({
+                    "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary,
+                    "handoff": r.handoff, "artifacts": names, "risks": r.risks.len(), "riskItems": r.risks,
+                    "amendments": u.amendments, "files": edited,
+                    "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>()
+                });
+                if let Some(v) = verdict {
+                    handoff["verdict"] = json!(v.as_str());
+                    handoff["checks"] = json!(r.checks);
+                }
+                (line, handoff)
+            };
+            let from = match &reopen {
+                Some(Reopen::Retry { from: Some(v), .. }) => st.tasks.iter().find(|x| &x.def.id == v),
+                _ => None,
+            };
+            let (upstream, mut handoffs): (Vec<String>, Vec<Value>) =
+                t.def.deps.iter().filter_map(|d| st.tasks.iter().find(|x| &x.def.id == d)).map(describe).unzip();
+            // The findings reach this session too: the record of who used whose result says so.
+            // `retry` refuses a `from` this task depends on, so it is never among the upstream.
+            handoffs.extend(from.map(|v| describe(v).1));
+            let review = match &reopen {
+                Some(Reopen::Retry { .. }) => from.map(|v| describe(v).0).map(Review::Findings),
+                Some(Reopen::Reverify { target }) => {
+                    st.tasks.iter().find(|x| &x.def.id == target).map(|vt| Review::Recheck {
+                        own: previous_verdict(&t.def, t.result.as_ref()),
+                        target: describe(vt).0,
+                        diffs: vt
+                            .artifacts
+                            .iter()
+                            .rev()
+                            .filter(|a| a["kind"] == "git_diff")
+                            .filter_map(|a| a["path"].as_str().map(str::to_owned))
+                            .take(2)
+                            .collect(),
+                    })
+                }
+                None => None,
+            };
+            (
+                t.def.clone(),
+                t.agent.clone(),
+                upstream,
+                handoffs,
+                self.db_last_error(&run.id, id),
+                team_note,
+                reopen,
+                review,
+            )
         };
         let peers: Vec<String> = {
             let st = run.st.lock().unwrap();
@@ -248,16 +280,16 @@ impl App {
         let (conn, mut rx, mut ctl) = self.open_session(run, &owner, &agent, &spec, &log, "Agent ").await?;
         let mut native_turn = None;
         let outcome = async {
-        // A task interrupted by a restart reopens its old session; a follow-up task (`continues`)
-        // or warm retry (`continue_session`) loads the target session when context headroom allows.
+        // A task interrupted by a restart reopens its old session; a follow-up task (`continues`),
+        // a retry the lead sent back into its own session (`session: "continue"`) and a
+        // verification checking reworked work load the earlier session when context headroom allows.
         let resume = {
             let mut st = run.st.lock().unwrap();
             if let Some(old) = st.resume_session.remove(id) {
                 Some(SessionResume::Interrupted(old))
             } else {
-                let want_self = Run::task_mut(&mut st, id).is_some_and(|t| std::mem::take(&mut t.continue_session));
                 drop(st);
-                if want_self {
+                if reopen.as_ref().is_some_and(Reopen::continues_own_session) {
                     self.last_task_session(&run.id, id)
                         .map(|session| SessionResume::Followup { from: id.to_string(), session })
                 } else if n == 1 {
@@ -354,16 +386,22 @@ impl App {
                 ),
                 Channel::Prompt | Channel::System | Channel::Developer => String::new(),
             };
-            let body = format!(
-                "{}{team_note}{}{rules}",
-                task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
-                self.take_notes(run, &agent)
-            );
-            match &followup_from {
-                Some(from) => format!(
-                    "你在子任务 {from} 的原会话中继续工作，之前的上下文和文件阅读记录仍在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{body}"
+            let notes = self.take_notes(run, &agent);
+            match (&followup_from, &reopen) {
+                // Back in its own session, the agent has the task and what it did: only what is
+                // new goes in.
+                (Some(from), Some(reopen)) if from == id => {
+                    continued_prompt(&def, n, reopen, review.as_ref(), last_error.as_deref(), &notes)
+                }
+                (Some(from), _) => format!(
+                    "你在子任务 {from} 的原会话中继续工作，之前的上下文和文件阅读记录仍在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{}{team_note}{notes}{rules}",
+                    task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
                 ),
-                None => body,
+                (None, _) => format!(
+                    "{}{team_note}{}{notes}{rules}",
+                    task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
+                    reopen.as_ref().map(|r| reopen_section(r, review.as_ref())).unwrap_or_default(),
+                ),
             }
         };
         self.db.update_attempt(
@@ -379,6 +417,9 @@ impl App {
         });
         if let Some(cont) = continuation {
             started_data["continuation"] = cont;
+        }
+        if let Some(r) = &reopen {
+            started_data["reopen"] = r.record();
         }
         self.emit(
             run,

@@ -117,6 +117,106 @@ pub(super) fn task_prompt(
     p
 }
 
+/// What a verification brought back, for the attempt that acts on it.
+pub(super) enum Review {
+    /// The findings the lead's retry hands over (`from`), described like an upstream result.
+    Findings(String),
+    /// A verification checking its reworked target again: its own last verdict, the target's new
+    /// result, and the target's diff artifacts, newest first.
+    Recheck { own: String, target: String, diffs: Vec<String> },
+}
+
+impl Review {
+    fn section(&self) -> String {
+        match self {
+            Review::Findings(line) => format!("\n\n独立验证的意见（负责人要你据此返工）：\n{line}"),
+            Review::Recheck { own, target, diffs } => {
+                let mut p = format!(
+                    "\n\n这是一次复审：你验证过的子任务已经返工。\n你上一轮的判定：{own}\n它这次的结果：\n{target}"
+                );
+                match diffs.as_slice() {
+                    [now, before, ..] => p.push_str(&format!(
+                        "\n现在的 diff：{now}\n你上一轮核对的 diff：{before}（两者的差别就是这次返工的改动）"
+                    )),
+                    [now] => p.push_str(&format!("\n现在的 diff：{now}")),
+                    [] => {}
+                }
+                p.push_str("\n先核对你上一轮指出的问题是否解决，再检查返工有没有改坏别的。验收标准仍然逐条给出：没有受返工影响的条目可以沿用上一轮的证据，写明「沿用上一轮」，method 用 inspection。");
+                p
+            }
+        }
+    }
+}
+
+/// A verification's own last verdict in a few lines: the judgment, the summary, and the criteria
+/// it did not pass with their evidence.
+pub(super) fn previous_verdict(def: &TaskDef, result: Option<&TaskResult>) -> String {
+    let Some(r) = result else {
+        return "没有记录".into();
+    };
+    let vd = effective_verdict(r.verdict, def.accept.len(), &r.checks);
+    let mut p = format!("{}（{}）：{}", vd.label(), vd.as_str(), short(&r.summary, INLINE_SUMMARY));
+    for c in r.checks.iter().filter(|c| !c.passed) {
+        p.push_str(&format!(
+            "\n  未通过：{}：{}",
+            short(&c.criterion, INLINE_ITEM),
+            short(&c.evidence, INLINE_SUMMARY)
+        ));
+    }
+    p
+}
+
+/// What a reopened task's attempt is told on top of its task when it starts in a new session:
+/// the findings or its last verdict, and the lead's note.
+pub(super) fn reopen_section(reopen: &Reopen, review: Option<&Review>) -> String {
+    let mut p = review.map(Review::section).unwrap_or_default();
+    if let Reopen::Retry { note: Some(note), .. } = reopen {
+        p.push_str(&format!("\n\n负责人的说明：{note}"));
+    }
+    p
+}
+
+/// The prompt for an attempt back in the task's own session. The session holds the task and the
+/// work so far, so only what is new goes in: the findings, the lead's note, a revised task, the
+/// last failure, and the criteria to report against.
+pub(super) fn continued_prompt(
+    def: &TaskDef,
+    n: i64,
+    reopen: &Reopen,
+    review: Option<&Review>,
+    last_error: Option<&str>,
+    notes: &str,
+) -> String {
+    let mut p = match reopen {
+        Reopen::Retry { .. } => format!(
+            "负责人让你在原来的会话中接着做子任务 {}（第 {n} 次尝试），之前的上下文和读过的文件都还在。",
+            def.id
+        ),
+        Reopen::Reverify { target } => format!(
+            "{target} 已经返工。请在原来的会话中重新验证（子任务 {}，第 {n} 次尝试），之前的上下文和读过的文件都还在。仍然不要修改任何文件。",
+            def.id
+        ),
+    };
+    p.push_str(&reopen_section(reopen, review));
+    if let Reopen::Retry { revised: true, .. } = reopen {
+        p.push_str(&format!("\n\n子任务说明已更新，以这一版为准：\n{}", def.desc));
+    }
+    if let Some(err) = last_error {
+        p.push_str(&format!("\n\n上一次尝试失败：{err}。请避开同样的问题。"));
+    }
+    p.push_str(&format!(
+        "\n\n验收标准：\n{}",
+        def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n")
+    ));
+    p.push_str(match (reopen, review) {
+        (Reopen::Reverify { .. }, _) => "\n\n完成后以 ```json 结构化结果结束：checks 逐条给出实际执行的命令或操作和看到的输出，并用 verdict 写明判定：approved、rejected 或 inconclusive。",
+        (Reopen::Retry { .. }, Some(_)) => "\n\n同意的意见就修改并重新验证；不同意的、或和任务范围冲突的不要硬改：在对应的 check 写 passed: false 说明理由，或在 question 里请负责人决定。完成后以 ```json 结构化结果结束，checks 按验收标准逐条更新。",
+        (Reopen::Retry { .. }, None) => "\n\n完成后以 ```json 结构化结果结束，checks 按验收标准逐条更新。",
+    });
+    p.push_str(notes);
+    p
+}
+
 /// How a collaborator works with Janus, for the whole session: verifying against the criteria,
 /// the working directory, the board, questions and the structured result. It goes in the system
 /// layer; an agent without one gets it at the end of its first prompt.

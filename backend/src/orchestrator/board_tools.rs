@@ -44,7 +44,7 @@ pub(super) fn lead_tools() -> Value {
                                 "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）" },
                                 "owns": { "type": "array", "items": { "type": "string" }, "description": "这个子任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的子任务不能重叠" },
                                 "verifies": { "type": "string", "description": "独立验证：被验证子任务的 id。交给另一个协作者，自动在被验证的子任务完成后开始，只检查不改文件" },
-                                "continues": { "type": "string", "description": "续接原会话：同一个协作者之前子任务的 id（适合验证未通过后的修复或增量修改，自动加入依赖；上下文超过 75% 或不支持时自动回退新建会话）" }
+                                "continues": { "type": "string", "description": "续接原会话：同一个协作者之前子任务的 id，适合要用到那个子任务上下文的新工作（自动加入依赖；上下文超过 75% 或不支持时自动回退新建会话）。验证没通过的返工不用新建子任务，用 janus.retry" }
                             }
                         }
                     }
@@ -70,15 +70,17 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "retry",
-            "description": "重新执行一个失败或已取消的子任务，重新给满尝试次数。可以同时修改给执行者的说明和验收标准。被它阻塞的子任务会在它成功后自动继续。",
+            "description": "让一个已经结束的子任务再做一次，重新给满尝试次数：失败或已取消的，或者已完成但需要返工的（例如独立验证判定没通过）。每次都要选会话：continue 回到这个子任务原来的会话，上下文都在；new 新开一个会话。from 指向一个独立验证子任务时，它的意见原样交给执行者，返工完成后它重新验证；这个子任务的其他独立验证也会重新验证。被它阻塞的子任务会在它成功后自动继续。",
             "inputSchema": {
                 "type": "object",
-                "required": ["task"],
+                "required": ["task", "session"],
                 "properties": {
                     "task": { "type": "string" },
+                    "session": { "type": "string", "enum": ["continue", "new"], "description": "continue：接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的）；new：新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）。上下文超过 75% 或 Agent 不支持加载时，continue 自动改为新开会话" },
+                    "from": { "type": "string", "description": "依据哪个独立验证子任务的意见返工；它的判定、没通过的标准和证据、建议会原样交给执行者，不需要你转述" },
+                    "note": { "type": "string", "description": "你对这一轮的补充：判断、取舍、范围上的决定" },
                     "instructions": { "type": "string", "description": "新的完整说明；不填则沿用原说明" },
-                    "accept": { "type": "array", "items": { "type": "string" }, "description": "新的验收标准；不填则沿用" },
-                    "continue_session": { "type": "boolean", "description": "为 true 时优先恢复上一次尝试的会话继续修复（默认 false 新建干净会话）" }
+                    "accept": { "type": "array", "items": { "type": "string" }, "description": "新的验收标准；不填则沿用" }
                 }
             },
             "annotations": board_act()
@@ -437,7 +439,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             }
             if let (Some(target), Some(Verdict::Rejected | Verdict::Inconclusive)) = (&verifies, verdict) {
                 msg.push_str(&format!(
-                    "\n  请处理：不能用 janus.accept 放行；用 janus.orchestrate 派修复子任务（交给 {target} 原执行者时可设 continues=\"{target}\" 复用会话，依赖 {task}）和新的验证子任务。"
+                    "\n  请处理：不能用 janus.accept 放行。先判断问题出在哪个子任务，用 janus.retry 返工（例如 task=\"{target}\"、from=\"{task}\"，session 选 continue 回到原会话按这份意见修改，或选 new 重新开始），返工完成后 {task} 自动重新验证；需要换人或另开一项工作时用 janus.orchestrate。"
                 ));
                 let downstream: Vec<_> = st
                     .tasks
@@ -492,9 +494,10 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             d["error"].as_str().unwrap_or(&e.text)
         ),
         "task.failed" if d["reason"] == "verification" && verifies.is_some() => format!(
-            "- [验证没通过] {task} · {name} 独立验证 {} 时发现问题：\n{}\n  不能用 janus.accept 放行：派修复子任务和新的验证子任务，或者 janus.cancel 取消 {task} 并写明理由。",
+            "- [验证没通过] {task} · {name} 独立验证 {} 时发现问题：\n{}\n  不能用 janus.accept 放行：用 janus.retry 让 {task} 重新验证，或按它发现的问题用 janus.retry 让 {target} 返工，或者 janus.cancel 取消 {task} 并写明理由。",
             verifies.as_deref().unwrap_or_default(),
-            verification_output(run, task)
+            verification_output(run, task),
+            target = verifies.as_deref().unwrap_or_default(),
         ),
         "task.failed" if d["reason"] == "verification" => format!(
             "- [没通过验收] {task}「{title}」· {name} 补过一次仍没有满足验收标准：\n{}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
@@ -506,7 +509,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         ),
         "task.blocked" => match d["verdict"].as_str() {
             Some(vd) => format!(
-                "- [无法开始] {task}「{title}」：依赖的独立验证 {} 判定 {vd}，被验证的工作没有得到确认。按 {0} 的结论派修复和新的验证子任务；{task} 不会再开始，用 janus.cancel 取消它，需要时在新的编排中让它依赖新的验证子任务。",
+                "- [无法开始] {task}「{title}」：依赖的独立验证 {} 判定 {vd}，被验证的工作没有得到确认。按 {0} 的结论用 janus.retry 返工（from=\"{0}\"），{0} 复审通过后 {task} 自动开始；不再需要就用 janus.cancel 取消它。",
                 d["dependency"].as_str().unwrap_or("?")
             ),
             None => format!(

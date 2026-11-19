@@ -7,7 +7,7 @@
 - [创建 Run](#create_run)：修改 `create_run` 或快照内容时阅读。
 - [图片附件](#attachments)：修改 `backend/src/attachments.rs`、目标或消息的图片、提示中的图片块时阅读。
 - [工作目录](#workspace_model)：涉及任务在哪里读写、diff 和 Git 时阅读。
-- [任务调度](#scheduling)、[一次尝试](#attempt)、[验证](#verification)、[重试与失败](#retry)：修改调度循环或尝试流程时阅读。
+- [任务调度](#scheduling)、[一次尝试](#attempt)、[验证](#verification)、[重试、返工与失败](#retry)：修改调度循环、尝试流程或 `retry` 时阅读。
 - [停滞检测](#watchdog)：修改 `watchdog`、`watch_call`，或调整什么算「没有进展」时阅读。
 - [交付条件](#delivery_conditions)：修改 `execute` 的结果判断时阅读。
 - [Run 状态](#run_statuses)、[用户操作](#user_actions)、[中断与恢复](#recovery)。
@@ -61,7 +61,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | `pending` | 等待依赖完成或等待执行者空闲 | 否 |
 | `running` | 有一次尝试在进行 | 否 |
 | `blocked` | 依赖失败，无法开始；所有依赖都不再是失败状态（被重试或接受）后自动回到 `pending` | 否 |
-| `succeeded` | 成功 | 是 |
+| `succeeded` | 成功；负责人用 `retry` 让它返工时回到 `pending` | 是 |
 | `failed` | 用完尝试次数 | 是 |
 | `cancelled` | Run 被取消时正在执行 | 是 |
 | `skipped_by_decision` | 被负责人取消（`cancel`）；连带取消的任务随上游的 `retry` 回到 `pending` | 是 |
@@ -91,11 +91,11 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 1. 打开会话（或续接原会话），默认调用 `session/new`，有两种续接：
    - 从中断处恢复未完成的尝试：Agent 支持 `loadSession` 时直接 `session/load` 加载被中断的会话，不看上下文占用；加载失败或不支持时新建会话。
-   - 后续任务续接（任务声明了 `continues`，只在首次尝试）或负责人 `retry` 指定了 `continue_session: true`：目标会话最新上下文占用严格大于 75%、Agent 不支持 `loadSession` 或加载失败时新建会话，否则 `session/load` 复用原会话；新建还是复用、新建的原因都记在 `attempt.started` 的 `data.continuation`（见 [ADR：热会话续接](../decisions/20261118-session_continuation.md)）。
+   - 续接已经结束的会话：任务声明了 `continues`（只在首次尝试，加载前置任务的会话）；负责人 `retry` 选了 `session: "continue"`（加载这个任务自己上一次的会话）；独立验证因被验证的任务返工而复审（加载验证者自己上一次的会话）。目标会话最新上下文占用严格大于 75%、Agent 不支持 `loadSession` 或加载失败时新建会话，否则 `session/load` 复用原会话；新建还是复用、新建的原因都记在 `attempt.started` 的 `data.continuation`（见 [ADR：热会话续接](../decisions/20261118-session_continuation.md)）。这次尝试为什么开始（负责人的重试或复审）记在 `data.reopen`。
 
    接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/20261031-acp_integration.md#session_setup)。
-3. 发送任务提示（`task_prompt`）：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含一句话摘要、专门给下游的 `handoff` 交接说明、前 5 条上游风险、负责人的修订、改过的文件及后续被他人或负责人修改的提醒）、同时进行的任务和上次失败原因；独立验证任务还会收到被验证任务的专属 diff 路径、实际改动文件、痕迹核对异常、弱证据条目提醒和风险（`teamwork::VerifiedContext`）。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
+3. 发送任务提示（`task_prompt`）。回到这个任务自己的会话时（`retry` 的 `continue` 或复审），会话里已经有任务说明，只发新的内容（`continued_prompt`）：验证意见或上一轮的判定、负责人的说明、改过的说明、上次失败的原因和验收标准，见[重试、返工与失败](#retry)。其他情况发完整的任务提示：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含一句话摘要、专门给下游的 `handoff` 交接说明、前 5 条上游风险、负责人的修订、改过的文件及后续被他人或负责人修改的提醒）、同时进行的任务和上次失败原因；独立验证任务还会收到被验证任务的专属 diff 路径、实际改动文件、痕迹核对异常、弱证据条目提醒和风险（`teamwork::VerifiedContext`）。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
 4. 收集流式输出、工具调用、审批请求和表单请求。单轮超时发送 `session/cancel` 后，仍等待最多 2 秒读取返回值中的 `prompt_usage`；每轮发送前记录事件序号和会话日志末尾位置。若尝试异常结束且本轮尚未上报 Token，则从 Janus 隔离目录（Claude Code 的 `CLAUDE_CONFIG_DIR`，即 `~/.janus/agents/<id>/home`）下的 `projects/**/<sid>.jsonl` 读取本轮新增记录，按 `message.id` 取最后一次读数补齐用量。同一会话前面几轮的读数照常保留。
 5. 解析回复中最后一个 ```` ```json ```` 代码块作为结构化结果。
 
@@ -135,16 +135,20 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 验证没通过时，同一次尝试中按以下顺序处理：
 
 1. **在原会话里补一次**：把没核对、没证据或没达到的标准逐条发回同一个会话（`session.prompt`，`channel: "fix"`），请协作者修复后重新验证、补上证据；确实无法达到的如实写明原因。协作者保留着上下文，比开新会话从头做快，也更容易修对。补完后重新提交结果、重新核对。
-2. **仍然没通过**：任务失败（`task.failed`，`reason: "verification"`），不自动开新会话重试，由负责人决定接受结果、修改后重试还是取消，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md#accept_tool)。
+2. **仍然没通过**：任务失败（`task.failed`，`reason: "verification"`），不自动开新会话重试，由负责人决定接受结果、修改后重试（可以选回到这个会话）还是取消，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md#accept_tool)。
 
 用户在会话中直接以当前结果结束时，不走修复这一步。
 
 <a id="retry"></a>
-## 重试与失败
+## 重试、返工与失败
 
-- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、超时、自行取消等，不含验证没通过）后还有剩余次数时，任务回到 `pending`，下一次尝试带上上次失败的原因（`task.retry_scheduled`）。
+- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、超时、自行取消等，不含验证没通过）后还有剩余次数时，任务回到 `pending`，下一次尝试带上上次失败的原因（`task.retry_scheduled`），新开会话。
 - 用完次数或验证没通过后任务变为 `failed`（`task.failed`），Run 不停下，由负责人在看板上读到后用 `retry`、`accept`、`cancel` 处理，或自己做。被它阻塞的任务不需要重新编排。
-- 只有负责人能重试任务（看板的 `retry`），重试会重新给满尝试次数（`task.reopened`，`reason: "lead.retry"`）。依赖它的 `blocked` 任务在它成功后自动恢复。用户想重做某个任务时，给负责人发消息。
+- 只有负责人能让结束的任务再做一次（看板的 [`retry`](../interfaces/20261031-board_mcp.md#retry_tool)）：失败、已取消、被负责人取消的任务，以及已完成但需要返工的任务。重试重新给满尝试次数（`task.reopened`，`reason: "lead.retry"`），依赖它的 `blocked` 任务在它成功后自动恢复。用户想重做某个任务时，给负责人发消息。
+- **会话由负责人每次选择**：`session` 必填，`continue` 回到这个任务自己上一次的会话，`new` 新开会话（`SessionChoice`）。不设默认值，让负责人每次判断原来的上下文还有没有用。一个协作者可以同时有多个会话，每个任务一个；返工回到的是被返工任务自己的会话。
+- **返工**：独立验证判定没通过时，Janus 不自动返工，由负责人判断问题出在哪个任务，用 `retry` 发回原来的执行者，`from` 指向这个验证。验证的判定、没通过的标准和证据、交接说明和风险原样进入提示，负责人只在 `note` 里写自己的判断，不新建子任务。
+- **复审**：被返工的任务已完成的独立验证，以及 `from`，回到 `pending`，在被返工的任务完成后重新核对（`task.reopened`，`reason: "target.reworked"`）。`from` 验证的不是被返工的任务（例如问题在上游）时，把被返工的任务加入 `from` 的依赖。复审回到验证者自己的会话，提示附上它上一轮的判定、被验证任务这次的结果，以及现在和上一轮的 diff 产物；它先核对上一轮的问题，再做回归，验收标准仍逐条回答。复审期间，因原判定被挡住的下游任务回到 `pending` 等待；复审通过后开始，再次没通过时重新被挡住。
+- 重开的原因、会话选择和 `from` 是任务上的 `Reopen`（`Retry` 或 `Reverify`），在下一次尝试开始时取走；服务重启时从最后一条 `task.reopened` 重建，之后已经有尝试开始的不再重建。设计取舍见 [ADR：返工由负责人用 `retry` 发回原任务](../decisions/20261119-rework_in_original_session.md)。
 - 被打断而没有任何输出的一轮不保存回复产物。
 - 尝试结束后，它名下未处理的提问、审批和表单被撤回（`decision.withdrawn`）。过期尝试返回的结果被忽略（`attempt.late_result`）。
 
@@ -238,7 +242,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 从 `runs.config` 重建团队，从事件日志重建任务。恢复、验收历史交付（`accept_archived`）和删除一个不在运行的 Run 先拿 `App.revival`，一次只做一件：两条消息同时发给已中断或已交付的 Run 时，第二条等第一条把 Run 恢复好，再发进同一个 Run，不会各自恢复出一个负责人会话；恢复期间到达的验收按运行中的 Run 处理：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。从快照和追加预算事件恢复美元费用上限。旧版 Token 预算只作为用量参考值显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（带 `continueSession` 的重试保留该标记）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
+- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。从快照和追加预算事件恢复美元费用上限。旧版 Token 预算只作为用量参考值显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（负责人重试时选的会话和 `from`、复审的对象都从最后一条 `task.reopened` 重建，复审对象被加回验证的依赖）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
 - 排队但还没送达的消息保留下来。
 - 负责人以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。
 

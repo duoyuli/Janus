@@ -1,6 +1,6 @@
 # ADR：基于 `session/load` 复用前置任务会话
 
-- 状态：已采纳（accepted），记录于 2026-11-18。
+- 状态：已采纳（accepted），记录于 2026-11-18。第 2 条（`retry` 的 `continue_session`）和「验证没通过后派修复子任务（`continues`）」的用法已被 [ADR：返工由负责人用 `retry` 发回原任务](20261119-rework_in_original_session.md) 取代（superseded），其余各条仍然有效。
 - 相关文档：[Run 生命周期](../domains/20261031-run_lifecycle.md#attempt)、[目标模式与共享看板](../domains/20261031-goal_mode.md#team_structure)、[看板 MCP 工具](../interfaces/20261031-board_mcp.md#orchestrate)、[ACP 集成](../interfaces/20261031-acp_integration.md#session_setup)、[ADR：资源库统一管理 Skill 和 MCP，在会话启动时注入](20261116-launch_time_resources.md)。
 
 ## 背景

@@ -552,8 +552,18 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "task.reopened":
             if let task = e.task { gaps[task] = nil; splits[task] = nil }
             if e.actor == "lead" {
-                let parts = [d["instructions"].truthy ? L.text("新说明：\(d["instructions"].str)") : nil, d["accept"].truthy ? L.text("新的验收标准：\(d["accept"].strings.joined(separator: L.text("；")))") : nil].compactMap { $0 }
-                f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人重做 \(e.task ?? "")"), text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
+                let session: String? = switch d["session"].str {
+                case "continue": L.text("会话：接着原会话")
+                case "new": L.text("会话：新开会话")
+                default: nil
+                }
+                let parts = [session,
+                             d["from"].truthy ? L.text("依据 \(d["from"].str) 的意见") : nil,
+                             d["note"].truthy ? L.text("负责人的说明：\(d["note"].str)") : nil,
+                             d["instructions"].truthy ? L.text("新说明：\(d["instructions"].str)") : nil,
+                             d["accept"].truthy ? L.text("新的验收标准：\(d["accept"].strings.joined(separator: L.text("；")))") : nil].compactMap { $0 }
+                let title = d["from"].truthy ? L.text("负责人让 \(e.task ?? "") 返工") : L.text("负责人重做 \(e.task ?? "")")
+                f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: title, text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task, d["from"].string].compactMap { $0 }, agents: ["lead"]))
             }
         case "task.succeeded":
             if let task = e.task { splits[task] = nil; gaps[task] = d["traceGaps"].strings.isEmpty ? nil : (seq: e.seq, gaps: d["traceGaps"].strings) }

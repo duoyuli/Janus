@@ -258,3 +258,16 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     while f.measured(below: 5000, last: 5, person: false) { tries += 1 }
     #expect(tries == ChatFollow.landingTries && !f.following)
 }
+
+/// An attempt's header says which session it is in when it is not a plain new one, and why it
+/// runs again, so a rework reads as the same conversation going on.
+@Test func attemptHeadersSayWhichSessionAndWhy() {
+    #expect(SessionView.attemptNote(["session": "s1"], task: "T1") == "")
+    #expect(SessionView.attemptNote(["resumed": true], task: "T1") == expectedCopy(" · 恢复了原会话", " · Resumed previous session"))
+    let rework: JSON = ["continuation": ["from": "T1", "session": "s1", "loaded": true], "reopen": ["reason": "lead.retry", "session": "continue", "from": "V1"]]
+    #expect(SessionView.attemptNote(rework, task: "T1") == expectedCopy(" · 接着原会话 · 按 V1 的意见返工", " · Continues its own session · Rework on V1's findings"))
+    let follow: JSON = ["continuation": ["from": "T1", "session": "s1", "loaded": true]]
+    #expect(SessionView.attemptNote(follow, task: "T2") == expectedCopy(" · 接着 T1 的会话", " · Continues T1's session"))
+    let full: JSON = ["continuation": ["from": "V1", "loaded": false, "fallback": "context_over_75pct"], "reopen": ["reason": "target.reworked", "target": "T1"]]
+    #expect(SessionView.attemptNote(full, task: "V1") == expectedCopy(" · 新开会话（原会话上下文超过 75%） · T1 返工后复审", " · New session (previous one was over 75% of its context) · Re-check after T1 was reworked"))
+}

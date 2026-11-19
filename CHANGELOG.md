@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.19.2
+
+- 独立验证判定没通过时，负责人可以让原来的子任务按验证意见返工，不再为修复另建子任务。返工默认回到这个子任务原来的会话，之前的上下文还在；负责人每次都要选择接着原会话做还是新开会话，一个数字员工可以为不同的子任务保留各自的会话。验证意见原样交给执行者，不经负责人转述。
+- 返工完成后，验证者在自己原来的会话中复审，先核对上一轮指出的问题，再检查有没有改坏别的；复审通过后，被它挡住的子任务自动开始。
+- 会话里每次尝试的标题写明它在哪个会话、为什么开始，例如「接着原会话 · 按 V1 的意见返工」「T1 返工后复审」，返工和复审在同一个会话卡片里接着显示。进展中，负责人的返工记为一条决定，写明选的会话、依据的验证意见和负责人的说明。
+
+- When an independent verification rejects a subtask, the lead can send that subtask back for rework on the verification's findings instead of creating a new subtask for the fix. The rework goes back into the subtask's own session by default, with its earlier context. The lead chooses every time whether to continue that session or start a new one, and one digital worker can keep a separate session for each of its subtasks. The findings reach the assignee verbatim, without the lead restating them.
+- Once the rework is done, the verifier checks it again in its own earlier session: first the problems it raised, then whether anything else broke. When the re-check passes, subtasks it was holding back start on their own.
+- Each attempt in a session now says which session it is in and why it started, for example "Continues its own session · Rework on V1's findings" or "Re-check after T1 was reworked", so a rework and its re-check carry on in the same session card. In Progress, the lead's rework is recorded as a decision with the chosen session, the findings it acts on and the lead's note.
+
 ## 2026.11.19
 
 - 协作者连续修改同一个文件、或者「改代码 → 跑测试」交替进行时，只要每次改的内容或测试输出在变，就不再被报为「原地打转」，负责人也不会因此被打断。真正卡住的循环照样会报告：参数和结果都没变的调用，包括反复跑同一个失败测试、只有耗时和时间不同的情况。

@@ -341,12 +341,12 @@ async fn lead_resolves_failed_tasks() {
         &run,
         "lead",
         "retry",
-        json!({ "task": "T3", "instructions": "换个做法再做一次", "accept": ["换了做法"] }),
+        json!({ "task": "T3", "session": "new", "instructions": "换个做法再做一次", "accept": ["换了做法"] }),
     )
     .await;
     assert!(!err && text.contains("因它被取消的 T4 也恢复了"), "{text}");
     // T4 was dropped only because of T3, so it came back with it.
-    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T4" })).await;
+    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T4", "session": "new" })).await;
     assert!(err && text.contains("等待开始"), "{text}");
     wait_until(&h.app, &run, "T3 and T4 after retry", |e| {
         task_event(e, "task.succeeded", "T3") && task_event(e, "task.succeeded", "T4")
@@ -1556,7 +1556,7 @@ async fn retry_revives_a_failed_task_and_its_dependent() {
     assert!(has(&evs, "task.failed"), "the task failed, and the run keeps going");
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[失败] T1") && board.contains("[无法开始] T2"), "{board}");
-    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1" })).await;
+    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "new" })).await;
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2")))
         .await;
@@ -1627,7 +1627,7 @@ async fn run_state_follows_the_board() {
     let first = if blocked_on("A") { "A" } else { "B" };
     let other = if first == "A" { "B" } else { "A" };
     std::fs::write(h.dir.join("fake/script.json"), json!({}).to_string()).unwrap();
-    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": first })).await;
+    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": first, "session": "new" })).await;
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "C blocked on the other one", |_| blocked_on(other)).await;
     assert!(!task_event(&events(&h.app, &run), "attempt.started", "C"));
@@ -1706,7 +1706,7 @@ async fn restart_restores_failed_and_blocked() {
     while r.st.lock().unwrap().mcp_token.is_empty() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let (text, err) = tool(&app2, &run, "lead", "retry", json!({ "task": "T1" })).await;
+    let (text, err) = tool(&app2, &run, "lead", "retry", json!({ "task": "T1", "session": "new" })).await;
     assert!(!err, "{text}");
     wait_until(&app2, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2")))
         .await;

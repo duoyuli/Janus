@@ -115,4 +115,29 @@ enum SessionView {
     }
 
     static func tokens(_ n: Int) -> String { n >= 1000 ? String(format: "%.1fk", Double(n) / 1000) : "\(n)" }
+
+    /// What an attempt's header adds about how it started (`attempt.started`): which session it
+    /// is in when not a plain new one, and why it runs again. A rework or a re-check continues
+    /// the task's own conversation, so the header says so instead of looking like a new session.
+    static func attemptNote(_ d: JSON, task: String?) -> String {
+        var parts: [String] = []
+        if d["resumed"].truthy { parts.append(L.text("恢复了原会话")) }
+        let c = d["continuation"]
+        if c["loaded"].truthy {
+            parts.append(c["from"].str == task ? L.text("接着原会话") : L.text("接着 \(c["from"].str) 的会话"))
+        } else if c.exists {
+            switch c["fallback"].str {
+            case "context_over_75pct": parts.append(L.text("新开会话（原会话上下文超过 75%）"))
+            case "unsupported": parts.append(L.text("新开会话（Agent 不支持加载会话）"))
+            default: parts.append(L.text("新开会话（原会话加载失败）"))
+            }
+        }
+        let r = d["reopen"]
+        switch r["reason"].str {
+        case "lead.retry" where r["from"].truthy: parts.append(L.text("按 \(r["from"].str) 的意见返工"))
+        case "target.reworked": parts.append(L.text("\(r["target"].str) 返工后复审"))
+        default: break
+        }
+        return parts.map { " · \($0)" }.joined()
+    }
 }

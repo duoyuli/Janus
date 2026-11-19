@@ -312,7 +312,7 @@ impl App {
         if live.is_none() && status.terminal() {
             // A reply to a finished task would otherwise wait for whatever this agent does next.
             return Err(format!(
-                "{task} 已经结束（{}），{agent} 没有在做这个子任务，消息不会送达。需要它继续做事，请用 janus.retry 重新执行 {task}，或用 janus.orchestrate 新建子任务。",
+                "{task} 已经结束（{}），{agent} 没有在做这个子任务，消息不会送达。需要它接着做，请用 janus.retry 让 {task} 返工（session=\"continue\" 回到它原来的会话），或用 janus.orchestrate 新建子任务。",
                 status.label()
             ));
         }
@@ -332,31 +332,74 @@ impl App {
         }
     }
 
-    /// The lead runs a failed or cancelled task again, optionally with new instructions or
-    /// acceptance criteria. Tasks blocked on it start once it succeeds.
+    /// The lead runs an ended task again: a failed or cancelled one, or a finished one it sends
+    /// back for rework. It names the session the next attempt starts in, and may hand over the
+    /// findings of a verification (`from`) and a note for this round. The verifications of the
+    /// task, and `from`, check its new result again once it is done. Tasks blocked on it start
+    /// once it succeeds.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#retry
     pub(super) fn board_retry(self: &Arc<Self>, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
         let task = args["task"].as_str().unwrap_or("").trim();
-        let instructions = args["instructions"].as_str().map(str::trim).filter(|s| !s.is_empty());
+        let text = |k: &str| args[k].as_str().map(str::trim).filter(|s| !s.is_empty());
+        let instructions = text("instructions");
+        let note = text("note");
+        let from = text("from");
         let accept: Option<Vec<String>> = args["accept"].as_array().map(|a| {
             a.iter().filter_map(|x| x.as_str().map(|s| s.trim().to_string())).filter(|s| !s.is_empty()).collect()
         });
         if accept.as_ref().is_some_and(|a| a.is_empty()) {
             return Err("accept 不能是空的：写出可核对的验收标准，或不传以沿用原来的".into());
         }
-        let continue_session = args["continue_session"].as_bool().unwrap_or(false);
-        {
+        let Some(session) = text("session").and_then(SessionChoice::parse) else {
+            return Err("session 必填：\"continue\" 接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的），\"new\" 新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）".into());
+        };
+        let reverify: Vec<String> = {
             let mut st = run.st.lock().unwrap();
-            let Some(t) = Run::task_mut(&mut st, task) else {
+            let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
                 return Err(format!("看板上没有子任务 {task}"));
             };
-            if !matches!(t.status, TaskStatus::Failed | TaskStatus::Cancelled | TaskStatus::SkippedByDecision) {
-                return Err(format!("{task} 现在是「{}」，只能重试失败或已取消的子任务", t.status.label()));
+            if !t.status.terminal() {
+                return Err(format!("{task} 现在是「{}」，还没有结束；要补充指示请用 janus.reply", t.status.label()));
             }
+            if let Some(v) = from {
+                let Some(vt) = st.tasks.iter().find(|x| x.def.id == v) else {
+                    return Err(format!("from 指向的子任务 {v} 不存在"));
+                };
+                if vt.verdict().is_none() {
+                    return Err(format!("from 要指向一个已经给出判定的独立验证子任务，{v} 不是"));
+                }
+                if v == task {
+                    return Err(format!("from 不能是 {task} 自己"));
+                }
+                // `from` checks the reworked result after it, so `task` must not wait on `from`.
+                let deps: HashMap<&str, &[String]> =
+                    st.tasks.iter().map(|x| (x.def.id.as_str(), x.def.deps.as_slice())).collect();
+                if crate::teamwork::upstream_of(task, &deps).contains(v) {
+                    return Err(format!(
+                        "{task} 依赖 {v}，{v} 不能在 {task} 返工之后再复审它；去掉 from，或返工 {v} 验证的子任务"
+                    ));
+                }
+            }
+            // Verifications of the task's old result, and the one whose findings it takes, check
+            // the new result again.
+            let reverify: Vec<String> = st
+                .tasks
+                .iter()
+                .filter(|v| v.status == TaskStatus::Succeeded)
+                .filter(|v| v.def.verifies.as_deref() == Some(task) || Some(v.def.id.as_str()) == from)
+                .map(|v| v.def.id.clone())
+                .collect();
+            let t = Run::task_mut(&mut st, task).expect("found above");
             t.set_status(TaskStatus::Pending);
             t.active_attempt = None;
             t.retry_base = t.attempts;
             t.skipped_because = None;
-            t.continue_session = continue_session;
+            t.reopen = Some(Reopen::Retry {
+                session,
+                from: from.map(str::to_owned),
+                note: note.map(str::to_owned),
+                revised: instructions.is_some() || accept.is_some(),
+            });
             t.trace_gaps.clear();
             // A new run of the task brings a new conclusion; earlier corrections were about the old one.
             t.amendments.clear();
@@ -366,7 +409,19 @@ impl App {
             if let Some(a) = &accept {
                 t.def.accept = a.clone();
             }
-        }
+            for id in &reverify {
+                let v = Run::task_mut(&mut st, id).expect("listed above");
+                v.set_status(TaskStatus::Pending);
+                v.retry_base = v.attempts;
+                v.reopen = Some(Reopen::Reverify { target: task.to_string() });
+                v.trace_gaps.clear();
+                v.amendments.clear();
+                if !v.def.deps.iter().any(|d| d == task) {
+                    v.def.deps.push(task.to_string());
+                }
+            }
+            reverify
+        };
         // Tasks the lead's `cancel` dropped only because of this one come back with it (and theirs
         // with them); a task the lead cancelled by name stays cancelled.
         let mut revived: Vec<(String, String)> = vec![];
@@ -385,35 +440,69 @@ impl App {
                 }
             }
         }
-        let mut data = json!({ "reason": "lead.retry" });
+        let mut data = json!({ "reason": ReopenReason::LeadRetry.as_str(), "session": session.as_str() });
         if let Some(i) = instructions {
             data["instructions"] = json!(i);
         }
         if let Some(a) = &accept {
             data["accept"] = json!(a);
         }
-        if continue_session {
-            data["continueSession"] = json!(true);
+        if let Some(v) = from {
+            data["from"] = json!(v);
         }
-        self.emit(run, ev("task.reopened", "lead", format!("负责人要求重新执行 {task}")).task(task).data(data));
+        if let Some(n) = note {
+            data["note"] = json!(n);
+        }
+        let how = match session {
+            SessionChoice::Continue => "在原会话中",
+            SessionChoice::New => "在新会话中",
+        };
+        let title = match from {
+            Some(v) => format!("负责人要求 {task} 按 {v} 的意见{how}返工"),
+            None => format!("负责人要求 {task} {how}重新执行"),
+        };
+        self.emit(run, ev("task.reopened", "lead", title).task(task).data(data));
+        for id in &reverify {
+            self.emit(
+                run,
+                ev("task.reopened", "janus", format!("{task} 返工，{id} 在它完成后重新验证"))
+                    .task(id)
+                    .data(json!({ "reason": ReopenReason::TargetReworked.as_str(), "target": task })),
+            );
+        }
         for (id, up) in &revived {
             self.emit(
                 run,
                 ev("task.reopened", "janus", format!("{up} 重新执行，因它取消的 {id} 恢复等待"))
                     .task(id)
-                    .data(json!({ "reason": "upstream.retry", "upstream": up })),
+                    .data(json!({ "reason": ReopenReason::UpstreamRetry.as_str(), "upstream": up })),
             );
         }
         self.ensure_driver(run);
         run.wake.notify_one();
-        if revived.is_empty() {
-            Ok(format!("{task} 会重新执行，依赖它的子任务会在它成功后继续。"))
-        } else {
-            Ok(format!(
-                "{task} 会重新执行，依赖它的子任务会在它成功后继续；因它被取消的 {} 也恢复了。",
-                revived.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")
-            ))
+        let mut reply = format!("{task} 会{how}重新执行，依赖它的子任务会在它成功后继续。");
+        if !reverify.is_empty() {
+            reply.push_str(&format!("它完成后，{} 重新验证新的结果。", reverify.join("、")));
         }
+        if !revived.is_empty() {
+            reply.push_str(&format!(
+                "因它被取消的 {} 也恢复了。",
+                revived.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")
+            ));
+        }
+        let checking: Vec<String> = run
+            .st
+            .lock()
+            .unwrap()
+            .tasks
+            .iter()
+            .filter(|v| v.def.verifies.as_deref() == Some(task) && v.status == TaskStatus::Running)
+            .map(|v| v.def.id.clone())
+            .collect();
+        if !checking.is_empty() {
+            reply.push_str(&format!("{} 正在验证旧的结果，不再需要时用 janus.cancel 取消。", checking.join("、")));
+        }
+        Ok(reply)
     }
 
     /// The lead accepts a result that failed only its verification (for example a command that
@@ -653,7 +742,7 @@ impl App {
                     && matches!(t.verdict(), Some(Verdict::Rejected | Verdict::Inconclusive))
             }) {
                 return Err(format!(
-                    "{} 的独立验证已完成，原判定保留。请派修复和新的验证子任务，或取消不再需要的受阻下游任务。",
+                    "{} 的独立验证已完成，原判定保留。请用 janus.retry 让有问题的子任务返工（from 指向这个验证，返工后它会重新验证），或取消不再需要的受阻下游任务。",
                     t.def.id
                 ));
             }

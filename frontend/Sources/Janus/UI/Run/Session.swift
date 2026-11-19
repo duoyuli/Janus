@@ -461,7 +461,7 @@ struct ChatItem: View {
         case "attempt.started":
             VStack(alignment: .leading, spacing: 4) {
                 Divider()
-                Text(verbatim: L.text("\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(d["resumed"].truthy ? L.text(" · 恢复了原会话") : "")"))
+                Text(verbatim: L.text("\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(SessionView.attemptNote(d, task: e.task))"))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 DisclosureGroup(L.text("编排器发出的子任务说明")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
@@ -496,7 +496,8 @@ struct ChatItem: View {
             .background(Tone.blue.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         // Goal mode: a collaborator asks the lead, which answers on the board.
         case "question.asked": note(L.text("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : L.text("（\(d["options"].strings.joined(separator: " / "))）")) · 负责人会回答，不需要你处理"), .amber)
-        case "context.handoff": note(L.text("⇄ 上游子任务 \(d["from"].string ?? e.text) 的结果已带入本次子任务"), nil)
+        // A handoff with a verdict is a verification's findings (for a rework), not an upstream result.
+        case "context.handoff": note(d["verdict"].exists ? L.text("⇄ 独立验证 \(d["from"].string ?? e.text) 的意见已带入本次子任务") : L.text("⇄ 上游子任务 \(d["from"].string ?? e.text) 的结果已带入本次子任务"), nil)
         case "board.posted": note(L.text("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)"), nil)
         case "task.conflict" where d["owned"].truthy:
             note(L.text("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: L.text("、")))。已提醒 \(e.task ?? "") 不要再改，并告诉负责人"), .amber)

@@ -29,7 +29,8 @@
 - [内置运行时只保留 Codex 和 Claude Code](20261116-codex_and_claude_only.md)：删除 Grok 和 Pi，基础运行时用枚举 `Runtime` 表达，自定义命令保留。阅读时机：想新增一种内置 Agent 之前。
 
 - [集中引导 macOS 权限，升级后重新检查](20261117-macos_permission_guidance.md)：完整磁盘访问、应用程序管理和屏幕录制的集中引导，三项都由应用检测。阅读时机：修改系统权限检查、授权入口、升级后提醒或 Agent 的权限归属说明。
-- [基于 `session/load` 复用前置任务会话](20261118-session_continuation.md)：修复任务和重试通过 `continues` / `continue_session` 恢复原执行者会话，上下文超过 75% 或不支持时自动回退新建会话。阅读时机：修改任务会话打开流程、`continues` 编排校验或 `retry` 行为之前。
+- [基于 `session/load` 复用前置任务会话](20261118-session_continuation.md)：新工作通过 `continues` 恢复原执行者会话，上下文超过 75% 或不支持时自动回退新建会话。其中 `retry` 的 `continue_session` 和「验证没通过后派修复子任务」已被下一条取代。阅读时机：修改任务会话打开流程或 `continues` 编排校验之前。
+- [返工由负责人用 `retry` 发回原任务，会话由负责人每次选择](20261119-rework_in_original_session.md)：验证没通过时由负责人判断返工哪个任务，`retry` 可以重开已完成的任务，`session` 必填，`from` 把验证意见原样交给执行者，验证在自己的会话中复审。阅读时机：修改 `retry`、返工或复审流程，或想让 Janus 自动返工之前。
 - [Codex 和 Claude Code 默认不受限运行](20261118-unrestricted_default_mode.md)：角色没有选择权限模式时，Codex 用 Full access，Claude Code 用 Bypass permissions，角色的选择始终优先。阅读时机：修改权限模式的默认值，或评估没有改过权限的数字员工能做什么之前。
 - [数据随版本自动升级](20261118-data_migrations.md)：数据版本、服务启动时自动执行的迁移和备份、默认数字员工按「改没改过」更新、用测试拦下漏写的迁移、应用与服务的版本握手。阅读时机：改变任何存储的数据（表、设置对象或 Run 快照的字段、默认数字员工）之前，或调整升级与备份方式之前。
 - [工作区角色并发槽位与 Run 级并发上限](20261118-role_slots_and_concurrency_cap.md)：协作者角色可配置多个并发分片（共享 `role_id`），调度器按 `max_concurrent_attempts` 限制单次 Run 同时运行的尝试数。阅读时机：修改 `team_for` 成员展开、工作区成员配置或调度并发上限之前。

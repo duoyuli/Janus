@@ -5,7 +5,6 @@
 " · 上下文 %@" = " · Context: %@";
 " · 人工接管中" = " · Under manual control";
 " · 峰值 %@" = " · Peak: %@";
-" · 恢复了原会话" = " · Resumed previous session";
 " · 有负责人" = " · Lead assigned";
 " · 独立验证：" = " · Independent verification: ";
 " · 等你回答" = " · Waiting for your answer";
@@ -1236,3 +1235,17 @@
 "重新打开 Janus" = "Reopen Janus";
 "无法检测" = "Cannot Detect";
 "前往授权" = "Grant Access";
+"恢复了原会话" = "Resumed previous session";
+"接着原会话" = "Continues its own session";
+"接着 %@ 的会话" = "Continues %@'s session";
+"新开会话（原会话上下文超过 75%）" = "New session (previous one was over 75% of its context)";
+"新开会话（Agent 不支持加载会话）" = "New session (the agent cannot load sessions)";
+"新开会话（原会话加载失败）" = "New session (the previous one failed to load)";
+"按 %@ 的意见返工" = "Rework on %@'s findings";
+"%@ 返工后复审" = "Re-check after %@ was reworked";
+"会话：接着原会话" = "Session: continue its own";
+"会话：新开会话" = "Session: start a new one";
+"依据 %@ 的意见" = "On %@'s findings";
+"负责人的说明：%@" = "Lead's note: %@";
+"负责人让 %@ 返工" = "Lead sent %@ back for rework";
+"⇄ 独立验证 %@ 的意见已带入本次子任务" = "⇄ Findings of verification %@ were included in this subtask";

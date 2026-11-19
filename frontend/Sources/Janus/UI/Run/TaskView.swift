@@ -193,7 +193,7 @@ struct TimelineRow: View {
         if e.type == "attempt.started" {
             HStack(spacing: 10) {
                 Text(verbatim: L.text("尝试 \(e.attempt ?? 0)")).fontWeight(.semibold)
-                Text(d["runtime"].str).foregroundStyle(.secondary)
+                Text(verbatim: "\(d["runtime"].str)\(SessionView.attemptNote(d, task: e.task))").foregroundStyle(.secondary)
                 Text(L.short(d["session"].str, 40)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                 Text(d["workspace"].str).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer()

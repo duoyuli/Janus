@@ -165,7 +165,9 @@ impl TaskStatus {
             (Pending, Running | Blocked | Cancelled | SkippedByDecision)
                 | (Running, Pending | Succeeded | Failed | Cancelled | SkippedByDecision)
                 | (Blocked, Pending | Cancelled | SkippedByDecision)
-                // A user retry (task.reopened) reopens failed and cancelled tasks.
+                // The lead's retry (task.reopened) reopens failed and cancelled tasks, and a
+                // finished one it sends back for rework, together with the verifications of it.
+                | (Succeeded, Pending)
                 | (Failed, Pending | Succeeded | SkippedByDecision)
                 | (Cancelled, Pending | SkippedByDecision)
                 | (SkippedByDecision, Pending)
@@ -377,7 +379,9 @@ mod tests {
         assert!(TaskStatus::Running.can_transition_to(TaskStatus::Failed));
         assert!(TaskStatus::Failed.can_transition_to(TaskStatus::Pending), "the lead retries it");
         assert!(TaskStatus::Failed.can_transition_to(TaskStatus::Succeeded), "the lead accepts it");
+        assert!(TaskStatus::Succeeded.can_transition_to(TaskStatus::Pending), "the lead sends it back for rework");
         assert!(!TaskStatus::Succeeded.can_transition_to(TaskStatus::Running));
+        assert!(!TaskStatus::Succeeded.can_transition_to(TaskStatus::Failed));
         assert!(!TaskStatus::Pending.can_transition_to(TaskStatus::Succeeded));
         assert!(!TaskStatus::Blocked.terminal());
         assert!(TaskStatus::Failed.terminal());

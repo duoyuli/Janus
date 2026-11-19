@@ -1,7 +1,7 @@
 //! End-to-end tests for the multi-agent collaboration improvements (`C-01`..`C-13`): event-driven
 //! `wait` + live task pulse, verifier `verdict` + targeted context, structured `handoff`, multi-step
 //! loop detection, Lead edit conflict/stale tracking, warm session continuation (`continues` /
-//! `continue_session`), role `slots` + concurrency cap, observational token budget, collaborator
+//! `retry` with `session: "continue"`, rework on a verification's findings), role `slots` + concurrency cap, observational token budget, collaborator
 //! `request_split`, and abnormal-session usage capture.
 
 use super::*;
@@ -363,16 +363,11 @@ async fn session_continuation_falls_back_cleanly_on_high_context_or_no_load() {
     assert_ne!(t2_a1["session"].as_str(), Some(t1_sid.as_str()), "80% context skips session/load");
     assert_eq!(t2_a1["continuation"]["fallback"], "context_over_75pct", "{t2_a1}");
 
-    // Disable `loadSession` and ask `retry` for `continue_session: true`: falls back cleanly to `session/new`.
+    // Disable `loadSession` and ask `retry` for `session: "continue"`: falls back cleanly to `session/new`.
     std::fs::write(h.dir.join("fake/no-load"), "").unwrap();
-    let (_, err) = tool(
-        &h.app,
-        &run,
-        "lead",
-        "retry",
-        json!({ "task": "T2", "instructions": "换个做法", "continue_session": true }),
-    )
-    .await;
+    let (_, err) =
+        tool(&h.app, &run, "lead", "retry", json!({ "task": "T2", "instructions": "换个做法", "session": "continue" }))
+            .await;
     assert!(!err);
     wait_until(&h.app, &run, "T2 succeeded on retry", |e| task_event(e, "task.succeeded", "T2")).await;
     let t2_a2 = events(&h.app, &run)
@@ -743,5 +738,163 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// The lead sends a task back to its own session on a verification's findings: no new subtask, the
+/// findings arrive verbatim, and the verification checks the reworked result in its own session.
+/// The lead must name the session, and `from` must be a verification that does not wait on the task.
+#[tokio::test(flavor = "multi_thread")]
+async fn rework_goes_back_into_the_original_session_and_is_rechecked() {
+    let h = harness(
+        "collab-rework",
+        &[("lead", false), ("m1", true), ("m2", false)],
+        json!({ "T1": ["ok", "ok"], "V1": ["reject", "approve"], "D1": ["ok"] }),
+    );
+    let run = start(
+        &h,
+        json!([
+            task("T1", "m1", json!({ "accept": ["parse 接口完整"] })),
+            task("V1", "m2", json!({ "verifies": "T1", "accept": ["独立核验 parse 边界"] })),
+            task("D1", "m1", json!({ "deps": ["V1"] }))
+        ]),
+    )
+    .await;
+    wait_until(&h.app, &run, "V1 rejected T1, D1 held", |e| {
+        task_event(e, "task.succeeded", "V1") && task_event(e, "task.blocked", "D1")
+    })
+    .await;
+    let v1_done =
+        events(&h.app, &run).into_iter().find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("V1"));
+    let guidance = board_entry(&h.app.run(&run).unwrap(), &v1_done.unwrap()).unwrap();
+    assert!(guidance.contains("janus.retry") && guidance.contains("from=\"V1\""), "{guidance}");
+
+    // The lead has to choose the session, and `from` has to be a verification with a verdict.
+    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "from": "V1" })).await;
+    assert!(err && text.contains("session 必填"), "{text}");
+    let (text, err) =
+        tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "keep", "from": "V1" })).await;
+    assert!(err && text.contains("session 必填"), "{text}");
+    let (text, err) =
+        tool(&h.app, &run, "lead", "retry", json!({ "task": "V1", "session": "continue", "from": "T1" })).await;
+    assert!(err && text.contains("独立验证子任务"), "{text}");
+    let (text, err) =
+        tool(&h.app, &run, "lead", "retry", json!({ "task": "D1", "session": "continue", "from": "V1" })).await;
+    assert!(err && text.contains("还没有结束"), "a blocked task is not reworked: {text}");
+
+    let (text, err) = tool(
+        &h.app,
+        &run,
+        "lead",
+        "retry",
+        json!({ "task": "T1", "session": "continue", "from": "V1", "note": "空输入按 ParseError 处理" }),
+    )
+    .await;
+    assert!(!err && text.contains("V1 重新验证"), "{text}");
+    wait_until(&h.app, &run, "D1 ran after the re-check", |e| task_event(e, "task.succeeded", "D1")).await;
+
+    let evs = events(&h.app, &run);
+    let started = |id: &str, n: i64| -> Value {
+        evs.iter()
+            .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(id) && e.attempt == Some(n))
+            .and_then(|e| e.data.clone())
+            .unwrap_or_else(|| panic!("{id} attempt {n} did not start"))
+    };
+    let (t1a, t1b) = (started("T1", 1), started("T1", 2));
+    assert_eq!(t1b["session"], t1a["session"], "the rework is in T1's own session");
+    assert_eq!(t1b["continuation"], json!({ "from": "T1", "session": t1a["session"], "loaded": true }));
+    assert_eq!(t1b["reopen"], json!({ "reason": "lead.retry", "session": "continue", "from": "V1" }));
+    let prompt = t1b["prompt"].as_str().unwrap();
+    assert!(prompt.starts_with("负责人让你在原来的会话中接着做子任务 T1"), "{prompt}");
+    assert!(
+        prompt.contains("运行 cargo test 复现空输入崩溃") && prompt.contains("空输入按 ParseError 处理"),
+        "the findings arrive verbatim, with the lead's note: {prompt}"
+    );
+    assert!(!prompt.contains("你是 Janus 团队中的"), "the session already has the task: {prompt}");
+    assert!(
+        evs.iter().any(|e| e.kind == "context.handoff"
+            && e.task.as_deref() == Some("T1")
+            && e.attempt == Some(2)
+            && e.data.as_ref().is_some_and(|d| d["from"] == "V1" && d["verdict"] == "rejected")),
+        "the record says T1 used V1's findings"
+    );
+    let (v1a, v1b) = (started("V1", 1), started("V1", 2));
+    assert_eq!(v1b["session"], v1a["session"], "the verifier re-checks in its own session");
+    assert_eq!(v1b["reopen"], json!({ "reason": "target.reworked", "target": "T1" }));
+    let recheck = v1b["prompt"].as_str().unwrap();
+    assert!(
+        recheck.starts_with("T1 已经返工")
+            && recheck.contains("你上一轮的判定：需要修改（rejected）")
+            && recheck.contains("运行 cargo test 复现空输入崩溃"),
+        "{recheck}"
+    );
+    assert!(evs.iter().filter(|e| e.kind == "orchestration.accepted").count() == 1, "no new subtasks for the rework");
+    let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
+    for sid in [&t1a["session"], &v1a["session"]] {
+        assert!(calls.contains(&format!("load {}", sid.as_str().unwrap())), "{calls}");
+    }
+
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let t1 = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T1").unwrap();
+    assert_eq!(t1["verifications"][0]["verdict"], "approved", "{t1}");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A rework recorded before a restart carries on: the task goes back into the session the lead
+/// chose, the verification waits for the reworked task (even an upstream one it did not verify)
+/// and checks it again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rework_survives_a_restart() {
+    let h = harness("recover-rework", &[("lead", false), ("m1", true), ("m2", false)], json!({}));
+    let original = start(&h, json!([task("SEED", "m1", json!({}))])).await;
+    finish_lead(&h);
+    wait_until(&h.app, &original, "seed delivered", |e| has(e, "run.delivered")).await;
+    let row = h.app.db.run(&original).unwrap().unwrap();
+    let id = "replay-rework";
+    h.app.db.insert_run(id, "返工后重启", row["cwd"].as_str().unwrap(), &row["config"], now_ms()).unwrap();
+    let def = |id, agent, deps: &[&str]| json!({"id":id,"title":id,"agent":agent,"deps":deps,"accept":["完成"]});
+    let mut verifier = def("V1", "m2", &["T1"]);
+    verifier["verifies"] = json!("T1");
+    let facts = [
+        (
+            "orchestration.accepted",
+            None,
+            json!({"tasks":[def("T0","m1",&[]),def("T1","m1",&["T0"]),verifier],"plannedSeq":0}),
+        ),
+        ("attempt.started", Some("T0"), json!({"session":"s-t0"})),
+        ("task.succeeded", Some("T0"), json!({"summary":"接口"})),
+        ("task.succeeded", Some("T1"), json!({"summary":"调用"})),
+        ("task.succeeded", Some("V1"), json!({"summary":"接口不对","verdict":"rejected"})),
+        ("task.reopened", Some("T0"), json!({"reason":"lead.retry","session":"continue","from":"V1"})),
+        ("task.reopened", Some("V1"), json!({"reason":"target.reworked","target":"T0"})),
+    ];
+    for (i, (kind, task, data)) in facts.into_iter().enumerate() {
+        h.app
+            .db
+            .insert_event(&crate::usage::event_from_json(
+                id,
+                &json!({"seq":i+1,"ts":now_ms(),"type":kind,"task":task,"actor":"m1","data":data}),
+            ))
+            .unwrap();
+    }
+    // The fake agent keeps what each session was told; T0's session was opened before the restart.
+    std::fs::write(h.dir.join("fake/session-s-t0.json"), json!({ "task": "T0", "criteria": ["完成"] }).to_string())
+        .unwrap();
+    h.app.recover().unwrap();
+    h.app.resume_run(id).await.unwrap();
+    wait_until(&h.app, id, "V1 checked again", |e| {
+        e.iter().filter(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("V1")).count() == 2
+    })
+    .await;
+    let log = events(&h.app, id);
+    let at = |kind: &str, task: &str| log.iter().rposition(|e| e.kind == kind && e.task.as_deref() == Some(task));
+    let t0 = log.iter().rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T0")).unwrap();
+    assert_eq!(t0.data.as_ref().unwrap()["reopen"]["from"], "V1", "{t0:?}");
+    assert_eq!(t0.data.as_ref().unwrap()["continuation"]["session"], "s-t0", "{t0:?}");
+    let v1 = log.iter().rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("V1")).unwrap();
+    assert_eq!(v1.data.as_ref().unwrap()["reopen"]["reason"], "target.reworked");
+    assert!(at("attempt.started", "V1") > at("task.succeeded", "T0"), "V1 waited for the reworked T0");
     let _ = std::fs::remove_dir_all(&h.dir);
 }

@@ -443,9 +443,10 @@ impl App {
             let mut def: TaskDef = serde_json::from_value(item.clone())?;
             def.assignee = item["agent"].as_str().unwrap_or("").to_string();
             let id = def.id.clone();
-            // The lead may have retried it with new instructions, acceptance criteria, or session continuation.
+            // The lead may have retried it with new instructions or acceptance criteria, and in a
+            // chosen session; a verification of reworked work checks it again after it.
             let mut last_reopen_seq = 0i64;
-            let mut continue_session = false;
+            let mut reopen = None;
             for e in events.iter().filter(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str())) {
                 let d = e.data.clone().unwrap_or_default();
                 if let Some(i) = d["instructions"].as_str() {
@@ -454,15 +455,21 @@ impl App {
                 if let Some(a) = d["accept"].as_array() {
                     def.accept = a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect();
                 }
+                reopen = Reopen::of_event(&d);
+                if let Some(Reopen::Reverify { target }) = &reopen
+                    && !def.deps.contains(target)
+                {
+                    def.deps.push(target.clone());
+                }
                 last_reopen_seq = e.seq;
-                continue_session = d["continueSession"] == true;
             }
             let agent = def.assignee.clone();
             let mine = |kind: &str| -> Vec<&Event> {
                 events.iter().filter(|e| e.kind == kind && e.task.as_deref() == Some(id.as_str())).collect()
             };
+            // An attempt started since took it.
             if mine("attempt.started").iter().any(|e| e.seq > last_reopen_seq) {
-                continue_session = false;
+                reopen = None;
             }
             let attempts = mine("attempt.started").len() as i64;
             // The current retry budget starts at the last user retry.
@@ -578,7 +585,7 @@ impl App {
                 .flatten();
             task.succeeded_seq = succeeded.map(|e| e.seq);
             task.trace_gaps = trace_gaps;
-            task.continue_session = continue_session;
+            task.reopen = reopen;
             task.artifacts = artifacts;
             task.retry_base = retry_base;
             let since = events

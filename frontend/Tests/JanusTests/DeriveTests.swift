@@ -512,3 +512,21 @@ private func goalRun() -> Log {
     #expect(Backend.isStale(server: nil, app: "2026.11.19"), "a service too old to say its version")
     #expect(!Backend.isStale(server: "0.1.0", app: "0"), "the app from source")
 }
+
+/// The lead sending a task back on a verification's findings is a decision on the board: which
+/// session, whose findings and the lead's note. The verification it brings back loses its old verdict.
+@Test func aReworkIsTheLeadsDecisionAndClearsTheOldVerdict() {
+    var log = goalRun()
+    log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "初版"])
+    log.add("task.succeeded", task: "T2", attempt: 1, data: ["summary": "空输入崩溃", "verdict": "rejected"])
+    #expect(derive(log.events).tasks["T2"]?.verdict == .rejected)
+    log.add("task.reopened", actor: "lead", task: "T1", data: ["reason": "lead.retry", "session": "continue", "from": "T2", "note": "空输入按错误处理"])
+    log.add("task.reopened", actor: "janus", task: "T2", data: ["reason": "target.reworked", "target": "T1"])
+    let st = derive(log.events)
+    #expect(st.tasks["T1"]?.status == .ready && st.tasks["T2"]?.verdict == nil)
+    let d = boardFacts(st) { $0 }.decisions.first { $0.title == expectedCopy("负责人让 T1 返工", "Lead sent T1 back for rework") }
+    #expect(d?.text.contains(expectedCopy("会话：接着原会话", "Session: continue its own")) == true)
+    #expect(d?.text.contains(expectedCopy("依据 T2 的意见", "On T2's findings")) == true)
+    #expect(d?.text.contains("空输入按错误处理") == true)
+    #expect(d?.tasks == ["T1", "T2"])
+}

@@ -145,7 +145,7 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
 }
 
 /// Every task upstream of `id`, following dependencies transitively.
-fn upstream_of(id: &str, deps: &HashMap<&str, &[String]>) -> HashSet<String> {
+pub(crate) fn upstream_of(id: &str, deps: &HashMap<&str, &[String]>) -> HashSet<String> {
     let mut seen = HashSet::new();
     let mut todo = vec![id.to_string()];
     while let Some(x) = todo.pop() {
@@ -257,7 +257,7 @@ pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>) -> St
 pub fn accept_refused(def: &TaskDef) -> Option<String> {
     let target = def.verifies.as_deref()?;
     Some(format!(
-        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。请用 janus.task_detail 查看 {id} 发现的问题，再用 janus.orchestrate 派一个修复子任务（交给 {target} 的执行者时可设 continues=\"{target}\" 复用原会话，依赖 {id}）和一个新的验证子任务（verifies 指向修复子任务）；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
+        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。请用 janus.task_detail 查看 {id} 发现的问题，判断问题出在哪个子任务，用 janus.retry 返工（例如 task=\"{target}\"、from=\"{id}\"，session 选 continue 或 new），返工完成后 {id} 自动重新验证；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
         id = def.id
     ))
 }
@@ -270,7 +270,8 @@ pub fn lead_guide() -> &'static str {
 - State what each subtask owns, what it must leave untouched, and what counts as done. Use owns for files or directories relative to the working directory. A directory covers all files below it. Janus rejects overlaps between subtasks that could run at the same time.
 - Collaborators can call janus.claim before editing files outside owns. The board reports claims and out-of-scope edits to files another active subtask owns. If a subtask needs splitting, the collaborator can propose a split with janus.request_split, and you decide whether to revise the plan.
 - On completion, Janus checks each result against the subtask's edits. The completion entry flags missing changes to owned files, changes outside the assigned scope, and edits made by a verifier. Inspect the current working directory before relying on a summary.
-- Arrange independent verification for important changes. Assign another collaborator a subtask with verifies set to the id being verified. Prefer a different model when the team has multiple models or Agents. The verification subtask starts after the target finishes. The verifier inspects the result without changing files and returns an approved, rejected, or inconclusive verdict. You cannot bypass an unsuccessful verification with janus.accept. Assign a fix and a new verification, or cancel the downstream tasks that no longer need to run and state why. A completed verification retains its verdict. When assigning the fix to the original collaborator, continues can reuse its session and avoid rereading the code. If a second collaborator is unavailable, verify the result yourself."
+- Arrange independent verification for important changes. Assign another collaborator a subtask with verifies set to the id being verified. Prefer a different model when the team has multiple models or Agents. The verification subtask starts after the target finishes. The verifier inspects the result without changing files and returns an approved, rejected, or inconclusive verdict. You cannot bypass an unsuccessful verification with janus.accept. Decide which subtask the problem lies in and send it back with janus.retry, from set to the verification: the assignee gets the findings verbatim, and the verification checks the reworked result again on its own. Use session=\"continue\" when the earlier context helps (fixing review findings in the same work) and session=\"new\" when it does not. Orchestrate a new subtask only for different work or a different assignee, or cancel the downstream tasks that no longer need to run and state why. A completed verification retains its verdict until it checks again.
+- Choose a session for every follow-up. One collaborator may hold several sessions, one per subtask, for example a backend one and a frontend one. A new subtask that builds on an earlier subtask's context can set continues to that subtask's id; work in a different area starts in a fresh session. If a second collaborator is unavailable, verify the result yourself."
 }
 
 #[cfg(test)]
@@ -369,7 +370,8 @@ mod tests {
         let board = [(def("T1", "m1", &[], &[], None), TaskStatus::Succeeded)];
         assert!(errors(&mut [def("V1", "m2", &[], &[], Some("T1"))], &board).is_empty());
         assert!(
-            accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1"))).is_some_and(|x| x.contains("janus.orchestrate"))
+            accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1")))
+                .is_some_and(|x| x.contains("janus.retry") && x.contains("from=\"V1\""))
         );
         assert!(accept_refused(&def("T1", "m1", &[], &[], None)).is_none());
     }

@@ -1,14 +1,15 @@
 """Things going wrong: failed attempts, unmet criteria, verifiers that reject, and the lead's choices."""
 
+from lib import wait
 from scenarios import scenario, task
 
 
 @scenario("failures")
 def failures(ctx, c):
-    """失败与处理：重试后下游恢复、没通过验收由负责人接受、取消连带下游、验证者判定不通过不能放行、不合法的证据方法"""
+    """失败与处理：重试后下游恢复、没通过验收由负责人接受、取消连带下游、验证者判定不通过不能放行而是回到原会话返工并复审、不合法的证据方法"""
     t = ctx.team("failures", members=("m1", "m2", "m3", "m4", "m5", "m6", "m7"), script={
         "T1": ["fail", "fail", "ok"], "T2": ["ok"], "T3": ["unmet", "unmet"], "T4": ["fail", "fail"],
-        "T5": ["ok"], "T6": ["handoff"], "V6": ["reject"], "T7": ["badmethod", "badmethod"]})
+        "T5": ["ok"], "T6": ["handoff", "ok"], "V6": ["reject", "approve"], "T7": ["badmethod", "badmethod"]})
     m = t.member
     run = t.run("会出问题的目标")
     lead = run.lead()
@@ -26,7 +27,7 @@ def failures(ctx, c):
     c(run.has("verification.failed", task="T3"), "核对结果记为 verification.failed")
 
     # The lead's choices.
-    text, err = lead.call("retry", {"task": "T1"})
+    text, err = lead.call("retry", {"task": "T1", "session": "new"})
     c(not err, "负责人重试 T1")
     run.wait_event("task.succeeded", task="T2", timeout=60)
     c(True, "T1 重试成功后，被它阻塞的 T2 自动继续并完成")
@@ -39,11 +40,26 @@ def failures(ctx, c):
     c(err, f"验证者判定不通过时，负责人不能用 accept 放行（{text[:60]}）")
     verdict = run.has("task.succeeded", task="V6")
     c(verdict and verdict[-1]["data"].get("verdict") == "rejected", "V6 的判定 rejected 记在任务结论里")
+    # The lead sends T6 back into its own session on V6's findings; V6 checks the rework again.
+    text, err = lead.call("retry", {"task": "T6", "from": "V6"})
+    c(err and "session" in text, f"返工时负责人必须选择会话（{text[:40]}）")
+    text, err = lead.call("retry", {"task": "T6", "session": "continue", "from": "V6", "note": "空输入按 ParseError 处理"})
+    c(not err and "V6 重新验证" in text, f"负责人让 T6 按 V6 的意见在原会话返工（{text[:60]}）")
+    wait(lambda: len(run.has("task.succeeded", task="V6")) >= 2, "V6 复审 T6 的返工", 60)
+    t6 = [e["data"] for e in run.has("attempt.started", task="T6")]
+    v6 = [e["data"] for e in run.has("attempt.started", task="V6")]
+    c(len(t6) == 2 and t6[1]["session"] == t6[0]["session"] and t6[1].get("continuation", {}).get("loaded"),
+      "T6 的返工回到它原来的会话，没有新建子任务")
+    c("运行 cargo test 复现空输入崩溃" in t6[-1]["prompt"] and "空输入按 ParseError 处理" in t6[-1]["prompt"],
+      "V6 的意见原样交给执行者，连同负责人的说明")
+    c(len(v6) == 2 and v6[1]["session"] == v6[0]["session"] and v6[1]["reopen"]["reason"] == "target.reworked",
+      "返工完成后 V6 在自己的会话中复审")
+    c(run.has("task.succeeded", task="V6")[-1]["data"].get("verdict") == "approved", "复审通过，V6 的判定变为 approved")
     run.wait_event("task.failed", task="T7", timeout=60)
     c("vibes" in str(run.has("verification.failed", task="T7")), "不合法的证据方法（vibes）原样记录且核对失败")
     delivered = run.finish("能做的都做了，T4 改由我处理")
     c(delivered["data"].get("risks") or delivered["data"].get("evidence"), "交付带着风险和证据")
     ctx.ui(c, run.id, lambda r, s: {x["id"]: x["status"] for x in r["tasks"]} == {
         "T1": "succeeded", "T2": "succeeded", "T3": "succeeded", "T4": "skipped_by_decision", "T5": "skipped_by_decision",
-        "T6": "succeeded", "V6": "succeeded", "T7": "failed"} and next(x for x in r["tasks"] if x["id"] == "V6")["verdict"] == "rejected",
-        "每个任务的状态与服务一致，V6 显示判定不通过", pages=("board", "fold all open", "task:T3", "task:V6", "team"))
+        "T6": "succeeded", "V6": "succeeded", "T7": "failed"} and next(x for x in r["tasks"] if x["id"] == "V6")["verdict"] == "approved",
+        "每个任务的状态与服务一致，V6 复审后显示通过", pages=("board", "fold all open", "task:T3", "task:T6", "task:V6", "team"))

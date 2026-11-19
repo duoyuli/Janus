@@ -348,8 +348,9 @@ struct Task {
     amendments: Vec<String>,
     /// Where the finished task's result disagreed with the workspace (`traces::gaps`).
     trace_gaps: Vec<String>,
-    /// The lead asked `retry` to reload this task's last session (`continue_session: true`).
-    continue_session: bool,
+    /// Why the next attempt starts after the task had ended, and in which session; taken when
+    /// that attempt starts (see `Reopen`).
+    reopen: Option<Reopen>,
     /// The upstream task whose cancellation dropped this one (`task.skipped_by_decision` with a
     /// `dependency`); retrying that task brings this one back.
     skipped_because: Option<String>,
@@ -371,7 +372,7 @@ impl Task {
             retry_base: 0,
             amendments: vec![],
             trace_gaps: vec![],
-            continue_session: false,
+            reopen: None,
             skipped_because: None,
         }
     }
@@ -396,6 +397,126 @@ impl Task {
             Some(r) => effective_verdict(r.verdict, self.def.accept.len(), &r.checks),
             None => effective_verdict(None, self.def.accept.len(), &[]),
         })
+    }
+
+    /// The judgment of a verification's last result, also while it waits to check reworked work
+    /// again: what the rework acts on.
+    fn last_verdict(&self) -> Option<Verdict> {
+        self.verdict().or_else(|| {
+            let r = self.result.as_ref().filter(|_| self.def.verifies.is_some())?;
+            Some(effective_verdict(r.verdict, self.def.accept.len(), &r.checks))
+        })
+    }
+}
+
+/// Which ACP session the next attempt of a retried task starts in. The lead names it with every
+/// `retry`: the task's own last session, or a fresh one.
+// @project-doc docs/domains/20261031-run_lifecycle.md#retry
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SessionChoice {
+    Continue,
+    New,
+}
+
+impl SessionChoice {
+    pub(crate) fn parse(s: &str) -> Option<SessionChoice> {
+        match s {
+            "continue" => Some(SessionChoice::Continue),
+            "new" => Some(SessionChoice::New),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            SessionChoice::Continue => "continue",
+            SessionChoice::New => "new",
+        }
+    }
+}
+
+/// Why an ended task runs again, as `task.reopened` records it (`data.reason`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReopenReason {
+    /// The lead's `retry`.
+    LeadRetry,
+    /// Dropped only because an upstream task was cancelled; it comes back with that task's retry.
+    UpstreamRetry,
+    /// A verification whose target the lead retried: its verdict was about the old result.
+    TargetReworked,
+}
+
+impl ReopenReason {
+    pub(crate) fn parse(s: &str) -> Option<ReopenReason> {
+        match s {
+            "lead.retry" => Some(ReopenReason::LeadRetry),
+            "upstream.retry" => Some(ReopenReason::UpstreamRetry),
+            "target.reworked" => Some(ReopenReason::TargetReworked),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            ReopenReason::LeadRetry => "lead.retry",
+            ReopenReason::UpstreamRetry => "upstream.retry",
+            ReopenReason::TargetReworked => "target.reworked",
+        }
+    }
+}
+
+/// How the next attempt of a task that had ended starts: what the lead's `retry` asked for, or a
+/// verification checking its reworked target again. Rebuilt from `task.reopened` on resume.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Reopen {
+    /// The lead's `retry`: in which session, with the findings of which verification (`from`), the
+    /// lead's note for this round, and whether it revised the instructions or criteria.
+    Retry { session: SessionChoice, from: Option<String>, note: Option<String>, revised: bool },
+    /// The lead retried the task this verification checks: it checks the new result again, in
+    /// its own last session.
+    Reverify { target: String },
+}
+
+impl Reopen {
+    /// The reopen a `task.reopened` event asks for; `None` for one that changes nothing about how
+    /// the next attempt starts (`upstream.retry`).
+    fn of_event(d: &Value) -> Option<Reopen> {
+        let text = |k: &str| d[k].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+        match ReopenReason::parse(d["reason"].as_str()?)? {
+            ReopenReason::LeadRetry => Some(Reopen::Retry {
+                session: d["session"].as_str().and_then(SessionChoice::parse).unwrap_or(SessionChoice::New),
+                from: text("from"),
+                note: text("note"),
+                revised: d["instructions"].is_string() || d["accept"].is_array(),
+            }),
+            ReopenReason::TargetReworked => Some(Reopen::Reverify { target: text("target")? }),
+            ReopenReason::UpstreamRetry => None,
+        }
+    }
+
+    /// What `attempt.started` records about it (`data.reopen`), so the app can say why the attempt
+    /// started and on whose findings.
+    fn record(&self) -> Value {
+        match self {
+            Reopen::Retry { session, from, .. } => {
+                let mut v = json!({ "reason": ReopenReason::LeadRetry.as_str(), "session": session.as_str() });
+                if let Some(f) = from {
+                    v["from"] = json!(f);
+                }
+                v
+            }
+            Reopen::Reverify { target } => {
+                json!({ "reason": ReopenReason::TargetReworked.as_str(), "target": target })
+            }
+        }
+    }
+
+    /// Whether the attempt goes back into the task's own last session.
+    fn continues_own_session(&self) -> bool {
+        match self {
+            Reopen::Retry { session, .. } => *session == SessionChoice::Continue,
+            Reopen::Reverify { .. } => true,
+        }
     }
 }
 
