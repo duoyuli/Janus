@@ -132,6 +132,8 @@ enum Snapshots {
                     // live judgement as the view: the end-to-end test checks it advances by the
                     // second without new events (docs/operations/20261031-testing.md#product_e2e).
                     "elapsedMs": r.usageDisplayed(at: L.nowMs()).run.durationMs.map { JSON($0) } ?? .null,
+                    // Where the run works and where its accepted result went, as the delivery shows it.
+                    "worktree": JSON(s.run.repo.isEmpty ? nil : s.run.cwd), "branch": JSON(s.run.committed ? s.run.branch : nil),
                 ]
             }
             try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))

@@ -61,7 +61,6 @@
 "%@尝试 %lld · %@%@%@" = "%@Attempt %lld · %@%@%@";
 "%@未核对，%@" = "%@not checked, %@";
 "%@没有新输出" = "No new output for %@";
-"%@的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。工作目录中的文件不受影响。" = "The event history, subtasks, artifacts, and logs for %@ will be permanently deleted from this Mac. Files in the working directory will be kept.";
 "%@（%@）" = "%@ (%@)";
 "%@（墙钟）" = "%@ (wall time)";
 "%@（未标注币种）" = "%@ (currency unspecified)";
@@ -1252,5 +1251,13 @@
 "新开会话（这个子任务之前没有会话）" = "New session (this subtask had no session before)";
 "⚠ 派出子任务后改了文件：%@ · 会写进交付风险" = "⚠ Edited files after handing out subtasks: %@ · listed as a delivery risk";
 "没有独立验证" = "No independent verification";
-"%lld 个子任务没有独立验证" = "%lld subtasks without independent verification";
+"%lld 个子任务没有独立验证" = "Without independent verification: %lld";
 " · 没有独立验证" = " · No independent verification";
+"%@的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。它单独的 worktree 也会删除，还没提交的改动先存成补丁（Janus 目录下的 worktrees/deleted）；你的工作目录和验收时提交的分支不受影响。" = "The event log, subtasks, artifacts and logs of %@ will be deleted from this Mac and cannot be restored. Its own worktree is deleted too; changes never committed are saved as a patch first (worktrees/deleted in the Janus folder). Your working directory and the branch committed on acceptance are not affected.";
+"结果已提交到 %@ 的分支 %@，合并由你决定。" = "The result is committed to branch %2$@ of %1$@. Merging it is up to you.";
+"这个任务没有改动，没有提交。" = "This task changed nothing, so nothing was committed.";
+"改动在这个任务单独的 worktree %@ 中，还没有提交；验收时提交到 %@ 的分支 %@。" = "The changes are in this task's own worktree %1$@ and are not committed yet; accepting commits them to branch %3$@ of %2$@.";
+"分支" = "Branch";
+"验收时提交到 %@" = "Committed to %@ on acceptance";
+"确定继续执行吗？" = "Continue anyway?";
+"继续执行" = "Continue";

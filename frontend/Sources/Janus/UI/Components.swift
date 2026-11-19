@@ -529,7 +529,7 @@ func confirmDeleteRun(_ title: String) -> Bool {
     let name = title.isEmpty ? L.text("这个任务") : L.text("「\(title)」")
     return confirm(
         L.text("删除任务？"),
-        L.text("\(name)的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。工作目录中的文件不受影响。"),
+        L.text("\(name)的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。它单独的 worktree 也会删除，还没提交的改动先存成补丁（Janus 目录下的 worktrees/deleted）；你的工作目录和验收时提交的分支不受影响。"),
         ok: L.text("删除"),
         dontAskAgainFor: "janus.deleteRunNoConfirm"
     )

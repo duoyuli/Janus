@@ -164,7 +164,7 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     #expect(deliveryOverview([], runRisks: []).issuesText == nil)
     let unchecked = deliveryOverview([record("T3", accept: ["一"], checks: [check("一", "test")], unverified: true)], runRisks: [])
     #expect(unchecked.unverifiedTasks == 1)
-    #expect(unchecked.text == expectedCopy("通过 1 / 1 条 · 测试 1 条 · 1 个子任务没有独立验证", "Passed 1 of 1 · Test: 1 · 1 subtasks without independent verification"))
+    #expect(unchecked.text == expectedCopy("通过 1 / 1 条 · 测试 1 条 · 1 个子任务没有独立验证", "Passed 1 of 1 · Test: 1 · Without independent verification: 1"))
     #expect(unchecked.issuesText == nil, "not having one is not a problem by itself")
 }
 

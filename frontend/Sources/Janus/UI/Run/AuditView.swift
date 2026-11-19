@@ -155,7 +155,9 @@ struct TeamView: View {
                     if let ws = run.store.workspace(run.workspaceId) { Button(L.text("工作区设置…")) { run.store.editingWorkspace = ws } }
                 }
                 Card {
-                    KV(rows: [(L.text("负责人"), run.agentName("lead")), (L.text("工作区"), wsNote(full.run)), (L.text("开始"), L.dateTime(full.run.start))])
+                    KV(rows: [(L.text("负责人"), run.agentName("lead")), (L.text("工作区"), wsNote(full.run))]
+                       + (full.run.repo.isEmpty ? [] : [(L.text("工作目录"), full.run.cwd), (L.text("分支"), full.run.committed ? full.run.branch : L.text("验收时提交到 \(full.run.branch)"))])
+                       + [(L.text("开始"), L.dateTime(full.run.start))])
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {
                     ForEach(run.team, id: \.self) { m in

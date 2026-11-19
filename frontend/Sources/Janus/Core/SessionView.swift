@@ -116,6 +116,15 @@ enum SessionView {
 
     static func tokens(_ n: Int) -> String { n >= 1000 ? String(format: "%.1fk", Double(n) / 1000) : "\(n)" }
 
+    /// Where a run's result is, for the delivery: in its own worktree until accepted, then on its
+    /// branch for the person to merge. `nil` for a run working in place.
+    static func worktreeNote(_ r: RunInfo, accepted: Bool) -> String? {
+        guard !r.repo.isEmpty else { return nil }
+        if accepted && r.committed { return L.text("结果已提交到 \(r.repo) 的分支 \(r.branch)，合并由你决定。") }
+        if accepted { return L.text("这个任务没有改动，没有提交。") }
+        return L.text("改动在这个任务单独的 worktree \(r.cwd) 中，还没有提交；验收时提交到 \(r.repo) 的分支 \(r.branch)。")
+    }
+
     /// What an attempt's header adds about how it started (`attempt.started`): which session it
     /// is in when not a plain new one, and why it runs again. A rework or a re-check continues
     /// the task's own conversation, so the header says so instead of looking like a new session.

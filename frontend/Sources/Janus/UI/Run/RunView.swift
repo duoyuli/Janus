@@ -435,6 +435,9 @@ struct ResultCard: View {
                     SeqButton(seq: r.seq, run: run)
                     Spacer()
                 }
+                if let where_ = SessionView.worktreeNote(st.run, accepted: r.accepted != nil) {
+                    Text(where_).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                }
                 Text(L.text("目标已完成")).font(.display(.title3))
                 if long && !run.resultOpen {
                     // A real eight-line preview: `MarkdownText` draws one Text per block, so a

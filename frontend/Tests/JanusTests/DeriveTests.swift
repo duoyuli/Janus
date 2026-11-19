@@ -530,3 +530,21 @@ private func goalRun() -> Log {
     #expect(d?.text.contains("空输入按错误处理") == true)
     #expect(d?.tasks == ["T1", "T2"])
 }
+
+/// A run in its own worktree says where its changes are until accepted, then which branch holds
+/// them; a run working in place says nothing about it.
+@Test func aWorktreeRunSaysWhereItsResultIs() {
+    var log = Log()
+    log.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/h/worktrees/r1", "git": true,
+                                                  "worktree": ["repo": "/code/app", "included": [".env"], "branch": "janus/r1"]])
+    var st = derive(log.events)
+    #expect(st.run.repo == "/code/app" && st.run.branch == "janus/r1" && !st.run.committed)
+    #expect(SessionView.worktreeNote(st.run, accepted: false)?.contains("/h/worktrees/r1") == true)
+    log.add("risk.accepted", actor: "user", data: ["branch": "janus/r1", "commit": "abc", "repo": "/code/app"])
+    st = derive(log.events)
+    #expect(st.run.committed)
+    #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("结果已提交到 /code/app 的分支 janus/r1，合并由你决定。", "The result is committed to branch janus/r1 of /code/app. Merging it is up to you."))
+    var inPlace = Log()
+    inPlace.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/code/notes", "git": false])
+    #expect(SessionView.worktreeNote(derive(inPlace.events).run, accepted: true) == nil)
+}

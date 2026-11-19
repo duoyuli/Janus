@@ -268,6 +268,10 @@ final class AppStore {
 
     func createRun(goal: String, workspace: String, images: [PastedImage] = []) async {
         do {
+            // What the person should know before it starts (changes a worktree leaves out, another
+            // run in a directory outside git); they may go ahead anyway.
+            let warnings = try await api.get("/api/runs/preflight?workspace=\(workspace.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? workspace)")["warnings"].strings
+            if !warnings.isEmpty, !confirm(L.text("确定继续执行吗？"), warnings.joined(separator: "\n\n"), ok: L.text("继续执行"), destructive: false) { return }
             let r = try await api.post("/api/runs", ["goal": JSON(goal), "workspace": JSON(workspace), "images": .array(images.map(\.json))], timeout: images.isEmpty ? nil : 120)
             goalDraft = ""
             goalImages = []

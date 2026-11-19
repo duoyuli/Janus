@@ -161,6 +161,12 @@ struct RunInfo {
     var now: Double = 0
     var paused = false
     var cwd = ""
+    /// The repository this run's own worktree was made from; empty for a run working in place.
+    var repo = ""
+    /// Where an accepted result is committed: `janus/<run-id>` for a run in a worktree.
+    var branch = ""
+    /// Set once an acceptance committed the result to `branch`.
+    var committed = false
     var git = false
     var baseRef = ""
     var workspace = ""
@@ -228,6 +234,8 @@ func derive(_ events: [Event]) -> RunState {
             s.run.images = Attach.paths(d)
             s.run.start = e.ts
             s.run.cwd = d["cwd"].str
+            s.run.repo = d["worktree"]["repo"].str
+            s.run.branch = d["worktree"]["branch"].str
             s.run.git = d["git"].truthy
             s.run.baseRef = d["baseRef"].str
             s.run.workspace = d["workspace"].str
@@ -405,7 +413,9 @@ func derive(_ events: [Event]) -> RunState {
             s.inbox.removeAll { $0.kind == "budget" }
             s.run.status = .delivered; s.result = RunResult(d: d, seq: e.seq)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
-        case "risk.accepted": s.run.status = .accepted; s.result?.accepted = e.ts
+        case "risk.accepted":
+            s.run.status = .accepted; s.result?.accepted = e.ts
+            if let b = d["branch"].string, !b.isEmpty { s.run.branch = b; s.run.committed = true }
         default: break
         }
     }
