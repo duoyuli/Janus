@@ -250,6 +250,18 @@ async fn set_library_reach(
     reply(app.set_reach(&id, reach).await)
 }
 
+async fn set_library_roles(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let Some(roles) = body["roles"].as_array() else {
+        return Err((StatusCode::BAD_REQUEST, "roles 是数字员工 id 的列表".into()));
+    };
+    let roles: Vec<String> = roles.iter().filter_map(|r| r.as_str().map(str::to_string)).collect();
+    reply(app.set_item_roles(&id, &roles).await)
+}
+
 async fn create_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
     reply(app.create_skill(&body).await)
 }
@@ -673,6 +685,7 @@ async fn main() -> Result<()> {
         .route("/api/library/items/{id}", get(library_item).delete(delete_library_item))
         .route("/api/library/items/{id}/refresh", post(refresh_library_item))
         .route("/api/library/items/{id}/reach", post(set_library_reach))
+        .route("/api/library/items/{id}/roles", post(set_library_roles))
         .route("/api/library/skills", post(create_skill))
         .route("/api/library/skills/scan", post(scan_skill_folder))
         .route("/api/library/skills/import", post(import_skill))

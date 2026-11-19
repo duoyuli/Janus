@@ -47,9 +47,9 @@ enum Library {
         return (L.text("\(what) \(set)/\(vars.count) 已设置"), set == vars.count)
     }
 
-    /// The roles using an item, for its row.
+    /// Who a kept item is given to, for its row.
     static func usedBy(_ item: JSON) -> String {
         let names = item["roles"].array.map { $0["name"].str }
-        return names.isEmpty ? L.text("还没有数字员工使用") : L.text("\(names.joined(separator: L.text("、"))) 在用")
+        return names.isEmpty ? L.text("还没有给任何数字员工") : L.text("只给 \(names.joined(separator: L.text("、")))")
     }
 }

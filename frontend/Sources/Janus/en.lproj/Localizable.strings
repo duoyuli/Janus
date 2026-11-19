@@ -35,7 +35,6 @@
 "%@ 协作者写回看板：%@" = "%@ Collaborator posted to the board: %@";
 "%@ 可能卡住了" = "%@ may be stalled";
 "%@ 和 %@ 改了同一个文件" = "%@ and %@ edited the same file";
-"%@ 在用" = "Used by %@";
 "%@ 失败，等负责人决定" = "%@ failed. Waiting for the lead to decide.";
 "%@ 失败：%@" = "%@ failed: %@";
 "%@ 担任负责人" = "Make %@ the lead";
@@ -494,7 +493,6 @@
 "已交付，等你验收" = "Delivery awaits your review";
 "已从中断处继续" = "Resumed the interrupted run";
 "已从文件夹刷新 %@，新的任务使用新内容" = "Refreshed %@ from its folder. New runs will use the new contents.";
-"已从资源库删除，保存时移除" = "Deleted from the Resource Library. Removed on save.";
 "已保存 %@" = "Saved %@";
 "已保存 %@，正在检查配置" = "Saved %@. Checking its configuration.";
 "已保存 Skill %@" = "Saved skill %@";
@@ -621,7 +619,6 @@
 "插话" = "Steer";
 "搜索" = "Search";
 "搜索 Agent 类型" = "Search Agent Types";
-"搜索资源库" = "Search Resource Library";
 "摘要" = "Summary";
 "支持 Claude 的 {\"mcpServers\": {…}}、VS Code 的 {\"servers\": {…}}，或一个带 name 的服务器对象。配置中写的值存进 Janus home，名字被占用时自动加后缀。" = "Supports Claude {\"mcpServers\": {…}}, VS Code {\"servers\": {…}}, or one server object with a name field. Values are saved in Janus home. Duplicate names get a suffix.";
 "收件箱" = "Inbox";
@@ -850,7 +847,6 @@
 "直接发给做这个子任务的 Agent：它在会话里时插入这一轮，否则在它下次会话开始时带给它" = "Send directly to the Agent responsible for this subtask. It will receive the comments in the current turn or at the start of its next session.";
 "看板" = "Board";
 "看板推送 · 插入正在进行的这一轮" = "Board Update · Steered into the Active Turn";
-"移除" = "Remove";
 "移除 %@" = "Remove %@";
 "移除这个变量和它的值" = "Remove this variable and its value";
 "移除这张图片" = "Remove this image";
@@ -1044,7 +1040,6 @@
 "还没有工作区" = "No Workspaces Yet";
 "还没有接入 Agent" = "No Agents Connected";
 "还没有数字员工" = "No Digital Employees Yet";
-"还没有数字员工使用" = "No digital employees use this resource";
 "还没有数字员工，先去「设置 → 数字员工」创建。" = "Create a digital employee in Settings → Digital Employees to get started.";
 "还没有核对这条标准" = "This criterion has not been checked";
 "还没有检查。启动后会自己检查一次。" = "No checks yet. Janus will check after startup.";
@@ -1081,7 +1076,6 @@
 "退出 Janus" = "Quit Janus";
 "退出 Janus？" = "Quit Janus?";
 "退出回放（Esc）" = "Exit Replay (Esc)";
-"选择" = "Select";
 "选择 Agent" = "Choose Agent";
 "选择一个 Skill 文件夹，或包含多个 Skill 的父文件夹" = "Choose a skill folder or a parent folder containing multiple skills";
 "选择工作区" = "Select Workspace";
@@ -1253,9 +1247,7 @@
 "给所有数字员工" = "For All Digital Employees";
 "%@ 给所有数字员工" = "Give %@ to all digital employees";
 "把 %@ 给所有数字员工？" = "Give %@ to all digital employees?";
-"资源库里没有收口的资源，所有资源每个数字员工都有。在设置的「资源库」中关掉某项的「给所有数字员工」，就能在这里单独选给谁。" = "The Resource Library has no selected-only resources, so every digital employee has all of them. Turn off For All Digital Employees for an item in Settings → Resource Library to choose who gets it here.";
 "资源库里的 Skill 和 MCP 默认给所有数字员工，经两个路由按需取用；有副作用或带凭据的工具可以收口，只给选中它的数字员工。" = "Skills and MCP servers in the Resource Library go to all digital employees by default and are used on demand through two routers. Tools with side effects or credentials can be limited to the digital employees that select them.";
-"资源库里给所有数字员工的 Skill 和 MCP 每个员工都有，不用选。这里只选收口的资源（只给选中它的数字员工），会话启动时交给 Agent，不写进它的配置。" = "Skills and MCP servers given to everyone are already available to every digital employee. Select only selected-only resources here; they are given to the Agent at session startup without changing its configuration.";
 "还没有检查通过的 Agent。可以先编辑数字员工，Agent 检查通过后才能运行。" = "No Agent has passed its check. You can edit digital employees now and run them once an Agent passes.";
 "还没有给所有数字员工的 MCP 服务器。新添加的服务器先收口，在下面「只给选中的数字员工」里打开开关放开。" = "No MCP servers are given to everyone yet. New servers start as selected-only; turn on the switch under Only for Selected Digital Employees to give one to everyone.";
 "还没有给所有数字员工的 Skill。拖入 GitHub 链接、从文件夹复制，或新建一个。" = "No skills are given to everyone yet. Drop a GitHub link, copy from a folder, or create one.";
@@ -1264,3 +1256,13 @@
 "找到 %lld 个 Skill，选择要导入的" = "Found %lld skills. Choose which to import.";
 
 "保存后检查运行时、凭据、启动、会话和一次真实回复，进度显示在 Agent 卡片上" = "After saving, Janus checks the runtime, credentials, startup, session, and one real reply. Progress shows on the Agent card.";
+"还没有给任何数字员工" = "Not given to any digital employee yet";
+"只给 %@" = "Only for %@";
+"给这些数字员工" = "Give to These Digital Employees";
+"能用的资源" = "Available Resources";
+"在设置的「资源库」里添加资源、决定是否给所有数字员工" = "Add resources and choose whether everyone gets them in Settings → Resource Library";
+"只给勾选了它的数字员工" = "Only for the digital employees that tick it";
+"资源库里没有收口的资源。" = "The Resource Library has no selected-only resources.";
+"%@ 已从资源库删除，保存时移除" = "%@ was deleted from the Resource Library and will be removed when you save";
+"资源库里还没有给所有数字员工的资源" = "The Resource Library has nothing for all digital employees yet";
+"给所有数字员工的 %lld 个 Skill、%lld 个 MCP，自动就有" = "For all digital employees, included automatically: %lld skills, %lld MCP servers";

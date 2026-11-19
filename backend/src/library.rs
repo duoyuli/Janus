@@ -267,6 +267,36 @@ impl App {
         Ok(item)
     }
 
+    /// The digital workers an item is given to, set from the item's side: each listed role picks it,
+    /// every other role drops it. This is where the library page decides who may use a kept item;
+    /// the choice is stored on the roles (`resources`), the one place a run reads it from.
+    // @project-doc docs/domains/20261116-resource_library.md#roles
+    pub async fn set_item_roles(&self, id: &str, roles: &[String]) -> Result<Value> {
+        let _guard = self.library.lock.lock().await;
+        self.item(id)?;
+        let all = self.db.list_config(ROLE)?;
+        if let Some(unknown) = roles.iter().find(|r| !all.iter().any(|x| x["id"] == r.as_str())) {
+            bail!("没有数字员工 {unknown}");
+        }
+        for mut role in all {
+            let rid = role["id"].as_str().unwrap_or_default().to_string();
+            let mut picked: Vec<Value> = role["resources"].as_array().cloned().unwrap_or_default();
+            let has = picked.iter().any(|x| x == id);
+            let wanted = roles.contains(&rid);
+            if has == wanted {
+                continue;
+            }
+            if wanted {
+                picked.push(json!(id));
+            } else {
+                picked.retain(|x| x != id);
+            }
+            role["resources"] = json!(picked);
+            self.db.put_config(ROLE, &rid, &role, now_ms())?;
+        }
+        Ok(json!({ "roles": self.roles_using(id)? }))
+    }
+
     /// Remove stored skill trees no item uses any more.
     fn sweep_store(&self) -> Result<()> {
         let keep: HashSet<String> =

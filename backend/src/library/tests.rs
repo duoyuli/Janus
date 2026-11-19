@@ -240,6 +240,40 @@ async fn items_in_use_are_kept() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Who may use a kept item is set from the item's side: the listed roles pick it, the rest drop
+/// it, an unknown role is refused, and editing a role without sending its resources keeps them.
+#[tokio::test]
+async fn an_items_roles_are_set_from_the_library() {
+    let (app, dir) = app("item-roles");
+    let item = app.save_mcp(None, &json!({ "name": "db", "command": "db-mcp" })).await.unwrap();
+    let other = app.create_skill(&json!({ "name": "notes", "description": "记", "content": "写。" })).await.unwrap();
+    for (id, resources) in [("dev", json!([other.id])), ("qa", json!([item.id])), ("pm", json!([]))] {
+        app.db
+            .put_config(
+                ROLE,
+                id,
+                &crate::agents::test_role(id, json!({ "name": id, "resources": resources })),
+                now_ms(),
+            )
+            .unwrap();
+    }
+    let got = app.set_item_roles(&item.id, &["dev".into(), "pm".into()]).await.unwrap();
+    let names: Vec<&str> = got["roles"].as_array().unwrap().iter().filter_map(|r| r["id"].as_str()).collect();
+    assert_eq!(names, ["dev", "pm"]);
+    let resources = |id: &str| app.db.get_config(ROLE, id).unwrap().unwrap()["resources"].clone();
+    assert_eq!(resources("dev"), json!([other.id, item.id]), "what it had stays");
+    assert_eq!(resources("qa"), json!([]), "a role left out drops it");
+    assert!(app.set_item_roles(&item.id, &["ghost".into()]).await.is_err());
+    assert_eq!(resources("pm"), json!([item.id]), "a refused change changes nothing");
+
+    let mut pm = app.db.get_config(ROLE, "pm").unwrap().unwrap();
+    pm.as_object_mut().unwrap().remove("resources");
+    pm["desc"] = json!("新的职责");
+    app.save_role(&pm).unwrap();
+    assert_eq!(resources("pm"), json!([item.id]), "an edit that leaves resources out keeps them");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A Git source lists what it offers; imported items follow it on update and stay when it drops them.
 #[tokio::test]
 async fn git_sources_offer_import_and_update() {

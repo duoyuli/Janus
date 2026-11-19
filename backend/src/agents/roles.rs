@@ -37,9 +37,16 @@ impl App {
             i => i.to_string(),
         };
         // The library items the role uses, each once; an id the library no longer has is dropped.
+        // The app sets them from the library (`set_item_roles`) and leaves them out here, so an
+        // edit to the role keeps what it has.
         let known: HashSet<String> = self.items()?.into_iter().map(|i| i.id).collect();
+        let prev = self.db.get_config(ROLE, &id)?;
+        let given = match body.get("resources").filter(|r| !r.is_null()) {
+            Some(r) => r.clone(),
+            None => prev.as_ref().map(|p| p["resources"].clone()).unwrap_or_default(),
+        };
         let mut resources: Vec<&str> = vec![];
-        for id in body["resources"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        for id in given.as_array().into_iter().flatten().filter_map(Value::as_str) {
             if known.contains(id) && !resources.contains(&id) {
                 resources.push(id);
             }

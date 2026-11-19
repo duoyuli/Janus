@@ -295,6 +295,7 @@ struct LibraryView: View {
                         Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium)).lineLimit(1)
                         Text(i["description"].truthy ? i["description"].str : mcp ? Library.endpoint(i) : "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer(minLength: 8)
+                        if i["reach"].str == "picked" { Text(Library.usedBy(i)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         if !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
                     }
                     .contentShape(Rectangle())
@@ -313,11 +314,11 @@ struct LibraryView: View {
     private func details(_ i: JSON) -> some View {
         let mcp = i["kind"].str == "mcp"
         let vars = Library.vars(i)
-        let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text,
-                     i["reach"].str == "picked" ? Library.usedBy(i) : ""].filter { !$0.isEmpty }
+        let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text].filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             ForEach(Self.unsupported(i), id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color) }
+            if i["reach"].str == "picked" { givenTo(i) }
             HStack(spacing: 12) {
                 if mcp || i["origin"]["type"].str == "created" { Button(L.text("编辑")) { edit(i) }.buttonStyle(.link) }
                 if i["origin"]["type"].str == "folder" { Button(L.text("刷新")) { refresh(i) }.buttonStyle(.link).help(L.text("从原文件夹重新复制")) }
@@ -326,6 +327,24 @@ struct LibraryView: View {
             .padding(.top, 2)
         }
         .padding(.leading, 44)
+    }
+
+    /// The digital workers a kept item is given to, ticked here or in the worker's editor: both
+    /// change the same choice.
+    @ViewBuilder private func givenTo(_ i: JSON) -> some View {
+        let given = Set(i["roles"].array.map { $0["id"].str })
+        VStack(alignment: .leading, spacing: 2) {
+            Text(L.text("给这些数字员工")).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 4)
+            ForEach(store.roles, id: \.self) { r in
+                let id = r["id"].str
+                Toggle(r["name"].str, isOn: Binding(get: { given.contains(id) }, set: { on in
+                    var next = given
+                    if on { next.insert(id) } else { next.remove(id) }
+                    Task { await store.setItemRoles(i["id"].str, Array(next).sorted()) }
+                }))
+                .toggleStyle(.checkbox).font(.callout)
+            }
+        }
     }
 
     /// What keeps an item from working, in one line: values not filled in, or gone from its source.

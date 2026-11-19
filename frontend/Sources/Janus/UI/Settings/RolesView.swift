@@ -86,8 +86,9 @@ struct RoleEditor: View {
     let original: JSON
     @Environment(\.dismiss) private var dismiss
     @Local private var r: JSON = [:]
-    @Local private var picking = false
-    @Local private var pickQuery = ""
+    /// Whether the kept-item checkboxes were used; otherwise the role is saved without its
+    /// resources and keeps what the library page gave it.
+    @Local private var resourcesTouched = false
     @Local private var saving = false
     @Local private var colors = false
 
@@ -270,46 +271,58 @@ struct RoleEditor: View {
 
     // MARK: Resources
 
-    /// The kept library items this role picks, each with what the role's agent can do with it.
-    /// Items for everyone every worker has already; a pick of one only matters if it is kept again.
+    /// What this worker can use, in one place: everything for all digital workers (it has those
+    /// already), then the kept items as checkboxes, so a new worker is set up in one step. The
+    /// library page edits the same choice from the item's side; the role sends its resources only
+    /// when they were changed here, so neither page overwrites the other with a stale list.
     // @project-doc docs/domains/20261116-resource_library.md#roles
     @ViewBuilder private var resources: some View {
         let runtime = Library.runtime(store.connection(r["connection"].str))
-        let chosen = r["resources"].strings.filter { store.libraryItem($0).map { $0["reach"].str == "picked" } ?? true }
-        section(L.text("收口的资源"), count: chosen.count, action: picking ? nil : (L.text("选择"), { picking = true }))
-        ForEach(chosen, id: \.self) { id in
-            if let i = store.libraryItem(id) {
-                mounted(i["kind"].str == "skill" ? "sparkles" : "wrench.and.screwdriver", i["name"].str, detail(i, runtime), warn: warning(i, runtime)) { toggle(id) }
-            } else {
-                mounted("questionmark.circle", id, "", warn: store.library == nil ? "" : L.text("已从资源库删除，保存时移除")) { toggle(id) }
-            }
-        }
-        if picking { picker(runtime) }
-        Text(L.text("资源库里给所有数字员工的 Skill 和 MCP 每个员工都有，不用选。这里只选收口的资源（只给选中它的数字员工），会话启动时交给 Agent，不写进它的配置。")).font(.caption).foregroundStyle(.secondary)
-    }
-
-    @ViewBuilder private func picker(_ runtime: String) -> some View {
-        let q = pickQuery.lowercased()
+        let everyone = store.libraryItems.filter { $0["reach"].str == "everyone" }
         let kept = store.libraryItems.filter { $0["reach"].str == "picked" }
-        let items = kept.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str)".lowercased().contains(q) }
+        let chosen = r["resources"].strings
+        let gone = chosen.filter { store.library != nil && store.libraryItem($0) == nil }
+        section(L.text("能用的资源"), trailing: L.text("在设置的「资源库」里添加资源、决定是否给所有数字员工"))
         VStack(alignment: .leading, spacing: 8) {
-            if kept.isEmpty {
-                Text(L.text("资源库里没有收口的资源，所有资源每个数字员工都有。在设置的「资源库」中关掉某项的「给所有数字员工」，就能在这里单独选给谁。")).font(.callout).foregroundStyle(.secondary)
-            } else {
-                TextField(L.text("搜索资源库"), text: $pickQuery).textFieldStyle(.roundedBorder)
-                ForEach([("skill", "Skill"), ("mcp", "MCP")], id: \.0) { kind, title in
-                    let list = items.filter { $0["kind"].str == kind }
-                    if !list.isEmpty {
-                        Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 4)
-                        ForEach(list, id: \.self) { pickRow($0, runtime) }
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(everyone, id: \.self) { i in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Image(systemName: i["kind"].str == "skill" ? "sparkles" : "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
+                            Text(i["name"].str).font(.system(.callout, design: .monospaced))
+                            let w = warning(i, runtime)
+                            if !w.isEmpty { Text(w).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
+                        }
                     }
                 }
-                if items.isEmpty { Text(L.text("没有匹配的资源")).font(.callout).foregroundStyle(.secondary) }
+                .padding(.top, 4)
+            } label: {
+                Text(Self.everyoneLine(everyone)).font(.callout)
             }
-            HStack { Spacer(); Button(L.text("完成")) { picking = false } }
+            .disabled(everyone.isEmpty)
+            Divider()
+            HStack {
+                Text(L.text("收口的资源")).font(.callout.weight(.semibold))
+                Text(L.text("只给勾选了它的数字员工")).font(.caption).foregroundStyle(.secondary)
+            }
+            if kept.isEmpty {
+                Text(L.text("资源库里没有收口的资源。")).font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(kept, id: \.self) { pickRow($0, runtime) }
+            }
+            ForEach(gone, id: \.self) { id in
+                Text(L.text("\(id) 已从资源库删除，保存时移除")).font(.caption).foregroundStyle(Tone.amber.color)
+            }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// "给所有数字员工：3 个 Skill、1 个 MCP，自动就有".
+    static func everyoneLine(_ items: [JSON]) -> String {
+        let skills = items.filter { $0["kind"].str == "skill" }.count, servers = items.count - skills
+        if items.isEmpty { return L.text("资源库里还没有给所有数字员工的资源") }
+        return L.text("给所有数字员工的 \(skills) 个 Skill、\(servers) 个 MCP，自动就有")
     }
 
     private func pickRow(_ i: JSON, _ runtime: String) -> some View {
@@ -330,6 +343,7 @@ struct RoleEditor: View {
             .hoverable(6)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(i["name"].str)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
@@ -337,6 +351,7 @@ struct RoleEditor: View {
         var set = r["resources"].strings
         if let k = set.firstIndex(of: id) { set.remove(at: k) } else { set.append(id) }
         r["resources"] = JSON(set)
+        resourcesTouched = true
     }
 
     private func detail(_ i: JSON, _ runtime: String) -> String {
@@ -349,21 +364,6 @@ struct RoleEditor: View {
         let s = runtime.isEmpty ? (state: "yes", why: "") : Library.support(i, runtime: runtime)
         let vars = Library.vars(i)
         return [s.state == "yes" ? "" : s.why, vars.complete ? "" : vars.text].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    private func mounted(_ icon: String, _ title: String, _ sub: String, warn: String, remove: @escaping () -> Void) -> some View {
-        HStack(alignment: .top) {
-            Image(systemName: icon).foregroundStyle(Color.accent)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(.body, design: .monospaced).weight(.medium))
-                if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                if !warn.isEmpty { Text(warn).font(.caption).foregroundStyle(Tone.amber.color) }
-            }
-            Spacer()
-            Button(action: remove) { Label(L.text("移除 \(title)"), systemImage: "xmark") }.labelStyle(.iconOnly).buttonStyle(.borderless).help(L.text("移除"))
-        }
-        .padding(8)
-        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7))
     }
 
     // MARK: Session controls: whatever the agent declares
@@ -453,7 +453,9 @@ struct RoleEditor: View {
         saving = true
         Task {
             do {
-                let saved = try await store.save("roles", r)
+                var body = r.object
+                if !resourcesTouched { body["resources"] = nil }
+                let saved = try await store.save("roles", .object(body))
                 store.show(L.text("已保存数字员工 \(saved["name"].str)"))
                 dismiss()
             } catch { store.show(error.localizedDescription) }

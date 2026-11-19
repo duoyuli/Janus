@@ -84,6 +84,17 @@ def setup(ctx, c):
     ctx.api("POST", "/api/setup/roles", dict(roles["reviewer"], connection="setup-claude"))
     used = next(i for i in ctx.api("GET", "/api/library")["items"] if i["id"] == mcp["id"])
     c([r["id"] for r in used["roles"]] == ["implementer"], "资源库标出使用 MCP 的数字员工")
+    # The same choice from the library's side: given to the reviewer too, then back to the engineer only.
+    got = ctx.api("POST", f"/api/library/items/{mcp['id']}/roles", {"roles": ["implementer", "reviewer"]})
+    c([r["id"] for r in got["roles"]] == ["implementer", "reviewer"], "资源库里可以把收口的 MCP 勾给数字员工")
+    code, _ = ctx.api_error("POST", f"/api/library/items/{mcp['id']}/roles", {"roles": ["nobody"]})
+    c(code == 400, "勾给不存在的数字员工被拒绝")
+    roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
+    edit = {k: v for k, v in roles["reviewer"].items() if k != "resources"}
+    ctx.api("POST", "/api/setup/roles", dict(edit, desc=roles["reviewer"]["desc"]))
+    roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
+    c(mcp["id"] in roles["reviewer"]["resources"], "保存数字员工时不带资源，保留资源库里给它的选择")
+    ctx.api("POST", f"/api/library/items/{mcp['id']}/roles", {"roles": ["implementer"]})
     code, _ = ctx.api_error("DELETE", f"/api/library/items/{mcp['id']}")
     c(code == 400, "被数字员工使用的资源不能删除")
     ws = ctx.api("POST", "/api/setup/workspaces", {"id": "setup", "name": "默认团队", "path": repo, "lead": "coordinator", "brief": "共享资料：用 Python 3。",

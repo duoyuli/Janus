@@ -87,7 +87,8 @@ enum Snapshots {
         // wrote through the API (instead of the app's own editors) shows up.
         case "reload":
             await store.loadSetup(); await store.loadLibrary(); await store.loadRuns()
-        case "role": store.editingRole = store.role(arg)
+        // The editor is a sheet of the settings panel, as when a person opens it from there.
+        case "role": store.openSettings("agents"); store.editingRole = store.role(arg)
         case "workspace": store.editingWorkspace = store.workspace(arg)
         case "close-sheet":
             store.editingRole = nil; store.editingWorkspace = nil; store.showingSettings = false

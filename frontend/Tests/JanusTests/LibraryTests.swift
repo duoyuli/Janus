@@ -20,7 +20,7 @@ private let docs: JSON = [
     #expect(Library.origin(docs) == expectedCopy("来自 acme/kit · 来源中已删除", "From acme/kit · Removed upstream"))
     #expect(Library.endpoint(docs) == "SSE · https://d.example/sse")
     #expect(Library.vars(docs) == (text: expectedCopy("Header 1/2 已设置", "Header: 1 of 2 set"), complete: false))
-    #expect(Library.usedBy(docs) == expectedCopy("研发 在用", "Used by 研发"))
+    #expect(Library.usedBy(docs) == expectedCopy("只给 研发", "Only for 研发"))
     #expect(Library.support(docs, runtime: "codex") == (state: "no", why: expectedCopy("Codex 不支持 SSE 传输的 MCP 服务器", "Codex does not support MCP servers that use SSE")))
     #expect(Library.support(docs, runtime: "claude").state == "yes")
     #expect(Library.support(docs, runtime: "").state == "yes", "no agent chosen yet: nothing to warn about")
@@ -28,7 +28,7 @@ private let docs: JSON = [
     let skill: JSON = ["kind": "skill", "origin": ["type": "created"], "roles": []]
     #expect(Library.origin(skill) == expectedCopy("在 Janus 中新建", "Created in Janus"))
     #expect(Library.vars(skill).complete)
-    #expect(Library.usedBy(skill) == expectedCopy("还没有数字员工使用", "No digital employees use this resource"))
+    #expect(Library.usedBy(skill) == expectedCopy("还没有给任何数字员工", "Not given to any digital employee yet"))
     let stdio: JSON = ["server": ["transport": "stdio", "command": "npx", "args": ["-y", "gh-mcp"]]]
     #expect(Library.endpoint(stdio) == "stdio · npx -y gh-mcp")
     #expect(Library.runtime(["base": "claude", "kind": "claude"]) == "claude")
@@ -55,4 +55,11 @@ private let docs: JSON = [
     var unbound = roles
     unbound[1]["connection"] = ""
     #expect(WorkspaceEditor.preset(unbound, lead: "coordinator") == ["coordinator", "reviewer"])
+}
+
+/// The worker editor sums up what every digital worker has before the kept items to tick.
+@Test func theWorkerEditorSumsUpWhatEveryoneHas() {
+    let items: [JSON] = [["kind": "skill"], ["kind": "skill"], ["kind": "mcp"]]
+    #expect(RoleEditor.everyoneLine(items) == expectedCopy("给所有数字员工的 2 个 Skill、1 个 MCP，自动就有", "For all digital employees, included automatically: 2 skills, 1 MCP servers"))
+    #expect(RoleEditor.everyoneLine([]) == expectedCopy("资源库里还没有给所有数字员工的资源", "The Resource Library has nothing for all digital employees yet"))
 }

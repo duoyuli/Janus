@@ -112,6 +112,13 @@ final class AppStore {
         await loadLibrary()
     }
 
+    /// Gives a kept item to exactly these digital workers (the library page's side of the choice).
+    func setItemRoles(_ id: String, _ roles: [String]) async {
+        do { _ = try await api.post("/api/library/items/\(id)/roles", ["roles": JSON(roles)]) } catch { show(error.localizedDescription) }
+        await loadLibrary()
+        await loadSetup()
+    }
+
     var sourceUpdates: [JSON] { librarySources.filter { $0["updateAvailable"].truthy } }
 
     /// Sources being fetched, so every screen shows the same progress.
