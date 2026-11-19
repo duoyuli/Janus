@@ -8,8 +8,9 @@ backend/testdata/fake_acp.py, and plays every user journey through the HTTP API 
 the board MCP endpoint the agents use. The app runs against the same server; after each journey
 its derived state is compared with what the server recorded, and its pages are pictured for review.
 
-Usage: e2e/product.py [--packaged] [--real] [--only NAME ...] [--no-app] [--keep] [--list]
-`--real` adds the smoke test with the real Codex and Claude Code (network, tokens; see real.py).
+Usage: e2e/product.py [--packaged] [--real [--real-from HOME]] [--only NAME ...] [--no-app] [--keep] [--list]
+`--real` adds the smoke test with the real Codex and Claude Code (network, tokens; see real.py),
+using a copy of the agent connections of the Janus home given by `--real-from` (~/.janus).
 """
 
 import argparse
@@ -51,6 +52,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--packaged", action="store_true", help="test dist/Janus.app (built by just app) instead of the source build")
     p.add_argument("--real", action="store_true", help="also run the smoke test with the real Codex and Claude Code")
+    p.add_argument("--real-from", default="~/.janus", help="Janus home whose agent connections the real smoke test copies")
     p.add_argument("--only", action="append", help="run only these scenarios (repeatable)")
     p.add_argument("--no-app", action="store_true", help="skip the app: API and agents only")
     p.add_argument("--keep", action="store_true", help="keep the scratch homes and workspaces")
@@ -75,7 +77,8 @@ def main():
     stand_in_adapters(home, sys.executable)
     server = Server(server_bin, home, os.path.join(report_dir, "janus.log"), env={"JANUS_NODE": node})
     ctx = scenarios.Ctx(tmp=tmp, home=home, addr=ADDR, server=server, report=report_dir, python=sys.executable,
-                        node=node, server_bin=server_bin, app_bin=app_bin, packaged=a.packaged)
+                        node=node, server_bin=server_bin, app_bin=app_bin, packaged=a.packaged,
+                        real_from=os.path.expanduser(a.real_from))
     results = []
     t0 = time.time()
     try:

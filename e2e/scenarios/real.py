@@ -1,13 +1,17 @@
 """Smoke test with the real Codex and Claude Code (`--real`): network, tokens, and minutes.
 
-A Janus home of its own on 127.0.0.1:7981: the agents copy their model settings and credentials
-from ~/.codex and ~/.claude the way 「复制本机配置」 does (the person's own directories are only
-read), Janus installs the real ACP adapters from npm, a Codex lead and Claude Code collaborators
-take a small goal on a copy of examples/calc, and the result is checked by running its tests.
+A Janus home of its own on 127.0.0.1:7981. The agents are a copy of the person's working setup:
+the Codex and Claude Code connections of their Janus home (`--real-from`, ~/.janus) with the same
+settings, so 「复制本机配置」 copies from the same source directories again, and secrets the API never
+returns are copied file to file. Nothing in that home is changed. Janus installs the real ACP
+adapters from npm, a Codex lead and Claude Code collaborators take a small goal on a copy of
+examples/calc, and the result is checked by running its tests.
 """
 
+import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import time
 
@@ -30,22 +34,20 @@ def real(ctx, c):
     server.start()
     api = lambda method, path, body=None: http(ADDR, method, path, body, timeout=60)  # noqa: E731
     try:
-        for id_, kind, source in (("real-codex", "codex", "~/.codex"), ("real-claude", "claude", "~/.claude")):
-            api("POST", "/api/setup/connections", {"id": id_, "kind": kind, "name": id_, "auth": "import", "source": source})
-            api("POST", f"/api/connections/{id_}/test")
+        ids = _copy_connections(ctx.real_from, home, api, c)
         def checked():
             cs = {x["id"]: x for x in api("GET", "/api/setup")["connections"]}
-            return cs if all(cs[i].get("phase") in ("ok", "error") for i in ("real-codex", "real-claude")) else None
+            return cs if all(cs[i].get("phase") in ("ok", "error") for i in ids.values()) else None
         cs = wait(checked, "真实 Agent 的配置检查（含从 npm 安装适配器）", 600, every=2)
-        for i in ("real-codex", "real-claude"):
+        for i in ids.values():
             c.must(cs[i]["phase"] == "ok", f"{i} 配置检查通过（{cs[i].get('error') or 'ok'}）")
         adapters = {a["id"]: a for a in api("GET", "/api/adapters")["adapters"]}
         c(all(adapters[i]["current"] for i in ("codex", "claude")), f"Janus 从 npm 安装了适配器：codex {adapters['codex']['current']}，claude {adapters['claude']['current']}")
 
         roles = {r["id"]: r for r in api("GET", "/api/setup")["roles"]}
-        api("POST", "/api/setup/roles", dict(roles["coordinator"], connection="real-codex", lead=True))
-        api("POST", "/api/setup/roles", dict(roles["implementer"], connection="real-claude"))
-        api("POST", "/api/setup/roles", dict(roles["reviewer"], connection="real-claude"))
+        api("POST", "/api/setup/roles", dict(roles["coordinator"], connection=ids["codex"], lead=True))
+        api("POST", "/api/setup/roles", dict(roles["implementer"], connection=ids["claude"]))
+        api("POST", "/api/setup/roles", dict(roles["reviewer"], connection=ids["claude"]))
         api("POST", "/api/setup/workspaces", {"id": "calc", "name": "calc", "path": repo, "lead": "coordinator",
                                               "members": [{"role": "coordinator"}, {"role": "implementer"}, {"role": "reviewer"}]})
         run = api("POST", "/api/runs", {"goal": GOAL, "workspace": "calc"})["id"]
@@ -66,6 +68,44 @@ def real(ctx, c):
         server.stop()
         # The copied credentials do not outlive the test, even with --keep.
         shutil.rmtree(os.path.join(home, "agents"), ignore_errors=True)
+
+
+# What a check derives or records; everything else is the connection's own settings.
+DERIVED = {"agentInfo", "base", "check", "checkedAt", "createdAt", "elapsedMs", "env", "error", "errorLog",
+           "importedEnv", "options", "reply", "status", "testStartedAt"}
+
+
+def _copy_connections(src_home, home, api, c):
+    """Copy the person's Codex and Claude Code connections (a checked one of each kind) into the
+    test home and start their checks. Returns {kind: connection id}."""
+    db_path = os.path.join(src_home, "janus.db")
+    if not os.path.exists(db_path):
+        raise Failure(f"{src_home} 中没有 Janus 数据，用 --real-from 指定一个配置好 Codex 和 Claude Code 的 Janus home")
+    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        conns = [json.loads(d) for (d,) in db.execute("SELECT data FROM configs WHERE kind = 'connection' ORDER BY id")]
+    finally:
+        db.close()
+    ids = {}
+    for kind, label in (("codex", "Codex"), ("claude", "Claude Code")):
+        mine = sorted((x for x in conns if x.get("kind") == kind), key=lambda x: x.get("status") != "ok")
+        if not mine:
+            raise Failure(f"{src_home} 中没有 {label} 的 Agent，先在 Janus 中添加并通过配置检查")
+        cfg = mine[0]
+        secrets = os.path.join(src_home, "agents", cfg["id"], "secrets.json")
+        if os.path.exists(secrets):
+            dest = os.path.join(home, "agents", cfg["id"])
+            os.makedirs(dest, mode=0o700, exist_ok=True)
+            shutil.copyfile(secrets, os.path.join(dest, "secrets.json"))
+            os.chmod(os.path.join(dest, "secrets.json"), 0o600)
+        body = {k: v for k, v in cfg.items() if k not in DERIVED}
+        body["envText"] = "\n".join(f"{k}={v}" for k, v in (cfg.get("env") or {}).items())
+        api("POST", "/api/setup/connections", body)
+        api("POST", f"/api/connections/{cfg['id']}/test")
+        source = f"，复制自 {cfg.get('source') or '默认目录'}" if cfg.get("auth") == "import" else ""
+        c(True, f"拷贝 {label} 的 Agent「{cfg['id']}」（{cfg.get('auth')}{source}）")
+        ids[kind] = cfg["id"]
+    return ids
 
 
 def _drive(api, run, c, timeout):
