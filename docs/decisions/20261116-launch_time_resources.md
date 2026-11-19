@@ -1,6 +1,7 @@
 # ADR：资源库统一管理 Skill 和 MCP，在会话启动时注入
 
 - 状态：已采纳（accepted），记录于 2026-11-16。取代角色上的 Janus Skill 库、GitHub Skill 来源、MCP 来源和角色自己的手工 MCP。
+- 修订：2026-11-19 起，资源默认给所有数字员工、经 MCP 路由和 Skill 路由提供，角色只选收口的资源，见 [ADR：资源库默认给所有数字员工](20261119-library_routing.md)；会话启动时注入、不写 Agent 配置文件的原则不变。
 - 相关文档：[Agent、角色与工作区](../domains/20261031-agents_and_roles.md)、[ACP 集成](../interfaces/20261031-acp_integration.md)、[安全边界](../operations/20261031-security.md)、[研究：magpie 的资源库](../research/20261116-magpie_library.md)。
 
 ## 背景
