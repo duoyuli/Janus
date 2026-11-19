@@ -110,6 +110,20 @@ impl App {
         msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n")
     }
 
+    /// The person ends the task with the result so far while no turn is running (it holds the
+    /// session, or the agent waits on a question): on record like ending a running turn, so the
+    /// audit log and the lead's board show it.
+    pub(super) fn record_finish(&self, run: &Run, ctx: &Ctx<'_>) {
+        let name = run.member(ctx.agent).map(|m| m.name.as_str()).unwrap_or(ctx.agent);
+        self.emit(
+            run,
+            ev("session.interrupted", "user", format!("以当前结果完成 {name} 的子任务"))
+                .scope(ctx)
+                .to(ctx.agent)
+                .data(json!({ "finish": true })),
+        );
+    }
+
     /// The person holds the session and the turn has ended: wait for them. Their message is the
     /// next prompt; handing back resumes the agent with `resume` (and what queued meanwhile);
     /// finishing ends the session with the result so far (`None`). Controls switch on the way.
@@ -158,6 +172,7 @@ impl App {
                 }
                 Some(Steer::Finish) => {
                     ctl.set_hold(run, Hold::Finish);
+                    self.record_finish(run, ctx);
                     return Ok(None);
                 }
                 Some(Steer::Control(c)) => self.apply_control(run, session.conn, session.sid, c, ctx).await,

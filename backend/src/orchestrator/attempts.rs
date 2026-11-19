@@ -559,7 +559,11 @@ impl App {
                                 next = Some(m.text.clone());
                                 m.text
                             }
-                            Some(Steer::Finish) => { ctl.set_hold(run, Hold::Finish); "（直接以当前结果完成）".into() }
+                            Some(Steer::Finish) => {
+                                ctl.set_hold(run, Hold::Finish);
+                                self.record_finish(run, &ctx);
+                                "（直接以当前结果完成）".into()
+                            }
                             Some(_) => {
                                 ctl.set_hold(run, Hold::Person);
                                 self.emit(run, ev("control.taken", "user", format!("接管 {} 的会话", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent))).task(id).attempt(n).to(&agent));

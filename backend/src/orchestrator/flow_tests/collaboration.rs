@@ -1096,3 +1096,32 @@ async fn the_lead_hears_when_the_person_steps_into_a_collaborators_session() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// Ending a subtask with the result so far while the person holds its session (no turn running)
+/// is on record too, so the lead reads it like any other step the person takes.
+#[tokio::test(flavor = "multi_thread")]
+async fn ending_a_held_session_is_on_record_for_the_lead() {
+    let h = harness("user-finishes-held", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
+    act(&h, &run, json!({ "type": "interrupt", "task": "T1" }));
+    wait_until(&h.app, &run, "held by the person", |e| {
+        e.iter().any(|e| e.kind == "agent.status" && e.task.as_deref() == Some("T1") && e.text.contains("人工接管"))
+    })
+    .await;
+    act(&h, &run, json!({ "type": "finish", "task": "T1" }));
+    wait_until(&h.app, &run, "T1 ended", |e| {
+        task_event(e, "task.failed", "T1") || task_event(e, "task.succeeded", "T1")
+    })
+    .await;
+    let finished = events(&h.app, &run)
+        .into_iter()
+        .filter(|e| e.kind == "session.interrupted" && e.data.as_ref().is_some_and(|d| d["finish"] == true))
+        .count();
+    assert_eq!(finished, 1, "the person's finish is recorded once");
+    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+    assert!(board.contains("用户打断了 m1 这一轮") && board.contains("用户让 m1 以当前结果结束这个子任务"), "{board}");
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
