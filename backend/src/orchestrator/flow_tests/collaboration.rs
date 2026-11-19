@@ -1067,3 +1067,32 @@ async fn the_delivery_marks_changes_without_an_independent_verification() {
     assert!(!unverified("T3"), "changed nothing");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// The person may step into a collaborator's session directly. The lead runs the board, so each
+/// step reaches it as "[用户介入]" with its next wait; it does not wake the lead by itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lead_hears_when_the_person_steps_into_a_collaborators_session() {
+    let h = harness("user-steps-in", &[("lead", false), ("m1", true)], json!({ "T1": ["slow", "ok"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
+    tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+
+    act(&h, &run, json!({ "type": "takeover", "task": "T1" }));
+    wait_until(&h.app, &run, "taken over", |e| has(e, "control.taken")).await;
+    act(&h, &run, json!({ "type": "message", "task": "T1", "text": "先别动 README" }));
+    let started = std::time::Instant::now();
+    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 2 })).await;
+    assert!(started.elapsed() >= Duration::from_millis(1500), "the person's steps alone do not wake the lead");
+    assert!(board.contains("[用户介入] T1「T1」· 用户接管了 m1 的会话"), "{board}");
+    assert!(board.contains("[用户介入] T1「T1」· 用户对 m1 说：先别动 README"), "{board}");
+    assert!(board.contains("不要用 janus.reply 或 janus.retry 把它改回去"), "{board}");
+
+    act(&h, &run, json!({ "type": "finish", "task": "T1" }));
+    // Ended with an empty reply, the result fails its acceptance check: the lead decides next.
+    wait_until(&h.app, &run, "T1 ended by the person", |e| task_event(e, "task.failed", "T1")).await;
+    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+    assert!(board.contains("用户让 m1 以当前结果结束这个子任务"), "{board}");
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

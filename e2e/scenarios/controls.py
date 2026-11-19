@@ -6,7 +6,7 @@ from scenarios import scenario, task
 
 @scenario("controls")
 def controls(ctx, c):
-    """Run 操作：暂停与继续、打断后发消息、接管与交还、切换控制项、追加预算、状态冲突、取消、删除"""
+    """Run 操作：暂停与继续、打断后发消息、接管与交还（负责人在看板上读到用户介入）、切换控制项、追加预算、状态冲突、取消、删除"""
     t = ctx.team("controls", members=("m1", "m2", "m3"), script={"T1": ["slow", "ok"], "T2": ["slow"], "T3": ["ok"]})
     run = t.run("可以被操作的目标")
     run.orchestrate(task("T1", t.member("m1")), task("T2", t.member("m2")), task("T3", t.member("m3"), deps=["T1"]))
@@ -43,6 +43,10 @@ def controls(ctx, c):
     run.act("release", task="T2")
     run.wait_event("control.released", task="T2")
     c(True, "接管并交还 T2 的会话")
+    # The lead runs the board, so the person's steps into collaborators' sessions reach it.
+    board = run.read_board(lambda b: "交还给" in b, timeout=30)
+    c(all(x in board for x in ("[用户介入] T1", "用户对", "按原来的说明继续", "以当前结果结束", "[用户介入] T2", "接管了", "交还给")),
+      "负责人在看板上读到用户对 T1、T2 会话的介入（打断、消息、结束、接管、交还）")
     run.act("control", task="T2", id="mode", value="agent")
     switched = run.wait_event("session.control", task="T2", data__id="mode")
     c(switched["data"]["value"] == "agent" and switched["data"].get("by") == "user", "用户在会话中切换权限模式")

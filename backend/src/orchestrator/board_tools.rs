@@ -356,6 +356,37 @@ pub(super) fn inline_list(items: &[String]) -> (String, bool) {
     (text, clipped)
 }
 
+/// The person's step into a collaborator's session (a message, a takeover, handing it back, an
+/// interrupt or ending the subtask with the result so far) as the lead reads it; `None` for
+/// anything else, and for the lead's own session.
+fn user_intervention(run: &Run, e: &Event, d: &Value) -> Option<String> {
+    let task = e.task.as_deref();
+    let agent = match (e.to.as_deref(), task) {
+        (Some(to), _) if to != "lead" => to.to_string(),
+        (None, Some(t)) => run.st.lock().unwrap().tasks.iter().find(|x| x.def.id == t)?.agent.clone(),
+        _ => return None,
+    };
+    let name = run.member(&agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.clone());
+    let what = match e.kind.as_str() {
+        "user.message" => format!("对 {name} 说：{}", short(d["text"].as_str().unwrap_or(&e.text), INLINE_SUMMARY)),
+        "control.taken" => format!("接管了 {name} 的会话"),
+        "control.released" => format!("把会话交还给 {name}，它继续自主完成"),
+        "session.interrupted" if d["finish"] == true => format!("让 {name} 以当前结果结束这个子任务"),
+        "session.interrupted" => format!("打断了 {name} 这一轮，转为人工接管"),
+        _ => return None,
+    };
+    let at = match task {
+        Some(t) => {
+            let title = run.st.lock().unwrap().tasks.iter().find(|x| x.def.id == t).map(|x| x.def.title.clone());
+            format!("{t}「{}」· ", title.unwrap_or_default())
+        }
+        None => String::new(),
+    };
+    Some(format!(
+        "- [用户介入] {at}用户{what}。以用户的意思为准；需要调整计划时再处理，不要用 janus.reply 或 janus.retry 把它改回去。"
+    ))
+}
+
 /// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
 // @project-doc docs/interfaces/20261031-board_mcp.md#wait
 pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
@@ -368,6 +399,14 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             "- [用户决定] 你交给用户的问题，用户的回答：{}{note}",
             d["answer"].as_str().unwrap_or("")
         ));
+    }
+    // The person stepping into a collaborator's session: the lead runs the board, so it hears of
+    // it, with its next wake-up (this does not wake it by itself).
+    // @project-doc docs/domains/20261031-goal_mode.md#board_flow
+    if e.actor == "user"
+        && let Some(entry) = user_intervention(run, e, &d)
+    {
+        return Some(entry);
     }
     // The lead's own edit after it handed out subtasks: from then on it only manages.
     if e.kind == "lead.edited" {
