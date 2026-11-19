@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.19.4
+
+- 负责人分工更清楚：目标小到一个人就能做完时，负责人自己做；一旦派出子任务，它就只做管理，不再自己改文件，也不接手做不下去的子任务，改为让原来的人返工、换人，或告诉你缺什么能力。派出后它如果还是改了文件，会在看板上提醒它，负责人的对话里显示一行提醒，交付时列为风险。
+- 交付页标出改了文件、却没有独立验证的子任务（「没有独立验证」），概览里写明有几个；负责人的总结要说明这些子任务是怎么核对的。
+- 你直接在某个协作者的会话里发消息、接管、交还、打断或让它以当前结果结束时，负责人会在看板上读到，不会按过时的情况安排工作，也不会把你的改动改回去。
+- 负责人要求接着某个子任务原来的会话做、而那个子任务从来没开过会话时，会话标题写明「新开会话（这个子任务之前没有会话）」，负责人也会当场知道。
+- 默认数字员工 PMO 的指令按上面的分工更新：没改过的自动换成新版，改过的在编辑器里提示新版，由你选择。
+
+- Clearer roles for the lead: it does a goal itself only when one person can finish it. Once it hands out a subtask it only manages: it no longer edits files and does not take over a subtask that is stuck; it sends it back for rework, gives it to someone else, or tells you which ability is missing. If it still edits files after handing out work, the board reminds it, its conversation shows a note, and the delivery lists it as a risk.
+- The delivery marks subtasks that changed files without an independent verification ("No independent verification") and counts them in the overview; the lead's summary has to say how it checked them.
+- When you message, take over, hand back, interrupt or end a collaborator's session yourself, the lead reads it on the board, so it does not plan on stale facts or undo your change.
+- When the lead asks to continue a subtask's earlier session but that subtask never opened one, the attempt header says "New session (this subtask had no session before)" and the lead is told right away.
+- The default PMO digital worker's instructions follow this split: untouched ones move to the new text automatically; if you edited yours, the editor offers the new text and you choose.
+
 ## 2026.11.19.3
 
 - 负责人让一个已完成的子任务返工时，会知道哪些子任务已经用了它的旧结果：正在执行的会在会话里收到「上游在返工」的通知，提醒它们用到的文件可能会变；正在执行的和已经完成的都列给负责人，由负责人决定要不要一起返工或停下。修订结论时也是同样的处理。
