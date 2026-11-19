@@ -17,8 +17,8 @@
 3. **从 `HEAD` 开始，不带未提交的改动**：worktree 从创建时的 `HEAD` 开始，处于 detached HEAD，不建分支。用户目录里有未提交的改动时，创建前提醒「这些改动不会带进这个任务」，用户确认后照常开始。
 4. **只带代码，环境在 worktree 里重新准备**：worktree 里只有 Git 跟踪的文件，加上仓库根目录 `.worktreeinclude`（`.gitignore` 语法，用户自己维护，和 Claude Code、Codex 共用）列出的被忽略文件，创建时复制过去：只复制同时被忽略的文件，跳过符号链接，不覆盖已有文件。依赖和构建产物不复制，由 Agent 在 worktree 里按项目自己的方式准备，因为 Run 改的可能正是环境本身。协作约定和负责人说明告诉 Agent 这一点。
 5. **Janus 只隔离文件**：端口、本机数据库、全局缓存这类共享资源的冲突由项目自己处理（例如测试自动选空闲端口）。Janus 自己的 `just e2e` 改成自动选空闲端口。
-6. **验收时由 Janus 提交到分支**：用户验收一个 worktree 中的 Run 时，Janus 在 worktree 里提交全部改动，建分支 `janus/<run-id>` 指向这个提交，然后删除 worktree 目录；合并由用户决定。负责人和协作者仍然不提交，提交只在验收时由 Janus 做一次，不运行仓库的 Git 钩子（`--no-verify`）。没有改动时不提交、不建分支。
-7. **生命周期**：worktree 放在 `<Janus home>/worktrees/<run-id>`，不放进用户的仓库；创建后用 `git worktree lock` 锁住。交付后、验收前保留，用户可以打开目录检查。验收后继续对话时，从 `janus/<run-id>` 重建 worktree，再次验收时在这个分支上再提交一次。取消或失败的 Run 保留 worktree，可以从中断处继续。删除 Run 时删除 worktree；里面还有未提交的改动时，先把改动存成补丁 `<Janus home>/worktrees/deleted/<run-id>.patch`。
+6. **验收时由 Janus 提交到分支**：用户验收一个 worktree 中的 Run 时，Janus 在 worktree 里提交全部改动，把分支 `janus/<run-id>` 指向这个提交（第一次新建，之后只快进；分支在上次验收后被用户移动过就拒绝，不覆盖）；合并由用户决定。worktree 始终处于 detached HEAD，分支不被它检出，用户可以在自己的目录里检出、合并或删除这个分支。负责人和协作者仍然不提交，提交只在验收时由 Janus 做一次，不运行仓库的 Git 钩子（`--no-verify`）。没有改动时不提交、不建分支。
+7. **生命周期**：worktree 放在 `<Janus home>/worktrees/<run-id>`，不放进用户的仓库；创建后用 `git worktree lock` 锁住。交付后、验收前保留，用户可以打开目录检查。验收后，负责人的对话还开着时 worktree 保留（会话的进程就在里面，删掉目录会让它失去当前目录），继续对话就接着在里面改，再验收时在分支上再提交一次；没有会话在用时（例如服务重启后验收）验收后移除，服务启动时也移除已验收 Run 留下的 worktree。之后继续这个 Run 时，从 `janus/<run-id>` 重建 worktree。（实现时修订：最初写的是验收时一律删除 worktree，但这样会和交付后仍然开着的负责人对话冲突。）取消或失败的 Run 保留 worktree，可以从中断处继续。删除 Run 时删除 worktree；里面还有未提交的改动时，先把改动存成补丁 `<Janus home>/worktrees/deleted/<run-id>.patch`。
 8. **非 Git 目录的提醒**：非 Git 目录上已经有进行中（规划、执行、等你处理）的 Run 时，创建新 Run 前提醒「这个目录上有一个正在运行的任务，确定继续执行吗？」，用户确认后照常开始。不加锁。
 
 ## 取舍

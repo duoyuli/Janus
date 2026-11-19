@@ -91,7 +91,7 @@ pub(super) fn task_prompt(
 验收标准：
 {accept}
 
-工作目录：{ws}",
+工作目录：{ws}{note}",
         name = m.name,
         goal = run.goal,
         brief = brief_section(&run.brief, "the subtask instructions"),
@@ -101,6 +101,7 @@ pub(super) fn task_prompt(
         max_attempts = def.max_attempts,
         accept = def.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n"),
         ws = run.cwd.display(),
+        note = workdir_note(run),
     );
     if !upstream.is_empty() {
         p.push_str(&format!("\n\n上游子任务的结果（摘要）：\n{}", upstream.join("\n")));
@@ -115,6 +116,35 @@ pub(super) fn task_prompt(
         p.push_str(&format!("\n\n上一次尝试失败：{err}。请避开同样的问题。"));
     }
     p
+}
+
+/// What the lead is told about the run's working directory. A worktree is fresh: only tracked
+/// files and what `.worktreeinclude` lists are there, and the run may be the one that changes
+/// the environment, so the agents prepare it there themselves.
+// @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
+pub(super) fn workdir_brief(run: &Run) -> String {
+    match &run.worktree {
+        Some(w) => format!(
+            "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does (README, justfile, package.json and the like) before running anything, and reinstall when a change touches dependencies. Changes stay uncommitted: when the user accepts the run, Janus commits them to the branch {branch}.",
+            repo = w.repo.display(),
+            branch = crate::worktrees::branch(&run.id)
+        ),
+        None if run.git => "This is a Git repository.".into(),
+        None => {
+            "This directory is outside a Git repository. Repository-specific Git commands are unavailable here.".into()
+        }
+    }
+}
+
+/// What a collaborator is told about the working directory, after its path in the task prompt.
+fn workdir_note(run: &Run) -> String {
+    match &run.worktree {
+        Some(w) => format!(
+            "（{} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里。运行测试或程序前，先按项目自己的方式准备环境（看 README、justfile、package.json 等）；你的改动涉及依赖时重新安装。改动不要提交，用户验收时由 Janus 统一提交。）",
+            w.repo.display()
+        ),
+        None => String::new(),
+    }
 }
 
 /// What a verification brought back, for the attempt that acts on it.

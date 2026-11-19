@@ -24,6 +24,8 @@
 ├── artifacts/<run>/<task>/   # Run 的产物：回复和 diff
 ├── runs/<run>/members/<member>/bundle/  # 成员的资源包：Run 创建时复制的 Skill
 ├── runs/<run>/attachments/   # 随目标和消息粘贴的图片
+├── worktrees/<run>/          # Git 仓库上每个 Run 自己的 worktree（元数据在原仓库的 .git/worktrees/）
+├── worktrees/deleted/        # 删除 Run 时 worktree 里还没提交的改动，存成 <run>.patch
 ├── prices/models.json        # 从 models.dev 同步的模型价格，每天更新，账单估算用
 ├── updates/                  # 应用内更新：<版本>/ 下载和拼装中的新版本，previous/ 上一个版本，install.sh 替换脚本
 ├── signing/                  # 发布签名证书（只在执行 make-signing-cert.sh 的机器上）
@@ -39,6 +41,7 @@
 | 类别 | 位置 | 说明 |
 | --- | --- | --- |
 | 用户级数据 | `janus.db`、`agents/`、`secrets/`、`library/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
+| Run 的工作目录 | `worktrees/` | 每个 Git 仓库上的 Run 一个 worktree，验收后由下次启动移除，删除 Run 时一起删；`deleted/` 下的补丁要手动清理，见 [ADR：每个任务在自己的 worktree 中运行](../decisions/20261119-run_worktrees.md) |
 | 全局依赖 | `adapters/` | 第一次用到时下载，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
 | 应用更新 | `updates/` | 只有最近一次的新版本和上一个版本，可以随时删除 |
 | 升级备份 | `backups/` | 数据升级前的 `janus.db` 副本，退回旧版本或升级出问题时用；确认新版本正常后可以删除，见[升级](#upgrade) |

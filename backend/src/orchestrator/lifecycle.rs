@@ -32,6 +32,19 @@ impl App {
         };
         // Unique even for runs created in the same millisecond (side by side, as the e2e test does).
         let id = crate::agents::new_id("r");
+        // A run on a git repository works in its own worktree, so runs on one repository do not
+        // write over each other; one without commits yet, or outside git, works in place.
+        // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
+        let (cwd, worktree) = if is_git && !base_ref.is_empty() {
+            let path = self.worktree_dir(&id);
+            let included = crate::worktrees::create(&cwd, &path, &base_ref, &id)?;
+            // The path the agents' own tools report (`/private/var/…` for `/var/…` on macOS), so
+            // the files they edit resolve against it.
+            let path = path.canonicalize().unwrap_or(path);
+            (path, Some(WorktreeOf { repo: cwd, included }))
+        } else {
+            (cwd, None)
+        };
         self.bundle_team(&id, &team)?;
         let goal_images = crate::attachments::save(&self.cfg.data_dir, &id, &req.images)?;
         let goal = match req.goal.trim() {
@@ -49,11 +62,15 @@ impl App {
         if let Some(c) = cost_limit_usd {
             config["costLimitUsd"] = json!(c);
         }
+        if let Some(w) = &worktree {
+            config["worktree"] = json!({ "repo": w.repo });
+        }
         self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
         let run = Arc::new(Run::new(RunRecord {
             id: id.clone(),
             goal,
             cwd,
+            worktree,
             team,
             git: is_git && !base_ref.is_empty(),
             base_ref,
@@ -66,6 +83,40 @@ impl App {
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.launch(run, Phase::Start);
         Ok(id)
+    }
+
+    /// What the person is reminded of before a run starts in `workspace`; they may go ahead
+    /// anyway. A git repository's run starts from `HEAD` in its own worktree, without the changes
+    /// not committed yet; a directory outside git has no worktree, so another run still working
+    /// there would edit the same files.
+    // @project-doc docs/interfaces/20261031-http_api.md#run_preflight
+    pub async fn preflight(&self, workspace: &str) -> Result<Vec<String>> {
+        let ws = self.workspace(workspace)?;
+        let (cwd, _) = self.team_for(&ws)?;
+        if git(&cwd, &["rev-parse", "--verify", "HEAD"]).await.is_ok() {
+            let changed = crate::worktrees::uncommitted(&cwd);
+            if changed.is_empty() {
+                return Ok(vec![]);
+            }
+            let shown: Vec<&str> = changed.iter().take(5).map(String::as_str).collect();
+            let more =
+                if changed.len() > shown.len() { format!(" 等 {} 个文件", changed.len()) } else { String::new() };
+            return Ok(vec![format!(
+                "工作目录里有还没提交的改动（{}{more}）。这些改动不会带进这个任务：任务从最近一次提交开始，在单独的 worktree 中进行。",
+                shown.join("、")
+            )]);
+        }
+        Ok(self
+            .db
+            .active_runs_in(&cwd.to_string_lossy())?
+            .iter()
+            .map(|r| {
+                format!(
+                    "这个目录上有一个正在运行的任务「{}」。这个目录不是 Git 仓库，两个任务会直接改同一批文件。",
+                    r["goal"].as_str().unwrap_or("").lines().next().unwrap_or("")
+                )
+            })
+            .collect())
     }
 
     pub(super) fn launch(self: &Arc<Self>, run: Arc<Run>, phase: Phase) {
@@ -106,6 +157,11 @@ impl App {
         }
     }
 
+    /// Where a run's worktree lives (see `crate::worktrees`).
+    pub(super) fn worktree_dir(&self, run_id: &str) -> PathBuf {
+        self.cfg.data_dir.join("worktrees").join(run_id)
+    }
+
     /// Where a member's resources live for this run: its skills, laid out the way its agent
     /// reads them. Sessions are pointed here when they open.
     pub(crate) fn bundle_dir(&self, run_id: &str, member: &str) -> PathBuf {
@@ -123,18 +179,19 @@ impl App {
     }
 
     pub(super) async fn drive(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
-        let workspace_note = if run.git {
-            format!("Git 仓库，基线 {}", short_sha(&run.base_ref))
-        } else {
-            "非 Git 目录：子任务直接在这个目录中执行，没有 diff".to_string()
+        let workspace_note = match &run.worktree {
+            Some(w) => format!("Git 仓库 {} 的独立 worktree，从 {} 开始", w.repo.display(), short_sha(&run.base_ref)),
+            None => "非 Git 目录：子任务直接在这个目录中执行，没有 diff".to_string(),
         };
-        self.emit(
-            run,
-            ev("run.created", "user", format!("创建目标：{}", run.goal)).data(json!({
-                "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note,
-                "images": run.goal_images
-            })),
-        );
+        let mut data = json!({
+            "goal": run.goal, "cwd": run.cwd, "git": run.git, "baseRef": run.base_ref, "workspace": workspace_note,
+            "images": run.goal_images
+        });
+        if let Some(w) = &run.worktree {
+            data["worktree"] =
+                json!({ "repo": w.repo, "included": w.included, "branch": crate::worktrees::branch(&run.id) });
+        }
+        self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(data));
         self.goal(run, false).await
     }
 
@@ -533,7 +590,16 @@ impl App {
                 _ => (String::new(), vec![]),
             };
             json!({
-                "summary": format!("{} 改动直接在工作目录 {} 中，Janus 没有提交。", lead_summary(&text), run.cwd.display()),
+                "summary": match &run.worktree {
+                    Some(w) => format!(
+                        "{} 改动在这个任务单独的 worktree {} 中（{} 的 worktree），还没有提交；验收时 Janus 会把它们提交到分支 {}。",
+                        lead_summary(&text),
+                        run.cwd.display(),
+                        w.repo.display(),
+                        crate::worktrees::branch(&run.id)
+                    ),
+                    None => format!("{} 改动直接在工作目录 {} 中，Janus 没有提交。", lead_summary(&text), run.cwd.display()),
+                },
                 "briefSuggestions": suggestions,
                 "deliverables": deliverables,
                 "evidence": evidence,
@@ -572,6 +638,19 @@ impl App {
             };
             for c in conns {
                 c.kill().await;
+            }
+        }
+        // The run's worktree goes too; changes never committed are kept as a patch first.
+        if let Some(repo) = row["config"]["worktree"]["repo"].as_str() {
+            let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
+            let kept = self.cfg.data_dir.join("worktrees").join("deleted");
+            match crate::worktrees::remove(Path::new(repo), &cwd, &kept, run_id) {
+                Ok(Some(patch)) => crate::config::log(format!(
+                    "janus: run {run_id} deleted; its uncommitted changes are kept in {}",
+                    patch.display()
+                )),
+                Ok(None) => {}
+                Err(err) => return Err(DeleteRefused::Invalid(err)),
             }
         }
         // The directories go before the rows: the row is what lets a second request find the run,

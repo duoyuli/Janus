@@ -179,6 +179,28 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The runs still working (planning, running or waiting for the person) in directory `cwd`.
+    pub fn active_runs_in(&self, cwd: &str) -> Result<Vec<Value>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, goal, cwd, config, status, created_at FROM runs
+             WHERE cwd = ?1 AND status IN ('planning', 'running', 'waiting_input') ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map(params![cwd], run_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Accepted runs that worked in a worktree (`config.worktree`).
+    pub fn accepted_worktrees(&self) -> Result<Vec<Value>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, goal, cwd, config, status, created_at FROM runs
+             WHERE status = 'accepted' AND json_extract(config, '$.worktree.repo') IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], run_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// One run by id, however old it is.
     pub fn run(&self, id: &str) -> Result<Option<Value>> {
         Ok(self

@@ -18,6 +18,7 @@ mod status;
 mod teamwork;
 mod traces;
 mod usage;
+mod worktrees;
 
 use anyhow::Result;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -332,6 +333,18 @@ async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
 
 async fn list_runs(State(app): State<Arc<App>>) -> ApiResult {
     Ok(Json(json!({ "runs": app.db.runs().map_err(bad)? })).into_response())
+}
+
+#[derive(Deserialize)]
+struct PreflightQuery {
+    workspace: String,
+}
+
+/// What to remind the person of before a run starts in a workspace (they may go ahead anyway).
+// @project-doc docs/interfaces/20261031-http_api.md#run_preflight
+async fn run_preflight(State(app): State<Arc<App>>, Query(q): Query<PreflightQuery>) -> ApiResult {
+    let warnings = app.preflight(&q.workspace).await.map_err(bad)?;
+    Ok(Json(json!({ "warnings": warnings })).into_response())
 }
 
 async fn create_run(State(app): State<Arc<App>>, Json(req): Json<NewRun>) -> ApiResult {
@@ -655,6 +668,7 @@ async fn main() -> Result<()> {
         .route("/api/prices", get(get_prices))
         .route("/api/prices/sync", post(sync_prices))
         .route("/api/runs", get(list_runs).post(create_run))
+        .route("/api/runs/preflight", get(run_preflight))
         .route("/api/runs/{id}", get(get_run).delete(delete_run))
         .route("/api/runs/{id}/stream", get(stream))
         .route("/api/runs/{id}/actions", post(action))

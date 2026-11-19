@@ -15,9 +15,9 @@ Janus 只做下面这些写操作，都在 Run 的生命周期里由明确的事
 | --- | --- | --- |
 | 创建 Run | `git worktree add --detach`、`git worktree lock` | 用户仓库的 `.git/worktrees/<run-id>`；worktree 目录在 `<Janus home>/worktrees/<run-id>` |
 | 创建 Run | 复制 `.worktreeinclude` 列出的被忽略文件 | 只写进 worktree 目录，读用户目录 |
-| 验收 | `git add -A`、`git commit --no-verify`、建分支 `janus/<run-id>` | worktree 和用户仓库的对象库、`refs/heads/janus/` |
-| 验收后 | `git worktree unlock`、`git worktree remove` | 用户仓库的 `.git/worktrees/` |
-| 验收后继续对话 | `git worktree add <路径> janus/<run-id>` | 同上 |
+| 验收 | `git add -A`、`git commit --no-verify`（detached HEAD 上），`git update-ref` 新建或快进 `janus/<run-id>` | worktree 和用户仓库的对象库、`refs/heads/janus/` |
+| 验收后没有会话在用时，或服务启动时 | `git worktree unlock`、`git worktree remove` | 用户仓库的 `.git/worktrees/` |
+| 继续一个已移除 worktree 的 Run | `git worktree add --detach <路径> janus/<run-id>` | 同上 |
 | 删除 Run | 存补丁后 `git worktree remove --force` | 补丁在 `<Janus home>/worktrees/deleted/` |
 
 - **不碰的东西**：不推送，不改用户当前检出的分支和工作目录里的文件，不改 `janus/` 以外的分支，不删除任何分支（验收后的分支由用户决定去留）。

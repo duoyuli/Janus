@@ -678,10 +678,21 @@ enum BudgetHit {
 }
 
 /// What a run is made of, from its creation or its record. Everything else about it starts empty.
+/// Where a run on a git repository works: its own worktree of `repo` (see `crate::worktrees`).
+/// A run without one works in the workspace directory itself.
+#[derive(Clone, Debug)]
+struct WorktreeOf {
+    repo: PathBuf,
+    /// The ignored files `.worktreeinclude` brought along when the worktree was made (only known
+    /// then; a resumed run has none listed).
+    included: Vec<String>,
+}
+
 struct RunRecord {
     id: String,
     goal: String,
     cwd: PathBuf,
+    worktree: Option<WorktreeOf>,
     team: Vec<Member>,
     git: bool,
     base_ref: String,
@@ -696,7 +707,10 @@ struct RunRecord {
 pub struct Run {
     pub id: String,
     pub goal: String,
+    /// Where the run's sessions work: the worktree for a run on a git repository, otherwise the
+    /// workspace directory.
     pub cwd: PathBuf,
+    worktree: Option<WorktreeOf>,
     pub team: Vec<Member>,
     git: bool,
     base_ref: String,
@@ -806,6 +820,7 @@ impl Run {
             id: r.id,
             goal: r.goal,
             cwd: r.cwd,
+            worktree: r.worktree,
             team: r.team,
             git: r.git,
             base_ref: r.base_ref,

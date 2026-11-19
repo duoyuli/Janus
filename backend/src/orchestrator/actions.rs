@@ -328,12 +328,43 @@ impl App {
                 if status != RunStatus::Delivered {
                     bail!("任务现在是「{status}」，只有已交付的任务 可以验收");
                 }
-                self.emit(run, ev("risk.accepted", "user", "核对证据后验收通过"));
+                // The lead's conversation stays open and works in the worktree, so it stays; the
+                // next start removes it once nothing works there (`recover`).
+                let repo = run.worktree.as_ref().map(|w| w.repo.as_path());
+                let (text, data) = self.accept_worktree(&run.id, &run.cwd, repo, &run.goal, false)?;
+                self.emit(run, ev("risk.accepted", "user", text).data(data));
                 self.set_status(run, RunStatus::Accepted);
             }
             _ => bail!("未知操作：{kind}"),
         }
         Ok(())
+    }
+
+    /// The person accepts a run: a run in a worktree has its result committed to `janus/<id>`, and
+    /// with `remove` (no session works there) the worktree goes (see `crate::worktrees::accept`).
+    /// The acceptance's text and data.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
+    pub(super) fn accept_worktree(
+        &self,
+        run_id: &str,
+        cwd: &Path,
+        repo: Option<&Path>,
+        goal: &str,
+        remove: bool,
+    ) -> Result<(String, Value)> {
+        let Some(repo) = repo else {
+            return Ok(("核对证据后验收通过".into(), json!({})));
+        };
+        let title: String = goal.lines().next().unwrap_or_default().chars().take(72).collect();
+        let message = format!("{title}\n\nJanus 任务 {run_id}");
+        let done = crate::worktrees::accept(repo, cwd, run_id, &message, remove)?;
+        Ok(match done.commit {
+            Some((branch, commit)) => (
+                format!("核对证据后验收通过，结果已提交到分支 {branch}"),
+                json!({ "branch": branch, "commit": commit, "repo": repo }),
+            ),
+            None => ("核对证据后验收通过，这个任务没有改动，没有提交".into(), json!({ "branch": null, "repo": repo })),
+        })
     }
 
     pub async fn accept_archived(&self, run_id: &str) -> Result<Option<Arc<Run>>> {
@@ -345,6 +376,11 @@ impl App {
         if status.as_str() != Some("delivered") {
             bail!("只有已交付的任务 可以验收");
         }
+        let row = self.db.run(run_id)?.context("run not found")?;
+        let repo = row["config"]["worktree"]["repo"].as_str().map(PathBuf::from);
+        let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
+        let (text, data) =
+            self.accept_worktree(run_id, &cwd, repo.as_deref(), row["goal"].as_str().unwrap_or(""), true)?;
         let seq = self.db.max_seq(run_id)? + 1;
         self.store(
             Event {
@@ -356,8 +392,8 @@ impl App {
                 to: None,
                 task: None,
                 attempt: None,
-                text: "核对证据后验收通过".into(),
-                data: None,
+                text,
+                data: Some(data),
             },
             None,
         );
@@ -406,10 +442,18 @@ impl App {
                 cost_limit_micros = (cl * 1_000_000.0).round() as i64;
             }
         }
+        let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
+        // An accepted run's worktree was removed; working again brings it back on its branch.
+        let worktree =
+            config["worktree"]["repo"].as_str().map(|repo| WorktreeOf { repo: repo.into(), included: vec![] });
+        if let Some(w) = &worktree {
+            crate::worktrees::ensure(&w.repo, &cwd, &base_ref, run_id)?;
+        }
         let run = Arc::new(Run::new(RunRecord {
             id: run_id.to_string(),
             goal: row["goal"].as_str().unwrap_or("").to_string(),
-            cwd: PathBuf::from(row["cwd"].as_str().unwrap_or("")),
+            cwd,
+            worktree,
             team,
             git: config["git"] == true && !base_ref.is_empty(),
             base_ref,
@@ -746,6 +790,18 @@ impl App {
                 None,
             );
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
+        }
+        // An accepted run kept its worktree while its conversation was open; nothing works there
+        // after a restart, and the result is on its branch.
+        for row in self.db.accepted_worktrees()? {
+            let (Some(repo), Some(cwd)) = (row["config"]["worktree"]["repo"].as_str(), row["cwd"].as_str()) else {
+                continue;
+            };
+            let id = row["id"].as_str().unwrap_or_default();
+            let kept = self.cfg.data_dir.join("worktrees").join("deleted");
+            if let Err(err) = crate::worktrees::remove(Path::new(repo), Path::new(cwd), &kept, id) {
+                crate::config::log(format!("janus: could not remove the worktree of accepted run {id}: {err:#}"));
+            }
         }
         Ok(())
     }

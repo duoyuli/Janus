@@ -734,7 +734,7 @@ Shared workspace context:
 - Use the facts already recorded without assigning new research or asking the user again.
 - If you establish or revise facts worth keeping, end your final reply with the heading '## {heading}' and list one complete, reusable statement per line. Include only new or revised facts. Omit the heading if there are no suggestions. The user decides what to keep.{brief}",
             cwd = run.cwd.display(),
-            git = if run.git { "This is a Git repository." } else { "This directory is outside a Git repository. Repository-specific Git commands are unavailable here." },
+            git = workdir_brief(run),
             team = team_lines(run),
             brief = brief_section(&run.brief, "the current goal"),
             heading = BRIEF_HEADING,

@@ -84,7 +84,7 @@ just start     # 以服务方式启动：登录后自动运行（macOS）；也�
 
 仓库只放代码。Janus 的数据、适配器、配置和日志都在 `~/.janus`，详见[部署方案](docs/operations/20261031-deployment.md)。
 
-`examples/calc/` 是一个最小示例项目。子任务直接在工作目录中修改文件，用作工作区前先把它复制到仓库之外（例如 `cp -R examples/calc ~/calc`）。想看每个任务的 diff，就在复制出来的目录里建一个 Git 仓库并提交一次（`git init && git add -A && git commit -m init`）；不是 Git 仓库也能用，只是没有 diff。可以用 `python3 -m unittest discover -s examples/calc` 验证。
+`examples/calc/` 是一个最小示例项目。用作工作区前先把它复制到仓库之外（例如 `cp -R examples/calc ~/calc`），并在复制出来的目录里建一个 Git 仓库、提交一次（`git init && git add -A && git commit -m init`）：这样每个任务都在自己的 worktree 里进行，留下 diff，验收时把结果提交到 `janus/<任务>` 分支。不是 Git 仓库也能用，只是子任务直接修改这个目录，也没有 diff。可以用 `python3 -m unittest discover -s examples/calc` 验证。
 
 ## 文档
 

@@ -243,6 +243,7 @@ fn test_run(team_size: usize) -> Run {
         id: "r-test".into(),
         goal: "测试目标".into(),
         cwd: PathBuf::from("/tmp"),
+        worktree: None,
         team: (0..team_size)
             .map(|i| Member {
                 id: format!("m{i}"),

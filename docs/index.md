@@ -6,7 +6,7 @@
 
 Janus 是本地优先的多 Agent 协作工作空间。它通过 ACP（Agent Client Protocol）内置连接 Codex 和 Claude Code，其他兼容 ACP 的 Agent 可以通过自定义命令接入，让一个负责人 Agent 带着一组协作者完成用户给出的目标，并把每一次会话、编排、审批、产物和交付都记录成可回放的事件。
 
-Janus 是单机、单用户的工具：编排器只在本机运行，任务直接修改用户选择的目录。
+Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库上的每个任务在自己的 worktree 中修改文件，验收时提交到 `janus/<任务>` 分支；非 Git 目录中任务直接修改用户选择的目录。
 
 <a id="glossary"></a>
 ## 核心术语

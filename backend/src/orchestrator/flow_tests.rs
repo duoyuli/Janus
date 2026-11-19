@@ -10,6 +10,7 @@ mod collaboration;
 mod evidence;
 mod owners;
 mod usage;
+mod worktrees;
 
 struct Harness {
     app: Arc<App>,
@@ -38,6 +39,9 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
     std::fs::create_dir_all(&fake).unwrap();
     std::fs::write(fake.join("script.json"), script.to_string()).unwrap();
     sh(&repo, &["init", "-q"]);
+    // Accepting a run commits as the repository's own identity.
+    sh(&repo, &["config", "user.name", "t"]);
+    sh(&repo, &["config", "user.email", "t@t"]);
     std::fs::write(repo.join("README.md"), "test\n").unwrap();
     sh(&repo, &["add", "-A"]);
     sh(&repo, &["commit", "-q", "-m", "init"]);
@@ -829,7 +833,8 @@ async fn goal_mode_orchestrates_through_the_board() {
     let evs = events(&h.app, &run);
     let delivered = evs.iter().find(|e| e.kind == "run.delivered").unwrap();
     assert!(delivered.data.as_ref().unwrap()["summary"].as_str().unwrap().contains("笔记写好了"));
-    assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "T1\n");
+    let cwd = PathBuf::from(h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap());
+    assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -1519,19 +1524,27 @@ async fn a_silent_lead_is_reported_to_the_person() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// Working in place: a write task runs in the workspace directory itself, even when every
-/// member's mode says read-only (the lead's call, not Janus's), and its change is kept as a diff.
+/// A run on a git repository works in its own worktree, even when every member's mode says
+/// read-only (the lead's call, not Janus's): its change lands there, not in the person's
+/// checkout, and is kept as a diff.
 #[tokio::test(flavor = "multi_thread")]
-async fn tasks_work_in_the_workspace_directory() {
+async fn tasks_work_in_the_runs_own_worktree() {
     let h = harness("inplace", &[("lead", false), ("m1", false)], json!({ "T1": ["write:notes.md"] }));
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "T1\n", "written straight into the repo");
+    let cwd = PathBuf::from(h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap());
+    assert_ne!(cwd, h.repo.canonicalize().unwrap());
+    assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n", "written in the worktree");
+    assert!(!h.repo.join("notes.md").exists(), "the person's checkout is untouched");
     let evs = events(&h.app, &run);
+    let created = evs.iter().find(|e| e.kind == "run.created").unwrap().data.clone().unwrap();
+    assert_eq!(created["worktree"]["repo"], json!(h.repo.canonicalize().unwrap()), "{created}");
+    assert_eq!(created["worktree"]["branch"], json!(format!("janus/{run}")));
     let started = evs.iter().find(|e| e.kind == "attempt.started").unwrap();
-    assert_eq!(started.data.as_ref().unwrap()["path"], json!(h.repo.canonicalize().unwrap()));
+    assert_eq!(started.data.as_ref().unwrap()["path"], json!(cwd));
+    assert!(started.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("单独建的 Git worktree"));
     assert!(
         evs.iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")),
         "the change is kept as a diff"
