@@ -486,10 +486,9 @@ impl App {
                         "key": key, "question": question, "options": options, "blocking": true
                     })),
                 );
-                // Goal mode: the lead orchestrated this task and answers its questions (it reads them
-                // with `wait`). Otherwise the question goes to the person.
-                // The lead answers questions on the board; once it is gone, they go to the person.
-                if run.st.lock().unwrap().lead.goal.ended() {
+                // The lead answers questions on the board (it reads them with `wait` or has them
+                // pushed); while it is not there, they go to the person.
+                if !run.st.lock().unwrap().lead.on_duty() {
                     self.escalate_open_questions(run);
                 }
                 // The question card and the session both reach the same agent; whichever you use first wins.

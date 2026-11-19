@@ -1103,6 +1103,48 @@ async fn a_delivered_goal_takes_a_new_slash_command() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// After delivery the lead is on the board again while it works on a follow-up goal: a question
+/// from a task it orchestrated there is pushed to it, not escalated. Once its turn ends and it
+/// waits for the person, the question still open goes to the person.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_follow_up_goal_keeps_questions_with_the_lead_while_it_works() {
+    let h = harness("converse-duty", &[("lead", false), ("m1", true)], json!({ "T1": ["ok"], "T2": ["ask", "ok"] }));
+    std::fs::write(h.dir.join("fake/steer"), "").unwrap();
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+
+    // The fake lead works on a goal until `lead-go` appears again.
+    std::fs::remove_file(h.dir.join("fake/lead-go")).unwrap();
+    act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "/goal 第二个目标" }));
+    let calls = h.dir.join("fake/calls.log");
+    let logged = |text: &str| std::fs::read_to_string(&calls).unwrap_or_default().contains(text);
+    for _ in 0..100 {
+        if logged("goal 第二个目标") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let (text, err) =
+        tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("T2", "m1", json!({}))] })).await;
+    assert!(!err, "{text}");
+    wait_until(&h.app, &run, "T2 asks", |e| task_event(e, "question.asked", "T2")).await;
+    for _ in 0..100 {
+        if logged("[提问] T2") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(logged("steer [Janus 看板推送]") && logged("[提问] T2"), "the working lead hears of the question");
+    assert!(!has(&events(&h.app, &run), "question.escalated"), "the lead answers while it works");
+
+    // The lead's turn ends: it waits for the person, and so does the question.
+    finish_lead(&h);
+    wait_until(&h.app, &run, "escalation", |e| has(e, "question.escalated")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
 /// A lead whose agent takes steering hears about a collaborator's question while it works,
 /// without calling `wait`: one board push steered into its turn, recorded in its session and
 /// counted as seen. A message the person steers in is marked delivered once the agent says it

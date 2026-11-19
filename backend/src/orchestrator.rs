@@ -489,6 +489,18 @@ struct LeadState {
     waiting: bool,
     /// The lead's open session id, for recording what Janus pushes into it.
     session: Option<String>,
+    /// The lead is working on a message (a follow-up goal included), not idle waiting for the
+    /// person. Only matters after delivery: see `on_duty`.
+    in_turn: bool,
+}
+
+impl LeadState {
+    /// The lead reads the board: until its first goal ends, and after delivery while it works on
+    /// a message. Otherwise nobody does, so questions go to the person and nothing is pushed.
+    // @project-doc docs/domains/20261031-goal_mode.md#question_routing
+    fn on_duty(&self) -> bool {
+        !self.goal.ended() || self.in_turn
+    }
 }
 
 /// How far the lead's goal is: still worked on, done with the summary it delivered, or ended

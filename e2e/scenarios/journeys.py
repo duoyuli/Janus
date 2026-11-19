@@ -127,8 +127,8 @@ def _sse(ctx, run):
 
 @scenario("goal-claude")
 def goal_claude(ctx, c):
-    """Claude Code 负责人：看板消息推送进会话、交付后新的 /goal、随目标和消息粘贴的图片"""
-    t = ctx.team("goal-claude", lead="claude", members=("m1",), script={"T1": ["ask", "ok"], "T2": ["ok"]}, fake_files=("steer",))
+    """Claude Code 负责人：看板消息推送进会话、交付后新的 /goal（期间提问仍归负责人）、随目标和消息粘贴的图片"""
+    t = ctx.team("goal-claude", lead="claude", members=("m1",), script={"T1": ["ask", "ok"], "T2": ["ask", "ok"]}, fake_files=("steer",))
     m1 = t.member("m1")
     run = t.run("按截图修好页面", images=[{"data": PNG, "name": "截图.png", "mimeType": "image/png"}])
     lead = run.lead()
@@ -151,6 +151,9 @@ def goal_claude(ctx, c):
     t.fake.wait_call("goal 再加一个页脚")
     c(True, "交付后负责人会话接受新的 /goal")
     run.orchestrate(task("T2", m1))
+    t.fake.wait_call("[提问] T2", 30)
+    c(not run.has("question.escalated"), "交付后负责人推进新目标时，协作者的提问推送给负责人，不转给用户")
+    lead.call("reply", {"task": "T2", "text": "alpha"})
     run.wait_event("task.succeeded", task="T2")
     run.act("message", text="页脚参考这张图", agent="lead", images=[{"data": PNG, "name": "页脚.png", "mimeType": "image/png"}])
     t.fake.wait_call("steer 页脚参考这张图")

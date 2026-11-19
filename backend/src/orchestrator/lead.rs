@@ -122,6 +122,13 @@ impl App {
         self.execute(run).await
     }
 
+    /// The lead finished a turn and waits for the person: a collaborator still waiting on the
+    /// board now waits on the person, as it does when the lead's session ends.
+    fn lead_goes_idle(&self, run: &Run) {
+        run.st.lock().unwrap().lead.in_turn = false;
+        self.escalate_open_questions(run);
+    }
+
     /// While the lead's session lasts: whenever the board gets something the lead has to act on,
     /// wait a moment for more, then push it all into the lead's running turn (`push_board`).
     pub(super) async fn push_loop(&self, run: &Run) {
@@ -129,8 +136,9 @@ impl App {
             run.lead_nudge.notified().await;
             {
                 let st = run.st.lock().unwrap();
-                // Delivery ends automatic board pushes; the session then only answers the person.
-                if st.cancelled() || st.lead.goal.ended() {
+                // A session that ended after its goal ends the pushes; before the goal ends the
+                // session may not be open yet.
+                if st.cancelled() || (st.lead.goal.ended() && st.lead.session.is_none()) {
                     return;
                 }
             }
@@ -149,7 +157,8 @@ impl App {
     pub(super) fn push_board(&self, run: &Run) {
         let (tx, cursor, sid) = {
             let st = run.st.lock().unwrap();
-            if st.lead.waiting || !st.steerable.contains(&SessionKey::Lead) {
+            // After delivery, an idle lead hears about the board when the person writes to it.
+            if st.lead.waiting || !st.lead.on_duty() || !st.steerable.contains(&SessionKey::Lead) {
                 return;
             }
             (st.live.get(&SessionKey::Lead).cloned(), st.lead.cursor, st.lead.session.clone())
@@ -187,8 +196,9 @@ impl App {
         let _ = tx.send(Steer::Message(Msg { id, text }));
     }
 
-    /// Goal mode: once the lead's session has ended nobody reads the board, so a collaborator's
-    /// question still waiting for the lead goes to the person instead.
+    /// Goal mode: once the lead is off duty (its goal ended and it is not working on a message,
+    /// or its session ended) nobody reads the board, so a collaborator's question still waiting
+    /// for the lead goes to the person instead.
     // @project-doc docs/domains/20261031-goal_mode.md#question_routing
     pub(super) fn escalate_open_questions(&self, run: &Run) {
         let events = self.db.events(&run.id, 0).unwrap_or_default();
@@ -304,7 +314,11 @@ impl App {
             loop {
                 // A slash command starts a new goal; a message sent while one is active belongs
                 // to that goal's turn. Both complete through the same branch below.
-                let goal_turn = prompt.trim_start().starts_with("/goal ") || run.st.lock().unwrap().lead.goal_active;
+                let goal_turn = {
+                    let mut st = run.st.lock().unwrap();
+                    st.lead.in_turn = true;
+                    prompt.trim_start().starts_with("/goal ") || st.lead.goal_active
+                };
                 self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&prompt), &prompt);
                 let text = self
                     .stream_prompt(
@@ -350,9 +364,6 @@ impl App {
                     }
                     run.lead_nudge.notify_one();
                     run.wake.notify_one();
-                    // The run is delivered; a collaborator still waiting on the board now waits on
-                    // the person, as it did when the lead's session ended.
-                    self.escalate_open_questions(run);
                     self.emit(
                         run,
                         ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标")
@@ -367,6 +378,7 @@ impl App {
                     }
                 }
                 ctl.next_turn(run);
+                self.lead_goes_idle(run);
                 let Some(next) = self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? else {
                     return Ok(text);
                 };
@@ -374,7 +386,11 @@ impl App {
             }
         }
         .await;
-        run.st.lock().unwrap().lead.session = None;
+        {
+            let mut st = run.st.lock().unwrap();
+            st.lead.session = None;
+            st.lead.in_turn = false;
+        }
         self.close_session(run, &owner, Some(&conn), "负责人的会话已结束，撤回这个请求").await;
         run.lead_nudge.notify_one();
         result
@@ -457,6 +473,9 @@ impl App {
                     st.lead.goal = LeadGoal::Done(delivery_summary(&events));
                 }
             }
+            // Its turns hear about the board as the first goal's did.
+            let (app, r) = (self.clone(), run.clone());
+            tokio::spawn(async move { app.push_loop(&r).await });
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             // A loaded session may not return its options. Keep the controls already in the
             // event log instead of replacing them with an empty list.
@@ -497,7 +516,11 @@ impl App {
                 next = format!("{brief}\n\n用户接着说：\n{next}");
             }
             loop {
-                let goal_turn = next.trim_start().starts_with("/goal ") || run.st.lock().unwrap().lead.goal_active;
+                let goal_turn = {
+                    let mut st = run.st.lock().unwrap();
+                    st.lead.in_turn = true;
+                    next.trim_start().starts_with("/goal ") || st.lead.goal_active
+                };
                 self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&next), &next);
                 let text = self
                     .stream_prompt(
@@ -527,6 +550,7 @@ impl App {
                     }
                 }
                 ctl.next_turn(run);
+                self.lead_goes_idle(run);
                 match self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? {
                     Some(text) => next = text,
                     None => return Ok(()),
@@ -534,7 +558,11 @@ impl App {
             }
         }
         .await;
-        run.st.lock().unwrap().lead.session = None;
+        {
+            let mut st = run.st.lock().unwrap();
+            st.lead.session = None;
+            st.lead.in_turn = false;
+        }
         self.close_session(run, &owner, Some(&conn), "负责人的会话已结束，撤回这个请求").await;
         // Without a live session the run is read-only again; the next message reopens it. If the
         // scheduler is still running tasks, leave the run reachable until they finish.
