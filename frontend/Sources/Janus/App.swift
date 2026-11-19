@@ -258,7 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         Task { await model.start() }
         Updater.shared.onQuit = { [weak model] in model?.backend.stop() }
-        Updater.shared.start()
+        // A test drives the app through snapshot commands; it does not ask GitHub for releases.
+        if !Snapshots.active { Updater.shared.start() }
         Snapshots.start(model)
         // Killed rather than quit (kill, Ctrl-C in a terminal): still stop the server it started.
         for sig in [SIGTERM, SIGINT] {

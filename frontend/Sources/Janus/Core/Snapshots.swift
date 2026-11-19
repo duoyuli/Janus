@@ -16,8 +16,12 @@ enum Snapshots {
     /// The window `shot` pictures when set: the first visible one whose title starts with it.
     private static var target: String?
 
+    private static let dir = ProcessInfo.processInfo.environment["JANUS_SNAPSHOT_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+    /// Driven by a test (`JANUS_SNAPSHOT_DIR` set).
+    static var active: Bool { dir != nil }
+
     static func start(_ model: AppModel) {
-        guard let dir = ProcessInfo.processInfo.environment["JANUS_SNAPSHOT_DIR"], !dir.isEmpty else { return }
+        guard let dir else { return }
         let cmd = URL(fileURLWithPath: dir).appendingPathComponent("cmd")
         Task { @MainActor in
             while true {
@@ -43,7 +47,13 @@ enum Snapshots {
             case "run": store.open(.run(kv.last ?? ""))
             case "inbox": store.open(.inbox)
             case "home": store.open(.home(kv.last ?? ""))
-            case "settings": store.openSettings(kv.last ?? "agents")
+            case "settings":
+                // Permissions and updates are sections of the general pane, not tabs.
+                switch kv.last {
+                case "permissions": store.openSettings(.permissions)
+                case "updates": store.openSettings(.updates)
+                default: store.openSettings(kv.last ?? "agents")
+                }
             default: break
             }
         case "page":

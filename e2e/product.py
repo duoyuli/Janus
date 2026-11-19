@@ -25,7 +25,7 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import ADDR, LOCKED_NOTE, ROOT, App, Failure, Server, real_node, run, run_scenario, say, screen_locked, stand_in_adapters, write_report  # noqa: E402
+from lib import ADDR, ROOT, App, Failure, Server, real_node, run, run_scenario, say, stand_in_adapters, write_report  # noqa: E402
 import scenarios  # noqa: E402
 from scenarios import SCENARIOS  # noqa: E402
 
@@ -105,14 +105,13 @@ def main():
             ctx.app.quit()
         server.stop()
     elapsed = time.time() - t0
-    locked = not a.no_app and screen_locked()
     report = os.path.join(report_dir, "report.md")
     shots = os.path.join(report_dir, "app")
     write_report(report, "Janus 产品端到端测试", results, [
         f"- 构建：{'dist/Janus.app' if a.packaged else '源码'}；用时 {elapsed:.0f} 秒",
         f"- 服务日志：{os.path.join(report_dir, 'janus.log')}",
         f"- 应用截图：{shots if not a.no_app else '（--no-app，未运行应用）'}",
-    ] + ([f"- {LOCKED_NOTE}"] if locked else []))
+    ])
     if not a.keep:
         for name in os.listdir(tmp):
             if name != "report":
@@ -122,9 +121,7 @@ def main():
     for r in failed:
         say(f"  ✗ {r.name}：" + (r.error.splitlines()[0] if r.error else "; ".join(w for ok, w in r.items if not ok)))
     say(f"报告：{report}")
-    if locked:
-        say(f"截图：{LOCKED_NOTE}")
-    elif not a.no_app:
+    if not a.no_app:
         say(f"截图：{shots}（看一遍新功能涉及的页面）")
     sys.exit(1 if failed else 0)
 
