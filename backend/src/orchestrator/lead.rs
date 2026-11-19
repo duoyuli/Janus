@@ -274,7 +274,6 @@ impl App {
                     board,
                     (channel == Channel::System).then_some(system.as_str()),
                 );
-                self.prewarm(run, "lead", &opening);
                 let session = new_session(&conn, &workspace, &opening).await?;
                 let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
                 let mut applied = configure_session(&conn, &session, &lead).await?;
@@ -438,7 +437,6 @@ impl App {
                 board,
                 (channel == Channel::System).then_some(system.as_str()),
             );
-            self.prewarm(run, "lead", &opening);
             let mut loaded = false;
             let mut session = Value::Null;
             if conn.capabilities["loadSession"] == true

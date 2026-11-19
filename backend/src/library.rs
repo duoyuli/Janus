@@ -14,8 +14,8 @@ mod skill;
 mod sources;
 mod store;
 
-pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, Via, bundle, launch, routed_server, support};
-pub use mcp::{McpServer, McpValues};
+pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch, routed_server, support};
+pub use mcp::{McpProcess, McpServer, McpValues};
 pub use sources::{CHECK_EVERY, Source};
 
 use crate::agents::{ROLE, new_id, str_of, write_private};
@@ -108,14 +108,32 @@ impl Reach {
 /// who may use it, as a new item would (`Reach::default_for`). Roles keep what they picked: it
 /// now means the items kept for some that the role gets.
 pub(crate) fn record_reach(tx: &rusqlite::Transaction) -> Result<usize> {
-    fn fill(o: &mut serde_json::Map<String, Value>) -> bool {
+    edit_items(tx, |o| {
         if o.contains_key("reach") {
             return false;
         }
         let reach = if o.get("kind").and_then(Value::as_str) == Some("skill") { "everyone" } else { "picked" };
         o.insert("reach".into(), json!(reach));
         true
-    }
+    })
+}
+
+/// Data version 8: each command server says how the MCP router runs it; ones from before run
+/// once per run, the default.
+pub(crate) fn record_mcp_process(tx: &rusqlite::Transaction) -> Result<usize> {
+    edit_items(tx, |o| {
+        let Some(server) = o.get_mut("server").and_then(Value::as_object_mut) else { return false };
+        if server.get("transport").and_then(Value::as_str) != Some("stdio") || server.contains_key("process") {
+            return false;
+        }
+        server.insert("process".into(), json!("perRun"));
+        true
+    })
+}
+
+/// Apply `fill` to every library item: the library's own, and the copies pinned in runs' team
+/// snapshots (read back when a run resumes). Returns how many objects it changed.
+fn edit_items(tx: &rusqlite::Transaction, fill: impl Fn(&mut serde_json::Map<String, Value>) -> bool) -> Result<usize> {
     let mut changed = crate::migrations::edit_configs(tx, "library_item", |_, o| fill(o))?;
     let rows: Vec<(String, String)> = tx
         .prepare("SELECT id, config FROM runs")?
@@ -507,7 +525,12 @@ impl App {
                     bail!("MCP {name} 没有启动命令");
                 }
                 let command = expand_home(&parts.remove(0));
-                McpServer::Stdio { command, args: parts, env_keys: keys }
+                // A server that keeps state between requests runs once per session.
+                let process = match str_of(body, "process") {
+                    "perSession" => McpProcess::PerSession,
+                    _ => McpProcess::PerRun,
+                };
+                McpServer::Stdio { command, args: parts, env_keys: keys, process }
             }
             t @ ("http" | "sse") => {
                 let url = str_of(body, "url").to_string();
@@ -593,6 +616,11 @@ impl App {
         // Its servers stop before the sandbox they run in goes.
         self.stop_item_servers(id);
         let _ = std::fs::remove_dir_all(self.server_home(id));
+        if let Ok(lists) = std::fs::read_dir(self.tools_dir()) {
+            for f in lists.flatten().filter(|f| f.file_name().to_string_lossy().starts_with(&format!("{id}-"))) {
+                let _ = std::fs::remove_file(f.path());
+            }
+        }
         self.sweep_store()
     }
 
@@ -601,6 +629,12 @@ impl App {
     // @project-doc docs/domains/20261116-resource_library.md#mcp_router
     pub(crate) fn server_home(&self, id: &str) -> PathBuf {
         self.cfg.data_dir.join("library").join("servers").join(id)
+    }
+
+    /// The tool lists command servers last gave, `<id>-<revision>.json`: what the MCP router lists
+    /// without starting them.
+    pub(crate) fn tools_dir(&self) -> PathBuf {
+        self.cfg.data_dir.join("library").join("tools")
     }
 
     fn roles_using(&self, id: &str) -> Result<Vec<Value>> {

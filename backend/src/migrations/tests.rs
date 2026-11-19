@@ -96,7 +96,8 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
 
 /// Version 5: each library item, and each item pinned in a run, says who may use it: a skill
 /// every digital worker, an MCP server only the roles that pick it. Version 6: data seeded before
-/// the general digital worker existed gets it, untouched by the person.
+/// the general digital worker existed gets it, untouched by the person. Version 8: a command
+/// server says how the MCP router runs it, once per run by default.
 #[test]
 fn items_say_who_uses_them_and_the_general_worker_arrives() {
     let path = old_database("reach");
@@ -128,6 +129,9 @@ fn items_say_who_uses_them_and_the_general_worker_arrives() {
     )
     .unwrap();
     assert_eq!(team["team"][0]["resources"][0]["reach"], "picked");
+    // Version 8: command servers run once per run unless marked otherwise.
+    assert_eq!(config(&conn, "library_item", "i-mcp")["server"]["process"], "perRun");
+    assert_eq!(team["team"][0]["resources"][0]["server"]["process"], "perRun");
     let general = config(&conn, "role", "generalist");
     assert_eq!((general["name"].as_str(), general["connection"].as_str()), (Some("通用数字员工"), Some("")));
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());

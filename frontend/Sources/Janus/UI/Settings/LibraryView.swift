@@ -353,7 +353,9 @@ struct LibraryView: View {
     private func details(_ i: JSON) -> some View {
         let mcp = i["kind"].str == "mcp"
         let vars = Library.vars(i)
-        let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text].filter { !$0.isEmpty }
+        let process = i["server"]["process"].str == "perSession" ? L.text("每个会话单独运行") : L.text("同一个任务的会话共用一个进程，用到才启动")
+        let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text,
+                     i["server"]["transport"].str == "stdio" ? process : ""].filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             ForEach(Self.unsupported(i), id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color) }
@@ -715,6 +717,15 @@ struct McpEditor: View {
             if stdio {
                 TextField(L.text("启动命令，例如 npx -y @modelcontextprotocol/server-github"), text: field("command"))
                     .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
+                // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+                Toggle(isOn: Binding(get: { d["process"].str == "perSession" }, set: { d["process"] = JSON($0 ? "perSession" : "perRun") })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.text("每个会话单独运行"))
+                        Text(L.text("给所有数字员工时，默认同一个任务的会话共用一个进程，用到才启动。浏览器、终端这类会记住状态的服务器打开这一项，每个会话各开一份。"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
             } else {
                 TextField(L.text("地址，例如 https://example.com/mcp"), text: field("url"))
                     .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
@@ -763,7 +774,7 @@ struct McpEditor: View {
             defer { saving = false }
             do {
                 let vars: [JSON] = d["vars"].array.filter { !$0["name"].str.isEmpty }.map { ["name": $0["name"], "value": $0["value"]] }
-                let body: JSON = ["name": d["name"], "description": d["description"], "transport": d["transport"], "command": d["command"], "url": d["url"], "vars": .array(vars)]
+                let body: JSON = ["name": d["name"], "description": d["description"], "transport": d["transport"], "command": d["command"], "url": d["url"], "process": d["process"], "vars": .array(vars)]
                 let item = d["id"].truthy
                     ? try await store.api.put("/api/library/mcp/\(d["id"].str)", body)
                     : try await store.api.post("/api/library/mcp", body)

@@ -1276,3 +1276,6 @@
 "启动失败：%@" = "Failed to start: %@";
 "还没有准备过：任务里第一次启动可能较慢" = "Not prepared yet: its first start in a run may be slow";
 "重新准备" = "Prepare Again";
+"每个会话单独运行" = "Run Once per Session";
+"给所有数字员工时，默认同一个任务的会话共用一个进程，用到才启动。浏览器、终端这类会记住状态的服务器打开这一项，每个会话各开一份。" = "When given to everyone, a run's sessions share one process, started on first use. Turn this on for servers that remember state, such as a browser or terminal, to give each session its own.";
+"同一个任务的会话共用一个进程，用到才启动" = "One process shared by the run's sessions, started on first use";

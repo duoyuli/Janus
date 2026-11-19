@@ -1,5 +1,5 @@
 {
-  "dataVersion": 7,
+  "dataVersion": 8,
   "tables": [
     "CREATE INDEX events_type_ts ON events (type, ts)",
     "CREATE TABLE artifacts ( run_id TEXT NOT NULL REFERENCES runs(id), task TEXT NOT NULL, attempt INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, created_at INTEGER NOT NULL )",

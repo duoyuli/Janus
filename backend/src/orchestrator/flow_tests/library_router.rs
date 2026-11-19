@@ -1,8 +1,8 @@
 //! The library reaches every digital worker through the MCP router (`janus-tools`): a command
-//! server for everyone is not handed to each session but served by the run's router, one process
-//! per session, started when the session opens, in the run's working directory and a sandbox of
-//! its own, its tool list always current, stopped with everything it spawned when its session ends
-//! or the run stops.
+//! server for everyone is not handed to each session but served by the run's router, started on
+//! use, shared by the run's sessions (or one per session for a stateful one), in the run's working
+//! directory and a sandbox of its own, listed without starting it, stopped with everything it
+//! spawned when the run stops.
 
 use super::*;
 
@@ -62,7 +62,7 @@ fn process_alive(pid: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn servers_for_everyone_are_served_by_the_runs_router() {
-    let h = harness("library-router", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"] }));
+    let h = harness("library-router", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"], "T2": ["slow"] }));
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
     let starts = h.dir.join("mcp-starts.log");
     let config = json!({ "mcpServers": { "probe": {
@@ -72,6 +72,12 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     let probe = h.app.items().unwrap().into_iter().find(|i| i.name == "probe").unwrap();
     assert_eq!(probe.reach, crate::library::Reach::Picked, "an MCP server starts kept for some");
     h.app.set_reach(&probe.id, crate::library::Reach::Everyone).await.unwrap();
+    // A stateful one runs once per session.
+    let browser_log = h.dir.join("browser-starts.log");
+    let browser = json!({ "name": "browser", "command": "python3", "args": [script], "process": "perSession",
+        "vars": [{ "name": "FAKE_MCP_LOG", "value": browser_log }] });
+    let browser = h.app.save_mcp(None, &browser).await.unwrap();
+    h.app.set_reach(&browser.id, crate::library::Reach::Everyone).await.unwrap();
 
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
@@ -80,16 +86,19 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     assert!(!calls.contains("\"name\":\"probe\""), "the server is not handed to the session itself: {calls}");
     let count = || std::fs::read_to_string(&starts).unwrap_or_default().lines().count();
-    eventually("each session's server starts as the session opens", || count() == 2).await;
+    let browsers = || std::fs::read_to_string(&browser_log).unwrap_or_default().lines().count();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!((count(), browsers()), (0, 0), "opening a session starts nothing");
 
     let init = call(&h, &at, "initialize", json!({})).await.unwrap();
     assert!(init["instructions"].as_str().unwrap().contains("probe"), "{init}");
     let names = listed(&h, &at).await;
-    assert_eq!(
-        names,
-        ["probe__cwd", "probe__echo", "probe__roots", "probe__env", "probe__grow", "probe__quit", "probe__spawn"]
-    );
-    assert_eq!(count(), 2, "listing asks the session's running server");
+    let probe_tools =
+        ["probe__cwd", "probe__echo", "probe__roots", "probe__env", "probe__grow", "probe__quit", "probe__spawn"];
+    assert!(probe_tools.iter().all(|t| names.contains(&t.to_string())), "{names:?}");
+    assert_eq!((count(), browsers()), (1, 1), "a server that never listed starts once to say its tools");
+    assert_eq!(listed(&h, &lead).await, names, "the lead sees the same tools");
+    assert_eq!((count(), browsers()), (1, 1), "listing again starts nothing: the running one, or the list kept");
 
     let cwd = h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap().to_string();
     assert_eq!(text(&tool(&h, &at, "probe__cwd", json!({})).await), cwd, "it runs in the run's working directory");
@@ -112,21 +121,17 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     let missing = tool(&h, &at, "probe__nope", json!({})).await;
     assert!(missing["isError"] == true && text(&missing).contains("没有这个工具"), "{missing}");
 
-    // Sessions don't share a process: T1's server grows a tool, the lead's does not.
+    // The run's sessions share the server: the lead's call goes to the process T1 started.
+    assert_eq!(text(&tool(&h, &lead, "probe__cwd", json!({})).await), cwd);
+    assert_eq!(count(), 1, "one process for the run");
+    // A server that says its tools changed is asked again, for everyone sharing it.
     tool(&h, &at, "probe__grow", json!({})).await;
-    let mut grown = vec![];
-    for _ in 0..50 {
-        grown = listed(&h, &at).await;
-        if grown.iter().any(|n| n == "probe__extra") {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(grown.iter().any(|n| n == "probe__extra"), "asked again after it said its tools changed: {grown:?}");
-    assert!(!listed(&h, &lead).await.iter().any(|n| n == "probe__extra"), "the lead's own process");
-    assert_eq!(count(), 2, "both still the processes started at first");
+    eventually_async(|| async { listed(&h, &lead).await.iter().any(|n| n == "probe__extra") }).await;
+    // The per-session one: the lead gets its own process.
+    tool(&h, &lead, "browser__cwd", json!({})).await;
+    assert_eq!(browsers(), 2, "one per session");
 
-    // A server that exits starts again on the next use, with its list asked afresh.
+    // A server that exits starts again on the next use.
     tool(&h, &at, "probe__quit", json!({})).await;
     let mut back = Value::Null;
     for _ in 0..50 {
@@ -137,15 +142,15 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(text(&back), cwd, "{back}");
-    assert_eq!(count(), 3, "started again after it exited");
+    assert_eq!(count(), 2, "started again after it exited");
 
     // Editing the item stops its servers; the next use starts it with what was saved.
     let edited = json!({ "name": "probe", "command": "python3", "args": [script],
         "vars": [{ "name": "FAKE_MCP_LOG", "value": "" }, { "name": "OWN", "value": "changed" }] });
     h.app.save_mcp(Some(&probe.id), &edited).await.unwrap();
+    let probe = h.app.item(&probe.id).unwrap();
     let own: Value = serde_json::from_str(&text(&tool(&h, &at, "probe__env", json!({ "name": "OWN" })).await)).unwrap();
     assert_eq!(own["OWN"], "changed", "restarted with the new value");
-    assert_eq!(count(), 4);
 
     // Every call is recorded without its arguments; a collaborator's token can't act as the lead.
     let routed: Vec<Value> =
@@ -163,33 +168,63 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     tool(&h, &lead, "probe__echo", json!({ "text": "again" })).await;
     let noted: Vec<Value> =
         events(&h.app, &run).into_iter().filter(|e| e.kind == "lead.routed").filter_map(|e| e.data).collect();
-    assert_eq!(noted.len(), 1, "once per tool: {noted:?}");
-    assert_eq!(noted[0]["tool"], "probe__echo");
+    assert_eq!(noted.iter().filter(|d| d["tool"] == "probe__echo").count(), 1, "once per tool: {noted:?}");
     let live = h.app.run(&run).unwrap();
     assert!(live.st.lock().unwrap().traces.lead_tools_after_plan().contains("probe__echo"));
 
-    // A session's servers end with the session, with what they spawned; the lead's keep running.
-    let child = text(&tool(&h, &at, "probe__spawn", json!({})).await);
-    assert!(process_alive(&child));
+    // A session's own servers end with it, with what they spawned; the shared one stays.
+    let child = text(&tool(&h, &at, "browser__spawn", json!({})).await);
+    let shared_child = text(&tool(&h, &at, "probe__spawn", json!({})).await);
     let owner = Owner { session: SessionKey::task("T1"), attempt: 1 };
     h.app.close_session(&live, &owner, None, "测试关闭会话").await;
-    eventually("T1's server stops with its session", || !process_alive(&child)).await;
-    assert_eq!(text(&tool(&h, &lead, "probe__cwd", json!({})).await), cwd, "the lead's server is untouched");
+    eventually("T1's own server stops with its session", || !process_alive(&child)).await;
+    assert!(process_alive(&shared_child), "the run's shared server keeps going");
 
-    // Stopping the run stops the rest at once and starts nothing more.
-    let child = text(&tool(&h, &lead, "probe__spawn", json!({})).await);
-    assert!(process_alive(&child));
+    // Another run lists from the list the server last gave, starting nothing.
+    let before = std::fs::read_dir(h.app.tools_dir()).unwrap().count();
+    assert!(before >= 2, "lists are written down");
+    let second = start(&h, json!([task("T2", "m1", json!({}))])).await;
+    wait_until(&h.app, &second, "T2 running", |e| task_event(e, "attempt.started", "T2")).await;
+    let other = router_url(&h, "T2").await;
+    let b = browsers();
+    assert!(listed(&h, &other).await.iter().any(|n| n == "browser__cwd"));
+    assert_eq!(browsers(), b, "listed from what it gave last time");
+
+    // Stopping the run stops the rest at once, shared ones too, and starts nothing more.
     h.app.action(&live, &json!({ "type": "cancel" })).unwrap();
-    eventually("the lead's server and its child stop with the run", || !process_alive(&child)).await;
+    eventually("the shared server and its child stop with the run", || !process_alive(&shared_child)).await;
     let after = tool(&h, &lead, "probe__cwd", json!({})).await;
     assert!(after["isError"] == true, "a stopped run starts nothing: {after}");
+    let second_run = h.app.run(&second).unwrap();
+    h.app.action(&second_run, &json!({ "type": "cancel" })).unwrap();
 
-    // Deleting the item takes its sandbox along.
+    // Deleting the item takes its sandbox and remembered lists along.
     let home = h.app.server_home(&probe.id);
     assert!(home.exists());
     h.app.delete_item(&probe.id).await.unwrap();
     assert!(!home.exists());
+    assert!(
+        std::fs::read_dir(h.app.tools_dir())
+            .unwrap()
+            .flatten()
+            .all(|f| !f.file_name().to_string_lossy().starts_with(&probe.id))
+    );
     let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Polls an async `check` for up to five seconds.
+async fn eventually_async<F, Fut>(mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    for _ in 0..250 {
+        if check().await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("not within five seconds");
 }
 
 /// Names fit what models take after an agent's `mcp__janus-tools__` prefix; a long or cleaned name

@@ -1,22 +1,26 @@
 //! The MCP router (`janus-tools`): one MCP endpoint per run serving the library's command
-//! servers for everyone, in place of handing each server to each session. Each session (`who`)
-//! gets processes of its own, as when an agent started its servers itself: started in the
-//! background when the session opens, in the run's working directory and a sandbox like an
-//! agent's. Listing waits a short while and lists the servers that are ready; a server's list is
-//! kept while its process runs and asked again when it restarts or says its tools changed. A
-//! session's servers live as long as the session, as they would under its agent; closing the
-//! session, or stopping, cancelling or failing the run, stops them, each with the processes it
-//! spawned (its process group).
+//! servers for everyone, in place of handing each server to each session. A server starts on its
+//! first call, in the run's working directory and a sandbox like an agent's. By default the run's
+//! sessions share one process of it (`McpProcess::PerRun`), stopped after `IDLE` unused; a server
+//! that keeps state runs once per session (`PerSession`) and ends with the session. Listing never
+//! starts a server: it gives a running process's list, or the list the server last gave (kept on
+//! disk by revision), and only a server that never listed is started to ask. Stopping, cancelling
+//! or failing the run stops them all, each with the processes it spawned (its process group).
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
 use super::*;
-use crate::library::{Item, McpServer};
+use crate::library::{Item, McpProcess, McpServer};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::oneshot;
 
+/// A shared server with no request for this long is stopped by the sweep; the next call starts it
+/// again. It keeps no state worth holding on to (a stateful one runs per session, until its end).
+const IDLE: Duration = Duration::from_secs(10 * 60);
+/// How often the sweep looks for idle shared servers.
+const SWEEP_EVERY: Duration = Duration::from_secs(60);
 /// How long a server may take to start (a first `npx -y` downloads its package) and to answer
 /// `initialize` or `tools/list`.
 const START_WAIT: Duration = Duration::from_secs(120);
@@ -34,11 +38,31 @@ const SEP: &str = "__";
 /// agents put `mcp__janus-tools__` (18) in front.
 const NAME_MAX: usize = 46;
 
-/// The run's servers, one per session and item id. Each slot is locked while its server starts, so
-/// two requests at once start it once, while different servers start side by side.
+/// Who a running server serves: the whole run, or one session (`who`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum Holder {
+    Run,
+    Session(String),
+}
+
+impl Holder {
+    fn of(item: &Item, who: &str) -> Holder {
+        match &item.body {
+            crate::library::Body::Mcp { server: McpServer::Stdio { process: McpProcess::PerSession, .. } } => {
+                Holder::Session(who.to_string())
+            }
+            _ => Holder::Run,
+        }
+    }
+}
+
+/// The run's servers, by who they serve and item id. Each slot is locked while its server starts,
+/// so two requests at once start it once, while different servers start side by side.
 #[derive(Default)]
 pub(super) struct McpRouter {
-    backends: StdMutex<HashMap<(String, String), Arc<Slot>>>,
+    backends: StdMutex<HashMap<(Holder, String), Arc<Slot>>>,
+    /// The idle sweep runs for this run.
+    sweeping: AtomicBool,
     /// The run stopped: every server is stopped and none starts again.
     closed: AtomicBool,
 }
@@ -47,13 +71,20 @@ pub(super) struct McpRouter {
 type Slot = tokio::sync::Mutex<Option<Arc<Backend>>>;
 
 impl McpRouter {
-    fn slot(&self, who: &str, item: &str) -> Arc<Slot> {
-        self.backends.lock().unwrap().entry((who.to_string(), item.to_string())).or_default().clone()
+    fn slot(&self, holder: &Holder, item: &str) -> Arc<Slot> {
+        self.backends.lock().unwrap().entry((holder.clone(), item.to_string())).or_default().clone()
+    }
+
+    /// The process already serving `holder` for `item`, if one is running; never starts one.
+    fn running(&self, holder: &Holder, item: &str) -> Option<Arc<Backend>> {
+        let slot = self.backends.lock().unwrap().get(&(holder.clone(), item.to_string())).cloned()?;
+        let held = slot.try_lock().ok()?;
+        held.as_ref().filter(|b| b.usable()).cloned()
     }
 
     /// Stop the servers that `pick` selects, now; ones still starting are left to finish and be
     /// stopped by whoever finds them unusable.
-    fn stop_where(&self, pick: impl Fn(&(String, String)) -> bool) {
+    fn stop_where(&self, pick: impl Fn(&(Holder, String)) -> bool) {
         let slots: Vec<Arc<Slot>> =
             self.backends.lock().unwrap().iter().filter(|(k, _)| pick(k)).map(|(_, s)| s.clone()).collect();
         for slot in slots {
@@ -77,9 +108,29 @@ impl McpRouter {
         self.stop_where(|(_, item)| item == id);
     }
 
-    /// A session closed: its servers go with it, as they would with its agent.
+    /// A session closed: the servers it ran on its own go with it; shared ones stay for the run.
     pub(super) fn stop_session(&self, who: &str) {
-        self.stop_where(|(session, _)| session == who);
+        self.stop_where(|(holder, _)| *holder == Holder::Session(who.to_string()));
+    }
+
+    /// Stop shared servers left unused for `IDLE`, and any that exited.
+    fn sweep(&self) {
+        let slots: Vec<Arc<Slot>> = self
+            .backends
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|((holder, _), _)| *holder == Holder::Run)
+            .map(|(_, s)| s.clone())
+            .collect();
+        for slot in slots {
+            if let Ok(mut held) = slot.try_lock()
+                && held.as_ref().is_some_and(|b| !b.usable() || b.idle_for() >= IDLE)
+                && let Some(b) = held.take()
+            {
+                b.stop();
+            }
+        }
     }
 }
 
@@ -90,14 +141,22 @@ struct Backend {
     next: AtomicU64,
     /// The tools this process listed; cleared when it says they changed.
     tools: Arc<StdMutex<Option<Vec<Value>>>>,
-    /// False once its output has closed: the process is gone and the next use starts it again.
-    alive: Arc<AtomicBool>,
+    life: Arc<StdMutex<Life>>,
+    last_used: StdMutex<std::time::Instant>,
     /// Its process group (`process_group(0)`): the server and whatever it spawned (`npx` runs the
     /// real server as a child).
     group: Option<u32>,
-    stopped: AtomicBool,
     /// Killed with the backend (`kill_on_drop`) if the group's TERM did not end it.
     _child: Child,
+}
+
+/// A started server's process: running; exited on its own (its output closed), so the next use
+/// starts it again; or stopped by Janus, after which nothing uses it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Life {
+    Running,
+    Exited,
+    Stopped,
 }
 
 impl Drop for Backend {
@@ -147,15 +206,15 @@ impl Backend {
         let stdout = child.stdout.take().context("no stdout")?;
         let pending: Arc<StdMutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::default();
         let tools: Arc<StdMutex<Option<Vec<Value>>>> = Arc::default();
-        let alive = Arc::new(AtomicBool::new(true));
+        let life = Arc::new(StdMutex::new(Life::Running));
         let backend = Backend {
             stdin: tokio::sync::Mutex::new(stdin),
             pending: pending.clone(),
             next: AtomicU64::new(1),
             tools: tools.clone(),
-            alive: alive.clone(),
+            life: life.clone(),
+            last_used: StdMutex::new(std::time::Instant::now()),
             group: child.id(),
-            stopped: AtomicBool::new(false),
             _child: child,
         };
         // Replies go to whoever waits on their id; the server's own requests are answered here.
@@ -179,7 +238,12 @@ impl Backend {
                 }
             }
             // The server is gone: whoever still waits gets an error instead of hanging.
-            alive.store(false, Ordering::SeqCst);
+            {
+                let mut life = life.lock().unwrap();
+                if *life == Life::Running {
+                    *life = Life::Exited;
+                }
+            }
             pending.lock().unwrap().clear();
         });
         let root = format!("file://{}", cwd.display());
@@ -221,15 +285,19 @@ impl Backend {
         Ok(t)
     }
 
-    /// Still running and not stopped.
     fn usable(&self) -> bool {
-        !self.stopped.load(Ordering::SeqCst) && self.alive.load(Ordering::SeqCst)
+        *self.life.lock().unwrap() == Life::Running
+    }
+
+    fn idle_for(&self) -> Duration {
+        self.last_used.lock().unwrap().elapsed()
     }
 
     /// End its process group: TERM now, KILL a few seconds later for whatever ignored it. A call
     /// still waiting on it gets an error.
+    /// Its group is ended even when the server itself already exited: what it spawned may not have.
     fn stop(&self) {
-        if self.stopped.swap(true, Ordering::SeqCst) {
+        if std::mem::replace(&mut *self.life.lock().unwrap(), Life::Stopped) == Life::Stopped {
             return;
         }
         self.pending.lock().unwrap().clear();
@@ -258,6 +326,7 @@ impl Backend {
         let id = self.next.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, tx);
+        *self.last_used.lock().unwrap() = std::time::Instant::now();
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await?;
         let reply = match tokio::time::timeout(wait, rx).await {
             Ok(Ok(reply)) => reply,
@@ -328,7 +397,9 @@ impl App {
                 let b = Backend::start(&server, &app.mcp_values(&item.id), &home, &cwd, &log, WARM_WAIT).await?;
                 let tools = b.tools().await;
                 b.stop();
-                Ok(tools?.len())
+                let tools = tools?;
+                app.remember_tools(&item, &tools);
+                Ok(tools.len())
             }
             .await;
             let done = match got {
@@ -361,13 +432,15 @@ impl App {
             .collect()
     }
 
-    /// The running backend of `item` for the session `who`: the one already started, unless it
-    /// exited, in which case it starts again (and lists its tools afresh).
+    /// The running backend of `item` for the session `who` (the run's shared one, or the
+    /// session's own): the one already started, unless it exited or was stopped, in which case it
+    /// starts now.
     async fn backend(self: &Arc<Self>, run: &Arc<Run>, who: &str, item: &Item) -> Result<Arc<Backend>> {
         if run.router.closed.load(Ordering::SeqCst) {
             bail!("这个任务已经停止");
         }
-        let slot = run.router.slot(who, &item.id);
+        let holder = Holder::of(item, who);
+        let slot = run.router.slot(&holder, &item.id);
         let mut held = slot.lock().await;
         if let Some(b) = held.as_ref().filter(|b| b.usable()) {
             return Ok(b.clone());
@@ -376,7 +449,11 @@ impl App {
             old.stop();
         }
         let crate::library::Body::Mcp { server } = &item.body else { bail!("{} 不是 MCP 服务器", item.name) };
-        let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{who}-{}.log", item.name));
+        let tag = match &holder {
+            Holder::Run => "run".to_string(),
+            Holder::Session(who) => who.clone(),
+        };
+        let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{tag}-{}.log", item.name));
         let home = self.server_home(&item.id);
         let b = Backend::start(server, &self.mcp_values(&item.id), &home, &run.cwd, &log, START_WAIT).await?;
         if run.router.closed.load(Ordering::SeqCst) {
@@ -384,44 +461,91 @@ impl App {
             bail!("这个任务已经停止");
         }
         *held = Some(b.clone());
+        if holder == Holder::Run {
+            Self::sweep_idle(run);
+        }
         Ok(b)
     }
 
-    async fn server_tools(self: &Arc<Self>, run: &Arc<Run>, who: &str, item: &Item) -> Result<Vec<Value>> {
-        self.backend(run, who, item).await?.tools().await
-    }
-
-    /// A session that got the router (`via: mcpRouter`) has its servers started now, in the
-    /// background, so they are ready by the time its agent lists them.
-    pub(super) fn prewarm(self: &Arc<Self>, run: &Arc<Run>, who: &str, opening: &Opening) {
-        if !opening.resources.iter().any(|d| d.via == crate::library::Via::McpRouter) {
+    /// Starts the run's idle sweep once; it ends with the run.
+    fn sweep_idle(run: &Arc<Run>) {
+        if run.router.sweeping.swap(true, Ordering::SeqCst) {
             return;
         }
-        for item in Self::routed_servers(run).into_values() {
-            let (app, run, who) = (self.clone(), run.clone(), who.to_string());
-            tokio::spawn(async move {
-                if let Err(err) = app.server_tools(&run, &who, &item).await {
-                    crate::config::log(format!("janus: MCP 路由启动 {} 失败：{err:#}", item.name));
+        let run = Arc::downgrade(run);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(SWEEP_EVERY).await;
+                let Some(run) = run.upgrade() else { break };
+                if run.router.closed.load(Ordering::SeqCst) {
+                    break;
                 }
-            });
+                run.router.sweep();
+            }
+        });
+    }
+
+    /// The list a server last gave, kept by revision: what listing shows without starting it.
+    fn tools_cache(&self, item: &Item) -> PathBuf {
+        self.tools_dir().join(format!("{}-{}.json", item.id, item.revision))
+    }
+
+    fn cached_tools(&self, item: &Item) -> Option<Vec<Value>> {
+        serde_json::from_slice(&std::fs::read(self.tools_cache(item)).ok()?).ok()
+    }
+
+    /// A process's own list, written down for listing without starting it next time.
+    fn remember_tools(&self, item: &Item, tools: &[Value]) {
+        let path = self.tools_cache(item);
+        let saved = match path.parent() {
+            Some(dir) => std::fs::create_dir_all(dir),
+            None => Ok(()),
+        }
+        .and_then(|_| std::fs::write(&path, serde_json::to_vec(tools).unwrap_or_default()));
+        if let Err(err) = saved {
+            crate::config::log(format!("janus: 记不下 {} 的工具列表：{err:#}", item.name));
         }
     }
 
-    /// Each server's tools under their routed names, waiting at most `until`: a server still
-    /// starting is left out and keeps starting.
+    /// The server's tools from a running process (started if need be), written down.
+    async fn live_tools(self: &Arc<Self>, run: &Arc<Run>, who: &str, item: &Item) -> Result<Vec<Value>> {
+        let tools = self.backend(run, who, item).await?.tools().await?;
+        self.remember_tools(item, &tools);
+        Ok(tools)
+    }
+
+    /// Each server's tools. Listing starts nothing it can avoid: a running process gives its own
+    /// list, otherwise the list the server last gave; a server that never listed is started to
+    /// ask, waiting at most `until` (it keeps starting after). With `fresh`, each server is asked
+    /// by a running process, started if need be: a call looking for a tool the remembered list
+    /// does not have.
     async fn routed_tools(
         self: &Arc<Self>,
         run: &Arc<Run>,
         who: &str,
         until: tokio::time::Instant,
+        fresh: bool,
     ) -> Vec<(Item, Value)> {
-        let mut listing = vec![];
-        for item in Self::routed_servers(run).into_values() {
-            let (app, r, w, i) = (self.clone(), run.clone(), who.to_string(), item.clone());
-            listing.push((item, tokio::spawn(async move { app.server_tools(&r, &w, &i).await })));
-        }
         let mut out = vec![];
-        for (item, job) in listing {
+        let mut asking = vec![];
+        for item in Self::routed_servers(run).into_values() {
+            let running = if fresh { None } else { run.router.running(&Holder::of(&item, who), &item.id) };
+            let known = if fresh { None } else { self.cached_tools(&item) };
+            let listed = match (running, known) {
+                (Some(b), _) => Some(b.tools().await),
+                (None, Some(list)) => Some(Ok(list)),
+                (None, None) => None,
+            };
+            match listed {
+                Some(Ok(list)) => out.extend(list.into_iter().map(|t| (item.clone(), t))),
+                Some(Err(err)) => crate::config::log(format!("janus: MCP 路由列不出 {} 的工具：{err:#}", item.name)),
+                None => {
+                    let (app, r, w, i) = (self.clone(), run.clone(), who.to_string(), item.clone());
+                    asking.push((item, tokio::spawn(async move { app.live_tools(&r, &w, &i).await })));
+                }
+            }
+        }
+        for (item, job) in asking {
             match tokio::time::timeout_at(until, job).await {
                 Ok(Ok(Ok(list))) => out.extend(list.into_iter().map(|t| (item.clone(), t))),
                 Ok(Ok(Err(err))) => crate::config::log(format!("janus: MCP 路由列不出 {} 的工具：{err:#}", item.name)),
@@ -475,7 +599,7 @@ impl App {
             "tools/list" => {
                 let deadline = tokio::time::Instant::now() + LIST_WAIT;
                 let tools: Vec<Value> = self
-                    .routed_tools(&run, who, deadline)
+                    .routed_tools(&run, who, deadline, false)
                     .await
                     .into_iter()
                     .map(|(item, mut t)| {
@@ -488,17 +612,18 @@ impl App {
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or_default();
                 let started = now_ms();
-                // The exact routed name among the servers' current tools: those ready first, then
-                // waiting for any still starting.
+                // The exact routed name: among the tools the session was shown, else among what the
+                // servers give now (a tool added since the list was written down).
                 let mut found = None;
-                for wait in [LIST_WAIT, START_WAIT] {
-                    found =
-                        self.routed_tools(&run, who, tokio::time::Instant::now() + wait).await.into_iter().find_map(
-                            |(item, t)| {
-                                let tool = t["name"].as_str()?;
-                                (routed_name(&item.name, tool) == name).then(|| (item, tool.to_string()))
-                            },
-                        );
+                for (wait, fresh) in [(LIST_WAIT, false), (START_WAIT, true)] {
+                    found = self
+                        .routed_tools(&run, who, tokio::time::Instant::now() + wait, fresh)
+                        .await
+                        .into_iter()
+                        .find_map(|(item, t)| {
+                            let tool = t["name"].as_str()?;
+                            (routed_name(&item.name, tool) == name).then(|| (item, tool.to_string()))
+                        });
                     if found.is_some() {
                         break;
                     }
@@ -551,5 +676,41 @@ impl App {
             }
         };
         Ok(Some(json!({ "jsonrpc": "2.0", "id": id, "result": result })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sweep stops a shared server left unused for `IDLE`; a session's own server is the
+    /// session's to end, however long it waits.
+    #[tokio::test]
+    async fn idle_shared_servers_stop_and_session_ones_wait_for_their_session() {
+        let dir = std::env::temp_dir().join(format!("janus-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
+        let server = McpServer::Stdio {
+            command: "python3".into(),
+            args: vec![script.to_string_lossy().into()],
+            env_keys: vec![],
+            process: McpProcess::PerRun,
+        };
+        let (values, log) = (crate::library::McpValues::default(), dir.join("log"));
+        let start = || Backend::start(&server, &values, &dir, &dir, &log, START_WAIT);
+        let router = McpRouter::default();
+        let (shared, own) = (start().await.unwrap(), start().await.unwrap());
+        *router.slot(&Holder::Run, "s").try_lock().unwrap() = Some(shared.clone());
+        *router.slot(&Holder::Session("T1".into()), "s").try_lock().unwrap() = Some(own.clone());
+        let long_ago = std::time::Instant::now() - IDLE - Duration::from_secs(60);
+        *shared.last_used.lock().unwrap() = long_ago;
+        *own.last_used.lock().unwrap() = long_ago;
+        router.sweep();
+        assert!(!shared.usable(), "an idle shared server stops");
+        assert!(own.usable(), "a session's own server stays until the session ends");
+        router.stop_session("T1");
+        assert!(!own.usable());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -261,7 +261,12 @@ mod tests {
     }
 
     fn items() -> Vec<Item> {
-        let stdio = McpServer::Stdio { command: "node".into(), args: vec![], env_keys: vec!["TOKEN".into()] };
+        let stdio = McpServer::Stdio {
+            command: "node".into(),
+            args: vec![],
+            env_keys: vec!["TOKEN".into()],
+            process: super::super::McpProcess::PerRun,
+        };
         let sse = McpServer::Sse { url: "https://e.example/sse".into(), header_keys: vec![] };
         vec![
             item("i1", "pdf", Body::Skill),

@@ -126,9 +126,11 @@ def setup(ctx, c):
         return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
     names = [t["name"] for t in rpc("tools/list", {})["tools"]]
     c("e2e-route__cwd" in names, f"MCP 路由列出服务器的工具：{names}")
-    sessions_started = open(starts).read().count("start")
-    c(sessions_started >= 2, f"每个会话各自启动自己的服务器进程（启动了 {sessions_started} 次）")
+    started = lambda: open(starts).read().count("start")  # noqa: E731
+    c(started() == 1, f"会话打开和列工具都没有启动服务器，只有添加时预先准备的那一次（{started()} 次）")
     got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})
+    rpc("tools/call", {"name": "e2e-route__echo", "arguments": {"text": "again"}})
+    c(started() == 2, f"第一次调用才启动，之后的调用用同一个进程（{started()} 次）")
     c(got["content"][0]["text"] == run.cwd(), "路由背后的服务器在 Run 的工作目录（worktree）里启动")
     lead_path = path.rsplit("/", 2)[0] + "/lead/tools"
     code = ctx.api_error("POST", lead_path, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]

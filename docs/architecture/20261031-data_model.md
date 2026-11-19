@@ -76,6 +76,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 5 | 资源和 Run 快照中的资源加 `reach`：Skill 取 `everyone`，MCP 取 `picked`，见[给谁用](../domains/20261116-resource_library.md#reach) |
 | 6 | 已经创建过默认数字员工的数据加上通用数字员工（`generalist`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 7 | 去掉预设的 Agent 类型：`deepseek-claude`、`minimax-claude`、`glm-claude` 的 Agent 改为用 API Key 登录的 `claude`，预设的变量写进它的 `env`，去掉 `endpoint`，状态改为未检查，见 [Agent 类型](../domains/20261031-agents_and_roles.md#providers) |
+| 8 | 命令启动的 MCP 服务器（资源和 Run 快照中的资源）加 `server.process`，已有的取 `perRun`（同一个 Run 共用一个进程），见 [MCP 路由](../domains/20261116-resource_library.md#mcp_router) |
 
 <a id="snapshots"></a>
 ## Run 快照

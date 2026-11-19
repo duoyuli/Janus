@@ -317,7 +317,6 @@ impl App {
                 vec![]
             };
             let opening = self.opening(run, id, &member, &conn.capabilities, board, system);
-            self.prewarm(run, id, &opening);
             let session = match resume {
                 Some(SessionResume::Interrupted(old)) if conn.capabilities["loadSession"] == true => {
                     match conn.request("session/load", opening.load_params(&old, &workspace)).await {

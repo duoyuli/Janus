@@ -97,6 +97,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "去掉预设的 Agent 类型：DeepSeek、MiniMax、GLM over Claude Code 改为用 API Key 登录的 Claude Code，原来的变量写进它自己的环境变量",
         steps: &[Step::Custom(crate::agents::drop_preset_kinds)],
     },
+    Migration {
+        version: 8,
+        name: "命令启动的 MCP 服务器记录 MCP 路由怎样运行它：默认同一个任务共用一个进程",
+        steps: &[Step::Custom(crate::library::record_mcp_process)],
+    },
 ];
 
 /// The data version this build reads and writes.
