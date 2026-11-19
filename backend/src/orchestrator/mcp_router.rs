@@ -20,6 +20,9 @@ use tokio::sync::oneshot;
 /// How long a server may take to start (a first `npx -y` downloads its package) and to answer
 /// `initialize` or `tools/list`.
 const START_WAIT: Duration = Duration::from_secs(120);
+/// How long preparing a server ahead of its runs may take: a first `npx -y` or `uvx` download of a
+/// large package, once.
+const WARM_WAIT: Duration = Duration::from_secs(10 * 60);
 /// How long `tools/list` waits for the servers: agents give an MCP server about ten seconds to
 /// start and list, and one slow server must not cost the session every routed tool.
 const LIST_WAIT: Duration = Duration::from_secs(8);
@@ -115,6 +118,7 @@ impl Backend {
         home: &Path,
         cwd: &Path,
         log: &Path,
+        wait: Duration,
     ) -> Result<Arc<Backend>> {
         let McpServer::Stdio { command, args, .. } = server else {
             bail!("MCP 路由只运行命令启动的服务器");
@@ -201,7 +205,7 @@ impl Backend {
             "capabilities": { "roots": { "listChanged": false } },
             "clientInfo": { "name": "janus", "version": crate::VERSION }
         });
-        backend.request("initialize", init, START_WAIT).await?;
+        backend.request("initialize", init, wait).await?;
         backend.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await?;
         Ok(backend)
     }
@@ -299,6 +303,46 @@ impl App {
         })
     }
 
+    /// Prepare a command server ahead of its runs: start it once in its own sandbox, ask its tools,
+    /// stop it. Its package download lands in the sandbox, which runs reuse, so a run's start stays
+    /// within the time agents give an MCP server; and a server that can't start (a wrong command, a
+    /// missing value) shows in the library now rather than in a run. Takes as long as it needs, in
+    /// the background; the library shows how it went (`warm`).
+    // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+    pub fn warm_mcp(self: &Arc<Self>, id: &str) {
+        let Ok(item) = self.item(id) else { return };
+        let crate::library::Body::Mcp { server: server @ McpServer::Stdio { .. } } = item.body.clone() else { return };
+        let revision = item.revision.clone();
+        self.library
+            .warm
+            .lock()
+            .unwrap()
+            .insert(item.id.clone(), crate::library::Warm::Preparing { revision: revision.clone() });
+        let app = self.clone();
+        tokio::spawn(async move {
+            let home = app.server_home(&item.id);
+            let cwd = home.join("warm");
+            let log = app.cfg.data_dir.join("logs").join("library").join(format!("mcp-{}.log", item.name));
+            let got: Result<usize> = async {
+                std::fs::create_dir_all(&cwd)?;
+                let b = Backend::start(&server, &app.mcp_values(&item.id), &home, &cwd, &log, WARM_WAIT).await?;
+                let tools = b.tools().await;
+                b.stop();
+                Ok(tools?.len())
+            }
+            .await;
+            let done = match got {
+                Ok(tools) => crate::library::Warm::Ready { revision: revision.clone(), tools },
+                Err(err) => crate::library::Warm::Failed { revision: revision.clone(), error: format!("{err:#}") },
+            };
+            // A later save prepares the newer revision; this result only stands for its own.
+            let mut warm = app.library.warm.lock().unwrap();
+            if warm.get(&item.id).is_some_and(|w| w.revision() == revision) {
+                warm.insert(item.id.clone(), done);
+            }
+        });
+    }
+
     /// A library item changed or was deleted: every run stops its servers, so the next use starts
     /// it as it is now (or not at all).
     pub(crate) fn stop_item_servers(&self, id: &str) {
@@ -333,7 +377,8 @@ impl App {
         }
         let crate::library::Body::Mcp { server } = &item.body else { bail!("{} 不是 MCP 服务器", item.name) };
         let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{who}-{}.log", item.name));
-        let b = Backend::start(server, &self.mcp_values(&item.id), &self.server_home(&item.id), &run.cwd, &log).await?;
+        let home = self.server_home(&item.id);
+        let b = Backend::start(server, &self.mcp_values(&item.id), &home, &run.cwd, &log, START_WAIT).await?;
         if run.router.closed.load(Ordering::SeqCst) {
             b.stop();
             bail!("这个任务已经停止");

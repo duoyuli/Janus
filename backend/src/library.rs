@@ -32,6 +32,27 @@ const ITEM: &str = "library_item";
 #[derive(Default)]
 pub struct LibraryState {
     lock: tokio::sync::Mutex<()>,
+    /// How preparing each command server went, by item id, since this service started.
+    pub(crate) warm: std::sync::Mutex<HashMap<String, Warm>>,
+}
+
+/// Preparing a command server ahead of its runs (`App::warm_mcp`): started once in its sandbox so
+/// its packages are downloaded and its configuration is known to work.
+// @project-doc docs/domains/20261116-resource_library.md#mcp_router
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum Warm {
+    Preparing { revision: String },
+    Ready { revision: String, tools: usize },
+    Failed { revision: String, error: String },
+}
+
+impl Warm {
+    pub fn revision(&self) -> &str {
+        match self {
+            Warm::Preparing { revision } | Warm::Ready { revision, .. } | Warm::Failed { revision, .. } => revision,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -628,6 +649,9 @@ impl App {
                 .is_some_and(|v| !v.is_empty())
             };
             v["vars"] = json!(server.keys().iter().map(|k| json!({ "name": k, "set": set(k) })).collect::<Vec<_>>());
+            if let Some(w) = self.library.warm.lock().unwrap().get(&item.id).filter(|w| w.revision() == item.revision) {
+                v["warm"] = json!(w);
+            }
         }
         if let Origin::Git { source, path } = &item.origin {
             let s = sources.iter().find(|s| &s.id == source);

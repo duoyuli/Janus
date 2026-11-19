@@ -20,7 +20,7 @@
 ├── secrets/library/          # 资源库 MCP 服务器的环境变量和 HTTP header 值
 ├── library/store/            # 资源库 Skill 的内容，按内容寻址
 ├── library/sources/<id>/     # 资源库 Git 来源的仓库副本 repo/
-├── library/servers/<id>/     # MCP 路由启动的服务器的隔离目录（root/ 是它的 HOME，tmp/）
+├── library/servers/<id>/     # MCP 路由启动的服务器的隔离目录（root/ 是它的 HOME，tmp/；warm/ 是预先准备时的工作目录）
 ├── adapters/<id>/            # ACP 适配器，按需下载，每个版本一个目录
 ├── artifacts/<run>/<task>/   # Run 的产物：回复和 diff
 ├── runs/<run>/members/<member>/bundle/  # 成员的资源包：Run 创建时复制的 Skill
@@ -36,7 +36,8 @@
     ├── janus.out.log         # 以服务方式运行时进程的标准输出和错误
     ├── adapters/<id>.log     # 适配器的安装和升级记录
     ├── update.log            # 应用内更新替换应用包的记录
-    └── <run>/                # 每个 ACP 子进程的 stderr，以及 MCP 路由启动的服务器的 mcp-<名字>.log
+    ├── library/              # 资源库预先准备 MCP 服务器时它的 stderr，mcp-<名字>.log
+    └── <run>/                # 每个 ACP 子进程的 stderr，以及 MCP 路由启动的服务器的 mcp-<会话>-<名字>.log
 ```
 
 | 类别 | 位置 | 说明 |

@@ -53,6 +53,13 @@ struct LibraryView: View {
             }
         }
         .task { await store.loadLibrary() }
+        // While a server is being prepared, keep its state current.
+        .task(id: store.libraryItems.filter { $0["warm"]["state"].str == "preparing" }.map { $0["id"].str }) {
+            while store.libraryItems.contains(where: { $0["warm"]["state"].str == "preparing" }) {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await store.loadLibrary()
+            }
+        }
         .sheet(isPresented: Binding(get: { skillDraft != nil }, set: { if !$0 { skillDraft = nil } })) {
             if let d = skillDraft { SkillEditor(store: store, draft: d) }
         }
@@ -301,6 +308,11 @@ struct LibraryView: View {
                         Spacer(minLength: 8)
                         if i["reach"].str == "picked" { Text(Library.usedBy(i)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         if !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
+                        switch i["warm"]["state"].str {
+                        case "preparing": Pill(L.text("准备中…"), .blue)
+                        case "failed": Text(L.text("启动失败")).font(.caption).foregroundStyle(Tone.red.color)
+                        default: EmptyView()
+                        }
                     }
                     .contentShape(Rectangle())
                 }
@@ -322,6 +334,7 @@ struct LibraryView: View {
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             ForEach(Self.unsupported(i), id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color) }
+            if i["server"]["transport"].str == "stdio" { warmState(i) }
             if i["reach"].str == "picked" { givenTo(i) }
             HStack(spacing: 12) {
                 if mcp || i["origin"]["type"].str == "created" { Button(L.text("编辑")) { edit(i) }.buttonStyle(.link) }
@@ -331,6 +344,24 @@ struct LibraryView: View {
             .padding(.top, 2)
         }
         .padding(.leading, 44)
+    }
+
+    /// How preparing a command server went: started once when added, so its packages are downloaded
+    /// before any run needs it and a server that can't start shows here.
+    // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+    @ViewBuilder private func warmState(_ i: JSON) -> some View {
+        let w = i["warm"]
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            switch w["state"].str {
+            case "preparing": Text(L.text("正在启动一次，下载它需要的包，大的包可能要几分钟…")).font(.caption).foregroundStyle(.secondary)
+            case "ready": Text(L.text("已准备好 · \(w["tools"].int ?? 0) 个工具")).font(.caption).foregroundStyle(Tone.green.color)
+            case "failed": Text(L.text("启动失败：\(w["error"].str)")).font(.caption).foregroundStyle(Tone.red.color).textSelection(.enabled)
+            default: Text(L.text("还没有准备过：任务里第一次启动可能较慢")).font(.caption).foregroundStyle(.secondary)
+            }
+            if w["state"].str != "preparing" {
+                Button(L.text("重新准备")) { Task { await store.warmMcp(i["id"].str) } }.buttonStyle(.link).font(.caption)
+            }
+        }
     }
 
     /// The digital workers a kept item is given to, ticked here or in the worker's editor: both

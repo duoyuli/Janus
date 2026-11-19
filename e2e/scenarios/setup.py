@@ -76,6 +76,11 @@ def setup(ctx, c):
     c(routed["reach"] == "everyone", "MCP 服务器可以放开给所有数字员工")
     code, _ = ctx.api_error("POST", f"/api/library/items/{routed['id']}/reach", {"reach": "nobody"})
     c(code == 400, "给谁用只接受 everyone 和 picked")
+    def prepared():
+        item = next(i for i in ctx.api("GET", "/api/library")["items"] if i["id"] == routed["id"])
+        return item.get("warm") if (item.get("warm") or {}).get("state") in ("ready", "failed") else None
+    warm = wait(prepared, "新添加的 MCP 服务器预先准备完", 60)
+    c(warm.get("state") == "ready" and warm.get("tools", 0) > 0, f"添加后预先启动一次并数出工具：{warm}")
 
     # The default team, bound to the agents: PMO leads on Codex, the engineer runs the script.
     roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}

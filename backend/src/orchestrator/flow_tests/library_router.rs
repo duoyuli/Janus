@@ -207,3 +207,39 @@ fn routed_names_fit_and_stay_apart() {
     assert_ne!(routed_name("fs", "read.file"), routed_name("fs", "read_file"), "cleaned names don't collide");
     assert!(routed_name("fs", "read.file").chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
 }
+
+/// A command server is prepared once when it is added: started in its sandbox (where a package
+/// download stays for later runs), its tools counted, stopped. One that can't start says why.
+#[tokio::test(flavor = "multi_thread")]
+async fn command_servers_are_prepared_when_added() {
+    let dir = std::env::temp_dir().join(format!("janus-warm-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let app = crate::orchestrator::test_app(&dir);
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
+    let starts = dir.join("starts.log");
+    let probe = app
+        .save_mcp(None, &json!({ "name": "probe", "command": "python3", "args": [script], "vars": [{ "name": "FAKE_MCP_LOG", "value": starts }] }))
+        .await
+        .unwrap();
+    let broken = app.save_mcp(None, &json!({ "name": "broken", "command": "janus-no-such-command" })).await.unwrap();
+    let warm = |id: &str| {
+        let view = app.library_view().unwrap();
+        view["items"].as_array().unwrap().iter().find(|i| i["id"] == id).unwrap()["warm"].clone()
+    };
+    assert!(warm(&probe.id).is_null(), "nothing to say before it is prepared");
+    app.warm_mcp(&probe.id);
+    app.warm_mcp(&broken.id);
+    eventually("the server is prepared", || warm(&probe.id)["state"] == "ready").await;
+    assert_eq!(warm(&probe.id)["tools"], 7);
+    assert_eq!(std::fs::read_to_string(&starts).unwrap().lines().count(), 1, "started once");
+    assert!(app.server_home(&probe.id).join("root").is_dir(), "in its own sandbox, which runs reuse");
+    eventually("the broken one says why", || warm(&broken.id)["state"] == "failed").await;
+    assert!(warm(&broken.id)["error"].as_str().unwrap().contains("janus-no-such-command"), "{}", warm(&broken.id));
+
+    // A change makes the old result stale: nothing is claimed for the new revision until prepared.
+    app.save_mcp(Some(&probe.id), &json!({ "name": "probe", "command": "python3", "args": [script, "--changed"] }))
+        .await
+        .unwrap();
+    assert!(warm(&probe.id).is_null());
+    let _ = std::fs::remove_dir_all(&dir);
+}

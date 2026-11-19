@@ -1269,3 +1269,10 @@
 "已经开始的任务有自己的副本，不受影响；正在运行的这个 MCP 服务器会停止。MCP 服务器的值会一起删除。" = "Runs already started keep their own copy; this MCP server stops where it is running. Its saved values are deleted too.";
 "任务开始时固定它用的资源：这里的添加、修改和开关从下一个任务起生效。" = "Each run keeps the resources it started with: additions, edits, and switches here take effect from the next run.";
 "Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。导入的 Skill 默认给所有数字员工，第三方内容请先看过再导入。" = "Janus fetches the repository and lists its skills (SKILL.md) for you to choose from. It only reads files and never runs anything from the repository. Imported skills go to all digital employees by default, so review third-party content before importing it.";
+"准备中…" = "Preparing…";
+"启动失败" = "Failed to Start";
+"正在启动一次，下载它需要的包，大的包可能要几分钟…" = "Starting it once to download what it needs; large packages can take a few minutes…";
+"已准备好 · %lld 个工具" = "Ready · %lld tools";
+"启动失败：%@" = "Failed to start: %@";
+"还没有准备过：任务里第一次启动可能较慢" = "Not prepared yet: its first start in a run may be slow";
+"重新准备" = "Prepare Again";

@@ -286,16 +286,37 @@ async fn import_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> A
     }
 }
 
+/// A server the person just added or changed is prepared right away, in the background.
+// @project-doc docs/domains/20261116-resource_library.md#mcp_router
+fn warmed(app: &Arc<App>, saved: anyhow::Result<library::Item>) -> anyhow::Result<library::Item> {
+    if let Ok(item) = &saved {
+        app.warm_mcp(&item.id);
+    }
+    saved
+}
+
 async fn create_mcp(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
-    reply(app.save_mcp(None, &body).await)
+    reply(warmed(&app, app.save_mcp(None, &body).await))
 }
 
 async fn edit_mcp(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>, Json(body): Json<Value>) -> ApiResult {
-    reply(app.save_mcp(Some(&id), &body).await)
+    reply(warmed(&app, app.save_mcp(Some(&id), &body).await))
 }
 
 async fn import_mcp(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
-    reply(app.import_mcp_config(body["text"].as_str().unwrap_or("")).await)
+    let imported = app.import_mcp_config(body["text"].as_str().unwrap_or("")).await;
+    if let Ok(r) = &imported {
+        for id in r["items"].as_array().into_iter().flatten().filter_map(|i| i["id"].as_str()) {
+            app.warm_mcp(id);
+        }
+    }
+    reply(imported)
+}
+
+async fn warm_mcp(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    app.item(&id).map_err(bad)?;
+    app.warm_mcp(&id);
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 async fn add_source(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
@@ -693,6 +714,7 @@ async fn main() -> Result<()> {
         .route("/api/library/mcp", post(create_mcp))
         .route("/api/library/mcp/import", post(import_mcp))
         .route("/api/library/mcp/{id}", axum::routing::put(edit_mcp))
+        .route("/api/library/mcp/{id}/warm", post(warm_mcp))
         .route("/api/library/sources", post(add_source))
         .route("/api/library/sources/check", post(check_sources))
         .route("/api/library/sources/{id}", delete(delete_source))
