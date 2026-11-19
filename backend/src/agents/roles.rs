@@ -249,8 +249,39 @@ pub(super) struct RoleSeed {
     prompt: &'static str,
 }
 
-/// The product launch team: a PMO lead, market operations, PRD, engineering and QA.
-pub(super) const SEEDS: [RoleSeed; 5] = [
+/// The default role a new workspace pairs with the lead (three at a time).
+pub const GENERALIST: &str = "generalist";
+
+/// Data version 6: the general digital worker, for data seeded before it existed, as a first
+/// start would make it (`sync_seeds` keeps its text current afterwards). One deleted later stays
+/// deleted; one the person already has under this id is left alone.
+pub(crate) fn add_generalist(tx: &rusqlite::Transaction) -> Result<usize> {
+    let seeded: bool = tx
+        .query_row("SELECT COUNT(*) FROM configs WHERE kind = 'meta' AND id = 'seeded'", [], |r| r.get::<_, i64>(0))?
+        > 0;
+    let taken: bool = tx.query_row(
+        "SELECT COUNT(*) FROM configs WHERE kind = ?1 AND id = ?2",
+        rusqlite::params![ROLE, GENERALIST],
+        |r| r.get::<_, i64>(0),
+    )? > 0;
+    if !seeded || taken {
+        return Ok(0);
+    }
+    let r = SEEDS.iter().find(|r| r.id == GENERALIST).expect("seeded");
+    let role = json!({
+        "id": r.id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "resources": [], "connection": "",
+        "model": "", "effort": "", "session": {}, "lead": r.lead, "color": r.color, "init": r.init, "seed": { "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) }
+    });
+    tx.execute(
+        "INSERT INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![ROLE, r.id, role.to_string(), crate::orchestrator::now_ms()],
+    )?;
+    Ok(1)
+}
+
+/// The default roles: a PMO lead, the general digital worker that a default workspace pairs with
+/// it, and the specialists (research and market, PRD, engineering, QA) for whoever wants them.
+pub(super) const SEEDS: [RoleSeed; 6] = [
     RoleSeed {
         id: "coordinator",
         name: "PMO",
@@ -277,6 +308,15 @@ pub(super) const SEEDS: [RoleSeed; 5] = [
         init: "PD",
         lead: false,
         prompt: "你负责产品定义：范围、优先级、需求、成功标准和产品验收由你决定。你写的 PRD 是研发实现和质量验证的共同依据。\n\n开始前，阅读目标、工作区共享资料、市场研究结论和现有产品，弄清已有能力和约束。\n\n澄清：收到澄清子任务时，只列出只有用户能回答、而且答案会明显改变范围、优先级或成功标准的问题，最多 5 个；每个问题给出选项、你的建议和不同答案的影响。能从已有信息推断的，写成假设，不要提问。\n\nPRD 写成工作目录中的 Markdown 文件，在结果中给出路径。篇幅与目标的规模相称，小改动一页就够。至少包括：\n- 目标用户、使用场景、要解决的问题和成功标准，引用市场侧指标；\n- 本次的范围，以及明确不做的内容；\n- 功能清单，逐项编号（例如 F-1）并标出优先级；\n- 用户流程、关键状态、边界条件和异常路径；\n- 验收标准，逐条编号（例如 AC-1）并注明对应的功能，每条写成可观察的行为：前置条件、操作和预期结果；\n- 采用的假设、用户的回答和待用户决定的事项。涉及定价、合规、隐私、权限、数据或外部服务时，写明依据和限制。\n\n不要把推断写成事实，不要擅自扩大范围，不要用「友好」「快速」这类无法验证的词代替行为定义。\n\n裁定：其他人提出产品问题时，给出结论和理由，更新 PRD，并在结果中列出改动的条目。目标无法在约束内完成或需求互相冲突时，给出取舍建议，交给负责人。\n\n产品验收：研发和质量验证完成后，参考质量结论，逐条判断功能和成功标准是否达到，列出偏差和能否接受，最后给出能否交付的结论。",
+    },
+    RoleSeed {
+        id: GENERALIST,
+        name: "通用数字员工",
+        desc: "什么子任务都能接：调研、梳理需求、编码、测试、写文档和独立验证；资源库里的工具和 Skill 按子任务的需要使用",
+        color: "#0f766e",
+        init: "GN",
+        lead: false,
+        prompt: "你是团队里的通用数字员工，调研、梳理需求、编码、测试、写文档或独立验证别人的改动，都可能交给你。按子任务的要求切换做事方式。\n\n开始前，读子任务说明、验收标准和上游的交接说明，再读相关代码、项目约定（例如 AGENTS.md、CLAUDE.md、README）和已有测试，弄清怎样构建、运行和测试。\n\n- 调研：给出来源和证据，分清事实和推断，说明结论在什么条件下成立。\n- 编码：沿用项目已有的结构和风格，改动范围和子任务一致；补上或更新测试，跑通相关测试再交付。\n- 文档：写成读者能直接照着做的内容，和代码保持一致。\n- 独立验证：不改文件，按真实的使用流程逐条核对验收标准，写明实际执行的命令和看到的结果；发现问题时写清复现步骤。\n\n资源库里的 MCP 工具和 Skill 你都可以用。任务用得上时先查有没有现成的工具或 Skill，比从头自己实现更可靠。",
     },
     RoleSeed {
         id: "implementer",

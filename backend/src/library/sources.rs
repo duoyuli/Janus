@@ -5,8 +5,8 @@
 //! has now.
 // @project-doc docs/domains/20261116-resource_library.md#sources
 
-use super::offers::{self, Offer, ScanMode};
-use super::{Body, Item, ItemKind, Origin, imported_offer, mcp, mcp_revision, skill, store};
+use super::offers::{self, Offer};
+use super::{Item, ItemKind, Origin, imported_offer, skill, store};
 use crate::orchestrator::{App, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -171,13 +171,6 @@ async fn fetch(dir: &Path, clone_url: &str, git_ref: &str) -> Result<String> {
     Ok(commit)
 }
 
-/// The server a manifest entry `<manifest>#<name>` describes in a checkout.
-fn server_at(repo: &Path, path: &str) -> Result<mcp::Found> {
-    let (manifest, name) = path.rsplit_once('#').context("服务器路径无效")?;
-    let text = std::fs::read_to_string(repo.join(manifest)).with_context(|| format!("读取 {manifest} 失败"))?;
-    mcp::parse_config(&text)?.0.into_iter().find(|f| f.name == name).ok_or_else(|| anyhow!("{manifest} 中没有 {name}"))
-}
-
 impl App {
     fn source_dir(&self, id: &str) -> Result<PathBuf> {
         crate::agents::check_id(id)?;
@@ -235,12 +228,12 @@ impl App {
         let added = async {
             let commit = fetch(&dir, clone_url, &at.git_ref).await?;
             let repo = dir.join("repo");
-            let (offers, warnings) = offers::discover(&repo, &repo.join(&at.path), ScanMode::SkillsAndMcp);
+            let (offers, warnings) = offers::discover(&repo, &repo.join(&at.path));
             if offers.is_empty() {
                 if !warnings.is_empty() {
                     bail!("{}：{}", at.url(), warnings.join("；"));
                 }
-                bail!("{} 中没有找到 Skill（SKILL.md）或 MCP 服务器（mcp.json）", at.url());
+                bail!("{} 中没有找到 Skill（SKILL.md）", at.url());
             }
             let now = now_ms();
             let s = Source {
@@ -277,38 +270,25 @@ impl App {
         for path in paths {
             let offer = s.offers.iter().find(|o| &o.path == path).ok_or_else(|| anyhow!("来源中没有 {path}"))?;
             let origin = Origin::Git { source: id.to_string(), path: path.clone() };
-            let item = match offer.kind {
-                ItemKind::Skill => self.import_skill_at(&repo.join(path), origin)?,
-                ItemKind::Mcp => {
-                    let f = server_at(&repo, path)?;
-                    let name = self.free_name(ItemKind::Mcp, &f.name)?;
-                    let item = self.new_item(
-                        name,
-                        f.description,
-                        origin,
-                        mcp_revision(&f.server),
-                        Body::Mcp { server: f.server.clone() },
-                    );
-                    self.write_values(&item.id, &f.values.kept_for(&f.server))?;
-                    self.put_item(&item)?;
-                    item
-                }
-            };
+            // An offer listed before Git sources stopped carrying MCP servers is not imported.
+            if offer.kind != ItemKind::Skill {
+                bail!("{path} 不是 Skill；MCP 服务器请在资源库里填写或粘贴配置添加");
+            }
+            let item = self.import_skill_at(&repo.join(path), origin)?;
             added.push(item);
         }
         Ok(added)
     }
 
-    /// Fetch a source again and give each item imported from it the content the repository has
-    /// now. Saved values stay; values a manifest names for keys that have none are added. An item
-    /// the repository no longer has is kept as it is and reported.
+    /// Fetch a source again and give each skill imported from it the content the repository has
+    /// now. An item the repository no longer offers is kept as it is and reported.
     pub async fn update_source(&self, id: &str) -> Result<Value> {
         let _guard = self.library.lock.lock().await;
         let mut s = self.source(id)?;
         let dir = self.source_dir(id)?;
         let commit = fetch(&dir, &s.clone_url, &s.git_ref).await?;
         let repo = dir.join("repo");
-        (s.offers, s.warnings) = offers::discover(&repo, &repo.join(&s.path), ScanMode::SkillsAndMcp);
+        (s.offers, s.warnings) = offers::discover(&repo, &repo.join(&s.path));
         let now = now_ms();
         (s.commit, s.latest, s.fetched_at, s.checked_at, s.check_error) =
             (commit.clone(), commit, now, now, String::new());
@@ -323,26 +303,9 @@ impl App {
                 missing.push(item.name.clone());
                 continue;
             }
-            let revision = match &item.body {
-                Body::Skill => {
-                    let dir = repo.join(&path);
-                    item.description = skill::short(&skill::read_meta(&dir)?.description);
-                    store::put(&self.store_dir(), &dir)?
-                }
-                Body::Mcp { .. } => {
-                    let f = server_at(&repo, &path)?;
-                    let mut values = self.mcp_values(&item.id);
-                    let mut named = f.values.clone();
-                    for (k, v) in std::mem::take(named.of(&f.server)) {
-                        values.of(&f.server).entry(k).or_insert(v);
-                    }
-                    self.write_values(&item.id, &values.kept_for(&f.server))?;
-                    item.description = f.description;
-                    let revision = mcp_revision(&f.server);
-                    item.body = Body::Mcp { server: f.server };
-                    revision
-                }
-            };
+            let dir = repo.join(&path);
+            item.description = skill::short(&skill::read_meta(&dir)?.description);
+            let revision = store::put(&self.store_dir(), &dir)?;
             if revision != item.revision {
                 item.revision = revision;
                 item.updated_at = now_ms();

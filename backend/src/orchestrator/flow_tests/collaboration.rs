@@ -704,7 +704,7 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
     let owner = Owner { session: SessionKey::task("T_TIMEOUT"), attempt: 1 };
     let log = h.app.cfg.data_dir.join("logs").join(&run).join("T_TIMEOUT-a1.log");
     let (conn, mut rx, mut ctl) = h.app.open_session(&r, &owner, "m1", &spec, &log, "Agent ").await.unwrap();
-    let opening = h.app.opening(&r, &member, &conn.capabilities, vec![], None);
+    let opening = h.app.opening(&r, "T1", &member, &conn.capabilities, vec![], None);
     let session = new_session(&conn, &r.cwd, &opening).await.unwrap();
     let sid = session["sessionId"].as_str().unwrap().to_string();
     h.app.emit(

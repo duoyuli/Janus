@@ -77,7 +77,7 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     for m in team["team"].as_array().unwrap() {
         assert!(m.get("role").is_none() && m.get("model_label").is_none() && m["role_id"].is_string(), "{m}");
     }
-    for id in ["coordinator", "researcher", "product-manager", "implementer", "reviewer"] {
+    for id in ["coordinator", "researcher", "product-manager", "implementer", "reviewer", "generalist"] {
         assert_eq!(config(&conn, "role", id)["seed"]["id"], id, "{id} knows its origin");
     }
     drop(conn);
@@ -92,6 +92,45 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
         .query_row("SELECT count(*) FROM sqlite_master WHERE name = 'leases'", [], |r| r.get(0))
         .unwrap();
     assert_eq!(leases, 0);
+}
+
+/// Version 5: each library item, and each item pinned in a run, says who may use it: a skill
+/// every digital worker, an MCP server only the roles that pick it. Version 6: data seeded before
+/// the general digital worker existed gets it, untouched by the person.
+#[test]
+fn items_say_who_uses_them_and_the_general_worker_arrives() {
+    let path = old_database("reach");
+    let conn = Connection::open(&path).unwrap();
+    let skill = json!({ "id": "i-skill", "name": "pdf", "description": "", "origin": { "type": "created" }, "revision": "r1", "updatedAt": 0, "kind": "skill" });
+    let mcp = json!({ "id": "i-mcp", "name": "db", "description": "", "origin": { "type": "created" }, "revision": "r2", "updatedAt": 0, "kind": "mcp",
+        "server": { "transport": "stdio", "command": "db-mcp", "args": [], "envKeys": [] } });
+    for item in [&skill, &mcp] {
+        conn.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES ('library_item', ?1, ?2, 0)",
+            params![item["id"].as_str().unwrap(), item.to_string()],
+        )
+        .unwrap();
+    }
+    let mut snapshot: Value = serde_json::from_str(
+        &conn.query_row("SELECT config FROM runs WHERE id = 'run-old'", [], |r| r.get::<_, String>(0)).unwrap(),
+    )
+    .unwrap();
+    snapshot["team"][0]["resources"] = json!([mcp]);
+    conn.execute("UPDATE runs SET config = ?1 WHERE id = 'run-old'", params![snapshot.to_string()]).unwrap();
+    drop(conn);
+
+    crate::db::Db::open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(config(&conn, "library_item", "i-skill")["reach"], "everyone");
+    assert_eq!(config(&conn, "library_item", "i-mcp")["reach"], "picked");
+    let team: Value = serde_json::from_str(
+        &conn.query_row("SELECT config FROM runs WHERE id = 'run-old'", [], |r| r.get::<_, String>(0)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(team["team"][0]["resources"][0]["reach"], "picked");
+    let general = config(&conn, "role", "generalist");
+    assert_eq!((general["name"].as_str(), general["connection"].as_str()), (Some("通用数字员工"), Some("")));
+    assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
 }
 
 #[test]

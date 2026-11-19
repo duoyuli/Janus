@@ -108,7 +108,7 @@ pub(super) fn check_name(name: &str) -> Result<()> {
         bail!("MCP 名称只能包含字母、数字、- 和 _（最多 64 个字符）：{name}");
     }
     if reserved_mcp_name(name) {
-        bail!("MCP 名称 {name} 保留给 Janus 看板，请换一个名字");
+        bail!("MCP 名称 {name} 保留给 Janus（看板和 MCP 路由），请换一个名字");
     }
     Ok(())
 }

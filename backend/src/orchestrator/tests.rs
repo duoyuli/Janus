@@ -26,7 +26,7 @@ async fn sessions_open_with_the_members_resources() {
     m.resources = vec![skill, server];
     let caps = json!({ "mcpCapabilities": { "http": true } });
     let board = json!({ "type": "http", "name": "janus", "url": "http://board" });
-    let o = app.opening(&run, &m, &caps, vec![board.clone()], Some("规则"));
+    let o = app.opening(&run, "lead", &m, &caps, vec![board.clone()], Some("规则"));
     let bundle = app.bundle_dir(&run.id, &m.id);
     assert_eq!(o.meta["claudeCode"]["options"]["plugins"], json!([{ "type": "local", "path": bundle }]));
     assert_eq!(o.meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
@@ -41,7 +41,7 @@ async fn sessions_open_with_the_members_resources() {
     assert!(!serde_json::to_string(&o.resources).unwrap().contains("Bearer t"), "values stay out of the record");
 
     m.kind = Runtime::Codex;
-    let o = app.opening(&run, &m, &caps, vec![], Some("规则"));
+    let o = app.opening(&run, "lead", &m, &caps, vec![], Some("规则"));
     assert_eq!(o.meta, json!({ "additionalRoots": [bundle] }), "Codex has its system layer in its environment");
     let _ = std::fs::remove_dir_all(&dir);
 }

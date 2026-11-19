@@ -8,6 +8,7 @@ use super::*;
 mod actions;
 mod collaboration;
 mod evidence;
+mod library_router;
 mod owners;
 mod usage;
 mod worktrees;
@@ -1728,29 +1729,18 @@ async fn restart_restores_failed_and_blocked() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// End to end through a run: a role uses library servers imported from a source and added by
-/// hand, and the agent's `session/new` carries them with their values, while the run record and
-/// its events hold none of the values. A skill the custom agent can't load is recorded as skipped.
+/// End to end through a run: a role uses library servers pasted in and added by hand, and the
+/// agent's `session/new` carries them with their values, while the run record and its events hold
+/// none of the values. A skill the custom agent can't load is recorded as skipped.
 #[tokio::test(flavor = "multi_thread")]
 async fn library_mcp_reaches_the_session_with_its_values() {
     let h = harness("mcp-session", &[("lead", false)], json!({}));
-    let upstream = h.dir.join("upstream");
-    std::fs::create_dir_all(&upstream).unwrap();
-    std::fs::write(
-        upstream.join("mcp.json"),
-        r#"{"mcpServers": {
-            "fetch": {"command": "uvx", "args": ["mcp-server-fetch"], "env": {"FETCH_TOKEN": "lib-env-secret"}},
-            "docs": {"type": "http", "url": "https://example.com/mcp", "headers": {"Authorization": "Bearer lib-header-secret"}}
-        }}"#,
-    )
-    .unwrap();
-    sh(&upstream, &["init", "-q"]);
-    sh(&upstream, &["add", "-A"]);
-    sh(&upstream, &["commit", "-q", "-m", "init"]);
-    let at = crate::library::RepoAt { repo: "acme/tools".into(), git_ref: String::new(), path: String::new() };
-    let source = h.app.add_source_at(at, &format!("file://{}", upstream.display())).await.unwrap();
-    let paths = ["mcp.json#fetch".to_string(), "mcp.json#docs".to_string()];
-    let imported = h.app.import_from_source(source["id"].as_str().unwrap(), &paths).await.unwrap();
+    let pasted = r#"{"mcpServers": {
+        "fetch": {"command": "uvx", "args": ["mcp-server-fetch"], "env": {"FETCH_TOKEN": "lib-env-secret"}},
+        "docs": {"type": "http", "url": "https://example.com/mcp", "headers": {"Authorization": "Bearer lib-header-secret"}}
+    }}"#;
+    let imported: Vec<crate::library::Item> =
+        serde_json::from_value(h.app.import_mcp_config(pasted).await.unwrap()["items"].clone()).unwrap();
     let local = h
         .app
         .save_mcp(None, &json!({ "name": "local", "command": "node local.js", "vars": [{ "name": "LOCAL_TOKEN", "value": "own-env-secret" }] }))

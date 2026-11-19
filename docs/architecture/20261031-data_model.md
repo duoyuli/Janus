@@ -73,6 +73,8 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 2 | 默认数字员工记录来源（`seed`），见[默认角色：产品上线团队](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 3 | `commands` 表加 `state` 列（`running`、`done`、`interrupted`），已有的行取 `done` |
 | 4 | 删除 `leases` 表：Run 租约和目录锁重复，持有者按进程号判断存活，旧进程号被其他进程复用时会误拒恢复 |
+| 5 | 资源和 Run 快照中的资源加 `reach`：Skill 取 `everyone`，MCP 取 `picked`，见[给谁用](../domains/20261116-resource_library.md#reach) |
+| 6 | 已经创建过默认数字员工的数据加上通用数字员工（`generalist`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 
 <a id="snapshots"></a>
 ## Run 快照

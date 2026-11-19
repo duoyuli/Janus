@@ -14,8 +14,9 @@
 | `id` | 不带含义的 id（`i` 加时间），不从它读出类型或来源 |
 | `kind` | `skill` 或 `mcp` |
 | `name` | Agent 看到的名字。同一类资源中唯一 |
+| `reach` | 给谁用：`everyone`（所有数字员工）或 `picked`（只给选中它的数字员工），见[给谁用](#reach) |
 | `description` | 说明。Skill 取 `SKILL.md` 的描述（列表中截到 240 个字符） |
-| `origin` | 来源：`created`（在 Janus 中新建或粘贴的配置）、`folder`（从本机目录复制，记下目录）、`git`（从 Git 来源导入，记下来源 id 和路径） |
+| `origin` | 来源：`created`（在 Janus 中新建或粘贴的配置）、`folder`（从本机目录复制，记下目录）、`git`（从 Git 来源导入的 Skill，记下来源 id 和路径） |
 | `revision` | 内容的 sha256：Skill 是全部文件，MCP 是服务器定义 |
 | `server` | 只有 MCP 有：传输方式和启动方式，见 [MCP 服务器](#mcp) |
 
@@ -55,20 +56,30 @@ Skill 是一个带 `SKILL.md` 的目录，名称和描述来自 front matter。
 <a id="sources"></a>
 ## Git 来源
 
-Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后，Janus 列出其中的 Skill 和 MCP 服务器，由用户选择导入哪些。来源保存在 `configs` 中（类型 `library_source`），检出在 `~/.janus/library/sources/<id>/repo/`。
+Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后，Janus 列出其中的 Skill，由用户选择导入哪些。MCP 服务器的配置因人因环境而异，不从仓库导入，只在资源库里填写表单或粘贴配置添加；以前从来源导入的 MCP 服务器留在资源库中，更新来源时列为「来源中已删除」。来源保存在 `configs` 中（类型 `library_source`），检出在 `~/.janus/library/sources/<id>/repo/`。
 
 - **链接格式**（`parse_github`）：`https://github.com/o/r`、`github.com/o/r`、`git@github.com:o/r.git`、`o/r`，以及 `…/tree/<ref>/<目录>` 和 `…/blob/<ref>/<目录>/SKILL.md`。`tree/` 后的第一段视为分支或标签。其他网站的链接直接拒绝。仓库、ref 和目录都相同的来源不能重复添加。
 - **拉取**：`git clone --depth 1 --no-tags`（指定了 ref 时加 `--branch`），带 `GIT_TERMINAL_PROMPT=0`（私有仓库只能用本机已有的 git 凭据）和 `GIT_LFS_SKIP_SMUDGE=1`，180 秒超时。克隆成功后才替换旧的检出。没有找到任何 Skill 或服务器时，新来源不保留。
-- **扫描**（`offers`）：从链接指定的目录开始，从所选目录向下最多 8 层，最多收集 500 个候选路径（Skill 目录或 MCP 清单文件）。有更深的子目录或额外候选路径时，预览说明截断原因，可改选更具体的子目录。添加 Git 来源时，如果没有找到可导入项，错误信息也保留扫描警告。含普通文件 `SKILL.md` 的目录是 Skill，找到后不再进入它的子目录；`mcp.json` 和 `.mcp.json` 中的每个服务器是一项，路径记为 `<文件>#<服务器名>`。跳过 `.git`、`node_modules` 和符号链接；链接指定的目录解析符号链接后必须仍在克隆目录内。
-- **导入**：按路径选择。Skill 存进内容存储，服务器连同 manifest 中写的值一起保存。
+- **扫描**（`offers`）：从链接指定的目录开始，从所选目录向下最多 8 层，最多收集 500 个候选 Skill 目录。有更深的子目录或额外候选路径时，预览说明截断原因，可改选更具体的子目录。添加 Git 来源时，如果没有找到可导入项，错误信息也保留扫描警告。含普通文件 `SKILL.md` 的目录是 Skill，找到后不再进入它的子目录。跳过 `.git`、`node_modules` 和符号链接；链接指定的目录解析符号链接后必须仍在克隆目录内。
+- **导入**：按路径选择，Skill 存进内容存储。以前扫描留下的 MCP 候选不能再导入。
 - **检查更新**（`check_sources`）：服务启动 30 秒后检查一次，之后每 6 小时一次（`CHECK_EVERY`），也可以在应用中点「检查更新」。对每个来源执行 `git ls-remote`，不下载内容：没有指定 ref 时看 `HEAD`，否则依次找同名分支、同名标签（附注标签取它指向的提交）。远端提交（`latest`）与检出的提交（`commit`）不同时显示「有更新」；检查失败时记下错误并清空 `latest`，界面显示错误而不是旧的「有更新」。
-- **更新**（`update_source`）：重新克隆、重新扫描，从这个来源导入的每项资源换成仓库中的新内容，内容变了才生成新版本。MCP 服务器保留已保存的值，只为还没有值的变量补上 manifest 中的值。仓库中已经没有的资源保持原样，在结果中列出，资源库中标为「来源中已删除」。
+- **更新**（`update_source`）：重新克隆、重新扫描，从这个来源导入的每个 Skill 换成仓库中的新内容，内容变了才生成新版本。仓库中已经没有的资源保持原样，在结果中列出，资源库中标为「来源中已删除」。
 - **删除**：资源库中还有来自这个来源的资源时不能删除。
+
+<a id="reach"></a>
+## 给谁用
+
+每项资源有一个 `reach`（`library::Reach`）：
+
+- `everyone`：给所有数字员工。创建 Run 时，每个成员的资源快照都包含资源库里全部 `everyone` 的资源；会话经 [MCP 路由](#mcp_router)和 [Skill 路由](#skill_router)拿到它们。
+- `picked`：收口，只给角色选中它的数字员工，照旧逐项注入。
+
+新资源的默认值按类型（`Reach::default_for`）：Skill 是 `everyone`（说明文字和脚本，影响 Agent 怎么做事），MCP 服务器是 `picked`（能直接对外动手的工具，带凭据、有副作用），用户在资源库里放开（`POST /api/library/items/{id}/reach`）。数据版本 5 按同样的默认值给已有的资源和 Run 快照中的资源填上这个字段。设计取舍见 [ADR：资源库默认给所有数字员工](../decisions/20261119-library_routing.md)。
 
 <a id="roles"></a>
 ## 角色的选择
 
-角色的 `resources` 是资源 id 的列表，在角色编辑器中按类型勾选。
+角色的 `resources` 是资源 id 的列表，在角色编辑器中勾选；它只对收口（`picked`）的资源有意义，`everyone` 的资源每个员工本来就有。
 
 - 保存角色时只保留资源库中存在的 id，并去掉重复。
 - 每项资源在每种运行时下的状态（`support`）：
@@ -83,12 +94,30 @@ Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后�
 <a id="delivery"></a>
 ## Run 和会话怎样拿到资源
 
-1. **固定**：创建 Run 时（`team_for`），每个成员的 `resources` 记下资源当时的完整记录（名字、版本、MCP 定义，不含值）。之后资源库的修改不影响这个 Run，从中断处继续时也用这份记录。
-2. **资源包**：同时（`bundle_team`），成员的 Skill 从内容存储复制到 `~/.janus/runs/<run>/members/<成员 id>/bundle/`，按运行时摆放：Claude Code 是一个本地插件（`.claude-plugin/plugin.json` 和 `skills/<名字>/`），Codex 是 `.agents/skills/<名字>/`。自定义命令的成员没有资源包。复制的是普通文件，Agent 改了它也不影响资源库和其他成员。
+1. **固定**：创建 Run 时（`team_for`），每个成员的 `resources` 记下资源当时的完整记录（名字、版本、`reach`、MCP 定义，不含值）：资源库里全部 `everyone` 的资源，加上角色选中的 `picked` 资源。之后资源库的修改不影响这个 Run，从中断处继续时也用这份记录。
+2. **资源包**：同时（`bundle_team`），成员的 Skill 从内容存储复制到 `~/.janus/runs/<run>/members/<成员 id>/bundle/`，按运行时摆放：Claude Code 是一个本地插件（`.claude-plugin/plugin.json` 和 `skills/<名字>/`），Codex 是 `.agents/skills/<名字>/`。`everyone` 的 Skill 超过 10 个时改由 [Skill 路由](#skill_router)摆放。自定义命令的成员没有资源包。复制的是普通文件，Agent 改了它也不影响资源库和其他成员。
 3. **打开会话**：`App::opening` 用 `library::launch` 算出会话参数，`session/new` 和 `session/load` 用同一组：
    - Claude Code：`_meta.claudeCode.options.plugins` 指向资源包，Skill 在会话中显示为 `janus:<名字>`。
    - Codex：`_meta.additionalRoots` 指向资源包，Codex 读取其中的 `.agents/skills`，Skill 显示为 `$<名字>`。这个目录同时扩大了会话的文件访问范围。
-   - MCP 服务器放进 `mcpServers`。值在这时从 `secrets/library/` 读取，只传服务器声明的、非空的变量；Agent 没有声明对应传输能力的服务器不放进去。看板 MCP 排在最后。
-4. **记录**：每项资源怎样到达会话（`plugin`、`additionalRoots`、`mcpServers`，或 `skipped` 及原因）写进 `agent.status`（负责人）和 `attempt.started`（协作者）的 `data.config.resources`，见[事件](../interfaces/20261031-events.md)。
+   - `everyone` 的 stdio 服务器不逐个放进 `mcpServers`，而是由这个 Run 的 [MCP 路由](#mcp_router)提供，会话只拿到一个 `janus-tools`；Agent 没有声明 HTTP MCP 能力时没有路由，改为逐个放进去。其他 MCP 服务器（`picked` 的，以及 http、sse 的）放进 `mcpServers`。值在这时从 `secrets/library/` 读取，只传服务器声明的、非空的变量；Agent 没有声明对应传输能力的服务器不放进去。看板 MCP 排在最后。
+4. **记录**：每项资源怎样到达会话（`plugin`、`additionalRoots`、`skillRouter`、`mcpServers`、`mcpRouter`，或 `skipped` 及原因）写进 `agent.status`（负责人）和 `attempt.started`（协作者）的 `data.config.resources`，见[事件](../interfaces/20261031-events.md)。
 
-Janus 不把 Skill 或 MCP 列进提示，也不列工作目录中的项目 Skill：Claude Code 和 Codex 按自己的规则读取工作目录中的 `.claude/skills`、`.agents/skills`。
+Janus 不把 Skill 或 MCP 列进提示，也不列工作目录中的项目 Skill：Claude Code 和 Codex 按自己的规则读取工作目录中的 `.claude/skills`、`.agents/skills`。负责人说明只写一句：资源库对它和每个协作者开放，派出子任务后只用来查看。
+
+<a id="mcp_router"></a>
+## MCP 路由
+
+每个 Run 有一个 MCP 端点 `janus-tools`（`/mcp/{run}/{token}/{who}/tools`，令牌和 `who` 的规则与[看板](../interfaces/20261031-board_mcp.md#transport)相同，`orchestrator::mcp_router`），提供成员快照中 `everyone` 的 stdio 服务器：
+
+- **列工具**：`tools/list` 列出这些服务器的全部工具，名字是 `<服务器>__<工具>`（只含字母、数字、`-`、`_`，最多 64 个字符）。服务器的工具列表缓存在 `~/.janus/library/tools/<资源 id>-<revision>.json`：已经列过的服务器不需要启动；从没列过的，第一次列时启动一次取回列表。Claude Code 和 Codex 自己按需搜索 MCP 工具，所以路由不另做工具搜索。`initialize` 的说明列出背后的服务器和它们的描述。
+- **调用**：`tools/call` 时才启动对应的服务器（`Backend::start`）：命令和参数来自资源，环境是 Janus 进程的环境加上资源保存的值，工作目录是这个 Run 的工作目录（Git 仓库上是它的 worktree），标准错误写进 `~/.janus/logs/<run>/mcp-<名字>.log`。服务器向 Janus 发的 `roots/list` 回答这个工作目录，`ping` 照常回答，其他请求回答不支持。同一个 Run 的负责人和协作者共用一个进程。
+- **生命周期**：闲置 10 分钟的服务器在下一次请求时停掉，再用到时重新启动；Run 从内存中移除时，它启动的进程一起结束。
+- **记录**：每次调用写一条 `mcp.routed`（调用者、子任务、服务器、工具、耗时、错误），不记参数，见[事件](../interfaces/20261031-events.md)。找不到的工具和服务器报的错作为工具错误（`isError`）返回给 Agent。
+- 名字 `janus` 和 `janus-tools` 留给 Janus，资源库里的 MCP 服务器不能用。
+
+<a id="skill_router"></a>
+## Skill 路由
+
+成员快照中 `everyone` 的 Skill 不超过 10 个（`SKILL_ROUTE_OVER`）时，照常每个放进资源包、直接加载。超过 10 个时，它们放在资源包的 `janus-skills/.skills/<名字>/` 下（隐藏目录，Agent 不会逐个加载），另外生成一个 Skill `janus-skills`：`SKILL.md` 的描述列出这些 Skill 的名字（不超过 1000 个字节，Codex 拒绝更长的描述），正文是每个 Skill 的完整描述和它的 `SKILL.md` 路径。Agent 判断任务用得上时，再读对应的 `SKILL.md`。这样提示词里只有一条描述。`picked` 的 Skill 不进路由，照常直接加载。名字 `janus-skills` 留给 Janus，资源库里的 Skill 不能用。
+
+Skill 路由让 Agent 读取 Janus 目录下资源包里的文件：默认的权限模式（Codex 的 Full access、Claude Code 的 Bypass permissions）不需要确认，更严格的模式会询问。

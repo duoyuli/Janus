@@ -235,6 +235,21 @@ async fn refresh_library_item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<
     reply(app.refresh_item(&id).await)
 }
 
+/// Open an item to every digital worker (`everyone`) or keep it for the roles that pick it (`picked`).
+// @project-doc docs/interfaces/20261031-http_api.md#library
+async fn set_library_reach(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let reach = match body["reach"].as_str() {
+        Some("everyone") => library::Reach::Everyone,
+        Some("picked") => library::Reach::Picked,
+        _ => return Err((StatusCode::BAD_REQUEST, "reach 是 everyone 或 picked".into())),
+    };
+    reply(app.set_reach(&id, reach).await)
+}
+
 async fn create_skill(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
     reply(app.create_skill(&body).await)
 }
@@ -485,6 +500,20 @@ async fn mcp(
     }
 }
 
+/// The run's MCP router (`janus-tools`): the library's command servers for everyone.
+// @project-doc docs/domains/20261116-resource_library.md#mcp_router
+async fn mcp_tools(
+    State(app): State<Arc<App>>,
+    UrlPath((run, token, who)): UrlPath<(String, String, String)>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    match app.mcp_tools(&run, &token, &who, body).await {
+        Ok(Some(reply)) => Ok(Json(reply).into_response()),
+        Ok(None) => Ok(StatusCode::ACCEPTED.into_response()),
+        Err(err) => Err((StatusCode::FORBIDDEN, format!("{err:#}"))),
+    }
+}
+
 /// No server-initiated stream: every response comes back on its POST.
 async fn mcp_stream() -> StatusCode {
     StatusCode::METHOD_NOT_ALLOWED
@@ -643,6 +672,7 @@ async fn main() -> Result<()> {
         .route("/api/library", get(library))
         .route("/api/library/items/{id}", get(library_item).delete(delete_library_item))
         .route("/api/library/items/{id}/refresh", post(refresh_library_item))
+        .route("/api/library/items/{id}/reach", post(set_library_reach))
         .route("/api/library/skills", post(create_skill))
         .route("/api/library/skills/scan", post(scan_skill_folder))
         .route("/api/library/skills/import", post(import_skill))
@@ -676,6 +706,7 @@ async fn main() -> Result<()> {
         .route("/api/runs/{id}/usage", get(get_usage))
         .route("/api/runs/{id}/files", get(run_files))
         .route("/mcp/{run}/{token}/{who}", post(mcp).get(mcp_stream))
+        .route("/mcp/{run}/{token}/{who}/tools", post(mcp_tools).get(mcp_stream))
         // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).
         .layer(axum::extract::DefaultBodyLimit::max(160 * 1024 * 1024))
         .with_state(app.clone());

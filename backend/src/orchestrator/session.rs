@@ -141,13 +141,15 @@ impl App {
     pub(super) fn opening(
         &self,
         run: &Run,
+        who: &str,
         m: &Member,
         caps: &Value,
         extra: Vec<Value>,
         system: Option<&str>,
     ) -> Opening {
         let bundle = self.bundle_dir(&run.id, &m.id);
-        let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, |id| self.mcp_values(id));
+        let router = Some(self.tools_server(run, who));
+        let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, router, |id| self.mcp_values(id));
         let mut meta = launch.meta;
         if m.kind == Runtime::Claude {
             // Janus's own board tools only read and write this run's board; in its default mode

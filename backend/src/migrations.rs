@@ -84,6 +84,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "去掉 Run 租约：一个 Janus home 只有一个服务，由目录锁保证",
         steps: &[Step::Sql("DROP TABLE IF EXISTS leases;")],
     },
+    Migration {
+        version: 5,
+        name: "资源记录给谁用：Skill 给所有数字员工，MCP 只给选中它的数字员工",
+        steps: &[Step::Custom(crate::library::record_reach)],
+    },
+    Migration {
+        version: 6, name: "新增默认的通用数字员工", steps: &[Step::Custom(crate::agents::add_generalist)]
+    },
 ];
 
 /// The data version this build reads and writes.

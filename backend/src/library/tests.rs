@@ -252,11 +252,8 @@ async fn git_sources_offer_import_and_update() {
     std::fs::create_dir_all(upstream.join("node_modules/x")).unwrap();
     std::fs::write(upstream.join("node_modules/x/SKILL.md"), "no").unwrap();
     std::os::unix::fs::symlink(upstream.join("skills"), upstream.join("linked")).unwrap();
-    std::fs::write(
-        upstream.join("mcp.json"),
-        r#"{"mcpServers": {"search": {"command": "search-mcp", "env": {"SEARCH_KEY": "from-manifest"}}}}"#,
-    )
-    .unwrap();
+    // MCP servers are added by hand or pasted, never taken from a repository.
+    std::fs::write(upstream.join("mcp.json"), r#"{"mcpServers": {"search": {"command": "search-mcp"}}}"#).unwrap();
     sh(&upstream, &["init", "-q"]);
     sh(&upstream, &["add", "-A"]);
     sh(&upstream, &["commit", "-q", "-m", "init"]);
@@ -270,27 +267,21 @@ async fn git_sources_offer_import_and_update() {
     let offered: Vec<&str> = src["offers"].as_array().unwrap().iter().map(|o| o["path"].as_str().unwrap()).collect();
     assert_eq!(
         offered,
-        [".claude/skills/review", "skills/pdf", "mcp.json#search"],
-        "no links, node_modules or nested folders"
+        [".claude/skills/review", "skills/pdf"],
+        "no links, node_modules, nested folders or MCP manifests"
     );
     assert!(app.add_source_at(at(), &url).await.is_err(), "the same source twice");
     assert!(app.items().unwrap().is_empty(), "nothing is imported until picked");
 
-    let added = app.import_from_source(&id, &["skills/pdf".into(), "mcp.json#search".into()]).await.unwrap();
-    let (pdf, search) = (&added[0], &added[1]);
+    assert!(app.import_from_source(&id, &["mcp.json#search".into()]).await.is_err());
+    let added = app.import_from_source(&id, &["skills/pdf".into(), ".claude/skills/review".into()]).await.unwrap();
+    let (pdf, review) = (&added[0], &added[1]);
     assert_eq!(pdf.origin, Origin::Git { source: id.clone(), path: "skills/pdf".into() });
-    assert_eq!(app.mcp_values(&search.id).env["SEARCH_KEY"], "from-manifest");
     assert!(app.delete_source(&id).await.unwrap_err().to_string().contains("2 项"));
 
-    // The person sets their own key; upstream changes pdf, drops the server and adds a skill.
-    app.save_mcp(
-        Some(&search.id),
-        &json!({ "name": "search", "command": "search-mcp", "vars": [{ "name": "SEARCH_KEY", "value": "mine" }] }),
-    )
-    .await
-    .unwrap();
+    // Upstream changes pdf, drops review and adds a skill.
     skill_folder(&upstream.join("skills/pdf"), "pdf", "v2");
-    std::fs::remove_file(upstream.join("mcp.json")).unwrap();
+    std::fs::remove_dir_all(upstream.join(".claude")).unwrap();
     skill_folder(&upstream.join("skills/lint"), "lint", "v1");
     sh(&upstream, &["add", "-A"]);
     sh(&upstream, &["commit", "-q", "-m", "next"]);
@@ -299,16 +290,15 @@ async fn git_sources_offer_import_and_update() {
 
     let done = app.update_source(&id).await.unwrap();
     assert_eq!(done["updated"], json!(["pdf"]));
-    assert_eq!(done["missing"], json!(["search"]));
+    assert_eq!(done["missing"], json!(["review"]));
     assert_eq!(done["source"]["updateAvailable"], false);
     assert_ne!(app.item(&pdf.id).unwrap().revision, pdf.revision);
-    assert_eq!(app.mcp_values(&search.id).env["SEARCH_KEY"], "mine", "saved values survive");
     let view = app.library_view().unwrap();
-    let gone = view["items"].as_array().unwrap().iter().find(|i| i["id"] == search.id.as_str()).unwrap();
+    let gone = view["items"].as_array().unwrap().iter().find(|i| i["id"] == review.id.as_str()).unwrap();
     assert_eq!(gone["source"]["inSource"], false);
 
     app.delete_item(&pdf.id).await.unwrap();
-    app.delete_item(&search.id).await.unwrap();
+    app.delete_item(&review.id).await.unwrap();
     app.delete_source(&id).await.unwrap();
     assert!(!dir.join("data/library/sources").join(&id).exists());
     assert!(app.store_dir().read_dir().map(|d| d.count()).unwrap_or(0) == 0, "no tree is left behind");
@@ -321,6 +311,7 @@ fn items_read_back_as_written() {
     let item = Item {
         id: "i1".into(),
         name: "docs".into(),
+        reach: Reach::Everyone,
         description: String::new(),
         origin: Origin::Git { source: "s1".into(), path: "mcp.json#docs".into() },
         revision: "r".into(),
@@ -329,11 +320,12 @@ fn items_read_back_as_written() {
     };
     let v = serde_json::to_value(&item).unwrap();
     assert_eq!(v["kind"], "mcp");
+    assert_eq!(v["reach"], "everyone");
     assert_eq!(v["origin"], json!({ "type": "git", "source": "s1", "path": "mcp.json#docs" }));
     assert_eq!(v["server"]["transport"], "http");
     assert_eq!(serde_json::from_value::<Item>(v).unwrap(), item);
     let skill: Item = serde_json::from_value(json!({
-        "id": "i2", "name": "pdf", "origin": { "type": "created" }, "revision": "h", "updatedAt": 0, "kind": "skill"
+        "id": "i2", "name": "pdf", "reach": "everyone", "origin": { "type": "created" }, "revision": "h", "updatedAt": 0, "kind": "skill"
     }))
     .unwrap();
     assert_eq!(skill.kind(), ItemKind::Skill);

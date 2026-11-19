@@ -35,6 +35,7 @@ mod board_tools;
 mod flow_tests;
 mod lead;
 mod lifecycle;
+mod mcp_router;
 mod messages;
 mod prompts;
 mod session;
@@ -735,6 +736,8 @@ pub struct Run {
     lead_nudge: Notify,
     /// Any board-relevant event or task terminal change arrived (wakes `board_wait` immediately).
     board_wake: Notify,
+    /// The library's command servers for everyone, run for this run's sessions (`mcp_router`).
+    router: mcp_router::McpRouter,
     /// The watchdog's view of each open session. Its own lock: session updates touch it often,
     /// and nothing else is held while it is.
     watch: StdMutex<HashMap<SessionKey, Watch>>,
@@ -837,6 +840,7 @@ impl Run {
             lead_nudge: Notify::new(),
             board_wake: Notify::new(),
             watch: Default::default(),
+            router: Default::default(),
         }
     }
 

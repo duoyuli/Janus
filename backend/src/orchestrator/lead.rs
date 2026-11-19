@@ -268,6 +268,7 @@ impl App {
                 let board = vec![self.mcp_server(run, "lead")];
                 let opening = self.opening(
                     run,
+                    "lead",
                     &lead,
                     &conn.capabilities,
                     board,
@@ -430,6 +431,7 @@ impl App {
             };
             let opening = self.opening(
                 run,
+                "lead",
                 &lead,
                 &conn.capabilities,
                 board,
@@ -686,7 +688,7 @@ impl App {
         let mut p = format!(
             "You are the lead of the Janus team and are responsible for achieving the user's goal. First decide whether the goal is small enough to finish yourself in this session; if it is, do it yourself without delegating. Otherwise delegate parts of it to the collaborators below, deciding whom to involve and how to divide the work.
 
-Once you submit any subtask, you only manage for the rest of the goal: plan, read the board, decide, verify, and deliver. Do not edit files in the working directory from then on; reading files, running tests, and inspecting diffs are fine. Janus reports every file you edit after delegating, on the board and as a risk in the delivery.
+Once you submit any subtask, you only manage for the rest of the goal: plan, read the board, decide, verify, and deliver. Do not edit files in the working directory from then on; reading files, running tests, and inspecting diffs are fine. Janus reports every file you edit after delegating, on the board and as a risk in the delivery. The workspace's resource library (the janus-tools MCP server and the library's skills) is open to you and to every collaborator; after you delegate, use it only to look (read, query, check) and leave anything with side effects to a subtask.
 
 Working directory: {cwd}. You and the collaborators work directly in this directory, where changes are immediately visible to everyone. {git}
 

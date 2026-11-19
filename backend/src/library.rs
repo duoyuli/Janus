@@ -14,10 +14,8 @@ mod skill;
 mod sources;
 mod store;
 
-pub use deliver::{Delivery, bundle, launch, support};
+pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch, routed_server, support};
 pub use mcp::{McpServer, McpValues};
-#[cfg(test)]
-pub use sources::RepoAt;
 pub use sources::{CHECK_EVERY, Source};
 
 use crate::agents::{ROLE, new_id, str_of, write_private};
@@ -64,6 +62,64 @@ pub enum Origin {
     Git { source: String, path: String },
 }
 
+/// Who may use an item. Every digital worker gets the items for everyone, through the MCP and
+/// skill routers; an item kept for some goes only to the members whose role picks it.
+// @project-doc docs/domains/20261116-resource_library.md#reach
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Reach {
+    Everyone,
+    Picked,
+}
+
+impl Reach {
+    /// What a new item starts as: a skill is instructions anyone may read; an MCP server acts on
+    /// the world, so the person opens it to everyone.
+    pub fn default_for(body: &Body) -> Reach {
+        match body {
+            Body::Skill => Reach::Everyone,
+            Body::Mcp { .. } => Reach::Picked,
+        }
+    }
+}
+
+/// Data version 5: every library item, and every item pinned in a run's member snapshot, says
+/// who may use it, as a new item would (`Reach::default_for`). Roles keep what they picked: it
+/// now means the items kept for some that the role gets.
+pub(crate) fn record_reach(tx: &rusqlite::Transaction) -> Result<usize> {
+    fn fill(o: &mut serde_json::Map<String, Value>) -> bool {
+        if o.contains_key("reach") {
+            return false;
+        }
+        let reach = if o.get("kind").and_then(Value::as_str) == Some("skill") { "everyone" } else { "picked" };
+        o.insert("reach".into(), json!(reach));
+        true
+    }
+    let mut changed = crate::migrations::edit_configs(tx, "library_item", |_, o| fill(o))?;
+    let rows: Vec<(String, String)> = tx
+        .prepare("SELECT id, config FROM runs")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (id, config) in rows {
+        let Ok(mut config) = serde_json::from_str::<Value>(&config) else { continue };
+        let mut any = false;
+        for m in config["team"].as_array_mut().into_iter().flatten() {
+            for r in m["resources"].as_array_mut().into_iter().flatten() {
+                if let Some(o) = r.as_object_mut()
+                    && fill(o)
+                {
+                    any = true;
+                    changed += 1;
+                }
+            }
+        }
+        if any {
+            tx.execute("UPDATE runs SET config = ?1 WHERE id = ?2", rusqlite::params![config.to_string(), id])?;
+        }
+    }
+    Ok(changed)
+}
+
 /// What an item is. A skill's files are in the store under the item's revision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -78,6 +134,8 @@ pub struct Item {
     pub id: String,
     /// The name the agent sees; unique among items of one kind.
     pub name: String,
+    /// Who may use it: every digital worker, or only those whose role picks it.
+    pub reach: Reach,
     #[serde(default)]
     pub description: String,
     pub origin: Origin,
@@ -109,9 +167,12 @@ fn resolve_skill_folder(path: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// The board MCP's name is reserved, in any case and with any punctuation around it.
+/// The board MCP's and the router's names are reserved, in any case and with any punctuation
+/// around them.
 pub(crate) fn reserved_mcp_name(name: &str) -> bool {
-    name.eq_ignore_ascii_case("janus") || crate::agents::slug(name).is_some_and(|s| s == "janus")
+    ["janus", MCP_ROUTER]
+        .iter()
+        .any(|r| name.eq_ignore_ascii_case(r) || crate::agents::slug(name).is_some_and(|s| s == *r))
 }
 
 fn mcp_revision(server: &McpServer) -> String {
@@ -169,6 +230,9 @@ impl App {
     }
 
     fn check_free_name(&self, kind: ItemKind, name: &str, except: Option<&str>) -> Result<()> {
+        if kind == ItemKind::Skill && name == SKILL_ROUTER {
+            bail!("{SKILL_ROUTER} 留给 Janus 的 Skill 路由，请换一个名字");
+        }
         if self.items()?.iter().any(|i| i.kind() == kind && i.name == name && Some(i.id.as_str()) != except) {
             bail!("资源库里已经有叫 {name} 的{}，请换一个名字", kind.label());
         }
@@ -177,7 +241,11 @@ impl App {
 
     /// `base`, else `base-2`, `base-3`…: imports never fail on a name that is taken.
     fn free_name(&self, kind: ItemKind, base: &str) -> Result<String> {
-        let taken: HashSet<String> = self.items()?.into_iter().filter(|i| i.kind() == kind).map(|i| i.name).collect();
+        let mut taken: HashSet<String> =
+            self.items()?.into_iter().filter(|i| i.kind() == kind).map(|i| i.name).collect();
+        if kind == ItemKind::Skill {
+            taken.insert(SKILL_ROUTER.to_string());
+        }
         (1..10_000)
             .map(|n| if n == 1 { base.to_string() } else { format!("{base}-{n}") })
             .find(|n| !taken.contains(n))
@@ -185,7 +253,18 @@ impl App {
     }
 
     fn new_item(&self, name: String, description: String, origin: Origin, revision: String, body: Body) -> Item {
-        Item { id: new_id("i"), name, description, origin, revision, updated_at: now_ms(), body }
+        let reach = Reach::default_for(&body);
+        Item { id: new_id("i"), name, reach, description, origin, revision, updated_at: now_ms(), body }
+    }
+
+    /// Open an item to every digital worker, or keep it for the roles that pick it.
+    pub async fn set_reach(&self, id: &str, reach: Reach) -> Result<Item> {
+        let _guard = self.library.lock.lock().await;
+        let mut item = self.item(id)?;
+        item.reach = reach;
+        item.updated_at = now_ms();
+        self.put_item(&item)?;
+        Ok(item)
     }
 
     /// Remove stored skill trees no item uses any more.
@@ -236,7 +315,7 @@ impl App {
     /// Preview the skills in a selected local folder without copying them.
     pub fn scan_skill_folder(&self, path: &str) -> Result<Value> {
         let root = resolve_skill_folder(path)?;
-        let (offers, warnings) = offers::discover(&root, &root, offers::ScanMode::Skills);
+        let (offers, warnings) = offers::discover(&root, &root);
         if offers.is_empty() && warnings.is_empty() {
             bail!("所选文件夹中没有找到 Skill（SKILL.md）");
         }

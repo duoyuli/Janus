@@ -317,7 +317,7 @@ impl App {
             } else {
                 vec![]
             };
-            let opening = self.opening(run, &member, &conn.capabilities, board, system);
+            let opening = self.opening(run, id, &member, &conn.capabilities, board, system);
             let session = match resume {
                 Some(SessionResume::Interrupted(old)) if conn.capabilities["loadSession"] == true => {
                     match conn.request("session/load", opening.load_params(&old, &workspace)).await {
