@@ -190,13 +190,13 @@ final class AppStore {
     }
 
     var currentWorkspaceId: String {
-        get { UserDefaults.standard.string(forKey: "janus.ws") ?? "" }
+        get { UserDefaults.janus.string(forKey: "janus.ws") ?? "" }
     }
-    func rememberWorkspace(_ id: String) { UserDefaults.standard.set(id, forKey: "janus.ws") }
+    func rememberWorkspace(_ id: String) { UserDefaults.janus.set(id, forKey: "janus.ws") }
 
     /// The settings page's pane: general, Agents, roles, libraries or ACP adapters. The last one opened comes back.
-    var settingsTab: String = UserDefaults.standard.string(forKey: "janus.settingsTab") ?? "general" {
-        didSet { UserDefaults.standard.set(settingsTab, forKey: "janus.settingsTab") }
+    var settingsTab: String = UserDefaults.janus.string(forKey: "janus.settingsTab") ?? "general" {
+        didSet { UserDefaults.janus.set(settingsTab, forKey: "janus.settingsTab") }
     }
     /// The settings page covers the main window; closing it shows the screen underneath again.
     var showingSettings = false

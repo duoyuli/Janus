@@ -80,10 +80,10 @@ enum Inbox {
 final class InboxModel {
     private(set) var all: [InboxEntry] = []
     private(set) var snoozed: [String: Double] = InboxModel.load("janus.inbox.snoozed") {
-        didSet { UserDefaults.standard.set(snoozed, forKey: "janus.inbox.snoozed") }
+        didSet { UserDefaults.janus.set(snoozed, forKey: "janus.inbox.snoozed") }
     }
-    private(set) var settled: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "janus.inbox.settled") ?? []) {
-        didSet { UserDefaults.standard.set(Array(settled), forKey: "janus.inbox.settled") }
+    private(set) var settled: Set<String> = Set(UserDefaults.janus.stringArray(forKey: "janus.inbox.settled") ?? []) {
+        didSet { UserDefaults.janus.set(Array(settled), forKey: "janus.inbox.settled") }
     }
     private(set) var now = Date().timeIntervalSince1970 * 1000
     struct CachedRun {
@@ -181,6 +181,6 @@ final class InboxModel {
     func settle(_ key: String) { settled.insert(key) }
 
     private static func load(_ key: String) -> [String: Double] {
-        (UserDefaults.standard.dictionary(forKey: key) as? [String: Double]) ?? [:]
+        (UserDefaults.janus.dictionary(forKey: key) as? [String: Double]) ?? [:]
     }
 }

@@ -3,9 +3,16 @@ import SwiftUI
 import Testing
 @testable import Janus
 
+/// Whether the login session's screen is locked: the window server then gives windows no display
+/// cycles, and scrolling a real window cannot be checked (an unattended run often has it locked).
+private var screenLocked: Bool {
+    (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+}
+
 /// The lead's conversation in a real window: scrolled up, new replies leave the view where the
 /// person put it; at the bottom, the view follows them.
-@Test @MainActor func aConversationKeepsThePlaceThePersonScrolledTo() async throws {
+@Test(.disabled(if: screenLocked, "屏幕已锁定：窗口没有显示周期，无法检查真实窗口的滚动；解锁后重跑 just test-mac"))
+@MainActor func aConversationKeepsThePlaceThePersonScrolledTo() async throws {
     func reply(_ n: Int) -> Event {
         // Messages to the lead alternate with its replies, so each is its own row. Some replies
         // are much longer, so the lazy list's estimates of rows it has not built are far off.

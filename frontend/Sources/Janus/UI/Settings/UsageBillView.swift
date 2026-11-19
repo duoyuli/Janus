@@ -7,7 +7,7 @@ import SwiftUI
 // @project-doc docs/architecture/20261031-frontend.md#usage_bill
 struct UsageBillView: View {
     let store: AppStore
-    @AppStorage("janus.usagePeriod") private var period: UsagePeriod = .days30
+    @AppStorage("janus.usagePeriod", store: .janus) private var period: UsagePeriod = .days30
     @Local private var bill: UsageBill?
     @Local private var failure: String?
     @Local private var syncing = false

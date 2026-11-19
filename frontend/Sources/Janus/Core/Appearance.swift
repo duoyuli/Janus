@@ -26,11 +26,11 @@ enum Appearance: String, CaseIterable, Identifiable {
     }
 
     static var saved: Appearance {
-        UserDefaults.standard.string(forKey: "janus.appearance").flatMap(Appearance.init(rawValue:)) ?? .system
+        UserDefaults.janus.string(forKey: "janus.appearance").flatMap(Appearance.init(rawValue:)) ?? .system
     }
 
     func apply() {
-        UserDefaults.standard.set(rawValue, forKey: "janus.appearance")
+        UserDefaults.janus.set(rawValue, forKey: "janus.appearance")
         NSApp.appearance = nsAppearance
     }
 }

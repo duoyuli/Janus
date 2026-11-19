@@ -502,7 +502,7 @@ func confirm(
     _ title: String, _ message: String = "", ok: String = L.text("继续"), destructive: Bool = true,
     dontAskAgainFor key: String? = nil
 ) -> Bool {
-    if let key, UserDefaults.standard.bool(forKey: key) { return true }
+    if let key, UserDefaults.janus.bool(forKey: key) { return true }
     let a = NSAlert()
     a.messageText = title
     a.informativeText = message
@@ -517,7 +517,7 @@ func confirm(
     }
     let confirmed = a.runModal() == .alertFirstButtonReturn
     if confirmed, let key, a.suppressionButton?.state == .on {
-        UserDefaults.standard.set(true, forKey: key)
+        UserDefaults.janus.set(true, forKey: key)
     }
     return confirmed
 }

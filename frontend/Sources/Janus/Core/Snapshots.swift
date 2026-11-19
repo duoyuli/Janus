@@ -8,6 +8,7 @@ import SwiftUI
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
 ///     role <id> | agent-edit <id> | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
+///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
 ///     inbox-act <entry>:<action> (clicks a quick answer in the inbox, by position from 0) | density detail|normal|summary | draft <task or agent> <text>
 @MainActor
@@ -72,6 +73,10 @@ enum Snapshots {
             case let id? where !id.isEmpty: r.taskOpen[id] = open
             default: break
             }
+        // Read settings, the library and the run list again, as a fresh launch would: what a test
+        // wrote through the API (instead of the app's own editors) shows up.
+        case "reload":
+            await store.loadSetup(); await store.loadLibrary(); await store.loadRuns()
         case "role": store.editingRole = store.role(arg)
         case "workspace": store.editingWorkspace = store.workspace(arg)
         case "close-sheet":
@@ -84,19 +89,41 @@ enum Snapshots {
         // Look at both appearances without changing the system's.
         case "appearance": NSApp.appearance = arg == "light" ? NSAppearance(named: .aqua) : arg == "dark" ? NSAppearance(named: .darkAqua) : nil
         case "state":
-            // What the inbox and the menu bar show, for checks that a picture cannot make.
-            let entries = { (xs: [InboxEntry]) in JSON.array(xs.map { ["key": JSON($0.key), "title": JSON($0.title), "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle)] }) }
-            let j: JSON = [
+            // What the app shows, for checks that a picture cannot make: the inbox, the menu bar,
+            // the settings it loaded, and what it derived for the open run (the end-to-end test
+            // compares these with the server, docs/operations/20261031-testing.md#product_e2e).
+            let entries = { (xs: [InboxEntry]) in
+                JSON.array(xs.map { ["key": JSON($0.key), "run": JSON($0.run), "kind": JSON($0.kind), "title": JSON($0.title),
+                                     "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle), "actions": JSON($0.actions.map(\.label))] })
+            }
+            let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"]] }) }
+            var j: JSON = [
                 "screen": JSON(String(describing: store.screen)), "settings": JSON(store.showingSettings),
                 "settingsTab": JSON(store.settingsTab), "permissionsReview": JSON(model.permissions.reviewPresented),
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
+                "connections": ids(store.connections), "roles": ids(store.roles), "workspaces": ids(store.workspaces), "runs": ids(store.runs),
             ]
+            if let r = store.run {
+                let s = r.state
+                j["run"] = [
+                    "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "page": JSON(String(describing: r.page)),
+                    "status": JSON(s.run.status.rawValue), "paused": JSON(s.run.paused), "delivered": JSON(s.result != nil),
+                    "accepted": JSON(s.result?.accepted != nil), "events": JSON(s.events.count),
+                    "tasks": JSON.array(s.orderedTasks.map { t in
+                        ["id": JSON(t.id), "status": JSON(t.status.rawValue), "agent": JSON(t.agent), "attempts": JSON(t.attempts.count),
+                         "verdict": JSON(t.verdict?.rawValue), "question": JSON(t.question?.question)]
+                    }),
+                    "inbox": JSON.array(s.inbox.map { ["kind": JSON($0.kind), "key": JSON($0.key), "task": JSON($0.task)] }),
+                    "agents": .object(s.agents.mapValues { JSON($0.phase) }),
+                    "tokens": r.usage.run.tokens.total.map { JSON($0) } ?? .null,
+                ]
+            }
             try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))
         case "doc": ArtifactWindow.open(path: arg, api: store.api)
         case "window": target = arg.isEmpty ? nil : arg
-        case "density": UserDefaults.standard.set(arg, forKey: "janus.chatDensity")
+        case "density": UserDefaults.janus.set(arg, forKey: "janus.chatDensity")
         // Type into a session's composer: `draft <task or agent> <text>`.
         case "draft":
             let p = arg.split(separator: " ", maxSplits: 1).map(String.init)

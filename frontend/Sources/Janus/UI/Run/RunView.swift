@@ -698,7 +698,7 @@ struct RunInspector: View {
             // (W1 U2/A15).
             if run.inspectorTab == nil {
                 run.inspectorTab = RunModel.initialInspectorTab(
-                    saved: UserDefaults.standard.string(forKey: "janus.inspectorTab"),
+                    saved: UserDefaults.janus.string(forKey: "janus.inspectorTab"),
                     hasTasks: !st.orderedTasks.isEmpty)
             }
         }
@@ -707,7 +707,7 @@ struct RunInspector: View {
     /// The tab for this opening; before `onAppear` resolves it, the same rule applies.
     private var tab: String {
         run.inspectorTab ?? RunModel.initialInspectorTab(
-            saved: UserDefaults.standard.string(forKey: "janus.inspectorTab"),
+            saved: UserDefaults.janus.string(forKey: "janus.inspectorTab"),
             hasTasks: !st.orderedTasks.isEmpty)
     }
 
@@ -715,7 +715,7 @@ struct RunInspector: View {
         Binding(get: { tab }, set: { v in
             run.inspectorTab = v
             // A manual choice is the one that outlasts this run.
-            UserDefaults.standard.set(v, forKey: "janus.inspectorTab")
+            UserDefaults.janus.set(v, forKey: "janus.inspectorTab")
         })
     }
 

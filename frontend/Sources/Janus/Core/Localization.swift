@@ -18,7 +18,7 @@ enum AppLanguage: String, CaseIterable {
 
 /// SwiftUI observes the selection through L.text. Background event derivation reads it too.
 @Observable final class LanguageSettings {
-    static let shared = LanguageSettings(defaults: .standard)
+    static let shared = LanguageSettings(defaults: .janus)
     private let defaults: UserDefaults
     private let stored: OSAllocatedUnfairLock<AppLanguage>
     private static let key = "janus.language"

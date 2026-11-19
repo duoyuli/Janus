@@ -55,7 +55,7 @@ struct ChatCard: View {
     /// How much of the agent's work to show: every tool call (`detail`), long runs of them folded
     /// (`normal`), or only what was said, asked and delivered (`summary`). One choice for all
     /// conversations, remembered on this Mac.
-    @AppStorage("janus.chatDensity") private var density = "normal"
+    @AppStorage("janus.chatDensity", store: .janus) private var density = "normal"
     /// Counts the person's messages: sending one brings the conversation to its newest item.
     @Local private var sent = 0
 
