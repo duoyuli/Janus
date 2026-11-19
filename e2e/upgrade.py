@@ -17,7 +17,7 @@ same home. Then it checks what the upgrade promises:
 Nothing in the checkout is touched: sources, builds and homes live in a temporary directory, and
 the servers listen on 127.0.0.1:7979 (never the person's own 7878).
 
-Usage: backend/scripts/upgrade_e2e.py [--from TAG ...] [--keep] [--dump-fixture PATH]
+Usage: e2e/upgrade.py [--from TAG ...] [--keep] [--dump-fixture PATH]
 `--dump-fixture` writes the oldest tag's data (configs and runs, before the upgrade) as SQL for
 `backend/testdata/upgrade/`.
 """
@@ -26,32 +26,18 @@ import argparse
 import json
 import os
 import shutil
-import signal
 import sqlite3
 import subprocess
 import sys
 import tempfile
-import time
-import urllib.error
-import urllib.request
 
-ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
-ADDR = "127.0.0.1:7979"
-FAILS = []
+# Imports from e2e/ must not leave __pycache__ in the checkout (AGENTS.md rule 9).
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from lib import ADDR, ROOT, Checks, Server, http, run, say  # noqa: E402
 
-def say(msg):
-    print(msg, flush=True)
-
-
-def check(ok, what):
-    say(("  ✓ " if ok else "  ✗ ") + what)
-    if not ok:
-        FAILS.append(what)
-
-
-def run(cmd, **kw):
-    return subprocess.run(cmd, check=True, **kw)
+check = Checks("升级")
 
 
 def seeds_in(source):
@@ -70,44 +56,7 @@ def seeds_in(source):
 
 
 def api(method, path, body=None):
-    req = urllib.request.Request(
-        f"http://{ADDR}{path}",
-        data=None if body is None else json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-        method=method,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"{method} {path}: {e.code} {e.read().decode()}") from None
-
-
-class Server:
-    def __init__(self, binary, home, log):
-        self.binary, self.home, self.log = binary, home, log
-        self.proc = None
-
-    def start(self):
-        env = dict(os.environ, JANUS_HOME=self.home, JANUS_ADDR=ADDR)
-        self.proc = subprocess.Popen([self.binary], env=env, stdout=open(self.log, "a"), stderr=subprocess.STDOUT)
-        for _ in range(150):
-            if self.proc.poll() is not None:
-                raise RuntimeError(f"{self.binary} exited ({self.proc.returncode}); see {self.log}")
-            try:
-                return api("GET", "/api/meta")
-            except (OSError, RuntimeError):
-                time.sleep(0.2)
-        raise RuntimeError(f"{self.binary} did not answer on {ADDR}")
-
-    def stop(self):
-        if self.proc and self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGTERM)
-            try:
-                self.proc.wait(10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait()
+    return http(ADDR, method, path, body)
 
 
 def build_old(tag, tmp):
@@ -176,7 +125,7 @@ def insert_old_run(home, version):
 def dump_fixture(home, ws, path):
     db = sqlite3.connect(os.path.join(home, "janus.db"))
     lines = ["-- Data written by an old release (data version 0), for the upgrade tests. Made by",
-             "-- backend/scripts/upgrade_e2e.py --dump-fixture; paths point nowhere on purpose."]
+             "-- e2e/upgrade.py --dump-fixture; paths point nowhere on purpose."]
     for kind, id_, data in db.execute("SELECT kind, id, data FROM configs ORDER BY kind, id"):
         for real, fake in ((home, "/tmp/janus-fixture/home"), (os.path.realpath(ws), "/tmp/janus-fixture/ws"), (ws, "/tmp/janus-fixture/ws")):
             data = data.replace(real, fake)
@@ -315,10 +264,11 @@ def main():
             say(f"保留了临时目录：{tmp}")
         else:
             shutil.rmtree(tmp, ignore_errors=True)
-    say("\n升级端到端测试：" + ("全部通过" if not FAILS else f"{len(FAILS)} 项失败"))
-    for f in FAILS:
+    failed = [what for ok, what in check.items if not ok]
+    say("\n升级端到端测试：" + ("全部通过" if not failed else f"{len(failed)} 项失败"))
+    for f in failed:
         say("  ✗ " + f)
-    sys.exit(1 if FAILS else 0)
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":

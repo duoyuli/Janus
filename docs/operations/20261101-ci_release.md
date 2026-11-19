@@ -30,6 +30,7 @@
 
 ```sh
 # 先在 CHANGELOG.md 最上面写下这一版的「## 2026.11.01」一节
+just e2e --packaged --real   # 打包版和真实 Agent 的端到端验证，见 docs/operations/20261031-testing.md#e2e
 git tag v2026.11.01
 git push origin v2026.11.01
 ```

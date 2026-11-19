@@ -23,7 +23,8 @@ As a goal-mode lead it acknowledges the brief, then works on "/goal …" until F
 exists and ends with the text of that file.
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
-Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
+A session's task and criteria are kept in FAKE_DIR (`session-<id>.json`), so a session loaded after a restart
+continues its task. Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
 script carries across the separate processes of separate attempts.
 """
@@ -102,6 +103,21 @@ def next_outcome(task):
     return steps[min(n, len(steps) - 1)]
 
 
+def remember(sid, task, criteria):
+    """A session's task and criteria, kept in FAKE_DIR: a session loaded by a later process
+    (session/load after a restart) continues the same task without being told it again."""
+    with open(os.path.join(DIR, f"session-{sid}.json"), "w") as f:
+        json.dump({"task": task, "criteria": criteria}, f, ensure_ascii=False)
+
+
+def remembered(sid):
+    try:
+        with open(os.path.join(DIR, f"session-{sid}.json")) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
 def log(line):
     with open(os.path.join(DIR, "calls.log"), "a") as f:
         f.write(line + "\n")
@@ -144,9 +160,17 @@ def wait_cancel(seconds):
             msg = json.loads(line)
             if msg.get("method") == "session/cancel":
                 return True
+            if msg.get("method") == "session/set_config_option" and "id" in msg:
+                # A control switched while the turn runs, as the person can from the session.
+                CONFIG[msg["params"]["configId"]] = msg["params"]["value"]
+                log(f"set {msg['params']['configId']} {json.dumps(msg['params']['value'])}")
+                send({"jsonrpc": "2.0", "id": msg["id"], "result": {"configOptions": config_options()}})
             if msg.get("method") == "_session/steering" and "id" in msg:
                 p = msg["params"]
                 log("steer " + " ".join(b.get("text", "") for b in p["prompt"]).replace("\n", " "))
+                links = [b["name"] for b in p["prompt"] if b.get("type") == "resource_link"]
+                if links:
+                    log("links " + " ".join(links))
                 send({"jsonrpc": "2.0", "id": msg["id"], "result": {"outcome": "injected"}})
     return False
 
@@ -178,11 +202,16 @@ def prompt(msg):
         say(sid, open(go).read())
         return {"stopReason": "end_turn"}
     m = re.search(r"你的子任务 (\S+)：", text)
-    task = m.group(1) if m else TASKS.get(sid, "unknown")
+    known = remembered(sid)
+    task = m.group(1) if m else TASKS.get(sid, known.get("task", "unknown"))
     TASKS[sid] = task
     c = re.search(r"验收标准：\n((?:- .*\n?)+)", text) if m else None
     if c:
         CRITERIA[sid] = [line[2:].strip() for line in c.group(1).splitlines() if line.startswith("- ")]
+    elif sid not in CRITERIA and known.get("criteria"):
+        CRITERIA[sid] = known["criteria"]
+    if m:
+        remember(sid, task, CRITERIA.get(sid, []))
     outcome = next_outcome(task)
     if outcome in ("usage", "usage-quiet", "usage-turns"):
         if outcome == "usage-quiet":

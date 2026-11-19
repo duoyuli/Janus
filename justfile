@@ -20,9 +20,23 @@ dev:
 test:
     cd backend && cargo test
 
+# @project-doc docs/operations/20261031-testing.md#e2e
+# 参数交给产品端到端测试：--packaged 测打包的 Janus.app（发布前），--real 加跑真实 Codex 和 Claude Code（发布前、改了 ACP 或适配器时）
+# 端到端验证，每个需求完成后运行：静态检查、后端和应用测试、产品端到端测试、数据升级测试，一步失败即停止
+e2e *args:
+    just lint
+    just test
+    just test-mac
+    python3 -I e2e/product.py {{args}}
+    python3 -I e2e/upgrade.py
+
+# 产品端到端测试：真实的服务和应用，替身 Agent 跑完每条用户旅程（--only <场景>、--list、--no-app、--keep）
+e2e-product *args:
+    python3 -I e2e/product.py {{args}}
+
 # 数据升级的端到端测试：从最近 3 个发布版本写入数据，再用当前版本升级并逐项核对（可加 --from <标签>）
 e2e-upgrade *args:
-    python3 -I backend/scripts/upgrade_e2e.py {{args}}
+    python3 -I e2e/upgrade.py {{args}}
 
 # 改了存储的数据结构并加了迁移后，更新 backend/testdata/data_shape.json
 data-shape:

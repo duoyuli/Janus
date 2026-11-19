@@ -1,5 +1,5 @@
 -- Data written by Janus 2026.11.18 (data version 0), for the upgrade tests. Made by
--- backend/scripts/upgrade_e2e.py --dump-fixture; paths point nowhere on purpose.
+-- e2e/upgrade.py --dump-fixture; paths point nowhere on purpose.
 INSERT INTO configs (kind, id, data, updated_at) VALUES ('connection', 'claude', '{"id":"claude","kind":"claude","base":"claude","name":"Claude","auth":"apikey","bin":"","prompt":"","env":{},"status":"untested","createdAt":1795009017684}', 1);
 INSERT INTO configs (kind, id, data, updated_at) VALUES ('connection', 'custom', '{"id":"custom","kind":"custom","base":"custom","name":"Fake","auth":"","bin":"","prompt":"","env":{},"status":"untested","createdAt":1795009017695,"command":"python3 fake_acp.py"}', 1);
 INSERT INTO configs (kind, id, data, updated_at) VALUES ('meta', 'seeded', 'true', 1);
