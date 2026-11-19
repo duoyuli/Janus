@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.19.5
+
+- Git 仓库上的每个任务都在自己的 worktree 里进行（放在 Janus 目录的 `worktrees/` 下），同一个仓库上同时跑几个任务也不会互相覆盖，你自己的工作目录不会被改动。worktree 里只有仓库跟踪的文件，加上仓库根目录 `.worktreeinclude` 列出的被忽略文件（例如 `.env`，和 Claude Code、Codex 用同一个文件）；依赖和构建产物由 Agent 在 worktree 里按项目自己的方式准备。
+- 验收时，Janus 把任务的改动提交到 `janus/<任务>` 分支，什么时候合并由你决定；交付页和「团队与权限」页显示结果在哪个分支。提交不运行仓库的 Git 钩子，需要仓库或全局配置了提交身份。
+- 创建任务前会提醒：工作目录里还没提交的改动不会带进任务；不是 Git 仓库的目录上已经有任务在跑时，两个任务会改同一批文件。确认后照常开始。
+- 删除任务时一起删除它的 worktree，还没提交的改动先存成补丁，放在 Janus 目录的 `worktrees/deleted/` 下。
+- 不是 Git 仓库的目录和以前一样，任务直接在目录里修改文件。
+
+- Each task on a Git repository works in its own worktree (under `worktrees/` in the Janus folder), so several tasks on one repository no longer write over each other, and your own working directory is left alone. A worktree holds the tracked files plus the ignored files listed in the repository's `.worktreeinclude` (such as `.env`; the same file Claude Code and Codex use); the agents prepare dependencies and build outputs there the way the project does.
+- When you accept a task, Janus commits its changes to the `janus/<task>` branch, and you decide when to merge it; the delivery and Team & Permissions show which branch holds the result. The commit skips the repository's Git hooks and needs a commit identity configured for the repository or globally.
+- Before a task starts, Janus reminds you that changes not committed in your working directory are not brought along, or, in a directory outside Git, that another task already working there would edit the same files. You can continue anyway.
+- Deleting a task deletes its worktree too; changes never committed are first saved as a patch under `worktrees/deleted/` in the Janus folder.
+- Directories outside Git work as before: tasks edit the directory in place.
+
 ## 2026.11.19.4
 
 - 负责人分工更清楚：目标小到一个人就能做完时，负责人自己做；一旦派出子任务，它就只做管理，不再自己改文件，也不接手做不下去的子任务，改为让原来的人返工、换人，或告诉你缺什么能力。派出后它如果还是改了文件，会在看板上提醒它，负责人的对话里显示一行提醒，交付时列为风险。
