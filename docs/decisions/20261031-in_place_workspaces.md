@@ -1,6 +1,6 @@
 # ADR：任务直接在工作目录中运行
 
-- 状态：已采纳（accepted），记录于 2026-10-30。
+- 状态：Git 仓库的部分已被 [ADR：Git 仓库上的每个任务在自己的 worktree 中运行](20261119-run_worktrees.md) 取代（superseded，2026-11-19）；非 Git 目录仍按本 ADR 直接在工作目录中运行。
 - 相关文档：[Run 生命周期](../domains/20261031-run_lifecycle.md#workspace_model)、[数据模型与存储](../architecture/20261031-data_model.md#artifacts)、[安全边界](../operations/20261031-security.md#workspace_access)。
 
 ## 背景
