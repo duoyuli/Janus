@@ -19,8 +19,11 @@ from lib import ROOT, Failure, Server, git_repo, http, wait
 from scenarios import scenario
 
 ADDR = "127.0.0.1:7981"
+# The goal is small enough for the lead alone, which would then do it itself; this smoke test is
+# about a real lead working with real collaborators, so the goal asks for delegation.
 GOAL = ("给 calc.py 增加 mod(a, b)：返回 a 除以 b 的余数，b 为 0 时抛出 ZeroDivisionError；"
-        "在 test_calc.py 补上对应测试，并运行 python3 -m unittest 确认全部通过。")
+        "在 test_calc.py 补上对应测试，并运行 python3 -m unittest 确认全部通过。"
+        "这是一次团队协作演练：请把实现交给研发协作者，再请质量协作者独立验证，你自己不要改文件。")
 
 
 @scenario("real", serial=True, real=True)
@@ -57,6 +60,7 @@ def real(ctx, c):
         events = api("GET", f"/api/runs/{run}")["events"]
         done = {e.get("task") for e in events if e["type"] == "task.succeeded"}
         c(done, f"协作者完成了任务：{sorted(done)}")
+        c(not any(e["type"] == "lead.edited" for e in events), "负责人派出子任务后没有自己改文件")
         c("def mod" in open(os.path.join(repo, "calc.py")).read(), "calc.py 有 mod 函数")
         tests = subprocess.run([shutil.which("python3") or "python3", "-m", "unittest", "-q"], cwd=repo, capture_output=True, text=True)
         c(tests.returncode == 0, f"工作区的测试通过：{(tests.stderr or tests.stdout).strip().splitlines()[-1:]}")
