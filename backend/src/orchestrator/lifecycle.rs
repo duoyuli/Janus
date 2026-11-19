@@ -560,7 +560,8 @@ impl App {
                 c.kill().await;
             }
         }
-        self.db.delete_run(run_id).map_err(DeleteRefused::Invalid)?;
+        // The directories go before the rows: the row is what lets a second request find the run,
+        // so a directory that could not be removed is removed by trying again.
         for sub in ["artifacts", "logs", "runs"] {
             let path = self.cfg.data_dir.join(sub).join(run_id);
             if let Err(err) = std::fs::remove_dir_all(&path)
@@ -569,7 +570,7 @@ impl App {
                 return Err(DeleteRefused::Invalid(anyhow!("删除 {} 失败：{err}", path.display())));
             }
         }
-        Ok(())
+        self.db.delete_run(run_id).map_err(DeleteRefused::Invalid)
     }
 }
 
@@ -724,6 +725,29 @@ mod delete_tests {
             assert!(!app.cfg.data_dir.join(sub).join("r1").exists(), "{sub}/r1 should be gone");
         }
         assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::NotFound)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A directory that cannot be removed keeps the run, so the same request removes the rest
+    /// once the file system lets it.
+    #[tokio::test]
+    async fn a_delete_that_could_not_remove_a_directory_can_be_repeated() {
+        use std::os::unix::fs::PermissionsExt;
+        let (app, dir) = finished_app("retry");
+        let locked = app.cfg.data_dir.join("logs/r1/locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(locked.join("lead.log"), "x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::Invalid(_))));
+        assert!(app.db.run("r1").unwrap().is_some(), "the run is still there to delete again");
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        app.delete_run("r1").await.unwrap();
+        assert!(app.db.run("r1").unwrap().is_none());
+        for sub in ["artifacts", "logs", "runs"] {
+            assert!(!app.cfg.data_dir.join(sub).join("r1").exists(), "{sub}/r1 should be gone");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
