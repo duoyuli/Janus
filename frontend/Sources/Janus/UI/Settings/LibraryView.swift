@@ -1,13 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// The resource library (Settings › 资源库): skills and MCP servers kept once and picked per role,
-/// and the GitHub sources they can come from. A session gets its role's resources when it starts;
-/// MCP values live only in Janus home and are never shown again.
-// @project-doc docs/domains/20261116-resource_library.md#model
+/// The resource library (Settings › 资源库). Everything in it is for every digital worker by
+/// default, reached through two routers: the Skill router (skills load directly, or through one
+/// `janus-skills` past ten) and the MCP router (`janus-tools`, which runs the command servers on
+/// demand). A server with side effects or credentials can be kept for the workers that pick it.
+/// Skills come from GitHub links (dragged or pasted), folders or the editor; MCP servers are
+/// written or pasted. MCP values live only in Janus home and are never shown again.
+// @project-doc docs/domains/20261116-resource_library.md#reach
 struct LibraryView: View {
     let store: AppStore
-    @Local private var tab = "skill"
     @Local private var query = ""
     @Local private var skillDraft: JSON?
     @Local private var mcpDraft: JSON?
@@ -19,32 +21,28 @@ struct LibraryView: View {
     @Local private var folderPreview: JSON?
     @Local private var folderPicks: Set<String> = []
     @Local private var folderBusy = false
+    @Local private var expanded: Set<String> = []
+    @Local private var showKept = false
+    @Local private var showSources = false
+    @Local private var dropping = false
 
     var body: some View {
-        let items = store.libraryItems
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Picker(L.text("类型"), selection: $tab) {
-                    Text("Skill \(items.filter { $0["kind"].str == "skill" }.count)").tag("skill")
-                    Text("MCP \(items.filter { $0["kind"].str == "mcp" }.count)").tag("mcp")
-                    Text(store.sourceUpdates.isEmpty ? L.text("来源 \(store.librarySources.count)") : L.text("来源 · \(store.sourceUpdates.count) 个有更新")).tag("sources")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 420)
-                Spacer()
-                if tab != "sources" { TextField(L.text("搜索"), text: $query).textFieldStyle(.roundedBorder).frame(width: 180) }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(L.text("资源库里的 Skill 和 MCP 默认给所有数字员工，经两个路由按需取用；有副作用或带凭据的工具可以收口，只给选中它的数字员工。"))
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                TextField(L.text("搜索"), text: $query).textFieldStyle(.roundedBorder).frame(width: 180)
             }
             .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 10)
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 16) {
                     if store.library == nil { ProgressView() }
                     else {
-                        switch tab {
-                        case "mcp": servers
-                        case "sources": sources
-                        default: skills
-                        }
+                        updatesNotice
+                        skillRouter
+                        mcpRouter
+                        kept
                     }
                 }
                 .padding(.horizontal, 20).padding(.bottom, 20)
@@ -60,70 +58,286 @@ struct LibraryView: View {
         .sheet(isPresented: Binding(get: { paste != nil }, set: { if !$0 { paste = nil } })) { pasteSheet }
     }
 
-    private func shown(_ kind: String) -> [JSON] {
+    private func shown(_ kind: String?, reach: String) -> [JSON] {
         let q = query.lowercased()
         return store.libraryItems.filter { i in
-            i["kind"].str == kind && (q.isEmpty || "\(i["name"].str) \(i["description"].str)".lowercased().contains(q))
+            (kind == nil || i["kind"].str == kind) && i["reach"].str == reach
+                && (q.isEmpty || "\(i["name"].str) \(i["description"].str)".lowercased().contains(q))
         }
     }
 
-    // MARK: Skills
-
-    @ViewBuilder private var skills: some View {
-        Text(L.text("Skill 在会话启动时交给 Agent：Claude Code 作为本地插件加载（显示为 janus:<名字>），Codex 作为额外的 Skill 目录读取（显示为 $<名字>）。不写进任何 Agent 的配置。自定义命令的 Agent 没有这样的入口，用不了 Skill。"))
-            .font(.callout).foregroundStyle(.secondary)
-        HStack {
-            Button(L.text("新建 Skill")) { skillDraft = ["name": "", "description": "", "content": ""] }.buttonStyle(.primary)
-            Button(L.text("从文件夹复制…")) { scanFolder() }.disabled(folderBusy)
-            Button(L.text("从 GitHub 导入…")) { tab = "sources" }
-            if folderBusy { ProgressView().controlSize(.small) }
+    /// GitHub sources with new commits, as a notice over the page rather than a tab of its own.
+    @ViewBuilder private var updatesNotice: some View {
+        let n = store.sourceUpdates.count
+        if n > 0 {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Tone.blue.color)
+                Text(L.text("\(n) 个 GitHub 来源有更新")).font(.callout)
+                Spacer()
+                Button(L.text("查看")) { showSources = true }.buttonStyle(.link)
+                Button(L.text("全部更新")) { Task { await store.updateSources() } }.buttonStyle(.primary)
+            }
+            .padding(10)
+            .background(Tone.blue.color.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
         }
-        if let preview = folderPreview {
-            Card {
-                HStack {
-                    Text(preview["path"].str).fontWeight(.semibold).textSelection(.enabled)
-                    Spacer()
-                    Button(L.text("取消")) { folderPreview = nil }.buttonStyle(.link)
+    }
+
+    // MARK: Skill router
+
+    /// Skills for everyone: each loads directly up to `SKILL_ROUTE_OVER`, past it one
+    /// `janus-skills` lists them and the agent reads the one it needs.
+    // @project-doc docs/domains/20261116-resource_library.md#skill_router
+    @ViewBuilder private var skillRouter: some View {
+        let all = store.libraryItems.filter { $0["kind"].str == "skill" && $0["reach"].str == "everyone" }.count
+        router(
+            icon: "sparkles", title: L.text("Skill 路由"), count: all,
+            line: all > Self.skillRouteOver
+                ? L.text("\(all) 个 Skill 合并成一个 janus-skills：提示词里只有一条描述，Agent 用得上时再读对应的 SKILL.md。")
+                : L.text("每个 Skill 直接交给会话（不超过 \(Self.skillRouteOver) 个时）；更多时合并成一个 janus-skills，按需读取。")
+        ) {
+            Button(L.text("从文件夹…")) { scanFolder() }.disabled(folderBusy)
+            Button(L.text("新建")) { skillDraft = ["name": "", "description": "", "content": ""] }
+        } content: {
+            githubLink
+            if folderBusy { ProgressView().controlSize(.small) }
+            if let preview = folderPreview {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(preview["path"].str).fontWeight(.semibold).textSelection(.enabled)
+                        Spacer()
+                        Button(L.text("取消")) { folderPreview = nil }.buttonStyle(.link)
+                    }
+                    offerSelection(preview, imported: importedNames(preview), selection: $folderPicks) { importFolder(preview, $0) }
                 }
-                offerSelection(preview, imported: importedNames(preview), selection: $folderPicks) { paths in
-                    importFolder(preview, paths)
+                .padding(10)
+                .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                .disabled(folderBusy)
+            }
+            sourcesList
+            let list = shown("skill", reach: "everyone")
+            if list.isEmpty {
+                empty(query.isEmpty ? L.text("还没有给所有数字员工的 Skill。拖入 GitHub 链接、从文件夹复制，或新建一个。") : L.text("没有匹配的 Skill"))
+            } else { rows(list) }
+        }
+    }
+
+    /// `SKILL_ROUTE_OVER` in `backend/src/library/deliver.rs`.
+    static let skillRouteOver = 10
+
+    /// The main way a skill arrives: a GitHub link, dropped on the field or pasted into it.
+    private var githubLink: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "link").foregroundStyle(.secondary)
+            TextField(L.text("拖入或粘贴 GitHub 链接：仓库，或其中的一个目录"), text: $link)
+                .textFieldStyle(.plain)
+                .onSubmit(addSource)
+                .disabled(adding)
+            if adding { ProgressView().controlSize(.small); Text(L.text("正在拉取…")).font(.caption).foregroundStyle(.secondary) }
+            else {
+                Button(L.text("查找 Skill")) { addSource() }
+                    .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(dropping ? Color.accent.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(dropping ? Color.accent : Color.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let u = urls.first, !adding else { return false }
+            link = u.absoluteString
+            addSource()
+            return true
+        } isTargeted: { dropping = $0 }
+        .help(L.text("Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。"))
+    }
+
+    /// The GitHub sources skills came from: what each offers, and updating or removing it.
+    @ViewBuilder private var sourcesList: some View {
+        let sources = store.librarySources
+        if !sources.isEmpty {
+            DisclosureGroup(isExpanded: $showSources) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Button(checking ? L.text("正在检查…") : L.text("检查更新")) {
+                            checking = true
+                            Task { await store.checkSources(); checking = false }
+                        }
+                        .disabled(checking)
+                        Spacer()
+                        Text(L.text("服务每 6 小时检查一次")).font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(sources, id: \.self) { source($0) }
+                }
+                .padding(.top, 6)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(L.text("GitHub 来源 \(sources.count)")).font(.callout.weight(.medium))
+                    if !store.sourceUpdates.isEmpty { Pill(L.text("\(store.sourceUpdates.count) 个有更新"), .blue) }
                 }
             }
-            .disabled(folderBusy)
-        }
-        let list = shown("skill")
-        if list.isEmpty { Note(text: store.libraryItems.contains { $0["kind"].str == "skill" } ? L.text("没有匹配的 Skill") : L.text("还没有 Skill。新建一个，或从文件夹、GitHub 导入。")) }
-        else { rows(list) { skillRow($0) } }
-    }
-
-    private func skillRow(_ i: JSON) -> some View {
-        row(i, icon: "sparkles", lines: [i["description"].str, Library.origin(i)]) {
-            if i["origin"]["type"].str == "created" { Button(L.text("编辑")) { edit(i) }.buttonStyle(.link) }
-            if i["origin"]["type"].str == "folder" { Button(L.text("刷新")) { refresh(i) }.buttonStyle(.link).help(L.text("从原文件夹重新复制")) }
         }
     }
 
-    // MARK: MCP servers
+    private func source(_ s: JSON) -> some View {
+        let id = s["id"].str
+        let imported = importedNames(s)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s["url"].str).fontWeight(.semibold).textSelection(.enabled)
+                    Text(L.text("提交 \(String(s["commit"].str.prefix(7))) · \(s["offers"].array.count) 项可导入 · 已导入 \(imported.count) 项")).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if store.updatingSources.contains(id) { ProgressView().controlSize(.small) }
+                else if s["updateAvailable"].truthy { Pill(L.text("有更新"), .blue); Button(L.text("更新")) { Task { await store.updateSources([id]) } } }
+                Button(L.text("删除…")) { removeSource(s) }.buttonStyle(.link)
+            }
+            if s["checkError"].truthy { Note(text: L.text("检查更新失败：\(s["checkError"].str)"), tone: .amber) }
+            offerSelection(s, imported: imported, selection: Binding(get: { picks[id] ?? [] }, set: { picks[id] = $0 })) {
+                importOffers(id, $0)
+            }
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+    }
 
-    @ViewBuilder private var servers: some View {
-        Text(L.text("MCP 服务器在会话启动时放进 session/new 的 mcpServers。环境变量和 HTTP header 的值只保存在 Janus home，设置后不再显示，也不会进入数字员工、数据库或任务记录。"))
-            .font(.callout).foregroundStyle(.secondary)
-        HStack {
-            Button(L.text("添加服务器")) { mcpDraft = ["name": "", "description": "", "transport": "stdio", "command": "", "url": "", "vars": []] }.buttonStyle(.primary)
+    // MARK: MCP router
+
+    /// Servers for everyone: the command ones run behind the run's `janus-tools`, started on their
+    /// first call in the run's working directory; HTTP and SSE ones go to each session directly.
+    // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+    @ViewBuilder private var mcpRouter: some View {
+        let all = store.libraryItems.filter { $0["kind"].str == "mcp" && $0["reach"].str == "everyone" }.count
+        router(
+            icon: "wrench.and.screwdriver", title: L.text("MCP 路由"), count: all,
+            line: L.text("会话只多一个 janus-tools：命令启动的服务器在第一次调用时才在任务的工作目录里启动，同一个任务的数字员工共用。HTTP、SSE 服务器直接交给会话。")
+        ) {
             Button(L.text("粘贴配置…")) { paste = "" }.help(L.text("Claude 的 mcpServers、VS Code 的 servers，或一个带 name 的服务器"))
-            Button(L.text("从 GitHub 导入…")) { tab = "sources" }
+            Button(L.text("添加服务器")) { mcpDraft = ["name": "", "description": "", "transport": "stdio", "command": "", "url": "", "vars": []] }
+        } content: {
+            let list = shown("mcp", reach: "everyone")
+            if list.isEmpty {
+                empty(query.isEmpty ? L.text("还没有给所有数字员工的 MCP 服务器。新添加的服务器先收口，在下面「只给选中的数字员工」里打开开关放开。") : L.text("没有匹配的服务器"))
+            } else { rows(list) }
+            Text(L.text("环境变量和 HTTP header 的值只保存在 Janus home，设置后不再显示，也不会进入数字员工、数据库或任务记录。")).font(.caption).foregroundStyle(.secondary)
         }
-        let list = shown("mcp")
-        if list.isEmpty { Note(text: store.libraryItems.contains { $0["kind"].str == "mcp" } ? L.text("没有匹配的服务器") : L.text("还没有 MCP 服务器。添加一个、粘贴配置，或从 GitHub 导入。")) }
-        else { rows(list) { serverRow($0) } }
     }
 
-    private func serverRow(_ i: JSON) -> some View {
-        let vars = Library.vars(i)
-        let codex = Library.support(i, runtime: "codex")
-        return row(i, icon: "wrench.and.screwdriver", lines: [Library.endpoint(i), i["description"].str, Library.origin(i)], warning: [vars.complete ? "" : vars.text, codex.state == "no" ? codex.why : ""].filter { !$0.isEmpty }.joined(separator: " · "), note: vars.complete ? vars.text : "") {
-            Button(L.text("编辑")) { edit(i) }.buttonStyle(.link)
+    // MARK: Kept
+
+    /// Items kept for the digital workers whose role picks them, folded away until wanted.
+    @ViewBuilder private var kept: some View {
+        let list = shown(nil, reach: "picked")
+        let total = store.libraryItems.filter { $0["reach"].str == "picked" }.count
+        DisclosureGroup(isExpanded: Binding(get: { showKept || (!query.isEmpty && !list.isEmpty) }, set: { showKept = $0 })) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L.text("这些资源只给在「数字员工」里选中它的员工，照常在会话启动时逐个交给 Agent。打开开关就给所有数字员工。")).font(.caption).foregroundStyle(.secondary)
+                if list.isEmpty { empty(total == 0 ? L.text("没有收口的资源") : L.text("没有匹配的资源")) } else { rows(list) }
+            }
+            .padding(.top, 6)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "lock").foregroundStyle(.secondary)
+                Text(L.text("只给选中的数字员工")).font(.headline)
+                Pill("\(total)")
+            }
         }
+    }
+
+    // MARK: Pieces
+
+    private func router(icon: String, title: String, count: Int, line: String, @ViewBuilder actions: () -> some View, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: icon).foregroundStyle(Color.accent)
+                Text(title).font(.display(.title3))
+                Pill(L.text("\(count) 个给所有数字员工"), count > 0 ? .green : .gray)
+                Spacer()
+                actions()
+            }
+            Text(line).font(.callout).foregroundStyle(.secondary)
+            content()
+        }
+        .padding(16)
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
+    }
+
+    private func empty(_ text: String) -> some View {
+        Text(text).font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
+    }
+
+    private func rows(_ list: [JSON]) -> some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Text(L.text("给所有数字员工")).font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10).padding(.bottom, 2)
+            ForEach(list, id: \.self) { i in Divider(); row(i) }
+        }
+    }
+
+    /// One line: name, a line of description, what keeps it from working (amber) and the switch;
+    /// the rest unfolds.
+    private func row(_ i: JSON) -> some View {
+        let id = i["id"].str
+        let open = expanded.contains(id)
+        let mcp = i["kind"].str == "mcp"
+        let warning = Self.warning(i)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button {
+                    if open { expanded.remove(id) } else { expanded.insert(id) }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).rotationEffect(.degrees(open ? 90 : 0))
+                        Image(systemName: mcp ? "wrench.and.screwdriver" : "sparkles").foregroundStyle(.secondary).frame(width: 16)
+                        Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium)).lineLimit(1)
+                        Text(i["description"].truthy ? i["description"].str : mcp ? Library.endpoint(i) : "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer(minLength: 8)
+                        if !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(open ? L.text("收起") : L.text("展开详情"))
+                Toggle(L.text("\(i["name"].str) 给所有数字员工"), isOn: Binding(get: { i["reach"].str == "everyone" }, set: { setReach(i, $0) }))
+                    .toggleStyle(.switch).controlSize(.mini).labelsHidden()
+                    .help(i["reach"].str == "everyone" ? L.text("关掉：只给选中它的数字员工") : L.text("打开：给所有数字员工"))
+            }
+            if open { details(i) }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+    }
+
+    private func details(_ i: JSON) -> some View {
+        let mcp = i["kind"].str == "mcp"
+        let vars = Library.vars(i)
+        let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text,
+                     i["reach"].str == "picked" ? Library.usedBy(i) : ""].filter { !$0.isEmpty }
+        return VStack(alignment: .leading, spacing: 3) {
+            ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            ForEach(Self.unsupported(i), id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color) }
+            HStack(spacing: 12) {
+                if mcp || i["origin"]["type"].str == "created" { Button(L.text("编辑")) { edit(i) }.buttonStyle(.link) }
+                if i["origin"]["type"].str == "folder" { Button(L.text("刷新")) { refresh(i) }.buttonStyle(.link).help(L.text("从原文件夹重新复制")) }
+                Button(L.text("删除")) { remove(i) }.buttonStyle(.link)
+            }
+            .padding(.top, 2)
+        }
+        .padding(.leading, 44)
+    }
+
+    /// What keeps an item from working, in one line: values not filled in, or gone from its source.
+    static func warning(_ i: JSON) -> String {
+        let vars = Library.vars(i)
+        let gone = i["origin"]["type"].str == "git" && !i["source"]["inSource"].truthy
+        return [vars.complete ? "" : vars.text, gone ? L.text("来源中已删除") : ""].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// The runtimes that can't use the item, with why.
+    static func unsupported(_ i: JSON) -> [String] {
+        i["support"].array.filter { $0["support"]["state"].str == "no" }.map { L.catalogText($0["support"]["why"].str) }
     }
 
     private var pasteSheet: some View {
@@ -142,57 +356,6 @@ struct LibraryView: View {
         }
         .padding(18)
         .frame(width: 560)
-    }
-
-    // MARK: Sources
-
-    @ViewBuilder private var sources: some View {
-        Text(L.text("粘贴 GitHub 仓库或其中一个目录的链接，Janus 拉取仓库，列出其中的 Skill（SKILL.md）和 MCP 服务器（mcp.json / .mcp.json），由你选择导入哪些。只读取，不执行仓库中的任何文件。"))
-            .font(.callout).foregroundStyle(.secondary)
-        HStack {
-            TextField(L.text("https://github.com/owner/repo 或 …/tree/main/skills"), text: $link)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(addSource)
-                .disabled(adding)
-            Button(adding ? L.text("正在拉取…") : L.text("添加来源")) { addSource() }
-                .buttonStyle(.primary)
-                .disabled(adding || link.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        if adding { Note(text: L.text("正在克隆仓库并查找 Skill 和 MCP 服务器，较大的仓库可能需要一分钟。")) }
-        if !store.librarySources.isEmpty {
-            HStack {
-                Button(checking ? L.text("正在检查…") : L.text("检查更新")) {
-                    checking = true
-                    Task { await store.checkSources(); checking = false }
-                }
-                .disabled(checking)
-                if store.sourceUpdates.count > 1 { Button(L.text("全部更新")) { Task { await store.updateSources() } } }
-                Spacer()
-                Text(L.text("服务每 6 小时检查一次")).font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        ForEach(store.librarySources, id: \.self) { source($0) }
-    }
-
-    private func source(_ s: JSON) -> some View {
-        let id = s["id"].str
-        let imported = importedNames(s)
-        return Card {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(s["url"].str).fontWeight(.semibold).textSelection(.enabled)
-                    Text(L.text("提交 \(String(s["commit"].str.prefix(7))) · \(s["offers"].array.count) 项可导入 · 已导入 \(imported.count) 项")).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if store.updatingSources.contains(id) { ProgressView().controlSize(.small) }
-                else if s["updateAvailable"].truthy { Pill(L.text("有更新"), .blue); Button(L.text("更新")) { Task { await store.updateSources([id]) } } }
-                Button(L.text("删除…")) { removeSource(s) }.buttonStyle(.link)
-            }
-            if s["checkError"].truthy { Note(text: L.text("检查更新失败：\(s["checkError"].str)"), tone: .amber) }
-            offerSelection(s, imported: imported, selection: Binding(get: { picks[id] ?? [] }, set: { picks[id] = $0 })) {
-                importOffers(id, $0)
-            }
-        }
     }
 
     private func importedNames(_ preview: JSON) -> [String: String] {
@@ -243,7 +406,6 @@ struct LibraryView: View {
     private func offerText(_ o: JSON, extra: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 6) {
-                Image(systemName: o["kind"].str == "skill" ? "sparkles" : "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
                 Text(o["name"].str).fontWeight(.medium)
                 if !extra.isEmpty { Text(extra).font(.caption).foregroundStyle(.secondary) }
             }
@@ -251,38 +413,16 @@ struct LibraryView: View {
         }
     }
 
-    // MARK: Rows
-
-    private func rows(_ list: [JSON], @ViewBuilder _ content: @escaping (JSON) -> some View) -> some View {
-        VStack(spacing: 0) {
-            ForEach(list, id: \.self) { i in content(i); Divider() }
-        }
-        .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
-    }
-
-    private func row(_ i: JSON, icon: String, lines: [String], warning: String = "", note: String = "", @ViewBuilder actions: () -> some View) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 18).padding(.top, 2)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium)).textSelection(.enabled)
-                ForEach(lines.filter { !$0.isEmpty }, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                HStack(spacing: 8) {
-                    Text(Library.usedBy(i)).font(.caption).foregroundStyle(.tertiary)
-                    if !note.isEmpty { Text(note).font(.caption).foregroundStyle(.tertiary) }
-                    if !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(Tone.amber.color) }
-                }
-            }
-            Spacer()
-            HStack(spacing: 10) {
-                actions()
-                Button(L.text("删除")) { remove(i) }.buttonStyle(.link)
-            }
-        }
-        .padding(12)
-    }
-
     // MARK: Actions
+
+    /// Opening a server to everyone lets every digital worker call it, side effects included: ask first.
+    private func setReach(_ i: JSON, _ everyone: Bool) {
+        if everyone && i["kind"].str == "mcp"
+            && !confirm(L.text("把 \(i["name"].str) 给所有数字员工？"), L.text("每个任务的负责人和所有协作者都能调用它的工具，包括写数据、发消息这类有副作用的操作。"), ok: L.text("给所有数字员工")) {
+            return
+        }
+        Task { await store.setReach(i["id"].str, everyone ? "everyone" : "picked") }
+    }
 
     private func edit(_ i: JSON) {
         Task {
@@ -385,8 +525,9 @@ struct LibraryView: View {
                 let s = try await store.api.post("/api/library/sources", ["url": JSON(url)], timeout: 240)
                 link = ""
                 picks[s["id"].str] = Set(s["offers"].array.map { $0["path"].str })
+                showSources = true
                 await store.loadLibrary()
-                store.show(L.text("找到 \(s["offers"].array.count) 项，选择要导入的"))
+                store.show(L.text("找到 \(s["offers"].array.count) 个 Skill，选择要导入的"))
             } catch { store.show(error.localizedDescription) }
         }
     }

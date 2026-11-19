@@ -1,48 +1,69 @@
 import SwiftUI
 
+/// Settings › 数字员工: the Agents the digital workers run on, each card with its login, check and
+/// ACP adapter version, then the digital workers themselves.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+struct WorkersSettingsView: View {
+    let store: AppStore
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                AgentsSection(store: store)
+                RolesSection(store: store)
+            }
+            .padding(20)
+        }
+        .task { await store.loadAdapters() }
+    }
+}
+
 /// Agents: each runs in its own process and config directory, without touching the user's own agents.
-struct AgentsView: View {
+struct AgentsSection: View {
     let store: AppStore
     @Local private var editing: JSON?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Agent").font(.display(.title3))
                     Text(L.text("每个 Agent 在独立的进程和配置目录里运行，不影响你本机的 Agent。")).font(.callout).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(L.text("添加 Agent")) { editing = newDraft(store.connections.isEmpty ? "codex" : "claude") }.buttonStyle(.primary)
                 }
-                if store.connections.isEmpty {
-                    Card(padding: 20) {
-                        Text(L.text("还没有接入 Agent")).font(.display(.title3))
-                        Text(L.text("把你本机已经在用的 Agent 迁移过来，配置和凭据会一并复制。")).foregroundStyle(.secondary)
-                        HStack {
-                            ForEach(["codex", "claude"].compactMap { store.kind($0) }, id: \.self) { k in
-                                Button { editing = newDraft(k["id"].str) } label: {
-                                    HStack {
-                                        Avatar(initials: k["init"].str, color: k["color"].str, size: 28)
-                                        VStack(alignment: .leading) { Text(k["name"].str).fontWeight(.semibold); Text(L.text("复制本机配置")).font(.caption).foregroundStyle(.secondary) }
-                                    }
-                                    .padding(8)
+                Spacer()
+                Button(L.text("添加 Agent")) { editing = newDraft(store.connections.isEmpty ? "codex" : "claude") }
+            }
+            if store.connections.isEmpty {
+                Card(padding: 20) {
+                    Text(L.text("还没有接入 Agent")).font(.display(.title3))
+                    Text(L.text("把你本机已经在用的 Agent 迁移过来，配置和凭据会一并复制。")).foregroundStyle(.secondary)
+                    HStack {
+                        ForEach(["codex", "claude"].compactMap { store.kind($0) }, id: \.self) { k in
+                            Button { editing = newDraft(k["id"].str) } label: {
+                                HStack {
+                                    Avatar(initials: k["init"].str, color: k["color"].str, size: 28)
+                                    VStack(alignment: .leading) { Text(k["name"].str).fontWeight(.semibold); Text(L.text("复制本机配置")).font(.caption).foregroundStyle(.secondary) }
                                 }
-                                .help(L.text("复制本机 \(k["name"].str) 的配置和凭据"))
+                                .padding(8)
                             }
+                            .help(L.text("复制本机 \(k["name"].str) 的配置和凭据"))
                         }
-                        Button(L.text("查看全部类型，包括 API Key、预设和自定义命令")) { editing = newDraft("codex") }.buttonStyle(.link)
                     }
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(store.connections, id: \.self) { c in
-                            ConnectionRow(store: store, c: c) { editing = editDraft(c) } newRole: { store.newRole(connection: c["id"].str) }
-                            Divider()
+                    Button(L.text("查看全部类型，包括 API Key、预设和自定义命令")) { editing = newDraft("codex") }.buttonStyle(.link)
+                }
+            } else {
+                ForEach(store.connections, id: \.self) { c in
+                    VStack(alignment: .leading, spacing: 0) {
+                        ConnectionRow(store: store, c: c) { editing = editDraft(c) } newRole: { store.newRole(connection: c["id"].str) }
+                        if let a = store.adapters["adapters"].array.first(where: { $0["id"].str == c["base"].str }) {
+                            Divider().padding(.horizontal, 12)
+                            AdapterLine(store: store, a: a)
                         }
                     }
                     .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
                 }
             }
-            .padding(20)
         }
         .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             if let d = editing { ConnectionEditor(store: store, draft: d) }
@@ -51,16 +72,12 @@ struct AgentsView: View {
 
     private func newDraft(_ kind: String) -> JSON {
         let k = store.kind(kind)
-        var d: JSON = ["kind": JSON(kind), "auth": k?["auths"][0]["id"] ?? "", "name": k?["name"] ?? "", "api": "openai-completions", "prompt": "", "endpoint": k?["endpoints"][0]["id"] ?? .null]
-        d["envText"] = JSON(Setup.setEnvLines("", Setup.presetEnv(k, nil).object.mapValues { Optional($0.str) }))
-        return d
+        return ["kind": JSON(kind), "auth": k?["auths"][0]["id"] ?? "", "name": k?["name"] ?? "", "api": "openai-completions", "prompt": "", "envText": ""]
     }
 
     private func editDraft(_ c: JSON) -> JSON {
         var d = c
-        var env = Setup.presetEnv(store.kind(c["kind"].str), c["endpoint"].string)
-        for (k, v) in c["env"].object { env[k] = v }
-        d["envText"] = JSON(Setup.envText(env))
+        d["envText"] = JSON(Setup.envText(c["env"]))
         return d
     }
 }
@@ -225,7 +242,7 @@ struct ConnectionEditor: View {
     @Local private var showSource = false
     @Local private var advanced = false
 
-    /// The draft as opened (or last saved), to tell whether Cancel would throw edits away.
+    /// The draft as opened, to tell whether Cancel would throw edits away.
     @Local private var saved: JSON
 
     init(store: AppStore, draft: JSON) {
@@ -265,8 +282,8 @@ struct ConnectionEditor: View {
                 HStack {
                     Spacer()
                     Button(L.text("取消")) { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
-                    Button(L.text("保存并检查")) { save(test: true) }.disabled(saving).help(L.text("保存并检查运行时、凭据、启动、会话和一次真实回复"))
-                    Button(saving ? L.text("正在保存…") : editing ? L.text("保存") : L.text("创建")) { save(test: false) }.buttonStyle(.primary).keyboardShortcut(.defaultAction).disabled(saving)
+                    Button(saving ? L.text("正在保存…") : editing ? L.text("保存") : L.text("创建")) { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction).disabled(saving)
+                        .help(L.text("保存后检查运行时、凭据、启动、会话和一次真实回复，进度显示在 Agent 卡片上"))
                 }
                 .padding(14)
             }
@@ -292,7 +309,7 @@ struct ConnectionEditor: View {
             TextField(L.text("搜索 Agent 类型"), text: $query).textFieldStyle(.roundedBorder).padding(10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach([("builtin", L.text("内置")), ("preset", L.text("预设")), ("custom", L.text("自定义"))], id: \.0) { g in
+                    ForEach([("builtin", L.text("内置")), ("custom", L.text("自定义"))], id: \.0) { g in
                         let q = query.lowercased()
                         let items = store.meta["kinds"].array.filter {
                             $0["group"].str == g.0 && (q.isEmpty
@@ -361,19 +378,6 @@ struct ConnectionEditor: View {
                     }
                 }
             }
-            if k["token"].truthy {
-                let eps = k["endpoints"].array
-                if !eps.isEmpty {
-                    field(L.text("接入点")) {
-                        Picker(L.text("接入点"), selection: Binding(get: { draft["endpoint"].string ?? eps[0]["id"].str }, set: { pickEndpoint($0, k) })) {
-                            ForEach(eps, id: \.self) { e in Text(L.catalogText(e["label"].str)).tag(e["id"].str) }
-                        }
-                        .pickerStyle(.segmented).labelsHidden()
-                    }
-                }
-                inputField(["key": "token", "label": k["token"]["label"], "type": "secret", "required": true, "help": k["token"]["help"]], prev)
-                envField(k)
-            }
             if let prev, !prev["check"].array.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack { Text(L.text("配置检查")).font(.headline); Spacer(); if prev["status"].str != "testing" { Button(L.text("重新检查")) { Task { await store.testConnection(prev["id"].str) } }.buttonStyle(.link) } else { Text(L.text("检查中…")).font(.caption).foregroundStyle(.secondary) } }
@@ -390,7 +394,7 @@ struct ConnectionEditor: View {
                     field(L.text("自定义提示词"), hint: L.text("排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在子任务说明末尾）。")) {
                         TextEditor(text: str("prompt")).font(.body).frame(height: 70).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     }
-                    if !k["token"].truthy { envField(k) }
+                    envField
                 }
                 .padding(.top, 8)
             }
@@ -424,8 +428,8 @@ struct ConnectionEditor: View {
         }
     }
 
-    private func envField(_ k: JSON) -> some View {
-        field(L.text("环境变量"), hint: k["token"].truthy ? L.text("预设的默认值已经填好，可以直接修改；写成 KEY= 表示不设置这个变量。\(k["token"]["envKey"].str) 由上面的 token 填入。") : L.text("写成 KEY= 表示不设置这个变量。")) {
+    private var envField: some View {
+        field(L.text("环境变量"), hint: L.text("写成 KEY= 表示不设置这个变量。")) {
             TextEditor(text: str("envText")).font(.system(.callout, design: .monospaced)).frame(minHeight: 70, maxHeight: 200).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
         }
     }
@@ -449,31 +453,20 @@ struct ConnectionEditor: View {
         }
     }
 
-    /// Switching type swaps one preset's defaults for the other's; the person's own lines stay.
+    /// Switching type keeps the name the person typed, the prompt and the environment lines.
     private func pickType(_ v: String) {
         let k = store.kind(v)
         let oldKind = store.kind(draft["kind"].str)
         let keepName = draft["name"].truthy && draft["name"].str != oldKind?["name"].str
-        var vars: [String: String?] = [:]
-        for key in Setup.presetEnv(oldKind, draft["endpoint"].string).object.keys { vars[key] = .some(nil) }
-        for (key, val) in Setup.presetEnv(k, nil).object { vars[key] = val.str }
-        var d: JSON = ["kind": JSON(v), "auth": k?["auths"][0]["id"] ?? "", "name": keepName ? draft["name"] : (k?["name"] ?? ""), "api": "openai-completions", "prompt": draft["prompt"], "endpoint": k?["endpoints"][0]["id"] ?? .null]
-        d["envText"] = JSON(Setup.setEnvLines(draft["envText"].str, vars))
+        var d: JSON = ["kind": JSON(v), "auth": k?["auths"][0]["id"] ?? "", "name": keepName ? draft["name"] : (k?["name"] ?? ""), "api": "openai-completions", "prompt": draft["prompt"], "envText": draft["envText"]]
         if idTouched { d["newId"] = draft["newId"] }
         draft = d
         preview = nil
         showSource = false
     }
 
-    private func pickEndpoint(_ v: String, _ k: JSON) {
-        var vars: [String: String?] = [:]
-        for key in Setup.endpointEnv(k, draft["endpoint"].string).object.keys { vars[key] = .some(nil) }
-        for (key, val) in Setup.endpointEnv(k, v).object { vars[key] = val.str }
-        draft["envText"] = JSON(Setup.setEnvLines(draft["envText"].str, vars))
-        draft["endpoint"] = JSON(v)
-    }
-
-    private func save(test: Bool) {
+    /// Saving always checks: the editor closes and the card shows the check (or the login) as it runs.
+    private func save() {
         saving = true
         var body = draft
         for (k, v) in secrets where !v.isEmpty { body[k] = JSON(v) }
@@ -482,18 +475,8 @@ struct ConnectionEditor: View {
                 let c = try await store.save("connections", body)
                 let id = c["id"].str
                 let auth = store.kind(c["kind"].str)?["auths"].array.first { $0["id"].str == c["auth"].str && $0["login"].truthy }
-                if test {
-                    var d = store.connection(id) ?? c
-                    var env = Setup.presetEnv(store.kind(c["kind"].str), c["endpoint"].string)
-                    for (k, v) in c["env"].object { env[k] = v }
-                    d["envText"] = JSON(Setup.envText(env))
-                    draft = d
-                    saved = d
-                    secrets = [:]
-                } else {
-                    store.show(L.text("已保存 \(c["name"].str)，正在检查配置"))
-                    dismiss()
-                }
+                store.show(L.text("已保存 \(c["name"].str)，正在检查配置"))
+                dismiss()
                 if auth != nil && store.connection(id)?["loggedIn"].truthy != true { await store.login(id) } else { await store.testConnection(id) }
             } catch { store.show(error.localizedDescription) }
             saving = false

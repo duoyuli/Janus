@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The settings panel (⌘,): a floating card in the middle of the window, a pane each for general preferences (language,
-/// appearance, updates and macOS permissions), ACP adapters, Agents, the resource library, digital employees (roles)
-/// and the usage bill. Clicking the dimmed area or pressing Esc closes it and shows the screen underneath unchanged;
+/// appearance, updates and macOS permissions), digital workers (the Agents they run on, with their ACP adapters, and
+/// the workers), the resource library and the usage bill. Clicking the dimmed area or pressing Esc closes it and shows the screen underneath unchanged;
 /// the last pane opened comes back next time. Language and appearance are local preferences.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct SettingsView: View {
@@ -45,10 +45,8 @@ struct SettingsView: View {
                 .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 10)
             VStack(spacing: 2) {
                 nav("general", L.text("通用"), "gearshape")
-                nav("adapters", "ACP", "shippingbox")
-                nav("agents", "Agent", "cpu")
+                nav("agents", L.text("数字员工"), "person.2")
                 nav("library", L.text("资源库"), "books.vertical", updates: store.sourceUpdates.count)
-                nav("roles", L.text("数字员工"), "person.2")
                 nav("usage", L.text("用量账单"), "list.bullet.rectangle")
             }
             .padding(.horizontal, 8)
@@ -83,11 +81,9 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch store.settingsTab {
-        case "roles": RolesView(store: store)
+        case "agents": WorkersSettingsView(store: store)
         case "library": LibraryView(store: store)
-        case "adapters": AdaptersView(store: store)
         case "usage": UsageBillView(store: store)
-        case "agents": AgentsView(store: store)
         default: GeneralSettingsView(store: store)
         }
     }

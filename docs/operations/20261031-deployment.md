@@ -166,8 +166,8 @@ just install
 | --- | --- |
 | Janus 本身（服务） | 更新仓库代码后执行 `just install`，再执行 `just restart` |
 | Janus 本身（macOS 应用） | 在「设置 → 通用 → 更新」中点「更新到 <版本>」；侧栏底部的「可以更新」和菜单栏 Janus 图标菜单中的「检查更新…」都打开这一节。上一个版本保留在 `~/.janus/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
-| ACP 适配器 | 在「设置 → ACP」中检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
-| Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → Agent」重新检查 |
+| ACP 适配器 | 在「设置 → 数字员工」的 Agent 卡片上检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
+| Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → 数字员工」重新检查 |
 
 数据随版本自动升级：新版本的服务第一次启动时，先把 `janus.db` 备份到 `backups/`，再把表结构、设置对象、Run 快照和默认数字员工升级到这个版本的数据版本，日志 `logs/janus.log` 写明升级了什么和备份位置。不需要单独运行升级脚本；想先看看会改什么，执行 `janus migrate --dry-run`（在副本上执行，不修改数据）。详见[数据升级](../architecture/20261031-data_model.md#migrations)。
 

@@ -54,32 +54,4 @@ enum Setup {
         return "\(k)=\(needsQuote ? String(decoding: JSON(v).data(), as: UTF8.self) : v)"
     }
     static func envText(_ env: JSON) -> String { env.object.sorted { $0.key < $1.key }.map { envLine($0.key, $0.value.str) }.joined(separator: "\n") }
-
-    /// A preset's default variables (fixed, then the chosen endpoint's): where its editable env starts.
-    static func endpointEnv(_ k: JSON?, _ ep: String?) -> JSON {
-        let eps = k?["endpoints"].array ?? []
-        let id = (ep?.isEmpty == false ? ep : nil) ?? eps.first?["id"].str
-        return eps.first { $0["id"].str == id }?["env"] ?? [:]
-    }
-    static func presetEnv(_ k: JSON?, _ ep: String?) -> JSON {
-        var out = k?["fixedEnv"] ?? [:]
-        if out.isNull { out = [:] }
-        for (key, v) in endpointEnv(k, ep).object { out[key] = v }
-        return out
-    }
-
-    /// Sets KEY=… lines in env text, keeping the person's other lines; a nil value drops the key.
-    static func setEnvLines(_ text: String, _ vars: [String: String?]) -> String {
-        var left = vars
-        var lines: [String] = []
-        for l in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
-            let k = l.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: #"^export\s+"#, with: "", options: .regularExpression).split(separator: "=", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-            guard let entry = left[k] else { lines.append(l); continue }
-            left[k] = nil
-            if let v = entry { lines.append(envLine(k, v)) }
-        }
-        let add = left.sorted { $0.key < $1.key }.compactMap { k, v in v.map { envLine(k, $0) } }
-        while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { lines.removeLast() }
-        return (lines + add).joined(separator: "\n").replacingOccurrences(of: #"^\n+"#, with: "", options: .regularExpression)
-    }
 }

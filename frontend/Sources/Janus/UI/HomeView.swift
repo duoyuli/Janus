@@ -327,8 +327,22 @@ struct WorkspaceEditor: View {
             loadedSlots[m["role"].str] = min(8, max(1, m["slots"].int ?? 1))
         }
         slots = loadedSlots
-        on = Set(isNew ? store.roles.filter { $0["connection"].truthy }.map { $0["id"].str } : members)
         lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0["lead"].truthy && Setup.leadCapable(store.connection($0["connection"].str)) }?["id"].str ?? ""
+        on = Set(isNew ? Self.preset(store.roles, lead: lead) : members)
+        if isNew && on.contains(Self.generalist) { slots[Self.generalist] = 3 }
+    }
+
+    /// The general digital worker (`GENERALIST` in `backend/src/agents/roles.rs`): with the library open to every worker,
+    /// one kind of worker run three at a time handles most subtasks.
+    static let generalist = "generalist"
+
+    /// What a new workspace starts with: the lead and three general workers when the general
+    /// worker has an Agent; otherwise every role that has one.
+    // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
+    static func preset(_ roles: [JSON], lead: String) -> [String] {
+        let bound = roles.filter { $0["connection"].truthy }.map { $0["id"].str }
+        guard bound.contains(generalist) else { return bound }
+        return [lead, generalist].filter { !$0.isEmpty }
     }
 
     private func pickFolder() {

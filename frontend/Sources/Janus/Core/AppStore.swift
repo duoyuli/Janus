@@ -106,6 +106,12 @@ final class AppStore {
     }
 
     /// Sources whose remote moved on since the last fetch (the server checks every few hours).
+    /// Opens an item to every digital worker (`everyone`) or keeps it for the roles that pick it (`picked`).
+    func setReach(_ id: String, _ reach: String) async {
+        do { _ = try await api.post("/api/library/items/\(id)/reach", ["reach": JSON(reach)]) } catch { show(error.localizedDescription) }
+        await loadLibrary()
+    }
+
     var sourceUpdates: [JSON] { librarySources.filter { $0["updateAvailable"].truthy } }
 
     /// Sources being fetched, so every screen shows the same progress.

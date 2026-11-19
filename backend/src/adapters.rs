@@ -36,7 +36,7 @@ pub const ADAPTERS: &[AdapterDef] = &[
     AdapterDef { id: "claude", name: "Claude Code", package: "@agentclientprotocol/claude-agent-acp" },
 ];
 
-/// The adapter a runtime needs: presets over Claude Code share Claude's; custom commands need none.
+/// The adapter a runtime needs; custom commands need none.
 pub fn for_base(base: &str) -> Option<&'static AdapterDef> {
     ADAPTERS.iter().find(|a| a.id == base)
 }
@@ -171,7 +171,7 @@ impl App {
     pub fn adapter_entry(&self, id: &str) -> Result<(PathBuf, Arc<VersionPin>)> {
         let d = def(id)?;
         let dir = self.adapter_current(id).ok_or_else(|| {
-            anyhow!("{} 的 ACP 适配器还没有安装：在「设置 → Agents」中运行配置检查会自动安装", d.name)
+            anyhow!("{} 的 ACP 适配器还没有安装：在「设置 → 数字员工」中检查 Agent 会自动安装", d.name)
         })?;
         Ok((entry_in(d, &dir)?, self.adapter_state.pin(dir)))
     }

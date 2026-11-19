@@ -31,5 +31,28 @@ private let docs: JSON = [
     #expect(Library.usedBy(skill) == expectedCopy("还没有数字员工使用", "No digital employees use this resource"))
     let stdio: JSON = ["server": ["transport": "stdio", "command": "npx", "args": ["-y", "gh-mcp"]]]
     #expect(Library.endpoint(stdio) == "stdio · npx -y gh-mcp")
-    #expect(Library.runtime(["base": "claude", "kind": "deepseek-claude"]) == "claude")
+    #expect(Library.runtime(["base": "claude", "kind": "claude"]) == "claude")
+}
+
+/// A row says in one line what keeps an item from working; runtimes that can't use it show when unfolded.
+@Test func libraryRowsWarnInOneLine() {
+    #expect(LibraryView.warning(docs) == expectedCopy("Header 1/2 已设置 · 来源中已删除", "Header: 1 of 2 set · Removed upstream"))
+    #expect(LibraryView.unsupported(docs) == [expectedCopy("Codex 不支持 SSE 传输的 MCP 服务器", "Codex does not support MCP servers that use SSE")])
+    let fine: JSON = ["kind": "skill", "origin": ["type": "created"], "vars": []]
+    #expect(LibraryView.warning(fine).isEmpty && LibraryView.unsupported(fine).isEmpty)
+}
+
+/// A new workspace starts with the lead and the general digital worker once that has an Agent;
+/// before then, with every role that has one.
+@Test func newWorkspacesStartWithTheLeadAndTheGeneralWorker() {
+    let roles: [JSON] = [
+        ["id": "coordinator", "connection": "codex-1", "lead": true],
+        ["id": "generalist", "connection": "claude-1"],
+        ["id": "reviewer", "connection": "claude-1"],
+        ["id": "researcher", "connection": ""],
+    ]
+    #expect(WorkspaceEditor.preset(roles, lead: "coordinator") == ["coordinator", "generalist"])
+    var unbound = roles
+    unbound[1]["connection"] = ""
+    #expect(WorkspaceEditor.preset(unbound, lead: "coordinator") == ["coordinator", "reviewer"])
 }

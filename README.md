@@ -77,8 +77,8 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 ### First run
 
-1. Add an agent under Settings → Agent and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back under Settings → ACP.
-2. Bind digital employees to agents under Settings → Digital Employees, choose a model and permission mode, and turn on “Can Be Lead” for the ones that should lead.
+1. Add an agent under Settings → Digital Employees and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back from the adapter line on the agent's card.
+2. Bind digital employees to agents on the same page, choose a model and permission mode, and turn on “Can Be Lead” for the ones that should lead.
 3. Create a workspace: choose a directory, enable digital employees, and name one bound to Claude Code or Codex as the lead.
 4. Enter a goal on the workspace home page and hand it to the lead.
 

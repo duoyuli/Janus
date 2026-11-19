@@ -240,12 +240,6 @@ private func goalRun() -> Log {
     #expect(MD.blocks("改了： - 甲 - 乙") == [.para("改了："), .list(["甲 - 乙"])])
 }
 
-@Test func envLinesKeepTheUsersOwnLines() {
-    let text = "A=1\nMINE=keep\nB=2"
-    let vars: [String: String?] = ["A": String?.none, "B": "3", "C": "has space"]
-    #expect(Setup.setEnvLines(text, vars) == "MINE=keep\nB=3\nC=\"has space\"")
-}
-
 @Test func planControlsAreHidden() {
     let c: JSON = ["options": ["controls": [
         ["id": "plan-mode", "type": "select", "options": []],

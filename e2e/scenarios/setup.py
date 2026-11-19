@@ -2,7 +2,9 @@
 
 import json
 
-from lib import ADAPTER_PACKAGES, STAND_IN_VERSION, Fake, FAKE_AGENT, git_repo, wait
+import os
+
+from lib import ADAPTER_PACKAGES, ROOT, STAND_IN_VERSION, Fake, FAKE_AGENT, git_repo, wait
 from scenarios import scenario, task, Team
 
 SECRET = "secret-e2e-value-7f3a"
@@ -10,7 +12,7 @@ SECRET = "secret-e2e-value-7f3a"
 
 @scenario("setup", first=True)
 def setup(ctx, c):
-    """首次配置：Agent 检查、默认数字员工、负责人规则、资源库、工作区，再用默认团队跑通一个目标"""
+    """首次配置：Agent 检查、默认数字员工、负责人规则、资源库和两个路由、工作区，再用默认团队跑通一个目标"""
     meta = ctx.api("GET", "/api/meta")
     c(meta["dataDir"] == ctx.home, f"服务使用临时 Janus home（{meta['dataDir']}）")
     c(meta.get("version") and isinstance(meta.get("dataVersion"), int), f"meta 带版本 {meta.get('version')} 和数据版本 {meta.get('dataVersion')}")
@@ -20,9 +22,9 @@ def setup(ctx, c):
 
     setup_ = ctx.api("GET", "/api/setup")
     seeded = {r["id"] for r in setup_["roles"]}
-    c({"coordinator", "researcher", "product-manager", "implementer", "reviewer"} <= seeded, "首次启动写入 5 个默认数字员工")
+    c({"coordinator", "generalist", "researcher", "product-manager", "implementer", "reviewer"} <= seeded, "首次启动写入 6 个默认数字员工，包括通用数字员工")
 
-    # Agents of every built-in kind, checked the way Settings → Agents does.
+    # Agents of every built-in kind, checked the way Settings → Digital Employees does.
     fake = Fake(ctx.path("setup", "fake"))
     env = f"FAKE_DIR={fake.dir}"
     conns = [
@@ -64,6 +66,16 @@ def setup(ctx, c):
     item = next(i for i in lib["items"] if i["id"] == mcp["id"])
     c(item["vars"] == [{"name": "E2E_TOKEN", "set": True}] and SECRET not in json.dumps(lib), "资源库只说 MCP 的值已填写，不返回值")
     c(ctx.api("GET", f"/api/library/items/{skill['id']}")["content"].startswith("---"), "Skill 保存了 SKILL.md 全文")
+    c((skill["reach"], mcp["reach"]) == ("everyone", "picked"), "新 Skill 默认给所有数字员工，新 MCP 默认收口")
+    # A command server opened to everyone: served by each run's MCP router, not handed to sessions.
+    starts = os.path.join(ctx.path("setup"), "route-starts.log")
+    routed = ctx.api("POST", "/api/library/mcp", {"name": "e2e-route", "description": "路由测试", "transport": "stdio",
+                                                  "command": f"{ctx.python} {os.path.join(ROOT, 'backend', 'testdata', 'fake_mcp.py')}",
+                                                  "vars": [{"name": "FAKE_MCP_LOG", "value": starts}]})
+    routed = ctx.api("POST", f"/api/library/items/{routed['id']}/reach", {"reach": "everyone"})
+    c(routed["reach"] == "everyone", "MCP 服务器可以放开给所有数字员工")
+    code, _ = ctx.api_error("POST", f"/api/library/items/{routed['id']}/reach", {"reach": "nobody"})
+    c(code == 400, "给谁用只接受 everyone 和 picked")
 
     # The default team, bound to the agents: PMO leads on Codex, the engineer runs the script.
     roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
@@ -92,6 +104,22 @@ def setup(ctx, c):
     c("[完成] T1" in board and "[完成] V1" in board, "研发完成，质量工程师（Claude 替身）独立验证完成")
     sessions = [line for line in fake.calls().splitlines() if line.startswith("mcp ") and f"/mcp/{run.id}/" in line and '/T1"' in line]
     c(sessions and SECRET in sessions[-1] and "e2e-mcp" in sessions[-1], "角色的 MCP 连同值进入 T1 的 session/new")
+    servers = json.loads(sessions[-1][len("mcp "):])
+    router = next((x for x in servers if x["name"] == "janus-tools"), None)
+    c(router and not any(x["name"] == "e2e-route" for x in servers), "给所有人的命令服务器不直接交给会话，T1 拿到 janus-tools")
+    c(not os.path.exists(starts), "会话开始时路由背后的服务器没有启动")
+    path = "/" + router["url"].split("/", 3)[3]
+    def rpc(method, params, at=path):
+        return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
+    names = [t["name"] for t in rpc("tools/list", {})["tools"]]
+    c("e2e-route__cwd" in names, f"MCP 路由列出服务器的工具：{names}")
+    got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})
+    c(got["content"][0]["text"] == run.cwd(), "路由背后的服务器在 Run 的工作目录（worktree）里启动")
+    lead_path = path.rsplit("/", 2)[0] + "/lead/tools"
+    code = ctx.api_error("POST", lead_path, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]
+    c(code in (401, 403, 404), f"协作者的令牌不能冒充负责人使用路由（{code}）")
+    calls_ = run.has("mcp.routed")
+    c(calls_ and calls_[0]["data"]["tool"] == "e2e-route__cwd" and "arguments" not in calls_[0]["data"], "每次路由调用记一条 mcp.routed，不记参数")
     detail = json.dumps(run.detail(), ensure_ascii=False)
     c(SECRET not in detail and SECRET not in ctx.api("GET", f"/api/runs/{run.id}/export", raw=True)[1].decode(), "Run 记录和导出中没有 MCP 的值")
     c("共享资料：用 Python 3。" in detail, "工作区共享资料进入负责人说明")
@@ -103,7 +131,7 @@ def setup(ctx, c):
                            and "setup" in [w["id"] for w in s["workspaces"]], "应用读到 Agent、数字员工和工作区", "reload", "open home:setup")
         c(True, "应用：设置里的 Agent 状态与服务一致（检查通过）")
         c({"coordinator", "implementer"} <= {r["id"] for r in st["roles"]}, "应用：读到默认数字员工")
-        for tab in ("general", "agents", "roles", "library", "adapters", "usage", "permissions", "updates"):
+        for tab in ("general", "agents", "library", "usage", "permissions", "updates"):
             ctx.app.do(f"open settings:{tab}", f"shot settings-{tab}")
             c(_drawn(ctx, f"settings-{tab}"), f"应用：设置 → {tab} 画出来了")
         ctx.app.do("close-sheet", "role implementer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")

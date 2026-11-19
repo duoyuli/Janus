@@ -1,46 +1,44 @@
 import AppKit
 import SwiftUI
 
-/// Roles: who uses which model, with which instructions and tools.
-struct RolesView: View {
+/// Digital workers: who uses which model, with which instructions and tools.
+struct RolesSection: View {
     let store: AppStore
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(L.text("决定谁用什么模型、带什么指令和工具做事。")).font(.callout).foregroundStyle(.secondary)
-                    Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L.text("数字员工")).font(.display(.title3))
+                    Text(L.text("决定谁用什么 Agent 和模型、带什么指令做事。资源库里给所有数字员工的 Skill 和 MCP 每个员工都有。")).font(.callout).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
+            }
+            if store.okConnections.isEmpty && !store.connections.isEmpty {
+                Note(text: L.text("还没有检查通过的 Agent。可以先编辑数字员工，Agent 检查通过后才能运行。"), tone: .amber)
+            }
+            if store.roles.isEmpty {
+                Card(padding: 20) {
+                    Text(L.text("还没有数字员工")).font(.display(.title3))
+                    Text(L.text("数字员工决定谁做什么。先建一个负责人，再建一个通用数字员工。")).foregroundStyle(.secondary)
                     Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
                 }
-                if store.okConnections.isEmpty {
-                    HStack {
-                        Note(text: L.text("还没有测试通过的 Agent。可以先编辑数字员工，测试通过后才能运行。"), tone: .amber)
-                        Button(L.text("去测试")) { store.openSettings("agents") }
-                    }
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(store.roles, id: \.self) { r in row(r); Divider() }
                 }
-                if store.roles.isEmpty {
-                    Card(padding: 20) {
-                        Text(L.text("还没有数字员工")).font(.display(.title3))
-                        Text(L.text("数字员工决定谁做什么。先建一个负责人，再建几个负责具体工作的成员。")).foregroundStyle(.secondary)
-                        Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(store.roles, id: \.self) { r in row(r); Divider() }
-                    }
-                    .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
-                }
+                .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
             }
-            .padding(20)
         }
     }
 
     private func row(_ r: JSON) -> some View {
         let c = store.connection(r["connection"].str)
         let k = c.flatMap { store.kind($0["kind"].str) }
-        let kinds = r["resources"].strings.compactMap { store.libraryItem($0)?["kind"].str }
+        // Only the kept items it picks: the ones for everyone every worker has.
+        let kinds = r["resources"].strings.compactMap { store.libraryItem($0) }.filter { $0["reach"].str == "picked" }.map { $0["kind"].str }
         let skills = kinds.filter { $0 == "skill" }.count, servers = kinds.filter { $0 == "mcp" }.count
         let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? L.text("提示词") : "", skills == 0 ? "" : "\(skills) Skill", servers == 0 ? "" : "\(servers) MCP"].filter { !$0.isEmpty }
         return Button { store.editingRole = r } label: {
@@ -119,7 +117,7 @@ struct RoleEditor: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(r["id"].truthy ? L.text("编辑数字员工") : L.text("新建数字员工")).font(.display(.title3))
-                    if let line = RolesView.statLine(store.roleStats["roles"][r["id"].str], runs: store.roleStats["runs"].int ?? 0) {
+                    if let line = RolesSection.statLine(store.roleStats["roles"][r["id"].str], runs: store.roleStats["runs"].int ?? 0) {
                         Text(line).font(.caption).foregroundStyle(.secondary).help(L.text("首次通过：第一次尝试就完成，且验证一次通过"))
                     }
                 }
@@ -272,12 +270,13 @@ struct RoleEditor: View {
 
     // MARK: Resources
 
-    /// The library items this role uses, each with what the role's agent can do with it.
+    /// The kept library items this role picks, each with what the role's agent can do with it.
+    /// Items for everyone every worker has already; a pick of one only matters if it is kept again.
     // @project-doc docs/domains/20261116-resource_library.md#roles
     @ViewBuilder private var resources: some View {
         let runtime = Library.runtime(store.connection(r["connection"].str))
-        let chosen = r["resources"].strings
-        section(L.text("资源"), count: chosen.count, action: picking ? nil : (L.text("选择"), { picking = true }))
+        let chosen = r["resources"].strings.filter { store.libraryItem($0).map { $0["reach"].str == "picked" } ?? true }
+        section(L.text("收口的资源"), count: chosen.count, action: picking ? nil : (L.text("选择"), { picking = true }))
         ForEach(chosen, id: \.self) { id in
             if let i = store.libraryItem(id) {
                 mounted(i["kind"].str == "skill" ? "sparkles" : "wrench.and.screwdriver", i["name"].str, detail(i, runtime), warn: warning(i, runtime)) { toggle(id) }
@@ -286,15 +285,16 @@ struct RoleEditor: View {
             }
         }
         if picking { picker(runtime) }
-        Text(L.text("Skill 和 MCP 服务器在设置的「资源库」中添加和管理。会话启动时交给 Agent，不写进它的配置。")).font(.caption).foregroundStyle(.secondary)
+        Text(L.text("资源库里给所有数字员工的 Skill 和 MCP 每个员工都有，不用选。这里只选收口的资源（只给选中它的数字员工），会话启动时交给 Agent，不写进它的配置。")).font(.caption).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private func picker(_ runtime: String) -> some View {
         let q = pickQuery.lowercased()
-        let items = store.libraryItems.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str)".lowercased().contains(q) }
+        let kept = store.libraryItems.filter { $0["reach"].str == "picked" }
+        let items = kept.filter { q.isEmpty || "\($0["name"].str) \($0["description"].str)".lowercased().contains(q) }
         VStack(alignment: .leading, spacing: 8) {
-            if store.libraryItems.isEmpty {
-                Text(L.text("资源库还是空的。在设置的「资源库」中新建 Skill、添加 MCP 服务器，或从 GitHub 导入。")).font(.callout).foregroundStyle(.secondary)
+            if kept.isEmpty {
+                Text(L.text("资源库里没有收口的资源，所有资源每个数字员工都有。在设置的「资源库」中关掉某项的「给所有数字员工」，就能在这里单独选给谁。")).font(.callout).foregroundStyle(.secondary)
             } else {
                 TextField(L.text("搜索资源库"), text: $pickQuery).textFieldStyle(.roundedBorder)
                 ForEach([("skill", "Skill"), ("mcp", "MCP")], id: \.0) { kind, title in
@@ -470,76 +470,50 @@ struct RoleEditor: View {
 }
 
 /// ACP adapters: installed on demand into Janus home, one directory per version.
-struct AdaptersView: View {
+/// A card's ACP adapter line: the version in use, upgrading, checking and switching back. Janus
+/// installs it the first time an Agent that needs it is checked; changing it leaves running
+/// sessions alone.
+struct AdapterLine: View {
     let store: AppStore
+    let a: JSON
 
     var body: some View {
-        let data = store.adapters
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(L.text("第一次检查用到它的 Agent 时自动安装。升级或切回版本不影响正在运行的会话。")).font(.callout).foregroundStyle(.secondary)
-                    Spacer()
-                    if data["dir"].truthy {
-                        Button(L.tilde(data["dir"].str)) { NSWorkspace.shared.open(URL(fileURLWithPath: data["dir"].str)) }.font(.system(.caption, design: .monospaced)).help(L.text("适配器安装目录"))
-                    }
-                }
-                if data.isNull { ProgressView() }
-                VStack(spacing: 0) {
-                    ForEach(data["adapters"].array, id: \.self) { a in row(a); Divider() }
-                }
-                .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
-            }
-            .padding(20)
-        }
-        .task { await store.loadAdapters() }
-    }
-
-    private func row(_ a: JSON) -> some View {
         let job = a["job"]
         let running = job["state"].str == "running"
-        let k = store.kind(a["id"].str)
         let src = a["source"]["kind"].str == "npm" ? "npm · \(a["source"]["package"].str)" : "GitHub · \(a["source"]["repo"].str.replacingOccurrences(of: "https://github.com/", with: ""))"
-        let prev = a["versions"].array.filter { !$0["current"].truthy }
+        let prev = a["versions"].array.first { !$0["current"].truthy }
         let id = a["id"].str
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 12) {
-                Avatar(initials: k?["init"].str ?? "?", color: k?["color"].str ?? "#64748b", size: 30)
-                VStack(alignment: .leading, spacing: 2) { Text(a["name"].str).fontWeight(.semibold); Text(src).font(.caption).foregroundStyle(.secondary) }
-                    .frame(width: 260, alignment: .leading)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(a["current"].truthy ? a["current"].str : "—").font(.system(.body, design: .monospaced))
-                        if running { Pill(job["action"].str == "install" ? L.text("安装中") : L.text("检查中"), .blue) }
-                        else if !a["current"].truthy { Pill(L.text("未安装")) }
-                        else if a["updateAvailable"].truthy { Pill(L.text("有新版本"), .amber) }
-                        else { Pill(L.text("已安装"), .green) }
-                    }
-                    Text(a["latest"].truthy ? L.text("最新 \(a["latest"].str)\(a["checkedAt"].truthy ? L.text(" · \(L.clock(a["checkedAt"].double ?? 0)) 检查") : "")") : L.text("还没有检查更新")).font(.caption).foregroundStyle(.secondary)
-                    if let p = prev.first {
-                        HStack(spacing: 4) {
-                            Text(verbatim: L.text("上一个版本 \(p["version"].str)")).font(.caption).foregroundStyle(.secondary)
-                            Button(L.text("切回")) { Task { await store.adapterAction(id, "use", version: p["version"].str) } }.buttonStyle(.link).font(.caption).disabled(running)
-                        }
-                    }
-                }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "shippingbox").foregroundStyle(.secondary).help(src)
+                Text(L.text("ACP 适配器")).font(.caption).foregroundStyle(.secondary)
+                Text(a["current"].truthy ? a["current"].str : "—").font(.system(.caption, design: .monospaced))
+                if running { Pill(job["action"].str == "install" ? L.text("安装中") : L.text("检查中"), .blue) }
+                else if !a["current"].truthy { Pill(L.text("未安装")) }
+                else if a["updateAvailable"].truthy { Pill(L.text("有新版本"), .amber) }
+                Text(a["latest"].truthy ? L.text("最新 \(a["latest"].str)\(a["checkedAt"].truthy ? L.text(" · \(L.clock(a["checkedAt"].double ?? 0)) 检查") : "")") : L.text("还没有检查更新"))
+                    .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
                 Spacer()
+                if let p = prev {
+                    Button(L.text("切回 \(p["version"].str)")) { Task { await store.adapterAction(id, "use", version: p["version"].str) } }
+                        .buttonStyle(.link).font(.caption).disabled(running)
+                }
                 if !a["current"].truthy {
-                    Button(L.text("安装")) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running)
+                    Button(L.text("安装")) { Task { await store.adapterAction(id, "install") } }.controlSize(.small).disabled(running)
                 } else {
-                    if a["updateAvailable"].truthy { Button(String(L.text("升级到 \(a["latest"].str)"))) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).disabled(running) }
-                    Button(L.text("检查更新")) { Task { await store.adapterAction(id, "check") } }.disabled(running)
+                    if a["updateAvailable"].truthy { Button(String(L.text("升级到 \(a["latest"].str)"))) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).controlSize(.small).disabled(running) }
+                    Button(L.text("检查更新")) { Task { await store.adapterAction(id, "check") } }.controlSize(.small).disabled(running)
                 }
             }
             if running {
-                Text(job["action"].str == "install" ? L.text("正在下载和构建，完成后自动设为当前版本…") : L.text("正在查询最新版本…")).font(.callout).foregroundStyle(.secondary)
+                Text(job["action"].str == "install" ? L.text("正在下载和构建，完成后自动设为当前版本…") : L.text("正在查询最新版本…")).font(.caption).foregroundStyle(.secondary)
                 if a["log"].truthy { CodeBlock(text: a["log"].str, maxHeight: 140) }
             } else if job["state"].str == "error" {
                 Note(text: job["detail"].str, tone: .red)
                 if a["log"].truthy { CodeBlock(text: a["log"].str, maxHeight: 140) }
             }
         }
-        .padding(12)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .help(L.text("第一次检查用到它的 Agent 时自动安装。升级或切回版本不影响正在运行的会话。"))
     }
 }
