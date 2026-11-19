@@ -33,7 +33,7 @@ def failures(ctx, c):
     c(True, "T1 重试成功后，被它阻塞的 T2 自动继续并完成")
     text, err = lead.call("accept", {"task": "T3", "reason": "人工核对过，不影响目标"})
     c(not err and run.has("task.succeeded", task="T3", actor="lead"), "负责人接受没通过验收的 T3，未达到的部分记为风险")
-    text, err = lead.call("cancel", {"tasks": ["T4"], "reason": "改由负责人自己完成"})
+    text, err = lead.call("cancel", {"tasks": ["T4"], "reason": "这部分不做了，写进交付风险"})
     skipped = {e["task"] for e in run.has("task.skipped_by_decision")}
     c(not err and {"T4", "T5"} <= skipped, f"取消 T4，依赖它的 T5 一并取消（{sorted(skipped)}）")
     text, err = lead.call("accept", {"task": "V6", "reason": "就这样吧"})
@@ -61,7 +61,7 @@ def failures(ctx, c):
     c(run.has("task.succeeded", task="V6")[-1]["data"].get("verdict") == "approved", "复审通过，V6 的判定变为 approved")
     run.wait_event("task.failed", task="T7", timeout=60)
     c("vibes" in str(run.has("verification.failed", task="T7")), "不合法的证据方法（vibes）原样记录且核对失败")
-    delivered = run.finish("能做的都做了，T4 改由我处理")
+    delivered = run.finish("能做的都做了，T4 这部分没有做，见风险")
     c(delivered["data"].get("risks") or delivered["data"].get("evidence"), "交付带着风险和证据")
     ctx.ui(c, run.id, lambda r, s: {x["id"]: x["status"] for x in r["tasks"]} == {
         "T1": "succeeded", "T2": "succeeded", "T3": "succeeded", "T4": "skipped_by_decision", "T5": "skipped_by_decision",

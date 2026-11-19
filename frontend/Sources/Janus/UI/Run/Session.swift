@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Event types a session shows.
-let sessionTypes: Set<String> = ["agent.thought", "agent.plan", "session.controls", "session.control", "session.commands", "session.usage", "attempt.started", "session.prompt", "context.handoff", "board.posted", "task.conflict", "agent.message", "user.message", "message.routed", "message.delivered", "tool.call", "tool.started", "tool.completed", "question.asked", "question.answered", "approval.requested", "approval.granted", "approval.denied", "input.requested", "input.answered", "control.taken", "control.released", "session.interrupted", "result.submitted", "attempt.failed"]
+let sessionTypes: Set<String> = ["agent.thought", "agent.plan", "session.controls", "session.control", "session.commands", "session.usage", "attempt.started", "session.prompt", "context.handoff", "board.posted", "task.conflict", "agent.message", "user.message", "message.routed", "message.delivered", "tool.call", "tool.started", "tool.completed", "question.asked", "question.answered", "approval.requested", "approval.granted", "approval.denied", "input.requested", "input.answered", "control.taken", "control.released", "session.interrupted", "result.submitted", "attempt.failed", "lead.edited"]
 
 func isSessionEvent(_ e: Event) -> Bool { sessionTypes.contains(e.type) || (e.type == "agent.status" && e.data["turn"].str == "idle") }
 
@@ -496,6 +496,8 @@ struct ChatItem: View {
             .background(Tone.blue.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         // Goal mode: a collaborator asks the lead, which answers on the board.
         case "question.asked": note(L.text("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : L.text("（\(d["options"].strings.joined(separator: " / "))）")) · 负责人会回答，不需要你处理"), .amber)
+        // The lead edited files after handing out subtasks: it only manages from then on.
+        case "lead.edited": note(L.text("⚠ 派出子任务后改了文件：\(e.data["paths"].strings.joined(separator: L.text("、"))) · 会写进交付风险"), .amber)
         // A handoff with a verdict is a verification's findings (for a rework), not an upstream result.
         case "context.handoff": note(d["verdict"].exists ? L.text("⇄ 独立验证 \(d["from"].string ?? e.text) 的意见已带入本次子任务") : L.text("⇄ 上游子任务 \(d["from"].string ?? e.text) 的结果已带入本次子任务"), nil)
         case "board.posted": note(L.text("\(d["kind"].str == "blocker" ? "⚠" : d["kind"].str == "note" ? "·" : "↗") 协作者写回看板：\(d["text"].string ?? e.text)"), nil)

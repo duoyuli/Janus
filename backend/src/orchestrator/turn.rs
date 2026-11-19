@@ -444,10 +444,15 @@ impl App {
     /// not started yet will read the lead's change when it does (the lead settling a shared
     /// contract before fanning out), so it is not a conflict.
     pub(super) fn record_lead_edits(&self, run: &Run, paths: &[String], seq: i64) {
-        let (shared, owned) = {
+        let (shared, owned, after_plan) = {
             let mut guard = run.st.lock().unwrap();
             let st = &mut *guard;
             st.traces.record_lead(paths, seq);
+            // Once a subtask is on the board the lead only manages: an edit of its own is
+            // reported to it and goes on the delivery as a risk. Janus does not stop it; what the
+            // lead may do is up to its agent's own permission mode.
+            // @project-doc docs/domains/20261031-goal_mode.md#lead_role
+            let after_plan = if st.tasks.is_empty() { vec![] } else { st.traces.record_lead_after_plan(paths) };
             let mut shared: Vec<(String, Vec<String>)> = vec![];
             let mut owned: Vec<(String, Vec<String>)> = vec![];
             for t in st.tasks.iter().filter(|t| t.status == TaskStatus::Running) {
@@ -487,8 +492,16 @@ impl App {
                     }
                 }
             }
-            (shared, owned)
+            (shared, owned, after_plan)
         };
+        if !after_plan.is_empty() {
+            self.emit(
+                run,
+                ev("lead.edited", "janus", format!("负责人派出子任务后改了 {}", short(&after_plan.join("、"), 80)))
+                    .to("lead")
+                    .data(json!({ "paths": after_plan })),
+            );
+        }
         for (other, files) in owned {
             let list = files.join("、");
             self.emit(

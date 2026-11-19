@@ -52,6 +52,9 @@ pub struct Traces {
     last_edit: HashMap<String, (Actor, i64)>,
     /// Reports already made: (kind, actor, other, file).
     reported: HashSet<(Overlap, Actor, Actor, String)>,
+    /// Files the lead edited after it handed out its first subtask (`lead.edited`): from then on
+    /// it only manages, so each is reported once and goes on the delivery as a risk.
+    lead_after_plan: BTreeSet<String>,
 }
 
 impl Traces {
@@ -70,6 +73,16 @@ impl Traces {
         for p in paths {
             self.last_edit.insert(p.clone(), (Actor::Lead, seq));
         }
+    }
+
+    /// The lead edited `paths` after handing out subtasks: the ones not reported before.
+    pub fn record_lead_after_plan(&mut self, paths: &[String]) -> Vec<String> {
+        paths.iter().filter(|p| self.lead_after_plan.insert((*p).clone())).cloned().collect()
+    }
+
+    /// Files the lead edited after handing out subtasks.
+    pub fn lead_after_plan(&self) -> &BTreeSet<String> {
+        &self.lead_after_plan
     }
 
     pub fn files(&self, task: &str) -> BTreeSet<String> {

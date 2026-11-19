@@ -265,7 +265,7 @@ pub fn accept_refused(def: &TaskDef) -> Option<String> {
 /// The part of the lead's brief on how to organise the team.
 pub fn lead_guide() -> &'static str {
     "Organizing the team:
-- Estimate the scope first. Handle work one person can finish in a turn and work with tightly coupled steps yourself. Delegate work that divides cleanly by file, module, or question. Keep parallel work within the available collaborator instances and give each subtask an independently verifiable change.
+- Estimate the scope first. If the whole goal is something one person can finish in a turn, do it yourself without delegating. Otherwise delegate, keeping in mind that you no longer edit files once you do: give work with tightly coupled steps to one subtask instead of splitting it, and divide work cleanly by file, module, or question. Keep parallel work within the available collaborator instances and give each subtask an independently verifiable change.
 - Establish shared contracts first. When parallel modules share data structures, signatures, routes, or event protocols, define those contracts and types in an upstream subtask or implement them yourself before dispatching the parallel work.
 - State what each subtask owns, what it must leave untouched, and what counts as done. Use owns for files or directories relative to the working directory. A directory covers all files below it. Janus rejects overlaps between subtasks that could run at the same time.
 - Collaborators can call janus.claim before editing files outside owns. The board reports claims and out-of-scope edits to files another active subtask owns. If a subtask needs splitting, the collaborator can propose a split with janus.request_split, and you decide whether to revise the plan.

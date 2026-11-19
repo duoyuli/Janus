@@ -624,6 +624,9 @@ impl App {
                     ("tool.call", None) if e.actor == "lead" && !paths.is_empty() => {
                         st.traces.record_lead(&paths, e.seq);
                     }
+                    ("lead.edited", None) => {
+                        st.traces.record_lead_after_plan(&paths);
+                    }
                     ("task.conflict", Some(task)) => {
                         let kind = if d["owned"] == true { Overlap::Owned } else { Overlap::Same };
                         if d["byLead"] == true {

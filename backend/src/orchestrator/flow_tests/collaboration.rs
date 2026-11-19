@@ -978,3 +978,56 @@ async fn continuing_a_task_that_never_had_a_session_says_so() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// Before the lead hands out a subtask it may do the work itself; once one is on the board it only
+/// manages. Janus does not stop an edit (the agent's own permission mode decides) but reports each
+/// file the lead edits after delegating once, on the board, and lists it as a delivery risk. The
+/// board no longer suggests the lead take over a failed subtask.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_lead_only_manages_once_it_delegates() {
+    let h = harness("lead-manages", &[("lead", false), ("m1", true)], json!({ "T1": ["fail", "fail"] }));
+    let run =
+        h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
+    for _ in 0..100 {
+        if h.app.run(&run).is_some_and(|r| !r.st.lock().unwrap().mcp_token.is_empty()) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let r = h.app.run(&run).unwrap();
+    let edit = |paths: &[&str]| {
+        let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
+        let seq = h.app.emit(&r, ev("tool.call", "lead", "Edit").data(json!({ "tool": "edit", "paths": paths })));
+        h.app.record_lead_edits(&r, &paths, seq);
+    };
+    edit(&["small.rs"]);
+    assert!(!has(&events(&h.app, &run), "lead.edited"), "before delegating the lead may do the work itself");
+
+    let (text, err) =
+        tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("T1", "m1", json!({}))] })).await;
+    assert!(!err, "{text}");
+    edit(&["small.rs", "api.rs"]);
+    edit(&["api.rs"]);
+    let edited: Vec<Value> =
+        events(&h.app, &run).into_iter().filter(|e| e.kind == "lead.edited").filter_map(|e| e.data).collect();
+    assert_eq!(edited, vec![json!({ "paths": ["small.rs", "api.rs"] })], "each file once, after delegating");
+
+    wait_until(&h.app, &run, "T1 failed", |e| task_event(e, "task.failed", "T1")).await;
+    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+    assert!(board.contains("[负责人改了文件]") && board.contains("small.rs、api.rs"), "{board}");
+    assert!(board.contains("[失败] T1") && board.contains("不要自己接手") && !board.contains("或自己做"), "{board}");
+
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    assert!(
+        d["risks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x.as_str().unwrap().contains("负责人在派出子任务后自己改了文件：api.rs、small.rs")),
+        "{}",
+        d["risks"]
+    );
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

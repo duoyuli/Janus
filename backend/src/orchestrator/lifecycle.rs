@@ -505,6 +505,13 @@ impl App {
                     risks: r.risks.clone(),
                 });
             }
+            let lead_edits = st.traces.lead_after_plan();
+            if !lead_edits.is_empty() {
+                risks.push(format!(
+                    "负责人在派出子任务后自己改了文件：{}。这些改动没有经过子任务的验收和独立验证",
+                    lead_edits.iter().cloned().collect::<Vec<_>>().join("、")
+                ));
+            }
             if let Some(last) = st.tasks.last()
                 && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report")
             {

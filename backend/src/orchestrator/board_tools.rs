@@ -325,7 +325,12 @@ pub(super) fn needs_lead(e: &Event) -> bool {
     let d = e.data.as_ref();
     let field = |k: &str| d.map(|d| d[k].clone()).unwrap_or_default();
     match e.kind.as_str() {
-        "question.asked" | "task.failed" | "task.blocked" | "task.conflict" | "task.split_requested" => true,
+        "question.asked"
+        | "task.failed"
+        | "task.blocked"
+        | "task.conflict"
+        | "task.split_requested"
+        | "lead.edited" => true,
         "task.stalled" => field("resolved") != true,
         "board.posted" => field("kind") == "blocker",
         // A result that disagrees with the workspace, or an independent verification that rejected/questioned the target.
@@ -362,6 +367,14 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         return Some(format!(
             "- [用户决定] 你交给用户的问题，用户的回答：{}{note}",
             d["answer"].as_str().unwrap_or("")
+        ));
+    }
+    // The lead's own edit after it handed out subtasks: from then on it only manages.
+    if e.kind == "lead.edited" {
+        let paths: Vec<&str> = d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect();
+        return Some(format!(
+            "- [负责人改了文件] 你已经派出了子任务，按约定只做管理、不再改工作目录，这次改了：{}。这些改动没有经过子任务的验收，会写进交付风险。需要改代码时交给对应的子任务：janus.retry 让它返工，或 janus.orchestrate 派新的子任务。",
+            paths.join("、")
         ));
     }
     let task = e.task.as_deref()?;
@@ -504,7 +517,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             verification_output(run, task)
         ),
         "task.failed" => format!(
-            "- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（可改说明）、janus.cancel 取消，或自己做。",
+            "- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（选原会话或新会话，可改说明）；交给别人做时 janus.cancel 后用 janus.orchestrate 重新派；团队里没人能做时 janus.ask_user；不做了就 janus.cancel 并在交付中说明。你已经派出了子任务，不要自己接手。",
             d["error"].as_str().unwrap_or(&e.text)
         ),
         "task.blocked" => match d["verdict"].as_str() {
@@ -571,12 +584,12 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         "approval.requested" | "input.requested" => format!("- [等用户] {task} · {name} 在等用户处理：{}", e.text),
         "task.stalled" if d["resolved"] == true => return None,
         "task.stalled" if d["reason"] == "loop" && d["period"].as_u64().unwrap_or(1) > 1 => format!(
-            "- [停滞] {task}「{title}」· {name} 连续 {} 轮重复调用序列（{}），可能在交替死循环。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消，或自己做。",
+            "- [停滞] {task}「{title}」· {name} 连续 {} 轮重复调用序列（{}），可能在交替死循环。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
             d["repeats"].as_i64().unwrap_or(4),
             short(d["tool"].as_str().unwrap_or(""), 80)
         ),
         "task.stalled" if d["reason"] == "loop" => format!(
-            "- [停滞] {task}「{title}」· {name} 连续 {} 次做同样的调用（{}），可能在原地打转。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消，或自己做。",
+            "- [停滞] {task}「{title}」· {name} 连续 {} 次做同样的调用（{}），可能在原地打转。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
             d["repeats"].as_i64().unwrap_or(LOOP_REPEAT as i64),
             short(d["tool"].as_str().unwrap_or(""), 60)
         ),
