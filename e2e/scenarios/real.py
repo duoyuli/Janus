@@ -70,7 +70,13 @@ def real(ctx, c):
         events = api("GET", f"/api/runs/{run}")["events"]
         done = {e.get("task") for e in events if e["type"] == "task.succeeded"}
         c(done, f"协作者完成了任务：{sorted(done)}")
-        c(not any(e["type"] in ("lead.edited", "lead.routed") for e in events), "负责人派出子任务后没有自己改文件，也没有调用资源库工具")
+        c(not any(e["type"] == "lead.edited" for e in events), "负责人派出子任务后没有自己改文件")
+        # A real lead may still try a library tool after delegating (the goal names one): Janus
+        # does not block it, it puts it in front of the lead and lists it as a delivery risk.
+        lead_tools = [e["data"]["tool"] for e in events if e["type"] == "lead.routed"]
+        risks = " ".join(next((e["data"].get("risks", []) for e in events if e["type"] == "run.delivered"), []))
+        c(all(t in risks for t in lead_tools),
+          f"负责人派出后调用的资源库工具写进了交付风险：{lead_tools or '没有调用'}")
         routed = [e for e in events if e["type"] == "mcp.routed" and (e.get("data") or {}).get("tool") == "probe__echo"]
         c(routed and not routed[0]["data"].get("error"), f"真实的 Claude Code 经 janus-tools 调用了资源库工具：{[e.get('task') for e in routed]}")
         # Both agents list the skills they loaded as commands (Codex `$<name>`, Claude Code
