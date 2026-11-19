@@ -898,3 +898,53 @@ async fn a_rework_survives_a_restart() {
     assert!(at("attempt.started", "V1") > at("task.succeeded", "T0"), "V1 waited for the reworked T0");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// Sending a finished task back does not leave what already took its old result unnoticed: a
+/// running downstream task is told its upstream is being reworked, and the lead's reply names
+/// both it and the downstream task that already finished on the old result. Neither is redone
+/// or stopped: that stays the lead's call.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rework_names_the_tasks_built_on_the_old_result() {
+    let h = harness(
+        "collab-rework-takers",
+        &[("lead", false), ("m1", true), ("m2", true), ("m3", true)],
+        json!({ "T1": ["ok", "ok"], "T2": ["ok"], "T3": ["slow", "ok"] }),
+    );
+    let run = start(
+        &h,
+        json!([
+            task("T1", "m1", json!({})),
+            task("T2", "m2", json!({ "deps": ["T1"] })),
+            task("T3", "m3", json!({ "deps": ["T1"] }))
+        ]),
+    )
+    .await;
+    wait_until(&h.app, &run, "T2 done, T3 running", |e| {
+        task_event(e, "task.succeeded", "T2") && task_event(e, "attempt.started", "T3")
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "continue" })).await;
+    assert!(!err, "{text}");
+    assert!(text.contains("T3 正在基于 T1 的旧结果执行"), "{text}");
+    assert!(text.contains("T2 已经基于 T1 的旧结果完成"), "{text}");
+    wait_until(&h.app, &run, "T1 reworked and T3 done", |e| {
+        task_event(e, "task.succeeded", "T3")
+            && e.iter().filter(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1")).count() == 2
+    })
+    .await;
+    let evs = events(&h.app, &run);
+    assert!(
+        evs.iter().any(|e| e.kind == "user.message"
+            && e.task.as_deref() == Some("T3")
+            && e.data.as_ref().is_some_and(|d| d["text"].as_str().unwrap_or("").contains("上游子任务 T1 正在返工"))),
+        "the running downstream task is told"
+    );
+    assert!(
+        !evs.iter().any(|e| e.kind == "task.reopened" && e.task.as_deref() == Some("T2")),
+        "the finished downstream task is not redone without the lead"
+    );
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

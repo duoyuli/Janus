@@ -3,6 +3,33 @@
 
 use super::*;
 
+/// The tasks that took a finished task's result (they depend on it): the ones running now, with
+/// their session channel, and the ones already finished on it. Changing that result, by
+/// `amend` or by sending the task back with `retry`, leaves them on the old one.
+struct Takers {
+    running: Vec<(String, String, mpsc::UnboundedSender<Steer>)>,
+    done: Vec<String>,
+}
+
+impl Takers {
+    fn of(st: &RunState, task: &str) -> Takers {
+        let downstream: Vec<&Task> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).collect();
+        Takers {
+            running: downstream
+                .iter()
+                .filter_map(|x| {
+                    st.live.get(&SessionKey::task(&x.def.id)).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone()))
+                })
+                .collect(),
+            done: downstream.iter().filter(|x| x.status == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect(),
+        }
+    }
+
+    fn ids(running: &[(String, String, mpsc::UnboundedSender<Steer>)]) -> String {
+        running.iter().map(|r| r.0.as_str()).collect::<Vec<_>>().join("、")
+    }
+}
+
 impl App {
     /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
     pub(super) fn mcp_server(&self, run: &Run, who: &str) -> Value {
@@ -490,17 +517,25 @@ impl App {
                 revived.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join("、")
             ));
         }
-        let checking: Vec<String> = run
-            .st
-            .lock()
-            .unwrap()
-            .tasks
-            .iter()
-            .filter(|v| v.def.verifies.as_deref() == Some(task) && v.status == TaskStatus::Running)
-            .map(|v| v.def.id.clone())
-            .collect();
-        if !checking.is_empty() {
-            reply.push_str(&format!("{} 正在验证旧的结果，不再需要时用 janus.cancel 取消。", checking.join("、")));
+        // What already took the old result: a running one is told the work under it is changing
+        // (it may share files with the rework), a finished one is the lead's to redo or keep.
+        let Takers { running, done } = Takers::of(&run.st.lock().unwrap(), task);
+        self.tell_takers(
+            run,
+            &running,
+            &format!("上游子任务 {task} 正在返工，它的结果和改过的文件可能会变。用到它的地方先读最新内容；需要等它返工完再继续时，用 janus.board_post 写一条 blocker 请负责人协调。"),
+        );
+        if !running.is_empty() {
+            reply.push_str(&format!(
+                "{} 正在基于 {task} 的旧结果执行，已通知它上游在返工；它们可能和返工改同一批文件，不再需要时用 janus.cancel 停下。",
+                Takers::ids(&running)
+            ));
+        }
+        if !done.is_empty() {
+            reply.push_str(&format!(
+                "{} 已经基于 {task} 的旧结果完成，需要的话在 {task} 返工后用 janus.retry 让它们也返工。",
+                done.join("、")
+            ));
         }
         Ok(reply)
     }
@@ -618,6 +653,15 @@ impl App {
         Ok(json!({ "runs": runs.len(), "roles": roles }))
     }
 
+    /// Tell the running tasks that took a result it changed, as a message from the lead into
+    /// their current turn.
+    fn tell_takers(&self, run: &Arc<Run>, running: &[(String, String, mpsc::UnboundedSender<Steer>)], text: &str) {
+        for (id, agent, tx) in running {
+            let msg = self.post_message(run, "lead", agent, id, &format!("{LEAD_REPLY}{text}"), &[]);
+            let _ = tx.send(Steer::Redirect(msg));
+        }
+    }
+
     /// The lead corrects the conclusion of a finished task. Tasks that build on it hear about it:
     /// running ones right away, ones that have not started with their handoff. Finished ones are
     /// named in the reply so the lead can decide whether they need redoing.
@@ -627,7 +671,7 @@ impl App {
         if text.is_empty() {
             return Err("text 不能为空：写明修订后的结论".into());
         }
-        let (running, done) = {
+        let takers = {
             let mut st = run.st.lock().unwrap();
             let Some(t) = Run::task_mut(&mut st, task) else {
                 return Err(format!("看板上没有子任务 {task}"));
@@ -639,40 +683,23 @@ impl App {
                 ));
             }
             t.amendments.push(text.to_string());
-            let downstream: Vec<&Task> = st.tasks.iter().filter(|x| x.def.deps.iter().any(|d| d == task)).collect();
-            let running: Vec<(String, String, mpsc::UnboundedSender<Steer>)> = downstream
-                .iter()
-                .filter_map(|x| {
-                    st.live.get(&SessionKey::task(&x.def.id)).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone()))
-                })
-                .collect();
-            let done: Vec<String> =
-                downstream.iter().filter(|x| x.status == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect();
-            (running, done)
+            Takers::of(&st, task)
         };
+        let Takers { running, done } = takers;
         self.emit(
             run,
             ev("result.amended", "lead", format!("负责人修订 {task} 的结论：{}", short(text, 60)))
                 .task(task)
                 .data(json!({ "text": text })),
         );
-        for (id, agent, tx) in &running {
-            let msg = self.post_message(
-                run,
-                "lead",
-                agent,
-                id,
-                &format!("{LEAD_REPLY}上游子任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"),
-                &[],
-            );
-            let _ = tx.send(Steer::Redirect(msg));
-        }
+        self.tell_takers(
+            run,
+            &running,
+            &format!("上游子任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。"),
+        );
         let mut out = format!("已修订 {task} 的结论。");
         if !running.is_empty() {
-            out.push_str(&format!(
-                "正在执行的 {} 已收到修订。",
-                running.iter().map(|r| r.0.as_str()).collect::<Vec<_>>().join("、")
-            ));
+            out.push_str(&format!("正在执行的 {} 已收到修订。", Takers::ids(&running)));
         }
         if !done.is_empty() {
             out.push_str(&format!("{} 已经基于旧结论完成，需要的话用 janus.retry 重做。", done.join("、")));

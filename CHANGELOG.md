@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.19.3
+
+- 负责人让一个已完成的子任务返工时，会知道哪些子任务已经用了它的旧结果：正在执行的会在会话里收到「上游在返工」的通知，提醒它们用到的文件可能会变；正在执行的和已经完成的都列给负责人，由负责人决定要不要一起返工或停下。修订结论时也是同样的处理。
+
+- When the lead sends a finished subtask back for rework, it now learns which subtasks already used the old result. Running ones get a note in their session that their upstream is being reworked and the files they use may change; both running and finished ones are listed for the lead, who decides whether to rework or stop them too. Amending a conclusion works the same way.
+
 ## 2026.11.19.2
 
 - 独立验证判定没通过时，负责人可以让原来的子任务按验证意见返工，不再为修复另建子任务。返工默认回到这个子任务原来的会话，之前的上下文还在；负责人每次都要选择接着原会话做还是新开会话，一个数字员工可以为不同的子任务保留各自的会话。验证意见原样交给执行者，不经负责人转述。

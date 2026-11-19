@@ -38,4 +38,5 @@
 - `janus.retry` 的参数：`task`、`session`（必填）、`from`、`note`、`instructions`、`accept`；去掉 `continue_session`。看板上「[验证未通过]」的处理建议、`accept` 的拒绝说明和负责人说明改成用 `retry` 返工。
 - `task.reopened` 的 `data.reason` 增加 `target.reworked`（验证任务因被验证的任务返工而复审，`data.target` 是被返工的任务）；`lead.retry` 带 `data.session`，可带 `data.from`、`data.note`，不再有 `data.continueSession`。事件不迁移：旧 Run 中重试后尚未开始的任务，重启后按新会话处理。
 - `attempt.started` 增加 `data.reopen`，记录这次尝试为什么开始（负责人的重试及其会话和 `from`，或复审及其 `target`）。应用在尝试的标题行写明「接着原会话」「按 V1 的意见返工」「T1 返工后复审」等，返工在同一个会话卡片里接着显示。
+- 依赖被返工任务的下游可能已经用了旧结果。Janus 不替负责人重做或停下它们：正在执行的收到「上游在返工」的消息，正在执行的和已经完成的都列在 `retry` 的返回结果中，和 `amend` 修订结论时用同一段逻辑（`Takers`）。
 - 任务状态在服务端用 `Reopen`、`SessionChoice`、`ReopenReason` 三个枚举表达，不读字符串判断。不改表结构，不扩大信任边界。

@@ -6,10 +6,10 @@ from scenarios import scenario, task
 
 @scenario("failures")
 def failures(ctx, c):
-    """失败与处理：重试后下游恢复、没通过验收由负责人接受、取消连带下游、验证者判定不通过不能放行而是回到原会话返工并复审、不合法的证据方法"""
-    t = ctx.team("failures", members=("m1", "m2", "m3", "m4", "m5", "m6", "m7"), script={
+    """失败与处理：重试后下游恢复、没通过验收由负责人接受、取消连带下游、验证者判定不通过不能放行而是回到原会话返工并复审、返工时提醒基于旧结果的下游、不合法的证据方法"""
+    t = ctx.team("failures", members=("m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"), script={
         "T1": ["fail", "fail", "ok"], "T2": ["ok"], "T3": ["unmet", "unmet"], "T4": ["fail", "fail"],
-        "T5": ["ok"], "T6": ["handoff", "ok"], "V6": ["reject", "approve"], "T7": ["badmethod", "badmethod"]})
+        "T5": ["ok"], "T6": ["handoff", "ok"], "V6": ["reject", "approve"], "D6": ["slow", "ok"], "T7": ["badmethod", "badmethod"]})
     m = t.member
     run = t.run("会出问题的目标")
     lead = run.lead()
@@ -17,7 +17,7 @@ def failures(ctx, c):
         task("T1", m("m1")), task("T2", m("m2"), deps=["T1"]),
         task("T3", m("m3")),
         task("T4", m("m4")), task("T5", m("m5"), deps=["T4"]),
-        task("T6", m("m6"), owns=["api.rs"]), task("V6", m("m7"), verifies="T6"),
+        task("T6", m("m6"), owns=["api.rs"]), task("V6", m("m7"), verifies="T6"), task("D6", m("m8"), deps=["T6"]),
         task("T7", m("m3"), deps=["T3"]))
     board = run.read_board(lambda b: all(x in b for x in ("[失败] T1", "[失败] T4", "[没通过验收] T3", "[验证未通过] V6")), timeout=120)
     c("[尝试失败] T1" in board, "第一次失败后自动重试（[尝试失败]）")
@@ -45,6 +45,10 @@ def failures(ctx, c):
     c(err and "session" in text, f"返工时负责人必须选择会话（{text[:40]}）")
     text, err = lead.call("retry", {"task": "T6", "session": "continue", "from": "V6", "note": "空输入按 ParseError 处理"})
     c(not err and "V6 重新验证" in text, f"负责人让 T6 按 V6 的意见在原会话返工（{text[:60]}）")
+    c("D6 正在基于 T6 的旧结果执行" in text, "返工时告诉负责人：D6 正在基于 T6 的旧结果执行")
+    run.wait_event("task.succeeded", task="D6", timeout=60)
+    c(any("上游子任务 T6 正在返工" in e["data"].get("text", "") for e in run.has("user.message", task="D6")),
+      "正在执行的下游 D6 在会话中收到「上游在返工」的通知")
     wait(lambda: len(run.has("task.succeeded", task="V6")) >= 2, "V6 复审 T6 的返工", 60)
     t6 = [e["data"] for e in run.has("attempt.started", task="T6")]
     v6 = [e["data"] for e in run.has("attempt.started", task="V6")]
@@ -61,5 +65,5 @@ def failures(ctx, c):
     c(delivered["data"].get("risks") or delivered["data"].get("evidence"), "交付带着风险和证据")
     ctx.ui(c, run.id, lambda r, s: {x["id"]: x["status"] for x in r["tasks"]} == {
         "T1": "succeeded", "T2": "succeeded", "T3": "succeeded", "T4": "skipped_by_decision", "T5": "skipped_by_decision",
-        "T6": "succeeded", "V6": "succeeded", "T7": "failed"} and next(x for x in r["tasks"] if x["id"] == "V6")["verdict"] == "approved",
+        "T6": "succeeded", "V6": "succeeded", "D6": "succeeded", "T7": "failed"} and next(x for x in r["tasks"] if x["id"] == "V6")["verdict"] == "approved",
         "每个任务的状态与服务一致，V6 复审后显示通过", pages=("board", "fold all open", "task:T3", "task:T6", "task:V6", "team"))
