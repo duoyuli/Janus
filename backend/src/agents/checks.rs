@@ -207,9 +207,10 @@ impl App {
                 let deadline = tokio::time::sleep(Duration::from_secs(120));
                 tokio::pin!(deadline);
                 let run: Result<()> = loop {
+                    // Messages first: the agent's reply arrives before its prompt response, and a
+                    // fast agent has both ready at once; picking the response first lost the reply.
                     tokio::select! {
-                        r = &mut prompt => break r.map(|_| ()),
-                        _ = &mut deadline => break Err(anyhow!("120 秒内没有回复")),
+                        biased;
                         Some(msg) = rx.recv() => match msg {
                             Incoming::Notification { params, .. } => {
                                 let u = &params["update"];
@@ -219,7 +220,9 @@ impl App {
                             }
                             Incoming::Request { id, method, .. } => { let _ = conn.respond(id, crate::orchestrator::cancelled_reply(&method)).await; }
                             Incoming::Closed => break Err(anyhow!("Agent 进程已退出")),
-                        }
+                        },
+                        r = &mut prompt => break r.map(|_| ()),
+                        _ = &mut deadline => break Err(anyhow!("120 秒内没有回复")),
                     }
                 };
                 if let Err(err) = run {
