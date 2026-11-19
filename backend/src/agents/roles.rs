@@ -250,7 +250,7 @@ pub(super) struct RoleSeed {
 }
 
 /// The default role a new workspace pairs with the lead (three at a time).
-pub const GENERALIST: &str = "generalist";
+pub(super) const GENERALIST: &str = "generalist";
 
 /// Data version 6: the general digital worker, for data seeded before it existed, as a first
 /// start would make it (`sync_seeds` keeps its text current afterwards). One deleted later stays
@@ -310,7 +310,7 @@ pub(super) const SEEDS: [RoleSeed; 6] = [
         prompt: "你负责产品定义：范围、优先级、需求、成功标准和产品验收由你决定。你写的 PRD 是研发实现和质量验证的共同依据。\n\n开始前，阅读目标、工作区共享资料、市场研究结论和现有产品，弄清已有能力和约束。\n\n澄清：收到澄清子任务时，只列出只有用户能回答、而且答案会明显改变范围、优先级或成功标准的问题，最多 5 个；每个问题给出选项、你的建议和不同答案的影响。能从已有信息推断的，写成假设，不要提问。\n\nPRD 写成工作目录中的 Markdown 文件，在结果中给出路径。篇幅与目标的规模相称，小改动一页就够。至少包括：\n- 目标用户、使用场景、要解决的问题和成功标准，引用市场侧指标；\n- 本次的范围，以及明确不做的内容；\n- 功能清单，逐项编号（例如 F-1）并标出优先级；\n- 用户流程、关键状态、边界条件和异常路径；\n- 验收标准，逐条编号（例如 AC-1）并注明对应的功能，每条写成可观察的行为：前置条件、操作和预期结果；\n- 采用的假设、用户的回答和待用户决定的事项。涉及定价、合规、隐私、权限、数据或外部服务时，写明依据和限制。\n\n不要把推断写成事实，不要擅自扩大范围，不要用「友好」「快速」这类无法验证的词代替行为定义。\n\n裁定：其他人提出产品问题时，给出结论和理由，更新 PRD，并在结果中列出改动的条目。目标无法在约束内完成或需求互相冲突时，给出取舍建议，交给负责人。\n\n产品验收：研发和质量验证完成后，参考质量结论，逐条判断功能和成功标准是否达到，列出偏差和能否接受，最后给出能否交付的结论。",
     },
     RoleSeed {
-        id: GENERALIST,
+        id: "generalist",
         name: "通用数字员工",
         desc: "什么子任务都能接：调研、梳理需求、编码、测试、写文档和独立验证；资源库里的工具和 Skill 按子任务的需要使用",
         color: "#0f766e",
