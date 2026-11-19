@@ -4,6 +4,30 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.18.8
+
+- 交付后用 `/goal` 推进新目标时，协作者的提问仍交给负责人回答，看板消息也照常推送给负责人；只有负责人空闲、等你的下一条消息时，还没回答的提问才转给你。之前第一个目标完成后，这些提问全部转给你。
+- 同时给已交付或已中断的任务发两条消息时，两条都会送到负责人，只恢复一次会话。之前第二条可能丢失。服务重启后，「从中断处继续」也不会再误报「任务已被另一个 Janus 实例接管」。
+- 回放时会话输入框显示「回放中」并只读，写下的草稿保留。之前在回放中点发送会清空草稿，消息也没有发出去。发送失败的消息会回到输入框。
+- 服务在登录过程中重启后，Agent 卡片不再一直显示「等待登录」，可以重新登录。
+- 配置检查进行中再次点检查，或者检查期间保存了 Agent，旧检查的结果不会再覆盖新的。检查没有完成时提示「检查没有完成」，不再显示没有原因的「检查未通过」。
+- 在连接服务失败后点「重试」，退出 Janus 时仍会提醒还有正在执行的任务。
+- 操作在服务重启时被打断，用同一个请求重试会提示无法确认是否生效，不再当作已成功。
+- 删除任务时某个目录删不掉，排除原因后可以再删一次，不会留下删不掉的残余。
+- 删除 Agent 后，用到它的数字员工的会话设置一并清空。
+- 应用内更新在新版本移入失败时，旧版本完整放回原处并打开。
+
+- After delivery, when a follow-up `/goal` has the lead orchestrate new work, collaborators' questions still go to the lead and board messages are still pushed to it. Only while the lead is idle, waiting for your next message, do unanswered questions come to you. Before, every question came to you once the first goal was done.
+- Two messages sent at once to a delivered or interrupted task both reach the lead, and the session is restored once. Before, the second could be lost. After a restart, Resume Interrupted Run no longer wrongly says another Janus instance took over the task.
+- While replaying, a session's message box shows Replaying and is read-only, and your draft stays. Before, sending during a replay cleared the draft without sending anything. A message that fails to send comes back to the message box.
+- An agent card no longer stays on Waiting for sign-in after the service restarts in the middle of a sign-in; you can sign in again.
+- Checking an agent again while a check runs, or saving the agent during a check, no longer lets the old check's result overwrite the new one. A check that did not finish now says so instead of reporting a failure with no reason.
+- After Retry on a failed service connection, quitting Janus still warns you about tasks in progress.
+- Retrying an action that a service restart cut off now says it cannot tell whether the action took effect, instead of reporting success.
+- When a folder cannot be removed while deleting a task, you can delete it again once the cause is fixed; nothing is left behind.
+- Deleting an agent also clears the session settings of the digital employees that used it.
+- When an in-app update cannot move the new version in, the old version is put back whole and opened.
+
 ## 2026.11.18.7
 
 - 每次打开 Janus 都会显示主窗口。之前只留着菜单栏图标、关掉窗口时退出 Janus，下次打开就只有菜单栏图标，没有窗口。
