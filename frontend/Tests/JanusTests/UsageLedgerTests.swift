@@ -224,6 +224,68 @@ private struct Log {
     #expect(usageUSD(6389.624) == "$6,389.62" && usageUSD(0.004) == "<$0.01" && usageUSD(0) == "$0.00")
 }
 
+/// The run card's wall-clock time counts from `run.created` while a live run is still going, and
+/// freezes at the ledger's recorded value everywhere else: a read-only run, a finished run, and a
+/// clock that reads earlier than the records. Only the run's own time moves.
+@Test func usageDisplayCountsUpOnlyWhileTheRunIsLive() {
+    var log = Log()
+    log.add("run.created", actor: "user", at: 1_000_000, data: ["goal": "g"])
+    log.add("agent.status", actor: "lead", at: 1_001_000, data: ["phase": "thinking", "session": "lead-1"])
+    log.add("attempt.started", to: "m1", task: "T1", attempt: 1, at: 1_001_000, data: ["session": "s1"])
+    log.add("approval.requested", actor: "m1", task: "T1", attempt: 1, at: 1_001_000, data: ["key": "req-1"])
+
+    let running = derive(log.events)
+    #expect(running.run.status == .running)
+    #expect(running.usage.run.durationMs == 1_000, "the ledger still records run.created to the latest event")
+
+    let live = running.usageForDisplay(now: 1_061_000, live: true)
+    #expect(live.run.durationMs == 61_000, "live and unfinished: now minus run.created")
+    #expect(live.runCardLine(tasks: 0, done: 0) == expectedCopy("耗时 1 分 01 秒（墙钟）", "Elapsed: 1 min 01 sec (wall time)"))
+    // Everything but the run's own wall-clock time stays what the events recorded.
+    #expect(live.run.waitMs == running.usage.run.waitMs && live.reminders == running.usage.reminders)
+    #expect(live.tasks.map(\.durationMs) == running.usage.tasks.map(\.durationMs), "task durations stay recorded")
+    #expect(live.attempts.map(\.durationMs) == running.usage.attempts.map(\.durationMs), "attempt durations stay recorded")
+
+    #expect(running.usageForDisplay(now: 1_061_000, live: false).run.durationMs == 1_000, "a read-only run keeps the recorded value")
+    #expect(running.usageForDisplay(now: 1_000_500, live: true).run.durationMs == 1_000, "a clock behind the records does not shrink it")
+
+    var deliveredLog = log
+    deliveredLog.add("run.delivered", actor: "lead", at: 1_002_000, data: ["summary": "完成"])
+    let delivered = derive(deliveredLog.events)
+    #expect(delivered.run.status == .delivered)
+    #expect(delivered.usageForDisplay(now: 1_061_000, live: true).run.durationMs == 2_000, "a finished run freezes at the recorded value")
+}
+
+/// The run card and the snapshot share one displayed ledger and one live judgement: a replayed
+/// position of a still-running prefix keeps that prefix's value and never ticks with the clock.
+@Test @MainActor func usageDisplayKeepsAReplayedPrefixFrozen() {
+    var log = Log()
+    log.add("run.created", actor: "user", at: 1_000_000, data: ["goal": "g"])
+    log.add("agent.status", actor: "lead", at: 1_001_000, data: ["phase": "thinking", "session": "lead-1"])
+    let run = RunModel(id: "usage-display", store: testStore)
+    run.events = log.events
+    run.live = true
+    run.replay = log.events.count
+    #expect(run.shown.run.status == .running)
+    #expect(!run.elapsedTicks, "a replayed position does not ask for a per-second timeline")
+    #expect(run.usageDisplayed(at: 1_061_000).run.durationMs == 1_000, "a replay position uses its prefix's ledger value")
+}
+
+/// The summary line's visible text and its full-digit VoiceOver and hover text are built from the
+/// same displayed ledger (`RunCard.summaryText`), so at one moment they carry the same wall-clock
+/// value; the expanded usage detail keeps the recorded ledger and does not follow the clock.
+@Test func usageDisplayKeepsTheSummaryLineAndItsVoiceInStep() {
+    var log = Log()
+    log.add("run.created", actor: "user", at: 1_000_000, data: ["goal": "g"])
+    log.add("agent.status", actor: "lead", at: 1_001_000, data: ["phase": "thinking", "session": "lead-1"])
+    let running = derive(log.events)
+    let u = running.usageForDisplay(now: 1_061_000, live: true)
+    let elapsed = L.dur(61_000)
+    #expect(u.runCardLine(tasks: 0, done: 0).contains(elapsed), "the visible line counts up")
+    #expect(u.runCardVoice(tasks: 0, done: 0).contains(elapsed), "VoiceOver and the hover tip read the same value")
+    #expect(running.usage.run.durationMs == 1_000, "the expanded detail's recorded ledger does not tick")
+}
+
 /// When `T2` continues `T1`'s ACP session (`continues`), each task keeps its own turn tokens.
 @Test func usageContinuedSessionAttributesEachTasksTurns() {
     var log = Log()

@@ -32,6 +32,17 @@ final class RunModel {
     /// Actions are possible: a live run, not replaying.
     var canAct: Bool { live && replay == nil }
 
+    /// Whether the run card's wall-clock time must advance every second: the server says this run
+    /// is live, it is not a replayed position, and the run is still going. A finished, replayed or
+    /// read-only run shows the ledger's recorded value and does not redraw every second.
+    var elapsedTicks: Bool { canAct && shown.run.status.isActive && shown.run.start > 0 }
+
+    /// The ledger the run card's summary line shows at `now`
+    /// (docs/architecture/20261031-frontend.md#usage_ledger): the card and the snapshot's
+    /// `elapsedMs` ask here, so the number they show and the live judgement cannot drift apart.
+    /// The expanded usage detail keeps the recorded ledger and does not follow the clock.
+    func usageDisplayed(at now: Double) -> UsageLedger { shown.usageForDisplay(now: now, live: canAct) }
+
     var page: RunPage = .board
     // Drafts: answers chosen per request key, notes, form fields, session messages.
     var picks: [String: String] = [:]

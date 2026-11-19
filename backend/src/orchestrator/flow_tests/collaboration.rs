@@ -58,9 +58,9 @@ async fn wait_wakes_immediately_on_board_event_and_reports_live_pulse_on_timeout
         e.iter().any(|e| e.kind == "tool.started" && e.task.as_deref() == Some("T1"))
     })
     .await;
-    // Drain initial `[开始]` entry so cursor sits at the active tool call.
+    // A start alone does not end the wait: it comes back at the timeout, with the live pulse.
     let (first, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(first.contains("[开始] T1"), "{first}");
+    assert!(first.contains("[开始] T1") && first.contains("子任务实时进展"), "{first}");
 
     // Short timeout while `busy-tool` is still in progress returns live pulse instead of blind silence.
     let (pulse, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
@@ -75,6 +75,52 @@ async fn wait_wakes_immediately_on_board_event_and_reports_live_pulse_on_timeout
     assert!(began.elapsed() < Duration::from_secs(10), "took {:?}", began.elapsed());
     assert!(woke.contains("[完成] T1"), "{woke}");
 
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Entries that only inform ride along with the next one the lead has to see: a start does not
+/// cost the lead a turn of its own, a finished task or a question still ends the wait at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn wait_holds_informational_entries_until_something_needs_the_lead() {
+    let h = harness(
+        "collab-wait-hold",
+        &[("lead", false), ("m1", true), ("m2", true)],
+        json!({ "T1": ["busy-tool"], "T2": ["ask", "ok"] }),
+    );
+    let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m2", json!({ "deps": ["T1"] }))])).await;
+    wait_until(&h.app, &run, "T1 started", |e| task_event(e, "attempt.started", "T1")).await;
+
+    let began = tokio::time::Instant::now();
+    let (done, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 120 })).await;
+    assert!(began.elapsed() < Duration::from_secs(10), "took {:?}", began.elapsed());
+    assert!(done.contains("[开始] T1") && done.contains("[完成] T1"), "the start comes with the finish: {done}");
+    assert!(!done.contains("子任务实时进展"), "{done}");
+
+    let began = tokio::time::Instant::now();
+    let (asked, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 120 })).await;
+    assert!(began.elapsed() < Duration::from_secs(10), "took {:?}", began.elapsed());
+    assert!(asked.contains("[提问] T2"), "{asked}");
+    let (text, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T2", "text": "alpha" })).await;
+    assert!(!err, "{text}");
+
+    wait_until(&h.app, &run, "T2 finished", |e| task_event(e, "task.succeeded", "T2")).await;
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Editing one file again and again, or editing and testing in turn, with a different diff or
+/// output each time is work going on, not a loop.
+#[tokio::test(flavor = "multi_thread")]
+async fn steady_edits_of_one_file_are_not_reported_as_a_loop() {
+    let h = harness("collab-steady-edits", &[("lead", false), ("m1", true)], json!({ "T1": ["progress"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 finished", |e| task_event(e, "task.succeeded", "T1")).await;
+    let evs = events(&h.app, &run);
+    assert!(evs.iter().filter(|e| e.kind == "tool.call" && e.task.as_deref() == Some("T1")).count() >= 15);
+    assert!(!evs.iter().any(|e| e.kind == "task.stalled"), "no stall for steady work");
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);

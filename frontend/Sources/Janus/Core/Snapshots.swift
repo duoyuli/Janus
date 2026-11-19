@@ -128,6 +128,10 @@ enum Snapshots {
                     "inbox": JSON.array(s.inbox.map { ["kind": JSON($0.kind), "key": JSON($0.key), "task": JSON($0.task)] }),
                     "agents": .object(s.agents.mapValues { JSON($0.phase) }),
                     "tokens": r.usage.run.tokens.total.map { JSON($0) } ?? .null,
+                    // The run card's wall-clock time right now, from the same displayed ledger and
+                    // live judgement as the view: the end-to-end test checks it advances by the
+                    // second without new events (docs/operations/20261031-testing.md#product_e2e).
+                    "elapsedMs": r.usageDisplayed(at: L.nowMs()).run.durationMs.map { JSON($0) } ?? .null,
                 ]
             }
             try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))

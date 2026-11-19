@@ -54,7 +54,7 @@ pub(super) fn lead_tools() -> Value {
         },
         {
             "name": "wait",
-            "description": "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，以及协作者的提问。有新消息立即返回，否则最多等 timeout_sec 秒（默认 120，最大 180），超时返回运行中子任务的实时进展。",
+            "description": "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，以及协作者的提问。有子任务完成或需要你处理的消息时立即返回，连同之前攒下的开始、进展等消息一起；否则最多等 timeout_sec 秒（默认 120，最大 180），超时返回攒下的消息和运行中子任务的实时进展。",
             "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 180 } } },
             "annotations": board_read()
         },
@@ -301,31 +301,23 @@ pub(super) fn validate_orchestration(
     if errors.is_empty() { Ok(defs) } else { Err(errors) }
 }
 
-/// Events that wake an active `janus.wait` call so the lead never polls in a sleep loop.
+/// Events that wake an active `janus.wait` call to look at the board again, so the lead never
+/// polls in a sleep loop: those that end it (`ends_board_wait`), and a task dropped by a cancel,
+/// which may leave nothing open on the board.
 pub(super) fn wakes_board_wait(e: &Event) -> bool {
-    matches!(
-        e.kind.as_str(),
-        "attempt.started"
-            | "task.succeeded"
-            | "task.conflict"
-            | "task.claimed"
-            | "task.split_requested"
-            | "attempt.failed"
-            | "task.failed"
-            | "task.blocked"
-            | "question.answered"
-            | "board.posted"
-            | "question.asked"
-            | "approval.requested"
-            | "input.requested"
-            | "task.stalled"
-            | "task.skipped_by_decision"
-            | "run.cancelled"
-    )
+    ends_board_wait(e) || e.kind == "task.skipped_by_decision"
 }
 
-/// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
+/// Board events that end an active `janus.wait` at once: what the lead has to act on
+/// (`needs_lead`), a finished task (what comes next may depend on it) and the Run being
+/// cancelled. Entries that only inform (a start, progress, a note, a claim, a failed attempt
+/// that is retried, a wait on the person, the lead's own answer or cancel) are handed over with
+/// the next of these, or when the wait times out, so they cost the lead no turn of their own.
 // @project-doc docs/interfaces/20261031-board_mcp.md#wait
+pub(super) fn ends_board_wait(e: &Event) -> bool {
+    needs_lead(e) || matches!(e.kind.as_str(), "task.succeeded" | "run.cancelled")
+}
+
 /// Board events the lead has to act on, pushed into its session as they come (`push_board`).
 pub(super) fn needs_lead(e: &Event) -> bool {
     let d = e.data.as_ref();
@@ -357,6 +349,8 @@ pub(super) fn inline_list(items: &[String]) -> (String, bool) {
     (text, clipped)
 }
 
+/// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
+// @project-doc docs/interfaces/20261031-board_mcp.md#wait
 pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     let d = e.data.clone().unwrap_or_default();
     // The person's answer to a decision the lead handed them (`ask_user`): addressed to the lead,

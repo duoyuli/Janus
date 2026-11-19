@@ -657,7 +657,7 @@ impl App {
                     let seq = self.emit(run, e);
                     // The lead polls the board on purpose; only its other calls can go in circles.
                     if ctx.task.is_some() || !title.contains("janus") {
-                        self.watch_call(run, &key, &kind, &title, &input);
+                        self.watch_call(run, &key, &entry);
                     }
                     if !edited.is_empty() {
                         match ctx.task {

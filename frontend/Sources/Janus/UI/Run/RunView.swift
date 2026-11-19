@@ -323,23 +323,37 @@ struct RunCard: View {
     }
 
     /// One line of numbers, with the ledger's disclosure at its end when anything was reported
-    /// (W1 F2). The line is one VoiceOver element with full digits; the control is its own.
+    /// (W1 F2). The line is one VoiceOver element with full digits; the control is its own. While
+    /// the run is live and still going, a one-second timeline keeps the wall-clock time counting;
+    /// a finished, replayed or read-only run is drawn once with the ledger's value.
     private var summaryRow: some View {
-        let u = st.usage
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if run.elapsedTicks {
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    summaryText(now: ctx.date.timeIntervalSince1970 * 1000)
+                }
+            } else {
+                summaryText(now: L.nowMs())
+            }
+            Spacer(minLength: 4)
+            if st.usage.showsLedgerControl(open: run.usageOpen) { usageToggle }
+        }
+    }
+
+    /// The summary line at `now`: the visible text and the full-digit VoiceOver and hover text come
+    /// from the same displayed ledger, so they never disagree.
+    private func summaryText(now: Double) -> some View {
+        let u = run.usageDisplayed(at: now)
         let tasks = st.order.count
         let done = st.orderedTasks.filter { $0.status == .succeeded }.count
         let voice = u.runCardVoice(tasks: tasks, done: done)
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(verbatim: u.runCardLine(tasks: tasks, done: done))
-                .font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-                .help(voice)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(voice)
-            Spacer(minLength: 4)
-            if u.showsLedgerControl(open: run.usageOpen) { usageToggle }
-        }
+        return Text(verbatim: u.runCardLine(tasks: tasks, done: done))
+            .font(.callout).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            .help(voice)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(voice)
     }
 
     /// A disclosure, not a link: it opens the ledger inside this card.

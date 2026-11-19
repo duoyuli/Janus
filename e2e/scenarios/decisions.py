@@ -1,6 +1,8 @@
 """Decisions that reach the person: approvals, forms, the lead's questions, and questions left behind."""
 
-from lib import wait
+import time
+
+from lib import Failure, drawn, wait
 from scenarios import scenario, task
 
 
@@ -21,6 +23,21 @@ def decisions(ctx, c):
     c(run.status() == "running", "等待用户时 Run 仍在执行")
 
     if ctx.app:
+        # T1's approval and T2's form keep the run waiting on the person, and the scripted agents
+        # write no events meanwhile: a card that only counted events would stand still here. This
+        # runs before the inbox state below is captured, so the approval click is not delayed.
+        opened = ctx.app.until(lambda s: (s.get("run") or {}).get("id") == run.id and s["run"]["loaded"],
+                               "应用打开这个 Run", f"open run:{run.id}")
+        first = opened["run"]
+        time.sleep(3)
+        second = ctx.app.do(f"open run:{run.id}", "page board", f"shot {run.id}-elapsed")["run"]
+        c(first["live"] and second["live"] and first["status"] == second["status"] == "running",
+          "按秒推进：等待用户时两次读取都是实时、执行中的 Run")
+        c(first["events"] == second["events"],
+          f"两次读取之间没有新事件（{first['events']} 条），耗时仍在推进")
+        a, b = first.get("elapsedMs"), second.get("elapsedMs")
+        c(a is not None and b is not None and b - a >= 2000, f"应用：没有新事件时，运行卡片的耗时仍按秒推进（{a} → {b} ms）")
+        c(drawn(ctx.app.picture(f"{run.id}-elapsed")), f"应用：运行卡片画出来了（{run.id}-elapsed.png）")
         st = ctx.app.until(lambda s: len([e for e in s["open"] if e["run"] == run.id]) >= 3, "收件箱列出三个等用户处理的事项",
                            "open inbox", timeout=60)
         mine = [e for e in st["open"] if e["run"] == run.id]
@@ -28,9 +45,14 @@ def decisions(ctx, c):
         ctx.app.do("open inbox", "shot inbox")
         blocking = [e for e in mine if not e["canWait"]]
         c(len(blocking) >= 2, "会卡住 Agent 的审批和表单不能推迟")
-        # Approve in the app, through the same code as a click on the inbox's quick answer.
-        i = st["open"].index(next(e for e in st["open"] if e["run"] == run.id and e["kind"] == "approval"))
-        c(True, f"应用：审批的就地按钮 {st['open'][i]['actions']}")
+        # Approve in the app, through the same code as a click on the inbox's quick answer. The
+        # inbox lists every run's items newest first and the parallel scenarios deliver meanwhile,
+        # so the index is read again right before the click instead of reusing the earlier `st`.
+        fresh = ctx.app.do("open inbox")
+        i = next((k for k, e in enumerate(fresh["open"]) if e["run"] == run.id and e["kind"] == "approval"), None)
+        if i is None:
+            raise Failure(f"收件箱里找不到这个 Run 的审批事项：{[e['kind'] for e in fresh['open'] if e['run'] == run.id]}")
+        c(True, f"应用：审批的就地按钮 {fresh['open'][i]['actions']}")
         ctx.app.do(f"inbox-act {i}:0")
         granted = run.wait_event("approval.granted", task="T1", timeout=30)
         c(granted, "应用收件箱里点的审批到达服务")

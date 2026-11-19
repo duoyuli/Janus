@@ -422,6 +422,26 @@ extension UsageLedger {
     func memberDetail(_ scope: UsageScope) -> String { L.text("\(scope.notStarted ? L.text("没有会话") : scope.tokensText) · \(scope.sessions) 个会话") }
 }
 
+// MARK: Run page display
+
+extension RunState {
+    /// The ledger the run card's summary line shows at `now`. While the server says the run is
+    /// live (`live`, and not at a replayed position), the run is still going and it recorded a
+    /// creation time, the run's wall-clock time counts from `run.created` to `now`; the displayed
+    /// value never drops below the recorded one, so a clock that moves back does not make it
+    /// shrink. A finished run, a replayed prefix and a read-only run keep what the events recorded.
+    /// Only `run.durationMs` changes: the tasks' and attempts' times, the waits, the numbers and
+    /// the reminders stay. The expanded usage detail does not use this copy; its ledger is the
+    /// recorded one.
+    // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
+    func usageForDisplay(now: Double, live: Bool) -> UsageLedger {
+        guard live, run.status.isActive, run.start > 0 else { return usage }
+        var shown = usage
+        shown.run.durationMs = max(shown.run.durationMs ?? 0, Int(max(0, now - run.start).rounded()))
+        return shown
+    }
+}
+
 /// Thousands separators for token counts, the same on every page.
 func usageNum(_ n: Int) -> String {
     let digits = String(n.magnitude)

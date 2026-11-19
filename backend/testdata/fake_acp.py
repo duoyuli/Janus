@@ -8,7 +8,8 @@ unmet), "methods" (reports every criterion with the next evidence method in test
 reasoning, unverified, and three pieces of task-level evidence), "badmethod" (reports the first criterion as met with
 `method: "vibes"`, which the result check must refuse), "permission" (asks session/request_permission
 with three options), "elicit" (asks elicitation/create with a form), "loop" (makes the same tool call five times
-before its result), "ask" (ends the turn with a question; the answer comes back as the next prompt) or "rich" (thinks,
+before its result), "progress" (edits one file and runs tests in turn, then edits it five more times, every
+call with a different diff or output), "ask" (ends the turn with a question; the answer comes back as the next prompt) or "rich" (thinks,
 publishes a plan and its slash commands, runs a tool that stays in progress for a moment and then reports a file diff,
 reports its context usage and switches its own mode; the prompt response carries token usage). The last outcome repeats.
 Usage outcomes (for the read-only ledger): "usage" reports three context snapshots and a cost, and its prompt response
@@ -244,7 +245,8 @@ def prompt(msg):
     if outcome == "cancelled":
         return {"stopReason": "cancelled"}
     if outcome == "slow":
-        if wait_cancel(60):
+        # 并行跑全套时场景可能超过一分钟，slow 只应在显式取消时结束。
+        if wait_cancel(600):
             return {"stopReason": "cancelled"}
     if outcome.startswith("edit:"):
         name = outcome.split(":", 1)[1]
@@ -285,6 +287,20 @@ def prompt(msg):
                 "kind": "edit" if even else "execute",
                 "status": "completed",
                 "rawInput": {"file_path": "a.rs"} if even else {"command": ["cargo", "test"]}}}})
+    if outcome == "progress":
+        # Edit/test in turn with a changing diff and output, then five edits of the same file with
+        # different text: steady work that loop detection must not report.
+        path = os.path.join(os.getcwd(), "a.rs")
+        steps = [i % 2 == 0 for i in range(10)] + [True] * 5
+        for i, editing in enumerate(steps):
+            update = {"sessionUpdate": "tool_call", "toolCallId": f"progress-{i}", "status": "completed"}
+            if editing:
+                update.update(title="Edit a.rs", kind="edit", rawInput={"file_path": "a.rs", "new_string": f"v{i}"},
+                              content=[{"type": "diff", "path": path, "oldText": f"v{i - 1}", "newText": f"v{i}"}])
+            else:
+                update.update(title="cargo test", kind="execute", rawInput={"command": ["cargo", "test"]},
+                              rawOutput=f"{10 - i} failed")
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": update}})
     if outcome == "busy-tool":
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
             "sessionUpdate": "tool_call", "toolCallId": f"busy-{task}", "title": "cargo test --workspace",

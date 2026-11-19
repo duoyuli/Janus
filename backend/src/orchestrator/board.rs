@@ -224,20 +224,36 @@ impl App {
             let cursor = run.st.lock().unwrap().lead.cursor;
             let events = self.db.events(&run.id, cursor).unwrap_or_default();
             let last = events.last().map(|e| e.seq).unwrap_or(cursor);
-            let entries: Vec<String> = events.iter().filter_map(|e| board_entry(run, e)).collect();
-            run.st.lock().unwrap().lead.cursor = last;
-            if !entries.is_empty() {
-                return format!("看板上的新消息：\n{}", entries.join("\n"));
+            let mut entries = vec![];
+            let mut urgent = false;
+            for e in &events {
+                if let Some(entry) = board_entry(run, e) {
+                    entries.push(entry);
+                    urgent |= ends_board_wait(e);
+                }
             }
             let (open, cancelled) = {
                 let st = run.st.lock().unwrap();
                 (st.tasks.iter().any(|t| !t.status.terminal()), st.cancelled())
             };
+            let timed_out = tokio::time::Instant::now() >= until || cancelled;
+            // Entries that only inform wait for one that needs the lead, or for the timeout.
+            if !entries.is_empty() && (urgent || !open || timed_out) {
+                run.st.lock().unwrap().lead.cursor = last;
+                let mut text = format!("看板上的新消息：\n{}", entries.join("\n"));
+                let pulse = if open && !urgent { running_pulse(run) } else { String::new() };
+                if !pulse.is_empty() {
+                    text.push_str(&format!("\n子任务实时进展：\n{pulse}"));
+                }
+                return text;
+            }
+            if entries.is_empty() {
+                run.st.lock().unwrap().lead.cursor = last;
+            }
             if !open {
                 return "看板上没有新消息，也没有在执行或等待的子任务。".into();
             }
-            let now = tokio::time::Instant::now();
-            if now >= until || cancelled {
+            if timed_out {
                 let pulse = running_pulse(run);
                 return if pulse.is_empty() {
                     format!("{} 秒内看板上没有新消息，子任务仍在进行。继续等待前先判断是否需要干预。", limit.as_secs())

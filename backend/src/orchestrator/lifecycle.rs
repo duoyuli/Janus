@@ -375,14 +375,13 @@ impl App {
         }
     }
 
-    /// Record a finished tool call and detect period-1 (`AAAAA`), period-2 (`ABABABAB`) and
-    /// period-3 (`ABCABCABC`) loops, alerting the lead (or the person, for the lead itself).
+    /// Record a finished tool call (its ACP record, see `call_fingerprint`) and detect period-1
+    /// (`AAAAA`), period-2 (`ABABABAB`) and period-3 (`ABCABCABC`) loops, alerting the lead (or
+    /// the person, for the lead itself).
     // @project-doc docs/domains/20261031-run_lifecycle.md#watchdog
-    pub(super) fn watch_call(&self, run: &Run, session: &SessionKey, kind: &str, title: &str, input: &str) {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::hash::DefaultHasher::new();
-        (kind, title, input).hash(&mut h);
-        let call = h.finish();
+    pub(super) fn watch_call(&self, run: &Run, session: &SessionKey, entry: &Value) {
+        let call = call_fingerprint(entry);
+        let title = entry["title"].as_str().unwrap_or("工具调用");
         let hit = {
             let mut watch = run.watch.lock().unwrap();
             let Some(w) = watch.get_mut(session) else { return };
@@ -572,6 +571,76 @@ impl App {
     }
 }
 
+/// What makes two finished tool calls the same call for loop detection: the tool, its whole
+/// input and what came back (output, content such as an edit's diff, status). Editing one file
+/// again with different text, or a test run whose output changed, is progress, not a repeat.
+/// Durations and times of day in what came back do not count (`steady`): the same failing test
+/// run again reports a new duration every time and is still the same call. Only the hash is kept.
+// @project-doc docs/domains/20261031-run_lifecycle.md#watchdog
+pub(super) fn call_fingerprint(entry: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    for key in ["kind", "title", "rawInput", "status"] {
+        entry[key].to_string().hash(&mut h);
+    }
+    for key in ["rawOutput", "content"] {
+        steady(&entry[key]).to_string().hash(&mut h);
+    }
+    h.finish()
+}
+
+/// A tool result with every string's durations and times of day taken out (`steady_text`).
+fn steady(v: &Value) -> Value {
+    match v {
+        Value::String(s) => Value::String(steady_text(s)),
+        Value::Array(items) => Value::Array(items.iter().map(steady).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), steady(v))).collect()),
+        other => other.clone(),
+    }
+}
+
+/// Text with what changes on every run of the same command replaced: a number followed by a
+/// time unit (`0.23s`, `120 ms`) becomes `#s` / `# ms`, a time of day (`12:34:56.789`) becomes
+/// `#:#`. Other numbers, such as how many tests failed, stay.
+fn steady_text(text: &str) -> String {
+    const UNITS: [&str; 15] =
+        ["ns", "us", "µs", "ms", "s", "sec", "secs", "second", "seconds", "m", "min", "mins", "minute", "minutes", "h"];
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let starts_number =
+            chars[i].is_ascii_digit() && (i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_'));
+        if !starts_number {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len()
+            && (chars[i].is_ascii_digit()
+                || (matches!(chars[i], '.' | ':') && chars.get(i + 1).is_some_and(char::is_ascii_digit)))
+        {
+            i += 1;
+        }
+        if chars[start..i].contains(&':') {
+            out.push_str("#:#");
+            continue;
+        }
+        let gap = usize::from(chars.get(i) == Some(&' '));
+        let unit_end = (i + gap..chars.len()).find(|&k| !chars[k].is_alphabetic()).unwrap_or(chars.len());
+        let unit: String = chars[i + gap..unit_end].iter().collect();
+        if UNITS.contains(&unit.as_str()) {
+            out.push('#');
+            out.extend(&chars[i..unit_end]);
+            i = unit_end;
+        } else {
+            out.extend(&chars[start..i]);
+        }
+    }
+    out
+}
+
 /// Recent finished tool calls of one session, for loop detection: a ring buffer of the last
 /// `WINDOW` calls `(fingerprint, short_title)` for multi-step cycles, and the length of the
 /// current run of identical calls, which keeps counting past the window.
@@ -656,6 +725,69 @@ mod loop_tests {
             assert!(calls.record(h, t).is_none());
         }
         assert_eq!(calls.record(3, "test"), Some((3, 3, "read → edit → test".into())));
+    }
+
+    fn edit(text: &str) -> Value {
+        json!({
+            "kind": "edit", "title": "Edit api.rs", "status": "completed",
+            "rawInput": { "file_path": "api.rs", "old_string": "x", "new_string": text },
+            "content": [{ "type": "diff", "path": "api.rs", "oldText": "x", "newText": text }]
+        })
+    }
+
+    fn test_run(output: &str) -> Value {
+        json!({
+            "kind": "execute", "title": "cargo test", "status": "completed",
+            "rawInput": { "command": ["cargo", "test"] }, "rawOutput": output
+        })
+    }
+
+    fn reports(calls: &[Value]) -> Vec<(u32, u32, String)> {
+        let mut seen = CallLoop::default();
+        calls.iter().filter_map(|c| seen.record(call_fingerprint(c), c["title"].as_str().unwrap())).collect()
+    }
+
+    /// Editing one file over and over with different text is progress, not a loop.
+    #[test]
+    fn edits_of_one_file_with_different_text_are_not_a_loop() {
+        let edits: Vec<Value> = (0..10).map(|i| edit(&format!("fn v{i}() {{}}"))).collect();
+        assert!(reports(&edits).is_empty());
+    }
+
+    /// Edit and test in turn while the test output changes is progress, not an `ABAB` loop.
+    #[test]
+    fn edit_and_test_in_turn_with_changing_output_is_not_a_loop() {
+        let calls: Vec<Value> = (0..12)
+            .map(|i| if i % 2 == 0 { edit(&format!("v{i}")) } else { test_run(&format!("{i} failed")) })
+            .collect();
+        assert!(reports(&calls).is_empty());
+    }
+
+    /// The very same call with the very same result is still a loop, alone or in alternation.
+    #[test]
+    fn identical_calls_and_results_are_still_a_loop() {
+        let same: Vec<Value> = (0..5).map(|_| edit("fn a() {}")).collect();
+        assert_eq!(reports(&same), vec![(1, 5, "Edit api.rs".into())]);
+        let calls: Vec<Value> = (0..8).map(|i| if i % 2 == 0 { edit("v") } else { test_run("1 failed") }).collect();
+        assert_eq!(reports(&calls), vec![(2, 4, "Edit api.rs → cargo test".into())]);
+    }
+
+    /// The same failing test run again, with a new duration and timestamp each time, is a loop;
+    /// a different number of failures is not.
+    #[test]
+    fn durations_and_times_in_the_output_do_not_make_a_new_call() {
+        let runs: Vec<Value> = (0..5)
+            .map(|i| {
+                test_run(&format!("[10:0{i}:1{i}.5{i}] test a ... FAILED\n1 failed; finished in 0.{i}3s ({i}00 ms)"))
+            })
+            .collect();
+        assert_eq!(reports(&runs), vec![(1, 5, "cargo test".into())]);
+        assert_eq!(
+            steady_text("2 failed in 1.25s, 300 ms, at 09:15:02, 3 runs, v12 at 5m"),
+            "2 failed in #s, # ms, at #:#, 3 runs, v12 at #m"
+        );
+        let progress: Vec<Value> = (0..5).map(|i| test_run(&format!("{} failed; finished in 0.2s", 5 - i))).collect();
+        assert!(reports(&progress).is_empty());
     }
 
     #[test]
