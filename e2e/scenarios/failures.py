@@ -63,6 +63,9 @@ def failures(ctx, c):
     c("vibes" in str(run.has("verification.failed", task="T7")), "不合法的证据方法（vibes）原样记录且核对失败")
     delivered = run.finish("能做的都做了，T4 这部分没有做，见风险")
     c(delivered["data"].get("risks") or delivered["data"].get("evidence"), "交付带着风险和证据")
+    acceptance = {a["task"]: a for a in delivered["data"]["acceptance"]}
+    c(acceptance["T6"]["unverified"] is False and acceptance["V6"]["unverified"] is False,
+      "改了文件的 T6 有独立验证，交付不标「没有独立验证」")
     ctx.ui(c, run.id, lambda r, s: {x["id"]: x["status"] for x in r["tasks"]} == {
         "T1": "succeeded", "T2": "succeeded", "T3": "succeeded", "T4": "skipped_by_decision", "T5": "skipped_by_decision",
         "T6": "succeeded", "V6": "succeeded", "D6": "succeeded", "T7": "failed"} and next(x for x in r["tasks"] if x["id"] == "V6")["verdict"] == "approved",

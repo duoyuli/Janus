@@ -212,6 +212,9 @@ struct DeliveryAcceptance: Identifiable {
     let summary: EvidenceSummary
     let checks: [Check]
     let verifications: [VerificationRecord]
+    /// It changed files and no independent verification checks it; the lead's summary says how it
+    /// checked it.
+    let unverified: Bool
     let traceGaps: [String]
     let risks: [String]
     var id: String { task }
@@ -223,7 +226,7 @@ extension DeliveryAcceptance {
         if task.isEmpty { return nil }
         self.init(task: task, title: j["title"].str, status: TaskStatus(j["status"].str), summary: EvidenceSummary(recorded: j),
                   checks: Check.list(j["checks"]), verifications: j["verifications"].array.compactMap(VerificationRecord.init),
-                  traceGaps: j["traceGaps"].strings, risks: j["risks"].strings)
+                  unverified: j["unverified"].truthy, traceGaps: j["traceGaps"].strings, risks: j["risks"].strings)
     }
 }
 
@@ -271,6 +274,7 @@ extension DeliveryAcceptance {
         if !risks.isEmpty { markers.append(L.text("风险 \(risks.count) 条")) }
         if !traceGaps.isEmpty { markers.append(L.text("痕迹 \(traceGaps.count) 处")) }
         if !summary.reminders.isEmpty { markers.append(L.text("提醒 \(summary.reminders.count) 条")) }
+        if unverified { markers.append(L.text("没有独立验证")) }
         let failed = summary.criteria - summary.passed
         let unconfirmed = verifications.filter { !$0.passed }.count
         return DeliveryTaskRow(
@@ -327,6 +331,8 @@ struct DeliveryOverview: Equatable {
     var taskRisks = 0
     var traceGaps = 0
     var unconfirmedVerifications = 0
+    /// Tasks that changed files with no independent verification.
+    var unverifiedTasks = 0
 
     var risks: Int { runRisks + taskRisks }
 
@@ -343,6 +349,7 @@ struct DeliveryOverview: Equatable {
         if runRisks > 0 { parts.append(L.text("运行级风险 \(runRisks) 条")) }
         if taskRisks > 0 { parts.append(L.text("子任务风险 \(taskRisks) 条")) }
         if traceGaps > 0 { parts.append(L.text("痕迹 \(traceGaps) 处")) }
+        if unverifiedTasks > 0 { parts.append(L.text("\(unverifiedTasks) 个子任务没有独立验证")) }
         return parts.joined(separator: " · ")
     }
 
@@ -372,6 +379,7 @@ func deliveryOverview(_ acceptance: [DeliveryAcceptance], runRisks: [String]) ->
         o.taskRisks += record.risks.count
         o.traceGaps += record.traceGaps.count
         o.unconfirmedVerifications += record.verifications.filter { !$0.passed }.count
+        if record.unverified { o.unverifiedTasks += 1 }
         for m in record.summary.methods {
             let label = EvidenceMethod(rawValue: m.method)?.label ?? m.label
             counts[m.method, default: (label, 0)].count += m.count

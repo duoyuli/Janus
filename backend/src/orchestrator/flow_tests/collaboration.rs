@@ -1031,3 +1031,39 @@ async fn the_lead_only_manages_once_it_delegates() {
     );
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// The delivery says which finished subtasks changed files with no independent verification, as a
+/// fact; it does not call them unconfirmed, since the lead may have checked them itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_delivery_marks_changes_without_an_independent_verification() {
+    let h = harness(
+        "unverified-changes",
+        &[("lead", false), ("m1", true), ("m2", true), ("m3", false)],
+        json!({ "T1": ["edit:a.rs"], "T2": ["edit:b.rs"], "V2": ["approve"], "T3": ["ok"] }),
+    );
+    let run = start(
+        &h,
+        json!([
+            task("T1", "m1", json!({})),
+            task("T2", "m2", json!({})),
+            task("V2", "m3", json!({ "verifies": "T2" })),
+            task("T3", "m1", json!({ "deps": ["T1"] }))
+        ]),
+    )
+    .await;
+    wait_until(&h.app, &run, "all done", |e| {
+        ["T1", "T2", "V2", "T3"].iter().all(|t| task_event(e, "task.succeeded", t))
+    })
+    .await;
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let unverified = |id: &str| {
+        d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == id).unwrap()["unverified"].as_bool().unwrap()
+    };
+    assert!(unverified("T1"), "changed a.rs and nobody verified it");
+    assert!(!unverified("T2"), "V2 verified it");
+    assert!(!unverified("V2"), "a verification is not itself verified");
+    assert!(!unverified("T3"), "changed nothing");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

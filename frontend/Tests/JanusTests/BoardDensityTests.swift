@@ -98,10 +98,10 @@ private func verification(_ task: String, passed: Bool) -> VerificationRecord {
 
 private func record(_ task: String, title: String = "标题", status: TaskStatus = .succeeded,
                     accept: [String] = [], checks: [Check] = [], verifications: [VerificationRecord] = [],
-                    traceGaps: [String] = [], risks: [String] = []) -> DeliveryAcceptance {
+                    unverified: Bool = false, traceGaps: [String] = [], risks: [String] = []) -> DeliveryAcceptance {
     DeliveryAcceptance(task: task, title: title, status: status,
                        summary: EvidenceSummary(accept: accept, checks: checks),
-                       checks: checks, verifications: verifications, traceGaps: traceGaps, risks: risks)
+                       checks: checks, verifications: verifications, unverified: unverified, traceGaps: traceGaps, risks: risks)
 }
 
 @Test func deliveryRowCarriesTheNumbersAndOnlyMarksProblems() {
@@ -137,6 +137,12 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     #expect(!reminder.row.needsAttention)
     #expect(reminder.row.markers == [expectedCopy("提醒 1 条", "Notes: 1")])
 
+    // Changed files with no independent verification is a fact to mark, not a problem: the lead's
+    // summary says how it checked the task.
+    let unverified = record("T1", accept: ["一"], checks: passed, unverified: true)
+    #expect(unverified.row.markers == [expectedCopy("没有独立验证", "No independent verification")])
+    #expect(!unverified.row.needsAttention)
+
     // A task that did not succeed says so in words.
     let failed = record("T2", status: .verificationFailed, accept: ["一"], checks: passed)
     #expect(failed.row.markers == [expectedCopy("没通过验收", "Acceptance check failed")])
@@ -156,6 +162,10 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     #expect(o.text == expectedCopy("通过 7 / 8 条 · 测试 4 条、命令 2 条、检查 1 条、推理判断 1 条 · 运行级风险 1 条 · 子任务风险 1 条 · 痕迹 1 处", "Passed 7 of 8 · Test: 4, Command: 2, Inspection: 1, Reasoning: 1 · Run risks: 1 · Subtask risks: 1 · Trace discrepancies: 1"))
     #expect(o.issuesText == expectedCopy("1 条标准未通过、运行级风险 1 条、子任务风险 1 条、1 处痕迹对不上、1 项独立验证未确认", "Failed criteria: 1, Run risks: 1, Subtask risks: 1, Trace discrepancies: 1, Unconfirmed independent reviews: 1"))
     #expect(deliveryOverview([], runRisks: []).issuesText == nil)
+    let unchecked = deliveryOverview([record("T3", accept: ["一"], checks: [check("一", "test")], unverified: true)], runRisks: [])
+    #expect(unchecked.unverifiedTasks == 1)
+    #expect(unchecked.text == expectedCopy("通过 1 / 1 条 · 测试 1 条 · 1 个子任务没有独立验证", "Passed 1 of 1 · Test: 1 · 1 subtasks without independent verification"))
+    #expect(unchecked.issuesText == nil, "not having one is not a problem by itself")
 }
 
 @Test func runRiskListFoldsLongListsAndNamesWhatIsHidden() {

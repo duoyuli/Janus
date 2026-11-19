@@ -158,6 +158,7 @@ extension RunModel {
                 let verified: [String] = a.verifications.map { v in v.passed ? L.text("\(v.task) 通过") : L.text("\(v.task) 未确认（\(v.label)）") }
                 var line = L.text("- \(a.task)：通过 \(a.summary.passed)/\(a.summary.criteria) · 证据：\(a.summary.countsText)")
                 if !verified.isEmpty { line += L.text(" · 独立验证：") + verified.joined(separator: L.text("、")) }
+                if a.unverified { line += L.text(" · 没有独立验证") }
                 lines.append(line)
             }
         }

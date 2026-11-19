@@ -1251,3 +1251,6 @@
 "⇄ 独立验证 %@ 的意见已带入本次子任务" = "⇄ Findings of verification %@ were included in this subtask";
 "新开会话（这个子任务之前没有会话）" = "New session (this subtask had no session before)";
 "⚠ 派出子任务后改了文件：%@ · 会写进交付风险" = "⚠ Edited files after handing out subtasks: %@ · listed as a delivery risk";
+"没有独立验证" = "No independent verification";
+"%lld 个子任务没有独立验证" = "%lld subtasks without independent verification";
+" · 没有独立验证" = " · No independent verification";

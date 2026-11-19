@@ -493,6 +493,15 @@ impl App {
                     risks.push(format!("{}：独立验证 {} {why}，结论没有得到确认", t.def.id, v.task));
                 }
                 let gaps = if t.trace_gaps.is_empty() { trace_gaps(&t.def.id) } else { t.trace_gaps.clone() };
+                // A finished task that changed files and that no verification checks: the lead may
+                // have checked it itself, which its summary has to say.
+                // @project-doc docs/domains/20261031-goal_mode.md#delivery_in_goal_mode
+                let changed =
+                    !st.traces.files(&t.def.id).is_empty() || t.artifacts.iter().any(|a| a["kind"] == "git_diff");
+                let unverified = t.def.verifies.is_none()
+                    && t.status == TaskStatus::Succeeded
+                    && changed
+                    && verifications.is_empty();
                 acceptance.push(TaskAcceptance {
                     task: t.def.id.clone(),
                     title: t.def.title.clone(),
@@ -501,6 +510,7 @@ impl App {
                     summary: Summary::of(&t.def.accept, &r.checks),
                     checks: r.checks.clone(),
                     verifications,
+                    unverified,
                     trace_gaps: gaps,
                     risks: r.risks.clone(),
                 });

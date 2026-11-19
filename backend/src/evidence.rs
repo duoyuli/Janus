@@ -297,8 +297,8 @@ pub struct Verification {
 }
 
 /// One task's acceptance record in `run.delivered`: the numbers and reminders of its checks, every
-/// check, its independent verifications, where its result disagreed with the workspace, and its
-/// risks (docs/interfaces/20261031-events.md#evidence_methods).
+/// check, its independent verifications (or that it changed files without one), where its result
+/// disagreed with the workspace, and its risks (docs/interfaces/20261031-events.md#evidence_methods).
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskAcceptance {
@@ -310,6 +310,10 @@ pub struct TaskAcceptance {
     pub summary: Summary,
     pub checks: Vec<Check>,
     pub verifications: Vec<Verification>,
+    /// It finished with changes to the working directory and no independent verification checks
+    /// it: a fact Janus can tell, not a judgment. The lead's summary says how it checked such a
+    /// task itself.
+    pub unverified: bool,
     pub trace_gaps: Vec<String>,
     pub risks: Vec<String>,
 }
