@@ -27,7 +27,7 @@
 ├── prices/models.json        # 从 models.dev 同步的模型价格，每天更新，账单估算用
 ├── updates/                  # 应用内更新：<版本>/ 下载和拼装中的新版本，previous/ 上一个版本，install.sh 替换脚本
 ├── signing/                  # 发布签名证书（只在执行 make-signing-cert.sh 的机器上）
-├── permissions/review.json   # macOS 权限引导：安装标识、已展示标记及用户手动确认记录，不是系统授权状态
+├── permissions/review.json   # macOS 权限引导：安装标识和是否处理过引导，不是系统授权状态
 └── logs/
     ├── janus.log             # Janus 自己的日志
     ├── janus.out.log         # 以服务方式运行时进程的标准输出和错误

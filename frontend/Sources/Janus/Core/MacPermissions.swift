@@ -6,7 +6,8 @@ enum MacPermission: String, CaseIterable, Codable, Identifiable {
     case fullDisk, appManagement, screenRecording
 
     var id: Self { self }
-    var manual: Bool { self != .screenRecording }
+    /// Only Screen Recording has a system prompt; the others are switched on in System Settings.
+    var prompts: Bool { self == .screenRecording }
     var title: String {
         switch self {
         case .fullDisk: L.text("完整磁盘访问")
@@ -40,13 +41,13 @@ enum MacPermission: String, CaseIterable, Codable, Identifiable {
 }
 
 enum MacPermissionStatus: Equatable {
-    case unavailable, needsConfirmation, manuallyConfirmed, granted, notGranted
+    /// `unknown`: this macOS gave no answer to the check.
+    case unavailable, unknown, granted, notGranted
 
     var label: String {
         switch self {
         case .unavailable: L.text("请使用安装包")
-        case .needsConfirmation: L.text("需手动确认")
-        case .manuallyConfirmed: L.text("已手动确认")
+        case .unknown: L.text("无法检测")
         case .granted: L.text("已授权")
         case .notGranted: L.text("未检测到授权")
         }
@@ -54,24 +55,23 @@ enum MacPermissionStatus: Equatable {
     var tone: Tone {
         switch self {
         case .granted: .green
-        case .manuallyConfirmed: .blue
-        case .needsConfirmation, .notGranted: .amber
-        case .unavailable: .gray
+        case .notGranted: .amber
+        case .unknown, .unavailable: .gray
         }
     }
-    var needsAttention: Bool { self == .needsConfirmation || self == .notGranted }
+    var needsAttention: Bool { self == .notGranted || self == .unknown }
 }
 
-/// System permission guidance belongs to this app instance. A manual acknowledgement is never
-/// treated as a system grant, nor carried over to a different installed build.
+/// System permission guidance belongs to this app instance. Every status is what macOS reports
+/// for the running app at the last check; nothing the person clicks counts as a grant.
 // @project-doc docs/architecture/20261031-frontend.md#macos_permissions
 // @project-doc docs/operations/20261031-security.md#macos_permissions
 @Observable @MainActor
 final class MacPermissions {
     /// Who macOS grants permissions to: the bundle id and the signing identity (designated
     /// requirement). Releases signed with the same certificate share it, so an update keeps the
-    /// grants and the person's confirmations and shows no new review; a new identity (an ad-hoc
-    /// build, another certificate or bundle id) starts over.
+    /// grants and shows no new review; a new identity (an ad-hoc build, another certificate or
+    /// bundle id) starts over.
     struct Installation: Codable, Equatable {
         var bundleID: String
         var requirement: String?
@@ -85,11 +85,11 @@ final class MacPermissions {
     struct Record: Codable, Equatable {
         var installation: Installation
         var reminded = false
-        var confirmed: Set<MacPermission> = []
     }
 
     struct System {
-        var screenAllowed: () -> Bool
+        /// Whether macOS grants the permission to this process now; nil when it does not say.
+        var allowed: (MacPermission) -> Bool?
         var requestScreen: () -> Bool
         var openSettings: (MacPermission) -> Bool
         var revealApp: () -> Void
@@ -105,7 +105,7 @@ final class MacPermissions {
     }
 
     let installation: Installation?
-    private(set) var screenAllowed = false
+    private(set) var allowed: [MacPermission: Bool] = [:]
     private(set) var record: Record?
     private(set) var flow: Flow = .idle
     private(set) var reviewPresented = false
@@ -133,8 +133,8 @@ final class MacPermissions {
 
     func status(_ permission: MacPermission) -> MacPermissionStatus {
         guard available else { return .unavailable }
-        if permission == .screenRecording { return screenAllowed ? .granted : .notGranted }
-        return record?.confirmed.contains(permission) == true ? .manuallyConfirmed : .needsConfirmation
+        guard let allowed = allowed[permission] else { return .unknown }
+        return allowed ? .granted : .notGranted
     }
 
     /// Called once per launch, even when the backend cannot start. The identity is that of the
@@ -145,7 +145,7 @@ final class MacPermissions {
         guard record?.reminded == false else { return }
         record?.reminded = true
         persist()
-        reviewPresented = true
+        reviewPresented = !outstanding.isEmpty
     }
 
     func dismissReview() {
@@ -155,8 +155,8 @@ final class MacPermissions {
 
     func refresh() {
         guard available else { return }
-        screenAllowed = system.screenAllowed()
-        if current == .screenRecording && screenAllowed { advance() }
+        for permission in MacPermission.allCases { allowed[permission] = system.allowed(permission) }
+        if let current, status(current) == .granted { advance() }
     }
 
     func beginAll() {
@@ -167,6 +167,7 @@ final class MacPermissions {
 
     func begin(_ permission: MacPermission) {
         guard available else { return }
+        refresh()
         begin([permission])
     }
 
@@ -174,14 +175,14 @@ final class MacPermissions {
         actionError = nil
         guard let first = permissions.first else { flow = .complete; return }
         flow = .waiting(first, remaining: Array(permissions.dropFirst()))
-        if first.manual { openSettings(first) }
+        if !first.prompts { openSettings(first) }
         else {
             // The return value alone is not cached as a grant: the preflight check is the source.
             if !system.requestScreen() {
                 actionError = L.text("尚未获得屏幕录制权限。请在系统提示中允许；若没有提示，请打开系统设置。")
             }
             refresh()
-            if screenAllowed { actionError = nil }
+            if status(first) == .granted { actionError = nil }
         }
     }
 
@@ -203,13 +204,6 @@ final class MacPermissions {
         system.relaunch()
     }
 
-    func confirmCurrent() {
-        guard let permission = current, permission.manual, available else { return }
-        record?.confirmed.insert(permission)
-        persist()
-        advance()
-    }
-
     func skipCurrent() {
         guard current != nil else { return }
         advance()
@@ -223,11 +217,11 @@ final class MacPermissions {
     private func persist() {
         guard let record else { return }
         do { try save(record); persistenceError = nil }
-        catch { persistenceError = L.text("无法保存权限确认记录，下次启动可能再次提醒：\(error.localizedDescription)") }
+        catch { persistenceError = L.text("无法保存权限引导记录，下次启动可能再次提醒：\(error.localizedDescription)") }
     }
 
     static func unavailable() -> MacPermissions {
-        MacPermissions(installation: nil, system: System(screenAllowed: { false }, requestScreen: { false }, openSettings: { _ in false }, revealApp: {}, relaunch: {}))
+        MacPermissions(installation: nil, system: System(allowed: { _ in nil }, requestScreen: { false }, openSettings: { _ in false }, revealApp: {}, relaunch: {}))
     }
 
     static func live(home: URL) -> MacPermissions {
@@ -235,7 +229,14 @@ final class MacPermissions {
         let app = Bundle.main.bundleURL.resolvingSymlinksInPath().path
         let file = home.appendingPathComponent("permissions/review.json")
         let record = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Record.self, from: $0) }
-        let system = System(screenAllowed: { CGPreflightScreenCaptureAccess() }, requestScreen: { CGRequestScreenCaptureAccess() }, openSettings: { permission in
+        let appManagement = AppManagementCheck()
+        let system = System(allowed: { permission in
+            switch permission {
+            case .fullDisk: fullDiskAccess()
+            case .appManagement: appManagement.allowed()
+            case .screenRecording: CGPreflightScreenCaptureAccess()
+            }
+        }, requestScreen: { CGRequestScreenCaptureAccess() }, openSettings: { permission in
             if NSWorkspace.shared.open(permission.settingsURL) { return true }
             // Settings anchors may change between macOS releases. Keep a path to the privacy pane.
             return NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
@@ -259,6 +260,37 @@ final class MacPermissions {
             try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try JSONEncoder().encode(record).write(to: file, options: .atomic)
             try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        }
+    }
+}
+
+/// The system TCC database opens only for a process with Full Disk Access, which makes the open
+/// itself the check. The file is closed at once and never read.
+// @project-doc docs/operations/20261031-security.md#macos_permissions
+private func fullDiskAccess() -> Bool? {
+    let fd = open("/Library/Application Support/com.apple.TCC/TCC.db", O_RDONLY)
+    if fd >= 0 { close(fd); return true }
+    return errno == EPERM || errno == EACCES ? false : nil
+}
+
+/// macOS has no public query for App Management. `TCCAccessPreflight` (TCC.framework) answers for
+/// the calling app without prompting: 0 granted, 1 denied, 2 not yet decided. A macOS without the
+/// function, or with another answer, leaves the status unknown.
+// @project-doc docs/operations/20261031-security.md#macos_permissions
+private struct AppManagementCheck {
+    private typealias Preflight = @convention(c) (CFString, CFDictionary?) -> Int32
+    private let preflight: Preflight?
+
+    init() {
+        let tcc = dlopen("/System/Library/PrivateFrameworks/TCC.framework/TCC", RTLD_LAZY)
+        preflight = tcc.flatMap { dlsym($0, "TCCAccessPreflight") }.map { unsafeBitCast($0, to: Preflight.self) }
+    }
+
+    func allowed() -> Bool? {
+        switch preflight?("kTCCServiceSystemPolicyAppBundles" as CFString, nil) {
+        case 0: true
+        case 1, 2: false
+        default: nil
         }
     }
 }

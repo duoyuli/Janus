@@ -339,7 +339,6 @@
 "判定：%@" = "Verdict: %@";
 "到 %@" = "Until %@";
 "刷新" = "Refresh";
-"前往确认" = "Confirm Access";
 "加入共享资料…" = "Add to Shared Context…";
 "区间" = "Period";
 "升级到 %@" = "Upgrade to %@";
@@ -409,7 +408,7 @@
 "在 Finder 中显示" = "Show in Finder";
 "在 Finder 中显示 Janus" = "Show Janus in Finder";
 "在 Janus 中新建" = "Created in Janus";
-"在「系统设置 → 隐私与安全性 → %@」中允许 Janus。列表里没有时，用添加按钮选择当前 Janus.app。" = "Allow Janus in System Settings → Privacy & Security → %@. If it is missing, use the add button to select this Janus.app.";
+"在「系统设置 → 隐私与安全性 → %@」中允许 Janus。列表里没有时，用添加按钮选择当前 Janus.app。回到 Janus 后自动检测。" = "Allow Janus in System Settings → Privacy & Security → %@. If it is missing, use the add button to select this Janus.app. Janus checks again when you come back.";
 "在审计日志中查看" = "View in Audit Log";
 "在审计日志中查看全部" = "View All in the Audit Log";
 "在审计日志中查看这条事件" = "View this event in the audit log";
@@ -531,7 +530,6 @@
 "已导出 %@" = "Exported %@";
 "已展开" = "Expanded";
 "已开始登录：按卡片上的提示完成，完成后会自动测试。" = "Sign-in started. Follow the steps on the Agent card. Janus will run the check when sign-in is complete.";
-"已手动确认" = "Manually Confirmed";
 "已授权" = "Authorized";
 "已插入正在进行的这一轮" = "Steered into the active turn";
 "已插入这一轮，当前操作结束后读到" = "Steered into this turn. The Agent will see it after the current operation.";
@@ -568,7 +566,6 @@
 "总体意见（可选）" = "Overall Feedback (optional)";
 "成功" = "Succeeded";
 "成功平均 %@ 分钟" = "Average successful run: %@ min";
-"我已在系统设置中开启" = "I Enabled It in System Settings";
 "我已完成" = "I’ve Finished";
 "或者写下你自己的回答" = "Or Enter Your Own Answer";
 "所有工作区" = "All Workspaces";
@@ -607,7 +604,7 @@
 "拒绝" = "Deny";
 "拒绝一次操作" = "Denied an operation";
 "指令" = "Instructions";
-"按 Agent 的任务需要开启。系统授权需要你确认，可以跳过暂时不用的权限。" = "Enable permissions as your agents need them. Confirm access in macOS and skip permissions you do not currently need.";
+"按 Agent 的任务需要开启，可以跳过暂时不用的权限。Janus 自动检测每一项是否已授权。" = "Enable permissions as your agents need them, and skip the ones you do not need yet. Janus detects whether each one is granted.";
 "按 models.dev API 价格折算 · 非账单" = "Estimated at models.dev API rates · Not an invoice";
 "按依赖调度子任务" = "Scheduling subtasks by dependency";
 "按子任务和成员展开这次任务的用量，每个数字都来自 session.usage 事件" = "Show usage for each subtask and member from session.usage events";
@@ -683,7 +680,7 @@
 "方法不合法 %lld 条" = "Invalid methods: %lld";
 "无" = "None";
 "无权限模式" = "No permission modes";
-"无法保存权限确认记录，下次启动可能再次提醒：%@" = "Could not save the permission confirmation. Janus may ask again at next launch: %@";
+"无法保存权限引导记录，下次启动可能再次提醒：%@" = "Could not save the permission checklist record. Janus may show it again at next launch: %@";
 "无法开始检查：%@" = "Could not start the check: %@";
 "无法打开系统设置。请手动打开「系统设置 → 隐私与安全性 → %@」。" = "Could not open System Settings. Open System Settings → Privacy & Security → %@ manually.";
 "明天 %@" = "Tomorrow at %@";
@@ -736,8 +733,8 @@
 "本月" = "This Month";
 "本机的仓库副本会删除。还有从它导入的资源时不能删除。" = "The local copy of the repository will be removed. Delete the resources imported from it before removing this source.";
 "本次 %lld/%lld 首次通过%@" = "Passed on first attempt: %lld/%lld%@";
-"本次引导已完成。手动确认的项目仍以系统设置为准。" = "Permission setup is complete. Check System Settings for the actual status of manually confirmed permissions.";
-"本次引导已结束，仍有未授权或未确认的项目，可在需要时继续。" = "Permission setup is finished. You can return to grant or confirm the remaining permissions.";
+"本次引导已完成，所有权限都已授权。" = "Permission setup is complete. Every permission is granted.";
+"本次引导已结束，仍有未授权的项目，可在需要时继续。" = "Permission setup is finished. You can come back to grant the remaining permissions.";
 "本页检查当前 Janus。Agent 由独立服务或其他终端启动时，可能需要给实际执行程序单独授权。系统权限不会改变 Agent 自己的权限模式。" = "This page checks the current Janus app. Agents started by another terminal or a separate service may need permissions for the process that runs them. macOS permissions do not change the Agent’s permission mode.";
 "权限" = "Permissions";
 "权限 %@" = "Permissions: %@";
@@ -1138,8 +1135,6 @@
 "问题" = "Question";
 "阻塞" = "Blocked";
 "隔离方式" = "Isolation";
-"需在系统设置中查看；手动确认不代表应用检测到了授权。" = "Check access in System Settings. Manual confirmation records your choice without verifying system authorization.";
-"需手动确认" = "Manual Confirmation Required";
 "需要你决定" = "Decision Required";
 "需要你处理" = "Needs Your Attention";
 "需要修改" = "Changes Requested";
@@ -1233,6 +1228,8 @@
 "旧版本" = "an older version";
 "正在运行的 Janus 服务是 %@，这个应用是 %@。数据升级和新功能要在新版服务启动后才生效。停止它之后，应用会启动自带的服务。以服务方式运行（just start）时，请先执行 just stop。" = "The running Janus service is %@ and this app is %@. Data upgrades and new features take effect only when a service of the new version starts. Stop it and the app starts its own service. If Janus runs as a service (just start), run just stop first.";
 "系统设置里已经打开，这里仍未检测到？" = "Turned on in System Settings but still not detected?";
-"1. macOS 要等 Janus 重新打开后，新的屏幕录制授权才生效。点「重新打开 Janus」。" = "1. macOS applies a new Screen Recording permission only after Janus reopens. Click Reopen Janus.";
-"2. 重新打开后仍未检测到，说明列表里打开的是更新前的旧 Janus。在「系统设置 → 隐私与安全性 → 屏幕录制」中选中 Janus，点「−」删除，回到这里点「申请授权」重新开启，再重新打开 Janus。" = "2. Still not detected after reopening? The switch belongs to Janus from before the update. In System Settings → Privacy & Security → Screen Recording, select Janus and click −, then click Request Access here, turn it on again, and reopen Janus.";
+"1. 有的授权要等 Janus 重新打开后才生效。点「重新打开 Janus」。" = "1. Some permissions take effect only after Janus reopens. Click Reopen Janus.";
+"2. 重新打开后仍未检测到，说明列表里打开的是更新前的旧 Janus。在「系统设置 → 隐私与安全性 → %@」中选中 Janus，点「−」删除，再用「+」添加当前的 Janus.app 并打开，然后重新打开 Janus。" = "2. Still not detected after reopening? The switch belongs to Janus from before the update. In System Settings → Privacy & Security → %@, select Janus and click −, then click + to add this Janus.app, turn it on, and reopen Janus.";
 "重新打开 Janus" = "Reopen Janus";
+"无法检测" = "Cannot Detect";
+"前往授权" = "Grant Access";

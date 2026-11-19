@@ -28,7 +28,7 @@
 - [资源库统一管理 Skill 和 MCP，在会话启动时注入](20261116-launch_time_resources.md)：角色引用资源库中的资源，Run 创建时固定版本并生成每个成员的资源包，会话启动时通过 `plugins`、`additionalRoots`、`mcpServers` 和系统层注入，不写 Agent 的配置文件。阅读时机：修改资源库、角色的资源、资源包，或会话怎样拿到 Skill、MCP 和指令之前。
 - [内置运行时只保留 Codex 和 Claude Code](20261116-codex_and_claude_only.md)：删除 Grok 和 Pi，基础运行时用枚举 `Runtime` 表达，自定义命令保留。阅读时机：想新增一种内置 Agent 之前。
 
-- [集中引导 macOS 权限，升级后重新检查](20261117-macos_permission_guidance.md)：完整磁盘访问、应用程序管理和屏幕录制的集中引导，区分系统检测与手动确认。阅读时机：修改系统权限检查、授权入口、升级后提醒或 Agent 的权限归属说明。
+- [集中引导 macOS 权限，升级后重新检查](20261117-macos_permission_guidance.md)：完整磁盘访问、应用程序管理和屏幕录制的集中引导，三项都由应用检测。阅读时机：修改系统权限检查、授权入口、升级后提醒或 Agent 的权限归属说明。
 - [基于 `session/load` 复用前置任务会话](20261118-session_continuation.md)：修复任务和重试通过 `continues` / `continue_session` 恢复原执行者会话，上下文超过 75% 或不支持时自动回退新建会话。阅读时机：修改任务会话打开流程、`continues` 编排校验或 `retry` 行为之前。
 - [Codex 和 Claude Code 默认不受限运行](20261118-unrestricted_default_mode.md)：角色没有选择权限模式时，Codex 用 Full access，Claude Code 用 Bypass permissions，角色的选择始终优先。阅读时机：修改权限模式的默认值，或评估没有改过权限的数字员工能做什么之前。
 - [数据随版本自动升级](20261118-data_migrations.md)：数据版本、服务启动时自动执行的迁移和备份、默认数字员工按「改没改过」更新、用测试拦下漏写的迁移、应用与服务的版本握手。阅读时机：改变任何存储的数据（表、设置对象或 Run 快照的字段、默认数字员工）之前，或调整升级与备份方式之前。

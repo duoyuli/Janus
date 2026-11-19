@@ -53,7 +53,7 @@ The app ships with its own Janus service and works out of the box. If you alread
 
 Press ⌘, to open Janus Settings. In General → Language, choose Follow System, 简体中文, or English. Changes take effect immediately and persist across launches.
 
-After the first installation, or when Janus’s signing identity changes (for example when upgrading from a release before 2026.11.18.5), Janus shows a macOS permission checklist; updates with the same signature keep the permissions you granted. The checklist is also available under Settings → General → macOS Permissions. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; each authorization still requires your confirmation in macOS. The first two record your manual confirmation, while Screen Recording uses a system check. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
+After the first installation, or when Janus’s signing identity changes (for example when upgrading from a release before 2026.11.18.5), Janus shows a macOS permission checklist; updates with the same signature keep the permissions you granted. The checklist is also available under Settings → General → macOS Permissions. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; you still switch each one on in macOS, and Janus detects the status of all three. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
 
 ### From source
 

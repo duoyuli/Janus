@@ -9,7 +9,7 @@ struct MacPermissionsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
-                Text(L.text("按 Agent 的任务需要开启。系统授权需要你确认，可以跳过暂时不用的权限。"))
+                Text(L.text("按 Agent 的任务需要开启，可以跳过暂时不用的权限。Janus 自动检测每一项是否已授权。"))
                     .font(.callout).foregroundStyle(.secondary)
                 Spacer(minLength: 12)
                 Button(L.text("重新检查")) { permissions.refresh() }
@@ -30,8 +30,8 @@ struct MacPermissionsView: View {
                 if let error = permissions.error { Note(text: error, tone: .amber) }
                 if permissions.flow == .complete {
                     Note(text: permissions.outstanding.isEmpty
-                         ? L.text("本次引导已完成。手动确认的项目仍以系统设置为准。")
-                         : L.text("本次引导已结束，仍有未授权或未确认的项目，可在需要时继续。"))
+                         ? L.text("本次引导已完成，所有权限都已授权。")
+                         : L.text("本次引导已结束，仍有未授权的项目，可在需要时继续。"))
                 }
             }
             ForEach(MacPermission.allCases) { permission in permissionCard(permission) }
@@ -45,19 +45,16 @@ struct MacPermissionsView: View {
         .onAppear { permissions.refresh() }
     }
 
-    /// Screen Recording switched on in System Settings but not seen here: either Janus has not been
-    /// reopened since (macOS applies the grant to a new process only), or the switch belongs to the
-    /// Janus before an update, which macOS treats as another app.
-    private func screenRecordingHelp(settings: Bool) -> some View {
+    /// Switched on in System Settings but not seen here: either Janus has not been reopened since
+    /// (macOS applies some grants to a new process only), or the switch belongs to the Janus before
+    /// an update, which macOS treats as another app with the same name.
+    private func notDetectedHelp(_ permission: MacPermission) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L.text("系统设置里已经打开，这里仍未检测到？")).font(.callout.weight(.semibold))
-            Text(L.text("1. macOS 要等 Janus 重新打开后，新的屏幕录制授权才生效。点「重新打开 Janus」。"))
-            Text(L.text("2. 重新打开后仍未检测到，说明列表里打开的是更新前的旧 Janus。在「系统设置 → 隐私与安全性 → 屏幕录制」中选中 Janus，点「−」删除，回到这里点「申请授权」重新开启，再重新打开 Janus。"))
-            HStack {
-                Button(L.text("重新打开 Janus")) { permissions.relaunch() }
-                if settings { Button(L.text("打开系统设置")) { permissions.openSettings(.screenRecording) } }
-            }
-            .padding(.top, 2)
+            Text(L.text("1. 有的授权要等 Janus 重新打开后才生效。点「重新打开 Janus」。"))
+            Text(L.text("2. 重新打开后仍未检测到，说明列表里打开的是更新前的旧 Janus。在「系统设置 → 隐私与安全性 → \(permission.title)」中选中 Janus，点「−」删除，再用「+」添加当前的 Janus.app 并打开，然后重新打开 Janus。"))
+            Button(L.text("重新打开 Janus")) { permissions.relaunch() }
+                .padding(.top, 2)
         }
         .font(.callout)
         .fixedSize(horizontal: false, vertical: true)
@@ -82,26 +79,15 @@ struct MacPermissionsView: View {
                     }
                     Text(permission.purpose).font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    if permission.manual {
-                        Text(L.text("需在系统设置中查看；手动确认不代表应用检测到了授权。"))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if permission == .screenRecording && state == .notGranted {
-                        screenRecordingHelp(settings: !active)
-                    }
                 }
             }
             if active {
                 Divider()
-                Text(L.text("在「系统设置 → 隐私与安全性 → \(permission.title)」中允许 Janus。列表里没有时，用添加按钮选择当前 Janus.app。"))
+                Text(L.text("在「系统设置 → 隐私与安全性 → \(permission.title)」中允许 Janus。列表里没有时，用添加按钮选择当前 Janus.app。回到 Janus 后自动检测。"))
                     .font(.callout).fixedSize(horizontal: false, vertical: true)
+                if state == .notGranted { notDetectedHelp(permission) }
                 HStack {
-                    if permission.manual {
-                        Button(L.text("我已在系统设置中开启")) { permissions.confirmCurrent() }
-                            .buttonStyle(.primary)
-                    } else {
-                        Button(L.text("重新检查")) { permissions.refresh() }.buttonStyle(.primary)
-                    }
+                    Button(L.text("重新检查")) { permissions.refresh() }.buttonStyle(.primary)
                     Button(L.text("打开系统设置")) { permissions.openSettings(permission) }
                     Spacer()
                     Button(L.text("暂时跳过")) { permissions.skipCurrent() }
@@ -112,7 +98,7 @@ struct MacPermissionsView: View {
                     if state == .granted {
                         Button(L.text("打开系统设置")) { permissions.openSettings(permission) }
                     } else {
-                        Button(permission.manual ? L.text("前往确认") : L.text("申请授权")) { permissions.begin(permission) }
+                        Button(permission.prompts ? L.text("申请授权") : L.text("前往授权")) { permissions.begin(permission) }
                     }
                 }
                 .disabled(!permissions.available || permissions.current != nil)
