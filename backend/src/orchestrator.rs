@@ -14,7 +14,7 @@ use crate::agents::Runtime;
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
 use crate::git_probe;
-use crate::status::{AgentPhase, AttemptStatus, RunStatus, TaskStatus};
+use crate::status::{AgentPhase, AttemptStatus, CommandState, RunStatus, TaskStatus};
 use crate::traces::Overlap;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};

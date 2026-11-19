@@ -1,7 +1,7 @@
 //! SQLite fact store. Events are the source of truth; `runs`, `attempts` and `artifacts`
 //! are indexes kept alongside them so the scheduler and UI can query without replaying.
 
-use crate::status::{AttemptStatus, RunStatus};
+use crate::status::{AttemptStatus, CommandState, RunStatus};
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -262,14 +262,39 @@ impl Db {
         Ok(())
     }
 
-    /// Claim a command id for a run before acting on it. Only the first claim of one id succeeds,
-    /// so two requests carrying it cannot both act.
-    pub fn claim_command(&self, run_id: &str, command_id: &str, request: &Value, now: i64) -> Result<bool> {
-        let changed = self.0.lock().unwrap().execute(
-            "INSERT OR IGNORE INTO commands (run_id, command_id, result, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![run_id, command_id, request.to_string(), now],
+    /// Claim a command id for a run before acting on it. Only the first claim of one id succeeds
+    /// (`None`), so two requests carrying it cannot both act; a later claim gets the state the
+    /// first one is in.
+    pub fn claim_command(
+        &self,
+        run_id: &str,
+        command_id: &str,
+        request: &Value,
+        now: i64,
+    ) -> Result<Option<CommandState>> {
+        let conn = self.0.lock().unwrap();
+        let changed = conn.execute(
+            "INSERT OR IGNORE INTO commands (run_id, command_id, result, created_at, state) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![run_id, command_id, request.to_string(), now, CommandState::Running.as_str()],
         )?;
-        Ok(changed == 1)
+        if changed == 1 {
+            return Ok(None);
+        }
+        let state: String = conn.query_row(
+            "SELECT state FROM commands WHERE run_id = ?1 AND command_id = ?2",
+            params![run_id, command_id],
+            |r| r.get(0),
+        )?;
+        CommandState::parse(&state).map(Some).ok_or_else(|| anyhow::anyhow!("命令状态 {state} 无法识别"))
+    }
+
+    /// Record that a claimed command's action took effect.
+    pub fn finish_command(&self, run_id: &str, command_id: &str) -> Result<()> {
+        self.0.lock().unwrap().execute(
+            "UPDATE commands SET state = ?3 WHERE run_id = ?1 AND command_id = ?2",
+            params![run_id, command_id, CommandState::Done.as_str()],
+        )?;
+        Ok(())
     }
 
     /// Give a claimed command id back after its action failed, so a retry can act.
@@ -278,6 +303,15 @@ impl Db {
             .lock()
             .unwrap()
             .execute("DELETE FROM commands WHERE run_id = ?1 AND command_id = ?2", params![run_id, command_id])?;
+        Ok(())
+    }
+
+    /// Commands a previous process was still carrying out: whether they took effect is unknown.
+    pub fn interrupt_commands(&self) -> Result<()> {
+        self.0.lock().unwrap().execute(
+            "UPDATE commands SET state = ?1 WHERE state = ?2",
+            params![CommandState::Interrupted.as_str(), CommandState::Running.as_str()],
+        )?;
         Ok(())
     }
 
@@ -384,17 +418,18 @@ mod tests {
     fn a_command_id_is_claimed_once_until_it_is_released() {
         let (db, path) = temp_db("commands");
         db.insert_run("r1", "test", "/tmp", &json!({}), 1).unwrap();
-        assert!(db.claim_command("r1", "c1", &json!({ "type": "pause" }), 2).unwrap());
-        assert!(
-            !db.claim_command("r1", "c1", &json!({ "type": "pause" }), 3).unwrap(),
-            "a second claim of one id fails"
-        );
-        assert!(db.claim_command("r1", "c2", &json!({ "type": "pause" }), 3).unwrap());
-        db.release_command("r1", "c1").unwrap();
-        assert!(
-            db.claim_command("r1", "c1", &json!({ "type": "pause" }), 4).unwrap(),
-            "a released id can be claimed again"
-        );
+        let claim = |id: &str| db.claim_command("r1", id, &json!({ "type": "pause" }), 2).unwrap();
+        assert_eq!(claim("c1"), None);
+        assert_eq!(claim("c1"), Some(CommandState::Running), "a second claim of one id fails");
+        db.finish_command("r1", "c1").unwrap();
+        assert_eq!(claim("c1"), Some(CommandState::Done));
+        assert_eq!(claim("c2"), None);
+        db.release_command("r1", "c2").unwrap();
+        assert_eq!(claim("c2"), None, "a released id can be claimed again");
+        // A restart leaves the unfinished one unknown; the finished one stays finished.
+        db.interrupt_commands().unwrap();
+        assert_eq!(claim("c2"), Some(CommandState::Interrupted));
+        assert_eq!(claim("c1"), Some(CommandState::Done));
         let _ = std::fs::remove_file(path);
     }
 

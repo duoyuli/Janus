@@ -206,6 +206,37 @@ impl AttemptStatus {
     }
 }
 
+/// A person's action claimed by its `commandId`, as the `commands` table records it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandState {
+    /// Claimed; the action is being carried out.
+    Running,
+    /// The action took effect.
+    Done,
+    /// The service stopped while the action was running: whether it took effect is not known.
+    Interrupted,
+}
+
+impl CommandState {
+    /// Read a state the database wrote.
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "running" => CommandState::Running,
+            "done" => CommandState::Done,
+            "interrupted" => CommandState::Interrupted,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CommandState::Running => "running",
+            CommandState::Done => "done",
+            CommandState::Interrupted => "interrupted",
+        }
+    }
+}
+
 /// What an agent's session is doing, as `agent.status` events report it. The app maps unknown
 /// values to `idle`, but this is the complete set Janus emits.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

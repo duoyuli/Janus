@@ -5,30 +5,45 @@ use super::*;
 
 impl App {
     /// A person's action on a run, as the HTTP API receives it. With a `commandId` it acts at most
-    /// once: the id is claimed before anything happens, a second request with it is a duplicate,
-    /// and an action that fails gives the id back so it can be retried. `expectedSequence`, when
-    /// given, must still be the run's last event. A run that is not live can be accepted,
-    /// resumed, or talked to (which resumes it).
+    /// once: the id is claimed before anything happens and marked done once the action took
+    /// effect. A later request with the id is a duplicate when the action is done, and refused
+    /// while it is still running or when a restart cut it off, because then nobody knows yet
+    /// whether it took effect. An action that fails gives the id back so it can be retried.
+    /// `expectedSequence`, when given, must still be the run's last event. A run that is not live
+    /// can be accepted, resumed, or talked to (which resumes it).
     // @project-doc docs/interfaces/20261031-http_api.md#run_actions
     pub async fn request_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<ActionReply, ActionRefused> {
         if self.db.run(run_id).map_err(ActionRefused::Invalid)?.is_none() {
             return Err(ActionRefused::NotFound);
         }
         let command = body["commandId"].as_str().filter(|s| !s.trim().is_empty());
-        if let Some(id) = command
-            && !self
+        if let Some(id) = command {
+            match self
                 .db
                 .claim_command(run_id, id, &json!({ "type": body["type"] }), now_ms())
                 .map_err(ActionRefused::Invalid)?
-        {
-            return Ok(ActionReply::Duplicate);
+            {
+                None => {}
+                Some(CommandState::Done) => return Ok(ActionReply::Duplicate),
+                Some(CommandState::Running) => {
+                    return Err(ActionRefused::Conflict(format!(
+                        "commandId {id} 的操作还在执行，结束前无法确认是否生效"
+                    )));
+                }
+                Some(CommandState::Interrupted) => {
+                    return Err(ActionRefused::Conflict(format!(
+                        "commandId {id} 的操作在服务重启时中断，无法确认是否生效：先查看任务的事件，需要时换一个 commandId 重试"
+                    )));
+                }
+            }
         }
         let done = self.dispatch_action(run_id, body).await;
-        if done.is_err()
-            && let Some(id) = command
-            && let Err(err) = self.db.release_command(run_id, id)
-        {
-            crate::config::log(format!("janus: could not release command {id} of {run_id}: {err:#}"));
+        if let Some(id) = command {
+            let recorded =
+                if done.is_ok() { self.db.finish_command(run_id, id) } else { self.db.release_command(run_id, id) };
+            if let Err(err) = recorded {
+                crate::config::log(format!("janus: could not record command {id} of {run_id}: {err:#}"));
+            }
         }
         done.map(|()| ActionReply::Done)
     }
@@ -687,6 +702,7 @@ impl App {
     }
 
     pub fn recover(&self) -> Result<()> {
+        self.db.interrupt_commands()?;
         for (run_id, task, n) in self.db.orphaned_attempts()? {
             self.db.update_attempt(
                 &run_id,
@@ -722,7 +738,7 @@ impl App {
 /// What a request to act on a run came to.
 pub enum ActionReply {
     Done,
-    /// A request with a `commandId` that was already claimed: nothing was done again.
+    /// A request with a `commandId` whose action already took effect: nothing was done again.
     Duplicate,
 }
 

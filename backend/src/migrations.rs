@@ -22,10 +22,6 @@ pub struct Migration {
 /// apply to alone, so running one twice changes nothing.
 pub enum Step {
     /// Schema changes: new tables, columns, indexes.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no migration changes a table yet; the next one that does uses it")
-    )]
     Sql(&'static str),
     /// A new field, with the value existing objects take.
     #[cfg_attr(not(test), expect(dead_code, reason = "no migration adds a field yet; the next one that does uses it"))]
@@ -75,6 +71,13 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         name: "默认数字员工记录来源，之后可以更新没改过的职责和指令",
         steps: &[Step::Custom(crate::agents::record_seed_origins)],
+    },
+    Migration {
+        version: 3,
+        name: "操作的 commandId 记录执行状态，服务重启时还在执行的标为中断",
+        // Commands recorded before this version are ones whose action finished (a failed one
+        // released its id); one a crash left behind could not be told apart and counts as done.
+        steps: &[Step::Sql("ALTER TABLE commands ADD COLUMN state TEXT NOT NULL DEFAULT 'done';")],
     },
 ];
 

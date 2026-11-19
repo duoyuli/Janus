@@ -43,8 +43,8 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
 | `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
-| `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入，失败时删除，用于按 `commandId` 只执行一次 |
 | `leases` | `(run_id, name)` | Run 租约，防止两个 Janus 实例驱动同一个 Run |
+| `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入（`state` 为 `running`），生效后改为 `done`，失败时删除；服务启动时把还是 `running` 的改为 `interrupted`（`CommandState`）。用于按 `commandId` 只执行一次 |
 
 约束：
 
@@ -72,6 +72,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | --- | --- |
 | 1 | 删除数字员工的「定位」（`role`），删除 Run 快照成员的 `role` 和 `model_label` |
 | 2 | 默认数字员工记录来源（`seed`），见[默认角色：产品上线团队](../domains/20261031-agents_and_roles.md#product_launch_roles) |
+| 3 | `commands` 表加 `state` 列（`running`、`done`、`interrupted`），已有的行取 `done` |
 
 <a id="snapshots"></a>
 ## Run 快照

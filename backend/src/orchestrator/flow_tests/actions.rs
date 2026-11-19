@@ -3,8 +3,10 @@
 
 use super::*;
 
-/// One `commandId` acts once even when two requests carry it at the same time, an action that
-/// fails gives its id back for a retry, and an unknown run is refused before anything is claimed.
+/// One `commandId` acts once even when two requests carry it at the same time, a repeat after it
+/// took effect is a duplicate, one whose first request a restart cut off is refused instead of
+/// reported as done, an action that fails gives its id back for a retry, and an unknown run is
+/// refused before anything is claimed.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     let h = harness("actions-once", &[("lead", false), ("m1", false)], json!({ "T1": ["ok"] }));
@@ -19,8 +21,11 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     let (a, b) = (spawn(body.clone()), spawn(body.clone()));
     let replies = [a.await.unwrap(), b.await.unwrap()];
     let done = replies.iter().filter(|r| matches!(r, Ok(ActionReply::Done))).count();
-    let duplicate = replies.iter().filter(|r| matches!(r, Ok(ActionReply::Duplicate))).count();
-    assert_eq!((done, duplicate), (1, 1), "the second request with the id does nothing");
+    // The other one finds the action running (refused) or finished (a duplicate), and does nothing.
+    let other =
+        replies.iter().filter(|r| matches!(r, Ok(ActionReply::Duplicate) | Err(ActionRefused::Conflict(_)))).count();
+    assert_eq!((done, other), (1, 1), "the second request with the id does nothing");
+    assert!(matches!(h.app.request_action(&run, &body).await, Ok(ActionReply::Duplicate)));
     let said = |text: &str| {
         events(&h.app, &run)
             .iter()
@@ -35,6 +40,14 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     let retry = json!({ "type": "message", "agent": "lead", "text": "第二次", "commandId": "c-2" });
     assert!(matches!(h.app.request_action(&run, &retry).await, Ok(ActionReply::Done)));
     assert_eq!(said("第二次"), 1);
+
+    // A restart between claiming an id and the action taking effect: the outcome is unknown, so
+    // the same id is refused rather than answered as done, and nothing is said.
+    h.app.db.claim_command(&run, "c-3", &json!({ "type": "message" }), now_ms()).unwrap();
+    h.app.db.interrupt_commands().unwrap();
+    let cut_off = json!({ "type": "message", "agent": "lead", "text": "第三次", "commandId": "c-3" });
+    assert!(matches!(h.app.request_action(&run, &cut_off).await, Err(ActionRefused::Conflict(_))));
+    assert_eq!(said("第三次"), 0);
 
     assert!(matches!(h.app.request_action("no-such-run", &body).await, Err(ActionRefused::NotFound)));
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
