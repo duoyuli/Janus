@@ -3,7 +3,7 @@
 and Claude Code (docs/operations/20261031-testing.md#product_e2e).
 
 Builds the server and the app from this checkout (or uses dist/Janus.app with `--packaged`),
-starts the server on a scratch Janus home at 127.0.0.1:7979, installs stand-in adapters that run
+starts the server on a scratch Janus home at a free port of 127.0.0.1, installs stand-in adapters that run
 backend/testdata/fake_acp.py, and plays every user journey through the HTTP API the app uses and
 the board MCP endpoint the agents use. The app runs against the same server; after each journey
 its derived state is compared with what the server recorded, and its pages are pictured for review.

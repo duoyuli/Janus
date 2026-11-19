@@ -15,7 +15,7 @@ same home. Then it checks what the upgrade promises:
 - a database from a newer Janus is refused.
 
 Nothing in the checkout is touched: sources, builds and homes live in a temporary directory, and
-the servers listen on 127.0.0.1:7979 (never the person's own 7878).
+the servers listen on a free port of 127.0.0.1 (never the person's own 7878).
 
 Usage: e2e/upgrade.py [--from TAG ...] [--keep] [--dump-fixture PATH]
 `--dump-fixture` writes the oldest tag's data (configs and runs, before the upgrade) as SQL for

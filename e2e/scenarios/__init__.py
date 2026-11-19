@@ -123,6 +123,10 @@ class RunH:
     def detail(self):
         return self.ctx.api("GET", f"/api/runs/{self.id}")
 
+    def cwd(self):
+        """Where the run works: its own worktree on a git repository, otherwise the directory."""
+        return self.detail()["run"]["cwd"]
+
     def events(self):
         return self.detail()["events"]
 
@@ -201,4 +205,4 @@ def jsonl(text):
 
 
 # The scenario modules register themselves on import, in this order.
-from scenarios import setup, journeys, decisions, failures, controls, sessions, restart, app_server, real  # noqa: E402,F401
+from scenarios import setup, journeys, decisions, failures, controls, sessions, worktrees, restart, app_server, real  # noqa: E402,F401

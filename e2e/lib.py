@@ -1,7 +1,7 @@
 """Shared pieces of the end-to-end tests (docs/operations/20261031-testing.md#product_e2e).
 
-A scratch Janus home and workspaces outside the checkout, a server on 127.0.0.1:7979 (never the
-person's own 7878), the HTTP API the app uses, the board's MCP endpoint the agents use, the
+A scratch Janus home and workspaces outside the checkout, a server on a free port of 127.0.0.1 (never the
+person's own 7878; two test runs, for example two Janus tasks in their own worktrees, do not collide), the HTTP API the app uses, the board's MCP endpoint the agents use, the
 scripted ACP agent standing in for Codex and Claude Code, and the app driven through its
 snapshot command channel. Only the standard library: the scripts run with `python3 -I`.
 """
@@ -19,7 +19,16 @@ import urllib.request
 
 ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True,
                       cwd=os.path.dirname(os.path.abspath(__file__))).stdout.strip()
-ADDR = "127.0.0.1:7979"
+def free_addr():
+    """A port nothing listens on right now. The system hands out ports from its ephemeral range,
+    so it is never the person's own 7878."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return f"127.0.0.1:{s.getsockname()[1]}"
+
+
+ADDR = free_addr()
 FAKE_AGENT = os.path.join(ROOT, "backend", "testdata", "fake_acp.py")
 # The npm packages Janus runs for the built-in runtimes (backend/src/adapters.rs `ADAPTERS`).
 ADAPTER_PACKAGES = {"codex": "@agentclientprotocol/codex-acp", "claude": "@agentclientprotocol/claude-agent-acp"}
@@ -220,6 +229,9 @@ def git_repo(path, files=None):
             f.write(text)
     g = ["git", "-C", path, "-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid"]
     run(g[:3] + ["init", "-q"])
+    # Accepting a run commits its result as the repository's own identity.
+    run(g[:3] + ["config", "user.name", "e2e"])
+    run(g[:3] + ["config", "user.email", "e2e@example.invalid"])
     run(g + ["add", "-A"])
     run(g + ["commit", "-q", "-m", "init"])
     return os.path.realpath(path)

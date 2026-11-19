@@ -2,10 +2,10 @@
 
 import os
 
-from lib import App, ApiError, http, wait
+from lib import App, ApiError, free_addr, http, wait
 from scenarios import scenario
 
-ADDR = "127.0.0.1:7980"
+ADDR = free_addr()
 
 
 @scenario("app-server", serial=True)

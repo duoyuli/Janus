@@ -1,6 +1,6 @@
 """Smoke test with the real Codex and Claude Code (`--real`): network, tokens, and minutes.
 
-A Janus home of its own on 127.0.0.1:7981. The agents are a copy of the person's working setup:
+A Janus home of its own on a free port of 127.0.0.1. The agents are a copy of the person's working setup:
 the Codex and Claude Code connections of their Janus home (`--real-from`, ~/.janus) with the same
 settings, so 「复制本机配置」 copies from the same source directories again, and secrets the API never
 returns are copied file to file. Nothing in that home is changed. Janus installs the real ACP
@@ -15,10 +15,10 @@ import sqlite3
 import subprocess
 import time
 
-from lib import ROOT, Failure, Server, git_repo, http, wait
+from lib import ROOT, Failure, Server, free_addr, git_repo, http, wait
 from scenarios import scenario
 
-ADDR = "127.0.0.1:7981"
+ADDR = free_addr()
 # The goal is small enough for the lead alone, which would then do it itself; this smoke test is
 # about a real lead working with real collaborators, so the goal asks for delegation.
 GOAL = ("给 calc.py 增加 mod(a, b)：返回 a 除以 b 的余数，b 为 0 时抛出 ZeroDivisionError；"
@@ -61,13 +61,15 @@ def real(ctx, c):
         done = {e.get("task") for e in events if e["type"] == "task.succeeded"}
         c(done, f"协作者完成了任务：{sorted(done)}")
         c(not any(e["type"] == "lead.edited" for e in events), "负责人派出子任务后没有自己改文件")
-        c("def mod" in open(os.path.join(repo, "calc.py")).read(), "calc.py 有 mod 函数")
-        tests = subprocess.run([shutil.which("python3") or "python3", "-m", "unittest", "-q"], cwd=repo, capture_output=True, text=True)
-        c(tests.returncode == 0, f"工作区的测试通过：{(tests.stderr or tests.stdout).strip().splitlines()[-1:]}")
+        worktree = api("GET", f"/api/runs/{run}")["run"]["cwd"]
+        c("def mod" in open(os.path.join(worktree, "calc.py")).read(), "任务的 worktree 里 calc.py 有 mod 函数")
+        tests = subprocess.run([shutil.which("python3") or "python3", "-m", "unittest", "-q"], cwd=worktree, capture_output=True, text=True)
+        c(tests.returncode == 0, f"worktree 里的测试通过：{(tests.stderr or tests.stdout).strip().splitlines()[-1:]}")
         usage = api("GET", f"/api/runs/{run}/usage")
         c(usage["run"]["tokens"]["total"], f"真实 Agent 上报了用量：{usage['text']}")
         api("POST", f"/api/runs/{run}/actions", {"type": "accept"})
-        c(True, "验收")
+        shown = subprocess.run(["git", "show", f"janus/{run}:calc.py"], cwd=repo, capture_output=True, text=True).stdout
+        c("def mod" in shown, f"验收后结果提交到分支 janus/{run}")
     finally:
         server.stop()
         # The copied credentials do not outlive the test, even with --keep.
