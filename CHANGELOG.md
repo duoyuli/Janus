@@ -4,6 +4,22 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.19.6
+
+- 资源库里的 Skill 和 MCP 服务器默认给所有数字员工，不用再为某种工具单独建数字员工或改角色。每个会话只多出两个路由：Skill 不超过 10 个时逐个加载，更多时合并成一个 `janus-skills`，用到时再读；命令启动的 MCP 服务器由每个任务的 `janus-tools` 提供，第一次调用时才在任务的工作目录（worktree）里启动，同一个任务的数字员工共用。有副作用或带凭据的工具可以关掉「给所有数字员工」，只给选中它的数字员工。新 Skill 默认给所有人，新 MCP 服务器默认只给选中它的数字员工，放开前会确认。升级后已有的资源按同样的默认值处理。
+- 新增默认的「通用数字员工」，什么子任务都能接。它绑定 Agent 之后，新建工作区默认启用负责人加 3 个通用数字员工；原来的专职数字员工保留。负责人派出子任务后，资源库里的工具只用来查看。
+- 资源库页面改为「Skill 路由」和「MCP 路由」两张卡片，收口的资源折叠在下面；每项一行，缺少的值用警示色标出，详情展开再看。Skill 的主要添加方式是把 GitHub 链接拖进或粘贴到链接框；MCP 服务器填写表单或粘贴配置添加，不再从 GitHub 仓库导入。GitHub 来源有更新时在页面顶部提示。
+- 设置里的 ACP、Agent 和数字员工合并成一页「数字员工」：上面是 Agent 卡片，每张卡片带登录、检查和 ACP 适配器的版本与升级；下面是数字员工。
+- 添加和编辑 Agent 只有「取消」和「创建」（编辑时是「保存」）两个按钮，保存后立即检查，进度显示在 Agent 卡片上。
+- 去掉预设的 Agent 类型（DeepSeek、MiniMax、GLM over Claude Code）。用其他厂商的接口驱动 Claude Code 时，选 Claude 的 API Key，在环境变量里填厂商的地址和模型。已有的预设 Agent 升级后变成这样的 Claude Code Agent，原来的地址和模型变量都保留，但需要在编辑页重新填一次 API Key 并检查。
+
+- Skills and MCP servers in the Resource Library now go to every digital employee by default, so you no longer create a digital employee or change a role just for one tool. Each session gets two routers: skills load one by one up to ten, beyond that they are combined into one `janus-skills` and read when needed; command-started MCP servers are served by each run's `janus-tools`, started on their first call in the run's working directory (its worktree) and shared by the run's digital employees. Turn off "For All Digital Employees" on a tool with side effects or credentials to give it only to the digital employees that select it. New skills go to everyone and new MCP servers start selected-only; Janus asks before giving a server to everyone. Existing resources follow the same defaults after the upgrade.
+- A new default "General Digital Employee" takes any kind of subtask. Once it is bound to an Agent, a new workspace starts with the lead and three general digital employees; the specialist digital employees remain. After the lead hands out subtasks, it uses the library's tools only to look things up.
+- The Resource Library page shows two cards, Skill Router and MCP Router, with the selected-only resources folded below. Each item is one line, missing values are highlighted, and details unfold on demand. Skills are added mainly by dropping or pasting a GitHub link; MCP servers are added with a form or by pasting a configuration and are no longer imported from GitHub repositories. Updates to GitHub sources show at the top of the page.
+- ACP, Agents, and Digital Employees in Settings are now one page, Digital Employees: Agent cards on top, each with sign-in, checks, and its ACP adapter version and upgrade; the digital employees below.
+- Adding or editing an Agent has just Cancel and Create (Save when editing); saving starts the check right away, with progress on the Agent card.
+- The preset Agent types (DeepSeek, MiniMax, and GLM over Claude Code) are gone. To run Claude Code on another vendor's API, choose Claude with an API key and set the vendor's address and models in the environment variables. Existing preset Agents become such Claude Code Agents after the upgrade and keep their address and model variables, but you need to enter the API key again in the editor and run the check.
+
 ## 2026.11.19.5
 
 - Git 仓库上的每个任务都在自己的 worktree 里进行（放在 Janus 目录的 `worktrees/` 下），同一个仓库上同时跑几个任务也不会互相覆盖，你自己的工作目录不会被改动。worktree 里只有仓库跟踪的文件，加上仓库根目录 `.worktreeinclude` 列出的被忽略文件（例如 `.env`，和 Claude Code、Codex 用同一个文件）；依赖和构建产物由 Agent 在 worktree 里按项目自己的方式准备。
