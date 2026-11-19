@@ -110,7 +110,7 @@ Janus 不把 Skill 或 MCP 列进提示，也不列工作目录中的项目 Skil
 每个 Run 有一个 MCP 端点 `janus-tools`（`/mcp/{run}/{token}/{who}/tools`，令牌和 `who` 的规则与[看板](../interfaces/20261031-board_mcp.md#transport)相同，`orchestrator::mcp_router`），提供成员快照中 `everyone` 的 stdio 服务器：
 
 - **列工具**：`tools/list` 列出这些服务器的全部工具，名字是 `<服务器>__<工具>`（只含字母、数字、`-`、`_`，最多 64 个字符）。服务器的工具列表缓存在 `~/.janus/library/tools/<资源 id>-<revision>.json`：已经列过的服务器不需要启动；从没列过的，第一次列时启动一次取回列表。Claude Code 和 Codex 自己按需搜索 MCP 工具，所以路由不另做工具搜索。`initialize` 的说明列出背后的服务器和它们的描述。
-- **调用**：`tools/call` 时才启动对应的服务器（`Backend::start`）：命令和参数来自资源，环境是 Janus 进程的环境加上资源保存的值，工作目录是这个 Run 的工作目录（Git 仓库上是它的 worktree），标准错误写进 `~/.janus/logs/<run>/mcp-<名字>.log`。服务器向 Janus 发的 `roots/list` 回答这个工作目录，`ping` 照常回答，其他请求回答不支持。同一个 Run 的负责人和协作者共用一个进程。
+- **调用**：`tools/call` 时才启动对应的服务器（`Backend::start`）：命令和参数来自资源，环境和 Agent 一样是隔离的（`sandbox_at`，见[安全边界](../operations/20261031-security.md#agent_isolation)）：`HOME`、XDG 目录和 `TMPDIR` 在 `~/.janus/library/servers/<资源 id>/` 下，跨 Run 保留（`npx` 缓存、服务器自己的登录状态都在这里），删除资源时连同缓存的工具列表一起删除；从宿主只继承 `PATH`、语言等少数变量，再加上资源保存的值，值不能覆盖这些隔离变量。工作目录是这个 Run 的工作目录（Git 仓库上是它的 worktree），标准错误写进 `~/.janus/logs/<run>/mcp-<名字>.log`。服务器向 Janus 发的 `roots/list` 回答这个工作目录，`ping` 照常回答，其他请求回答不支持。同一个 Run 的负责人和协作者共用一个进程。
 - **生命周期**：闲置 10 分钟的服务器在下一次请求时停掉，再用到时重新启动；Run 从内存中移除时，它启动的进程一起结束。
 - **记录**：每次调用写一条 `mcp.routed`（调用者、子任务、服务器、工具、耗时、错误），不记参数，见[事件](../interfaces/20261031-events.md)。找不到的工具和服务器报的错作为工具错误（`isError`）返回给 Agent。
 - 名字 `janus` 和 `janus-tools` 留给 Janus，资源库里的 MCP 服务器不能用。

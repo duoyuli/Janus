@@ -33,7 +33,7 @@ mod workspaces;
 pub use catalog::kinds;
 use catalog::*;
 pub use checks::CheckState;
-pub(crate) use connections::drop_preset_kinds;
+pub(crate) use connections::{drop_preset_kinds, is_sandbox_var, sandbox_at};
 pub use local_config::local_preview;
 use local_config::*;
 pub(crate) use roles::{add_generalist, record_seed_origins};

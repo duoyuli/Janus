@@ -40,7 +40,7 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
     let starts = h.dir.join("mcp-starts.log");
     let config = json!({ "mcpServers": { "probe": {
-        "command": "python3", "args": [script], "env": { "FAKE_MCP_LOG": starts }
+        "command": "python3", "args": [script], "env": { "FAKE_MCP_LOG": starts, "OWN": "mine", "HOME": "/etc" }
     } } });
     h.app.import_mcp_config(&config.to_string()).await.unwrap();
     let probe = h.app.items().unwrap().into_iter().find(|i| i.name == "probe").unwrap();
@@ -59,7 +59,7 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     assert!(init["instructions"].as_str().unwrap().contains("probe"), "{init}");
     let tools = call(&h, &at, "tools/list", json!({})).await.unwrap();
     let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["probe__cwd", "probe__echo", "probe__roots"]);
+    assert_eq!(names, ["probe__cwd", "probe__echo", "probe__roots", "probe__env"]);
     assert_eq!(count(), 1, "a server never listed before starts once to say its tools");
 
     let cwd = h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap().to_string();
@@ -68,6 +68,26 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     let roots = call(&h, &at, "tools/call", json!({ "name": "probe__roots", "arguments": {} })).await.unwrap();
     assert_eq!(text(&roots), format!("file://{cwd}"), "the router answers the server's roots/list");
     assert_eq!(count(), 1, "the run's sessions share the running server");
+    // Its own sandbox, never Janus's environment: a variable of this process is not there, its own
+    // values are, and they can't move HOME.
+    let seen = |name: &str| {
+        let h = &h;
+        let at = &at;
+        let name = name.to_string();
+        async move {
+            let r = call(h, at, "tools/call", json!({ "name": "probe__env", "arguments": { "name": name } }))
+                .await
+                .unwrap();
+            serde_json::from_str::<Value>(&text(&r)).unwrap()
+        }
+    };
+    let env = seen("CARGO_PKG_NAME").await;
+    assert!(
+        std::env::var("CARGO_PKG_NAME").is_ok() && env["CARGO_PKG_NAME"].is_null(),
+        "Janus's variables stay out: {env}"
+    );
+    assert_eq!(env["HOME"], json!(h.app.server_home(&probe.id).join("root")), "a HOME of its own");
+    assert_eq!(seen("OWN").await["OWN"], "mine", "its own values are there");
     let missing = call(&h, &at, "tools/call", json!({ "name": "probe__nope", "arguments": {} })).await.unwrap();
     assert!(missing["isError"] == true && text(&missing).contains("没有这个工具"), "{missing}");
     let routed: Vec<Value> =
@@ -87,7 +107,17 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     wait_until(&h.app, &second, "T2 running", |e| task_event(e, "attempt.started", "T2")).await;
     let other = router_url(&h, "T2").await;
     let listed = call(&h, &other, "tools/list", json!({})).await.unwrap();
-    assert_eq!(listed["tools"].as_array().unwrap().len(), 3);
+    assert_eq!(listed["tools"].as_array().unwrap().len(), 4);
     assert_eq!(count(), 1, "listed from the cache");
+
+    // Deleting the item takes its sandbox and cached tool lists along.
+    let home = h.app.server_home(&probe.id);
+    assert!(home.exists());
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
+    h.app.run(&second).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
+    h.app.delete_item(&probe.id).await.unwrap();
+    assert!(!home.exists());
+    let left = std::fs::read_dir(h.app.tools_dir()).map(|d| d.count()).unwrap_or(0);
+    assert_eq!(left, 0, "no cached tool list is left");
     let _ = std::fs::remove_dir_all(&h.dir);
 }

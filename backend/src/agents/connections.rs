@@ -213,8 +213,8 @@ impl App {
         let secret = |k: &str| s[k].as_str().unwrap_or("").to_string();
         let home = self.agent_dir(id).join("home").to_string_lossy().to_string();
         // Sandbox first, then the variables configured on this agent (an empty value unsets one),
-        // then its isolation and credentials, so
-        // nothing the user typed can point the agent back at the host's own directories.
+        // then its isolation and credentials, so nothing the user typed can point the agent back
+        // at the host's own directories.
         // @project-doc docs/domains/20261031-agents_and_roles.md#agent_env
         let mut env = self.sandbox_env(id)?;
         for (k, v) in c["env"]
@@ -300,25 +300,33 @@ impl App {
     /// A fresh user environment for one agent: its own HOME, XDG directories and temp dir under
     /// `~/.janus/agents/<id>/`, so any lookup of `~/...` lands in the sandbox instead of the host.
     pub fn sandbox_env(&self, id: &str) -> Result<Vec<(String, String)>> {
-        let dir = self.agent_dir(id);
-        let root = dir.join("root");
-        let paths = [
-            ("HOME", root.clone()),
-            ("XDG_CONFIG_HOME", root.join(".config")),
-            ("XDG_DATA_HOME", root.join(".local/share")),
-            ("XDG_STATE_HOME", root.join(".local/state")),
-            ("XDG_CACHE_HOME", root.join(".cache")),
-            ("TMPDIR", dir.join("tmp")),
-        ];
-        let mut env: Vec<(String, String)> =
-            HOST_ENV.iter().filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))).collect();
-        for (k, p) in paths {
-            std::fs::create_dir_all(&p)?;
-            env.push((k.to_string(), p.to_string_lossy().to_string()));
-        }
+        let mut env = sandbox_at(&self.agent_dir(id))?;
         env.push(("JANUS_AGENT_ID".into(), id.to_string()));
         Ok(env)
     }
+}
+
+/// A fresh user environment rooted at `dir`: HOME and the XDG directories under `dir/root`, the
+/// temp dir at `dir/tmp`, and from the host only the few variables in `HOST_ENV`. Each agent gets
+/// one; so does each MCP server the router runs.
+// @project-doc docs/operations/20261031-security.md#agent_isolation
+pub(crate) fn sandbox_at(dir: &Path) -> Result<Vec<(String, String)>> {
+    let root = dir.join("root");
+    let paths = [
+        ("HOME", root.clone()),
+        ("XDG_CONFIG_HOME", root.join(".config")),
+        ("XDG_DATA_HOME", root.join(".local/share")),
+        ("XDG_STATE_HOME", root.join(".local/state")),
+        ("XDG_CACHE_HOME", root.join(".cache")),
+        ("TMPDIR", dir.join("tmp")),
+    ];
+    let mut env: Vec<(String, String)> =
+        HOST_ENV.iter().filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))).collect();
+    for (k, p) in paths {
+        std::fs::create_dir_all(&p)?;
+        env.push((k.to_string(), p.to_string_lossy().to_string()));
+    }
+    Ok(env)
 }
 
 /// The only variables an agent inherits from the host: enough to find executables and render text.
@@ -327,7 +335,7 @@ pub(super) const HOST_ENV: &[&str] =
     &["PATH", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TERM", "USER", "LOGNAME", "SHELL", "TZ"];
 
 /// Variables that only Janus may set; an agent's own environment settings cannot override them.
-pub(super) fn is_sandbox_var(k: &str) -> bool {
+pub(crate) fn is_sandbox_var(k: &str) -> bool {
     matches!(
         k,
         "HOME"

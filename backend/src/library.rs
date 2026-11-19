@@ -536,7 +536,26 @@ impl App {
         }
         self.db.delete_config(ITEM, id)?;
         let _ = std::fs::remove_file(self.values_path(id)?);
+        // What the MCP router kept for it: its sandbox and its cached tool lists.
+        let _ = std::fs::remove_dir_all(self.server_home(id));
+        if let Ok(cached) = std::fs::read_dir(self.tools_dir()) {
+            for f in cached.flatten().filter(|f| f.file_name().to_string_lossy().starts_with(&format!("{id}-"))) {
+                let _ = std::fs::remove_file(f.path());
+            }
+        }
         self.sweep_store()
+    }
+
+    /// Where the MCP router runs a server for everyone: its own HOME and temp dir, kept across runs
+    /// so its caches and its own sign-in survive, removed with the item.
+    // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+    pub(crate) fn server_home(&self, id: &str) -> PathBuf {
+        self.cfg.data_dir.join("library").join("servers").join(id)
+    }
+
+    /// The MCP router's cache of each server's tools, `<id>-<revision>.json`.
+    pub(crate) fn tools_dir(&self) -> PathBuf {
+        self.cfg.data_dir.join("library").join("tools")
     }
 
     fn roles_using(&self, id: &str) -> Result<Vec<Value>> {

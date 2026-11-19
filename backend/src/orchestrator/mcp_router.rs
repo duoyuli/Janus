@@ -40,9 +40,13 @@ struct Backend {
 impl Backend {
     /// Start `server` in `cwd` with the person's environment plus its saved values, and
     /// initialize it. Its stderr goes to `log`. `roots/list` from it is answered with `cwd`.
+    /// Starts a server in a sandbox of its own (`sandbox_at(home)`), never in Janus's environment:
+    /// it sees the sandbox variables and the values saved on it, which can't override them.
+    // @project-doc docs/operations/20261031-security.md#library
     async fn start(
         server: &McpServer,
         values: &crate::library::McpValues,
+        home: &Path,
         cwd: &Path,
         log: &Path,
     ) -> Result<Arc<Backend>> {
@@ -53,9 +57,12 @@ impl Backend {
             std::fs::create_dir_all(dir)?;
         }
         let err = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
+        let own = values.env.iter().filter(|(k, _)| !crate::agents::is_sandbox_var(k));
         let mut child = tokio::process::Command::new(command)
             .args(args)
-            .envs(values.env.iter())
+            .env_clear()
+            .envs(crate::agents::sandbox_at(home)?)
+            .envs(own)
             .current_dir(cwd)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -187,7 +194,7 @@ impl App {
     }
 
     fn tools_cache(&self, item: &Item) -> PathBuf {
-        self.cfg.data_dir.join("library").join("tools").join(format!("{}-{}.json", item.id, item.revision))
+        self.tools_dir().join(format!("{}-{}.json", item.id, item.revision))
     }
 
     /// A running backend for `item`, started on first use.
@@ -200,7 +207,7 @@ impl App {
         }
         let crate::library::Body::Mcp { server } = &item.body else { bail!("{} 不是 MCP 服务器", item.name) };
         let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{}.log", item.name));
-        let b = Backend::start(server, &self.mcp_values(&item.id), &run.cwd, &log).await?;
+        let b = Backend::start(server, &self.mcp_values(&item.id), &self.server_home(&item.id), &run.cwd, &log).await?;
         backends.insert(item.name.clone(), b.clone());
         Ok(b)
     }
