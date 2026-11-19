@@ -31,10 +31,9 @@ impl App {
             let (next, max_attempts) = {
                 let mut st = run.st.lock().unwrap();
                 let cancelled = st.cancelled();
-                match Run::task_mut(&mut st, id).filter(|t| t.active_attempt.as_deref() == Some(attempt_id)) {
+                match Run::task_mut(&mut st, id).filter(|t| t.on_attempt(attempt_id)) {
                     None => (Next::Late, 0),
                     Some(t) => {
-                        t.active_attempt = None;
                         let next = if cancelled {
                             Next::Cancelled
                         } else if !verification && t.attempts - t.retry_base < t.def.max_attempts {
@@ -43,9 +42,9 @@ impl App {
                             Next::Failed
                         };
                         match next {
-                            Next::Cancelled if t.status == TaskStatus::Running => t.set_status(TaskStatus::Cancelled),
-                            Next::Retry => t.set_status(TaskStatus::Pending),
-                            Next::Failed => t.set_status(TaskStatus::Failed),
+                            Next::Cancelled if t.status() == TaskStatus::Running => t.set_phase(TaskPhase::Cancelled),
+                            Next::Retry => t.set_phase(TaskPhase::Pending),
+                            Next::Failed => t.set_phase(TaskPhase::Failed),
                             _ => {}
                         }
                         (next, t.def.max_attempts)
@@ -166,7 +165,7 @@ impl App {
                 // Where to look, not only what it said: the files it changed, and which of them
                 // others changed after it finished.
                 let edited: Vec<String> = st.traces.files(&u.def.id).into_iter().collect();
-                let stale = u.succeeded_seq.map(|s| st.traces.edited_after(&u.def.id, s)).unwrap_or_default();
+                let stale = u.last_success_seq.map(|s| st.traces.edited_after(&u.def.id, s)).unwrap_or_default();
                 let traces = format!(
                     "{}{}",
                     if edited.is_empty() {
@@ -196,12 +195,12 @@ impl App {
                     u.def.id,
                     u.def.title,
                     u.agent,
-                    u.status,
+                    u.status(),
                     short(&r.summary, INLINE_SUMMARY),
                     if files.is_empty() { "无".into() } else { files.join("，") }
                 );
                 let mut handoff = json!({
-                    "from": u.def.id, "fromAgent": u.agent, "status": u.status, "summary": r.summary,
+                    "from": u.def.id, "fromAgent": u.agent, "status": u.status(), "summary": r.summary,
                     "handoff": r.handoff, "artifacts": names, "risks": r.risks.len(), "riskItems": r.risks,
                     "amendments": u.amendments, "files": edited,
                     "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>()
@@ -254,7 +253,7 @@ impl App {
             let st = run.st.lock().unwrap();
             st.tasks
                 .iter()
-                .filter(|t| t.status == TaskStatus::Running && t.def.id != id)
+                .filter(|t| t.status() == TaskStatus::Running && t.def.id != id)
                 .map(|t| {
                     format!(
                         "- {}「{}」· {}",
@@ -649,12 +648,11 @@ impl App {
         // by the lead in between is not overwritten by a success.
         let current = {
             let mut st = run.st.lock().unwrap();
-            match Run::task_mut(&mut st, id).filter(|t| t.active_attempt.as_deref() == Some(attempt_id)) {
+            match Run::task_mut(&mut st, id).filter(|t| t.on_attempt(attempt_id)) {
                 Some(t) => {
-                    t.set_status(TaskStatus::Succeeded);
+                    t.set_phase(TaskPhase::Succeeded);
                     t.result = Some(result.clone());
                     t.trace_gaps = gaps.clone();
-                    t.active_attempt = None;
                     true
                 }
                 None => false,
@@ -698,7 +696,7 @@ impl App {
                 .data(succeeded_data),
         );
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), id) {
-            t.succeeded_seq = Some(seq);
+            t.last_success_seq = Some(seq);
         }
         // The event above is the fact; a failed bookkeeping write must not turn it into a retry.
         if let Err(err) = self.db.update_attempt(

@@ -434,3 +434,36 @@ fn untracked_files_come_with_their_content() {
     assert!(!scoped.contains("研究.md"), "outside the scope: {scoped}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// What only one state has goes with it: a running task's attempt, a blocked one's dependency, a
+/// skipped one's upstream; whether it is succeeded now is its state, not a leftover seq.
+#[test]
+fn a_tasks_state_carries_its_own_data() {
+    let def = TaskDef {
+        id: "T1".into(),
+        title: "t".into(),
+        desc: "d".into(),
+        deps: vec![],
+        accept: vec!["a".into()],
+        assignee: "m1".into(),
+        max_attempts: 2,
+        owns: vec![],
+        verifies: None,
+        continues: None,
+    };
+    let mut t = Task::new(def, "m1".into(), 0);
+    t.set_phase(TaskPhase::Running { attempt: "a1".into() });
+    assert!(t.on_attempt("a1") && !t.on_attempt("a0"));
+    t.set_phase(TaskPhase::Succeeded);
+    t.last_success_seq = Some(7);
+    assert_eq!((t.attempt(), t.success_seq()), (None, Some(7)), "the attempt ends with the running state");
+    t.set_phase(TaskPhase::Pending);
+    assert_eq!(t.success_seq(), None, "reopened: not succeeded now");
+    assert_eq!(t.last_success_seq, Some(7), "but where it last succeeded is kept");
+    t.set_phase(TaskPhase::Blocked { by: "T0".into() });
+    assert_eq!(t.blocked_by(), Some("T0"));
+    t.set_phase(TaskPhase::Pending);
+    assert_eq!(t.blocked_by(), None, "unblocked: nothing waits any more");
+    t.set_phase(TaskPhase::SkippedByDecision { because: Some("T0".into()) });
+    assert_eq!((t.status(), t.skipped_because()), (TaskStatus::SkippedByDecision, Some("T0")));
+}

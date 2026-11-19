@@ -235,59 +235,59 @@ impl App {
                 let mut st = run.st.lock().unwrap();
                 let gate = DepGate::of(&st.tasks);
                 let succeeded: HashSet<String> =
-                    st.tasks.iter().filter(|t| t.status == TaskStatus::Succeeded).map(|t| t.def.id.clone()).collect();
+                    st.tasks.iter().filter(|t| t.status() == TaskStatus::Succeeded).map(|t| t.def.id.clone()).collect();
                 let mut blocked = vec![];
-                for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
+                for t in st.tasks.iter_mut().filter(|t| t.status() == TaskStatus::Pending) {
                     if let Some((dep, vd)) = gate.holds(t) {
-                        t.set_status(TaskStatus::Blocked);
-                        t.blocked_by = Some(dep.clone());
+                        t.set_phase(TaskPhase::Blocked { by: dep.clone() });
                         blocked.push((t.def.id.clone(), dep, vd));
                     }
                 }
                 // A blocked task waits again once none of its dependencies is failed any more (the
                 // lead retried or accepted them); one still failed keeps it blocked, and is named.
-                for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Blocked) {
+                for t in st.tasks.iter_mut().filter(|t| t.status() == TaskStatus::Blocked) {
                     match gate.holds(t) {
-                        None => {
-                            t.set_status(TaskStatus::Pending);
-                            t.blocked_by = None;
-                        }
-                        Some((dep, vd)) if t.blocked_by.as_ref() != Some(&dep) => {
-                            t.blocked_by = Some(dep.clone());
+                        None => t.set_phase(TaskPhase::Pending),
+                        Some((dep, vd)) if t.blocked_by() != Some(dep.as_str()) => {
+                            // Still blocked, now on another failed dependency.
+                            t.restore(TaskPhase::Blocked { by: dep.clone() });
                             blocked.push((t.def.id.clone(), dep, vd));
                         }
                         Some(_) => {}
                     }
                 }
                 let mut starts = vec![];
-                if !st.paused && !over_budget {
-                    let mut running_count = st.tasks.iter().filter(|t| t.status == TaskStatus::Running).count();
-                    let mut busy: HashSet<String> =
-                        st.tasks.iter().filter(|t| t.status == TaskStatus::Running).map(|t| t.agent.clone()).collect();
-                    for t in st.tasks.iter_mut().filter(|t| t.status == TaskStatus::Pending) {
+                if !st.paused() && !over_budget {
+                    let mut running_count = st.tasks.iter().filter(|t| t.status() == TaskStatus::Running).count();
+                    let mut busy: HashSet<String> = st
+                        .tasks
+                        .iter()
+                        .filter(|t| t.status() == TaskStatus::Running)
+                        .map(|t| t.agent.clone())
+                        .collect();
+                    for t in st.tasks.iter_mut().filter(|t| t.status() == TaskStatus::Pending) {
                         if running_count >= cap {
                             break;
                         }
                         if t.def.deps.iter().all(|d| succeeded.contains(d)) && !busy.contains(&t.agent) {
                             busy.insert(t.agent.clone());
                             running_count += 1;
-                            t.set_status(TaskStatus::Running);
                             t.attempts += 1;
                             let attempt_id = format!("{}-{}-{}-{}", run.id, t.def.id, t.attempts, now_ms());
-                            t.active_attempt = Some(attempt_id.clone());
+                            t.set_phase(TaskPhase::Running { attempt: attempt_id.clone() });
                             starts.push((t.def.id.clone(), t.attempts, t.agent.clone(), attempt_id));
                         }
                     }
                 }
-                let active = st.tasks.iter().any(|t| t.status == TaskStatus::Running);
+                let active = st.tasks.iter().any(|t| t.status() == TaskStatus::Running);
                 // A task that could start but for a pause, concurrency cap or budget is still work
                 // to do: the run waits instead of delivering without it.
                 let runnable = st
                     .tasks
                     .iter()
-                    .any(|t| t.status == TaskStatus::Pending && t.def.deps.iter().all(|d| succeeded.contains(d)));
+                    .any(|t| t.status() == TaskStatus::Pending && t.def.deps.iter().all(|d| succeeded.contains(d)));
                 let finished = !active && !runnable;
-                let all_terminal = st.tasks.iter().all(|t| t.status.terminal());
+                let all_terminal = st.tasks.iter().all(|t| t.status().terminal());
                 // The lead decides what a failure means (it reads it on the board), so nothing
                 // waits for the person; the run ends once the lead is done and no task is running
                 // or can still start.
@@ -297,7 +297,7 @@ impl App {
                     Outcome::Deliver
                 } else if let (Some(hit), false) = (budget_hit, all_terminal) {
                     Outcome::Budget(hit)
-                } else if !active && starts.is_empty() && st.paused {
+                } else if !active && starts.is_empty() && st.paused() {
                     Outcome::Paused
                 } else {
                     Outcome::Running
@@ -495,7 +495,7 @@ impl App {
             let mut risks = vec![];
             let mut acceptance = vec![];
             for t in &st.tasks {
-                let unfinished = match t.status {
+                let unfinished = match t.status() {
                     TaskStatus::Pending | TaskStatus::Running => Some("没有执行"),
                     TaskStatus::Blocked => Some("依赖失败，没有执行"),
                     TaskStatus::Failed => Some("失败"),
@@ -514,7 +514,7 @@ impl App {
                 }
                 // Every piece of evidence the task reported, not only the first.
                 for e in &r.evidence {
-                    evidence.push(json!({ "text": format!("{}：{}", t.def.id, e), "seq": t.succeeded_seq }));
+                    evidence.push(json!({ "text": format!("{}：{}", t.def.id, e), "seq": t.last_success_seq }));
                 }
                 risks.extend(r.risks.iter().map(|x| format!("{}：{}", t.def.id, x)));
                 // Who checked this task independently, and how that went. Completing a review
@@ -531,8 +531,8 @@ impl App {
                         let verdict = v.verdict();
                         Verification {
                             task: v.def.id.clone(),
-                            status: v.status.as_str(),
-                            label: v.status.label(),
+                            status: v.status().as_str(),
+                            label: v.status().label(),
                             verdict,
                             passed: verdict == Some(Verdict::Approved),
                             summary: vr.summary,
@@ -556,14 +556,14 @@ impl App {
                 let changed =
                     !st.traces.files(&t.def.id).is_empty() || t.artifacts.iter().any(|a| a["kind"] == "git_diff");
                 let unverified = t.def.verifies.is_none()
-                    && t.status == TaskStatus::Succeeded
+                    && t.status() == TaskStatus::Succeeded
                     && changed
                     && verifications.is_empty();
                 acceptance.push(TaskAcceptance {
                     task: t.def.id.clone(),
                     title: t.def.title.clone(),
-                    status: t.status.as_str(),
-                    label: t.status.label(),
+                    status: t.status().as_str(),
+                    label: t.status().label(),
                     summary: Summary::of(&t.def.accept, &r.checks),
                     checks: r.checks.clone(),
                     verifications,

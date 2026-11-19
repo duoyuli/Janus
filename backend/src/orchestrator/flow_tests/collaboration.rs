@@ -321,7 +321,7 @@ async fn recovery_uses_the_recorded_plan_boundary_and_preserves_legacy_holds() {
     {
         let st = live.st.lock().unwrap();
         for id in ["BEFORE", "LEGACY"] {
-            assert_eq!(st.tasks.iter().find(|t| t.def.id == id).unwrap().status, TaskStatus::Blocked);
+            assert_eq!(st.tasks.iter().find(|t| t.def.id == id).unwrap().status(), TaskStatus::Blocked);
         }
     }
     assert_eq!(live.costs.lock().unwrap().usd, Some(3.0));

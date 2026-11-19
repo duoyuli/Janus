@@ -451,10 +451,10 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let verifiers: Vec<String> = st
                 .tasks
                 .iter()
-                .filter(|v| v.def.verifies.as_deref() == Some(task) && v.status.terminal())
+                .filter(|v| v.def.verifies.as_deref() == Some(task) && v.status().terminal())
                 .map(|v| match v.verdict() {
                     Some(vd) => format!("{} 判定{}", v.def.id, vd.label()),
-                    None => format!("{} {}", v.def.id, v.status.label()),
+                    None => format!("{} {}", v.def.id, v.status().label()),
                 })
                 .collect();
             let clipped = more_evidence
@@ -505,7 +505,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                     .tasks
                     .iter()
                     .filter(|d| {
-                        matches!(d.status, TaskStatus::Pending | TaskStatus::Blocked)
+                        matches!(d.status(), TaskStatus::Pending | TaskStatus::Blocked)
                             && d.def.deps.iter().any(|dep| dep == task)
                             && d.planned_seq < e.seq
                     })

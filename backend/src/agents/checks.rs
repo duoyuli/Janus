@@ -10,12 +10,13 @@ impl App {
     pub fn start_check(self: &Arc<Self>, id: &str) -> Result<Value> {
         let mut running = self.checks.0.lock().unwrap();
         let mut c = self.connection(id)?;
-        if c["status"] == "testing" && running.get(id).is_some_and(|t| c["testStartedAt"].as_i64() == Some(*t)) {
+        if let ConnCheck::Testing { started } = check_state(&c)
+            && running.get(id) == Some(&started)
+        {
             return Ok(c);
         }
         let started = now_ms();
-        c["status"] = json!("testing");
-        c["testStartedAt"] = json!(started);
+        set_check(&mut c, ConnCheck::Testing { started });
         c["check"] = json!([]);
         self.db.put_config(CONNECTION, id, &c, now_ms())?;
         running.insert(id.to_string(), started);
@@ -36,16 +37,16 @@ impl App {
     /// reads as "not tested" again and the login as failed, so the next login starts a new one.
     pub fn reset_stale_checks(&self) -> Result<()> {
         for mut c in self.db.list_config(CONNECTION)? {
-            let testing = c["status"] == "testing";
-            let logging_in = c["login"]["state"] == "running";
+            let testing = matches!(check_state(&c), ConnCheck::Testing { .. });
+            let logging_in = login_state(&c) == LoginState::Running;
             if !testing && !logging_in {
                 continue;
             }
             if testing {
-                c["status"] = json!("untested");
+                set_check(&mut c, ConnCheck::Untested);
             }
             if logging_in {
-                c["login"] = json!({ "state": "failed", "at": now_ms() });
+                set_login(&mut c, LoginState::Failed);
             }
             self.db.put_config(CONNECTION, str_of(&c, "id"), &c, now_ms())?;
         }
@@ -272,9 +273,7 @@ impl App {
         c["check"] = json!(check.steps);
         match outcome {
             Ok(found) => {
-                c["status"] = json!("ok");
-                c["error"] = Value::Null;
-                c["errorLog"] = Value::Null;
+                set_check(&mut c, ConnCheck::Ok);
                 c["agentInfo"] = found["agentInfo"].clone();
                 c["options"] = found["options"].clone();
                 c["reply"] = json!(crate::orchestrator::short(found["reply"].as_str().unwrap_or(""), 80));
@@ -286,9 +285,10 @@ impl App {
                     .find(|s| s["ok"] == false)
                     .map(|s| format!("{}：{}", str_of(s, "step"), str_of(s, "detail")))
                     .unwrap_or_else(|| auth_hint(&format!("{err:#}")));
-                c["status"] = json!("error");
-                c["error"] = json!(self.redact(id, &failed));
-                c["errorLog"] = json!(self.redact(id, &tail(&log, 15)));
+                set_check(
+                    &mut c,
+                    ConnCheck::Error { error: self.redact(id, &failed), log: self.redact(id, &tail(&log, 15)) },
+                );
             }
         }
         self.db.put_config(CONNECTION, id, &c, now_ms())?;
@@ -302,7 +302,7 @@ impl App {
         if !account_login(&c) {
             bail!("这个 Provider 的认证方式不需要登录");
         }
-        if c["login"]["state"] == "running" {
+        if login_state(&c) == LoginState::Running {
             return Ok(());
         }
         let spec = self.spec_for(id)?;
@@ -322,23 +322,23 @@ impl App {
             .kill_on_drop(true)
             .spawn()
             .context("启动登录命令失败")?;
-        c["login"] = json!({ "state": "running", "at": now_ms() });
+        set_login(&mut c, LoginState::Running);
         self.db.put_config(CONNECTION, id, &c, now_ms())?;
         let app = self.clone();
         let id = id.to_string();
         tokio::spawn(async move {
             let status = tokio::time::timeout(Duration::from_secs(600), child.wait()).await;
             let state = match status {
-                Ok(Ok(s)) if s.success() => "done",
-                Ok(_) => "failed",
+                Ok(Ok(s)) if s.success() => LoginState::Done,
+                Ok(_) => LoginState::Failed,
                 Err(_) => {
                     let _ = child.kill().await;
-                    "timeout"
+                    LoginState::Timeout
                 }
             };
             if let Ok(mut c) = app.connection(&id) {
-                c["login"] = json!({ "state": state, "at": now_ms() });
-                c["status"] = json!("untested");
+                set_login(&mut c, state);
+                set_check(&mut c, ConnCheck::Untested);
                 let _ = app.db.put_config(CONNECTION, &id, &c, now_ms());
             }
         });
@@ -449,5 +449,23 @@ mod tests {
         app.test_connection("gone", 2).await.unwrap();
         assert_eq!(app.connection("gone").unwrap()["status"], "error", "its own check records the result");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A check's state is written whole: running has its start, failing has its reason, and a
+    /// pass clears the reason of an earlier failure.
+    #[test]
+    fn a_check_state_is_written_whole() {
+        let mut c = json!({ "id": "x" });
+        set_check(&mut c, ConnCheck::Testing { started: 5 });
+        assert_eq!(check_state(&c), ConnCheck::Testing { started: 5 });
+        set_check(&mut c, ConnCheck::Error { error: "凭据：401".into(), log: "tail".into() });
+        assert_eq!(connection_phase(&c), "error");
+        set_check(&mut c, ConnCheck::Ok);
+        assert!(c["error"].is_null() && c["errorLog"].is_null(), "no old reason after a pass: {c}");
+        assert_eq!(c["testStartedAt"], 5, "the latest check's start stays, telling late writes apart");
+        set_login(&mut c, LoginState::Running);
+        assert_eq!((login_state(&c), connection_phase(&c)), (LoginState::Running, "logging_in"));
+        set_login(&mut c, LoginState::Timeout);
+        assert_eq!(login_state(&c), LoginState::Timeout);
     }
 }

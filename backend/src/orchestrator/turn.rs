@@ -369,14 +369,14 @@ impl App {
             let shared: Vec<(String, Vec<String>)> = st
                 .tasks
                 .iter()
-                .filter(|t| t.status == TaskStatus::Running && t.def.id != task)
+                .filter(|t| t.status() == TaskStatus::Running && t.def.id != task)
                 .filter_map(|t| {
                     let theirs = st.traces.files(&t.def.id);
                     let common: Vec<String> = paths.iter().filter(|p| theirs.contains(*p)).cloned().collect();
                     (!common.is_empty()).then(|| (t.def.id.clone(), common))
                 })
                 .collect();
-            let board: Vec<(&TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (&t.def, t.status)).collect();
+            let board: Vec<(&TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (&t.def, t.status())).collect();
             let mut owned: BTreeMap<String, Vec<String>> = BTreeMap::new();
             for p in paths {
                 if let Some(o) = crate::teamwork::owner_of(p, task, &board) {
@@ -455,7 +455,7 @@ impl App {
             let after_plan = if st.tasks.is_empty() { vec![] } else { st.traces.record_lead_after_plan(paths) };
             let mut shared: Vec<(String, Vec<String>)> = vec![];
             let mut owned: Vec<(String, Vec<String>)> = vec![];
-            for t in st.tasks.iter().filter(|t| t.status == TaskStatus::Running) {
+            for t in st.tasks.iter().filter(|t| t.status() == TaskStatus::Running) {
                 let id = &t.def.id;
                 let owned_files: Vec<String> = paths
                     .iter()

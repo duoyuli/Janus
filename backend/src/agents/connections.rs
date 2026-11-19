@@ -96,8 +96,10 @@ impl App {
         let mut config = json!({
             "id": id, "kind": kind, "base": desc["base"], "name": name, "auth": auth_desc["id"],
             "bin": str_of(body, "bin"), "prompt": body["prompt"].as_str().unwrap_or("").trim(), "env": env,
-            "status": "untested", "createdAt": prev.as_ref().map(|p| p["createdAt"].clone()).unwrap_or(json!(now_ms())),
+            "createdAt": prev.as_ref().map(|p| p["createdAt"].clone()).unwrap_or(json!(now_ms())),
         });
+        // A saved agent is checked again before it runs (`start_check`).
+        set_check(&mut config, ConnCheck::Untested);
         if desc["command"] == true {
             let command = str_of(body, "command");
             if split_command(command)?.is_empty() {

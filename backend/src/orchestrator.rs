@@ -329,20 +329,58 @@ struct TaskResult {
     question: Option<Value>,
 }
 
+/// Where a task is, with what only that state has: the attempt a running task is on, the failed
+/// dependency a blocked one waits on, the task whose cancellation dropped a skipped one. Leaving a
+/// state drops its data with it, so none of it outlives the state it belongs to.
+// @project-doc docs/domains/20261031-run_lifecycle.md#task_states
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum TaskPhase {
+    #[default]
+    Pending,
+    Running {
+        attempt: String,
+    },
+    Blocked {
+        by: String,
+    },
+    Succeeded,
+    Failed,
+    Cancelled,
+    /// The lead dropped it with `cancel`; `because` is the upstream task whose cancellation took
+    /// it along (retrying that task brings it back), none when the lead named it.
+    SkippedByDecision {
+        because: Option<String>,
+    },
+}
+
+impl TaskPhase {
+    fn status(&self) -> TaskStatus {
+        match self {
+            TaskPhase::Pending => TaskStatus::Pending,
+            TaskPhase::Running { .. } => TaskStatus::Running,
+            TaskPhase::Blocked { .. } => TaskStatus::Blocked,
+            TaskPhase::Succeeded => TaskStatus::Succeeded,
+            TaskPhase::Failed => TaskStatus::Failed,
+            TaskPhase::Cancelled => TaskStatus::Cancelled,
+            TaskPhase::SkippedByDecision { .. } => TaskStatus::SkippedByDecision,
+        }
+    }
+}
+
 struct Task {
     def: TaskDef,
     agent: String,
     /// The run's last event when the lead wrote this task to the board: what the lead knew when
     /// it planned the task (see `DepGate::holds`).
     planned_seq: i64,
-    status: TaskStatus,
+    /// Changed only through `set_phase` (or `restore` when the board is rebuilt from events).
+    phase: TaskPhase,
     attempts: i64,
     result: Option<TaskResult>,
-    /// The failed dependency a blocked task waits on.
-    blocked_by: Option<String>,
-    succeeded_seq: Option<i64>,
+    /// The seq of its latest `task.succeeded`: kept after it is reopened, since what others took
+    /// from that result is judged against it. Whether it is succeeded now is `status()`.
+    last_success_seq: Option<i64>,
     artifacts: Vec<Value>,
-    active_attempt: Option<String>,
     /// Attempts made before the current retry budget started (a user retry).
     retry_base: i64,
     /// The lead's corrections to this task's conclusion, handed on with it (`result.amended`).
@@ -352,9 +390,6 @@ struct Task {
     /// Why the next attempt starts after the task had ended, and in which session; taken when
     /// that attempt starts (see `Reopen`).
     reopen: Option<Reopen>,
-    /// The upstream task whose cancellation dropped this one (`task.skipped_by_decision` with a
-    /// `dependency`); retrying that task brings this one back.
-    skipped_because: Option<String>,
 }
 
 impl Task {
@@ -363,35 +398,77 @@ impl Task {
             def,
             agent,
             planned_seq,
-            status: TaskStatus::Pending,
+            phase: TaskPhase::Pending,
             attempts: 0,
             result: None,
-            blocked_by: None,
-            succeeded_seq: None,
+            last_success_seq: None,
             artifacts: vec![],
-            active_attempt: None,
             retry_base: 0,
             amendments: vec![],
             trace_gaps: vec![],
             reopen: None,
-            skipped_because: None,
         }
+    }
+
+    fn status(&self) -> TaskStatus {
+        self.phase.status()
     }
 
     /// Move to `to`; an illegal step is a scheduler bug, so tests stop on it and a release
     /// build records it instead of silently accepting it.
-    fn set_status(&mut self, to: TaskStatus) {
-        if !self.status.can_transition_to(to) {
-            crate::config::log(format!("janus: task {}: illegal status {:?} -> {:?}", self.def.id, self.status, to));
+    fn set_phase(&mut self, to: TaskPhase) {
+        let (from, next) = (self.status(), to.status());
+        if !from.can_transition_to(next) {
+            crate::config::log(format!("janus: task {}: illegal status {from:?} -> {next:?}", self.def.id));
         }
-        debug_assert!(self.status.can_transition_to(to), "task {}: {:?} -> {:?}", self.def.id, self.status, to);
-        self.status = to;
+        debug_assert!(from.can_transition_to(next), "task {}: {from:?} -> {next:?}", self.def.id);
+        self.phase = to;
+    }
+
+    /// The board rebuilt from the event log: not a transition, the log already decided it.
+    fn restore(&mut self, phase: TaskPhase) {
+        self.phase = phase;
+    }
+
+    /// The attempt a running task is on.
+    fn attempt(&self) -> Option<&str> {
+        match &self.phase {
+            TaskPhase::Running { attempt } => Some(attempt),
+            _ => None,
+        }
+    }
+
+    /// Whether `attempt` still owns this task: running, on that attempt. A cancel or retry by the
+    /// lead in between ends that.
+    fn on_attempt(&self, attempt: &str) -> bool {
+        self.attempt() == Some(attempt)
+    }
+
+    /// The failed dependency a blocked task waits on.
+    fn blocked_by(&self) -> Option<&str> {
+        match &self.phase {
+            TaskPhase::Blocked { by } => Some(by),
+            _ => None,
+        }
+    }
+
+    /// The upstream task whose cancellation dropped this one.
+    fn skipped_because(&self) -> Option<&str> {
+        match &self.phase {
+            TaskPhase::SkippedByDecision { because } => because.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Where its current success was recorded; none unless it is succeeded now.
+    fn success_seq(&self) -> Option<i64> {
+        self.last_success_seq.filter(|_| self.phase == TaskPhase::Succeeded)
     }
 
     /// A finished independent verification's judgment of the task it verifies; `None` for any
     /// other task and for a verification that has not succeeded.
     fn verdict(&self) -> Option<Verdict> {
-        if self.def.verifies.is_none() || self.status != TaskStatus::Succeeded {
+        if self.def.verifies.is_none() || self.status() != TaskStatus::Succeeded {
             return None;
         }
         Some(match &self.result {
@@ -533,12 +610,12 @@ struct DepGate {
 impl DepGate {
     fn of(tasks: &[Task]) -> DepGate {
         DepGate {
-            failed: tasks.iter().filter(|t| t.status.failed_dependency()).map(|t| t.def.id.clone()).collect(),
+            failed: tasks.iter().filter(|t| t.status().failed_dependency()).map(|t| t.def.id.clone()).collect(),
             rejected: tasks
                 .iter()
                 .filter_map(|t| {
                     let vd = t.verdict().filter(|vd| *vd != Verdict::Approved)?;
-                    Some((t.def.id.clone(), (vd, t.succeeded_seq.unwrap_or(i64::MAX))))
+                    Some((t.def.id.clone(), (vd, t.last_success_seq.unwrap_or(i64::MAX))))
                 })
                 .collect(),
         }
@@ -562,6 +639,7 @@ impl DepGate {
 #[derive(Default)]
 struct RunState {
     status: RunStatus,
+    /// Only through `set_paused` and `paused`: a run is paused only while it is active.
     paused: bool,
     tasks: Vec<Task>,
     /// Decisions a session waits on, by the key the app and the lead answer them with.
@@ -595,6 +673,20 @@ impl RunState {
     /// Cancelling is the run's status, not a flag of its own: nothing leaves `Cancelled`.
     fn cancelled(&self) -> bool {
         self.status == RunStatus::Cancelled
+    }
+
+    /// Paused by the person, and still active: a finished run is never paused.
+    fn paused(&self) -> bool {
+        self.paused && self.status.is_active()
+    }
+
+    /// Pause or resume an active run; a finished one has nothing to pause.
+    fn set_paused(&mut self, on: bool) -> Result<()> {
+        if !self.status.is_active() {
+            bail!("任务现在是「{}」，不能{}", self.status, if on { "暂停" } else { "继续" });
+        }
+        self.paused = on;
+        Ok(())
     }
 }
 

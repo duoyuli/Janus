@@ -21,7 +21,7 @@ impl Takers {
                     st.live.get(&SessionKey::task(&x.def.id)).map(|tx| (x.def.id.clone(), x.agent.clone(), tx.clone()))
                 })
                 .collect(),
-            done: downstream.iter().filter(|x| x.status == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect(),
+            done: downstream.iter().filter(|x| x.status() == TaskStatus::Succeeded).map(|x| x.def.id.clone()).collect(),
         }
     }
 
@@ -153,8 +153,11 @@ impl App {
 
     pub(super) fn board_team(&self, run: &Run) -> String {
         let st = run.st.lock().unwrap();
-        let tasks: Vec<String> =
-            st.tasks.iter().map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status, t.def.title)).collect();
+        let tasks: Vec<String> = st
+            .tasks
+            .iter()
+            .map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status(), t.def.title))
+            .collect();
         drop(st);
         format!(
             "协作者：\n{}\n\n看板上的子任务：\n{}",
@@ -171,7 +174,7 @@ impl App {
     ) -> std::result::Result<String, String> {
         let defs = {
             let st = run.st.lock().unwrap();
-            let board: Vec<(TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (t.def.clone(), t.status)).collect();
+            let board: Vec<(TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (t.def.clone(), t.status())).collect();
             validate_orchestration(run, &board, args)
         };
         let defs = match defs {
@@ -261,7 +264,7 @@ impl App {
             }
             let (open, cancelled) = {
                 let st = run.st.lock().unwrap();
-                (st.tasks.iter().any(|t| !t.status.terminal()), st.cancelled())
+                (st.tasks.iter().any(|t| !t.status().terminal()), st.cancelled())
             };
             let timed_out = tokio::time::Instant::now() >= until || cancelled;
             // Entries that only inform wait for one that needs the lead, or for the timeout.
@@ -334,7 +337,7 @@ impl App {
             .tasks
             .iter()
             .find(|t| t.def.id == task)
-            .map(|t| t.status)
+            .map(|t| t.status())
             .unwrap_or(TaskStatus::Pending);
         if live.is_none() && status.terminal() {
             // A reply to a finished task would otherwise wait for whatever this agent does next.
@@ -385,8 +388,8 @@ impl App {
             let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
                 return Err(format!("看板上没有子任务 {task}"));
             };
-            if !t.status.terminal() {
-                return Err(format!("{task} 现在是「{}」，还没有结束；要补充指示请用 janus.reply", t.status.label()));
+            if !t.status().terminal() {
+                return Err(format!("{task} 现在是「{}」，还没有结束；要补充指示请用 janus.reply", t.status().label()));
             }
             if let Some(v) = from {
                 let Some(vt) = st.tasks.iter().find(|x| x.def.id == v) else {
@@ -412,15 +415,13 @@ impl App {
             let reverify: Vec<String> = st
                 .tasks
                 .iter()
-                .filter(|v| v.status == TaskStatus::Succeeded)
+                .filter(|v| v.status() == TaskStatus::Succeeded)
                 .filter(|v| v.def.verifies.as_deref() == Some(task) || Some(v.def.id.as_str()) == from)
                 .map(|v| v.def.id.clone())
                 .collect();
             let t = Run::task_mut(&mut st, task).expect("found above");
-            t.set_status(TaskStatus::Pending);
-            t.active_attempt = None;
+            t.set_phase(TaskPhase::Pending);
             t.retry_base = t.attempts;
-            t.skipped_because = None;
             t.reopen = Some(Reopen::Retry {
                 session,
                 from: from.map(str::to_owned),
@@ -438,7 +439,7 @@ impl App {
             }
             for id in &reverify {
                 let v = Run::task_mut(&mut st, id).expect("listed above");
-                v.set_status(TaskStatus::Pending);
+                v.set_phase(TaskPhase::Pending);
                 v.retry_base = v.attempts;
                 v.reopen = Some(Reopen::Reverify { target: task.to_string() });
                 v.trace_gaps.clear();
@@ -456,11 +457,8 @@ impl App {
             let mut st = run.st.lock().unwrap();
             let mut queue = vec![task.to_string()];
             while let Some(up) = queue.pop() {
-                for t in st.tasks.iter_mut().filter(|t| {
-                    t.status == TaskStatus::SkippedByDecision && t.skipped_because.as_deref() == Some(up.as_str())
-                }) {
-                    t.set_status(TaskStatus::Pending);
-                    t.skipped_because = None;
+                for t in st.tasks.iter_mut().filter(|t| t.skipped_because() == Some(up.as_str())) {
+                    t.set_phase(TaskPhase::Pending);
                     t.retry_base = t.attempts;
                     revived.push((t.def.id.clone(), up.clone()));
                     queue.push(t.def.id.clone());
@@ -577,10 +575,10 @@ impl App {
         {
             // Checked and settled in one step, so a retry or cancel in between is not overwritten.
             let mut st = run.st.lock().unwrap();
-            let Some(t) = Run::task_mut(&mut st, task).filter(|t| t.status == TaskStatus::Failed) else {
+            let Some(t) = Run::task_mut(&mut st, task).filter(|t| t.status() == TaskStatus::Failed) else {
                 return Err(format!("{task} 已经不在失败状态"));
             };
-            t.set_status(TaskStatus::Succeeded);
+            t.set_phase(TaskPhase::Succeeded);
             t.result = Some(result.clone());
         }
         let mut event_data = json!({
@@ -598,7 +596,7 @@ impl App {
                 .data(event_data),
         );
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), task) {
-            t.succeeded_seq = Some(seq);
+            t.last_success_seq = Some(seq);
         }
         run.wake.notify_one();
         Ok(format!("已接受 {task} 的结果，依赖它的子任务会继续。"))
@@ -679,10 +677,10 @@ impl App {
             let Some(t) = Run::task_mut(&mut st, task) else {
                 return Err(format!("看板上没有子任务 {task}"));
             };
-            if t.status != TaskStatus::Succeeded {
+            if t.status() != TaskStatus::Succeeded {
                 return Err(format!(
                     "{task} 现在是「{}」，只能修订已完成子任务的结论；还在执行的子任务用 janus.reply",
-                    t.status.label()
+                    t.status().label()
                 ));
             }
             t.amendments.push(text.to_string());
@@ -731,14 +729,12 @@ impl App {
             let mut queue: Vec<(String, Option<String>)> = wanted.iter().map(|id| (id.clone(), None)).collect();
             while let Some((id, because)) = queue.pop() {
                 let t = Run::task_mut(&mut st, &id).unwrap();
-                if matches!(t.status, TaskStatus::Succeeded | TaskStatus::SkippedByDecision)
+                if matches!(t.status(), TaskStatus::Succeeded | TaskStatus::SkippedByDecision)
                     || dropped.iter().any(|(d, _)| d == &id)
                 {
                     continue;
                 }
-                t.set_status(TaskStatus::SkippedByDecision);
-                t.active_attempt = None;
-                t.skipped_because = because.clone();
+                t.set_phase(TaskPhase::SkippedByDecision { because: because.clone() });
                 dropped.push((id.clone(), because));
                 for d in st.tasks.iter().filter(|x| x.def.deps.contains(&id)) {
                     queue.push((d.def.id.clone(), Some(id.clone())));
@@ -768,7 +764,7 @@ impl App {
             let st = run.st.lock().unwrap();
             if let Some(t) = st.tasks.iter().find(|t| {
                 wanted.contains(&t.def.id)
-                    && t.status == TaskStatus::Succeeded
+                    && t.status() == TaskStatus::Succeeded
                     && matches!(t.verdict(), Some(Verdict::Rejected | Verdict::Inconclusive))
             }) {
                 return Err(format!(
@@ -822,7 +818,7 @@ impl App {
         let label = |id: &str| {
             format!(
                 "{id}（{}）",
-                st.tasks.iter().find(|x| x.def.id == id).map(|x| x.status.label()).unwrap_or("不在看板上")
+                st.tasks.iter().find(|x| x.def.id == id).map(|x| x.status().label()).unwrap_or("不在看板上")
             )
         };
         let mine = |e: &&Event| e.task.as_deref() == Some(task);
@@ -832,7 +828,7 @@ impl App {
                 t.def.title,
                 name(&t.agent),
                 t.agent,
-                t.status.label(),
+                t.status().label(),
                 t.attempts
             ),
             format!("说明：{}", t.def.desc),
@@ -893,7 +889,7 @@ impl App {
         for v in st.tasks.iter().filter(|v| v.def.verifies.as_deref() == Some(task)) {
             let verdict_tag =
                 v.verdict().map(|vd| format!(" · 判定：{}（{}）", vd.label(), vd.as_str())).unwrap_or_default();
-            out.push(format!("独立验证 {}：{}{verdict_tag}", v.def.id, v.status.label()));
+            out.push(format!("独立验证 {}：{}{verdict_tag}", v.def.id, v.status().label()));
             if let Some(r) = &v.result {
                 out.push(format!("  {}", r.summary));
                 for c in &r.checks {
@@ -906,14 +902,14 @@ impl App {
                     ));
                 }
             }
-            if let Some(f) = st.last_verification.get(&v.def.id).filter(|_| v.status != TaskStatus::Succeeded) {
+            if let Some(f) = st.last_verification.get(&v.def.id).filter(|_| v.status() != TaskStatus::Succeeded) {
                 out.push(format!("  没通过核对：\n{f}"));
             }
         }
         if !t.amendments.is_empty() {
             out.push(format!("负责人的修订（以此为准）：{}", t.amendments.join("；")));
         }
-        if let Some(v) = st.last_verification.get(task).filter(|_| t.status != TaskStatus::Succeeded) {
+        if let Some(v) = st.last_verification.get(task).filter(|_| t.status() != TaskStatus::Succeeded) {
             out.push(format!("最近一次没通过验收核对：\n{v}"));
         }
         if let Some(e) = events
@@ -921,7 +917,7 @@ impl App {
             .rev()
             .filter(mine)
             .find(|e| e.kind == "attempt.failed")
-            .filter(|_| t.status != TaskStatus::Succeeded)
+            .filter(|_| t.status() != TaskStatus::Succeeded)
         {
             out.push(format!(
                 "最近一次尝试失败：{}",
@@ -932,7 +928,7 @@ impl App {
         if !files.is_empty() {
             out.push(format!("改过的文件：{}", files.into_iter().collect::<Vec<_>>().join("、")));
         }
-        if let Some(s) = t.succeeded_seq.filter(|_| t.status == TaskStatus::Succeeded) {
+        if let Some(s) = t.success_seq() {
             let note = crate::traces::stale_note(&st.traces.edited_after(task, s));
             if !note.is_empty() {
                 out.push(note);
@@ -943,7 +939,7 @@ impl App {
             .rev()
             .filter(mine)
             .find(|e| e.kind == "task.succeeded")
-            .filter(|_| t.status == TaskStatus::Succeeded)
+            .filter(|_| t.status() == TaskStatus::Succeeded)
             .and_then(|e| e.data.as_ref()?["traceGaps"].as_array().cloned())
             .filter(|g| !g.is_empty())
         {
@@ -1075,15 +1071,15 @@ impl App {
                 }
                 let theirs = st.traces.files(&t.def.id);
                 let common: Vec<String> = theirs.intersection(&my_files).cloned().collect();
-                if !t.def.owns.is_empty() && !t.status.terminal() {
+                if !t.def.owns.is_empty() && !t.status().terminal() {
                     tags.push(format!("负责 {}", t.def.owns.join("、")));
                 }
                 if !common.is_empty() {
                     tags.push(format!("和你都改了 {}", common.join("、")));
-                } else if t.status == TaskStatus::Running && !theirs.is_empty() {
+                } else if t.status() == TaskStatus::Running && !theirs.is_empty() {
                     tags.push(format!("改过 {}", theirs.iter().take(5).cloned().collect::<Vec<_>>().join("、")));
                 }
-                if let Some(s) = t.succeeded_seq.filter(|_| t.status == TaskStatus::Succeeded) {
+                if let Some(s) = t.success_seq() {
                     let stale = st.traces.edited_after(&t.def.id, s);
                     if !stale.is_empty() {
                         tags.push(format!(
@@ -1097,7 +1093,7 @@ impl App {
                     "- {}「{}」· {who} · {}{}",
                     t.def.id,
                     t.def.title,
-                    t.status.label(),
+                    t.status().label(),
                     if tags.is_empty() { String::new() } else { format!(" · {}", tags.join(" · ")) }
                 )
             })
@@ -1172,7 +1168,7 @@ impl App {
             let mut guard = run.st.lock().unwrap();
             let st = &mut *guard;
             let me = st.tasks.iter().find(|t| t.def.id == task).ok_or_else(|| format!("看板上没有子任务 {task}"))?;
-            let board: Vec<(&TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (&t.def, t.status)).collect();
+            let board: Vec<(&TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (&t.def, t.status())).collect();
             let fresh = crate::teamwork::claim(&me.def, &paths, &board)?;
             let agent = me.agent.clone();
             if let Some(t) = Run::task_mut(st, task) {
@@ -1273,7 +1269,7 @@ fn running_pulse(run: &Run) -> String {
         .collect();
     let st = run.st.lock().unwrap();
     let mut lines = vec![];
-    for t in st.tasks.iter().filter(|t| t.status == TaskStatus::Running) {
+    for t in st.tasks.iter().filter(|t| t.status() == TaskStatus::Running) {
         let who = run.member(&t.agent).map(|m| m.name.as_str()).unwrap_or(&t.agent);
         let edited = st.traces.files(&t.def.id).len();
         let detail = match watches.get(&SessionKey::task(&t.def.id)) {
@@ -1287,7 +1283,7 @@ fn running_pulse(run: &Run) -> String {
         let files_part = if edited > 0 { format!("，已改 {edited} 个文件") } else { String::new() };
         lines.push(format!("- {}「{}」· {who}：{detail}{files_part}", t.def.id, t.def.title));
     }
-    let pending = st.tasks.iter().filter(|t| t.status == TaskStatus::Pending).count();
+    let pending = st.tasks.iter().filter(|t| t.status() == TaskStatus::Pending).count();
     if pending > 0 {
         lines.push(format!("- 另有 {pending} 个子任务等待启动或等待依赖完成"));
     }

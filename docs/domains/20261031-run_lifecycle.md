@@ -56,6 +56,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 <a id="scheduling"></a>
 ## 任务调度
 
+<a id="task_states"></a>
 ### 任务状态
 
 | 状态 | 含义 | 终态 |
@@ -68,7 +69,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | `cancelled` | Run 被取消时正在执行 | 是 |
 | `skipped_by_decision` | 被负责人取消（`cancel`）；连带取消的任务随上游的 `retry` 回到 `pending` | 是 |
 
-这 7 个是调度器写出的状态（`TaskStatus`，`backend/src/status.rs`），合法转移集中在 `TaskStatus::can_transition_to`。应用另外从事件推导几个只用于显示的状态，它们不参与调度：`ready`（`task.ready`）、`assigned`（`task.assigned`）、`verifying`（`verification.started`）、`verification_failed`（`verification.failed`）、`waiting_input`（`question.asked` / `input.requested`）、`waiting_approval`（`approval.requested`）。重启恢复时以看板重建出的 7 个状态为准。应用中这 13 个状态是 `TaskStatus` 的成员（`frontend/Sources/Janus/Core/Status.swift`），Run 的状态是 `RunStatus`；进行中、已结束、可以从中断处继续这些分组也在那里定义，界面不再各自列字符串。
+这 7 个是调度器写出的状态（`TaskStatus`，`backend/src/status.rs`），合法转移集中在 `TaskStatus::can_transition_to`。调度器内部用 `TaskPhase` 记录任务状态，只在某个状态下才有的数据放在这个状态里：`running` 带它当前的尝试，`blocked` 带它在等的失败依赖，`skipped_by_decision` 带连带取消它的上游任务。离开一个状态时这些数据随之消失，不会残留到别的状态。任务最近一次完成的位置（`last_success_seq`）是历史，返工后仍保留，用来判断下游拿到的是不是旧结果；「现在是否已完成」只看状态。应用另外从事件推导几个只用于显示的状态，它们不参与调度：`ready`（`task.ready`）、`assigned`（`task.assigned`）、`verifying`（`verification.started`）、`verification_failed`（`verification.failed`）、`waiting_input`（`question.asked` / `input.requested`）、`waiting_approval`（`approval.requested`）。重启恢复时以看板重建出的 7 个状态为准。应用中这 13 个状态是 `TaskStatus` 的成员（`frontend/Sources/Janus/Core/Status.swift`），Run 的状态是 `RunStatus`；进行中、已结束、可以从中断处继续这些分组也在那里定义，界面不再各自列字符串。
 
 ### 启动条件
 
@@ -84,7 +85,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 独立验证任务判定 `rejected` 或 `inconclusive` 时自身是 `succeeded`，但被验证的工作没有得到确认。在判定写入之前就编排好、依赖这个验证任务的任务，是按「验证会通过」安排的，同样变为 `blocked`（`task.blocked` 带 `data.verdict`），不会在没确认的工作上继续；负责人读到判定之后再编排、依赖它的任务（例如修复任务）照常开始。判断依据是任务写入看板时的事件序号（`Task::planned_seq`）和验证任务 `task.succeeded` 的序号（`DepGate::holds`），重启后从 `orchestration.accepted` 的序号重建。
 
-尝试结束、负责人 `cancel` / `retry` / `accept` 都会改任务状态。尝试结束时，确认这次尝试仍是任务当前的尝试（`active_attempt`）和写入结果在同一把锁内完成；负责人已经取消或重试了这个任务时，这次尝试的结果按过期处理（`attempt.late_result`），尝试记录标为 `cancelled`，不会覆盖负责人的决定。
+尝试结束、负责人 `cancel` / `retry` / `accept` 都会改任务状态。尝试结束时，确认这次尝试仍是任务当前的尝试（`running` 状态带的尝试 id）和写入结果在同一把锁内完成；负责人已经取消或重试了这个任务时，这次尝试的结果按过期处理（`attempt.late_result`），尝试记录标为 `cancelled`，不会覆盖负责人的决定。
 
 <a id="attempt"></a>
 ## 一次尝试

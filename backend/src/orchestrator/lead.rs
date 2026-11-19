@@ -214,7 +214,7 @@ impl App {
             .unwrap()
             .tasks
             .iter()
-            .filter(|t| t.status == TaskStatus::Running)
+            .filter(|t| t.status() == TaskStatus::Running)
             .map(|t| t.def.id.clone())
             .collect();
         for e in events.iter().filter(|e| e.kind == "question.asked") {
@@ -755,7 +755,7 @@ Shared workspace context:
                         t.def.id,
                         t.agent,
                         t.def.title,
-                        t.status,
+                        t.status(),
                         t.result.as_ref().map(|r| format!(" · {}", short(&r.summary, 80))).unwrap_or_default()
                     )
                 })

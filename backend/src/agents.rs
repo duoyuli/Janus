@@ -126,20 +126,99 @@ pub fn which(bin: &str) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Where a connection's configuration check is. Stored as the connection's `status` (with
+/// `testStartedAt`, `error` and `errorLog`), read and written only through `check_state` and
+/// `set_check`, so a check never reads as running without its start or as failed without its
+/// reason, and a passing check leaves no old error behind.
+// @project-doc docs/domains/20261031-agents_and_roles.md#connection_check
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ConnCheck {
+    Untested,
+    Testing { started: i64 },
+    Ok,
+    Error { error: String, log: String },
+}
+
+impl ConnCheck {
+    fn status(&self) -> &'static str {
+        match self {
+            ConnCheck::Untested => "untested",
+            ConnCheck::Testing { .. } => "testing",
+            ConnCheck::Ok => "ok",
+            ConnCheck::Error { .. } => "error",
+        }
+    }
+}
+
+pub(crate) fn check_state(c: &Value) -> ConnCheck {
+    match c["status"].as_str() {
+        Some("testing") => ConnCheck::Testing { started: c["testStartedAt"].as_i64().unwrap_or_default() },
+        Some("ok") => ConnCheck::Ok,
+        Some("error") => ConnCheck::Error { error: str_of(c, "error").into(), log: str_of(c, "errorLog").into() },
+        _ => ConnCheck::Untested,
+    }
+}
+
+pub(crate) fn set_check(c: &mut Value, to: ConnCheck) {
+    c["status"] = json!(to.status());
+    let (error, log) = match &to {
+        ConnCheck::Error { error, log } => (json!(error), json!(log)),
+        _ => (Value::Null, Value::Null),
+    };
+    c["error"] = error;
+    c["errorLog"] = log;
+    // The start of the latest check stays after it ends: a late write from an older check, which
+    // started at another time, is told apart by it (`Check::owns`).
+    if let ConnCheck::Testing { started } = to {
+        c["testStartedAt"] = json!(started);
+    }
+}
+
+/// Where an account login (Codex with ChatGPT) is: stored as the connection's `login.state`, with
+/// when it changed. A login cut off by a timeout or a restart reads as `Failed`/`Timeout`, and the
+/// next login starts afresh.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LoginState {
+    None,
+    Running,
+    Done,
+    Failed,
+    Timeout,
+}
+
+pub(crate) fn login_state(c: &Value) -> LoginState {
+    match c["login"]["state"].as_str() {
+        Some("running") => LoginState::Running,
+        Some("done") => LoginState::Done,
+        Some("failed") => LoginState::Failed,
+        Some("timeout") => LoginState::Timeout,
+        _ => LoginState::None,
+    }
+}
+
+pub(crate) fn set_login(c: &mut Value, to: LoginState) {
+    let state = match to {
+        LoginState::None => {
+            c["login"] = Value::Null;
+            return;
+        }
+        LoginState::Running => "running",
+        LoginState::Done => "done",
+        LoginState::Failed => "failed",
+        LoginState::Timeout => "timeout",
+    };
+    c["login"] = json!({ "state": state, "at": now_ms() });
+}
+
 /// One value for the UI to switch on, instead of combining `status` with `login` and `loggedIn`.
 /// The order is the order a person has to clear them: log in, then test the configuration.
 pub(crate) fn connection_phase(c: &Value) -> &'static str {
-    if c["login"]["state"] == "running" {
+    if login_state(c) == LoginState::Running {
         "logging_in"
     } else if account_login(c) && c["loggedIn"].as_bool() != Some(true) {
         "logged_out"
     } else {
-        match c["status"].as_str() {
-            Some("testing") => "testing",
-            Some("ok") => "ok",
-            Some("error") => "error",
-            _ => "untested",
-        }
+        check_state(c).status()
     }
 }
 

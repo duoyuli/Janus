@@ -171,12 +171,7 @@ impl App {
             "pause" | "resume" => {
                 let pause = kind == "pause";
                 {
-                    let mut st = run.st.lock().unwrap();
-                    // Pausing or resuming a finished Run would leave `paused` set with nothing to drive.
-                    if !st.status.is_active() {
-                        bail!("任务现在是「{}」，不能{}", st.status, if pause { "暂停" } else { "继续" });
-                    }
-                    st.paused = pause;
+                    run.st.lock().unwrap().set_paused(pause)?;
                 }
                 self.emit(
                     run,
@@ -616,18 +611,21 @@ impl App {
             });
             let mut task = Task::new(def, agent, planned);
             // Rebuilding the board, not a transition: the event log already decided this state.
-            task.status = status;
+            task.restore(match status {
+                TaskStatus::Succeeded => TaskPhase::Succeeded,
+                TaskStatus::Failed => TaskPhase::Failed,
+                TaskStatus::Blocked => TaskPhase::Blocked { by: blocked_by.unwrap_or_default() },
+                TaskStatus::SkippedByDecision => TaskPhase::SkippedByDecision {
+                    because: mine("task.skipped_by_decision")
+                        .last()
+                        .and_then(|e| e.data.as_ref()?["dependency"].as_str().map(str::to_owned)),
+                },
+                // Everything unfinished restarts from pending (see above).
+                _ => TaskPhase::Pending,
+            });
             task.attempts = attempts;
             task.result = result;
-            task.blocked_by = blocked_by;
-            task.skipped_because = (status == TaskStatus::SkippedByDecision)
-                .then(|| {
-                    mine("task.skipped_by_decision")
-                        .last()
-                        .and_then(|e| e.data.as_ref()?["dependency"].as_str().map(str::to_owned))
-                })
-                .flatten();
-            task.succeeded_seq = succeeded.map(|e| e.seq);
+            task.last_success_seq = succeeded.map(|e| e.seq);
             task.trace_gaps = trace_gaps;
             task.reopen = reopen;
             task.artifacts = artifacts;
@@ -749,7 +747,7 @@ impl App {
             .unwrap()
             .tasks
             .iter()
-            .map(|t| json!({ "id": t.def.id, "status": t.status, "blockedBy": t.blocked_by }))
+            .map(|t| json!({ "id": t.def.id, "status": t.status(), "blockedBy": t.blocked_by() }))
             .collect();
         self.emit(
             &run,
