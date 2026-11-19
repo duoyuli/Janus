@@ -422,6 +422,21 @@ mod id_tests {
         assert!(err.contains("不合法"), "{err}");
         assert!(app.delete_connection("..").is_err());
         assert!(outside.exists(), "deleting an agent never leaves the agents folder");
+        // Deleting an agent unbinds its roles completely, as if saved without one.
+        let bound = crate::agents::test_role(
+            "bound",
+            json!({ "connection": "gone", "model": "m", "effort": "high", "session": { "mode": "full" } }),
+        );
+        app.db.put_config(ROLE, "bound", &bound, 1).unwrap();
+        app.db
+            .put_config(CONNECTION, "gone", &crate::agents::test_connection("gone", "custom", "custom", json!({})), 1)
+            .unwrap();
+        app.delete_connection("gone").unwrap();
+        let role = app.db.get_config(ROLE, "bound").unwrap().unwrap();
+        assert_eq!(
+            [&role["connection"], &role["model"], &role["effort"], &role["session"]],
+            [&json!(""), &json!(""), &json!(""), &json!({})]
+        );
         // A valid id is kept as given.
         assert_eq!(app.save_role(&json!({ "id": "my-role", "name": "R" })).unwrap()["id"], "my-role");
         let _ = std::fs::remove_dir_all(&dir);
