@@ -41,7 +41,7 @@ struct RolesSection: View {
         let kinds = r["resources"].strings.compactMap { store.libraryItem($0) }.filter { $0["reach"].str == "picked" }.map { $0["kind"].str }
         let skills = kinds.filter { $0 == "skill" }.count, servers = kinds.filter { $0 == "mcp" }.count
         let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? L.text("提示词") : "", skills == 0 ? "" : "\(skills) Skill", servers == 0 ? "" : "\(servers) MCP"].filter { !$0.isEmpty }
-        return Button { store.editingRole = r } label: {
+        return Button { store.editRole(r) } label: {
             HStack(spacing: 12) {
                 Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
                 VStack(alignment: .leading, spacing: 2) {

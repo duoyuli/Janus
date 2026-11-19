@@ -133,7 +133,7 @@ struct Sidebar: View {
                 }
                 UpdateBadge(updater: Updater.shared) { store.openSettings(.updates) }
                 if !store.sourceUpdates.isEmpty {
-                    Button { store.openSettings("library") } label: {
+                    Button { store.openSettings(.library) } label: {
                         Label(L.text("\(store.sourceUpdates.count) 个资源来源有更新"), systemImage: "arrow.down.circle")
                             .font(.caption).foregroundStyle(Tone.blue.color)
                     }
@@ -205,7 +205,10 @@ struct OnboardingBar: View {
                     Spacer()
                     if let next = steps.first(where: { !$0.1 }) {
                         Button(next.0) {
-                            if next.2 == "workspace" { store.editingWorkspace = AppStore.blankWorkspace } else { store.openSettings(next.2) }
+                            switch next.2 {
+                            case .newWorkspace: store.editingWorkspace = AppStore.blankWorkspace
+                            case .settings(let tab): store.openSettings(tab)
+                            }
                         }
                         .buttonStyle(.primary)
                     }

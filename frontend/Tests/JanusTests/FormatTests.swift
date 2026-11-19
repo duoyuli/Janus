@@ -36,9 +36,9 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     let roles: [JSON?] = [["name": "负责人", "connection": "c1"], ["name": "实现者", "connection": "c1"], ["name": "审查者", "connection": "c2"], ["name": "文档", "connection": ""], nil]
     let p = HomeView.problems(roles, connection: { conns[$0] })
     #expect(p.count == 3, "\(p.map(\.text))")
-    #expect(p.contains { $0.text.contains("脚本 Agent") && $0.text.contains("负责人") && $0.text.contains("实现者") && $0.tab == "agents" })
-    #expect(p.contains { $0.text.contains("文档") && $0.tab == "roles" })
-    #expect(p.contains { $0.text.contains("1") && $0.tab == "roles" })
+    #expect(p.contains { $0.text.contains("脚本 Agent") && $0.text.contains("负责人") && $0.text.contains("实现者") && $0.tab == .agents })
+    #expect(p.contains { $0.text.contains("文档") && $0.tab == .agents })
+    #expect(p.contains { $0.text.contains("1") && $0.tab == .agents })
     #expect(HomeView.problems([["name": "审查者", "connection": "c2"]], connection: { conns[$0] }).isEmpty)
 }
 

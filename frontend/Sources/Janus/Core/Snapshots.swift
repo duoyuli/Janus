@@ -52,7 +52,7 @@ enum Snapshots {
                 switch kv.last {
                 case "permissions": store.openSettings(.permissions)
                 case "updates": store.openSettings(.updates)
-                default: store.openSettings(kv.last ?? "agents")
+                default: store.openSettings(AppStore.SettingsTab(rawValue: kv.last ?? "") ?? .agents)
                 }
             default: break
             }
@@ -88,10 +88,10 @@ enum Snapshots {
         case "reload":
             await store.loadSetup(); await store.loadLibrary(); await store.loadRuns()
         // The editor is a sheet of the settings panel, as when a person opens it from there.
-        case "role": store.openSettings("agents"); store.editingRole = store.role(arg)
+        case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
         case "close-sheet":
-            store.editingRole = nil; store.editingWorkspace = nil; store.showingSettings = false
+            store.closeRoleEditor(); store.editingWorkspace = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
@@ -110,7 +110,7 @@ enum Snapshots {
             let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"]] }) }
             var j: JSON = [
                 "screen": JSON(String(describing: store.screen)), "settings": JSON(store.showingSettings),
-                "settingsTab": JSON(store.settingsTab), "permissionsReview": JSON(model.permissions.reviewPresented),
+                "settingsTab": JSON(store.settingsTab.rawValue), "permissionsReview": JSON(model.permissions.reviewPresented),
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),

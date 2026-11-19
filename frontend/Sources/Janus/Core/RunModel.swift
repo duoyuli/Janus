@@ -18,9 +18,17 @@ final class RunModel {
 
     var runJSON: JSON = .null
     var events: [Event] = []
-    var live = false
-    var loaded = false
-    var loadError: String?
+    /// Reading the run: still reading, failed the first read (a later failed reload keeps what was
+    /// read), or read, and then whether it runs in this orchestrator (live) or is read-only.
+    enum Load: Equatable {
+        case loading
+        case failed(String)
+        case loaded(live: Bool)
+    }
+    var load: Load = .loading
+    var loaded: Bool { if case .loaded = load { return true } else { return false } }
+    var live: Bool { load == .loaded(live: true) }
+    var loadError: String? { if case .failed(let why) = load { return why } else { return nil } }
     private(set) var state = RunState()
     /// Replay position (number of events shown), nil while live.
     var replay: Int? { didSet { replayState = replay.map { n in derive(Array(events.prefix(n))) } } }
@@ -89,7 +97,7 @@ final class RunModel {
     var team: [JSON] { runJSON["config"]["team"].array }
     var workspaceId: String { runJSON["config"]["workspace"]["id"].str }
 
-    func load(keepPage: Bool = true) async {
+    func read(keepPage: Bool = true) async {
         streamTask?.cancel()
         do {
             let data = try await api.get("/api/runs/\(id)")
@@ -97,19 +105,17 @@ final class RunModel {
             events = data["events"].array.map(Event.init)
             docScan = [:]
             docScanned = 0
-            live = data["live"].bool ?? false
             // A derive scheduled before this read would land on the events it replaced.
             deriveTask?.cancel()
             deriveTask = nil
             state = derive(events)
             findDocuments()
             if let r = replay, r > events.count { replay = nil }
-            loaded = true
-            loadError = nil
+            load = .loaded(live: data["live"].bool ?? false)
             if !workspaceId.isEmpty, store.workspace(workspaceId) != nil { store.rememberWorkspace(workspaceId) }
             subscribe()
         } catch {
-            loadError = error.localizedDescription
+            if !loaded { load = .failed(error.localizedDescription) }
         }
     }
 
@@ -164,10 +170,10 @@ final class RunModel {
         if found != documents { documents = found }
     }
 
-    /// Read the whole run again from outside the stream task: `load` cancels `streamTask`, so
+    /// Read the whole run again from outside the stream task: `read` cancels `streamTask`, so
     /// awaiting it from inside that task would cancel its own request and never resubscribe.
     private func reload() {
-        Task { [weak self] in await self?.load() }
+        Task { [weak self] in await self?.read() }
     }
 
     /// Events arrive in bursts; derive once per burst, off the main thread: a long run takes
@@ -205,12 +211,12 @@ final class RunModel {
                 _ = try await api.post("/api/runs/\(id)/actions", body)
                 // Resuming (or messaging an interrupted run) makes it live again: reconnect.
                 if !live, ["resumeRun", "message"].contains(body["type"].str) {
-                    await load()
+                    await read()
                     store.show(body["type"].str == "resumeRun" ? L.text("已从中断处继续") : L.text("正在恢复会话"))
                 }
                 return true
             } catch let err as APIError where err.status == 409 && attempt == 0 {
-                await load()
+                await read()
                 continue
             } catch {
                 store.show(error.localizedDescription)

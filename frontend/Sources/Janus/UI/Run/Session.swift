@@ -58,13 +58,9 @@ enum SessionComposer: Equatable {
 func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
     let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && e.type == "run.created") }
     let open = st.orderedTasks.contains { $0.agent == id && $0.live } || (id == "lead" && (st.run.status == .planning || st.run.status == .running))
-    var human = false, idle = false
-    for e in evs {
-        if e.type == "control.taken" || (e.type == "session.interrupted" && !e.data["finish"].truthy) { human = true }
-        if ["control.released", "attempt.started", "run.created"].contains(e.type) { human = false }
-        if e.type == "agent.status" && e.data["turn"].str == "idle" { idle = true }
-        if ((e.type == "user.message" || e.type == "message.routed") && e.data["delivery"].str == "prompt") || ["control.released", "message.delivered", "attempt.started"].contains(e.type) { idle = false }
-    }
+    // The same turn rule as each task's session (`SessionTurn.after`), over this agent's events.
+    let turn = evs.reduce(SessionTurn.opened) { $0.after($1) }
+    let human = turn.human, idle = turn.idle
     let active = !(st.run.status.isDone || st.run.status == .cancelled)
     let converse = id == "lead" && st.run.status.isDone
     return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: st.run.status.canResume, leave: active, converse: converse)

@@ -151,18 +151,18 @@ struct HomeView: View {
     @Local private var briefExpanded = false
     private static let previewLines = 6
 
-    struct Problem { let text, action, tab: String }
+    struct Problem { let text, action: String; let tab: AppStore.SettingsTab }
 
     /// Why the workspace's roles cannot run, grouped by cause: an Agent that has not passed its
     /// test is one problem however many roles use it.
     static func problems(_ roles: [JSON?], connection: (String) -> JSON?) -> [Problem] {
         var out: [Problem] = []
         let deleted = roles.filter { $0 == nil }.count
-        if deleted > 0 { out.append(Problem(text: L.text("工作区里有 \(deleted) 个数字员工已被删除，请在工作区设置中移除或换成别的数字员工。"), action: L.text("打开数字员工设置"), tab: "roles")) }
+        if deleted > 0 { out.append(Problem(text: L.text("工作区里有 \(deleted) 个数字员工已被删除，请在工作区设置中移除或换成别的数字员工。"), action: L.text("打开数字员工设置"), tab: .agents)) }
         let unbound = roles.compactMap { $0 }.filter { connection($0["connection"].str) == nil }.map { $0["name"].str }
         if !unbound.isEmpty {
             let names = unbound.joined(separator: L.text("、"))
-            out.append(Problem(text: L.text("尚未绑定 Agent 的数字员工：\(names)。"), action: L.text("打开数字员工设置"), tab: "roles"))
+            out.append(Problem(text: L.text("尚未绑定 Agent 的数字员工：\(names)。"), action: L.text("打开数字员工设置"), tab: .agents))
         }
         var untested: [(String, [String])] = []
         for r in roles.compactMap({ $0 }) {
@@ -172,7 +172,7 @@ struct HomeView: View {
         }
         for (agent, names) in untested {
             let affected = names.joined(separator: L.text("、"))
-            out.append(Problem(text: L.text("Agent「\(agent)」还没有测试通过或未登录，以下数字员工无法运行：\(affected)。"), action: L.text("去测试"), tab: "agents"))
+            out.append(Problem(text: L.text("Agent「\(agent)」还没有测试通过或未登录，以下数字员工无法运行：\(affected)。"), action: L.text("去测试"), tab: .agents))
         }
         return out
     }

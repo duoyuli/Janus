@@ -264,7 +264,7 @@ private struct Log {
     log.add("agent.status", actor: "lead", at: 1_001_000, data: ["phase": "thinking", "session": "lead-1"])
     let run = RunModel(id: "usage-display", store: testStore)
     run.events = log.events
-    run.live = true
+    run.load = .loaded(live: true)
     run.replay = log.events.count
     #expect(run.shown.run.status == .running)
     #expect(!run.elapsedTicks, "a replayed position does not ask for a per-second timeline")

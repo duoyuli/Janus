@@ -117,7 +117,7 @@ struct StatusMenu: View {
         if active > 0 { Text(L.text("\(active) 个任务正在进行")) }
         Divider()
         Button(L.text("新目标")) { show(); model.newGoal() }.disabled(store == nil)
-        Button(L.text("设置…")) { show(); store?.openSettings(store?.settingsTab ?? "general") }.disabled(store == nil)
+        Button(L.text("设置…")) { show(); store?.openSettings(store?.settingsTab ?? .general) }.disabled(store == nil)
         Button(L.text("检查更新…")) { show(); store?.openSettings(.updates); Task { await Updater.shared.check() } }
         Button(L.text("打开 Janus 日志")) { model.openLogs() }
         Divider()
@@ -146,7 +146,7 @@ struct JanusCommands: Commands {
             }.disabled(store == nil)
         }
         CommandGroup(replacing: .appSettings) {
-            Button(L.text("设置…")) { store?.openSettings(store?.settingsTab ?? "general") }.keyboardShortcut(",").disabled(store == nil)
+            Button(L.text("设置…")) { store?.openSettings(store?.settingsTab ?? .general) }.keyboardShortcut(",").disabled(store == nil)
         }
         SidebarCommands()
         CommandGroup(replacing: .newItem) {
@@ -231,7 +231,7 @@ final class AppModel {
         guard let s = store else { return }
         await s.loadSetup()
         await s.loadRuns()
-        await s.run?.load()
+        await s.run?.read()
     }
 
     func newGoal() {

@@ -65,6 +65,37 @@ struct Question {
     var answer: String?
 }
 
+/// Whose turn an open session is in, and whether that turn has ended (the session waits for a
+/// message). One rule for every session, applied event by event (`after`): the task's own and the
+/// agent page's are the same state. A closed session is no `SessionTurn` at all (`TaskState.session`
+/// is nil), so "the person holds a closed session" cannot be written down.
+enum SessionTurn: Equatable {
+    case agent(idle: Bool)
+    case person(idle: Bool)
+
+    /// A session that just opened: the agent at work.
+    static let opened = SessionTurn.agent(idle: false)
+
+    var human: Bool { if case .person = self { return true } else { return false } }
+    var idle: Bool { switch self { case .agent(let i), .person(let i): return i } }
+
+    private func with(idle: Bool) -> SessionTurn { human ? .person(idle: idle) : .agent(idle: idle) }
+
+    /// The turn after `e`.
+    func after(_ e: Event) -> SessionTurn {
+        let d = e.data
+        switch e.type {
+        case "attempt.started", "run.created", "control.released": return .opened
+        case "control.taken": return .person(idle: idle)
+        case "session.interrupted": return d["finish"].truthy ? self : .person(idle: idle)
+        case "agent.status" where d["turn"].str == "idle": return with(idle: true)
+        case "user.message", "message.routed": return d["delivery"].str == "prompt" ? with(idle: false) : self
+        case "message.delivered": return with(idle: false)
+        default: return self
+        }
+    }
+}
+
 final class TaskState {
     let id: String
     var title, desc, agent: String
@@ -74,11 +105,13 @@ final class TaskState {
     var attempts: [Attempt] = []
     var progress: Double = 0
     var artifacts: [Artifact] = []
-    var live = false
+    /// Its open session's turn; nil while it has none.
+    var session: SessionTurn?
+    var live: Bool { session != nil }
     /// The person holds the session (takeover or interrupt).
-    var human = false
+    var human: Bool { session?.human ?? false }
     /// The session's turn has ended and it waits for a message.
-    var idle = false
+    var idle: Bool { session?.idle ?? false }
     var blockedBy = ""
     var checks: [Check] = []
     var verificationFailures: [String] = []
@@ -217,7 +250,7 @@ func derive(_ events: [Event]) -> RunState {
     func dropSess(_ id: String) { s.inbox.removeAll { $0.key == "sess-" + id } }
     func endLive(_ t: TaskState?) {
         guard let t else { return }
-        t.live = false; dropSess(t.id)
+        t.session = nil; dropSess(t.id)
         if let at = t.attempts.last, at.end == nil { at.end = s.run.now }
     }
     func dropKey(_ k: String) { s.inbox.removeAll { $0.key == k } }
@@ -264,7 +297,7 @@ func derive(_ events: [Event]) -> RunState {
         case "run.cancelled":
             s.run.status = .cancelled; s.inbox = []
             for x in s.orderedTasks {
-                x.live = false; if x.status != .succeeded { x.status = .cancelled }
+                x.session = nil; if x.status != .succeeded { x.status = .cancelled }
                 if let at = x.attempts.last, at.end == nil { at.end = e.ts }
             }
         case "run.paused": s.run.paused = true
@@ -293,7 +326,7 @@ func derive(_ events: [Event]) -> RunState {
             guard let t else { break }
             if let prev = t.attempts.last, prev.end == nil { prev.end = e.ts }
             t.attempts.append(Attempt(n: e.attempt ?? t.attempts.count + 1, session: d["session"].str, workspace: d["workspace"].str, start: e.ts, status: .running, seq: e.seq))
-            t.live = true; t.human = false; t.idle = false; t.status = .running; t.progress = 5
+            t.session = .opened; t.status = .running; t.progress = 5
             let a = ag(t.agent); a.session = d["session"].string; a.phase = "thinking"; a.note = ""; a.progress = 5
         case "agent.status":
             let a = ag(e.actor)
@@ -302,7 +335,7 @@ func derive(_ events: [Event]) -> RunState {
             if let t, let p = d["progress"].double { t.progress = p }
             if d["turn"].str == "idle" {
                 if let t {
-                    t.idle = true
+                    t.session = t.session?.after(e)
                     if !s.inbox.contains(where: { $0.key == "sess-" + t.id }) { s.inbox.append(InboxItem(kind: "session", key: "sess-" + t.id, seq: e.seq, task: t.id)) }
                 } else if !s.inbox.contains(where: { $0.key == "sess-" + e.actor }) {
                     s.inbox.append(InboxItem(kind: "session", key: "sess-" + e.actor, seq: e.seq, agent: e.actor))
@@ -312,24 +345,23 @@ func derive(_ events: [Event]) -> RunState {
             let a = ag(e.actor); a.phase = d["tool"].str == "janus.wait" ? "waiting_for_agent" : "running_tool"; a.note = e.text
         case "tool.completed":
             if ["janus.wait", "janus.reply", "janus.orchestrate"].contains(d["tool"].str) { let a = ag(e.actor); a.phase = e.actor == "lead" ? "coordinating" : "thinking"; a.note = e.text }
-        case "control.taken": t?.human = true
-        case "session.interrupted": if let t, !d["finish"].truthy { t.human = true }
+        case "control.taken", "session.interrupted": t?.session = t?.session?.after(e)
         case "control.released":
-            if let t { t.human = false; t.idle = false; dropSess(t.id) } else if let to = e.to { dropSess(to) }
+            if let t { t.session = t.session?.after(e); dropSess(t.id) } else if let to = e.to { dropSess(to) }
         case "user.message":
             if let id = d["id"].string {
                 s.msgs[id] = Msg(id: id, text: d["text"].str, by: e.actor, to: e.to ?? "", task: e.task, seq: e.seq, images: Attach.paths(d))
                 break
             }
-            if let t, d["delivery"].str == "prompt" { t.idle = false; dropSess(t.id); ag(t.agent).phase = "thinking" }
+            if let t, d["delivery"].str == "prompt" { t.session = t.session?.after(e); dropSess(t.id); ag(t.agent).phase = "thinking" }
             else if t == nil, d["delivery"].str == "prompt", let to = e.to { dropSess(to) }
         case "message.routed":
             if let m = s.msgs[d["id"].str] { m.delivery = d["delivery"].str; m.routedTask = e.task; m.routedSeq = e.seq }
             if d["delivery"].str == "prompt" {
-                if let t { t.idle = false; dropSess(t.id); ag(t.agent).phase = "thinking" } else if let to = e.to { dropSess(to) }
+                if let t { t.session = t.session?.after(e); dropSess(t.id); ag(t.agent).phase = "thinking" } else if let to = e.to { dropSess(to) }
             }
         case "message.delivered":
-            t?.idle = false
+            t?.session = t?.session?.after(e)
             for id in d["ids"].strings { s.msgs[id]?.deliveredSeq = e.seq }
         case "question.asked":
             guard let t else { break }
@@ -370,13 +402,13 @@ func derive(_ events: [Event]) -> RunState {
         case "run.failed": s.run.status = .failed; s.run.error = d["error"].string ?? e.text
         case "run.interrupted":
             s.run.status = .interrupted; s.inbox = []
-            for x in s.orderedTasks { x.live = false; if let at = x.attempts.last, at.end == nil { at.end = e.ts } }
+            for x in s.orderedTasks { x.session = nil; if let at = x.attempts.last, at.end == nil { at.end = e.ts } }
             for a in s.agents.values { a.phase = "idle" }
         case "run.recovered":
             s.run.status = RunStatus(d["phase"].str)
             for x in d["tasks"].array {
                 guard let rt = s.tasks[x["id"].str] else { continue }
-                rt.status = TaskStatus(x["status"].str); rt.blockedBy = x["blockedBy"].str; rt.live = false
+                rt.status = TaskStatus(x["status"].str); rt.blockedBy = x["blockedBy"].str; rt.session = nil
             }
         case "artifact.created":
             let a = Artifact(name: d["name"].str, kind: d["kind"].str, path: d["path"].str, desc: d["desc"].str, hash: d["hash"].str, bytes: d["bytes"].int, task: e.task ?? "", attempt: e.attempt ?? 0, seq: e.seq, by: e.actor)

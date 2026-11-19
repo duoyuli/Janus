@@ -12,7 +12,7 @@ struct RunView: View {
                 VStack(spacing: 12) {
                     Text(L.text("打不开这个任务")).font(.display(.title2))
                     Text(err).foregroundStyle(.secondary)
-                    Button(L.text("重试")) { Task { await run.load() } }
+                    Button(L.text("重试")) { Task { await run.read() } }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !run.loaded {

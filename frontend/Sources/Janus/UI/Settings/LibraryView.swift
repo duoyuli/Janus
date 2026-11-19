@@ -11,16 +11,14 @@ import SwiftUI
 struct LibraryView: View {
     let store: AppStore
     @Local private var query = ""
-    @Local private var skillDraft: JSON?
-    @Local private var mcpDraft: JSON?
-    @Local private var paste: String?
+    @Local private var sheet: Sheet?
+    @Local private var pasted = ""
     @Local private var link = ""
     @Local private var adding = false
     @Local private var checking = false
     @Local private var picks: [String: Set<String>] = [:]
-    @Local private var folderPreview: JSON?
+    @Local private var folder: FolderImport = .idle
     @Local private var folderPicks: Set<String> = []
-    @Local private var folderBusy = false
     @Local private var expanded: Set<String> = []
     @Local private var showKept = false
     @Local private var showSources = false
@@ -60,13 +58,38 @@ struct LibraryView: View {
                 await store.loadLibrary()
             }
         }
-        .sheet(isPresented: Binding(get: { skillDraft != nil }, set: { if !$0 { skillDraft = nil } })) {
-            if let d = skillDraft { SkillEditor(store: store, draft: d) }
+        .sheet(item: $sheet) { s in
+            switch s {
+            case .skill(let d): SkillEditor(store: store, draft: d)
+            case .mcp(let d): McpEditor(store: store, draft: d)
+            case .paste: pasteSheet
+            }
         }
-        .sheet(isPresented: Binding(get: { mcpDraft != nil }, set: { if !$0 { mcpDraft = nil } })) {
-            if let d = mcpDraft { McpEditor(store: store, draft: d) }
+    }
+
+    /// The one sheet open over the library.
+    enum Sheet: Identifiable {
+        case skill(JSON)
+        case mcp(JSON)
+        case paste
+        var id: String {
+            switch self {
+            case .skill(let d): return "skill-\(d["id"].str)"
+            case .mcp(let d): return "mcp-\(d["id"].str)"
+            case .paste: return "paste"
+            }
         }
-        .sheet(isPresented: Binding(get: { paste != nil }, set: { if !$0 { paste = nil } })) { pasteSheet }
+    }
+
+    /// Copying skills from a folder: picking it, reading what it offers, choosing, copying. The
+    /// preview stays while copying, and comes back with any warnings after.
+    enum FolderImport {
+        case idle
+        case scanning
+        case choosing(JSON)
+        case importing(JSON)
+        var busy: Bool { switch self { case .scanning, .importing: return true; default: return false } }
+        var preview: JSON? { switch self { case .choosing(let p), .importing(let p): return p; default: return nil } }
     }
 
     private func shown(_ kind: String?, reach: String) -> [JSON] {
@@ -106,23 +129,23 @@ struct LibraryView: View {
                 ? L.text("\(all) 个 Skill 合并成一个 janus-skills：提示词里只有一条描述，Agent 用得上时再读对应的 SKILL.md。")
                 : L.text("每个 Skill 直接交给会话（不超过 \(Self.skillRouteOver) 个时）；更多时合并成一个 janus-skills，按需读取。")
         ) {
-            Button(L.text("从文件夹…")) { scanFolder() }.disabled(folderBusy)
-            Button(L.text("新建")) { skillDraft = ["name": "", "description": "", "content": ""] }
+            Button(L.text("从文件夹…")) { scanFolder() }.disabled(folder.busy)
+            Button(L.text("新建")) { sheet = .skill(["name": "", "description": "", "content": ""]) }
         } content: {
             githubLink
-            if folderBusy { ProgressView().controlSize(.small) }
-            if let preview = folderPreview {
+            if folder.busy { ProgressView().controlSize(.small) }
+            if let preview = folder.preview {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text(preview["path"].str).fontWeight(.semibold).textSelection(.enabled)
                         Spacer()
-                        Button(L.text("取消")) { folderPreview = nil }.buttonStyle(.link)
+                        Button(L.text("取消")) { folder = .idle }.buttonStyle(.link)
                     }
                     offerSelection(preview, imported: importedNames(preview), selection: $folderPicks) { importFolder(preview, $0) }
                 }
                 .padding(10)
                 .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-                .disabled(folderBusy)
+                .disabled(folder.busy)
             }
             sourcesList
             let list = shown("skill", reach: "everyone")
@@ -222,8 +245,8 @@ struct LibraryView: View {
             icon: "wrench.and.screwdriver", title: L.text("MCP 路由"), count: all,
             line: L.text("会话只多一个 janus-tools：命令启动的服务器在第一次调用时才在任务的工作目录里启动，同一个任务的数字员工共用。HTTP、SSE 服务器直接交给会话。")
         ) {
-            Button(L.text("粘贴配置…")) { paste = "" }.help(L.text("Claude 的 mcpServers、VS Code 的 servers，或一个带 name 的服务器"))
-            Button(L.text("添加服务器")) { mcpDraft = ["name": "", "description": "", "transport": "stdio", "command": "", "url": "", "vars": []] }
+            Button(L.text("粘贴配置…")) { pasted = ""; sheet = .paste }.help(L.text("Claude 的 mcpServers、VS Code 的 servers，或一个带 name 的服务器"))
+            Button(L.text("添加服务器")) { sheet = .mcp(["name": "", "description": "", "transport": "stdio", "command": "", "url": "", "vars": []]) }
         } content: {
             let list = shown("mcp", reach: "everyone")
             if list.isEmpty {
@@ -398,14 +421,14 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(L.text("粘贴 MCP 配置")).font(.display(.title3))
             Text(L.text("支持 Claude 的 {\"mcpServers\": {…}}、VS Code 的 {\"servers\": {…}}，或一个带 name 的服务器对象。配置中写的值存进 Janus home，名字被占用时自动加后缀。")).font(.caption).foregroundStyle(.secondary)
-            TextEditor(text: Binding(get: { paste ?? "" }, set: { paste = $0 }))
+            TextEditor(text: $pasted)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 220)
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
             HStack {
                 Spacer()
-                Button(L.text("取消")) { paste = nil }.keyboardShortcut(.cancelAction)
-                Button(L.text("导入")) { importPasted() }.buttonStyle(.primary).disabled((paste ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button(L.text("取消")) { sheet = nil }.keyboardShortcut(.cancelAction)
+                Button(L.text("导入")) { importPasted() }.buttonStyle(.primary).disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(18)
@@ -483,12 +506,12 @@ struct LibraryView: View {
             do {
                 let full = try await store.api.get("/api/library/items/\(i["id"].str)")
                 if full["kind"].str == "skill" {
-                    skillDraft = ["id": full["id"], "name": full["name"], "content": full["content"]]
+                    sheet = .skill(["id": full["id"], "name": full["name"], "content": full["content"]])
                 } else {
                     let s = full["server"]
                     let command = ([s["command"].str] + s["args"].strings).joined(separator: " ")
                     let vars: [JSON] = full["vars"].array.map { ["name": $0["name"], "value": "", "set": $0["set"]] }
-                    mcpDraft = ["id": full["id"], "name": full["name"], "description": full["description"], "transport": s["transport"], "command": JSON(command), "url": s["url"], "vars": .array(vars)]
+                    sheet = .mcp(["id": full["id"], "name": full["name"], "description": full["description"], "transport": s["transport"], "command": JSON(command), "url": s["url"], "process": s["process"], "vars": .array(vars)])
                 }
             } catch { store.show(error.localizedDescription) }
         }
@@ -516,55 +539,60 @@ struct LibraryView: View {
     }
 
     private func scanFolder() {
-        guard !folderBusy else { return }
+        guard !folder.busy else { return }
         let p = NSOpenPanel()
         p.canChooseDirectories = true
         p.canChooseFiles = false
         p.prompt = L.text("查找 Skill")
         p.message = L.text("选择一个 Skill 文件夹，或包含多个 Skill 的父文件夹")
         guard p.runModal() == .OK, let u = p.url else { return }
-        folderBusy = true
+        let before = folder
+        folder = .scanning
         Task {
-            defer { folderBusy = false }
             do {
                 let preview = try await store.api.post("/api/library/skills/scan", ["path": JSON(u.path)])
                 let imported = importedNames(preview)
                 folderPicks = Set(preview["offers"].array.map { $0["path"].str }.filter { imported[$0] == nil })
-                folderPreview = preview
-            } catch { store.show(error.localizedDescription) }
+                folder = .choosing(preview)
+            } catch {
+                folder = before
+                store.show(error.localizedDescription)
+            }
         }
     }
 
     private func importFolder(_ preview: JSON, _ paths: [String]) {
-        guard !folderBusy else { return }
-        folderBusy = true
+        guard case .choosing = folder else { return }
+        folder = .importing(preview)
         Task {
-            defer { folderBusy = false }
             do {
                 let result = try await store.api.post("/api/library/skills/import", ["path": preview["path"], "paths": JSON(paths)])
                 let imported = result["imported"].array
                 if result["warnings"].strings.isEmpty {
-                    folderPreview = nil
+                    folder = .idle
                 } else {
                     var updated = preview
                     updated["imported"] = .array(preview["imported"].array + imported)
                     updated["warnings"] = result["warnings"]
-                    folderPreview = updated
+                    folder = .choosing(updated)
                 }
                 await store.loadLibrary()
                 if !imported.isEmpty {
                     store.show(L.text("已导入 \(imported.map { $0["name"].str }.joined(separator: "、"))"))
                 }
-            } catch { store.show(error.localizedDescription) }
+            } catch {
+                folder = .choosing(preview)
+                store.show(error.localizedDescription)
+            }
         }
     }
 
     private func importPasted() {
-        let text = paste ?? ""
+        let text = pasted
         Task {
             do {
                 let r = try await store.api.post("/api/library/mcp/import", ["text": JSON(text)])
-                paste = nil
+                sheet = nil
                 await store.loadLibrary()
                 let names = r["items"].array.map { $0["name"].str }.joined(separator: L.text("、"))
                 store.show(r["warnings"].strings.isEmpty ? L.text("已添加 \(names)") : L.text("已添加 \(names)；跳过：\(r["warnings"].strings.joined(separator: L.text("；")))"))

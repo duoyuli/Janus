@@ -20,7 +20,7 @@ struct SettingsView: View {
                 .padding(28)
         }
         .onExitCommand { store.showingSettings = false }
-        .sheet(isPresented: Binding(get: { store.editingRole != nil }, set: { if !$0 { store.editingRole = nil } })) {
+        .sheet(isPresented: Binding(get: { store.editingRole != nil }, set: { if !$0 { store.closeRoleEditor() } })) {
             if let r = store.editingRole { RoleEditor(store: store, original: r) }
         }
     }
@@ -44,10 +44,10 @@ struct SettingsView: View {
                 .font(.display(.title2))
                 .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 10)
             VStack(spacing: 2) {
-                nav("general", L.text("通用"), "gearshape")
-                nav("agents", L.text("数字员工"), "person.2")
-                nav("library", L.text("资源库"), "books.vertical", updates: store.sourceUpdates.count)
-                nav("usage", L.text("用量账单"), "list.bullet.rectangle")
+                nav(.general, L.text("通用"), "gearshape")
+                nav(.agents, L.text("数字员工"), "person.2")
+                nav(.library, L.text("资源库"), "books.vertical", updates: store.sourceUpdates.count)
+                nav(.usage, L.text("用量账单"), "list.bullet.rectangle")
             }
             .padding(.horizontal, 8)
             Spacer(minLength: 0)
@@ -56,7 +56,7 @@ struct SettingsView: View {
         .background(Color.sidebar)
     }
 
-    private func nav(_ id: String, _ title: String, _ icon: String, updates: Int = 0) -> some View {
+    private func nav(_ id: AppStore.SettingsTab, _ title: String, _ icon: String, updates: Int = 0) -> some View {
         let selected = store.settingsTab == id
         return Button { store.settingsTab = id } label: {
             HStack(spacing: 8) {
@@ -81,10 +81,10 @@ struct SettingsView: View {
 
     @ViewBuilder private var pane: some View {
         switch store.settingsTab {
-        case "agents": WorkersSettingsView(store: store)
-        case "library": LibraryView(store: store)
-        case "usage": UsageBillView(store: store)
-        default: GeneralSettingsView(store: store)
+        case .agents: WorkersSettingsView(store: store)
+        case .library: LibraryView(store: store)
+        case .usage: UsageBillView(store: store)
+        case .general: GeneralSettingsView(store: store)
         }
     }
 }

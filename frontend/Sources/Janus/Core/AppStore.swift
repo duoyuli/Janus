@@ -40,8 +40,9 @@ final class AppStore {
     var goalImages: [PastedImage] = []
     /// Workspace edited in the sheet (nil id for a new one).
     var editingWorkspace: JSON?
-    /// Role edited in the sheet (empty id for a new one).
-    var editingRole: JSON?
+    /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
+    /// so it opens only through `editRole`, which opens the panel too.
+    private(set) var editingRole: JSON?
     private(set) var run: RunModel?
     /// What every run is waiting on the person for, across workspaces.
     let inbox = InboxModel()
@@ -197,10 +198,10 @@ final class AppStore {
                 run?.close()
                 let m = RunModel(id: id, store: self)
                 run = m
-                Task { await m.load() }
+                Task { await m.read() }
             } else if screen != s, let m = run {
                 // Coming back to the open run: read it again rather than trust a stream that may have stopped.
-                Task { await m.load() }
+                Task { await m.read() }
             }
         } else if case .home(let ws) = s {
             rememberWorkspace(ws)
@@ -213,24 +214,39 @@ final class AppStore {
     }
     func rememberWorkspace(_ id: String) { UserDefaults.janus.set(id, forKey: "janus.ws") }
 
-    /// The settings page's pane: general, Agents, roles, libraries or ACP adapters. The last one opened comes back.
-    var settingsTab: String = UserDefaults.janus.string(forKey: "janus.settingsTab") ?? "general" {
-        didSet { UserDefaults.janus.set(settingsTab, forKey: "janus.settingsTab") }
+    /// The settings panel's panes.
+    enum SettingsTab: String, CaseIterable {
+        case general, agents, library, usage
+    }
+
+    /// The settings page's pane. The last one opened comes back.
+    var settingsTab: SettingsTab = SettingsTab(rawValue: UserDefaults.janus.string(forKey: "janus.settingsTab") ?? "") ?? .general {
+        didSet { UserDefaults.janus.set(settingsTab.rawValue, forKey: "janus.settingsTab") }
     }
     /// The settings page covers the main window; closing it shows the screen underneath again.
     var showingSettings = false
     /// A section of the general pane to scroll to once it shows; the pane clears it after scrolling.
     var generalSection: GeneralSection?
 
-    func openSettings(_ tab: String) {
+    func openSettings(_ tab: SettingsTab) {
         settingsTab = tab
         showingSettings = true
+    }
+
+    /// Opens a role in the editor, over the settings pane it belongs to.
+    func editRole(_ role: JSON) {
+        openSettings(.agents)
+        editingRole = role
+    }
+
+    func closeRoleEditor() {
+        editingRole = nil
     }
 
     /// Opens the general pane scrolled to one of its sections.
     func openSettings(_ section: GeneralSection) {
         generalSection = section
-        openSettings("general")
+        openSettings(.general)
     }
     var currentWorkspace: JSON? { workspace(currentWorkspaceId) ?? workspaces.first }
 
@@ -251,10 +267,16 @@ final class AppStore {
 
     /// What is still missing before a first task can run, in order.
     /// Each step names where it is done: a settings pane, or "workspace" for the new-workspace sheet.
-    var onboarding: [(String, Bool, String)] {
-        [(L.text("接入一个 Agent"), !okConnections.isEmpty, "agents"),
-         (L.text("定义数字员工（含一个负责人）"), boundRoles.contains { $0["lead"].truthy } && boundRoles.count >= 2, "roles"),
-         (L.text("新建工作区"), !workspaces.isEmpty, "workspace")]
+    /// Where an onboarding step takes the person: a settings pane, or a new workspace.
+    enum Destination: Equatable {
+        case settings(SettingsTab)
+        case newWorkspace
+    }
+
+    var onboarding: [(String, Bool, Destination)] {
+        [(L.text("接入一个 Agent"), !okConnections.isEmpty, .settings(.agents)),
+         (L.text("定义数字员工（含一个负责人）"), boundRoles.contains { $0["lead"].truthy } && boundRoles.count >= 2, .settings(.agents)),
+         (L.text("新建工作区"), !workspaces.isEmpty, .newWorkspace)]
     }
 
     // MARK: Setup objects
@@ -262,7 +284,7 @@ final class AppStore {
     static let roleColors = ["#c96442", "#7b6cc2", "#3f7d5b", "#b5852b", "#2f7f8c", "#b04d6d", "#5f6b7a", "#8a6a4f"]
 
     func newRole(connection: String = "") {
-        editingRole = ["id": "", "name": JSON(L.text("新数字员工")), "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []]
+        editRole(["id": "", "name": JSON(L.text("新数字员工")), "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []])
     }
 
     @discardableResult

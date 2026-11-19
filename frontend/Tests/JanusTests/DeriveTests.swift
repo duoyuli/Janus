@@ -542,3 +542,18 @@ private func goalRun() -> Log {
     inPlace.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/code/notes", "git": false])
     #expect(SessionView.worktreeNote(derive(inPlace.events).run, accepted: true) == nil)
 }
+
+/// One turn rule for every session: who holds it and whether its turn ended move together, and a
+/// closed session holds nothing.
+@Test func aSessionsTurnFollowsItsEvents() {
+    func ev(_ type: String, _ data: JSON = [:]) -> Event { Event(["seq": 1, "type": JSON(type), "actor": "m1", "data": data]) }
+    var turn = SessionTurn.opened
+    turn = turn.after(ev("agent.status", ["turn": "idle"]))
+    #expect(turn == .agent(idle: true))
+    turn = turn.after(ev("control.taken"))
+    #expect(turn.human && turn.idle, "taking over keeps the turn's state")
+    turn = turn.after(ev("user.message", ["delivery": "prompt"]))
+    #expect(turn == .person(idle: false))
+    #expect(turn.after(ev("session.interrupted", ["finish": true])) == turn, "finishing is not taking over")
+    #expect(turn.after(ev("control.released")) == .opened)
+}
