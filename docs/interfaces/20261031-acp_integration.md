@@ -178,7 +178,7 @@ Agent 声明了 `_meta.steering.supported` 时，会话正在进行的一轮可�
 <a id="background_tasks"></a>
 ## Claude Code 会话的环境默认值
 
-Janus 为 Claude Code 及基于它的预设设置 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`：Janus 把返回的一轮当作 Agent 的回答，而 Claude Code 允许把命令或子 Agent 放到后台，这一轮会在工作完成之前返回。
+Janus 为 Claude Code 设置 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`：Janus 把返回的一轮当作 Agent 的回答，而 Claude Code 允许把命令或子 Agent 放到后台，这一轮会在工作完成之前返回。
 
 官方 Claude Code 适配器不提供 `dontAsk` 权限模式。选了这个模式的角色会以 Agent 当前的模式运行（实际生效的模式记在 `agent.status` 的 `data.config` 中），需要在角色设置中重新选择。
 

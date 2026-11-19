@@ -206,16 +206,10 @@ mod session_option_tests {
     }
 
     #[test]
-    fn preset_variables_are_defaults_the_agent_settings_override() {
-        let kinds = kinds();
-        let glm = kinds.as_array().unwrap().iter().find(|k| k["id"] == "glm-claude").unwrap();
-        let mut env = preset_env(glm, &json!({ "endpoint": "zai" }));
+    fn the_agents_variables_replace_or_unset_earlier_ones() {
+        let mut env: Vec<(String, String)> =
+            vec![("ANTHROPIC_DEFAULT_OPUS_MODEL".into(), "glm-5".into()), ("API_TIMEOUT_MS".into(), "3000000".into())];
         let get = |env: &Vec<(String, String)>, k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        assert_eq!(
-            get(&env, "ANTHROPIC_BASE_URL").as_deref(),
-            Some("https://api.z.ai/api/anthropic"),
-            "the chosen endpoint"
-        );
         override_env(&mut env, "ANTHROPIC_DEFAULT_OPUS_MODEL", "glm-6");
         override_env(&mut env, "API_TIMEOUT_MS", "");
         assert_eq!(get(&env, "ANTHROPIC_DEFAULT_OPUS_MODEL").as_deref(), Some("glm-6"));

@@ -6,7 +6,7 @@
 //! neither the user's own `~/.codex`, `~/.claude` nor their shell credentials leak in.
 //! Secrets live in `~/.janus/agents/<id>/secrets.json` (0600) and never in SQLite or the API.
 //!
-//! The child modules each add one part: `catalog` (agent kinds and presets), `connections`
+//! The child modules each add one part: `catalog` (agent kinds), `connections`
 //! (saving agents, their homes and the sandboxed launch), `checks` (connection checks and
 //! sign-in), `roles`, `workspaces`, `session_options` (a session's controls and the no-plan
 //! rule) and `local_config` (copying this machine's agent setup). The skills and MCP servers a
@@ -33,6 +33,7 @@ mod workspaces;
 pub use catalog::kinds;
 use catalog::*;
 pub use checks::CheckState;
+pub(crate) use connections::drop_preset_kinds;
 pub use local_config::local_preview;
 use local_config::*;
 pub(crate) use roles::{add_generalist, record_seed_origins};

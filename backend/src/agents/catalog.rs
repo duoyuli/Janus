@@ -1,28 +1,12 @@
-//! The kinds of agent Janus can run, their ways to sign in and the environment presets they bring.
+//! The kinds of agent Janus can run and their ways to sign in.
 
 use super::*;
 
-/// Provider types for the "New provider" dialog: built-in runtimes, presets that
-/// route a built-in runtime through another vendor, and any ACP agent started by a custom command.
+/// Provider types for the "New provider" dialog: the built-in runtimes, and any ACP agent started
+/// by a custom command.
 // @project-doc docs/domains/20261031-agents_and_roles.md#providers
 pub fn kinds() -> Value {
     let runtime = |cmd: &str| json!({ "cmd": cmd, "placeholder": format!("/path/to/{cmd}"), "detected": which(cmd) });
-    let claude_preset = |id: &str,
-                         name: &str,
-                         desc: &str,
-                         color: &str,
-                         init: &str,
-                         token: &str,
-                         help: &str,
-                         env: Value,
-                         endpoints: Value| {
-        json!({
-            "id": id, "group": "preset", "base": "claude", "name": name, "desc": desc, "color": color, "init": init, "isolation": "CLAUDE_CONFIG_DIR",
-            "runtime": runtime("claude"), "auths": [],
-            "token": { "label": token, "help": help, "envKey": "ANTHROPIC_AUTH_TOKEN" },
-            "fixedEnv": env, "endpoints": endpoints,
-        })
-    };
     json!([
         {
             "id": "codex", "group": "builtin", "base": "codex", "name": "Codex", "desc": "OpenAI Codex", "color": "#1f2937", "init": "CX",
@@ -48,41 +32,11 @@ pub fn kinds() -> Value {
                   "fields": [{ "key": "apiKey", "label": "API Key", "type": "secret", "required": true, "placeholder": "sk-ant-api03-..." }] }
             ]
         },
-        claude_preset("deepseek-claude", "DeepSeek over Claude Code", "用 DeepSeek 驱动 Claude Code，粘贴 API token 即可。", "#4d6bfe", "DS",
-            "DeepSeek API token", "在 platform.deepseek.com 创建或复制。",
-            json!({ "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic", "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]", "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
-                    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash", "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-pro",
-                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK": "1" }), json!([])),
-        claude_preset("minimax-claude", "MiniMax over Claude Code", "用 MiniMax 驱动 Claude Code，粘贴 API key 即可。", "#e2445c", "MM",
-            "MiniMax API key", "在 platform.minimaxi.com 创建或复制。",
-            json!({ "ANTHROPIC_BASE_URL": "https://api.minimaxi.com/anthropic", "API_TIMEOUT_MS": "3000000", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-                    "ANTHROPIC_MODEL": "MiniMax-M3", "ANTHROPIC_DEFAULT_OPUS_MODEL": "MiniMax-M3", "ANTHROPIC_DEFAULT_SONNET_MODEL": "MiniMax-M3", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "MiniMax-M3" }), json!([])),
-        claude_preset("glm-claude", "GLM over Claude Code", "用智谱 GLM 驱动 Claude Code，选择接入点并粘贴 API key。", "#2b2f36", "GL",
-            "GLM API key", "在所选接入点的控制台创建或复制。",
-            json!({ "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.7", "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.2[1m]", "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.2[1m]",
-                    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "API_TIMEOUT_MS": "3000000" }),
-            json!([
-                { "id": "bigmodel", "label": "bigmodel.cn（智谱）", "env": { "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic" } },
-                { "id": "zai", "label": "z.ai", "env": { "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic" } }
-            ])),
         {
             "id": "custom", "group": "custom", "base": "custom", "name": "自定义命令", "desc": "任意兼容 ACP 的 Agent", "color": "#64748b", "init": ">_",
             "isolation": Value::Null, "runtime": Value::Null, "auths": [], "command": true
         }
     ])
-}
-
-/// `KEY=VALUE` per line; a leading `export` and matching quotes are dropped, `#` starts a comment.
-/// A preset's default variables: the fixed ones, then the chosen endpoint's.
-pub(super) fn preset_env(desc: &Value, c: &Value) -> Vec<(String, String)> {
-    let endpoint = desc["endpoints"].as_array().and_then(|e| e.iter().find(|e| e["id"] == c["endpoint"]));
-    desc["fixedEnv"]
-        .as_object()
-        .into_iter()
-        .chain(endpoint.and_then(|e| e["env"].as_object()))
-        .flat_map(|m| m.iter())
-        .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string()))
-        .collect()
 }
 
 /// The runtime binary the person chose for this agent, if any. The built-in adapters ship their
@@ -100,6 +54,7 @@ pub(super) fn override_env(env: &mut Vec<(String, String)>, k: &str, v: &str) {
     }
 }
 
+/// `KEY=VALUE` per line; a leading `export` and matching quotes are dropped, `#` starts a comment.
 pub fn parse_env(text: &str) -> Result<serde_json::Map<String, Value>> {
     let mut out = serde_json::Map::new();
     for (i, line) in text.lines().enumerate() {

@@ -105,17 +105,10 @@ impl App {
             }
             config["command"] = json!(command);
         }
-        if let Some(endpoints) = desc["endpoints"].as_array().filter(|e| !e.is_empty()) {
-            let pick = endpoints.iter().find(|e| e["id"] == str_of(body, "endpoint")).unwrap_or(&endpoints[0]);
-            config["endpoint"] = pick["id"].clone();
-        }
 
         // Plain fields are stored as config; secret fields go to the provider's own directory.
         let mut secrets = self.secrets(&id);
-        let mut fields: Vec<Value> = auth_desc["fields"].as_array().cloned().unwrap_or_default();
-        if !desc["token"].is_null() {
-            fields.push(json!({ "key": "token", "label": desc["token"]["label"], "type": "secret", "required": true }));
-        }
+        let fields: Vec<Value> = auth_desc["fields"].as_array().cloned().unwrap_or_default();
         for f in &fields {
             let key = f["key"].as_str().unwrap();
             let value = str_of(body, key);
@@ -213,22 +206,17 @@ impl App {
     // @project-doc docs/interfaces/20261031-configuration.md#agent_env
     pub fn spec_for(&self, id: &str) -> Result<RuntimeSpec> {
         let c = self.connection(id)?;
-        let desc = kinds()
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|k| k["id"] == c["kind"])
-            .cloned()
-            .context("未知的 Provider 类型")?;
+        if !kinds().as_array().unwrap().iter().any(|k| k["id"] == c["kind"]) {
+            bail!("未知的 Provider 类型");
+        }
         let s = self.secrets(id);
         let secret = |k: &str| s[k].as_str().unwrap_or("").to_string();
         let home = self.agent_dir(id).join("home").to_string_lossy().to_string();
-        // Sandbox first, then a preset's defaults, then the variables configured on this agent (which
-        // override the defaults; an empty value unsets one), then its isolation and credentials, so
+        // Sandbox first, then the variables configured on this agent (an empty value unsets one),
+        // then its isolation and credentials, so
         // nothing the user typed can point the agent back at the host's own directories.
         // @project-doc docs/domains/20261031-agents_and_roles.md#agent_env
         let mut env = self.sandbox_env(id)?;
-        env.extend(preset_env(&desc, &c));
         for (k, v) in c["env"]
             .as_object()
             .into_iter()
@@ -272,10 +260,9 @@ impl App {
                 if let Some(b) = configured_bin(&c) {
                     set("CLAUDE_CODE_EXECUTABLE", b);
                 }
-                match (desc["group"].as_str(), str_of(&c, "auth")) {
-                    (Some("preset"), _) => set(desc["token"]["envKey"].as_str().unwrap(), secret("token")),
-                    (_, "oauth") => set("CLAUDE_CODE_OAUTH_TOKEN", secret("token")),
-                    (_, "apikey") => set("ANTHROPIC_API_KEY", secret("apiKey")),
+                match str_of(&c, "auth") {
+                    "oauth" => set("CLAUDE_CODE_OAUTH_TOKEN", secret("token")),
+                    "apikey" => set("ANTHROPIC_API_KEY", secret("apiKey")),
                     _ => {}
                 }
                 crate::adapters::for_base(runtime.as_str())
@@ -353,4 +340,93 @@ pub(super) fn is_sandbox_var(k: &str) -> bool {
             | "CODEX_HOME"
             | "CLAUDE_CONFIG_DIR"
     ) || k.starts_with("JANUS_")
+}
+
+/// The variables the removed presets over Claude Code (DeepSeek, MiniMax, GLM) set, by kind, and
+/// for GLM by the endpoint it was given. Kept only for data version 7.
+fn preset_vars(kind: &str, endpoint: &str) -> Option<Vec<(&'static str, &'static str)>> {
+    let quiet = ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+    Some(match kind {
+        "deepseek-claude" => vec![
+            ("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic"),
+            ("ANTHROPIC_MODEL", "deepseek-v4-pro[1m]"),
+            ("ANTHROPIC_DEFAULT_OPUS_MODEL", "deepseek-v4-pro"),
+            ("ANTHROPIC_DEFAULT_SONNET_MODEL", "deepseek-v4-pro"),
+            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "deepseek-v4-flash"),
+            ("CLAUDE_CODE_SUBAGENT_MODEL", "deepseek-v4-pro"),
+            quiet,
+            ("CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK", "1"),
+        ],
+        "minimax-claude" => vec![
+            ("ANTHROPIC_BASE_URL", "https://api.minimaxi.com/anthropic"),
+            ("API_TIMEOUT_MS", "3000000"),
+            quiet,
+            ("ANTHROPIC_MODEL", "MiniMax-M3"),
+            ("ANTHROPIC_DEFAULT_OPUS_MODEL", "MiniMax-M3"),
+            ("ANTHROPIC_DEFAULT_SONNET_MODEL", "MiniMax-M3"),
+            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "MiniMax-M3"),
+        ],
+        "glm-claude" => vec![
+            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "glm-4.7"),
+            ("ANTHROPIC_DEFAULT_SONNET_MODEL", "glm-5.2[1m]"),
+            ("ANTHROPIC_DEFAULT_OPUS_MODEL", "glm-5.2[1m]"),
+            ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "1000000"),
+            quiet,
+            ("API_TIMEOUT_MS", "3000000"),
+            (
+                "ANTHROPIC_BASE_URL",
+                if endpoint == "zai" {
+                    "https://api.z.ai/api/anthropic"
+                } else {
+                    "https://open.bigmodel.cn/api/anthropic"
+                },
+            ),
+        ],
+        _ => return None,
+    })
+}
+
+/// Data version 7: the presets over Claude Code are gone. An agent made from one becomes a Claude
+/// Code agent signed in with an API key, its preset's variables written into its own (where the
+/// person had not set or unset them), its endpoint choice dropped, and left to be checked again.
+/// Its key stays where the preset kept it, outside the database, so the person enters it once more
+/// as the API key.
+// @project-doc docs/domains/20261031-agents_and_roles.md#providers
+pub(crate) fn drop_preset_kinds(tx: &rusqlite::Transaction) -> Result<usize> {
+    let rows: Vec<(String, String)> = {
+        let mut stmt = tx.prepare("SELECT id, data FROM configs WHERE kind = ?1")?;
+        stmt.query_map([CONNECTION], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+    let mut changed = 0;
+    for (id, data) in rows {
+        let mut c: Value = serde_json::from_str(&data)?;
+        let Some(vars) = preset_vars(str_of(&c, "kind"), str_of(&c, "endpoint")) else { continue };
+        let mut env = serde_json::Map::new();
+        for (k, v) in vars {
+            env.insert(k.to_string(), json!(v));
+        }
+        for (k, v) in c["env"].as_object().cloned().unwrap_or_default() {
+            match v.as_str() {
+                Some("") => {
+                    env.remove(&k);
+                }
+                _ => {
+                    env.insert(k, v);
+                }
+            }
+        }
+        let o = c.as_object_mut().context("connection")?;
+        o.remove("endpoint");
+        o.insert("kind".into(), json!("claude"));
+        o.insert("base".into(), json!("claude"));
+        o.insert("auth".into(), json!("apikey"));
+        o.insert("env".into(), Value::Object(env));
+        o.insert("status".into(), json!("untested"));
+        tx.execute(
+            "UPDATE configs SET data = ?1 WHERE kind = ?2 AND id = ?3",
+            rusqlite::params![c.to_string(), CONNECTION, id],
+        )?;
+        changed += 1;
+    }
+    Ok(changed)
 }

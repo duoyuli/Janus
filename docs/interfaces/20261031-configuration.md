@@ -55,7 +55,7 @@ Agent 子进程的环境由 `spec_for` 完整构造，按以下顺序叠加，�
 | 运行时 | 变量 |
 | --- | --- |
 | Codex | `CODEX_HOME`、`CODEX_PATH`；自定义 API 时 `OPENAI_API_KEY`，填写 Base URL 时还有 `CODEX_CONFIG`、`MODEL_PROVIDER` |
-| Claude Code | `CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_EXECUTABLE`；预设的固定变量和接入点变量；认证变量 `CLAUDE_CODE_OAUTH_TOKEN`、`ANTHROPIC_API_KEY` 或预设的 `ANTHROPIC_AUTH_TOKEN` |
+| Claude Code | `CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_EXECUTABLE`；认证变量 `CLAUDE_CODE_OAUTH_TOKEN` 或 `ANTHROPIC_API_KEY` |
 | 自定义 | 只有上面两层 |
 
 <a id="adapter_paths"></a>

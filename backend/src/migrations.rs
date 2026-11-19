@@ -92,6 +92,11 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 6, name: "新增默认的通用数字员工", steps: &[Step::Custom(crate::agents::add_generalist)]
     },
+    Migration {
+        version: 7,
+        name: "去掉预设的 Agent 类型：DeepSeek、MiniMax、GLM over Claude Code 改为用 API Key 登录的 Claude Code，原来的变量写进它自己的环境变量",
+        steps: &[Step::Custom(crate::agents::drop_preset_kinds)],
+    },
 ];
 
 /// The data version this build reads and writes.

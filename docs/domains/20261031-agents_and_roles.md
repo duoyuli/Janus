@@ -13,7 +13,6 @@
 | --- | --- | --- | --- | --- |
 | `codex` | 内置 | `codex` | 复制本机配置、ChatGPT 登录、自定义 API（OpenAI 或兼容 Responses API 的网关） | `CODEX_HOME` |
 | `claude` | 内置 | `claude` | 复制本机配置、Claude 订阅 OAuth Token、API Key | `CLAUDE_CONFIG_DIR` |
-| `deepseek-claude`、`minimax-claude`、`glm-claude` | 预设 | `claude` | 粘贴对应厂商的 token，通过预设的环境变量（可修改）把 Claude Code 指向厂商的 Anthropic 兼容接口 | `CLAUDE_CONFIG_DIR` |
 | `custom` | 自定义 | `custom` | 无；只使用填写的启动命令和环境变量 | 无 |
 
 规则：
@@ -22,6 +21,7 @@
 - 内置运行时通过 ACP 适配器启动。适配器在第一次检查用到它的 Agent 时自动安装，见 [ACP 适配器管理](../architecture/20261031-adapters.md#on_demand)。
 - 有正在运行的任务使用某个 Agent 时，不能删除它。
 - 「复制本机配置」只复制与模型接入有关的配置项和凭据，见[安全边界](../operations/20261031-security.md#local_config_import)。
+- 用其他厂商的 Anthropic 兼容接口驱动 Claude Code 时，选 `claude` 类型的 API Key，在环境变量里填厂商的 `ANTHROPIC_BASE_URL` 和模型名。Janus 不再提供按厂商的预设类型：以前的 `deepseek-claude`、`minimax-claude`、`glm-claude` 在数据版本 7 改为这样的 Claude Code Agent，预设的变量写进它自己的环境变量（用户改过或去掉的保持原样），状态改为未检查；预设的 token 不会自动变成 API Key，要在编辑页重新填一次。
 
 <a id="agent_env"></a>
 ### 环境变量
@@ -29,11 +29,8 @@
 Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20261031-security.md)），它看到的变量按以下顺序叠加，同名时后面的覆盖前面的：
 
 1. 沙箱变量：`HOME`、XDG 目录、`TMPDIR` 等，指向 `~/.janus/agents/<id>/` 下的隔离目录。
-2. 类型的默认变量（`fixedEnv`，预设还有所选接入点的 `env`），例如 DeepSeek 预设的 `ANTHROPIC_BASE_URL` 和各档模型。
-3. 用户在 Agent 上填写的环境变量，以及「复制本机配置」带来的变量。值为空（`KEY=`）表示去掉这个变量。沙箱变量不能在这里改写。
-4. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和凭据（如预设 token 对应的 `ANTHROPIC_AUTH_TOKEN`）。Claude Code 还有一项默认值：`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，原因见 [Claude Code 会话的环境默认值](../interfaces/20261031-acp_integration.md#background_tasks)。
-
-编辑页把第 2 步的默认值直接填进环境变量框，用户可以逐项修改；切换接入点时只替换该接入点的变量，用户自己加的行保留。保存后这些值成为 Agent 自己的配置，之后预设的默认值变化不会影响已经填写的项。
+2. 用户在 Agent 上填写的环境变量，以及「复制本机配置」带来的变量。值为空（`KEY=`）表示去掉这个变量。沙箱变量不能在这里改写。
+3. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和凭据（如 API Key 对应的 `ANTHROPIC_API_KEY`）。Claude Code 还有一项默认值：`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，原因见 [Claude Code 会话的环境默认值](../interfaces/20261031-acp_integration.md#background_tasks)。
 
 <a id="connection_check"></a>
 ## 配置检查

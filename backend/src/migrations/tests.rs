@@ -133,6 +133,54 @@ fn items_say_who_uses_them_and_the_general_worker_arrives() {
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
 }
 
+/// Version 7: an agent made from a removed preset becomes a Claude Code agent on an API key, with
+/// the preset's variables in its own environment, unless the person had set or unset them there.
+#[test]
+fn preset_agents_become_claude_code_agents_with_their_variables() {
+    let path = old_database("presets");
+    let conn = Connection::open(&path).unwrap();
+    let agent = |id: &str, kind: &str, base: &str, auth: &str, env: Value, extra: Value| {
+        let mut c = json!({ "id": id, "kind": kind, "base": base, "name": id, "auth": auth, "bin": "", "prompt": "",
+            "env": env, "status": "ok", "createdAt": 1 });
+        for (k, v) in extra.as_object().unwrap() {
+            c[k] = v.clone();
+        }
+        conn.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES ('connection', ?1, ?2, 0)",
+            params![id, c.to_string()],
+        )
+        .unwrap();
+    };
+    agent(
+        "glm",
+        "glm-claude",
+        "claude",
+        "",
+        json!({ "API_TIMEOUT_MS": "", "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-6", "MINE": "1" }),
+        json!({ "endpoint": "zai" }),
+    );
+    agent("ds", "deepseek-claude", "claude", "", json!({}), json!({}));
+    agent("cx", "codex", "codex", "chatgpt", json!({}), json!({}));
+    drop(conn);
+
+    crate::db::Db::open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let glm = config(&conn, "connection", "glm");
+    assert_eq!(
+        (glm["kind"].as_str(), glm["auth"].as_str(), glm["status"].as_str()),
+        (Some("claude"), Some("apikey"), Some("untested"))
+    );
+    assert!(glm.get("endpoint").is_none());
+    let env = &glm["env"];
+    assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.z.ai/api/anthropic", "the endpoint it was given");
+    assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "glm-6", "the person's own value wins");
+    assert!(env.get("API_TIMEOUT_MS").is_none(), "a variable the person unset stays unset");
+    assert_eq!(env["MINE"], "1");
+    assert_eq!(config(&conn, "connection", "ds")["env"]["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic");
+    assert_eq!(config(&conn, "connection", "cx")["status"], "ok", "other agents are left alone");
+    assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
+}
+
 #[test]
 fn a_database_from_a_newer_janus_is_refused() {
     let path = temp_path("newer");
