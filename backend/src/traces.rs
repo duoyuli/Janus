@@ -55,6 +55,9 @@ pub struct Traces {
     /// Files the lead edited after it handed out its first subtask (`lead.edited`): from then on
     /// it only manages, so each is reported once and goes on the delivery as a risk.
     lead_after_plan: BTreeSet<String>,
+    /// Library tools (routed names) the lead called after handing out subtasks (`lead.routed`):
+    /// reported once each, like its edits, since a call may change things outside any subtask.
+    lead_tools_after_plan: BTreeSet<String>,
 }
 
 impl Traces {
@@ -83,6 +86,16 @@ impl Traces {
     /// Files the lead edited after handing out subtasks.
     pub fn lead_after_plan(&self) -> &BTreeSet<String> {
         &self.lead_after_plan
+    }
+
+    /// The lead called the library tool `tool` after handing out subtasks: true the first time.
+    pub fn record_lead_tool_after_plan(&mut self, tool: &str) -> bool {
+        self.lead_tools_after_plan.insert(tool.to_string())
+    }
+
+    /// Library tools the lead called after handing out subtasks.
+    pub fn lead_tools_after_plan(&self) -> &BTreeSet<String> {
+        &self.lead_tools_after_plan
     }
 
     pub fn files(&self, task: &str) -> BTreeSet<String> {

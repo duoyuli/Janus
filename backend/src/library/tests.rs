@@ -217,25 +217,27 @@ async fn mcp_values_stay_out_of_records() {
 }
 
 /// A role that uses an item keeps it from being deleted; deleting takes its values along.
+/// Deleting an item takes it out of the roles that pick it (one for everyone may still be picked
+/// from when it was kept, out of sight in the editor), and its saved values with it.
 #[tokio::test]
-async fn items_in_use_are_kept() {
+async fn deleting_an_item_drops_it_from_the_roles() {
     let (app, dir) = app("delete");
     let item = app
         .save_mcp(None, &json!({ "name": "fs", "command": "mcp-fs", "vars": [{ "name": "K", "value": "v" }] }))
         .await
         .unwrap();
+    let keep = app.create_skill(&json!({ "name": "notes", "description": "记", "content": "写。" })).await.unwrap();
+    app.set_reach(&item.id, crate::library::Reach::Everyone).await.unwrap();
     app.db
         .put_config(
             ROLE,
             "r1",
-            &crate::agents::test_role("r1", json!({ "name": "研发", "resources": [item.id] })),
+            &crate::agents::test_role("r1", json!({ "name": "研发", "resources": [item.id, keep.id] })),
             now_ms(),
         )
         .unwrap();
-    let err = app.delete_item(&item.id).await.unwrap_err().to_string();
-    assert!(err.contains("研发"), "{err}");
-    app.db.put_config(ROLE, "r1", &crate::agents::test_role("r1", json!({ "name": "研发" })), now_ms()).unwrap();
     app.delete_item(&item.id).await.unwrap();
+    assert_eq!(app.db.get_config(ROLE, "r1").unwrap().unwrap()["resources"], json!([keep.id]));
     assert!(!app.values_path(&item.id).unwrap().exists());
     let _ = std::fs::remove_dir_all(&dir);
 }

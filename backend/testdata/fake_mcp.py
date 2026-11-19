@@ -6,11 +6,13 @@ Tools: `cwd` answers the directory it runs in; `echo` answers its `text`; `roots
 `roots/list` and answers the first root's URI, so a test sees the router answer the server's own
 requests; `env` answers HOME and the variable `name` (null when unset), so a test sees what
 environment it was started in; `grow` adds a tool `extra` and says its tools changed; `quit` answers,
-then exits.
+then exits; `spawn` starts a long `sleep` of its own and answers its pid, so a test sees the
+server's children stop with it.
 """
 
 import json
 import os
+import subprocess
 import sys
 
 # @project-doc docs/operations/20261031-testing.md#fake_agent
@@ -26,6 +28,7 @@ TOOLS = [
     {"name": "env", "description": "返回 HOME 和 name 指定的环境变量", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}},
     {"name": "grow", "description": "新增工具 extra 并通知客户端", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "quit", "description": "回答后退出", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "spawn", "description": "启动一个子进程并返回它的 pid", "inputSchema": {"type": "object", "properties": {}}},
 ]
 
 
@@ -65,6 +68,9 @@ for line in sys.stdin:
         elif name == "quit":
             send({"jsonrpc": "2.0", "id": mid, "result": text("bye")})
             sys.exit(0)
+        elif name == "spawn":
+            child = subprocess.Popen(["sleep", "300"])
+            send({"jsonrpc": "2.0", "id": mid, "result": text(str(child.pid))})
         elif name == "env":
             seen = {"HOME": os.environ.get("HOME"), args.get("name", ""): os.environ.get(args.get("name", ""))}
             send({"jsonrpc": "2.0", "id": mid, "result": text(json.dumps(seen))})

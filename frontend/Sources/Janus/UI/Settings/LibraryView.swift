@@ -29,8 +29,12 @@ struct LibraryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(L.text("资源库里的 Skill 和 MCP 默认给所有数字员工，经两个路由按需取用；有副作用或带凭据的工具可以收口，只给选中它的数字员工。"))
-                    .font(.callout).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L.text("资源库里的 Skill 和 MCP 默认给所有数字员工，经两个路由按需取用；有副作用或带凭据的工具可以收口，只给选中它的数字员工。"))
+                        .font(.callout).foregroundStyle(.secondary)
+                    Text(L.text("任务开始时固定它用的资源：这里的添加、修改和开关从下一个任务起生效。"))
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
                 Spacer(minLength: 8)
                 TextField(L.text("搜索"), text: $query).textFieldStyle(.roundedBorder).frame(width: 180)
             }
@@ -147,7 +151,7 @@ struct LibraryView: View {
             addSource()
             return true
         } isTargeted: { dropping = $0 }
-        .help(L.text("Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。"))
+        .help(L.text("Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。导入的 Skill 默认给所有数字员工，第三方内容请先看过再导入。"))
     }
 
     /// The GitHub sources skills came from: what each offers, and updating or removing it.
@@ -470,7 +474,10 @@ struct LibraryView: View {
     }
 
     private func remove(_ i: JSON) {
-        guard confirm(L.text("删除 \(i["name"].str)？"), L.text("已经开始的任务有自己的副本，不受影响。MCP 服务器的值会一起删除。"), ok: L.text("删除")) else { return }
+        let picked = i["roles"].array.map { $0["name"].str }
+        let note = [picked.isEmpty ? "" : L.text("这些数字员工选了它，删除后一并去掉：\(picked.joined(separator: L.text("、")))。"),
+                    L.text("已经开始的任务有自己的副本，不受影响；正在运行的这个 MCP 服务器会停止。MCP 服务器的值会一起删除。")].joined()
+        guard confirm(L.text("删除 \(i["name"].str)？"), note, ok: L.text("删除")) else { return }
         Task {
             do { try await store.api.delete("/api/library/items/\(i["id"].str)"); await store.loadLibrary() }
             catch { store.show(error.localizedDescription) }

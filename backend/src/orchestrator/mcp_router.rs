@@ -1,49 +1,106 @@
 //! The MCP router (`janus-tools`): one MCP endpoint per run serving the library's command
-//! servers for everyone, in place of handing each server to each session. A server starts the
-//! first time a tool of it is called, in the run's working directory, and is shared by the run's
-//! sessions; one idle for `IDLE` stops, and the rest go with the run. Listing the tools starts the
-//! run's servers (in parallel) and asks each for its current list; a server's list is kept only
-//! while that process runs, and asked again when it restarts or says its tools changed.
+//! servers for everyone, in place of handing each server to each session. Each session (`who`)
+//! gets processes of its own, as when an agent started its servers itself: started in the
+//! background when the session opens, in the run's working directory and a sandbox like an
+//! agent's. Listing waits a short while and lists the servers that are ready; a server's list is
+//! kept while its process runs and asked again when it restarts or says its tools changed. A
+//! session's servers live as long as the session, as they would under its agent; closing the
+//! session, or stopping, cancelling or failing the run, stops them, each with the processes it
+//! spawned (its process group).
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
 use super::*;
 use crate::library::{Item, McpServer};
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::oneshot;
 
-/// A server with no call for this long is stopped; the next call starts it again.
-const IDLE: Duration = Duration::from_secs(10 * 60);
-/// How long a server may take to start and answer `initialize` or `tools/list`.
-const START_WAIT: Duration = Duration::from_secs(30);
+/// How long a server may take to start (a first `npx -y` downloads its package) and to answer
+/// `initialize` or `tools/list`.
+const START_WAIT: Duration = Duration::from_secs(120);
+/// How long `tools/list` waits for the servers: agents give an MCP server about ten seconds to
+/// start and list, and one slow server must not cost the session every routed tool.
+const LIST_WAIT: Duration = Duration::from_secs(8);
 /// How long one tool call may take.
 const CALL_WAIT: Duration = Duration::from_secs(5 * 60);
 /// What separates a server's name from its tool's in the names the router lists.
 const SEP: &str = "__";
+/// The longest name the router lists: models take tool names of at most 64 characters, and
+/// agents put `mcp__janus-tools__` (18) in front.
+const NAME_MAX: usize = 46;
 
-/// The run's servers, by item name. Each slot is locked while its server starts, so two sessions
-/// asking at once start it once, while different servers start side by side.
+/// The run's servers, one per session and item id. Each slot is locked while its server starts, so
+/// two requests at once start it once, while different servers start side by side.
 #[derive(Default)]
 pub(super) struct McpRouter {
-    backends: tokio::sync::Mutex<HashMap<String, Arc<Slot>>>,
+    backends: StdMutex<HashMap<(String, String), Arc<Slot>>>,
+    /// The run stopped: every server is stopped and none starts again.
+    closed: AtomicBool,
 }
 
 /// One server's place in the router: empty until it starts.
 type Slot = tokio::sync::Mutex<Option<Arc<Backend>>>;
+
+impl McpRouter {
+    fn slot(&self, who: &str, item: &str) -> Arc<Slot> {
+        self.backends.lock().unwrap().entry((who.to_string(), item.to_string())).or_default().clone()
+    }
+
+    /// Stop the servers that `pick` selects, now; ones still starting are left to finish and be
+    /// stopped by whoever finds them unusable.
+    fn stop_where(&self, pick: impl Fn(&(String, String)) -> bool) {
+        let slots: Vec<Arc<Slot>> =
+            self.backends.lock().unwrap().iter().filter(|(k, _)| pick(k)).map(|(_, s)| s.clone()).collect();
+        for slot in slots {
+            if let Ok(mut held) = slot.try_lock()
+                && let Some(b) = held.take()
+            {
+                b.stop();
+            }
+        }
+    }
+
+    /// The run stopped: stop every server and start no more.
+    pub(super) fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        self.stop_where(|_| true);
+    }
+
+    /// An item changed or went away: its running servers stop, and the next use starts it as it
+    /// is now.
+    pub(super) fn stop_item(&self, id: &str) {
+        self.stop_where(|(_, item)| item == id);
+    }
+
+    /// A session closed: its servers go with it, as they would with its agent.
+    pub(super) fn stop_session(&self, who: &str) {
+        self.stop_where(|(session, _)| session == who);
+    }
+}
 
 /// One server the router started: a command speaking MCP over stdio.
 struct Backend {
     stdin: tokio::sync::Mutex<ChildStdin>,
     pending: Arc<StdMutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next: AtomicU64,
-    last_used: StdMutex<std::time::Instant>,
     /// The tools this process listed; cleared when it says they changed.
     tools: Arc<StdMutex<Option<Vec<Value>>>>,
     /// False once its output has closed: the process is gone and the next use starts it again.
     alive: Arc<AtomicBool>,
-    /// Stopped with the backend (`kill_on_drop`).
+    /// Its process group (`process_group(0)`): the server and whatever it spawned (`npx` runs the
+    /// real server as a child).
+    group: Option<u32>,
+    stopped: AtomicBool,
+    /// Killed with the backend (`kill_on_drop`) if the group's TERM did not end it.
     _child: Child,
+}
+
+impl Drop for Backend {
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 impl Backend {
@@ -67,7 +124,10 @@ impl Backend {
         }
         let err = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
         let own = values.env.iter().filter(|(k, _)| !crate::agents::is_sandbox_var(k));
-        let mut child = tokio::process::Command::new(command)
+        let mut cmd = tokio::process::Command::new(command);
+        #[cfg(unix)]
+        cmd.process_group(0);
+        let mut child = cmd
             .args(args)
             .env_clear()
             .envs(crate::agents::sandbox_at(home)?)
@@ -88,9 +148,10 @@ impl Backend {
             stdin: tokio::sync::Mutex::new(stdin),
             pending: pending.clone(),
             next: AtomicU64::new(1),
-            last_used: StdMutex::new(std::time::Instant::now()),
             tools: tools.clone(),
             alive: alive.clone(),
+            group: child.id(),
+            stopped: AtomicBool::new(false),
             _child: child,
         };
         // Replies go to whoever waits on their id; the server's own requests are answered here.
@@ -156,9 +217,27 @@ impl Backend {
         Ok(t)
     }
 
-    /// Still running, and used recently enough to keep.
+    /// Still running and not stopped.
     fn usable(&self) -> bool {
-        self.alive.load(Ordering::SeqCst) && self.last_used.lock().unwrap().elapsed() < IDLE
+        !self.stopped.load(Ordering::SeqCst) && self.alive.load(Ordering::SeqCst)
+    }
+
+    /// End its process group: TERM now, KILL a few seconds later for whatever ignored it. A call
+    /// still waiting on it gets an error.
+    fn stop(&self) {
+        if self.stopped.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.pending.lock().unwrap().clear();
+        #[cfg(unix)]
+        if let Some(pid) = self.group {
+            let group = format!("-{pid}");
+            let _ = std::process::Command::new("kill").args(["-TERM", &group]).status();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let _ = std::process::Command::new("kill").args(["-KILL", &group]).status();
+            });
+        }
     }
 
     async fn send(&self, msg: &Value) -> Result<()> {
@@ -176,7 +255,6 @@ impl Backend {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, tx);
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await?;
-        *self.last_used.lock().unwrap() = std::time::Instant::now();
         let reply = match tokio::time::timeout(wait, rx).await {
             Ok(Ok(reply)) => reply,
             Ok(Err(_)) => bail!("服务器已经退出"),
@@ -192,15 +270,21 @@ impl Backend {
     }
 }
 
-/// A tool's name as the router lists it: `<server>__<tool>`, in the characters MCP clients take,
-/// at most 64 of them.
-fn routed_name(server: &str, tool: &str) -> String {
+/// A tool's name as the router lists it: `<server>__<tool>` when that fits `NAME_MAX` in the
+/// characters MCP clients take; otherwise cut short and ended with a hash of the full pair, so two
+/// tools never share a name and a name never changes between runs.
+pub(super) fn routed_name(server: &str, tool: &str) -> String {
     let clean = |s: &str| {
         s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect::<String>()
     };
-    let mut name = format!("{}{SEP}{}", clean(server), clean(tool));
-    name.truncate(64);
-    name
+    let plain = format!("{server}{SEP}{tool}");
+    let name = format!("{}{SEP}{}", clean(server), clean(tool));
+    if name == plain && name.len() <= NAME_MAX {
+        return name;
+    }
+    let hash: String =
+        Sha256::digest(format!("{server}\0{tool}").as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
+    format!("{}_{hash}", &name[..name.len().min(NAME_MAX - hash.len() - 1)])
 }
 
 impl App {
@@ -215,6 +299,14 @@ impl App {
         })
     }
 
+    /// A library item changed or was deleted: every run stops its servers, so the next use starts
+    /// it as it is now (or not at all).
+    pub(crate) fn stop_item_servers(&self, id: &str) {
+        for run in self.runs.lock().unwrap().values() {
+            run.router.stop_item(id);
+        }
+    }
+
     /// The servers the router serves for this run: the command servers for everyone in its
     /// members' snapshots, by name.
     fn routed_servers(run: &Run) -> BTreeMap<String, Item> {
@@ -225,25 +317,74 @@ impl App {
             .collect()
     }
 
-    /// A running backend for `item`: the one already started, unless it exited or sat idle too
-    /// long, in which case it starts again (and lists its tools afresh).
-    async fn backend(&self, run: &Run, item: &Item) -> Result<Arc<Backend>> {
-        let slot = run.router.backends.lock().await.entry(item.name.clone()).or_default().clone();
-        let mut slot = slot.lock().await;
-        if let Some(b) = slot.as_ref().filter(|b| b.usable()) {
+    /// The running backend of `item` for the session `who`: the one already started, unless it
+    /// exited, in which case it starts again (and lists its tools afresh).
+    async fn backend(self: &Arc<Self>, run: &Arc<Run>, who: &str, item: &Item) -> Result<Arc<Backend>> {
+        if run.router.closed.load(Ordering::SeqCst) {
+            bail!("这个任务已经停止");
+        }
+        let slot = run.router.slot(who, &item.id);
+        let mut held = slot.lock().await;
+        if let Some(b) = held.as_ref().filter(|b| b.usable()) {
             return Ok(b.clone());
         }
-        // Dropping the old one stops its process.
-        *slot = None;
+        if let Some(old) = held.take() {
+            old.stop();
+        }
         let crate::library::Body::Mcp { server } = &item.body else { bail!("{} 不是 MCP 服务器", item.name) };
-        let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{}.log", item.name));
+        let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{who}-{}.log", item.name));
         let b = Backend::start(server, &self.mcp_values(&item.id), &self.server_home(&item.id), &run.cwd, &log).await?;
-        *slot = Some(b.clone());
+        if run.router.closed.load(Ordering::SeqCst) {
+            b.stop();
+            bail!("这个任务已经停止");
+        }
+        *held = Some(b.clone());
         Ok(b)
     }
 
-    async fn server_tools(&self, run: &Run, item: &Item) -> Result<Vec<Value>> {
-        self.backend(run, item).await?.tools().await
+    async fn server_tools(self: &Arc<Self>, run: &Arc<Run>, who: &str, item: &Item) -> Result<Vec<Value>> {
+        self.backend(run, who, item).await?.tools().await
+    }
+
+    /// A session that got the router (`via: mcpRouter`) has its servers started now, in the
+    /// background, so they are ready by the time its agent lists them.
+    pub(super) fn prewarm(self: &Arc<Self>, run: &Arc<Run>, who: &str, opening: &Opening) {
+        if !opening.resources.iter().any(|d| d.via == crate::library::Via::McpRouter) {
+            return;
+        }
+        for item in Self::routed_servers(run).into_values() {
+            let (app, run, who) = (self.clone(), run.clone(), who.to_string());
+            tokio::spawn(async move {
+                if let Err(err) = app.server_tools(&run, &who, &item).await {
+                    crate::config::log(format!("janus: MCP 路由启动 {} 失败：{err:#}", item.name));
+                }
+            });
+        }
+    }
+
+    /// Each server's tools under their routed names, waiting at most `until`: a server still
+    /// starting is left out and keeps starting.
+    async fn routed_tools(
+        self: &Arc<Self>,
+        run: &Arc<Run>,
+        who: &str,
+        until: tokio::time::Instant,
+    ) -> Vec<(Item, Value)> {
+        let mut listing = vec![];
+        for item in Self::routed_servers(run).into_values() {
+            let (app, r, w, i) = (self.clone(), run.clone(), who.to_string(), item.clone());
+            listing.push((item, tokio::spawn(async move { app.server_tools(&r, &w, &i).await })));
+        }
+        let mut out = vec![];
+        for (item, job) in listing {
+            match tokio::time::timeout_at(until, job).await {
+                Ok(Ok(Ok(list))) => out.extend(list.into_iter().map(|t| (item.clone(), t))),
+                Ok(Ok(Err(err))) => crate::config::log(format!("janus: MCP 路由列不出 {} 的工具：{err:#}", item.name)),
+                Ok(Err(_)) => {}
+                Err(_) => crate::config::log(format!("janus: MCP 路由的 {} 还在启动，这次先不列出", item.name)),
+            }
+        }
+        out
     }
 
     /// One MCP request to the router from a session of this run (`who` as for the board).
@@ -280,38 +421,21 @@ impl App {
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": crate::library::MCP_ROUTER, "version": crate::VERSION },
                     "instructions": format!(
-                        "Janus 资源库中给所有数字员工的 MCP 服务器，经 Janus 路由：{}。工具名是「服务器{SEP}工具」；服务器在第一次调用时启动，工作目录是这个任务的工作目录。",
+                        "Janus 资源库中给所有数字员工的 MCP 服务器，经 Janus 路由：{}。工具名是「服务器{SEP}工具」（过长的名字截短并带哈希）；服务器在这个会话里单独运行，工作目录是这个任务的工作目录。",
                         names.join("、")
                     ),
                 })
             }
             "ping" => json!({}),
             "tools/list" => {
-                // Every server starts and lists at once; one that fails is left out and logged.
-                let mut listing = tokio::task::JoinSet::new();
-                for item in servers.values().cloned() {
-                    let (app, run) = (self.clone(), run.clone());
-                    listing.spawn(async move {
-                        let got = app.server_tools(&run, &item).await;
-                        (item.name, got)
-                    });
-                }
-                let mut by_server = BTreeMap::new();
-                while let Some(Ok((name, got))) = listing.join_next().await {
-                    match got {
-                        Ok(list) => {
-                            by_server.insert(name, list);
-                        }
-                        Err(err) => crate::config::log(format!("janus: MCP 路由列不出 {name} 的工具：{err:#}")),
-                    }
-                }
-                let tools: Vec<Value> = by_server
+                let deadline = tokio::time::Instant::now() + LIST_WAIT;
+                let tools: Vec<Value> = self
+                    .routed_tools(&run, who, deadline)
+                    .await
                     .into_iter()
-                    .flat_map(|(server, list)| {
-                        list.into_iter().map(move |mut t| {
-                            t["name"] = json!(routed_name(&server, t["name"].as_str().unwrap_or_default()));
-                            t
-                        })
+                    .map(|(item, mut t)| {
+                        t["name"] = json!(routed_name(&item.name, t["name"].as_str().unwrap_or_default()));
+                        t
                     })
                     .collect();
                 json!({ "tools": tools })
@@ -319,21 +443,25 @@ impl App {
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or_default();
                 let started = now_ms();
-                let found = servers.values().find_map(|item| {
-                    let prefix = routed_name(&item.name, "");
-                    name.strip_prefix(&prefix).map(|_| item.clone())
-                });
+                // The exact routed name among the servers' current tools: those ready first, then
+                // waiting for any still starting.
+                let mut found = None;
+                for wait in [LIST_WAIT, START_WAIT] {
+                    found =
+                        self.routed_tools(&run, who, tokio::time::Instant::now() + wait).await.into_iter().find_map(
+                            |(item, t)| {
+                                let tool = t["name"].as_str()?;
+                                (routed_name(&item.name, tool) == name).then(|| (item, tool.to_string()))
+                            },
+                        );
+                    if found.is_some() {
+                        break;
+                    }
+                }
                 let outcome: Result<Value> = async {
-                    let item = found.as_ref().with_context(|| format!("没有这个工具：{name}"))?;
-                    let tool = self
-                        .server_tools(&run, item)
-                        .await?
-                        .into_iter()
-                        .filter_map(|t| t["name"].as_str().map(str::to_owned))
-                        .find(|t| routed_name(&item.name, t) == name)
-                        .with_context(|| format!("{} 没有这个工具：{name}", item.name))?;
+                    let (item, tool) = found.as_ref().with_context(|| format!("没有这个工具：{name}"))?;
                     let args = req["params"]["arguments"].clone();
-                    self.backend(&run, item)
+                    self.backend(&run, who, item)
                         .await?
                         .request("tools/call", json!({ "name": tool, "arguments": args }), CALL_WAIT)
                         .await
@@ -342,7 +470,7 @@ impl App {
                 // Who called which server's tool, how long it took and how it ended; never the
                 // arguments, which may carry what the person typed or a credential.
                 let mut e = ev("mcp.routed", who, format!("经 MCP 路由调用 {name}")).data(json!({
-                    "server": found.as_ref().map(|i| i.name.clone()),
+                    "server": found.as_ref().map(|(i, _)| i.name.clone()),
                     "tool": name,
                     "ms": now_ms() - started,
                     "error": outcome.as_ref().err().map(|e| format!("{e:#}")),
@@ -351,6 +479,21 @@ impl App {
                     e = e.task(who);
                 }
                 self.emit(&run, e);
+                // After handing out subtasks the lead only looks: a call it makes is put in front
+                // of it on the board, once per tool, and goes on the delivery as a risk.
+                // @project-doc docs/domains/20261031-goal_mode.md#lead_role
+                let after_plan = who == "lead" && found.is_some() && {
+                    let mut st = run.st.lock().unwrap();
+                    !st.tasks.is_empty() && st.traces.record_lead_tool_after_plan(name)
+                };
+                if after_plan {
+                    self.emit(
+                        &run,
+                        ev("lead.routed", "janus", format!("负责人派出子任务后调用了 {name}"))
+                            .to("lead")
+                            .data(json!({ "tool": name, "server": found.as_ref().map(|(i, _)| i.name.clone()) })),
+                    );
+                }
                 match outcome {
                     Ok(result) => result,
                     Err(err) => json!({ "content": [{ "type": "text", "text": format!("{err:#}") }], "isError": true }),

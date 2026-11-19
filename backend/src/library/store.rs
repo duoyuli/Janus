@@ -112,6 +112,8 @@ pub(super) fn put_text(store: &Path, files: &[(&str, &str)]) -> Result<String> {
 }
 
 /// Copy a stored tree to `dest` as plain files: whatever an agent does to the copy stays there.
+/// On APFS `fs::copy` clones (`fclonefileat`), so a bundle per member costs no disk until an agent
+/// writes to it, however many skills are for everyone.
 pub(super) fn copy_out(store: &Path, hash: &str, dest: &Path) -> Result<()> {
     let src = store.join(hash);
     for (rel, real) in files(&src).with_context(|| format!("资源库中缺少 Skill 内容 {hash}"))? {

@@ -14,7 +14,7 @@ mod skill;
 mod sources;
 mod store;
 
-pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch, routed_server, support};
+pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, Via, bundle, launch, routed_server, support};
 pub use mcp::{McpServer, McpValues};
 pub use sources::{CHECK_EVERY, Source};
 
@@ -523,6 +523,8 @@ impl App {
         item.revision = revision;
         item.body = Body::Mcp { server };
         self.put_item(&item)?;
+        // A server running in a run picks up its new values or command on its next start.
+        self.stop_item_servers(&item.id);
         Ok(item)
     }
 
@@ -556,17 +558,19 @@ impl App {
     /// Delete an item no role uses. Runs keep what they pinned.
     pub async fn delete_item(&self, id: &str) -> Result<()> {
         let _guard = self.library.lock.lock().await;
-        let item = self.item(id)?;
-        if let Some(role) = self.roles_using(id)?.first() {
-            bail!(
-                "数字员工「{}」正在使用 {}，请先在数字员工中取消选择",
-                role["name"].as_str().unwrap_or(""),
-                item.name
-            );
+        self.item(id)?;
+        // Roles that pick it drop it: a pick may be left from when it was kept, out of sight in the
+        // editor once it is for everyone. Runs keep their own copy.
+        for mut role in self.db.list_config(ROLE)? {
+            let Some(picked) = role["resources"].as_array().filter(|a| a.iter().any(|x| x == id)) else { continue };
+            let left: Vec<Value> = picked.iter().filter(|x| *x != id).cloned().collect();
+            role["resources"] = json!(left);
+            self.db.put_config(ROLE, role["id"].as_str().unwrap_or_default(), &role, now_ms())?;
         }
         self.db.delete_config(ITEM, id)?;
         let _ = std::fs::remove_file(self.values_path(id)?);
-        // The sandbox the MCP router ran it in.
+        // Its servers stop before the sandbox they run in goes.
+        self.stop_item_servers(id);
         let _ = std::fs::remove_dir_all(self.server_home(id));
         self.sweep_store()
     }

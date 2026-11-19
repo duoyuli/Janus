@@ -330,7 +330,8 @@ pub(super) fn needs_lead(e: &Event) -> bool {
         | "task.blocked"
         | "task.conflict"
         | "task.split_requested"
-        | "lead.edited" => true,
+        | "lead.edited"
+        | "lead.routed" => true,
         "task.stalled" => field("resolved") != true,
         "board.posted" => field("kind") == "blocker",
         // A result that disagrees with the workspace, or an independent verification that rejected/questioned the target.
@@ -414,6 +415,13 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         return Some(format!(
             "- [负责人改了文件] 你已经派出了子任务，按约定只做管理、不再改工作目录，这次改了：{}。这些改动没有经过子任务的验收，会写进交付风险。需要改代码时交给对应的子任务：janus.retry 让它返工，或 janus.orchestrate 派新的子任务。",
             paths.join("、")
+        ));
+    }
+    // The lead's own call to a library tool after it handed out subtasks: noted, never blocked.
+    if e.kind == "lead.routed" {
+        return Some(format!(
+            "- [负责人用了资源库工具] 你已经派出了子任务，按约定资源库的工具只用来查看；这次调用了 {}。如果它改了文件、数据或对外发了东西，这些没有经过子任务的验收，会写进交付风险。有副作用的操作交给对应的子任务。",
+            d["tool"].as_str().unwrap_or_default()
         ));
     }
     let task = e.task.as_deref()?;

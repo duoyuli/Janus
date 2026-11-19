@@ -23,7 +23,10 @@ ADDR = free_addr()
 # about a real lead working with real collaborators, so the goal asks for delegation.
 GOAL = ("给 calc.py 增加 mod(a, b)：返回 a 除以 b 的余数，b 为 0 时抛出 ZeroDivisionError；"
         "在 test_calc.py 补上对应测试，并运行 python3 -m unittest 确认全部通过。"
-        "这是一次团队协作演练：请把实现交给研发协作者，再请质量协作者独立验证，你自己不要改文件。")
+        "这是一次团队协作演练：请把实现交给研发协作者，再请质量协作者独立验证，你自己不要改文件。"
+        "质量协作者开始验证前，先调用 janus-tools 里的 probe__echo 工具，text 写「开始验证」。")
+# More skills for everyone than load directly, so the agents get the janus-skills router.
+ROUTED_SKILLS = [f"e2e-skill-{i}" for i in range(11)]
 
 
 @scenario("real", serial=True, real=True)
@@ -47,6 +50,13 @@ def real(ctx, c):
         adapters = {a["id"]: a for a in api("GET", "/api/adapters")["adapters"]}
         c(all(adapters[i]["current"] for i in ("codex", "claude")), f"Janus 从 npm 安装了适配器：codex {adapters['codex']['current']}，claude {adapters['claude']['current']}")
 
+        # The library as a person would fill it: a command server and eleven skills for everyone.
+        probe = api("POST", "/api/library/mcp", {"name": "probe", "description": "端到端测试用", "transport": "stdio",
+                                                 "command": f"{shutil.which('python3') or 'python3'} {os.path.join(ROOT, 'backend', 'testdata', 'fake_mcp.py')}"})
+        api("POST", f"/api/library/items/{probe['id']}/reach", {"reach": "everyone"})
+        for name in ROUTED_SKILLS:
+            api("POST", "/api/library/skills", {"name": name, "description": f"端到端测试用的 Skill {name}", "content": "只在被要求时使用。"})
+
         roles = {r["id"]: r for r in api("GET", "/api/setup")["roles"]}
         api("POST", "/api/setup/roles", dict(roles["coordinator"], connection=ids["codex"], lead=True))
         api("POST", "/api/setup/roles", dict(roles["implementer"], connection=ids["claude"]))
@@ -60,7 +70,23 @@ def real(ctx, c):
         events = api("GET", f"/api/runs/{run}")["events"]
         done = {e.get("task") for e in events if e["type"] == "task.succeeded"}
         c(done, f"协作者完成了任务：{sorted(done)}")
-        c(not any(e["type"] == "lead.edited" for e in events), "负责人派出子任务后没有自己改文件")
+        c(not any(e["type"] in ("lead.edited", "lead.routed") for e in events), "负责人派出子任务后没有自己改文件，也没有调用资源库工具")
+        routed = [e for e in events if e["type"] == "mcp.routed" and (e.get("data") or {}).get("tool") == "probe__echo"]
+        c(routed and not routed[0]["data"].get("error"), f"真实的 Claude Code 经 janus-tools 调用了资源库工具：{[e.get('task') for e in routed]}")
+        # Both agents list the skills they loaded as commands (Codex `$<name>`, Claude Code
+        # `janus:<name>`). The eleven skills sit hidden under janus-skills, so each agent must show
+        # the router and none of them: Codex skips hidden folders when it walks a skill root
+        # (HiddenDirectoryPolicy::Skip), Claude Code reads a plugin's skills one level deep.
+        by_agent = {}
+        for e in events:
+            if e["type"] == "session.commands":
+                names = [x.get("name", "") for x in (e.get("data") or {}).get("commands", [])]
+                by_agent.setdefault("codex" if e.get("actor") == "lead" else "claude", set()).update(names)
+        for agent, router in (("codex", "$janus-skills"), ("claude", "janus:janus-skills")):
+            names = by_agent.get(agent, set())
+            leaked = sorted(n for n in names if any(n.endswith(s) for s in ROUTED_SKILLS))
+            c(router in names and not leaked,
+              f"{agent} 只加载了 Skill 路由，没有单独加载被收起的 Skill（有 {router}：{router in names}，单独出现的：{leaked}，共 {len(names)} 个命令）")
         worktree = api("GET", f"/api/runs/{run}")["run"]["cwd"]
         c("def mod" in open(os.path.join(worktree, "calc.py")).read(), "任务的 worktree 里 calc.py 有 mod 函数")
         tests = subprocess.run([shutil.which("python3") or "python3", "-m", "unittest", "-q"], cwd=worktree, capture_output=True, text=True)

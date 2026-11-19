@@ -671,6 +671,9 @@ impl App {
                     ("lead.edited", None) => {
                         st.traces.record_lead_after_plan(&paths);
                     }
+                    ("lead.routed", None) => {
+                        st.traces.record_lead_tool_after_plan(d["tool"].as_str().unwrap_or_default());
+                    }
                     ("task.conflict", Some(task)) => {
                         let kind = if d["owned"] == true { Overlap::Owned } else { Overlap::Same };
                         if d["byLead"] == true {

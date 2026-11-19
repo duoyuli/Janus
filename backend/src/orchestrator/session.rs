@@ -100,6 +100,15 @@ impl App {
             }
         };
         self.withdraw_owned(run, owner, why);
+        // The session's library servers go with it, unless a newer session of the same owner
+        // already took its place (and uses them).
+        // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+        if stopped.is_some() || conn.is_none() {
+            run.router.stop_session(match key {
+                SessionKey::Lead => "lead",
+                SessionKey::Task(id) => id,
+            });
+        }
         if let Some(conn) = stopped.or_else(|| conn.cloned()) {
             conn.kill().await;
         }

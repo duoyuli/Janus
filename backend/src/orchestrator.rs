@@ -1061,6 +1061,12 @@ impl App {
                 st.paused = false;
             }
         }
+        // A stopped run's library servers stop with it, mid-call too: nothing it started keeps
+        // acting after the person stopped it. A delivered run keeps them for the conversation.
+        // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+        if matches!(status, RunStatus::Cancelled | RunStatus::Failed | RunStatus::Interrupted) {
+            run.router.close();
+        }
         let _ = self.db.set_run_status(&run.id, status);
     }
 

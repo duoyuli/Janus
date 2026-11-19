@@ -531,7 +531,6 @@
 "已添加 %@；跳过：%@" = "Added %@. Skipped: %@";
 "已登录 %@。" = "Signed in to %@.";
 "已确认这个子任务的结论" = "The subtask’s findings were confirmed";
-"已经开始的任务有自己的副本，不受影响。MCP 服务器的值会一起删除。" = "Runs that have started keep their own copy. Stored MCP server values will also be deleted.";
 "已设置，留空保留" = "Set. Leave blank to keep it.";
 "已过期但仍计入" = "Expired, usage included";
 "已验收" = "Accepted";
@@ -1225,7 +1224,6 @@
 "%lld 个有更新" = "Updates: %lld";
 "%lld 个给所有数字员工" = "For all digital employees: %lld";
 "GitHub 来源 %lld" = "GitHub sources: %lld";
-"Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。" = "Janus fetches the repository and lists its skills (SKILL.md) for you to choose from. It only reads files and never runs anything from the repository.";
 "MCP 路由" = "MCP Router";
 "Skill 路由" = "Skill Router";
 "从文件夹…" = "From Folder…";
@@ -1266,3 +1264,8 @@
 "%@ 已从资源库删除，保存时移除" = "%@ was deleted from the Resource Library and will be removed when you save";
 "资源库里还没有给所有数字员工的资源" = "The Resource Library has nothing for all digital employees yet";
 "给所有数字员工的 %lld 个 Skill、%lld 个 MCP，自动就有" = "For all digital employees, included automatically: %lld skills, %lld MCP servers";
+"⚠ 派出子任务后调用了资源库工具 %@ · 会写进交付风险" = "⚠ Called the library tool %@ after handing out subtasks · Listed as a delivery risk";
+"这些数字员工选了它，删除后一并去掉：%@。" = "These digital employees selected it and will no longer have it: %@. ";
+"已经开始的任务有自己的副本，不受影响；正在运行的这个 MCP 服务器会停止。MCP 服务器的值会一起删除。" = "Runs already started keep their own copy; this MCP server stops where it is running. Its saved values are deleted too.";
+"任务开始时固定它用的资源：这里的添加、修改和开关从下一个任务起生效。" = "Each run keeps the resources it started with: additions, edits, and switches here take effect from the next run.";
+"Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。导入的 Skill 默认给所有数字员工，第三方内容请先看过再导入。" = "Janus fetches the repository and lists its skills (SKILL.md) for you to choose from. It only reads files and never runs anything from the repository. Imported skills go to all digital employees by default, so review third-party content before importing it.";

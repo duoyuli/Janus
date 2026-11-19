@@ -579,6 +579,13 @@ impl App {
                     lead_edits.iter().cloned().collect::<Vec<_>>().join("、")
                 ));
             }
+            let lead_tools = st.traces.lead_tools_after_plan();
+            if !lead_tools.is_empty() {
+                risks.push(format!(
+                    "负责人在派出子任务后自己调用了资源库工具：{}。它们做的事没有经过子任务的验收和独立验证",
+                    lead_tools.iter().cloned().collect::<Vec<_>>().join("、")
+                ));
+            }
             if let Some(last) = st.tasks.last()
                 && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report")
             {
