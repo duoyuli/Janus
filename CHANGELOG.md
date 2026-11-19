@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.18.7
+
+- 每次打开 Janus 都会显示主窗口。之前只留着菜单栏图标、关掉窗口时退出 Janus，下次打开就只有菜单栏图标，没有窗口。
+
+- Janus now opens its main window at every launch. Before, quitting while only the menu bar icon was showing meant the next launch showed just the menu bar icon and no window.
+
 ## 2026.11.18.6
 
 - 完整磁盘访问和应用程序管理不再需要手动确认，Janus 会自动检测这两项是否已授权，和屏幕录制一样显示「已授权」或「未检测到授权」。之前点过的「已手动确认」不再算数：如果系统设置里打开的其实是更新前的旧 Janus，这里会如实显示未授权。引导会在检测到授权后自动进入下一项；检测不到时，卡片会说明怎样删除同名的旧记录、添加当前的 Janus.app。所有权限都已授权时，首次启动不再弹出引导。
