@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.18.6
+
+- 完整磁盘访问和应用程序管理不再需要手动确认，Janus 会自动检测这两项是否已授权，和屏幕录制一样显示「已授权」或「未检测到授权」。之前点过的「已手动确认」不再算数：如果系统设置里打开的其实是更新前的旧 Janus，这里会如实显示未授权。引导会在检测到授权后自动进入下一项；检测不到时，卡片会说明怎样删除同名的旧记录、添加当前的 Janus.app。所有权限都已授权时，首次启动不再弹出引导。
+- 同时创建的两个任务不会再因为编号相同而创建失败。
+- 回复很快的 Agent 在连接检查中不会再被误报为「没有返回任何内容」。
+- 会话选项的值为空白时会被拒绝，不再发给 Agent。
+
+- Full Disk Access and App Management no longer ask you to confirm them by hand. Janus detects whether each is granted and shows Authorized or No Authorization Detected, as it already did for Screen Recording. Earlier manual confirmations no longer count: if the switch in System Settings belongs to the Janus from before an update, the page now says the permission is missing. The guide moves on once it detects a grant; when it cannot, the card explains how to remove the old entry with the same name and add the current Janus.app. When everything is already granted, the checklist no longer opens on first launch.
+- Two tasks created at the same moment no longer fail on a duplicate id.
+- A connection check no longer reports "no output" for an agent that replies very quickly.
+- A session option with a blank value is refused instead of being sent to the agent.
+
 ## 2026.11.18.5
 
 - 从这个版本起，Janus 用固定的证书签名，应用标识改为 `io.github.duoyuli.janus`。macOS 会把之后的每个版本当作同一个应用，屏幕录制、完整磁盘访问等授权在更新后不再丢失。从旧版本升级到这个版本时，权限引导会弹出，需要最后重新授权一次（包括通知），应用的语言、外观等偏好设置恢复默认；`~/.janus` 中的数据不受影响。之后的更新不再弹出权限引导。
