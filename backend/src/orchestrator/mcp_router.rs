@@ -1,13 +1,14 @@
 //! The MCP router (`janus-tools`): one MCP endpoint per run serving the library's command
 //! servers for everyone, in place of handing each server to each session. A server starts the
 //! first time a tool of it is called, in the run's working directory, and is shared by the run's
-//! sessions; one idle for `IDLE` stops, and the rest go with the run. The tools a server listed
-//! are kept under `<Janus home>/library/tools`, so a session listing them starts nothing.
+//! sessions; one idle for `IDLE` stops, and the rest go with the run. Listing the tools starts the
+//! run's servers (in parallel) and asks each for its current list; a server's list is kept only
+//! while that process runs, and asked again when it restarts or says its tools changed.
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
 use super::*;
 use crate::library::{Item, McpServer};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::oneshot;
@@ -21,11 +22,15 @@ const CALL_WAIT: Duration = Duration::from_secs(5 * 60);
 /// What separates a server's name from its tool's in the names the router lists.
 const SEP: &str = "__";
 
-/// The run's running servers, by item name.
+/// The run's servers, by item name. Each slot is locked while its server starts, so two sessions
+/// asking at once start it once, while different servers start side by side.
 #[derive(Default)]
 pub(super) struct McpRouter {
-    backends: tokio::sync::Mutex<HashMap<String, Arc<Backend>>>,
+    backends: tokio::sync::Mutex<HashMap<String, Arc<Slot>>>,
 }
+
+/// One server's place in the router: empty until it starts.
+type Slot = tokio::sync::Mutex<Option<Arc<Backend>>>;
 
 /// One server the router started: a command speaking MCP over stdio.
 struct Backend {
@@ -33,15 +38,19 @@ struct Backend {
     pending: Arc<StdMutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next: AtomicU64,
     last_used: StdMutex<std::time::Instant>,
+    /// The tools this process listed; cleared when it says they changed.
+    tools: Arc<StdMutex<Option<Vec<Value>>>>,
+    /// False once its output has closed: the process is gone and the next use starts it again.
+    alive: Arc<AtomicBool>,
     /// Stopped with the backend (`kill_on_drop`).
     _child: Child,
 }
 
 impl Backend {
-    /// Start `server` in `cwd` with the person's environment plus its saved values, and
-    /// initialize it. Its stderr goes to `log`. `roots/list` from it is answered with `cwd`.
-    /// Starts a server in a sandbox of its own (`sandbox_at(home)`), never in Janus's environment:
-    /// it sees the sandbox variables and the values saved on it, which can't override them.
+    /// Start `server` in `cwd` and initialize it, in a sandbox of its own (`sandbox_at(home)`),
+    /// never in Janus's environment: it sees the sandbox variables and the values saved on it,
+    /// which can't override them. Its stderr goes to `log`; `roots/list` from it is answered with
+    /// `cwd`.
     // @project-doc docs/operations/20261031-security.md#library
     async fn start(
         server: &McpServer,
@@ -73,11 +82,15 @@ impl Backend {
         let stdin = child.stdin.take().context("no stdin")?;
         let stdout = child.stdout.take().context("no stdout")?;
         let pending: Arc<StdMutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::default();
+        let tools: Arc<StdMutex<Option<Vec<Value>>>> = Arc::default();
+        let alive = Arc::new(AtomicBool::new(true));
         let backend = Backend {
             stdin: tokio::sync::Mutex::new(stdin),
             pending: pending.clone(),
             next: AtomicU64::new(1),
             last_used: StdMutex::new(std::time::Instant::now()),
+            tools: tools.clone(),
+            alive: alive.clone(),
             _child: child,
         };
         // Replies go to whoever waits on their id; the server's own requests are answered here.
@@ -89,6 +102,8 @@ impl Backend {
                 if msg.get("method").is_some() {
                     if msg.get("id").is_some() {
                         let _ = requests_tx.send(msg);
+                    } else if msg["method"] == "notifications/tools/list_changed" {
+                        *tools.lock().unwrap() = None;
                     }
                     continue;
                 }
@@ -99,6 +114,7 @@ impl Backend {
                 }
             }
             // The server is gone: whoever still waits gets an error instead of hanging.
+            alive.store(false, Ordering::SeqCst);
             pending.lock().unwrap().clear();
         });
         let root = format!("file://{}", cwd.display());
@@ -127,6 +143,22 @@ impl Backend {
         backend.request("initialize", init, START_WAIT).await?;
         backend.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await?;
         Ok(backend)
+    }
+
+    /// Its tools: the list this process gave, or asked now.
+    async fn tools(&self) -> Result<Vec<Value>> {
+        if let Some(t) = self.tools.lock().unwrap().clone() {
+            return Ok(t);
+        }
+        let t =
+            self.request("tools/list", json!({}), START_WAIT).await?["tools"].as_array().cloned().unwrap_or_default();
+        *self.tools.lock().unwrap() = Some(t.clone());
+        Ok(t)
+    }
+
+    /// Still running, and used recently enough to keep.
+    fn usable(&self) -> bool {
+        self.alive.load(Ordering::SeqCst) && self.last_used.lock().unwrap().elapsed() < IDLE
     }
 
     async fn send(&self, msg: &Value) -> Result<()> {
@@ -193,40 +225,25 @@ impl App {
             .collect()
     }
 
-    fn tools_cache(&self, item: &Item) -> PathBuf {
-        self.tools_dir().join(format!("{}-{}.json", item.id, item.revision))
-    }
-
-    /// A running backend for `item`, started on first use.
+    /// A running backend for `item`: the one already started, unless it exited or sat idle too
+    /// long, in which case it starts again (and lists its tools afresh).
     async fn backend(&self, run: &Run, item: &Item) -> Result<Arc<Backend>> {
-        let mut backends = run.router.backends.lock().await;
-        // A server idle for long is let go; it starts again when it is needed.
-        backends.retain(|_, b| b.last_used.lock().unwrap().elapsed() < IDLE);
-        if let Some(b) = backends.get(&item.name) {
+        let slot = run.router.backends.lock().await.entry(item.name.clone()).or_default().clone();
+        let mut slot = slot.lock().await;
+        if let Some(b) = slot.as_ref().filter(|b| b.usable()) {
             return Ok(b.clone());
         }
+        // Dropping the old one stops its process.
+        *slot = None;
         let crate::library::Body::Mcp { server } = &item.body else { bail!("{} 不是 MCP 服务器", item.name) };
         let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{}.log", item.name));
         let b = Backend::start(server, &self.mcp_values(&item.id), &self.server_home(&item.id), &run.cwd, &log).await?;
-        backends.insert(item.name.clone(), b.clone());
+        *slot = Some(b.clone());
         Ok(b)
     }
 
-    /// A server's tools: from the cache when it listed them before at this revision, otherwise
-    /// asked of it (which starts it) and kept.
     async fn server_tools(&self, run: &Run, item: &Item) -> Result<Vec<Value>> {
-        let cache = self.tools_cache(item);
-        if let Some(tools) = std::fs::read(&cache).ok().and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok()) {
-            return Ok(tools);
-        }
-        let b = self.backend(run, item).await?;
-        let tools: Vec<Value> =
-            b.request("tools/list", json!({}), START_WAIT).await?["tools"].as_array().cloned().unwrap_or_default();
-        if let Some(dir) = cache.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        std::fs::write(&cache, serde_json::to_vec(&tools)?)?;
-        Ok(tools)
+        self.backend(run, item).await?.tools().await
     }
 
     /// One MCP request to the router from a session of this run (`who` as for the board).
@@ -270,16 +287,33 @@ impl App {
             }
             "ping" => json!({}),
             "tools/list" => {
-                let mut tools = vec![];
-                for item in servers.values() {
-                    match self.server_tools(&run, item).await {
-                        Ok(list) => tools.extend(list.into_iter().map(|mut t| {
-                            t["name"] = json!(routed_name(&item.name, t["name"].as_str().unwrap_or_default()));
-                            t
-                        })),
-                        Err(err) => crate::config::log(format!("janus: MCP 路由列不出 {} 的工具：{err:#}", item.name)),
+                // Every server starts and lists at once; one that fails is left out and logged.
+                let mut listing = tokio::task::JoinSet::new();
+                for item in servers.values().cloned() {
+                    let (app, run) = (self.clone(), run.clone());
+                    listing.spawn(async move {
+                        let got = app.server_tools(&run, &item).await;
+                        (item.name, got)
+                    });
+                }
+                let mut by_server = BTreeMap::new();
+                while let Some(Ok((name, got))) = listing.join_next().await {
+                    match got {
+                        Ok(list) => {
+                            by_server.insert(name, list);
+                        }
+                        Err(err) => crate::config::log(format!("janus: MCP 路由列不出 {name} 的工具：{err:#}")),
                     }
                 }
+                let tools: Vec<Value> = by_server
+                    .into_iter()
+                    .flat_map(|(server, list)| {
+                        list.into_iter().map(move |mut t| {
+                            t["name"] = json!(routed_name(&server, t["name"].as_str().unwrap_or_default()));
+                            t
+                        })
+                    })
+                    .collect();
                 json!({ "tools": tools })
             }
             "tools/call" => {

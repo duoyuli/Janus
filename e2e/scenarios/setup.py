@@ -118,12 +118,13 @@ def setup(ctx, c):
     servers = json.loads(sessions[-1][len("mcp "):])
     router = next((x for x in servers if x["name"] == "janus-tools"), None)
     c(router and not any(x["name"] == "e2e-route" for x in servers), "给所有人的命令服务器不直接交给会话，T1 拿到 janus-tools")
-    c(not os.path.exists(starts), "会话开始时路由背后的服务器没有启动")
     path = "/" + router["url"].split("/", 3)[3]
     def rpc(method, params, at=path):
         return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
     names = [t["name"] for t in rpc("tools/list", {})["tools"]]
     c("e2e-route__cwd" in names, f"MCP 路由列出服务器的工具：{names}")
+    rpc("tools/list", {})
+    c(open(starts).read().count("start") == 1, "同一个 Run 的会话共用一个服务器进程")
     got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})
     c(got["content"][0]["text"] == run.cwd(), "路由背后的服务器在 Run 的工作目录（worktree）里启动")
     lead_path = path.rsplit("/", 2)[0] + "/lead/tools"

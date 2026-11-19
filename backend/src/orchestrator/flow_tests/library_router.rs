@@ -1,6 +1,6 @@
 //! The library reaches every digital worker through the MCP router (`janus-tools`): a command
-//! server for everyone is not handed to each session but served by the run's router, started on
-//! the first call in the run's working directory, its tools listed from a cache afterwards.
+//! server for everyone is not handed to each session but served by the run's router, started when
+//! its tools are first listed or called, in the run's working directory, its list always current.
 
 use super::*;
 
@@ -28,6 +28,11 @@ async fn router_url(h: &Harness, who: &str) -> (String, String, String) {
 async fn call(h: &Harness, (run, token, who): &(String, String, String), method: &str, params: Value) -> Result<Value> {
     let req = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
     Ok(h.app.mcp_tools(run, token, who, req).await?.unwrap()["result"].clone())
+}
+
+async fn listed(h: &Harness, at: &(String, String, String)) -> Vec<String> {
+    let r = call(h, at, "tools/list", json!({})).await.unwrap();
+    r["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str().map(str::to_owned)).collect()
 }
 
 fn text(result: &Value) -> String {
@@ -59,8 +64,8 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     assert!(init["instructions"].as_str().unwrap().contains("probe"), "{init}");
     let tools = call(&h, &at, "tools/list", json!({})).await.unwrap();
     let names: Vec<&str> = tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["probe__cwd", "probe__echo", "probe__roots", "probe__env"]);
-    assert_eq!(count(), 1, "a server never listed before starts once to say its tools");
+    assert_eq!(names, ["probe__cwd", "probe__echo", "probe__roots", "probe__env", "probe__grow", "probe__quit"]);
+    assert_eq!(count(), 1, "listing starts the server to ask for its current tools");
 
     let cwd = h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap().to_string();
     let got = call(&h, &at, "tools/call", json!({ "name": "probe__cwd", "arguments": {} })).await.unwrap();
@@ -102,22 +107,46 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
         h.app.mcp_tools(r, token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err()
     );
 
-    // Another run lists the same tools from the cache, starting nothing.
+    // A server that says its tools changed is asked again: the new tool shows and can be called.
+    call(&h, &at, "tools/call", json!({ "name": "probe__grow", "arguments": {} })).await.unwrap();
+    let mut names = vec![];
+    for _ in 0..50 {
+        names = listed(&h, &at).await;
+        if names.iter().any(|n| n == "probe__extra") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(names.iter().any(|n| n == "probe__extra"), "{names:?}");
+    assert_eq!(count(), 1, "the same process, asked again");
+
+    // A server that exits starts again on the next use, with its list asked afresh.
+    call(&h, &at, "tools/call", json!({ "name": "probe__quit", "arguments": {} })).await.unwrap();
+    let mut back = Value::Null;
+    for _ in 0..50 {
+        back = call(&h, &at, "tools/call", json!({ "name": "probe__cwd", "arguments": {} })).await.unwrap();
+        if back["isError"] != true {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(text(&back), cwd, "{back}");
+    assert_eq!(count(), 2, "started again after it exited");
+    assert!(!listed(&h, &at).await.iter().any(|n| n == "probe__extra"), "the new process's own list");
+
+    // Another run starts its own process and asks it for its tools: nothing carries over.
     let second = start(&h, json!([task("T2", "m1", json!({}))])).await;
     wait_until(&h.app, &second, "T2 running", |e| task_event(e, "attempt.started", "T2")).await;
     let other = router_url(&h, "T2").await;
-    let listed = call(&h, &other, "tools/list", json!({})).await.unwrap();
-    assert_eq!(listed["tools"].as_array().unwrap().len(), 4);
-    assert_eq!(count(), 1, "listed from the cache");
+    assert_eq!(listed(&h, &other).await.len(), 6);
+    assert_eq!(count(), 3, "each run lists from its own process");
 
-    // Deleting the item takes its sandbox and cached tool lists along.
+    // Deleting the item takes its sandbox along.
     let home = h.app.server_home(&probe.id);
     assert!(home.exists());
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     h.app.run(&second).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     h.app.delete_item(&probe.id).await.unwrap();
     assert!(!home.exists());
-    let left = std::fs::read_dir(h.app.tools_dir()).map(|d| d.count()).unwrap_or(0);
-    assert_eq!(left, 0, "no cached tool list is left");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
