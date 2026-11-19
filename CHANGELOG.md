@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.19
+
+- 协作者连续修改同一个文件、或者「改代码 → 跑测试」交替进行时，只要每次改的内容或测试输出在变，就不再被报为「原地打转」，负责人也不会因此被打断。真正卡住的循环照样会报告：参数和结果都没变的调用，包括反复跑同一个失败测试、只有耗时和时间不同的情况。
+- 负责人等待看板时，只在子任务完成或者有需要它处理的事（提问、失败、阻塞、冲突等）时才被唤醒。「开始」「进展」这类只是告知的消息会跟着下一次唤醒一起送到，不会丢，也不再单独占用负责人的一轮和 token。
+- 任务进行中，运行卡片上的耗时每秒走动，等你审批或回答时也一样。任务结束、回放或只读查看时，显示记录下来的耗时。
+
+- When a collaborator keeps editing the same file, or alternates between changing code and running tests, it is no longer reported as going in circles as long as the edits or the test output keep changing, so the lead is not interrupted for it. Real loops are still reported: calls whose input and result do not change, including running the same failing test again where only the timings and times differ.
+- While the lead waits on the board, it is woken only when a subtask finishes or something needs it (a question, a failure, a blocker, a conflict and the like). Informational messages such as starts and progress come along with the next wake-up. Nothing is lost, and they no longer cost the lead a turn and tokens of their own.
+- While a task runs, the elapsed time on its run card ticks every second, also while it waits for your approval or answer. A finished task, a replay or a read-only view shows the recorded time.
+
 ## 2026.11.18.8
 
 - 交付后用 `/goal` 推进新目标时，协作者的提问仍交给负责人回答，看板消息也照常推送给负责人；只有负责人空闲、等你的下一条消息时，还没回答的提问才转给你。之前第一个目标完成后，这些提问全部转给你。
