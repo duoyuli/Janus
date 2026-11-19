@@ -279,6 +279,8 @@ final class Updater {
 
     /// Hand over to a script that waits for this process to end, moves the old bundle to
     /// `<home>/updates/previous/` (kept for going back by hand), moves the new one in and opens it.
+    /// When the new one cannot be moved in, the old one goes back in its place; when even that
+    /// fails, the old one opens from `previous/`.
     private func relaunch(into app: URL) throws {
         let dir = home.appendingPathComponent("updates")
         let script = dir.appendingPathComponent("install.sh")
@@ -313,11 +315,19 @@ final class Updater {
     done
     rm -rf "$prev"; mkdir -p "$(dirname "$prev")"
     if mv "$cur" "$prev"; then
-      if mv "$new" "$cur"; then echo "installed"; else echo "could not move the new version in; restoring"; mv "$prev" "$cur"; fi
+      if mv "$new" "$cur"; then
+        echo "installed"
+      else
+        # A move across volumes copies: a failed one can leave part of the new bundle behind,
+        # and moving the old one back onto it would nest it inside.
+        echo "could not move the new version in; restoring"
+        rm -rf "$cur"
+        if mv "$prev" "$cur"; then echo "restored"; else echo "could not restore; the previous version is at $prev"; fi
+      fi
     else
       echo "could not move $cur aside"
     fi
-    open "$cur"
+    if [ -d "$cur" ]; then open "$cur"; else open "$prev"; fi
     """
 
     // MARK: Helpers
