@@ -272,7 +272,8 @@ impl App {
                     "interrupt" => Steer::Interrupt,
                     "control" => {
                         let id = a["id"].as_str().unwrap_or("").trim();
-                        if id.is_empty() || a["value"].is_null() {
+                        let value = &a["value"];
+                        if id.is_empty() || value.is_null() || value.as_str().is_some_and(|v| v.trim().is_empty()) {
                             bail!("切换会话选项要给出 id 和 value");
                         }
                         Steer::Control(SessionControl {

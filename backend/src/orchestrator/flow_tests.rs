@@ -1398,15 +1398,13 @@ async fn sessions_show_what_the_agent_shows_and_take_its_controls() {
         e.iter().any(|e| e.kind == "session.control" && e.data.as_ref().unwrap()["by"] == "user")
     })
     .await;
-    // An empty control is refused.
-    assert!(
-        h.app
-            .action(
-                &h.app.run(&run).unwrap(),
-                &json!({ "type": "control", "task": "T1", "agent": "", "id": "", "value": "x" })
-            )
-            .is_err()
-    );
+    // An empty control, or an empty value, is refused.
+    for bad in [json!({ "id": "", "value": "x" }), json!({ "id": "mode", "value": " " })] {
+        let mut a = json!({ "type": "control", "task": "T1", "agent": "" });
+        a["id"] = bad["id"].clone();
+        a["value"] = bad["value"].clone();
+        assert!(h.app.action(&h.app.run(&run).unwrap(), &a).is_err(), "{a}");
+    }
     act(&h, &run, json!({ "type": "message", "task": "T1", "agent": "", "text": "看看 @pay.js 还有 @nope.js" }));
     for _ in 0..50 {
         if std::fs::read_to_string(&calls).unwrap_or_default().contains("links pay.js") {
