@@ -9,6 +9,9 @@ enum SessionResume {
     /// Continuing a finished upstream task's session (`continues`), the task's own last session
     /// (a retry with `session: "continue"`, or a verification checking reworked work).
     Followup { from: String, session: String },
+    /// A continuation was asked for, but the task it names never opened a session (for example
+    /// one cancelled before it started): a new session, with the reason on record.
+    Missing { from: String },
 }
 
 impl App {
@@ -289,14 +292,14 @@ impl App {
                 Some(SessionResume::Interrupted(old))
             } else {
                 drop(st);
+                let follow = |from: &str| match self.last_task_session(&run.id, from) {
+                    Some(session) => SessionResume::Followup { from: from.to_string(), session },
+                    None => SessionResume::Missing { from: from.to_string() },
+                };
                 if reopen.as_ref().is_some_and(Reopen::continues_own_session) {
-                    self.last_task_session(&run.id, id)
-                        .map(|session| SessionResume::Followup { from: id.to_string(), session })
+                    Some(follow(id))
                 } else if n == 1 {
-                    def.continues.as_deref().and_then(|prev| {
-                        self.last_task_session(&run.id, prev)
-                            .map(|session| SessionResume::Followup { from: prev.to_string(), session })
-                    })
+                    def.continues.as_deref().map(follow)
                 } else {
                     None
                 }
@@ -359,6 +362,10 @@ impl App {
                             }
                         }
                     }
+                }
+                Some(SessionResume::Missing { from }) => {
+                    continuation = Some(json!({ "from": from, "loaded": false, "fallback": "no_session" }));
+                    new_session(&conn, &workspace, &opening).await?
                 }
                 _ => new_session(&conn, &workspace, &opening).await?,
             };

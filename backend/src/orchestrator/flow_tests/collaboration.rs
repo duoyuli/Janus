@@ -948,3 +948,33 @@ async fn a_rework_names_the_tasks_built_on_the_old_result() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// The lead asks to continue the session of a task that never opened one (cancelled before it
+/// started): the reply says a new session opens, and the attempt records why it is a new one.
+#[tokio::test(flavor = "multi_thread")]
+async fn continuing_a_task_that_never_had_a_session_says_so() {
+    let h = harness("collab-no-session", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"], "T2": ["ok"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
+    let (text, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["T2", "T1"], "reason": "先停下" })).await;
+    assert!(!err, "{text}");
+    wait_until(&h.app, &run, "T1 stopped", |e| task_event(e, "task.skipped_by_decision", "T1")).await;
+    assert!(!task_event(&events(&h.app, &run), "attempt.started", "T2"), "T2 never started");
+    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T2", "session": "continue" })).await;
+    assert!(!err && text.contains("T2 之前没有开过会话，这次会新开一个"), "{text}");
+    wait_until(&h.app, &run, "T2 done", |e| task_event(e, "task.succeeded", "T2")).await;
+    let started = events(&h.app, &run)
+        .into_iter()
+        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2"))
+        .and_then(|e| e.data)
+        .unwrap();
+    assert_eq!(
+        started["continuation"],
+        json!({ "from": "T2", "loaded": false, "fallback": "no_session" }),
+        "{started}"
+    );
+    assert!(started["prompt"].as_str().unwrap().contains("你的子任务 T2"), "a new session gets the whole task");
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

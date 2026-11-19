@@ -129,6 +129,7 @@ enum SessionView {
             switch c["fallback"].str {
             case "context_over_75pct": parts.append(L.text("新开会话（原会话上下文超过 75%）"))
             case "unsupported": parts.append(L.text("新开会话（Agent 不支持加载会话）"))
+            case "no_session": parts.append(L.text("新开会话（这个子任务之前没有会话）"))
             default: parts.append(L.text("新开会话（原会话加载失败）"))
             }
         }

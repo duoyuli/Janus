@@ -508,6 +508,9 @@ impl App {
         self.ensure_driver(run);
         run.wake.notify_one();
         let mut reply = format!("{task} 会{how}重新执行，依赖它的子任务会在它成功后继续。");
+        if session == SessionChoice::Continue && self.last_task_session(&run.id, task).is_none() {
+            reply.push_str(&format!("{task} 之前没有开过会话，这次会新开一个。"));
+        }
         if !reverify.is_empty() {
             reply.push_str(&format!("它完成后，{} 重新验证新的结果。", reverify.join("、")));
         }

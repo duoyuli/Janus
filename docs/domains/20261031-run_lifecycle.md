@@ -91,7 +91,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 1. 打开会话（或续接原会话），默认调用 `session/new`，有两种续接：
    - 从中断处恢复未完成的尝试：Agent 支持 `loadSession` 时直接 `session/load` 加载被中断的会话，不看上下文占用；加载失败或不支持时新建会话。
-   - 续接已经结束的会话：任务声明了 `continues`（只在首次尝试，加载前置任务的会话）；负责人 `retry` 选了 `session: "continue"`（加载这个任务自己上一次的会话）；独立验证因被验证的任务返工而复审（加载验证者自己上一次的会话）。目标会话最新上下文占用严格大于 75%、Agent 不支持 `loadSession` 或加载失败时新建会话，否则 `session/load` 复用原会话；新建还是复用、新建的原因都记在 `attempt.started` 的 `data.continuation`（见 [ADR：热会话续接](../decisions/20261118-session_continuation.md)）。这次尝试为什么开始（负责人的重试或复审）记在 `data.reopen`。
+   - 续接已经结束的会话：任务声明了 `continues`（只在首次尝试，加载前置任务的会话）；负责人 `retry` 选了 `session: "continue"`（加载这个任务自己上一次的会话）；独立验证因被验证的任务返工而复审（加载验证者自己上一次的会话）。目标会话最新上下文占用严格大于 75%、Agent 不支持 `loadSession`、加载失败，或要接着的任务从来没开过会话（例如开始前就被取消）时新建会话，否则 `session/load` 复用原会话；新建还是复用、新建的原因都记在 `attempt.started` 的 `data.continuation`（见 [ADR：热会话续接](../decisions/20261118-session_continuation.md)）。这次尝试为什么开始（负责人的重试或复审）记在 `data.reopen`。
 
    接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/20261031-acp_integration.md#session_setup)。
