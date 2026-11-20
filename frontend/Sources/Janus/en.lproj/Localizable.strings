@@ -600,8 +600,6 @@
 "搜索 Agent 类型" = "Search Agent Types";
 "摘要" = "Summary";
 "收件箱" = "Inbox";
-"收件箱，所有工作区" = "Inbox, all workspaces";
-"收件箱，所有工作区，%lld 项等你处理" = "Inbox, all workspaces, %lld pending";
 "收件箱：%lld 项等你处理" = "Inbox: %lld pending";
 "收件箱：没有等你处理的事" = "Inbox: Nothing pending";
 "收起" = "Collapse";
@@ -1400,6 +1398,8 @@
 "这名数字员工" = "the digital employee";
 
 
+
+"所有工作区，%lld 项等你处理" = "All workspaces, %lld pending";
 
 /* ACP adapter updates */
 "%lld 个 ACP 适配器有新版本" = "ACP adapter updates: %lld";

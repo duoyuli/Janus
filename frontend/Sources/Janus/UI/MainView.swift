@@ -72,24 +72,24 @@ struct Sidebar: View {
         // The inbox stays in sight; the two histories follow one another and scroll together, so a
         // short task list leaves no gap above the chats. Laid out by hand rather than in a List, so
         // headings, cards and records line up with the inbox.
+        // Calm, like a source list: grey section labels instead of icons and rules, one line per
+        // item, the open one on a white card.
         VStack(alignment: .leading, spacing: 0) {
-            InboxButton(store: store).padding(.top, 8)
-            Rectangle().fill(Color.line).frame(height: 1).padding(.top, 8)
+            InboxButton(store: store).padding(.top, 10)
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     // Every workspace, one row each: a click opens it (its task records are on its
                     // page), the plus makes a new one.
-                    SidebarHeading(title: L.text("Agent Team"), icon: "person.3", plus: L.text("新建工作区…")) {
+                    SidebarHeading(title: L.text("Agent Team"), plus: L.text("新建工作区…")) {
                         store.editingWorkspace = AppStore.blankWorkspace
                     }
                     ForEach(store.workspaces, id: \.self) { w in
                         WorkspaceRow(store: store, ws: w, current: w["id"].str == ws?["id"].str)
                     }
-                    Rectangle().fill(Color.line).frame(height: 1).padding(.top, 14).padding(.bottom, 8)
-                    SidebarHeading(title: L.text("Chat"), icon: "bubble.left.and.bubble.right", plus: L.text("新对话：选一名数字员工单独对话（⌥⌘N）")) { store.open(.chats) }
+                    SidebarHeading(title: L.text("Chat"), plus: L.text("新对话：选一名数字员工单独对话（⌥⌘N）")) { store.open(.chats) }
                     chatRows()
                 }
-                .padding(.bottom, 8)
+                .padding(.bottom, 10)
             }
         }
         .background(Color.sidebar.ignoresSafeArea())
@@ -134,9 +134,13 @@ struct Sidebar: View {
         ForEach(store.chats, id: \.self) { c in
             let member = c["config"]["team"][0]
             let waiting = store.inbox.open.filter { $0.run == c["id"].str }.count
-            let (label, tone) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : ChatRowStatus.label(RunStatus(c["status"].str))
-            HistoryRow(title: ChatRowStatus.title(c), sub: "\(member["name"].str) · \(label) · \(L.dateTime(c["createdAt"].double ?? 0))", waiting: waiting, subTone: waiting > 0 ? tone : nil, accessibility: L.text("和 \(member["name"].str) 的对话，\(label)"), selected: shown(c["id"].str), open: { store.open(.run(c["id"].str)) }) {
-                Avatar(initials: member["init"].truthy ? member["init"].str : String(member["name"].str.prefix(2)), color: member["color"].str, size: 18)
+            let open = RunStatus(c["status"].str).isActive
+            let (label, _) = ChatRowStatus.label(RunStatus(c["status"].str))
+            SidebarItem(title: ChatRowStatus.title(c), selected: shown(c["id"].str), waiting: waiting, live: open,
+                        help: "\(member["name"].str) · \(label) · \(L.dateTime(c["createdAt"].double ?? 0))",
+                        accessibility: L.text("和 \(member["name"].str) 的对话，\(label)"),
+                        action: { store.open(.run(c["id"].str)) }) {
+                InitialMark(text: member["name"].str, selected: shown(c["id"].str))
             }
             .contextMenu {
                 Button(L.text("删除对话…"), role: .destructive) { Task { await store.deleteRun(c["id"].str) } }
@@ -147,24 +151,21 @@ struct Sidebar: View {
     }
 }
 
-/// A section heading of the sidebar, with an icon for the top-level sections and, where something
-/// can be started there, a quiet plus.
+/// A section label of the sidebar: small grey text, and a quiet plus where something can be
+/// started there. Sections are told apart by these labels and the space above them, not by rules.
 struct SidebarHeading: View {
     let title: String
-    var icon: String?
-    var small = false
     var plus: String?
     var action: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 6) {
-            if let icon { Image(systemName: icon).font(.system(size: 10, weight: .semibold)).accessibilityHidden(true) }
-            Text(title).fontWeight(small ? .regular : .semibold)
+            Text(title)
             Spacer(minLength: 6)
             if let plus {
                 Button(action: action) {
                     Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 11, weight: .medium))
                         .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
                 }
@@ -177,46 +178,72 @@ struct SidebarHeading: View {
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 20)
-        .padding(.top, small ? 8 : 10)
-        .padding(.bottom, 3)
+        .padding(.top, 18)
+        .padding(.bottom, 4)
         .accessibilityAddTraits(.isHeader)
     }
 }
 
-/// One record in a sidebar history: what leads it (a status dot, an avatar), a title, and a line
-/// saying how it stands; a count when something waits on the person. Selected like the inbox.
-struct HistoryRow<Lead: View>: View {
+/// One item of the sidebar, on one line: what leads it, its name, a count when something waits on
+/// the person, a small green dot while it is at work. The open one sits on a white card with a
+/// faint shadow. Details go in the tooltip.
+struct SidebarItem<Lead: View>: View {
     let title: String
-    let sub: String
-    let waiting: Int
-    var subTone: Tone?
-    let accessibility: String
-    var selected = false
-    let open: () -> Void
+    let selected: Bool
+    var waiting = 0
+    var live = false
+    var help = ""
+    var accessibility = ""
+    let action: () -> Void
     @ViewBuilder var lead: Lead
 
     var body: some View {
-        Button(action: open) {
-                HStack(spacing: 8) {
-                    lead
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(title).lineLimit(1).fontWeight(selected ? .semibold : .regular)
-                        Text(verbatim: sub).font(.caption).foregroundStyle(subTone?.color ?? .secondary).lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    if waiting > 0 { Pill("\(waiting)", .amber) }
+        Button(action: action) {
+            HStack(spacing: 9) {
+                lead.frame(width: 18)
+                Text(title).lineLimit(1)
+                Spacer(minLength: 4)
+                if waiting > 0 {
+                    Text(verbatim: "\(waiting)")
+                        .font(.caption.monospacedDigit().weight(.medium))
+                        .foregroundStyle(Tone.amber.color)
+                } else if live {
+                    Circle().fill(Tone.green.color).frame(width: 6, height: 6).accessibilityHidden(true)
                 }
-                .foregroundStyle(Color.primary)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(selected ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                .contentShape(RoundedRectangle(cornerRadius: 8))
             }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: 8).fill(Color.card)
+                        .shadow(color: .black.opacity(0.08), radius: 1.5, y: 1)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
         .buttonStyle(.plain)
         .hoverable(8)
+        .help(help)
         .accessibilityValue(accessibility)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .padding(.horizontal, 10)
+    }
+}
+
+/// A name's first character in a thin rounded outline: the line-icon look for items that have no
+/// icon of their own (workspaces, the employee of a chat).
+struct InitialMark: View {
+    let text: String
+    let selected: Bool
+
+    var body: some View {
+        Text(String(text.prefix(1)).uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .frame(width: 17, height: 17)
+            .foregroundStyle(selected ? Color.primary : Color.secondary)
+            .overlay(RoundedRectangle(cornerRadius: 4.5).strokeBorder(selected ? Color.primary.opacity(0.7) : Color.secondary.opacity(0.6), lineWidth: 1.1))
+            .accessibilityHidden(true)
     }
 }
 
@@ -313,27 +340,11 @@ struct InboxButton: View {
 
     var body: some View {
         let n = store.inbox.open.count
-        Button { store.open(.inbox) } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "tray")
-                    .frame(width: 18)
-                    .foregroundStyle(on ? Color.accent : Color.secondary)
-                Text(L.text("收件箱")).fontWeight(on ? .semibold : .regular)
-                Spacer(minLength: 4)
-                if n > 0 { Pill("\(n)", .amber) }
-            }
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(on ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+        SidebarItem(title: L.text("收件箱"), selected: on, waiting: n, help: L.text("所有工作区中需要你处理的事"),
+                    accessibility: n > 0 ? L.text("所有工作区，\(n) 项等你处理") : L.text("所有工作区"),
+                    action: { store.open(.inbox) }) {
+            Image(systemName: "tray").foregroundStyle(on ? Color.primary : Color.secondary)
         }
-        .buttonStyle(.plain)
-        .hoverable(8)
-        .help(L.text("所有工作区中需要你处理的事"))
-        .accessibilityLabel(n > 0 ? L.text("收件箱，所有工作区，\(n) 项等你处理") : L.text("收件箱，所有工作区"))
-        .accessibilityAddTraits(on ? .isSelected : [])
-        .padding(.horizontal, 10)
     }
 }
 
@@ -356,8 +367,8 @@ struct AdapterUpdatesBadge: View {
     }
 }
 
-/// One workspace in the sidebar, as a row like the inbox: a click opens its page (its task records
-/// are there), and a right click sets it up. The current one is highlighted on its page and while
+/// One workspace in the sidebar, on one line led by its initial: a click opens its page (its task
+/// records are there), and a right click sets it up. The current one is highlighted on its page and while
 /// one of its runs is open; how many things its runs wait on the person for is counted.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct WorkspaceRow: View {
@@ -377,15 +388,12 @@ struct WorkspaceRow: View {
     var body: some View {
         let ids = Set(store.runs(of: ws).map { $0["id"].str })
         let waiting = store.inbox.open.filter { ids.contains($0.run) }.count
-        HistoryRow(title: ws["name"].str, sub: L.tilde(ws["path"].str), waiting: waiting,
-                   accessibility: waiting == 0 ? "" : L.text("\(waiting) 项等你处理"), selected: shown,
-                   open: { store.open(.home(ws["id"].str)) }) {
-            Image(systemName: shown ? "folder.fill" : "folder")
-                .frame(width: 18)
-                .foregroundStyle(shown ? Color.accent : Color.secondary)
-                .accessibilityHidden(true)
+        let working = store.runs(of: ws).contains { RunStatus($0["status"].str).isActive }
+        SidebarItem(title: ws["name"].str, selected: shown, waiting: waiting, live: working, help: L.tilde(ws["path"].str),
+                    accessibility: waiting == 0 ? "" : L.text("\(waiting) 项等你处理"),
+                    action: { store.open(.home(ws["id"].str)) }) {
+            InitialMark(text: ws["name"].str, selected: shown)
         }
-        .help(ws["path"].str)
         .contextMenu {
             Button(L.text("工作区设置…")) { store.editingWorkspace = ws }
             Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
