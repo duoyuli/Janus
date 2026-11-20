@@ -265,9 +265,10 @@ impl App {
                         if text.is_empty() && images.is_empty() {
                             bail!("消息不能为空");
                         }
-                        self.title_chat(run, &text)?;
-                        // Pasted images are stored with the run; the text names each one.
+                        // Pasted images are stored with the run; the text names each one. A message
+                        // refused here (an image that is not one) does not title a chat.
                         let images = crate::attachments::save(&self.cfg.data_dir, &run.id, &images)?;
+                        self.title_chat(run, &text)?;
                         let text = crate::attachments::with_lines(&text, &images);
                         // Shown the moment it is sent; its session routes it once it can.
                         let to = if agent.is_empty() {
@@ -312,7 +313,7 @@ impl App {
                     // No open session: keep the message for this agent's next one.
                     (None, Steer::Message(m)) if !agent.is_empty() => {
                         self.route_message(run, agent, "", 0, &m.id, Delivery::Next);
-                        run.st.lock().unwrap().notes.entry(agent.to_string()).or_default().push(m);
+                        run.st.lock().unwrap().notes.entry(agent.to_string()).or_default().push(Note::new(m, task));
                     }
                     (None, _) => bail!("{} 现在没有打开的会话", if agent.is_empty() { task } else { agent }),
                 }
@@ -320,13 +321,26 @@ impl App {
             "accept" => {
                 // Only a delivered run has results to accept; accepting earlier would be undone
                 // by the scheduler the moment it next ran.
-                let status = run.st.lock().unwrap().status;
+                let (status, busy, asking) = {
+                    let st = run.st.lock().unwrap();
+                    (st.status, st.lead.in_turn, !st.pending.is_empty())
+                };
                 if status != RunStatus::Delivered {
                     bail!("任务现在是「{status}」，只有已交付的任务 可以验收");
                 }
+                // A delivery the lead is still working on, or one that waits on the person's
+                // answer, is not the result to accept yet.
+                // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
+                if busy {
+                    bail!("负责人还在处理你交代的事，等它这一轮结束后再验收");
+                }
+                if asking {
+                    bail!("还有等你回答的请求，先处理它们再验收");
+                }
                 // The lead's conversation stays open and works in the worktree, so it stays; the
                 // next start removes it once nothing works there (`recover`).
-                let (text, data) = self.accept_worktree(&run.id, &run.cwd, run.worktree.as_ref(), &run.goal, false)?;
+                let (text, data) =
+                    self.accept_worktree(&run.id, run.worktree.as_ref(), &run.base_ref, &run.goal, false)?;
                 self.emit(run, ev("risk.accepted", "user", text).data(data));
                 self.set_status(run, RunStatus::Accepted);
             }
@@ -342,8 +356,8 @@ impl App {
     pub(super) fn accept_worktree(
         &self,
         run_id: &str,
-        cwd: &Path,
         worktree: Option<&WorktreeOf>,
+        base_ref: &str,
         goal: &str,
         remove: bool,
     ) -> Result<(String, Value)> {
@@ -352,7 +366,16 @@ impl App {
         };
         let title: String = goal.lines().next().unwrap_or_default().chars().take(72).collect();
         let message = format!("{title}\n\nJanus 任务 {run_id}");
-        let commit = crate::worktrees::accept(&w.repo, cwd, w.branch.as_deref(), &message, remove)?;
+        // A detached HEAD must still be where the run started, or where its last acceptance left it.
+        let since = last_accepted_commit(&self.db.events(run_id, 0)?).unwrap_or_else(|| base_ref.to_string());
+        let commit = crate::worktrees::accept(
+            &w.repo,
+            &self.worktree_root(run_id),
+            w.branch.as_deref(),
+            &since,
+            &message,
+            remove,
+        )?;
         let text = match &commit {
             Some(c) => format!("核对证据后验收通过，结果已合并到 {}（提交 {}）", w.source(), short_sha(c)),
             None => "核对证据后验收通过，这个任务没有新的改动，没有提交".into(),
@@ -371,9 +394,9 @@ impl App {
         }
         let row = self.db.run(run_id)?.context("run not found")?;
         let worktree = WorktreeOf::of_config(&row["config"]);
-        let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
+        let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
         let (text, data) =
-            self.accept_worktree(run_id, &cwd, worktree.as_ref(), row["goal"].as_str().unwrap_or(""), true)?;
+            self.accept_worktree(run_id, worktree.as_ref(), base_ref, row["goal"].as_str().unwrap_or(""), true)?;
         let seq = self.db.max_seq(run_id)? + 1;
         self.store(
             Event {
@@ -391,6 +414,7 @@ impl App {
             None,
         );
         self.db.set_run_status(run_id, RunStatus::Accepted)?;
+        let _ = self.changes.send(RunChange { run: run_id.into(), status: RunStatus::Accepted });
         Ok(None)
     }
 
@@ -448,12 +472,13 @@ impl App {
         // acceptance left the result (or where the run started).
         let worktree = WorktreeOf::of_config(config);
         if let Some(w) = &worktree {
-            let accepted = events
-                .iter()
-                .rev()
-                .filter(|e| e.kind == "risk.accepted")
-                .find_map(|e| e.data.as_ref()?["commit"].as_str().map(str::to_owned));
-            crate::worktrees::ensure(&w.repo, &cwd, accepted.as_deref().unwrap_or(&base_ref), run_id)?;
+            let accepted = last_accepted_commit(&events);
+            crate::worktrees::ensure(
+                &w.repo,
+                &self.worktree_root(run_id),
+                accepted.as_deref().unwrap_or(&base_ref),
+                run_id,
+            )?;
         }
         let run = Arc::new(Run::new(RunRecord {
             id: run_id.to_string(),
@@ -734,7 +759,11 @@ impl App {
                 });
                 if !joined && !delivered {
                     let text = d["text"].as_str().unwrap_or_default().to_string();
-                    st.notes.entry(agent.to_string()).or_default().push(Msg { id: id.to_string(), text });
+                    let msg = Msg { id: id.to_string(), text };
+                    st.notes
+                        .entry(agent.to_string())
+                        .or_default()
+                        .push(Note::new(msg, e.task.as_deref().unwrap_or("")));
                 }
             }
         }
@@ -801,17 +830,24 @@ impl App {
         // An accepted run kept its worktree while its conversation was open; nothing works there
         // after a restart, and the result is back where the run started.
         for row in self.db.accepted_worktrees()? {
-            let (Some(repo), Some(cwd)) = (row["config"]["worktree"]["repo"].as_str(), row["cwd"].as_str()) else {
-                continue;
-            };
+            let Some(repo) = row["config"]["worktree"]["repo"].as_str() else { continue };
             let id = row["id"].as_str().unwrap_or_default();
             let kept = self.cfg.data_dir.join("worktrees").join("deleted");
-            if let Err(err) = crate::worktrees::remove(Path::new(repo), Path::new(cwd), &kept, id) {
+            if let Err(err) = crate::worktrees::remove(Path::new(repo), &self.worktree_root(id), &kept, id) {
                 crate::config::log(format!("janus: could not remove the worktree of accepted run {id}: {err:#}"));
             }
         }
         Ok(())
     }
+}
+
+/// The commit the last acceptance brought back (`risk.accepted` `data.commit`), if any did.
+fn last_accepted_commit(events: &[Event]) -> Option<String> {
+    events
+        .iter()
+        .rev()
+        .filter(|e| e.kind == "risk.accepted")
+        .find_map(|e| e.data.as_ref()?["commit"].as_str().map(str::to_owned))
 }
 
 /// What a request to act on a run came to.

@@ -107,25 +107,37 @@ final class InboxModel {
     var open: [InboxEntry] { Inbox.split(all, snoozed: snoozed, settled: settled, now: now).open }
     var later: [InboxEntry] { Inbox.split(all, snoozed: snoozed, settled: settled, now: now).later }
 
-    func refresh(_ store: AppStore) async {
+    /// Bring the inbox up to date. `changed` names the runs with news on the global stream: only
+    /// they are read; the others keep their entries unless their status, workspace or the language
+    /// changed. Without it every candidate is read.
+    func refresh(_ store: AppStore, changed: Set<String>? = nil) async {
         refreshGeneration += 1
         let generation = refreshGeneration
         let locale = L.locale
         var out: [InboxEntry] = []
         // A chat's approvals and forms wait on the person like a run's; a chat with no open
         // session asks nothing of them (the next message reopens it), so only open chats count.
+        // Candidates come from the attention list, so an old run that waits is never left out
+        // by newer ones (FL-06). A delivered run is read too: after delivery the lead may still
+        // ask something in its conversation, and that waits on the person like any request.
         // @project-doc docs/domains/20261120-chats.md#chat_app
-        let chats = store.chats.filter { RunStatus($0["status"].str).isActive }
-        let live = store.runs.filter { RunStatus($0["status"].str).isActive } + chats
-        for row in store.runs + chats {
+        // @project-doc docs/architecture/20261031-frontend.md#inbox
+        let chats = store.chatAttention.filter { RunStatus($0["status"].str).isActive }
+        let read = { (row: JSON) in RunStatus(row["status"].str).isActive || RunStatus(row["status"].str) == .delivered }
+        let live = store.attention.filter(read) + chats
+        for row in store.attention + chats {
             let chat = row["kind"].str == "chat"
-            let ws = chat ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? ""
-            guard RunStatus(row["status"].str).isActive else {
+            let ws = chat ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? row["config"]["workspace"]["name"].str
+            guard read(row) else {
                 out += Inbox.entries(row: row, workspace: ws)
                 continue
             }
             let id = row["id"].str
             let known = cache[id]
+            if let changed, !changed.contains(id), let known, known.row["status"] == row["status"], known.workspace == ws, known.locale == locale {
+                out += known.entries
+                continue
+            }
             guard let data = try? await store.api.get("/api/runs/\(id)?after=\(known?.events.last?.seq ?? 0)") else {
                 out += known?.entries ?? []
                 continue
@@ -133,7 +145,7 @@ final class InboxModel {
             guard generation == refreshGeneration, locale == L.locale else { return }
             let row = data["run"]
             let new = data["events"].array
-            guard RunStatus(row["status"].str).isActive else {
+            guard read(row) else {
                 cache[id] = nil
                 if !chat { out += Inbox.entries(row: row, workspace: ws) }
                 continue
@@ -144,7 +156,7 @@ final class InboxModel {
             }
             let updated = await Task.detached(priority: .utility) {
                 let events = (known?.events ?? []) + new.map(Event.init)
-                let entries = Inbox.entries(run: row, state: derive(events), workspace: ws)
+                let entries = Inbox.entries(run: row, state: derive(events), workspace: ws) + Inbox.entries(row: row, workspace: ws)
                 return CachedRun(events: events, row: row, workspace: ws, locale: locale, entries: entries)
             }.value
             guard generation == refreshGeneration, locale == L.locale else { return }

@@ -19,10 +19,12 @@ enum RunDocs {
 
     /// Adds the candidates in `events` to `found`, keyed by path; a path keeps its strongest
     /// source and its latest mention.
-    static func scan<S: Sequence>(_ events: S, cwd: String, into found: inout [String: Doc]) where S.Element == Event {
+    /// `moved` maps a worktree that is gone (an accepted run after a restart) to the repository
+    /// its result was brought back to, so files in it are found where they are now (FL-19).
+    static func scan<S: Sequence>(_ events: S, cwd: String, moved: Moved? = nil, into found: inout [String: Doc]) where S.Element == Event {
         func add(_ path: String, _ source: Source, _ seq: Int) {
             guard isMarkdown(path) else { return }
-            let p = normalize(path, cwd: cwd)
+            let p = moved?.apply(normalize(path, cwd: cwd)) ?? normalize(path, cwd: cwd)
             if var d = found[p] {
                 d.source = min(d.source, source)
                 d.seq = max(d.seq, seq)
@@ -51,6 +53,23 @@ enum RunDocs {
     /// The candidates that exist, deliverables first, then artifacts, then mentions; newest first in each.
     static func existing(_ found: [String: Doc], exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [Doc] {
         found.values.filter { exists($0.path) }.sorted { ($0.source, -$0.seq, $0.path) < ($1.source, -$1.seq, $1.path) }
+    }
+
+    /// Paths under `from` (a run's worktree) read under `to` (its repository) instead.
+    struct Moved: Equatable {
+        let from: String
+        let to: String
+        func apply(_ path: String) -> String {
+            guard path == from || path.hasPrefix(from + "/") else { return path }
+            return to + path.dropFirst(from.count)
+        }
+
+        /// Where a run's worktree went when it is gone: `cwd` is in `<home>/worktrees/<run>` (or a
+        /// folder of it), `repo` is where accepting brought the result. Nil while it is there.
+        static func of(cwd: String, repo: String, run: String, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> Moved? {
+            guard !repo.isEmpty, !cwd.isEmpty, !exists(cwd), let r = cwd.range(of: "/worktrees/\(run)") else { return nil }
+            return Moved(from: String(cwd[..<r.upperBound]), to: repo)
+        }
     }
 
     static func isMarkdown(_ path: String) -> Bool {

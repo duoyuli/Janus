@@ -4,6 +4,17 @@
 
 实现在 `backend/src/library.rs` 和 `backend/src/library/`。`offers` 扫描可导入的资源，`store` 和 `skill` 管理 Skill 内容及 `SKILL.md`，`mcp` 管理服务器定义和值，`sources` 管理 Git 来源，`deliver` 生成资源包和会话参数。MCP 路由在 `backend/src/orchestrator/mcp_router.rs`，它和服务器之间的连接在 `mcp_client.rs`。
 
+## 导航
+
+- [资源](#model)：了解资源库有哪些资源时阅读。
+- [Skill](#skills)：修改 Skill 的导入和保存时阅读。
+- [MCP 服务器](#mcp)：修改 MCP 服务器的字段和准备时阅读。
+- [Git 来源](#sources)：修改从 GitHub 拉取和更新时阅读。
+- [精选库](#catalog)：修改推荐列表时阅读。
+- [Run 和会话怎样拿到资源](#delivery)：修改资源在 Run 开始时怎样固定和交给会话时阅读。
+- [MCP 路由](#mcp_router)：修改 `janus-tools` 路由时阅读。
+- [Skill 路由](#skill_router)：修改 `janus-skills` 路由时阅读。
+
 <a id="model"></a>
 ## 资源
 
@@ -80,7 +91,7 @@ Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后�
 
 资源库里的每项资源都给所有数字员工：资源没有「给谁用」，角色也不选资源。会话只经两个路由拿到它们，`mcpServers` 和提示词不随资源库增长。Agent 自带的 Skill 和 MCP（例如 Codex 登录账号后自带的 `codex_apps`、Claude Code 的内置 Skill）由 Agent 自己决定，不在此列。
 
-1. **固定**：创建 Run 时（`team_for`），每个成员的 `resources` 记下整个资源库当时的完整记录（名字、版本、MCP 定义，不含值）。之后资源库的修改不影响这个 Run，从中断处继续时也用这份记录。
+1. **固定**：创建 Run 时（`team_for`），每个成员的 `resources` 记下整个资源库当时的完整记录（名字、版本、MCP 定义，不含值），从中断处继续时也用这份记录。Skill 按这份记录复制进资源包，之后资源库的修改不影响这个 Run。MCP 服务器分两层：这份记录决定 Run 有哪些服务器，之后新加进资源库的不会进来；每个服务器怎样运行看资源库当前的设置，改了命令、地址或值，在它下次启动时生效（正在运行的实例在保存时就停下）；从资源库删除的服务器在已开始的 Run 里也一起停用，不再列出它的工具，也不再启动（`routed_servers`）。
 2. **资源包**：同时（`bundle_team`），成员的 Skill 从内容存储复制到 `~/.janus/runs/<run>/members/<成员 id>/bundle/` 中 [Skill 路由](#skill_router)的位置：Claude Code 是一个本地插件（`.claude-plugin/plugin.json` 和 `skills/janus-skills/`），Codex 是 `.agents/skills/janus-skills/`。复制的是普通文件，Agent 改了它也不影响资源库和其他成员。资源库里没有 Skill 时没有资源包。
 3. **打开会话**：`App::opening` 用 `library::launch` 算出会话参数，`session/new` 和 `session/load` 用同一组：
    - Claude Code：`_meta.claudeCode.options.plugins` 指向资源包，会话中显示为 `janus:janus-skills`。

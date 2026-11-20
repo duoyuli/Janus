@@ -218,8 +218,20 @@ impl App {
     }
 
     /// The servers the router serves the session `who`: the MCP servers in its member's snapshot
-    /// (the lead's, or that of the member the task is assigned to), by name.
-    fn routed_servers(run: &Run, who: &str) -> BTreeMap<String, Item> {
+    /// (the lead's, or that of the member the task is assigned to), by their name in the snapshot,
+    /// each as the library has it now. The snapshot decides which servers a run has (one added to
+    /// the library later is not among them); the library decides how each runs (an edited command,
+    /// address or value takes effect at its next start); one deleted from the library is gone from
+    /// running runs too, neither listed nor started again.
+    // @project-doc docs/domains/20261116-resource_library.md#delivery
+    fn routed_servers(&self, run: &Run, who: &str) -> BTreeMap<String, Item> {
+        let now: std::collections::HashMap<String, Item> = match self.items() {
+            Ok(items) => items.into_iter().map(|i| (i.id.clone(), i)).collect(),
+            Err(err) => {
+                crate::config::log(format!("janus: the library could not be read for run {}: {err:#}", run.id));
+                return BTreeMap::new();
+            }
+        };
         let member = if who == "lead" {
             run.team.iter().find(|m| m.lead)
         } else {
@@ -229,7 +241,10 @@ impl App {
         member
             .into_iter()
             .flat_map(|m| m.resources.iter().filter(|i| i.kind() == ItemKind::Mcp))
-            .map(|i| (i.name.clone(), i.clone()))
+            .filter_map(|i| {
+                let current = now.get(&i.id).filter(|c| c.kind() == ItemKind::Mcp)?;
+                Some((i.name.clone(), Item { name: i.name.clone(), ..current.clone() }))
+            })
             .collect()
     }
 
@@ -329,7 +344,7 @@ impl App {
     ) -> Vec<(Item, Value)> {
         let mut out = vec![];
         let mut asking = vec![];
-        for item in Self::routed_servers(run, who).into_values() {
+        for item in self.routed_servers(run, who).into_values() {
             let running = if fresh { None } else { run.router.running(&Holder::of(&item, who), &item.id) };
             let known = if fresh { None } else { self.cached_tools(&item) };
             let listed = match (running, known) {
@@ -373,7 +388,7 @@ impl App {
         let Some(id) = req.get("id").cloned() else {
             return Ok(None);
         };
-        let servers = Self::routed_servers(&run, who);
+        let servers = self.routed_servers(&run, who);
         let result = match req["method"].as_str().unwrap_or("") {
             "initialize" => {
                 let names: Vec<String> = servers

@@ -67,6 +67,8 @@ pub struct VerificationRow<'a> {
 pub struct RunsPage {
     pub kind: RunKind,
     pub workspace: Option<String>,
+    /// Only runs in one of these states; `None` for any.
+    pub statuses: Option<Vec<RunStatus>>,
     /// The creation time and id of the last run already listed; `None` for the first page.
     pub before: Option<(i64, String)>,
     pub limit: usize,
@@ -112,6 +114,13 @@ impl Db {
     /// A chat's title, from its first message.
     pub fn set_run_goal(&self, id: &str, goal: &str) -> Result<()> {
         self.0.lock().unwrap().execute("UPDATE runs SET goal = ?2 WHERE id = ?1", params![id, goal])?;
+        Ok(())
+    }
+
+    /// Run raw SQL, for tests that make a write fail (a trigger) to see what the service does then.
+    #[cfg(test)]
+    pub fn exec_for_test(&self, sql: &str) -> Result<()> {
+        self.0.lock().unwrap().execute_batch(sql)?;
         Ok(())
     }
 
@@ -163,13 +172,15 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The runs with usage reported in `[from, to)` and their configs, oldest first, for a bill over
-    /// a period (`events_type_ts` keeps this from reading every event).
+    /// The runs whose sessions were at work in `[from, to)` and their configs, oldest first, for a
+    /// bill over a period: those that reported usage and those that never did (their sessions
+    /// count as not reported). `events_type_ts` keeps this from reading every event.
     pub fn runs_with_usage(&self, from: i64, to: i64) -> Result<Vec<(String, Value)>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, config FROM runs WHERE id IN
-               (SELECT DISTINCT run_id FROM events WHERE type = 'session.usage' AND ts >= ?1 AND ts < ?2)
+               (SELECT DISTINCT run_id FROM events
+                 WHERE type IN ('session.usage', 'session.prompt', 'agent.message') AND ts >= ?1 AND ts < ?2)
              ORDER BY created_at",
         )?;
         let rows = stmt.query_map(params![from, to], |r| {
@@ -188,7 +199,7 @@ impl Db {
 
     /// The newest 50 runs of one kind, for the role statistics. Goals and chats are counted apart.
     pub fn runs(&self, kind: RunKind) -> Result<Vec<Value>> {
-        Ok(self.runs_page(&RunsPage { kind, workspace: None, before: None, limit: 50 })?.0)
+        Ok(self.runs_page(&RunsPage { kind, workspace: None, statuses: None, before: None, limit: 50 })?.0)
     }
 
     /// One page of runs, newest first: of one kind, of one workspace when given (`config.workspace.id`),
@@ -204,14 +215,40 @@ impl Db {
              WHERE kind = ?1
                AND (?2 IS NULL OR json_extract(config, '$.workspace.id') = ?2)
                AND (created_at < ?3 OR (created_at = ?3 AND ?4 != '' AND id < ?4))
+               AND (?6 IS NULL OR status IN (SELECT value FROM json_each(?6)))
              ORDER BY created_at DESC, id DESC LIMIT ?5",
         )?;
-        let rows =
-            stmt.query_map(params![page.kind.as_str(), page.workspace, time, id, page.limit as i64 + 1], run_row)?;
+        let statuses = page
+            .statuses
+            .as_ref()
+            .map(|s| serde_json::to_string(&s.iter().map(|x| x.as_str()).collect::<Vec<_>>()).unwrap_or_default());
+        let rows = stmt.query_map(
+            params![page.kind.as_str(), page.workspace, time, id, page.limit as i64 + 1, statuses],
+            run_row,
+        )?;
         let mut runs: Vec<Value> = rows.collect::<rusqlite::Result<_>>()?;
         let more = runs.len() > page.limit;
         runs.truncate(page.limit);
         Ok((runs, more))
+    }
+
+    /// Every workspace goal runs were made in, from their snapshots, with how many runs each has and
+    /// when the last began: so a workspace deleted since still leads to its runs.
+    // @project-doc docs/interfaces/20261031-http_api.md#run_list
+    pub fn run_workspaces(&self) -> Result<Vec<Value>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT json_extract(config, '$.workspace.id') AS ws, json_extract(config, '$.workspace.name'),
+                    json_extract(config, '$.workspace.path'), COUNT(*), MAX(created_at)
+             FROM runs WHERE kind = 'goal' AND ws IS NOT NULL GROUP BY ws ORDER BY MAX(created_at) DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?, "name": r.get::<_, Option<String>>(1)?, "path": r.get::<_, Option<String>>(2)?,
+                "runs": r.get::<_, i64>(3)?, "lastAt": r.get::<_, i64>(4)?,
+            }))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The runs still working (planning, running or waiting for the person) in directory `cwd`.
@@ -447,7 +484,13 @@ mod tests {
         let walk = |workspace: Option<&str>, limit: usize| {
             let (mut seen, mut before) = (vec![], None);
             loop {
-                let page = RunsPage { kind: RunKind::Goal, workspace: workspace.map(str::to_owned), before, limit };
+                let page = RunsPage {
+                    kind: RunKind::Goal,
+                    workspace: workspace.map(str::to_owned),
+                    statuses: None,
+                    before,
+                    limit,
+                };
                 let (runs, more) = db.runs_page(&page).unwrap();
                 seen.extend(runs.iter().map(|r| r["id"].as_str().unwrap().to_string()));
                 let last = runs.last().unwrap();
@@ -465,6 +508,36 @@ mod tests {
         let w1 = walk(Some("w1"), 20);
         assert_eq!(w1.len(), 65);
         assert!(w1.iter().all(|id| id[1..].parse::<u32>().unwrap() % 2 == 0), "only the workspace's runs");
+        // However many newer runs there are, one that waits on the person is still listed.
+        db.set_run_status("r000", RunStatus::WaitingInput).unwrap();
+        let waiting = RunsPage {
+            kind: RunKind::Goal,
+            workspace: None,
+            statuses: Some(vec![RunStatus::WaitingInput, RunStatus::Delivered]),
+            before: None,
+            limit: 50,
+        };
+        let (runs, _) = db.runs_page(&waiting).unwrap();
+        assert_eq!(runs.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), ["r000"]);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// The workspaces runs were made in are listed from the runs' snapshots, so one deleted since
+    /// still leads to its runs.
+    #[test]
+    fn workspaces_of_runs_outlive_the_workspace() {
+        let (db, path) = temp_db("run-workspaces");
+        let ws = |id: &str| json!({ "workspace": { "id": id, "name": format!("{id} 名"), "path": "/tmp/x" } });
+        db.insert_run("a", RunKind::Goal, "g", "/tmp", &ws("w1"), 1).unwrap();
+        db.insert_run("b", RunKind::Goal, "g", "/tmp", &ws("w1"), 3).unwrap();
+        db.insert_run("c", RunKind::Goal, "g", "/tmp", &ws("w2"), 2).unwrap();
+        db.insert_run("d", RunKind::Chat, "", "/tmp", &json!({}), 4).unwrap();
+        let listed = db.run_workspaces().unwrap();
+        assert_eq!(listed.len(), 2, "chats have no workspace");
+        assert_eq!(
+            (listed[0]["id"].as_str(), listed[0]["runs"].as_i64(), listed[0]["name"].as_str()),
+            (Some("w1"), Some(2), Some("w1 名"))
+        );
         let _ = std::fs::remove_file(path);
     }
 

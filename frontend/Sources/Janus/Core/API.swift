@@ -85,12 +85,21 @@ final class API: Sendable {
         return try JSON.parse(data)
     }
 
-    /// Server-sent events of a run (`GET /api/runs/{id}/stream?after=`), one JSON event per
-    /// message. A `lagged` message arrives as `.lagged`; the caller reloads the run.
-    enum StreamItem { case event(JSON), lagged }
+    /// Server-sent events, one JSON payload per message: unnamed ones (a run's events) arrive as
+    /// `.event`, named ones (the global stream's `event`, `run`, `ready`) as `.named`, and `lagged`
+    /// as `.lagged`, after which the caller reads again what it follows.
+    enum StreamItem { case event(JSON), named(String, JSON), lagged }
 
+    /// A run's events (`GET /api/runs/{id}/stream?after=`).
     func stream(run: String, after: Int) -> AsyncThrowingStream<StreamItem, Error> {
-        let req = URLRequest(url: url("/api/runs/\(run)/stream?after=\(after)"))
+        stream(path: "/api/runs/\(run)/stream?after=\(after)")
+    }
+
+    /// News of every run (`GET /api/stream`): a notice per new event and per status change.
+    func streamAll() -> AsyncThrowingStream<StreamItem, Error> { stream(path: "/api/stream") }
+
+    private func stream(path: String) -> AsyncThrowingStream<StreamItem, Error> {
+        let req = URLRequest(url: url(path))
         let streams = streams
         return AsyncThrowingStream { cont in
             let task = Task {
@@ -104,7 +113,9 @@ final class API: Sendable {
                             name = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
                         } else if line.hasPrefix("data:") {
                             let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                            if name == "lagged" { cont.yield(.lagged) } else if let v = try? JSON.parse(Data(payload.utf8)) { cont.yield(.event(v)) }
+                            if name == "lagged" { cont.yield(.lagged) } else if let v = try? JSON.parse(Data(payload.utf8)) {
+                                cont.yield(name.isEmpty ? .event(v) : .named(name, v))
+                            }
                             name = ""
                         }
                     }

@@ -4,6 +4,16 @@
 
 关系：工作区由多个角色组成，每个角色绑定一个 Agent。Run 创建时把这三层合并成团队快照，之后修改设置不影响已有 Run。
 
+## 导航
+
+- [Agent 类型](#providers)：加一种 Agent 或改它的登录方式时阅读。
+- [配置检查](#connection_check)：排查 Agent 测试不通过时阅读。
+- [会话控制项与权限模式](#permission_modes)：修改模型、权限模式等会话选项时阅读。
+- [角色](#roles)：修改数字员工的字段和默认数字员工时阅读。
+- [工作区](#workspaces)：修改工作区的成员和负责人时阅读。
+- [角色的执行统计](#role_stats)：修改数字员工的执行统计时阅读。
+- [成员快照](#member_snapshot)：修改 Run 创建时固定的成员信息时阅读。
+
 <a id="providers"></a>
 ## Agent 类型
 
@@ -18,7 +28,7 @@
 
 规则：
 
-- Agent id 由名字生成（小写字母和 `-`），可以手动指定，不能重复。已有 Agent 不能修改类型。Agent、角色和工作区的 id 都只能用小写字母、数字和 `-`，以字母或数字开头，最长 40 个字符（`check_id`）：它们是 Janus home 中目录和文件的名字，保存和删除时都会校验。
+- Agent ID 由名字生成（小写字母和 `-`），可以手动指定，不能重复。已有 Agent 不能修改类型。Agent、角色和工作区的 id 都只能用小写字母、数字和 `-`，以字母或数字开头，最长 40 个字符（`check_id`）：它们是 Janus home 中目录和文件的名字，保存和删除时都会校验。
 - 内置运行时通过 ACP 适配器启动。适配器在第一次检查用到它的 Agent 时自动安装，见 [ACP 适配器管理](../architecture/20261031-adapters.md#on_demand)。
 - 有正在运行的任务使用某个 Agent 时，不能删除它。
 - 「复制本机配置」只复制与模型接入有关的配置项和凭据，见[安全边界](../operations/20261031-security.md#local_config_import)。
@@ -86,7 +96,7 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用只�
 | 字段 | 说明 |
 | --- | --- |
 | `name`、`desc` | 名字和职责。负责人只凭这两项认识协作者，按职责派任务，见[负责人知道什么](20261031-goal_mode.md#lead_brief) |
-| `connection` | 绑定的 Agent id |
+| `connection` | 绑定的 Agent ID |
 | `model`、`effort` | 模型和推理强度；留空表示使用 Agent 默认值 |
 | `session` | 选定的会话控制项值，`{控制项 id: 值}`；没有选择的控制项用它的默认值，见[会话控制项与权限模式](#permission_modes) |
 | `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，见 [ACP 集成](../interfaces/20261031-acp_integration.md#standing_instructions) |

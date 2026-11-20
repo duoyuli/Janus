@@ -5,9 +5,10 @@ import Testing
 /// A chat's events as the orchestrator records them (docs/domains/20261120-chats.md).
 private struct ChatLog {
     var events: [Event] = []
-    mutating func add(_ type: String, actor: String = "janus", to: String? = nil, text: String = "", data: JSON = [:]) {
+    mutating func add(_ type: String, actor: String = "janus", to: String? = nil, task: String? = nil, text: String = "", data: JSON = [:]) {
         var j: JSON = ["seq": JSON(events.count + 1), "ts": JSON(1_000_000 + events.count * 1000), "type": JSON(type), "actor": JSON(actor), "text": JSON(text), "data": data]
         if let to { j["to"] = JSON(to) }
+        if let task { j["task"] = JSON(task) }
         events.append(Event(j))
     }
 
@@ -45,6 +46,12 @@ private struct ChatLog {
     log.add("message.routed", to: "lead", data: ["id": "m2", "delivery": "prompt"])
     let working = chatSession(derive(log.events), live: true)
     #expect(SessionComposer(working, live: true, replaying: false) == .managed)
+    #expect(working.chat, "a chat at work offers to stop the turn or add to it, never a takeover")
+    // Stopping the turn: the chat waits for the next message, not in a takeover.
+    log.add("session.interrupted", actor: "user", to: "lead", text: "停止 研究员 这一轮")
+    log.add("agent.status", actor: "lead", text: "这一轮已结束，等待你的消息", data: ["phase": "waiting_for_input", "turn": "idle"])
+    let stopped = chatSession(derive(log.events), live: true)
+    #expect(!stopped.human && SessionComposer(stopped, live: true, replaying: false) == .converse)
 
     log.add("run.interrupted", text: "编排器重启")
     let after = derive(log.events)
@@ -94,3 +101,48 @@ private struct ChatLog {
     #expect(ChatRowStatus.label(.running) == (L.text("会话中"), .blue))
 }
 
+
+/// Work written to the board after a delivery makes the run running again, so the earlier delivery
+/// is not offered for acceptance meanwhile; the next delivery makes it delivered again.
+@Test func newWorkAfterDeliveryRunsAgain() {
+    var log = ChatLog()
+    log.add("run.created", actor: "user", data: ["goal": "目标", "cwd": "/tmp/x"])
+    log.add("run.delivered", data: ["summary": "第一次"])
+    #expect(derive(log.events).run.status == .delivered)
+    log.add("orchestration.accepted", actor: "lead", data: ["tasks": [["id": "T9", "title": "追加", "agent": "m1", "deps": [], "accept": ["做完"]]]])
+    #expect(derive(log.events).run.status == .running)
+    log.add("run.delivered", data: ["summary": "第二次"])
+    #expect(derive(log.events).run.status == .delivered)
+}
+
+/// Rework that revises the criteria shows the new ones, and a run resumed after a restart is no
+/// longer shown paused; replaying to before the rework still shows the old criteria.
+@Test func reworkAndResumeShowWhatTheServerDoes() {
+    var log = ChatLog()
+    log.add("run.created", actor: "user", data: ["goal": "目标", "cwd": "/tmp/x"])
+    log.add("orchestration.accepted", actor: "lead", data: ["tasks": [["id": "T1", "title": "t", "agent": "m1", "deps": [], "accept": ["A"]]]])
+    log.add("run.paused", actor: "user")
+    let before = derive(log.events)
+    #expect(before.tasks["T1"]?.accept == ["A"] && before.run.paused)
+    log.add("task.reopened", actor: "lead", task: "T1", data: ["reason": "lead.retry", "session": "new", "accept": ["B", "C"]])
+    log.add("run.interrupted")
+    log.add("run.recovered", actor: "user", data: ["phase": "running", "tasks": []])
+    let after = derive(log.events)
+    #expect(after.tasks["T1"]?.accept == ["B", "C"])
+    #expect(!after.run.paused)
+    #expect(derive(Array(log.events.prefix(3))).tasks["T1"]?.accept == ["A"])
+}
+
+/// After an accepted run's worktree is gone, a document it mentioned by a relative path is looked
+/// for in the repository the result went back to, folder included (FL-19).
+@Test func documentsOfAGoneWorktreeAreFoundInTheRepository() {
+    var log = ChatLog()
+    log.add("agent.message", actor: "lead", text: "写好了 docs/manual.md", data: ["text": "写好了 docs/manual.md"])
+    let cwd = "/Users/me/.janus/worktrees/r1/apps/client"
+    let moved = RunDocs.Moved.of(cwd: cwd, repo: "/Users/me/src/app", run: "r1", exists: { _ in false })
+    #expect(moved == RunDocs.Moved(from: "/Users/me/.janus/worktrees/r1", to: "/Users/me/src/app"))
+    var found: [String: RunDocs.Doc] = [:]
+    RunDocs.scan(log.events, cwd: cwd, moved: moved, into: &found)
+    #expect(found.keys.contains("/Users/me/src/app/apps/client/docs/manual.md"))
+    #expect(RunDocs.Moved.of(cwd: cwd, repo: "/Users/me/src/app", run: "r1", exists: { _ in true }) == nil, "a worktree still there is read as is")
+}

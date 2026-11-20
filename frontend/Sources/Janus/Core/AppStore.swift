@@ -32,6 +32,14 @@ final class AppStore {
     /// not part of any workspace.
     let chatList: RunPager
     var chats: [JSON] { chatList.runs }
+    /// Every run and chat that may need the person (working, delivered, stopped part-way), however
+    /// many newer ones there are: what the inbox and the quit check read (`GET /api/runs?attention=1`).
+    var attention: [JSON] = []
+    var chatAttention: [JSON] = []
+    /// Every workspace goal runs were made in, as their snapshots name it (`GET /api/runs/workspaces`).
+    var runWorkspaces: [JSON] = []
+    /// Workspaces deleted since, whose runs stay: listed after the others, so their runs are found.
+    var pastWorkspaces: [JSON] { runWorkspaces.filter { workspace($0["id"].str) == nil } }
     var roleStats: JSON = .null
     var adapters: JSON = .null
     /// The resource library (Settings › 资源库): `items` (skills and MCP servers) and `sources`.
@@ -77,10 +85,10 @@ final class AppStore {
         watchAdapters()
         watchChecks()
         await inbox.refresh(self)
-        startRunPolling()
+        followEvents()
         if screen == nil {
             // Start from what needs the person, not from watching a run work.
-            if !inbox.open.isEmpty || runs.contains(where: { RunStatus($0["status"].str).isActive }) { open(.inbox) }
+            if !inbox.open.isEmpty || attention.contains(where: { RunStatus($0["status"].str).isActive }) { open(.inbox) }
             else if let ws = currentWorkspace { open(.home(ws["id"].str)) }
             else { open(.newWorkspace) }
         }
@@ -94,9 +102,15 @@ final class AppStore {
         // Polled every few seconds: an unchanged list leaves the sidebar alone.
         if let r = try? await api.get("/api/runs"), r["runs"].array != runs { runs = r["runs"].array }
         await chatList.refresh()
+        if let r = try? await api.get("/api/runs?attention=1&limit=500"), r["runs"].array != attention { attention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=chat&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
     }
 
     func isChat(_ id: String) -> Bool { chats.contains { $0["id"].str == id } }
+
+    /// Goals and chats still at work: quitting the server Janus started would interrupt them.
+    var working: [JSON] { (attention + chatAttention).filter { RunStatus($0["status"].str).isActive } }
 
     func loadSetup() async {
         do {
@@ -173,15 +187,74 @@ final class AppStore {
         show(msg)
     }
 
-    /// The sidebar keeps run statuses fresh while the window is open.
-    private func startRunPolling() {
-        polls["runs"]?.cancel()
-        polls["runs"] = Task { [weak self] in
+    /// Runs with news since the last batch, and whether the lists changed, gathered from the global
+    /// stream for one read a moment later.
+    @ObservationIgnored private var newsOf: Set<String> = []
+    @ObservationIgnored private var listsChanged = false
+    @ObservationIgnored private var batch: Task<Void, Never>?
+
+    /// Follows every run through the server's global stream (`GET /api/stream`) instead of polling:
+    /// a run with a new event is read again (the inbox reads only its new events), and the lists
+    /// are read again when a run is created, changes status or a chat gets its title. When the
+    /// stream opens, lags or ends, everything is read once; then it reconnects. A clock without
+    /// requests brings snoozed inbox items back on time.
+    // @project-doc docs/architecture/20261031-frontend.md#server_sync
+    private func followEvents() {
+        polls["events"]?.cancel()
+        polls["events"] = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                await self?.loadRuns()
-                if let self { await self.inbox.refresh(self) }
+                guard let stream = self?.api.streamAll() else { return }
+                do {
+                    for try await item in stream {
+                        guard let self else { return }
+                        switch item {
+                        case .named("ready", _), .lagged: await self.readAll()
+                        case .named("run", let c): self.note(c["run"].str, lists: true)
+                        case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(n["type"].str, run: n["run"].str, store: self))
+                        default: break
+                        }
+                    }
+                } catch {}
+                // The stream ended (the server restarted, or is gone for a moment): read once, retry.
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await self?.readAll()
             }
+        }
+        polls["clock"]?.cancel()
+        polls["clock"] = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                if let self { await self.inbox.refresh(self, changed: []) }
+            }
+        }
+    }
+
+    /// Whether an event changes what the lists show: a run they do not have yet, or a chat's first
+    /// message (its title). Status changes come as their own notices.
+    static func listChanges(_ type: String, run: String, store: AppStore) -> Bool {
+        if type == "run.created" { return true }
+        if type == "user.message", let chat = store.chats.first(where: { $0["id"].str == run }) { return chat["goal"].str.isEmpty }
+        return !store.attention.contains { $0["id"].str == run } && !store.chats.contains { $0["id"].str == run } && !store.runs.contains { $0["id"].str == run }
+    }
+
+    private func readAll() async {
+        await loadRuns()
+        await inbox.refresh(self)
+    }
+
+    private func note(_ run: String, lists: Bool) {
+        newsOf.insert(run)
+        listsChanged = listsChanged || lists
+        guard batch == nil else { return }
+        batch = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self else { return }
+            let runs = self.newsOf, lists = self.listsChanged
+            self.newsOf = []
+            self.listsChanged = false
+            self.batch = nil
+            if lists { await self.loadRuns() }
+            await self.inbox.refresh(self, changed: runs)
         }
     }
 

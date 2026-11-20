@@ -286,6 +286,9 @@ func derive(_ events: [Event]) -> RunState {
                 s.tasks[nt.id] = nt
             }
             ag("lead").phase = "coordinating"
+            // New work after a delivery: the run is running again until it is delivered anew, so
+            // the earlier delivery is not offered for acceptance meanwhile (FL-10).
+            if s.run.status == .delivered || s.run.status == .accepted { s.run.status = .running }
         case "goal.status": ag("lead").note = e.text
         case "run.budget_exhausted":
             guard d["kind"].str != "tokens" else { break }
@@ -415,6 +418,8 @@ func derive(_ events: [Event]) -> RunState {
             for a in s.agents.values { a.phase = "idle" }
         case "run.recovered":
             s.run.status = RunStatus(d["phase"].str)
+            // A resumed run schedules again: whatever pause came before the restart is over (FL-12).
+            s.run.paused = false
             for x in d["tasks"].array {
                 guard let rt = s.tasks[x["id"].str] else { continue }
                 rt.status = TaskStatus(x["status"].str); rt.blockedBy = x["blockedBy"].str; rt.session = nil
@@ -435,6 +440,8 @@ func derive(_ events: [Event]) -> RunState {
             guard let t else { break }
             t.amendments = []; t.traceGaps = []; t.verdict = nil; t.handoff = ""
             if let ins = d["instructions"].string, !ins.isEmpty { t.desc = ins }
+            // Rework with revised criteria: the new checks are about these, not the old ones (FL-11).
+            if d["accept"].array.count > 0 { t.accept = d["accept"].strings }
             // Tasks held by this one's failure wait for it again instead of showing as stuck.
             for x in s.orderedTasks where x.status == .blocked && x.blockedBy == t.id { x.status = .pending }
             t.status = .ready

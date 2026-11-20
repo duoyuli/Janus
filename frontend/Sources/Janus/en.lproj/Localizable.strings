@@ -75,7 +75,6 @@
 "%lld 个在工作" = "Working: %lld";
 "%lld 个子任务" = "Subtasks: %lld";
 "%lld 个实例" = "Instances: %lld";
-"%lld 个操作" = "Operations: %lld";
 "%lld 个数字员工" = "Digital employees: %lld";
 "%lld 个数字员工（共 %lld 个并发实例）" = "Digital employees: %lld · Concurrent instances: %lld";
 "%lld 个文件" = "Files: %lld";
@@ -138,7 +137,6 @@
 "Janus 服务没有启动" = "Janus service did not start";
 "Janus 服务退出了（退出码 %d）。\n\n%@" = "The Janus service exited (code %d).\n\n%@";
 "Janus 正从隔离位置运行，不能自动更新。先把 Janus 拖到「应用程序」文件夹，再从那里打开。" = "Janus is running from a quarantined location and cannot update automatically. Move Janus to Applications and open it from there.";
-"Janus 的说明 · %@" = "Janus Instructions · %@";
 "Janus，%lld 项等你处理" = "Janus, %lld pending";
 "M月d日 HH:mm" = "MMM d, HH:mm";
 "SKILL.md（front matter 中的 name 以上面的名称为准）" = "SKILL.md uses the name above in its front matter";
@@ -509,7 +507,6 @@
 "已暂停" = "Paused";
 "已更新 %@" = "Updated %@";
 "已更新来源，导入的资源没有变化" = "Source updated. Imported resources are unchanged.";
-"已有的任务记录会保留。" = "Existing run history will be kept.";
 "已添加 %@" = "Added %@";
 "已添加 %@；跳过：%@" = "Added %@. Skipped: %@";
 "已登录 %@。" = "Signed in to %@.";
@@ -645,7 +642,6 @@
 "明天上午 9 点" = "Tomorrow at 9 AM";
 "昨天 %@" = "Yesterday at %@";
 "显示" = "View";
-"普通" = "Standard";
 "暂停" = "Pause";
 "暂停后不再启动新子任务，进行中的尝试会继续（⇧⌘P）" = "Pause scheduling new subtasks. Active attempts will continue. (⇧⌘P)";
 "暂时跳过" = "Skip for Now";
@@ -797,7 +793,6 @@
 "用 /goal 推进目标，需要时编排协作者" = "Use /goal to pursue the goal and coordinate collaborators as needed";
 "用完尝试次数" = "No attempts left";
 "用当前产出完成这个子任务？" = "Finish this subtask with the current result?";
-"用户的长期要求 · %@" = "User’s Standing Instructions · %@";
 "用量 %@ tokens（%@）" = "Usage: %@ tokens (%@)";
 "用量明细" = "Usage Details";
 "用量账单" = "Usage";
@@ -921,7 +916,7 @@
 "试运行" = "Trial Run";
 "详情" = "Details";
 "详细" = "Detailed";
-"详细：每次工具调用都显示；普通：连续的工具调用折叠；摘要：只看对话、请求和结果" = "Detailed shows every tool call. Standard groups consecutive calls. Summary shows conversations, requests, and results.";
+"详细：每次工具调用都显示；摘要：只看对话、请求和结果" = "Detailed: every tool call. Summary: only messages, requests and results.";
 "说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给负责人" = "Describe the outcome you want. Paste screenshots with ⌘V and send to the lead with ⌘↩.";
 "请从已安装的 Janus.app 打开此页。从源码运行时，系统权限可能属于启动它的终端。" = "Open this page in the installed Janus.app. When running from source, macOS permissions may apply to the terminal.";
 "请你决定：%@" = "Ask you to decide: %@";
@@ -995,7 +990,6 @@
 "返回工作台（⌘[）" = "Back to Workbench (⌘[)";
 "还有必填项：%@" = "Required fields remaining: %@";
 "还有数字员工不能运行" = "Some digital employees cannot run yet";
-"还有正在执行的任务。退出会停止 Janus 服务，这些任务会中断，下次打开后可以「从中断处继续」。" = "Runs are still in progress. Quitting stops the Janus service and interrupts them. You can resume them the next time you open Janus.";
 "还没保存：保存后，之后的任务才会用到新的共享资料。" = "Unsaved. Future runs will use this shared context after you save it.";
 "还没开始 · %@" = "Not started · %@";
 "还没有 Markdown 文档" = "No Markdown documents yet";
@@ -1393,7 +1387,6 @@
 "开始对话" = "Start Chat";
 "已选择" = "Selected";
 "没有可以运行的数字员工" = "No digital employee can run";
-"打开会话，注入数字员工的指令，然后由你先说（↩）" = "Opens the session with the digital employee's instructions; then you speak first (↩)";
 
 "这名数字员工" = "the digital employee";
 
@@ -1401,6 +1394,25 @@
 
 "所有工作区，%lld 项等你处理" = "All workspaces, %lld pending";
 
+"还有正在执行的任务或对话。退出会停止 Janus 服务，它们会中断：任务下次打开后可以「从中断处继续」，对话发下一条消息时重新打开会话。" = "Tasks or chats are still running. Quitting stops the Janus server and interrupts them: tasks can be resumed next time, and a chat reopens its session with your next message.";
+
+"已有的任务记录会保留，在侧栏的 Agent Team 里仍能找到。" = "Its runs are kept and can still be found under Agent Team in the sidebar.";
+"已删除的工作区" = "Deleted workspace";
+"这个工作区已经删除，下面是它留下的任务记录，可以打开查看、继续对话或删除。要在这个目录里提交新目标，新建一个工作区。" = "This workspace was deleted. Its runs are below: open them to review, continue the conversation, or delete them. To start a new goal in this folder, create a workspace.";
+"%@（已删除）" = "%@ (deleted)";
+"已删除的工作区，留下 %lld 个任务记录" = "Deleted workspace with %lld runs";
+
+"打开会话，带上数字员工的指令，然后由你先说（↩）" = "Opens the session with the digital employee's instructions; then you speak first (↩)";
+"正在处理" = "Working";
+"停止这一轮" = "Stop This Turn";
+"补充或更正，会插入正在进行的这一轮" = "Add or correct something; it joins the turn in progress";
+
 /* ACP adapter updates */
 "%lld 个 ACP 适配器有新版本" = "ACP adapter updates: %lld";
 "：在设置的「数字员工」页升级，正在运行的会话不受影响" = ": upgrade in Settings › Digital Employees; sessions already running are not affected";
+"数字员工的指令 · %@" = "Digital Employee Instructions · %@";
+"Agent Team 协作指令 · %@" = "Agent Team Collaboration Instructions · %@";
+"之前的对话 · %@" = "Earlier Conversation · %@";
+"这名数字员工的指令，连同 Agent 设置里的自定义提示词。单 Agent 对话只注入这一份。" = "This digital employee's instructions, together with the custom prompt in the agent's settings. A one-agent chat gets only these.";
+"Janus 只在 Agent Team 中注入：团队分工、共享看板、派工和验证的约定。" = "Janus adds these only in an Agent Team: who does what, the shared board, and how work is assigned and verified.";
+"对话重新打开时带上最近的往来，让新会话接上之前的内容。" = "When a chat reopens, its recent exchanges come along so the new session picks up where it left off.";

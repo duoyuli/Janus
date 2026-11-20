@@ -111,7 +111,7 @@ struct StatusMenu: View {
     var body: some View {
         let store = model.store
         let waiting = store?.inbox.open.count ?? 0
-        let active = store?.runs.filter { RunStatus($0["status"].str).isActive }.count ?? 0
+        let active = store?.working.count ?? 0
         Button(waiting > 0 ? L.text("收件箱：\(waiting) 项等你处理") : L.text("收件箱：没有等你处理的事")) { show(); store?.open(.inbox) }.disabled(store == nil)
         Button(L.text("打开 Janus")) { show() }
         if active > 0 { Text(L.text("\(active) 个任务正在进行")) }
@@ -311,8 +311,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // resumed later. A server the app found running (the launchd service) keeps going.
         // Installing an update: the person already agreed to quit.
         if !Updater.shared.quitting, model.backend.owned, let s = model.store,
-           s.runs.contains(where: { RunStatus($0["status"].str).isActive }) {
-            if !confirm(L.text("退出 Janus？"), L.text("还有正在执行的任务。退出会停止 Janus 服务，这些任务会中断，下次打开后可以「从中断处继续」。"), ok: L.text("退出")) { return .terminateCancel }
+           !s.working.isEmpty {
+            // Chats count too: a chat answering or waiting on an approval is cut off as well.
+            if !confirm(L.text("退出 Janus？"), L.text("还有正在执行的任务或对话。退出会停止 Janus 服务，它们会中断：任务下次打开后可以「从中断处继续」，对话发下一条消息时重新打开会话。"), ok: L.text("退出")) { return .terminateCancel }
         }
         model.backend.stop()
         return .terminateNow

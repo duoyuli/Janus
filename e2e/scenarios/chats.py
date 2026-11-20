@@ -8,7 +8,7 @@ from scenarios import scenario
 
 @scenario("chats")
 def chats(ctx, c):
-    """单 Agent 对话：点一名数字员工就打开会话（系统提示词已注入，等用户先说），在自己新建的工作目录里来回发消息，第一条消息作为标题；没有看板，不进任务列表，删除时目录一起删除"""
+    """单 Agent 对话：点一名数字员工就打开会话（只带数字员工的指令，等用户先说），在自己新建的工作目录里来回发消息，第一条消息作为标题；没有看板，不进任务列表，删除时目录一起删除"""
     t = ctx.team("chats", members=("m1",))
     role = t.member("m1")
     code, _ = ctx.api_error("POST", "/api/chats", {"role": "chats-nobody"})
@@ -20,11 +20,13 @@ def chats(ctx, c):
         return ctx.api("GET", f"/api/runs/{chat}")["events"]
 
     wait(lambda: [e for e in events() if e["type"] == "agent.status" and e["data"].get("turn") == "idle"], "会话打开后等用户先说", 60)
-    c("chat brief" in t.fake.calls() and not [e for e in events() if e["type"] == "agent.message"],
-      "点开就通过 ACP 打开了会话、注入了系统提示词，Agent 还没有说话")
+    c("chat session" in t.fake.calls() and not [e for e in events() if e["type"] == "agent.message"],
+      "点开就通过 ACP 打开了会话，Agent 还没有说话")
+    c("janus-brief" not in t.fake.calls() and not [e for e in events() if e["type"] == "session.prompt" and e["data"].get("channel") == "system"],
+      "对话只带数字员工自己的指令，不注入 Janus 的协作说明")
     c(ctx.api("GET", f"/api/runs/{chat}")["run"]["goal"] == "", "第一条消息之前对话没有标题")
     if ctx.app:
-        ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running", "新对话打开，输入框等用户先说", pages=("density normal",))
+        ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running", "新对话打开，输入框等用户先说", pages=("density detail",))
     ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "你好"})
 
     def replied(text):
@@ -42,7 +44,7 @@ def chats(ctx, c):
     c([m["role_id"] for m in row["config"]["team"]] == [role], "团队只有选中的数字员工")
     servers = [line for line in t.fake.calls().splitlines() if line.startswith("mcp ")]
     c(servers and '"name": "janus"' not in servers[-1], "对话的会话没有看板 MCP")
-    c(f"chat brief {os.path.realpath(cwd)}" in t.fake.calls() or f"chat brief {cwd}" in t.fake.calls(), "Agent 知道自己在单独对话、工作目录在哪")
+    c(f"chat session {os.path.realpath(cwd)}" in t.fake.calls() or f"chat session {cwd}" in t.fake.calls(), "会话在对话自己的目录里")
 
     goals = [r["id"] for r in ctx.api("GET", "/api/runs")["runs"]]
     chats_ = [r["id"] for r in ctx.api("GET", "/api/runs?kind=chat")["runs"]]
@@ -62,7 +64,7 @@ def chats(ctx, c):
     ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "第二条"})
     wait(lambda: replied("第二条"), "同一个会话回复第二条消息", 60)
     # Only this chat's sessions: the paging check above opened another chat with the same agent.
-    mine = [l for l in t.fake.calls().splitlines() if l.startswith("chat brief") and l.endswith(chat)]
+    mine = [l for l in t.fake.calls().splitlines() if l.startswith("chat session") and chat in l]
     c(len(mine) == 1, f"第二条消息在同一个会话里（这个对话打开过 {len(mine)} 次会话）")
 
     ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running" and any(x["id"] == chat for x in s["chats"]),

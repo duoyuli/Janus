@@ -85,6 +85,8 @@ func chatSession(_ st: RunState, live: Bool) -> SessionInfo {
     info.leave = false
     info.converse = true
     info.chat = true
+    // A chat has no takeover: stopping a turn leaves it waiting for the next message.
+    info.human = false
     return info
 }
 
@@ -96,10 +98,9 @@ struct ChatCard: View {
     let title: String
     let info: SessionInfo
     let target: SessionTarget
-    /// How much of the agent's work to show: every tool call (`detail`), long runs of them folded
-    /// (`normal`), or only what was said, asked and delivered (`summary`). One choice for all
-    /// conversations, remembered on this Mac.
-    @AppStorage("janus.chatDensity", store: .janus) private var density = "normal"
+    /// How much of the agent's work to show (`ChatDensity`). One choice for all conversations,
+    /// remembered on this Mac.
+    @AppStorage("janus.chatDensity", store: .janus) private var density = ChatDensity.detail
     /// Counts the person's messages: sending one brings the conversation to its newest item.
     @Local private var sent = 0
 
@@ -119,12 +120,11 @@ struct ChatCard: View {
                         .help([u.used.map { L.text("上下文已用 \(SessionView.tokens($0))") }, u.size.map { L.text("共 \(SessionView.tokens($0))") }, u.tokens.map { L.text("上一轮 \(SessionView.tokens($0)) tokens") }].compactMap { $0 }.joined(separator: " · ") + L.text("\n本会话的数字不计入任务累计用量"))
                 }
                 Picker(L.text("显示"), selection: $density) {
-                    Text(L.text("详细")).tag("detail")
-                    Text(L.text("普通")).tag("normal")
-                    Text(L.text("摘要")).tag("summary")
+                    Text(L.text("详细")).tag(ChatDensity.detail)
+                    Text(L.text("摘要")).tag(ChatDensity.summary)
                 }
                 .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
-                .help(L.text("详细：每次工具调用都显示；普通：连续的工具调用折叠；摘要：只看对话、请求和结果"))
+                .help(L.text("详细：每次工具调用都显示；摘要：只看对话、请求和结果"))
                 Pill(state, tone)
             }
             .padding(12)
@@ -160,6 +160,10 @@ struct ChatCard: View {
             return (L.text("人工接管 · 等你的消息"), .amber, AnyView(HStack { btn("finish", L.text("以当前结果完成")); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
         case .human(idle: false):
             return (L.text("人工接管 · 正在处理"), .blue, AnyView(HStack { btn("interrupt", L.text("打断这一轮"), danger: true); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
+        case .managed where info.chat:
+            // A chat at work: say so (a model may think for minutes before it writes anything),
+            // and offer only to stop the turn or add to it.
+            return (L.text("正在处理"), .blue, AnyView(HStack { btn("interrupt", L.text("停止这一轮"), danger: true); btn("sessSend", L.text("插话"), true) }), L.text("补充或更正，会插入正在进行的这一轮"), true)
         case .managed:
             return (L.text("托管中 · 自主执行"), .blue, AnyView(HStack { btn("interrupt", L.text("打断并接管"), danger: true); btn("takeover", L.text("接管")); btn("sessSend", L.text("插话"), true) }), ph, true)
         case .interrupted:
@@ -234,7 +238,7 @@ struct ChatCard: View {
         Task { await run.act(body) }
     }
 
-    // Long runs of tool calls fold into one line, keeping the latest few in view.
+    // Tool calls in a row form one group: listed in full, or one line in the summary.
     struct Group1: Identifiable { enum Kind { case item(Event), messages([Event]), tools([Event]) }; let id: Int; let kind: Kind }
 
     private var groups: [Group1] {
@@ -252,7 +256,7 @@ struct ChatCard: View {
                 if !ChatItem.visible(e, st: st) { continue }
                 // The summary keeps what was said, asked and delivered; Janus's own prompts,
                 // status lines and the agent's thinking stay in the other views.
-                if density == "summary" && ["session.prompt", "agent.status", "agent.thought"].contains(e.type) { continue }
+                if density == .summary && ["session.prompt", "agent.status", "agent.thought"].contains(e.type) { continue }
                 flush()
                 // Text streams in pieces; pieces in a row from one agent read as one message.
                 if e.type == "agent.message", let last = out.last, case .messages(let es) = last.kind, es[0].actor == e.actor, es[0].attempt == e.attempt {
@@ -271,11 +275,17 @@ struct ChatCard: View {
 /// arrives; once they scroll up it stays where they are, and a button takes them back to the
 /// newest. Rows are built lazily: a lead's session runs to thousands of events.
 // @project-doc docs/architecture/20261031-frontend.md#session_view
+/// How much of an agent's work a conversation shows: every tool call, or only what was said,
+/// asked and delivered.
+enum ChatDensity: String {
+    case detail, summary
+}
+
 struct ChatScroll: View {
     let run: RunModel
     let st: RunState
     let groups: [ChatCard.Group1]
-    let density: String
+    let density: ChatDensity
     let empty: Bool
     /// The session's last event: it changes whenever anything arrives.
     let last: Int
@@ -327,14 +337,8 @@ struct ChatScroll: View {
         case .item(let e): ChatItem(run: run, st: st, e: e)
         case .messages(let es): ChatItem(run: run, st: st, e: es[0], more: Array(es.dropFirst()))
         case .tools(let es):
-            if density == "summary" {
+            if density == .summary {
                 Text(verbatim: L.text("· \(es.count) 个操作")).font(.caption).foregroundStyle(.tertiary)
-            } else if density == "normal" && es.count > 4 {
-                DisclosureGroup(String(L.text("\(es.count - 2) 个操作"))) {
-                    VStack(alignment: .leading, spacing: 6) { ForEach(es.dropLast(2)) { ToolRow(run: run, e: $0, cwd: cwd) } }
-                }
-                .font(.callout).foregroundStyle(.secondary)
-                ForEach(es.suffix(2)) { ToolRow(run: run, e: $0, cwd: cwd) }
             } else {
                 ForEach(es) { ToolRow(run: run, e: $0, cwd: cwd) }
             }
@@ -521,11 +525,19 @@ struct ChatItem: View {
             note("\(d["failed"].truthy ? "⚠" : "↺") \(e.text)", d["failed"].truthy ? .amber : nil)
         case "session.prompt":
             let via = d["via"].str == "developer" ? L.text("开发者指令") : L.text("系统提示")
-            let label = d["channel"].str == "instructions" ? L.text("用户的长期要求 · \(via)")
-                : d["channel"].str == "system" ? L.text("Janus 的说明 · \(via)")
+            // The system layer holds up to two sets of instructions, named by where they come from.
+            let label = d["channel"].str == "instructions" ? L.text("数字员工的指令 · \(via)")
+                : d["channel"].str == "system" ? L.text("Agent Team 协作指令 · \(via)")
+                : d["channel"].str == "history" ? L.text("之前的对话 · \(via)")
                 : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("验证没有通过 · 发回给它修复"), "board": L.text("看板推送 · 插入正在进行的这一轮"), L.text("goal_check"): L.text("目标确认 · 负责人停下了，目标还标着进行中")][d["channel"].str] ?? L.text("Janus 提示")
+            let hint = [
+                "instructions": L.text("这名数字员工的指令，连同 Agent 设置里的自定义提示词。单 Agent 对话只注入这一份。"),
+                "system": L.text("Janus 只在 Agent Team 中注入：团队分工、共享看板、派工和验证的约定。"),
+                "history": L.text("对话重新打开时带上最近的往来，让新会话接上之前的内容。"),
+            ][d["channel"].str]
             VStack(alignment: .leading, spacing: 4) {
                 HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text(L.text("Janus 发给 Agent")).font(.caption).foregroundStyle(.secondary) }
+                if let hint { Text(hint).font(.caption).foregroundStyle(.secondary) }
                 DisclosureGroup(L.text("查看内容")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
             .padding(8)

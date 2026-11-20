@@ -101,8 +101,10 @@ enum Place {
 
 impl Source {
     /// The run's `branch` as it is now, or with `None`, the detached `HEAD` of the person's
-    /// checkout at `repo`. `head` is the run's result, named when it cannot go back.
-    fn of(repo: &Path, branch: Option<&str>, head: &str) -> Result<Source> {
+    /// checkout at `repo`, which must still be at `since` (where the run started, or where the last
+    /// acceptance left it): a checkout the person moved elsewhere, back to a parent included, is
+    /// theirs. `head` is the run's result, named when it cannot go back.
+    fn of(repo: &Path, branch: Option<&str>, since: &str, head: &str) -> Result<Source> {
         let Some(b) = branch else {
             if let Some(now) = current_branch(repo) {
                 bail!(
@@ -112,6 +114,15 @@ impl Source {
                 );
             }
             let tip = rev(repo, "HEAD").context("读取工作目录的 HEAD 失败")?;
+            if tip != since {
+                bail!(
+                    "没有合并：{} 的 detached HEAD 在任务开始后移动过（从 {} 到 {}）。任务的结果在提交 {}，可以自己合并。",
+                    repo.display(),
+                    short(since),
+                    short(&tip),
+                    short(head)
+                );
+            }
             return Ok(Source { name: format!("{} 的 HEAD", repo.display()), tip, at: Place::Checkout(repo.into()) });
         };
         let Some(tip) = rev(repo, &format!("refs/heads/{b}")) else {
@@ -170,12 +181,23 @@ fn checked_out_at(repo: &Path, branch: &str) -> Option<PathBuf> {
 /// as one fast-forward. When the branch moved on meanwhile, the run's commit is replayed onto it
 /// in the worktree first, so history stays linear; a conflict there, a detached `HEAD` that moved,
 /// or uncommitted changes in the person's checkout that the result would overwrite leave the
-/// person's side as it was and fail, with the result kept in the worktree's commit. Returns the
-/// commit now at the source, `None` when the run brought nothing new. With `remove` (no session
-/// works there) the worktree goes afterwards.
-pub fn accept(repo: &Path, path: &Path, branch: Option<&str>, message: &str, remove: bool) -> Result<Option<String>> {
+/// person's side as it was and fail, with the result kept in the worktree's commit. `since` is
+/// where a detached `HEAD` must still be (see `Source::of`). Returns the commit now at the source,
+/// `None` when the run brought nothing new. A worktree that is gone is not "nothing new": it fails,
+/// and the run stays delivered. With `remove` (no session works there) the worktree goes afterwards.
+pub fn accept(
+    repo: &Path,
+    path: &Path,
+    branch: Option<&str>,
+    since: &str,
+    message: &str,
+    remove: bool,
+) -> Result<Option<String>> {
     if !path.exists() {
-        return Ok(None);
+        bail!(
+            "没有合并：这个任务的 worktree {} 不在了，无法核对它的结果。删除任务时没提交的改动存在 Janus 目录下的 worktrees/deleted/。",
+            path.display()
+        );
     }
     write(path, &["add", "-A"])?;
     let staged = !Command::new("git")
@@ -188,7 +210,7 @@ pub fn accept(repo: &Path, path: &Path, branch: Option<&str>, message: &str, rem
         write(path, &["commit", "-q", "-m", message]).context("提交失败：请确认 git 配置了 user.name 和 user.email")?;
     }
     let mut head = rev(path, "HEAD").context("读取 worktree 的 HEAD 失败")?;
-    let source = Source::of(repo, branch, &head)?;
+    let source = Source::of(repo, branch, since, &head)?;
     if is_ancestor(path, &head, &source.tip) {
         // Nothing the source does not have already.
         if remove {
@@ -258,14 +280,16 @@ pub fn remove(repo: &Path, path: &Path, kept: &Path, run_id: &str) -> Result<Opt
         let _ = write(repo, &["worktree", "prune"]);
         return Ok(None);
     }
+    // Nothing goes before the changes are safe: a step that fails leaves the worktree in place.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
+    write(path, &["add", "-A"]).context("暂存 worktree 里的改动失败，worktree 保留，没有删除")?;
+    let patch = write(path, &["diff", "--cached", "--binary", "HEAD"])
+        .context("读取 worktree 里没提交的改动失败，worktree 保留，没有删除")?;
     let mut saved = None;
-    if write(path, &["add", "-A"]).is_ok()
-        && let Ok(patch) = write(path, &["diff", "--cached", "--binary", "HEAD"])
-        && !patch.trim().is_empty()
-    {
-        std::fs::create_dir_all(kept)?;
+    if !patch.trim().is_empty() {
+        std::fs::create_dir_all(kept).context("创建补丁目录失败，worktree 保留，没有删除")?;
         let file = kept.join(format!("{run_id}.patch"));
-        std::fs::write(&file, patch)?;
+        std::fs::write(&file, patch).context("保存补丁失败，worktree 保留，没有删除")?;
         saved = Some(file);
     }
     drop_worktree(repo, path);
@@ -336,13 +360,18 @@ fn ignored_of(repo: &Path, paths: &[&str]) -> Vec<String> {
     else {
         return vec![];
     };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(paths.join("\n").as_bytes());
-    }
-    child
+    // Written from another thread while the answer is read here: git writes each ignored path as
+    // it reads it, so with many paths both pipes fill and neither side would move (AT-01).
+    let input = paths.join("\n");
+    let writer = child.stdin.take().map(|mut stdin| std::thread::spawn(move || stdin.write_all(input.as_bytes())));
+    let out = child
         .wait_with_output()
         .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(str::to_owned).collect())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if let Some(w) = writer {
+        let _ = w.join();
+    }
+    out
 }
 
 #[cfg(test)]
@@ -417,7 +446,7 @@ mod tests {
         create(&r, &w, &base, "r2").unwrap();
         std::fs::write(w.join("new.txt"), "from the run\n").unwrap();
         std::fs::write(r.join("README.md"), "the person's own edit\n").unwrap();
-        let commit = accept(&r, &w, Some(&branch), "Janus 任务 r2", false).unwrap().unwrap();
+        let commit = accept(&r, &w, Some(&branch), &base, "Janus 任务 r2", false).unwrap().unwrap();
         assert_eq!(head(&r), commit, "the branch moved forward");
         assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), base, "one commit on top, no merge");
         assert_eq!(file(&r, "new.txt").as_deref(), Some("from the run\n"), "the checkout has the result");
@@ -430,9 +459,9 @@ mod tests {
         assert!(read(&r, &["branch", "--list", "janus/*"]).unwrap().trim().is_empty(), "no branch of its own");
 
         // Nothing new: nothing to bring back. More work later is one more commit on the branch.
-        assert!(accept(&r, &w, Some(&branch), "Janus 任务 r2", false).unwrap().is_none());
+        assert!(accept(&r, &w, Some(&branch), &base, "Janus 任务 r2", false).unwrap().is_none());
         std::fs::write(w.join("second.txt"), "more work\n").unwrap();
-        let second = accept(&r, &w, Some(&branch), "Janus 任务 r2", true).unwrap().unwrap();
+        let second = accept(&r, &w, Some(&branch), &base, "Janus 任务 r2", true).unwrap().unwrap();
         assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), commit);
         assert!(!w.exists(), "removed when no session works there");
         // Working again brings the worktree back where the last acceptance left the result.
@@ -459,13 +488,13 @@ mod tests {
         git(&r, &["commit", "-q", "-m", "mine"]);
         let mine = head(&r);
 
-        let a = accept(&r, &w1, Some(&branch), "a", false).unwrap().unwrap();
+        let a = accept(&r, &w1, Some(&branch), &base, "a", false).unwrap().unwrap();
         assert_eq!(head(&r), a);
         assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), mine, "replayed on the person's commit");
         assert_eq!(read(&r, &["rev-list", "--merges", "--count", "HEAD"]).unwrap().trim(), "0");
         assert_eq!(head(&w1), a, "the worktree holds what the branch has");
 
-        let err = accept(&r, &w2, Some(&branch), "b", true).unwrap_err().to_string();
+        let err = accept(&r, &w2, Some(&branch), &base, "b", true).unwrap_err().to_string();
         assert!(err.contains("冲突"), "{err}");
         assert_eq!(head(&r), a, "the branch did not move");
         assert_eq!(file(&r, "a.txt").as_deref(), Some("run a\n"));
@@ -486,14 +515,14 @@ mod tests {
         create(&r, &w, &base, "d").unwrap();
         std::fs::write(w.join("README.md"), "from the run\n").unwrap();
         std::fs::write(r.join("README.md"), "the person's draft\n").unwrap();
-        let err = accept(&r, &w, Some(&branch), "d", false).unwrap_err().to_string();
+        let err = accept(&r, &w, Some(&branch), &base, "d", false).unwrap_err().to_string();
         assert!(err.contains("README.md") && err.contains("先提交或暂存"), "{err}");
         assert_eq!(head(&r), base);
         assert_eq!(file(&r, "README.md").as_deref(), Some("the person's draft\n"));
 
         // The person moves to another branch: theirs is checked out nowhere, so only it moves.
         git(&r, &["checkout", "-q", "-b", "elsewhere"]);
-        let commit = accept(&r, &w, Some(&branch), "d", false).unwrap().unwrap();
+        let commit = accept(&r, &w, Some(&branch), &base, "d", false).unwrap().unwrap();
         assert_eq!(read(&r, &["rev-parse", &branch]).unwrap().trim(), commit);
         assert_eq!(head(&r), base, "the checkout on the other branch did not move");
         assert_eq!(file(&r, "README.md").as_deref(), Some("the person's draft\n"));
@@ -513,12 +542,60 @@ mod tests {
         create(&r, &w2, &base, "y").unwrap();
         std::fs::write(w1.join("x.txt"), "x\n").unwrap();
         std::fs::write(w2.join("y.txt"), "y\n").unwrap();
-        let x = accept(&r, &w1, None, "x", false).unwrap().unwrap();
+        let x = accept(&r, &w1, None, &base, "x", false).unwrap().unwrap();
         assert_eq!(head(&r), x);
         assert!(current_branch(&r).is_none() && file(&r, "x.txt").is_some());
-        let err = accept(&r, &w2, None, "y", false).unwrap_err().to_string();
+        let err = accept(&r, &w2, None, &base, "y", false).unwrap_err().to_string();
         assert!(err.contains("移动过"), "{err}");
         assert_eq!(head(&r), x);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A detached `HEAD` the person moved back to a parent of where the run started is theirs too:
+    /// accepting leaves it there. A worktree that is gone fails instead of passing as "nothing new".
+    #[test]
+    fn a_detached_head_moved_back_and_a_missing_worktree_are_refused() {
+        let dir = repo("detached-back");
+        let r = dir.join("repo");
+        std::fs::write(r.join("b.txt"), "b\n").unwrap();
+        git(&r, &["add", "-A"]);
+        git(&r, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "b"]);
+        git(&r, &["checkout", "-q", "--detach"]);
+        let base = head(&r);
+        let w = dir.join("home/worktrees/z");
+        create(&r, &w, &base, "z").unwrap();
+        std::fs::write(w.join("z.txt"), "z\n").unwrap();
+        git(&r, &["checkout", "-q", "HEAD~1"]);
+        let parent = head(&r);
+        let err = accept(&r, &w, None, &base, "z", false).unwrap_err().to_string();
+        assert!(err.contains("移动过"), "{err}");
+        assert_eq!(head(&r), parent, "the person's choice stays");
+        assert!(file(&r, "b.txt").is_none());
+
+        drop_worktree(&r, &w);
+        let err = accept(&r, &w, None, &base, "z", false).unwrap_err().to_string();
+        assert!(err.contains("不在了"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// When the changes cannot be saved as a patch (git's index is locked), deleting fails and the
+    /// worktree with its files stays; once the lock is gone it goes, with the patch.
+    #[test]
+    fn deleting_keeps_the_worktree_when_its_changes_cannot_be_saved() {
+        let dir = repo("locked");
+        let (r, w) = (dir.join("repo"), dir.join("home/worktrees/r4"));
+        let base = head(&r);
+        create(&r, &w, &base, "r4").unwrap();
+        std::fs::write(w.join("only-here.txt"), "work\n").unwrap();
+        let git_dir = PathBuf::from(read(&w, &["rev-parse", "--absolute-git-dir"]).unwrap().trim());
+        std::fs::write(git_dir.join("index.lock"), "").unwrap();
+        let kept = dir.join("home/worktrees/deleted");
+        assert!(remove(&r, &w, &kept, "r4").is_err());
+        assert!(w.join("only-here.txt").exists(), "the file is still there");
+        std::fs::remove_file(git_dir.join("index.lock")).unwrap();
+        let patch = remove(&r, &w, &kept, "r4").unwrap().unwrap();
+        assert!(std::fs::read_to_string(patch).unwrap().contains("work"));
+        assert!(!w.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -530,7 +607,7 @@ mod tests {
         let base = head(&r);
         let branch = current_branch(&r).unwrap();
         create(&r, &w, &base, "r3").unwrap();
-        assert!(accept(&r, &w, Some(&branch), "r3", false).unwrap().is_none());
+        assert!(accept(&r, &w, Some(&branch), &base, "r3", false).unwrap().is_none());
         assert_eq!(head(&r), base);
         std::fs::write(w.join("more.txt"), "unfinished\n").unwrap();
         let kept = remove(&r, &w, &dir.join("home/worktrees/deleted"), "r3").unwrap().unwrap();

@@ -48,7 +48,9 @@ struct MainView: View {
         case .chats:
             ChatsView(store: store)
         case .home(let id):
-            if let ws = store.workspace(id) { HomeView(store: store, ws: ws).id(id) } else { NoWorkspaceView(store: store) }
+            if let ws = store.workspace(id) { HomeView(store: store, ws: ws).id(id) }
+            else if let past = store.pastWorkspaces.first(where: { $0["id"].str == id }) { PastWorkspaceView(store: store, ws: past) }
+            else { NoWorkspaceView(store: store) }
         case .run:
             if let run = store.run { RunView(run: run) }
         case .newWorkspace:
@@ -85,6 +87,15 @@ struct Sidebar: View {
                     }
                     ForEach(store.workspaces, id: \.self) { w in
                         WorkspaceRow(store: store, ws: w, current: w["id"].str == ws?["id"].str)
+                    }
+                    // Deleted workspaces whose runs stay, so those runs are still found.
+                    ForEach(store.pastWorkspaces, id: \.self) { w in
+                        let open: Bool = { if case .home(let id) = store.screen { return id == w["id"].str } else { return false } }()
+                        SidebarItem(title: L.text("\(w["name"].str)（已删除）"), selected: open, help: L.text("已删除的工作区，留下 \(w["runs"].int ?? 0) 个任务记录"),
+                                    action: { store.open(.home(w["id"].str)) }) {
+                            InitialMark(text: w["name"].str, selected: open).opacity(0.6)
+                        }
+                        .foregroundStyle(.secondary)
                     }
                     SidebarHeading(title: L.text("Chat"), plus: L.text("新对话：选一名数字员工单独对话（⌥⌘N）")) { store.open(.chats) }
                     chatRows()

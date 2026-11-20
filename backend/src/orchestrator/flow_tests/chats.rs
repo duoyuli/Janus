@@ -38,7 +38,7 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
         evs.iter().any(|e| e.kind == "agent.status" && e.data.as_ref().is_some_and(|d| d["turn"] == "idle"))
     })
     .await;
-    assert!(calls(&h).contains("chat brief"), "the system layer goes in before anything is said");
+    assert!(calls(&h).contains("chat session"), "the session opens before anything is said");
     assert!(!has(&events(&h.app, &id), "agent.message"), "the agent says nothing before the person writes");
     assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "", "untitled until the first message");
 
@@ -61,14 +61,24 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     assert_eq!(team.len(), 1, "the employee is the only member");
     assert_eq!(team[0]["role_id"], "m1");
     let log = calls(&h);
-    assert!(log.contains(&format!("chat brief {}", dir.display())), "the agent is told it is in a chat: {log}");
+    assert!(
+        log.contains(&format!("chat session {}", dir.display())),
+        "the session works in the chat's directory: {log}"
+    );
+    assert!(!log.contains("janus-brief"), "Janus adds no instructions of its own to a chat: {log}");
+    assert!(
+        !events(&h.app, &id)
+            .iter()
+            .any(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system")),
+        "only the employee's own instructions go into the system layer"
+    );
     let mcp = log.lines().find(|l| l.starts_with("mcp ")).unwrap();
     assert!(!mcp.contains("\"name\": \"janus\""), "a chat has no board: {mcp}");
     assert!(mcp.contains(crate::library::MCP_ROUTER), "the library still reaches it: {mcp}");
 
     act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "第二条" }));
     wait_until(&h.app, &id, "the second reply", |e| replied(e, "第二条")).await;
-    assert_eq!(log.matches("chat brief").count(), calls(&h).matches("chat brief").count(), "the same session");
+    assert_eq!(log.matches("chat session").count(), calls(&h).matches("chat session").count(), "the same session");
     assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "你好\n第二行", "later messages keep the title");
     assert!(
         events(&h.app, &id)
@@ -132,6 +142,14 @@ async fn a_chat_reopens_with_the_next_message() {
     wait_until(&h.app, &id, "the reply after reopening", |e| replied(e, "还在吗")).await;
     assert!(calls(&h).contains(&format!("load {sid}")), "the old session is loaded");
     assert_eq!(status(&h.app, &id), "running");
+    // The earlier exchanges go in as the conversation's history, never as Janus's collaboration
+    // instructions, which only an Agent Team session gets.
+    let channels: Vec<String> = events(&h.app, &id)
+        .iter()
+        .filter(|e| e.kind == "session.prompt")
+        .filter_map(|e| e.data.as_ref()?["channel"].as_str().map(str::to_owned))
+        .collect();
+    assert!(channels.contains(&"history".into()) && !channels.contains(&"system".into()), "{channels:?}");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -158,5 +176,54 @@ async fn a_chat_is_deleted_with_its_directory() {
     let missing = h.app.create_chat(NewChat { role: "nobody".into() }).await;
     assert!(missing.is_err());
     assert_eq!(h.app.db.runs(RunKind::Chat).unwrap().len(), 0, "nothing was created for a refused chat");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A first message the service refuses (an image that is not one) does not title the chat; the
+/// first one it takes does (FL-15).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_message_does_not_title_a_chat() {
+    let h = harness("chat-title", &[("lead", false), ("m1", true)], json!({}));
+    let id = h.app.create_chat(NewChat { role: "m1".into() }).await.unwrap();
+    let r = h.app.run(&id).unwrap();
+    let bad = json!({ "type": "message", "agent": "lead", "text": "草稿", "images": [{ "data": "not base64!", "name": "x.png" }] });
+    assert!(h.app.action(&r, &bad).is_err());
+    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "");
+    act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "正式的问题" }));
+    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "正式的问题");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Switching the model (or any control) of an open chat keeps the chat working: the next message
+/// is answered in the same session.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_takes_messages_after_a_control_switch() {
+    let h = harness("chat-control", &[("lead", false), ("m1", true)], json!({}));
+    let id = chat(&h, "m1", "你好").await;
+    wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
+    act(&h, &id, json!({ "type": "control", "agent": "lead", "id": "mode", "value": "full", "via": "config" }));
+    wait_until(&h.app, &id, "the switch", |e| has(e, "session.control")).await;
+    act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "换了之后" }));
+    wait_until(&h.app, &id, "the reply after the switch", |e| replied(e, "换了之后")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Stopping a chat's turn leaves the chat waiting for the next message: no takeover, and the next
+/// message is answered in the same session.
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_a_chat_turn_waits_for_the_next_message() {
+    let h = harness("chat-stop", &[("lead", false), ("m1", true)], json!({}));
+    let id = chat(&h, "m1", "[slow] 想一想").await;
+    wait_until(&h.app, &id, "the turn at work", |e| {
+        e.iter().any(|x| x.kind == "session.prompt" && x.data.as_ref().is_some_and(|d| d["channel"] == "followup"))
+    })
+    .await;
+    act(&h, &id, json!({ "type": "interrupt", "agent": "lead" }));
+    wait_until(&h.app, &id, "the stop", |e| has(e, "session.interrupted")).await;
+    let stop = events(&h.app, &id).into_iter().find(|e| e.kind == "session.interrupted").unwrap();
+    assert!(stop.text.contains("停止") && !stop.text.contains("接管"), "{}", stop.text);
+    assert!(!has(&events(&h.app, &id), "control.taken"));
+    act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "下一条" }));
+    wait_until(&h.app, &id, "the next reply", |e| replied(e, "下一条")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

@@ -29,18 +29,41 @@ impl App {
         // write over each other; one without commits yet, or outside git, works in place.
         // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
         let (cwd, worktree) = if is_git && !base_ref.is_empty() {
+            // The worktree is of the whole repository; a workspace that is a folder inside it
+            // (`apps/client`) has its sessions start in that folder of the worktree (FL-09).
+            let top = PathBuf::from(git(&cwd, &["rev-parse", "--show-toplevel"]).await?.trim());
+            let prefix = git(&cwd, &["rev-parse", "--show-prefix"]).await.unwrap_or_default().trim().to_string();
             let path = self.worktree_dir(&id);
-            let branch = crate::worktrees::current_branch(&cwd);
-            let included = crate::worktrees::create(&cwd, &path, &base_ref, &id)?;
+            let branch = crate::worktrees::current_branch(&top);
+            let included = crate::worktrees::create(&top, &path, &base_ref, &id)?;
             // The path the agents' own tools report (`/private/var/…` for `/var/…` on macOS), so
             // the files they edit resolve against it.
-            let path = path.canonicalize().unwrap_or(path);
-            (path, Some(WorktreeOf { repo: cwd, branch, included }))
+            let root = path.canonicalize().unwrap_or(path);
+            let start = match prefix.trim_end_matches('/') {
+                "" => root,
+                p => root.join(p),
+            };
+            (start, Some(WorktreeOf { repo: top, branch, included }))
         } else {
             (cwd, None)
         };
-        self.bundle_team(&id, &team)?;
-        let goal_images = crate::attachments::save(&self.cfg.data_dir, &id, &req.images)?;
+        // Nothing made for a run that is never recorded stays behind: a step that fails from here
+        // takes back the worktree and the run's own directory.
+        let prepared =
+            self.bundle_team(&id, &team).and_then(|()| crate::attachments::save(&self.cfg.data_dir, &id, &req.images));
+        let goal_images = match prepared {
+            Ok(images) => images,
+            Err(err) => {
+                if let Some(w) = &worktree {
+                    let kept = self.cfg.data_dir.join("worktrees").join("deleted");
+                    if let Err(e) = crate::worktrees::remove(&w.repo, &self.worktree_root(&id), &kept, &id) {
+                        crate::config::log(format!("janus: could not take back the worktree of {id}: {e:#}"));
+                    }
+                }
+                let _ = std::fs::remove_dir_all(self.cfg.data_dir.join("runs").join(&id));
+                return Err(err);
+            }
+        };
         let goal = match req.goal.trim() {
             "" => "按附图完成".to_string(),
             g => g.to_string(),
@@ -155,6 +178,13 @@ impl App {
     /// Where a run's worktree lives (see `crate::worktrees`).
     pub(super) fn worktree_dir(&self, run_id: &str) -> PathBuf {
         self.cfg.data_dir.join("worktrees").join(run_id)
+    }
+
+    /// The top of a run's worktree as the agents' tools report it. The run's `cwd` is a folder in
+    /// it when its workspace is a folder inside the repository; git works on the whole worktree.
+    pub(super) fn worktree_root(&self, run_id: &str) -> PathBuf {
+        let dir = self.worktree_dir(run_id);
+        dir.canonicalize().unwrap_or(dir)
     }
 
     /// Where a member's resources live for this run: its skills, laid out the way its agent
@@ -360,7 +390,7 @@ impl App {
                         self.set_status(run, RunStatus::WaitingInput);
                         let (text, data) = match hit {
                             BudgetHit::WallClock => (
-                                "任务达到墙钟预算，等待你追加预算、接受部分结果或取消".to_string(),
+                                "任务达到墙钟预算，等待你追加预算或停止".to_string(),
                                 json!({ "kind": "wall_clock", "budgetMs": RUN_BUDGET_MS }),
                             ),
                             BudgetHit::CostUsd { used, limit } => (
@@ -649,9 +679,8 @@ impl App {
         }
         // The run's worktree goes too; changes never committed are kept as a patch first.
         if let Some(repo) = row["config"]["worktree"]["repo"].as_str() {
-            let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
             let kept = self.cfg.data_dir.join("worktrees").join("deleted");
-            match crate::worktrees::remove(Path::new(repo), &cwd, &kept, run_id) {
+            match crate::worktrees::remove(Path::new(repo), &self.worktree_root(run_id), &kept, run_id) {
                 Ok(Some(patch)) => crate::config::log(format!(
                     "janus: run {run_id} deleted; its uncommitted changes are kept in {}",
                     patch.display()
@@ -728,7 +757,12 @@ fn steady_text(text: &str) -> String {
             i += 1;
         }
         if chars[start..i].contains(&':') {
-            out.push_str("#:#");
+            // After a colon it is a position, `parser.rs:42:15`, not a time of day (AT-13).
+            if start > 0 && chars[start - 1] == ':' {
+                out.extend(&chars[start..i]);
+            } else {
+                out.push_str("#:#");
+            }
             continue;
         }
         let gap = usize::from(chars.get(i) == Some(&' '));
@@ -892,6 +926,12 @@ mod loop_tests {
         );
         let progress: Vec<Value> = (0..5).map(|i| test_run(&format!("{} failed; finished in 0.2s", 5 - i))).collect();
         assert!(reports(&progress).is_empty());
+        // A compiler error moving through the file is progress, not a loop (AT-13).
+        assert_eq!(steady_text("error at src/parser.rs:42:15"), "error at src/parser.rs:42:15");
+        let fixing: Vec<Value> = (0..5)
+            .map(|i| test_run(&format!("error[E0308]: mismatched types\n --> src/parser.rs:{}:15", 40 + i)))
+            .collect();
+        assert!(reports(&fixing).is_empty());
     }
 
     #[test]

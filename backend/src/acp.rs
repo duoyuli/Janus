@@ -245,13 +245,24 @@ impl AcpConn {
             task.abort();
         }
         let mut child = self.child.lock().await;
-        #[cfg(unix)]
-        if let Some(pid) = child.id() {
-            let _ = tokio::process::Command::new("kill").args(["-TERM", &format!("-{pid}")]).status().await;
-        }
+        // The adapter runs in its own process group with the agent it started: both signals go to
+        // the whole group, so the agent does not outlive its adapter (AT-02).
+        let group = child.id().map(|pid| format!("-{pid}"));
+        let signal = |sig: &'static str| {
+            let group = group.clone();
+            async move {
+                #[cfg(unix)]
+                if let Some(group) = group {
+                    let _ = tokio::process::Command::new("kill").args([sig, &group]).status().await;
+                }
+            }
+        };
+        signal("-TERM").await;
         if tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await.is_err() {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+            signal("-KILL").await;
+            let _ = child.start_kill();
+            // A process stuck in the kernel may not go even now; closing the session goes on.
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await;
         }
     }
 }

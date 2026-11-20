@@ -181,8 +181,19 @@ impl App {
         }
     }
 
-    pub(super) fn take_notes(&self, run: &Run, agent: &str) -> String {
-        let notes = run.st.lock().unwrap().notes.remove(agent).unwrap_or_default();
+    /// Take the notes for an agent's session working on `task`; notes about its other tasks stay.
+    pub(super) fn take_notes(&self, run: &Run, agent: &str, task: Option<&str>) -> String {
+        let notes: Vec<Msg> = {
+            let mut st = run.st.lock().unwrap();
+            let Some(kept) = st.notes.get_mut(agent) else { return String::new() };
+            let (taken, left): (Vec<Note>, Vec<Note>) =
+                std::mem::take(kept).into_iter().partition(|n| n.goes_with(task));
+            *kept = left;
+            if kept.is_empty() {
+                st.notes.remove(agent);
+            }
+            taken.into_iter().map(|n| n.msg).collect()
+        };
         self.notes_delivered(run, agent, &notes);
         notes_text(&notes)
     }
@@ -191,8 +202,8 @@ impl App {
     /// it starts (Codex's system layer is in its environment) takes them once it is open.
     pub(super) fn peek_notes(&self, run: &Run, agent: &str) -> (String, Vec<String>) {
         let st = run.st.lock().unwrap();
-        let notes = st.notes.get(agent).map(Vec::as_slice).unwrap_or_default();
-        (notes_text(notes), notes.iter().map(|m| m.id.clone()).collect())
+        let notes: Vec<Msg> = st.notes.get(agent).into_iter().flatten().map(|n| n.msg.clone()).collect();
+        (notes_text(&notes), notes.iter().map(|m| m.id.clone()).collect())
     }
 
     /// Take the notes `peek_notes` saw; any left since stay for the next prompt.
@@ -200,13 +211,13 @@ impl App {
         let taken: Vec<Msg> = {
             let mut st = run.st.lock().unwrap();
             let Some(notes) = st.notes.get_mut(agent) else { return };
-            let (taken, left): (Vec<Msg>, Vec<Msg>) =
-                std::mem::take(notes).into_iter().partition(|m| ids.contains(&m.id));
+            let (taken, left): (Vec<Note>, Vec<Note>) =
+                std::mem::take(notes).into_iter().partition(|n| ids.contains(&n.msg.id));
             *notes = left;
             if notes.is_empty() {
                 st.notes.remove(agent);
             }
-            taken
+            taken.into_iter().map(|n| n.msg).collect()
         };
         self.notes_delivered(run, agent, &taken);
     }

@@ -4,6 +4,25 @@
 use super::chat::chat_brief;
 use super::*;
 
+/// What Janus puts in a session's system layer before the person's standing instructions.
+#[derive(Clone, Copy)]
+pub(super) enum SystemPart {
+    /// How to work with Janus and the team: the lead's brief, a collaborator's rules. Only an
+    /// Agent Team session gets it; a chat has the digital employee's instructions alone.
+    Collaboration,
+    /// A chat reopened: its recent exchanges, so the new session knows the conversation.
+    History,
+}
+
+impl SystemPart {
+    fn as_str(self) -> &'static str {
+        match self {
+            SystemPart::Collaboration => "system",
+            SystemPart::History => "history",
+        }
+    }
+}
+
 /// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PromptChannel {
@@ -53,6 +72,7 @@ impl App {
     /// with the same scheduler as a plan, and the shared board carries everything in between.
     // @project-doc docs/domains/20261031-goal_mode.md#lead_session
     pub(super) async fn goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<()> {
+        let token = random_token()?;
         {
             let mut st = run.st.lock().unwrap();
             st.lead.goal = LeadGoal::Working;
@@ -65,7 +85,7 @@ impl App {
                 st.lead.cursor = run.seq.load(Ordering::SeqCst);
             }
             if st.mcp_token.is_empty() {
-                st.mcp_token = random_token();
+                st.mcp_token = token;
             }
         }
         self.set_status(run, RunStatus::Running);
@@ -112,11 +132,27 @@ impl App {
             };
             if first {
                 app.escalate_open_questions(&r);
+            } else {
+                // The conversation after delivery ended (the agent exited): nothing listens in
+                // this run any more, so it leaves memory once no driver is left, and the next
+                // message reopens it as a conversation (`resume_run`) with what waited for it.
+                r.driving.idle().await;
+                app.runs.lock().unwrap().remove(&r.id);
             }
             r.lead_nudge.notify_one();
             r.wake.notify_one();
         });
         self.execute(run).await
+    }
+
+    /// An accepted run in a worktree whose files changed since: a turn of the lead's conversation
+    /// did work the acceptance does not have, so it is delivered again for the person to accept.
+    /// Questions about the result leave the acceptance as it was.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
+    fn changed_since_acceptance(&self, run: &Run) -> bool {
+        run.worktree.is_some()
+            && run.st.lock().unwrap().status == RunStatus::Accepted
+            && !crate::worktrees::uncommitted(&run.cwd).is_empty()
     }
 
     /// The lead finished a turn and waits for the person: a collaborator still waiting on the
@@ -183,6 +219,14 @@ impl App {
         );
         static NEXT: AtomicI64 = AtomicI64::new(0);
         let id = format!("push{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+        if tx.send(Steer::Message(Msg { id, text: text.clone() })).is_err() {
+            // The session ended in between: the entries were not seen, so `wait` still brings them (AT-03).
+            let mut st = run.st.lock().unwrap();
+            if st.lead.cursor == last {
+                st.lead.cursor = cursor;
+            }
+            return;
+        }
         self.record_session_prompt(
             run,
             &Ctx { agent: "lead", task: None, attempt: None, goal: false },
@@ -190,7 +234,6 @@ impl App {
             PromptChannel::Board,
             &text,
         );
-        let _ = tx.send(Steer::Message(Msg { id, text }));
     }
 
     /// Goal mode: once the lead is off duty (its goal ended and it is not working on a message,
@@ -286,7 +329,7 @@ impl App {
             self.watch_session(run, &owner.session, 0);
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
-            self.record_system(run, &ctx, &sid, &channel, "向负责人注入负责人说明", &brief);
+            self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
             let mut prompt = format!("/goal {}", goal_condition(&run.goal));
             let mut delivered = false;
@@ -348,8 +391,9 @@ impl App {
                         ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标")
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
-                } else if goal_turn {
-                    // A new goal in the conversation is a new result: deliver it like the first one.
+                } else if goal_turn || self.changed_since_acceptance(run) {
+                    // A new goal in the conversation is a new result, and so is work on files after
+                    // acceptance: deliver it like the first one.
                     run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
                     if !run.driving.active() {
@@ -411,7 +455,7 @@ impl App {
         let channel = instruction_channel(lead.kind);
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
-        let brief = if chat { chat_brief(run, &events) } else { conversation_brief(run, &events) };
+        let brief = if chat { chat_brief(&events) } else { conversation_brief(run, &events) };
         let system = system_layer(&brief, &standing);
         let opened = async {
             let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
@@ -420,10 +464,11 @@ impl App {
                 self.trust_claude_workspace(&lead.runtime, &run.cwd)?;
             }
             // The library router's URL carries this secret; a run reopened after a restart has none yet.
+            let token = random_token()?;
             {
                 let mut st = run.st.lock().unwrap();
                 if st.mcp_token.is_empty() {
-                    st.mcp_token = random_token();
+                    st.mcp_token = token;
                 }
             }
             let log =
@@ -516,14 +561,16 @@ impl App {
             if has_controls {
                 self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             }
-            let label = if chat { "向 Agent 注入对话说明" } else { "向负责人注入对话背景" };
-            self.record_system(run, &ctx, &sid, &channel, label, &brief);
+            if !brief.is_empty() {
+                let part = if chat { SystemPart::History } else { SystemPart::Collaboration };
+                self.record_system(run, &ctx, &sid, &channel, part, &brief);
+            }
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
             let mut prompt = {
                 let mut st = run.st.lock().unwrap();
-                st.notes.remove("lead").unwrap_or_default()
+                st.notes.remove("lead").unwrap_or_default().into_iter().map(|n| n.msg).collect::<Vec<_>>()
             };
             if prompt.is_empty() {
                 if chat {
@@ -591,7 +638,8 @@ impl App {
                         ev("agent.status", "lead", "这一轮已结束，等待你的消息")
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
-                } else if goal_turn {
+                } else if goal_turn || self.changed_since_acceptance(run) {
+                    // A new goal is a new result, and so is work on files after acceptance.
                     run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
                     if !run.driving.active() {
@@ -675,19 +723,24 @@ impl App {
         ctx: &Ctx<'_>,
         sid: &str,
         channel: &Channel,
-        label: &str,
+        part: SystemPart,
         text: &str,
     ) {
         let via = match channel {
             Channel::System => "system",
             Channel::Developer => "developer",
         };
+        let label = match part {
+            SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
+            SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
+            SystemPart::History => "向 Agent 注入之前的对话",
+        };
         self.emit(
             run,
             ev("session.prompt", "janus", label)
                 .to(ctx.agent)
                 .scope(ctx)
-                .data(json!({ "channel": "system", "via": via, "session": sid, "prompt": text })),
+                .data(json!({ "channel": part.as_str(), "via": via, "session": sid, "prompt": text })),
         );
     }
 
@@ -702,7 +755,7 @@ impl App {
         }
         self.emit(
             run,
-            ev("session.prompt", "janus", "向 Agent 注入用户的长期要求")
+            ev("session.prompt", "janus", "向 Agent 注入数字员工的指令")
                 .to(ctx.agent)
                 .scope(ctx)
                 .data(json!({ "channel": "instructions", "via": via, "session": sid, "prompt": text })),

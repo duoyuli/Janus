@@ -10,7 +10,7 @@
 - [任务调度](#scheduling)、[一次尝试](#attempt)、[验证](#verification)、[重试、返工与失败](#retry)：修改调度循环、尝试流程或 `retry` 时阅读。
 - [停滞检测](#watchdog)：修改 `watchdog`、`watch_call`，或调整什么算「没有进展」时阅读。
 - [交付条件](#delivery_conditions)：修改 `execute` 的结果判断时阅读。
-- [Run 状态](#run_statuses)、[用户操作](#user_actions)、[中断与恢复](#recovery)。
+- [Run 状态](#run_statuses)、[用户操作](#user_actions)、[中断与恢复](#recovery)：修改 Run 状态的含义、停止和暂停等操作，或服务重启后的恢复时阅读。
 
 每个目标 Run 都以负责人用 `/goal` 推进目标开始，任务全部来自负责人的编排，见[目标模式与共享看板](20261031-goal_mode.md)。和一名数字员工的对话也是 Run（`kind` 为 `chat`），没有看板、调度和交付，规则见[对话](20261120-chats.md)；本文其余部分说的都是目标 Run。调度循环（`execute`）只负责执行看板上的任务并判断何时交付。
 
@@ -46,7 +46,10 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - **Git 仓库（有提交）**：每个 Run 在自己的 worktree 中运行（`crate::worktrees`），位置是 `<Janus home>/worktrees/<run>`，从创建时的 `HEAD` 开始、处于 detached HEAD、用 `git worktree lock` 锁住。Run 的负责人和所有子任务共用这个 worktree，改动彼此立即可见；同一个仓库上的其他 Run 和用户自己的目录都不受影响。`runs.cwd` 是 worktree 的路径（规范化后的真实路径，和 Agent 自己的工具报告的路径一致），`runs.config.worktree.repo` 是原仓库，`runs.config.worktree.branch` 是创建时检出的分支（处于 detached HEAD 时为 `null`）。
 - **worktree 里有什么**：仓库跟踪的文件，加上原仓库根目录 `.worktreeinclude`（`.gitignore` 语法，用户自己维护）列出、并且被忽略的文件，创建时复制过去（跳过符号链接，不覆盖已有文件），复制了哪些记在 `run.created` 的 `data.worktree.included`。用户目录里没提交的改动不带过去，创建前提醒（[创建前的提醒](../interfaces/20261031-http_api.md#run_preflight)）。依赖、构建产物等不复制，负责人说明和任务提示告诉 Agent 按项目自己的方式在 worktree 里准备环境、改了依赖就重新安装。
 - **验收**：Janus 在 worktree 里提交全部改动，再把结果带回创建时检出的分支（`worktrees::accept`）：分支没动过时直接快进；有了新提交时先在 worktree 里把任务的提交变基到最新的分支上再快进，历史是线性的，不建 `janus/` 分支。分支检出在用户的目录（或用户的其他 worktree）时在那里 `git merge --ff-only`，文件随之更新，和任务无关的未提交改动保留；没有检出时只移动分支。变基冲突、源分支被删除、用户目录里未提交的改动（包括未跟踪的同名文件）会被覆盖时，验收失败（400），Run 保持 `delivered`，用户的目录和分支不变，结果留在 worktree 的提交里，错误信息给出提交号或重叠的文件。创建时处于 detached HEAD 的 Run，只在工作目录仍在原来的提交（或上次验收带到的提交）上时快进它，否则同样失败。Janus 的所有 Git 写操作都带 `-c core.hooksPath=/dev/null`，不运行仓库的钩子。worktree 始终 detached。负责人的对话还开着时 worktree 保留，继续对话就接着在里面改，再验收时再带回一个提交；没有会话在用时（例如服务重启后验收）验收后移除。服务启动时（`recover`）移除已验收 Run 留下的 worktree；之后继续这个 Run 时，`resume_run` 从最后一次验收带回的提交（`risk.accepted` 的 `data.commit`，没有就从基线）重建 worktree（`worktrees::ensure`）。
-- **删除 Run**：移除 worktree，还没提交的改动先存成补丁 `<Janus home>/worktrees/deleted/<run>.patch`；取消或失败的 Run 保留 worktree，可以从中断处继续。
+- **删除 Run**：移除 worktree，还没提交的改动先存成补丁 `<Janus home>/worktrees/deleted/<run>.patch`。暂存、读出改动或写补丁任何一步失败时，worktree 和 Run 都保留，删除返回失败原因，排除后再删一次（`worktrees::remove`）。停止的 Run 保留 worktree，可以查看，但不能从中断处继续；失败和中断的 Run 保留 worktree，可以从中断处继续。
+- **工作区是仓库中的一个目录**（例如 `apps/client`）：worktree 仍是整个仓库的，会话从 worktree 里对应的目录开始（`runs.cwd` 是这个目录，worktree 的根是 `<Janus home>/worktrees/<run>`），所以工作区里的相对路径在任务中指向同一个文件。验收、删除和重建都按整个 worktree 进行。
+- **创建失败不留东西**：worktree 建好之后，资源包或图片保存失败时，这次的 worktree 和 `runs/<run>/` 目录一并收回，不留下没有记录的 worktree。
+- **验收的前提**：worktree 必须还在。它被外部删除时验收失败，Run 保持 `delivered`，提示到 `worktrees/deleted/` 找补丁；不会当作「没有改动」验收通过。创建时处于 detached HEAD 的 Run，验收时工作目录必须仍在创建时的提交（或上次验收带到的提交）上，用户切到别的提交（包括父提交）时不动它，提示自己合并。
 - **非 Git 目录**（以及还没有提交的仓库）：负责人和所有任务直接在工作区目录中运行，没有 diff 产物。同一个目录上已有进行中的 Run 时只提醒，不阻止。
 - 一个任务能否修改文件，完全由它的 Agent 权限模式决定，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。负责人和协作者都不提交、不推送；只有用户验收时由 Janus 提交并合并回源分支。Janus 只隔离文件，端口、本机数据库这类共享资源由项目自己避免冲突。
 
@@ -144,7 +147,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 <a id="retry"></a>
 ## 重试、返工与失败
 
-- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、超时、自行取消等，不含验证没通过）后还有剩余次数时，任务回到 `pending`，下一次尝试带上上次失败的原因（`task.retry_scheduled`），新开会话。
+- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、超时、自行取消等，不含验证没通过）后还有剩余次数时，先等 3 秒（`RETRY_AFTER`，即 `Config.retry_after`），让启动失败、连接中断这类短暂的原因过去，再让任务回到 `pending`，下一次尝试带上上次失败的原因（`task.retry_scheduled`），新开会话。等待期间负责人的取消或重试照常生效。
 - 用完次数或验证没通过后任务变为 `failed`（`task.failed`），Run 不停下，由负责人在看板上读到后用 `retry`、`accept`、`cancel` 处理。负责人已经派出了子任务，不自己接手（见[负责人的职责](20261031-goal_mode.md#lead_role)）。被它阻塞的任务不需要重新编排。
 - 只有负责人能让结束的任务再做一次（看板的 [`retry`](../interfaces/20261031-board_mcp.md#retry_tool)）：失败、已取消、被负责人取消的任务，以及已完成但需要返工的任务。重试重新给满尝试次数（`task.reopened`，`reason: "lead.retry"`），依赖它的 `blocked` 任务在它成功后自动恢复。用户想重做某个任务时，给负责人发消息。
 - **会话由负责人每次选择**：`session` 必填，`continue` 回到这个任务自己上一次的会话，`new` 新开会话（`SessionChoice`）。不设默认值，让负责人每次判断原来的上下文还有没有用。一个协作者可以同时有多个会话，每个任务一个；返工回到的是被返工任务自己的会话。
@@ -174,7 +177,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | 情况 | 判断 | `data.reason` |
 | --- | --- | --- |
 | 没有动静 | 尝试的会话 10 分钟（`STALL_AFTER`，即 `Config.stall_after`）没有发出任何更新：文本、思考、工具调用和工具进度都算 | `idle` |
-| 原地打转 | 连续 5 次（`LOOP_REPEAT`）完成同一个调用（`period: 1`，连续次数不受滑窗限制），或在最近 12 次工具调用的滑窗内连续 4 轮重复 2 步交替序列（`ABABABAB`，`period: 2`）、连续 3 轮重复 3 步循环序列（`ABCABCABC`，`period: 3`）。「同一个调用」指工具类型、标题、完整参数（`rawInput`）和调用结果（`rawOutput`、`content` 中的输出和 diff、完成状态）都相同（`call_fingerprint`） | `loop` |
+| 原地打转 | 连续 5 次（`LOOP_REPEAT`）完成同一个调用（`period: 1`，连续次数不受滑窗限制），或在最近 12 次工具调用的滑窗内连续 4 轮重复 2 步交替序列（`ABABABAB`，`period: 2`）、连续 3 轮重复 3 步循环序列（`ABCABCABC`，`period: 3`）。「同一个调用」指工具类型、标题、完整参数（`rawInput`）和调用结果（`rawOutput`、`content` 中的输出和 diff、完成状态）都相同（`call_fingerprint`）。比较输出时，耗时（`0.23s`）和时刻（`12:34:56`）不算区别；冒号后面的数字是文件位置（`parser.rs:42:15`），保留原样，所以修的是不同位置的编译错误时不算原地打转 | `loop` |
 
 规则：
 
@@ -194,6 +197,8 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | --- | --- |
 | 没有可执行任务，且负责人会话异常结束 | Run 失败（`run.failed`），可以从中断处继续 |
 | 没有可执行任务，且负责人目标已结束 | 交付（`run.delivered`），摘要取负责人最后一条回复 |
+| 交付后的对话里，负责人通过看板提交了新任务 | 回到运行，任务完成后再次交付；应用在新任务开始时就不再提供上一次交付的验收 |
+| 已验收的 worktree Run，对话中的一轮改了文件 | 再次交付，等用户再验收，验收时把新改动带回源分支；只是问问结果、没有改文件的一轮不改变验收记录 |
 | 超出预算，且还有未结束的任务 | 等待用户追加预算（`run.budget_exhausted`）。每次进入等待都写一条：回到运行后负责人再加任务、又超出预算时会再次提醒 |
 | 用户暂停，且没有任务在执行 | 暂停 |
 | 其他 | 继续运行 |
@@ -202,7 +207,11 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 交付时 `run.delivered` 的 `data.usage` 是一行用量摘要（token 及完整性、费用状态、墙钟时长），和 Run 页、`task_detail`、`GET /api/runs/{id}/usage` 读同一份账本，见[用量口径](../interfaces/20261031-events.md#usage_accounting)。用量不是交付条件：没有会话上报 token、费用缺失或口径未知时，摘要写「未上报」「部分上报」「口径未知」，Run 照常交付。
 
-交付后负责人的会话不结束，而是保留为常规对话：用户可以直接写下一轮任务，或用 `/goal` 设置新的目标。负责人空闲等消息时不接收看板推送，协作者的提问转给用户；处理一条消息的这一轮里，看板推送和提问照第一个目标处理（见[提问的流转](20261031-goal_mode.md#question_routing)）。它在对话中通过看板提交的新任务会重新启动调度循环，完成后再次交付。服务重启或会话退出后，第一次给负责人发消息会重新打开会话：能 `session/load` 就恢复原会话，否则新建会话，并带上目标、交付摘要和最近的对话。已验收的 Run 也按同样方式恢复，继续工作或再次交付时重新打开。
+交付后负责人的会话不结束，而是保留为常规对话：用户可以直接写下一轮任务，或用 `/goal` 设置新的目标。负责人空闲等消息时不接收看板推送，协作者的提问转给用户；处理一条消息的这一轮里，看板推送和提问照第一个目标处理（见[提问的流转](20261031-goal_mode.md#question_routing)）。它在对话中通过看板提交的新任务会重新启动调度循环，完成后再次交付。
+
+验收要等交付真的定下来：负责人正在处理用户在交付后交代的一轮，或还有等用户回答的请求时，`accept` 返回错误，说明先等它结束或先回答。
+
+服务重启或会话退出后（负责人的 Agent 进程退出时，这个 Run 在没有调度在跑后离开内存），第一次给负责人发消息会重新打开会话：能 `session/load` 就恢复原会话，否则新建会话，并带上目标、交付摘要和最近的对话。已验收的 Run 也按同样方式恢复，继续工作或再次交付时重新打开。
 
 <a id="run_statuses"></a>
 ## Run 状态
@@ -250,6 +259,6 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - 排队但还没送达的消息保留下来。
 - 负责人以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。
 
-`run.failed` 之后同样可以从中断处继续。已交付的 Run 在重启后仍可验收（`accept`），不需要恢复。
+`run.failed` 之后同样可以从中断处继续；停止（`cancelled`）的 Run 不能。恢复后调度照常进行，重启前的暂停不保留（`run.recovered` 之后应用也不再显示暂停）。已交付的 Run 在重启后仍可验收（`accept`），不需要恢复。
 
 用量账本不存数据库表，重启后从事件重算，所以恢复前后的数字相同；取消、失败和过期尝试的用量也照常从事件里读回，见[用量口径](../interfaces/20261031-events.md#usage_accounting)。

@@ -139,6 +139,12 @@ pub(super) fn lead_tools() -> Value {
     ])
 }
 
+/// What one collaborator call may put on the board: enough for any real report, not enough to
+/// flood the database or the lead's context (AT-17). The tools' schemas state them too.
+pub(super) const POST_MAX_CHARS: usize = 8000;
+pub(super) const CLAIM_MAX_PATHS: usize = 100;
+pub(super) const SPLIT_MAX_SUBTASKS: usize = 8;
+
 pub(super) fn member_tools() -> Value {
     json!([{
         "name": "board_post",
@@ -148,7 +154,7 @@ pub(super) fn member_tools() -> Value {
             "required": ["text"],
             "properties": {
                 "kind": { "type": "string", "enum": ["progress", "blocker", "note"] },
-                "text": { "type": "string" }
+                "text": { "type": "string", "maxLength": POST_MAX_CHARS }
             }
         },
         "annotations": board_read()
@@ -159,7 +165,7 @@ pub(super) fn member_tools() -> Value {
             "type": "object",
             "required": ["paths"],
             "properties": {
-                "paths": { "type": "array", "items": { "type": "string" }, "description": "相对工作目录的文件或目录，目录包含其下所有文件" }
+                "paths": { "type": "array", "items": { "type": "string" }, "maxItems": CLAIM_MAX_PATHS, "description": "相对工作目录的文件或目录，目录包含其下所有文件；文件多时认领所在的目录" }
             }
         },
         "annotations": board_read()
@@ -180,6 +186,7 @@ pub(super) fn member_tools() -> Value {
                 "subtasks": {
                     "type": "array",
                     "minItems": 1,
+                    "maxItems": SPLIT_MAX_SUBTASKS,
                     "items": {
                         "type": "object",
                         "required": ["title"],
@@ -259,7 +266,13 @@ pub(super) fn validate_orchestration(
             id,
             title,
             desc: instructions,
-            deps: strings(&t["deps"]),
+            // A dependency named twice is one dependency, not a cycle (AT-06).
+            deps: strings(&t["deps"]).into_iter().fold(vec![], |mut deps, d| {
+                if !deps.contains(&d) {
+                    deps.push(d);
+                }
+                deps
+            }),
             accept,
             assignee,
             max_attempts: MAX_ATTEMPTS,

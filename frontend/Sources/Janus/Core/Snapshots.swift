@@ -10,7 +10,7 @@ import SwiftUI
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
-///     inbox-act <entry>:<action> (clicks a quick answer in the inbox, by position from 0) | density detail|normal|summary | draft <task or agent> <text>
+///     inbox-act <entry>:<action> (clicks a quick answer in the inbox, by position from 0) | density detail|summary | draft <task or agent> <text>
 @MainActor
 enum Snapshots {
     /// The window `shot` pictures when set: the first visible one whose title starts with it.

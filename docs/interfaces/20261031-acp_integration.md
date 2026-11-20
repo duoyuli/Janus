@@ -2,12 +2,27 @@
 
 本文说明 Janus 作为 ACP 客户端，怎样与适配器子进程通信：传输方式、使用的方法、`_meta` 扩展、会话设置和用户请求的回复格式。Agent 类型和权限模式的业务规则见 [Agent、角色与工作区](../domains/20261031-agents_and_roles.md)。
 
+## 导航
+
+- [传输](#transport)：修改适配器进程的启动和结束时阅读。
+- [initialize](#initialize)：修改能力协商时阅读。
+- [使用的方法](#methods)：查 Janus 调用了哪些 ACP 方法时阅读。
+- [`_meta` 扩展](#session_meta)：修改传给适配器的扩展参数时阅读。
+- [系统层：Janus 的说明和用户的长期要求](#standing_instructions)：修改系统层注入的内容时阅读。
+- [会话设置](#session_setup)：修改会话打开后的设置时阅读。
+- [会话中能看到什么](#session_view)：修改会话更新怎样变成事件时阅读。
+- [会话中切换控制项](#session_controls)：修改中途切换模型或模式时阅读。
+- [目标状态](#goal_status)：修改 `/goal` 的状态跟随时阅读。
+- [插话](#steering)：修改插话时阅读。
+- [Claude Code 会话的环境默认值](#background_tasks)：修改 Claude Code 的环境变量时阅读。
+- [用户请求的回复](#user_request_replies)：修改审批、表单的回复时阅读。
+
 <a id="transport"></a>
 ## 传输
 
 - JSON-RPC 2.0 over stdio，每行一个 JSON 对象。帧、请求 id、响应路由和取消由官方 Rust SDK [`agent-client-protocol`](https://github.com/agentclientprotocol/rust-sdk) 处理（稳定 v1）；`backend/src/acp.rs` 负责启动子进程、`initialize`，并把 SDK 收到的通知和请求交给编排器。
 - 每个会话一个子进程：环境变量只来自 Janus 构造的 `RuntimeSpec.env`，不继承 Janus 自己的环境；工作目录是 Run 的工作目录，stderr 写入 `~/.janus/logs/<run>/` 下的日志文件。适配器本身怎样安装和选版本见 [ACP 适配器管理](../architecture/20261031-adapters.md)。
-- 子进程在自己的进程组中运行，结束会话时整组终止。
+- 子进程在自己的进程组中运行，结束会话时整组终止：先向进程组发 `SIGTERM`，5 秒内没退出再向整组发 `SIGKILL`，适配器启动的 Agent 进程不会留下来；之后最多再等 3 秒，卡在内核里退不出的进程不会让关闭会话一直挂着（`AcpConn::kill`）。
 - 单个请求默认 30 分钟超时；进程退出时，所有未完成的请求以「Agent 进程已退出」失败，会话随后收到结束信号。
 
 <a id="initialize"></a>
@@ -102,7 +117,7 @@ Janus 编写的系统层说明和段落标签始终用英文，独立于界面�
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
 | Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_system`、`with_developer_instructions`） |
 
-Janus 记两条 `session.prompt` 事件：Janus 的说明（`channel` 为 `system`）和用户的长期要求（`channel` 为 `instructions`），都带 `via`（`system` 或 `developer`），会话页可以展开查看。
+Janus 把注入的内容记成 `session.prompt` 事件，都带 `via`（`system` 或 `developer`），会话页可以展开查看。Agent Team 的会话记两条：协作指令（`channel` 为 `system`，负责人说明或协作约定，会话页标为「Agent Team 协作指令」）和用户的长期要求（`channel` 为 `instructions`，会话页标为「数字员工的指令」）。对话只记数字员工的指令；新开会话接着之前的对话时，最近的对话另记一条（`channel` 为 `history`，标为「之前的对话」）。
 
 Skill、MCP 和权限模式不属于系统层，它们按各 Agent 自己的机制生效，见[资源库](../domains/20261116-resource_library.md#delivery)。
 

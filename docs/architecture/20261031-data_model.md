@@ -2,6 +2,14 @@
 
 本文说明 Janus 把数据存在哪里：Janus home 的布局、SQLite 表、Run 快照和产物。事件本身的字段和类型见[事件参考](../interfaces/20261031-events.md)，环境变量见[配置](../interfaces/20261031-configuration.md)。
 
+## 导航
+
+- [存储位置](#locations)：找数据库、日志、产物放在哪里时阅读。
+- [SQLite 表](#sqlite_tables)：修改表结构或查询时阅读。
+- [数据升级](#migrations)：改了存储的数据、要加迁移时阅读。
+- [Run 快照](#snapshots)：修改 Run 创建时固定的配置时阅读。
+- [产物](#artifacts)：修改产物的保存和读取时阅读。
+
 <a id="locations"></a>
 ## 存储位置
 

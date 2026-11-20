@@ -12,7 +12,7 @@ struct InboxView: View {
         let inbox = store.inbox
         let open = inbox.open
         let later = inbox.later
-        let working = store.runs.filter { RunStatus($0["status"].str).isActive }
+        let working = store.attention.filter { RunStatus($0["status"].str).isActive }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 SectionHeader(title: L.text("需要你处理"), sub: L.text("所有工作区"), count: open.isEmpty ? nil : open.count)

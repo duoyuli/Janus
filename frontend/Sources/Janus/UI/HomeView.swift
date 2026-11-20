@@ -5,8 +5,6 @@ import SwiftUI
 struct HomeView: View {
     let store: AppStore
     let ws: JSON
-    /// Every task record of the workspace, read a page at a time as the list scrolls.
-    @Local private var history: RunPager?
 
     private let suggestions = [
         (L.text("新功能上线"), L.text("为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明")),
@@ -19,7 +17,7 @@ struct HomeView: View {
         let problems = Self.problems(members.map(\.1), connection: store.connection)
         let runs = store.runs(of: ws)
         // Runs waiting on the person, the same as the inbox: any run with something waiting on them.
-        // Below them, every task record of this workspace, newest first (`history`).
+        // Below them, every task record of this workspace, newest first (`WorkspaceHistory`).
         let waiting = runs.filter { r in store.inbox.open.contains { $0.run == r["id"].str } }
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -74,25 +72,12 @@ struct HomeView: View {
                     }
                 }
 
-                if let history, !history.runs.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(L.text("任务记录")).font(.headline)
-                        RunRows(store: store, runs: history.runs, dated: true) { Task { await history.loadMore() } }
-                        if history.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
-                    }
-                }
+                WorkspaceHistory(store: store, workspace: ws["id"].str)
             }
             .padding(24)
             .frame(maxWidth: 820, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .task {
-            let pager = RunPager(query: "workspace=\(ws["id"].str.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", api: store.api)
-            history = pager
-            await pager.refresh()
-        }
-        // The run list is polled every few seconds; the history follows it.
-        .onChange(of: store.runs) { Task { await history?.refresh() } }
     }
 
     /// The team in one line; models, permissions and tools are in the workspace settings.
@@ -183,6 +168,57 @@ struct HomeView: View {
         let images = store.goalImages
         guard !goal.isEmpty || !images.isEmpty, problems.isEmpty else { return }
         Task { await store.createRun(goal: goal, workspace: ws["id"].str, images: images) }
+    }
+}
+
+/// Every task record of a workspace, newest first, read a page at a time as the list scrolls; it
+/// follows the run list, which the global stream keeps current. Also the page of a deleted
+/// workspace, whose runs stay.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+struct WorkspaceHistory: View {
+    let store: AppStore
+    let workspace: String
+    @Local private var history: RunPager?
+
+    var body: some View {
+        Group {
+            if let history, !history.runs.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L.text("任务记录")).font(.headline)
+                    RunRows(store: store, runs: history.runs, dated: true) { Task { await history.loadMore() } }
+                    if history.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
+                }
+            }
+        }
+        .task(id: workspace) {
+            let pager = RunPager(query: "workspace=\(workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", api: store.api)
+            history = pager
+            await pager.refresh()
+        }
+        .onChange(of: store.runs) { Task { await history?.refresh() } }
+    }
+}
+
+/// A workspace that was deleted but whose runs stay: its name and folder as the runs recorded them,
+/// and every one of its task records, to open, review or delete.
+struct PastWorkspaceView: View {
+    let store: AppStore
+    let ws: JSON
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ws["name"].str.isEmpty ? L.text("已删除的工作区") : ws["name"].str).font(.display(.largeTitle))
+                    Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                Note(text: L.text("这个工作区已经删除，下面是它留下的任务记录，可以打开查看、继续对话或删除。要在这个目录里提交新目标，新建一个工作区。"))
+                WorkspaceHistory(store: store, workspace: ws["id"].str)
+            }
+            .padding(24)
+            .frame(maxWidth: 820, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
     }
 }
 
@@ -413,7 +449,7 @@ struct WorkspaceEditor: View {
     }
 
     private func remove() {
-        guard confirm(L.text("删除工作区「\(original["name"].str)」？"), L.text("已有的任务记录会保留。"), ok: L.text("删除")) else { return }
+        guard confirm(L.text("删除工作区「\(original["name"].str)」？"), L.text("已有的任务记录会保留，在侧栏的 Agent Team 里仍能找到。"), ok: L.text("删除")) else { return }
         Task {
             do {
                 try await store.delete("workspaces", original["id"].str)

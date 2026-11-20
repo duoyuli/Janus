@@ -34,18 +34,23 @@ struct ChatsView: View {
                             }
                         }
                         .disabled(starting != nil)
-                        Button { if let chosen { start(chosen) } } label: {
-                            HStack(spacing: 6) {
-                                if starting != nil { ProgressView().controlSize(.small) }
-                                Text(starting != nil ? L.text("正在打开…") : chosen.map { L.text("和 \($0["name"].str) 开始对话") } ?? L.text("开始对话"))
+                        // Under the cards' right edge, where the eye ends after picking one.
+                        HStack {
+                            Spacer()
+                            Button { if let chosen { start(chosen) } } label: {
+                                HStack(spacing: 6) {
+                                    if starting != nil { ProgressView().controlSize(.small) }
+                                    Text(starting != nil ? L.text("正在打开…") : chosen.map { L.text("和 \($0["name"].str) 开始对话") } ?? L.text("开始对话"))
+                                }
+                                .frame(minWidth: 160)
                             }
-                            .frame(minWidth: 160)
+                            .buttonStyle(.primary)
+                            .controlSize(.large)
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(chosen == nil || starting != nil)
+                            .help(chosen == nil ? L.text("没有可以运行的数字员工") : L.text("打开会话，带上数字员工的指令，然后由你先说（↩）"))
                         }
-                        .buttonStyle(.primary)
-                        .controlSize(.large)
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(chosen == nil || starting != nil)
-                        .help(chosen == nil ? L.text("没有可以运行的数字员工") : L.text("打开会话，注入数字员工的指令，然后由你先说（↩）"))
+                        .padding(.top, 10)
                     }
                 }
                 .padding(24)

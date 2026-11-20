@@ -21,12 +21,15 @@ use std::collections::{HashMap, HashSet};
 pub fn read_owns(v: &Value, label: &str, errors: &mut Vec<String>) -> Vec<String> {
     let mut out: Vec<String> = vec![];
     for raw in v.as_array().into_iter().flatten().filter_map(|x| x.as_str()) {
-        let p = raw.trim().trim_start_matches("./").trim_end_matches('/').to_string();
-        if p.is_empty() {
+        let raw_path = raw.trim();
+        // One spelling per path: `src/./a.rs` and `src//a.rs` are `src/a.rs` (AT-09).
+        let parts: Vec<&str> = raw_path.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
+        if raw_path.starts_with('/') || parts.contains(&"..") {
+            errors.push(format!("{label}：owns 里的 `{raw}` 不在工作目录内，写相对工作目录的路径"));
             continue;
         }
-        if p.starts_with('/') || p.split('/').any(|s| s == "..") {
-            errors.push(format!("{label}：owns 里的 `{raw}` 不在工作目录内，写相对工作目录的路径"));
+        let p = parts.join("/");
+        if p.is_empty() {
             continue;
         }
         if !out.contains(&p) {
@@ -41,9 +44,11 @@ pub fn overlaps(a: &str, b: &str) -> bool {
     covers(a, b) || covers(b, a)
 }
 
-/// `path` is `owned` or lies under it.
+/// `path` is `owned` or lies under it. Letter case does not tell two paths apart: on macOS's
+/// usual file system `src/Utils.rs` and `src/utils.rs` are the same file (AT-09).
 pub fn covers(owned: &str, path: &str) -> bool {
-    path.strip_prefix(owned).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    let (owned, path) = (owned.to_lowercase(), path.to_lowercase());
+    path.strip_prefix(&owned).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Check the team structure of the new tasks against each other and against the open tasks
@@ -312,6 +317,10 @@ mod tests {
         assert_eq!(e.len(), 3, "{e:?}");
         assert!(overlaps("src", "src/a.rs") && overlaps("src/a.rs", "src") && overlaps("a", "a"));
         assert!(!overlaps("src", "src2/a.rs") && !overlaps("src/a.rs", "src/b.rs"));
+        // Other spellings of the same file (AT-09).
+        let owns = read_owns(&json!(["src/./parser.rs", "src//parser.rs", "lib/"]), "子任务 T2", &mut e);
+        assert_eq!(owns, vec!["src/parser.rs", "lib"]);
+        assert!(overlaps("src/Utils.rs", "src/utils.rs") && overlaps("SRC", "src/a.rs"));
     }
 
     #[test]

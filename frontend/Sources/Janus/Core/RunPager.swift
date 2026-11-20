@@ -35,8 +35,16 @@ final class RunPager {
     func refresh() async {
         guard let page = try? await fetch(path(limit: max(pageSize, runs.count), cursor: nil)) else { return }
         let fresh = page["runs"].array
-        if fresh != runs { runs = fresh }
-        next = page["next"].string
+        var merged = fresh, cursor = page["next"].string
+        // One request reads at most 500: what was read further down stays, after the refreshed
+        // part, and the next page is still the one after it (FL-20).
+        if cursor != nil, let last = fresh.last?["id"].str, let i = runs.firstIndex(where: { $0["id"].str == last }), i + 1 < runs.count {
+            let seen = Set(fresh.map { $0["id"].str })
+            merged += runs[(i + 1)...].filter { !seen.contains($0["id"].str) }
+            cursor = next
+        }
+        if merged != runs { runs = merged }
+        next = cursor
         loaded = true
     }
 

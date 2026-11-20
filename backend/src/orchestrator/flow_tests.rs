@@ -6,8 +6,10 @@ use super::*;
 
 // Newer flows live in their own files under `orchestrator/flow_tests/`, so this file stops growing.
 mod actions;
+mod board_rules;
 mod chats;
 mod collaboration;
+mod delivery;
 mod evidence;
 mod library_router;
 mod owners;

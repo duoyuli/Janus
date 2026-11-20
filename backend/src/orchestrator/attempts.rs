@@ -20,6 +20,18 @@ impl App {
         if let Err(err) = result {
             let msg = format!("{err:#}");
             let verification = err.downcast_ref::<VerificationFailed>().is_some();
+            // An attempt that will be tried again waits a moment first, still holding its task: a
+            // cancel or retry by the lead meanwhile is seen below as usual (AT-10).
+            let retrying = !verification && {
+                let st = run.st.lock().unwrap();
+                !st.cancelled()
+                    && st.tasks.iter().any(|t| {
+                        t.def.id == id && t.on_attempt(attempt_id) && t.attempts - t.retry_base < t.def.max_attempts
+                    })
+            };
+            if retrying && !self.cfg.retry_after.is_zero() {
+                tokio::time::sleep(self.cfg.retry_after).await;
+            }
             // Decide under one lock whether this attempt still owns its task, and settle the task
             // in the same step: a cancel or retry by the lead in between must not be overwritten.
             enum Next {
@@ -379,10 +391,10 @@ impl App {
         let prompt = if resumed {
             format!(
                 "编排器中断后，这个会话已经恢复。请从中断的地方继续完成原来的子任务，完成后按最初的要求以 ```json 结构化结果结束。{}",
-                self.take_notes(run, &agent)
+                self.take_notes(run, &agent, Some(id))
             )
         } else {
-            let notes = self.take_notes(run, &agent);
+            let notes = self.take_notes(run, &agent, Some(id));
             match (&followup_from, &reopen) {
                 // Back in its own session, the agent has the task and what it did: only what is
                 // new goes in.
@@ -446,7 +458,7 @@ impl App {
 
         let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
         self.show(run, ("session.controls", "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
-        self.record_system(run, &ctx, &sid, &channel, "向协作者注入协作约定", &rules);
+        self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &rules);
         self.record_instructions(run, &ctx, &sid, &channel, &standing);
         self.watch_session(run, &owner.session, n);
         let mut next = Some(prompt);
@@ -690,6 +702,7 @@ impl App {
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), id) {
             t.last_success_seq = Some(seq);
         }
+        self.recheck_verifications(run, id, n, seq);
         // The event above is the fact; a failed bookkeeping write must not turn it into a retry.
         if let Err(err) = self.db.update_attempt(
             &run.id,
@@ -706,15 +719,18 @@ impl App {
     /// Stop an attempt whose run was cancelled, even if the cancel reached it while it was not
     /// listening (between turns or during verification).
     pub(super) fn check_aborted(&self, run: &Run, id: &str, ctl: &mut Control) -> Result<()> {
+        // The lead's replies are about this task; the person's messages are for the agent.
         let mut late = vec![];
         while let Ok(cmd) = ctl.rx.try_recv() {
-            if let Steer::Message(m) | Steer::Redirect(m) = cmd {
-                late.push(m);
+            match cmd {
+                Steer::Redirect(m) => late.push(Note::new(m, id)),
+                Steer::Message(m) => late.push(Note::new(m, "")),
+                _ => {}
             }
         }
         if let Some(agent) = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == id).map(|t| t.agent.clone()) {
-            for m in &late {
-                self.route_message(run, &agent, id, 0, &m.id, Delivery::Next);
+            for n in &late {
+                self.route_message(run, &agent, id, 0, &n.msg.id, Delivery::Next);
             }
         }
         let mut st = run.st.lock().unwrap();

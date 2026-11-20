@@ -38,3 +38,19 @@ import Testing
     #expect(pager.runs.first?["id"].str == "r999")
     #expect(fake.asked.last?.contains("limit=120") == true, "what is shown is read again in one request")
 }
+
+/// Past 500 rows a refresh reads the first 500 again and keeps the rest it had, so the list does not
+/// shrink, and scrolling on still reaches the end (FL-20).
+@MainActor @Test func aRefreshKeepsWhatWasReadPast500() async {
+    let fake = FakeRuns(600)
+    let pager = RunPager(query: "kind=chat", pageSize: 50) { try await fake.get($0) }
+    await pager.refresh()
+    for _ in 0..<10 { await pager.loadMore() }
+    #expect(pager.runs.count == 550)
+    await pager.refresh()
+    #expect(pager.runs.count == 550, "nothing read is dropped")
+    #expect(fake.asked.last?.contains("limit=500") == true)
+    await pager.loadMore()
+    #expect(pager.runs.count == 600 && !pager.more)
+    #expect(pager.runs.map { $0["id"].str } == fake.ids)
+}

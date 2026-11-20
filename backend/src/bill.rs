@@ -250,4 +250,36 @@ mod tests {
         assert_eq!(priced.agents[1].estimate, Some(opus));
         let _ = std::fs::remove_file(path);
     }
+
+    /// A session that never reported usage still counts in the period's bill, as not reported,
+    /// the way the run's own ledger counts it (FL-16).
+    #[test]
+    fn a_session_that_reported_nothing_counts_as_not_reported() {
+        let path = std::env::temp_dir().join(format!("janus-bill-silent-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let db = Db::open(&path).unwrap().0;
+        db.insert_run("r1", RunKind::Chat, "", "/tmp", &team(), 0).unwrap();
+        let t = 10 * DAY_MS;
+        for e in [
+            ev(1, t, "run.created", "user", None, None, json!({ "kind": "chat" })),
+            ev(2, t + 1, "agent.status", "lead", None, None, json!({ "phase": "thinking", "session": "s1" })),
+            ev(
+                3,
+                t + 2,
+                "session.prompt",
+                "janus",
+                Some("lead"),
+                None,
+                json!({ "channel": "followup", "session": "s1", "prompt": "你好" }),
+            ),
+            ev(4, t + 3, "agent.message", "lead", None, None, json!({ "text": "回复" })),
+        ] {
+            db.insert_event(&e).unwrap();
+        }
+        let ledger = crate::usage::ledger(&db.events("r1", 0).unwrap());
+        let bill = period(&db, t - DAY_MS, t + DAY_MS, 0, None).unwrap();
+        assert_eq!(ledger.sessions.len(), 1, "the run's own ledger has the session");
+        assert_eq!((bill.sessions, bill.unreported_sessions), (1, 1), "and so does the bill, as not reported");
+        let _ = std::fs::remove_file(path);
+    }
 }

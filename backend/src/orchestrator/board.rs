@@ -178,6 +178,7 @@ impl App {
         run: &Arc<Run>,
         args: &Value,
     ) -> std::result::Result<String, String> {
+        let _one_at_a_time = run.orchestrating.lock().unwrap();
         let defs = {
             let st = run.st.lock().unwrap();
             let board: Vec<(TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (t.def.clone(), t.status())).collect();
@@ -215,19 +216,28 @@ impl App {
                 obj
             })
             .collect();
-        let (n, planned) = {
-            let mut st = run.st.lock().unwrap();
-            let planned = run.seq.load(Ordering::SeqCst);
-            for d in &defs {
-                st.tasks.push(Task::new(d.clone(), d.assignee.clone(), planned));
-            }
-            (st.tasks.len(), planned)
-        };
-        self.emit(
+        // The record comes first: tasks go on the board only once their orchestration is in the
+        // log, which is what a restart rebuilds the board from (FL-08).
+        // @project-doc docs/interfaces/20261031-board_mcp.md#orchestrate
+        let planned = run.seq.load(Ordering::SeqCst);
+        let n = run.st.lock().unwrap().tasks.len() + defs.len();
+        let kept = self.emit_kept(
             run,
             ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个子任务写入看板，开始执行", defs.len()))
                 .data(json!({ "tasks": tasks, "total": n, "plannedSeq": planned })),
         );
+        if kept.is_none() {
+            return Err(
+                "编排没有写进事件日志（Janus 的数据库写入失败），所以没有生效，没有子任务开始。稍后重试同一份编排。"
+                    .into(),
+            );
+        }
+        {
+            let mut st = run.st.lock().unwrap();
+            for d in &defs {
+                st.tasks.push(Task::new(d.clone(), d.assignee.clone(), planned));
+            }
+        }
         // After delivery the scheduler has returned; new work written in a conversation starts it again.
         self.ensure_driver(run);
         run.wake.notify_one();
@@ -362,7 +372,7 @@ impl App {
             }
             None => {
                 self.route_message(run, &agent, task, 0, &msg.id, Delivery::Next);
-                run.st.lock().unwrap().notes.entry(agent.clone()).or_default().push(msg);
+                run.st.lock().unwrap().notes.entry(agent.clone()).or_default().push(Note::new(msg, task));
                 Ok(format!("{task} 现在没有在执行，消息会在 {agent} 下一次开始工作时带给它。"))
             }
         }
@@ -604,6 +614,7 @@ impl App {
         if let Some(t) = Run::task_mut(&mut run.st.lock().unwrap(), task) {
             t.last_success_seq = Some(seq);
         }
+        self.recheck_verifications(run, task, submitted.attempt.unwrap_or(0), seq);
         run.wake.notify_one();
         Ok(format!("已接受 {task} 的结果，依赖它的子任务会继续。"))
     }
@@ -658,6 +669,67 @@ impl App {
             })
             .collect();
         Ok(json!({ "runs": runs.len(), "roles": roles }))
+    }
+
+    /// `task` has a new result (attempt `n`, recorded at `seq`). A verification's conclusion is
+    /// about one result of its target, so: verifications of `task` that concluded before this result
+    /// check it again, and when `task` is itself a verification whose attempt began before its
+    /// target's current result, or whose target is being reworked, it checks again once the target
+    /// is done. Each is reopened as the lead's `retry` reopens one (`target.reworked`), so a restart
+    /// rebuilds it, and its conclusion on the earlier result stays in the log.
+    // @project-doc docs/domains/20261031-goal_mode.md#team_structure
+    pub(super) fn recheck_verifications(&self, run: &Arc<Run>, task: &str, n: i64, seq: i64) {
+        let started = self
+            .db
+            .events(&run.id, 0)
+            .unwrap_or_default()
+            .iter()
+            .rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(task) && e.attempt == Some(n))
+            .map_or(0, |e| e.seq);
+        let reopened: Vec<(String, String)> = {
+            let mut st = run.st.lock().unwrap();
+            let mut stale: Vec<(String, String)> = st
+                .tasks
+                .iter()
+                .filter(|v| v.def.verifies.as_deref() == Some(task) && v.def.id != task)
+                .filter(|v| v.status() == TaskStatus::Succeeded && v.last_success_seq.is_some_and(|s| s < seq))
+                .map(|v| (v.def.id.clone(), task.to_string()))
+                .collect();
+            let own = st.tasks.iter().find(|t| t.def.id == task).and_then(|t| t.def.verifies.clone());
+            if let Some(target) = own
+                && let Some(tt) = st.tasks.iter().find(|t| t.def.id == target)
+                && (tt.status() != TaskStatus::Succeeded || tt.last_success_seq.is_some_and(|s| s > started))
+            {
+                stale.push((task.to_string(), target));
+            }
+            for (id, target) in &stale {
+                let v = Run::task_mut(&mut st, id).expect("listed above");
+                v.set_phase(TaskPhase::Pending);
+                v.retry_base = v.attempts;
+                v.reopen = Some(Reopen::Reverify { target: target.clone() });
+                v.trace_gaps.clear();
+                v.amendments.clear();
+                if !v.def.deps.iter().any(|d| d == target) {
+                    v.def.deps.push(target.clone());
+                }
+            }
+            stale
+        };
+        for (id, target) in &reopened {
+            self.emit(
+                run,
+                ev(
+                    "task.reopened",
+                    "janus",
+                    format!("{id} 的结论针对 {target} 之前的结果，在 {target} 的新结果上重新验证"),
+                )
+                .task(id)
+                .data(json!({ "reason": ReopenReason::TargetReworked.as_str(), "target": target })),
+            );
+        }
+        if !reopened.is_empty() {
+            run.wake.notify_one();
+        }
     }
 
     /// Tell the running tasks that took a result it changed, as a message from the lead into
@@ -1130,6 +1202,11 @@ impl App {
         if text.is_empty() {
             return Err("text 不能为空".into());
         }
+        if text.chars().count() > POST_MAX_CHARS {
+            return Err(format!(
+                "text 超过 {POST_MAX_CHARS} 个字符。看板消息写结论和要负责人知道的事，长内容写进文件，在消息里给出路径"
+            ));
+        }
         let kind = match args["kind"].as_str().unwrap_or("progress") {
             k @ ("progress" | "blocker" | "note") => k,
             other => return Err(format!("kind 只能是 progress、blocker 或 note，不能是 {other}")),
@@ -1169,6 +1246,9 @@ impl App {
         }
         if paths.is_empty() {
             return Err("paths 不能为空：写相对工作目录的文件或目录".into());
+        }
+        if paths.len() > CLAIM_MAX_PATHS {
+            return Err(format!("一次最多认领 {CLAIM_MAX_PATHS} 个路径；文件多时认领它们所在的目录"));
         }
         let (agent, fresh) = {
             let mut guard = run.st.lock().unwrap();
@@ -1215,6 +1295,9 @@ impl App {
         let Some(items) = args["subtasks"].as_array().filter(|a| !a.is_empty()) else {
             return Err("subtasks 必须是非空数组".into());
         };
+        if items.len() > SPLIT_MAX_SUBTASKS {
+            return Err(format!("一次最多建议 {SPLIT_MAX_SUBTASKS} 个子任务"));
+        }
         let agent = {
             let st = run.st.lock().unwrap();
             let me = st.tasks.iter().find(|t| t.def.id == task).ok_or_else(|| format!("看板上没有子任务 {task}"))?;
@@ -1303,13 +1386,15 @@ pub(super) fn session_token(run_token: &str, who: &str) -> String {
     Sha256::digest(format!("{run_token}\0{who}").as_bytes())[..16].iter().map(|x| format!("{x:02x}")).collect()
 }
 
-pub(super) fn random_token() -> String {
+/// The run's board secret, from the system's random source. Without one there is no secret
+/// worth the name, so the session does not start (AT-18).
+pub(super) fn random_token() -> Result<String> {
     use std::io::Read;
     let mut b = [0u8; 16];
-    if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_err() {
-        b.copy_from_slice(&Sha256::digest(format!("{}-{}", now_ms(), std::process::id()).as_bytes())[..16]);
-    }
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .context("读取系统随机数失败，无法生成看板令牌")?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 #[derive(Default)]

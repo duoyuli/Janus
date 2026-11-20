@@ -179,7 +179,10 @@ impl App {
     pub fn delete_connection(&self, id: &str) -> Result<()> {
         // The id names the folder removed below.
         check_id(id)?;
-        let busy = self.runs.lock().unwrap().values().any(|r| r.team.iter().any(|m| m.runtime == id));
+        // A run holds the connection while it works or keeps a session open; one that was stopped
+        // and has none left does not, though it stays in memory until the service restarts.
+        let busy =
+            self.runs.lock().unwrap().values().any(|r| r.team.iter().any(|m| m.runtime == id) && r.holds_agents());
         if busy {
             bail!("有正在运行的子任务在使用这个 Provider，请等它结束或取消后再删除");
         }

@@ -9,7 +9,8 @@ reasoning, unverified, and three pieces of task-level evidence), "badmethod" (re
 `method: "vibes"`, which the result check must refuse), "permission" (asks session/request_permission
 with three options), "elicit" (asks elicitation/create with a form), "loop" (makes the same tool call five times
 before its result), "progress" (edits one file and runs tests in turn, then edits it five more times, every
-call with a different diff or output), "ask" (ends the turn with a question; the answer comes back as the next prompt) or "rich" (thinks,
+call with a different diff or output), "ask" (ends the turn with a question; the answer comes back as the next prompt), "hold:<file>"
+(stays at work until FAKE_DIR/<file> exists, then approves) or "rich" (thinks,
 publishes a plan and its slash commands, runs a tool that stays in progress for a moment and then reports a file diff,
 reports its context usage and switches its own mode; the prompt response carries token usage). The last outcome repeats.
 Usage outcomes (for the read-only ledger): "usage" reports three context snapshots and a cost, and its prompt response
@@ -26,8 +27,10 @@ exists and ends with the text of that file.
 With a `mute` file in FAKE_DIR it never answers `initialize`, like an agent that hangs at startup.
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
-A chat with one digital employee (its brief says "talking with the user directly") logs "chat brief <cwd>" and
-answers every prompt "回复：<prompt>".
+A prompt that is not a task's and names "[write <file>]" appends to that file in the session's directory and ends
+the turn (a lead asked for more work after delivery).
+A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
+prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
 A session's task and criteria are kept in FAKE_DIR (`session-<id>.json`), so a session loaded after a restart
 continues its task. Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
@@ -184,6 +187,8 @@ def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
     if sid in CHATS:
+        if "[slow]" in text and wait_cancel(600):
+            return {"stopReason": "cancelled"}
         say(sid, "回复：" + text)
         return {"stopReason": "end_turn"}
     if text.startswith("[Janus] 你的这一轮已经结束"):
@@ -204,6 +209,13 @@ def prompt(msg):
             if wait_cancel(0.2):
                 return {"stopReason": "cancelled"}
         say(sid, open(go).read())
+        return {"stopReason": "end_turn"}
+    w = re.search(r"\[write (\S+)\]", text)
+    if w and not re.search(r"你的子任务 (\S+)：", text):
+        # A follow-up asking for a file: written in the session's directory, the turn ends.
+        with open(w.group(1), "a") as f:
+            f.write("follow-up\n")
+        say(sid, f"已写 {w.group(1)}")
         return {"stopReason": "end_turn"}
     m = re.search(r"你的子任务 (\S+)：", text)
     known = remembered(sid)
@@ -337,6 +349,14 @@ def prompt(msg):
                 "evidence": ["cargo test parse_empty panic"], "risks": ["空输入直接崩溃"], "question": None}
         say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
         return {"stopReason": "end_turn", "usage": tokens(800)}
+    if outcome.startswith("hold:"):
+        # Stays at work until FAKE_DIR/<name> exists, then approves (a verification still running
+        # while its target is reworked).
+        gate = os.path.join(DIR, outcome.split(":", 1)[1])
+        while not os.path.exists(gate):
+            if wait_cancel(0.2):
+                return {"stopReason": "cancelled"}
+        outcome = "approve"
     if outcome == "approve":
         checks = [{"criterion": c, "passed": True, "method": "test", "evidence": "运行 cargo test 全部通过"}
                   for c in CRITERIA.get(sid, [])]
@@ -395,12 +415,13 @@ CHATS = set()  # session ids of chats with one digital employee: their prompts a
 
 def log_brief(params):
     """A lead's brief arrives in the system layer: Claude Code's `_meta.systemPrompt.append`. A chat's
-    brief is logged with the session's working directory ("chat brief <cwd>")."""
+    session is logged with its working directory ("chat session <cwd>")."""
     system = ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
     if "janus.orchestrate" in system:
         log("brief ok" + (" resumed" if "Resuming after an interruption." in system else ""))
-    if "talking with the user directly" in system:
-        log("chat brief " + params.get("cwd", ""))
+    if "/chats/" in params.get("cwd", ""):
+        # A chat: Janus adds no instructions of its own; the role's, if any, follow.
+        log("chat session " + params.get("cwd", "") + (" janus-brief" if "There is no team" in system else ""))
         return True
     return False
 

@@ -140,3 +140,64 @@ async fn the_person_is_reminded_before_a_run_starts() {
     assert!(warnings.len() == 1 && warnings[0].contains("正在运行的任务"), "{warnings:?}");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A run that fails to be created after its worktree was made (an image that is not one) leaves
+/// nothing behind: no worktree in the repository, no directory under Janus home.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_that_fails_to_start_leaves_no_worktree() {
+    let h = harness("wt-failed-create", &[("lead", false), ("m1", false)], json!({}));
+    let count = || {
+        let out = std::process::Command::new("git").args(["worktree", "list"]).current_dir(&h.repo).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).lines().count()
+    };
+    let before = count();
+    for _ in 0..2 {
+        let bad = NewRun {
+            goal: "带一张坏图".into(),
+            workspace: "ws".into(),
+            images: vec![json!({ "data": "not base64!", "name": "x.png" })],
+            ..Default::default()
+        };
+        assert!(h.app.create_run(bad).await.is_err());
+    }
+    assert_eq!(count(), before, "git has no worktree left from the failed runs");
+    let left: Vec<_> = std::fs::read_dir(h.app.cfg.data_dir.join("worktrees"))
+        .map(|d| d.flatten().map(|e| e.file_name()).filter(|n| n != "deleted").collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "no worktree directory left: {left:?}");
+    assert!(h.app.db.runs(RunKind::Goal).unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A workspace that is a folder of a repository (`apps/client`): the worktree is of the whole
+/// repository, sessions start in that folder of it, so the folder's own files are where its paths
+/// say; accepting brings the result back into the folder, and deleting removes the whole worktree
+/// (FL-09).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_workspace_folder_inside_a_repository_is_where_sessions_start() {
+    let h = harness("wt-subdir", &[("lead", false), ("m1", true)], json!({ "T1": ["write:notes.md"] }));
+    let sub = h.repo.join("apps/client");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("local.md"), "client\n").unwrap();
+    sh(&h.repo, &["add", "-A"]);
+    sh(&h.repo, &["commit", "-q", "-m", "client"]);
+    let mut ws = h.app.workspace("ws").unwrap();
+    ws["path"] = json!(sub.canonicalize().unwrap());
+    h.app.db.put_config("workspace", "ws", &ws, now_ms()).unwrap();
+
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    let cwd = cwd_of(&h, &run);
+    assert!(cwd.ends_with("apps/client"), "{}", cwd.display());
+    assert!(cwd.join("local.md").exists(), "the folder's own file is where its path says");
+    wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
+    assert!(cwd.join("notes.md").exists(), "the task writes in the folder");
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    act(&h, &run, json!({ "type": "accept" }));
+    assert!(sub.join("notes.md").exists(), "accepting brings it back into the folder");
+
+    h.app.delete_run(&run).await.unwrap();
+    assert!(!h.app.cfg.data_dir.join("worktrees").join(&run).exists(), "the whole worktree goes");
+    assert_eq!(git_out(&h.repo, &["worktree", "list"]).lines().count(), 1);
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

@@ -376,3 +376,26 @@ async fn servers_are_prepared_when_added() {
     assert!(warm(&probe.id).is_null());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// For a run already at work, the library decides how its servers run and whether they still
+/// exist: a server deleted from the library is no longer listed or started (FL-07).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_deleted_from_the_library_is_gone_from_running_runs() {
+    let h = harness("library-router-deleted", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"] }));
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
+    let config = json!({ "mcpServers": { "probe": { "command": "python3", "args": [script] } } });
+    h.app.import_mcp_config(&config.to_string()).await.unwrap();
+    let probe = h.app.items().unwrap().into_iter().find(|i| i.name == "probe").unwrap();
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    let lead = router_url(&h, "lead").await;
+    assert!(listed(&h, &lead).await.iter().any(|t| t.starts_with("probe__")));
+    assert_eq!(text(&tool(&h, &lead, "probe__echo", json!({ "text": "hi" })).await), "hi");
+
+    h.app.delete_item(&probe.id).await.unwrap();
+    assert!(!listed(&h, &lead).await.iter().any(|t| t.starts_with("probe__")), "no longer listed");
+    let after = tool(&h, &lead, "probe__echo", json!({ "text": "hi" })).await;
+    assert!(after["isError"] == true, "not started again: {after}");
+    let r = h.app.run(&run).unwrap();
+    h.app.action(&r, &json!({ "type": "cancel" })).unwrap();
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

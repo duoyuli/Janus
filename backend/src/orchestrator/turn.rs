@@ -273,18 +273,20 @@ impl App {
                 let finish = matches!(cmd, Steer::Finish);
                 conn.notify("session/cancel", json!({ "sessionId": sid })).await?;
                 c.interrupted = true;
+                // A chat has no takeover: stopping its turn leaves it waiting for the next message.
+                let chat = run.kind == RunKind::Chat;
                 if finish {
                     c.set_hold(run, Hold::Finish);
-                } else if !c.held_by_person() {
+                } else if !chat && !c.held_by_person() {
                     c.set_hold(run, Hold::Person);
                 }
+                let name = run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent);
                 let text = if finish {
-                    format!(
-                        "停止 {} 这一轮，并以当前结果完成子任务",
-                        run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent)
-                    )
+                    format!("停止 {name} 这一轮，并以当前结果完成子任务")
+                } else if chat {
+                    format!("停止 {name} 这一轮")
                 } else {
-                    format!("打断 {} 这一轮，转为人工接管", run.member(agent).map(|m| m.name.as_str()).unwrap_or(agent))
+                    format!("打断 {name} 这一轮，转为人工接管")
                 };
                 self.emit(
                     run,

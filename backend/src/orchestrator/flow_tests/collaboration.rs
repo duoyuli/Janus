@@ -1128,3 +1128,48 @@ async fn ending_a_held_session_is_on_record_for_the_lead() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A verification still running when the lead reworks its target concludes on the old result; it
+/// is not taken for the new one: it checks again once the rework is done, and the delivery shows
+/// the verdict of that second check (FL-04).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_verification_of_an_old_result_checks_again_after_the_rework() {
+    let h = harness(
+        "collab-stale-verdict",
+        &[("lead", false), ("m1", true), ("m2", false)],
+        json!({ "T1": ["write:a.txt", "write:a.txt"], "V1": ["hold:v1-go", "approve"] }),
+    );
+    let run = start(
+        &h,
+        json!([
+            task("T1", "m1", json!({ "owns": ["a.txt"] })),
+            task("V1", "m2", json!({ "verifies": "T1", "accept": ["a.txt 正确"] }))
+        ]),
+    )
+    .await;
+    wait_until(&h.app, &run, "V1 at work on the first result", |e| task_event(e, "attempt.started", "V1")).await;
+    let (text, err) =
+        tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "new", "note": "再补一行" })).await;
+    assert!(!err, "{text}");
+    // V1 approves what it saw, the first result, while T1 is being reworked.
+    std::fs::write(h.dir.join("fake/v1-go"), "").unwrap();
+    wait_until(&h.app, &run, "V1 checks again after T1's rework", |evs| {
+        let started = evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("V1")).count();
+        started == 2 && task_event(evs, "task.succeeded", "V1")
+    })
+    .await;
+    let evs = events(&h.app, &run);
+    let t1_done = evs.iter().rfind(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1")).unwrap().seq;
+    let v1_second =
+        evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("V1")).nth(1).unwrap().seq;
+    assert!(v1_second > t1_done, "the second check starts after the reworked result exists");
+    assert!(
+        evs.iter().any(|e| e.kind == "task.reopened"
+            && e.task.as_deref() == Some("V1")
+            && e.data.as_ref().is_some_and(|d| d["reason"] == "target.reworked")),
+        "the reopen is on record, so a restart rebuilds it"
+    );
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

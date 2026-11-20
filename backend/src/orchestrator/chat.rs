@@ -75,27 +75,17 @@ impl App {
     }
 }
 
-/// What Janus tells a chat's agent in its system layer: who it is talking to and where it works,
-/// and, when the chat goes on in a new session, what was said so far.
+/// What Janus adds to a chat's system layer: nothing of its own, since a chat's agent works only by
+/// the digital employee's instructions (the standing ones that follow), and not by Janus's teamwork
+/// rules, which are for an Agent Team. Only a chat that goes on in a new session (its old one could
+/// not be loaded) gets what was said so far, so it knows where it left off.
 // @project-doc docs/domains/20261120-chats.md#chat_session
-pub(super) fn chat_brief(run: &Run, events: &[Event]) -> String {
-    let me = &run.team[0];
-    let mut p = format!(
-        "You are {}, a digital employee talking with the user directly, one to one. There is no team and no shared board in this conversation.",
-        me.name
-    );
-    if !me.desc.trim().is_empty() {
-        p += &format!("\nYour responsibilities: {}", me.desc.trim());
-    }
-    p += &format!(
-        "\n\nYour working directory {} is a scratch directory Janus made for this conversation. It started empty and is deleted together with the conversation, so keep nothing there that the user needs afterwards. Work on files elsewhere only where the user points you.",
-        run.cwd.display()
-    );
+pub(super) fn chat_brief(events: &[Event]) -> String {
     let recent = recent_exchanges(events, "You");
-    if !recent.is_empty() {
-        p += &format!(
-            "\n\nThis conversation continues in a new session. Use the history below to pick up where you left off.\n\nRecent conversation:\n{recent}"
-        );
+    if recent.is_empty() {
+        return String::new();
     }
-    p
+    format!(
+        "This conversation with the user continues in a new session. Use the history below to pick up where you left off.\n\nRecent conversation:\n{recent}"
+    )
 }

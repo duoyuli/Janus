@@ -67,6 +67,9 @@ const STEER_TIMEOUT: Duration = Duration::from_secs(15);
 const RUN_BUDGET_MS: i64 = 6 * 60 * 60 * 1000;
 /// The watchdog tells the lead about an attempt whose session has shown no sign of work this long.
 pub const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
+/// A failed attempt is tried again after this long, not at once: what made it fail (an adapter
+/// that did not start, a dropped connection) often lasts a moment (AT-10).
+pub const RETRY_AFTER: Duration = Duration::from_secs(3);
 /// The watchdog tells the lead about an attempt that made the same tool call this many times in a row.
 const LOOP_REPEAT: u32 = 5;
 /// Board events that need the lead are gathered this long before they go into its session, so
@@ -247,6 +250,24 @@ impl ControlVia {
 pub struct Msg {
     pub id: String,
     pub text: String,
+}
+
+/// A message kept for an agent's next session. One about a task goes into that task's session
+/// only, not into whatever else the agent works on first (AT-12).
+pub(super) struct Note {
+    pub msg: Msg,
+    pub task: Option<String>,
+}
+
+impl Note {
+    pub fn new(msg: Msg, task: &str) -> Self {
+        Note { msg, task: (!task.is_empty()).then(|| task.to_string()) }
+    }
+
+    /// Whether this note goes into a session working on `task` (`None`: not on a task, the lead).
+    fn goes_with(&self, task: Option<&str>) -> bool {
+        self.task.is_none() || self.task.as_deref() == task
+    }
 }
 
 /// Who decides what an open session does once a turn ends.
@@ -658,8 +679,9 @@ struct RunState {
     live: HashMap<SessionKey, mpsc::UnboundedSender<Steer>>,
     /// Which open session each agent is in, so a person can talk to an agent without knowing its task.
     live_agent: HashMap<String, SessionKey>,
-    /// Messages for an agent that had no open session; delivered with its next session.
-    notes: HashMap<String, Vec<Msg>>,
+    /// Messages for an agent that had no open session, by agent; delivered with its next session
+    /// (one about a task, with that task's).
+    notes: HashMap<String, Vec<Note>>,
     /// Why each task's last result did not pass its acceptance check, for the fix round and the lead.
     last_verification: HashMap<String, String>,
     /// Sessions to reload when an interrupted task starts again, by task id.
@@ -853,6 +875,9 @@ pub struct Run {
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
     /// `true` once the run is deleted: what its sessions still say on the way out is not written.
     emitting: StdMutex<bool>,
+    /// Held from checking an orchestration to putting its tasks on the board, so two submitted at
+    /// once are checked one after the other and cannot both take the same task id (AT-05).
+    orchestrating: StdMutex<()>,
     deadline_ms: AtomicI64,
     /// Optional USD cost ceiling in micro-dollars (`0` = unlimited).
     cost_limit_micros: AtomicI64,
@@ -971,6 +996,7 @@ impl Run {
             goal_images: r.goal_images,
             seq: AtomicI64::new(r.last_seq),
             emitting: StdMutex::new(false),
+            orchestrating: StdMutex::new(()),
             deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
             cost_limit_micros: AtomicI64::new(r.cost_limit_micros.max(0)),
             costs: StdMutex::default(),
@@ -982,6 +1008,12 @@ impl Run {
             watch: Default::default(),
             router: Default::default(),
         }
+    }
+
+    /// Whether the run still needs its agents: it works, or keeps a session open.
+    pub fn holds_agents(&self) -> bool {
+        let st = self.st.lock().unwrap();
+        st.status.is_active() || !st.conns.is_empty()
     }
 
     fn member(&self, id: &str) -> Option<&Member> {
@@ -1027,6 +1059,8 @@ pub struct Config {
     pub stall_after: Duration,
     /// How long a lead's session stays quiet with its goal still active before Janus asks it (`goal_settle`).
     pub goal_settle: Duration,
+    /// How long a failed attempt waits before its task is tried again (`RETRY_AFTER`).
+    pub retry_after: Duration,
     /// Maximum collaborator task attempts running concurrently in a run (`1..=32`).
     pub max_concurrent_attempts: usize,
     /// Default reference shown alongside reported token usage.
@@ -1039,6 +1073,9 @@ pub struct App {
     pub db: Db,
     pub cfg: Config,
     pub tx: broadcast::Sender<Event>,
+    /// A run's status changed (`set_status`, an archived acceptance): what the app's global stream
+    /// tells it besides each new event, so lists follow without polling.
+    pub changes: broadcast::Sender<RunChange>,
     pub runs: StdMutex<HashMap<String, Arc<Run>>>,
     pub adapter_state: crate::adapters::AdapterState,
     /// Configuration checks running now, see `start_check`.
@@ -1049,6 +1086,13 @@ pub struct App {
     /// so two requests for it (two messages sent quickly, a message and a delete) take turns and
     /// the second finds what the first did.
     pub revival: tokio::sync::Mutex<()>,
+}
+
+/// A run's new status, as the global stream carries it (`GET /api/stream`).
+#[derive(Clone, Debug, Serialize)]
+pub struct RunChange {
+    pub run: String,
+    pub status: RunStatus,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
@@ -1137,9 +1181,15 @@ impl App {
 
     // @project-doc docs/interfaces/20261031-events.md#event_shape
     fn emit(&self, run: &Run, e: Ev) -> i64 {
+        self.emit_kept(run, e).unwrap_or(0)
+    }
+
+    /// `emit` for an event that what follows depends on: `None` when it could not be stored (nor
+    /// broadcast), so the caller does not act as if it were on record.
+    fn emit_kept(&self, run: &Run, e: Ev) -> Option<i64> {
         let deleted = run.emitting.lock().unwrap_or_else(|p| p.into_inner());
         if *deleted {
-            return 0;
+            return None;
         }
         let seq = run.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let event = Event {
@@ -1158,15 +1208,16 @@ impl App {
         let wakes_board = wakes_board_wait(&event);
         let stored = self.store(event, Some(run));
         drop(deleted);
-        if stored {
-            if wakes_board {
-                run.board_wake.notify_waiters();
-            }
-            if nudge {
-                run.lead_nudge.notify_one();
-            }
+        if !stored {
+            return None;
         }
-        seq
+        if wakes_board {
+            run.board_wake.notify_waiters();
+        }
+        if nudge {
+            run.lead_nudge.notify_one();
+        }
+        Some(seq)
     }
 
     /// Write an event, then broadcast it. The log is the source of truth: an event that could not
@@ -1189,8 +1240,9 @@ impl App {
     /// The only place a run's lifecycle state changes. `RunStatus` states the legal moves;
     /// cancelling also records the flag the schedulers check.
     fn set_status(&self, run: &Run, status: RunStatus) {
-        {
+        let changed = {
             let mut st = run.st.lock().unwrap();
+            let changed = st.status != status;
             if !st.status.can_transition_to(status) {
                 crate::config::log(format!("janus: run {}: illegal status {:?} -> {:?}", run.id, st.status, status));
             }
@@ -1200,7 +1252,8 @@ impl App {
             if !status.is_active() {
                 st.paused = false;
             }
-        }
+            changed
+        };
         // A stopped run's library servers stop with it, mid-call too: nothing it started keeps
         // acting after the person stopped it. A delivered run keeps them for the conversation.
         // @project-doc docs/domains/20261116-resource_library.md#mcp_router
@@ -1208,6 +1261,9 @@ impl App {
             run.router.close();
         }
         let _ = self.db.set_run_status(&run.id, status);
+        if changed {
+            let _ = self.changes.send(RunChange { run: run.id.clone(), status });
+        }
     }
 
     /// Wait for the decision `key`, which `owner` asked for.
@@ -1346,6 +1402,7 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
     std::fs::create_dir_all(dir).unwrap();
     stand_in_adapters(&dir.join("data"));
     let (tx, _) = broadcast::channel(4096);
+    let (changes, _) = broadcast::channel(1024);
     Arc::new(App {
         db: Db::open(&dir.join("janus.db")).unwrap().0,
         cfg: Config {
@@ -1356,11 +1413,14 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
             node: "python3".into(),
             stall_after: STALL_AFTER,
             goal_settle: crate::goal_settle::SETTLE,
+            // Tests retry at once; the one about the pause sets it.
+            retry_after: Duration::ZERO,
             max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
             run_token_budget: None,
             run_cost_budget_usd: None,
         },
         tx,
+        changes,
         runs: StdMutex::new(HashMap::new()),
         adapter_state: Default::default(),
         checks: Default::default(),

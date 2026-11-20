@@ -413,6 +413,8 @@ async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
 struct RunsQuery {
     kind: Option<String>,
     workspace: Option<String>,
+    /// `1`: only runs that may need the person (working, delivered, stopped part-way), however old.
+    attention: Option<u8>,
     /// `next` of the previous page.
     cursor: Option<String>,
     limit: Option<usize>,
@@ -435,13 +437,23 @@ async fn list_runs(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>) -> A
                 .ok_or((StatusCode::BAD_REQUEST, format!("cursor 不对：{c}")))?,
         ),
     };
-    let page = db::RunsPage { kind, workspace: q.workspace, before, limit: q.limit.unwrap_or(50).clamp(1, 500) };
+    use status::RunStatus::*;
+    let statuses =
+        (q.attention == Some(1)).then(|| vec![Planning, Running, WaitingInput, Delivered, Interrupted, Failed]);
+    let page =
+        db::RunsPage { kind, workspace: q.workspace, statuses, before, limit: q.limit.unwrap_or(50).clamp(1, 500) };
     let (runs, more) = app.db.runs_page(&page).map_err(bad)?;
     let next = runs
         .last()
         .filter(|_| more)
         .map(|r| format!("{}:{}", r["createdAt"].as_i64().unwrap_or(0), r["id"].as_str().unwrap_or("")));
     Ok(Json(json!({ "runs": runs, "next": next })).into_response())
+}
+
+/// Every workspace that goal runs were made in, as their snapshots name it, deleted ones included.
+// @project-doc docs/interfaces/20261031-http_api.md#run_list
+async fn run_workspaces(State(app): State<Arc<App>>) -> ApiResult {
+    Ok(Json(json!({ "workspaces": app.db.run_workspaces().map_err(bad)? })).into_response())
 }
 
 /// Start a conversation with one digital employee; it opens with the first message.
@@ -586,6 +598,29 @@ async fn stream(
     Sse::new(tokio_stream::iter(backlog).chain(live)).keep_alive(KeepAlive::default())
 }
 
+/// Everything the app follows across runs, as it happens: a short notice for each new event of any
+/// run (`event`: run, seq, type) and each change of a run's status (`run`: run, status). The app
+/// reads what it needs about a run only when that run has news, instead of polling every run.
+/// `ready` opens the stream (the app reads its lists once then), `lagged` asks it to read again.
+// @project-doc docs/interfaces/20261031-http_api.md#global_stream
+async fn stream_all(
+    State(app): State<Arc<App>>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<SseEvent, Infallible>>> {
+    let lagged = || Ok(SseEvent::default().event("lagged").data("{}"));
+    let events = BroadcastStream::new(app.tx.subscribe()).map(move |msg| match msg {
+        Ok(e) => Ok(SseEvent::default()
+            .event("event")
+            .data(json!({ "run": e.run_id, "seq": e.seq, "type": e.kind }).to_string())),
+        Err(_) => lagged(),
+    });
+    let changes = BroadcastStream::new(app.changes.subscribe()).map(move |msg| match msg {
+        Ok(c) => Ok(SseEvent::default().event("run").data(serde_json::to_string(&c).unwrap_or_default())),
+        Err(_) => lagged(),
+    });
+    let ready = tokio_stream::once(Ok(SseEvent::default().event("ready").data("{}")));
+    Sse::new(ready.chain(events.merge(changes))).keep_alive(KeepAlive::default())
+}
+
 /// The shared board as an MCP server (streamable HTTP, JSON responses) for the sessions of one
 /// run: the lead's orchestration tools, or a collaborator's. The token keeps other runs and
 /// other local processes out.
@@ -708,6 +743,7 @@ async fn main() -> Result<()> {
         }
     }
     let (tx, _) = tokio::sync::broadcast::channel(4096);
+    let (changes, _) = tokio::sync::broadcast::channel(1024);
     let agents_dir = home.join("agents");
     std::fs::create_dir_all(&agents_dir)?;
     let settings = config::settings();
@@ -720,11 +756,13 @@ async fn main() -> Result<()> {
             node: settings.node.clone(),
             stall_after: orchestrator::STALL_AFTER,
             goal_settle: goal_settle::SETTLE,
+            retry_after: orchestrator::RETRY_AFTER,
             max_concurrent_attempts: settings.max_concurrent_attempts,
             run_token_budget: settings.run_token_budget,
             run_cost_budget_usd: settings.run_cost_budget_usd,
         },
         tx,
+        changes,
         runs: Mutex::new(HashMap::new()),
         adapter_state: Default::default(),
         checks: Default::default(),
@@ -819,8 +857,10 @@ async fn main() -> Result<()> {
         .route("/api/runs", get(list_runs).post(create_run))
         .route("/api/chats", post(create_chat))
         .route("/api/runs/preflight", get(run_preflight))
+        .route("/api/runs/workspaces", get(run_workspaces))
         .route("/api/runs/{id}", get(get_run).delete(delete_run))
         .route("/api/runs/{id}/stream", get(stream))
+        .route("/api/stream", get(stream_all))
         .route("/api/runs/{id}/actions", post(action))
         .route("/api/runs/{id}/export", get(export))
         .route("/api/runs/{id}/usage", get(get_usage))

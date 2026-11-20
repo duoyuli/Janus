@@ -55,5 +55,3 @@ def sessions(ctx, c):
     c("missing.md" not in t.fake.calls().split("links README.md", 1)[1].split("\n", 1)[0], "@ 引用只带工作区里存在的文件")
     ctx.ui(c, run.id, lambda r, s: next(x for x in r["tasks"] if x["id"] == "T1")["status"] == "succeeded", "T1 的会话已完成",
            pages=("task:T2", "task:T1", "density detail", "draft T1 /", "agent:lead"))
-    if ctx.app:
-        ctx.app.do("density normal")

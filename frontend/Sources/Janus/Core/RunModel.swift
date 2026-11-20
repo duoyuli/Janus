@@ -144,6 +144,7 @@ final class RunModel {
                     case .lagged:
                         self.reload()
                         return
+                    case .named: continue
                     case .event(let j):
                         let e = Event(j)
                         let last = self.events.last?.seq ?? 0
@@ -165,7 +166,8 @@ final class RunModel {
     /// Scans only the events not seen yet, then keeps the candidates that exist now.
     private func findDocuments() {
         if docScanned < events.count {
-            RunDocs.scan(events[docScanned...], cwd: state.run.cwd, into: &docScan)
+            let moved = RunDocs.Moved.of(cwd: state.run.cwd, repo: state.run.repo, run: id)
+            RunDocs.scan(events[docScanned...], cwd: state.run.cwd, moved: moved, into: &docScan)
             docScanned = events.count
         }
         let found = RunDocs.existing(docScan)
