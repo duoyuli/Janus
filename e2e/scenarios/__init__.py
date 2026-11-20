@@ -206,4 +206,4 @@ def jsonl(text):
 
 
 # The scenario modules register themselves on import, in this order.
-from scenarios import setup, journeys, decisions, failures, controls, sessions, chats, worktrees, restart, app_server, real  # noqa: E402,F401
+from scenarios import setup, journeys, decisions, failures, controls, sessions, chats, adapters, worktrees, restart, app_server, real  # noqa: E402,F401

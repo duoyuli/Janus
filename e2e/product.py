@@ -26,7 +26,7 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import ADDR, ROOT, App, Failure, Server, real_node, run, run_scenario, say, stand_in_adapters, write_report  # noqa: E402
+from lib import ADDR, ROOT, App, Failure, Registry, Server, real_node, run, run_scenario, say, stand_in_adapters, write_report  # noqa: E402
 import scenarios  # noqa: E402
 from scenarios import SCENARIOS  # noqa: E402
 
@@ -75,8 +75,12 @@ def main():
     os.makedirs(home)
     say(f"临时目录：{tmp}")
     stand_in_adapters(home, sys.executable)
-    server = Server(server_bin, home, os.path.join(report_dir, "janus.log"), env={"JANUS_NODE": node})
-    ctx = scenarios.Ctx(tmp=tmp, home=home, addr=ADDR, server=server, report=report_dir, python=sys.executable,
+    # The server's adapter update checks ask a stand-in registry, never npm (the --real smoke test
+    # runs its own server, which installs from npm).
+    registry = Registry()
+    env = {"JANUS_NODE": node, "npm_config_registry": registry.url}
+    server = Server(server_bin, home, os.path.join(report_dir, "janus.log"), env=env)
+    ctx = scenarios.Ctx(tmp=tmp, home=home, addr=ADDR, server=server, report=report_dir, python=sys.executable, registry=registry,
                         node=node, server_bin=server_bin, app_bin=app_bin, packaged=a.packaged,
                         real_from=os.path.expanduser(a.real_from))
     results = []

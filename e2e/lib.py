@@ -108,6 +108,39 @@ def http(addr, method, path, body=None, timeout=30, raw=False, headers=None):
         raise ApiError(e.code, e.read().decode(errors="replace")) from None
 
 
+class Registry:
+    """A stand-in npm registry on 127.0.0.1: what `npm view <package> version` reads when the server
+    runs with `npm_config_registry` pointing here, so its adapter update checks never reach npm.
+    Every package's latest version is the stand-in adapters' until a scenario sets another
+    (`latest[package]`); the packages asked about are recorded in `asked`."""
+
+    def __init__(self):
+        import http.server
+        from urllib.parse import unquote
+        reg = self
+        self.latest, self.asked = {}, []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                name = unquote(self.path.lstrip("/").split("?", 1)[0])
+                reg.asked.append(name)
+                v = reg.latest.get(name, STAND_IN_VERSION)
+                body = json.dumps({"name": name, "dist-tags": {"latest": v}, "versions": {v: {"name": name, "version": v}},
+                                   "time": {v: "2026-11-20T00:00:00.000Z"}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+
 class Server:
     """A Janus server on a scratch home."""
 

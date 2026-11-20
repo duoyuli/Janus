@@ -729,6 +729,23 @@ async fn main() -> Result<()> {
         });
     }
 
+    // ACP adapters: ask npm for newer versions shortly after start, then every few hours; the app
+    // reminds the person to upgrade.
+    // @project-doc docs/architecture/20261031-adapters.md#update_check
+    {
+        let app = app.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(adapters::FIRST_CHECK_AFTER).await;
+            loop {
+                let checking = app.clone();
+                if let Err(err) = tokio::task::spawn_blocking(move || checking.check_adapter_updates()).await {
+                    config::log(format!("janus: adapter update check stopped: {err}"));
+                }
+                tokio::time::sleep(adapters::CHECK_EVERY).await;
+            }
+        });
+    }
+
     // Model prices: check every hour, download models.dev's list again once a day.
     {
         let app = app.clone();

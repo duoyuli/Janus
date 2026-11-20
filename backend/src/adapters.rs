@@ -13,6 +13,10 @@
 //! file exists, so a failed install leaves the working one alone. Sessions start from the resolved
 //! version directory, so an upgrade never pulls files from under a running agent. The previous
 //! version is kept for rolling back; older ones are removed.
+//!
+//! Installed adapters are checked for a newer version on npm shortly after Janus starts and then
+//! every few hours (`check_adapter_updates`); the app reminds the person to upgrade. Nothing is
+//! installed without them.
 
 use crate::orchestrator::{App, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
@@ -22,6 +26,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+/// How often installed adapters are checked for a newer version.
+pub const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
+/// How long after start the first check waits, so it never holds up the start.
+pub const FIRST_CHECK_AFTER: Duration = Duration::from_secs(45);
 
 pub struct AdapterDef {
     pub id: &'static str,
@@ -215,7 +225,7 @@ impl App {
                     "current": current, "versions": versions,
                     "latest": newest, "checkedAt": checked,
                     "updateAvailable": match (&current, newest.as_str()) {
-                        (Some(c), Some(n)) => c != n,
+                        (Some(c), Some(n)) => newer(n, c),
                         _ => false,
                     },
                     "job": job, "log": tail(&self.adapter_log(d.id), 15),
@@ -294,12 +304,29 @@ impl App {
     /// The newest version npm offers.
     fn latest_adapter_version(&self, id: &str) -> Result<String> {
         let d = def(id)?;
-        let v = run_text(Command::new("npm").args(["view", d.package, "version"]))?.trim().to_string();
-        if v.is_empty() {
-            bail!("没有查到最新版本");
-        }
+        let v = npm_latest(d)?;
         self.adapter_state.latest.lock().unwrap().insert(id.to_string(), (v.clone(), now_ms()));
         Ok(v)
+    }
+
+    /// Ask npm for the newest version of every installed adapter (blocking; run it off the async
+    /// threads). What it finds shows as `latest` and `updateAvailable`, and the app reminds the
+    /// person; nothing is installed. A lookup that fails (offline, npm missing) is logged and
+    /// left out, never shown as the adapter's job, since nobody asked for it.
+    // @project-doc docs/architecture/20261031-adapters.md#update_check
+    pub fn check_adapter_updates(&self) {
+        self.check_adapter_updates_with(npm_latest);
+    }
+
+    fn check_adapter_updates_with(&self, newest: impl Fn(&AdapterDef) -> Result<String>) {
+        for d in ADAPTERS.iter().filter(|d| self.adapter_current(d.id).is_some() && !self.adapter_state.running(d.id)) {
+            match newest(d) {
+                Ok(v) => {
+                    self.adapter_state.latest.lock().unwrap().insert(d.id.to_string(), (v, now_ms()));
+                }
+                Err(err) => crate::config::log(format!("janus: {} adapter not checked for updates: {err:#}", d.id)),
+            }
+        }
     }
 
     // @project-doc docs/architecture/20261031-adapters.md#install_steps
@@ -393,6 +420,24 @@ fn entry_in(d: &AdapterDef, dir: &Path) -> Result<PathBuf> {
 
 // @project-doc docs/architecture/20261031-adapters.md#layout
 /// Point `current` at `version`, atomically: a new link renamed over the old one.
+/// The version npm's `latest` tag points at for the adapter's package.
+fn npm_latest(d: &AdapterDef) -> Result<String> {
+    let v = run_text(Command::new("npm").args(["view", d.package, "version"]))?.trim().to_string();
+    if v.is_empty() {
+        bail!("没有查到最新版本");
+    }
+    Ok(v)
+}
+
+/// Whether version `a` comes after `b`, comparing the dotted numbers in turn (a pre-release
+/// suffix is ignored). A version installed by hand that is ahead of npm's is not an update.
+fn newer(a: &str, b: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        v.split(['-', '+']).next().unwrap_or("").split('.').map(|p| p.parse().unwrap_or(0)).collect()
+    };
+    parts(a) > parts(b)
+}
+
 fn switch_current(dir: &Path, version: &str) -> Result<()> {
     let tmp = dir.join(format!(".current-{}", now_ms()));
     std::os::unix::fs::symlink(version, &tmp)?;
@@ -509,6 +554,45 @@ mod tests {
         prune(&dir, "1.2.0", Some("1.1.0"), &state);
         assert!(!dir.join("1.0.0").exists(), "once the session ends the version goes");
         assert!(dir.join("1.1.0").is_dir() && dir.join("1.2.0").is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_a_later_version_is_an_update() {
+        assert!(newer("0.108.0", "0.107.3"));
+        assert!(newer("1.0.0", "0.99.9"));
+        assert!(newer("2.10.0", "2.9.0"), "numbers, not text");
+        assert!(!newer("0.107.0", "0.107.0"));
+        assert!(!newer("0.107.0", "9.9.9"), "a version ahead of npm's is not an update");
+        assert!(!newer("1.2.0-beta.1", "1.2.0"));
+    }
+
+    /// The periodic check asks about installed adapters only, records what it finds for the app
+    /// (`updateAvailable` only for a later version), and leaves a failed lookup unshown.
+    #[test]
+    fn installed_adapters_are_checked_for_a_later_version() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-updates-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        // The test app's stand-in adapters are installed as 9.9.9; remove one to see it skipped.
+        std::fs::remove_file(app.adapters_dir().join("codex").join("current")).unwrap();
+        let asked = Mutex::new(vec![]);
+        app.check_adapter_updates_with(|d| {
+            asked.lock().unwrap().push(d.id);
+            Ok("10.0.0".into())
+        });
+        assert_eq!(*asked.lock().unwrap(), ["claude"], "an adapter that is not installed is not checked");
+        let listed = app.adapters();
+        let claude = listed["adapters"].as_array().unwrap().iter().find(|a| a["id"] == "claude").unwrap().clone();
+        assert_eq!((claude["latest"].as_str(), claude["updateAvailable"].as_bool()), (Some("10.0.0"), Some(true)));
+        assert!(claude["checkedAt"].is_i64());
+        assert!(claude["job"].is_null(), "a check nobody asked for is not shown as the adapter's job");
+
+        app.check_adapter_updates_with(|_| Ok("9.9.9".into()));
+        let claude = app.adapters()["adapters"][1].clone();
+        assert_eq!(claude["updateAvailable"], false, "the installed version is the newest");
+        app.check_adapter_updates_with(|_| bail!("offline"));
+        assert_eq!(app.adapters()["adapters"][1]["latest"], "9.9.9", "a failed lookup keeps what was known");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1402,3 +1402,7 @@
 "导出这次对话的事件日志（JSONL）" = "Export this chat's event log (JSONL)";
 "删除对话" = "Delete Chat";
 "删除这次对话、它的记录和工作目录，不可恢复" = "Delete this chat, its record and its working directory. This cannot be undone.";
+
+/* ACP adapter updates */
+"%lld 个 ACP 适配器有新版本" = "ACP adapter updates: %lld";
+"：在设置的「数字员工」页升级，正在运行的会话不受影响" = ": upgrade in Settings › Digital Employees; sessions already running are not affected";

@@ -236,6 +236,7 @@ final class AppModel {
         guard let s = store else { return }
         await s.loadSetup()
         await s.loadRuns()
+        await s.loadAdapters(quiet: true)
         await s.run?.read()
     }
 

@@ -90,7 +90,7 @@ enum Snapshots {
         // Read settings, the library and the run list again, as a fresh launch would: what a test
         // wrote through the API (instead of the app's own editors) shows up.
         case "reload":
-            await store.loadSetup(); await store.loadLibrary(); await store.loadRuns()
+            await store.loadSetup(); await store.loadLibrary(); await store.loadRuns(); await store.loadAdapters(quiet: true)
         // The editor is a sheet of the settings panel, as when a person opens it from there.
         case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
@@ -131,6 +131,7 @@ enum Snapshots {
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
                 "connections": ids(store.connections), "roles": ids(store.roles), "workspaces": ids(store.workspaces), "runs": ids(store.runs),
                 "chats": ids(store.chats),
+                "adapterUpdates": JSON.array(store.adapterUpdates.map { $0["id"] }),
             ]
             if let r = store.run {
                 let s = r.state

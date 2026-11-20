@@ -143,6 +143,7 @@ struct Sidebar: View {
                     .buttonStyle(.plain)
                     .help(store.sourceUpdates.map { $0["repo"].str }.joined(separator: L.text("、")) + L.text("：GitHub 上有新的提交，打开资源库更新"))
                 }
+                AdapterUpdatesBadge(store: store)
                 if let n = store.serverNotice { Text(n).font(.caption2).foregroundStyle(Tone.amber.color).fixedSize(horizontal: false, vertical: true) }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
@@ -301,6 +302,25 @@ struct InboxButton: View {
         .accessibilityLabel(n > 0 ? L.text("收件箱，所有工作区，\(n) 项等你处理") : L.text("收件箱，所有工作区"))
         .accessibilityAddTraits(on ? .isSelected : [])
         .padding(.horizontal, 10)
+    }
+}
+
+/// Installed ACP adapters with a newer version on npm: one click opens the digital employees
+/// pane, where each agent's adapter line upgrades it. Sessions already running keep their version.
+// @project-doc docs/architecture/20261031-adapters.md#update_check
+struct AdapterUpdatesBadge: View {
+    let store: AppStore
+
+    var body: some View {
+        let updates = store.adapterUpdates
+        if !updates.isEmpty {
+            Button { store.openSettings(.agents) } label: {
+                Label(L.text("\(updates.count) 个 ACP 适配器有新版本"), systemImage: "arrow.up.circle")
+                    .font(.caption).foregroundStyle(Tone.blue.color)
+            }
+            .buttonStyle(.plain)
+            .help(updates.map { "\($0["name"].str) \($0["current"].str) → \($0["latest"].str)" }.joined(separator: L.text("、")) + L.text("：在设置的「数字员工」页升级，正在运行的会话不受影响"))
+        }
     }
 }
 

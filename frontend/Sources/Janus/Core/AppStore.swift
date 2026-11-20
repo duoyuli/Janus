@@ -74,6 +74,7 @@ final class AppStore {
         await loadSetup()
         await loadLibrary()
         watchLibrary()
+        watchAdapters()
         watchChecks()
         await inbox.refresh(self)
         startRunPolling()
@@ -493,9 +494,41 @@ final class AppStore {
 
     // MARK: Adapters: installs and checks run in the background; poll until they end.
 
+    /// Installed adapters with a later version on npm and no install running: the sidebar reminds
+    /// the person to upgrade them (docs/architecture/20261031-adapters.md#update_check).
+    var adapterUpdates: [JSON] { Self.adapterUpdates(adapters) }
 
-    func loadAdapters() async {
-        do { adapters = try await api.get("/api/adapters") } catch { adapters = ["adapters": [], "dir": ""]; show(L.text("读取适配器失败：\(error.localizedDescription)")); return }
+    nonisolated static func adapterUpdates(_ adapters: JSON) -> [JSON] {
+        adapters["adapters"].array.filter { $0["updateAvailable"].truthy && $0["job"]["state"].str != "running" }
+    }
+
+    /// The server checks for newer adapters shortly after it starts and every few hours; read
+    /// what it found now and then, so the reminder shows without opening the settings.
+    private func watchAdapters() {
+        polls["adapterUpdates"]?.cancel()
+        polls["adapterUpdates"] = Task { [weak self] in
+            await self?.loadAdapters(quiet: true)
+            // The first check runs shortly after the server starts; look again once it is done.
+            try? await Task.sleep(nanoseconds: 90_000_000_000)
+            while !Task.isCancelled {
+                await self?.loadAdapters(quiet: true)
+                try? await Task.sleep(nanoseconds: 600_000_000_000)
+            }
+        }
+    }
+
+    /// `quiet` for the background refresh: a failed read keeps what was shown and says nothing.
+    func loadAdapters(quiet: Bool = false) async {
+        do {
+            let a = try await api.get("/api/adapters")
+            // Polled in the background: an unchanged list leaves the sidebar alone.
+            if a != adapters { adapters = a }
+        } catch {
+            if quiet { return }
+            adapters = ["adapters": [], "dir": ""]
+            show(L.text("读取适配器失败：\(error.localizedDescription)"))
+            return
+        }
         let busy = adapters["adapters"].array.contains { $0["job"]["state"].str == "running" }
         if busy && polls["adapters"] == nil {
             polls["adapters"] = Task { [weak self] in
