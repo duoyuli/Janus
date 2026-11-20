@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.7
+
+- 工作区首页重新显示「任务记录」：按时间从新到旧列出这个工作区的全部任务，正在进行的也在其中。此前它从 2026.11.20.5 起一直是空的。
+- 新建对话页重新排版，和工作区首页一致：顶部是标题和一句说明，数字员工卡片一行两张、同一行等高，职责最多显示三行，选中的卡片带底色；「开始对话」在卡片右下方，双击卡片可以直接开始。
+- 交付后负责人的会话退出、下一条消息重新打开它时，这条消息只交给负责人一次，不会同时出现在「之前的对话」里。
+
+- The workspace page shows its task records again: every task of the workspace, newest first, including the one in progress. Since 2026.11.20.5 the list had stayed empty.
+- The new chat page is laid out like a workspace page: a title and one line of explanation at the top, then the digital employee cards two to a row at equal height, with up to three lines of their duties and a tint on the selected one. "Start a chat" sits at the lower right of the cards, and double-clicking a card starts right away.
+- When the lead's session has exited after delivery and your next message reopens it, the message reaches the lead once instead of also appearing in the earlier conversation it is given.
+
 ## 2026.11.20.6
 
 - 应用改为订阅服务端的一条全局事件流来跟进变化，不再按固定间隔逐个读取任务：任务和对话再多，侧栏、收件箱和工作区页也及时更新，不会越用越卡。
