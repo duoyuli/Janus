@@ -35,7 +35,7 @@ import tempfile
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import ADDR, ROOT, Checks, Server, http, run, say  # noqa: E402
+from lib import ADDR, ROOT, ApiError, Checks, Server, http, run, say  # noqa: E402
 
 check = Checks("升级")
 
@@ -92,7 +92,10 @@ def old_member(id_, name, runtime, lead, role_id, version):
 def write_old_data(ws):
     """Data written through the old release's API, the way the app writes it."""
     conn = api("POST", "/api/setup/connections", {"kind": "claude", "name": "Claude", "auth": "apikey", "apiKey": "sk-ant-e2e"})
-    custom = api("POST", "/api/setup/connections", {"kind": "custom", "name": "Fake", "command": "python3 fake_acp.py"})
+    try:
+        custom = api("POST", "/api/setup/connections", {"kind": "custom", "name": "Fake", "command": "python3 fake_acp.py"})
+    except ApiError:
+        custom = None  # releases from 2026.11.20 on run only Codex and Claude Code
     setup = api("GET", "/api/setup")
     roles = {r["id"]: r for r in setup["roles"]}
     for rid in ("coordinator", "implementer", "reviewer"):
@@ -102,7 +105,7 @@ def write_old_data(ws):
         if rid == "reviewer":
             body["prompt"] = "我自己写的质量要求：先跑全部测试。"
         api("POST", "/api/setup/roles", body)
-    tester = api("POST", "/api/setup/roles", {"name": "测试员", "role": "旧定位", "desc": "写测试", "connection": custom["id"], "prompt": "只写测试"})
+    tester = api("POST", "/api/setup/roles", {"name": "测试员", "role": "旧定位", "desc": "写测试", "connection": (custom or conn)["id"], "prompt": "只写测试"})
     api("POST", "/api/setup/workspaces", {
         "name": "e2e", "path": ws, "lead": "coordinator", "brief": "共享资料",
         "members": [{"role": "coordinator"}, {"role": "implementer"}, {"role": "reviewer"}, {"role": tester["id"], "slots": 2}],
@@ -211,9 +214,12 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         b = {r["id"]: r for r in before["roles"]}[tester["id"]]
         check({k: v for k, v in t.items() if k not in ("role", "connection")} == {k: v for k, v in b.items() if k not in ("role", "connection")},
               "自定义数字员工除「定位」和绑定的 Agent 外不变")
-        check(t["connection"] == "", "绑定「自定义命令」Agent 的数字员工改为没有绑定 Agent")
         conns = {c["id"]: c for c in setup["connections"]}
-        check(conns[conn["id"]]["name"] == "Claude" and custom["id"] not in conns, "Claude Code 连接不变，「自定义命令」的 Agent 已删除")
+        if custom:
+            check(t["connection"] == "", "绑定「自定义命令」Agent 的数字员工改为没有绑定 Agent")
+            check(conns[conn["id"]]["name"] == "Claude" and custom["id"] not in conns, "Claude Code 连接不变，「自定义命令」的 Agent 已删除")
+        else:
+            check(t["connection"] == conn["id"] and conns[conn["id"]]["name"] == "Claude", "数字员工和绑定的 Claude Code 连接不变")
         check(setup["workspaces"] == before["workspaces"], "工作区不变")
         db = sqlite3.connect(os.path.join(home, "janus.db"))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]
