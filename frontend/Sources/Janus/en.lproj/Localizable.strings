@@ -457,7 +457,6 @@
 "展开这个子任务的验收标准、证据、独立验证、痕迹和风险" = "Expand the criteria, evidence, independent reviews, trace discrepancies, and risks for this subtask";
 "展开这次任务的 Token、构成、费用、耗时、上下文和各子任务的用量" = "Show tokens, token breakdown, cost, elapsed time, context, and subtask usage for this run";
 "展开进展" = "Expand Progress";
-"展示更多" = "Show More";
 "工作区" = "Workspace";
 "工作区干净" = "Clean working tree";
 "工作区指定任务在哪个目录执行、由哪些数字员工参与。" = "A workspace defines the directory for runs and the digital employees who can work on them.";
@@ -1386,7 +1385,6 @@
 "删除这次对话、它的记录和工作目录，不可恢复" = "Delete this chat, its record and its working directory. This cannot be undone.";
 
 "新对话：选一名数字员工单独对话（⌥⌘N）" = "New chat: talk with one digital employee (⌥⌘N)";
-"再显示 10 个对话" = "Show 10 more chats";
 "和 %@ 的对话，%@" = "Chat with %1$@, %2$@";
 "和 %@ 的新对话" = "New chat with %@";
 "和 %@ 开始对话" = "Start a chat with %@";
@@ -1402,7 +1400,6 @@
 "这名数字员工" = "the digital employee";
 
 
-"再显示 20 个任务记录" = "Show 20 more runs";
 
 /* ACP adapter updates */
 "%lld 个 ACP 适配器有新版本" = "ACP adapter updates: %lld";

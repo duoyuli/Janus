@@ -412,16 +412,36 @@ async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
 #[derive(Deserialize)]
 struct RunsQuery {
     kind: Option<String>,
+    workspace: Option<String>,
+    /// `next` of the previous page.
+    cursor: Option<String>,
+    limit: Option<usize>,
 }
 
-/// The newest runs of one kind: goals (the default) or chats (`?kind=chat`).
-// @project-doc docs/interfaces/20261031-http_api.md#routes
+/// Runs of one kind, newest first, a page at a time: goals (the default) or chats (`?kind=chat`),
+/// of one workspace with `?workspace=`. A page has `limit` runs (50 by default, at most 500) and
+/// `next`, the cursor of the page after it (`null` on the last page).
+// @project-doc docs/interfaces/20261031-http_api.md#run_list
 async fn list_runs(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>) -> ApiResult {
     let kind = match q.kind.as_deref() {
         None => RunKind::Goal,
         Some(k) => RunKind::parse(k).ok_or((StatusCode::BAD_REQUEST, format!("未知的类型：{k}")))?,
     };
-    Ok(Json(json!({ "runs": app.db.runs(kind).map_err(bad)? })).into_response())
+    let before = match q.cursor.as_deref() {
+        None => None,
+        Some(c) => Some(
+            c.split_once(':')
+                .and_then(|(t, id)| Some((t.parse::<i64>().ok()?, id.to_string())))
+                .ok_or((StatusCode::BAD_REQUEST, format!("cursor 不对：{c}")))?,
+        ),
+    };
+    let page = db::RunsPage { kind, workspace: q.workspace, before, limit: q.limit.unwrap_or(50).clamp(1, 500) };
+    let (runs, more) = app.db.runs_page(&page).map_err(bad)?;
+    let next = runs
+        .last()
+        .filter(|_| more)
+        .map(|r| format!("{}:{}", r["createdAt"].as_i64().unwrap_or(0), r["id"].as_str().unwrap_or("")));
+    Ok(Json(json!({ "runs": runs, "next": next })).into_response())
 }
 
 /// Start a conversation with one digital employee; it opens with the first message.

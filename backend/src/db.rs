@@ -63,6 +63,15 @@ pub struct VerificationRow<'a> {
     pub created_at: i64,
 }
 
+/// Which runs a list asks for (`Db::runs_page`).
+pub struct RunsPage {
+    pub kind: RunKind,
+    pub workspace: Option<String>,
+    /// The creation time and id of the last run already listed; `None` for the first page.
+    pub before: Option<(i64, String)>,
+    pub limit: usize,
+}
+
 /// A `runs` row as the API and the orchestrator read it.
 fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     Ok(serde_json::json!({
@@ -177,16 +186,32 @@ impl Db {
         )?)
     }
 
-    /// The newest 50 runs of one kind, for the app's lists and the role statistics. Goals and
-    /// chats are counted apart, so many chats never push a workspace's runs off its list.
+    /// The newest 50 runs of one kind, for the role statistics. Goals and chats are counted apart.
     pub fn runs(&self, kind: RunKind) -> Result<Vec<Value>> {
+        Ok(self.runs_page(&RunsPage { kind, workspace: None, before: None, limit: 50 })?.0)
+    }
+
+    /// One page of runs, newest first: of one kind, of one workspace when given (`config.workspace.id`),
+    /// older than the cursor `before` (the last run of the previous page). Whether more follow is
+    /// the second value. The order is total (creation time, then id), so paging never skips or
+    /// repeats a run, however many were created in the same millisecond.
+    // @project-doc docs/interfaces/20261031-http_api.md#run_list
+    pub fn runs_page(&self, page: &RunsPage) -> Result<(Vec<Value>, bool)> {
         let conn = self.0.lock().unwrap();
+        let (time, id) = page.before.clone().unwrap_or((i64::MAX, String::new()));
         let mut stmt = conn.prepare(
-            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs WHERE kind = ?1
-             ORDER BY created_at DESC LIMIT 50",
+            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs
+             WHERE kind = ?1
+               AND (?2 IS NULL OR json_extract(config, '$.workspace.id') = ?2)
+               AND (created_at < ?3 OR (created_at = ?3 AND ?4 != '' AND id < ?4))
+             ORDER BY created_at DESC, id DESC LIMIT ?5",
         )?;
-        let rows = stmt.query_map(params![kind.as_str()], run_row)?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let rows =
+            stmt.query_map(params![page.kind.as_str(), page.workspace, time, id, page.limit as i64 + 1], run_row)?;
+        let mut runs: Vec<Value> = rows.collect::<rusqlite::Result<_>>()?;
+        let more = runs.len() > page.limit;
+        runs.truncate(page.limit);
+        Ok((runs, more))
     }
 
     /// The runs still working (planning, running or waiting for the person) in directory `cwd`.
@@ -398,6 +423,49 @@ mod tests {
         let path = std::env::temp_dir().join(format!("janus-{name}-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         (Db::open(&path).unwrap().0, path)
+    }
+
+    /// Paging walks every run once, newest first, also through runs created in the same
+    /// millisecond, and keeps to one kind and one workspace when asked.
+    #[test]
+    fn pages_list_every_run_once() {
+        let (db, path) = temp_db("pages");
+        for i in 0..130 {
+            let ws = if i % 2 == 0 { "w1" } else { "w2" };
+            // Three runs share each millisecond.
+            db.insert_run(
+                &format!("r{i:03}"),
+                RunKind::Goal,
+                "g",
+                "/tmp",
+                &json!({ "workspace": { "id": ws } }),
+                i / 3,
+            )
+            .unwrap();
+        }
+        db.insert_run("c1", RunKind::Chat, "", "/tmp", &json!({}), 5).unwrap();
+        let walk = |workspace: Option<&str>, limit: usize| {
+            let (mut seen, mut before) = (vec![], None);
+            loop {
+                let page = RunsPage { kind: RunKind::Goal, workspace: workspace.map(str::to_owned), before, limit };
+                let (runs, more) = db.runs_page(&page).unwrap();
+                seen.extend(runs.iter().map(|r| r["id"].as_str().unwrap().to_string()));
+                let last = runs.last().unwrap();
+                before = Some((last["createdAt"].as_i64().unwrap(), last["id"].as_str().unwrap().to_string()));
+                if !more {
+                    return seen;
+                }
+            }
+        };
+        let all = walk(None, 50);
+        assert_eq!(all.len(), 130, "every goal, no chat");
+        assert_eq!(all.iter().collect::<std::collections::HashSet<_>>().len(), 130, "none twice");
+        assert_eq!(all[0], "r129", "newest first");
+        assert_eq!(walk(None, 7), all, "the page size does not change the order");
+        let w1 = walk(Some("w1"), 20);
+        assert_eq!(w1.len(), 65);
+        assert!(w1.iter().all(|id| id[1..].parse::<u32>().unwrap() % 2 == 0), "only the workspace's runs");
+        let _ = std::fs::remove_file(path);
     }
 
     /// The app's list stops at the newest 50 runs; a run by id is found however old it is.

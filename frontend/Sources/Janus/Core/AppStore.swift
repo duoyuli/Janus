@@ -28,8 +28,10 @@ final class AppStore {
     var roles: [JSON] = []
     var workspaces: [JSON] = []
     var runs: [JSON] = []
-    /// Chats with one digital employee, newest first (`GET /api/runs?kind=chat`); not part of any workspace.
-    var chats: [JSON] = []
+    /// Chats with one digital employee, newest first, read a page at a time (`GET /api/runs?kind=chat`);
+    /// not part of any workspace.
+    let chatList: RunPager
+    var chats: [JSON] { chatList.runs }
     var roleStats: JSON = .null
     var adapters: JSON = .null
     /// The resource library (Settings › 资源库): `items` (skills and MCP servers) and `sources`.
@@ -60,6 +62,7 @@ final class AppStore {
     init(api: API, permissions: MacPermissions? = nil) {
         self.api = api
         self.permissions = permissions ?? .unavailable()
+        self.chatList = RunPager(query: "kind=chat", api: api)
     }
 
     // MARK: Loading
@@ -90,7 +93,7 @@ final class AppStore {
     func loadRuns() async {
         // Polled every few seconds: an unchanged list leaves the sidebar alone.
         if let r = try? await api.get("/api/runs"), r["runs"].array != runs { runs = r["runs"].array }
-        if let r = try? await api.get("/api/runs?kind=chat"), r["runs"].array != chats { chats = r["runs"].array }
+        await chatList.refresh()
     }
 
     func isChat(_ id: String) -> Bool { chats.contains { $0["id"].str == id } }

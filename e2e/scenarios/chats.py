@@ -49,6 +49,15 @@ def chats(ctx, c):
     c(chat not in goals and chat in chats_, "对话不在任务列表里，在对话列表里")
     code, _ = ctx.api_error("GET", "/api/runs?kind=bogus")
     c(code == 400, f"未知的类型被拒绝（{code}）")
+    # Lists come a page at a time, so every chat can be reached however many there are.
+    other = ctx.api("POST", "/api/chats", {"role": role})["id"]
+    first = ctx.api("GET", "/api/runs?kind=chat&limit=1")
+    second = ctx.api("GET", f"/api/runs?kind=chat&limit=1&cursor={first['next']}")
+    c([r["id"] for r in first["runs"]] == [other] and [r["id"] for r in second["runs"]] == [chat] and second["next"] is None,
+      "对话列表按页读取：一页一个，第二页接着第一页，最后一页没有 next")
+    code, _ = ctx.api_error("GET", "/api/runs?kind=chat&cursor=nonsense")
+    c(code == 400, f"不对的 cursor 被拒绝（{code}）")
+    ctx.api("DELETE", f"/api/runs/{other}")
 
     ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "第二条"})
     wait(lambda: replied("第二条"), "同一个会话回复第二条消息", 60)

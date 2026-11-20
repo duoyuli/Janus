@@ -66,8 +66,6 @@ struct MainView: View {
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct Sidebar: View {
     let store: AppStore
-    /// How many chats are shown; the rest wait behind「展示更多」, in steps of ten.
-    @Local private var shownChats = 10
 
     var body: some View {
         let ws = store.currentWorkspace
@@ -130,9 +128,10 @@ struct Sidebar: View {
         return false
     }
 
-    /// The chats: who each one is with, its first message, and whether its session is open.
+    /// The chats: who each one is with, its first message, and whether its session is open. Every
+    /// one of them: scrolling to the last reads the next page.
     @ViewBuilder private func chatRows() -> some View {
-        ForEach(store.chats.prefix(shownChats), id: \.self) { c in
+        ForEach(store.chats, id: \.self) { c in
             let member = c["config"]["team"][0]
             let waiting = store.inbox.open.filter { $0.run == c["id"].str }.count
             let (label, tone) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : ChatRowStatus.label(RunStatus(c["status"].str))
@@ -142,8 +141,9 @@ struct Sidebar: View {
             .contextMenu {
                 Button(L.text("删除对话…"), role: .destructive) { Task { await store.deleteRun(c["id"].str) } }
             }
+            .onAppear { if c == store.chats.last { Task { await store.chatList.loadMore() } } }
         }
-        ShowMore(total: store.chats.count, shown: $shownChats, help: L.text("再显示 10 个对话"))
+        if store.chatList.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.vertical, 6) }
     }
 }
 
@@ -217,30 +217,6 @@ struct HistoryRow<Lead: View>: View {
         .accessibilityValue(accessibility)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .padding(.horizontal, 10)
-    }
-}
-
-/// 「展示更多」at the end of a sidebar history: ten more each time.
-struct ShowMore: View {
-    let total: Int
-    @Binding var shown: Int
-    let help: String
-
-    var body: some View {
-        if total > shown {
-            Button { shown = min(shown + 10, total) } label: {
-                Text(L.text("展示更多"))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 15)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .hoverable(6)
-            .help(help)
-            .padding(.horizontal, 10)
-        }
     }
 }
 

@@ -5,8 +5,8 @@ import SwiftUI
 struct HomeView: View {
     let store: AppStore
     let ws: JSON
-    /// How many task records are shown; the rest wait behind「展示更多」.
-    @Local private var shownRuns = 20
+    /// Every task record of the workspace, read a page at a time as the list scrolls.
+    @Local private var history: RunPager?
 
     private let suggestions = [
         (L.text("新功能上线"), L.text("为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明")),
@@ -19,7 +19,7 @@ struct HomeView: View {
         let problems = Self.problems(members.map(\.1), connection: store.connection)
         let runs = store.runs(of: ws)
         // Runs waiting on the person, the same as the inbox: any run with something waiting on them.
-        // Below them, every task record of this workspace, newest first.
+        // Below them, every task record of this workspace, newest first (`history`).
         let waiting = runs.filter { r in store.inbox.open.contains { $0.run == r["id"].str } }
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -74,18 +74,11 @@ struct HomeView: View {
                     }
                 }
 
-                if !runs.isEmpty {
+                if let history, !history.runs.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(L.text("任务记录")).font(.headline)
-                            Text(verbatim: "\(runs.count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                        }
-                        RunRows(store: store, runs: Array(runs.prefix(shownRuns)), dated: true)
-                        if runs.count > shownRuns {
-                            Button(L.text("展示更多")) { shownRuns += 20 }
-                                .buttonStyle(.link)
-                                .help(L.text("再显示 20 个任务记录"))
-                        }
+                        Text(L.text("任务记录")).font(.headline)
+                        RunRows(store: store, runs: history.runs, dated: true) { Task { await history.loadMore() } }
+                        if history.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
                     }
                 }
             }
@@ -93,6 +86,13 @@ struct HomeView: View {
             .frame(maxWidth: 820, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .task {
+            let pager = RunPager(query: "workspace=\(ws["id"].str.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", api: store.api)
+            history = pager
+            await pager.refresh()
+        }
+        // The run list is polled every few seconds; the history follows it.
+        .onChange(of: store.runs) { Task { await history?.refresh() } }
     }
 
     /// The team in one line; models, permissions and tools are in the workspace settings.
@@ -193,6 +193,8 @@ struct RunRows: View {
     let store: AppStore
     let runs: [JSON]
     var dated = false
+    /// Called when the last row shows, to read the next page.
+    var atEnd: (() -> Void)?
 
     var body: some View {
         Card(padding: 4) {
@@ -215,6 +217,7 @@ struct RunRows: View {
                     Button(L.text("删除任务…"), role: .destructive) { Task { await store.deleteRun(r["id"].str) } }
                         .disabled(RunStatus(r["status"].str).isActive)
                 }
+                .onAppear { if r == runs.last { atEnd?() } }
                 if r != runs.last { Divider() }
             }
         }
