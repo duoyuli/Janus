@@ -66,6 +66,12 @@ def setup(ctx, c):
     lib = ctx.api("GET", "/api/library")
     item = next(i for i in lib["items"] if i["id"] == mcp["id"])
     c(item["vars"] == [{"name": "E2E_TOKEN", "set": True}] and SECRET not in json.dumps(lib), "资源库只说 MCP 的值已填写，不返回值")
+    values = f"/api/library/mcp/{mcp['id']}/values"
+    c(ctx.api("GET", values) == {"values": {"E2E_TOKEN": SECRET}}, "MCP 编辑器从本机读到保存的值")
+    for headers, why in (({"Origin": "https://evil.example"}, "网页发来的请求"), ({"Host": "evil.example"}, "改绑到本机的域名"),
+                         ({"Sec-Fetch-Site": "same-origin"}, "浏览器发来的请求")):
+        code, text = ctx.api_error("GET", values, headers=headers)
+        c(code == 403 and SECRET not in text, f"{why}读不到 MCP 的值（{code}）")
     c(ctx.api("GET", f"/api/library/items/{skill['id']}")["content"].startswith("---"), "Skill 保存了 SKILL.md 全文")
     c((skill["reach"], mcp["reach"]) == ("everyone", "picked"), "新 Skill 默认给所有数字员工，新 MCP 默认收口")
     # A command server opened to everyone: served by each run's MCP router, not handed to sessions.

@@ -93,11 +93,11 @@ class ApiError(Exception):
         self.code, self.text = code, text
 
 
-def http(addr, method, path, body=None, timeout=30, raw=False):
+def http(addr, method, path, body=None, timeout=30, raw=False, headers=None):
     """One request to Janus; JSON in and out unless `raw`. HTTP errors raise ApiError."""
     data = None if body is None else (body if isinstance(body, bytes) else json.dumps(body).encode())
     req = urllib.request.Request(f"http://{addr}{path}", data=data, method=method,
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             out = r.read()

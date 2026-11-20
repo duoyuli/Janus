@@ -78,6 +78,33 @@ fn lock_home(home: &std::path::Path) -> Result<std::fs::File> {
 }
 
 #[cfg(test)]
+mod values_tests {
+    use axum::http::{HeaderMap, HeaderValue};
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, HeaderValue::from_static(v));
+        }
+        h
+    }
+
+    /// MCP values go to the app on this machine; a web page, or a page that rebinds its own
+    /// domain to the loopback address, is refused.
+    #[test]
+    fn values_go_only_to_a_local_app() {
+        for host in ["127.0.0.1:7878", "localhost:7878", "[::1]:7878", "127.0.0.1"] {
+            assert!(super::from_local_app(&headers(&[("host", host)])), "{host}");
+        }
+        assert!(!super::from_local_app(&headers(&[("host", "evil.example:7878")])), "a rebound domain");
+        assert!(!super::from_local_app(&headers(&[("host", "127.0.0.1.evil.example")])));
+        assert!(!super::from_local_app(&headers(&[("host", "127.0.0.1:7878"), ("origin", "https://evil.example")])));
+        assert!(!super::from_local_app(&headers(&[("host", "127.0.0.1:7878"), ("sec-fetch-site", "same-origin")])));
+        assert!(!super::from_local_app(&HeaderMap::new()), "no Host");
+    }
+}
+
+#[cfg(test)]
 mod lock_tests {
     /// A second holder of one home is refused while the first lives; the lock goes with its holder.
     #[test]
@@ -224,6 +251,35 @@ async fn library(State(app): State<Arc<App>>) -> ApiResult {
 
 async fn library_item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     reply(app.item_view(&id))
+}
+
+/// A server's saved values, for the editor. They go only to a client on this machine that isn't
+/// a web page: see `from_local_app`.
+// @project-doc docs/operations/20261031-security.md#secrets
+async fn mcp_values(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    headers: axum::http::HeaderMap,
+) -> ApiResult {
+    if !from_local_app(&headers) {
+        return Err((StatusCode::FORBIDDEN, "MCP 的值只返回给本机的 Janus 应用".into()));
+    }
+    reply(app.mcp_values_view(&id))
+}
+
+/// A request from a program on this machine rather than a web page: the Host is a loopback name
+/// (a page that rebinds its own domain to 127.0.0.1 still sends that domain), and there is no
+/// `Origin` or `Sec-Fetch-Site` (browsers add them to a page's requests; the app sends neither).
+fn from_local_app(headers: &axum::http::HeaderMap) -> bool {
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
+    let name = if host.starts_with('[') {
+        host.split(']').next().map(|h| format!("{h}]")).unwrap_or_default()
+    } else {
+        host.split(':').next().unwrap_or("").to_string()
+    };
+    matches!(name.as_str(), "127.0.0.1" | "localhost" | "[::1]")
+        && !headers.contains_key(header::ORIGIN)
+        && !headers.contains_key("sec-fetch-site")
 }
 
 async fn delete_library_item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
@@ -715,6 +771,7 @@ async fn main() -> Result<()> {
         .route("/api/library/mcp/import", post(import_mcp))
         .route("/api/library/mcp/{id}", axum::routing::put(edit_mcp))
         .route("/api/library/mcp/{id}/warm", post(warm_mcp))
+        .route("/api/library/mcp/{id}/values", get(mcp_values))
         .route("/api/library/sources", post(add_source))
         .route("/api/library/sources/check", post(check_sources))
         .route("/api/library/sources/{id}", delete(delete_source))

@@ -27,7 +27,7 @@
 - 不修改用户自己的 Agent 配置（`~/.codex`、`~/.claude`）。Janus 为 Agent 写入的设置只放在 `~/.janus/agents/<id>/` 的隔离配置里。
 - 角色的 Skill、MCP 和指令只在会话启动时注入，不写任何 Agent 的配置文件（隔离目录中的也不写），也不在提示词、负责人说明或协作者名单中暴露角色的 Skill 和 MCP，见 `docs/decisions/20261116-launch_time_resources.md`。
 - 权限完全由各 Agent 的原生模式决定，Janus 不另加读写开关或校验，见 `docs/decisions/20261031-agent_native_permissions.md`。
-- 凭据不写进代码、日志、文档、SQLite 或设置接口的返回值。
+- 凭据不写进代码、日志、文档、SQLite 或设置接口的返回值。唯一的例外是资源库 MCP 服务器的值：只经 `GET /api/library/mcp/{id}/values` 返回给本机应用，见 `docs/decisions/20261119-mcp_values_visible.md`。
 - 运行时不向仓库写任何文件。新的数据、依赖、配置或日志放进 Janus home 的对应子目录，并更新 `docs/operations/20261031-deployment.md` 的目录规范。
 - 改代码时同步更新相关文档。改名、删除功能或改变行为时，用旧名字全仓库检索，一并改掉界面文案、中英文 README、`docs/`、注释和脚本。中文文档遵循 tech-doc-style-chinese：中文与英文、数字之间加空格，引号用「」，一段一行。
 - 指令内容只写在本文件，`CLAUDE.md` 是指向它的符号链接；项目 skill 放在 `.agents/skills/`，`.claude/skills` 是指向它的符号链接。

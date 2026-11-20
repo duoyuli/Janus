@@ -199,6 +199,9 @@ async fn mcp_values_stay_out_of_records() {
     let mode = std::fs::metadata(app.values_path(&item.id).unwrap()).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
 
+    // The editor reads the values back, the declared ones only.
+    assert_eq!(app.mcp_values_view(&item.id).unwrap(), json!({ "values": { "GITHUB_TOKEN": "ghp-secret" } }));
+
     // An empty value keeps the saved one; a key no longer listed loses its value.
     let keep = json!({ "name": "github", "transport": "stdio", "command": "npx -y gh-mcp", "vars": [{ "name": "GITHUB_TOKEN", "value": "" }] });
     app.save_mcp(Some(&item.id), &keep).await.unwrap();

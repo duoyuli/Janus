@@ -38,6 +38,7 @@
 - [多 Agent 协作的分工：负责人派出子任务后只做管理](20261119-lead_manages_after_delegating.md)：派出第一个子任务后负责人不再改文件（靠提示和检测），不接手失败的子任务；不强制独立验证，交付按事实标出「没有独立验证」；负责人只看名字和职责；星形沟通；用户介入协作者会话时通知负责人；团队固定、同目录多 Run 和负责人的上下文暂不处理。阅读时机：修改负责人说明、交付的验证覆盖、看板消息，或考虑让协作者直接沟通、在 Run 中加人之前。
 - [Git 仓库上的每个任务在自己的 worktree 中运行](20261119-run_worktrees.md)：每个 Run 一个 worktree（Run 内部共用），从 `HEAD` 开始、只带代码和 `.worktreeinclude` 列出的文件，环境由 Agent 在 worktree 里准备；验收时由 Janus 提交到 `janus/<run-id>` 分支；非 Git 目录只提醒。阅读时机：修改创建 Run、工作目录、验收、删除 Run，或调整并行任务的隔离方式之前。
 - [worktree 写入用户仓库的边界](20261119-worktree_trust_boundary.md)：Janus 只在创建、验收、继续对话和删除 Run 时写用户仓库的 Git 数据（`.git/worktrees/`、`janus/` 分支和提交），不推送、不运行钩子、不改用户检出的分支。阅读时机：让 Janus 对用户仓库执行新的 Git 写操作之前。
+- [MCP 服务器的值在编辑器里能看能改](20261119-mcp_values_visible.md)：新增只回答本机应用的 `GET /api/library/mcp/{id}/values`，编辑器显示和修改值；其他接口、快照和事件仍不含值，Agent 的凭据仍不返回。阅读时机：想让接口返回任何凭据，或修改 MCP 值的读写方式之前。
 - [资源库默认给所有数字员工，经 MCP 路由和 Skill 路由提供](20261119-library_routing.md)：资源默认给所有人（MCP 默认收口），收口的资源照旧按角色注入；Janus 为每个 Run 提供一个 MCP 路由端点，背后的服务器按需启动、在 Run 的工作目录中运行；Skill 超过 10 个时改用 `janus-skills` 路由 Skill；新增通用数字员工作为默认团队。阅读时机：修改资源库、角色的资源、会话怎样拿到 Skill 和 MCP，或默认团队之前。
 
 ## 历史决策

@@ -255,6 +255,19 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// The values a server's variables hold, for the editor that shows and changes them. Only this
+    /// call returns values: the library's views, run snapshots and events keep names only.
+    // @project-doc docs/operations/20261031-security.md#secrets
+    pub fn mcp_values_view(&self, id: &str) -> Result<Value> {
+        let item = self.item(id)?;
+        let Body::Mcp { server } = &item.body else { bail!("这个资源不是 MCP 服务器") };
+        let mut values = self.mcp_values(id);
+        let held = values.of(server);
+        let out: serde_json::Map<String, Value> =
+            server.keys().iter().filter_map(|k| held.get(k).map(|v| (k.clone(), json!(v)))).collect();
+        Ok(json!({ "values": out }))
+    }
+
     fn write_values(&self, id: &str, values: &McpValues) -> Result<()> {
         let path = self.values_path(id)?;
         if values.env.is_empty() && values.headers.is_empty() {

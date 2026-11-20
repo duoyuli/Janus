@@ -48,10 +48,10 @@ class Ctx:
     def api(self, method, path, body=None, **kw):
         return http(self.addr, method, path, body, **kw)
 
-    def api_error(self, method, path, body=None):
+    def api_error(self, method, path, body=None, **kw):
         """The HTTP status of a request that must fail."""
         try:
-            self.api(method, path, body)
+            self.api(method, path, body, **kw)
         except ApiError as e:
             return e.code, e.text
         return 200, ""
