@@ -4,6 +4,22 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.6
+
+- 应用改为订阅服务端的一条全局事件流来跟进变化，不再按固定间隔逐个读取任务：任务和对话再多，侧栏、收件箱和工作区页也及时更新，不会越用越卡。
+- 对话只注入数字员工自己的指令，Janus 的团队协作指令只在 Agent Team 中注入。对话没有接管模式；Agent 还在处理时显示「正在处理」，可以「停止这一轮」或插话。「开始对话」按钮移到右下角。
+- 会话页把注入的指令按来源命名，并各用一行说明：Agent Team 中有「Agent Team 协作指令」和「数字员工的指令」两份，对话只有「数字员工的指令」；对话重新打开时带上的往来显示为「之前的对话」。会话的显示档位只留「详细」和「摘要」。
+- 合回结果更稳妥：worktree 里的改动存不下补丁时不删除 worktree；worktree 不在时验收失败而不是当作没有改动；负责人还在处理或有提问没回答时不能验收；工作区是仓库的子目录时，会话从对应的子目录开始。
+- 任务返工后，它已经通过的独立验证会重新核对，不再沿用旧结论。从资源库删除的 MCP 服务器，之后开始的会话不再拿到。
+- 协作更可靠：尝试失败后等 3 秒再重试；负责人会话刚好结束时，看板消息不会丢；同时提交的两份编排不会出现重复的子任务；重复写的依赖不再被当成环；`src/./a.rs`、大小写不同的写法算同一个文件；修不同行的编译错误不再被误报为原地打转；协作者一次写到看板的内容有上限；结束会话时 Agent 进程和适配器一起结束。
+
+- The app now follows the server through one global event stream instead of reading each task on a timer: the sidebar, inbox and workspace pages stay current however many tasks and chats there are, and the app does not slow down as they pile up.
+- A chat gets only the digital employee's own instructions; Janus's team collaboration instructions go into Agent Team sessions only. Chats have no take-over mode; while the agent is working the chat says so and you can stop the turn or steer it. The "Start a chat" button moved to the lower right.
+- Session pages name the injected instructions by where they come from, each with a line explaining it: an Agent Team session has "Agent Team Collaboration Instructions" and "Digital Employee Instructions", a chat only the latter, and the exchanges a reopened chat brings along show as "Earlier Conversation". The session view now has just two levels, Detailed and Summary.
+- Bringing results back is safer: a worktree whose changes cannot be saved as a patch is not deleted; accepting fails when the worktree is gone instead of treating it as no changes; a run cannot be accepted while the lead is still working or a question is unanswered; when a workspace is a subdirectory of a repository, sessions start in that subdirectory.
+- After a task is reworked, independent verifications it had passed are checked again instead of keeping the old verdict. An MCP server deleted from the library no longer reaches sessions that start afterwards.
+- Collaboration is more reliable: a failed attempt is retried after 3 seconds; board updates are not lost when the lead's session ends at that moment; two orchestrations submitted at once cannot create duplicate subtasks; a dependency listed twice is no longer reported as a cycle; `src/./a.rs` and spellings differing only in case count as the same file; fixing compiler errors on different lines is no longer reported as going in circles; what a collaborator posts to the board in one call is capped; closing a session ends the agent process along with its adapter.
+
 ## 2026.11.20.5
 
 - 侧栏重新整理：收件箱固定在最上面；下面「Agent Team」列出所有工作区，点一个打开它，「+」新建工作区；再下面「Chat」列出和单个数字员工的对话，「+」新建对话。两栏一起滚动，不再留出大块空白。
