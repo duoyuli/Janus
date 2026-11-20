@@ -1363,7 +1363,6 @@
 "新对话" = "New Chat";
 "删除对话…" = "Delete Chat…";
 "还没有数字员工。" = "There are no digital employees yet.";
-"和谁对话" = "Talk With";
 "还没有绑定 Agent" = "No Agent bound yet";
 "Agent「%@」还没有测试通过" = "Agent “%@” has not passed its check";
 "没有写职责" = "No responsibilities written";
@@ -1382,7 +1381,6 @@
 "和 %@ 开始对话" = "Start a chat with %@";
 "正在打开" = "Opening";
 
-"选一名数字员工，开始后直接和它对话" = "Pick a digital employee, then start talking with it";
 "正在打开…" = "Opening…";
 "开始对话" = "Start Chat";
 "已选择" = "Selected";
@@ -1416,3 +1414,6 @@
 "这名数字员工的指令，连同 Agent 设置里的自定义提示词。单 Agent 对话只注入这一份。" = "This digital employee's instructions, together with the custom prompt in the agent's settings. A one-agent chat gets only these.";
 "Janus 只在 Agent Team 中注入：团队分工、共享看板、派工和验证的约定。" = "Janus adds these only in an Agent Team: who does what, the shared board, and how work is assigned and verified.";
 "对话重新打开时带上最近的往来，让新会话接上之前的内容。" = "When a chat reopens, its recent exchanges come along so the new session picks up where it left off.";
+"新对话" = "New Chat";
+"选一名数字员工，和它一对一对话。它带着自己的指令和资源库，在为这次对话新建的目录里工作，没有团队和看板。" = "Pick a digital employee to talk with one on one. It brings its own instructions and the resource library, and works in a directory made for this chat, with no team and no board.";
+"双击卡片直接开始" = "Double-click a card to start right away";
