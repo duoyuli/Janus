@@ -30,11 +30,12 @@ impl App {
         // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
         let (cwd, worktree) = if is_git && !base_ref.is_empty() {
             let path = self.worktree_dir(&id);
+            let branch = crate::worktrees::current_branch(&cwd);
             let included = crate::worktrees::create(&cwd, &path, &base_ref, &id)?;
             // The path the agents' own tools report (`/private/var/…` for `/var/…` on macOS), so
             // the files they edit resolve against it.
             let path = path.canonicalize().unwrap_or(path);
-            (path, Some(WorktreeOf { repo: cwd, included }))
+            (path, Some(WorktreeOf { repo: cwd, branch, included }))
         } else {
             (cwd, None)
         };
@@ -56,7 +57,7 @@ impl App {
             config["costLimitUsd"] = json!(c);
         }
         if let Some(w) = &worktree {
-            config["worktree"] = json!({ "repo": w.repo });
+            config["worktree"] = json!({ "repo": w.repo, "branch": w.branch });
         }
         self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
         let run = Arc::new(Run::new(RunRecord {
@@ -173,7 +174,12 @@ impl App {
 
     pub(super) async fn drive(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
         let workspace_note = match &run.worktree {
-            Some(w) => format!("Git 仓库 {} 的独立 worktree，从 {} 开始", w.repo.display(), short_sha(&run.base_ref)),
+            Some(w) => format!(
+                "Git 仓库 {} 的独立 worktree，从{} {} 开始",
+                w.repo.display(),
+                w.branch.as_deref().map(|b| format!("分支 {b} 的")).unwrap_or_default(),
+                short_sha(&run.base_ref)
+            ),
             None => "非 Git 目录：子任务直接在这个目录中执行，没有 diff".to_string(),
         };
         let mut data = json!({
@@ -181,8 +187,7 @@ impl App {
             "images": run.goal_images
         });
         if let Some(w) = &run.worktree {
-            data["worktree"] =
-                json!({ "repo": w.repo, "included": w.included, "branch": crate::worktrees::branch(&run.id) });
+            data["worktree"] = json!({ "repo": w.repo, "included": w.included, "branch": w.branch });
         }
         self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(data));
         self.goal(run, false).await
@@ -592,11 +597,10 @@ impl App {
             json!({
                 "summary": match &run.worktree {
                     Some(w) => format!(
-                        "{} 改动在这个任务单独的 worktree {} 中（{} 的 worktree），还没有提交；验收时 Janus 会把它们提交到分支 {}。",
+                        "{} 改动在这个任务单独的 worktree {} 中，还没有提交；验收时 Janus 把它们提交并合并回 {}。",
                         lead_summary(&text),
                         run.cwd.display(),
-                        w.repo.display(),
-                        crate::worktrees::branch(&run.id)
+                        w.source()
                     ),
                     None => format!("{} 改动直接在工作目录 {} 中，Janus 没有提交。", lead_summary(&text), run.cwd.display()),
                 },

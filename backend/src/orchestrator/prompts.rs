@@ -113,9 +113,12 @@ pub(super) fn task_prompt(
 pub(super) fn workdir_brief(run: &Run) -> String {
     match &run.worktree {
         Some(w) => format!(
-            "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does (README, justfile, package.json and the like) before running anything, and reinstall when a change touches dependencies. Changes stay uncommitted: when the user accepts the run, Janus commits them to the branch {branch}.",
+            "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does (README, justfile, package.json and the like) before running anything, and reinstall when a change touches dependencies. Changes stay uncommitted: when the user accepts the run, Janus commits them and brings them back to {source}.",
             repo = w.repo.display(),
-            branch = crate::worktrees::branch(&run.id)
+            source = match &w.branch {
+                Some(b) => format!("the branch {b} the user was on"),
+                None => "the user's detached HEAD".into(),
+            }
         ),
         None if run.git => "This is a Git repository.".into(),
         None => {
@@ -128,7 +131,7 @@ pub(super) fn workdir_brief(run: &Run) -> String {
 fn workdir_note(run: &Run) -> String {
     match &run.worktree {
         Some(w) => format!(
-            "（{} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里。运行测试或程序前，先按项目自己的方式准备环境（看 README、justfile、package.json 等）；你的改动涉及依赖时重新安装。改动不要提交，用户验收时由 Janus 统一提交。）",
+            "（{} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里。运行测试或程序前，先按项目自己的方式准备环境（看 README、justfile、package.json 等）；你的改动涉及依赖时重新安装。改动不要提交，用户验收时由 Janus 统一提交并合并回用户的分支。）",
             w.repo.display()
         ),
         None => String::new(),

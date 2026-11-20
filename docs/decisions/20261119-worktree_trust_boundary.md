@@ -1,6 +1,6 @@
 # ADR：worktree 写入用户仓库的边界
 
-- 状态：已采纳（accepted），记录于 2026-11-19。
+- 状态：已采纳（accepted），记录于 2026-11-19。验收和重建两行、「不改用户当前检出的分支和工作目录里的文件」已被 [ADR：验收时把结果合并回任务开始时的分支](20261120-merge_back_on_accept.md) 取代（superseded，2026-11-20）：验收时 Janus 把结果快进到任务开始时的分支，所有写操作都不运行钩子。
 - 相关文档：[ADR：Git 仓库上的每个任务在自己的 worktree 中运行](20261119-run_worktrees.md)、[安全边界](../operations/20261031-security.md#workspace_access)、[ADR：用户数据、依赖和日志都放在 Janus home](20261031-user_home_layout.md)。
 
 ## 背景

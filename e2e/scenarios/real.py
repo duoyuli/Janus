@@ -100,8 +100,7 @@ def real(ctx, c):
         usage = api("GET", f"/api/runs/{run}/usage")
         c(usage["run"]["tokens"]["total"], f"真实 Agent 上报了用量：{usage['text']}")
         api("POST", f"/api/runs/{run}/actions", {"type": "accept"})
-        shown = subprocess.run(["git", "show", f"janus/{run}:calc.py"], cwd=repo, capture_output=True, text=True).stdout
-        c("def mod" in shown, f"验收后结果提交到分支 janus/{run}")
+        c("def mod" in open(os.path.join(repo, "calc.py")).read(), "验收后结果合并回工作区目录所在的分支")
     finally:
         server.stop()
         # The copied credentials do not outlive the test, even with --keep.

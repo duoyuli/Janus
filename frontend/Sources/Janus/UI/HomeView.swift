@@ -300,7 +300,7 @@ struct WorkspaceEditor: View {
         if i["exists"].bool == false { return L.text("目录不存在") }
         if !i["git"].truthy { return L.text("不是 Git 仓库：任务直接在这个目录中执行，Janus 不会生成改动的 diff") }
         let dirty = i["dirty"].int ?? 0
-        return L.text("✓ Git 仓库 · 当前分支 \(i["branch"].str) · \(dirty > 0 ? L.text("⚠ 有 \(dirty) 个未提交改动（任务会直接在这些改动之上工作）") : L.text("工作区干净"))")
+        return L.text("✓ Git 仓库 · 当前分支 \(i["branch"].str) · \(dirty > 0 ? L.text("⚠ 有 \(dirty) 个未提交改动（不会带进任务）") : L.text("工作区干净"))")
     }
 
     /// Edits not saved yet, so Cancel and Esc ask before throwing them away.

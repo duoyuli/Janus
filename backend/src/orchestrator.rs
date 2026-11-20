@@ -776,9 +776,33 @@ enum BudgetHit {
 #[derive(Clone, Debug)]
 struct WorktreeOf {
     repo: PathBuf,
+    /// The branch checked out in `repo` when the run started, where accepting brings the result
+    /// back; `None` when `repo` was on a detached `HEAD`.
+    branch: Option<String>,
     /// The ignored files `.worktreeinclude` brought along when the worktree was made (only known
     /// then; a resumed run has none listed).
     included: Vec<String>,
+}
+
+impl WorktreeOf {
+    /// The worktree a run's record (`runs.config`) names; the files `.worktreeinclude` brought
+    /// along are only known when it was made.
+    fn of_config(config: &Value) -> Option<WorktreeOf> {
+        let w = &config["worktree"];
+        Some(WorktreeOf {
+            repo: w["repo"].as_str()?.into(),
+            branch: w["branch"].as_str().map(str::to_owned),
+            included: vec![],
+        })
+    }
+
+    /// Where accepting brings the result back, for the person to read.
+    fn source(&self) -> String {
+        match &self.branch {
+            Some(b) => format!("{} 的分支 {b}", self.repo.display()),
+            None => format!("{} 当前的 detached HEAD", self.repo.display()),
+        }
+    }
 }
 
 struct RunRecord {

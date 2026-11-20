@@ -21,7 +21,7 @@
 
 1. 目标不能为空（只附了图片时目标记为「按附图完成」），工作区和工作目录必须存在。
 2. 为每个成员构建运行环境（`spec_for`），缺少 CLI 或适配器没有安装时直接报错。
-3. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线，并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
+3. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线和当前检出的分支（验收时合并回这里），并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
 4. 写入 Run 快照（含可选的 Token 展示参考值 `tokenLimit` 和费用上限 `costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
 5. 启动驱动任务，进入负责人的目标会话（`goal`）。
 
@@ -43,14 +43,14 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 <a id="workspace_model"></a>
 ## 工作目录
 
-- **Git 仓库（有提交）**：每个 Run 在自己的 worktree 中运行（`crate::worktrees`），位置是 `<Janus home>/worktrees/<run>`，从创建时的 `HEAD` 开始、处于 detached HEAD、用 `git worktree lock` 锁住。Run 的负责人和所有子任务共用这个 worktree，改动彼此立即可见；同一个仓库上的其他 Run 和用户自己的目录都不受影响。`runs.cwd` 是 worktree 的路径（规范化后的真实路径，和 Agent 自己的工具报告的路径一致），`runs.config.worktree.repo` 是原仓库。
+- **Git 仓库（有提交）**：每个 Run 在自己的 worktree 中运行（`crate::worktrees`），位置是 `<Janus home>/worktrees/<run>`，从创建时的 `HEAD` 开始、处于 detached HEAD、用 `git worktree lock` 锁住。Run 的负责人和所有子任务共用这个 worktree，改动彼此立即可见；同一个仓库上的其他 Run 和用户自己的目录都不受影响。`runs.cwd` 是 worktree 的路径（规范化后的真实路径，和 Agent 自己的工具报告的路径一致），`runs.config.worktree.repo` 是原仓库，`runs.config.worktree.branch` 是创建时检出的分支（处于 detached HEAD 时为 `null`）。
 - **worktree 里有什么**：仓库跟踪的文件，加上原仓库根目录 `.worktreeinclude`（`.gitignore` 语法，用户自己维护）列出、并且被忽略的文件，创建时复制过去（跳过符号链接，不覆盖已有文件），复制了哪些记在 `run.created` 的 `data.worktree.included`。用户目录里没提交的改动不带过去，创建前提醒（[创建前的提醒](../interfaces/20261031-http_api.md#run_preflight)）。依赖、构建产物等不复制，负责人说明和任务提示告诉 Agent 按项目自己的方式在 worktree 里准备环境、改了依赖就重新安装。
-- **验收**：Janus 在 worktree 里提交全部改动（`--no-verify`），把 `janus/<run>` 分支指向这次提交（第一次新建，之后只快进；分支在上次验收后被移动过就拒绝）；worktree 保持 detached，分支不被检出，合并由用户决定。负责人的对话还开着时 worktree 保留，继续对话就接着在里面改，再验收时再提交一次；没有会话在用时（例如服务重启后验收）验收后移除。服务启动时（`recover`）移除已验收 Run 留下的 worktree；之后继续这个 Run 时，`resume_run` 从 `janus/<run>`（没有提交过就从基线）重建 worktree（`worktrees::ensure`）。
+- **验收**：Janus 在 worktree 里提交全部改动，再把结果带回创建时检出的分支（`worktrees::accept`）：分支没动过时直接快进；有了新提交时先在 worktree 里把任务的提交变基到最新的分支上再快进，历史是线性的，不建 `janus/` 分支。分支检出在用户的目录（或用户的其他 worktree）时在那里 `git merge --ff-only`，文件随之更新，和任务无关的未提交改动保留；没有检出时只移动分支。变基冲突、源分支被删除、用户目录里未提交的改动（包括未跟踪的同名文件）会被覆盖时，验收失败（400），Run 保持 `delivered`，用户的目录和分支不变，结果留在 worktree 的提交里，错误信息给出提交号或重叠的文件。创建时处于 detached HEAD 的 Run，只在工作目录仍在原来的提交（或上次验收带到的提交）上时快进它，否则同样失败。Janus 的所有 Git 写操作都带 `-c core.hooksPath=/dev/null`，不运行仓库的钩子。worktree 始终 detached。负责人的对话还开着时 worktree 保留，继续对话就接着在里面改，再验收时再带回一个提交；没有会话在用时（例如服务重启后验收）验收后移除。服务启动时（`recover`）移除已验收 Run 留下的 worktree；之后继续这个 Run 时，`resume_run` 从最后一次验收带回的提交（`risk.accepted` 的 `data.commit`，没有就从基线）重建 worktree（`worktrees::ensure`）。
 - **删除 Run**：移除 worktree，还没提交的改动先存成补丁 `<Janus home>/worktrees/deleted/<run>.patch`；取消或失败的 Run 保留 worktree，可以从中断处继续。
 - **非 Git 目录**（以及还没有提交的仓库）：负责人和所有任务直接在工作区目录中运行，没有 diff 产物。同一个目录上已有进行中的 Run 时只提醒，不阻止。
-- 一个任务能否修改文件，完全由它的 Agent 权限模式决定，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。负责人和协作者都不提交、不推送；只有用户验收时由 Janus 提交一次。Janus 只隔离文件，端口、本机数据库这类共享资源由项目自己避免冲突。
+- 一个任务能否修改文件，完全由它的 Agent 权限模式决定，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。负责人和协作者都不提交、不推送；只有用户验收时由 Janus 提交并合并回源分支。Janus 只隔离文件，端口、本机数据库这类共享资源由项目自己避免冲突。
 
-设计取舍见 [ADR：Git 仓库上的每个任务在自己的 worktree 中运行](../decisions/20261119-run_worktrees.md) 和 [ADR：worktree 写入用户仓库的边界](../decisions/20261119-worktree_trust_boundary.md)。
+设计取舍见 [ADR：Git 仓库上的每个任务在自己的 worktree 中运行](../decisions/20261119-run_worktrees.md)、[ADR：worktree 写入用户仓库的边界](../decisions/20261119-worktree_trust_boundary.md) 和 [ADR：验收时把结果合并回任务开始时的分支](../decisions/20261120-merge_back_on_accept.md)。
 
 <a id="scheduling"></a>
 ## 任务调度
@@ -242,7 +242,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 - 仍在进行的尝试标记为 `interrupted`。
 - 未结束的 Run 写入 `run.interrupted` 事件，状态改为 `interrupted`。
-- 已验收的 Run 留下的 worktree 被移除（结果已经在 `janus/<run>` 分支上）。
+- 已验收的 Run 留下的 worktree 被移除（结果已经合并回源分支）。
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 从 `runs.config` 重建团队，从事件日志重建任务；在 worktree 中的 Run，worktree 不在了就先重建。恢复、验收历史交付（`accept_archived`）和删除一个不在运行的 Run 先拿 `App.revival`，一次只做一件：两条消息同时发给已中断或已交付的 Run 时，第二条等第一条把 Run 恢复好，再发进同一个 Run，不会各自恢复出一个负责人会话；恢复期间到达的验收按运行中的 Run 处理：
 

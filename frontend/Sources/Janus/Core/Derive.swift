@@ -196,10 +196,11 @@ struct RunInfo {
     var cwd = ""
     /// The repository this run's own worktree was made from; empty for a run working in place.
     var repo = ""
-    /// Where an accepted result is committed: `janus/<run-id>` for a run in a worktree.
+    /// The branch a run in a worktree started on, where accepting merges its result back; empty
+    /// when it started on a detached HEAD.
     var branch = ""
-    /// Set once an acceptance committed the result to `branch`.
-    var committed = false
+    /// Set once an acceptance merged a result back.
+    var merged = false
     var git = false
     var baseRef = ""
     var workspace = ""
@@ -447,7 +448,7 @@ func derive(_ events: [Event]) -> RunState {
             let a = ag("lead"); a.phase = "idle"; a.note = ""
         case "risk.accepted":
             s.run.status = .accepted; s.result?.accepted = e.ts
-            if let b = d["branch"].string, !b.isEmpty { s.run.branch = b; s.run.committed = true }
+            if d["commit"].string != nil { s.run.merged = true }
         default: break
         }
     }

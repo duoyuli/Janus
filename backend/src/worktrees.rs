@@ -1,7 +1,10 @@
 //! Each run on a git repository works in its own worktree under `<Janus home>/worktrees`, so runs
-//! on one repository do not write over each other. These are the only writes Janus makes to the
-//! person's repository: the worktree's metadata, the `janus/<run-id>` branch and the commit made
-//! when the person accepts the run. Nothing is pushed and the repository's hooks never run.
+//! on one repository do not write over each other. The worktree starts from the person's `HEAD`,
+//! detached, and accepting the run brings its result back where it came from: one commit
+//! fast-forwarded onto the branch the person was on (or their detached `HEAD`). Janus never leaves
+//! a half-done merge in the person's checkout and never overwrites their uncommitted changes: when
+//! that would happen, accepting fails and the result stays in the run's commit. Nothing is pushed
+//! and the repository's hooks never run.
 // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
 // @project-doc docs/operations/20261031-security.md#workspace_access
 
@@ -9,14 +12,16 @@ use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The branch a run's accepted result is committed to.
-pub fn branch(run_id: &str) -> String {
-    format!("janus/{run_id}")
-}
-
-/// `git` writing in `dir`. The identity is the repository's or the person's own.
+/// `git` writing in `dir`, with the repository's hooks switched off: they are code in the
+/// repository (an agent may have written them) and would run on checkouts, commits, rebases and
+/// merges. The identity is the repository's or the person's own.
 fn write(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = Command::new("git").args(args).current_dir(dir).output().context("运行 git 失败")?;
+    let out = Command::new("git")
+        .args(["-c", "core.hooksPath=/dev/null"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .context("运行 git 失败")?;
     if !out.status.success() {
         bail!("git {}：{}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
     }
@@ -29,85 +34,221 @@ fn read(dir: &Path, args: &[&str]) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// The branch checked out in `repo` (`main` for `refs/heads/main`); `None` on a detached `HEAD`.
+/// A run started there brings its result back to it.
+pub fn current_branch(repo: &Path) -> Option<String> {
+    read(repo, &["symbolic-ref", "-q", "HEAD"])?.trim().strip_prefix("refs/heads/").map(str::to_owned)
+}
+
 /// Make the worktree at `path` from `base` (detached, no branch) and lock it while the run owns
 /// it. Returns the ignored files `.worktreeinclude` brought along.
 pub fn create(repo: &Path, path: &Path, base: &str, run_id: &str) -> Result<Vec<String>> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let p = path.to_string_lossy();
-    write(repo, &["worktree", "add", "--detach", &p, base]).context("创建 worktree 失败")?;
-    write(repo, &["worktree", "lock", "--reason", &format!("Janus 任务 {run_id}"), &p])?;
+    add(repo, path, base, run_id).context("创建 worktree 失败")?;
     copy_included(repo, path)
 }
 
-/// Bring back the worktree of a run that is working again after it was removed (accepted): at its
-/// branch when the accepted result was committed there, otherwise at `base`. Always detached, so
-/// the branch stays free for the person. Returns whether it had to be made.
-pub fn ensure(repo: &Path, path: &Path, base: &str, run_id: &str) -> Result<bool> {
+/// Bring back the worktree of a run that is working again after it was removed (accepted), at
+/// `from`: the commit its last acceptance brought back, otherwise where it started. Returns
+/// whether it had to be made.
+pub fn ensure(repo: &Path, path: &Path, from: &str, run_id: &str) -> Result<bool> {
     if path.exists() {
         return Ok(false);
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     // A worktree directory removed by hand leaves its entry behind; git would refuse the path.
     let _ = write(repo, &["worktree", "prune"]);
-    let p = path.to_string_lossy();
-    let branch = branch(run_id);
-    let from = if branch_tip(repo, &branch).is_some() { branch.as_str() } else { base };
-    write(repo, &["worktree", "add", "--detach", &p, from]).context("重建 worktree 失败")?;
-    write(repo, &["worktree", "lock", "--reason", &format!("Janus 任务 {run_id}"), &p])?;
+    add(repo, path, from, run_id).context("重建 worktree 失败")?;
     copy_included(repo, path)?;
     Ok(true)
 }
 
-fn branch_tip(repo: &Path, branch: &str) -> Option<String> {
-    read(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).map(|s| s.trim().to_string())
+/// `git worktree add --detach` and lock it for the run.
+fn add(repo: &Path, path: &Path, from: &str, run_id: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let p = path.to_string_lossy();
+    write(repo, &["worktree", "add", "--detach", &p, from])?;
+    write(repo, &["worktree", "lock", "--reason", &format!("Janus 任务 {run_id}"), &p])?;
+    Ok(())
 }
 
-/// What accepting a run left in the repository.
-pub struct Accepted {
-    /// The branch and commit holding the result; `None` when the run changed nothing.
-    pub commit: Option<(String, String)>,
+fn rev(dir: &Path, name: &str) -> Option<String> {
+    read(dir, &["rev-parse", "--verify", "--quiet", &format!("{name}^{{commit}}")]).map(|s| s.trim().to_string())
 }
 
-/// Commit everything the run changed and point `janus/<run-id>` at it: the branch is what the
-/// person merges. The worktree stays detached, so the branch is never checked out there; a later
-/// acceptance of the same run moves the branch forward, and refuses when the branch was moved
-/// meanwhile. Hooks do not run (`--no-verify`). With `remove`, the worktree goes afterwards (no
-/// session works in it any more). A failed commit (for example no git identity) leaves it as it was.
-pub fn accept(repo: &Path, path: &Path, run_id: &str, message: &str, remove: bool) -> Result<Accepted> {
+fn is_ancestor(dir: &Path, older: &str, newer: &str) -> bool {
+    read(dir, &["merge-base", "--is-ancestor", older, newer]).is_some()
+}
+
+fn short(commit: &str) -> &str {
+    commit.get(..8).unwrap_or(commit)
+}
+
+/// Where an accepted result goes: the tip it builds on, and what moves to bring it there.
+struct Source {
+    /// How the person knows it, in messages.
+    name: String,
+    tip: String,
+    at: Place,
+}
+
+enum Place {
+    /// A checkout that has it checked out: its files move with it.
+    Checkout(PathBuf),
+    /// A branch checked out nowhere: only the ref moves.
+    Ref(String),
+}
+
+impl Source {
+    /// The run's `branch` as it is now, or with `None`, the detached `HEAD` of the person's
+    /// checkout at `repo`. `head` is the run's result, named when it cannot go back.
+    fn of(repo: &Path, branch: Option<&str>, head: &str) -> Result<Source> {
+        let Some(b) = branch else {
+            if let Some(now) = current_branch(repo) {
+                bail!(
+                    "没有合并：这个任务要合并回 {} 的 detached HEAD，但那里现在检出的是分支 {now}。任务的结果在提交 {}，可以自己合并。",
+                    repo.display(),
+                    short(head)
+                );
+            }
+            let tip = rev(repo, "HEAD").context("读取工作目录的 HEAD 失败")?;
+            return Ok(Source { name: format!("{} 的 HEAD", repo.display()), tip, at: Place::Checkout(repo.into()) });
+        };
+        let Some(tip) = rev(repo, &format!("refs/heads/{b}")) else {
+            bail!("没有合并：分支 {b} 已经不存在。任务的结果在提交 {}，可以自己合并。", short(head));
+        };
+        let at = match checked_out_at(repo, b) {
+            Some(dir) => Place::Checkout(dir),
+            None => Place::Ref(format!("refs/heads/{b}")),
+        };
+        Ok(Source { name: format!("分支 {b}"), tip, at })
+    }
+
+    /// Move the source forward to `head`, which has its tip in its history. A checked-out branch
+    /// moves with its files; git refuses (and nothing changes) when that would overwrite the
+    /// person's uncommitted changes.
+    fn advance(&self, repo: &Path, head: &str) -> Result<()> {
+        let dir = match &self.at {
+            Place::Checkout(dir) => dir,
+            Place::Ref(r) => {
+                write(repo, &["update-ref", r, head, &self.tip])?;
+                return Ok(());
+            }
+        };
+        if let Err(err) = write(dir, &["merge", "--ff-only", "-q", head]) {
+            let touched = read(dir, &["diff", "--name-only", &self.tip, head]).unwrap_or_default();
+            let overlap: Vec<String> =
+                uncommitted(dir).into_iter().filter(|f| touched.lines().any(|t| t == f)).collect();
+            if overlap.is_empty() {
+                bail!("没有合并到{}：{err:#}。任务的结果在提交 {}。", self.name, short(head));
+            }
+            bail!(
+                "没有合并到{}：{} 里这些文件有还没提交的改动，任务也改了它们：{}。先提交或暂存这些改动，再验收。",
+                self.name,
+                dir.display(),
+                overlap.join("、")
+            );
+        }
+        Ok(())
+    }
+}
+
+/// The checkout (the person's directory or another worktree of theirs) that has `branch` checked
+/// out. Janus's own worktrees are detached, so never one of them.
+fn checked_out_at(repo: &Path, branch: &str) -> Option<PathBuf> {
+    let list = read(repo, &["worktree", "list", "--porcelain"])?;
+    let want = format!("branch refs/heads/{branch}");
+    list.split("\n\n").find_map(|entry| {
+        let mut lines = entry.lines();
+        let path = lines.next()?.strip_prefix("worktree ")?;
+        lines.any(|l| l == want).then(|| PathBuf::from(path))
+    })
+}
+
+/// Accept a run: commit everything it changed in its worktree, and bring the result back to
+/// `branch` (where the person's checkout was when the run started; `None` for a detached `HEAD`)
+/// as one fast-forward. When the branch moved on meanwhile, the run's commit is replayed onto it
+/// in the worktree first, so history stays linear; a conflict there, a detached `HEAD` that moved,
+/// or uncommitted changes in the person's checkout that the result would overwrite leave the
+/// person's side as it was and fail, with the result kept in the worktree's commit. Returns the
+/// commit now at the source, `None` when the run brought nothing new. With `remove` (no session
+/// works there) the worktree goes afterwards.
+pub fn accept(repo: &Path, path: &Path, branch: Option<&str>, message: &str, remove: bool) -> Result<Option<String>> {
     if !path.exists() {
-        return Ok(Accepted { commit: None });
+        return Ok(None);
     }
     write(path, &["add", "-A"])?;
-    let changed = !Command::new("git")
+    let staged = !Command::new("git")
         .args(["diff", "--cached", "--quiet"])
         .current_dir(path)
         .status()
         .context("运行 git 失败")?
         .success();
-    let commit = if changed {
-        let branch = branch(run_id);
-        let parent = write(path, &["rev-parse", "HEAD"])?.trim().to_string();
-        write(path, &["commit", "-q", "--no-verify", "-m", message])
-            .context("提交失败：请确认 git 配置了 user.name 和 user.email")?;
-        let head = write(path, &["rev-parse", "HEAD"])?.trim().to_string();
-        let r = format!("refs/heads/{branch}");
-        match branch_tip(repo, &branch) {
-            None => write(repo, &["update-ref", &r, &head, ""])?,
-            Some(tip) if tip == parent => write(repo, &["update-ref", &r, &head, &parent])?,
-            Some(_) => bail!("分支 {branch} 在上次验收后被改动过，没有覆盖它；这次的提交是 {head}，可以自己合并"),
-        };
-        Some((branch, head))
-    } else {
-        None
-    };
+    if staged {
+        write(path, &["commit", "-q", "-m", message]).context("提交失败：请确认 git 配置了 user.name 和 user.email")?;
+    }
+    let mut head = rev(path, "HEAD").context("读取 worktree 的 HEAD 失败")?;
+    let source = Source::of(repo, branch, &head)?;
+    if is_ancestor(path, &head, &source.tip) {
+        // Nothing the source does not have already.
+        if remove {
+            drop_worktree(repo, path);
+        }
+        return Ok(None);
+    }
+    if !is_ancestor(path, &source.tip, &head) {
+        if branch.is_none() {
+            bail!("没有合并：{} 在任务开始后移动过。任务的结果在提交 {}，可以自己合并。", source.name, short(&head));
+        }
+        if let Err(err) = write(path, &["rebase", "-q", &source.tip]) {
+            let _ = write(path, &["rebase", "--abort"]);
+            bail!(
+                "没有合并：{} 在任务开始后有了新的提交，和任务的改动冲突。任务的结果在提交 {}（worktree {}），可以自己合并。（{err:#}）",
+                source.name,
+                short(&head),
+                path.display()
+            );
+        }
+        head = rev(path, "HEAD").context("读取 worktree 的 HEAD 失败")?;
+    }
+    // A replay finds nothing new when the person already brought the same change over.
+    let brought = (head != source.tip).then_some(head);
+    if let Some(head) = &brought {
+        source.advance(repo, head)?;
+    }
     if remove {
         drop_worktree(repo, path);
     }
-    Ok(Accepted { commit })
+    Ok(brought)
+}
+
+/// Data version 10: a run in a worktree records the branch accepting brings its result back to
+/// (`runs.config.worktree.branch`, `null` for a detached `HEAD`). Runs from before take the branch
+/// the checkout is on now when the run's start is in its history, so replaying the run's commits
+/// there replays only them; otherwise `null`, and accepting such a run leaves merging its commit
+/// to the person unless the checkout is detached where the run can fast-forward it.
+// @project-doc docs/architecture/20261031-data_model.md#migrations
+pub(crate) fn record_source_branch(tx: &rusqlite::Transaction) -> Result<usize> {
+    let rows: Vec<(String, String)> = tx
+        .prepare("SELECT id, config FROM runs WHERE json_extract(config, '$.worktree.repo') IS NOT NULL")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut changed = 0;
+    for (id, config) in rows {
+        let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&config) else { continue };
+        if config["worktree"].get("branch").is_some() {
+            continue;
+        }
+        let repo = PathBuf::from(config["worktree"]["repo"].as_str().unwrap_or_default());
+        let base = config["baseRef"].as_str().unwrap_or_default();
+        let branch = current_branch(&repo).filter(|b| {
+            rev(&repo, &format!("refs/heads/{b}")).is_some_and(|tip| !base.is_empty() && is_ancestor(&repo, base, &tip))
+        });
+        config["worktree"]["branch"] = serde_json::json!(branch);
+        tx.execute("UPDATE runs SET config = ?1 WHERE id = ?2", rusqlite::params![config.to_string(), id])?;
+        changed += 1;
+    }
+    Ok(changed)
 }
 
 /// Remove a run's worktree because the run is deleted. Changes not committed yet are kept as a
@@ -249,54 +390,151 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Accepting commits the run's changes to `janus/<id>` and removes the worktree; working again
-    /// brings it back on that branch; deleting keeps uncommitted changes as a patch.
+    const HOOKS: [&str; 5] = ["pre-commit", "post-commit", "post-merge", "post-checkout", "post-rewrite"];
+
+    fn git(dir: &Path, args: &[&str]) {
+        assert!(Command::new("git").args(args).current_dir(dir).status().unwrap().success(), "git {args:?}");
+    }
+
+    fn file(dir: &Path, name: &str) -> Option<String> {
+        std::fs::read_to_string(dir.join(name)).ok()
+    }
+
+    /// The run's result comes back to the branch the person is on as one commit, with the files
+    /// in their checkout; their uncommitted change to another file stays, and no hook runs.
     #[test]
-    fn accept_commits_to_the_runs_branch_and_the_worktree_comes_back_on_it() {
+    fn accepting_fast_forwards_the_branch_the_person_is_on() {
         let dir = repo("accept");
         let (r, w) = (dir.join("repo"), dir.join("home/worktrees/r2"));
         let base = head(&r);
+        let branch = current_branch(&r).unwrap();
+        // The repository's hooks are its own code; none runs on Janus's writes.
+        for hook in HOOKS {
+            let h = r.join(".git/hooks").join(hook);
+            std::fs::write(&h, format!("#!/bin/sh\ntouch \"{}/{hook}-ran\"\n", dir.display())).unwrap();
+            std::fs::set_permissions(&h, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        }
         create(&r, &w, &base, "r2").unwrap();
         std::fs::write(w.join("new.txt"), "from the run\n").unwrap();
-        let done = accept(&r, &w, "r2", "Janus 任务 r2", true).unwrap();
-        let (branch, commit) = done.commit.unwrap();
-        assert_eq!(branch, "janus/r2");
-        assert!(!w.exists(), "the worktree is gone once accepted");
-        assert_eq!(read(&r, &["show", &format!("{commit}:new.txt")]).unwrap(), "from the run\n");
-        assert_eq!(head(&r), base, "the person's checkout did not move");
-        assert!(!r.join("new.txt").exists());
+        std::fs::write(r.join("README.md"), "the person's own edit\n").unwrap();
+        let commit = accept(&r, &w, Some(&branch), "Janus 任务 r2", false).unwrap().unwrap();
+        assert_eq!(head(&r), commit, "the branch moved forward");
+        assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), base, "one commit on top, no merge");
+        assert_eq!(file(&r, "new.txt").as_deref(), Some("from the run\n"), "the checkout has the result");
+        assert_eq!(file(&r, "README.md").as_deref(), Some("the person's own edit\n"), "their change stays");
+        assert_eq!(current_branch(&r).as_deref(), Some(branch.as_str()));
+        assert!(read(&w, &["symbolic-ref", "-q", "HEAD"]).is_none(), "the worktree stays detached");
+        for hook in HOOKS {
+            assert!(!dir.join(format!("{hook}-ran")).exists(), "{hook} ran");
+        }
+        assert!(read(&r, &["branch", "--list", "janus/*"]).unwrap().trim().is_empty(), "no branch of its own");
 
-        assert!(ensure(&r, &w, &base, "r2").unwrap());
-        assert_eq!(std::fs::read_to_string(w.join("new.txt")).unwrap(), "from the run\n", "back on its branch");
-        assert!(!ensure(&r, &w, &base, "r2").unwrap(), "already there");
-        // Accepting again while a conversation still works there keeps the worktree, detached, and
-        // moves the branch forward.
+        // Nothing new: nothing to bring back. More work later is one more commit on the branch.
+        assert!(accept(&r, &w, Some(&branch), "Janus 任务 r2", false).unwrap().is_none());
         std::fs::write(w.join("second.txt"), "more work\n").unwrap();
-        let (_, second) = accept(&r, &w, "r2", "Janus 任务 r2", false).unwrap().commit.unwrap();
-        assert!(w.exists() && read(&w, &["symbolic-ref", "-q", "HEAD"]).is_none(), "kept and detached");
-        assert_eq!(read(&r, &["rev-parse", "janus/r2"]).unwrap().trim(), second);
-        // A branch the person moved meanwhile is not written over.
-        assert!(
-            Command::new("git").args(["branch", "-f", "janus/r2", &base]).current_dir(&r).status().unwrap().success()
-        );
-        std::fs::write(w.join("third.txt"), "x\n").unwrap();
-        assert!(accept(&r, &w, "r2", "Janus 任务 r2", false).is_err());
-        std::fs::write(w.join("more.txt"), "unfinished\n").unwrap();
-        let kept = remove(&r, &w, &dir.join("home/worktrees/deleted"), "r2").unwrap().unwrap();
-        assert!(std::fs::read_to_string(kept).unwrap().contains("unfinished"));
-        assert!(!w.exists());
-        assert!(read(&r, &["rev-parse", "--verify", "janus/r2"]).is_some(), "the accepted branch stays");
+        let second = accept(&r, &w, Some(&branch), "Janus 任务 r2", true).unwrap().unwrap();
+        assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), commit);
+        assert!(!w.exists(), "removed when no session works there");
+        // Working again brings the worktree back where the last acceptance left the result.
+        assert!(ensure(&r, &w, &second, "r2").unwrap());
+        assert_eq!(file(&w, "second.txt").as_deref(), Some("more work\n"));
+        assert!(!ensure(&r, &w, &second, "r2").unwrap(), "already there");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A run that changed nothing leaves no commit and no branch.
+    /// The branch moved on while the run worked: the run's commit is replayed on top of it
+    /// (linear history). A conflicting replay leaves the branch and the checkout as they were.
     #[test]
-    fn accepting_a_run_without_changes_makes_no_branch() {
+    fn a_branch_that_moved_on_gets_the_result_replayed_on_top_or_nothing() {
+        let dir = repo("moved");
+        let (r, w1, w2) = (dir.join("repo"), dir.join("home/worktrees/a"), dir.join("home/worktrees/b"));
+        let base = head(&r);
+        let branch = current_branch(&r).unwrap();
+        create(&r, &w1, &base, "a").unwrap();
+        create(&r, &w2, &base, "b").unwrap();
+        std::fs::write(w1.join("a.txt"), "run a\n").unwrap();
+        std::fs::write(w2.join("a.txt"), "run b\n").unwrap();
+        std::fs::write(r.join("mine.txt"), "the person's commit\n").unwrap();
+        git(&r, &["add", "mine.txt"]);
+        git(&r, &["commit", "-q", "-m", "mine"]);
+        let mine = head(&r);
+
+        let a = accept(&r, &w1, Some(&branch), "a", false).unwrap().unwrap();
+        assert_eq!(head(&r), a);
+        assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), mine, "replayed on the person's commit");
+        assert_eq!(read(&r, &["rev-list", "--merges", "--count", "HEAD"]).unwrap().trim(), "0");
+        assert_eq!(head(&w1), a, "the worktree holds what the branch has");
+
+        let err = accept(&r, &w2, Some(&branch), "b", true).unwrap_err().to_string();
+        assert!(err.contains("冲突"), "{err}");
+        assert_eq!(head(&r), a, "the branch did not move");
+        assert_eq!(file(&r, "a.txt").as_deref(), Some("run a\n"));
+        assert!(read(&r, &["status", "--porcelain"]).unwrap().trim().is_empty(), "nothing half-merged");
+        assert!(w2.exists(), "kept with its result: a failed acceptance changes nothing");
+        assert_eq!(read(&w2, &["show", "HEAD:a.txt"]).unwrap(), "run b\n", "the result is committed there");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The person's uncommitted change to a file the run also changed is never overwritten. A
+    /// branch checked out nowhere just moves.
+    #[test]
+    fn uncommitted_changes_in_the_way_stop_it_and_a_branch_checked_out_nowhere_just_moves() {
+        let dir = repo("dirty");
+        let (r, w) = (dir.join("repo"), dir.join("home/worktrees/d"));
+        let base = head(&r);
+        let branch = current_branch(&r).unwrap();
+        create(&r, &w, &base, "d").unwrap();
+        std::fs::write(w.join("README.md"), "from the run\n").unwrap();
+        std::fs::write(r.join("README.md"), "the person's draft\n").unwrap();
+        let err = accept(&r, &w, Some(&branch), "d", false).unwrap_err().to_string();
+        assert!(err.contains("README.md") && err.contains("先提交或暂存"), "{err}");
+        assert_eq!(head(&r), base);
+        assert_eq!(file(&r, "README.md").as_deref(), Some("the person's draft\n"));
+
+        // The person moves to another branch: theirs is checked out nowhere, so only it moves.
+        git(&r, &["checkout", "-q", "-b", "elsewhere"]);
+        let commit = accept(&r, &w, Some(&branch), "d", false).unwrap().unwrap();
+        assert_eq!(read(&r, &["rev-parse", &branch]).unwrap().trim(), commit);
+        assert_eq!(head(&r), base, "the checkout on the other branch did not move");
+        assert_eq!(file(&r, "README.md").as_deref(), Some("the person's draft\n"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A run started on a detached `HEAD` brings its result back to it while the checkout is still
+    /// there, and refuses once it moved.
+    #[test]
+    fn a_detached_head_moves_forward_only_from_where_it_was() {
+        let dir = repo("detached");
+        let (r, w1, w2) = (dir.join("repo"), dir.join("home/worktrees/x"), dir.join("home/worktrees/y"));
+        git(&r, &["checkout", "-q", "--detach"]);
+        let base = head(&r);
+        assert!(current_branch(&r).is_none());
+        create(&r, &w1, &base, "x").unwrap();
+        create(&r, &w2, &base, "y").unwrap();
+        std::fs::write(w1.join("x.txt"), "x\n").unwrap();
+        std::fs::write(w2.join("y.txt"), "y\n").unwrap();
+        let x = accept(&r, &w1, None, "x", false).unwrap().unwrap();
+        assert_eq!(head(&r), x);
+        assert!(current_branch(&r).is_none() && file(&r, "x.txt").is_some());
+        let err = accept(&r, &w2, None, "y", false).unwrap_err().to_string();
+        assert!(err.contains("移动过"), "{err}");
+        assert_eq!(head(&r), x);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Deleting keeps uncommitted changes as a patch; a run that changed nothing brings nothing.
+    #[test]
+    fn deleting_keeps_a_patch_and_nothing_changed_brings_nothing() {
         let dir = repo("nothing");
         let (r, w) = (dir.join("repo"), dir.join("home/worktrees/r3"));
-        create(&r, &w, &head(&r), "r3").unwrap();
-        assert!(accept(&r, &w, "r3", "Janus 任务 r3", true).unwrap().commit.is_none());
-        assert!(read(&r, &["rev-parse", "--verify", "--quiet", "refs/heads/janus/r3"]).is_none());
+        let base = head(&r);
+        let branch = current_branch(&r).unwrap();
+        create(&r, &w, &base, "r3").unwrap();
+        assert!(accept(&r, &w, Some(&branch), "r3", false).unwrap().is_none());
+        assert_eq!(head(&r), base);
+        std::fs::write(w.join("more.txt"), "unfinished\n").unwrap();
+        let kept = remove(&r, &w, &dir.join("home/worktrees/deleted"), "r3").unwrap().unwrap();
+        assert!(std::fs::read_to_string(kept).unwrap().contains("unfinished"));
         assert!(!w.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }

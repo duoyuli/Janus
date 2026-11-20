@@ -113,13 +113,20 @@ def write_old_data(ws):
     return conn, custom, tester
 
 
-def insert_old_run(home, version):
+def insert_old_run(home, version, ws):
+    """A delivered run working in place, and one in a worktree of `ws` from before data version 10
+    (no record of the branch it started on)."""
     team = [old_member("lead", "PMO", "claude", True, "coordinator", version),
             old_member("implementer", "研发工程师", "claude", False, "implementer", version)]
+    head = subprocess.run(["git", "-C", ws, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     db = sqlite3.connect(os.path.join(home, "janus.db"))
     db.execute(
         "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES ('run-old', '旧目标', '/tmp', ?, 'delivered', 1)",
         (json.dumps({"team": team, "git": False, "baseRef": None, "workspace": "e2e", "goalImages": []}),),
+    )
+    db.execute(
+        "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES ('run-wt', '旧目标', '/tmp/wt', ?, 'delivered', 2)",
+        (json.dumps({"team": team, "git": True, "baseRef": head, "workspace": "e2e", "goalImages": [], "worktree": {"repo": ws}}),),
     )
     db.commit()
     db.close()
@@ -163,6 +170,7 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
     home, ws = os.path.join(tmp, "home-" + tag), os.path.join(tmp, "ws-" + tag)
     os.makedirs(ws)
     run(["git", "init", "-q", ws])
+    run(["git", "-C", ws, "-c", "user.name=e2e", "-c", "user.email=e2e@e2e", "commit", "-q", "--allow-empty", "-m", "init"])
     log = os.path.join(tmp, f"janus-{tag}.log")
     old = Server(old_bin, home, log)
     old.start()
@@ -172,7 +180,7 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
     finally:
         old.stop()
     old_version = db_version(home)
-    insert_old_run(home, old_version)
+    insert_old_run(home, old_version, ws)
     upgrades = old_version < latest
     say(f"  {tag} 的数据版本是 {old_version}" + ("" if upgrades else "，已是最新，没有要升级的"))
     if dump:
@@ -223,7 +231,10 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         check(setup["workspaces"] == before["workspaces"], "工作区不变")
         db = sqlite3.connect(os.path.join(home, "janus.db"))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]
+        worktree = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-wt'").fetchone()[0])["worktree"]
         db.close()
+        branch = subprocess.run(["git", "-C", ws, "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
+        check(worktree == {"repo": ws, "branch": branch}, f"worktree 中的旧 Run 记下验收时合并回的分支 {branch}：{worktree}")
         check(all("role" not in m and "model_label" not in m for m in team) and team[0]["role_id"] == "coordinator",
               "Run 快照的成员去掉了定位和模型标签，其余不变")
         kept = api("POST", "/api/roles/reviewer/seed", {"field": "prompt", "adopt": False})

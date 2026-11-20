@@ -107,6 +107,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "去掉「自定义命令」的 Agent：删除这类 Agent，绑定它的数字员工改为没有绑定 Agent，旧 Run 里用它的成员记为 Claude Code（只能查看，不能继续）",
         steps: &[Step::Custom(crate::agents::drop_custom_agents)],
     },
+    Migration {
+        version: 10,
+        name: "worktree 中的 Run 记录验收时合并回哪个分支：旧 Run 取升级时工作目录检出、并且包含 Run 起点的分支",
+        steps: &[Step::Custom(crate::worktrees::record_source_branch)],
+    },
 ];
 
 /// The data version this build reads and writes.

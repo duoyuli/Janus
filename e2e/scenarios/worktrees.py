@@ -15,7 +15,7 @@ def _git(repo, *args):
 
 @scenario("worktrees")
 def worktrees(ctx, c):
-    """worktree：同一个仓库上的两个任务各自在 worktree 里改同一个文件互不干扰、.worktreeinclude 带上被忽略的文件、未提交改动的提醒、验收提交到 janus/<任务> 分支；非 Git 目录上有任务在跑时提醒"""
+    """worktree：同一个仓库上的两个任务各自在 worktree 里改同一个文件互不干扰、.worktreeinclude 带上被忽略的文件、未提交改动的提醒、验收后合并回任务开始时的分支、冲突时验收失败且不动用户目录；非 Git 目录上有任务在跑时提醒"""
     t = ctx.team("worktrees", members=("m1", "m2"), script={"T1": ["write:a.txt"], "T2": ["write:a.txt"]},
                  files={"README.md": "wt\n", ".gitignore": ".env\n", ".worktreeinclude": ".env\n"})
     with open(os.path.join(t.repo, ".env"), "w") as f:
@@ -26,6 +26,8 @@ def worktrees(ctx, c):
     c(len(warnings) == 1 and "draft.md" in warnings[0] and "不会带进" in warnings[0],
       f"创建前提醒：未提交的 draft.md 不会带进任务（{warnings[0][:40] if warnings else '没有提醒'}）")
 
+    branch = _git(t.repo, "branch", "--show-current").strip()
+    start = _git(t.repo, "rev-parse", "HEAD").strip()
     first = t.run("第一个任务")
     second = t.run("第二个任务")
     first.orchestrate(task("T1", t.member("m1")))
@@ -42,17 +44,28 @@ def worktrees(ctx, c):
     c(not first.has("task.conflict") and not second.has("task.conflict"), "两个任务之间没有冲突")
 
     delivered = first.finish("第一个任务完成")
-    c("worktree" in delivered["data"]["summary"], "交付摘要说明改动在任务的 worktree 里，验收时提交")
+    c("worktree" in delivered["data"]["summary"] and branch in delivered["data"]["summary"],
+      f"交付摘要说明改动在任务的 worktree 里，验收时合并回分支 {branch}")
     first.act("accept")
     accepted = first.wait_event("risk.accepted")["data"]
-    branch = f"janus/{first.id}"
-    c(accepted.get("branch") == branch and _git(t.repo, "show", f"{branch}:a.txt") == "T1\n",
-      f"验收后结果提交到分支 {branch}")
-    c(not os.path.exists(f"{t.repo}/a.txt") and _git(t.repo, "branch", "--show-current").strip() != branch,
-      "合并由用户决定：工作区目录和当前分支都没有变")
-    ctx.ui(c, first.id, lambda r, s: r["status"] == "accepted" and r.get("branch") == branch,
-           "应用显示结果在哪个分支", pages=("board", "team"))
+    c(accepted.get("branch") == branch and accepted.get("commit") == _git(t.repo, "rev-parse", "HEAD").strip()
+      and _git(t.repo, "rev-parse", "HEAD^").strip() == start,
+      f"验收后结果作为一个提交合并回 {branch}（快进，没有合并提交）")
+    c(read_file(f"{t.repo}/a.txt") == "T1\n" and read_file(f"{t.repo}/draft.md") == "half done\n"
+      and _git(t.repo, "branch", "--show-current").strip() == branch,
+      "工作区目录里有了结果，用户没提交的 draft.md 原样保留，还在原来的分支上")
+    c(not _git(t.repo, "branch", "--list", "janus/*").strip(), "不新建 janus/ 分支")
+    ctx.ui(c, first.id, lambda r, s: r["status"] == "accepted" and r.get("branch") == branch and r.get("merged"),
+           "应用显示结果已合并到哪个分支", pages=("board", "team"))
+
+    # The second run changed the same file: its result conflicts with what the first brought back.
     second.finish("第二个任务完成")
+    second.wait_status("delivered")
+    code, text = second.act_error("accept")
+    c(code == 400 and "冲突" in text, f"第二个任务和已合并的结果冲突，验收失败（{code} {text[:60]}）")
+    c(second.status() == "delivered" and read_file(f"{t.repo}/a.txt") == "T1\n"
+      and not _git(t.repo, "status", "--porcelain", "--untracked-files=no").strip(),
+      "验收失败时任务保持已交付，用户的目录里没有半合并的状态")
 
     # Outside git there is no worktree: the person is reminded of a run still working there.
     plain = ctx.team("plain", members=("m1",), script={"P1": ["slow"]})

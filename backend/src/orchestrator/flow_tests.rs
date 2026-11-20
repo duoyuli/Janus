@@ -19,6 +19,12 @@ struct Harness {
     repo: PathBuf,
 }
 
+/// The branch checked out in `repo`.
+fn git_branch(repo: &Path) -> String {
+    let out = std::process::Command::new("git").args(["branch", "--show-current"]).current_dir(repo).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
 fn sh(cwd: &Path, args: &[&str]) {
     let ok = std::process::Command::new("git")
         .args(["-c", "user.name=t", "-c", "user.email=t@t"])
@@ -1545,7 +1551,8 @@ async fn tasks_work_in_the_runs_own_worktree() {
     let evs = events(&h.app, &run);
     let created = evs.iter().find(|e| e.kind == "run.created").unwrap().data.clone().unwrap();
     assert_eq!(created["worktree"]["repo"], json!(h.repo.canonicalize().unwrap()), "{created}");
-    assert_eq!(created["worktree"]["branch"], json!(format!("janus/{run}")));
+    let branch = git_branch(&h.repo);
+    assert_eq!(created["worktree"]["branch"], json!(branch), "the branch the run started on");
     let started = evs.iter().find(|e| e.kind == "attempt.started").unwrap();
     assert_eq!(started.data.as_ref().unwrap()["path"], json!(cwd));
     assert!(started.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("单独建的 Git worktree"));

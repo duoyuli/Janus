@@ -142,6 +142,12 @@ struct TeamView: View {
         return L.text("非 Git 目录：任务直接在这个目录中执行，没有 diff")
     }
 
+    /// Where a run in a worktree merges its result back, and whether it has.
+    private func mergeNote(_ r: RunInfo) -> String {
+        let source = r.branch.isEmpty ? "detached HEAD" : r.branch
+        return r.merged ? L.text("已合并到 \(source)") : L.text("验收时合并回 \(source)")
+    }
+
     var body: some View {
         let full = run.state
         ScrollView {
@@ -156,7 +162,7 @@ struct TeamView: View {
                 }
                 Card {
                     KV(rows: [(L.text("负责人"), run.agentName("lead")), (L.text("工作区"), wsNote(full.run))]
-                       + (full.run.repo.isEmpty ? [] : [(L.text("工作目录"), full.run.cwd), (L.text("分支"), full.run.committed ? full.run.branch : L.text("验收时提交到 \(full.run.branch)"))])
+                       + (full.run.repo.isEmpty ? [] : [(L.text("工作目录"), full.run.cwd), (L.text("分支"), mergeNote(full.run))])
                        + [(L.text("开始"), L.dateTime(full.run.start))])
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {

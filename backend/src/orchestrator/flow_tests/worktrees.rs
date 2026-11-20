@@ -1,6 +1,6 @@
 //! Runs on a git repository work in their own worktree (docs/decisions/20261119-run_worktrees.md):
-//! accepting commits to `janus/<run-id>`, a restart removes accepted worktrees and brings one back
-//! when work resumes, deleting keeps uncommitted work as a patch, and the person is reminded of
+//! accepting commits the result and brings it back to the branch the run started on, a restart
+//! removes accepted worktrees and brings one back when work resumes, deleting keeps uncommitted work as a patch, and the person is reminded of
 //! uncommitted changes and of runs still working in a directory outside git.
 
 use super::*;
@@ -15,11 +15,11 @@ fn git_out(dir: &Path, args: &[&str]) -> String {
 }
 
 /// Two runs on one repository each work in their own worktree, and `.worktreeinclude` brings an
-/// ignored file along. Accepting commits the result to the run's branch while the lead's
-/// conversation keeps working in the worktree; after a restart the accepted worktree is gone,
-/// and a new message brings it back from the branch.
+/// ignored file along. Accepting brings the result back to the person's branch and checkout
+/// while the lead's conversation keeps working in the worktree; after a restart the accepted
+/// worktree is gone, and a new message brings it back at the accepted commit.
 #[tokio::test(flavor = "multi_thread")]
-async fn runs_work_apart_and_accepting_commits_to_the_runs_branch() {
+async fn runs_work_apart_and_accepting_brings_the_result_back_to_the_branch() {
     let h = harness("worktree-accept", &[("lead", false), ("m1", true)], json!({ "T1": ["write:notes.md"] }));
     std::fs::write(h.repo.join(".gitignore"), ".env\n").unwrap();
     std::fs::write(h.repo.join(".worktreeinclude"), ".env\n").unwrap();
@@ -42,9 +42,11 @@ async fn runs_work_apart_and_accepting_commits_to_the_runs_branch() {
     act(&h, &run, json!({ "type": "accept" }));
     let accepted = events(&h.app, &run).into_iter().find(|e| e.kind == "risk.accepted").unwrap();
     let d = accepted.data.unwrap();
-    assert_eq!(d["branch"], json!(format!("janus/{run}")), "{d}");
-    assert_eq!(git_out(&h.repo, &["show", &format!("janus/{run}:notes.md")]), "T1\n");
-    assert!(!h.repo.join("notes.md").exists(), "merging is the person's call");
+    let branch = git_branch(&h.repo);
+    assert_eq!(d["branch"], json!(branch), "{d}");
+    assert_eq!(d["commit"], json!(git_out(&h.repo, &["rev-parse", "HEAD"]).trim()), "{d}");
+    assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "T1\n", "back in the checkout");
+    assert!(git_out(&h.repo, &["branch", "--list", "janus/*"]).trim().is_empty(), "no branch of its own");
     assert!(cwd.exists(), "the lead's open conversation still works there");
     assert!(git_out(&cwd, &["symbolic-ref", "-q", "HEAD"]).is_empty(), "detached, so the branch stays free");
 
@@ -60,7 +62,42 @@ async fn runs_work_apart_and_accepting_commits_to_the_runs_branch() {
         evs.iter().any(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "followup"))
     })
     .await;
-    assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n", "back from janus/<run>");
+    assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n", "back at the accepted commit");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Wait until the run's status is `delivered`: the delivery is written before the status moves on.
+async fn delivered(h: &Harness, run: &str) {
+    for _ in 0..100 {
+        if status(&h.app, run) == "delivered" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Accepting never overwrites the person's uncommitted work: it fails, the run stays delivered
+/// and their file stays; once it is out of the way, accepting brings the result back.
+#[tokio::test(flavor = "multi_thread")]
+async fn accepting_over_the_persons_uncommitted_work_fails_and_keeps_the_run_delivered() {
+    let h = harness("worktree-dirty", &[("lead", false), ("m1", true)], json!({ "T1": ["write:notes.md"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    delivered(&h, &run).await;
+    std::fs::write(h.repo.join("notes.md"), "mine\n").unwrap();
+    let live = h.app.run(&run).unwrap();
+    let err = format!("{:#}", h.app.action(&live, &json!({ "type": "accept" })).unwrap_err());
+    assert!(err.contains("notes.md") && err.contains("先提交或暂存"), "{err}");
+    assert_eq!(status(&h.app, &run), "delivered");
+    assert!(!has(&events(&h.app, &run), "risk.accepted"));
+    assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "mine\n", "theirs stays");
+
+    std::fs::remove_file(h.repo.join("notes.md")).unwrap();
+    act(&h, &run, json!({ "type": "accept" }));
+    assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "T1\n");
+    assert_eq!(status(&h.app, &run), "accepted");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -72,13 +109,8 @@ async fn deleting_a_run_keeps_its_uncommitted_work_as_a_patch() {
     wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    // The delivery is written before the run's status moves on; only a finished run can go.
-    for _ in 0..100 {
-        if status(&h.app, &run) == "delivered" {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    // Only a finished run can go.
+    delivered(&h, &run).await;
     let cwd = cwd_of(&h, &run);
     h.app.delete_run(&run).await.unwrap();
     assert!(!cwd.exists());

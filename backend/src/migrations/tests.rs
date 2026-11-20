@@ -266,3 +266,55 @@ fn the_data_shape_matches_its_snapshot() {
     }
     panic!("有新的迁移：运行 just data-shape 更新 testdata/data_shape.json。");
 }
+
+/// Runs in a worktree from before data version 10 record the branch accepting merges back into:
+/// the one checked out now when it has the run's start in its history, otherwise none.
+#[test]
+fn worktree_runs_record_where_accepting_merges_back() {
+    let path = old_database("source-branch");
+    let repo = path.parent().unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "one"]);
+    let base = git(&["rev-parse", "HEAD"]);
+    git(&["checkout", "-q", "--orphan", "other"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "unrelated"]);
+    let other = git(&["rev-parse", "HEAD"]);
+    git(&["checkout", "-q", "main"]);
+    let conn = Connection::open(&path).unwrap();
+    let run = |id: &str, base: &str, worktree: bool| {
+        let mut c = json!({ "team": [], "git": true, "baseRef": base });
+        if worktree {
+            c["worktree"] = json!({ "repo": repo });
+        }
+        conn.execute(
+            "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES (?1, 'g', '/x', ?2, 'delivered', 0)",
+            params![id, c.to_string()],
+        )
+        .unwrap();
+    };
+    run("on-main", &base, true);
+    run("elsewhere", &other, true);
+    run("in-place", &base, false);
+    drop(conn);
+
+    crate::db::Db::open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let worktree = |id: &str| {
+        let c: String = conn.query_row("SELECT config FROM runs WHERE id = ?1", [id], |r| r.get(0)).unwrap();
+        serde_json::from_str::<Value>(&c).unwrap()["worktree"].clone()
+    };
+    assert_eq!(worktree("on-main")["branch"], json!("main"));
+    assert_eq!(worktree("elsewhere"), json!({ "repo": repo, "branch": null }), "main lacks its start");
+    assert_eq!(worktree("in-place"), Value::Null, "a run without a worktree is left alone");
+}

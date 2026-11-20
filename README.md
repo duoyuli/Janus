@@ -84,7 +84,7 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 The repository holds code only. Janus data, adapters, configuration, and logs live in `~/.janus`; see [Deployment](docs/operations/20261031-deployment.md).
 
-`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace. Make the copy a Git repository with one commit (`git init && git add -A && git commit -m init`): each task then works in its own worktree, keeps a diff, and commits its result to a `janus/<task>` branch when you accept it. Without Git, subtasks edit the directory in place and keep no diff. Verify it with `python3 -m unittest discover -s examples/calc`.
+`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace. Make the copy a Git repository with one commit (`git init && git add -A && git commit -m init`): each task then works in its own worktree, keeps a diff, and when you accept it Janus commits the result and fast-forwards the branch you were on, so it lands in your directory. Without Git, subtasks edit the directory in place and keep no diff. Verify it with `python3 -m unittest discover -s examples/calc`.
 
 ## Documentation
 
