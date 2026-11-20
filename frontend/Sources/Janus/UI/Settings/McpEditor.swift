@@ -14,6 +14,8 @@ struct McpEditor: View {
     let item: JSON?
     /// Opens on the JSON rather than the form.
     var json = false
+    /// What to fill in, said over the form: a pick from the catalog that needs a key.
+    var note = ""
     /// Deletes the server, after asking; nil for a new one.
     var remove: (() -> Void)?
 
@@ -38,6 +40,7 @@ struct McpEditor: View {
             header
             Divider()
             VStack(alignment: .leading, spacing: 14) {
+                if !note.isEmpty { Note(text: note, tone: .blue) }
                 if mode == .json { jsonFields } else { formFields }
                 if several.isEmpty {
                     field(L.text("说明"), hint: L.text("可选：它做什么、什么时候用。经 MCP 路由时，Agent 在 janus-tools 的说明里读到它。")) {

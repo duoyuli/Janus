@@ -145,3 +145,39 @@ private let docs: JSON = [
     #expect(d.json.contains(#""X-Note": "a \" : b""#), "a value's own colon is left alone")
 }
 
+/// The picks are each one thing: ids and names unique, names the service accepts, every server
+/// either started by a command or reached at an https address.
+@Test func catalogPicksAreWellFormed() {
+    #expect(Set(Catalog.skills.map(\.id)).count == Catalog.skills.count)
+    #expect(Set(Catalog.servers.map(\.name)).count == Catalog.servers.count)
+    for s in Catalog.servers {
+        #expect(s.name.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } && !s.name.lowercased().hasPrefix("janus"), "\(s.name)")
+        #expect(s.transport == .stdio ? !s.command.isEmpty && s.url.isEmpty : s.url.hasPrefix("https://") && s.command.isEmpty, "\(s.name)")
+    }
+    for s in Catalog.skills {
+        #expect(s.repo.split(separator: "/").count == 2 && s.path.hasPrefix("skills/"), "\(s.id)")
+    }
+}
+
+/// A pick says when the library has it already, and a server that needs a key starts the editor
+/// with the key's place written up to the user's part.
+@Test func catalogPicksKnowWhatTheLibraryHas() throws {
+    let sources: [JSON] = [["id": "s1", "repo": "anthropics/skills", "path": "", "gitRef": ""]]
+    let pdf = try #require(Catalog.skills.first { $0.path == "skills/pdf" })
+    let docx = try #require(Catalog.skills.first { $0.path == "skills/docx" })
+    let items: [JSON] = [
+        ["kind": "skill", "name": "pdf-tools", "origin": ["type": "git", "source": "s1", "path": "skills/pdf"]],
+        ["kind": "mcp", "name": "my-fetch", "server": ["transport": "stdio", "command": "uvx", "args": ["mcp-server-fetch"]]],
+    ]
+    #expect(Catalog.item(for: pdf, items: items, sources: sources)?["name"] == "pdf-tools", "the same folder of the same repository")
+    #expect(Catalog.item(for: docx, items: items, sources: sources) == nil)
+    let fetch = try #require(Catalog.servers.first { $0.name == "fetch" })
+    #expect(Catalog.item(for: fetch, items: items)?["name"] == "my-fetch", "the same command")
+    #expect(fetch.oneClick && fetch.draft.command == "uvx" && fetch.draft.args == ["mcp-server-fetch"])
+
+    let github = try #require(Catalog.servers.first { $0.name == "github" })
+    #expect(!github.oneClick)
+    #expect(github.draft.vars == [McpDraft.Var(name: "Authorization", value: "Bearer ")])
+    let context7 = try #require(Catalog.servers.first { $0.name == "context7" })
+    #expect(context7.oneClick && context7.draft.vars.isEmpty, "an optional key is added later, not left empty")
+}

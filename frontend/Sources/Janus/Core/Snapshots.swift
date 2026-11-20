@@ -6,7 +6,7 @@ import SwiftUI
 /// recording rights (docs/operations/20261031-testing.md#macos_app).
 ///
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> (library:skill|library:mcp for the library's tabs) | page board|audit|team|task:<id>|agent:<id>
-///     role <id> | agent-edit <id>|new | mcp-edit new|<name> [json] | close-sheet | doc <path> | size <w>x<h> | shot <name>
+///     role <id> | agent-edit <id>|new | mcp-edit new|<name>|catalog:<pick> [json] | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
@@ -93,11 +93,15 @@ enum Snapshots {
         // The editor is a sheet of the settings panel, as when a person opens it from there.
         case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
-        // The library's MCP editor: `mcp-edit new|<name> [json]`.
+        // The library's MCP editor: `mcp-edit new|<name>|catalog:<pick> [json]`.
         case "mcp-edit":
             let p = arg.split(separator: " ").map(String.init)
             store.openLibrary(.mcp)
-            await store.editMcp(store.libraryItems.first { $0["kind"].str == "mcp" && $0["name"].str == p.first }, json: p.last == "json")
+            if let pick = Catalog.servers.first(where: { "catalog:\($0.name)" == p.first }) {
+                store.editingMcp = AppStore.McpEditing(draft: pick.draft, item: nil, json: p.last == "json", note: pick.needs)
+            } else {
+                await store.editMcp(store.libraryItems.first { $0["kind"].str == "mcp" && $0["name"].str == p.first }, json: p.last == "json")
+            }
         // The agent editor: `agent-edit <id>`, or `agent-edit new`.
         case "agent-edit": store.editAgent(arg == "new" ? "" : arg)
         case "close-sheet":

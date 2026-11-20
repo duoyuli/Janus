@@ -71,7 +71,7 @@ struct LibraryView: View {
             }
         }
         .sheet(item: Binding(get: { store.editingMcp }, set: { store.editingMcp = $0 })) { e in
-            McpEditor(store: store, start: e.draft, item: e.item, json: e.json, remove: e.item.map { i in { remove(i) } })
+            McpEditor(store: store, start: e.draft, item: e.item, json: e.json, note: e.note, remove: e.item.map { i in { remove(i) } })
         }
     }
 
@@ -125,8 +125,8 @@ struct LibraryView: View {
 
     // MARK: Skill tab
 
-    /// How the Skill router works, then the skills added, by where they came from, with the ways
-    /// to add one.
+    /// Three parts, top to bottom: how the Skill router works; the skills added, by where they came
+    /// from, with the ways to add one; the community's picks.
     // @project-doc docs/domains/20261116-resource_library.md#skill_router
     @ViewBuilder private var skillTab: some View {
         let skills = items(.skill)
@@ -168,7 +168,7 @@ struct LibraryView: View {
                 .disabled(folder.busy)
             }
             if shown.isEmpty {
-                empty(query.isEmpty ? L.text("还没有 Skill。拖入 GitHub 链接、从文件夹复制，或新建一个。") : L.text("没有匹配的 Skill"))
+                empty(query.isEmpty ? L.text("还没有 Skill。拖入 GitHub 链接、从文件夹复制、新建，或从下面的推荐里添加。") : L.text("没有匹配的 Skill"))
             } else {
                 HStack {
                     Spacer()
@@ -178,6 +178,7 @@ struct LibraryView: View {
             }
             ForEach(shown) { skillGroup($0) }
         }
+        CatalogShelf(store: store, kind: .skill, query: query)
     }
 
     /// A part's title: what it holds, how many, a word on how it is laid out, and its actions.
@@ -296,7 +297,8 @@ struct LibraryView: View {
 
     // MARK: MCP tab
 
-    /// How the MCP router works, then the servers added, by who gets them, with the way to add one.
+    /// Three parts, top to bottom: how the MCP router works; the servers added, by who gets them,
+    /// with the way to add one; the community's picks.
     // @project-doc docs/domains/20261116-resource_library.md#mcp_router
     @ViewBuilder private var mcpTab: some View {
         let servers = items(.mcp)
@@ -322,6 +324,7 @@ struct LibraryView: View {
                      caption: L.text("在「数字员工」或展开的服务器里勾选给谁，会话启动时逐个交给 Agent"),
                      list: servers.filter { $0["reach"].str == "picked" }, empty: L.text("没有收口的服务器"))
         }
+        CatalogShelf(store: store, kind: .mcp, query: query)
     }
 
     @ViewBuilder private func mcpGroup(_ id: String, icon: String, title: String, caption: String, list: [JSON], empty text: String) -> some View {

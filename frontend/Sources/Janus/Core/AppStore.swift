@@ -248,11 +248,13 @@ final class AppStore {
     }
 
     /// An MCP server open in the library's editor: what the editor starts from, the server as the
-    /// library lists it (nil for a new one), and whether it opens on the form or the JSON.
+    /// library lists it (nil for a new one), whether it opens on the form or the JSON, and what to
+    /// fill in (a pick from the catalog that needs a key).
     struct McpEditing: Identifiable {
         let draft: McpDraft
         let item: JSON?
         var json = false
+        var note = ""
         var id: String { draft.id }
     }
 

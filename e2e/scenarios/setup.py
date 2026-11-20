@@ -163,7 +163,7 @@ def setup(ctx, c):
         ctx.app.do("agent-edit new", "shot agent-editor", "close-sheet")
         c(_drawn(ctx, "agent-editor"), "应用：添加 Agent 的编辑器画出来了")
         # The MCP editor: a saved server as the form and as JSON, and a new one.
-        for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new")):
+        for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new"), ("mcp-edit catalog:github", "mcp-editor-catalog")):
             ctx.app.do(cmd, f"shot {shot}", "close-sheet")
             c(_drawn(ctx, shot), f"应用：MCP 编辑器 {cmd} 画出来了")
         ctx.app.do("close-sheet", "role implementer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
