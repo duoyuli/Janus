@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.4
+
+- 新增「对话」：在侧栏「全局」下打开，选一名数字员工直接和它对话（⌥⌘N）。它带着自己的指令、模型、权限和整个资源库，在 `~/.janus/chats/` 下为这次对话新建的目录里工作，没有团队和看板。会话和工作台里负责人的对话一样：可以插话、接管、打断、审批、粘贴图片、用 `@` 引用文件、切换模型和模式，用量照常统计；对话里的审批和表单也会进收件箱。
+- 服务重启或会话结束后，对话直接发消息就会重新打开，能恢复原会话就恢复，否则带上最近的对话新开会话。删除对话时，它的记录和工作目录一起删除，打开着的会话也可以直接删除。
+- Janus 会自动检查 ACP 适配器有没有新版本：服务启动后查一次，之后每 6 小时一次。有新版本时侧栏底部提醒「N 个 ACP 适配器有新版本」，点击到设置的「数字员工」页升级；只有比当前版本更新的才提醒，不会自动安装，正在运行的会话不受影响。
+- 交付后继续和负责人对话时，服务重启后重新打开的会话也能用资源库里的工具。
+
+- New: Chat. Open it under Global in the sidebar, pick a digital employee and talk with it directly (⌥⌘N). It brings its own instructions, model, permissions and the whole resource library, and works in a directory made for the chat under `~/.janus/chats/`, with no team and no board. The session works like the lead's on the workbench: steer, take over, interrupt, approve, paste images, reference files with `@`, switch model and mode, with usage counted as usual; its approvals and forms also reach the inbox.
+- After a restart, or when its session ended, a chat reopens with your next message, resuming the old session when it can and otherwise starting a new one with the recent conversation. Deleting a chat removes its record and its working directory, even while its session is open.
+- Janus now checks for new ACP adapter versions on its own: shortly after the server starts, then every 6 hours. When one is out, the bottom of the sidebar says how many adapters have a new version; click it to upgrade them in Settings › Digital Employees. Only versions newer than the installed one count, nothing is installed automatically, and running sessions are not affected.
+- When you go on talking with the lead after delivery, a session reopened after a restart can use the resource library's tools again.
+
 ## 2026.11.20.3
 
 - 资源库里的每项资源都给所有数字员工，去掉「给谁用」：资源库里不再有「给所有数字员工」开关和分组，MCP 编辑器里不再选给谁，数字员工编辑器里不再勾选资源。升级后，原来只给部分数字员工的资源也给所有人；不想让数字员工用的，从资源库删除。
