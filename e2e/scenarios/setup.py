@@ -176,8 +176,12 @@ def setup(ctx, c):
         listed = ctx.api("GET", "/api/runs?workspace=setup")["runs"]
         c(listed and all(r["config"]["workspace"]["id"] == "setup" for r in listed), "按工作区读取它的任务记录")
         # The workspace's page lists its task records, newest first; the sidebar lists the workspaces.
-        ctx.app.do("open home:setup", "shot workspace-home")
-        c(_drawn(ctx, "workspace-home"), "应用：工作区页的任务记录画出来了（workspace-home.png）")
+        want = [r["id"] for r in listed]
+        st = ctx.app.until(lambda s: [r["id"] for r in s.get("histories", {}).get("setup", [])] == want,
+                           "工作区页读到它的任务记录", "open home:setup")
+        c([r["id"] for r in st["histories"]["setup"]] == want, f"应用：工作区页列出它的全部任务记录，从新到旧（{want}）")
+        ctx.app.do("shot workspace-home")
+        c(_drawn(ctx, "workspace-home"), "应用：工作区页画出来了（workspace-home.png）")
 
 
 def _drawn(ctx, name):

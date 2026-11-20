@@ -32,6 +32,9 @@ final class AppStore {
     /// not part of any workspace.
     let chatList: RunPager
     var chats: [JSON] { chatList.runs }
+    /// Each workspace's task records, newest first, read a page at a time once its page has shown
+    /// (`loadHistory`); refreshed with the other lists.
+    private(set) var histories: [String: RunPager] = [:]
     /// Every run and chat that may need the person (working, delivered, stopped part-way), however
     /// many newer ones there are: what the inbox and the quit check read (`GET /api/runs?attention=1`).
     var attention: [JSON] = []
@@ -98,10 +101,19 @@ final class AppStore {
         do { meta = try await api.get("/api/meta") } catch { show(L.text("连不上 Janus 后端：\(error.localizedDescription)")) }
     }
 
+    /// Read a workspace's task records the first time its page shows; later reads come with `loadRuns`.
+    func loadHistory(_ workspace: String) async {
+        guard histories[workspace] == nil else { return }
+        let pager = RunPager(query: "workspace=\(workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", api: api)
+        histories[workspace] = pager
+        await pager.refresh()
+    }
+
     func loadRuns() async {
-        // Polled every few seconds: an unchanged list leaves the sidebar alone.
+        // Read again when the global stream says a run changed: an unchanged list leaves the sidebar alone.
         if let r = try? await api.get("/api/runs"), r["runs"].array != runs { runs = r["runs"].array }
         await chatList.refresh()
+        for pager in histories.values { await pager.refresh() }
         if let r = try? await api.get("/api/runs?attention=1&limit=500"), r["runs"].array != attention { attention = r["runs"].array }
         if let r = try? await api.get("/api/runs?kind=chat&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }

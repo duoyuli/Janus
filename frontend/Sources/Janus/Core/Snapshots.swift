@@ -131,6 +131,8 @@ enum Snapshots {
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
                 "connections": ids(store.connections), "roles": ids(store.roles), "workspaces": ids(store.workspaces), "runs": ids(store.runs),
                 "chats": ids(store.chats),
+                // The task records each workspace page read and shows, by workspace.
+                "histories": .object(store.histories.mapValues { ids($0.runs) }),
                 "adapterUpdates": JSON.array(store.adapterUpdates.map { $0["id"] }),
             ]
             if let r = store.run {

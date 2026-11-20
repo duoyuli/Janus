@@ -178,24 +178,20 @@ struct HomeView: View {
 struct WorkspaceHistory: View {
     let store: AppStore
     let workspace: String
-    @Local private var history: RunPager?
 
     var body: some View {
-        Group {
-            if let history, !history.runs.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L.text("任务记录")).font(.headline)
-                    RunRows(store: store, runs: history.runs, dated: true) { Task { await history.loadMore() } }
-                    if history.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
-                }
+        VStack(alignment: .leading, spacing: 6) {
+            if let history = store.histories[workspace], !history.runs.isEmpty {
+                Text(L.text("任务记录")).font(.headline)
+                RunRows(store: store, runs: history.runs, dated: true) { Task { await history.loadMore() } }
+                if history.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
+            } else {
+                // Something on screen before the first read: an empty container is never shown,
+                // and its `task` would never run, so the records would never be read.
+                Color.clear.frame(height: 0)
             }
         }
-        .task(id: workspace) {
-            let pager = RunPager(query: "workspace=\(workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", api: store.api)
-            history = pager
-            await pager.refresh()
-        }
-        .onChange(of: store.runs) { Task { await history?.refresh() } }
+        .task(id: workspace) { await store.loadHistory(workspace) }
     }
 }
 
