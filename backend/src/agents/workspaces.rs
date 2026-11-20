@@ -85,8 +85,10 @@ impl App {
             }
         }
         let mut team = vec![];
-        let everyone: Vec<crate::library::Item> =
-            self.items()?.into_iter().filter(|i| i.reach == crate::library::Reach::Everyone).collect();
+        // The library as it is now, pinned for every member: every item is for every digital
+        // worker. Values are read when a session opens.
+        // @project-doc docs/domains/20261116-resource_library.md#delivery
+        let library = self.items()?;
         for m in raw_members {
             let role = self
                 .db
@@ -103,20 +105,6 @@ impl App {
             }
             let session = member_session(&role, &conn);
             let permission = session_label(&session, &conn);
-            // The library items the member uses, pinned as they are now: every item for everyone,
-            // and the items kept for some that its role picks. Values are read when a session
-            // opens; an item deleted since the role was saved is left out.
-            // @project-doc docs/domains/20261116-resource_library.md#reach
-            let mut resources: Vec<crate::library::Item> = everyone.clone();
-            resources.extend(
-                role["resources"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .filter_map(|id| self.item(id).ok())
-                    .filter(|i| i.reach == crate::library::Reach::Picked),
-            );
             let slots = if lead { 1 } else { m["slots"].as_i64().unwrap_or(1).clamp(1, MAX_SLOTS) as usize };
             let base_id = if role["id"] == "lead" { "lead-role" } else { str_of(&role, "id") };
             let base_name = str_of(&role, "name");
@@ -150,7 +138,7 @@ impl App {
                     kind,
                     prompt: str_of(&conn, "prompt").into(),
                     role_prompt: str_of(&role, "prompt").into(),
-                    resources: resources.clone(),
+                    resources: library.clone(),
                     role_id: str_of(&role, "id").into(),
                     runtime_name: str_of(&conn, "name").into(),
                 });

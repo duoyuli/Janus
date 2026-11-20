@@ -10,7 +10,7 @@ struct RolesSection: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L.text("数字员工")).font(.display(.title3))
-                    Text(L.text("决定谁用什么 Agent 和模型、带什么指令做事。资源库里给所有数字员工的 Skill 和 MCP 每个员工都有。")).font(.callout).foregroundStyle(.secondary)
+                    Text(L.text("决定谁用什么 Agent 和模型、带什么指令做事。资源库里的 Skill 和 MCP 每个员工都有。")).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
@@ -37,10 +37,7 @@ struct RolesSection: View {
     private func row(_ r: JSON) -> some View {
         let c = store.connection(r["connection"].str)
         let k = c.flatMap { store.kind($0["kind"].str) }
-        // Only the kept items it picks: the ones for everyone every worker has.
-        let kinds = r["resources"].strings.compactMap { store.libraryItem($0) }.filter { $0["reach"].str == "picked" }.map { $0["kind"].str }
-        let skills = kinds.filter { $0 == "skill" }.count, servers = kinds.filter { $0 == "mcp" }.count
-        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? L.text("提示词") : "", skills == 0 ? "" : "\(skills) Skill", servers == 0 ? "" : "\(servers) MCP"].filter { !$0.isEmpty }
+        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? L.text("提示词") : ""].filter { !$0.isEmpty }
         return Button { store.editRole(r) } label: {
             HStack(spacing: 12) {
                 Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
@@ -86,9 +83,6 @@ struct RoleEditor: View {
     let original: JSON
     @Environment(\.dismiss) private var dismiss
     @Local private var r: JSON = [:]
-    /// Whether the kept-item checkboxes were used; otherwise the role is saved without its
-    /// resources and keeps what the library page gave it.
-    @Local private var resourcesTouched = false
     @Local private var saving = false
     @Local private var colors = false
 
@@ -154,8 +148,6 @@ struct RoleEditor: View {
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     Text(L.text("这段指令会作为系统提示词交给 Coding Agent，在整个会话中持续生效。")).font(.caption).foregroundStyle(.secondary)
                     seedUpdate("prompt", L.text("默认指令有新版本。你改过这一项，所以升级时没有替换。"))
-
-                    resources
 
                     section(L.text("由谁来做"))
                     HStack(alignment: .top, spacing: 12) {
@@ -269,103 +261,6 @@ struct RoleEditor: View {
         .padding(.top, 6)
     }
 
-    // MARK: Resources
-
-    /// What this worker can use, in one place: everything for all digital workers (it has those
-    /// already), then the kept items as checkboxes, so a new worker is set up in one step. The
-    /// library page edits the same choice from the item's side; the role sends its resources only
-    /// when they were changed here, so neither page overwrites the other with a stale list.
-    // @project-doc docs/domains/20261116-resource_library.md#roles
-    @ViewBuilder private var resources: some View {
-        let runtime = Library.runtime(store.connection(r["connection"].str))
-        let everyone = store.libraryItems.filter { $0["reach"].str == "everyone" }
-        let kept = store.libraryItems.filter { $0["reach"].str == "picked" }
-        let chosen = r["resources"].strings
-        let gone = chosen.filter { store.library != nil && store.libraryItem($0) == nil }
-        section(L.text("能用的资源"), trailing: L.text("在设置的「资源库」里添加资源、决定是否给所有数字员工"))
-        VStack(alignment: .leading, spacing: 8) {
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(everyone, id: \.self) { i in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Image(systemName: i["kind"].str == "skill" ? "sparkles" : "wrench.and.screwdriver").font(.caption).foregroundStyle(.secondary)
-                            Text(i["name"].str).font(.system(.callout, design: .monospaced))
-                            let w = warning(i, runtime)
-                            if !w.isEmpty { Text(w).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
-                        }
-                    }
-                }
-                .padding(.top, 4)
-            } label: {
-                Text(Self.everyoneLine(everyone)).font(.callout)
-            }
-            .disabled(everyone.isEmpty)
-            Divider()
-            HStack {
-                Text(L.text("收口的资源")).font(.callout.weight(.semibold))
-                Text(L.text("只给勾选了它的数字员工")).font(.caption).foregroundStyle(.secondary)
-            }
-            if kept.isEmpty {
-                Text(L.text("资源库里没有收口的资源。")).font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(kept, id: \.self) { pickRow($0, runtime) }
-            }
-            ForEach(gone, id: \.self) { id in
-                Text(L.text("\(id) 已从资源库删除，保存时移除")).font(.caption).foregroundStyle(Tone.amber.color)
-            }
-        }
-        .padding(10)
-        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    /// "给所有数字员工：3 个 Skill、1 个 MCP，自动就有".
-    static func everyoneLine(_ items: [JSON]) -> String {
-        let skills = items.filter { $0["kind"].str == "skill" }.count, servers = items.count - skills
-        if items.isEmpty { return L.text("资源库里还没有给所有数字员工的资源") }
-        return L.text("给所有数字员工的 \(skills) 个 Skill、\(servers) 个 MCP，自动就有")
-    }
-
-    private func pickRow(_ i: JSON, _ runtime: String) -> some View {
-        let on = r["resources"].strings.contains(i["id"].str)
-        return Button { toggle(i["id"].str) } label: {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: on ? "checkmark.square.fill" : "square").foregroundStyle(on ? Color.accent : Color.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium))
-                    Text(detail(i, runtime)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    let w = warning(i, runtime)
-                    if !w.isEmpty { Text(w).font(.caption).foregroundStyle(Tone.amber.color) }
-                }
-                Spacer()
-            }
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
-            .hoverable(6)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(i["name"].str)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
-
-    private func toggle(_ id: String) {
-        var set = r["resources"].strings
-        if let k = set.firstIndex(of: id) { set.remove(at: k) } else { set.append(id) }
-        r["resources"] = JSON(set)
-        resourcesTouched = true
-    }
-
-    private func detail(_ i: JSON, _ runtime: String) -> String {
-        let what = i["kind"].str == "skill" ? i["description"].str : Library.endpoint(i)
-        return [what, Library.origin(i)].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    /// What keeps the item from working for this role: its agent can't use it, or values are missing.
-    private func warning(_ i: JSON, _ runtime: String) -> String {
-        let s = runtime.isEmpty ? (state: "yes", why: "") : Library.support(i, runtime: runtime)
-        let vars = Library.vars(i)
-        return [s.state == "yes" ? "" : s.why, vars.complete ? "" : vars.text].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
     // MARK: Session controls: whatever the agent declares
 
     @ViewBuilder private func permissions(_ c: JSON?) -> some View {
@@ -453,9 +348,7 @@ struct RoleEditor: View {
         saving = true
         Task {
             do {
-                var body = r.object
-                if !resourcesTouched { body["resources"] = nil }
-                let saved = try await store.save("roles", .object(body))
+                let saved = try await store.save("roles", r)
                 store.show(L.text("已保存数字员工 \(saved["name"].str)"))
                 dismiss()
             } catch { store.show(error.localizedDescription) }

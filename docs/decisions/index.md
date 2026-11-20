@@ -41,7 +41,8 @@
 - [验收时把结果合并回任务开始时的分支](20261120-merge_back_on_accept.md)：创建 Run 时记下检出的分支，验收时提交并变基到最新的源分支、只快进，不建 `janus/` 分支；冲突、源分支删除、未提交的改动会被覆盖时验收失败，什么都不动；detached HEAD 只在原地快进；所有写操作关掉钩子。阅读时机：修改验收、Janus 写用户分支和目录的方式，或想让 Janus 解决合并冲突之前。
 - [资源库的精选库随应用发布，一键添加](20261119-library_catalog.md)：Skill 和 MCP 的精选写在应用里、逐项核对，不接运行时目录；添加 Skill 走 Git 来源，添加 MCP 走编辑器的接口；不锁版本。阅读时机：增删精选、想接 MCP Registry 或 skills.sh 这类目录，或想给精选锁版本之前。
 - [MCP 服务器的值在编辑器里能看能改](20261119-mcp_values_visible.md)：新增只回答本机应用的 `GET /api/library/mcp/{id}/values`，编辑器显示和修改值；其他接口、快照和事件仍不含值，Agent 的凭据仍不返回。阅读时机：想让接口返回任何凭据，或修改 MCP 值的读写方式之前。
-- [资源库默认给所有数字员工，经 MCP 路由和 Skill 路由提供](20261119-library_routing.md)：资源默认给所有人（MCP 默认收口），收口的资源照旧按角色注入；Janus 为每个 Run 提供一个 MCP 路由端点，背后的服务器按需启动、在 Run 的工作目录中运行；Skill 超过 10 个时改用 `janus-skills` 路由 Skill；新增通用数字员工作为默认团队。阅读时机：修改资源库、角色的资源、会话怎样拿到 Skill 和 MCP，或默认团队之前。
+- [资源库默认给所有数字员工，经 MCP 路由和 Skill 路由提供](20261119-library_routing.md)：Janus 为每个 Run 提供一个 MCP 路由端点，背后的服务器按需启动、默认同一个 Run 共用、在 Run 的工作目录中运行；新增通用数字员工作为默认团队。其中「给谁用」、收口、Skill 按数量切换和 http、sse 直接注入已被下一条取代。阅读时机：修改 MCP 路由的运行方式或默认团队之前。
+- [资源库的每项资源都给所有数字员工，只经两个路由提供](20261120-library_routed_only.md)：去掉「给谁用」和角色的资源选择；命令、HTTP、SSE 服务器都只经 `janus-tools`，由 Janus 进程启动或连接（扩大信任边界：Janus 带着 header 的值连接用户填写的地址）；Skill 只经 `janus-skills`；Agent 自带的 Skill 和 MCP 不管。阅读时机：修改资源库、会话怎样拿到 Skill 和 MCP，或想恢复按数字员工划分资源之前。
 
 ## 历史决策
 

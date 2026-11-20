@@ -35,6 +35,7 @@ mod board_tools;
 mod flow_tests;
 mod lead;
 mod lifecycle;
+mod mcp_client;
 mod mcp_router;
 mod messages;
 mod prompts;

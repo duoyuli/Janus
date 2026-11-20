@@ -149,7 +149,7 @@ struct CatalogShelf: View {
             do {
                 let item = try await store.api.post("/api/library/mcp", s.draft.body)
                 await store.loadLibrary()
-                store.show(L.text("已添加 \(item["name"].str)，只给选中的数字员工；在列表里打开开关就给所有数字员工"))
+                store.show(L.text("已添加 \(item["name"].str)，给所有数字员工"))
             } catch { store.show(error.localizedDescription) }
         }
     }

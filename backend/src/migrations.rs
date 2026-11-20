@@ -112,6 +112,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "worktree 中的 Run 记录验收时合并回哪个分支：旧 Run 取升级时工作目录检出、并且包含 Run 起点的分支",
         steps: &[Step::Custom(crate::worktrees::record_source_branch)],
     },
+    Migration {
+        version: 11,
+        name: "资源库的每项资源都给所有数字员工：资源和 Run 快照中的资源去掉「给谁用」，数字员工去掉选中的资源",
+        steps: &[
+            Step::Custom(crate::library::drop_reach),
+            Step::Drop { at: Target::Config("role"), field: "resources" },
+        ],
+    },
 ];
 
 /// The data version this build reads and writes.

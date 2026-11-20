@@ -25,7 +25,7 @@ GOAL = ("给 calc.py 增加 mod(a, b)：返回 a 除以 b 的余数，b 为 0 �
         "在 test_calc.py 补上对应测试，并运行 python3 -m unittest 确认全部通过。"
         "这是一次团队协作演练：请把实现交给研发协作者，再请质量协作者独立验证，你自己不要改文件。"
         "质量协作者开始验证前，先调用 janus-tools 里的 probe__echo 工具，text 写「开始验证」。")
-# More skills for everyone than load directly, so the agents get the janus-skills router.
+# Several skills, all of which reach the agents through the janus-skills router.
 ROUTED_SKILLS = [f"e2e-skill-{i}" for i in range(11)]
 
 
@@ -50,10 +50,9 @@ def real(ctx, c):
         adapters = {a["id"]: a for a in api("GET", "/api/adapters")["adapters"]}
         c(all(adapters[i]["current"] for i in ("codex", "claude")), f"Janus 从 npm 安装了适配器：codex {adapters['codex']['current']}，claude {adapters['claude']['current']}")
 
-        # The library as a person would fill it: a command server and eleven skills for everyone.
+        # The library as a person would fill it: a command server and eleven skills.
         probe = api("POST", "/api/library/mcp", {"name": "probe", "description": "端到端测试用", "transport": "stdio",
                                                  "command": f"{shutil.which('python3') or 'python3'} {os.path.join(ROOT, 'backend', 'testdata', 'fake_mcp.py')}"})
-        api("POST", f"/api/library/items/{probe['id']}/reach", {"reach": "everyone"})
         for name in ROUTED_SKILLS:
             api("POST", "/api/library/skills", {"name": name, "description": f"端到端测试用的 Skill {name}", "content": "只在被要求时使用。"})
 

@@ -8,38 +8,26 @@ private let docs: JSON = [
     "source": ["url": "https://github.com/acme/kit", "inSource": false],
     "server": ["transport": "sse", "url": "https://d.example/sse", "headerKeys": ["Authorization", "X-Team"]],
     "vars": [["name": "Authorization", "set": true], ["name": "X-Team", "set": false]],
-    "roles": [["id": "r1", "name": "研发"]],
-    "support": [
-        ["runtime": "claude", "support": ["state": "yes"]],
-        ["runtime": "codex", "support": ["state": "no", "why": "Codex 不支持 SSE 传输的 MCP 服务器"]],
-    ],
 ]
 
-/// The library's rows say where an item came from, what is missing and who can't use it.
+/// The library's rows say where an item came from, where a server is and what is missing.
 @Test func libraryItemsReadTheWayTheServerDescribesThem() {
     #expect(Library.origin(docs) == expectedCopy("来自 acme/kit · 来源中已删除", "From acme/kit · Removed upstream"))
     #expect(Library.endpoint(docs) == "SSE · https://d.example/sse")
     #expect(Library.vars(docs) == (text: expectedCopy("Header 1/2 已设置", "Header: 1 of 2 set"), complete: false))
-    #expect(Library.usedBy(docs) == expectedCopy("只给 研发", "Only for 研发"))
-    #expect(Library.support(docs, runtime: "codex") == (state: "no", why: expectedCopy("Codex 不支持 SSE 传输的 MCP 服务器", "Codex does not support MCP servers that use SSE")))
-    #expect(Library.support(docs, runtime: "claude").state == "yes")
-    #expect(Library.support(docs, runtime: "").state == "yes", "no agent chosen yet: nothing to warn about")
 
-    let skill: JSON = ["kind": "skill", "origin": ["type": "created"], "roles": []]
+    let skill: JSON = ["kind": "skill", "origin": ["type": "created"]]
     #expect(Library.origin(skill) == expectedCopy("在 Janus 中新建", "Created in Janus"))
     #expect(Library.vars(skill).complete)
-    #expect(Library.usedBy(skill) == expectedCopy("还没有给任何数字员工", "Not given to any digital employee yet"))
     let stdio: JSON = ["server": ["transport": "stdio", "command": "npx", "args": ["-y", "gh-mcp"]]]
     #expect(Library.endpoint(stdio) == "stdio · npx -y gh-mcp")
-    #expect(Library.runtime(["base": "claude", "kind": "claude"]) == "claude")
 }
 
-/// A row says in one line what keeps an item from working; runtimes that can't use it show when unfolded.
+/// A row says in one line what keeps an item from working.
 @Test func libraryRowsWarnInOneLine() {
     #expect(LibraryView.warning(docs) == expectedCopy("Header 1/2 已设置 · 来源中已删除", "Header: 1 of 2 set · Removed upstream"))
-    #expect(LibraryView.unsupported(docs) == [expectedCopy("Codex 不支持 SSE 传输的 MCP 服务器", "Codex does not support MCP servers that use SSE")])
     let fine: JSON = ["kind": "skill", "origin": ["type": "created"], "vars": []]
-    #expect(LibraryView.warning(fine).isEmpty && LibraryView.unsupported(fine).isEmpty)
+    #expect(LibraryView.warning(fine).isEmpty)
 }
 
 /// Skills fold into groups by where they came from: every GitHub source in the order added (also
@@ -79,13 +67,6 @@ private let docs: JSON = [
     var unbound = roles
     unbound[1]["connection"] = ""
     #expect(WorkspaceEditor.preset(unbound, lead: "coordinator") == ["coordinator", "reviewer"])
-}
-
-/// The worker editor sums up what every digital worker has before the kept items to tick.
-@Test func theWorkerEditorSumsUpWhatEveryoneHas() {
-    let items: [JSON] = [["kind": "skill"], ["kind": "skill"], ["kind": "mcp"]]
-    #expect(RoleEditor.everyoneLine(items) == expectedCopy("给所有数字员工的 2 个 Skill、1 个 MCP，自动就有", "For all digital employees, included automatically: 2 skills, 1 MCP servers"))
-    #expect(RoleEditor.everyoneLine([]) == expectedCopy("资源库里还没有给所有数字员工的资源", "The Resource Library has nothing for all digital employees yet"))
 }
 
 /// The MCP editor's form and JSON are one server, values included: written out as Claude Code's

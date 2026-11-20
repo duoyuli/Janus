@@ -1,20 +1,19 @@
-//! The MCP router (`janus-tools`): one MCP endpoint per run serving the library's command
-//! servers for everyone, in place of handing each server to each session. A server starts on its
-//! first call, in the run's working directory and a sandbox like an agent's. By default the run's
-//! sessions share one process of it (`McpProcess::PerRun`), stopped after `IDLE` unused; a server
-//! that keeps state runs once per session (`PerSession`) and ends with the session. Listing never
-//! starts a server: it gives a running process's list, or the list the server last gave (kept on
-//! disk by revision), and only a server that never listed is started to ask. Stopping, cancelling
-//! or failing the run stops them all, each with the processes it spawned (its process group).
+//! The MCP router (`janus-tools`): one MCP endpoint per run serving each session the MCP servers
+//! pinned in its member's snapshot (the whole library), whatever their transport, in place of
+//! handing each server to each session. A server starts (or is connected) on its
+//! first call; a command runs in the run's working directory and a sandbox like an agent's. By
+//! default the run's sessions share one backend of it (`McpProcess::PerRun`), stopped after `IDLE`
+//! unused; a command server that keeps state runs once per session (`PerSession`) and ends with
+//! the session. Listing never starts a server: it gives a running backend's list, or the list the
+//! server last gave (kept on disk by revision), and only a server that never listed is started to
+//! ask. Stopping, cancelling or failing the run stops them all, each command with the processes it
+//! spawned (its process group). The transports themselves are in `mcp_client`.
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
+use super::mcp_client::Backend;
 use super::*;
-use crate::library::{Item, McpProcess, McpServer};
-use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicBool, AtomicU64};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin};
-use tokio::sync::oneshot;
+use crate::library::{Item, ItemKind, McpProcess, McpServer};
+use std::sync::atomic::AtomicBool;
 
 /// A shared server with no request for this long is stopped by the sweep; the next call starts it
 /// again. It keeps no state worth holding on to (a stateful one runs per session, until its end).
@@ -38,7 +37,8 @@ const SEP: &str = "__";
 /// agents put `mcp__janus-tools__` (18) in front.
 const NAME_MAX: usize = 46;
 
-/// Who a running server serves: the whole run, or one session (`who`).
+/// Who a running server serves: the whole run, or one session (`who`). Only a command server can
+/// run per session; a URL server's connection is the run's.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Holder {
     Run,
@@ -134,215 +134,6 @@ impl McpRouter {
     }
 }
 
-/// One server the router started: a command speaking MCP over stdio.
-struct Backend {
-    stdin: tokio::sync::Mutex<ChildStdin>,
-    pending: Arc<StdMutex<HashMap<u64, oneshot::Sender<Value>>>>,
-    next: AtomicU64,
-    /// The tools this process listed; cleared when it says they changed.
-    tools: Arc<StdMutex<Option<Vec<Value>>>>,
-    life: Arc<StdMutex<Life>>,
-    last_used: StdMutex<std::time::Instant>,
-    /// Its process group (`process_group(0)`): the server and whatever it spawned (`npx` runs the
-    /// real server as a child).
-    group: Option<u32>,
-    /// Killed with the backend (`kill_on_drop`) if the group's TERM did not end it.
-    _child: Child,
-}
-
-/// A started server's process: running; exited on its own (its output closed), so the next use
-/// starts it again; or stopped by Janus, after which nothing uses it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Life {
-    Running,
-    Exited,
-    Stopped,
-}
-
-impl Drop for Backend {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-impl Backend {
-    /// Start `server` in `cwd` and initialize it, in a sandbox of its own (`sandbox_at(home)`),
-    /// never in Janus's environment: it sees the sandbox variables and the values saved on it,
-    /// which can't override them. Its stderr goes to `log`; `roots/list` from it is answered with
-    /// `cwd`.
-    // @project-doc docs/operations/20261031-security.md#library
-    async fn start(
-        server: &McpServer,
-        values: &crate::library::McpValues,
-        home: &Path,
-        cwd: &Path,
-        log: &Path,
-        wait: Duration,
-    ) -> Result<Arc<Backend>> {
-        let McpServer::Stdio { command, args, .. } = server else {
-            bail!("MCP 路由只运行命令启动的服务器");
-        };
-        if let Some(dir) = log.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let err = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
-        let own = values.env.iter().filter(|(k, _)| !crate::agents::is_sandbox_var(k));
-        let mut cmd = tokio::process::Command::new(command);
-        #[cfg(unix)]
-        cmd.process_group(0);
-        let mut child = cmd
-            .args(args)
-            .env_clear()
-            .envs(crate::agents::sandbox_at(home)?)
-            .envs(own)
-            .current_dir(cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::from(err))
-            .kill_on_drop(true)
-            .spawn()
-            .with_context(|| format!("启动 {command} 失败"))?;
-        let stdin = child.stdin.take().context("no stdin")?;
-        let stdout = child.stdout.take().context("no stdout")?;
-        let pending: Arc<StdMutex<HashMap<u64, oneshot::Sender<Value>>>> = Arc::default();
-        let tools: Arc<StdMutex<Option<Vec<Value>>>> = Arc::default();
-        let life = Arc::new(StdMutex::new(Life::Running));
-        let backend = Backend {
-            stdin: tokio::sync::Mutex::new(stdin),
-            pending: pending.clone(),
-            next: AtomicU64::new(1),
-            tools: tools.clone(),
-            life: life.clone(),
-            last_used: StdMutex::new(std::time::Instant::now()),
-            group: child.id(),
-            _child: child,
-        };
-        // Replies go to whoever waits on their id; the server's own requests are answered here.
-        let (requests_tx, mut requests) = mpsc::unbounded_channel::<Value>();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
-                if msg.get("method").is_some() {
-                    if msg.get("id").is_some() {
-                        let _ = requests_tx.send(msg);
-                    } else if msg["method"] == "notifications/tools/list_changed" {
-                        *tools.lock().unwrap() = None;
-                    }
-                    continue;
-                }
-                if let Some(id) = msg["id"].as_u64()
-                    && let Some(tx) = pending.lock().unwrap().remove(&id)
-                {
-                    let _ = tx.send(msg);
-                }
-            }
-            // The server is gone: whoever still waits gets an error instead of hanging.
-            {
-                let mut life = life.lock().unwrap();
-                if *life == Life::Running {
-                    *life = Life::Exited;
-                }
-            }
-            pending.lock().unwrap().clear();
-        });
-        let root = format!("file://{}", cwd.display());
-        let backend = Arc::new(backend);
-        let answering = Arc::downgrade(&backend);
-        tokio::spawn(async move {
-            while let Some(req) = requests.recv().await {
-                let Some(b) = answering.upgrade() else { break };
-                let reply = match req["method"].as_str() {
-                    Some("roots/list") => {
-                        json!({ "jsonrpc": "2.0", "id": req["id"], "result": { "roots": [{ "uri": root, "name": "workspace" }] } })
-                    }
-                    Some("ping") => json!({ "jsonrpc": "2.0", "id": req["id"], "result": {} }),
-                    _ => {
-                        json!({ "jsonrpc": "2.0", "id": req["id"], "error": { "code": -32601, "message": "Janus 不支持这个请求" } })
-                    }
-                };
-                let _ = b.send(&reply).await;
-            }
-        });
-        let init = json!({
-            "protocolVersion": "2025-06-18",
-            "capabilities": { "roots": { "listChanged": false } },
-            "clientInfo": { "name": "janus", "version": crate::VERSION }
-        });
-        backend.request("initialize", init, wait).await?;
-        backend.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await?;
-        Ok(backend)
-    }
-
-    /// Its tools: the list this process gave, or asked now.
-    async fn tools(&self) -> Result<Vec<Value>> {
-        if let Some(t) = self.tools.lock().unwrap().clone() {
-            return Ok(t);
-        }
-        let t =
-            self.request("tools/list", json!({}), START_WAIT).await?["tools"].as_array().cloned().unwrap_or_default();
-        *self.tools.lock().unwrap() = Some(t.clone());
-        Ok(t)
-    }
-
-    fn usable(&self) -> bool {
-        *self.life.lock().unwrap() == Life::Running
-    }
-
-    fn idle_for(&self) -> Duration {
-        self.last_used.lock().unwrap().elapsed()
-    }
-
-    /// End its process group: TERM now, KILL a few seconds later for whatever ignored it. A call
-    /// still waiting on it gets an error.
-    /// Its group is ended even when the server itself already exited: what it spawned may not have.
-    fn stop(&self) {
-        if std::mem::replace(&mut *self.life.lock().unwrap(), Life::Stopped) == Life::Stopped {
-            return;
-        }
-        self.pending.lock().unwrap().clear();
-        #[cfg(unix)]
-        if let Some(pid) = self.group {
-            let group = format!("-{pid}");
-            let _ = std::process::Command::new("kill").args(["-TERM", &group]).status();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                let _ = std::process::Command::new("kill").args(["-KILL", &group]).status();
-            });
-        }
-    }
-
-    async fn send(&self, msg: &Value) -> Result<()> {
-        let mut line = serde_json::to_vec(msg)?;
-        line.push(b'\n');
-        let mut stdin = self.stdin.lock().await;
-        stdin.write_all(&line).await?;
-        stdin.flush().await?;
-        Ok(())
-    }
-
-    /// One request; its result, or the server's error as an error.
-    async fn request(&self, method: &str, params: Value, wait: Duration) -> Result<Value> {
-        let id = self.next.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(id, tx);
-        *self.last_used.lock().unwrap() = std::time::Instant::now();
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).await?;
-        let reply = match tokio::time::timeout(wait, rx).await {
-            Ok(Ok(reply)) => reply,
-            Ok(Err(_)) => bail!("服务器已经退出"),
-            Err(_) => {
-                self.pending.lock().unwrap().remove(&id);
-                bail!("{} 秒内没有回应", wait.as_secs())
-            }
-        };
-        if let Some(err) = reply.get("error") {
-            bail!("{}", err["message"].as_str().unwrap_or("服务器返回了错误"));
-        }
-        Ok(reply["result"].clone())
-    }
-}
-
 /// A tool's name as the router lists it: `<server>__<tool>` when that fits `NAME_MAX` in the
 /// characters MCP clients take; otherwise cut short and ended with a hash of the full pair, so two
 /// tools never share a name and a name never changes between runs.
@@ -372,15 +163,16 @@ impl App {
         })
     }
 
-    /// Prepare a command server ahead of its runs: start it once in its own sandbox, ask its tools,
-    /// stop it. Its package download lands in the sandbox, which runs reuse, so a run's start stays
-    /// within the time agents give an MCP server; and a server that can't start (a wrong command, a
-    /// missing value) shows in the library now rather than in a run. Takes as long as it needs, in
-    /// the background; the library shows how it went (`warm`).
+    /// Prepare a server ahead of its runs: start a command once in its own sandbox (or connect to a
+    /// URL), ask its tools, let it go. A command's package download lands in the sandbox, which
+    /// runs reuse, so a run's start stays within the time agents give an MCP server; the tools it
+    /// gave are what the router lists without starting it; and a server that can't start (a wrong
+    /// command or address, a missing or wrong value) shows in the library now rather than in a run.
+    /// Takes as long as it needs, in the background; the library shows how it went (`warm`).
     // @project-doc docs/domains/20261116-resource_library.md#mcp_router
     pub fn warm_mcp(self: &Arc<Self>, id: &str) {
         let Ok(item) = self.item(id) else { return };
-        let crate::library::Body::Mcp { server: server @ McpServer::Stdio { .. } } = item.body.clone() else { return };
+        let crate::library::Body::Mcp { server } = item.body.clone() else { return };
         let revision = item.revision.clone();
         self.library
             .warm
@@ -393,9 +185,12 @@ impl App {
             let cwd = home.join("warm");
             let log = app.cfg.data_dir.join("logs").join("library").join(format!("mcp-{}.log", item.name));
             let got: Result<usize> = async {
-                std::fs::create_dir_all(&cwd)?;
+                // Only a command runs here; a URL server needs no folder on this machine.
+                if matches!(server, McpServer::Stdio { .. }) {
+                    std::fs::create_dir_all(&cwd)?;
+                }
                 let b = Backend::start(&server, &app.mcp_values(&item.id), &home, &cwd, &log, WARM_WAIT).await?;
-                let tools = b.tools().await;
+                let tools = b.tools(START_WAIT).await;
                 b.stop();
                 let tools = tools?;
                 app.remember_tools(&item, &tools);
@@ -422,12 +217,18 @@ impl App {
         }
     }
 
-    /// The servers the router serves for this run: the command servers for everyone in its
-    /// members' snapshots, by name.
-    fn routed_servers(run: &Run) -> BTreeMap<String, Item> {
-        run.team
-            .iter()
-            .flat_map(|m| m.resources.iter().filter(|i| crate::library::routed_server(i)))
+    /// The servers the router serves the session `who`: the MCP servers in its member's snapshot
+    /// (the lead's, or that of the member the task is assigned to), by name.
+    fn routed_servers(run: &Run, who: &str) -> BTreeMap<String, Item> {
+        let member = if who == "lead" {
+            run.team.iter().find(|m| m.lead)
+        } else {
+            let agent = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == who).map(|t| t.agent.clone());
+            agent.and_then(|a| run.member(&a))
+        };
+        member
+            .into_iter()
+            .flat_map(|m| m.resources.iter().filter(|i| i.kind() == ItemKind::Mcp))
             .map(|i| (i.name.clone(), i.clone()))
             .collect()
     }
@@ -509,7 +310,7 @@ impl App {
 
     /// The server's tools from a running process (started if need be), written down.
     async fn live_tools(self: &Arc<Self>, run: &Arc<Run>, who: &str, item: &Item) -> Result<Vec<Value>> {
-        let tools = self.backend(run, who, item).await?.tools().await?;
+        let tools = self.backend(run, who, item).await?.tools(START_WAIT).await?;
         self.remember_tools(item, &tools);
         Ok(tools)
     }
@@ -528,11 +329,11 @@ impl App {
     ) -> Vec<(Item, Value)> {
         let mut out = vec![];
         let mut asking = vec![];
-        for item in Self::routed_servers(run).into_values() {
+        for item in Self::routed_servers(run, who).into_values() {
             let running = if fresh { None } else { run.router.running(&Holder::of(&item, who), &item.id) };
             let known = if fresh { None } else { self.cached_tools(&item) };
             let listed = match (running, known) {
-                (Some(b), _) => Some(b.tools().await),
+                (Some(b), _) => Some(b.tools(START_WAIT).await),
                 (None, Some(list)) => Some(Ok(list)),
                 (None, None) => None,
             };
@@ -572,7 +373,7 @@ impl App {
         let Some(id) = req.get("id").cloned() else {
             return Ok(None);
         };
-        let servers = Self::routed_servers(&run);
+        let servers = Self::routed_servers(&run, who);
         let result = match req["method"].as_str().unwrap_or("") {
             "initialize" => {
                 let names: Vec<String> = servers
@@ -590,7 +391,7 @@ impl App {
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": crate::library::MCP_ROUTER, "version": crate::VERSION },
                     "instructions": format!(
-                        "Janus 资源库中给所有数字员工的 MCP 服务器，经 Janus 路由：{}。工具名是「服务器{SEP}工具」（过长的名字截短并带哈希）；服务器在这个会话里单独运行，工作目录是这个任务的工作目录。",
+                        "Janus 资源库中你能用的 MCP 服务器，经 Janus 路由：{}。工具名是「服务器{SEP}工具」（过长的名字截短并带哈希）；本机命令启动的服务器在这个任务的工作目录中运行。",
                         names.join("、")
                     ),
                 })

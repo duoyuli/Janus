@@ -2,14 +2,12 @@ import AppKit
 import SwiftUI
 
 /// The resource library (Settings › 资源库), a tab each for skills and MCP servers. Everything in it
-/// is for every digital worker by default, reached through the tab's router, which the top of the
-/// tab explains with a short animation: the Skill router (skills load directly, or through one
-/// `janus-skills` past ten) and the MCP router (`janus-tools`, which runs the command servers on
-/// demand). A server with side effects or credentials can be kept for the workers that pick it.
-/// Skills come from GitHub links (dragged or pasted), folders or the editor, and are listed in
-/// folding groups by where they came from; MCP servers are written or pasted, and grouped by who
-/// gets them. MCP values live only in Janus home and are never shown again.
-// @project-doc docs/domains/20261116-resource_library.md#reach
+/// is for every digital worker, reached only through the tab's router, which the top of the tab
+/// explains with a short animation: the Skill router (one `janus-skills` that lists them all) and
+/// the MCP router (`janus-tools`, which reaches every server on demand). Skills come from GitHub
+/// links (dragged or pasted), folders or the editor, and are listed in folding groups by where they
+/// came from; MCP servers are written or pasted. MCP values live only in Janus home.
+// @project-doc docs/domains/20261116-resource_library.md#delivery
 struct LibraryView: View {
     let store: AppStore
     @Local private var query = ""
@@ -40,7 +38,7 @@ struct LibraryView: View {
                     TextField(store.libraryKind == .skill ? L.text("搜索 Skill") : L.text("搜索 MCP 服务器"), text: $query)
                         .textFieldStyle(.roundedBorder).frame(width: 200)
                 }
-                Text(L.text("资源默认给所有数字员工，经路由按需取用；有副作用或带凭据的可以收口，只给选中它的数字员工。任务开始时固定它用的资源，这里的改动从下一个任务起生效。"))
+                Text(L.text("资源库里的每项资源都给所有数字员工，经 Skill 路由和 MCP 路由按需取用。任务开始时固定它用的资源，这里的改动从下一个任务起生效。"))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 12)
@@ -130,10 +128,9 @@ struct LibraryView: View {
     // @project-doc docs/domains/20261116-resource_library.md#skill_router
     @ViewBuilder private var skillTab: some View {
         let skills = items(.skill)
-        let everyone = skills.filter { $0["reach"].str == "everyone" }.map { $0["name"].str }
-        RouterGuide(kind: .skill, names: everyone, now: everyone.count > SkillRoute.over
-            ? L.text("现在 \(everyone.count) 个 Skill 给所有数字员工，超过 \(SkillRoute.over) 个，合并成一个 janus-skills。只给选中的 Skill 不进路由，照常逐个加载。")
-            : L.text("现在 \(everyone.count) 个 Skill 给所有数字员工，不超过 \(SkillRoute.over) 个，每个照常直接加载；超过后自动改由 janus-skills 路由。"))
+        RouterGuide(kind: .skill, names: skills.map { $0["name"].str }, now: skills.isEmpty
+            ? L.text("还没有 Skill。添加后都经 janus-skills 给所有数字员工。")
+            : L.text("现在 \(skills.count) 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述。"))
         let groups = Library.skillGroups(skills, sources: store.librarySources)
         let shown = groups.filter { query.isEmpty || $0.items.contains(where: matches) }
         VStack(alignment: .leading, spacing: 10) {
@@ -169,12 +166,6 @@ struct LibraryView: View {
             }
             if shown.isEmpty {
                 empty(query.isEmpty ? L.text("还没有 Skill。拖入 GitHub 链接、从文件夹复制、新建，或从下面的推荐里添加。") : L.text("没有匹配的 Skill"))
-            } else {
-                HStack {
-                    Spacer()
-                    Text(L.text("给所有数字员工")).font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.trailing, 10).padding(.bottom, -4)
             }
             ForEach(shown) { skillGroup($0) }
         }
@@ -216,7 +207,7 @@ struct LibraryView: View {
             addSource()
             return true
         } isTargeted: { dropping = $0 }
-        .help(L.text("Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。导入的 Skill 默认给所有数字员工，第三方内容请先看过再导入。"))
+        .help(L.text("Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。导入的 Skill 给所有数字员工，第三方内容请先看过再导入。"))
     }
 
     /// One place skills came from: a GitHub source (with its updates and the skills still to
@@ -224,8 +215,7 @@ struct LibraryView: View {
     @ViewBuilder private func skillGroup(_ g: SkillGroup) -> some View {
         let list = g.items.filter(matches)
         let open = isOpen(Self.key(g.origin), count: g.items.count)
-        let everyone = g.items.filter { $0["reach"].str == "everyone" }.count
-        let summary = everyone == g.items.count ? L.text("\(g.items.count) 个") : L.text("\(g.items.count) 个 · \(everyone) 个给所有数字员工")
+        let summary = L.text("\(g.items.count) 个")
         switch g.origin {
         case .source(let id):
             let s = store.librarySources.first { $0["id"].str == id } ?? [:]
@@ -297,32 +287,23 @@ struct LibraryView: View {
 
     // MARK: MCP tab
 
-    /// Three parts, top to bottom: how the MCP router works; the servers added, by who gets them,
-    /// with the way to add one; the community's picks.
+    /// Three parts, top to bottom: how the MCP router works; the servers added, with the way to add
+    /// one; the community's picks.
     // @project-doc docs/domains/20261116-resource_library.md#mcp_router
     @ViewBuilder private var mcpTab: some View {
         let servers = items(.mcp)
-        let everyone = servers.filter { $0["reach"].str == "everyone" }
-        let routed = everyone.filter { $0["server"]["transport"].str == "stdio" }.map { $0["name"].str }
-        let direct = everyone.count - routed.count
-        RouterGuide(kind: .mcp, names: routed, now: [
-            routed.isEmpty ? L.text("现在没有经 janus-tools 的服务器：命令启动的服务器给所有数字员工后才经过它。")
-                : L.text("现在 \(routed.count) 个命令启动的服务器经 janus-tools。"),
-            direct > 0 ? L.text("\(direct) 个 HTTP、SSE 服务器直接交给会话。") : "",
-            L.text("只给选中的服务器不经过路由，照常逐个交给会话。"),
-        ].joined())
+        RouterGuide(kind: .mcp, names: servers.map { $0["name"].str }, now: servers.isEmpty
+            ? L.text("还没有 MCP 服务器。添加后都经 janus-tools 给所有数字员工。")
+            : L.text("现在 \(servers.count) 个服务器都经 janus-tools 给所有数字员工：会话只多这一个入口。"))
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(L.text("已添加"), count: servers.count, caption: L.text("按给谁用分组")) {
+            sectionHeader(L.text("已添加"), count: servers.count, caption: L.text("都经 janus-tools 给所有数字员工")) {
                 Button(L.text("添加服务器")) { Task { await store.editMcp(nil) } }
                     .help(L.text("填写表单，或切到 JSON 粘贴 README 里的配置（Claude 的 mcpServers、VS Code 的 servers）"))
             }
             Text(L.text("环境变量和 HTTP header 的值只保存在本机的 Janus home，在编辑器里查看和修改，不写进数据库、任务记录和事件。")).font(.caption).foregroundStyle(.secondary)
-            mcpGroup("everyone", icon: "person.3", title: L.text("给所有数字员工"),
-                     caption: L.text("命令启动的经 janus-tools 用到才启动，HTTP、SSE 直接交给会话"),
-                     list: everyone, empty: L.text("还没有给所有数字员工的服务器。新添加的服务器先收口，打开它的开关就给所有数字员工。"))
-            mcpGroup("picked", icon: "lock", title: L.text("只给选中的数字员工"),
-                     caption: L.text("在「数字员工」或展开的服务器里勾选给谁，会话启动时逐个交给 Agent"),
-                     list: servers.filter { $0["reach"].str == "picked" }, empty: L.text("没有收口的服务器"))
+            mcpGroup("all", icon: "point.3.connected.trianglepath.dotted", title: L.text("所有服务器"),
+                     caption: L.text("用到才启动或连接，命令启动的在任务的工作目录里运行"),
+                     list: servers, empty: L.text("还没有 MCP 服务器"))
         }
         CatalogShelf(store: store, kind: .mcp, query: query)
     }
@@ -404,7 +385,6 @@ struct LibraryView: View {
                         Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium)).lineLimit(1)
                         Text(i["description"].truthy ? i["description"].str : mcp ? Library.endpoint(i) : "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer(minLength: 8)
-                        if i["reach"].str == "picked" { Text(Library.usedBy(i)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         if !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
                         switch i["warm"]["state"].str {
                         case "preparing": Pill(L.text("准备中…"), .blue)
@@ -416,9 +396,6 @@ struct LibraryView: View {
                 }
                 .buttonStyle(.plain)
                 .help(open ? L.text("收起") : L.text("展开详情"))
-                Toggle(L.text("\(i["name"].str) 给所有数字员工"), isOn: Binding(get: { i["reach"].str == "everyone" }, set: { setReach(i, $0) }))
-                    .toggleStyle(.switch).controlSize(.mini).labelsHidden()
-                    .help(i["reach"].str == "everyone" ? L.text("关掉：只给选中它的数字员工") : L.text("打开：给所有数字员工"))
             }
             if open { details(i) }
         }
@@ -433,9 +410,7 @@ struct LibraryView: View {
                      i["server"]["transport"].str == "stdio" ? process : ""].filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-            ForEach(Self.unsupported(i), id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color) }
-            if i["server"]["transport"].str == "stdio" { warmState(i) }
-            if i["reach"].str == "picked" { givenTo(i) }
+            if mcp { warmState(i) }
             HStack(spacing: 12) {
                 if mcp || i["origin"]["type"].str == "created" { Button(L.text("编辑")) { edit(i) }.buttonStyle(.link) }
                 if i["origin"]["type"].str == "folder" { Button(L.text("刷新")) { refresh(i) }.buttonStyle(.link).help(L.text("从原文件夹重新复制")) }
@@ -446,38 +421,23 @@ struct LibraryView: View {
         .padding(.leading, 22)
     }
 
-    /// How preparing a command server went: started once when added, so its packages are downloaded
-    /// before any run needs it and a server that can't start shows here.
+    /// How preparing a server went: a command started once when added, so its packages are
+    /// downloaded before any run needs it, or a URL reached once; a server that can't start or
+    /// refuses its values shows here.
     // @project-doc docs/domains/20261116-resource_library.md#mcp_router
     @ViewBuilder private func warmState(_ i: JSON) -> some View {
         let w = i["warm"]
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             switch w["state"].str {
-            case "preparing": Text(L.text("正在启动一次，下载它需要的包，大的包可能要几分钟…")).font(.caption).foregroundStyle(.secondary)
+            case "preparing":
+                Text(i["server"]["transport"].str == "stdio" ? L.text("正在启动一次，下载它需要的包，大的包可能要几分钟…") : L.text("正在连接，列出它的工具…"))
+                    .font(.caption).foregroundStyle(.secondary)
             case "ready": Text(L.text("已准备好 · \(w["tools"].int ?? 0) 个工具")).font(.caption).foregroundStyle(Tone.green.color)
             case "failed": Text(L.text("启动失败：\(w["error"].str)")).font(.caption).foregroundStyle(Tone.red.color).textSelection(.enabled)
-            default: Text(L.text("还没有准备过：任务里第一次启动可能较慢")).font(.caption).foregroundStyle(.secondary)
+            default: Text(L.text("还没有准备过：任务里第一次用到时再启动或连接")).font(.caption).foregroundStyle(.secondary)
             }
             if w["state"].str != "preparing" {
                 Button(L.text("重新准备")) { Task { await store.warmMcp(i["id"].str) } }.buttonStyle(.link).font(.caption)
-            }
-        }
-    }
-
-    /// The digital workers a kept item is given to, ticked here or in the worker's editor: both
-    /// change the same choice.
-    @ViewBuilder private func givenTo(_ i: JSON) -> some View {
-        let given = Set(i["roles"].array.map { $0["id"].str })
-        VStack(alignment: .leading, spacing: 2) {
-            Text(L.text("给这些数字员工")).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 4)
-            ForEach(store.roles, id: \.self) { r in
-                let id = r["id"].str
-                Toggle(r["name"].str, isOn: Binding(get: { given.contains(id) }, set: { on in
-                    var next = given
-                    if on { next.insert(id) } else { next.remove(id) }
-                    Task { await store.setItemRoles(i["id"].str, Array(next).sorted()) }
-                }))
-                .toggleStyle(.checkbox).font(.callout)
             }
         }
     }
@@ -487,11 +447,6 @@ struct LibraryView: View {
         let vars = Library.vars(i)
         let gone = i["origin"]["type"].str == "git" && !i["source"]["inSource"].truthy
         return [vars.complete ? "" : vars.text, gone ? L.text("来源中已删除") : ""].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    /// The runtimes that can't use the item, with why.
-    static func unsupported(_ i: JSON) -> [String] {
-        i["support"].array.filter { $0["support"]["state"].str == "no" }.map { L.catalogText($0["support"]["why"].str) }
     }
 
     private func importedNames(_ preview: JSON) -> [String: String] {
@@ -551,15 +506,6 @@ struct LibraryView: View {
 
     // MARK: Actions
 
-    /// Opening a server to everyone lets every digital worker call it, side effects included: ask first.
-    private func setReach(_ i: JSON, _ everyone: Bool) {
-        if everyone && i["kind"].str == "mcp"
-            && !confirm(L.text("把 \(i["name"].str) 给所有数字员工？"), L.text("每个任务的负责人和所有协作者都能调用它的工具，包括写数据、发消息这类有副作用的操作。"), ok: L.text("给所有数字员工")) {
-            return
-        }
-        Task { await store.setReach(i["id"].str, everyone ? "everyone" : "picked") }
-    }
-
     private func edit(_ i: JSON) {
         guard i["kind"].str == "skill" else { Task { await store.editMcp(i) }; return }
         Task {
@@ -581,9 +527,7 @@ struct LibraryView: View {
     }
 
     private func remove(_ i: JSON) {
-        let picked = i["roles"].array.map { $0["name"].str }
-        let note = [picked.isEmpty ? "" : L.text("这些数字员工选了它，删除后一并去掉：\(picked.joined(separator: L.text("、")))。"),
-                    L.text("已经开始的任务有自己的副本，不受影响；正在运行的这个 MCP 服务器会停止。MCP 服务器的值会一起删除。")].joined()
+        let note = L.text("已经开始的任务有自己的副本，不受影响；正在运行的这个 MCP 服务器会停止。MCP 服务器的值会一起删除。")
         guard confirm(L.text("删除 \(i["name"].str)？"), note, ok: L.text("删除")) else { return }
         Task {
             do { try await store.api.delete("/api/library/items/\(i["id"].str)"); await store.loadLibrary() }

@@ -157,8 +157,7 @@ impl App {
         system: Option<&str>,
     ) -> Opening {
         let bundle = self.bundle_dir(&run.id, &m.id);
-        let router = Some(self.tools_server(run, who));
-        let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, router, |id| self.mcp_values(id));
+        let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, self.tools_server(run, who));
         let mut meta = launch.meta;
         if m.kind == Runtime::Claude {
             // Janus's own board tools only read and write this run's board; in its default mode

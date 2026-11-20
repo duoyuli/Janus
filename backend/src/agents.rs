@@ -17,7 +17,7 @@ use crate::orchestrator::{App, Member, expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -287,7 +287,7 @@ pub(crate) fn test_connection(id: &str, kind: &str, base: &str, extra: Value) ->
 #[cfg(test)]
 pub(crate) fn test_role(id: &str, extra: Value) -> Value {
     let mut r = json!({
-        "id": id, "name": id, "desc": "", "prompt": "", "resources": [], "connection": "", "model": "", "effort": "",
+        "id": id, "name": id, "desc": "", "prompt": "", "connection": "", "model": "", "effort": "",
         "session": {}, "lead": false, "color": "#64748b", "init": "",
     });
     for (k, v) in extra.as_object().cloned().unwrap_or_default() {

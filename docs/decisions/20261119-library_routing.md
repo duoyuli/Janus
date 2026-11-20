@@ -1,6 +1,6 @@
 # ADR：资源库默认给所有数字员工，经 MCP 路由和 Skill 路由提供
 
-- 状态：已采纳（accepted），记录于 2026-11-19；同日按逻辑推导修订第 3、5 条和取舍（见文末「修订记录」）。
+- 状态：部分被取代（superseded），记录于 2026-11-19；同日按逻辑推导修订第 3、5 条和取舍（见文末「修订记录」）。2026-11-20 起，第 1、2 条（「给谁用」和收口）、第 4 条（Skill 按数量切换）和第 3 条中 http、sse 服务器直接注入的部分被 [ADR：资源库的每项资源都给所有数字员工，只经两个路由提供](20261120-library_routed_only.md) 取代：资源都给所有数字员工，MCP 只经 `janus-tools`，Skill 只经 `janus-skills`。其余部分仍有效。
 - 修订：[ADR：资源库统一管理 Skill 和 MCP，在会话启动时注入](20261116-launch_time_resources.md) 中「角色选择资源、Run 创建时固定、会话启动时逐项注入」的部分：现在只有收口的资源这样注入，其余经路由提供。会话启动时注入、不写 Agent 配置文件的原则不变。
 - 相关文档：[资源库](../domains/20261116-resource_library.md)、[Agent、角色与工作区](../domains/20261031-agents_and_roles.md)、[安全边界](../operations/20261031-security.md#library)、[研究：magpie 的资源库](../research/20261116-magpie_library.md)、[研究：动态数字员工与资源装配](../research/20261117-dynamic_digital_workers.md)。
 

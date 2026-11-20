@@ -1,8 +1,8 @@
-//! The library reaches every digital worker through the MCP router (`janus-tools`): a command
-//! server for everyone is not handed to each session but served by the run's router, started on
-//! use, shared by the run's sessions (or one per session for a stateful one), in the run's working
-//! directory and a sandbox of its own, listed without starting it, stopped with everything it
-//! spawned when the run stops.
+//! The library reaches every digital worker through the MCP router (`janus-tools`): no server is
+//! handed to a session; the run's router serves them. A command server starts on use, shared by
+//! the run's sessions (or one per session for a stateful one), in the run's working directory and
+//! a sandbox of its own, listed without starting it, stopped with everything it spawned when the
+//! run stops. A URL server, Streamable HTTP or SSE, is reached by Janus with the values saved on it.
 
 use super::*;
 
@@ -61,7 +61,7 @@ fn process_alive(pid: &str) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn servers_for_everyone_are_served_by_the_runs_router() {
+async fn command_servers_are_served_by_the_runs_router() {
     let h = harness("library-router", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"], "T2": ["slow"] }));
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
     let starts = h.dir.join("mcp-starts.log");
@@ -70,14 +70,11 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     } } });
     h.app.import_mcp_config(&config.to_string()).await.unwrap();
     let probe = h.app.items().unwrap().into_iter().find(|i| i.name == "probe").unwrap();
-    assert_eq!(probe.reach, crate::library::Reach::Picked, "an MCP server starts kept for some");
-    h.app.set_reach(&probe.id, crate::library::Reach::Everyone).await.unwrap();
     // A stateful one runs once per session.
     let browser_log = h.dir.join("browser-starts.log");
     let browser = json!({ "name": "browser", "command": "python3", "args": [script], "process": "perSession",
         "vars": [{ "name": "FAKE_MCP_LOG", "value": browser_log }] });
-    let browser = h.app.save_mcp(None, &browser).await.unwrap();
-    h.app.set_reach(&browser.id, crate::library::Reach::Everyone).await.unwrap();
+    h.app.save_mcp(None, &browser).await.unwrap();
 
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
@@ -212,6 +209,93 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// The scripted HTTP MCP server (`testdata/fake_mcp_http.py`) on a free port, stopped when this
+/// is dropped.
+struct HttpServer {
+    child: std::process::Child,
+    base: String,
+}
+
+impl HttpServer {
+    fn start(log: &Path) -> HttpServer {
+        use std::io::BufRead;
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp_http.py");
+        let mut child = std::process::Command::new("python3")
+            .arg(script)
+            .arg(log)
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut port = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut port).unwrap();
+        HttpServer { child, base: format!("http://127.0.0.1:{}", port.trim()) }
+    }
+}
+
+impl Drop for HttpServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
+/// A URL server is never handed to the session: Janus reaches it, Streamable HTTP or SSE, with
+/// the header saved on it, which the agent never sees. A wrong value is refused by the server and
+/// the call says so. A session the server forgot is started again on a later call, and stopping
+/// the run ends the session on the server.
+#[tokio::test(flavor = "multi_thread")]
+async fn url_servers_are_reached_by_the_router_with_their_values() {
+    let h = harness("library-router-http", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"] }));
+    let log = h.dir.join("http-mcp.log");
+    let server = HttpServer::start(&log);
+    let lines = || std::fs::read_to_string(&log).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>();
+    let auth = |v: &str| json!([{ "name": "Authorization", "value": v }]);
+    for (name, transport, path, value) in [
+        ("remote", "http", "/mcp", "Bearer good"),
+        ("legacy", "sse", "/sse", "Bearer good"),
+        ("denied", "http", "/mcp", "Bearer bad"),
+    ] {
+        let body = json!({ "name": name, "transport": transport, "url": format!("{}{path}", server.base), "vars": auth(value) });
+        h.app.save_mcp(None, &body).await.unwrap();
+    }
+
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
+    let at = router_url(&h, "T1").await;
+    let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
+    assert!(!calls.contains("Bearer") && !calls.contains(&server.base), "the agent gets no URL server: {calls}");
+
+    let names = listed(&h, &at).await;
+    for t in ["remote__whoami", "remote__expire", "legacy__whoami"] {
+        assert!(names.contains(&t.to_string()), "{t} in {names:?}");
+    }
+    assert!(!names.iter().any(|n| n.starts_with("denied__")), "a server that refuses lists nothing: {names:?}");
+
+    let seen: Value = serde_json::from_str(&text(&tool(&h, &at, "remote__whoami", json!({})).await)).unwrap();
+    assert_eq!(seen, json!({ "authorization": "Bearer good", "version": "2025-06-18" }), "over Streamable HTTP");
+    let seen: Value = serde_json::from_str(&text(&tool(&h, &at, "legacy__whoami", json!({})).await)).unwrap();
+    assert_eq!(seen["authorization"], "Bearer good", "over SSE");
+    let denied = tool(&h, &at, "denied__whoami", json!({})).await;
+    assert!(denied["isError"] == true && text(&denied).contains("没有这个工具"), "{denied}");
+    assert_eq!(lines().iter().filter(|l| *l == "init").count(), 1, "one Streamable HTTP session for the run");
+
+    // The server forgets the session: the call that finds out fails, the next one starts again.
+    tool(&h, &at, "remote__expire", json!({})).await;
+    let mut back = Value::Null;
+    for _ in 0..3 {
+        back = tool(&h, &at, "remote__whoami", json!({})).await;
+        if back["isError"] != true {
+            break;
+        }
+    }
+    assert!(text(&back).contains("Bearer good"), "{back}");
+    assert_eq!(lines().iter().filter(|l| *l == "init").count(), 2);
+
+    let live = h.app.run(&run).unwrap();
+    h.app.action(&live, &json!({ "type": "cancel" })).unwrap();
+    eventually("stopping the run ends the server's session", || lines().contains(&"delete".to_string())).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
 /// Polls an async `check` for up to five seconds.
 async fn eventually_async<F, Fut>(mut check: F)
 where
@@ -243,10 +327,11 @@ fn routed_names_fit_and_stay_apart() {
     assert!(routed_name("fs", "read.file").chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
 }
 
-/// A command server is prepared once when it is added: started in its sandbox (where a package
-/// download stays for later runs), its tools counted, stopped. One that can't start says why.
+/// A server is prepared once when it is added: a command started in its sandbox (where a package
+/// download stays for later runs), a URL reached; its tools counted, then let go. One that can't
+/// start says why.
 #[tokio::test(flavor = "multi_thread")]
-async fn command_servers_are_prepared_when_added() {
+async fn servers_are_prepared_when_added() {
     let dir = std::env::temp_dir().join(format!("janus-warm-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let app = crate::orchestrator::test_app(&dir);
@@ -261,6 +346,19 @@ async fn command_servers_are_prepared_when_added() {
         let view = app.library_view().unwrap();
         view["items"].as_array().unwrap().iter().find(|i| i["id"] == id).unwrap()["warm"].clone()
     };
+    let log = dir.join("http-mcp.log");
+    let server = HttpServer::start(&log);
+    let remote = app
+        .save_mcp(
+            None,
+            &json!({ "name": "remote", "transport": "http", "url": format!("{}/mcp", server.base),
+            "vars": [{ "name": "Authorization", "value": "Bearer good" }] }),
+        )
+        .await
+        .unwrap();
+    app.warm_mcp(&remote.id);
+    eventually("the URL server is prepared", || warm(&remote.id)["state"] == "ready").await;
+    assert_eq!(warm(&remote.id)["tools"], 2);
     assert!(warm(&probe.id).is_null(), "nothing to say before it is prepared");
     app.warm_mcp(&probe.id);
     app.warm_mcp(&broken.id);

@@ -1,20 +1,9 @@
 import Foundation
 
-/// How the resource library's items read in the app: their origin, the state of an MCP server's
-/// values, and whether a role's agent can use them. The rules are the server's (`support` on each
-/// item); this only words them.
-// @project-doc docs/domains/20261116-resource_library.md#roles
+/// How the resource library's items read in the app: their origin, where an MCP server is, and
+/// the state of its values.
+// @project-doc docs/domains/20261116-resource_library.md#model
 enum Library {
-    /// The runtime a connection runs on: `claude` or `codex`.
-    static func runtime(_ connection: JSON?) -> String { connection?["base"].str ?? "" }
-
-    /// Whether `runtime` can use the item: `yes`, or `no` with the reason. Unknown runtimes (no
-    /// agent chosen) say nothing.
-    static func support(_ item: JSON, runtime: String) -> (state: String, why: String) {
-        guard let s = item["support"].array.first(where: { $0["runtime"].str == runtime }) else { return ("yes", "") }
-        return (s["support"]["state"].str, L.catalogText(s["support"]["why"].str))
-    }
-
     /// Where an item came from, in a few words.
     static func origin(_ item: JSON) -> String {
         let o = item["origin"]
@@ -74,12 +63,6 @@ enum Library {
     static func sourceName(_ source: JSON) -> String {
         let path = source["path"].str, ref = source["gitRef"].str
         return source["repo"].str + (path.isEmpty ? "" : "/\(path)") + (ref.isEmpty ? "" : " @\(ref)")
-    }
-
-    /// Who a kept item is given to, for its row.
-    static func usedBy(_ item: JSON) -> String {
-        let names = item["roles"].array.map { $0["name"].str }
-        return names.isEmpty ? L.text("还没有给任何数字员工") : L.text("只给 \(names.joined(separator: L.text("、")))")
     }
 }
 

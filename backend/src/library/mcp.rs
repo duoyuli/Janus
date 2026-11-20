@@ -1,10 +1,11 @@
 //! MCP servers in the library: their definitions, the values of their environment variables and
-//! HTTP headers (kept apart, in `secrets/library/`), and the shape ACP's `mcpServers` takes.
+//! HTTP headers (kept apart, in `secrets/library/`), and the values a server is started or called
+//! with.
 
 use super::reserved_mcp_name;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// How the MCP router runs a command server for a run: one process the run's sessions share
@@ -56,24 +57,17 @@ impl McpServer {
         }
     }
 
-    /// The entry in ACP's `mcpServers` for a server called `name`, with the values that are set.
-    pub fn acp(&self, name: &str, values: &McpValues) -> Value {
-        let set = |keys: &[String], from: &BTreeMap<String, String>| -> Vec<Value> {
-            keys.iter()
-                .filter_map(|k| from.get(k).filter(|v| !v.is_empty()).map(|v| json!({ "name": k, "value": v })))
-                .collect()
+    /// The values the server is started or called with: those of its declared keys that are set,
+    /// environment variables for a command and headers for a URL.
+    pub fn set_values(&self, values: &McpValues) -> Vec<(String, String)> {
+        let from = match self {
+            McpServer::Stdio { .. } => &values.env,
+            _ => &values.headers,
         };
-        match self {
-            McpServer::Stdio { command, args, env_keys, .. } => {
-                json!({ "name": name, "command": command, "args": args, "env": set(env_keys, &values.env) })
-            }
-            McpServer::Http { url, header_keys } => {
-                json!({ "type": "http", "name": name, "url": url, "headers": set(header_keys, &values.headers) })
-            }
-            McpServer::Sse { url, header_keys } => {
-                json!({ "type": "sse", "name": name, "url": url, "headers": set(header_keys, &values.headers) })
-            }
-        }
+        self.keys()
+            .iter()
+            .filter_map(|k| from.get(k).filter(|v| !v.is_empty()).map(|v| (k.clone(), v.clone())))
+            .collect()
     }
 }
 
@@ -238,9 +232,9 @@ mod tests {
         assert!(parse_config("[]").is_err());
     }
 
-    /// The definition serializes with names only; ACP gets the values that are set.
+    /// The definition serializes with names only; the server gets the declared values that are set.
     #[test]
-    fn acp_entries_carry_only_declared_values() {
+    fn servers_get_only_declared_values() {
         let server = McpServer::Stdio {
             command: "node".into(),
             args: vec!["s.js".into()],
@@ -255,7 +249,7 @@ mod tests {
             ]),
             ..Default::default()
         };
-        assert_eq!(server.acp("local", &values)["env"], json!([{ "name": "TOKEN", "value": "v" }]));
+        assert_eq!(server.set_values(&values), [("TOKEN".to_string(), "v".to_string())]);
         assert_eq!(values.clone().kept_for(&server).env.len(), 2);
         let text = serde_json::to_string(&server).unwrap();
         assert_eq!(
@@ -265,9 +259,6 @@ mod tests {
         let http = McpServer::Http { url: "https://x/mcp".into(), header_keys: vec!["Authorization".into()] };
         let v =
             McpValues { headers: BTreeMap::from([("Authorization".into(), "Bearer t".into())]), ..Default::default() };
-        assert_eq!(
-            http.acp("docs", &v),
-            json!({ "type": "http", "name": "docs", "url": "https://x/mcp", "headers": [{ "name": "Authorization", "value": "Bearer t" }] })
-        );
+        assert_eq!(http.set_values(&v), [("Authorization".to_string(), "Bearer t".to_string())]);
     }
 }

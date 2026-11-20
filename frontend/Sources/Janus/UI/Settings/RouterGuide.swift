@@ -8,7 +8,7 @@ import SwiftUI
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 struct RouterGuide: View {
     let kind: AppStore.LibraryKind
-    /// Names of what goes through the router: skills for everyone, or command servers for everyone.
+    /// Names of what goes through the router: every skill, or every MCP server.
     let names: [String]
     /// What the router does with the library as it is now, in one line.
     let now: String
@@ -94,24 +94,18 @@ struct RouterGuide: View {
     private var steps: [(title: String, detail: String)] {
         switch kind {
         case .skill: return [
-            (L.text("收进路由"), L.text("超过 \(SkillRoute.over) 个时，任务开始时把给所有数字员工的 Skill 放进资源包的隐藏目录，不逐个加载。")),
+            (L.text("收进路由"), L.text("任务开始时把资源库的 Skill 放进资源包的隐藏目录，不逐个加载。")),
             (L.text("只占一条描述"), L.text("另外生成一个 janus-skills，描述列出全部名字：提示词里只多这一条。")),
             (L.text("用到再读"), L.text("Agent 判断任务用得上某个 Skill 时，按 janus-skills 里的路径读它的 SKILL.md。")),
         ]
         case .mcp: return [
             (L.text("只多一个入口"), L.text("会话只拿到一个 janus-tools，背后的服务器都不启动；列工具用上次记下的列表。")),
-            (L.text("用到才启动"), L.text("第一次调用某个服务器的工具时，才在任务的工作目录里、隔离的环境中启动它。")),
+            (L.text("用到才启动"), L.text("第一次调用某个服务器的工具时才启动它：命令在任务的工作目录里、隔离的环境中运行，HTTP、SSE 服务器由 Janus 连接。")),
             (L.text("同一个任务共用"), L.text("负责人和子任务共用这个进程；浏览器这类会记状态的服务器可以设成每个会话单独运行。")),
             (L.text("闲置就停"), L.text("闲置 10 分钟后停止，任务结束时立即停止，下次用到再启动。")),
         ]
         }
     }
-}
-
-/// `SKILL_ROUTE_OVER` in `backend/src/library/deliver.rs`: past this many skills for everyone,
-/// they go through `janus-skills`.
-enum SkillRoute {
-    static let over = 10
 }
 
 // MARK: Scenes

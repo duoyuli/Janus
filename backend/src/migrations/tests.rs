@@ -113,12 +113,12 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     assert_eq!(leases, 0);
 }
 
-/// Version 5: each library item, and each item pinned in a run, says who may use it: a skill
-/// every digital worker, an MCP server only the roles that pick it. Version 6: data seeded before
-/// the general digital worker existed gets it, untouched by the person. Version 8: a command
-/// server says how the MCP router runs it, once per run by default.
+/// Version 5 said who may use each library item and version 11 takes it back out: every item is
+/// for every digital worker, in the library and in the runs, and roles no longer pick items.
+/// Version 6: data seeded before the general digital worker existed gets it, untouched by the
+/// person. Version 8: a command server says how the MCP router runs it, once per run by default.
 #[test]
-fn items_say_who_uses_them_and_the_general_worker_arrives() {
+fn every_item_is_for_everyone_and_the_general_worker_arrives() {
     let path = old_database("reach");
     let conn = Connection::open(&path).unwrap();
     let skill = json!({ "id": "i-skill", "name": "pdf", "description": "", "origin": { "type": "created" }, "revision": "r1", "updatedAt": 0, "kind": "skill" });
@@ -141,18 +141,20 @@ fn items_say_who_uses_them_and_the_general_worker_arrives() {
 
     crate::db::Db::open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(config(&conn, "library_item", "i-skill")["reach"], "everyone");
-    assert_eq!(config(&conn, "library_item", "i-mcp")["reach"], "picked");
+    for id in ["i-skill", "i-mcp"] {
+        assert!(config(&conn, "library_item", id).get("reach").is_none(), "{id}");
+    }
     let team: Value = serde_json::from_str(
         &conn.query_row("SELECT config FROM runs WHERE id = 'run-old'", [], |r| r.get::<_, String>(0)).unwrap(),
     )
     .unwrap();
-    assert_eq!(team["team"][0]["resources"][0]["reach"], "picked");
+    assert!(team["team"][0]["resources"][0].get("reach").is_none());
     // Version 8: command servers run once per run unless marked otherwise.
     assert_eq!(config(&conn, "library_item", "i-mcp")["server"]["process"], "perRun");
     assert_eq!(team["team"][0]["resources"][0]["server"]["process"], "perRun");
     let general = config(&conn, "role", "generalist");
     assert_eq!((general["name"].as_str(), general["connection"].as_str()), (Some("通用数字员工"), Some("")));
+    assert!(general.get("resources").is_none(), "roles no longer pick items");
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
 }
 

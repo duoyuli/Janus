@@ -224,63 +224,18 @@ async fn mcp_values_stay_out_of_records() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A role that uses an item keeps it from being deleted; deleting takes its values along.
-/// Deleting an item takes it out of the roles that pick it (one for everyone may still be picked
-/// from when it was kept, out of sight in the editor), and its saved values with it.
+/// Deleting an item takes its saved values along.
 #[tokio::test]
-async fn deleting_an_item_drops_it_from_the_roles() {
+async fn deleting_an_item_takes_its_values() {
     let (app, dir) = app("delete");
     let item = app
         .save_mcp(None, &json!({ "name": "fs", "command": "mcp-fs", "vars": [{ "name": "K", "value": "v" }] }))
         .await
         .unwrap();
-    let keep = app.create_skill(&json!({ "name": "notes", "description": "记", "content": "写。" })).await.unwrap();
-    app.set_reach(&item.id, crate::library::Reach::Everyone).await.unwrap();
-    app.db
-        .put_config(
-            ROLE,
-            "r1",
-            &crate::agents::test_role("r1", json!({ "name": "研发", "resources": [item.id, keep.id] })),
-            now_ms(),
-        )
-        .unwrap();
+    assert!(app.values_path(&item.id).unwrap().exists());
     app.delete_item(&item.id).await.unwrap();
-    assert_eq!(app.db.get_config(ROLE, "r1").unwrap().unwrap()["resources"], json!([keep.id]));
+    assert!(app.item(&item.id).is_err());
     assert!(!app.values_path(&item.id).unwrap().exists());
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// Who may use a kept item is set from the item's side: the listed roles pick it, the rest drop
-/// it, an unknown role is refused, and editing a role without sending its resources keeps them.
-#[tokio::test]
-async fn an_items_roles_are_set_from_the_library() {
-    let (app, dir) = app("item-roles");
-    let item = app.save_mcp(None, &json!({ "name": "db", "command": "db-mcp" })).await.unwrap();
-    let other = app.create_skill(&json!({ "name": "notes", "description": "记", "content": "写。" })).await.unwrap();
-    for (id, resources) in [("dev", json!([other.id])), ("qa", json!([item.id])), ("pm", json!([]))] {
-        app.db
-            .put_config(
-                ROLE,
-                id,
-                &crate::agents::test_role(id, json!({ "name": id, "resources": resources })),
-                now_ms(),
-            )
-            .unwrap();
-    }
-    let got = app.set_item_roles(&item.id, &["dev".into(), "pm".into()]).await.unwrap();
-    let names: Vec<&str> = got["roles"].as_array().unwrap().iter().filter_map(|r| r["id"].as_str()).collect();
-    assert_eq!(names, ["dev", "pm"]);
-    let resources = |id: &str| app.db.get_config(ROLE, id).unwrap().unwrap()["resources"].clone();
-    assert_eq!(resources("dev"), json!([other.id, item.id]), "what it had stays");
-    assert_eq!(resources("qa"), json!([]), "a role left out drops it");
-    assert!(app.set_item_roles(&item.id, &["ghost".into()]).await.is_err());
-    assert_eq!(resources("pm"), json!([item.id]), "a refused change changes nothing");
-
-    let mut pm = app.db.get_config(ROLE, "pm").unwrap().unwrap();
-    pm.as_object_mut().unwrap().remove("resources");
-    pm["desc"] = json!("新的职责");
-    app.save_role(&pm).unwrap();
-    assert_eq!(resources("pm"), json!([item.id]), "an edit that leaves resources out keeps them");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -355,7 +310,6 @@ fn items_read_back_as_written() {
     let item = Item {
         id: "i1".into(),
         name: "docs".into(),
-        reach: Reach::Everyone,
         description: String::new(),
         origin: Origin::Git { source: "s1".into(), path: "mcp.json#docs".into() },
         revision: "r".into(),
@@ -364,12 +318,12 @@ fn items_read_back_as_written() {
     };
     let v = serde_json::to_value(&item).unwrap();
     assert_eq!(v["kind"], "mcp");
-    assert_eq!(v["reach"], "everyone");
+    assert!(v.get("reach").is_none(), "every item is for every digital worker");
     assert_eq!(v["origin"], json!({ "type": "git", "source": "s1", "path": "mcp.json#docs" }));
     assert_eq!(v["server"]["transport"], "http");
     assert_eq!(serde_json::from_value::<Item>(v).unwrap(), item);
     let skill: Item = serde_json::from_value(json!({
-        "id": "i2", "name": "pdf", "reach": "everyone", "origin": { "type": "created" }, "revision": "h", "updatedAt": 0, "kind": "skill"
+        "id": "i2", "name": "pdf", "origin": { "type": "created" }, "revision": "h", "updatedAt": 0, "kind": "skill"
     }))
     .unwrap();
     assert_eq!(skill.kind(), ItemKind::Skill);

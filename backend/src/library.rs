@@ -14,11 +14,11 @@ mod skill;
 mod sources;
 mod store;
 
-pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch, routed_server, support};
+pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch};
 pub use mcp::{McpProcess, McpServer, McpValues};
 pub use sources::{CHECK_EVERY, Source};
 
-use crate::agents::{ROLE, new_id, str_of, write_private};
+use crate::agents::{new_id, str_of, write_private};
 use crate::orchestrator::{App, expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -32,12 +32,13 @@ const ITEM: &str = "library_item";
 #[derive(Default)]
 pub struct LibraryState {
     lock: tokio::sync::Mutex<()>,
-    /// How preparing each command server went, by item id, since this service started.
+    /// How preparing each MCP server went, by item id, since this service started.
     pub(crate) warm: std::sync::Mutex<HashMap<String, Warm>>,
 }
 
-/// Preparing a command server ahead of its runs (`App::warm_mcp`): started once in its sandbox so
-/// its packages are downloaded and its configuration is known to work.
+/// Preparing an MCP server ahead of its runs (`App::warm_mcp`): a command started once in its
+/// sandbox so its packages are downloaded, a URL reached once; either way its tools are known and
+/// its configuration is known to work.
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -83,30 +84,9 @@ pub enum Origin {
     Git { source: String, path: String },
 }
 
-/// Who may use an item. Every digital worker gets the items for everyone, through the MCP and
-/// skill routers; an item kept for some goes only to the members whose role picks it.
-// @project-doc docs/domains/20261116-resource_library.md#reach
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Reach {
-    Everyone,
-    Picked,
-}
-
-impl Reach {
-    /// What a new item starts as: a skill is instructions anyone may read; an MCP server acts on
-    /// the world, so the person opens it to everyone.
-    pub fn default_for(body: &Body) -> Reach {
-        match body {
-            Body::Skill => Reach::Everyone,
-            Body::Mcp { .. } => Reach::Picked,
-        }
-    }
-}
-
 /// Data version 5: every library item, and every item pinned in a run's member snapshot, says
-/// who may use it, as a new item would (`Reach::default_for`). Roles keep what they picked: it
-/// now means the items kept for some that the role gets.
+/// who may use it, as a new item then did: a skill everyone, an MCP server only the roles that
+/// picked it. Data version 11 drops the field again (`drop_reach`).
 pub(crate) fn record_reach(tx: &rusqlite::Transaction) -> Result<usize> {
     edit_items(tx, |o| {
         if o.contains_key("reach") {
@@ -116,6 +96,12 @@ pub(crate) fn record_reach(tx: &rusqlite::Transaction) -> Result<usize> {
         o.insert("reach".into(), json!(reach));
         true
     })
+}
+
+/// Data version 11: every item is for every digital worker, so items, and the items pinned in
+/// runs' member snapshots, no longer say who may use them.
+pub(crate) fn drop_reach(tx: &rusqlite::Transaction) -> Result<usize> {
+    edit_items(tx, |o| o.remove("reach").is_some())
 }
 
 /// Data version 8: each command server says how the MCP router runs it; ones from before run
@@ -173,8 +159,6 @@ pub struct Item {
     pub id: String,
     /// The name the agent sees; unique among items of one kind.
     pub name: String,
-    /// Who may use it: every digital worker, or only those whose role picks it.
-    pub reach: Reach,
     #[serde(default)]
     pub description: String,
     pub origin: Origin,
@@ -305,48 +289,7 @@ impl App {
     }
 
     fn new_item(&self, name: String, description: String, origin: Origin, revision: String, body: Body) -> Item {
-        let reach = Reach::default_for(&body);
-        Item { id: new_id("i"), name, reach, description, origin, revision, updated_at: now_ms(), body }
-    }
-
-    /// Open an item to every digital worker, or keep it for the roles that pick it.
-    pub async fn set_reach(&self, id: &str, reach: Reach) -> Result<Item> {
-        let _guard = self.library.lock.lock().await;
-        let mut item = self.item(id)?;
-        item.reach = reach;
-        item.updated_at = now_ms();
-        self.put_item(&item)?;
-        Ok(item)
-    }
-
-    /// The digital workers an item is given to, set from the item's side: each listed role picks it,
-    /// every other role drops it. This is where the library page decides who may use a kept item;
-    /// the choice is stored on the roles (`resources`), the one place a run reads it from.
-    // @project-doc docs/domains/20261116-resource_library.md#roles
-    pub async fn set_item_roles(&self, id: &str, roles: &[String]) -> Result<Value> {
-        let _guard = self.library.lock.lock().await;
-        self.item(id)?;
-        let all = self.db.list_config(ROLE)?;
-        if let Some(unknown) = roles.iter().find(|r| !all.iter().any(|x| x["id"] == r.as_str())) {
-            bail!("没有数字员工 {unknown}");
-        }
-        for mut role in all {
-            let rid = role["id"].as_str().unwrap_or_default().to_string();
-            let mut picked: Vec<Value> = role["resources"].as_array().cloned().unwrap_or_default();
-            let has = picked.iter().any(|x| x == id);
-            let wanted = roles.contains(&rid);
-            if has == wanted {
-                continue;
-            }
-            if wanted {
-                picked.push(json!(id));
-            } else {
-                picked.retain(|x| x != id);
-            }
-            role["resources"] = json!(picked);
-            self.db.put_config(ROLE, &rid, &role, now_ms())?;
-        }
-        Ok(json!({ "roles": self.roles_using(id)? }))
+        Item { id: new_id("i"), name, description, origin, revision, updated_at: now_ms(), body }
     }
 
     /// Remove stored skill trees no item uses any more.
@@ -618,18 +561,10 @@ impl App {
 
     // ---- Both
 
-    /// Delete an item no role uses. Runs keep what they pinned.
+    /// Delete an item. Runs keep what they pinned.
     pub async fn delete_item(&self, id: &str) -> Result<()> {
         let _guard = self.library.lock.lock().await;
         self.item(id)?;
-        // Roles that pick it drop it: a pick may be left from when it was kept, out of sight in the
-        // editor once it is for everyone. Runs keep their own copy.
-        for mut role in self.db.list_config(ROLE)? {
-            let Some(picked) = role["resources"].as_array().filter(|a| a.iter().any(|x| x == id)) else { continue };
-            let left: Vec<Value> = picked.iter().filter(|x| *x != id).cloned().collect();
-            role["resources"] = json!(left);
-            self.db.put_config(ROLE, role["id"].as_str().unwrap_or_default(), &role, now_ms())?;
-        }
         self.db.delete_config(ITEM, id)?;
         let _ = std::fs::remove_file(self.values_path(id)?);
         // Its servers stop before the sandbox they run in goes.
@@ -650,24 +585,14 @@ impl App {
         self.cfg.data_dir.join("library").join("servers").join(id)
     }
 
-    /// The tool lists command servers last gave, `<id>-<revision>.json`: what the MCP router lists
+    /// The tool lists MCP servers last gave, `<id>-<revision>.json`: what the MCP router lists
     /// without starting them.
     pub(crate) fn tools_dir(&self) -> PathBuf {
         self.cfg.data_dir.join("library").join("tools")
     }
 
-    fn roles_using(&self, id: &str) -> Result<Vec<Value>> {
-        Ok(self
-            .db
-            .list_config(ROLE)?
-            .into_iter()
-            .filter(|r| r["resources"].as_array().is_some_and(|a| a.iter().any(|x| x == id)))
-            .map(|r| json!({ "id": r["id"], "name": r["name"] }))
-            .collect())
-    }
-
-    /// The library as the app shows it: each item with the roles using it, the state of its values,
-    /// whether it is still in its source, and which runtimes can use it; then the sources.
+    /// The library as the app shows it: each item with the state of its values and whether it is
+    /// still in its source; then the sources.
     pub fn library_view(&self) -> Result<Value> {
         let sources = self.sources()?;
         let items: Vec<Value> = self.items()?.iter().map(|i| self.item_json(i, &sources)).collect::<Result<_>>()?;
@@ -687,11 +612,6 @@ impl App {
 
     fn item_json(&self, item: &Item, sources: &[Source]) -> Result<Value> {
         let mut v = serde_json::to_value(item)?;
-        v["roles"] = json!(self.roles_using(&item.id)?);
-        v["support"] = json!(
-            [crate::agents::Runtime::Claude, crate::agents::Runtime::Codex]
-                .map(|r| json!({ "runtime": r, "support": support(r, &item.body) }))
-        );
         if let Body::Mcp { server } = &item.body {
             let values = self.mcp_values(&item.id);
             let set = |k: &String| {

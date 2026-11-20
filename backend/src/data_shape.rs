@@ -22,7 +22,6 @@ pub const SHAPES: &[Shape] = &[
             "name",
             "desc",
             "prompt",
-            "resources",
             "connection",
             "model",
             "effort",

@@ -57,7 +57,7 @@ Janus 读取的 Agent 能力：
 <a id="session_meta"></a>
 ## `_meta` 扩展
 
-`session/new` 和 `session/load` 用同一组 `mcpServers` 和 `_meta`（`App::opening`），恢复的会话因此保留它的 Skill、MCP 和系统层。`_meta` 按运行时不同。
+`session/new` 和 `session/load` 用同一组 `mcpServers` 和 `_meta`（`App::opening`），恢复的会话因此保留它的 Skill、MCP 和系统层。`mcpServers` 只有 Janus 自己的两个 HTTP 端点：资源库里有 MCP 服务器时是这个 Run 的 MCP 路由 `janus-tools`，然后是看板 `janus`；资源库的服务器不逐个放进去，它们的值也不交给 Agent，见[资源库](../domains/20261116-resource_library.md#delivery)。`_meta` 按运行时不同。
 
 Claude Code：
 
@@ -74,7 +74,7 @@ Claude Code：
 ```
 
 - `claudeCode.options` 原样交给官方 Claude Code 适配器，适配器把它展开进 SDK 的选项。`settings.permissions.allow` 让 Janus 自己的看板工具（只读写这个 Run 的看板）不用审批；没有它时，Claude Code 在默认模式下每次协作者写进展都会请用户批准（真实运行中发现）。Codex 通过工具的只读标注得到同样的效果。角色选择的权限模式对其他所有工具照常生效。
-- `plugins`：成员有 Skill 时才有。资源包作为本地插件加载，只在这个会话中有效，不写进配置目录；Skill 在会话中显示为 `janus:<名字>`，见[资源库](../domains/20261116-resource_library.md#delivery)。
+- `plugins`：资源库里有 Skill 时才有。资源包作为本地插件加载，只在这个会话中有效，不写进配置目录；插件里只有一个 Skill `janus-skills`，在会话中显示为 `janus:janus-skills`，见[资源库](../domains/20261116-resource_library.md#delivery)。
 - `systemPrompt.append`：负责人会话放负责人说明和用户的长期要求，协作者会话放协作约定和用户的长期要求（见下一节）。只追加，不替换 Claude Code 自带的系统提示。
 
 Codex：
@@ -83,7 +83,7 @@ Codex：
 { "additionalRoots": ["<成员的资源包>"] }
 ```
 
-- 成员有 Skill 时才有。适配器调用 Codex 的 `skills/extraRoots/set`，读取资源包中的 `.agents/skills`，Skill 显示为 `$<名字>`；这个目录同时加入会话的文件访问范围。Codex 的系统层在进程环境变量 `CODEX_CONFIG` 中，不在 `_meta` 里，见下一节。
+- 资源库里有 Skill 时才有。适配器调用 Codex 的 `skills/extraRoots/set`，读取资源包中的 `.agents/skills`，其中只有 `janus-skills`，显示为 `$janus-skills`；这个目录同时加入会话的文件访问范围。Codex 的系统层在进程环境变量 `CODEX_CONFIG` 中，不在 `_meta` 里，见下一节。
 
 <a id="standing_instructions"></a>
 ## 系统层：Janus 的说明和用户的长期要求

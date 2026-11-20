@@ -1747,29 +1747,25 @@ async fn restart_restores_failed_and_blocked() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// End to end through a run: a role uses library servers pasted in and added by hand, and the
-/// agent's `session/new` carries them with their values, while the run record and its events hold
-/// none of the values. Skills reach Claude Code as a plugin.
+/// End to end through a run: the library holds servers pasted in and added by hand, of every
+/// transport, and a skill, all for every digital worker. The agent's `session/new` carries none of them: only the run's MCP
+/// router and the board, so the session's tool list does not grow with the library, and no value
+/// reaches the agent. The run record and its events hold none of the values either. Skills reach
+/// Claude Code as a plugin with the one `janus-skills`.
 #[tokio::test(flavor = "multi_thread")]
-async fn library_mcp_reaches_the_session_with_its_values() {
+async fn library_resources_reach_the_session_only_through_the_routers() {
     let h = harness("mcp-session", &[("lead", false)], json!({}));
     let pasted = r#"{"mcpServers": {
         "fetch": {"command": "uvx", "args": ["mcp-server-fetch"], "env": {"FETCH_TOKEN": "lib-env-secret"}},
         "docs": {"type": "http", "url": "https://example.com/mcp", "headers": {"Authorization": "Bearer lib-header-secret"}}
     }}"#;
-    let imported: Vec<crate::library::Item> =
-        serde_json::from_value(h.app.import_mcp_config(pasted).await.unwrap()["items"].clone()).unwrap();
+    h.app.import_mcp_config(pasted).await.unwrap();
     let local = h
         .app
         .save_mcp(None, &json!({ "name": "local", "command": "node local.js", "vars": [{ "name": "LOCAL_TOKEN", "value": "own-env-secret" }] }))
         .await
         .unwrap();
-    let skill =
-        h.app.create_skill(&json!({ "name": "notes", "description": "记笔记", "content": "写下来。" })).await.unwrap();
-    let ids: Vec<&str> = imported.iter().chain([&local, &skill]).map(|i| i.id.as_str()).collect();
-    h.app
-        .save_role(&json!({ "id": "lead", "name": "lead", "connection": "fake", "lead": true, "resources": ids }))
-        .unwrap();
+    h.app.create_skill(&json!({ "name": "notes", "description": "记笔记", "content": "写下来。" })).await.unwrap();
 
     let run = h
         .app
@@ -1787,16 +1783,11 @@ async fn library_mcp_reaches_the_session_with_its_values() {
     }
     let servers: Vec<Value> =
         serde_json::from_str(line.strip_prefix("mcp ").expect("the lead opened a session")).unwrap();
-    let by = |name: &str| {
-        servers.iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name} in {servers:?}")).clone()
-    };
-    assert_eq!(by("local")["env"], json!([{ "name": "LOCAL_TOKEN", "value": "own-env-secret" }]));
-    assert_eq!(by("fetch")["command"], "uvx");
-    assert_eq!(by("fetch")["env"], json!([{ "name": "FETCH_TOKEN", "value": "lib-env-secret" }]));
-    assert_eq!(by("docs")["type"], "http");
-    assert_eq!(by("docs")["url"], "https://example.com/mcp");
-    assert_eq!(by("docs")["headers"], json!([{ "name": "Authorization", "value": "Bearer lib-header-secret" }]));
-    assert_eq!(by("janus")["type"], "http", "the board is attached next to them");
+    let names: Vec<&str> = servers.iter().filter_map(|s| s["name"].as_str()).collect();
+    assert_eq!(names, [crate::library::MCP_ROUTER, "janus"], "only the router and the board: {servers:?}");
+    for secret in ["own-env-secret", "lib-env-secret", "lib-header-secret"] {
+        assert!(!line.contains(secret), "no value reaches the agent: {secret}");
+    }
 
     wait_until(&h.app, &run, "the lead's session record", |e| has(e, "agent.status")).await;
     let evs = events(&h.app, &run);
@@ -1807,8 +1798,13 @@ async fn library_mcp_reaches_the_session_with_its_values() {
         .iter()
         .map(|r| (r["name"].as_str().unwrap().to_string(), r["via"].as_str().unwrap().to_string()))
         .collect();
-    assert!(via.contains(&("notes".into(), "plugin".into())), "Claude Code loads skills as a plugin: {via:?}");
-    assert!(via.contains(&("docs".into(), "mcpServers".into())), "{via:?}");
+    assert!(via.contains(&("notes".into(), "skillRouter".into())), "{via:?}");
+    for server in ["fetch", "docs", "local"] {
+        assert!(via.contains(&(server.into(), "mcpRouter".into())), "{server}: {via:?}");
+    }
+    let bundle = h.app.bundle_dir(&run, "lead");
+    assert!(bundle.join("skills/janus-skills/.skills/notes/SKILL.md").is_file());
+    assert!(!bundle.join("skills/notes").exists(), "the skill is not loaded on its own");
     let record =
         serde_json::to_string(&h.app.db.run(&run).unwrap().unwrap()).unwrap() + &serde_json::to_string(&evs).unwrap();
     for secret in ["own-env-secret", "lib-env-secret", "lib-header-secret"] {

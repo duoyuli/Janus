@@ -99,7 +99,6 @@ final class AppStore {
 
     var libraryItems: [JSON] { library?["items"].array ?? [] }
     var librarySources: [JSON] { library?["sources"].array ?? [] }
-    func libraryItem(_ id: String) -> JSON? { libraryItems.first { $0["id"].str == id } }
 
     func loadLibrary() async {
         if let l = try? await api.get("/api/library") { library = l }
@@ -107,23 +106,10 @@ final class AppStore {
     }
 
     /// Sources whose remote moved on since the last fetch (the server checks every few hours).
-    /// Opens an item to every digital worker (`everyone`) or keeps it for the roles that pick it (`picked`).
-    func setReach(_ id: String, _ reach: String) async {
-        do { _ = try await api.post("/api/library/items/\(id)/reach", ["reach": JSON(reach)]) } catch { show(error.localizedDescription) }
-        await loadLibrary()
-    }
-
-    /// Prepares a command server again: started once in its sandbox, its tools counted.
+    /// Prepares a server again: a command started once in its sandbox, a URL reached; its tools counted.
     func warmMcp(_ id: String) async {
         do { _ = try await api.post("/api/library/mcp/\(id)/warm") } catch { show(error.localizedDescription) }
         await loadLibrary()
-    }
-
-    /// Gives a kept item to exactly these digital workers (the library page's side of the choice).
-    func setItemRoles(_ id: String, _ roles: [String]) async {
-        do { _ = try await api.post("/api/library/items/\(id)/roles", ["roles": JSON(roles)]) } catch { show(error.localizedDescription) }
-        await loadLibrary()
-        await loadSetup()
     }
 
     var sourceUpdates: [JSON] { librarySources.filter { $0["updateAvailable"].truthy } }

@@ -12,7 +12,8 @@ fn member_with(kind: Runtime, provider: &str, role: &str) -> Member {
     m
 }
 
-/// Each runtime gets its member's resources its own way, and a reload gets the same opening.
+/// Each runtime gets its member's skills its own way and the MCP servers through the run's router,
+/// never with their values; a reload gets the same opening.
 #[tokio::test]
 async fn sessions_open_with_the_members_resources() {
     let dir = std::env::temp_dir().join(format!("janus-opening-{}", std::process::id()));
@@ -31,14 +32,14 @@ async fn sessions_open_with_the_members_resources() {
     assert_eq!(o.meta["claudeCode"]["options"]["plugins"], json!([{ "type": "local", "path": bundle }]));
     assert_eq!(o.meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
     assert_eq!(o.meta["systemPrompt"]["append"], "规则");
-    let entry = json!({ "type": "http", "name": "docs", "url": "https://d.example/mcp", "headers": [{ "name": "Authorization", "value": "Bearer t" }] });
-    assert_eq!(o.mcp_servers, vec![entry, board]);
+    assert_eq!(o.mcp_servers, vec![app.tools_server(&run, "lead"), board]);
     let load = o.load_params("s1", Path::new("/w"));
     assert_eq!(
         (load["sessionId"].as_str(), &load["_meta"], &load["mcpServers"]),
         (Some("s1"), &o.meta, &json!(o.mcp_servers))
     );
-    assert!(!serde_json::to_string(&o.resources).unwrap().contains("Bearer t"), "values stay out of the record");
+    let opened = serde_json::to_string(&o.resources).unwrap() + &serde_json::to_string(&o.mcp_servers).unwrap();
+    assert!(!opened.contains("Bearer t"), "values reach neither the session nor the record");
 
     m.kind = Runtime::Codex;
     let o = app.opening(&run, "lead", &m, &caps, vec![], Some("规则"));

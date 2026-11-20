@@ -36,24 +36,9 @@ impl App {
             "" => name.chars().filter(|c| !c.is_whitespace()).take(2).collect::<String>().to_uppercase(),
             i => i.to_string(),
         };
-        // The library items the role uses, each once; an id the library no longer has is dropped.
-        // The app sets them from the library (`set_item_roles`) and leaves them out here, so an
-        // edit to the role keeps what it has.
-        let known: HashSet<String> = self.items()?.into_iter().map(|i| i.id).collect();
-        let prev = self.db.get_config(ROLE, &id)?;
-        let given = match body.get("resources").filter(|r| !r.is_null()) {
-            Some(r) => r.clone(),
-            None => prev.as_ref().map(|p| p["resources"].clone()).unwrap_or_default(),
-        };
-        let mut resources: Vec<&str> = vec![];
-        for id in given.as_array().into_iter().flatten().filter_map(Value::as_str) {
-            if known.contains(id) && !resources.contains(&id) {
-                resources.push(id);
-            }
-        }
         let role = json!({
             "id": id, "name": name, "desc": str_of(body, "desc"),
-            "prompt": body["prompt"].as_str().unwrap_or("").trim(), "resources": resources,
+            "prompt": body["prompt"].as_str().unwrap_or("").trim(),
             "connection": connection, "model": str_of(body, "model"), "effort": str_of(body, "effort"),
             "session": session,
             "lead": body["lead"].as_bool().unwrap_or(false),
@@ -276,7 +261,7 @@ pub(crate) fn add_generalist(tx: &rusqlite::Transaction) -> Result<usize> {
     }
     let r = SEEDS.iter().find(|r| r.id == GENERALIST).expect("seeded");
     let role = json!({
-        "id": r.id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "resources": [], "connection": "",
+        "id": r.id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "connection": "",
         "model": "", "effort": "", "session": {}, "lead": r.lead, "color": r.color, "init": r.init, "seed": { "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) }
     });
     tx.execute(

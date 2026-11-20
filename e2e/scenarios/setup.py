@@ -1,8 +1,9 @@
 """First-run setup: what a person does in Settings before the first goal."""
 
+import atexit
 import json
-
 import os
+import subprocess
 
 from lib import ADAPTER_PACKAGES, ROOT, STAND_IN_VERSION, Fake, git_repo, wait
 from scenarios import scenario, task, Team
@@ -58,7 +59,7 @@ def setup(ctx, c):
     code, _ = ctx.api_error("POST", "/api/setup/workspaces", {"id": "setup-bad", "name": "bad", "path": repo + "/missing", "lead": "coordinator", "members": [{"role": "coordinator"}]})
     c(code == 400, "不存在的工作目录被拒绝")
 
-    # The library: a Skill and an MCP server with a secret value, chosen for a digital employee.
+    # The library: a Skill and an MCP server with a secret value, both for every digital employee.
     skill = ctx.api("POST", "/api/library/skills", {"name": "e2e-skill", "description": "端到端测试用",
                                                     "content": "---\nname: e2e-skill\ndescription: 端到端测试用\n---\n先读 README。\n"})
     mcp = ctx.api("POST", "/api/library/mcp", {"name": "e2e-mcp", "description": "", "transport": "stdio", "command": "/usr/bin/true",
@@ -73,40 +74,38 @@ def setup(ctx, c):
         code, text = ctx.api_error("GET", values, headers=headers)
         c(code == 403 and SECRET not in text, f"{why}读不到 MCP 的值（{code}）")
     c(ctx.api("GET", f"/api/library/items/{skill['id']}")["content"].startswith("---"), "Skill 保存了 SKILL.md 全文")
-    c((skill["reach"], mcp["reach"]) == ("everyone", "picked"), "新 Skill 默认给所有数字员工，新 MCP 默认收口")
-    # A command server opened to everyone: served by each run's MCP router, not handed to sessions.
+    c("reach" not in skill and "reach" not in mcp, "资源没有「给谁用」：每项都给所有数字员工")
+    # A command server: served by each run's MCP router, not handed to sessions.
     starts = os.path.join(ctx.path("setup"), "route-starts.log")
     routed = ctx.api("POST", "/api/library/mcp", {"name": "e2e-route", "description": "路由测试", "transport": "stdio",
                                                   "command": f"{ctx.python} {os.path.join(ROOT, 'backend', 'testdata', 'fake_mcp.py')}",
                                                   "vars": [{"name": "FAKE_MCP_LOG", "value": starts}]})
-    routed = ctx.api("POST", f"/api/library/items/{routed['id']}/reach", {"reach": "everyone"})
-    c(routed["reach"] == "everyone", "MCP 服务器可以放开给所有数字员工")
-    code, _ = ctx.api_error("POST", f"/api/library/items/{routed['id']}/reach", {"reach": "nobody"})
-    c(code == 400, "给谁用只接受 everyone 和 picked")
-    def prepared():
-        item = next(i for i in ctx.api("GET", "/api/library")["items"] if i["id"] == routed["id"])
+    for path, body in (("reach", {"reach": "picked"}), ("roles", {"roles": ["implementer"]})):
+        code, _ = ctx.api_error("POST", f"/api/library/items/{routed['id']}/{path}", body)
+        c(code in (404, 405), f"不能再把资源收口或勾给个别数字员工（{path}：{code}）")
+    # A Streamable HTTP server with a credential header: Janus reaches it, the agent never sees it.
+    http_log = os.path.join(ctx.path("setup"), "http-mcp.log")
+    http_server = subprocess.Popen([ctx.python, os.path.join(ROOT, "backend", "testdata", "fake_mcp_http.py"), http_log],
+                                   stdout=subprocess.PIPE, text=True)
+    atexit.register(http_server.kill)
+    http_base = f"http://127.0.0.1:{http_server.stdout.readline().strip()}"
+    remote = ctx.api("POST", "/api/library/mcp", {"name": "e2e-http", "description": "HTTP 路由测试", "transport": "http",
+                                                  "url": f"{http_base}/mcp", "vars": [{"name": "Authorization", "value": "Bearer good"}]})
+    def prepared(item_id):
+        item = next(i for i in ctx.api("GET", "/api/library")["items"] if i["id"] == item_id)
         return item.get("warm") if (item.get("warm") or {}).get("state") in ("ready", "failed") else None
-    warm = wait(prepared, "新添加的 MCP 服务器预先准备完", 60)
+    warm = wait(lambda: prepared(routed["id"]), "新添加的 MCP 服务器预先准备完", 60)
     c(warm.get("state") == "ready" and warm.get("tools", 0) > 0, f"添加后预先启动一次并数出工具：{warm}")
+    warm = wait(lambda: prepared(remote["id"]), "新添加的 HTTP 服务器预先连接完", 60)
+    c(warm.get("state") == "ready" and warm.get("tools") == 2, f"HTTP 服务器添加后预先连接一次并数出工具：{warm}")
 
     # The default team, bound to the agents: PMO leads on Codex, the engineer and the reviewer on Claude Code.
     roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
     ctx.api("POST", "/api/setup/roles", dict(roles["coordinator"], connection="setup-codex", lead=True))
-    ctx.api("POST", "/api/setup/roles", dict(roles["implementer"], connection="setup-claude", resources=[mcp["id"], skill["id"]]))
+    ctx.api("POST", "/api/setup/roles", dict(roles["implementer"], connection="setup-claude"))
     ctx.api("POST", "/api/setup/roles", dict(roles["reviewer"], connection="setup-claude"))
-    used = next(i for i in ctx.api("GET", "/api/library")["items"] if i["id"] == mcp["id"])
-    c([r["id"] for r in used["roles"]] == ["implementer"], "资源库标出使用 MCP 的数字员工")
-    # The same choice from the library's side: given to the reviewer too, then back to the engineer only.
-    got = ctx.api("POST", f"/api/library/items/{mcp['id']}/roles", {"roles": ["implementer", "reviewer"]})
-    c([r["id"] for r in got["roles"]] == ["implementer", "reviewer"], "资源库里可以把收口的 MCP 勾给数字员工")
-    code, _ = ctx.api_error("POST", f"/api/library/items/{mcp['id']}/roles", {"roles": ["nobody"]})
-    c(code == 400, "勾给不存在的数字员工被拒绝")
     roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
-    edit = {k: v for k, v in roles["reviewer"].items() if k != "resources"}
-    ctx.api("POST", "/api/setup/roles", dict(edit, desc=roles["reviewer"]["desc"]))
-    roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
-    c(mcp["id"] in roles["reviewer"]["resources"], "保存数字员工时不带资源，保留资源库里给它的选择")
-    ctx.api("POST", f"/api/library/items/{mcp['id']}/roles", {"roles": ["implementer"]})
+    c(not any("resources" in r for r in roles.values()), "数字员工不再选资源")
     ws = ctx.api("POST", "/api/setup/workspaces", {"id": "setup", "name": "默认团队", "path": repo, "lead": "coordinator", "brief": "共享资料：用 Python 3。",
                                                    "members": [{"role": "coordinator"}, {"role": "implementer"}, {"role": "reviewer"}]})
     c(ws["path"] == repo, "工作区保存规范化的绝对路径")
@@ -124,21 +123,23 @@ def setup(ctx, c):
     board = run.read_board(lambda b: "[完成] V1" in b)
     c("[完成] T1" in board and "[完成] V1" in board, "研发完成，质量工程师（Claude 替身）独立验证完成")
     sessions = [line for line in fake.calls().splitlines() if line.startswith("mcp ") and f"/mcp/{run.id}/" in line and '/T1"' in line]
-    c(sessions and SECRET in sessions[-1] and "e2e-mcp" in sessions[-1], "角色的 MCP 连同值进入 T1 的 session/new")
-    servers = json.loads(sessions[-1][len("mcp "):])
+    servers = json.loads(sessions[-1][len("mcp "):]) if sessions else []
+    c(sorted(x["name"] for x in servers) == ["janus", "janus-tools"], f"T1 的 session/new 只有看板和 janus-tools：{[x['name'] for x in servers]}")
+    c(SECRET not in sessions[-1] and "Bearer good" not in sessions[-1] and http_base not in sessions[-1], "MCP 的地址和值都不进 session/new")
     router = next((x for x in servers if x["name"] == "janus-tools"), None)
-    c(router and not any(x["name"] == "e2e-route" for x in servers), "给所有人的命令服务器不直接交给会话，T1 拿到 janus-tools")
     path = "/" + router["url"].split("/", 3)[3]
     def rpc(method, params, at=path):
         return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
     names = [t["name"] for t in rpc("tools/list", {})["tools"]]
-    c("e2e-route__cwd" in names, f"MCP 路由列出服务器的工具：{names}")
+    c("e2e-route__cwd" in names and "e2e-http__whoami" in names, f"MCP 路由列出命令和 HTTP 服务器的工具：{names}")
     started = lambda: open(starts).read().count("start")  # noqa: E731
     c(started() == 1, f"会话打开和列工具都没有启动服务器，只有添加时预先准备的那一次（{started()} 次）")
     got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})
     rpc("tools/call", {"name": "e2e-route__echo", "arguments": {"text": "again"}})
     c(started() == 2, f"第一次调用才启动，之后的调用用同一个进程（{started()} 次）")
     c(got["content"][0]["text"] == run.cwd(), "路由背后的服务器在 Run 的工作目录（worktree）里启动")
+    seen = json.loads(rpc("tools/call", {"name": "e2e-http__whoami", "arguments": {}})["content"][0]["text"])
+    c(seen.get("authorization") == "Bearer good", f"Janus 带着保存的 header 调用 HTTP 服务器：{seen}")
     lead_path = path.rsplit("/", 2)[0] + "/lead/tools"
     code = ctx.api_error("POST", lead_path, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]
     c(code in (401, 403, 404), f"协作者的令牌不能冒充负责人使用路由（{code}）")
