@@ -459,10 +459,16 @@ struct ChatItem: View {
                 Divider()
                 Text(verbatim: L.text("\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(SessionView.attemptNote(d, task: e.task))"))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                if let git = SessionView.gitNote(d["git"]) {
+                    Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
                 DisclosureGroup(L.text("编排器发出的子任务说明")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
         case "run.created":
             divider(L.text("目标 · \(L.goalTitle(d["goal"].str))"))
+            if let git = SessionView.runGitNote(d) {
+                Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
             StoredImages(paths: Attach.paths(d), size: 56)
         case "agent.message":
             // The structured result block is for the orchestrator; in the chat it collapses to a label.

@@ -41,6 +41,7 @@ struct TaskView: View {
                         if !t.desc.isEmpty { Text(t.desc).foregroundStyle(.secondary).textSelection(.enabled) }
                         let structure = [t.owns.isEmpty ? nil : L.text("负责 \(t.owns.joined(separator: L.text("、")))"), t.verifies.isEmpty ? nil : L.text("独立验证 \(t.verifies)")].compactMap { $0 }
                         if !structure.isEmpty { Text(verbatim: structure.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                        if let git = SessionView.taskGitNote(st, t.id) { Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                     }
                     Spacer()
                     Button(L.text("在审计日志中查看")) { run.auditCat = "all"; run.auditTask = t.id; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
@@ -195,7 +196,8 @@ struct TimelineRow: View {
                 Text(verbatim: L.text("尝试 \(e.attempt ?? 0)")).fontWeight(.semibold)
                 Text(verbatim: "\(d["runtime"].str)\(SessionView.attemptNote(d, task: e.task))").foregroundStyle(.secondary)
                 Text(L.short(d["session"].str, 40)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                Text(d["workspace"].str).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                let place = SessionView.gitNote(d["git"]) ?? d["workspace"].str
+                Text(verbatim: place).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(place)
                 Spacer()
                 SeqButton(seq: e.seq, run: run)
             }

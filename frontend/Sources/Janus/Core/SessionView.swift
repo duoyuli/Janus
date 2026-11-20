@@ -126,6 +126,31 @@ enum SessionView {
         return L.text("改动在这个任务单独的 worktree \(r.cwd) 中，验收时合并回 \(source)。")
     }
 
+    /// The Git facts a session works with, in one line: the repository, the branch accepting
+    /// merges back into, the commit and the worktree. `nil` for a run outside a worktree.
+    static func gitNote(repo: String, branch: String, head: String, worktree: String) -> String? {
+        guard !repo.isEmpty else { return nil }
+        var parts = [L.text("Git 仓库 \(repo)"), branch.isEmpty ? "detached HEAD" : L.text("分支 \(branch)")]
+        if !head.isEmpty { parts.append(L.text("提交 \(String(head.prefix(8)))")) }
+        if !worktree.isEmpty { parts.append(L.text("worktree \(worktree)")) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// `gitNote` of an attempt's start (`attempt.started`'s `data.git`).
+    static func gitNote(_ g: JSON) -> String? {
+        gitNote(repo: g["repo"].str, branch: g["branch"].str, head: g["head"].str, worktree: g["worktree"].str)
+    }
+
+    /// `gitNote` of the run's start (`run.created`): where the lead works.
+    static func runGitNote(_ d: JSON) -> String? {
+        gitNote(repo: d["worktree"]["repo"].str, branch: d["worktree"]["branch"].str, head: d["baseRef"].str, worktree: d["cwd"].str)
+    }
+
+    /// `gitNote` of a task's latest attempt.
+    static func taskGitNote(_ st: RunState, _ task: String) -> String? {
+        gitNote(st.events.last { $0.type == "attempt.started" && $0.task == task }?.data["git"] ?? .null)
+    }
+
     /// What an attempt's header adds about how it started (`attempt.started`): which session it
     /// is in when not a plain new one, and why it runs again. A rework or a re-check continues
     /// the task's own conversation, so the header says so instead of looking like a new session.

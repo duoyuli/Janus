@@ -138,7 +138,8 @@ enum Snapshots {
                     "accepted": JSON(s.result?.accepted != nil), "events": JSON(s.events.count),
                     "tasks": JSON.array(s.orderedTasks.map { t in
                         ["id": JSON(t.id), "status": JSON(t.status.rawValue), "agent": JSON(t.agent), "attempts": JSON(t.attempts.count),
-                         "verdict": JSON(t.verdict?.rawValue), "question": JSON(t.question?.question)]
+                         "verdict": JSON(t.verdict?.rawValue), "question": JSON(t.question?.question),
+                         "git": JSON(SessionView.taskGitNote(s, t.id))]
                     }),
                     "inbox": JSON.array(s.inbox.map { ["kind": JSON($0.kind), "key": JSON($0.key), "task": JSON($0.task)] }),
                     "agents": .object(s.agents.mapValues { JSON($0.phase) }),

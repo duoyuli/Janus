@@ -1555,6 +1555,14 @@ async fn tasks_work_in_the_runs_own_worktree() {
     assert_eq!(created["worktree"]["branch"], json!(branch), "the branch the run started on");
     let started = evs.iter().find(|e| e.kind == "attempt.started").unwrap();
     assert_eq!(started.data.as_ref().unwrap()["path"], json!(cwd));
+    let git = &started.data.as_ref().unwrap()["git"];
+    let head = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&h.repo).output().unwrap();
+    assert_eq!(
+        *git,
+        json!({ "repo": h.repo.canonicalize().unwrap(), "branch": branch, "worktree": cwd,
+                "head": String::from_utf8_lossy(&head.stdout).trim() }),
+        "each attempt records the Git facts it works with"
+    );
     assert!(started.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("单独建的 Git worktree"));
     assert!(
         evs.iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")),

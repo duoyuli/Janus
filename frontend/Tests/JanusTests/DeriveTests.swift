@@ -548,6 +548,9 @@ private func goalRun() -> Log {
     #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("这个任务没有新的改动，没有提交。", "This task brought no new changes, so nothing was committed."))
     st.run.merged = true
     #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("结果已合并到 /code/app 当前的 detached HEAD。", "The result is merged into the detached HEAD of /code/app."))
+    #expect(SessionView.runGitNote(log.events[0].data) == expectedCopy("Git 仓库 /code/app · 分支 main · worktree /h/worktrees/r1", "Git repository /code/app · branch main · worktree /h/worktrees/r1"))
+    log.add("attempt.started", task: "T1", attempt: 1, data: ["git": ["repo": "/code/app", "branch": .null, "worktree": "/h/worktrees/r1", "head": "0123456789abcdef"]])
+    #expect(SessionView.taskGitNote(derive(log.events), "T1") == expectedCopy("Git 仓库 /code/app · detached HEAD · 提交 01234567 · worktree /h/worktrees/r1", "Git repository /code/app · detached HEAD · commit 01234567 · worktree /h/worktrees/r1"))
     var inPlace = Log()
     inPlace.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/code/notes", "git": false])
     #expect(SessionView.worktreeNote(derive(inPlace.events).run, accepted: true) == nil)

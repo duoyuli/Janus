@@ -417,6 +417,9 @@ impl App {
         if let Some(r) = &reopen {
             started_data["reopen"] = r.record();
         }
+        if let Some(g) = run.git_facts().await {
+            started_data["git"] = g;
+        }
         self.emit(
             run,
             ev("attempt.started", "janus", format!("启动 {id} 第 {n} 次尝试 · {}", spec.name))

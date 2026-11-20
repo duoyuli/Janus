@@ -934,6 +934,16 @@ impl Drop for Held<'_> {
 }
 
 impl Run {
+    /// The Git facts a session of this run works with, for the person to see (`data.git` of
+    /// `attempt.started`): the repository, the branch accepting merges back into (`null` for a
+    /// detached `HEAD`), the worktree and the commit it is at now. `None` outside a worktree.
+    // @project-doc docs/interfaces/20261031-events.md#event_types
+    async fn git_facts(&self) -> Option<Value> {
+        let w = self.worktree.as_ref()?;
+        let head = git(&self.cwd, &["rev-parse", "HEAD"]).await.ok().map(|s| s.trim().to_string());
+        Some(json!({ "repo": w.repo, "branch": w.branch, "worktree": self.cwd, "head": head }))
+    }
+
     fn new(r: RunRecord) -> Run {
         Run {
             id: r.id,
