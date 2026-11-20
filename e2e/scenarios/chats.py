@@ -61,7 +61,9 @@ def chats(ctx, c):
 
     ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "第二条"})
     wait(lambda: replied("第二条"), "同一个会话回复第二条消息", 60)
-    c(t.fake.calls().count("chat brief") == 1, "第二条消息在同一个会话里")
+    # Only this chat's sessions: the paging check above opened another chat with the same agent.
+    mine = [l for l in t.fake.calls().splitlines() if l.startswith("chat brief") and l.endswith(chat)]
+    c(len(mine) == 1, f"第二条消息在同一个会话里（这个对话打开过 {len(mine)} 次会话）")
 
     ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running" and any(x["id"] == chat for x in s["chats"]),
            "对话页打开，侧栏的对话列表里有它", pages=("draft lead 第三条", "open chats"))
