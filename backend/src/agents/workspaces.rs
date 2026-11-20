@@ -46,12 +46,10 @@ impl App {
         if lead_role["lead"] != true {
             bail!("数字员工「{}」没有开启「可以担任负责人」", str_of(&lead_role, "name"));
         }
-        let leads = self
-            .connection(str_of(&lead_role, "connection"))
-            .and_then(|c| Runtime::of(str_of(&c, "base")))
-            .is_ok_and(Runtime::leads);
-        if !leads {
-            bail!("负责人只能是 Claude Code 或 Codex 的数字员工（需要 /goal），「{}」不是", str_of(&lead_role, "name"));
+        let bound =
+            self.connection(str_of(&lead_role, "connection")).and_then(|c| Runtime::of(str_of(&c, "base"))).is_ok();
+        if !bound {
+            bail!("负责人「{}」还没有绑定 Agent", str_of(&lead_role, "name"));
         }
         if members.len() < 2 {
             bail!("除了负责人，至少还需要一名成员");

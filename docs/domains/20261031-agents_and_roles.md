@@ -9,11 +9,12 @@
 
 `agents::kinds()` 定义了可创建的 Agent 类型：
 
-| 类型 | 分组 | 基础运行时 | 认证方式 | 配置目录变量 |
-| --- | --- | --- | --- | --- |
-| `codex` | 内置 | `codex` | 复制本机配置、ChatGPT 登录、自定义 API（OpenAI 或兼容 Responses API 的网关） | `CODEX_HOME` |
-| `claude` | 内置 | `claude` | 复制本机配置、Claude 订阅 OAuth Token、API Key | `CLAUDE_CONFIG_DIR` |
-| `custom` | 自定义 | `custom` | 无；只使用填写的启动命令和环境变量 | 无 |
+| 类型 | 基础运行时 | 认证方式 | 配置目录变量 |
+| --- | --- | --- | --- |
+| `codex` | `codex` | 复制本机配置、ChatGPT 登录、自定义 API（OpenAI 或兼容 Responses API 的网关） | `CODEX_HOME` |
+| `claude` | `claude` | 复制本机配置、Claude 订阅 OAuth Token、API Key | `CLAUDE_CONFIG_DIR` |
+
+只有这两种：不能用启动命令接入其他 ACP Agent，见 [ADR：去掉「自定义命令」](../decisions/20261120-codex_and_claude_code_only.md)。
 
 规则：
 
@@ -37,7 +38,7 @@ Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20
 
 `test_connection` 按顺序执行以下步骤，结果在应用中逐步显示：
 
-1. **ACP 适配器**：内置运行时需要的适配器没有安装时，当场安装最新版本。自定义命令没有这一步。
+1. **ACP 适配器**：Agent 需要的适配器没有安装时，当场安装最新版本。
 2. **运行时**：找到 CLI 和适配器入口。
 3. **凭据**：检查所选认证方式需要的凭据是否齐全。
 4. **启动 Agent**：启动子进程并完成 ACP `initialize`，60 秒超时。
@@ -66,7 +67,7 @@ Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话�
 
 各 Agent 声明的典型权限模式：Codex 的沙箱预设（Read-only / Agent / Full access 等）、Claude Code 的权限模式（Manual / Accept edits / Auto / Bypass 等）。具体选项以 Agent 实际声明为准。
 
-角色没有选择权限模式时，Codex 默认用 Full access（`agent-full-access`），Claude Code 默认用 Bypass permissions（`bypassPermissions`），由 `Runtime::default_mode` 指定；Agent 不提供这个选项、或是自定义命令的 Agent 时，沿用 Agent 自己的当前模式（`control_default`）。默认值不写进角色：创建 Run 时 `member_session` 把它补进成员的 `session`，设置接口返回的连接给每个控制项带上 `default`，角色编辑器按它选中并标注「默认」，选回默认值时去掉角色中的这一项。设计取舍见 [ADR：Codex 和 Claude Code 默认不受限运行](../decisions/20261118-unrestricted_default_mode.md)。
+角色没有选择权限模式时，Codex 默认用 Full access（`agent-full-access`），Claude Code 默认用 Bypass permissions（`bypassPermissions`），由 `Runtime::default_mode` 指定；Agent 不提供这个选项时，沿用 Agent 自己的当前模式（`control_default`）。默认值不写进角色：创建 Run 时 `member_session` 把它补进成员的 `session`，设置接口返回的连接给每个控制项带上 `default`，角色编辑器按它选中并标注「默认」，选回默认值时去掉角色中的这一项。设计取舍见 [ADR：Codex 和 Claude Code 默认不受限运行](../decisions/20261118-unrestricted_default_mode.md)。
 
 <a id="no_plan_mode"></a>
 ### 不使用 Plan 模式
@@ -88,7 +89,7 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用只�
 | `connection` | 绑定的 Agent id |
 | `model`、`effort` | 模型和推理强度；留空表示使用 Agent 默认值 |
 | `session` | 选定的会话控制项值，`{控制项 id: 值}`；没有选择的控制项用它的默认值，见[会话控制项与权限模式](#permission_modes) |
-| `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在任务说明末尾，见 [ACP 集成](../interfaces/20261031-acp_integration.md#standing_instructions) |
+| `prompt` | 角色指令，作为用户的长期要求注入：Claude Code 是系统提示，Codex 是开发者指令，见 [ACP 集成](../interfaces/20261031-acp_integration.md#standing_instructions) |
 | `resources` | 选择的资源库资源（Skill 和 MCP 服务器）的 id，见[角色的选择](20261116-resource_library.md#roles) |
 | `lead` | 是否可以担任负责人 |
 | `seed` | 只有默认角色有：来自哪个默认角色（`id`），以及用户最后拿到的默认职责和指令的哈希（`desc`、`prompt`，SHA-256 前 16 位）。由 Janus 维护，保存角色时沿用已存的值，编辑器传来的不生效 |

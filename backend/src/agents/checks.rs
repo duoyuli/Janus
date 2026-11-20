@@ -135,7 +135,6 @@ impl App {
                     (false, "没有填写 OAuth Token".into())
                 }
             }
-            ("custom", _) => (true, "由启动命令自己负责".into()),
             _ => (true, "无需凭据".into()),
         }
     }
@@ -424,8 +423,17 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("janus-check-owner-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let app = test_app(&dir);
-        // An agent that never answers the handshake keeps its check running.
-        let slow = crate::agents::test_connection("slow", "custom", "custom", json!({ "command": "sleep 30" }));
+        // An agent that never answers the handshake keeps its check running: the scripted agent,
+        // told to stay mute.
+        let fake = dir.join("fake");
+        std::fs::create_dir_all(&fake).unwrap();
+        std::fs::write(fake.join("mute"), "").unwrap();
+        let slow = crate::agents::test_connection(
+            "slow",
+            "claude",
+            "claude",
+            json!({ "env": { "FAKE_DIR": fake.to_string_lossy() } }),
+        );
         app.db.put_config(CONNECTION, "slow", &slow, 1).unwrap();
         let first = app.start_check("slow").unwrap();
         let again = app.start_check("slow").unwrap();
@@ -435,12 +443,13 @@ mod tests {
         let fresh = app.start_check("slow").unwrap();
         assert_ne!(fresh["testStartedAt"], first["testStartedAt"], "a check no longer running is started anew");
 
-        // An agent that exits at once ends its check quickly; the record now belongs to another.
+        // An agent that exits at once (the scripted agent without its FAKE_DIR) ends its check
+        // quickly; the record now belongs to another.
         let gone = crate::agents::test_connection(
             "gone",
-            "custom",
-            "custom",
-            json!({ "command": "true", "status": "testing", "testStartedAt": 2, "check": [] }),
+            "claude",
+            "claude",
+            json!({ "status": "testing", "testStartedAt": 2, "check": [] }),
         );
         app.db.put_config(CONNECTION, "gone", &gone, 1).unwrap();
         app.test_connection("gone", 1).await.unwrap();

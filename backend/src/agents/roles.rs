@@ -467,7 +467,7 @@ mod id_tests {
         assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep", "nothing outside Janus home is removed");
         // An agent's id names the folder its deletion removes.
         let err = app
-            .save_connection(&json!({ "id": "../x", "kind": "custom", "name": "A", "command": "true" }))
+            .save_connection(&json!({ "id": "../x", "kind": "claude", "name": "A", "auth": "apikey", "apiKey": "k" }))
             .unwrap_err()
             .to_string();
         assert!(err.contains("不合法"), "{err}");
@@ -480,7 +480,7 @@ mod id_tests {
         );
         app.db.put_config(ROLE, "bound", &bound, 1).unwrap();
         app.db
-            .put_config(CONNECTION, "gone", &crate::agents::test_connection("gone", "custom", "custom", json!({})), 1)
+            .put_config(CONNECTION, "gone", &crate::agents::test_connection("gone", "claude", "claude", json!({})), 1)
             .unwrap();
         app.delete_connection("gone").unwrap();
         let role = app.db.get_config(ROLE, "bound").unwrap().unwrap();

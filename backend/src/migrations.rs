@@ -102,6 +102,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "命令启动的 MCP 服务器记录 MCP 路由怎样运行它：默认同一个任务共用一个进程",
         steps: &[Step::Custom(crate::library::record_mcp_process)],
     },
+    Migration {
+        version: 9,
+        name: "去掉「自定义命令」的 Agent：删除这类 Agent，绑定它的数字员工改为没有绑定 Agent，旧 Run 里用它的成员记为 Claude Code（只能查看，不能继续）",
+        steps: &[Step::Custom(crate::agents::drop_custom_agents)],
+    },
 ];
 
 /// The data version this build reads and writes.
@@ -298,7 +303,7 @@ fn apply(tx: &Transaction, step: &Step) -> Result<usize> {
 }
 
 /// Apply `f` to every object at `at`, writing back the ones it changed. Returns how many changed.
-fn edit(tx: &Transaction, at: Target, mut f: impl FnMut(&mut Map<String, Value>) -> bool) -> Result<usize> {
+pub(crate) fn edit(tx: &Transaction, at: Target, mut f: impl FnMut(&mut Map<String, Value>) -> bool) -> Result<usize> {
     match at {
         Target::Config(kind) => edit_configs(tx, kind, |_, o| f(o)),
         Target::RunMember => {

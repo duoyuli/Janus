@@ -59,7 +59,7 @@ Janus 是罗马神话中的门神，也是开端与转换之神。他有两张�
 
 - Rust 工具链和 Cargo（edition 2024）、Swift 6（Xcode 或命令行工具），以及 [just](https://github.com/casey/just)。
 - Node.js 22.19 或更高，以及随它安装的 npm。
-- 自定义命令类型的 Agent 需要它自己的启动命令。内置适配器自带 Codex 和 Claude Code 的 CLI。
+- 内置适配器自带 Codex 和 Claude Code 的 CLI。
 - 第一次使用某个 Agent 时需要网络，用来下载它的 ACP 适配器。
 
 #### 安装并启动

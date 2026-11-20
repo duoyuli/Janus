@@ -17,13 +17,6 @@ impl App {
         for m in &team {
             self.spec_for(&m.runtime)?;
         }
-        if let Some(lead) = team.iter().find(|m| m.lead).filter(|m| !m.kind.leads()) {
-            bail!(
-                "负责人「{}」用的是 {}，只有 Claude Code 或 Codex 能做负责人（需要 /goal），请在工作区里换一个负责人",
-                lead.name,
-                lead.runtime_name
-            );
-        }
         let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await.is_ok();
         let base_ref = if is_git {
             git(&cwd, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string()

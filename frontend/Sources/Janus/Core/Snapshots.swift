@@ -6,7 +6,7 @@ import SwiftUI
 /// recording rights (docs/operations/20261031-testing.md#macos_app).
 ///
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
-///     role <id> | agent-edit <id> | close-sheet | doc <path> | size <w>x<h> | shot <name>
+///     role <id> | agent-edit <id>|new | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
@@ -90,6 +90,8 @@ enum Snapshots {
         // The editor is a sheet of the settings panel, as when a person opens it from there.
         case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
+        // The agent editor: `agent-edit <id>`, or `agent-edit new`.
+        case "agent-edit": store.editAgent(arg == "new" ? "" : arg)
         case "close-sheet":
             store.closeRoleEditor(); store.editingWorkspace = nil; store.showingSettings = false
             model.permissions.dismissReview()

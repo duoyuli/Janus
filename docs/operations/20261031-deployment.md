@@ -104,7 +104,6 @@
 | Node.js | 运行 ACP 适配器，安装适配器 | 22.19 及以上；安装包中的 Janus.app 自带，不需要另装 |
 | `npm`、`npx` | 安装适配器 | 随 Node.js 安装 |
 | `git` | 检查工作目录 | |
-| Agent CLI | 自定义命令类型的 Agent | 内置适配器自带 Codex 和 Claude Code 的 CLI |
 
 安装和检查适配器更新需要访问 npm。
 

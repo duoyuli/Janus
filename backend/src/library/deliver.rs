@@ -17,34 +17,24 @@ use std::path::Path;
 pub enum Support {
     Yes,
     No(&'static str),
-    /// Decided by what the agent declares when it starts.
-    Depends(&'static str),
 }
 
 pub fn support(runtime: Runtime, body: &Body) -> Support {
     match (runtime, body) {
-        (Runtime::Custom, Body::Skill) => Support::No("自定义命令的 Agent 没有在启动时加载 Skill 的入口"),
         (_, Body::Skill) | (_, Body::Mcp { server: McpServer::Stdio { .. } }) | (Runtime::Claude, _) => Support::Yes,
         (Runtime::Codex, Body::Mcp { server: McpServer::Http { .. } }) => Support::Yes,
         (Runtime::Codex, Body::Mcp { server: McpServer::Sse { .. } }) => {
             Support::No("Codex 不支持 SSE 传输的 MCP 服务器")
-        }
-        (Runtime::Custom, Body::Mcp { server: McpServer::Http { .. } }) => {
-            Support::Depends("要看 Agent 是否声明 HTTP MCP 能力")
-        }
-        (Runtime::Custom, Body::Mcp { server: McpServer::Sse { .. } }) => {
-            Support::Depends("要看 Agent 是否声明 SSE MCP 能力")
         }
     }
 }
 
 /// Where a runtime reads a bundle's skills, relative to the bundle: Claude Code loads the bundle
 /// as a local plugin, Codex reads `.agents/skills` under each additional root.
-fn skills_dir(runtime: Runtime) -> Option<&'static str> {
+fn skills_dir(runtime: Runtime) -> &'static str {
     match runtime {
-        Runtime::Claude => Some("skills"),
-        Runtime::Codex => Some(".agents/skills"),
-        Runtime::Custom => None,
+        Runtime::Claude => "skills",
+        Runtime::Codex => ".agents/skills",
     }
 }
 
@@ -80,7 +70,7 @@ pub fn routed_server(item: &Item) -> bool {
 /// agent's own scan, and `janus-skills/SKILL.md` lists each with its description and path.
 // @project-doc docs/domains/20261116-resource_library.md#skill_router
 pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], dir: &Path) -> Result<()> {
-    let Some(rel) = skills_dir(runtime) else { return Ok(()) };
+    let rel = skills_dir(runtime);
     if skills(items).next().is_none() {
         return Ok(());
     }
@@ -193,7 +183,6 @@ pub fn launch(
     let skill_via = match runtime {
         Runtime::Claude => Via::Plugin,
         Runtime::Codex => Via::AdditionalRoots,
-        Runtime::Custom => Via::Skipped("自定义命令的 Agent 没有在启动时加载 Skill 的入口".into()),
     };
     if skills(items).next().is_some() {
         let path = bundle.to_string_lossy();
@@ -202,7 +191,6 @@ pub fn launch(
                 out.meta = json!({ "claudeCode": { "options": { "plugins": [{ "type": "local", "path": path }] } } })
             }
             Runtime::Codex => out.meta = json!({ "additionalRoots": [path] }),
-            Runtime::Custom => {}
         }
     }
     let mcp = &caps["mcpCapabilities"];
@@ -211,9 +199,7 @@ pub fn launch(
     let mut router_used = false;
     for item in items {
         match &item.body {
-            Body::Skill if routed.iter().any(|r| r.id == item.id) && runtime != Runtime::Custom => {
-                out.delivered.push(record(item, Via::SkillRouter))
-            }
+            Body::Skill if routed.iter().any(|r| r.id == item.id) => out.delivered.push(record(item, Via::SkillRouter)),
             Body::Skill => out.delivered.push(record(item, skill_via.clone())),
             Body::Mcp { .. } if router.is_some() && routed_server(item) => {
                 router_used = true;
@@ -308,15 +294,6 @@ mod tests {
         assert_eq!(support(Runtime::Codex, &items()[2].body), Support::No("Codex 不支持 SSE 传输的 MCP 服务器"));
     }
 
-    /// A custom agent gets the servers it can reach and no skills.
-    #[test]
-    fn custom_agents_get_servers_only() {
-        let l = launch(Runtime::Custom, &items(), &json!({}), Path::new("/b"), None, values);
-        assert_eq!(l.meta, json!({}));
-        assert_eq!(l.mcp_servers.len(), 1);
-        assert!(matches!(l.delivered[0].via, Via::Skipped(_)));
-    }
-
     /// A command server for everyone goes through the run's router: no entry of its own, the
     /// router's once. One kept for some, and a URL, are handed over as they are; an agent that
     /// takes no HTTP MCP gets no router and so each server directly.
@@ -391,9 +368,6 @@ mod tests {
         let codex = root.join("codex");
         bundle(&store, Runtime::Codex, std::slice::from_ref(&skill), &codex).unwrap();
         assert!(codex.join(".agents/skills/pdf/SKILL.md").is_file());
-        let custom = root.join("custom");
-        bundle(&store, Runtime::Custom, &[skill], &custom).unwrap();
-        assert!(!custom.exists());
         // What an agent does to its copy stays in the bundle.
         std::fs::write(codex.join(".agents/skills/pdf/SKILL.md"), "changed").unwrap();
         assert!(

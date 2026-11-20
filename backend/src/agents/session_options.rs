@@ -139,7 +139,7 @@ pub fn role_session(role: &Value, conn: &Value) -> Value {
 /// mode control when the agent offers it, otherwise the agent's own current value.
 // @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
 pub fn control_default(c: &Value, kind: Option<Runtime>) -> Value {
-    let preferred = kind.and_then(Runtime::default_mode).filter(|_| c["category"] == "mode");
+    let preferred = kind.map(Runtime::default_mode).filter(|_| c["category"] == "mode");
     match preferred {
         Some(v) if c["options"].as_array().is_some_and(|o| o.iter().any(|x| x["value"] == v)) => json!(v),
         _ => c["current"].clone(),
@@ -295,17 +295,15 @@ mod session_option_tests {
         let manual = json!({ "session": { "mode": "default" } });
         assert_eq!(member_session(&manual, &claude), json!({ "mode": "default" }));
         assert_eq!(role_session(&json!({}), &claude), json!({}), "an open mode stays open on the role");
-        // An agent that does not offer the default, and a custom agent, keep their own current value.
+        // An agent that does not offer the default keeps its own current value.
         let older = json!({ "base": "codex", "options": mode("agent", &["read-only", "agent"]) });
         assert_eq!(member_session(&json!({}), &older), json!({}));
-        let custom = json!({ "base": "custom", "options": mode("ask", &["ask", "always-approve"]) });
-        assert_eq!(member_session(&json!({}), &custom), json!({}));
         // The connections the app sees carry the same default, so the role editor selects it.
         let mut shown = codex.clone();
         mark_defaults(&mut shown);
         assert_eq!(shown["options"]["controls"][0]["default"], "agent-full-access");
-        let mut shown = custom.clone();
+        let mut shown = older.clone();
         mark_defaults(&mut shown);
-        assert_eq!(shown["options"]["controls"][0]["default"], "ask");
+        assert_eq!(shown["options"]["controls"][0]["default"], "agent");
     }
 }

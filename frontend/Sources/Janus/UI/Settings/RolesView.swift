@@ -137,7 +137,7 @@ struct RoleEditor: View {
                     Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L.text("可以担任负责人"))
-                            Text(Setup.leadCapable(c) ? L.text("用 /goal 推进目标，需要时编排协作者") : L.text("只有 Claude Code 或 Codex 能做负责人（需要 /goal）")).font(.caption).foregroundStyle(.secondary)
+                            Text(Setup.leadCapable(c) ? L.text("用 /goal 推进目标，需要时编排协作者") : L.text("绑定 Agent 后才能担任负责人")).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .toggleStyle(.switch)

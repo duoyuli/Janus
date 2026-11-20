@@ -1,6 +1,6 @@
 //! ACP client built on the official `agent-client-protocol` SDK: JSON-RPC 2.0 over the agent's
-//! stdio, one JSON object per line. Janus is the ACP client; the ACP adapters and custom
-//! commands are the agents.
+//! stdio, one JSON object per line. Janus is the ACP client; the Codex and Claude Code
+//! ACP adapters are the agents.
 //!
 //! The SDK owns framing, request ids, response routing and cancellation. Janus still starts the
 //! subprocess itself, because an agent must see only `RuntimeSpec.env` (nothing inherited), run in

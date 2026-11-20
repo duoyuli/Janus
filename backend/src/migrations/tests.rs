@@ -45,13 +45,18 @@ fn a_new_database_starts_at_the_latest_version_without_a_backup() {
 }
 
 /// What 2026.11.18 wrote reaches the latest shape: the role label is gone from roles and run
-/// members, default roles know their origin, everything else is as it was.
+/// members, default roles know their origin, the custom command agent is gone, everything else
+/// is as it was.
 #[test]
 fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     let path = old_database("old");
     let before = Connection::open(&path).unwrap();
     let workspace_before: String =
         before.query_row("SELECT data FROM configs WHERE kind = 'workspace'", [], |r| r.get(0)).unwrap();
+    // A past run whose members ran on a custom command agent.
+    before
+        .execute("UPDATE runs SET config = replace(config, '\"kind\": \"claude\"', '\"kind\": \"custom\"') WHERE id = 'run-old'", [])
+        .unwrap();
     drop(before);
 
     let (_db, report) = crate::db::Db::open(&path).unwrap();
@@ -67,6 +72,16 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
         .unwrap();
     let custom = config(&conn, "role", &custom);
     assert!(custom.get("role").is_none() && custom.get("seed").is_none() && custom["prompt"] == "只写测试");
+    // Version 9: the custom command agent is gone, and the role bound to it is unbound.
+    assert_eq!(custom["connection"], "", "the role is left without an agent");
+    let agents: Vec<String> = conn
+        .prepare("SELECT id FROM configs WHERE kind = 'connection'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(agents, ["claude"], "only the Claude Code agent is left");
     let workspace_after: String =
         conn.query_row("SELECT data FROM configs WHERE kind = 'workspace'", [], |r| r.get(0)).unwrap();
     assert_eq!(workspace_after, workspace_before, "objects no migration touches are left alone");
@@ -76,7 +91,11 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     .unwrap();
     for m in team["team"].as_array().unwrap() {
         assert!(m.get("role").is_none() && m.get("model_label").is_none() && m["role_id"].is_string(), "{m}");
+        assert_eq!(m["kind"], "claude", "a member that ran on a custom command reads as Claude Code: {m}");
     }
+    let members: Vec<crate::orchestrator::Member> =
+        serde_json::from_value(team["team"].clone()).unwrap_or_else(|e| panic!("the past run's team reads: {e}"));
+    assert!(!members.is_empty());
     for id in ["coordinator", "researcher", "product-manager", "implementer", "reviewer", "generalist"] {
         assert_eq!(config(&conn, "role", id)["seed"]["id"], id, "{id} knows its origin");
     }

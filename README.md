@@ -61,7 +61,7 @@ After the first installation, or when Janus’s signing identity changes (for ex
 
 - The Rust toolchain and Cargo (edition 2024), Swift 6 (Xcode or the Command Line Tools), and [just](https://github.com/casey/just).
 - Node.js 22.19 or later, and the npm that ships with it.
-- Agents of the custom-command type need their own launch command. Built-in adapters bundle the Codex and Claude Code CLIs.
+- Built-in adapters bundle the Codex and Claude Code CLIs.
 - The first use of an agent needs network access to download its ACP adapter.
 
 #### Install and start

@@ -18,8 +18,8 @@ enum Setup {
         }
     }
 
-    /// Only agents with /goal can lead (same rule as the orchestrator).
-    static func leadCapable(_ c: JSON?) -> Bool { ["claude", "codex"].contains(c?["base"].str ?? "") }
+    /// A role can lead once it is bound to an agent: Codex and Claude Code both pursue goals with /goal.
+    static func leadCapable(_ c: JSON?) -> Bool { c != nil }
 
     /// The role's value for a control, or the control's `default` (what a session starts with when the role leaves it
     /// open: Codex's Full access and Claude Code's Bypass permissions for their mode, otherwise the agent's own value).

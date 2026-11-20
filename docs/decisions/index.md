@@ -26,7 +26,8 @@
 - [按 models.dev 的价格估算用量](20261115-model_prices.md)：每天从 models.dev 同步模型价格，账单按厂商的 API 价格估算 token 的花费，和 Agent 上报的费用分开，不是账单。阅读时机：修改价格来源、同步方式、价格的选取规则，或想把估算用于账单以外的地方之前。
 - [使用官方 ACP 适配器](20261115-official_acp_adapters.md)：所有适配器改用 npm 上的官方包；插话和目标改用 `_session/steering`、`_session/goal` 和 AIR 元数据。其中 Grok 和 Pi 的条目已被下一条取代。阅读时机：修改适配器来源、安装步骤、插话或目标状态之前。
 - [资源库统一管理 Skill 和 MCP，在会话启动时注入](20261116-launch_time_resources.md)：角色引用资源库中的资源，Run 创建时固定版本并生成每个成员的资源包，会话启动时通过 `plugins`、`additionalRoots`、`mcpServers` 和系统层注入，不写 Agent 的配置文件。阅读时机：修改资源库、角色的资源、资源包，或会话怎样拿到 Skill、MCP 和指令之前。
-- [内置运行时只保留 Codex 和 Claude Code](20261116-codex_and_claude_only.md)：删除 Grok 和 Pi，基础运行时用枚举 `Runtime` 表达，自定义命令保留。阅读时机：想新增一种内置 Agent 之前。
+- [内置运行时只保留 Codex 和 Claude Code](20261116-codex_and_claude_only.md)：删除 Grok 和 Pi，基础运行时用枚举 `Runtime` 表达。其中「保留自定义命令」已被下一条取代。阅读时机：想新增一种内置 Agent 之前。
+- [去掉「自定义命令」，Agent 只有 Codex 和 Claude Code](20261120-codex_and_claude_code_only.md)：删除自定义命令和只为它存在的提示通道、背景信息轮、`depends` 状态；数据版本 9 删除这类 Agent；测试改用替身适配器。阅读时机：想接入 Codex 和 Claude Code 以外的 Agent 之前。
 
 - [集中引导 macOS 权限，升级后重新检查](20261117-macos_permission_guidance.md)：完整磁盘访问、应用程序管理和屏幕录制的集中引导，三项都由应用检测。阅读时机：修改系统权限检查、授权入口、升级后提醒或 Agent 的权限归属说明。
 - [基于 `session/load` 复用前置任务会话](20261118-session_continuation.md)：新工作通过 `continues` 恢复原执行者会话，上下文超过 75% 或不支持时自动回退新建会话。其中 `retry` 的 `continue_session` 和「验证没通过后派修复子任务」已被下一条取代。阅读时机：修改任务会话打开流程或 `continues` 编排校验之前。

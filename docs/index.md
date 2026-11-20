@@ -4,7 +4,7 @@
 
 ## 项目
 
-Janus 是本地优先的多 Agent 协作工作空间。它通过 ACP（Agent Client Protocol）内置连接 Codex 和 Claude Code，其他兼容 ACP 的 Agent 可以通过自定义命令接入，让一个负责人 Agent 带着一组协作者完成用户给出的目标，并把每一次会话、编排、审批、产物和交付都记录成可回放的事件。
+Janus 是本地优先的多 Agent 协作工作空间。它通过 ACP（Agent Client Protocol）连接 Codex 和 Claude Code，让一个负责人 Agent 带着一组协作者完成用户给出的目标，并把每一次会话、编排、审批、产物和交付都记录成可回放的事件。
 
 Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库上的每个任务在自己的 worktree 中修改文件，验收时提交到 `janus/<任务>` 分支；非 Git 目录中任务直接修改用户选择的目录。
 
@@ -14,14 +14,14 @@ Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库�
 | 术语 | 含义 | 代码中的名字 |
 | --- | --- | --- |
 | Agent / Provider 连接 | 一个可启动的编码 Agent，带独立配置目录和凭据 | `connection`（`configs.kind`）、`RuntimeSpec` |
-| 基础运行时 | Agent 的底层类型：`codex`、`claude`、`custom` | 连接的 `base` 字段 |
+| 基础运行时 | Agent 的底层类型：`codex` 或 `claude` | 连接的 `base` 字段、`Runtime` |
 | 角色 | 绑定一个 Agent，指定名字、职责、模型、推理强度、会话控制项、Skill、MCP；应用界面中叫「数字员工」 | `role` |
 | 会话控制项 | Agent 在 ACP 会话中声明的可选项，例如 Codex 的沙箱预设、Claude Code 的权限模式 | `controls`、角色的 `session` |
 | 权限模式 | 会话控制项中决定 Agent 能做什么的那些，角色编辑器的「权限」只显示它们 | `permission: true` 的控制项 |
 | 工作区 | 一个本机目录加一组角色成员，其中一名是负责人 | `workspace` |
 | Run | 在工作区中提交的一个目标，从创建到验收的全过程；应用界面中叫「任务」 | `Run`、`runs` 表 |
 | 成员 | Run 创建时角色的快照；负责人的 id 固定为 `lead` | `Member` |
-| 负责人 | 用 `/goal` 推进目标的 Agent，只能是 Claude Code 或 Codex | `Runtime::leads`、成员的 `lead` |
+| 负责人 | 用 `/goal` 推进目标的 Agent（Claude Code 或 Codex） | 成员的 `lead` |
 | 协作者 | 负责人以外的成员 | |
 | 编排 | 负责人提交的一组任务 | `orchestrate` 工具、`orchestration.*` 事件 |
 | 共享看板 | 负责人和协作者交换任务、进展、阻塞、提问的通道，底层是事件日志 | `board_*` 函数 |

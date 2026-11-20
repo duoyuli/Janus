@@ -40,7 +40,6 @@ pub const SHAPES: &[Shape] = &[
         required: &["id", "kind", "base", "name", "auth", "bin", "prompt", "env", "status", "createdAt"],
         // Plus the plain (non-secret) fields of the kind's sign-in methods; see `connection_fields`.
         optional: &[
-            "command",
             "importedEnv",
             "testStartedAt",
             "check",

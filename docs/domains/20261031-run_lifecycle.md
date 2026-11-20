@@ -21,10 +21,9 @@
 
 1. 目标不能为空（只附了图片时目标记为「按附图完成」），工作区和工作目录必须存在。
 2. 为每个成员构建运行环境（`spec_for`），缺少 CLI 或适配器没有安装时直接报错。
-3. 负责人必须是 Claude Code 或 Codex（`Runtime::leads`）。
-4. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线，并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
-5. 写入 Run 快照（含可选的 Token 展示参考值 `tokenLimit` 和费用上限 `costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
-6. 启动驱动任务，进入负责人的目标会话（`goal`）。
+3. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线，并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
+4. 写入 Run 快照（含可选的 Token 展示参考值 `tokenLimit` 和费用上限 `costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
+5. 启动驱动任务，进入负责人的目标会话（`goal`）。
 
 Run id 是 `r` 加当前毫秒时间戳的 base36 编码（`agents::new_id`）；同一毫秒内创建的 Run 依次加一，id 不会重复。
 

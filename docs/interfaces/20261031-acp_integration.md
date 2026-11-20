@@ -85,8 +85,6 @@ Codex：
 
 - 成员有 Skill 时才有。适配器调用 Codex 的 `skills/extraRoots/set`，读取资源包中的 `.agents/skills`，Skill 显示为 `$<名字>`；这个目录同时加入会话的文件访问范围。Codex 的系统层在进程环境变量 `CODEX_CONFIG` 中，不在 `_meta` 里，见下一节。
 
-自定义命令的 Agent：`_meta` 为空。
-
 <a id="standing_instructions"></a>
 ## 系统层：Janus 的说明和用户的长期要求
 
@@ -103,9 +101,8 @@ Janus 编写的系统层说明和段落标签始终用英文，独立于界面�
 | --- | --- | --- |
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
 | Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_system`、`with_developer_instructions`） |
-| 自定义命令 | 第一条提示 | 没有系统层入口：协作约定和 `<standing_instructions>` 块附在任务说明的末尾；只在测试中出现的自定义负责人先收到一轮「背景信息」 |
 
-走系统提示或开发者指令时，Janus 记两条 `session.prompt` 事件：Janus 的说明（`channel` 为 `system`）和用户的长期要求（`channel` 为 `instructions`），都带 `via`（`system` 或 `developer`），会话页可以展开查看。
+Janus 记两条 `session.prompt` 事件：Janus 的说明（`channel` 为 `system`）和用户的长期要求（`channel` 为 `instructions`），都带 `via`（`system` 或 `developer`），会话页可以展开查看。
 
 Skill、MCP 和权限模式不属于系统层，它们按各 Agent 自己的机制生效，见[资源库](../domains/20261116-resource_library.md#delivery)。
 

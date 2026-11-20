@@ -4,7 +4,7 @@ import json
 
 import os
 
-from lib import ADAPTER_PACKAGES, ROOT, STAND_IN_VERSION, Fake, FAKE_AGENT, git_repo, wait
+from lib import ADAPTER_PACKAGES, ROOT, STAND_IN_VERSION, Fake, git_repo, wait
 from scenarios import scenario, task, Team
 
 SECRET = "secret-e2e-value-7f3a"
@@ -16,7 +16,9 @@ def setup(ctx, c):
     meta = ctx.api("GET", "/api/meta")
     c(meta["dataDir"] == ctx.home, f"服务使用临时 Janus home（{meta['dataDir']}）")
     c(meta.get("version") and isinstance(meta.get("dataVersion"), int), f"meta 带版本 {meta.get('version')} 和数据版本 {meta.get('dataVersion')}")
-    c({"codex", "claude", "custom"} <= {k["id"] for k in meta["kinds"]}, "Agent 类型包括 Codex、Claude Code 和自定义命令")
+    c({k["id"] for k in meta["kinds"]} == {"codex", "claude"}, "Agent 类型只有 Codex 和 Claude Code")
+    code, _ = ctx.api_error("POST", "/api/setup/connections", {"kind": "custom", "name": "x", "command": "true"})
+    c(code == 400, f"不能再添加自定义命令的 Agent（{code}）")
     adapters = {a["id"]: a for a in ctx.api("GET", "/api/adapters")["adapters"]}
     c(all(adapters[i]["current"] == STAND_IN_VERSION for i in ADAPTER_PACKAGES), "Codex 和 Claude Code 的适配器是替身版本，不联网安装")
 
@@ -30,7 +32,6 @@ def setup(ctx, c):
     conns = [
         {"id": "setup-codex", "kind": "codex", "name": "Codex 替身", "auth": "apikey", "apiKey": SECRET, "envText": env},
         {"id": "setup-claude", "kind": "claude", "name": "Claude 替身", "auth": "apikey", "apiKey": SECRET, "envText": env},
-        {"id": "setup-fake", "kind": "custom", "name": "脚本 Agent", "command": f"{ctx.python} {FAKE_AGENT}", "envText": env},
     ]
     for body in conns:
         ctx.api("POST", "/api/setup/connections", body)
@@ -39,7 +40,7 @@ def setup(ctx, c):
         cs = {x["id"]: x for x in ctx.api("GET", "/api/setup")["connections"]}
         phases = {i["id"]: cs[i["id"]].get("phase") for i in conns}
         return cs if all(p in ("ok", "error") for p in phases.values()) else None
-    cs = wait(checked, "三个 Agent 的配置检查结束", 90)
+    cs = wait(checked, "两个 Agent 的配置检查结束", 90)
     for body in conns:
         x = cs[body["id"]]
         c(x.get("phase") == "ok", f"配置检查通过：{body['name']}（{x.get('phase')} {x.get('error') or ''}）")
@@ -48,12 +49,12 @@ def setup(ctx, c):
     c(SECRET not in json.dumps(ctx.api("GET", "/api/setup")), "设置接口不返回凭据的值")
     c("unknown ok" in fake.calls(), "配置检查发出了试运行消息")
 
-    # Only Codex and Claude Code lead, in a release build too.
-    ctx.api("POST", "/api/setup/roles", {"id": "setup-custom-lead", "name": "自定义负责人", "desc": "x", "connection": "setup-fake", "lead": True})
+    # A lead needs an agent.
+    ctx.api("POST", "/api/setup/roles", {"id": "setup-unbound-lead", "name": "没绑定的负责人", "desc": "x", "connection": "", "lead": True})
     repo = git_repo(ctx.path("setup", "repo"))
     code, text = ctx.api_error("POST", "/api/setup/workspaces", {
-        "id": "setup-bad", "name": "bad", "path": repo, "lead": "setup-custom-lead", "members": [{"role": "setup-custom-lead"}, {"role": "implementer"}]})
-    c(code == 400, f"自定义命令的 Agent 不能担任负责人（{code} {text.strip()[:80]}）")
+        "id": "setup-bad", "name": "bad", "path": repo, "lead": "setup-unbound-lead", "members": [{"role": "setup-unbound-lead"}, {"role": "implementer"}]})
+    c(code == 400, f"没有绑定 Agent 的数字员工不能担任负责人（{code} {text.strip()[:80]}）")
     code, _ = ctx.api_error("POST", "/api/setup/workspaces", {"id": "setup-bad", "name": "bad", "path": repo + "/missing", "lead": "coordinator", "members": [{"role": "coordinator"}]})
     c(code == 400, "不存在的工作目录被拒绝")
 
@@ -82,10 +83,10 @@ def setup(ctx, c):
     warm = wait(prepared, "新添加的 MCP 服务器预先准备完", 60)
     c(warm.get("state") == "ready" and warm.get("tools", 0) > 0, f"添加后预先启动一次并数出工具：{warm}")
 
-    # The default team, bound to the agents: PMO leads on Codex, the engineer runs the script.
+    # The default team, bound to the agents: PMO leads on Codex, the engineer and the reviewer on Claude Code.
     roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
     ctx.api("POST", "/api/setup/roles", dict(roles["coordinator"], connection="setup-codex", lead=True))
-    ctx.api("POST", "/api/setup/roles", dict(roles["implementer"], connection="setup-fake", resources=[mcp["id"], skill["id"]]))
+    ctx.api("POST", "/api/setup/roles", dict(roles["implementer"], connection="setup-claude", resources=[mcp["id"], skill["id"]]))
     ctx.api("POST", "/api/setup/roles", dict(roles["reviewer"], connection="setup-claude"))
     used = next(i for i in ctx.api("GET", "/api/library")["items"] if i["id"] == mcp["id"])
     c([r["id"] for r in used["roles"]] == ["implementer"], "资源库标出使用 MCP 的数字员工")
@@ -108,7 +109,7 @@ def setup(ctx, c):
     code, _ = ctx.api_error("DELETE", "/api/setup/roles/implementer")
     c(code == 400, "被工作区使用的数字员工不能删除")
 
-    team = Team(ctx, "setup", fake, repo, ws, {"implementer": "implementer", "reviewer": "reviewer"}, cs["setup-codex"], cs["setup-fake"])
+    team = Team(ctx, "setup", fake, repo, ws, {"implementer": "implementer", "reviewer": "reviewer"}, cs["setup-codex"], cs["setup-claude"])
     fake.script({"T1": ["write:hello.py"], "V1": ["approve"]})
     run = team.run("写一个 hello.py")
     fake.wait_call("goal 写一个 hello.py")

@@ -209,9 +209,11 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
             check("seedUpdates" not in rv, "默认指令没有新版本时 reviewer 不提示")
         t = roles[tester["id"]]
         b = {r["id"]: r for r in before["roles"]}[tester["id"]]
-        check({k: v for k, v in t.items() if k != "role"} == {k: v for k, v in b.items() if k != "role"}, "自定义数字员工除「定位」外不变")
+        check({k: v for k, v in t.items() if k not in ("role", "connection")} == {k: v for k, v in b.items() if k not in ("role", "connection")},
+              "自定义数字员工除「定位」和绑定的 Agent 外不变")
+        check(t["connection"] == "", "绑定「自定义命令」Agent 的数字员工改为没有绑定 Agent")
         conns = {c["id"]: c for c in setup["connections"]}
-        check(conns[conn["id"]]["name"] == "Claude" and conns[custom["id"]]["command"] == "python3 fake_acp.py", "Agent 连接不变")
+        check(conns[conn["id"]]["name"] == "Claude" and custom["id"] not in conns, "Claude Code 连接不变，「自定义命令」的 Agent 已删除")
         check(setup["workspaces"] == before["workspaces"], "工作区不变")
         db = sqlite3.connect(os.path.join(home, "janus.db"))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]

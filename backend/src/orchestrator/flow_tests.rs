@@ -47,12 +47,12 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
     sh(&repo, &["add", "-A"]);
     sh(&repo, &["commit", "-q", "-m", "init"]);
     let app = test_app(&dir);
-    let script_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_acp.py");
     // What a check of the fake agent reads: whether a member writes follows from its mode.
     let modes: Vec<Value> =
         ["read-only", "ask", "agent", "full"].iter().map(|v| json!({ "value": v, "name": v })).collect();
-    app.db.put_config("connection", "fake", &crate::agents::test_connection("fake", "custom", "custom", json!({
-        "name": "Fake", "command": format!("python3 {}", script_path.display()),
+    // The scripted agent, through the stand-in Claude Code adapter (`stand_in_adapters`).
+    app.db.put_config("connection", "fake", &crate::agents::test_connection("fake", "claude", "claude", json!({
+        "name": "Fake",
         "env": { "FAKE_DIR": fake.to_string_lossy() },
         "options": { "controls": [{ "id": "mode", "name": "Mode", "category": "mode", "type": "select", "via": "config", "current": "ask", "permission": true, "options": modes }] }
     })), now_ms()).unwrap();
@@ -681,11 +681,14 @@ async fn goal_mode_orchestrates_through_the_board() {
     });
     assert!(log.contains("brief ok") && log.contains("goal 写一份笔记"), "brief, then /goal: {log}");
     let evs = events(&h.app, &run);
-    assert!(evs.iter().any(|e| {
-        e.kind == "session.prompt"
-            && e.to.as_deref() == Some("lead")
-            && e.data.as_ref().is_some_and(|d| d["channel"] == "context")
-    }));
+    assert!(
+        evs.iter().any(|e| {
+            e.kind == "session.prompt"
+                && e.to.as_deref() == Some("lead")
+                && e.data.as_ref().is_some_and(|d| d["channel"] == "system" && d["via"] == "system")
+        }),
+        "the brief goes in the system layer"
+    );
     assert!(evs.iter().any(|e| {
         e.kind == "session.prompt"
             && e.to.as_deref() == Some("lead")
@@ -1731,7 +1734,7 @@ async fn restart_restores_failed_and_blocked() {
 
 /// End to end through a run: a role uses library servers pasted in and added by hand, and the
 /// agent's `session/new` carries them with their values, while the run record and its events hold
-/// none of the values. A skill the custom agent can't load is recorded as skipped.
+/// none of the values. Skills reach Claude Code as a plugin.
 #[tokio::test(flavor = "multi_thread")]
 async fn library_mcp_reaches_the_session_with_its_values() {
     let h = harness("mcp-session", &[("lead", false)], json!({}));
@@ -1789,7 +1792,7 @@ async fn library_mcp_reaches_the_session_with_its_values() {
         .iter()
         .map(|r| (r["name"].as_str().unwrap().to_string(), r["via"].as_str().unwrap().to_string()))
         .collect();
-    assert!(via.contains(&("notes".into(), "skipped".into())), "a custom agent loads no skills: {via:?}");
+    assert!(via.contains(&("notes".into(), "plugin".into())), "Claude Code loads skills as a plugin: {via:?}");
     assert!(via.contains(&("docs".into(), "mcpServers".into())), "{via:?}");
     let record =
         serde_json::to_string(&h.app.db.run(&run).unwrap().unwrap()).unwrap() + &serde_json::to_string(&evs).unwrap();
@@ -1801,8 +1804,8 @@ async fn library_mcp_reaches_the_session_with_its_values() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// Pasted images reach the agent: the goal's go into the lead's brief, a message's into the
-/// turn it joins, each as an image block with its path named in the text. They are stored
+/// Pasted images reach the agent: the goal's are named in the lead's brief, for it to read, and a
+/// message's go into the turn it joins as image blocks, with their paths named in the text. They are stored
 /// with the run, and the events carry the paths, not the bytes.
 #[tokio::test(flavor = "multi_thread")]
 async fn pasted_images_reach_the_agent() {
@@ -1842,15 +1845,11 @@ async fn pasted_images_reach_the_agent() {
     assert_eq!(std::fs::read(&goal_image).unwrap(), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR-goal");
     let brief = evs
         .iter()
-        .find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "context"))
+        .find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
         .unwrap();
     assert!(
         brief.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains(&format!("[Image 1] {goal_image}")),
-        "the brief names the goal's image"
-    );
-    assert!(
-        std::fs::read_to_string(&calls).unwrap().contains(&format!("images image/png:{}", png.len())),
-        "the brief carries it as an image block"
+        "the brief in the system layer names the goal's image for the lead to read"
     );
 
     // A message with an image and no words: queued while the goal turn runs, then its own turn.
@@ -1867,7 +1866,7 @@ async fn pasted_images_reach_the_agent() {
     assert_eq!(d["images"][0]["name"], "报错.png");
     assert!(!serde_json::to_string(&evs).unwrap().contains(&shot), "events hold paths, not bytes");
     std::fs::write(h.dir.join("fake/lead-go"), "看过了").unwrap();
-    logged("images image/png", 2).await;
+    logged("images image/png", 1).await;
     assert!(std::fs::read_to_string(&calls).unwrap().contains(&format!("images image/png:{}", shot.len())));
 
     // Not an image: refused, nothing recorded.

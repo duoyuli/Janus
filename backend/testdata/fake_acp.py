@@ -20,8 +20,10 @@ answered turn: per-turn numbers that grow, which add up to 3500.
 session/set_mode is logged ("mode <id>"), and the resource links of each prompt ("links <name>…").
 With a `goal-sticky` file the lead reports its /goal active and never clears it; Janus's ask whether
 it is done is answered "GOAL_DONE" with the lead-go text, and `_session/goal` clear is logged ("goal clear").
-As a goal-mode lead it acknowledges the brief, then works on "/goal …" until FAKE_DIR/lead-go
+As a goal-mode lead it logs whether its brief arrived in the system layer (`_meta.systemPrompt.append`,
+as Janus gives Claude Code: "brief ok", "brief ok resumed"), then works on "/goal …" until FAKE_DIR/lead-go
 exists and ends with the text of that file.
+With a `mute` file in FAKE_DIR it never answers `initialize`, like an agent that hangs at startup.
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
 A session's task and criteria are kept in FAKE_DIR (`session-<id>.json`), so a session loaded after a restart
@@ -179,10 +181,6 @@ def wait_cancel(seconds):
 def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
-    if "Wait for the goal before starting work." in text:
-        log("brief " + ("janus.orchestrate" in text and "ok" or "missing") + (" resumed" if "Resuming after an interruption." in text else ""))
-        say(sid, "Acknowledged")
-        return {"stopReason": "end_turn"}
     if text.startswith("[Janus] 你的这一轮已经结束"):
         # Janus asks whether a goal that never settled is done.
         log("goal check")
@@ -387,6 +385,13 @@ def prompt(msg):
     return {"stopReason": "end_turn"}
 
 
+def log_brief(params):
+    """A lead's brief arrives in the system layer: Claude Code's `_meta.systemPrompt.append`."""
+    system = ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
+    if "janus.orchestrate" in system:
+        log("brief ok" + (" resumed" if "Resuming after an interruption." in system else ""))
+
+
 for line in sys.stdin:
     msg = json.loads(line)
     method, mid = msg.get("method"), msg.get("id")
@@ -394,6 +399,9 @@ for line in sys.stdin:
         continue
     try:
         if method == "initialize":
+            if os.path.exists(os.path.join(DIR, "mute")):
+                import time
+                time.sleep(3600)
             caps = {"mcpCapabilities": {"http": True}, "promptCapabilities": {"image": True}}
             if not os.path.exists(os.path.join(DIR, "no-load")):
                 caps["loadSession"] = True
@@ -401,6 +409,7 @@ for line in sys.stdin:
             if os.path.exists(os.path.join(DIR, "steer")):
                 res["_meta"] = {"steering": {"supported": True}}
         elif method == "session/new":
+            log_brief(msg["params"])
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
         elif method == "session/load":
@@ -408,6 +417,7 @@ for line in sys.stdin:
                 raise RuntimeError("session load failed")
             sid = msg["params"]["sessionId"]
             log(f"load {sid}")
+            log_brief(msg["params"])
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": sid, "configOptions": config_options()}
         elif method == "session/set_config_option":

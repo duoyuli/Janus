@@ -2,14 +2,13 @@
 
 use super::*;
 
-/// Provider types for the "New provider" dialog: the built-in runtimes, and any ACP agent started
-/// by a custom command.
+/// Provider types for the "New provider" dialog: Codex and Claude Code.
 // @project-doc docs/domains/20261031-agents_and_roles.md#providers
 pub fn kinds() -> Value {
     let runtime = |cmd: &str| json!({ "cmd": cmd, "placeholder": format!("/path/to/{cmd}"), "detected": which(cmd) });
     json!([
         {
-            "id": "codex", "group": "builtin", "base": "codex", "name": "Codex", "desc": "OpenAI Codex", "color": "#1f2937", "init": "CX",
+            "id": "codex", "base": "codex", "name": "Codex", "desc": "OpenAI Codex", "color": "#1f2937", "init": "CX",
             "isolation": "CODEX_HOME", "runtime": runtime("codex"),
             "auths": [
                 { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.codex" }] },
@@ -22,7 +21,7 @@ pub fn kinds() -> Value {
             ]
         },
         {
-            "id": "claude", "group": "builtin", "base": "claude", "name": "Claude", "desc": "Anthropic Claude Code", "color": "#b4532a", "init": "CC",
+            "id": "claude", "base": "claude", "name": "Claude", "desc": "Anthropic Claude Code", "color": "#b4532a", "init": "CC",
             "isolation": "CLAUDE_CONFIG_DIR", "runtime": runtime("claude"),
             "auths": [
                 { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.claude" }] },
@@ -31,10 +30,6 @@ pub fn kinds() -> Value {
                 { "id": "apikey", "label": "API Key", "desc": "",
                   "fields": [{ "key": "apiKey", "label": "API Key", "type": "secret", "required": true, "placeholder": "sk-ant-api03-..." }] }
             ]
-        },
-        {
-            "id": "custom", "group": "custom", "base": "custom", "name": "自定义命令", "desc": "任意兼容 ACP 的 Agent", "color": "#64748b", "init": ">_",
-            "isolation": Value::Null, "runtime": Value::Null, "auths": [], "command": true
         }
     ])
 }

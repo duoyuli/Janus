@@ -13,15 +13,12 @@ pub(super) enum Channel {
     System,
     /// Codex: `developer_instructions` in the adapter's `CODEX_CONFIG`.
     Developer,
-    /// Custom agents: blocks in the first prompt of the session.
-    Prompt,
 }
 
 pub(super) fn instruction_channel(kind: Runtime) -> Channel {
     match kind {
         Runtime::Claude => Channel::System,
         Runtime::Codex => Channel::Developer,
-        Runtime::Custom => Channel::Prompt,
     }
 }
 
@@ -40,15 +37,6 @@ pub(super) fn standing_instructions(m: &Member) -> String {
         return String::new();
     }
     format!("The following standing instructions from the user apply throughout the session.\n\n{}", parts.join("\n\n"))
-}
-
-/// The same rules for an agent with no system layer, set apart from the task in the first prompt.
-pub(super) fn prompt_instructions(m: &Member) -> String {
-    let text = standing_instructions(m);
-    if text.is_empty() || instruction_channel(m.kind) != Channel::Prompt {
-        return String::new();
-    }
-    format!("\n\n<standing_instructions>\n{text}\n</standing_instructions>")
 }
 
 /// Codex takes developer instructions only from its config: merge them into the one this adapter

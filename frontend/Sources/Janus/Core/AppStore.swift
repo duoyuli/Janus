@@ -223,6 +223,15 @@ final class AppStore {
     var settingsTab: SettingsTab = SettingsTab(rawValue: UserDefaults.janus.string(forKey: "janus.settingsTab") ?? "") ?? .general {
         didSet { UserDefaults.janus.set(settingsTab.rawValue, forKey: "janus.settingsTab") }
     }
+    /// An agent to open in the editor once the digital workers pane shows: an id, or "" for a new one.
+    /// The pane clears it after opening.
+    var agentEditorRequest: String?
+
+    func editAgent(_ id: String) {
+        agentEditorRequest = id
+        openSettings(.agents)
+    }
+
     /// The settings page covers the main window; closing it shows the screen underneath again.
     var showingSettings = false
     /// A section of the general pane to scroll to once it shows; the pane clears it after scrolling.

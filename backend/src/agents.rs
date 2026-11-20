@@ -1,7 +1,7 @@
 //! Setup objects: agent connections → roles → execution environments.
 //!
-//! A connection is one coding agent (Codex or Claude Code through their ACP adapters, or any ACP
-//! agent started by a custom command). Each connection owns an isolated home under
+//! A connection is one coding agent: Codex or Claude Code, through its ACP adapter. Each
+//! connection owns an isolated home under
 //! `~/.janus/agents/<id>/home` that is handed to the agent as CODEX_HOME / CLAUDE_CONFIG_DIR, so
 //! neither the user's own `~/.codex`, `~/.claude` nor their shell credentials leak in.
 //! Secrets live in `~/.janus/agents/<id>/secrets.json` (0600) and never in SQLite or the API.
@@ -33,7 +33,7 @@ mod workspaces;
 pub use catalog::kinds;
 use catalog::*;
 pub use checks::CheckState;
-pub(crate) use connections::{drop_preset_kinds, is_sandbox_var, sandbox_at};
+pub(crate) use connections::{drop_custom_agents, drop_preset_kinds, is_sandbox_var, sandbox_at};
 pub use local_config::local_preview;
 use local_config::*;
 pub(crate) use roles::{add_generalist, record_seed_origins};
@@ -43,14 +43,12 @@ use workspaces::*;
 
 const CONNECTION: &str = "connection";
 
-/// What an agent runs on. Codex and Claude Code start through their official ACP adapters; a
-/// custom command is any other ACP agent. Presets over Claude Code run on `Claude`.
+/// What an agent runs on: Codex or Claude Code, each started through its official ACP adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Runtime {
     Codex,
     Claude,
-    Custom,
 }
 
 impl Runtime {
@@ -59,7 +57,6 @@ impl Runtime {
         match base {
             "codex" => Ok(Runtime::Codex),
             "claude" => Ok(Runtime::Claude),
-            "custom" => Ok(Runtime::Custom),
             other => bail!("不支持的 Agent 类型：{other}"),
         }
     }
@@ -68,25 +65,16 @@ impl Runtime {
         match self {
             Runtime::Codex => "codex",
             Runtime::Claude => "claude",
-            Runtime::Custom => "custom",
         }
-    }
-
-    /// Agents that can lead: they pursue a goal on their own with `/goal`. Tests lead with the
-    /// scripted custom agent.
-    pub fn leads(self) -> bool {
-        matches!(self, Runtime::Claude | Runtime::Codex) || (cfg!(test) && self == Runtime::Custom)
     }
 
     /// The permission mode a session starts in when its role leaves the mode open: Codex's Full
     /// access and Claude Code's Bypass permissions, so goals run without stopping for approvals.
-    /// A custom agent keeps its own default.
     // @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
-    pub fn default_mode(self) -> Option<&'static str> {
+    pub fn default_mode(self) -> &'static str {
         match self {
-            Runtime::Codex => Some("agent-full-access"),
-            Runtime::Claude => Some("bypassPermissions"),
-            Runtime::Custom => None,
+            Runtime::Codex => "agent-full-access",
+            Runtime::Claude => "bypassPermissions",
         }
     }
 }

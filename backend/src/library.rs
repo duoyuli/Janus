@@ -670,7 +670,7 @@ impl App {
         let mut v = serde_json::to_value(item)?;
         v["roles"] = json!(self.roles_using(&item.id)?);
         v["support"] = json!(
-            [crate::agents::Runtime::Claude, crate::agents::Runtime::Codex, crate::agents::Runtime::Custom]
+            [crate::agents::Runtime::Claude, crate::agents::Runtime::Codex]
                 .map(|r| json!({ "runtime": r, "support": support(r, &item.body) }))
         );
         if let Body::Mcp { server } = &item.body {

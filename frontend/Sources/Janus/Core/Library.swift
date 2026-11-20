@@ -5,11 +5,11 @@ import Foundation
 /// item); this only words them.
 // @project-doc docs/domains/20261116-resource_library.md#roles
 enum Library {
-    /// The runtime a connection runs on: `claude` (presets too), `codex` or `custom`.
+    /// The runtime a connection runs on: `claude` or `codex`.
     static func runtime(_ connection: JSON?) -> String { connection?["base"].str ?? "" }
 
-    /// Whether `runtime` can use the item: `yes`, `no` or `depends` (on what the agent declares),
-    /// with the reason when it isn't a plain yes. Unknown runtimes (no agent chosen) say nothing.
+    /// Whether `runtime` can use the item: `yes`, or `no` with the reason. Unknown runtimes (no
+    /// agent chosen) say nothing.
     static func support(_ item: JSON, runtime: String) -> (state: String, why: String) {
         guard let s = item["support"].array.first(where: { $0["runtime"].str == runtime }) else { return ("yes", "") }
         return (s["support"]["state"].str, L.catalogText(s["support"]["why"].str))

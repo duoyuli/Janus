@@ -36,7 +36,7 @@ pub const ADAPTERS: &[AdapterDef] = &[
     AdapterDef { id: "claude", name: "Claude Code", package: "@agentclientprotocol/claude-agent-acp" },
 ];
 
-/// The adapter a runtime needs; custom commands need none.
+/// The adapter of a connection's `base`; none for a base Janus doesn't run.
 pub fn for_base(base: &str) -> Option<&'static AdapterDef> {
     ADAPTERS.iter().find(|a| a.id == base)
 }

@@ -89,18 +89,18 @@ Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后�
 - 保存角色时只保留资源库中存在的 id，并去掉重复。
 - 每项资源在每种运行时下的状态（`support`）：
 
-| 资源 | Claude Code | Codex | 自定义命令 |
-| --- | --- | --- | --- |
-| Skill | 可以使用 | 可以使用 | 不支持：没有在启动时加载 Skill 的入口 |
-| stdio 服务器 | 可以使用 | 可以使用 | 可以使用 |
-| http 服务器 | 可以使用 | 可以使用 | 取决于 Agent 是否声明 HTTP MCP 能力 |
-| sse 服务器 | 可以使用 | 不支持 | 取决于 Agent 是否声明 SSE MCP 能力 |
+| 资源 | Claude Code | Codex |
+| --- | --- | --- |
+| Skill | 可以使用 | 可以使用 |
+| stdio 服务器 | 可以使用 | 可以使用 |
+| http 服务器 | 可以使用 | 可以使用 |
+| sse 服务器 | 可以使用 | 不支持 |
 
 <a id="delivery"></a>
 ## Run 和会话怎样拿到资源
 
 1. **固定**：创建 Run 时（`team_for`），每个成员的 `resources` 记下资源当时的完整记录（名字、版本、`reach`、MCP 定义，不含值）：资源库里全部 `everyone` 的资源，加上角色选中的 `picked` 资源。之后资源库的修改不影响这个 Run，从中断处继续时也用这份记录。
-2. **资源包**：同时（`bundle_team`），成员的 Skill 从内容存储复制到 `~/.janus/runs/<run>/members/<成员 id>/bundle/`，按运行时摆放：Claude Code 是一个本地插件（`.claude-plugin/plugin.json` 和 `skills/<名字>/`），Codex 是 `.agents/skills/<名字>/`。`everyone` 的 Skill 超过 10 个时改由 [Skill 路由](#skill_router)摆放。自定义命令的成员没有资源包。复制的是普通文件，Agent 改了它也不影响资源库和其他成员。
+2. **资源包**：同时（`bundle_team`），成员的 Skill 从内容存储复制到 `~/.janus/runs/<run>/members/<成员 id>/bundle/`，按运行时摆放：Claude Code 是一个本地插件（`.claude-plugin/plugin.json` 和 `skills/<名字>/`），Codex 是 `.agents/skills/<名字>/`。`everyone` 的 Skill 超过 10 个时改由 [Skill 路由](#skill_router)摆放。复制的是普通文件，Agent 改了它也不影响资源库和其他成员。
 3. **打开会话**：`App::opening` 用 `library::launch` 算出会话参数，`session/new` 和 `session/load` 用同一组：
    - Claude Code：`_meta.claudeCode.options.plugins` 指向资源包，Skill 在会话中显示为 `janus:<名字>`。
    - Codex：`_meta.additionalRoots` 指向资源包，Codex 读取其中的 `.agents/skills`，Skill 显示为 `$<名字>`。这个目录同时扩大了会话的文件访问范围。

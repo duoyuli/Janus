@@ -100,13 +100,6 @@ impl App {
         });
         // A saved agent is checked again before it runs (`start_check`).
         set_check(&mut config, ConnCheck::Untested);
-        if desc["command"] == true {
-            let command = str_of(body, "command");
-            if split_command(command)?.is_empty() {
-                bail!("请填写启动命令");
-            }
-            config["command"] = json!(command);
-        }
 
         // Plain fields are stored as config; secret fields go to the provider's own directory.
         let mut secrets = self.secrets(&id);
@@ -230,9 +223,7 @@ impl App {
         }
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
         let runtime = Runtime::of(str_of(&c, "base"))?;
-        let mut program = self.cfg.node.clone();
-        let mut args = vec![];
-        let adapter = match runtime {
+        match runtime {
             Runtime::Codex => {
                 set("CODEX_HOME", home);
                 // The adapter bundles the Codex CLI. A path chosen on the agent overrides it.
@@ -250,7 +241,6 @@ impl App {
                         set("MODEL_PROVIDER", "janus".into());
                     }
                 }
-                crate::adapters::for_base(runtime.as_str())
             }
             Runtime::Claude => {
                 set("CLAUDE_CONFIG_DIR", home);
@@ -267,35 +257,17 @@ impl App {
                     "apikey" => set("ANTHROPIC_API_KEY", secret("apiKey")),
                     _ => {}
                 }
-                crate::adapters::for_base(runtime.as_str())
             }
-            Runtime::Custom => {
-                // A custom agent runs in the same sandbox as the built-in ones; it gets only the variables configured here.
-                let mut parts = split_command(str_of(&c, "command"))?;
-                if parts.is_empty() {
-                    bail!("没有填写启动命令");
-                }
-                program = expand_home(&parts.remove(0));
-                args = parts;
-                None
-            }
-        };
-        let mut full = vec![];
-        let mut pin = None;
-        if let Some(adapter) = adapter {
-            let (entry, version) = self.adapter_entry(adapter.id)?;
-            full.push(entry.to_string_lossy().to_string());
-            pin = Some(version);
         }
-        full.extend(args);
+        let (entry, version) = self.adapter_entry(runtime.as_str())?;
         Ok(RuntimeSpec {
             id: id.to_string(),
             kind: runtime,
             name: str_of(&c, "name").to_string(),
-            program,
-            args: full,
+            program: self.cfg.node.clone(),
+            args: vec![entry.to_string_lossy().to_string()],
             env,
-            pin,
+            pin: Some(version),
         })
     }
 
@@ -438,5 +410,44 @@ pub(crate) fn drop_preset_kinds(tx: &rusqlite::Transaction) -> Result<usize> {
         )?;
         changed += 1;
     }
+    Ok(changed)
+}
+
+/// Data version 9: Janus runs only Codex and Claude Code. Agents started by a custom command are
+/// deleted, and the roles bound to one come out unbound, as deleting an agent leaves them. Members
+/// of past runs that ran on one are recorded as Claude Code: their agent is gone, so such a run can
+/// be read but not continued.
+// @project-doc docs/architecture/20261031-data_model.md#migrations
+pub(crate) fn drop_custom_agents(tx: &rusqlite::Transaction) -> Result<usize> {
+    let custom: Vec<String> = {
+        let mut stmt = tx.prepare("SELECT id, data FROM configs WHERE kind = ?1")?;
+        let rows: Vec<(String, String)> =
+            stmt.query_map([CONNECTION], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        rows.into_iter()
+            .filter(|(_, data)| serde_json::from_str::<Value>(data).is_ok_and(|c| c["base"] == "custom"))
+            .map(|(id, _)| id)
+            .collect()
+    };
+    let mut changed = 0;
+    for id in &custom {
+        changed += tx.execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![CONNECTION, id])?;
+    }
+    changed += crate::migrations::edit_configs(tx, ROLE, |_, role| {
+        if !role.get("connection").and_then(Value::as_str).is_some_and(|c| custom.iter().any(|id| id == c)) {
+            return false;
+        }
+        role.insert("connection".into(), json!(""));
+        role.insert("model".into(), json!(""));
+        role.insert("effort".into(), json!(""));
+        role.insert("session".into(), json!({}));
+        true
+    })?;
+    changed += crate::migrations::edit(tx, crate::migrations::Target::RunMember, |m| {
+        if m.get("kind").and_then(Value::as_str) != Some("custom") {
+            return false;
+        }
+        m.insert("kind".into(), json!("claude"));
+        true
+    })?;
     Ok(changed)
 }

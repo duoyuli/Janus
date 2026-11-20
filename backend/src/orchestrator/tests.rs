@@ -86,10 +86,9 @@ fn the_leads_suggestions_for_the_shared_material_are_split_off() {
 }
 
 #[test]
-fn standing_instructions_pick_the_system_layer_when_there_is_one() {
+fn standing_instructions_go_in_the_system_layer() {
     assert_eq!(instruction_channel(Runtime::Claude), Channel::System);
     assert_eq!(instruction_channel(Runtime::Codex), Channel::Developer);
-    assert_eq!(instruction_channel(Runtime::Custom), Channel::Prompt);
     let m = member_with(Runtime::Codex, "用中文回答", "只报有依据的问题");
     let text = standing_instructions(&m);
     assert_eq!(
@@ -98,11 +97,6 @@ fn standing_instructions_pick_the_system_layer_when_there_is_one() {
          Agent settings (Codex):\n用中文回答\n\nRole instructions (Reviewer):\n只报有依据的问题"
     );
     assert!(standing_instructions(&member_with(Runtime::Codex, " ", "")).is_empty());
-    // Only agents without a system layer get the rules in their prompt.
-    assert!(prompt_instructions(&m).is_empty());
-    assert!(
-        prompt_instructions(&member_with(Runtime::Custom, "", "只报有依据的问题")).contains("<standing_instructions>")
-    );
 }
 
 #[test]
@@ -257,7 +251,7 @@ fn test_run(team_size: usize) -> Run {
                 effort: String::new(),
                 session: json!({}),
                 permission: String::new(),
-                kind: Runtime::Custom,
+                kind: Runtime::Claude,
                 runtime_name: String::new(),
                 prompt: String::new(),
                 role_prompt: String::new(),

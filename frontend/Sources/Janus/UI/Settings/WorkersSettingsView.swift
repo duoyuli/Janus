@@ -49,7 +49,7 @@ struct AgentsSection: View {
                             .help(L.text("复制本机 \(k["name"].str) 的配置和凭据"))
                         }
                     }
-                    Button(L.text("查看全部类型，包括 API Key、预设和自定义命令")) { editing = newDraft("codex") }.buttonStyle(.link)
+                    Button(L.text("用 API Key 或其他方式添加")) { editing = newDraft("codex") }.buttonStyle(.link)
                 }
             } else {
                 ForEach(store.connections, id: \.self) { c in
@@ -68,6 +68,15 @@ struct AgentsSection: View {
         .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
             if let d = editing { ConnectionEditor(store: store, draft: d) }
         }
+        .onAppear(perform: takeAgentRequest)
+        .onChange(of: store.agentEditorRequest) { takeAgentRequest() }
+    }
+
+    /// Opens the agent editor another screen asked for: a new agent, or one by id.
+    private func takeAgentRequest() {
+        guard let id = store.agentEditorRequest else { return }
+        store.agentEditorRequest = nil
+        if id.isEmpty { editing = newDraft("codex") } else if let c = store.connection(id) { editing = editDraft(c) }
     }
 
     private func newDraft(_ kind: String) -> JSON {
@@ -207,8 +216,7 @@ struct CheckList: View {
     var body: some View {
         let done = c["check"].array
         let testing = c["status"].str == "testing"
-        // Custom commands bring their own agent: they have no adapter step.
-        let steps = c["base"].str == "custom" ? Array(Self.steps.dropFirst()) : Self.steps
+        let steps = Self.steps
         if !done.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(steps, id: \.self) { name in
@@ -309,34 +317,29 @@ struct ConnectionEditor: View {
             TextField(L.text("搜索 Agent 类型"), text: $query).textFieldStyle(.roundedBorder).padding(10)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach([("builtin", L.text("内置")), ("custom", L.text("自定义"))], id: \.0) { g in
-                        let q = query.lowercased()
-                        let items = store.meta["kinds"].array.filter {
-                            $0["group"].str == g.0 && (q.isEmpty
-                                || "\(L.catalogText($0["name"].str)) \($0["id"].str) \(L.catalogText($0["desc"].str))".lowercased().contains(q))
-                        }
-                        if !items.isEmpty {
-                            Text(g.1).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 12).padding(.top, 8)
-                            ForEach(items, id: \.self) { t in
-                                Button { pickType(t["id"].str) } label: {
-                                    HStack(spacing: 8) {
-                                        Avatar(initials: t["init"].str, color: t["color"].str, size: 20)
-                                        Text(L.catalogText(t["name"].str)).lineLimit(1)
-                                        Spacer()
-                                        if t["id"].str == draft["kind"].str { Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityHidden(true) }
-                                    }
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .background(t["id"].str == draft["kind"].str ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                                    .contentShape(Rectangle())
-                                    .hoverable(6)
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(editing)
-                                .accessibilityAddTraits(t["id"].str == draft["kind"].str ? .isSelected : [])
+                    let q = query.lowercased()
+                    let items = store.meta["kinds"].array.filter {
+                        q.isEmpty || "\(L.catalogText($0["name"].str)) \($0["id"].str) \(L.catalogText($0["desc"].str))".lowercased().contains(q)
+                    }
+                    ForEach(items, id: \.self) { t in
+                        Button { pickType(t["id"].str) } label: {
+                            HStack(spacing: 8) {
+                                Avatar(initials: t["init"].str, color: t["color"].str, size: 20)
+                                Text(L.catalogText(t["name"].str)).lineLimit(1)
+                                Spacer()
+                                if t["id"].str == draft["kind"].str { Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityHidden(true) }
                             }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(t["id"].str == draft["kind"].str ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                            .hoverable(6)
                         }
+                        .buttonStyle(.plain)
+                        .disabled(editing)
+                        .accessibilityAddTraits(t["id"].str == draft["kind"].str ? .isSelected : [])
                     }
                 }
+                .padding(.top, 4)
                 .padding(.horizontal, 6)
             }
         }
@@ -354,9 +357,6 @@ struct ConnectionEditor: View {
                     if editing { TextField("ID", text: .constant(draft["id"].str)).labelsHidden().textFieldStyle(.roundedBorder).disabled(true).font(.system(.body, design: .monospaced)) }
                     else { TextField("ID", text: Binding(get: { draft["newId"].str }, set: { draft["newId"] = JSON($0); idTouched = !$0.isEmpty }), prompt: Text(verbatim: "codex")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                 }
-            }
-            if k["command"].truthy {
-                field(L.text("启动命令")) { TextField("npx -y @zed-industries/claude-code-acp", text: str("command")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
             }
             if let auth {
                 field(L.text("认证"), hint: L.catalogText(auth["desc"].str)) {
@@ -391,7 +391,7 @@ struct ConnectionEditor: View {
                     if k["runtime"].truthy {
                         field(L.text("运行时路径")) { TextField(k["runtime"]["detected"].truthy ? k["runtime"]["detected"].str : k["runtime"]["placeholder"].str, text: str("bin")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                     }
-                    field(L.text("自定义提示词"), hint: L.text("排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令，自定义命令的 Agent 附在子任务说明末尾）。")) {
+                    field(L.text("自定义提示词"), hint: L.text("排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令）。")) {
                         TextEditor(text: str("prompt")).font(.body).frame(height: 70).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     }
                     envField

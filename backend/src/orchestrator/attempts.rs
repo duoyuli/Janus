@@ -309,8 +309,8 @@ impl App {
             let mut followup_from: Option<String> = None;
             let mut continuation: Option<Value> = None;
             // Collaborators write progress and blockers to the shared board. The board is an HTTP
-            // MCP server; a custom agent that only takes stdio servers works without it and
-            // reports through its result and questions.
+            // MCP server; an agent that declares no HTTP MCP works without it and reports through
+            // its result and questions.
             let board: Vec<Value> = if conn.capabilities["mcpCapabilities"]["http"] == true {
                 vec![self.mcp_server(run, id)]
             } else {
@@ -382,16 +382,6 @@ impl App {
                 self.take_notes(run, &agent)
             )
         } else {
-            // An agent without a system layer gets the rules after the task (unless continuing an
-            // existing session where the rules were already sent in the first turn).
-            let rules = match channel {
-                Channel::Prompt if followup_from.is_none() => format!(
-                    "\n\n{}{}",
-                    collaborator_rules(conn.capabilities["mcpCapabilities"]["http"] == true),
-                    prompt_instructions(&member)
-                ),
-                Channel::Prompt | Channel::System | Channel::Developer => String::new(),
-            };
             let notes = self.take_notes(run, &agent);
             match (&followup_from, &reopen) {
                 // Back in its own session, the agent has the task and what it did: only what is
@@ -400,11 +390,11 @@ impl App {
                     continued_prompt(&def, n, reopen, review.as_ref(), last_error.as_deref(), &notes)
                 }
                 (Some(from), _) => format!(
-                    "你在子任务 {from} 的原会话中继续工作，之前的上下文和文件阅读记录仍在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{}{team_note}{notes}{rules}",
+                    "你在子任务 {from} 的原会话中继续工作，之前的上下文和文件阅读记录仍在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{}{team_note}{notes}",
                     task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
                 ),
                 (None, _) => format!(
-                    "{}{team_note}{}{notes}{rules}",
+                    "{}{team_note}{}{notes}",
                     task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
                     reopen.as_ref().map(|r| reopen_section(r, review.as_ref())).unwrap_or_default(),
                 ),

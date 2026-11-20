@@ -6,8 +6,6 @@ use super::*;
 /// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PromptChannel {
-    /// The lead's brief as a first prompt, for agents without a slot in their system layer.
-    Context,
     /// `/goal <goal>`.
     Goal,
     /// What comes next in the lead's session: the person's message, or messages that waited.
@@ -28,7 +26,6 @@ impl PromptChannel {
 
     fn as_str(self) -> &'static str {
         match self {
-            PromptChannel::Context => "context",
             PromptChannel::Goal => "goal",
             PromptChannel::Followup => "followup",
             PromptChannel::Board => "board",
@@ -39,7 +36,6 @@ impl PromptChannel {
 
     fn label(self) -> &'static str {
         match self {
-            PromptChannel::Context => "向负责人发送团队上下文",
             PromptChannel::Goal => "向负责人发送目标提示",
             PromptChannel::Followup => "向负责人发送继续提示",
             PromptChannel::Board => "把看板上需要处理的消息推给负责人",
@@ -241,9 +237,6 @@ impl App {
     /// board tools in reach. Open to the person like any session: steering, takeover, messages.
     pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<String> {
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
-        if !lead.kind.leads() {
-            bail!("负责人只能是 Claude Code 或 Codex：只有它们支持 /goal");
-        }
         let standing = standing_instructions(&lead);
         let channel = instruction_channel(lead.kind);
         // The brief, with the messages left for the lead, goes in the system layer before the
@@ -294,22 +287,6 @@ impl App {
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             self.record_system(run, &ctx, &sid, &channel, "向负责人注入负责人说明", &brief);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
-            if channel == Channel::Prompt {
-                // An agent without a system layer gets the brief first, as context.
-                let ack = format!(
-                    "{brief}\n\nReply only 'Acknowledged'. The goal will arrive in the next message. Wait for the goal before starting work."
-                );
-                self.record_session_prompt(run, &ctx, &sid, PromptChannel::Context, &ack);
-                self.stream_prompt(
-                    run,
-                    &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
-                    &ack,
-                    &Ctx { goal: false, ..ctx },
-                    Some(&mut ctl),
-                    Some(STARTUP_TIMEOUT),
-                )
-                .await?;
-            }
             let mut prompt = format!("/goal {}", goal_condition(&run.goal));
             let mut delivered = false;
             loop {
@@ -514,9 +491,6 @@ impl App {
                 );
             }
             let mut next = prompt.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
-            if !loaded && channel == Channel::Prompt {
-                next = format!("{brief}\n\n用户接着说：\n{next}");
-            }
             loop {
                 let goal_turn = {
                     let mut st = run.st.lock().unwrap();
@@ -634,7 +608,6 @@ impl App {
         let via = match channel {
             Channel::System => "system",
             Channel::Developer => "developer",
-            Channel::Prompt => return,
         };
         self.emit(
             run,
@@ -650,7 +623,6 @@ impl App {
         let via = match channel {
             Channel::System => "system",
             Channel::Developer => "developer",
-            Channel::Prompt => return,
         };
         if text.is_empty() {
             return;

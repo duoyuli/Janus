@@ -11,7 +11,7 @@ import os
 import threading
 import time
 
-from lib import FAKE_AGENT, ApiError, Failure, Fake, drawn, git_repo, http, wait
+from lib import ApiError, Failure, Fake, drawn, git_repo, http, wait
 
 
 class Scenario:
@@ -63,7 +63,8 @@ class Ctx:
 
     def team(self, name, lead="codex", members=("m1",), script=None, files=None, brief="", slots=None, fake_files=()):
         """A workspace with a lead on a stand-in `lead` adapter (codex or claude) and collaborators
-        on the scripted custom agent, all sharing one FAKE_DIR. Role ids are `<name>-<member>`."""
+        on the stand-in Claude Code adapter, all the scripted agent sharing one FAKE_DIR. Role ids
+        are `<name>-<member>`."""
         fake = Fake(self.path(name, "fake"), script)
         for f in fake_files:
             fake.touch(f)
@@ -72,7 +73,7 @@ class Ctx:
         lead_conn = self.api("POST", "/api/setup/connections", {
             "id": f"{name}-{lead}", "kind": lead, "name": f"{name} {lead}", "auth": "apikey", "apiKey": "sk-e2e-not-a-key", "envText": env})
         member_conn = self.api("POST", "/api/setup/connections", {
-            "id": f"{name}-fake", "kind": "custom", "name": f"{name} fake", "command": f"{self.python} {FAKE_AGENT}", "envText": env})
+            "id": f"{name}-fake", "kind": "claude", "name": f"{name} fake", "auth": "apikey", "apiKey": "sk-e2e-not-a-key", "envText": env})
         lead_role = self.api("POST", "/api/setup/roles", {
             "id": f"{name}-lead", "name": f"{name} 负责人", "desc": "负责人", "connection": lead_conn["id"], "lead": True})
         roles = {}

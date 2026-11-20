@@ -42,8 +42,7 @@ Rust 编排器（backend/，axum + tokio）
   ▼
 ACP 适配器（~/.janus/adapters/，按需安装）
   ├── @agentclientprotocol/codex-acp         → Codex CLI
-  ├── @agentclientprotocol/claude-agent-acp  → Claude Code
-  └── 自定义 ACP 命令
+  └── @agentclientprotocol/claude-agent-acp  → Claude Code
   │
   ▼
 用户选择的工作目录（任务直接在这里读写）
