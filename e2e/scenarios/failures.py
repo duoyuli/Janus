@@ -19,7 +19,8 @@ def failures(ctx, c):
         task("T4", m("m4")), task("T5", m("m5"), deps=["T4"]),
         task("T6", m("m6"), owns=["api.rs"]), task("V6", m("m7"), verifies="T6"), task("D6", m("m8"), deps=["T6"]),
         task("T7", m("m3"), deps=["T3"]))
-    board = run.read_board(lambda b: all(x in b for x in ("[失败] T1", "[失败] T4", "[没通过验收] T3", "[验证未通过] V6")), timeout=120)
+    # T2 is blocked right after T1's last failure, in the next board entry: wait for it too.
+    board = run.read_board(lambda b: all(x in b for x in ("[失败] T1", "[无法开始] T2", "[失败] T4", "[没通过验收] T3", "[验证未通过] V6")), timeout=120)
     c("[尝试失败] T1" in board, "第一次失败后自动重试（[尝试失败]）")
     c("[无法开始] T2" in board, "依赖失败的下游标为无法开始")
     failed = run.has("task.failed", task="T3")
