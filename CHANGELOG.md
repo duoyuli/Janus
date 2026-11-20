@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20
+
+- 资源库分成「Skill」和「MCP」两个标签。每个标签最上面用一段动画讲清楚它的路由怎样工作：Skill 超过 10 个时合并成一个 `janus-skills`、用到再读；MCP 服务器只经一个 `janus-tools` 入口，用到才启动、同一个任务共用、闲置就停。动画用你资源库里真实的名字，可以点某一步跳过去，也可以收起。
+- 已添加的 Skill 按来源分组：每个 GitHub 仓库一组（检查更新、更新、再导入仓库里其他 Skill 都在组里），然后是本机文件夹和在 Janus 里新建的，组可以折叠；MCP 服务器分成「给所有数字员工」和「只给选中的数字员工」两组。
+- 新的 MCP 编辑器：在「表单」和「JSON」之间切换，JSON 和 Claude Code 的 `.mcp.json` 写法相同，改了立刻同步回表单；可以直接粘贴 README 里的配置，一次粘贴多个服务器就一起添加。说明、「每个会话单独运行」和给谁用（直接勾选数字员工）都在编辑器里。环境变量和请求头的值在编辑器里能看能改，清空后保存就删掉；这些值只返回给本机的 Janus 应用，网页读不到。
+- 每个标签最下面是「推荐」：社区常用的 Skill（Anthropic、Superpowers、Matt Pocock、Vercel）和 MCP 服务器（Context7、DeepWiki、GitHub、Playwright 等），一键添加；需要 API key 的会打开填好其余内容的编辑器，告诉你去哪里拿 key。已经添加过的标为「已添加」。
+- 去掉「自定义命令」类型的 Agent，Agent 只有 Codex 和 Claude Code；数字员工绑定了 Agent 就可以担任负责人。升级后，已有的自定义命令 Agent 会被删除，绑定它的数字员工改为没有绑定 Agent，用过它的旧任务仍能查看，但不能继续运行。
+
+- The Resource Library has two tabs, Skills and MCP. Each starts with a short animation of how its router works: past 10 skills, they are combined into one `janus-skills` and read when needed; MCP servers sit behind one `janus-tools` entry, start on first use, are shared within a run, and stop when idle. The animation uses the names in your library; click a step to jump to it, or hide it.
+- Added skills are grouped by source: one group per GitHub repository (with checking for updates, updating, and importing more of its skills), then local folders and skills written in Janus; groups fold. MCP servers are grouped into "for all digital employees" and "only for selected digital employees".
+- A new MCP editor switches between a form and JSON in Claude Code's `.mcp.json` shape, kept in step as you type. Paste a README's config directly; pasting several servers adds them all. Description, "run once per session", and who gets it (tick digital employees directly) are all in the editor. Environment variable and header values can now be seen and changed there, and an emptied value is removed on save; these values go only to the Janus app on this Mac, never to web pages.
+- Each tab ends with Recommended: popular skills (Anthropic, Superpowers, Matt Pocock, Vercel) and MCP servers (Context7, DeepWiki, GitHub, Playwright, and more), added in one click. One that needs an API key opens the editor with everything else filled in and says where to get the key. What you already have is marked Added.
+- The custom command Agent type is gone: Agents are Codex or Claude Code, and a digital employee can lead once it is bound to an Agent. On upgrade, existing custom command Agents are deleted, the digital employees bound to one are left without an Agent, and past runs that used one can still be viewed but not continued.
+
 ## 2026.11.19.6
 
 - 资源库里的 Skill 和 MCP 服务器默认给所有数字员工，不用再为某种工具单独建数字员工或改角色。每个会话只多出两个路由：Skill 不超过 10 个时逐个加载，更多时合并成一个 `janus-skills`，用到时再读；命令启动的 MCP 服务器由每个任务的 `janus-tools` 提供：用到才启动，同一个任务的数字员工共用一个进程（浏览器、终端这类会记住状态的服务器可以设成每个会话单独运行），闲置 10 分钟后停掉，在任务的工作目录（worktree）里、和 Agent 一样的隔离环境中运行；停止任务时连同它们派生的进程一起结束。添加或修改这类服务器时，Janus 会先在后台启动它一次，把需要的包下载好，资源库里显示「已准备好 · N 个工具」或启动失败的原因。负责人派出子任务后再调用资源库的工具，看板上会提醒它，交付时列为风险。有副作用或带凭据的工具可以关掉「给所有数字员工」，只给选中它的数字员工。新 Skill 默认给所有人，新 MCP 服务器默认只给选中它的数字员工，放开前会确认。升级后已有的资源按同样的默认值处理。
