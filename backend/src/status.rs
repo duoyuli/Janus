@@ -29,6 +29,36 @@ pub enum RunStatus {
     Interrupted,
 }
 
+/// What a Run is: a goal the lead pursues with its team, or a conversation with one digital
+/// employee (`runs.kind`). A chat has one member, no board, no goal and no delivery; it works in
+/// its own scratch directory under Janus home.
+// @project-doc docs/domains/20261120-chats.md#chat_model
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunKind {
+    #[default]
+    Goal,
+    Chat,
+}
+
+impl RunKind {
+    /// Read a kind the database wrote.
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "goal" => RunKind::Goal,
+            "chat" => RunKind::Chat,
+            _ => return None,
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunKind::Goal => "goal",
+            RunKind::Chat => "chat",
+        }
+    }
+}
+
 impl std::fmt::Display for RunStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())

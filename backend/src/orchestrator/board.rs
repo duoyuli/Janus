@@ -48,6 +48,12 @@ impl App {
         if run_token.is_empty() || token != session_token(&run_token, who) {
             bail!("token 不对");
         }
+        // A chat's agent holds a valid token for its library router; the same token must not
+        // reach a board, which a chat does not have.
+        // @project-doc docs/domains/20261120-chats.md#chat_model
+        if run.kind == RunKind::Chat {
+            bail!("对话没有共享看板");
+        }
         let Some(id) = req.get("id").cloned() else {
             return Ok(None);
         };
@@ -608,7 +614,7 @@ impl App {
     // @project-doc docs/domains/20261031-agents_and_roles.md#role_stats
     pub fn role_stats(&self) -> Result<Value> {
         let mut out: HashMap<String, RoleStat> = HashMap::new();
-        let runs = self.db.runs()?;
+        let runs = self.db.runs(RunKind::Goal)?;
         for r in &runs {
             let run_id = r["id"].as_str().unwrap_or_default();
             let role_of: HashMap<String, String> = r["config"]["team"]

@@ -1,7 +1,7 @@
 //! SQLite fact store. Events are the source of truth; `runs`, `attempts` and `artifacts`
 //! are indexes kept alongside them so the scheduler and UI can query without replaying.
 
-use crate::status::{AttemptStatus, CommandState, RunStatus};
+use crate::status::{AttemptStatus, CommandState, RunKind, RunStatus};
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -72,6 +72,7 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "config": serde_json::from_str::<Value>(&r.get::<_, String>(3)?).unwrap_or(Value::Null),
         "status": r.get::<_, String>(4)?,
         "createdAt": r.get::<_, i64>(5)?,
+        "kind": r.get::<_, String>(6)?,
     }))
 }
 
@@ -91,10 +92,10 @@ impl Db {
         Ok(self.0.lock().unwrap().pragma_query_value(None, "user_version", |r| r.get(0))?)
     }
 
-    pub fn insert_run(&self, id: &str, goal: &str, cwd: &str, config: &Value, now: i64) -> Result<()> {
+    pub fn insert_run(&self, id: &str, kind: RunKind, goal: &str, cwd: &str, config: &Value, now: i64) -> Result<()> {
         self.0.lock().unwrap().execute(
-            "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES (?1, ?2, ?3, ?4, 'planning', ?5)",
-            params![id, goal, cwd, config.to_string(), now],
+            "INSERT INTO runs (id, kind, goal, cwd, config, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 'planning', ?6)",
+            params![id, kind.as_str(), goal, cwd, config.to_string(), now],
         )?;
         Ok(())
     }
@@ -170,12 +171,15 @@ impl Db {
         )?)
     }
 
-    /// The newest 50 runs, for the app's list and the role statistics.
-    pub fn runs(&self) -> Result<Vec<Value>> {
+    /// The newest 50 runs of one kind, for the app's lists and the role statistics. Goals and
+    /// chats are counted apart, so many chats never push a workspace's runs off its list.
+    pub fn runs(&self, kind: RunKind) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT id, goal, cwd, config, status, created_at FROM runs ORDER BY created_at DESC LIMIT 50")?;
-        let rows = stmt.query_map([], run_row)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs WHERE kind = ?1
+             ORDER BY created_at DESC LIMIT 50",
+        )?;
+        let rows = stmt.query_map(params![kind.as_str()], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -183,7 +187,7 @@ impl Db {
     pub fn active_runs_in(&self, cwd: &str) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, goal, cwd, config, status, created_at FROM runs
+            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs
              WHERE cwd = ?1 AND status IN ('planning', 'running', 'waiting_input') ORDER BY created_at",
         )?;
         let rows = stmt.query_map(params![cwd], run_row)?;
@@ -194,7 +198,7 @@ impl Db {
     pub fn accepted_worktrees(&self) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, goal, cwd, config, status, created_at FROM runs
+            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs
              WHERE status = 'accepted' AND json_extract(config, '$.worktree.repo') IS NOT NULL",
         )?;
         let rows = stmt.query_map([], run_row)?;
@@ -207,7 +211,11 @@ impl Db {
             .0
             .lock()
             .unwrap()
-            .query_row("SELECT id, goal, cwd, config, status, created_at FROM runs WHERE id = ?1", params![id], run_row)
+            .query_row(
+                "SELECT id, goal, cwd, config, status, created_at, kind FROM runs WHERE id = ?1",
+                params![id],
+                run_row,
+            )
             .optional()?)
     }
 
@@ -391,10 +399,10 @@ mod tests {
     fn a_run_past_the_newest_fifty_is_still_found() {
         let (db, path) = temp_db("run-lookup");
         for i in 0..60 {
-            db.insert_run(&format!("r{i}"), "test", "/tmp", &json!({}), i).unwrap();
+            db.insert_run(&format!("r{i}"), RunKind::Goal, "test", "/tmp", &json!({}), i).unwrap();
         }
-        assert_eq!(db.runs().unwrap().len(), 50);
-        assert!(!db.runs().unwrap().iter().any(|r| r["id"] == "r0"), "the oldest is not on the list");
+        assert_eq!(db.runs(RunKind::Goal).unwrap().len(), 50);
+        assert!(!db.runs(RunKind::Goal).unwrap().iter().any(|r| r["id"] == "r0"), "the oldest is not on the list");
         assert_eq!(db.run("r0").unwrap().unwrap()["createdAt"], 0);
         assert!(db.run("nope").unwrap().is_none());
         let _ = std::fs::remove_file(path);
@@ -403,7 +411,7 @@ mod tests {
     #[test]
     fn a_command_id_is_claimed_once_until_it_is_released() {
         let (db, path) = temp_db("commands");
-        db.insert_run("r1", "test", "/tmp", &json!({}), 1).unwrap();
+        db.insert_run("r1", RunKind::Goal, "test", "/tmp", &json!({}), 1).unwrap();
         let claim = |id: &str| db.claim_command("r1", id, &json!({ "type": "pause" }), 2).unwrap();
         assert_eq!(claim("c1"), None);
         assert_eq!(claim("c1"), Some(CommandState::Running), "a second claim of one id fails");
@@ -423,7 +431,7 @@ mod tests {
     fn deleting_a_run_removes_its_rows_and_leaves_other_runs_whole() {
         let (db, path) = temp_db("delete-run");
         for (id, created) in [("r1", 1), ("r2", 2)] {
-            db.insert_run(id, "g", "/tmp", &json!({}), created).unwrap();
+            db.insert_run(id, RunKind::Goal, "g", "/tmp", &json!({}), created).unwrap();
             db.insert_event(&Event {
                 run_id: id.into(),
                 seq: 1,

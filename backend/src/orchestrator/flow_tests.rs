@@ -6,6 +6,7 @@ use super::*;
 
 // Newer flows live in their own files under `orchestrator/flow_tests/`, so this file stops growing.
 mod actions;
+mod chats;
 mod collaboration;
 mod evidence;
 mod library_router;
@@ -119,7 +120,7 @@ fn has(evs: &[Event], kind: &str) -> bool {
 }
 
 fn status(app: &App, run: &str) -> String {
-    app.db.runs().unwrap().into_iter().find(|r| r["id"] == run).unwrap()["status"].as_str().unwrap().to_string()
+    app.db.run(run).unwrap().unwrap()["status"].as_str().unwrap().to_string()
 }
 
 /// Start a run and play its lead: submit `tasks` as one orchestration through the board.

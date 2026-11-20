@@ -14,7 +14,7 @@ use crate::agents::Runtime;
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
 use crate::git_probe;
-use crate::status::{AgentPhase, AttemptStatus, CommandState, RunStatus, TaskStatus};
+use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunStatus, TaskStatus};
 use crate::traces::Overlap;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,7 @@ mod actions;
 mod attempts;
 mod board;
 mod board_tools;
+mod chat;
 #[cfg(test)]
 mod flow_tests;
 mod lead;
@@ -155,6 +156,16 @@ pub struct NewRun {
     /// Optional per-run USD cost budget overriding `Config.run_cost_budget_usd`.
     #[serde(default, rename = "maxCostUsd")]
     pub max_cost_usd: Option<f64>,
+}
+
+/// A conversation with one digital employee: the role, and the first message with its images.
+#[derive(Deserialize, Default)]
+pub struct NewChat {
+    pub role: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub images: Vec<Value>,
 }
 
 /// A task on the board, as the lead orchestrated it (see `validate_orchestration`).
@@ -808,6 +819,7 @@ impl WorktreeOf {
 
 struct RunRecord {
     id: String,
+    kind: RunKind,
     goal: String,
     cwd: PathBuf,
     worktree: Option<WorktreeOf>,
@@ -824,6 +836,9 @@ struct RunRecord {
 
 pub struct Run {
     pub id: String,
+    /// A goal for the lead and its team, or a conversation with one digital employee.
+    pub kind: RunKind,
+    /// The goal; for a chat, its first message (the title it is listed by).
     pub goal: String,
     /// Where the run's sessions work: the worktree for a run on a git repository, otherwise the
     /// workspace directory.
@@ -948,6 +963,7 @@ impl Run {
     fn new(r: RunRecord) -> Run {
         Run {
             id: r.id,
+            kind: r.kind,
             goal: r.goal,
             cwd: r.cwd,
             worktree: r.worktree,

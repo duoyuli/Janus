@@ -43,6 +43,7 @@
 - [MCP 服务器的值在编辑器里能看能改](20261119-mcp_values_visible.md)：新增只回答本机应用的 `GET /api/library/mcp/{id}/values`，编辑器显示和修改值；其他接口、快照和事件仍不含值，Agent 的凭据仍不返回。阅读时机：想让接口返回任何凭据，或修改 MCP 值的读写方式之前。
 - [资源库默认给所有数字员工，经 MCP 路由和 Skill 路由提供](20261119-library_routing.md)：Janus 为每个 Run 提供一个 MCP 路由端点，背后的服务器按需启动、默认同一个 Run 共用、在 Run 的工作目录中运行；新增通用数字员工作为默认团队。其中「给谁用」、收口、Skill 按数量切换和 http、sse 直接注入已被下一条取代。阅读时机：修改 MCP 路由的运行方式或默认团队之前。
 - [资源库的每项资源都给所有数字员工，只经两个路由提供](20261120-library_routed_only.md)：去掉「给谁用」和角色的资源选择；命令、HTTP、SSE 服务器都只经 `janus-tools`，由 Janus 进程启动或连接（扩大信任边界：Janus 带着 header 的值连接用户填写的地址）；Skill 只经 `janus-skills`；Agent 自带的 Skill 和 MCP 不管。阅读时机：修改资源库、会话怎样拿到 Skill 和 MCP，或想恢复按数字员工划分资源之前。
+- [和一名数字员工的对话是一种 Run](20261120-chats_as_runs.md)：`runs.kind` 区分目标和对话；数字员工占用主会话、走交付后对话的同一个循环，没有看板和交付；工作目录是 Janus home 下新建的 `chats/<run>`；看板拒绝对话的令牌。阅读时机：修改对话、Run 的类型，或想为对话另建实体、换工作目录之前。
 
 ## 历史决策
 

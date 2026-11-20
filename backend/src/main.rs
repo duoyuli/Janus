@@ -27,9 +27,10 @@ use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use orchestrator::{ActionRefused, ActionReply, App, Config, DeleteRefused, NewRun, expand_home, git};
+use orchestrator::{ActionRefused, ActionReply, App, Config, DeleteRefused, NewChat, NewRun, expand_home, git};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use status::RunKind;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -408,8 +409,26 @@ async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
     Ok(Json(app.role_stats().map_err(bad)?).into_response())
 }
 
-async fn list_runs(State(app): State<Arc<App>>) -> ApiResult {
-    Ok(Json(json!({ "runs": app.db.runs().map_err(bad)? })).into_response())
+#[derive(Deserialize)]
+struct RunsQuery {
+    kind: Option<String>,
+}
+
+/// The newest runs of one kind: goals (the default) or chats (`?kind=chat`).
+// @project-doc docs/interfaces/20261031-http_api.md#routes
+async fn list_runs(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>) -> ApiResult {
+    let kind = match q.kind.as_deref() {
+        None => RunKind::Goal,
+        Some(k) => RunKind::parse(k).ok_or((StatusCode::BAD_REQUEST, format!("未知的类型：{k}")))?,
+    };
+    Ok(Json(json!({ "runs": app.db.runs(kind).map_err(bad)? })).into_response())
+}
+
+/// Start a conversation with one digital employee; it opens with the first message.
+// @project-doc docs/interfaces/20261031-http_api.md#chats
+async fn create_chat(State(app): State<Arc<App>>, Json(req): Json<NewChat>) -> ApiResult {
+    let id = app.create_chat(req).await.map_err(bad)?;
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -761,6 +780,7 @@ async fn main() -> Result<()> {
         .route("/api/prices", get(get_prices))
         .route("/api/prices/sync", post(sync_prices))
         .route("/api/runs", get(list_runs).post(create_run))
+        .route("/api/chats", post(create_chat))
         .route("/api/runs/preflight", get(run_preflight))
         .route("/api/runs/{id}", get(get_run).delete(delete_run))
         .route("/api/runs/{id}/stream", get(stream))

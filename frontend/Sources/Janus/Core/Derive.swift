@@ -205,6 +205,10 @@ struct RunInfo {
     var baseRef = ""
     var workspace = ""
     var error = ""
+    /// A conversation with one digital employee rather than a goal (`run.created` `data.kind`): no
+    /// board, no delivery, and its one member is not a lead.
+    // @project-doc docs/domains/20261120-chats.md#chat_app
+    var chat = false
 }
 
 struct RunResult {
@@ -273,6 +277,7 @@ func derive(_ events: [Event]) -> RunState {
             s.run.git = d["git"].truthy
             s.run.baseRef = d["baseRef"].str
             s.run.workspace = d["workspace"].str
+            s.run.chat = d["kind"].str == "chat"
             ag("lead").phase = "thinking"
         case "orchestration.accepted":
             for x in d["tasks"].array {
@@ -334,7 +339,10 @@ func derive(_ events: [Event]) -> RunState {
             a.phase = d["phase"].str; a.note = e.text; a.progress = d["progress"].double
             if d["session"].exists { a.session = d["session"].string }
             if let t, let p = d["progress"].double { t.progress = p }
-            if d["turn"].str == "idle" {
+            // A chat's session opened (again): the conversation is going, whatever ended the last one.
+            if s.run.chat && d["session"].exists { s.run.status = .running; s.run.error = "" }
+            // A chat waiting for the next message is its normal state, not something to handle.
+            if d["turn"].str == "idle" && !s.run.chat {
                 if let t {
                     t.session = t.session?.after(e)
                     if !s.inbox.contains(where: { $0.key == "sess-" + t.id }) { s.inbox.append(InboxItem(kind: "session", key: "sess-" + t.id, seq: e.seq, task: t.id)) }

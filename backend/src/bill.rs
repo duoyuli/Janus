@@ -101,6 +101,7 @@ fn agent_of(config: &Value, actor: &str) -> (String, String) {
 mod tests {
     use super::*;
     use crate::db::Event;
+    use crate::status::RunKind;
     use serde_json::json;
 
     fn ev(seq: i64, ts: i64, kind: &str, actor: &str, to: Option<&str>, task: Option<&str>, data: Value) -> Event {
@@ -132,7 +133,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let db = Db::open(&path).unwrap().0;
         let day = DAY_MS;
-        db.insert_run("r1", "g", "/tmp", &team(), 0).unwrap();
+        db.insert_run("r1", RunKind::Goal, "g", "/tmp", &team(), 0).unwrap();
         let events = [
             ev(1, 0, "run.created", "user", None, None, json!({ "goal": "g" })),
             ev(2, 10, "agent.status", "lead", None, None, json!({ "session": "lead-1" })),
@@ -195,7 +196,7 @@ mod tests {
             db.insert_event(e).unwrap();
         }
         // A run without usage in the period is not read.
-        db.insert_run("r2", "g", "/tmp", &team(), 0).unwrap();
+        db.insert_run("r2", RunKind::Goal, "g", "/tmp", &team(), 0).unwrap();
         db.insert_event(&Event {
             run_id: "r2".into(),
             ..ev(1, 0, "session.usage", "lead", None, None, json!({ "totalTokens": 77 }))

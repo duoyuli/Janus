@@ -94,26 +94,18 @@ impl App {
                 .db
                 .get_config(ROLE, str_of(&m, "role"))?
                 .ok_or_else(|| anyhow!("数字员工 {} 已被删除", str_of(&m, "role")))?;
-            let conn_id = str_of(&role, "connection");
-            if conn_id.is_empty() {
-                bail!("数字员工「{}」还没有绑定 Agent 连接", str_of(&role, "name"));
-            }
-            let conn = self.connection(conn_id)?;
             let lead = m["role"] == ws["lead"];
             if lead && role["lead"] != true {
                 bail!("数字员工「{}」没有开启「可以担任负责人」，请在工作区里换一个负责人", str_of(&role, "name"));
             }
-            let session = member_session(&role, &conn);
-            let permission = session_label(&session, &conn);
+            let base = self.role_member(&role, &library, lead)?;
             let slots = if lead { 1 } else { m["slots"].as_i64().unwrap_or(1).clamp(1, MAX_SLOTS) as usize };
             let base_id = if role["id"] == "lead" { "lead-role" } else { str_of(&role, "id") };
-            let base_name = str_of(&role, "name");
-            let kind = Runtime::of(str_of(&conn, "base"))?;
             for k in 1..=slots {
                 let (id, name) = if lead {
-                    ("lead".to_string(), base_name.to_string())
+                    ("lead".to_string(), base.name.clone())
                 } else if slots == 1 {
-                    (base_id.to_string(), base_name.to_string())
+                    (base_id.to_string(), base.name.clone())
                 } else {
                     let mut candidate = format!("{base_id}-{k}");
                     let mut n = 2usize;
@@ -121,33 +113,50 @@ impl App {
                         candidate = format!("{base_id}-{k}-{n}");
                         n += 1;
                     }
-                    (candidate, format!("{base_name} #{k}"))
+                    (candidate, format!("{} #{k}", base.name))
                 };
-                team.push(Member {
-                    id,
-                    name,
-                    desc: str_of(&role, "desc").into(),
-                    runtime: conn_id.into(),
-                    lead,
-                    color: str_of(&role, "color").into(),
-                    init: str_of(&role, "init").into(),
-                    model: str_of(&role, "model").into(),
-                    effort: str_of(&role, "effort").into(),
-                    session: session.clone(),
-                    permission: permission.clone(),
-                    kind,
-                    prompt: str_of(&conn, "prompt").into(),
-                    role_prompt: str_of(&role, "prompt").into(),
-                    resources: library.clone(),
-                    role_id: str_of(&role, "id").into(),
-                    runtime_name: str_of(&conn, "name").into(),
-                });
+                team.push(Member { id, name, ..base.clone() });
             }
         }
         if !team.iter().any(|m| m.lead) {
             bail!("执行环境没有负责人");
         }
         Ok((PathBuf::from(str_of(ws, "path")), team))
+    }
+}
+
+impl App {
+    /// A role as a run member: its agent, model, controls, standing instructions and the library
+    /// pinned for the run. The id is the lead's fixed `lead` when `lead` is set, otherwise the
+    /// role's id; a workspace team renames the instances of a role with several slots.
+    // @project-doc docs/domains/20261031-agents_and_roles.md#member_snapshot
+    pub fn role_member(&self, role: &Value, library: &[crate::library::Item], lead: bool) -> Result<Member> {
+        let conn_id = str_of(role, "connection");
+        if conn_id.is_empty() {
+            bail!("数字员工「{}」还没有绑定 Agent 连接", str_of(role, "name"));
+        }
+        let conn = self.connection(conn_id)?;
+        let session = member_session(role, &conn);
+        let permission = session_label(&session, &conn);
+        Ok(Member {
+            id: if lead { "lead".into() } else { str_of(role, "id").into() },
+            name: str_of(role, "name").into(),
+            desc: str_of(role, "desc").into(),
+            runtime: conn_id.into(),
+            lead,
+            color: str_of(role, "color").into(),
+            init: str_of(role, "init").into(),
+            model: str_of(role, "model").into(),
+            effort: str_of(role, "effort").into(),
+            session,
+            permission,
+            kind: Runtime::of(str_of(&conn, "base"))?,
+            prompt: str_of(&conn, "prompt").into(),
+            role_prompt: str_of(role, "prompt").into(),
+            resources: library.to_vec(),
+            role_id: str_of(role, "id").into(),
+            runtime_name: str_of(&conn, "name").into(),
+        })
     }
 }
 

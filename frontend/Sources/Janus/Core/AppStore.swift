@@ -5,6 +5,7 @@ import SwiftUI
 /// Where the main window is.
 enum Screen: Hashable {
     case inbox                 // what every run waits on the person for
+    case chats                 // talk with one digital employee: start a chat, the recent ones
     case home(String)          // workspace id
     case run(String)           // run id
     case newWorkspace
@@ -27,6 +28,8 @@ final class AppStore {
     var roles: [JSON] = []
     var workspaces: [JSON] = []
     var runs: [JSON] = []
+    /// Chats with one digital employee, newest first (`GET /api/runs?kind=chat`); not part of any workspace.
+    var chats: [JSON] = []
     var roleStats: JSON = .null
     var adapters: JSON = .null
     /// The resource library (Settings › 资源库): `items` (skills and MCP servers) and `sources`.
@@ -38,6 +41,13 @@ final class AppStore {
     var goalDraft = ""
     /// Images pasted into the goal, sent with it.
     var goalImages: [PastedImage] = []
+    /// The first message of a new chat, and its images.
+    var chatDraft = ""
+    var chatImages: [PastedImage] = []
+    /// The digital employee a new chat is with. The last one chosen comes back.
+    var chatRole: String = UserDefaults.janus.string(forKey: "janus.chatRole") ?? "" {
+        didSet { UserDefaults.janus.set(chatRole, forKey: "janus.chatRole") }
+    }
     /// Workspace edited in the sheet (nil id for a new one).
     var editingWorkspace: JSON?
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
@@ -82,7 +92,10 @@ final class AppStore {
     func loadRuns() async {
         // Polled every few seconds: an unchanged list leaves the sidebar alone.
         if let r = try? await api.get("/api/runs"), r["runs"].array != runs { runs = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=chat"), r["runs"].array != chats { chats = r["runs"].array }
     }
+
+    func isChat(_ id: String) -> Bool { chats.contains { $0["id"].str == id } }
 
     func loadSetup() async {
         do {
@@ -357,10 +370,26 @@ final class AppStore {
         } catch { show(L.text("创建失败：\(error.localizedDescription)")) }
     }
 
+    /// Start a chat with a digital employee; its session opens with the first message.
+    // @project-doc docs/domains/20261120-chats.md#chat_app
+    func createChat(role: String, text: String, images: [PastedImage] = []) async {
+        do {
+            let r = try await api.post("/api/chats", ["role": JSON(role), "text": JSON(text), "images": .array(images.map(\.json))], timeout: images.isEmpty ? nil : 120)
+            chatDraft = ""
+            chatImages = []
+            await loadRuns()
+            open(.run(r["id"].str))
+        } catch { show(L.text("开始对话失败：\(error.localizedDescription)")) }
+    }
+
     /// Delete a run with everything Janus kept for it. A run that is still working is refused by
     /// the server as well: stop it first. Asks before deleting unless the person chose not to be
     /// asked again; the workspace's own files stay either way.
     func deleteRun(_ id: String) async {
+        if let chat = chats.first(where: { $0["id"].str == id }) ?? (run?.id == id && run?.isChat == true ? run?.runJSON : nil) {
+            await deleteChat(chat)
+            return
+        }
         let row = runs.first { $0["id"].str == id }
         // The open run's status comes from its event stream, which is fresher than the polled list.
         let status = run?.id == id && run?.loaded == true
@@ -388,6 +417,26 @@ final class AppStore {
             if let ws = currentWorkspace { open(.home(ws["id"].str)) } else { open(.inbox) }
         }
         show(L.text("已删除任务"))
+    }
+
+    /// A chat goes with its directory; one still talking is stopped, there is nothing to stop first.
+    private func deleteChat(_ row: JSON) async {
+        let id = row["id"].str
+        guard confirmDeleteChat(L.goalTitle(row["goal"].str), role: row["config"]["team"][0]["name"].str) else { return }
+        do {
+            try await api.delete("/api/runs/\(id)")
+        } catch {
+            show(L.text("删除失败：\(error.localizedDescription)"))
+            return
+        }
+        if run?.id == id {
+            run?.close()
+            run = nil
+        }
+        await loadRuns()
+        await inbox.refresh(self)
+        if case .run(let shown) = screen, shown == id { open(.chats) }
+        show(L.text("已删除对话"))
     }
 
     // MARK: Agent checks and logins run on the server; the app only polls.
@@ -443,6 +492,7 @@ final class AppStore {
     }
 
     // MARK: Adapters: installs and checks run in the background; poll until they end.
+
 
     func loadAdapters() async {
         do { adapters = try await api.get("/api/adapters") } catch { adapters = ["adapters": [], "dir": ""]; show(L.text("读取适配器失败：\(error.localizedDescription)")); return }

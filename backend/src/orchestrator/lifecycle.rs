@@ -59,9 +59,10 @@ impl App {
         if let Some(w) = &worktree {
             config["worktree"] = json!({ "repo": w.repo, "branch": w.branch });
         }
-        self.db.insert_run(&id, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
+        self.db.insert_run(&id, RunKind::Goal, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
         let run = Arc::new(Run::new(RunRecord {
             id: id.clone(),
+            kind: RunKind::Goal,
             goal,
             cwd,
             worktree,
@@ -617,16 +618,18 @@ impl App {
     }
 
     /// Delete a run and everything Janus kept for it: its rows in SQLite and its directories under
-    /// Janus home (artifacts, logs, member bundles and attachments). A run that is still working
-    /// is refused, because its sessions and attempts would keep writing; stop it first. The
-    /// workspace's own files are not touched.
+    /// Janus home (artifacts, logs, member bundles and attachments; a chat's directory too). A run
+    /// that is still working is refused, because its sessions and attempts would keep writing;
+    /// stop it first. A chat has only its own session, which is stopped here. The workspace's own
+    /// files are not touched.
     // @project-doc docs/interfaces/20261031-http_api.md#run_delete
     pub async fn delete_run(self: &Arc<Self>, run_id: &str) -> Result<(), DeleteRefused> {
         let _turn = self.revival.lock().await;
         let row = self.db.run(run_id).map_err(DeleteRefused::Invalid)?;
         let Some(row) = row else { return Err(DeleteRefused::NotFound) };
         let status = RunStatus::parse(row["status"].as_str().unwrap_or(""));
-        if status.is_some_and(RunStatus::is_active) {
+        let chat = RunKind::parse(row["kind"].as_str().unwrap_or("")) == Some(RunKind::Chat);
+        if !chat && status.is_some_and(RunStatus::is_active) {
             return Err(DeleteRefused::Conflict("任务还在进行，先停止任务再删除".into()));
         }
         // A delivered run keeps its lead conversation open for more work; take the run out of the
@@ -659,7 +662,8 @@ impl App {
         }
         // The directories go before the rows: the row is what lets a second request find the run,
         // so a directory that could not be removed is removed by trying again.
-        for sub in ["artifacts", "logs", "runs"] {
+        let subs: &[&str] = if chat { &["artifacts", "logs", "runs", "chats"] } else { &["artifacts", "logs", "runs"] };
+        for sub in subs {
             let path = self.cfg.data_dir.join(sub).join(run_id);
             if let Err(err) = std::fs::remove_dir_all(&path)
                 && err.kind() != std::io::ErrorKind::NotFound
@@ -910,7 +914,7 @@ mod delete_tests {
         let dir = std::env::temp_dir().join(format!("janus-delete-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let app = test_app(&dir);
-        app.db.insert_run("r1", "g", "/tmp", &json!({}), 1).unwrap();
+        app.db.insert_run("r1", RunKind::Goal, "g", "/tmp", &json!({}), 1).unwrap();
         app.db.set_run_status("r1", RunStatus::Cancelled).unwrap();
         let event = |seq, kind: &str| Event {
             run_id: "r1".into(),

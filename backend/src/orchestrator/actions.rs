@@ -404,13 +404,21 @@ impl App {
         }
         let row = self.db.run(run_id)?.context("run not found")?;
         let previous = row["status"].as_str().and_then(RunStatus::parse);
+        let kind = row["kind"].as_str().and_then(RunKind::parse).context("这个任务的类型无法读取")?;
         // Delivered and accepted runs reopen as a conversation; interrupted and failed runs
-        // rebuild the board and continue the goal.
-        let conversation = matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
-        if !matches!(
-            previous,
-            Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
-        ) {
+        // rebuild the board and continue the goal. A chat is always a conversation: whatever
+        // ended its session (a restart, the agent exiting), the next message reopens it.
+        // @project-doc docs/domains/20261120-chats.md#chat_session
+        let conversation =
+            kind == RunKind::Chat || matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
+        let resumable = match kind {
+            RunKind::Chat => previous.is_some_and(|s| s != RunStatus::Cancelled),
+            RunKind::Goal => matches!(
+                previous,
+                Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
+            ),
+        };
+        if !resumable {
             bail!("只有中断、失败、已交付或已验收的子任务可以继续");
         }
         let events = self.db.events(run_id, 0)?;
@@ -448,6 +456,7 @@ impl App {
         }
         let run = Arc::new(Run::new(RunRecord {
             id: run_id.to_string(),
+            kind,
             goal: row["goal"].as_str().unwrap_or("").to_string(),
             cwd,
             worktree,
@@ -732,13 +741,7 @@ impl App {
         if conversation {
             // No scheduler and no automatic goal: the lead session comes back for a regular
             // conversation, and the message that asked for it is queued as a note.
-            let app = self.clone();
-            let r = run.clone();
-            tokio::spawn(async move {
-                if let Err(err) = app.lead_conversation(&r).await {
-                    crate::config::log(format!("janus: chat {} ended: {err:#}", r.id));
-                }
-            });
+            self.spawn_conversation(run.clone());
             return Ok(run);
         }
         self.set_status(&run, RunStatus::Running);

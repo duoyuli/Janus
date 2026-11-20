@@ -45,6 +45,8 @@ struct MainView: View {
         switch store.screen {
         case .inbox:
             InboxView(store: store)
+        case .chats:
+            ChatsView(store: store)
         case .home(let id):
             if let ws = store.workspace(id) { HomeView(store: store, ws: ws).id(id) } else { NoWorkspaceView(store: store) }
         case .run:
@@ -111,6 +113,7 @@ struct Sidebar: View {
             VStack(alignment: .leading, spacing: 0) {
                 sidebarLabel(L.text("全局"))
                 InboxButton(store: store)
+                ChatsButton(store: store)
                 Rectangle().fill(Color.line).frame(height: 1).padding(.top, 6)
                 sidebarLabel(L.text("工作区")).padding(.top, 2)
                 WorkspacePicker(store: store, current: ws)
@@ -296,6 +299,46 @@ struct InboxButton: View {
         .hoverable(8)
         .help(L.text("所有工作区中需要你处理的事"))
         .accessibilityLabel(n > 0 ? L.text("收件箱，所有工作区，\(n) 项等你处理") : L.text("收件箱，所有工作区"))
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .padding(.horizontal, 10)
+    }
+}
+
+/// Chats with one digital employee, beside the inbox: like it, they belong to no workspace.
+/// Highlighted on the chats page and while a chat is open.
+// @project-doc docs/domains/20261120-chats.md#chat_app
+struct ChatsButton: View {
+    let store: AppStore
+
+    private var on: Bool {
+        switch store.screen {
+        case .chats: return true
+        case .run(let id): return store.isChat(id) || store.run?.id == id && store.run?.isChat == true
+        default: return false
+        }
+    }
+
+    var body: some View {
+        let talking = store.chats.filter { RunStatus($0["status"].str).isActive }.count
+        Button { store.open(.chats) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .frame(width: 18)
+                    .foregroundStyle(on ? Color.accent : Color.secondary)
+                Text(L.text("对话")).fontWeight(on ? .semibold : .regular)
+                Spacer(minLength: 4)
+                if talking > 0 { Text(verbatim: "\(talking)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+            }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(on ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .hoverable(8)
+        .help(L.text("和一名数字员工单独对话（⌥⌘N）"))
+        .accessibilityLabel(talking > 0 ? L.text("对话，\(talking) 个会话打开着") : L.text("对话"))
         .accessibilityAddTraits(on ? .isSelected : [])
         .padding(.horizontal, 10)
     }

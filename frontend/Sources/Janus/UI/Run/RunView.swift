@@ -17,6 +17,9 @@ struct RunView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !run.loaded {
                 ProgressView(L.text("正在读取…")).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if run.isChat {
+                // A chat is one conversation: no workbench, audit or team pages.
+                ChatView(run: run)
             } else {
                 VStack(spacing: 0) {
                     if run.isReplaying && (run.page == .board || run.page.isDetail) { ReplayBar(run: run) }
@@ -25,51 +28,66 @@ struct RunView: View {
             }
         }
         .navigationTitle(L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
-        .navigationSubtitle(run.live ? "" : L.text("只读 · 这个任务不在当前编排器进程里"))
+        .navigationSubtitle(run.isChat ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前编排器进程里"))
         .toolbar {
-            if run.page.isDetail {
-                ToolbarItem(placement: .navigation) {
-                    Button { run.show(.board) } label: { Label(L.text("返回工作台"), systemImage: "chevron.backward") }
-                        .help(L.text("返回工作台（⌘[）"))
+            if run.isChat {
+                ToolbarItem { DocumentsMenu(run: run) }
+                ToolbarItem {
+                    Button { run.exportLog() } label: { Label(L.text("导出事件日志…"), systemImage: "square.and.arrow.up") }
+                        .help(L.text("导出这次对话的事件日志（JSONL）"))
                 }
-            }
-            ToolbarItem(placement: .principal) {
-                // On a task or agent page no segment is selected, so choosing 工作台 goes back.
-                Picker(L.text("视图"), selection: Binding(get: { tab }, set: { v in run.show(v == "audit" ? .audit : v == "team" ? .team : .board) })) {
-                    Text(inboxCount == 0 ? L.text("工作台") : L.text("工作台 · \(inboxCount)")).tag("board")
-                    Text(L.text("审计与回放")).tag("audit")
-                    Text(L.text("团队与权限")).tag("team")
+                ToolbarItem {
+                    Button { Task { await run.store.deleteRun(run.id) } } label: { Label(L.text("删除对话"), systemImage: "trash") }
+                        .disabled(!run.loaded)
+                        .help(L.text("删除这次对话、它的记录和工作目录，不可恢复"))
+                        .accessibilityLabel(L.text("删除对话"))
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 330)
-                .help(L.text("切换视图（⌘1 / ⌘2 / ⌘3）"))
-                .accessibilityValue(inboxCount == 0 ? "" : L.text("\(inboxCount) 项需要你处理"))
-            }
-            ToolbarItem {
-                DocumentsMenu(run: run)
-            }
-            ToolbarItem {
-                Menu {
-                    Button(L.text("复制交付摘要")) { run.copySummary() }.disabled(run.state.result == nil)
-                    Button(L.text("导出事件日志…")) { run.exportLog() }
-                } label: { Label(L.text("分享"), systemImage: "square.and.arrow.up") }
-                .help(L.text("复制交付摘要或导出事件日志"))
-            }
-            ToolbarItem {
-                // One click removes a finished run; a run still working has to be stopped first.
-                let active = run.state.run.status.isActive
-                Button { Task { await run.store.deleteRun(run.id) } } label: {
-                    Label(L.text("删除任务"), systemImage: "trash")
+            } else {
+                if run.page.isDetail {
+                    ToolbarItem(placement: .navigation) {
+                        Button { run.show(.board) } label: { Label(L.text("返回工作台"), systemImage: "chevron.backward") }
+                            .help(L.text("返回工作台（⌘[）"))
+                    }
                 }
-                .disabled(!run.loaded || active)
-                .help(!run.loaded ? L.text("正在读取任务") : active ? L.text("任务还在进行，先停止任务再删除") : L.text("删除这个任务及它的全部记录和产物，不可恢复"))
-                .accessibilityLabel(L.text("删除任务"))
+                ToolbarItem(placement: .principal) {
+                    // On a task or agent page no segment is selected, so choosing 工作台 goes back.
+                    Picker(L.text("视图"), selection: Binding(get: { tab }, set: { v in run.show(v == "audit" ? .audit : v == "team" ? .team : .board) })) {
+                        Text(inboxCount == 0 ? L.text("工作台") : L.text("工作台 · \(inboxCount)")).tag("board")
+                        Text(L.text("审计与回放")).tag("audit")
+                        Text(L.text("团队与权限")).tag("team")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 330)
+                    .help(L.text("切换视图（⌘1 / ⌘2 / ⌘3）"))
+                    .accessibilityValue(inboxCount == 0 ? "" : L.text("\(inboxCount) 项需要你处理"))
+                }
+                ToolbarItem {
+                    DocumentsMenu(run: run)
+                }
+                ToolbarItem {
+                    Menu {
+                        Button(L.text("复制交付摘要")) { run.copySummary() }.disabled(run.state.result == nil)
+                        Button(L.text("导出事件日志…")) { run.exportLog() }
+                    } label: { Label(L.text("分享"), systemImage: "square.and.arrow.up") }
+                    .help(L.text("复制交付摘要或导出事件日志"))
+                }
+                ToolbarItem {
+                    // One click removes a finished run; a run still working has to be stopped first.
+                    let active = run.state.run.status.isActive
+                    Button { Task { await run.store.deleteRun(run.id) } } label: {
+                        Label(L.text("删除任务"), systemImage: "trash")
+                    }
+                    .disabled(!run.loaded || active)
+                    .help(!run.loaded ? L.text("正在读取任务") : active ? L.text("任务还在进行，先停止任务再删除") : L.text("删除这个任务及它的全部记录和产物，不可恢复"))
+                    .accessibilityLabel(L.text("删除任务"))
+                }
             }
         }
         // Links to local Markdown files in agent prose open in Janus.
         .environment(\.openURL, OpenURLAction { DocLinks.handle($0) })
         .onExitCommand {
             // Esc leaves replay first, then a task or agent page.
+            if run.isChat { return }
             if run.isReplaying { run.replay = nil } else if run.page.isDetail { run.show(.board) }
         }
     }

@@ -120,6 +120,11 @@ pub const MIGRATIONS: &[Migration] = &[
             Step::Drop { at: Target::Config("role"), field: "resources" },
         ],
     },
+    Migration {
+        version: 12,
+        name: "Run 记录是目标还是和一名数字员工的对话：已有的 Run 都是目标",
+        steps: &[Step::Sql("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'goal';")],
+    },
 ];
 
 /// The data version this build reads and writes.

@@ -28,6 +28,7 @@
 ├── runs/<run>/attachments/   # 随目标和消息粘贴的图片
 ├── worktrees/<run>/          # Git 仓库上每个 Run 自己的 worktree（元数据在原仓库的 .git/worktrees/）
 ├── worktrees/deleted/        # 删除 Run 时 worktree 里还没提交的改动，存成 <run>.patch
+├── chats/<run>/              # 和一名数字员工对话时的工作目录，每个对话新建一个，删除对话时一起删除
 ├── prices/models.json        # 从 models.dev 同步的模型价格，每天更新，账单估算用
 ├── updates/                  # 应用内更新：<版本>/ 下载和拼装中的新版本，previous/ 上一个版本，install.sh 替换脚本
 ├── signing/                  # 发布签名证书（只在执行 make-signing-cert.sh 的机器上）

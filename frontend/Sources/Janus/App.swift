@@ -117,6 +117,7 @@ struct StatusMenu: View {
         if active > 0 { Text(L.text("\(active) 个任务正在进行")) }
         Divider()
         Button(L.text("新目标")) { show(); model.newGoal() }.disabled(store == nil)
+        Button(L.text("新对话")) { show(); store?.open(.chats) }.disabled(store == nil)
         Button(L.text("设置…")) { show(); store?.openSettings(store?.settingsTab ?? .general) }.disabled(store == nil)
         Button(L.text("检查更新…")) { show(); store?.openSettings(.updates); Task { await Updater.shared.check() } }
         Button(L.text("打开 Janus 日志")) { model.openLogs() }
@@ -139,6 +140,8 @@ struct JanusCommands: Commands {
         let store = model.store
         let run = store?.run
         let onRun: Bool = { if case .run = store?.screen { return run != nil } else { return false } }()
+        // A chat's page has no workbench, audit or team views, and nothing to pause or stop.
+        let onGoal = onRun && run?.isChat != true
         CommandGroup(after: .appInfo) {
             Button(L.text("检查更新…")) {
                 store?.openSettings(.updates)
@@ -151,6 +154,7 @@ struct JanusCommands: Commands {
         SidebarCommands()
         CommandGroup(replacing: .newItem) {
             Button(L.text("新目标")) { model.newGoal() }.keyboardShortcut("n").disabled(store == nil)
+            Button(L.text("新对话")) { store?.open(.chats) }.keyboardShortcut("n", modifiers: [.command, .option]).disabled(store == nil)
             Button(L.text("新建工作区…")) { store?.editingWorkspace = AppStore.blankWorkspace }.keyboardShortcut("n", modifiers: [.command, .shift]).disabled(store == nil)
             Divider()
             Button(L.text("打开 Markdown 文件…")) { ArtifactWindow.choose() }.keyboardShortcut("o")
@@ -159,27 +163,28 @@ struct JanusCommands: Commands {
             Button(L.text("导出事件日志…")) { run?.exportLog() }.keyboardShortcut("e", modifiers: [.command, .shift]).disabled(!onRun)
         }
         CommandGroup(before: .sidebar) {
-            Button(L.text("工作台")) { run?.show(.board) }.keyboardShortcut("1").disabled(!onRun)
-            Button(L.text("审计与回放")) { run?.show(.audit) }.keyboardShortcut("2").disabled(!onRun)
-            Button(L.text("团队与权限")) { run?.show(.team) }.keyboardShortcut("3").disabled(!onRun)
-            Button(L.text("返回工作台")) { run?.show(.board) }.keyboardShortcut("[").disabled(!onRun || !(run?.page.isDetail ?? false))
+            Button(L.text("工作台")) { run?.show(.board) }.keyboardShortcut("1").disabled(!onGoal)
+            Button(L.text("审计与回放")) { run?.show(.audit) }.keyboardShortcut("2").disabled(!onGoal)
+            Button(L.text("团队与权限")) { run?.show(.team) }.keyboardShortcut("3").disabled(!onGoal)
+            Button(L.text("返回工作台")) { run?.show(.board) }.keyboardShortcut("[").disabled(!onGoal || !(run?.page.isDetail ?? false))
             Divider()
             Button(L.text("刷新")) { Task { await model.refresh() } }.keyboardShortcut("r").disabled(store == nil)
             Divider()
         }
         CommandMenu(L.text("任务")) {
             let r = run?.state.run
-            let active = onRun && run?.canAct == true && r.map { !$0.status.isFinished } == true
+            let active = onGoal && run?.canAct == true && r.map { !$0.status.isFinished } == true
             Button(r?.paused == true ? L.text("继续") : L.text("暂停")) { Task { await run?.togglePause() } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(!active || !(r?.status == .running || r?.paused == true))
             Button(L.text("从中断处继续")) { Task { await run?.act(["type": "resumeRun"]) } }
-                .disabled(!(onRun && run?.canAct == true && r?.status.canResume == true))
+                .disabled(!(onGoal && run?.canAct == true && r?.status.canResume == true))
             Button(L.text("停止任务…")) { if let run { cancelRun(run) } }.disabled(!active)
-            Button(L.text("删除任务…"), role: .destructive) {
+            Button(run?.isChat == true && onRun ? L.text("删除对话…") : L.text("删除任务…"), role: .destructive) {
                 if let run { Task { await run.store.deleteRun(run.id) } }
             }
-            .disabled(!(onRun && run?.loaded == true && !(run?.state.run.status.isActive ?? true)))
+            // A chat goes even while it talks; a goal is stopped first.
+            .disabled(!(onRun && run?.loaded == true && (run?.isChat == true || !(run?.state.run.status.isActive ?? true))))
             Divider()
             Button(L.text("复制交付摘要")) { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
             Button(L.text("回到实时")) { run?.replay = nil }.disabled(!(run?.isReplaying ?? false))

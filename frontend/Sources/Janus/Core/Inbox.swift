@@ -112,9 +112,14 @@ final class InboxModel {
         let generation = refreshGeneration
         let locale = L.locale
         var out: [InboxEntry] = []
-        let live = store.runs.filter { RunStatus($0["status"].str).isActive }
-        for row in store.runs {
-            let ws = store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? ""
+        // A chat's approvals and forms wait on the person like a run's; a chat with no open
+        // session asks nothing of them (the next message reopens it), so only open chats count.
+        // @project-doc docs/domains/20261120-chats.md#chat_app
+        let chats = store.chats.filter { RunStatus($0["status"].str).isActive }
+        let live = store.runs.filter { RunStatus($0["status"].str).isActive } + chats
+        for row in store.runs + chats {
+            let chat = row["kind"].str == "chat"
+            let ws = chat ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? ""
             guard RunStatus(row["status"].str).isActive else {
                 out += Inbox.entries(row: row, workspace: ws)
                 continue
@@ -130,7 +135,7 @@ final class InboxModel {
             let new = data["events"].array
             guard RunStatus(row["status"].str).isActive else {
                 cache[id] = nil
-                out += Inbox.entries(row: row, workspace: ws)
+                if !chat { out += Inbox.entries(row: row, workspace: ws) }
                 continue
             }
             if let unchanged = known?.unchangedEntries(newEvents: new, row: row, workspace: ws, locale: locale) {

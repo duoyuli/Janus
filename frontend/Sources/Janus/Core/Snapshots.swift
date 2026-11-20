@@ -46,6 +46,7 @@ enum Snapshots {
             switch kv.first {
             case "run": store.open(.run(kv.last ?? ""))
             case "inbox": store.open(.inbox)
+            case "chats": store.open(.chats)
             case "home": store.open(.home(kv.last ?? ""))
             case "settings":
                 // Permissions and updates are sections of the general pane, not tabs.
@@ -129,11 +130,13 @@ enum Snapshots {
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
                 "connections": ids(store.connections), "roles": ids(store.roles), "workspaces": ids(store.workspaces), "runs": ids(store.runs),
+                "chats": ids(store.chats),
             ]
             if let r = store.run {
                 let s = r.state
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "page": JSON(String(describing: r.page)),
+                    "chat": JSON(r.isChat),
                     "status": JSON(s.run.status.rawValue), "paused": JSON(s.run.paused), "delivered": JSON(s.result != nil),
                     "accepted": JSON(s.result?.accepted != nil), "events": JSON(s.events.count),
                     "tasks": JSON.array(s.orderedTasks.map { t in

@@ -1,6 +1,7 @@
 //! The lead: its goal session, the conversation after delivery, its instructions and the board
 //! pushed into it.
 
+use super::chat::chat_brief;
 use super::*;
 
 /// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
@@ -374,25 +375,65 @@ impl App {
         result
     }
 
-    /// Bring a delivered or accepted run back as a regular conversation. The lead session is
-    /// restored with `session/load` when the adapter still has it; otherwise a new session starts
-    /// with a compact brief of the goal, the delivery and the last exchanges.
+    /// Run a conversation in the background (`lead_conversation`). When it cannot open or its
+    /// session breaks off, the run leaves the live map, so the next message reopens it; a chat
+    /// also records why, since nobody else would tell the person.
+    pub(super) fn spawn_conversation(self: &Arc<Self>, run: Arc<Run>) {
+        let app = self.clone();
+        tokio::spawn(async move {
+            let Err(err) = app.lead_conversation(&run).await else { return };
+            if err.downcast_ref::<Cancelled>().is_some() || run.st.lock().unwrap().cancelled() {
+                return;
+            }
+            if run.kind == RunKind::Chat && !run.driving.active() {
+                app.runs.lock().unwrap().remove(&run.id);
+                app.emit(
+                    &run,
+                    ev("run.failed", "janus", format!("对话的会话结束了：{err:#}。再发一条消息会重新打开会话"))
+                        .data(json!({ "error": format!("{err:#}") })),
+                );
+                app.set_status(&run, RunStatus::Failed);
+            }
+            crate::config::log(format!("janus: conversation {} ended: {err:#}", run.id));
+        });
+    }
+
+    /// A conversation in the run's main session. For a delivered or accepted run it is the lead's
+    /// regular conversation after the goal; for a chat, the conversation with its one digital
+    /// employee, without board, goal or delivery. The session is restored with `session/load`
+    /// when the adapter still has it; otherwise a new session starts with a compact brief of what
+    /// was said so far (and, for a goal, the delivery).
+    // @project-doc docs/domains/20261120-chats.md#chat_session
     pub(super) async fn lead_conversation(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
+        let chat = run.kind == RunKind::Chat;
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
         let channel = instruction_channel(lead.kind);
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
-        let brief = conversation_brief(run, &events);
+        let brief = if chat { chat_brief(run, &events) } else { conversation_brief(run, &events) };
         let system = system_layer(&brief, &standing);
-        let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
-        let workspace = run.cwd.clone();
-        if lead.kind == Runtime::Claude {
-            self.trust_claude_workspace(&lead.runtime, &workspace)?;
+        let opened = async {
+            let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
+            if lead.kind == Runtime::Claude {
+                // Claude Code only runs /goal in a workspace it trusts, in a chat too.
+                self.trust_claude_workspace(&lead.runtime, &run.cwd)?;
+            }
+            // The library router's URL carries this secret; a run reopened after a restart has none yet.
+            {
+                let mut st = run.st.lock().unwrap();
+                if st.mcp_token.is_empty() {
+                    st.mcp_token = random_token();
+                }
+            }
+            let log =
+                self.cfg.data_dir.join("logs").join(&run.id).join(if chat { "chat.log" } else { "lead-chat.log" });
+            let who = if chat { lead.name.as_str() } else { "负责人" };
+            self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
         }
-        let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-chat.log");
+        .await;
+        let workspace = run.cwd.clone();
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let opened = self.open_session(run, &owner, "lead", &spec, &log, "负责人").await;
         let (conn, mut rx, mut ctl) = match opened {
             Ok(opened) => opened,
             Err(err) => {
@@ -401,7 +442,8 @@ impl App {
             }
         };
         let result = async {
-            let board = if conn.capabilities["mcpCapabilities"]["http"] == true {
+            // A chat has no board: its one member has no team to lead.
+            let board = if !chat && conn.capabilities["mcpCapabilities"]["http"] == true {
                 vec![self.mcp_server(run, "lead")]
             } else {
                 vec![]
@@ -417,9 +459,9 @@ impl App {
             let mut loaded = false;
             let mut session = Value::Null;
             if conn.capabilities["loadSession"] == true
-                && let Some(old) = old_session
+                && let Some(old) = old_session.as_deref()
             {
-                let params = opening.load_params(&old, &workspace);
+                let params = opening.load_params(old, &workspace);
                 if let Ok(Ok(r)) = tokio::time::timeout(STARTUP_TIMEOUT, conn.request("session/load", params)).await {
                     drain_replay(&conn, &mut rx).await;
                     let mut r = if r.is_object() { r } else { json!({}) };
@@ -440,21 +482,31 @@ impl App {
             let mut applied = configure_session(&conn, &session, &lead).await?;
             applied["resources"] = json!(opening.resources);
             let controls = crate::acp_view::controls(&session, &applied);
+            let opened = match (chat, loaded || old_session.is_some()) {
+                (true, false) => "开始对话",
+                (true, true) if loaded => "恢复了之前的会话",
+                (true, true) => "新开会话，带上之前的对话",
+                (false, _) => "继续之前的对话",
+            };
             self.emit(
                 run,
-                ev("agent.status", "lead", "继续之前的对话")
+                ev("agent.status", "lead", opened)
                     .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied, "mode": "chat" })),
             );
             {
                 let mut st = run.st.lock().unwrap();
                 st.lead.session = Some(sid.clone());
-                if !st.lead.goal.ended() {
+                if !chat && !st.lead.goal.ended() {
                     st.lead.goal = LeadGoal::Done(delivery_summary(&events));
                 }
             }
-            // Its turns hear about the board as the first goal's did.
-            let (app, r) = (self.clone(), run.clone());
-            tokio::spawn(async move { app.push_loop(&r).await });
+            if chat {
+                self.set_status(run, RunStatus::Running);
+            } else {
+                // Its turns hear about the board as the first goal's did.
+                let (app, r) = (self.clone(), run.clone());
+                tokio::spawn(async move { app.push_loop(&r).await });
+            }
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             // A loaded session may not return its options. Keep the controls already in the
             // event log instead of replacing them with an empty list.
@@ -464,7 +516,8 @@ impl App {
             if has_controls {
                 self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             }
-            self.record_system(run, &ctx, &sid, &channel, "向负责人注入对话背景", &brief);
+            let label = if chat { "向 Agent 注入对话说明" } else { "向负责人注入对话背景" };
+            self.record_system(run, &ctx, &sid, &channel, label, &brief);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
@@ -476,6 +529,11 @@ impl App {
                 match self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? {
                     Some(text) => prompt.push(Msg { id: "chat-open".into(), text }),
                     None => return Ok(()),
+                }
+            } else if chat {
+                // A chat's messages opened its session: each goes in as this new turn.
+                for m in &prompt {
+                    self.route_message(run, "lead", "", 0, &m.id, Delivery::Prompt);
                 }
             } else {
                 let ids: Vec<&str> = prompt.iter().map(|m| m.id.as_str()).collect();
@@ -518,7 +576,14 @@ impl App {
                     next = self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给负责人"));
                     continue;
                 }
-                if goal_turn {
+                if chat {
+                    // Nothing to deliver: the reply is the result. The session waits for the next message.
+                    self.emit(
+                        run,
+                        ev("agent.status", "lead", "这一轮已结束，等待你的消息")
+                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
+                    );
+                } else if goal_turn {
                     run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
                     if !run.driving.active() {
@@ -880,22 +945,29 @@ pub(super) fn delivery_summary(events: &[Event]) -> String {
 /// said. Used when the adapter cannot load the original session.
 pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
     let summary = delivery_summary(events);
+    let recent = recent_exchanges(events, "Lead");
+    format!(
+        "This goal has been delivered and the user is continuing the conversation. Use the history below to pick up where you left off.\n\nGoal:\n{}\n\nPrevious delivery summary:\n{}\n\nRecent conversation:\n{}",
+        run.goal,
+        if summary.is_empty() { "(No summary recorded)" } else { summary.as_str() },
+        recent
+    )
+}
+
+/// The last twelve things the person and the main session's agent (called `agent`) said, one
+/// line each, for a new session that cannot load the old one.
+pub(super) fn recent_exchanges(events: &[Event], agent: &str) -> String {
     let mut recent: Vec<String> = events
         .iter()
         .rev()
         .filter(|e| e.task.is_none() && e.attempt.is_none())
         .filter_map(|e| match e.kind.as_str() {
-            "agent.message" if !e.text.trim().is_empty() => Some(format!("Lead: {}", short(e.text.trim(), 500))),
+            "agent.message" if !e.text.trim().is_empty() => Some(format!("{agent}: {}", short(e.text.trim(), 500))),
             "user.message" if !e.text.trim().is_empty() => Some(format!("User: {}", short(e.text.trim(), 500))),
             _ => None,
         })
         .take(12)
         .collect();
     recent.reverse();
-    format!(
-        "This goal has been delivered and the user is continuing the conversation. Use the history below to pick up where you left off.\n\nGoal:\n{}\n\nPrevious delivery summary:\n{}\n\nRecent conversation:\n{}",
-        run.goal,
-        if summary.is_empty() { "(No summary recorded)" } else { summary.as_str() },
-        recent.join("\n")
-    )
+    recent.join("\n")
 }

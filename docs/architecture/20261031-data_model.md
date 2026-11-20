@@ -20,10 +20,12 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 │   ├── store/<sha256>/               # Skill 的内容，按内容寻址，存下后不再修改
 │   └── sources/<source-id>/repo/     # Git 来源的浅克隆
 ├── adapters/<id>/                    # ACP 适配器，见 ACP 适配器管理
+├── chats/<run>/                      # 对话的工作目录：每个对话新建一个，删除对话时一起删除
 ├── artifacts/<run>/<task>/           # 产物：回复和 diff
 ├── logs/<run>/                       # 每个 ACP 子进程的 stderr
 │   ├── lead-goal.log                 # 目标模式负责人
 │   ├── lead-chat.log                 # 交付或验收后继续对话时的负责人会话
+│   ├── chat.log                      # 对话中数字员工的会话
 │   └── <task>-a<n>.log               # 任务的第 n 次尝试
 └── runs/<run>/members/<member>/bundle/ # 成员的资源包：Run 创建时复制的 Skill
 ```
@@ -37,7 +39,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 | 表 | 主键 | 内容 |
 | --- | --- | --- |
-| `runs` | `id` | 目标、工作目录（Git 仓库上的 Run 是它自己的 worktree）、状态、创建时间；`config` 是 Run 创建时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
+| `runs` | `id` | 类型（`kind`：`goal` 目标或 `chat` [对话](../domains/20261120-chats.md)）、目标（对话是第一条消息）、工作目录（Git 仓库上的 Run 是它自己的 worktree，对话是 `chats/<run>`）、状态、创建时间；`config` 是 Run 创建时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
@@ -51,7 +53,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 - 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。应用用 `after` 参数从某个 `seq` 之后续读。
 - `events` 另有索引 `events_type_ts (type, ts)`，按时间段的用量账单用它找出区间里有 `session.usage` 的 Run，不必读全部事件（[用量账单](../interfaces/20261031-http_api.md#usage_bill)）。
 - 一个 Janus home 同一时间只有一个服务（[`janus.pid` 的独占锁](../operations/20261031-deployment.md#single_instance)），所以数据库里不记录 Run 归哪个进程驱动。同一个服务里，恢复、验收历史交付和删除一个不在运行的 Run 依次进行（`App.revival`），见 [Run 生命周期](../domains/20261031-run_lifecycle.md#recovery)。
-- 删除一个 Run 会删掉 `runs` 和其余各表中属于它的行，以及 `artifacts/<run>/`、`logs/<run>/`、`runs/<run>/` 三个目录；工作目录不受影响。正在进行的 Run 不能删除，规则见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)。
+- 删除一个 Run 会删掉 `runs` 和其余各表中属于它的行，以及 `artifacts/<run>/`、`logs/<run>/`、`runs/<run>/` 三个目录（对话还有 `chats/<run>/`）；工作区的目录不受影响。正在进行的 Run 不能删除，规则见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)。
 
 <a id="migrations"></a>
 ## 数据升级
@@ -80,13 +82,14 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 9 | 去掉「自定义命令」的 Agent：删除 `base` 为 `custom` 的 Agent，绑定它的数字员工改为没有绑定 Agent，Run 快照中用它的成员记为 `claude`（只能查看，不能继续），见 [ADR](../decisions/20261120-codex_and_claude_code_only.md) |
 | 10 | worktree 中的 Run 的快照加 `worktree.branch`：取升级时工作目录检出的分支，这个分支的历史不含 Run 的起点（`baseRef`）时取 `null`，见 [ADR：验收时把结果合并回任务开始时的分支](../decisions/20261120-merge_back_on_accept.md) |
 | 11 | 每项资源都给所有数字员工：资源和 Run 快照中的资源删除 `reach`，数字员工删除 `resources`，见 [ADR：资源库的每项资源都给所有数字员工，只经两个路由提供](../decisions/20261120-library_routed_only.md) |
+| 12 | `runs` 表加 `kind` 列（`goal`、`chat`），已有的 Run 都取 `goal`，见[对话](../domains/20261120-chats.md) |
 
 <a id="snapshots"></a>
 ## Run 快照
 
 Run 创建后不再读取最新的设置对象：
 
-- 团队成员、角色、模型、会话控制项、权限摘要和资源写入 `runs.config`，工作区（含[共享资料](../domains/20261031-agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。
+- 团队成员、角色、模型、会话控制项、权限摘要和资源写入 `runs.config`，工作区（含[共享资料](../domains/20261031-agents_and_roles.md#workspace_brief)）写入 `runs.config.workspace`。对话的快照只有一名成员（`team`），没有工作区。
 - 成员的资源（`resources`）是整个资源库当时的完整记录，Skill 复制到成员的资源包 `~/.janus/runs/<run>/members/<member>/bundle/`，之后修改资源库不影响已有 Run，见 [Run 和会话怎样拿到资源](../domains/20261116-resource_library.md#delivery)。
 - Git 仓库上的 Run 在自己的 worktree 中运行：`runs.cwd` 是 worktree 的路径，`runs.config.worktree.repo` 是原仓库，`runs.config.worktree.branch` 是创建时检出的分支（验收时合并回这里，detached HEAD 时为 `null`），没有 `worktree` 的 Run 直接在工作区目录中运行（非 Git 目录，或者这个功能之前创建的 Run）。见[工作目录](../domains/20261031-run_lifecycle.md#workspace_model)。
 - 随目标粘贴的图片保存在 `~/.janus/runs/<run>/attachments/`，路径列表写入 `runs.config.goalImages`，从中断处继续时负责人说明里仍有这些图片，见[图片附件](../domains/20261031-run_lifecycle.md#attachments)。

@@ -291,7 +291,7 @@ async fn recovery_uses_the_recorded_plan_boundary_and_preserves_legacy_holds() {
     let id = "replay-order";
     let mut config = row["config"].clone();
     config["costLimitUsd"] = json!(4.0);
-    h.app.db.insert_run(id, "恢复交错序列", row["cwd"].as_str().unwrap(), &config, now_ms()).unwrap();
+    h.app.db.insert_run(id, RunKind::Goal, "恢复交错序列", row["cwd"].as_str().unwrap(), &config, now_ms()).unwrap();
     let def = |id, agent, deps: &[&str]| json!({"id":id,"title":id,"agent":agent,"deps":deps,"accept":["完成"]});
     let mut verifier = def("V1", "m2", &["T1"]);
     verifier["verifies"] = json!("T1");
@@ -853,7 +853,10 @@ async fn a_rework_survives_a_restart() {
     wait_until(&h.app, &original, "seed delivered", |e| has(e, "run.delivered")).await;
     let row = h.app.db.run(&original).unwrap().unwrap();
     let id = "replay-rework";
-    h.app.db.insert_run(id, "返工后重启", row["cwd"].as_str().unwrap(), &row["config"], now_ms()).unwrap();
+    h.app
+        .db
+        .insert_run(id, RunKind::Goal, "返工后重启", row["cwd"].as_str().unwrap(), &row["config"], now_ms())
+        .unwrap();
     let def = |id, agent, deps: &[&str]| json!({"id":id,"title":id,"agent":agent,"deps":deps,"accept":["完成"]});
     let mut verifier = def("V1", "m2", &["T1"]);
     verifier["verifies"] = json!("T1");

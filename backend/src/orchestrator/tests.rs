@@ -236,6 +236,7 @@ fn long_results_are_clipped_on_the_board() {
 fn test_run(team_size: usize) -> Run {
     Run::new(RunRecord {
         id: "r-test".into(),
+        kind: RunKind::Goal,
         goal: "测试目标".into(),
         cwd: PathBuf::from("/tmp"),
         worktree: None,
@@ -290,7 +291,7 @@ fn concurrent_events_are_broadcast_in_seq_order() {
     std::fs::create_dir_all(&dir).unwrap();
     let app = test_app(&dir);
     let run = Arc::new(test_run(2));
-    app.db.insert_run(&run.id, &run.goal, "/tmp", &json!({}), 1).unwrap();
+    app.db.insert_run(&run.id, RunKind::Goal, &run.goal, "/tmp", &json!({}), 1).unwrap();
     let mut rx = app.tx.subscribe();
     let threads: Vec<_> = (0..8)
         .map(|_| {
@@ -316,7 +317,7 @@ fn cost_budget_uses_only_committed_cost_deltas() {
     let _ = std::fs::remove_dir_all(&dir);
     let app = test_app(&dir);
     let run = test_run(2);
-    app.db.insert_run(&run.id, "g", "/tmp", &json!({}), 1).unwrap();
+    app.db.insert_run(&run.id, RunKind::Goal, "g", "/tmp", &json!({}), 1).unwrap();
     run.cost_limit_micros.store(4_000_000, Ordering::SeqCst);
     app.emit(&run, ev("session.usage", "m1", "").data(json!({"session":"s","cost":{"currency":"USD","amount":3}})));
     let mut duplicate = app.db.events(&run.id, 0).unwrap().remove(0);
@@ -340,7 +341,7 @@ fn an_event_that_was_not_written_is_not_broadcast() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let app = test_app(&dir);
-    app.db.insert_run("r1", "g", "/tmp", &json!({}), 1).unwrap();
+    app.db.insert_run("r1", RunKind::Goal, "g", "/tmp", &json!({}), 1).unwrap();
     let mut rx = app.tx.subscribe();
     let event = |text: &str| Event {
         run_id: "r1".into(),

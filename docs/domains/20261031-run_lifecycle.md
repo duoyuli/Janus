@@ -12,7 +12,7 @@
 - [交付条件](#delivery_conditions)：修改 `execute` 的结果判断时阅读。
 - [Run 状态](#run_statuses)、[用户操作](#user_actions)、[中断与恢复](#recovery)。
 
-每个 Run 都以负责人用 `/goal` 推进目标开始，任务全部来自负责人的编排，见[目标模式与共享看板](20261031-goal_mode.md)。调度循环（`execute`）只负责执行看板上的任务并判断何时交付。
+每个目标 Run 都以负责人用 `/goal` 推进目标开始，任务全部来自负责人的编排，见[目标模式与共享看板](20261031-goal_mode.md)。和一名数字员工的对话也是 Run（`kind` 为 `chat`），没有看板、调度和交付，规则见[对话](20261120-chats.md)；本文其余部分说的都是目标 Run。调度循环（`execute`）只负责执行看板上的任务并判断何时交付。
 
 <a id="create_run"></a>
 ## 创建 Run

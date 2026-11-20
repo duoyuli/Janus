@@ -96,6 +96,8 @@ final class RunModel {
 
     var team: [JSON] { runJSON["config"]["team"].array }
     var workspaceId: String { runJSON["config"]["workspace"]["id"].str }
+    /// A conversation with one digital employee (`runs.kind`), shown as a chat page instead of the workbench.
+    var isChat: Bool { runJSON["kind"].str == "chat" }
 
     func read(keepPage: Bool = true) async {
         streamTask?.cancel()
@@ -240,12 +242,14 @@ final class RunModel {
             return Who(id: id, name: id, initials: "?", color: "#94a3b8", runtime: "", model: "", lead: false, m: .null)
         }
         let name = m["name"].str
-        let initials = m["init"].truthy ? m["init"].str : m["lead"].truthy ? "LD" : String(name.prefix(2)).uppercased()
+        // A chat's one member holds the main session but leads nobody: it looks like its role.
+        let lead = m["lead"].truthy && !isChat
+        let initials = m["init"].truthy ? m["init"].str : lead ? "LD" : String(name.prefix(2)).uppercased()
         // A role without a color of its own is slate; the lead's is the one colored tile.
         let own = m["color"].str
-        let color = Avatar.neutral.contains(own.lowercased()) ? (m["lead"].truthy ? Avatar.lead : Avatar.slate) : own
+        let color = Avatar.neutral.contains(own.lowercased()) ? (lead ? Avatar.lead : Avatar.slate) : own
         let rt = m["runtime_name"].truthy ? m["runtime_name"].str : store.connection(m["runtime"].str)?["name"].str ?? m["runtime"].str
-        return Who(id: id, name: name, initials: initials, color: color, runtime: rt, model: m["model"].str, lead: m["lead"].truthy, m: m)
+        return Who(id: id, name: name, initials: initials, color: color, runtime: rt, model: m["model"].str, lead: lead, m: m)
     }
 
     func agentName(_ id: String) -> String {

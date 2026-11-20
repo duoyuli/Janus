@@ -26,6 +26,8 @@ exists and ends with the text of that file.
 With a `mute` file in FAKE_DIR it never answers `initialize`, like an agent that hangs at startup.
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
+A chat with one digital employee (its brief says "talking with the user directly") logs "chat brief <cwd>" and
+answers every prompt "回复：<prompt>".
 A session's task and criteria are kept in FAKE_DIR (`session-<id>.json`), so a session loaded after a restart
 continues its task. Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
@@ -181,6 +183,9 @@ def wait_cancel(seconds):
 def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
+    if sid in CHATS:
+        say(sid, "回复：" + text)
+        return {"stopReason": "end_turn"}
     if text.startswith("[Janus] 你的这一轮已经结束"):
         # Janus asks whether a goal that never settled is done.
         log("goal check")
@@ -385,11 +390,19 @@ def prompt(msg):
     return {"stopReason": "end_turn"}
 
 
+CHATS = set()  # session ids of chats with one digital employee: their prompts are answered "回复：<text>"
+
+
 def log_brief(params):
-    """A lead's brief arrives in the system layer: Claude Code's `_meta.systemPrompt.append`."""
+    """A lead's brief arrives in the system layer: Claude Code's `_meta.systemPrompt.append`. A chat's
+    brief is logged with the session's working directory ("chat brief <cwd>")."""
     system = ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
     if "janus.orchestrate" in system:
         log("brief ok" + (" resumed" if "Resuming after an interruption." in system else ""))
+    if "talking with the user directly" in system:
+        log("chat brief " + params.get("cwd", ""))
+        return True
+    return False
 
 
 for line in sys.stdin:
@@ -409,15 +422,18 @@ for line in sys.stdin:
             if os.path.exists(os.path.join(DIR, "steer")):
                 res["_meta"] = {"steering": {"supported": True}}
         elif method == "session/new":
-            log_brief(msg["params"])
+            chat = log_brief(msg["params"])
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
+            if chat:
+                CHATS.add(res["sessionId"])
         elif method == "session/load":
             if os.path.exists(os.path.join(DIR, "fail-load")):
                 raise RuntimeError("session load failed")
             sid = msg["params"]["sessionId"]
             log(f"load {sid}")
-            log_brief(msg["params"])
+            if log_brief(msg["params"]):
+                CHATS.add(sid)
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": sid, "configOptions": config_options()}
         elif method == "session/set_config_option":

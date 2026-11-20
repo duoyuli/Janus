@@ -1,5 +1,5 @@
 {
-  "dataVersion": 11,
+  "dataVersion": 12,
   "tables": [
     "CREATE INDEX events_type_ts ON events (type, ts)",
     "CREATE TABLE artifacts ( run_id TEXT NOT NULL REFERENCES runs(id), task TEXT NOT NULL, attempt INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, created_at INTEGER NOT NULL )",
@@ -7,7 +7,7 @@
     "CREATE TABLE commands ( run_id TEXT NOT NULL REFERENCES runs(id), command_id TEXT NOT NULL, result TEXT NOT NULL, created_at INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'done', PRIMARY KEY (run_id, command_id) )",
     "CREATE TABLE configs ( kind TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (kind, id) )",
     "CREATE TABLE events ( run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL, ts INTEGER NOT NULL, type TEXT NOT NULL, actor TEXT NOT NULL, to_agent TEXT, task TEXT, attempt INTEGER, text TEXT NOT NULL, data TEXT, PRIMARY KEY (run_id, seq) )",
-    "CREATE TABLE runs ( id TEXT PRIMARY KEY, goal TEXT NOT NULL, cwd TEXT NOT NULL, config TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL )",
+    "CREATE TABLE runs ( id TEXT PRIMARY KEY, goal TEXT NOT NULL, cwd TEXT NOT NULL, config TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL , kind TEXT NOT NULL DEFAULT 'goal')",
     "CREATE TABLE verifications ( run_id TEXT NOT NULL REFERENCES runs(id), task TEXT NOT NULL, attempt INTEGER NOT NULL, attempt_id TEXT NOT NULL, status TEXT NOT NULL, details TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (run_id, task, attempt, attempt_id) )"
   ],
   "kinds": {

@@ -19,8 +19,11 @@ struct SessionInfo {
     var idle: Bool
     var resume: Bool
     var leave: Bool
-    /// The lead's first goal is done, but its session is still open for a regular conversation.
+    /// The lead's first goal is done, but its session is still open for a regular conversation;
+    /// or a chat, which is always a conversation.
     var converse: Bool
+    /// A chat with one digital employee: sending reopens it whenever its session is gone.
+    var chat = false
 }
 
 func taskSession(_ st: RunState, _ t: TaskState) -> SessionInfo {
@@ -46,6 +49,8 @@ enum SessionComposer: Equatable {
 
     init(_ info: SessionInfo, live: Bool, replaying: Bool) {
         if replaying { self = .replay }
+        // A conversation's open session that waits for the person takes a plain message.
+        else if info.open && live && info.converse && info.idle && !info.human { self = .converse }
         else if info.open && live { self = info.human ? .human(idle: info.idle) : .managed }
         else if info.resume { self = .interrupted }
         else if info.converse { self = .converse }
@@ -64,6 +69,21 @@ func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
     let active = !(st.run.status.isDone || st.run.status == .cancelled)
     let converse = id == "lead" && st.run.status.isDone
     return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: st.run.status.canResume, leave: active, converse: converse)
+}
+
+/// A chat's one session: the employee's events; open while its session runs. Any message
+/// reopens it otherwise, so it is never interrupted or ended for the person.
+// @project-doc docs/domains/20261120-chats.md#chat_app
+func chatSession(_ st: RunState, live: Bool) -> SessionInfo {
+    var info = agentSession(st, "lead")
+    // What the person wrote is the prompt itself: it shows once, as their message.
+    info.evs.removeAll { $0.type == "session.prompt" && $0.data["channel"].str == "followup" }
+    info.open = live && st.run.status == .running
+    info.resume = false
+    info.leave = false
+    info.converse = true
+    info.chat = true
+    return info
 }
 
 /// One conversation view for every session.
@@ -142,6 +162,15 @@ struct ChatCard: View {
             return (L.text("托管中 · 自主执行"), .blue, AnyView(HStack { btn("interrupt", L.text("打断并接管"), danger: true); btn("takeover", L.text("接管")); btn("sessSend", L.text("插话"), true) }), ph, true)
         case .interrupted:
             return (L.text("已中断"), .gray, AnyView(HStack { Button(L.text("从中断处继续")) { Task { await run.act(["type": "resumeRun"]) } }; btn("sessSend", L.text("发送并继续"), true) }), L.text("补充信息或直接写「继续」，发送后从中断处恢复"), true)
+        case .converse where info.chat:
+            // A chat waits for the next message; a chat whose session is gone reopens with it.
+            return (
+                info.open && live ? L.text("等你的消息") : L.text("会话已关闭"),
+                .gray,
+                AnyView(btn("sessSend", L.text("发送"), true)),
+                info.open && live ? L.text("给 \(title) 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送") : L.text("发送后重新打开和 \(title) 的会话"),
+                true
+            )
         case .converse:
             // The first goal is done; the same session now takes ordinary prompts. A slash command
             // starts a new goal and Janus follows it again. A historical run has no session yet,
@@ -464,6 +493,9 @@ struct ChatItem: View {
                 }
                 DisclosureGroup(L.text("编排器发出的子任务说明")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
+        case "run.created" where d["kind"].str == "chat":
+            divider(L.text("对话 · \(d["role"]["name"].str) · \(L.dateTime(e.ts))"))
+            Text(verbatim: L.text("工作目录 \(L.tilde(d["cwd"].str))：为这次对话新建，删除对话时一起删除")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
         case "run.created":
             divider(L.text("目标 · \(L.goalTitle(d["goal"].str))"))
             if let git = SessionView.runGitNote(d) {
