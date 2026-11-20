@@ -100,6 +100,12 @@ impl Db {
         Ok(())
     }
 
+    /// A chat's title, from its first message.
+    pub fn set_run_goal(&self, id: &str, goal: &str) -> Result<()> {
+        self.0.lock().unwrap().execute("UPDATE runs SET goal = ?2 WHERE id = ?1", params![id, goal])?;
+        Ok(())
+    }
+
     pub fn set_run_status(&self, id: &str, status: RunStatus) -> Result<()> {
         self.0.lock().unwrap().execute("UPDATE runs SET status = ?2 WHERE id = ?1", params![id, status.as_str()])?;
         Ok(())

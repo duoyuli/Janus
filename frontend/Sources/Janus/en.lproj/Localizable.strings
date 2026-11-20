@@ -274,7 +274,6 @@
 "先选择一个选项" = "Choose an option first";
 "先选择一个选项，或写下你的回答" = "Choose an option or enter your answer first";
 "全不选" = "Deselect All";
-"全局" = "Global";
 "全选" = "Select All";
 "全部" = "All";
 "全部参与者" = "All Participants";
@@ -286,7 +285,6 @@
 "关闭后，这次的修改不会保存。" = "Closing will discard the changes you made.";
 "其中等待你 %@" = "Waiting for you: %@";
 "内容通过 ACP 原样交回 Agent。" = "Your responses are sent as entered to the Agent over ACP.";
-"再显示 10 个任务记录" = "Show the next 10 runs";
 "写下任务，发送后恢复负责人会话" = "Send a task to reopen the lead’s session";
 "写下接下来要做的，或用 /goal 设置新的目标" = "Describe the next task, or use /goal to set a new goal";
 "写回看板：%@" = "Post to the board: %@";
@@ -298,7 +296,6 @@
 "分享" = "Share";
 "分配的子任务都已完成" = "Assigned subtasks are complete";
 "切回" = "Switch Back";
-"切换或新建工作区" = "Switch or create a workspace";
 "切换视图（⌘1 / ⌘2 / ⌘3）" = "Switch view (⌘1 / ⌘2 / ⌘3)";
 "切换这个会话的%@，立即生效" = "Change %@ for this session. Takes effect immediately.";
 "刚刚" = "Just now";
@@ -468,7 +465,6 @@
 "工作区设置 · %@" = "Workspace Settings · %@";
 "工作区设置…" = "Workspace Settings…";
 "工作区里有 %lld 个数字员工已被删除，请在工作区设置中移除或换成别的数字员工。" = "Deleted digital employees in this workspace: %lld. Remove or replace them in Workspace Settings.";
-"工作区：%@" = "Workspace: %@";
 "工作台" = "Workbench";
 "工作台 · %lld" = "Workbench · %lld";
 "工作台上的状态都由这些事件推导；子任务状态只由编排器改变。选中一条事件查看原文，点「回放到这里」看当时的工作台。" = "The workbench derives its state from these events. Only the orchestrator changes subtask state. Select an event to see its original record, or choose Replay to Here to see the workbench at that point.";
@@ -624,13 +620,11 @@
 "放到「稍后处理」，到时间再回到这里。没有人在等它，推迟不会卡住任务" = "Move this to Snoozed until the selected time. The run can continue while you wait.";
 "放弃更改" = "Discard Changes";
 "放弃未保存的更改？" = "Discard Unsaved Changes?";
-"数字员工" = "Digital Employees";
+"数字员工" = "Employees";
 "数字员工颜色" = "Digital Employee Color";
 "文档" = "Documents";
 "新功能上线" = "Launch a Feature";
 "新建 Skill" = "New Skill";
-"新建任务" = "New Run";
-"新建任务：打开工作区，写下目标并交给负责人" = "Open the workspace and give a new goal to the lead";
 "新建工作区" = "New Workspace";
 "新建工作区…" = "New Workspace…";
 "新建数字员工" = "New Digital Employee";
@@ -693,7 +687,6 @@
 "未说明" = "Unspecified";
 "未说明 %lld 条" = "Unspecified: %lld";
 "未读取权限模式" = "Permission modes not loaded";
-"未选择" = "None selected";
 "未选择 Agent" = "No Agent Selected";
 "本会话 上下文 %@" = "Session context: %@";
 "本会话 上下文 %lld%%" = "Session context: %lld%%";
@@ -810,7 +803,7 @@
 "用户的长期要求 · %@" = "User’s Standing Instructions · %@";
 "用量 %@ tokens（%@）" = "Usage: %@ tokens (%@)";
 "用量明细" = "Usage Details";
-"用量账单" = "Usage Statement";
+"用量账单" = "Usage";
 "用默认应用打开" = "Open in Default App";
 "由谁来做" = "Agent & Model";
 "申请授权" = "Request Access";
@@ -985,7 +978,7 @@
 "费用 %@" = "Cost: %@";
 "费用无法判断：有 token 用量，但没有任何会话上报费用" = "Cost is unknown. Tokens were reported, but no session reported a cost.";
 "费用：%@" = "Cost: %@";
-"资源库" = "Resource Library";
+"资源库" = "Library";
 "越界" = "Out-of-Scope Edit";
 "跳过" = "Skip";
 "输入" = "Input";
@@ -1055,7 +1048,6 @@
 "退出回放（Esc）" = "Exit Replay (Esc)";
 "选择 Agent" = "Choose Agent";
 "选择一个 Skill 文件夹，或包含多个 Skill 的父文件夹" = "Choose a skill folder or a parent folder containing multiple skills";
-"选择工作区" = "Select Workspace";
 "选择文件夹…" = "Choose Folder…";
 "选择要附上的图片" = "Choose Images to Attach";
 "选择颜色" = "Choose Color";
@@ -1379,22 +1371,12 @@
 "已删除对话" = "Chat deleted";
 "新对话" = "New Chat";
 "删除对话…" = "Delete Chat…";
-"和一名数字员工单独对话（⌥⌘N）" = "Talk with one digital employee (⌥⌘N)";
-"对话，%lld 个会话打开着" = "Chats, %lld sessions open";
-"和一名数字员工单独对话：它带着自己的指令、模型、权限和资源库，在为这次对话新建的工作目录里工作，没有团队和看板。" = "Talk with one digital employee. It brings its own instructions, model, permissions and the Resource Library, and works in a directory made for this chat, with no team and no board.";
 "还没有数字员工。" = "There are no digital employees yet.";
 "和谁对话" = "Talk With";
 "还没有绑定 Agent" = "No Agent bound yet";
 "Agent「%@」还没有测试通过" = "Agent “%@” has not passed its check";
-"先选一名可以运行的数字员工" = "Choose a digital employee that can run first";
-"给 %@ 发消息，可以 ⌘V 粘贴截图，⌘↩ 开始对话" = "Message %@ — paste screenshots with ⌘V, start with ⌘↩";
-"开始对话" = "Start Chat";
-"没有可以运行的数字员工" = "No digital employee can run";
-"先写下第一条消息" = "Write the first message first";
-"最近的对话" = "Recent Chats";
 "没有写职责" = "No responsibilities written";
 "%@：在设置的「数字员工」页处理" = "%@: fix it in Settings › Digital Employees";
-"已选择" = "Selected";
 "会话中" = "In session";
 "已关闭" = "Closed";
 "在 Finder 中显示这次对话的工作目录：为它新建，删除对话时一起删除" = "Show this chat's working directory in Finder. It was made for this chat and is deleted with it.";
@@ -1402,6 +1384,25 @@
 "导出这次对话的事件日志（JSONL）" = "Export this chat's event log (JSONL)";
 "删除对话" = "Delete Chat";
 "删除这次对话、它的记录和工作目录，不可恢复" = "Delete this chat, its record and its working directory. This cannot be undone.";
+
+"新对话：选一名数字员工单独对话（⌥⌘N）" = "New chat: talk with one digital employee (⌥⌘N)";
+"再显示 10 个对话" = "Show 10 more chats";
+"和 %@ 的对话，%@" = "Chat with %1$@, %2$@";
+"和 %@ 的新对话" = "New chat with %@";
+"和 %@ 开始对话" = "Start a chat with %@";
+"正在打开" = "Opening";
+
+"选一名数字员工，开始后直接和它对话" = "Pick a digital employee, then start talking with it";
+"正在打开…" = "Opening…";
+"开始对话" = "Start Chat";
+"已选择" = "Selected";
+"没有可以运行的数字员工" = "No digital employee can run";
+"打开会话，注入数字员工的指令，然后由你先说（↩）" = "Opens the session with the digital employee's instructions; then you speak first (↩)";
+
+"这名数字员工" = "the digital employee";
+
+
+"再显示 20 个任务记录" = "Show 20 more runs";
 
 /* ACP adapter updates */
 "%lld 个 ACP 适配器有新版本" = "ACP adapter updates: %lld";

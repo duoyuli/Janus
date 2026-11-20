@@ -1,53 +1,74 @@
 import AppKit
 import SwiftUI
 
-/// Talk with one digital employee: choose who, write the first message, and find the recent chats.
-/// A chat is a run of its own kind (docs/domains/20261120-chats.md): its page is `ChatView`.
+/// Start a chat, in the middle of the page: one card per digital employee, a click picks one and
+/// 「开始对话」 opens the chat with it (a double click does both). Its session starts through ACP with
+/// the system layer in place, and the person writes first. The chats so far are in the sidebar. A
+/// chat is a run of its own kind (docs/domains/20261120-chats.md): its page is `ChatView`.
 // @project-doc docs/domains/20261120-chats.md#chat_app
 struct ChatsView: View {
     let store: AppStore
+    /// The employee a chat is being started with, so nothing else starts meanwhile.
+    @Local private var starting: String?
 
     var body: some View {
         let roles = store.roles
         let chosen = Self.chosen(store.chatRole, in: roles, connection: store.connection)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L.text("对话")).font(.display(.largeTitle))
-                    Text(L.text("和一名数字员工单独对话：它带着自己的指令、模型、权限和资源库，在为这次对话新建的工作目录里工作，没有团队和看板。"))
-                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-
-                if roles.isEmpty {
-                    HStack {
-                        Note(text: L.text("还没有数字员工。"), tone: .amber)
-                        Button(L.text("打开数字员工设置")) { store.openSettings(.agents) }
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 18) {
+                    VStack(spacing: 4) {
+                        Text(L.text("和谁对话")).font(.display(.title2))
+                        Text(L.text("选一名数字员工，开始后直接和它对话")).font(.callout).foregroundStyle(.secondary)
                     }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(L.text("和谁对话")).font(.headline)
+                    if roles.isEmpty {
+                        HStack {
+                            Note(text: L.text("还没有数字员工。"), tone: .amber)
+                            Button(L.text("打开数字员工设置")) { store.openSettings(.agents) }
+                        }
+                    } else {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
                             ForEach(roles, id: \.self) { r in
-                                RoleChoice(store: store, role: r, selected: chosen?["id"].str == r["id"].str) { store.chatRole = r["id"].str }
+                                RoleChoice(store: store, role: r, selected: chosen?["id"].str == r["id"].str, starting: starting == r["id"].str,
+                                           pick: { store.chatRole = r["id"].str }, start: { start(r) })
                             }
                         }
+                        .disabled(starting != nil)
+                        Button { if let chosen { start(chosen) } } label: {
+                            HStack(spacing: 6) {
+                                if starting != nil { ProgressView().controlSize(.small) }
+                                Text(starting != nil ? L.text("正在打开…") : chosen.map { L.text("和 \($0["name"].str) 开始对话") } ?? L.text("开始对话"))
+                            }
+                            .frame(minWidth: 160)
+                        }
+                        .buttonStyle(.primary)
+                        .controlSize(.large)
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(chosen == nil || starting != nil)
+                        .help(chosen == nil ? L.text("没有可以运行的数字员工") : L.text("打开会话，注入数字员工的指令，然后由你先说（↩）"))
                     }
-                    composer(chosen)
                 }
-
-                recent
+                .padding(24)
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
-            .padding(24)
-            .frame(maxWidth: 820, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
     }
 
-    /// The employee a new chat is with: the one chosen last if it can still run, otherwise the
+    /// The employee a new chat is with: the one picked last if it can still run, otherwise the
     /// first that can.
     static func chosen(_ id: String, in roles: [JSON], connection: (String) -> JSON?) -> JSON? {
         let ready = roles.filter { unavailable($0, connection: connection) == nil }
         return ready.first { $0["id"].str == id } ?? ready.first
+    }
+
+    private func start(_ role: JSON) {
+        store.chatRole = role["id"].str
+        starting = role["id"].str
+        Task {
+            await store.createChat(role: role["id"].str)
+            starting = nil
+        }
     }
 
     /// Why a digital employee cannot chat now: no agent bound, or its agent not checked yet.
@@ -56,54 +77,11 @@ struct ChatsView: View {
         return c["phase"].str == "ok" ? nil : L.text("Agent「\(c["name"].str)」还没有测试通过")
     }
 
-    private func composer(_ chosen: JSON?) -> some View {
-        let name = chosen?["name"].str ?? ""
-        let empty = store.chatDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.chatImages.isEmpty
-        return VStack(alignment: .leading, spacing: 10) {
-            Composer(
-                text: Binding(get: { store.chatDraft }, set: { store.chatDraft = $0 }),
-                images: Binding(get: { store.chatImages }, set: { store.chatImages = $0 }),
-                placeholder: chosen == nil ? L.text("先选一名可以运行的数字员工") : L.text("给 \(name) 发消息，可以 ⌘V 粘贴截图，⌘↩ 开始对话"),
-                disabled: chosen == nil,
-                minHeight: 80
-            ) { start(chosen) }
-            HStack {
-                if let chosen { Text(verbatim: Self.setup(chosen, store: store)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                Spacer()
-                Button(L.text("开始对话")) { start(chosen) }
-                    .buttonStyle(.primary)
-                    .disabled(chosen == nil || empty)
-                    .help(chosen == nil ? L.text("没有可以运行的数字员工") : empty ? L.text("先写下第一条消息") : "⌘↩")
-            }
-        }
-    }
-
     /// "Claude Code · claude-sonnet · Bypass permissions": who does the work, in one line.
     static func setup(_ role: JSON, store: AppStore) -> String {
         let conn = store.connection(role["connection"].str)
         let parts = [conn?["name"].str ?? "", role["model"].str, Setup.permLabel(role["session"], conn)]
         return parts.filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    private func start(_ chosen: JSON?) {
-        let text = store.chatDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let images = store.chatImages
-        guard let chosen, !text.isEmpty || !images.isEmpty else { return }
-        Task { await store.createChat(role: chosen["id"].str, text: text, images: images) }
-    }
-
-    @ViewBuilder private var recent: some View {
-        if !store.chats.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L.text("最近的对话")).font(.headline)
-                Card(padding: 4) {
-                    ForEach(store.chats, id: \.self) { c in
-                        ChatRow(store: store, chat: c)
-                        if c != store.chats.last { Divider() }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -112,7 +90,10 @@ private struct RoleChoice: View {
     let store: AppStore
     let role: JSON
     let selected: Bool
+    /// Its chat is being opened.
+    let starting: Bool
     let pick: () -> Void
+    let start: () -> Void
 
     var body: some View {
         let why = ChatsView.unavailable(role, connection: store.connection)
@@ -120,9 +101,10 @@ private struct RoleChoice: View {
             HStack(alignment: .top, spacing: 10) {
                 Avatar(initials: role["init"].truthy ? role["init"].str : String(role["name"].str.prefix(2)), color: role["color"].str, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         Text(role["name"].str).fontWeight(.semibold).lineLimit(1)
-                        if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor).accessibilityHidden(true) }
+                        if starting { ProgressView().controlSize(.mini) }
+                        else if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor).accessibilityHidden(true) }
                     }
                     Text(role["desc"].str.isEmpty ? L.text("没有写职责") : role["desc"].str)
                         .font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -138,41 +120,14 @@ private struct RoleChoice: View {
             .opacity(why == nil ? 1 : 0.55)
         }
         .buttonStyle(.plain)
+        // A double click picks and starts at once.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { if why == nil { start() } })
         .hoverable(10)
         .disabled(why != nil)
         .help(why.map { L.text("\($0)：在设置的「数字员工」页处理") } ?? ChatsView.setup(role, store: store))
         .accessibilityLabel(role["name"].str)
-        .accessibilityValue(why ?? (selected ? L.text("已选择") : ""))
+        .accessibilityValue(why ?? (starting ? L.text("正在打开") : selected ? L.text("已选择") : ""))
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// A chat in the recent list: its first message, who it is with and when, and whether its session is open.
-private struct ChatRow: View {
-    let store: AppStore
-    let chat: JSON
-
-    var body: some View {
-        let member = chat["config"]["team"][0]
-        let (label, tone) = ChatRowStatus.label(RunStatus(chat["status"].str))
-        Button { store.open(.run(chat["id"].str)) } label: {
-            HStack(spacing: 10) {
-                Avatar(initials: member["init"].truthy ? member["init"].str : String(member["name"].str.prefix(2)), color: member["color"].str, size: 24)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(L.goalTitle(chat["goal"].str)).lineLimit(1)
-                    Text(verbatim: "\(member["name"].str) · \(L.dateTime(chat["createdAt"].double ?? 0))").font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Pill(label, tone)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 8)
-            .contentShape(Rectangle())
-            .hoverable(6)
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button(L.text("删除对话…"), role: .destructive) { Task { await store.deleteRun(chat["id"].str) } }
-        }
     }
 }
 
@@ -180,6 +135,12 @@ private struct ChatRow: View {
 enum ChatRowStatus {
     static func label(_ s: RunStatus) -> (String, Tone) {
         s.isActive ? (L.text("会话中"), .blue) : (L.text("已关闭"), .gray)
+    }
+
+    /// A chat is listed by its first message; before there is one, by who it is with.
+    static func title(_ chat: JSON) -> String {
+        let goal = chat["goal"].str
+        return goal.isEmpty ? L.text("和 \(chat["config"]["team"][0]["name"].str) 的新对话") : L.goalTitle(goal)
     }
 }
 
@@ -219,5 +180,14 @@ struct ChatView: View {
         .padding(20)
         .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity)
+    }
+}
+
+extension RunModel {
+    /// A chat's title: its first message as soon as it is sent (the list's copy follows on the next
+    /// refresh), otherwise who it is with.
+    var chatTitle: String {
+        if let first = state.events.first(where: { $0.type == "user.message" }) { return L.goalTitle(first.data["text"].str) }
+        return ChatRowStatus.title(runJSON)
     }
 }

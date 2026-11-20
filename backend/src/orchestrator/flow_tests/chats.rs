@@ -18,27 +18,40 @@ async fn with_library_server(h: &Harness) {
     h.app.import_mcp_config(&config.to_string()).await.unwrap();
 }
 
+/// Start a chat with `role` and send it `text` once its session is open, as the app does.
 async fn chat(h: &Harness, role: &str, text: &str) -> String {
-    h.app.create_chat(NewChat { role: role.into(), text: text.into(), images: vec![] }).await.unwrap()
+    let id = h.app.create_chat(NewChat { role: role.into() }).await.unwrap();
+    act(h, &id, json!({ "type": "message", "agent": "lead", "text": text }));
+    id
 }
 
-/// A chat is a run of its own kind: the chosen employee answers in a session that opens with the
-/// first message, works in a fresh directory under Janus home, has no board, and takes the next
-/// message in the same session. Goals and chats are listed apart.
+/// A chat is a run of its own kind: its session opens right away with the system layer and waits
+/// for the person; the chosen employee answers in it, works in a fresh directory under Janus home,
+/// has no board, and takes the next message in the same session. The first message titles it.
+/// Goals and chats are listed apart.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     let h = harness("chat", &[("lead", false), ("m1", true)], json!({}));
     with_library_server(&h).await;
-    let id = chat(&h, "m1", "你好").await;
-    wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
+    let id = h.app.create_chat(NewChat { role: "m1".into() }).await.unwrap();
+    wait_until(&h.app, &id, "the session waiting for the person", |evs| {
+        evs.iter().any(|e| e.kind == "agent.status" && e.data.as_ref().is_some_and(|d| d["turn"] == "idle"))
+    })
+    .await;
+    assert!(calls(&h).contains("chat brief"), "the system layer goes in before anything is said");
+    assert!(!has(&events(&h.app, &id), "agent.message"), "the agent says nothing before the person writes");
+    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "", "untitled until the first message");
 
+    act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "你好\n第二行" }));
+    wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
     assert!(
         events(&h.app, &id)
             .iter()
             .any(|e| e.kind == "message.routed" && e.data.as_ref().is_some_and(|d| d["delivery"] == "prompt")),
-        "the first message opens the session as its first turn, not as a queued note"
+        "the first message is a turn of the open session"
     );
     let row = h.app.db.run(&id).unwrap().unwrap();
+    assert_eq!(row["goal"], "你好\n第二行", "the first message titles the chat");
     assert_eq!(row["kind"], "chat");
     assert_eq!(row["status"], "running", "the session is open");
     let dir = h.app.chat_dir(&id).canonicalize().unwrap();
@@ -56,6 +69,7 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "第二条" }));
     wait_until(&h.app, &id, "the second reply", |e| replied(e, "第二条")).await;
     assert_eq!(log.matches("chat brief").count(), calls(&h).matches("chat brief").count(), "the same session");
+    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "你好\n第二行", "later messages keep the title");
     assert!(
         events(&h.app, &id)
             .iter()
@@ -139,12 +153,10 @@ async fn a_chat_is_deleted_with_its_directory() {
     let mut unbound = crate::agents::test_role("m2", json!({ "connection": "" }));
     unbound["connection"] = json!("");
     h.app.db.put_config("role", "m2", &unbound, now_ms()).unwrap();
-    let refused = h.app.create_chat(NewChat { role: "m2".into(), text: "你好".into(), images: vec![] }).await;
+    let refused = h.app.create_chat(NewChat { role: "m2".into() }).await;
     assert!(format!("{:#}", refused.unwrap_err()).contains("还没有绑定 Agent"));
-    let missing = h.app.create_chat(NewChat { role: "nobody".into(), text: "你好".into(), images: vec![] }).await;
+    let missing = h.app.create_chat(NewChat { role: "nobody".into() }).await;
     assert!(missing.is_err());
-    let empty = h.app.create_chat(NewChat { role: "m1".into(), text: "  ".into(), images: vec![] }).await;
-    assert!(format!("{:#}", empty.unwrap_err()).contains("消息不能为空"));
     assert_eq!(h.app.db.runs(RunKind::Chat).unwrap().len(), 0, "nothing was created for a refused chat");
     let _ = std::fs::remove_dir_all(&h.dir);
 }

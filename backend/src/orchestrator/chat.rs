@@ -8,13 +8,10 @@
 use super::*;
 
 impl App {
-    /// Start a chat with `role`: snapshot it as the run's one member, make the chat's directory,
-    /// record the first message and open the session that takes it.
+    /// Start a chat with `role`: snapshot it as the run's one member, make the chat's directory and
+    /// open its session, which waits for the person's first message.
     // @project-doc docs/domains/20261120-chats.md#chat_model
     pub async fn create_chat(self: &Arc<Self>, req: NewChat) -> Result<String> {
-        if req.text.trim().is_empty() && req.images.is_empty() {
-            bail!("消息不能为空");
-        }
         let role = self
             .db
             .get_config(crate::agents::ROLE, &req.role)?
@@ -30,18 +27,13 @@ impl App {
         let cwd = dir.canonicalize().unwrap_or(dir);
         let team = vec![member];
         self.bundle_team(&id, &team)?;
-        let images = crate::attachments::save(&self.cfg.data_dir, &id, &req.images)?;
-        let text = crate::attachments::with_lines(req.text.trim(), &images);
-        let title = match req.text.trim() {
-            "" => "看看这些图片".to_string(),
-            t => t.to_string(),
-        };
         let config = json!({ "team": team, "git": false, "baseRef": "" });
-        self.db.insert_run(&id, RunKind::Chat, &title, &cwd.to_string_lossy(), &config, now_ms())?;
+        // Titled by its first message, once there is one (`title_chat`).
+        self.db.insert_run(&id, RunKind::Chat, "", &cwd.to_string_lossy(), &config, now_ms())?;
         let run = Arc::new(Run::new(RunRecord {
             id: id.clone(),
             kind: RunKind::Chat,
-            goal: title,
+            goal: String::new(),
             cwd,
             worktree: None,
             team,
@@ -60,12 +52,21 @@ impl App {
                 "kind": RunKind::Chat, "cwd": run.cwd, "git": false, "role": { "id": role["id"], "name": name },
             })),
         );
-        // The first message waits for the session like any message left for it, and opens it.
-        let msg = self.post_message(&run, "user", "lead", "", &text, &images);
-        run.st.lock().unwrap().notes.entry("lead".into()).or_default().push(msg);
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.spawn_conversation(run);
         Ok(id)
+    }
+
+    /// A chat is listed by its first message: the first one the person sends titles it.
+    pub(super) fn title_chat(&self, run: &Run, text: &str) -> Result<()> {
+        if run.kind != RunKind::Chat || self.db.run(&run.id)?.is_some_and(|r| r["goal"] != "") {
+            return Ok(());
+        }
+        let title = match text.trim() {
+            "" => "看看这些图片",
+            t => t,
+        };
+        self.db.set_run_goal(&run.id, title)
     }
 
     /// Where a chat works: its own directory under Janus home, removed with the chat.

@@ -158,14 +158,11 @@ pub struct NewRun {
     pub max_cost_usd: Option<f64>,
 }
 
-/// A conversation with one digital employee: the role, and the first message with its images.
+/// A conversation with one digital employee: who it is with. The person writes the first message
+/// once its session is open.
 #[derive(Deserialize, Default)]
 pub struct NewChat {
     pub role: String,
-    #[serde(default)]
-    pub text: String,
-    #[serde(default)]
-    pub images: Vec<Value>,
 }
 
 /// A task on the board, as the lead orchestrated it (see `validate_orchestration`).
@@ -838,7 +835,7 @@ pub struct Run {
     pub id: String,
     /// A goal for the lead and its team, or a conversation with one digital employee.
     pub kind: RunKind,
-    /// The goal; for a chat, its first message (the title it is listed by).
+    /// The goal. A chat has none: it is listed by its first message (`runs.goal`, `title_chat`).
     pub goal: String,
     /// Where the run's sessions work: the worktree for a run on a git repository, otherwise the
     /// workspace directory.

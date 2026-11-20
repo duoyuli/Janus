@@ -59,68 +59,42 @@ struct MainView: View {
     }
 }
 
+/// The sidebar in three parts: the inbox at the top (across everything, always in sight), then 工作区
+/// (the workspace's team and its task records) and 对话 (chats with one digital employee and their
+/// history), which follow one another in one scrolling list. Task records lead with their status;
+/// chats with the employee they are with.
+// @project-doc docs/architecture/20261031-frontend.md#screens
 struct Sidebar: View {
     let store: AppStore
-    /// How many task records are shown; the rest wait behind「展示更多」, in steps of ten.
-    @Local private var shownRuns = 10
+    /// How many chats are shown; the rest wait behind「展示更多」, in steps of ten.
+    @Local private var shownChats = 10
 
     var body: some View {
-        let selection = Binding<Screen?>(get: { store.screen }, set: { if let s = $0 { store.open(s) } })
         let ws = store.currentWorkspace
-        List(selection: selection) {
-            if let ws {
-                let runs = store.runs(of: ws)
-                ForEach(runs.prefix(shownRuns), id: \.self) { r in
-                    // A run waiting on the person says so, with how many, like the inbox.
-                    let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
-                    let (label, tone) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : RunStatus(r["status"].str).listLabel
-                    HStack(spacing: 8) {
-                        Circle().fill(tone.color).frame(width: 7, height: 7).accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(L.goalTitle(r["goal"].str)).lineLimit(1)
-                            Text(verbatim: "\(label) · \(L.dateTime(r["createdAt"].double ?? 0))").font(.caption).foregroundStyle(waiting > 0 ? tone.color : .secondary)
-                        }
+        // The inbox stays in sight; the two histories follow one another and scroll together, so a
+        // short task list leaves no gap above the chats. Laid out by hand rather than in a List, so
+        // headings, cards and records line up with the inbox.
+        VStack(alignment: .leading, spacing: 0) {
+            InboxButton(store: store).padding(.top, 8)
+            Rectangle().fill(Color.line).frame(height: 1).padding(.top, 8)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    // Every workspace, one row each: a click opens it (its task records are on its
+                    // page), the plus makes a new one.
+                    SidebarHeading(title: L.text("Agent Team"), icon: "person.3", plus: L.text("新建工作区…")) {
+                        store.editingWorkspace = AppStore.blankWorkspace
                     }
-                    .badge(waiting)
-                    .accessibilityValue(waiting == 0 ? label : L.text("\(waiting) 项等你处理"))
-                    .tag(Screen.run(r["id"].str))
-                    .contextMenu {
-                        Button(L.text("删除任务…"), role: .destructive) { Task { await store.deleteRun(r["id"].str) } }
-                            .disabled(RunStatus(r["status"].str).isActive)
+                    ForEach(store.workspaces, id: \.self) { w in
+                        WorkspaceRow(store: store, ws: w, current: w["id"].str == ws?["id"].str)
                     }
+                    Rectangle().fill(Color.line).frame(height: 1).padding(.top, 14).padding(.bottom, 8)
+                    SidebarHeading(title: L.text("Chat"), icon: "bubble.left.and.bubble.right", plus: L.text("新对话：选一名数字员工单独对话（⌥⌘N）")) { store.open(.chats) }
+                    chatRows()
                 }
-                if runs.count > shownRuns {
-                    Button { shownRuns = min(shownRuns + 10, runs.count) } label: {
-                        Text(L.text("展示更多"))
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.leading, 15)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .hoverable(6)
-                    .help(L.text("再显示 10 个任务记录"))
-                }
+                .padding(.bottom, 8)
             }
         }
-        .listStyle(.sidebar)
-        // A new workspace starts from its latest ten again.
-        .onChange(of: ws?["id"].str) { shownRuns = 10 }
-        .scrollContentBackground(.hidden)
         .background(Color.sidebar.ignoresSafeArea())
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                sidebarLabel(L.text("全局"))
-                InboxButton(store: store)
-                ChatsButton(store: store)
-                Rectangle().fill(Color.line).frame(height: 1).padding(.top, 6)
-                sidebarLabel(L.text("工作区")).padding(.top, 2)
-                WorkspacePicker(store: store, current: ws)
-                if let ws { taskHistoryHeader(ws) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
         .safeAreaInset(edge: .bottom) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -147,44 +121,126 @@ struct Sidebar: View {
                 if let n = store.serverNotice { Text(n).font(.caption2).foregroundStyle(Tone.amber.color).fixedSize(horizontal: false, vertical: true) }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Color.sidebar)
         }
     }
 
-    /// The task history's heading and a quiet plus that opens the workspace home, where a new
-    /// goal is written. It stays above the list, so the list needs no section header and the
-    /// disclosure chevron that comes with one.
-    private func taskHistoryHeader(_ ws: JSON) -> some View {
-        HStack(spacing: 6) {
-            Text(L.text("任务记录"))
-            Spacer(minLength: 6)
-            Button { store.open(.home(ws["id"].str)) } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
+    private func shown(_ id: String) -> Bool {
+        if case .run(let shown) = store.screen { return shown == id }
+        return false
+    }
+
+    /// The chats: who each one is with, its first message, and whether its session is open.
+    @ViewBuilder private func chatRows() -> some View {
+        ForEach(store.chats.prefix(shownChats), id: \.self) { c in
+            let member = c["config"]["team"][0]
+            let waiting = store.inbox.open.filter { $0.run == c["id"].str }.count
+            let (label, tone) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : ChatRowStatus.label(RunStatus(c["status"].str))
+            HistoryRow(title: ChatRowStatus.title(c), sub: "\(member["name"].str) · \(label) · \(L.dateTime(c["createdAt"].double ?? 0))", waiting: waiting, subTone: waiting > 0 ? tone : nil, accessibility: L.text("和 \(member["name"].str) 的对话，\(label)"), selected: shown(c["id"].str), open: { store.open(.run(c["id"].str)) }) {
+                Avatar(initials: member["init"].truthy ? member["init"].str : String(member["name"].str.prefix(2)), color: member["color"].str, size: 18)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .hoverable(5)
-            .help(L.text("新建任务：打开工作区，写下目标并交给负责人"))
-            .accessibilityLabel(L.text("新建任务"))
+            .contextMenu {
+                Button(L.text("删除对话…"), role: .destructive) { Task { await store.deleteRun(c["id"].str) } }
+            }
+        }
+        ShowMore(total: store.chats.count, shown: $shownChats, help: L.text("再显示 10 个对话"))
+    }
+}
+
+/// A section heading of the sidebar, with an icon for the top-level sections and, where something
+/// can be started there, a quiet plus.
+struct SidebarHeading: View {
+    let title: String
+    var icon: String?
+    var small = false
+    var plus: String?
+    var action: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let icon { Image(systemName: icon).font(.system(size: 10, weight: .semibold)).accessibilityHidden(true) }
+            Text(title).fontWeight(small ? .regular : .semibold)
+            Spacer(minLength: 6)
+            if let plus {
+                Button(action: action) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .hoverable(5)
+                .help(plus)
+                .accessibilityLabel(plus)
+            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 20)
-        .padding(.top, 10)
+        .padding(.top, small ? 8 : 10)
         .padding(.bottom, 3)
+        .accessibilityAddTraits(.isHeader)
     }
+}
 
-    /// A section label above the global inbox and the workspace card, like the sidebar's own
-    /// headers: the inbox is personal and spans every workspace, the card is the one open.
-    private func sidebarLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 20)
-            .padding(.top, 10)
-            .padding(.bottom, 3)
+/// One record in a sidebar history: what leads it (a status dot, an avatar), a title, and a line
+/// saying how it stands; a count when something waits on the person. Selected like the inbox.
+struct HistoryRow<Lead: View>: View {
+    let title: String
+    let sub: String
+    let waiting: Int
+    var subTone: Tone?
+    let accessibility: String
+    var selected = false
+    let open: () -> Void
+    @ViewBuilder var lead: Lead
+
+    var body: some View {
+        Button(action: open) {
+                HStack(spacing: 8) {
+                    lead
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title).lineLimit(1).fontWeight(selected ? .semibold : .regular)
+                        Text(verbatim: sub).font(.caption).foregroundStyle(subTone?.color ?? .secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    if waiting > 0 { Pill("\(waiting)", .amber) }
+                }
+                .foregroundStyle(Color.primary)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(selected ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+        .buttonStyle(.plain)
+        .hoverable(8)
+        .accessibilityValue(accessibility)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .padding(.horizontal, 10)
+    }
+}
+
+/// 「展示更多」at the end of a sidebar history: ten more each time.
+struct ShowMore: View {
+    let total: Int
+    @Binding var shown: Int
+    let help: String
+
+    var body: some View {
+        if total > shown {
+            Button { shown = min(shown + 10, total) } label: {
+                Text(L.text("展示更多"))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 15)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .hoverable(6)
+            .help(help)
+            .padding(.horizontal, 10)
+        }
     }
 }
 
@@ -324,97 +380,39 @@ struct AdapterUpdatesBadge: View {
     }
 }
 
-/// Chats with one digital employee, beside the inbox: like it, they belong to no workspace.
-/// Highlighted on the chats page and while a chat is open.
-// @project-doc docs/domains/20261120-chats.md#chat_app
-struct ChatsButton: View {
+/// One workspace in the sidebar, as a row like the inbox: a click opens its page (its task records
+/// are there), and a right click sets it up. The current one is highlighted on its page and while
+/// one of its runs is open; how many things its runs wait on the person for is counted.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+struct WorkspaceRow: View {
     let store: AppStore
+    let ws: JSON
+    let current: Bool
 
-    private var on: Bool {
+    private var shown: Bool {
+        guard current else { return false }
         switch store.screen {
-        case .chats: return true
-        case .run(let id): return store.isChat(id) || store.run?.id == id && store.run?.isChat == true
+        case .home(let id): return id == ws["id"].str
+        case .run(let id): return store.runs(of: ws).contains { $0["id"].str == id }
         default: return false
         }
     }
 
     var body: some View {
-        let talking = store.chats.filter { RunStatus($0["status"].str).isActive }.count
-        Button { store.open(.chats) } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .frame(width: 18)
-                    .foregroundStyle(on ? Color.accent : Color.secondary)
-                Text(L.text("对话")).fontWeight(on ? .semibold : .regular)
-                Spacer(minLength: 4)
-                if talking > 0 { Text(verbatim: "\(talking)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
-            }
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(on ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+        let ids = Set(store.runs(of: ws).map { $0["id"].str })
+        let waiting = store.inbox.open.filter { ids.contains($0.run) }.count
+        HistoryRow(title: ws["name"].str, sub: L.tilde(ws["path"].str), waiting: waiting,
+                   accessibility: waiting == 0 ? "" : L.text("\(waiting) 项等你处理"), selected: shown,
+                   open: { store.open(.home(ws["id"].str)) }) {
+            Image(systemName: shown ? "folder.fill" : "folder")
+                .frame(width: 18)
+                .foregroundStyle(shown ? Color.accent : Color.secondary)
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
-        .hoverable(8)
-        .help(L.text("和一名数字员工单独对话（⌥⌘N）"))
-        .accessibilityLabel(talking > 0 ? L.text("对话，\(talking) 个会话打开着") : L.text("对话"))
-        .accessibilityAddTraits(on ? .isSelected : [])
-        .padding(.horizontal, 10)
-    }
-}
-
-/// The workspace in use, as a dropdown: the whole card opens the menu to pick a workspace (which
-/// opens its home page), create one, or set it up. Highlighted while its
-/// home page is shown. The sidebar below lists only this workspace's run history.
-// @project-doc docs/architecture/20261031-frontend.md#screens
-struct WorkspacePicker: View {
-    let store: AppStore
-    let current: JSON?
-
-    private var onHome: Bool {
-        if case .home(let id) = store.screen { return id == current?["id"].str }
-        return false
-    }
-
-    var body: some View {
-        Menu {
-            ForEach(store.workspaces, id: \.self) { w in
-                Button { store.open(.home(w["id"].str)) } label: {
-                    if w["id"].str == current?["id"].str { Label(w["name"].str, systemImage: "checkmark") } else { Text(w["name"].str) }
-                }
-            }
-            if !store.workspaces.isEmpty { Divider() }
-            Button(L.text("新建工作区…")) { store.editingWorkspace = AppStore.blankWorkspace }
-            if let current {
-                Button(L.text("工作区设置…")) { store.editingWorkspace = current }
-                Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: current["path"].str)) }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "folder.fill").foregroundStyle(onHome ? Color.white : Color.accentColor)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(current?["name"].str ?? L.text("选择工作区")).fontWeight(.semibold).lineLimit(1)
-                    if let current {
-                        Text(L.tilde(current["path"].str)).font(.caption).lineLimit(1).truncationMode(.middle)
-                            .foregroundStyle(onHome ? Color.white.opacity(0.8) : Color.secondary)
-                    }
-                }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold))
-                    .foregroundStyle(onHome ? Color.white.opacity(0.9) : Color.secondary)
-            }
-            .foregroundStyle(onHome ? Color.white : Color.primary)
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(onHome ? Color.accentColor : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+        .help(ws["path"].str)
+        .contextMenu {
+            Button(L.text("工作区设置…")) { store.editingWorkspace = ws }
+            Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .help(L.text("切换或新建工作区"))
-        .accessibilityLabel(L.text("工作区：\(current?["name"].str ?? L.text("未选择"))"))
-        .padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 4)
     }
 }

@@ -27,7 +27,7 @@ struct RunView: View {
                 }
             }
         }
-        .navigationTitle(L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
+        .navigationTitle(run.isChat ? run.chatTitle : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
         .navigationSubtitle(run.isChat ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前编排器进程里"))
         .toolbar {
             if run.isChat {

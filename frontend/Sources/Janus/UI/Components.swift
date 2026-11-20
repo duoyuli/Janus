@@ -541,7 +541,7 @@ func confirmDeleteChat(_ title: String, role: String) -> Bool {
     let name = title.isEmpty ? L.text("这个对话") : L.text("「\(title)」")
     return confirm(
         L.text("删除对话？"),
-        L.text("\(name)的对话记录和日志，以及为它新建的工作目录（里面\(role.isEmpty ? L.text("数字员工") : role)留下的文件）都会从这台电脑删除，无法恢复。正在进行的会话会停止。"),
+        L.text("\(name)的对话记录和日志，以及为它新建的工作目录（里面\(role.isEmpty ? L.text("这名数字员工") : role)留下的文件）都会从这台电脑删除，无法恢复。正在进行的会话会停止。"),
         ok: L.text("删除")
     )
 }

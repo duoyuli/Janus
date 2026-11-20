@@ -8,15 +8,24 @@ from scenarios import scenario
 
 @scenario("chats")
 def chats(ctx, c):
-    """单 Agent 对话：选一名数字员工开始对话，在自己新建的工作目录里来回发消息，没有看板，不进任务列表，删除时目录一起删除"""
+    """单 Agent 对话：点一名数字员工就打开会话（系统提示词已注入，等用户先说），在自己新建的工作目录里来回发消息，第一条消息作为标题；没有看板，不进任务列表，删除时目录一起删除"""
     t = ctx.team("chats", members=("m1",))
     role = t.member("m1")
-    code, _ = ctx.api_error("POST", "/api/chats", {"role": role, "text": "   "})
-    c(code == 400, f"空消息不能开始对话（{code}）")
-    code, _ = ctx.api_error("POST", "/api/chats", {"role": "chats-nobody", "text": "你好"})
+    code, _ = ctx.api_error("POST", "/api/chats", {"role": "chats-nobody"})
     c(code == 400, f"不存在的数字员工不能对话（{code}）")
 
-    chat = ctx.api("POST", "/api/chats", {"role": role, "text": "你好"})["id"]
+    chat = ctx.api("POST", "/api/chats", {"role": role})["id"]
+
+    def events():
+        return ctx.api("GET", f"/api/runs/{chat}")["events"]
+
+    wait(lambda: [e for e in events() if e["type"] == "agent.status" and e["data"].get("turn") == "idle"], "会话打开后等用户先说", 60)
+    c("chat brief" in t.fake.calls() and not [e for e in events() if e["type"] == "agent.message"],
+      "点开就通过 ACP 打开了会话、注入了系统提示词，Agent 还没有说话")
+    c(ctx.api("GET", f"/api/runs/{chat}")["run"]["goal"] == "", "第一条消息之前对话没有标题")
+    if ctx.app:
+        ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running", "新对话打开，输入框等用户先说", pages=("density normal",))
+    ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "你好"})
 
     def replied(text):
         evs = ctx.api("GET", f"/api/runs/{chat}")["events"]
@@ -26,6 +35,7 @@ def chats(ctx, c):
     detail = ctx.api("GET", f"/api/runs/{chat}")
     row = detail["run"]
     c(row["kind"] == "chat" and row["status"] == "running", f"对话是 chat 类型的 Run，会话打开着（{row['kind']} / {row['status']}）")
+    c(row["goal"] == "你好", "第一条消息成为对话的标题")
     cwd = row["cwd"]
     home = os.path.realpath(ctx.home)
     c(os.path.isdir(cwd) and os.path.realpath(cwd) == os.path.join(home, "chats", chat), f"对话在 Janus home 下自己的目录里：{cwd}")
@@ -45,7 +55,7 @@ def chats(ctx, c):
     c(t.fake.calls().count("chat brief") == 1, "第二条消息在同一个会话里")
 
     ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running" and any(x["id"] == chat for x in s["chats"]),
-           "对话页打开，侧栏的对话列表里有它", pages=("density normal", "open chats"))
+           "对话页打开，侧栏的对话列表里有它", pages=("draft lead 第三条", "open chats"))
 
     with open(os.path.join(cwd, "notes.md"), "w") as f:
         f.write("scratch\n")

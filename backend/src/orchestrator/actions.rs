@@ -265,6 +265,7 @@ impl App {
                         if text.is_empty() && images.is_empty() {
                             bail!("消息不能为空");
                         }
+                        self.title_chat(run, &text)?;
                         // Pasted images are stored with the run; the text names each one.
                         let images = crate::attachments::save(&self.cfg.data_dir, &run.id, &images)?;
                         let text = crate::attachments::with_lines(&text, &images);

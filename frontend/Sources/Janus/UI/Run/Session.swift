@@ -78,7 +78,9 @@ func chatSession(_ st: RunState, live: Bool) -> SessionInfo {
     var info = agentSession(st, "lead")
     // What the person wrote is the prompt itself: it shows once, as their message.
     info.evs.removeAll { $0.type == "session.prompt" && $0.data["channel"].str == "followup" }
-    info.open = live && st.run.status == .running
+    info.open = live && (st.run.status == .running || st.run.status == .planning)
+    // While its session is still starting a message waits for it, sent the plain way.
+    if st.run.status == .planning { info.idle = true }
     info.resume = false
     info.leave = false
     info.converse = true

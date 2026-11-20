@@ -62,6 +62,22 @@ private struct ChatLog {
     #expect(SessionComposer(chatSession(failed, live: false), live: false, replaying: false) == .converse)
 }
 
+/// A chat just started: its session is still opening, and the person can already write the first
+/// message, which waits for it. A chat is listed by its first message, by who it is with before.
+@Test func aNewChatTakesTheFirstMessageWhileItOpens() {
+    var log = ChatLog()
+    log.add("run.created", actor: "user", data: ["kind": "chat", "cwd": "/Users/me/.janus/chats/r1", "git": false, "role": ["id": "m1", "name": "研究员"]])
+    let st = derive(log.events)
+    #expect(st.run.status == .running, "run.created starts it, like any run")
+    var opening = st
+    opening.run.status = .planning
+    let info = chatSession(opening, live: true)
+    #expect(info.open && info.idle)
+    #expect(SessionComposer(info, live: true, replaying: false) == .converse)
+    #expect(ChatRowStatus.title(["goal": "", "config": ["team": [["name": "研究员"]]]]) == L.text("和 \("研究员") 的新对话"))
+    #expect(ChatRowStatus.title(["goal": "看看这个报错\n细节", "config": ["team": [["name": "研究员"]]]]) == "看看这个报错")
+}
+
 /// A goal's lead conversation keeps its own composer: an open lead session is still managed.
 @Test func aGoalLeadIsNotAChat() {
     var st = RunState()

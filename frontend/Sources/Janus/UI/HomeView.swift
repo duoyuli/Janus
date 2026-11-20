@@ -5,6 +5,8 @@ import SwiftUI
 struct HomeView: View {
     let store: AppStore
     let ws: JSON
+    /// How many task records are shown; the rest wait behind「展示更多」.
+    @Local private var shownRuns = 20
 
     private let suggestions = [
         (L.text("新功能上线"), L.text("为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明")),
@@ -16,8 +18,8 @@ struct HomeView: View {
         let members = ws["members"].array.map { m in (m, store.role(m["role"].str)) }
         let problems = Self.problems(members.map(\.1), connection: store.connection)
         let runs = store.runs(of: ws)
-        // Runs waiting on the person; the full list is in the sidebar.
-        // The same as the inbox and the sidebar: any run with something waiting on the person.
+        // Runs waiting on the person, the same as the inbox: any run with something waiting on them.
+        // Below them, every task record of this workspace, newest first.
         let waiting = runs.filter { r in store.inbox.open.contains { $0.run == r["id"].str } }
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -68,22 +70,21 @@ struct HomeView: View {
                 if !waiting.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(L.text("等你处理")).font(.headline)
-                        Card(padding: 4) {
-                            ForEach(waiting, id: \.self) { r in
-                                let (l, t) = RunStatus(r["status"].str).listLabel
-                                Button { store.open(.run(r["id"].str)) } label: {
-                                    HStack {
-                                        Text(L.goalTitle(r["goal"].str)).lineLimit(1)
-                                        Spacer()
-                                        Pill(l, t)
-                                    }
-                                    .padding(.horizontal, 10).padding(.vertical, 8)
-                                    .contentShape(Rectangle())
-                                    .hoverable(6)
-                                }
-                                .buttonStyle(.plain)
-                                if r != waiting.last { Divider() }
-                            }
+                        RunRows(store: store, runs: waiting)
+                    }
+                }
+
+                if !runs.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(L.text("任务记录")).font(.headline)
+                            Text(verbatim: "\(runs.count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        RunRows(store: store, runs: Array(runs.prefix(shownRuns)), dated: true)
+                        if runs.count > shownRuns {
+                            Button(L.text("展示更多")) { shownRuns += 20 }
+                                .buttonStyle(.link)
+                                .help(L.text("再显示 20 个任务记录"))
                         }
                     }
                 }
@@ -182,6 +183,41 @@ struct HomeView: View {
         let images = store.goalImages
         guard !goal.isEmpty || !images.isEmpty, problems.isEmpty else { return }
         Task { await store.createRun(goal: goal, workspace: ws["id"].str, images: images) }
+    }
+}
+
+/// Runs of a workspace in one card, one row each: the goal, when it started (`dated`), how it stands
+/// (「等你处理」 when something waits on the person), a click to open it and a right click to delete it.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+struct RunRows: View {
+    let store: AppStore
+    let runs: [JSON]
+    var dated = false
+
+    var body: some View {
+        Card(padding: 4) {
+            ForEach(runs, id: \.self) { r in
+                let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
+                let (l, t) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : RunStatus(r["status"].str).listLabel
+                Button { store.open(.run(r["id"].str)) } label: {
+                    HStack(spacing: 10) {
+                        Text(L.goalTitle(r["goal"].str)).lineLimit(1)
+                        Spacer()
+                        if dated { Text(L.dateTime(r["createdAt"].double ?? 0)).font(.caption).foregroundStyle(.secondary) }
+                        Pill(l, t)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                    .hoverable(6)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button(L.text("删除任务…"), role: .destructive) { Task { await store.deleteRun(r["id"].str) } }
+                        .disabled(RunStatus(r["status"].str).isActive)
+                }
+                if r != runs.last { Divider() }
+            }
+        }
     }
 }
 

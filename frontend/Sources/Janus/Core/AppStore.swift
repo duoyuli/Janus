@@ -41,10 +41,7 @@ final class AppStore {
     var goalDraft = ""
     /// Images pasted into the goal, sent with it.
     var goalImages: [PastedImage] = []
-    /// The first message of a new chat, and its images.
-    var chatDraft = ""
-    var chatImages: [PastedImage] = []
-    /// The digital employee a new chat is with. The last one chosen comes back.
+    /// The digital employee a new chat is with. The last one picked comes back.
     var chatRole: String = UserDefaults.janus.string(forKey: "janus.chatRole") ?? "" {
         didSet { UserDefaults.janus.set(chatRole, forKey: "janus.chatRole") }
     }
@@ -371,13 +368,12 @@ final class AppStore {
         } catch { show(L.text("创建失败：\(error.localizedDescription)")) }
     }
 
-    /// Start a chat with a digital employee; its session opens with the first message.
+    /// Start a chat with a digital employee and open it; its session starts right away and waits
+    /// for the person's first message.
     // @project-doc docs/domains/20261120-chats.md#chat_app
-    func createChat(role: String, text: String, images: [PastedImage] = []) async {
+    func createChat(role: String) async {
         do {
-            let r = try await api.post("/api/chats", ["role": JSON(role), "text": JSON(text), "images": .array(images.map(\.json))], timeout: images.isEmpty ? nil : 120)
-            chatDraft = ""
-            chatImages = []
+            let r = try await api.post("/api/chats", ["role": JSON(role)])
             await loadRuns()
             open(.run(r["id"].str))
         } catch { show(L.text("开始对话失败：\(error.localizedDescription)")) }
@@ -423,7 +419,7 @@ final class AppStore {
     /// A chat goes with its directory; one still talking is stopped, there is nothing to stop first.
     private func deleteChat(_ row: JSON) async {
         let id = row["id"].str
-        guard confirmDeleteChat(L.goalTitle(row["goal"].str), role: row["config"]["team"][0]["name"].str) else { return }
+        guard confirmDeleteChat(ChatRowStatus.title(row), role: row["config"]["team"][0]["name"].str) else { return }
         do {
             try await api.delete("/api/runs/\(id)")
         } catch {

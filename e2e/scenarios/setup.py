@@ -173,6 +173,9 @@ def setup(ctx, c):
         ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and {t["id"]: t["status"] for t in r["tasks"]} == {"T1": "succeeded", "V1": "succeeded"}
                and next(t for t in r["tasks"] if t["id"] == "V1")["verdict"] == "approved",
                "Run 已交付，T1、V1 已完成，V1 判定通过", pages=("board", "team", "audit", "task:T1", "task:V1", "agent:lead"))
+        # The workspace's page lists its task records, newest first; the sidebar lists the workspaces.
+        ctx.app.do("open home:setup", "shot workspace-home")
+        c(_drawn(ctx, "workspace-home"), "应用：工作区页的任务记录画出来了（workspace-home.png）")
 
 
 def _drawn(ctx, name):

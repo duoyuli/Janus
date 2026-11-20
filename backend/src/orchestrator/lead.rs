@@ -526,6 +526,14 @@ impl App {
                 st.notes.remove("lead").unwrap_or_default()
             };
             if prompt.is_empty() {
+                if chat {
+                    // A new chat, or one reopened without a message waiting: the person writes first.
+                    self.emit(
+                        run,
+                        ev("agent.status", "lead", "会话已打开，等待你的消息")
+                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
+                    );
+                }
                 match self.wait_for_lead_message(run, &conn, &mut rx, &sid, &mut ctl, &ctx).await? {
                     Some(text) => prompt.push(Msg { id: "chat-open".into(), text }),
                     None => return Ok(()),
