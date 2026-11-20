@@ -114,11 +114,15 @@ def write_old_data(ws):
 
 
 def insert_old_run(home, version, ws):
-    """A delivered run working in place, and one in a worktree of `ws` from before data version 10
-    (no record of the branch it started on)."""
+    """A delivered run working in place, and one in a worktree of `ws`. Written in the shape of
+    data version `version`: before version 10 a worktree has no record of the branch it started on."""
     team = [old_member("lead", "PMO", "claude", True, "coordinator", version),
             old_member("implementer", "研发工程师", "claude", False, "implementer", version)]
     head = subprocess.run(["git", "-C", ws, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    worktree = {"repo": ws}
+    if version >= 10:
+        worktree["branch"] = subprocess.run(["git", "-C", ws, "branch", "--show-current"], capture_output=True, text=True,
+                                            check=True).stdout.strip()
     db = sqlite3.connect(os.path.join(home, "janus.db"))
     db.execute(
         "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES ('run-old', '旧目标', '/tmp', ?, 'delivered', 1)",
@@ -126,7 +130,7 @@ def insert_old_run(home, version, ws):
     )
     db.execute(
         "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES ('run-wt', '旧目标', '/tmp/wt', ?, 'delivered', 2)",
-        (json.dumps({"team": team, "git": True, "baseRef": head, "workspace": "e2e", "goalImages": [], "worktree": {"repo": ws}}),),
+        (json.dumps({"team": team, "git": True, "baseRef": head, "workspace": "e2e", "goalImages": [], "worktree": worktree}),),
     )
     db.commit()
     db.close()
