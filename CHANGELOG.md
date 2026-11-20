@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.5
+
+- 侧栏重新整理：收件箱固定在最上面；下面「Agent Team」列出所有工作区，点一个打开它，「+」新建工作区；再下面「Chat」列出和单个数字员工的对话，「+」新建对话。两栏一起滚动，不再留出大块空白。
+- 任务记录从侧栏移到工作区首页：「等你处理」下面按时间从新到旧列出这个工作区的全部任务，每行有开始时间和状态，右键可以删除已结束的任务。
+- 新建对话改为先选人再开始：「和谁对话」的卡片放在页面正中，选中一名数字员工后点「和 … 开始对话」（双击卡片也可以）。会话立即打开、注入数字员工的指令，然后由你先说；你发的第一条消息成为对话的标题。
+- 侧栏的对话和工作区页的任务记录不再只显示最近 50 个：滚动到底会接着读取更早的，所有对话和任务都能找到、打开和删除。
+- 英文界面里设置的分类改为单词：General、Employees、Library、Usage。
+
+- The sidebar is reorganized: the inbox stays at the top; below it, Agent Team lists every workspace (click one to open it, + makes a new one), and Chat lists your chats with a single digital employee (+ starts one). The two scroll together, with no large gap between them.
+- Task records moved from the sidebar to the workspace page: under Needs Attention, every task of the workspace is listed newest first, with when it started and how it stands; right-click to delete a finished one.
+- Starting a chat now means picking someone first: the "Talk With" cards sit in the middle of the page; pick a digital employee and click "Start a chat with …" (or double-click the card). The session opens right away with the employee's instructions, and you speak first; your first message becomes the chat's title.
+- Chats in the sidebar and task records on a workspace page are no longer cut off at the newest 50: scrolling to the end loads older ones, so every chat and task can be found, opened and deleted.
+- In the English interface, the settings sections are single words: General, Employees, Library, Usage.
+
 ## 2026.11.20.4
 
 - 新增「对话」：在侧栏「全局」下打开，选一名数字员工直接和它对话（⌥⌘N）。它带着自己的指令、模型、权限和整个资源库，在 `~/.janus/chats/` 下为这次对话新建的目录里工作，没有团队和看板。会话和工作台里负责人的对话一样：可以插话、接管、打断、审批、粘贴图片、用 `@` 引用文件、切换模型和模式，用量照常统计；对话里的审批和表单也会进收件箱。
