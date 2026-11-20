@@ -511,13 +511,15 @@ impl App {
         let name = str_of(body, "name").to_string();
         mcp::check_name(&name)?;
         self.check_free_name(ItemKind::Mcp, &name, id)?;
-        let vars: Vec<(String, String)> = body["vars"]
+        // A variable's value: a string sets it (an empty one clears it); none keeps the saved
+        // value, for a client that never read it.
+        let vars: Vec<(String, Option<String>)> = body["vars"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|v| {
                 let k = str_of(v, "name");
-                (!k.is_empty()).then(|| (k.to_string(), v["value"].as_str().unwrap_or("").to_string()))
+                (!k.is_empty()).then(|| (k.to_string(), v["value"].as_str().map(str::to_owned)))
             })
             .collect();
         if let Some((bad, _)) =
@@ -567,8 +569,12 @@ impl App {
             ),
         };
         let mut values = self.mcp_values(&item.id);
-        for (k, v) in vars.into_iter().filter(|(_, v)| !v.is_empty()) {
-            values.of(&server).insert(k, v);
+        for (k, v) in vars {
+            match v {
+                Some(v) if !v.is_empty() => values.of(&server).insert(k, v),
+                Some(_) => values.of(&server).remove(&k),
+                None => None,
+            };
         }
         self.write_values(&item.id, &values.kept_for(&server))?;
         let revision = mcp_revision(&server);

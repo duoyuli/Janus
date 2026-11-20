@@ -223,6 +223,16 @@ final class AppStore {
     var settingsTab: SettingsTab = SettingsTab(rawValue: UserDefaults.janus.string(forKey: "janus.settingsTab") ?? "") ?? .general {
         didSet { UserDefaults.janus.set(settingsTab.rawValue, forKey: "janus.settingsTab") }
     }
+    /// The resource library's tabs: skills and MCP servers, each with its own router.
+    enum LibraryKind: String, CaseIterable {
+        case skill, mcp
+    }
+
+    /// The library tab shown. The last one opened comes back.
+    var libraryKind: LibraryKind = LibraryKind(rawValue: UserDefaults.janus.string(forKey: "janus.libraryKind") ?? "") ?? .skill {
+        didSet { UserDefaults.janus.set(libraryKind.rawValue, forKey: "janus.libraryKind") }
+    }
+
     /// An agent to open in the editor once the digital workers pane shows: an id, or "" for a new one.
     /// The pane clears it after opening.
     var agentEditorRequest: String?
@@ -230,6 +240,35 @@ final class AppStore {
     func editAgent(_ id: String) {
         agentEditorRequest = id
         openSettings(.agents)
+    }
+
+    func openLibrary(_ kind: LibraryKind) {
+        libraryKind = kind
+        openSettings(.library)
+    }
+
+    /// An MCP server open in the library's editor: what the editor starts from, the server as the
+    /// library lists it (nil for a new one), and whether it opens on the form or the JSON.
+    struct McpEditing: Identifiable {
+        let draft: McpDraft
+        let item: JSON?
+        var json = false
+        var id: String { draft.id }
+    }
+
+    var editingMcp: McpEditing?
+
+    /// Opens the MCP editor on a new server, or on a saved one read whole first, values included.
+    func editMcp(_ item: JSON?, json: Bool = false) async {
+        guard let item else {
+            editingMcp = McpEditing(draft: McpDraft(), item: nil, json: json)
+            return
+        }
+        do {
+            let full = try await api.get("/api/library/items/\(item["id"].str)")
+            let values = try await api.get("/api/library/mcp/\(item["id"].str)/values")
+            editingMcp = McpEditing(draft: McpDraft(item: full, values: values["values"]), item: item, json: json)
+        } catch { show(error.localizedDescription) }
     }
 
     /// The settings page covers the main window; closing it shows the screen underneath again.

@@ -146,7 +146,7 @@ async fn servers_for_everyone_are_served_by_the_runs_router() {
 
     // Editing the item stops its servers; the next use starts it with what was saved.
     let edited = json!({ "name": "probe", "command": "python3", "args": [script],
-        "vars": [{ "name": "FAKE_MCP_LOG", "value": "" }, { "name": "OWN", "value": "changed" }] });
+        "vars": [{ "name": "FAKE_MCP_LOG" }, { "name": "OWN", "value": "changed" }] });
     h.app.save_mcp(Some(&probe.id), &edited).await.unwrap();
     let probe = h.app.item(&probe.id).unwrap();
     let own: Value = serde_json::from_str(&text(&tool(&h, &at, "probe__env", json!({ "name": "OWN" })).await)).unwrap();

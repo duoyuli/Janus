@@ -49,9 +49,9 @@ Skill 是一个带 `SKILL.md` 的目录，名称和描述来自 front matter。
 | `sse` | `url`、`headerKeys` | header 的值 |
 
 - **名字**：字母、数字、`-` 和 `_`，最长 64 个字符；规范化后是 `janus` 的名字（`janus`、`Janus`、`janus!` 等）保留给看板 MCP。
-- **表单**：填写名字、传输方式、启动命令或地址和变量列表（`vars`）。变量的值留空表示保留已保存的值；从列表中删除的变量，它的值一起删除。
-- **粘贴配置**：接受 Claude 的 `mcpServers`、VS Code 的 `servers`，或一个带 `name` 的服务器对象，一次导入其中所有服务器，配置中写的值存进值文件。用不了的条目作为警告返回。
-- 资源、接口返回值、Run 快照和事件中只有变量名和「是否已设置」，没有值。
+- **表单**：填写名字、传输方式、启动命令（`command` 和 `args` 分开提交；只给 `command` 时服务按 shell 规则拆分）或地址和变量列表（`vars`）。变量带字符串值时写入，空字符串清除这个值，没有 `value` 字段时保留已保存的值；从列表中删除的变量，它的值一起删除。应用的编辑器打开时读取已保存的值（`GET /api/library/mcp/{id}/values`），在表单和 JSON 里都能看到、修改；JSON 是同一个服务器的 Claude Code `.mcp.json` 写法，保存时仍按表单提交。
+- **粘贴配置**（`POST /api/library/mcp/import`）：接受 Claude 的 `mcpServers`、VS Code 的 `servers`，或一个带 `name` 的服务器对象，一次导入其中所有服务器，配置中写的值存进值文件。用不了的条目作为警告返回。应用在新建服务器的 JSON 里粘贴了多个服务器时走这里。
+- 资源、列表和详情接口、Run 快照和事件中只有变量名和「是否已设置」，没有值。值只经 `GET /api/library/mcp/{id}/values` 返回给本机的应用，见 [ADR：MCP 服务器的值在编辑器里能看能改](../decisions/20261119-mcp_values_visible.md)。
 
 <a id="sources"></a>
 ## Git 来源

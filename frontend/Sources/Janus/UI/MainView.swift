@@ -133,7 +133,7 @@ struct Sidebar: View {
                 }
                 UpdateBadge(updater: Updater.shared) { store.openSettings(.updates) }
                 if !store.sourceUpdates.isEmpty {
-                    Button { store.openSettings(.library) } label: {
+                    Button { store.openLibrary(.skill) } label: {
                         Label(L.text("\(store.sourceUpdates.count) 个资源来源有更新"), systemImage: "arrow.down.circle")
                             .font(.caption).foregroundStyle(Tone.blue.color)
                     }

@@ -155,9 +155,17 @@ def setup(ctx, c):
                            and "setup" in [w["id"] for w in s["workspaces"]], "应用读到 Agent、数字员工和工作区", "reload", "open home:setup")
         c(True, "应用：设置里的 Agent 状态与服务一致（检查通过）")
         c({"coordinator", "implementer"} <= {r["id"] for r in st["roles"]}, "应用：读到默认数字员工")
-        for tab in ("general", "agents", "library", "usage", "permissions", "updates"):
-            ctx.app.do(f"open settings:{tab}", f"shot settings-{tab}")
-            c(_drawn(ctx, f"settings-{tab}"), f"应用：设置 → {tab} 画出来了")
+        for tab in ("general", "agents", "library:skill", "library:mcp", "usage", "permissions", "updates"):
+            shot = "settings-" + tab.replace(":", "-")
+            ctx.app.do(f"open settings:{tab}", f"shot {shot}")
+            c(_drawn(ctx, shot), f"应用：设置 → {tab} 画出来了")
+        # Adding an Agent offers only Codex and Claude Code.
+        ctx.app.do("agent-edit new", "shot agent-editor", "close-sheet")
+        c(_drawn(ctx, "agent-editor"), "应用：添加 Agent 的编辑器画出来了")
+        # The MCP editor: a saved server as the form and as JSON, and a new one.
+        for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new")):
+            ctx.app.do(cmd, f"shot {shot}", "close-sheet")
+            c(_drawn(ctx, shot), f"应用：MCP 编辑器 {cmd} 画出来了")
         ctx.app.do("close-sheet", "role implementer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
         c(_drawn(ctx, "role-editor"), "应用：数字员工编辑器画出来了")
         c(_drawn(ctx, "workspace-editor"), "应用：工作区编辑器画出来了")

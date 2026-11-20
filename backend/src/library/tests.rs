@@ -202,10 +202,14 @@ async fn mcp_values_stay_out_of_records() {
     // The editor reads the values back, the declared ones only.
     assert_eq!(app.mcp_values_view(&item.id).unwrap(), json!({ "values": { "GITHUB_TOKEN": "ghp-secret" } }));
 
-    // An empty value keeps the saved one; a key no longer listed loses its value.
-    let keep = json!({ "name": "github", "transport": "stdio", "command": "npx -y gh-mcp", "vars": [{ "name": "GITHUB_TOKEN", "value": "" }] });
+    // No value keeps the saved one; an empty value clears it; a key no longer listed loses its value.
+    let keep = json!({ "name": "github", "transport": "stdio", "command": "npx -y gh-mcp", "vars": [{ "name": "GITHUB_TOKEN" }] });
     app.save_mcp(Some(&item.id), &keep).await.unwrap();
     assert_eq!(app.mcp_values(&item.id).env.get("GITHUB_TOKEN").map(String::as_str), Some("ghp-secret"));
+    let clear = json!({ "name": "github", "transport": "stdio", "command": "npx -y gh-mcp", "vars": [{ "name": "GITHUB_TOKEN", "value": "" }] });
+    app.save_mcp(Some(&item.id), &clear).await.unwrap();
+    assert!(!app.mcp_values(&item.id).env.contains_key("GITHUB_TOKEN"), "an emptied value is gone");
+    app.save_mcp(Some(&item.id), &body).await.unwrap();
     assert!(app.save_mcp(None, &json!({ "name": "janus", "command": "x" })).await.is_err(), "the board's name");
     assert!(app.save_mcp(None, &json!({ "name": "github", "command": "x" })).await.is_err(), "names are unique");
 

@@ -5,8 +5,8 @@ import SwiftUI
 /// `<dir>/cmd` and saves pictures of its own window, so screens can be checked without screen
 /// recording rights (docs/operations/20261031-testing.md#macos_app).
 ///
-///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> | page board|audit|team|task:<id>|agent:<id>
-///     role <id> | agent-edit <id>|new | close-sheet | doc <path> | size <w>x<h> | shot <name>
+///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> (library:skill|library:mcp for the library's tabs) | page board|audit|team|task:<id>|agent:<id>
+///     role <id> | agent-edit <id>|new | mcp-edit new|<name> [json] | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
@@ -52,6 +52,9 @@ enum Snapshots {
                 switch kv.last {
                 case "permissions": store.openSettings(.permissions)
                 case "updates": store.openSettings(.updates)
+                // The library's tabs: `library:skill`, `library:mcp`.
+                case let tab? where tab.hasPrefix("library:"):
+                    store.openLibrary(AppStore.LibraryKind(rawValue: String(tab.dropFirst("library:".count))) ?? .skill)
                 default: store.openSettings(AppStore.SettingsTab(rawValue: kv.last ?? "") ?? .agents)
                 }
             default: break
@@ -90,10 +93,15 @@ enum Snapshots {
         // The editor is a sheet of the settings panel, as when a person opens it from there.
         case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
+        // The library's MCP editor: `mcp-edit new|<name> [json]`.
+        case "mcp-edit":
+            let p = arg.split(separator: " ").map(String.init)
+            store.openLibrary(.mcp)
+            await store.editMcp(store.libraryItems.first { $0["kind"].str == "mcp" && $0["name"].str == p.first }, json: p.last == "json")
         // The agent editor: `agent-edit <id>`, or `agent-edit new`.
         case "agent-edit": store.editAgent(arg == "new" ? "" : arg)
         case "close-sheet":
-            store.closeRoleEditor(); store.editingWorkspace = nil; store.showingSettings = false
+            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
