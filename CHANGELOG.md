@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.3
+
+- 资源库里的每项资源都给所有数字员工，去掉「给谁用」：资源库里不再有「给所有数字员工」开关和分组，MCP 编辑器里不再选给谁，数字员工编辑器里不再勾选资源。升级后，原来只给部分数字员工的资源也给所有人；不想让数字员工用的，从资源库删除。
+- 数字员工的会话只拿到两个入口，不随资源库变大：所有 MCP 服务器（命令、HTTP、SSE）都经 `janus-tools`，所有 Skill（不论几个）都经 `janus-skills`。HTTP 和 SSE 服务器由 Janus 带着你保存的请求头去连接，地址和密钥都不交给 Agent；SSE 服务器现在 Codex 也能用。
+- 添加或修改 HTTP、SSE 服务器后，Janus 会先连接一次，资源库里显示「已准备好 · N 个工具」，地址或密钥不对时直接显示原因。
+
+- Every resource in the library is for every digital employee; "who gets it" is gone. The library no longer has the "for all digital employees" switch or its groups, the MCP editor no longer asks who gets a server, and the digital employee editor no longer has resource checkboxes. On upgrade, resources that were limited to some digital employees go to everyone; delete from the library what you don't want them to use.
+- A digital employee's session gets just two entries, however large the library grows: every MCP server (command, HTTP, SSE) goes through `janus-tools`, and every skill, however few, through `janus-skills`. Janus connects to HTTP and SSE servers itself with the headers you saved, so neither their addresses nor their keys reach the Agent; SSE servers now work with Codex too.
+- After you add or change an HTTP or SSE server, Janus connects once and the library shows "Ready · N tools", or why it failed when the address or key is wrong.
+
 ## 2026.11.20.2
 
 - 验收任务后，结果直接合并回任务开始时你所在的分支，出现在你的工作目录里，不再生成需要你自己合并的 `janus/<任务>` 分支。任务期间这个分支有了新提交（你自己提交的，或另一个任务先合并的），任务的改动接在最新的提交之后，历史保持线性。
