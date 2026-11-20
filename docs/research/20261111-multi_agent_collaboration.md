@@ -3,16 +3,27 @@
 > 覆盖窗口：2026-11-09 至 2026-11-11。
 > 上一份报告[《2026-11-10 观察》](20261110-multi_agent_collaboration.md)写于 x.com 抓取失败时，漏掉了 11 月 9-11 日的几条重要进展。本期用 OpenCLI 直接读取 X，补充事实并修正结论。
 
+## 导航
+
+- [摘要](#summary)：只想知道结论和对上一份的修正时阅读。
+- [方法与限制](#method)：判断抓取范围和可信度时阅读。
+- [本期新增](#additions)：查 `/swarm`、1,000-Agent 实验等新材料时阅读。
+- [对 Janus 的建议（修正版）](#suggestions)：评估验证者模式等建议时阅读。
+- [操作记录](#operations)：复现抓取过程时阅读。
+- [来源](#sources)：核对出处时阅读。
+
+<a id="summary"></a>
 ## 摘要
 
 上一份说「本周没有出现推翻协作范式的新东西」，这个判断不准确。用 OpenCLI 直接扫 X 之后，11 月 9-11 日出现了三条实质性进展：
 
-- **公开看板被大规模验证。** Anthropic 用 1 个 lead 加 999 个 helper，在 28.7 小时内复现了 Lean 形式的费马大定理证明。协调基座只有共享 Postgres 和 Git，没有消息工具、没有专门平台。
-- **验证者成为标准角色。** Google Antigravity 发布 `/swarm` 预览：协调者、worker、verifier 和 monitor 分工，所有协作信息发在公开留言板上，worker 之间不私聊；空闲成员不耗 token。
-- **扩展方式是复制小队，不是扩大单队。** 新论文在同等算力下比较 100 个独立 Agent、1 支 100 人队和 10 支 10 人队，结果小团队更稳、更省。
+- **公开看板被大规模验证**。Anthropic 用 1 个 lead 加 999 个 helper，在 28.7 小时内复现了 Lean 形式的费马大定理证明。协调基座只有共享 Postgres 和 Git，没有消息工具、没有专门平台。
+- **验证者成为标准角色**。Google Antigravity 发布 `/swarm` 预览：协调者、worker、verifier 和 monitor 分工，所有协作信息发在公开留言板上，worker 之间不私聊；空闲成员不耗 token。
+- **扩展方式是复制小队，不是扩大单队**。新论文在同等算力下比较 100 个独立 Agent、1 支 100 人队和 10 支 10 人队，结果小团队更稳、更省。
 
 对 Janus 的结论：看板作为唯一事实来源的路线是对的，而且在大规模下被验证；真正缺的是**验证者角色**、**协作者请求拆分子任务**，以及**按小队复制**的扩展方式。上一份建议的成本账本仍然重要，优先级应提高。
 
+<a id="method"></a>
 ## 方法与限制
 
 - 使用 OpenCLI（`opencli twitter ...`），当前登录账号是 `@duoyuli_x`。搜索用 `--product live`，只读，不发帖、不点赞、不关注。
@@ -20,6 +31,7 @@
 - 4 次搜索后 OpenCLI 返回 HTTP 429（Twitter 会话配额），冷却通常 15-30 分钟。后续每天应控制在 3-4 次查询内，并留间隔。
 - 论文和厂商文档用 WebFetch 核对；无法确认的内容单独标注「未确认」。
 
+<a id="additions"></a>
 ## 本期新增
 
 ### Google Antigravity：`/swarm` 预览
@@ -42,7 +54,7 @@
 - worker 默认继承当前模型；可以按角色指定不同模型，协调者也能把等待中的 worker 换到另一个模型并保留它的对话。
 - 官方建议：用在不同文件、包或问题上能干净切分的任务；verifier 换一个模型做跨模型审计；把工作描述和验收方式讲清楚，让协调者自己决定怎么切。
 
-与 Janus 的关系：这是对「公开看板、协作者私聊」最直接的产品验证。差异是 Antigravity 把**验证者**和**monitor**做成独立角色，而 Janus 目前由负责人核对结果、由停滞检测发现卡住。Antigravity 也不追求持久恢复：被杀的 worker 不会回来；Janus 的 `resume_run` 更强。
+与 Janus 的关系：这是对「公开看板、协作者私聊」最直接的产品验证。差异是 Antigravity 把**验证者**和 **monitor** 做成独立角色，而 Janus 目前由负责人核对结果、由停滞检测发现卡住。Antigravity 也不追求持久恢复：被杀的 worker 不会回来；Janus 的 `resume_run` 更强。
 
 ### Anthropic：1,000 个 Agent 复现费马大定理
 
@@ -109,6 +121,7 @@
 - **配额成为一等约束**：Antigravity 的 worker 在配额耗尽时暂停且不自动重启，Grok Bot 的讨论也把用量限制当作 agent team 的规格。多 Agent 的成本控制正在从「建议」变成产品行为。
 - **Harness 变动**：一条 HN 讨论提到 Claude Code 一年 244 次发布，超过四分之三改了系统提示或工具描述。这与 Janus 的适配器稳定性有关，但不是协作模型本身的变化。
 
+<a id="suggestions"></a>
 ## 对 Janus 的建议（修正版）
 
 ### 新增 P0：验证者模式
@@ -150,6 +163,7 @@
 - 「验收证据加 `method` 字段」仍然成立，而且和验证者模式互补：verifier 产生可复现的证据，`method` 让负责人一眼看出哪些是推理、哪些是测试。
 - 「负责人说明补规模和粒度」仍然成立，但可以加上验证者和小队复制的规则。
 
+<a id="operations"></a>
 ## 操作记录
 
 ```text
@@ -163,6 +177,7 @@ opencli twitter search 'from:antigravity since:2026-11-08 -filter:replies' --pro
 
 第 6 次查询返回 HTTP 429，冷却 15-30 分钟。下次每天控制在 3-4 次查询，优先搜 `since:<前一天>`，先搜 `agent teams`、`agent swarm`、`multi-agent` 三个词，再用官方账号的 `from:` 查询补充。
 
+<a id="sources"></a>
 ## 来源
 
 - [Google Antigravity：Swarm (/swarm) 文档](https://antigravity.google/docs/swarm/)

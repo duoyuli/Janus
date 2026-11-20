@@ -2,8 +2,17 @@
 
 > 上级索引：[审查文档](index.md)
 
-综合审查 [Codex 日志分析](codex-20261118-agent_collaboration_log_analysis.md)和 [Antigravity 架构审查](agy-20261118-multi_agent_collaboration.md)两份报告后形成的可落地方案。审查日期：2026-11-18。基线提交：`57a35dd`。
+综合审查 [Codex 日志分析](20261118-agent_collaboration_log_analysis.md)和 [Antigravity 架构审查](20261118-multi_agent_collaboration.md)两份报告后形成的可落地方案。审查日期：2026-11-18。基线提交：`57a35dd`。本方案的代码位置对照基线提交核对；运行数据和用量数字取自两份源报告，没有重新运行任务，各自的可信程度见[两份报告的审查评估](#report_review)。
 
+## 导航
+
+- [两份报告的审查评估](#report_review)：判断两份源报告各自可信到什么程度时阅读。
+- [综合改造方案](#plan)：查某个 C 改造项的根因、方案和验收时阅读。
+- [实施顺序与依赖关系](#order)：安排改造先后时阅读。
+- [验证策略](#validation)：设计改造的验证时阅读。
+- [文档影响](#doc_impact)：改造落地后同步文档时阅读。
+
+<a id="report_review"></a>
 ## 两份报告的审查评估
 
 ### Codex 报告（日志分析）
@@ -56,6 +65,7 @@
 
 ---
 
+<a id="plan"></a>
 ## 综合改造方案
 
 以下方案按优先级分三个阶段，每个条目给出：问题根因、代码位置、改动方案、验收标准和风险边界。编号 `C-` 表示改造项。
@@ -81,9 +91,9 @@
 4. **`lead.rs:667` 的指令文案更新**：从「没有新消息就再调用」改为「Janus 有新消息时会立即返回。等待时间较长时返回运行中子任务的进展。继续等待前先判断是否需要干预」。
 
 **代码位置**：
-- [board.rs:207-228](../../backend/src/orchestrator/board.rs)（等待循环）
-- [board_tools.rs:55-59](../../backend/src/orchestrator/board_tools.rs)（schema 上限）
-- [lead.rs:667](../../backend/src/orchestrator/lead.rs)（负责人指令）
+- [board.rs:207-228](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/board.rs#L207-L228)（等待循环）
+- [board_tools.rs:55-59](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/board_tools.rs#L55-L59)（schema 上限）
+- [lead.rs:667](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/lead.rs#L667)（负责人指令）
 - [lifecycle.rs](../../backend/src/orchestrator/lifecycle.rs)（`Run` 结构增加 `board_notify`）
 
 **验收标准**：
@@ -113,9 +123,9 @@
 4. **验证失败后的调度逻辑**：当验证任务 `Succeeded` 但 `verdict == "rejected"` 时，不触发 `retry`（当前不会，因为任务是成功的），而是通过看板消息通知负责人：「独立验证 V1 完成，判定 `rejected`：<摘要>。请安排修复子任务和新的验证。」这与 `teamwork.rs:195-198` 的现有引导一致，只是不再让 QA 被迫修复。
 
 **代码位置**：
-- [lifecycle.rs:432-458](../../backend/src/orchestrator/lifecycle.rs)（`Verification` 构造）
+- [lifecycle.rs:432-458](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/lifecycle.rs#L432-L458)（`Verification` 构造）
 - [prompts.rs](../../backend/src/orchestrator/prompts.rs)（`parse_result` 增加 `verdict` 解析）
-- [teamwork.rs:180-188](../../backend/src/teamwork.rs)（验证者提示词）
+- [teamwork.rs:180-188](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/teamwork.rs#L180-L188)（验证者提示词）
 
 **验收标准**：
 - 验证者发现阻断问题、任务状态 `Succeeded`、`verdict: "rejected"` 时，交付记录 `passed: false`。
@@ -143,8 +153,8 @@
 
 **代码位置**：
 - [prompts.rs](../../backend/src/orchestrator/prompts.rs)（`parse_result`、结构化结果定义）
-- [attempts.rs:112-129](../../backend/src/orchestrator/attempts.rs)（下游提示词构造）
-- [teamwork.rs:202-208](../../backend/src/teamwork.rs)（`lead_guide`）
+- [attempts.rs:112-129](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/attempts.rs#L112-L129)（下游提示词构造）
+- [teamwork.rs:202-208](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/teamwork.rs#L202-L208)（`lead_guide`）
 
 **验收标准**：
 - 下游任务的提示词中包含上游的 `handoff` 文字和 `risks` 前 5 条完整内容。
@@ -160,7 +170,7 @@
 **改动方案**：在 `team_lines_vec` 的格式字符串中，按类型拼入协作者已挂载的资源名称。只输出名称和类型（Skill / MCP），不读取 `secrets/library/` 中的凭据值。示例：`· 资源：Skill [project-doc, ui-audit]；MCP [playwright]`。
 
 **代码位置**：
-- [lead.rs:748-765](../../backend/src/orchestrator/lead.rs)
+- [lead.rs:748-765](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/lead.rs#L748-L765)
 
 **验收标准**：
 - 负责人的 `goal_brief` 中，每个协作者行包含其挂载的 Skill 和 MCP 名称列表。
@@ -182,7 +192,7 @@
 触发后发出 `task.stalled`（`reason: "loop"`），通过 `push_board` 推送给负责人。
 
 **代码位置**：
-- [lifecycle.rs:342-362](../../backend/src/orchestrator/lifecycle.rs)（`Watch` 和 `watch_call`）
+- [lifecycle.rs:342-362](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/lifecycle.rs#L342-L362)（`Watch` 和 `watch_call`）
 
 **验收标准**：
 - 在脚本化测试中，模拟 `edit → test → edit → test` 交替 8 次后触发 `task.stalled`。
@@ -198,7 +208,7 @@
 **改动方案**：当 `ctx.task.is_none()`（负责人）且 `edited` 非空时，以 `"lead"` 身份调用 `record_edits`。若命中路径正由某个 `Running` 子任务负责（`owns` 或 `claim`），向负责人发出提醒。上游任务完成后被 `"lead"` 修改的文件同样计入 `edited_after` 过期提示。
 
 **代码位置**：
-- [turn.rs:557-559](../../backend/src/orchestrator/turn.rs)
+- [turn.rs:557-559](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/turn.rs#L557-L559)
 
 **验收标准**：
 - 负责人编辑协作者 `owns` 的文件时，看板出现冲突提醒。
@@ -219,8 +229,8 @@
 提示文案要求验证者优先针对薄弱条目实测。
 
 **代码位置**：
-- [attempts.rs:105-130](../../backend/src/orchestrator/attempts.rs)（提示构造）
-- [teamwork.rs:180-188](../../backend/src/teamwork.rs)（`task_section`）
+- [attempts.rs:105-130](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/orchestrator/attempts.rs#L105-L130)（提示构造）
+- [teamwork.rs:180-188](https://github.com/duoyuli/Janus/blob/57a35ddc62223b55bd74bf33a1e7d896f78464a9/backend/src/teamwork.rs#L180-L188)（`task_section`）
 
 **验收标准**：
 - 验证任务的提示词中包含被验证任务的 diff 路径和 `traceGaps`。
@@ -297,6 +307,7 @@ Phase 1 的 C-01 在 `board_wait_inner` 内部实现了 `Notify` 唤醒。Phase 
 
 ---
 
+<a id="order"></a>
 ## 实施顺序与依赖关系
 
 ```mermaid
@@ -332,6 +343,7 @@ flowchart LR
 
 ---
 
+<a id="validation"></a>
 ## 验证策略
 
 1. **离线回放验证**：利用冻结的 SQLite 快照和原生日志，对 C-01 模拟事件驱动调度，检查是否多唤醒、漏唤醒；对 C-02 回放两种历史案例，检查 `passed` 值是否正确。
@@ -350,15 +362,16 @@ flowchart LR
 
 ---
 
+<a id="doc_impact"></a>
 ## 文档影响
 
 | 改造项 | 受影响文档 |
 | --- | --- |
-| C-01 | [Run 生命周期 #watchdog](../domains/20261031-run_lifecycle.md)、[接口 · 看板 MCP 工具](../interfaces/20261031-mcp_tools.md) |
-| C-02 | [目标模式 #team_structure](../domains/20261031-goal_mode.md)、[接口 · 事件](../interfaces/20261031-events.md) |
-| C-03 | [目标模式 #collaborator_rules](../domains/20261031-goal_mode.md)、[接口 · 看板 MCP 工具](../interfaces/20261031-mcp_tools.md) |
-| C-04 | [目标模式 #lead_brief](../domains/20261031-goal_mode.md) |
-| C-05 | [Run 生命周期 #watchdog](../domains/20261031-run_lifecycle.md) |
+| C-01 | [Run 生命周期 #watchdog](../domains/20261031-run_lifecycle.md#watchdog)、[接口 · 看板 MCP 工具](../interfaces/20261031-board_mcp.md) |
+| C-02 | [目标模式 #team_structure](../domains/20261031-goal_mode.md#team_structure)、[接口 · 事件](../interfaces/20261031-events.md) |
+| C-03 | [目标模式 #collaborator_rules](../domains/20261031-goal_mode.md#collaborator_rules)、[接口 · 看板 MCP 工具](../interfaces/20261031-board_mcp.md) |
+| C-04 | [目标模式 #lead_brief](../domains/20261031-goal_mode.md#lead_brief) |
+| C-05 | [Run 生命周期 #watchdog](../domains/20261031-run_lifecycle.md#watchdog) |
 | C-08、C-09 | 需要新 ADR，更新 [Run 生命周期](../domains/20261031-run_lifecycle.md) 和 [配置](../interfaces/20261031-configuration.md) |
 
 顺带清理两份报告发现的文档漂移：

@@ -5,19 +5,37 @@
 > 与现有研究的关系：本文复用 [2026-11-10 观察](20261110-multi_agent_collaboration.md)、[2026-11-11 X 补充](20261111-multi_agent_collaboration.md)、[2026-11-12 观察](20261112-multi_agent_collaboration.md) 和 [magpie 资源库](20261116-magpie_library.md) 的结论；同时按 2026-11-16 的代码和 ADR 修正其中已经过时的状态。
 > 证据标记：**F** 表示一手来源明确写出；**I** 表示由多个事实推出、未直接验证；**J** 表示本文判断；**U** 表示只有二手来源、页面异常或暂时无法核实。报告是判断，不是 Janus 当前实现的说明。
 
+## 导航
+
+- [摘要](#summary)：只想知道结论时阅读。
+- [相对既有研究的本报告增量](#increment)：判断本报告比前几份多了什么时阅读。
+- [1. 研究问题、用户与市场范围](#questions)：了解研究范围时阅读。
+- [2. 市场地图](#market_map)：了解有哪些同类产品时阅读。
+- [3. Grok Bot / xAI 深潜](#grok_bot)：评估 Grok Bot 的借鉴项时阅读。
+- [4. 其他代表项目](#other_projects)：查 Claude Code Agent Teams、Antigravity 等项目时阅读。
+- [5. 横向对比](#comparison)：对照各家能力时阅读。
+- [6. 市场机会、定位与渠道](#positioning)：讨论 Janus 的定位时阅读。
+- [7. 对 Janus 的演进建议](#suggestions)：评估 P0 / P1 / P2 建议时阅读。
+- [8. 待验证问题与下一步](#next_steps)：安排后续验证时阅读。
+- [9. 来源](#sources)：核对出处时阅读。
+- [附录：关键事实的核对表](#fact_check)：核对关键事实时阅读。
+- [待用户决定的产品选项](#decisions)：做产品取舍时阅读。
+
+<a id="summary"></a>
 ## 摘要
 
-- **Grok Bot 是「云端常驻同事」，不是「多 Agent 编排框架」。** 它的卖点是每个 Bot 有一台云电脑、共享一个账号级工具和 Skills 库、Bot 之间可以异步转交和群聊；代价是所有 Bot 共用一个电脑、一套登录和一份周用量，官方明确说「不要把不同 Bot 当安全边界」（F）。
-- **Grok Bot 的核心设计值得借鉴的是产品层，而不是运行时层。** 机器人名册、角色级记忆、按需技能、routines/触发器、独立审查模型和审批来源判断，都是 Janus 可以吸收的产品概念；共享云电脑、隐藏模型、没有独立花费上限则不适合 Janus（J）。
-- **Janus 不需要追「24/7 常驻」的叙事。** Grok Bot、GitHub Agent HQ、Antigravity 都在往常驻、主动、云端执行走；Janus 的差异化仍是本地优先、事件可回放、权限交给 Agent 原生模式、看板是唯一协作通道（J）。
-- **验证者已经成为市场标准角色。** Antigravity 每个 verifier 负责 2-4 个 worker；Grok Bot 用独立 Auto Review 模型审查动作；Microsoft Magentic 用 progress ledger 和 stall detection 判断团队是否在原地打转。Janus 已有 `verifies`、证据方法和停滞检测，差距在「默认化」和「交付时的证据摘要」（F/I）。
-- **成本可见性从「建议」变成产品行为。** Grok Bot 用周用量池、超额按 token 计费；Antigravity 配额耗尽会暂停成员；OpenAI 默认并发 3；Claude Code 建议 3-5 个 teammate。Janus 已有用量账本和 6 小时墙钟预算，但还没有全局并发上限和 Run 级 token/费用预算（F/I）。
-- **小团队、清晰文件归属、独立验证仍然比大团队可靠。** Coordination Tax 的 135 个任务、2430 次运行显示普通三角色流水线成本约 3.22 倍而准确率没有显著提升；并行小队论文显示 10 支 10 人小队优于 1 支 100 人队。Janus 的 3-5 人、`owns`、`verifies`、冲突检测方向正确（F）。
-- **当前最该做的不是加新能力，而是把已有能力变成默认流程。** P0 是独立验证默认化、交付证据摘要、修正 Grok/Pi 能力声明和市场验证冲刺；P1 是并发上限、Run 级成本预算和可复用编排模板；P2 才考虑定时 Run、执行图谱、技能/记忆提案和同题只读对比（J）。
+- **Grok Bot 是「云端常驻同事」，不是「多 Agent 编排框架」**。它的卖点是每个 Bot 有一台云电脑、共享一个账号级工具和 Skills 库、Bot 之间可以异步转交和群聊；代价是所有 Bot 共用一个电脑、一套登录和一份周用量，官方明确说「不要把不同 Bot 当安全边界」（F）。
+- **Grok Bot 的核心设计值得借鉴的是产品层，而不是运行时层**。机器人名册、角色级记忆、按需技能、routines/触发器、独立审查模型和审批来源判断，都是 Janus 可以吸收的产品概念；共享云电脑、隐藏模型、没有独立花费上限则不适合 Janus（J）。
+- **Janus 不需要追「24/7 常驻」的叙事**。Grok Bot、GitHub Agent HQ、Antigravity 都在往常驻、主动、云端执行走；Janus 的差异化仍是本地优先、事件可回放、权限交给 Agent 原生模式、看板是唯一协作通道（J）。
+- **验证者已经成为市场标准角色**。Antigravity 每个 verifier 负责 2-4 个 worker；Grok Bot 用独立 Auto Review 模型审查动作；Microsoft Magentic 用 progress ledger 和 stall detection 判断团队是否在原地打转。Janus 已有 `verifies`、证据方法和停滞检测，差距在「默认化」和「交付时的证据摘要」（F/I）。
+- **成本可见性从「建议」变成产品行为**。Grok Bot 用周用量池、超额按 token 计费；Antigravity 配额耗尽会暂停成员；OpenAI 默认并发 3；Claude Code 建议 3-5 个 teammate。Janus 已有用量账本和 6 小时墙钟预算，但还没有全局并发上限和 Run 级 token/费用预算（F/I）。
+- **小团队、清晰文件归属、独立验证仍然比大团队可靠**。Coordination Tax 的 135 个任务、2430 次运行显示普通三角色流水线成本约 3.22 倍而准确率没有显著提升；并行小队论文显示 10 支 10 人小队优于 1 支 100 人队。Janus 的 3-5 人、`owns`、`verifies`、冲突检测方向正确（F）。
+- **当前最该做的不是加新能力，而是把已有能力变成默认流程**。P0 是独立验证默认化、交付证据摘要、修正 Grok/Pi 能力声明和市场验证冲刺；P1 是并发上限、Run 级成本预算和可复用编排模板；P2 才考虑定时 Run、执行图谱、技能/记忆提案和同题只读对比（J）。
 
+<a id="increment"></a>
 ## 相对既有研究的本报告增量
 
-本节逐份对照四份既有研究，只写本报告相对它们新增、修正或没有新增的内容，不重复正文论证。四份文件是[2026-11-10 观察](20261110-multi_agent_collaboration.md)、[2026-11-11 X 补充](20261111-multi_agent_collaboration.md)、[2026-11-12 观察](20261112-multi_agent_collaboration.md) 和 [magpie 资源库](20261116-magpie_library.md)。
+本节逐份对照四份既有研究，只写本报告相对它们新增、修正或没有新增的内容，不重复正文论证。四份文件是 [2026-11-10 观察](20261110-multi_agent_collaboration.md)、[2026-11-11 X 补充](20261111-multi_agent_collaboration.md)、[2026-11-12 观察](20261112-multi_agent_collaboration.md) 和 [magpie 资源库](20261116-magpie_library.md)。
 
 ### 相对《2026-11-10 多 Agent 协作与 Agent Team 进展观察》
 
@@ -99,6 +117,7 @@
 
 **四份都没有覆盖的主题**：Grok Bot / xAI 深潜、GitHub Agent HQ、Microsoft Agent Framework 的编排模式、市场侧用户 / 渠道 / 传播 / 风险 / 成功指标、H1-H8 验证计划和待用户决定的产品选项。这些是本报告的主要增量；论文、安全审查和资源注入机制的事实仍以 11-10 至 11-12 及 magpie 报告为准。
 
+<a id="questions"></a>
 ## 1. 研究问题、用户与市场范围
 
 ### 1.1 研究问题
@@ -140,6 +159,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 - **二手来源**：Grok Bot 的用量、稳定性和用户抱怨来自 `grokmag.com`、`grok-bots.com` 等评测站，部分是 SEO 内容，不能独立复现；本文只在「用户反馈」段落使用，并标 U。
 - **日期**：官方页面没有标注日期的，写「文档未标注日期，访问于 2026-11-16」；搜索索引给出的日期只作为线索，不单独作为事实。
 
+<a id="market_map"></a>
 ## 2. 市场地图
 
 | 项目 | 类别 | 编排模型 | 角色 / 子 Agent | 资源注入 | 并发与成本 | 权限 / 审批 | 共享状态 | 验证与可观测性 | 采用信号 |
@@ -152,6 +172,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | Microsoft Agent Framework | Agent 框架 / SDK | sequential、concurrent、handoff、group chat、Magentic | 自定义 Agent；Magentic manager 动态选人 | 每个 Agent 自带 tools；handoff 自动注入工具；checkpointing | 由应用控制；Magentic 有 max rounds / stalls / resets | `ApprovalRequiredAIFunction`；human-in-the-loop plan review | 共享会话 / 广播上下文；checkpoint | workflow events、progress ledger、checkpoint | 官方文档持续更新；开源；多语言 SDK |
 | **Janus（对照）** | 本地优先工作空间 | 负责人 `/goal` + 看板 MCP；可选独立验证 | 负责人 + 协作者；负责人固定为 `lead` | 资源库在会话启动时注入 Skill / MCP；不写 Agent 配置 | 每成员同时一个任务；Run 6 小时墙钟；已有用量账本；无全局并发上限 | Agent 原生权限模式；审批和表单始终归用户；跨 Agent 消息不算授权 | 事件日志是唯一事实来源；共享工作目录；`owns` / `claim` / `traceGaps` | 事件回放、看板推送、停滞检测、证据方法、独立验证 | 本地单机；macOS 应用；无公开采用数据 |
 
+<a id="grok_bot"></a>
 ## 3. Grok Bot / xAI 深潜
 
 ### 3.1 时间线与产品事实
@@ -168,12 +189,12 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 
 ### 3.2 编排模型
 
-- **Bot 是持久身份，不是一次会话。** 每个 Bot 有名字、头像、描述、自己的 memory 和 routines；用户回到的是同一个 Bot，而不是一段聊天记录（F，[Bots](https://docs.x.ai/grok-bot/bots)、[设计文章](https://x.ai/news/designing-grok-bot)）。
-- **用户是调度者，Chief of Staff 是可选协调者。** 早期用户会建一个「Chief of Staff」Bot 来协调专家 Bot；xAI 明确否定了 dashboard 和 assignment board，理由是「Each one gave the user more coordination work」，改由协调 Bot 做日常路由，只在需要判断时找人（F，设计文章）。
-- **群聊是共享上下文的主要载体。** 2-6 个 Bot 一个群聊；所有相关 Bot 看到同一段对话；群聊里可以点名、回复、`@everyone`；Bot 之间的 handoff 对群可见（F，[Chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)）。
-- **Bot 之间可以异步转交。** 一个 Bot 给另一个 Bot 发消息，接收方「wakes, handles the request, and can reply later」；适合一个 Bot 拥有源系统、另一个 Bot 拥有交付物，或同行评审、长任务（F）。
-- **官方建议每个阶段只有一个 owner。** 并行 handoff「create duplicate work and noisy updates」；没有关闭 Bot 互发消息的开关，只能通过指令要求它们不要互发（F）。
-- **共享状态是群聊、Bot 间消息、共享 `/workspace` 和共享登录。** 文件、浏览器会话和命令凭据在同一个云电脑上对所有 Bot 可见；官方说「Do not use separate Bots as a security boundary」（F，[Files and results](https://docs.x.ai/grok-bot/files-and-results)、[FAQ](https://docs.x.ai/grok-bot/faq)）。
+- **Bot 是持久身份，不是一次会话**。每个 Bot 有名字、头像、描述、自己的 memory 和 routines；用户回到的是同一个 Bot，而不是一段聊天记录（F，[Bots](https://docs.x.ai/grok-bot/bots)、[设计文章](https://x.ai/news/designing-grok-bot)）。
+- **用户是调度者，Chief of Staff 是可选协调者**。早期用户会建一个「Chief of Staff」Bot 来协调专家 Bot；xAI 明确否定了 dashboard 和 assignment board，理由是「Each one gave the user more coordination work」，改由协调 Bot 做日常路由，只在需要判断时找人（F，设计文章）。
+- **群聊是共享上下文的主要载体**。2-6 个 Bot 一个群聊；所有相关 Bot 看到同一段对话；群聊里可以点名、回复、`@everyone`；Bot 之间的 handoff 对群可见（F，[Chat and collaboration](https://docs.x.ai/grok-bot/chat-and-collaboration)）。
+- **Bot 之间可以异步转交**。一个 Bot 给另一个 Bot 发消息，接收方「wakes, handles the request, and can reply later」；适合一个 Bot 拥有源系统、另一个 Bot 拥有交付物，或同行评审、长任务（F）。
+- **官方建议每个阶段只有一个 owner**。并行 handoff「create duplicate work and noisy updates」；没有关闭 Bot 互发消息的开关，只能通过指令要求它们不要互发（F）。
+- **共享状态是群聊、Bot 间消息、共享 `/workspace` 和共享登录**。文件、浏览器会话和命令凭据在同一个云电脑上对所有 Bot 可见；官方说「Do not use separate Bots as a security boundary」（F，[Files and results](https://docs.x.ai/grok-bot/files-and-results)、[FAQ](https://docs.x.ai/grok-bot/faq)）。
 
 **I**：Grok Bot 的编排更接近「一个小团队在共享办公室里互相喊话」，而不是 Janus 的「看板 + 事件日志」。它的优势是低摩擦、适合非工程角色；代价是过程难以完整审计，权限边界只能靠账号级隔离。
 
@@ -191,14 +212,14 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 
 ### 3.4 权限、审批与安全
 
-- **Auto Review 默认开启。** 每个动作先由自动审查模型判断是放行还是问用户；只有用户自己的消息算「请求」，邮件、网页等外部文字不算（F，[Approvals, security, privacy](https://docs.x.ai/grok-bot/approvals-security-and-privacy)）。
+- **Auto Review 默认开启**。每个动作先由自动审查模型判断是放行还是问用户；只有用户自己的消息算「请求」，邮件、网页等外部文字不算（F，[Approvals, security, privacy](https://docs.x.ai/grok-bot/approvals-security-and-privacy)）。
 - **Ask-first 规则最多 20 条 Allow + 20 条 Ask-first，每条 1000 字符；两类都匹配时 Ask first 优先；用户规则只能比团队规则更严格**（F）。
 - **高风险动作默认需要边界**：发消息 / 邀请、发布、购买 / 转账、删除 / 覆盖、权限变更、生产变更、法律条款（F）。
 - **审批不撤销已完成的工作；后台工作的审批卡 30 分钟过期；群聊里的审批卡没有「Always allow」**（F）。
-- **共享电脑不是安全边界。** 所有 Bot 共用一个云电脑；一个 Bot 登录过的网站，其他 Bot 也能访问；删除 Bot 不会删除共享电脑上的文件和浏览器会话（F，[Computer and apps](https://docs.x.ai/grok-bot/computer-and-apps)、[FAQ](https://docs.x.ai/grok-bot/faq)）。
+- **共享电脑不是安全边界**。所有 Bot 共用一个云电脑；一个 Bot 登录过的网站，其他 Bot 也能访问；删除 Bot 不会删除共享电脑上的文件和浏览器会话（F，[Computer and apps](https://docs.x.ai/grok-bot/computer-and-apps)、[FAQ](https://docs.x.ai/grok-bot/faq)）。
 - **凭据处理**：Vault 登录和 Secure Form 的值不会展示给模型；但 App 里 Bot 能看到已保存卡号和验证码；SSO、passkey、CAPTCHA、银行验证时把电脑交还给人（F）。
 - **团队控制**：每组策略只能放宽或收紧到某个方向；网络策略取最严格；团队可设网络 allowlist、Auto Review 强制、本地执行「Never allow」、限制 Bot 分享、开 Audit Logs / OpenTelemetry（F，[Teams and enterprises](https://docs.x.ai/grok-bot/teams-and-enterprises)）。
-- **没有完整审计日志的说明。** 文档只建议「Preserve source links and an action log for important decisions」；企业版有 Audit Logs 和 OpenTelemetry，但个人版没有（F/U，页面没有给出个人版完整审计能力）。
+- **没有完整审计日志的说明**。文档只建议「Preserve source links and an action log for important decisions」；企业版有 Audit Logs 和 OpenTelemetry，但个人版没有（F/U，页面没有给出个人版完整审计能力）。
 
 **I**：Grok Bot 的 Auto Review 是「模型审查 + 用户审批」的双层设计，解决的是云端 Agent 误操作和 prompt injection。Janus 的边界不同：权限由 Agent 原生模式决定，审批始终归用户。Janus 不应该再叠一个模型审查层，但应该让审批卡显示「来源、目标、影响、是否可逆」，并确保外部内容不能冒充用户授权（J）。
 
@@ -254,6 +275,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | 隐藏模型 / 成本与模型无关 | 明确不采纳 | Janus 应该显示模型、token、费用和预算 |
 | 周用量池 / 超额 token 计费 | 借鉴「预算 + 暂停 + 用户决定」的交互，不复制定价 | Janus 是本地工具，成本来自用户自己的 Agent 订阅 / API |
 
+<a id="other_projects"></a>
 ## 4. 其他代表项目
 
 ### 4.1 Claude Code Agent Teams
@@ -335,6 +357,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 
 **综合判断（J）**：多 Agent 不是默认更优；它只在「任务能干净切开 + 有独立验证 + 成本可见 + 团队规模小」时稳定回本。Janus 的产品方向应该围绕这四个条件，而不是围绕「更多 Agent」。
 
+<a id="comparison"></a>
 ## 5. 横向对比
 
 | 维度 | Grok Bot | Claude Code Agent Teams | OpenAI hosted multi-agent | Antigravity `/swarm` | GitHub Agent HQ | Microsoft Agent Framework | Janus |
@@ -351,6 +374,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | 恢复 | 云端持久 | 进程内 teammate 不支持 `/resume` | 托管状态可回放 | 被杀 worker 不复活 | 异步会话 | checkpoint | `resume_run` |
 | 开放性 | 封闭产品 | Claude Code 生态 | OpenAI 模型 | Google 生态 | 多厂商，但平台控制 | 开源框架 | 跨厂商 ACP，本地 |
 
+<a id="positioning"></a>
 ## 6. 市场机会、定位与渠道
 
 ### 6.1 竞争差异
@@ -394,6 +418,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | 供应商变化 | ACP 适配器、模型价格、Grok / Claude 条款会变 | 适配器版本固定、价格来源可替换、能力声明保守 |
 | 研究偏差 | 二手评测、厂商营销、单一案例 | 本文标注 F/I/J/U；下一步做 hands-on 和访谈 |
 
+<a id="suggestions"></a>
 ## 7. 对 Janus 的演进建议
 
 ### 7.1 当前状态核对
@@ -491,16 +516,16 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 
 ### 7.5 明确不建议
 
-- **不要复制 Grok Bot 的共享云电脑 / 共享登录。** 这和 Janus 的本地优先、Agent 隔离目录、原生权限冲突；Grok Bot 官方自己说「不要把不同 Bot 当安全边界」。
-- **不要加无审计的 Bot 间私聊。** 看板是唯一事实来源；私聊会绕开事件、冲突检测和权限边界。可以做「任务详情里的上下文线程」，但不做独立消息通道。
-- **不要自动写入 Memory / Skill。** 错误结论会进入之后每次 Run；保留用户确认和版本化。
-- **不要默认大团队或无限 spawn。** 3-5 个协作者、清晰 `owns`、独立验证；不要为了并行而并行。
-- **不要隐藏模型和成本。** Janus 的差异之一是透明；显示模型、token、费用和预算。
-- **不要用模型审查替代用户审批。** 可以增强审批来源和可逆性提示，但最终决定权归用户；跨 Agent 消息不能算授权。
-- **不要在资源注入入口确认前恢复 Grok 内置运行时。** 当前 ADR 已删除 Grok / Pi；Grok 没有找到会话级 Skill 注入入口，恢复会重蹈「角色资源无效」的问题。
-- **不要在共享工作目录做同题并行写代码的 best-of-N。** 需要目录隔离和评审机制，成本高；先观察。
-- **不要把「零发现」当安全结论。** 没有覆盖率的零发现没有意义；验证报告要列出覆盖缺口（沿用 Hermes 的结论）。
-- **不要宣称 24/7、always-on 或「替代团队」。** Janus 是用户发起的本地工具，能力和边界要如实描述。
+- **不要复制 Grok Bot 的共享云电脑 / 共享登录**。这和 Janus 的本地优先、Agent 隔离目录、原生权限冲突；Grok Bot 官方自己说「不要把不同 Bot 当安全边界」。
+- **不要加无审计的 Bot 间私聊**。看板是唯一事实来源；私聊会绕开事件、冲突检测和权限边界。可以做「任务详情里的上下文线程」，但不做独立消息通道。
+- **不要自动写入 Memory / Skill**。错误结论会进入之后每次 Run；保留用户确认和版本化。
+- **不要默认大团队或无限 spawn**。3-5 个协作者、清晰 `owns`、独立验证；不要为了并行而并行。
+- **不要隐藏模型和成本**。Janus 的差异之一是透明；显示模型、token、费用和预算。
+- **不要用模型审查替代用户审批**。可以增强审批来源和可逆性提示，但最终决定权归用户；跨 Agent 消息不能算授权。
+- **不要在资源注入入口确认前恢复 Grok 内置运行时**。当前 ADR 已删除 Grok / Pi；Grok 没有找到会话级 Skill 注入入口，恢复会重蹈「角色资源无效」的问题。
+- **不要在共享工作目录做同题并行写代码的 best-of-N**。需要目录隔离和评审机制，成本高；先观察。
+- **不要把「零发现」当安全结论**。没有覆盖率的零发现没有意义；验证报告要列出覆盖缺口（沿用 Hermes 的结论）。
+- **不要宣称 24/7、always-on 或「替代团队」**。Janus 是用户发起的本地工具，能力和边界要如实描述。
 
 ### 7.6 市场侧成功指标
 
@@ -517,6 +542,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 
 **注意**：上表的百分比是首轮假设目标，不是已经测得的市场数据；Janus 目前没有遥测，任何汇总都必须先获得用户同意，或只在设计伙伴范围内做。
 
+<a id="next_steps"></a>
 ## 8. 待验证问题与下一步
 
 | 假设 | 验证方式 | 如果被推翻 |
@@ -538,6 +564,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 4. 在拿到基线后再决定 P1 的默认并发数和预算阈值；不要先写死。
 5. 如果要做 Grok 集成，先确认 Grok 的 ACP 适配器是否有会话级 Skill / 指令注入入口；没有就只保留自定义命令，不做内置运行时。
 
+<a id="sources"></a>
 ## 9. 来源
 
 ### Grok Bot / xAI
@@ -582,6 +609,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 - [flaviocopes：What's new in Grok Bot 1.0](https://flaviocopes.com/grok-bot-1-0)（二手总结，U）
 - [grokbotwiki：What's new in Grok Bot 1.0](https://www.grokbotwiki.com/guides/grok-bot-whats-new)（二手总结，U）
 
+<a id="fact_check"></a>
 ## 附录：关键事实的核对表
 
 | 事实 | 类型 | 核对方式 |
@@ -601,6 +629,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | Janus 已有用量账本、证据方法、独立验证 | F | [Run 生命周期](../domains/20261031-run_lifecycle.md#verification)、[看板 MCP 工具](../interfaces/20261031-board_mcp.md#acceptance_criteria)、[事件](../interfaces/20261031-events.md#usage_accounting) |
 | Janus 没有全局并发上限和 Run 级费用预算 | F | `backend/src/orchestrator/lifecycle.rs`、`docs/interfaces/20261031-configuration.md#compile_time` |
 
+<a id="decisions"></a>
 ## 待用户决定的产品选项
 
 以下 3 项是进入 PRD 前需要用户选择的产品方向，不是技术实现问题；每项内的选项互斥。推荐只是报告基于现有证据的建议，最终由用户决定。选定一个方向后才进入 PRD 的范围和优先级；技术实现方式、默认值和数据格式由负责人在选定方向后按仓库规则写 ADR 和方案。无论选哪项，以下边界不变：事件日志是唯一事实来源、看板是唯一协作通道、权限由 Agent 原生模式决定、审批始终归用户、不自动写入 Memory 或 Skill。
@@ -613,7 +642,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | 云端主动 | 新增云执行、共享登录、后台常驻和安全模型重写；需要新 ADR 和安全评审，周期最长 | 云端基础设施会挤占 P0 / P1，验证和成本能力被推迟 | 转向任务完成量、主动任务占比、留存；必须先解决共享凭据、成本不可预测和过程不透明（Grok Bot 已暴露的问题） |
 | 混合 | 本地为主，增加可选云端执行后端；需要定义数据出域、凭据和审批边界 | 需要一个执行后端接入项目，排在 P0 / P1 之后才合理 | 同时看本地 / 云端 Run 占比、数据出域审批率、两类 Run 的成功率和成本 |
 
-**推荐：本地审计优先。** 报告证据显示 Janus 的差异在本地数据、事件回放、跨厂商和权限归用户；云端路线正面竞争，且共享凭据、成本不可预测、过程不透明这三个结构性问题没有解决；H1（用户愿意用本地控制换云端便利）还没有一手验证。若访谈显示「不能云端 / 常驻」是主要拒绝理由，再评估混合。
+**推荐：本地审计优先**。报告证据显示 Janus 的差异在本地数据、事件回放、跨厂商和权限归用户；云端路线正面竞争，且共享凭据、成本不可预测、过程不透明这三个结构性问题没有解决；H1（用户愿意用本地控制换云端便利）还没有一手验证。若访谈显示「不能云端 / 常驻」是主要拒绝理由，再评估混合。
 
 ### D2 主动运行：仅用户发起、本地定时，还是外部触发？
 
@@ -625,7 +654,7 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | 本地定时 | 新增本地调度模块、配置和预算控制；必须显式开启、默认不自动 push / 发布；需要 ADR 和安全文档 | P2-1 提前，至少占用一个模块的工期，可能挤占 P1 | 增加定时 Run 完成率、成本 / 次、用户干预率、误报率；未授权外部动作仍须为 0 |
 | 外部触发 | 在本地定时之上增加外部事件来源（GitHub / Slack / webhook）或网络监听；凭据和鉴权面最大 | 排在本地定时之后；需要单独的安全评审和 ADR | 增加触发成功率、重复触发抑制、来源鉴权、外部事件到 Run 的延迟；未授权外部动作仍须为 0 |
 
-**推荐：仅用户发起，先验证 H4。** 报告的 P2-1 把定时 / 触发 Run 列为观察项，并明确它是信任边界变化；Grok Bot 的 routines 和 Agent HQ 证明市场方向，但 Janus 用户是否需要主动 Run 还没有访谈证据。若设计伙伴的重复任务清单显示稳定需求，再按「本地定时 → 外部触发」的顺序写 ADR。
+**推荐：仅用户发起，先验证 H4**。报告的 P2-1 把定时 / 触发 Run 列为观察项，并明确它是信任边界变化；Grok Bot 的 routines 和 Agent HQ 证明市场方向，但 Janus 用户是否需要主动 Run 还没有访谈证据。若设计伙伴的重复任务清单显示稳定需求，再按「本地定时 → 外部触发」的顺序写 ADR。
 
 ### D3 Grok 策略：只作为竞品、自定义 ACP 实验，还是恢复内置运行时？
 
@@ -635,6 +664,6 @@ Janus 属于第 6 类：**本地优先、跨厂商、事件溯源的工作空间
 | 自定义 ACP 实验 | 做一次受控实验，确认 Grok 适配器是否有会话级 Skill / 指令注入、角色资源是否生效、维护成本多少；不改内置运行时，不作支持承诺 | 排在 P0-4 和 H7 之后；需要一个人力窗口 | 实验报告给出「可注入 / 不可注入」结论和证据；若不可注入则回到「只作为竞品」 |
 | 恢复内置运行时 | 把 Grok 重新加入 `Runtime`、安装包、资源库和支持文档；需要修订 ADR、更新安全文档 | 会挤占 P0 / P1，并带来长期支持成本 | 增加 Grok 用户的资源注入成功率、激活、留存和支持成本；必须以「自定义 ACP 实验」的注入结论和 H7 的需求结论为前提 |
 
-**推荐：只作为竞品。** magpie 没有找到 Grok 的会话级注入入口（U），ADR 已经删除 Grok / Pi，H7（Grok 用户需要 Janus 接入 Grok）没有验证；在没有入口和需求证据前恢复内置，会重蹈「角色资源无效」的问题。若访谈显示 Grok 用户占比显著且明确要求，先做自定义 ACP 实验，不直接恢复内置。
+**推荐：只作为竞品**。magpie 没有找到 Grok 的会话级注入入口（U），ADR 已经删除 Grok / Pi，H7（Grok 用户需要 Janus 接入 Grok）没有验证；在没有入口和需求证据前恢复内置，会重蹈「角色资源无效」的问题。若访谈显示 Grok 用户占比显著且明确要求，先做自定义 ACP 实验，不直接恢复内置。
 
 **与现有建议的关系**：这 3 项不改变报告已有的 F / I / J / U 事实、P0-P2 建议、成功指标和限制。选择「本地审计优先」「仅用户发起」「只作为竞品」时，第 7 节的 P0-P2 按当前顺序执行，P0-3 的能力声明修正和 P2-1 的观察状态不变；选择其他选项时，PRD 需要相应调整范围、优先级和成功指标，并在实施前补 ADR。

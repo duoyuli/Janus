@@ -56,13 +56,13 @@
 
 ### 3.1 多 Agent 失败主要发生在「接缝」而非单点推理
 
-UC Berkeley 提出的 **MAST（Multi-Agent System Failure Taxonomy）** 对主流多 Agent 框架失败轨迹的归因显示，复杂任务的高失败率集中于三类结构性接缝：
+UC Berkeley 提出的 **MAST**（Multi-Agent System Failure Taxonomy）对主流多 Agent 框架失败轨迹的归因显示，复杂任务的高失败率集中于三类结构性接缝：
 
 1. **系统设计与终止/循环问题（约 44%）**：包括局部步骤重复打转（约 15.7%）、偏离角色或目录边界（约 13.3%）、终止条件认知不清（约 12.4%）。
 2. **Agent 间失调与交接损耗（约 32%）**：上游只传模糊摘要导致下游曲解意图（Context Bleed / Loss in Translation），或并行编码时各自修改心智中的接口契约导致集成崩溃（Contract Drift）。
 3. **验证走过场（约 23.5%）**：审查 Agent 出现「讨好型验证（Sycophancy）」，仅凭代码表面合理性放行而未针对薄弱环节做独立实测（约 17.3%）。
 
-**对 Janus 的含义**：Janus 已经用 `owns`、`traces` 和 `verifies` 管住了大量边界问题；下一步把**交接载荷结构化（MA-04）**、**向验证者精准喂入薄弱点与跨模型交叉审查（MA-05）**、**捕获交替循环（MA-07）**补齐，正好命中失败率最高的三处接缝。
+**对 Janus 的含义**：Janus 已经用 `owns`、`traces` 和 `verifies` 管住了大量边界问题；下一步把**交接载荷结构化（MA-04）**、**向验证者精准喂入薄弱点与跨模型交叉审查（MA-05）**、**捕获交替循环**（MA-07）补齐，正好命中失败率最高的三处接缝。
 
 ### 3.2 热会话复用（Session Reuse）与 Prompt Cache 是多轮协作的胜负手
 

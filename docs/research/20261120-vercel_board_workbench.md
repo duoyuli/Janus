@@ -14,18 +14,18 @@
 - [Janus 现状核对](#janus_today)：已有什么、外层缺什么。
 - [演进方向](#direction)：目标形态、设计原则、入口、GitHub、手机端、无人值守。
 - [分阶段建议](#phases)：P0 / P1 / P2，含落点、指标和风险。
-- [与既有研究的关系](#prior_research)和[待确认问题](#open_questions)。
+- [与既有研究的关系](#prior_research)和[待确认问题](#open_questions)：判断本文和前几份研究的分工，以及哪些建议还要用户决定时阅读。
 
 <a id="summary"></a>
 ## 摘要
 
-- **Board 是团队级、长期存在的通信层，不是编排器。** 它提供消息、thread、标签、带租约的任务队列、单一有序事件日志、权限和外部同步；Agent 在哪里运行、谁做判断、代码怎样回到仓库，都留给使用者（F）。
-- **Janus 的 Run 这一层已经比 Board 深，缺的是外面那一层。** 结构化结果、独立验证、文件痕迹、续接会话、worktree 交付，Board 都要使用者自己搭。Janus 缺的是跨 Run 的工作台：服务端的收件箱、工作区级事件流、多入口和对外交付（I/J）。
-- **演进时保留 Run 作为执行单元，在工作区外面加一层工作台。** 所有入口（Mac 应用、手机、GitHub issue、定时）都先生成一条「请求」进入收件箱，再按来源的信任规则决定是否开始 Run（J）。
-- **Board 最值得借鉴的是信任规则，不是数据结构。** 任务正文就是给认领者的指令，所以默认只执行自己创建的任务；一条消息不能证明有人批准，不可逆操作改用身份可验证的渠道（GitHub review）；对外同步默认只进不出，只发在 Board 上写的内容（F）。
-- **factory 模板证明了「issue 到 PR」这条路可行，并给出了具体做法。** 只把仓库有写权限的人当团队，但这一条只写在提示词里；每个改动开独立分支，经 GitHub API push 以获得签名；令牌按 thread 限定仓库，放在 sandbox 的网络策略里，不进 sandbox。细节见[模板源码研究](20261120-vercel_board_templates.md)（F）。
-- **手机端是信任边界变化最大的一步，要先定前提再动手。** Janus 现在的 HTTP 服务没有鉴权、只监听回环地址。Board 本地版的答案是 `vb serve --tailscale` 共享到 tailnet（F），这是一个可参考的起点，但设备配对、按设备吊销和审批归属都要 Janus 自己设计（J）。
-- **建议顺序：工作台地基 → GitHub issue → 手机端。** 地基（服务端收件箱、工作区事件流、Run 的来源字段）不扩大信任边界，可以先做；GitHub 和手机端各自先写 ADR，按规则 5 单独提交（J）。
+- **Board 是团队级、长期存在的通信层，不是编排器**。它提供消息、thread、标签、带租约的任务队列、单一有序事件日志、权限和外部同步；Agent 在哪里运行、谁做判断、代码怎样回到仓库，都留给使用者（F）。
+- **Janus 的 Run 这一层已经比 Board 深，缺的是外面那一层**。结构化结果、独立验证、文件痕迹、续接会话、worktree 交付，Board 都要使用者自己搭。Janus 缺的是跨 Run 的工作台：服务端的收件箱、工作区级事件流、多入口和对外交付（I/J）。
+- **演进时保留 Run 作为执行单元，在工作区外面加一层工作台**。所有入口（Mac 应用、手机、GitHub issue、定时）都先生成一条「请求」进入收件箱，再按来源的信任规则决定是否开始 Run（J）。
+- **Board 最值得借鉴的是信任规则，不是数据结构**。任务正文就是给认领者的指令，所以默认只执行自己创建的任务；一条消息不能证明有人批准，不可逆操作改用身份可验证的渠道（GitHub review）；对外同步默认只进不出，只发在 Board 上写的内容（F）。
+- **factory 模板证明了「issue 到 PR」这条路可行，并给出了具体做法**。只把仓库有写权限的人当团队，但这一条只写在提示词里；每个改动开独立分支，经 GitHub API push 以获得签名；令牌按 thread 限定仓库，放在 sandbox 的网络策略里，不进 sandbox。细节见[模板源码研究](20261120-vercel_board_templates.md)（F）。
+- **手机端是信任边界变化最大的一步，要先定前提再动手**。Janus 现在的 HTTP 服务没有鉴权、只监听回环地址。Board 本地版的答案是 `vb serve --tailscale` 共享到 tailnet（F），这是一个可参考的起点，但设备配对、按设备吊销和审批归属都要 Janus 自己设计（J）。
+- **建议顺序：工作台地基 → GitHub issue → 手机端**。地基（服务端收件箱、工作区事件流、Run 的来源字段）不扩大信任边界，可以先做；GitHub 和手机端各自先写 ADR，按规则 5 单独提交（J）。
 
 <a id="board_overview"></a>
 ## 1. Vercel Board 是什么
@@ -179,13 +179,13 @@ Janus home（Mac 上常驻的服务）
 
 ### 5.2 设计原则
 
-1. **Run 仍是唯一的执行单元。** 工作台只决定「要不要开始一个 Run、交付到哪里」，不改变 Run 内部的编排、验证和交付（J）。
-2. **本地优先不变：Mac 是服务端，其他入口是客户端或请求来源。** 手机端默认是遥控本机服务的客户端，Mac 关机或睡眠时不能开始新工作。是否需要云端运行，见[待确认问题](#open_questions)（J）。
-3. **外部来的文字一律是数据，不是指令。** 对应 Board 的「A task's text is instructions for whoever claims it」：issue 正文、评论、手机上收到的转发内容进入负责人说明时，放在标明来源的数据段里，不进系统层（F/J）。
-4. **按来源决定信任。** 你本人在 Mac 或已配对手机上提交的请求直接开始；GitHub 上有写权限的人提交的，按工作区设置自动开始或等你确认；其他人提交的只进收件箱，factory 的做法是「discuss, not an order」（F/J）。
-5. **对外操作要有身份可验证的批准。** push、开 PR、回写评论、合并都要你批准；能放到 GitHub review 里批准的，优先用 GitHub review（F/J）。
-6. **回写只发结论。** 回写 GitHub 只发交付摘要和 PR 链接，不发看板过程、日志和路径（对应 Board「Send back only what was written on the board」）（F/J）。
-7. **状态都用类型表达。** 请求的来源、信任级别、收件箱状态都是枚举，不从 id 或标签字符串推断（合并前检查第 10 条）。新增字段要写迁移（第 11 条）（J）。
+1. **Run 仍是唯一的执行单元**。工作台只决定「要不要开始一个 Run、交付到哪里」，不改变 Run 内部的编排、验证和交付（J）。
+2. **本地优先不变：Mac 是服务端，其他入口是客户端或请求来源**。手机端默认是遥控本机服务的客户端，Mac 关机或睡眠时不能开始新工作。是否需要云端运行，见[待确认问题](#open_questions)（J）。
+3. **外部来的文字一律是数据，不是指令**。对应 Board 的「A task's text is instructions for whoever claims it」：issue 正文、评论、手机上收到的转发内容进入负责人说明时，放在标明来源的数据段里，不进系统层（F/J）。
+4. **按来源决定信任**。你本人在 Mac 或已配对手机上提交的请求直接开始；GitHub 上有写权限的人提交的，按工作区设置自动开始或等你确认；其他人提交的只进收件箱，factory 的做法是「discuss, not an order」（F/J）。
+5. **对外操作要有身份可验证的批准**。push、开 PR、回写评论、合并都要你批准；能放到 GitHub review 里批准的，优先用 GitHub review（F/J）。
+6. **回写只发结论**。回写 GitHub 只发交付摘要和 PR 链接，不发看板过程、日志和路径（对应 Board「Send back only what was written on the board」）（F/J）。
+7. **状态都用类型表达**。请求的来源、信任级别、收件箱状态都是枚举，不从 id 或标签字符串推断（合并前检查第 10 条）。新增字段要写迁移（第 11 条）（J）。
 
 ### 5.3 统一的「请求」模型
 
@@ -357,8 +357,8 @@ Vercel Board 文档（F）：
 
 `vercel/board` 仓库（F，`SPEC.md` 后半部分为 U）：
 
-- https://github.com/vercel/board （README）
+- <https://github.com/vercel/board>（README）
 - 两个模板的源码：见[模板源码研究](20261120-vercel_board_templates.md)的来源
-- https://github.com/vercel/board/blob/main/SPEC.md （只逐字读了前约 40k 字符）
+- <https://github.com/vercel/board/blob/main/SPEC.md>（只逐字读了前约 40k 字符）
 
 Janus 现状（2026-11-20）：[根索引](../index.md)、[协作三方](../domains/20261119-collaboration_roles.md)、[目标模式与共享看板](../domains/20261031-goal_mode.md)、[Run 生命周期](../domains/20261031-run_lifecycle.md)、[Agent、角色与工作区](../domains/20261031-agents_and_roles.md)、[macOS 应用](../architecture/20261031-frontend.md)、[HTTP API](../interfaces/20261031-http_api.md)、[安全边界](../operations/20261031-security.md)、[数据模型](../architecture/20261031-data_model.md)、[ADR：角色并发槽位与 Run 级并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md)、[ADR：验收时把结果合并回任务开始时的分支](../decisions/20261120-merge_back_on_accept.md)。

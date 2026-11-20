@@ -2,10 +2,22 @@
 
 审查日期：2026-10-31。
 
-审查对象：当前 checkout 中的 `backend/`、`frontend/app.html`、`backend/testdata/fake_acp.py`、`justfile` 以及与这些代码直接相关的工程文档。
+审查对象：提交 `f16dfad` 时 checkout 中的 `backend/`、`frontend/app.html`、`backend/testdata/fake_acp.py`、`justfile` 以及与这些代码直接相关的工程文档。
 
-审查方式：先读取 `AGENTS.md`、`docs/index.md` 和 Project Doc 相关章节，再核对当前 Git 状态、源码、调用链、事件推导、恢复逻辑和测试结果。本文记录当前代码快照的审查结果，不代表已经实施修复。
+审查方式：先读取 `AGENTS.md`、`docs/index.md` 和 Project Doc 相关章节，再核对当前 Git 状态、源码、调用链、事件推导、恢复逻辑和测试结果。本文记录当前代码快照的审查结果，不代表已经实施修复。审查没有启动真实 Janus 服务，也没有使用真实 ACP Provider、真实凭据或远程适配器安装流程，见[范围限制](#limits)。
 
+## 导航
+
+- [结论](#conclusion)：只想知道结论时阅读。
+- [问题总览](#overview)：按编号找 J 问题时阅读。
+- [详细问题](#details)：查某个 J 问题的代码事实和证据时阅读。
+- [修复顺序](#fix_order)：安排修复先后时阅读。
+- [建议的验收用例](#acceptance_cases)：写修复的测试时阅读。
+- [验证记录](#verification)：查审查时跑过哪些测试时阅读。
+- [审查操作日志](#operations)：复现审查过程时阅读。
+- [范围限制](#limits)：判断哪些没有验证过时阅读。
+
+<a id="conclusion"></a>
 ## 结论
 
 当前实现已经覆盖 ACP 启动、Run 编排、共享看板、事件记录、恢复和前端回放等主要流程，`just test` 的 19 个 Rust 测试和示例项目的 2 个 Python 测试均通过。
@@ -16,6 +28,7 @@
 
 2026-11-15 逐项复核了全部条目，表中的「状态」是复核后的结论，各条末尾的「处理」写明做了什么。
 
+<a id="overview"></a>
 ## 问题总览
 
 | 编号 | 影响 | 状态 | 问题 | 位置 |
@@ -32,6 +45,7 @@
 | J-10 | 中 |  已修复  | 适配器清理只保留当前和前一版本，可能删除仍在运行的旧版本文件 | `backend/src/adapters.rs:332` |
 | J-11 | 中 |  已修复  | 格式化和 Clippy 质量门禁失败 | `backend/src/agents.rs:387` 等 |
 
+<a id="details"></a>
 ## 详细问题
 
 ### J-01：MCP 会话身份没有绑定到 `who`
@@ -40,7 +54,7 @@
 
 代码事实：`mcp` 只检查 Run 是否存在以及 token 是否匹配，然后用 URL 中的 `who` 判断是否为负责人。`who == "lead"` 时，`tools/list` 返回负责人工具。当前代码没有检查 `who` 是否属于发放该 URL 的会话，也没有检查任务 ID 是否对应当前 ACP 连接。
 
-证据：[orchestrator.rs:1058](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1058)、[orchestrator.rs:1060](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1060)、[orchestrator.rs:1066](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1066)、[orchestrator.rs:1092](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1092)。
+证据：[orchestrator.rs:1058](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L1058)、[orchestrator.rs:1060](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L1060)、[orchestrator.rs:1066](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L1066)、[orchestrator.rs:1092](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L1092)。
 
 触发条件：协作者已经获得自己的 MCP URL 和 Run token，随后把 URL 最后的 `who` 改成 `lead`，再调用 `tools/list` 或 `tools/call`。
 
@@ -54,7 +68,7 @@
 
 代码事实：`save_connection` 将 `parse_env` 的完整结果放入 `config["env"]`，随后写入数据库并返回配置对象。`connections` 直接读取配置对象并返回。代码只对认证字段和「复制本机配置」得到的变量使用独立秘密文件。
 
-证据：[agents.rs:396](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:396)、[agents.rs:397](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:397)、[agents.rs:464](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:464)。这与[安全边界文档](/Users/duoyu/Data/dev/agent/Janus/docs/operations/20261031-security.md:51)中「设置接口不返回凭据值」的约定不一致。
+证据：[agents.rs:396](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L396)、[agents.rs:397](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L397)、[agents.rs:464](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L464)。这与[安全边界文档](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/docs/operations/20261031-security.md#L51)中「设置接口不返回凭据值」的约定不一致。
 
 建议：在入口处解析环境变量后，只允许明确的非秘密配置进入 SQLite。对秘密变量使用独立的 `0600` 文件，并在列表、保存和错误响应中只返回变量名和是否已设置。不能只依赖页面提示用户不要填写凭据，因为 HTTP 接口仍然接受该输入。
 
@@ -66,7 +80,7 @@
 
 代码事实：HTTP 处理函数先调用 `command_exists`，执行 `app.action`，再调用 `record_command`。检查和记录之间没有事务或 Run 级串行化。
 
-证据：[main.rs:333](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:333)、[main.rs:337](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:337)、[main.rs:384](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:384)、[db.rs:305](/Users/duoyu/Data/dev/agent/Janus/backend/src/db.rs:305)。
+证据：[main.rs:333](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/main.rs#L333)、[main.rs:337](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/main.rs#L337)、[main.rs:384](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/main.rs#L384)、[db.rs:305](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/db.rs#L305)。
 
 触发条件：两个请求同时使用相同 `commandId`，或者第一个请求执行 `app.action` 后、写入 `commands` 前进程退出。
 
@@ -80,7 +94,7 @@
 
 代码事实：`store` 调用 `insert_event` 失败时只写日志，随后无条件广播事件。`set_status` 也忽略更新数据库状态的错误。
 
-证据：[orchestrator.rs:390](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:390)、[orchestrator.rs:391](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:391)、[orchestrator.rs:394](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:394)、[orchestrator.rs:397](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:397)。事件文档要求事件写入 SQLite 后再广播，见[事件参考](/Users/duoyu/Data/dev/agent/Janus/docs/interfaces/20261031-events.md:35)。
+证据：[orchestrator.rs:390](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L390)、[orchestrator.rs:391](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L391)、[orchestrator.rs:394](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L394)、[orchestrator.rs:397](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L397)。事件文档要求事件写入 SQLite 后再广播，见[事件参考](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/docs/interfaces/20261031-events.md#L35)。
 
 建议：让事件写入失败向驱动任务传播，并在失败时停止继续推进。只有数据库提交成功后才广播。需要同时更新事件和索引状态时，使用同一个 SQLite 事务，避免事件日志和查询索引出现不同结果。
 
@@ -92,7 +106,7 @@
 
 代码事实：创建 Run 时，成员快照只保存 Provider ID。启动任务时通过 `spec_for(&member.runtime)` 重新从当前配置读取 Provider。恢复 Run 时也再次调用 `spec_for`。
 
-证据：[orchestrator.rs:460](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:460)、[orchestrator.rs:472](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:472)、[orchestrator.rs:1479](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1479)、[orchestrator.rs:1480](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:1480)、[orchestrator.rs:2968](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2968)。
+证据：[orchestrator.rs:460](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L460)、[orchestrator.rs:472](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L472)、[orchestrator.rs:1479](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L1479)、[orchestrator.rs:1480](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L1480)、[orchestrator.rs:2968](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L2968)。
 
 建议：创建 Run 时保存不可变的 Provider 运行时快照、适配器版本和必要的秘密引用。后续任务只读取快照。若产品需要允许 Provider 动态更新，应把它作为显式的 Run 变更并记录事件，而不是隐式使用最新配置。
 
@@ -104,7 +118,7 @@
 
 代码事实：`Db::runs` 使用 `ORDER BY created_at DESC LIMIT 50`。详情、恢复和归档验收都使用该列表查询指定 ID，而不是直接按 ID 查询。
 
-证据：[db.rs:199](/Users/duoyu/Data/dev/agent/Janus/backend/src/db.rs:199)、[main.rs:265](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:265)、[orchestrator.rs:2903](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2903)、[orchestrator.rs:2938](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2938)。
+证据：[db.rs:199](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/db.rs#L199)、[main.rs:265](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/main.rs#L265)、[orchestrator.rs:2903](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L2903)、[orchestrator.rs:2938](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L2938)。
 
 建议：增加 `get_run(id)` 数据库方法。列表接口单独保留分页或数量限制，详情、恢复和验收使用按 ID 查询。
 
@@ -116,7 +130,7 @@
 
 代码事实：`deadline_ms` 只保存在内存中的 `Run`。恢复 Run 时直接设置为当前时间加 6 小时。负责人调用 `stream_prompt` 时传入 `None`，没有使用 Run 的剩余预算。
 
-证据：[orchestrator.rs:285](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:285)、[orchestrator.rs:930](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:930)、[orchestrator.rs:2987](/Users/duoyu/Data/dev/agent/Janus/backend/src/orchestrator.rs:2987)。
+证据：[orchestrator.rs:285](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L285)、[orchestrator.rs:930](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L930)、[orchestrator.rs:2987](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/orchestrator.rs#L2987)。
 
 建议：在 Run 创建事件或数据库字段中保存绝对截止时间。恢复时沿用该时间，追加预算时显式更新并记录事件。负责人和协作者启动、提示、验证和等待用户请求时，都应使用同一个剩余预算，并在超时后终止会话或进入可恢复状态。
 
@@ -128,7 +142,7 @@
 
 代码事实：新建连接的 `newId` 会调用 `check_agent_id`，但更新分支直接使用 `body["id"]`。角色保存同样直接接受 `body["id"]`。这些 ID 随后用于 Agent 目录和角色秘密文件路径。
 
-证据：[agents.rs:371](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:371)、[agents.rs:384](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:384)、[agents.rs:449](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:449)、[agents.rs:1108](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:1108)、[agents.rs:1181](/Users/duoyu/Data/dev/agent/Janus/backend/src/agents.rs:1181)。
+证据：[agents.rs:371](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L371)、[agents.rs:384](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L384)、[agents.rs:449](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L449)、[agents.rs:1108](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L1108)、[agents.rs:1181](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/agents.rs#L1181)。
 
 建议：所有创建、更新和删除入口统一校验 ID。校验应拒绝路径分隔符、`.`、`..` 和超出允许长度的值。文件路径拼接后还应检查路径仍位于对应根目录内。
 
@@ -140,7 +154,7 @@
 
 代码事实：`lock_home` 先读取 PID、调用 `kill -0`，再写入 PID 文件。整个过程没有文件锁或原子创建。
 
-证据：[main.rs:48](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:48)、[main.rs:51](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:51)、[main.rs:65](/Users/duoyu/Data/dev/agent/Janus/backend/src/main.rs:65)。
+证据：[main.rs:48](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/main.rs#L48)、[main.rs:51](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/main.rs#L51)、[main.rs:65](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/main.rs#L65)。
 
 建议：在 macOS 上使用 `flock` 或等效的内核文件锁，并把 PID 作为诊断信息而不是互斥机制。启动失败或进程退出后由文件锁自动释放。
 
@@ -152,7 +166,7 @@
 
 代码事实：清理逻辑只保留当前版本和切换前的一个版本，不记录每个运行中会话使用的适配器版本，也不维护引用计数。
 
-证据：[adapters.rs:332](/Users/duoyu/Data/dev/agent/Janus/backend/src/adapters.rs:332)、[adapters.rs:340](/Users/duoyu/Data/dev/agent/Janus/backend/src/adapters.rs:340)。
+证据：[adapters.rs:332](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/adapters.rs#L332)、[adapters.rs:340](https://github.com/duoyuli/Janus/blob/f16dfad5c53c96430f1e0d9ad972085aa0d99b96/backend/src/adapters.rs#L340)。
 
 建议：启动会话时记录适配器版本，清理时保留仍被进程引用的目录。也可以采用延迟清理，并在确认没有活动会话后删除。
 
@@ -168,6 +182,7 @@
 
 处理（2026-11-15）：Clippy 已经没有诊断；代码按 `backend/rustfmt.toml` 格式化。`cargo fmt --check` 和 `cargo clippy --all-targets -- -D warnings` 都在 CI 中执行，本地用 `just lint`。
 
+<a id="fix_order"></a>
 ## 修复顺序
 
 第一阶段处理 J-01、J-02 和 J-08，先收紧会话身份、秘密值和文件路径边界。
@@ -178,6 +193,7 @@
 
 第四阶段处理 J-09、J-10 和 J-11，补充进程锁、适配器生命周期管理，并恢复格式化和 Clippy 质量门禁。
 
+<a id="acceptance_cases"></a>
 ## 建议的验收用例
 
 | 用例 | 预期结果 |
@@ -193,6 +209,7 @@
 | 连续升级适配器且保留旧会话 | 旧会话使用的适配器目录不会被删除 |
 | 执行 `cargo fmt --check` 和严格 Clippy | 两个命令均通过 |
 
+<a id="verification"></a>
 ## 验证记录
 
 | 检查 | 结果 |
@@ -204,6 +221,7 @@
 | `cargo clippy --manifest-path backend/Cargo.toml --all-targets -- -D warnings` | 失败，22 项诊断 |
 | 根仓库状态 | `main` 与 `origin/main` 同步；`examples/calc` 存在已有未提交删除 |
 
+<a id="operations"></a>
 ## 审查操作日志
 
 1. 读取 `AGENTS.md`、仓库本地 `project-doc` skill、`docs/index.md` 和相关分类索引，确认文档路由和只读审查边界。
@@ -213,6 +231,7 @@
 5. 运行 Project Doc 结构检查、Rust 测试、示例项目测试、格式检查和 Clippy。
 6. 创建本报告。审查过程中没有修改业务代码、没有提交、没有推送，也没有处理 `examples/calc` 的已有未提交状态。
 
+<a id="limits"></a>
 ## 范围限制
 
 本次审查是当前源码和静态测试结果审查，没有启动真实 Janus 服务，也没有使用真实 ACP Provider、真实凭据或远程适配器安装流程。因此，报告中的运行时隔离、真实 Agent 行为和网络部署表现仍需在修复后单独验证。

@@ -5,16 +5,29 @@
 > 目的：追踪多 Agent 协作和 Agent Team 的进展，判断哪些设计值得 Janus 借鉴。
 > Janus 的当前设计见[目标模式与共享看板](../domains/20261031-goal_mode.md)和 [Run 生命周期](../domains/20261031-run_lifecycle.md)；本文的「现状」一栏按这两篇文档和当前代码核对。
 
+## 导航
+
+- [摘要](#summary)：只想知道结论时阅读。
+- [方法与限制](#method)：判断结论的可信度时阅读。
+- [本周进展](#progress)：查各家具体进展时阅读。
+- [横向对比](#comparison)：对照各家做法时阅读。
+- [对 Janus 的借鉴建议](#suggestions)：评估 P0 / P1 / P2 建议时阅读。
+- [用事件日志衡量收益](#measuring)：设计收益指标时阅读。
+- [下周观察清单](#watchlist)：安排下一次观察时阅读。
+- [来源](#sources)：核对出处时阅读。
+
+<a id="summary"></a>
 ## 摘要
 
 本周没有出现推翻现有协作范式的新东西。进展集中在两件事：把多 Agent 的控制面做成正式接口，以及给「人和 Agent 混合团队」补治理。
 
-- **控制面成为竞争点。** OpenAI 把 `spawn_agent`、`send_message`、`wait_agent`、`interrupt_agent`、`list_agents` 做成 Responses API 的一等动作；Claude Code 的 Agent Teams 仍是实验特性，但补上了 `TeammateIdle`、`TaskCreated`、`TaskCompleted` 三类 hook 和更明确的跨 Agent 授权规则。
-- **工程样本里最值得抄的是安全审查。** Nous Research 的 `hermes-security` 给出了完整的多 Agent 安全审查流程：分块、并行 reviewer、覆盖缺口、测试确认、SARIF 导出、逐次授权。
-- **共享记忆和并行假设开始产品化。** PagerDuty 的 Paige 把「同一条时间线」「按置信度排序的假设」「把结论写回共享记忆」做成值班体验的一部分，与本项目的工作区共享资料和看板高度同构。
-- **研究侧偏冷。** 在相同思考 token 预算下，单 Agent 不输多 Agent；普通分解流水线成本约 3.2 倍而准确率没有显著提升；只有廉价模型承担足够比例的输出 token 时，异构流水线才回本。这支持 Janus「由负责人决定是否协作」的设计，但也说明成本必须可见。
-- **Janus 的差距不在协作模型，而在成本和证据。** 事件溯源、看板推送、冲突检测、验证和恢复已经比多数新框架完整；缺口是 token / 时间成本没有账本，验收证据没有强度分级，负责人缺少「停下但保留上下文」的显式动作。
+- **控制面成为竞争点**。OpenAI 把 `spawn_agent`、`send_message`、`wait_agent`、`interrupt_agent`、`list_agents` 做成 Responses API 的一等动作；Claude Code 的 Agent Teams 仍是实验特性，但补上了 `TeammateIdle`、`TaskCreated`、`TaskCompleted` 三类 hook 和更明确的跨 Agent 授权规则。
+- **工程样本里最值得抄的是安全审查**。Nous Research 的 `hermes-security` 给出了完整的多 Agent 安全审查流程：分块、并行 reviewer、覆盖缺口、测试确认、SARIF 导出、逐次授权。
+- **共享记忆和并行假设开始产品化**。PagerDuty 的 Paige 把「同一条时间线」「按置信度排序的假设」「把结论写回共享记忆」做成值班体验的一部分，与本项目的工作区共享资料和看板高度同构。
+- **研究侧偏冷**。在相同思考 token 预算下，单 Agent 不输多 Agent；普通分解流水线成本约 3.2 倍而准确率没有显著提升；只有廉价模型承担足够比例的输出 token 时，异构流水线才回本。这支持 Janus「由负责人决定是否协作」的设计，但也说明成本必须可见。
+- **Janus 的差距不在协作模型，而在成本和证据**。事件溯源、看板推送、冲突检测、验证和恢复已经比多数新框架完整；缺口是 token / 时间成本没有账本，验收证据没有强度分级，负责人缺少「停下但保留上下文」的显式动作。
 
+<a id="method"></a>
 ## 方法与限制
 
 - X（Twitter）的网页抓取在本环境返回 HTTP 402，无法直接读取时间线；带 `site:x.com` 的搜索也不稳定，只能间接拿到少量账号和帖子。本期以 WebSearch 的索引结果、聚合站（aiagentstore、AgentOrchestrators）、厂商文档和 GitHub 发布说明交叉核对。
@@ -22,6 +35,7 @@
 - OpenAI Hosted multi-agent 的官方参考页本次没有直接抓到，细节来自 Microsoft Foundry 的镜像文档和二次报道，正式实现以 OpenAI 文档为准。
 - 如果要稳定覆盖 X，需要用户提供已登录的会话、X API 凭据，或指定要盯的账号列表；否则只能依赖搜索索引。
 
+<a id="progress"></a>
 ## 本周进展
 
 ### Anthropic：Claude Code Agent Teams 仍在实验期
@@ -130,6 +144,7 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 
 判断：这些结果支持 Janus 现有的「负责人决定是否协作，不强制规划」，但也说明必须把成本和收益暴露给负责人和用户，否则会滑向「为了协作而协作」。
 
+<a id="comparison"></a>
 ## 横向对比
 
 | 维度 | Janus | Claude Code Agent Teams | OpenAI Hosted multi-agent | PagerDuty Paige | Hermes security |
@@ -143,6 +158,7 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 | 成本控制 | 6 小时墙钟预算 | 建议 3-5 人，token 显著增加 | 默认并发 3 | 未说明 | 分块与轮次上限 |
 | 团队规模 | 由工作区角色决定 | 建议 3-5 | 默认并发 3，无硬上限 | 人加 Agent | 最多 10 个 reviewer |
 
+<a id="suggestions"></a>
 ## 对 Janus 的借鉴建议
 
 下面按投入从低到高排序。每条都写清现状、建议、落点和风险；没有核实的 ACP 字段不作为设计前提。
@@ -229,6 +245,7 @@ CrowdStrike 在 2026-11-03 发布 AI Kill Switch（[官方博客](https://www.cr
 - **按角色分配模型而不测量**：Coordination Tax 的结论是按任务路由比按角色分配更有效；在没有账本之前，不要引入自动模型分配。
 - **把「零发现」当作结论**：没有覆盖率的零发现没有意义，安全审查必须报告覆盖缺口。
 
+<a id="measuring"></a>
 ## 用事件日志衡量收益
 
 Janus 的优势是所有状态变化都是事件，可以直接算协作是否值得。建议在下一期内先确定指标，再决定是否改代码：
@@ -240,6 +257,7 @@ Janus 的优势是所有状态变化都是事件，可以直接算协作是否�
 - 交付后 7 天内被同一目录的新 Run 重做的任务比例。
 - 对照组：同一目标由一个负责人独立完成的成本。没有对照组，无法判断「多 Agent 更好」。
 
+<a id="watchlist"></a>
 ## 下周观察清单
 
 - **产品**：Claude Code Agent Teams 是否转 GA、是否解除恢复限制；OpenAI Hosted multi-agent 是否 GA、是否加预算或深度限制；Microsoft Agent Framework 是否统一多语言接口；Hermes 是否把 security 插件并入核心；PagerDuty SRE Workbench 是否开放。
@@ -247,6 +265,7 @@ Janus 的优势是所有状态变化都是事件，可以直接算协作是否�
 - **关键词**：agent teams、multi-agent orchestration、subagent、A2A、MCP、agent handoff、agent fleet、kill switch、shared memory、hypothesis testing。
 - **要盯的账号**：Anthropic、OpenAI、Nous Research、TestingCatalog，以及 Simon Willison 一类持续做实测的开发者。X 的稳定抓取方式待解决。
 
+<a id="sources"></a>
 ## 来源
 
 - [Claude Code：Orchestrate teams of Claude Code sessions](https://code.claude.com/docs/en/agent-teams)
