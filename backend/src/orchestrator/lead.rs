@@ -1,6 +1,7 @@
 //! The lead: its goal session, the conversation after delivery, its instructions and the board
 //! pushed into it.
 
+use super::actions::reached_agent;
 use super::chat::chat_brief;
 use super::*;
 
@@ -1018,11 +1019,17 @@ pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
 /// The last twelve things the person and the main session's agent (called `agent`) said, one
 /// line each, for a new session that cannot load the old one.
 pub(super) fn recent_exchanges(events: &[Event], agent: &str) -> String {
+    // A message still waiting for the agent is not history: it is the prompt the new session gets.
+    let waiting = |i: usize, e: &Event| {
+        e.kind == "user.message"
+            && e.data.as_ref().and_then(|d| d["id"].as_str()).is_some_and(|id| !reached_agent(id, &events[i + 1..]))
+    };
     let mut recent: Vec<String> = events
         .iter()
+        .enumerate()
         .rev()
-        .filter(|e| e.task.is_none() && e.attempt.is_none())
-        .filter_map(|e| match e.kind.as_str() {
+        .filter(|&(i, e)| e.task.is_none() && e.attempt.is_none() && !waiting(i, e))
+        .filter_map(|(_, e)| match e.kind.as_str() {
             "agent.message" if !e.text.trim().is_empty() => Some(format!("{agent}: {}", short(e.text.trim(), 500))),
             "user.message" if !e.text.trim().is_empty() => Some(format!("User: {}", short(e.text.trim(), 500))),
             _ => None,

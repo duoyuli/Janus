@@ -92,3 +92,30 @@ async fn a_lead_that_exited_after_delivery_is_reopened_by_the_next_message() {
     assert_eq!(prompts, 1, "delivered once");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A new session's history leaves out the message still waiting for the agent: that message is
+/// the session's first prompt, and history plus prompt would hand it over twice.
+#[test]
+fn history_leaves_out_the_message_still_waiting() {
+    let e = |seq: i64, kind: &str, text: &str, data: Value| Event {
+        run_id: "r".into(),
+        seq,
+        ts: seq,
+        kind: kind.into(),
+        actor: "user".into(),
+        to: Some("lead".into()),
+        task: None,
+        attempt: None,
+        text: text.into(),
+        data: Some(data),
+    };
+    let events = vec![
+        e(1, "user.message", "先做这个", json!({ "id": "a" })),
+        e(2, "message.routed", "", json!({ "id": "a", "delivery": "prompt" })),
+        e(3, "agent.message", "做好了", json!({})),
+        e(4, "user.message", "还在吗？", json!({ "id": "b" })),
+        e(5, "message.routed", "", json!({ "id": "b", "delivery": "next" })),
+    ];
+    let history = crate::orchestrator::lead::recent_exchanges(&events, "Lead");
+    assert_eq!(history, "User: 先做这个\nLead: 做好了");
+}

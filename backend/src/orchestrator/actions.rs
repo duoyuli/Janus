@@ -744,20 +744,7 @@ impl App {
                     continue;
                 }
                 let Some(id) = d["id"].as_str() else { continue };
-                let later = &events[i + 1..];
-                let routed = later
-                    .iter()
-                    .rev()
-                    .find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
-                let joined = routed
-                    .is_some_and(|x| x.data.as_ref().unwrap()["delivery"].as_str().is_some_and(Delivery::reached_turn));
-                let delivered = later.iter().any(|x| {
-                    x.kind == "message.delivered"
-                        && x.data
-                            .as_ref()
-                            .is_some_and(|x| x["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id)))
-                });
-                if !joined && !delivered {
+                if !reached_agent(id, &events[i + 1..]) {
                     let text = d["text"].as_str().unwrap_or_default().to_string();
                     let msg = Msg { id: id.to_string(), text };
                     st.notes
@@ -872,4 +859,18 @@ pub enum DeleteRefused {
     /// The run is still working; stop it first.
     Conflict(String),
     Invalid(anyhow::Error),
+}
+
+/// Whether the person's message `id` reached its agent according to the events after it: joined
+/// into a turn (steer / prompt) or delivered with a session. One that did not is still waiting.
+pub(super) fn reached_agent(id: &str, later: &[Event]) -> bool {
+    let routed =
+        later.iter().rev().find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
+    let joined =
+        routed.is_some_and(|x| x.data.as_ref().unwrap()["delivery"].as_str().is_some_and(Delivery::reached_turn));
+    joined
+        || later.iter().any(|x| {
+            x.kind == "message.delivered"
+                && x.data.as_ref().is_some_and(|x| x["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id)))
+        })
 }
