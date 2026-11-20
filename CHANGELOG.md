@@ -4,6 +4,22 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.2
+
+- 验收任务后，结果直接合并回任务开始时你所在的分支，出现在你的工作目录里，不再生成需要你自己合并的 `janus/<任务>` 分支。任务期间这个分支有了新提交（你自己提交的，或另一个任务先合并的），任务的改动接在最新的提交之后，历史保持线性。
+- 合并有冲突、会覆盖你还没提交的改动，或分支已被删除时，验收不会成功：你的目录和分支保持原样，不会留下合并了一半的文件，错误信息说明原因和结果所在的提交，任务仍是「已交付」。和任务无关的未提交改动不受影响。
+- Janus 对你的仓库做的 Git 操作（创建 worktree、提交、合并）都不运行仓库的 Git 钩子。
+- Git 仓库上的任务，每次执行都显示 Git 信息：仓库、合并回的分支、开始时的提交和 worktree 路径；子任务页标题下和负责人对话的开头也会显示。
+- 升级后，已有的 worktree 中的任务按你现在检出的分支记录合并目标；这个分支不包含任务起点的，验收时由你自己合并。
+- 工作区目录的检查结果改为说明未提交的改动不会带进任务。
+
+- Accepting a task now merges its result back into the branch you were on when it started, so it lands in your working directory; there is no `janus/<task>` branch to merge yourself anymore. If that branch got new commits during the task (yours, or another task merged first), the task's changes go on top of the latest commit and history stays linear.
+- When the merge conflicts, would overwrite changes you have not committed, or the branch was deleted, acceptance does not go through: your directory and branch stay as they were with no half-merged files, the error says why and which commit holds the result, and the task stays Delivered. Uncommitted changes unrelated to the task are left alone.
+- Git operations Janus runs on your repository (creating worktrees, committing, merging) no longer run the repository's Git hooks.
+- For tasks on a Git repository, every attempt shows its Git details: the repository, the branch it merges back into, the starting commit and the worktree path; they also appear under a subtask's title and at the start of the lead's conversation.
+- On upgrade, existing tasks in a worktree record the branch you have checked out now as their merge target; where that branch does not contain the task's starting point, you merge the result yourself on acceptance.
+- The working directory check now says uncommitted changes are not brought into tasks.
+
 ## 2026.11.20
 
 - 资源库分成「Skill」和「MCP」两个标签。每个标签最上面用一段动画讲清楚它的路由怎样工作：Skill 超过 10 个时合并成一个 `janus-skills`、用到再读；MCP 服务器只经一个 `janus-tools` 入口，用到才启动、同一个任务共用、闲置就停。动画用你资源库里真实的名字，可以点某一步跳过去，也可以收起。
