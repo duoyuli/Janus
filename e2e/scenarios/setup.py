@@ -135,6 +135,8 @@ def setup(ctx, c):
     c("e2e-route__cwd" in names and "e2e-http__whoami" in names and "e2e-route__hang" in names,
       f"MCP 路由列出命令和 HTTP 服务器的工具，分页的读完所有页：{names}")
     c("e2e-route__task_only" not in names, "只能以 task 方式调用的工具不列出")
+    about = next((t["description"] for t in tools if t["name"] == "e2e-route__echo"), "")
+    c(about == "[e2e-route] 原样返回 text", f"工具说明以服务器名开头：{about}")
     started = lambda: open(starts).read().count("start")  # noqa: E731
     c(started() == 1, f"会话打开和列工具都没有启动服务器，只有添加时预先准备的那一次（{started()} 次）")
     got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})

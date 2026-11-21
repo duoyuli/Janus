@@ -125,6 +125,9 @@ async fn command_servers_are_served_by_the_runs_router() {
     ];
     assert!(probe_tools.iter().all(|t| names.contains(&t.to_string())), "{names:?}");
     assert!(!names.contains(&"probe__task_only".to_string()), "a task-only tool is left out: {names:?}");
+    let tools = call(&h, &at, "tools/list", json!({})).await.unwrap();
+    let echo = tools["tools"].as_array().unwrap().iter().find(|t| t["name"] == "probe__echo").unwrap();
+    assert_eq!(echo["description"], "[probe] 原样返回 text", "the server's name leads the description");
     assert_eq!((count(), browsers()), (1, 1), "a server that never listed starts once to say its tools");
     assert_eq!(listed(&h, &lead).await, names, "the lead sees the same tools");
     assert_eq!((count(), browsers()), (1, 1), "listing again starts nothing: the running one, or the list kept");

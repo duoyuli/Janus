@@ -33,6 +33,8 @@ const LIST_WAIT: Duration = Duration::from_secs(8);
 const CALL_WAIT: Duration = Duration::from_secs(5 * 60);
 /// What separates a server's name from its tool's in the names the router lists.
 const SEP: &str = "__";
+/// Claude Code keeps this many characters of a server's `initialize` instructions and drops the rest.
+const INSTRUCTIONS_MAX: usize = 2048;
 /// The longest name the router lists: models take tool names of at most 64 characters, and
 /// agents put `mcp__janus-tools__` (18) in front.
 const NAME_MAX: usize = 46;
@@ -190,6 +192,43 @@ pub(super) fn routed_name(server: &str, tool: &str) -> String {
     let hash: String =
         Sha256::digest(format!("{server}\0{tool}").as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
     format!("{}_{hash}", &name[..name.len().min(NAME_MAX - hash.len() - 1)])
+}
+
+/// What `initialize` tells the agent, within `INSTRUCTIONS_MAX` characters: how to read the tools
+/// first, then the servers behind it, with their descriptions while they fit, else their names,
+/// else as many names as fit and how many more there are.
+fn router_instructions(servers: &BTreeMap<String, Item>) -> String {
+    let head = format!(
+        "Janus 资源库的 MCP 服务器经这个路由提供。工具名是「服务器{SEP}工具」（过长的名字截短并带哈希），工具说明以「[服务器]」开头；本机命令启动的服务器在这个任务的工作目录中运行。服务器："
+    );
+    let fits = |s: &str| s.chars().count() <= INSTRUCTIONS_MAX;
+    let described: Vec<String> = servers
+        .values()
+        .map(|i| {
+            if i.description.is_empty() {
+                i.name.clone()
+            } else {
+                format!("{}（{}）", i.name, short(&i.description, 80))
+            }
+        })
+        .collect();
+    let all = format!("{head}{}。", described.join("、"));
+    if fits(&all) {
+        return all;
+    }
+    let names: Vec<&str> = servers.keys().map(String::as_str).collect();
+    let all = format!("{head}{}。", names.join("、"));
+    if fits(&all) {
+        return all;
+    }
+    let mut shown = names.len();
+    loop {
+        shown -= 1;
+        let some = format!("{head}{} 等 {} 个。", names[..shown].join("、"), names.len());
+        if fits(&some) || shown == 0 {
+            return some;
+        }
+    }
 }
 
 /// Whether the router can call the tool: one that only runs as a task (`execution.taskSupport`
@@ -440,27 +479,12 @@ impl App {
         };
         let servers = self.routed_servers(&run, who);
         let result = match req["method"].as_str().unwrap_or("") {
-            "initialize" => {
-                let names: Vec<String> = servers
-                    .values()
-                    .map(|i| {
-                        if i.description.is_empty() {
-                            i.name.clone()
-                        } else {
-                            format!("{}（{}）", i.name, short(&i.description, 80))
-                        }
-                    })
-                    .collect();
-                json!({
-                    "protocolVersion": agreed_version(&req["params"]["protocolVersion"]),
-                    "capabilities": { "tools": { "listChanged": false } },
-                    "serverInfo": { "name": crate::library::MCP_ROUTER, "version": crate::VERSION },
-                    "instructions": format!(
-                        "Janus 资源库中你能用的 MCP 服务器，经 Janus 路由：{}。工具名是「服务器{SEP}工具」（过长的名字截短并带哈希）；本机命令启动的服务器在这个任务的工作目录中运行。",
-                        names.join("、")
-                    ),
-                })
-            }
+            "initialize" => json!({
+                "protocolVersion": agreed_version(&req["params"]["protocolVersion"]),
+                "capabilities": { "tools": { "listChanged": false } },
+                "serverInfo": { "name": crate::library::MCP_ROUTER, "version": crate::VERSION },
+                "instructions": router_instructions(&servers),
+            }),
             "ping" => json!({}),
             "tools/list" => {
                 let deadline = tokio::time::Instant::now() + LIST_WAIT;
@@ -470,6 +494,10 @@ impl App {
                     .into_iter()
                     .map(|(item, mut t)| {
                         t["name"] = json!(routed_name(&item.name, t["name"].as_str().unwrap_or_default()));
+                        // The server's name leads the description too: agents find deferred tools
+                        // by searching names and descriptions.
+                        let about = t["description"].as_str().unwrap_or_default().trim();
+                        t["description"] = json!(format!("[{}] {about}", item.name).trim_end());
                         t
                     })
                     .collect();
@@ -566,6 +594,40 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Claude Code keeps 2048 characters of a server's instructions: the router's say how to read
+    /// the tools first and fit the servers in, with descriptions while they fit, else names, else
+    /// as many names as fit and how many there are.
+    #[test]
+    fn instructions_fit_what_claude_code_keeps() {
+        let servers = |n: usize, about: &str| -> BTreeMap<String, Item> {
+            (0..n)
+                .map(|i| {
+                    let name = format!("server-{i:03}");
+                    let item = Item {
+                        id: format!("i{i}"),
+                        name: name.clone(),
+                        description: about.to_string(),
+                        origin: crate::library::Origin::Created,
+                        revision: String::new(),
+                        updated_at: 0,
+                        body: crate::library::Body::Mcp {
+                            server: McpServer::Http { url: "https://example.com/mcp".into(), header_keys: vec![] },
+                        },
+                    };
+                    (name, item)
+                })
+                .collect()
+        };
+        let about = "搜索代码托管平台上的仓库、议题和合并请求";
+        let few = router_instructions(&servers(3, about));
+        assert!(few.starts_with("Janus 资源库的 MCP 服务器经这个路由提供") && few.contains(about), "{few}");
+        let many = router_instructions(&servers(60, about));
+        assert!(many.chars().count() <= INSTRUCTIONS_MAX && !many.contains(about) && many.contains("server-059"));
+        let lots = router_instructions(&servers(400, about));
+        assert!(lots.chars().count() <= INSTRUCTIONS_MAX && lots.ends_with("等 400 个。"), "{lots}");
+        assert!(lots.contains("server-000") && !lots.contains("server-399"));
+    }
 
     /// The sweep stops a shared server left unused for `IDLE`; a session's own server is the
     /// session's to end, however long it waits.
