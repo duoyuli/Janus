@@ -201,3 +201,41 @@ async fn a_workspace_folder_inside_a_repository_is_where_sessions_start() {
     assert_eq!(git_out(&h.repo, &["worktree", "list"]).lines().count(), 1);
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A run on a git repository works in its own worktree, even when every member's mode says
+/// read-only (the lead's call, not Janus's): its change lands there, not in the person's
+/// checkout, and is kept as a diff.
+#[tokio::test(flavor = "multi_thread")]
+async fn tasks_work_in_the_runs_own_worktree() {
+    let h = harness("inplace", &[("lead", false), ("m1", false)], json!({ "T1": ["write:notes.md"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let cwd = PathBuf::from(h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap());
+    assert_ne!(cwd, h.repo.canonicalize().unwrap());
+    assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n", "written in the worktree");
+    assert!(!h.repo.join("notes.md").exists(), "the person's checkout is untouched");
+    let evs = events(&h.app, &run);
+    let created = evs.iter().find(|e| e.kind == "run.created").unwrap().data.clone().unwrap();
+    assert_eq!(created["worktree"]["repo"], json!(h.repo.canonicalize().unwrap()), "{created}");
+    let branch = git_branch(&h.repo);
+    assert_eq!(created["worktree"]["branch"], json!(branch), "the branch the run started on");
+    let started = evs.iter().find(|e| e.kind == "attempt.started").unwrap();
+    assert_eq!(started.data.as_ref().unwrap()["path"], json!(cwd));
+    let git = &started.data.as_ref().unwrap()["git"];
+    let head = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&h.repo).output().unwrap();
+    assert_eq!(
+        *git,
+        json!({ "repo": h.repo.canonicalize().unwrap(), "branch": branch, "worktree": cwd,
+                "head": String::from_utf8_lossy(&head.stdout).trim() }),
+        "each attempt records the Git facts it works with"
+    );
+    assert!(started.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("单独建的 Git worktree"));
+    assert!(
+        evs.iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")),
+        "the change is kept as a diff"
+    );
+    assert!(!has(&evs, "verification.failed"));
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

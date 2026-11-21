@@ -1,0 +1,458 @@
+//! Usage ledger tests: what the ledger counts, how it reads each event, and the shared cases in
+//! `testdata/usage_cases.json` the app reads too.
+
+use super::*;
+use serde_json::json;
+
+fn ev(seq: i64, ts: i64, kind: &str, actor: &str, task: Option<&str>, attempt: Option<i64>, data: Value) -> Event {
+    Event {
+        run_id: "r1".into(),
+        seq,
+        ts,
+        kind: kind.into(),
+        actor: actor.into(),
+        to: None,
+        task: task.map(str::to_owned),
+        attempt,
+        text: String::new(),
+        data: (!data.is_null()).then_some(data),
+    }
+}
+
+fn usage(e: &mut Vec<Event>, seq: i64, ts: i64, actor: &str, task: Option<&str>, attempt: Option<i64>, data: Value) {
+    e.push(ev(seq, ts, "session.usage", actor, task, attempt, data));
+}
+
+fn created(e: &mut Vec<Event>) {
+    e.push(ev(1, 1_000, "run.created", "user", None, None, json!({ "goal": "测试" })));
+}
+
+fn started(e: &mut Vec<Event>, seq: i64, ts: i64, actor: &str, task: &str, n: i64, sid: &str) {
+    e.push(ev(seq, ts, "attempt.started", actor, Some(task), Some(n), json!({ "session": sid })));
+}
+
+/// The cases the app's ledger must agree with (`UsageLedgerTests.swift` reads the same file).
+#[test]
+fn shared_cases_give_the_expected_numbers() {
+    let cases: Value = serde_json::from_str(include_str!("../../testdata/usage_cases.json")).unwrap();
+    for case in cases.as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let events: Vec<Event> =
+            case["events"].as_array().unwrap().iter().map(|v| event_from_json("case", v)).collect();
+        let l = ledger(&events);
+        let want = &case["expect"];
+        assert_eq!(l.run.tokens.total, want["runTotal"].as_i64(), "{name}: run total");
+        assert_eq!(l.run.completeness.label(), want["completeness"].as_str().unwrap(), "{name}: completeness");
+        assert_eq!(l.text, want["summary"].as_str().unwrap(), "{name}: summary line");
+        for (task, total) in want["tasks"].as_object().into_iter().flatten() {
+            assert_eq!(l.task(task).and_then(|t| t.tokens.total), total.as_i64(), "{name}: task {task}");
+        }
+        for (task, usd) in want["taskUsd"].as_object().into_iter().flatten() {
+            assert_eq!(l.task(task).unwrap().cost.lines[0].amount, usd.as_f64().unwrap(), "{name}: {task}");
+        }
+        for (task_attempt, usd) in want["attemptUsd"].as_object().into_iter().flatten() {
+            let attempt = l.attempts.iter().find(|a| format!("{}#{}", a.task, a.n) == *task_attempt).unwrap();
+            assert_eq!(attempt.cost.lines[0].amount, usd.as_f64().unwrap(), "{name}: {task_attempt}");
+        }
+        if let Some(window) = want["windowUsd"].as_array() {
+            let from = window[0].as_i64().unwrap();
+            let to = window[1].as_i64().unwrap();
+            let total: f64 = l.sessions.iter().flat_map(|s| s.cost_between(from, to)).map(|line| line.amount).sum();
+            assert_eq!(total, window[2].as_f64().unwrap(), "{name}: bill window");
+        }
+        for (key, state) in want["attempts"].as_object().into_iter().flatten() {
+            let a = l
+                .attempts
+                .iter()
+                .find(|a| format!("{}#{}", a.task, a.n) == *key)
+                .unwrap_or_else(|| panic!("{name}: attempt {key}"));
+            assert_eq!(a.state.label(), state.as_str().unwrap(), "{name}: attempt {key}");
+        }
+        assert_eq!(
+            l.reminders.len(),
+            want["reminders"].as_u64().unwrap_or(0) as usize,
+            "{name}: reminders {:?}",
+            l.reminders
+        );
+    }
+}
+
+#[test]
+fn every_turn_is_added_even_when_the_turns_grow() {
+    // Real per-turn numbers rise as the conversation grows; none of them is a running total.
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(
+        &mut e,
+        3,
+        3_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "inputTokens": 600, "outputTokens": 100, "totalTokens": 700 }),
+    );
+    usage(
+        &mut e,
+        4,
+        4_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "inputTokens": 1200, "outputTokens": 200, "totalTokens": 1400 }),
+    );
+    usage(
+        &mut e,
+        5,
+        5_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "inputTokens": 1800, "outputTokens": 300, "totalTokens": 2100 }),
+    );
+    usage(
+        &mut e,
+        6,
+        6_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "inputTokens": 300, "outputTokens": 50, "totalTokens": 350 }),
+    );
+    let l = ledger(&e);
+    assert_eq!(l.run.tokens.total, Some(4550));
+    assert_eq!((l.run.tokens.input, l.run.tokens.output), (Some(3900), Some(650)));
+    assert_eq!(l.run.turns, 4);
+    assert_eq!(l.run.completeness, Completeness::Complete);
+    assert!(l.text.contains("4,550 tokens（完整）"), "{}", l.text);
+}
+
+#[test]
+fn quota_rows_by_model_replace_the_main_loop_usage() {
+    // Claude Code's `usage` is its main loop only; the quota rows add a subagent.
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(
+        &mut e,
+        3,
+        3_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({
+            "inputTokens": 1200, "outputTokens": 300, "cachedReadTokens": 5000, "cachedWriteTokens": 100, "totalTokens": 6600,
+            "models": [
+                { "model": "opus", "inputTokens": 1200, "outputTokens": 300, "cachedReadTokens": 5000, "cachedWriteTokens": 100, "totalTokens": 6600 },
+                { "model": "haiku", "inputTokens": 800, "outputTokens": 100, "cachedReadTokens": 0, "cachedWriteTokens": 0, "totalTokens": 900 }
+            ]
+        }),
+    );
+    usage(
+        &mut e,
+        4,
+        4_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "inputTokens": 50, "outputTokens": 10, "totalTokens": 60 }),
+    );
+    let l = ledger(&e);
+    assert_eq!(l.run.tokens.total, Some(7560), "6600 + 900 from the quota, then 60 from a turn without it");
+    assert_eq!((l.run.tokens.cached_read, l.run.tokens.cached_write), (Some(5000), Some(100)));
+    assert_eq!(
+        breakdown_text(&l.run.tokens).as_deref(),
+        Some("构成：输入 2,050 · 缓存读取 5,000 · 缓存写入 100 · 输出 410")
+    );
+}
+
+#[test]
+fn a_turn_without_a_total_adds_its_parts() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(
+        &mut e,
+        3,
+        3_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "inputTokens": 500, "outputTokens": 100, "cachedReadTokens": 2000, "totalTokens": null }),
+    );
+    assert_eq!(ledger(&e).run.tokens.total, Some(2600));
+}
+
+#[test]
+fn context_snapshots_never_become_tokens_even_when_repeated() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    for (i, (ts, used)) in
+        [(3_000, 52000), (4_000, 52000), (5_000, 61000), (6_000, 61000), (7_000, 52000)].iter().enumerate()
+    {
+        usage(&mut e, 3 + i as i64, *ts, "m1", Some("T1"), Some(1), json!({ "used": used, "size": 200000 }));
+    }
+    let l = ledger(&e);
+    assert_eq!(l.run.tokens.total, None, "a snapshot is not consumption");
+    assert_eq!(l.run.completeness, Completeness::Missing);
+    assert_eq!(
+        (l.run.context.used, l.run.context.peak, l.run.context.size, l.run.context.reports),
+        (Some(52000), Some(61000), Some(200000), 5)
+    );
+    let line = context_text(&l.run.context).unwrap();
+    assert!(line.contains("上下文 52,000 / 200,000（26%） · 峰值 61,000"), "{line}");
+}
+
+#[test]
+fn missing_usage_is_reported_as_missing_never_as_zero() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    e.push(ev(3, 3_000, "task.succeeded", "m1", Some("T1"), Some(1), json!({ "summary": "完成" })));
+    let l = ledger(&e);
+    assert_eq!(l.run.tokens, Tokens::default());
+    assert_eq!(l.run.completeness, Completeness::Missing);
+    assert!(l.text.contains("未上报") && !l.text.contains("0 tokens"), "{}", l.text);
+    assert!(l.task_lines("T1", &Names::new()).join("\n").contains("未上报"));
+    assert!(l.task_lines("T9", &Names::new())[0].contains("未开始"));
+    // A turn that really used nothing is a reported 0.
+    usage(
+        &mut e,
+        4,
+        4_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "inputTokens": 0, "outputTokens": 0, "totalTokens": 0 }),
+    );
+    assert_eq!(ledger(&e).run.tokens.total, Some(0));
+}
+
+#[test]
+fn cost_takes_the_latest_reading_and_keeps_what_came_before_a_reset() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    let cost = |amount: f64| json!({ "used": 1000, "size": 2000, "cost": { "amount": amount, "currency": "USD" } });
+    usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), cost(0.1));
+    usage(&mut e, 4, 4_000, "m1", Some("T1"), Some(1), cost(0.3));
+    usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), cost(0.0)); // a crashed result
+    usage(&mut e, 6, 6_000, "m1", Some("T1"), Some(1), cost(0.05)); // after /clear
+    usage(&mut e, 7, 7_000, "m1", Some("T1"), Some(1), cost(0.2));
+    let l = ledger(&e);
+    assert_eq!(l.run.cost.lines.len(), 1);
+    assert!((l.run.cost.lines[0].amount - 0.5).abs() < 1e-9, "0.3 before the reset + 0.2 after it: {:?}", l.run.cost);
+    assert_eq!(l.run.cost.reported_sessions, 1);
+}
+
+#[test]
+fn cost_is_never_added_across_currencies() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), json!({ "cost": { "amount": 0.25, "currency": "USD" } }));
+    started(&mut e, 4, 4_000, "m2", "T2", 1, "s2");
+    usage(&mut e, 5, 5_000, "m2", Some("T2"), Some(1), json!({ "cost": { "amount": 40, "currency": "credits" } }));
+    started(&mut e, 6, 6_000, "m3", "T3", 1, "s3");
+    usage(&mut e, 7, 7_000, "m3", Some("T3"), Some(1), json!({ "cost": { "amount": 5 } }));
+    let l = ledger(&e);
+    let line = l.summary_line();
+    assert!(line.contains("费用：0.25 USD + 40 credits + 5（未标注币种）（币种或口径不同，未合并）"), "{line}");
+    assert_eq!(l.task("T1").unwrap().cost.lines[0].amount, 0.25);
+}
+
+#[test]
+fn the_lead_is_counted_and_shown_apart_from_the_collaborators() {
+    let mut e = vec![];
+    created(&mut e);
+    e.push(ev(2, 2_000, "agent.status", "lead", None, None, json!({ "phase": "thinking", "session": "lead-1" })));
+    usage(&mut e, 3, 3_000, "lead", None, None, json!({ "totalTokens": 1500 }));
+    let only_lead = ledger(&e);
+    assert_eq!(only_lead.run.tokens.total, Some(1500));
+    assert_eq!(
+        (
+            tokens_text(&only_lead.lead.tokens, only_lead.lead.completeness),
+            tokens_text(&only_lead.collaborators.tokens, only_lead.collaborators.completeness)
+        ),
+        ("1,500 tokens（完整）".to_string(), "未上报".to_string())
+    );
+    started(&mut e, 4, 4_000, "m1", "T1", 1, "s1");
+    usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 800 }));
+    let l = ledger(&e);
+    assert_eq!(
+        (l.lead.tokens.total, l.collaborators.tokens.total, l.run.tokens.total),
+        (Some(1500), Some(800), Some(2300))
+    );
+}
+
+#[test]
+fn attempts_keep_their_state_and_all_count_into_the_task() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 700 }));
+    e.push(ev(4, 4_000, "attempt.failed", "m1", Some("T1"), Some(1), json!({ "error": "脚本失败" })));
+    started(&mut e, 5, 6_000, "m1", "T1", 2, "s2");
+    usage(&mut e, 6, 7_000, "m1", Some("T1"), Some(2), json!({ "totalTokens": 900 }));
+    e.push(ev(7, 8_000, "task.succeeded", "m1", Some("T1"), Some(2), json!({ "summary": "完成" })));
+    let l = ledger(&e);
+    assert_eq!(
+        (l.attempts[0].state, l.attempts[0].note.as_deref(), l.attempts[0].duration_ms),
+        (AttemptState::Failed, Some("脚本失败"), Some(2000))
+    );
+    assert_eq!(l.attempts[1].state, AttemptState::Succeeded);
+    assert_eq!(l.task("T1").unwrap().tokens.total, Some(1600), "a failed attempt's usage still counts");
+    let lines = l.task_lines("T1", &Names::new());
+    assert!(lines.iter().any(|x| x.starts_with("尝试 1：m1 · 失败")), "{lines:?}");
+    assert!(
+        lines.iter().any(|x| x == "成员 m1：1,600 tokens · 模型 未知模型 1,600"),
+        "a session that named no model: {lines:?}"
+    );
+}
+
+#[test]
+fn a_cancel_ends_the_attempts_still_running_and_says_who_cancelled() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    started(&mut e, 3, 2_000, "m2", "T2", 1, "s2");
+    usage(&mut e, 4, 3_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 1500 }));
+    e.push(ev(5, 5_000, "task.skipped_by_decision", "lead", Some("T1"), None, json!({ "reason": "不需要了" })));
+    let l = ledger(&e);
+    let of = |l: &Ledger, task: &str| l.attempts.iter().find(|a| a.task == task).unwrap().clone();
+    assert_eq!(
+        (of(&l, "T1").state, of(&l, "T1").note.as_deref()),
+        (AttemptState::Cancelled, Some("负责人取消了这个子任务"))
+    );
+    assert_eq!(of(&l, "T2").state, AttemptState::Unfinished, "cancelling one task leaves the others running");
+    e.push(ev(6, 9_000, "run.cancelled", "user", None, None, json!({})));
+    e.push(ev(7, 9_100, "attempt.failed", "m2", Some("T2"), Some(1), json!({ "error": "连接已关闭" })));
+    let l = ledger(&e);
+    assert_eq!(
+        (of(&l, "T2").state, of(&l, "T2").note.as_deref(), of(&l, "T2").duration_ms),
+        (AttemptState::Cancelled, Some("任务被取消"), Some(7100))
+    );
+    assert_eq!(l.task("T1").unwrap().tokens.total, Some(1500), "what it reported before the cancel still counts");
+}
+
+#[test]
+fn an_expired_attempt_is_counted_and_labeled() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 400 }));
+    e.push(ev(4, 4_000, "attempt.late_result", "m1", Some("T1"), Some(1), json!({})));
+    let l = ledger(&e);
+    assert_eq!(l.attempts[0].state, AttemptState::Expired);
+    assert_eq!(l.task("T1").unwrap().tokens.total, Some(400));
+}
+
+#[test]
+fn waits_are_kept_apart_from_the_wall_clock() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    e.push(ev(3, 3_000, "approval.requested", "m1", Some("T1"), Some(1), json!({ "key": "req-T1-1", "options": [] })));
+    e.push(ev(4, 33_000, "approval.granted", "user", Some("T1"), Some(1), json!({ "key": "req-T1-1", "allow": true })));
+    e.push(ev(5, 60_000, "task.succeeded", "m1", Some("T1"), Some(1), json!({ "summary": "完成" })));
+    let l = ledger(&e);
+    assert_eq!(
+        (l.run.duration_ms, l.run.wait_ms, l.task("T1").unwrap().wait_ms),
+        (Some(59_000), Some(30_000), Some(30_000))
+    );
+    assert!(l.task_lines("T1", &Names::new())[0].contains("（其中等待用户 30 秒）"));
+}
+
+#[test]
+fn a_replay_prefix_gives_the_numbers_of_that_point() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    for (i, n) in [700, 1400, 2100].iter().enumerate() {
+        usage(&mut e, 3 + i as i64, 3_000 + i as i64 * 1000, "m1", Some("T1"), Some(1), json!({ "totalTokens": n }));
+    }
+    assert_eq!(ledger(&e[..3]).run.tokens.total, Some(700));
+    assert_eq!(ledger(&e[..4]).run.tokens.total, Some(2100));
+    assert_eq!(ledger(&e).run.tokens.total, Some(4200));
+    assert_eq!(
+        serde_json::to_value(ledger(&e)).unwrap(),
+        serde_json::to_value(ledger(&e)).unwrap(),
+        "nothing carries over between reads"
+    );
+}
+
+#[test]
+fn reminders_are_text_and_say_they_use_reported_data_when_incomplete() {
+    let mut e = vec![];
+    created(&mut e);
+    e.push(ev(2, 2_000, "agent.status", "lead", None, None, json!({ "session": "lead-1" })));
+    usage(&mut e, 3, 3_000, "lead", None, None, json!({ "used": 4000, "size": 200000 }));
+    started(&mut e, 4, 4_000, "m1", "T1", 1, "s1");
+    usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 520_000 }));
+    let l = ledger(&e);
+    assert_eq!(l.run.completeness, Completeness::Partial, "the lead reported context but no tokens");
+    assert_eq!(l.reminders.len(), 3, "{:?}", l.reminders);
+}
+
+#[test]
+fn continued_session_attributes_each_tasks_turns_without_double_counting() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 600 }));
+    e.push(ev(4, 4_000, "task.succeeded", "m1", Some("T1"), Some(1), json!({ "summary": "初稿" })));
+    started(&mut e, 5, 5_000, "m1", "T2", 1, "s1");
+    usage(&mut e, 6, 6_000, "m1", Some("T2"), Some(1), json!({ "totalTokens": 250 }));
+    e.push(ev(7, 7_000, "task.succeeded", "m1", Some("T2"), Some(1), json!({ "summary": "修复" })));
+    let l = ledger(&e);
+    assert_eq!(l.task("T1").unwrap().tokens.total, Some(600));
+    assert_eq!(l.task("T2").unwrap().tokens.total, Some(250));
+    assert_eq!(l.run.tokens.total, Some(850));
+}
+
+#[test]
+fn numbers_and_durations_read_the_way_the_app_writes_them() {
+    assert_eq!(
+        (num(0), num(999), num(15400), num(-1234567)),
+        ("0".into(), "999".into(), "15,400".into(), "-1,234,567".into())
+    );
+    assert_eq!(duration(192_000), "3 分 12 秒");
+    assert_eq!(duration(65_000), "1 分 05 秒");
+    assert_eq!(duration(44_600), "45 秒");
+    assert_eq!(duration(3_840_000), "1 小时 4 分");
+    assert_eq!(duration(400), "不到 1 秒");
+}
+
+/// Live aggregation stays linear on a large log (measured instead of adding an index).
+#[test]
+fn aggregating_a_large_log_stays_fast() {
+    let mut e = Vec::new();
+    created(&mut e);
+    let mut seq = 2;
+    for task in 0..40 {
+        let id = format!("T{task}");
+        for attempt in 1..=3 {
+            started(&mut e, seq, 2_000 + seq * 10, "m1", &id, attempt, &format!("s{task}-{attempt}"));
+            seq += 1;
+            for turn in 1..=400 {
+                usage(
+                    &mut e,
+                    seq,
+                    2_000 + seq * 10,
+                    "m1",
+                    Some(&id),
+                    Some(attempt),
+                    json!({ "inputTokens": 100 * turn, "outputTokens": 10 * turn, "totalTokens": 110 * turn, "used": 1000 + turn, "size": 200000 }),
+                );
+                seq += 1;
+            }
+        }
+    }
+    let began = std::time::Instant::now();
+    let l = ledger(&e);
+    let elapsed = began.elapsed();
+    println!("usage::ledger over {} events took {elapsed:?}", e.len());
+    assert_eq!((l.tasks.len(), l.attempts.len()), (40, 120));
+    assert!(elapsed.as_secs() < 5, "{elapsed:?}");
+}
