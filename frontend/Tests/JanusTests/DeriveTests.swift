@@ -234,10 +234,35 @@ private func goalRun() -> Log {
     #expect(L.tilde("/Users/someone/repo") == "~/repo")
 }
 
-@Test func markdownBlocks() {
-    #expect(MD.blocks("结论：\n\n- 甲\n- 乙\n# 标题") == [.para("结论："), .list(["甲", "乙"]), .heading("标题")])
-    // A list sent on one line is split.
-    #expect(MD.blocks("改了： - 甲 - 乙") == [.para("改了："), .list(["甲 - 乙"])])
+@Test func markdownProse() {
+    func item(_ s: String) -> MDDoc.Item { .init(checked: nil, blocks: [.para(s)]) }
+    #expect(MD.blocks("结论：\n\n- 甲\n- 乙\n# 标题") == [.para("结论："), .list(ordered: false, start: 0, items: [item("甲"), item("乙")]), .heading(level: 1, text: "标题")])
+    // A list sent on one line is split; a message with line breaks is left as written.
+    #expect(MD.blocks("改了： - 甲 - 乙") == [.para("改了："), .list(ordered: false, start: 0, items: [item("甲 - 乙")])])
+    #expect(MD.prose("改了： - 甲\n下一行") == "改了： - 甲\n下一行")
+    // Parsed once, then served from the cache.
+    #expect(MD.blocks("改了： - 甲 - 乙") == MDDoc.parse("改了：\n- 甲 - 乙"))
+    // An agent's reply: a table right under a heading and a fenced command render as blocks,
+    // not as one paragraph of pipes and backticks.
+    let reply = """
+    已按你的要求处理。
+    ## 1. 分支与提交
+    | 仓库 | 分支 |
+    |---|---|
+    | biz-knowledge | `feature/route-p0` |
+    这些分支都从各自 master 创建。
+    ```bash
+    cd biz-knowledge
+    git push origin feature/route-p0
+    ```
+    """
+    #expect(MD.blocks(reply) == [
+        .para("已按你的要求处理。"),
+        .heading(level: 2, text: "1. 分支与提交"),
+        .table(header: ["仓库", "分支"], align: [.leading, .leading], rows: [["biz-knowledge", "`feature/route-p0`"]]),
+        .para("这些分支都从各自 master 创建。"),
+        .code(lang: "bash", text: "cd biz-knowledge\ngit push origin feature/route-p0"),
+    ])
 }
 
 @Test func planControlsAreHidden() {

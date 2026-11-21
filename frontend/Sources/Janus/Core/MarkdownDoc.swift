@@ -49,7 +49,7 @@ enum MDDoc {
         while i < lines.count {
             let line = lines[i]
             let t = line.trimmingCharacters(in: .whitespaces)
-            if t.isEmpty || t.range(of: #"^<!--.*-->$"#, options: .regularExpression) != nil { i += 1; continue }
+            if t.isEmpty || commentLine.found(in: t) { i += 1; continue }
             if let fence = fence(line) {
                 var code: [String] = []
                 i += 1
@@ -92,8 +92,8 @@ enum MDDoc {
                     let l = lines[i]
                     let lt = l.trimmingCharacters(in: .whitespaces)
                     // Setext headings: a paragraph underlined with === or ---.
-                    if lt.range(of: #"^=+$"#, options: .regularExpression) != nil { out.append(.heading(level: 1, text: joined(para))); para = []; i += 1; break }
-                    if lt.range(of: #"^-+$"#, options: .regularExpression) != nil { out.append(.heading(level: 2, text: joined(para))); para = []; i += 1; break }
+                    if setext1.found(in: lt) { out.append(.heading(level: 1, text: joined(para))); para = []; i += 1; break }
+                    if setext2.found(in: lt) { out.append(.heading(level: 2, text: joined(para))); para = []; i += 1; break }
                     if lt.isEmpty || startsBlock(l) { break }
                     para.append(ltrim(l)); i += 1
                 }
@@ -107,7 +107,7 @@ enum MDDoc {
 
     /// A list item's marker: `-`, `*`, `+`, or `1.` / `1)`, followed by a space or the line's end.
     private static func marker(_ line: String) -> Marker? {
-        guard let m = groups(line, #"^( *)([-*+]|\d{1,9}[.)])( +|$)(.*)$"#) else { return nil }
+        guard let m = groups(line, markerLine) else { return nil }
         let (indent, mark, gap, rest) = (m[0], m[1], m[2], m[3])
         // `* * *` and `- - -` are rules, not lists.
         if isRule(line.trimmingCharacters(in: .whitespaces)) { return nil }
@@ -144,7 +144,7 @@ enum MDDoc {
             }
             while body.last == "" { body.removeLast() }
             var checked: Bool?
-            if let first = body.first, let box = groups(first, #"^\[([ xX])\]\s+(.*)$"#) {
+            if let first = body.first, let box = groups(first, taskBox) {
                 checked = box[0] != " "
                 body[0] = box[1]
             }
@@ -156,21 +156,21 @@ enum MDDoc {
     }
 
     private static func heading(_ t: String) -> Node? {
-        guard let m = groups(t, #"^(#{1,6})(?:\s+(.*?))?\s*$"#) else { return nil }
+        guard let m = groups(t, headingLine) else { return nil }
         let text = m[1].replacingOccurrences(of: #"\s+#+$"#, with: "", options: .regularExpression)
         return .heading(level: m[0].count, text: text)
     }
 
     private static func image(_ t: String) -> Node? {
-        guard let m = groups(t, #"^!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)$"#) else { return nil }
+        guard let m = groups(t, imageLine) else { return nil }
         return .image(alt: m[0], src: m[1])
     }
 
     private static func isRule(_ t: String) -> Bool {
-        t.range(of: #"^(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$"#, options: .regularExpression) != nil
+        ruleLine.found(in: t)
     }
 
-    private static func isQuote(_ l: String) -> Bool { l.range(of: #"^\s{0,3}>"#, options: .regularExpression) != nil }
+    private static func isQuote(_ l: String) -> Bool { quoteLine.found(in: l) }
 
     /// Lines that end a paragraph: they start a block of their own.
     private static func startsBlock(_ l: String) -> Bool {
@@ -184,7 +184,7 @@ enum MDDoc {
     private struct Fence { let marker: String; let indent: Int; let lang: String }
 
     private static func fence(_ l: String) -> Fence? {
-        guard let m = groups(l, #"^( {0,3})(`{3,}|~{3,})\s*([^`\s]*)[^`]*$"#) else { return nil }
+        guard let m = groups(l, fenceLine) else { return nil }
         return Fence(marker: m[1], indent: m[0].count, lang: m[2])
     }
 
@@ -196,7 +196,7 @@ enum MDDoc {
 
     private static func delimiterRow(_ l: String) -> [Align]? {
         let t = l.trimmingCharacters(in: .whitespaces)
-        guard t.contains("-"), t.range(of: #"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$"#, options: .regularExpression) != nil else { return nil }
+        guard t.contains("-"), delimiterLine.found(in: t) else { return nil }
         return cells(t).map { c in
             let left = c.hasPrefix(":"), right = c.hasSuffix(":")
             return left && right ? .center : right ? .trailing : .leading
@@ -222,6 +222,19 @@ enum MDDoc {
     }
 
     // MARK: Helpers
+
+    // Messages in a conversation are parsed on every redraw: the per-line patterns are compiled once.
+    private static let markerLine = regex(#"^( *)([-*+]|\d{1,9}[.)])( +|$)(.*)$"#)
+    private static let taskBox = regex(#"^\[([ xX])\]\s+(.*)$"#)
+    private static let headingLine = regex(#"^(#{1,6})(?:\s+(.*?))?\s*$"#)
+    private static let imageLine = regex(#"^!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)$"#)
+    private static let fenceLine = regex(#"^( {0,3})(`{3,}|~{3,})\s*([^`\s]*)[^`]*$"#)
+    private static let ruleLine = regex(#"^(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$"#)
+    private static let quoteLine = regex(#"^\s{0,3}>"#)
+    private static let commentLine = regex(#"^<!--.*-->$"#)
+    private static let setext1 = regex(#"^=+$"#)
+    private static let setext2 = regex(#"^-+$"#)
+    private static let delimiterLine = regex(#"^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$"#)
 
     private static func indent(_ l: String) -> Int { l.prefix { $0 == " " }.count }
 
@@ -252,9 +265,8 @@ enum MDDoc {
         return (0x2E80...0x9FFF).contains(v) || (0xF900...0xFAFF).contains(v) || (0xFF00...0xFFEF).contains(v) || (0x3000...0x303F).contains(v)
     }
 
-    private static func groups(_ s: String, _ pattern: String) -> [String]? {
-        guard let re = try? NSRegularExpression(pattern: pattern),
-              let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) else { return nil }
+    private static func groups(_ s: String, _ re: NSRegularExpression) -> [String]? {
+        guard let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) else { return nil }
         return (1..<m.numberOfRanges).map { i in Range(m.range(at: i), in: s).map { String(s[$0]) } ?? "" }
     }
 }

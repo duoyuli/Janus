@@ -206,6 +206,8 @@ enum Snapshots {
                     "elapsedMs": r.usageDisplayed(at: L.nowMs()).run.durationMs.map { JSON($0) } ?? .null,
                     // Where the run works and where its accepted result went, as the delivery shows it.
                     "worktree": JSON(s.run.repo.isEmpty ? nil : s.run.cwd), "branch": JSON(s.run.branch.isEmpty ? nil : s.run.branch), "merged": .bool(s.run.merged),
+                    // The blocks the last agent message is drawn as (`MarkdownText`).
+                    "lastReply": JSON.array(MD.blocks(s.events.last { $0.type == "agent.message" }?.data["text"].str ?? "").map { JSON(block($0)) }),
                 ]
             }
             try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))
@@ -266,6 +268,20 @@ enum Snapshots {
     }
 
     /// The first composer of the key window (or the first visible one).
+    /// A block as the state names it: its kind, and for a table its header, for code its language.
+    private static func block(_ n: MDDoc.Node) -> String {
+        switch n {
+        case .heading(let level, _): return "heading\(level)"
+        case .para: return "para"
+        case .list(let ordered, _, _): return ordered ? "ordered" : "list"
+        case .code(let lang, _): return "code:" + lang
+        case .quote: return "quote"
+        case .table(let header, _, _): return "table:" + header.joined(separator: ",")
+        case .rule: return "rule"
+        case .image: return "image"
+        }
+    }
+
     private static func composer() -> ComposerField.TextView? {
         let wins = NSApp.windows.filter { $0.isVisible && $0.contentView != nil }
         func find(_ v: NSView) -> ComposerField.TextView? { (v as? ComposerField.TextView) ?? v.subviews.lazy.compactMap(find).first }

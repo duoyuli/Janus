@@ -67,6 +67,17 @@ def chats(ctx, c):
     mine = [l for l in t.fake.calls().splitlines() if l.startswith("chat session") and chat in l]
     c(len(mine) == 1, f"第二条消息在同一个会话里（这个对话打开过 {len(mine)} 次会话）")
 
+    # A reply in Markdown is drawn as blocks: a table and a code block, not a paragraph of pipes.
+    table = "表格\n\n| 仓库 | 分支 |\n|---|---|\n| biz | `feature/p0` |\n\n```bash\ngit push\n```"
+    ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": table})
+    wait(lambda: replied(table), "数字员工用 Markdown 回复", 60)
+    if ctx.app:
+        want = ["para", "table:仓库,分支", "code:bash"]
+        st = ctx.app.until(lambda s: (s.get("run") or {}).get("lastReply") == want, "应用把 Markdown 回复画成表格和代码块",
+                           f"open run:{chat}", f"shot {chat}-markdown")
+        c(st["run"]["lastReply"] == want, f"应用：回复里的表格和代码块按块显示（{st['run']['lastReply']}）")
+        c(drawn(ctx.app.picture(f"{chat}-markdown")), f"应用：带表格的回复画出来了（{chat}-markdown.png）")
+
     ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running" and any(x["id"] == chat for x in s["chats"]),
            "对话页打开，侧栏的对话列表里有它", pages=("draft lead 第三条", "open chats"))
 
