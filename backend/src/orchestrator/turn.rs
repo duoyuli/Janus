@@ -251,7 +251,7 @@ impl App {
                 conn.notify("session/cancel", json!({ "sessionId": sid })).await?;
                 c.interrupted = true;
                 // A chat has no takeover: stopping its turn leaves it waiting for the next message.
-                let chat = run.kind == RunKind::Chat;
+                let chat = run.kind.single_session();
                 if finish {
                     c.set_hold(run, Hold::Finish);
                 } else if !chat && !c.held_by_person() {
@@ -569,6 +569,13 @@ impl App {
         // The /goal state comes as session info, { goal: { objective, status } } or null once
         // cleared, under the AIR metadata both official adapters use.
         let goal_meta = u["_meta"]["jetbrains"]["air"].get("goal");
+        // A Loop is named by the title its agent gives its session.
+        if run.kind == RunKind::Loop
+            && u["sessionUpdate"] == "session_info_update"
+            && let Some(title) = u["title"].as_str()
+        {
+            self.loop_titled(run, title);
+        }
         match u["sessionUpdate"].as_str().unwrap_or("") {
             "session_info_update" if ctx.goal && goal_meta.is_some() => {
                 let goal = goal_meta.unwrap();

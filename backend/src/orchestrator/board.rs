@@ -51,6 +51,9 @@ impl App {
             return Ok(None);
         };
         let lead = who == "lead";
+        // A Loop's session reaches the same server, with the Loop's tools instead of the board's.
+        // @project-doc docs/interfaces/20261031-board_mcp.md#loop_tools
+        let looping = run.kind == RunKind::Loop;
         let tool_call = req["method"].as_str() == Some("tools/call");
         let tool_name = req["params"]["name"].as_str().unwrap_or("工具").to_string();
         let tool_input = req["params"]["arguments"].clone();
@@ -69,18 +72,22 @@ impl App {
             "initialize" => initialize(
                 &req,
                 "janus",
-                if lead {
+                if looping {
+                    super::loops::LOOP_INSTRUCTIONS
+                } else if lead {
                     "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。"
                 } else {
                     "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；子任务过大需要拆分时用 request_split 提议；用 peers 查看其他子任务的状态、改过的文件和完整结果。"
                 },
             ),
             "ping" => json!({}),
+            "tools/list" if looping => json!({ "tools": loops::loop_tools() }),
             "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = &req["params"]["arguments"];
                 let out = match (lead, name) {
+                    _ if looping => self.loop_tool(&run, name, args).await,
                     (true, "team") => Ok(self.board_team(&run)),
                     (true, "orchestrate") => self.board_orchestrate(&run, args),
                     (true, "wait") => Ok(self.board_wait(&run, args).await),
@@ -844,6 +851,13 @@ impl App {
     /// The lead hands the person a decision only they can make. It does not wait here: the answer
     /// comes back through `wait`, and the lead keeps working on what does not depend on it.
     pub(super) fn board_ask_user(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+        self.escalate(run, args)?;
+        Ok("已交给用户决定。用户回答后会出现在 janus.wait 的结果里；在那之前继续做不依赖这个决定的工作。".into())
+    }
+
+    /// The lead's (or a Loop's) question for the person (`ask_user`): checked, put on record and
+    /// left pending for the person's answer, which nobody awaits here.
+    pub(super) fn escalate(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<(), String> {
         let question = args["question"].as_str().unwrap_or("").trim();
         let why = args["why"].as_str().unwrap_or("").trim();
         if question.is_empty() || why.is_empty() {
@@ -862,7 +876,7 @@ impl App {
         self.emit(run, ev("question.escalated", "lead", format!("负责人请你决定：{}", short(question, 60))).to("user").data(json!({
             "key": key, "question": question, "options": options, "recommend": recommend, "reason": why, "from": "lead"
         })));
-        Ok("已交给用户决定。用户回答后会出现在 janus.wait 的结果里；在那之前继续做不依赖这个决定的工作。".into())
+        Ok(())
     }
 
     /// Everything the board knows about one task, by id: what the board messages and handoffs only

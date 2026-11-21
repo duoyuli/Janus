@@ -34,19 +34,20 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 │   │   ├── bundle/<member>/              # 成员的资源包：Run 创建时复制的 Skill
 │   │   ├── attachments/                  # 随目标和消息粘贴的图片
 │   │   └── artifacts/<task>/             # 产物：回复和 diff
-│   └── chats/<run>/                      # 对话：bundle/<member>/、attachments/
+│   ├── chats/<run>/                      # 对话：bundle/<member>/、attachments/
+│   └── loops/<run>/                      # 值班的会话：bundle/<member>/、attachments/
 ├── work/runs/<run>/                      # Git 仓库上任务的 worktree
 ├── work/chats/<run>/                     # 对话的工作目录：每个对话新建一个，删除对话时一起删除
 ├── cache/adapters/<id>/                  # ACP 适配器，见 ACP 适配器管理
 ├── tmp/agents/<agent-id>/                # Agent 的 TMPDIR，启动时清空
-└── logs/runs/<run>/、logs/chats/<run>/   # 每个 ACP 子进程的 stderr
+└── logs/runs/<run>/、logs/chats/<run>/、logs/loops/<run>/   # 每个 ACP 子进程的 stderr
     ├── lead-goal.log                     # 目标模式负责人
     ├── lead-chat.log                     # 交付或验收后继续对话时的负责人会话
     ├── chat.log                          # 对话中数字员工的会话
     └── <task>-a<n>.log                   # 任务的第 n 次尝试
 ```
 
-路径都来自 `backend/src/layout.rs` 的 `Layout`，任务和对话按 `runs.kind` 落在 `runs/` 或 `chats/` 下（`Layout::run`）。
+路径都来自 `backend/src/layout.rs` 的 `Layout`，任务、对话和值班的会话按 `runs.kind` 落在 `runs/`、`chats/` 或 `loops/` 下（`Layout::run`）。
 
 适配器的目录结构见 [ACP 适配器管理](20261031-adapters.md#layout)。
 
@@ -57,11 +58,11 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 | 表 | 主键 | 内容 |
 | --- | --- | --- |
-| `runs` | `id` | 类型（`kind`：`goal` 目标或 `chat` [对话](../domains/20261120-chats.md)）、目标（对话是第一条消息）、工作目录（Git 仓库上的 Run 是它自己的 worktree `work/runs/<run>`，对话是 `work/chats/<run>`）、状态、创建时间；`config` 是 Run 开始时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
+| `runs` | `id` | 类型（`kind`：`goal` 目标、`chat` [对话](../domains/20261120-chats.md) 或 `loop` [值班](../domains/20261121-loops.md) 的会话）；为谁做（`origin`：`user` 或 `loop`，`loop_id` 是派出它的值班，值班的会话也记它的值班）、值班派发的 `dispatch_key` 和 `source_url`（`runs_dispatch_key`：同一工作区的 key 唯一）、目标（对话是第一条消息）、工作目录（Git 仓库上的 Run 是它自己的 worktree `work/runs/<run>`，对话是 `work/chats/<run>`）、状态、创建时间；`config` 是 Run 开始时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
-| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`，资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
+| `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`、`loop`（[工作区值班](../domains/20261121-loops.md#loop_model)，按 `LoopDef` 读写），资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
 | `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入（`state` 为 `running`），生效后改为 `done`，失败时删除；服务启动时把还是 `running` 的改为 `interrupted`（`CommandState`）。用于按 `commandId` 只执行一次 |
 

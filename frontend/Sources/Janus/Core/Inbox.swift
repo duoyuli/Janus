@@ -40,7 +40,7 @@ enum Inbox {
                 key: "\(id)/\(f.key)", run: id, goal: run["goal"].str, workspace: workspace,
                 title: f.title, text: f.text, sub: f.sub,
                 ts: f.seq.flatMap { state.event($0)?.ts } ?? run["createdAt"].double ?? 0,
-                canWait: f.kind == "lead_stall" || (f.kind == "question" && f.tasks.isEmpty),
+                canWait: ["lead_stall", "loop_touched", "loop_failed"].contains(f.kind) || (f.kind == "question" && f.tasks.isEmpty),
                 canSettle: false,
                 actions: f.actions,
                 kind: f.kind
@@ -122,12 +122,14 @@ final class InboxModel {
         // ask something in its conversation, and that waits on the person like any request.
         // @project-doc docs/domains/20261120-chats.md#chat_app
         // @project-doc docs/architecture/20261031-frontend.md#inbox
-        let chats = store.chatAttention.filter { RunStatus($0["status"].str).isActive }
-        let read = { (row: JSON) in RunStatus(row["status"].str).isActive || RunStatus(row["status"].str) == .delivered }
+        // A Loop asks of the person whether or not its session is open: its questions outlive the
+        // session, and a wake that failed (or changed files) is told between wakes.
+        let chats = store.chatAttention.filter { RunStatus($0["status"].str).isActive } + store.loopAttention
+        let read = { (row: JSON) in RunStatus(row["status"].str).isActive || RunStatus(row["status"].str) == .delivered || row["kind"].str == "loop" }
         let live = store.attention.filter(read) + chats
         for row in store.attention + chats {
-            let chat = row["kind"].str == "chat"
-            let ws = chat ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? row["config"]["workspace"]["name"].str
+            let chat = row["kind"].str == "chat" || row["kind"].str == "loop"
+            let ws = row["kind"].str == "chat" ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? row["config"]["workspace"]["name"].str
             guard read(row) else {
                 out += Inbox.entries(row: row, workspace: ws)
                 continue

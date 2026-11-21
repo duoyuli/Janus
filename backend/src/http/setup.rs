@@ -89,7 +89,14 @@ pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath((kind, id)): Url
     match SetupKind::of(&kind)? {
         SetupKind::Connections => app.delete_connection(&id),
         SetupKind::Roles => app.delete_role(&id),
-        SetupKind::Workspaces => app.delete_workspace(&id),
+        SetupKind::Workspaces => {
+            // Its Loops go with it; the runs they dispatched stay, like the workspace's other runs.
+            // A Loop made meanwhile is caught by the second pass, or deletes itself when it finds
+            // its workspace gone (`create_loop`).
+            app.delete_loops_of(&id).await?;
+            app.delete_workspace(&id)?;
+            app.delete_loops_of(&id).await
+        }
     }?;
     ok()
 }

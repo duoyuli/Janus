@@ -101,6 +101,12 @@ final class RunModel {
     var queuePosition: Int? { runJSON["queuePosition"].int }
     /// A conversation with one digital employee (`runs.kind`), shown as a chat page instead of the workbench.
     var isChat: Bool { runJSON["kind"].str == "chat" }
+    /// A Loop's session (`runs.kind` `loop`), shown as the Loop's page.
+    var isLoop: Bool { runJSON["kind"].str == "loop" }
+    /// A Loop's page: the runs it dispatched that the page has read, newest first, and where the
+    /// next page of them starts (nil when all are read).
+    var loopDispatched: [JSON] = []
+    var loopMore: String?
 
     func read(keepPage: Bool = true) async {
         streamTask?.cancel()
@@ -185,6 +191,9 @@ final class RunModel {
 
     /// Events arrive in bursts; derive once per burst, off the main thread: a long run takes
     /// milliseconds that scrolling needs.
+    /// How many events the last derive saw, so the next one knows which are new.
+    @ObservationIgnored private var derivedUpTo = 0
+
     private func scheduleDerive() {
         guard deriveTask == nil else { return }
         deriveTask = Task { [weak self] in
@@ -202,8 +211,11 @@ final class RunModel {
             if self.events.count > events.count { self.scheduleDerive() }
             // The sidebar lists run statuses; refresh it when this one's changes.
             if derived.run.status != before { await self.store.loadRuns() }
-            // A run that left the queue is read again: being set up, then live once it started.
-            if !self.live, derived.run.status != before, derived.run.status.isActive { await self.read() }
+            // A run that left the queue is read again: being set up, then live once it started. So
+            // is a chat or a Loop whose session opened (a Loop's first wake), whose status may not change.
+            let opened = derived.run.singleSession && events[min(self.derivedUpTo, events.count)...].contains { $0.type == "agent.status" && $0.data["session"].exists }
+            self.derivedUpTo = events.count
+            if !self.live, (derived.run.status != before && derived.run.status.isActive) || opened { await self.read() }
         }
     }
 

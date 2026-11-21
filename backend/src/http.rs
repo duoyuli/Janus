@@ -14,6 +14,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 mod library;
+mod loops;
 mod runs;
 mod setup;
 mod streams;
@@ -151,6 +152,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/prices/sync", post(runs::sync_prices))
         .route("/api/runs", get(runs::list).post(runs::create))
         .route("/api/chats", post(runs::create_chat))
+        .route("/api/loops", get(loops::list))
+        .route("/api/workspaces/{id}/loops", post(loops::create))
+        .route("/api/loops/{id}", get(loops::get).put(loops::update).delete(loops::remove))
+        .route("/api/loops/{id}/{action}", post(loops::act))
         .route("/api/runs/preflight", get(runs::preflight))
         .route("/api/runs/workspaces", get(runs::workspaces))
         .route("/api/runs/{id}", get(runs::get).delete(runs::remove))

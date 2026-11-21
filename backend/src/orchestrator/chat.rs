@@ -16,35 +16,14 @@ impl App {
             .db
             .get_config(crate::agents::ROLE, &req.role)?
             .ok_or_else(|| anyhow!("数字员工 {} 不存在", req.role))?;
-        // The library as it is now, pinned for the chat like for a run's team.
-        // @project-doc docs/domains/20261116-resource_library.md#delivery
-        let member = self.role_member(&role, &self.items()?, true)?;
-        self.spec_for(&member.runtime)?;
+        let member = self.single_member(&role)?;
         let id = crate::agents::new_id("r");
-        let dirs = self.cfg.layout.run(RunKind::Chat, &id);
-        let dir = dirs.work.clone();
+        let dir = self.cfg.layout.run(RunKind::Chat, &id).work;
         std::fs::create_dir_all(&dir).with_context(|| format!("创建对话目录 {} 失败", dir.display()))?;
         // The path the agent's own tools report, so the files it names resolve against it.
         let cwd = dir.canonicalize().unwrap_or(dir);
-        let team = vec![member];
-        self.bundle_team(&dirs, &team)?;
-        let config = json!({ "team": team, "git": false, "baseRef": "" });
         // Titled by its first message, once there is one (`title_chat`).
-        self.db.insert_run(&id, RunKind::Chat, "", &cwd.to_string_lossy(), &config, now_ms())?;
-        let run = Arc::new(Run::new(RunRecord {
-            id: id.clone(),
-            kind: RunKind::Chat,
-            goal: String::new(),
-            cwd,
-            worktree: None,
-            team,
-            git: false,
-            base_ref: String::new(),
-            brief: String::new(),
-            goal_images: vec![],
-            last_seq: 0,
-            status: RunStatus::Planning,
-        }));
+        let run = self.single_member_run(RunKind::Chat, &id, member, cwd, "", json!({}))?;
         let name = run.team[0].name.clone();
         self.emit(
             &run,
@@ -55,6 +34,49 @@ impl App {
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.spawn_conversation(run);
         Ok(id)
+    }
+
+    /// A digital employee as the one member of a run's main session (a chat, a Loop's session),
+    /// with the library as it is now, pinned like for a run's team; its agent must be able to run.
+    // @project-doc docs/domains/20261116-resource_library.md#delivery
+    pub(super) fn single_member(&self, role: &Value) -> Result<Member> {
+        let member = self.role_member(role, &self.items()?, true)?;
+        self.spec_for(&member.runtime)?;
+        Ok(member)
+    }
+
+    /// Record a run whose only member is `member` (a chat, a Loop's session), working in `cwd`:
+    /// its skills bundled, its snapshot (`extra` adds to it) and the run, not yet live.
+    pub(super) fn single_member_run(
+        &self,
+        kind: RunKind,
+        id: &str,
+        member: Member,
+        cwd: PathBuf,
+        goal: &str,
+        extra: Value,
+    ) -> Result<Arc<Run>> {
+        let team = vec![member];
+        self.bundle_team(&self.cfg.layout.run(kind, id), &team)?;
+        let mut config = json!({ "team": team, "git": false, "baseRef": "" });
+        if let (Some(c), Some(more)) = (config.as_object_mut(), extra.as_object()) {
+            c.extend(more.clone());
+        }
+        self.db.insert_run(id, kind, goal, &cwd.to_string_lossy(), &config, now_ms())?;
+        Ok(Arc::new(Run::new(RunRecord {
+            id: id.to_string(),
+            kind,
+            goal: goal.to_string(),
+            cwd,
+            worktree: None,
+            team,
+            git: false,
+            base_ref: String::new(),
+            brief: String::new(),
+            goal_images: vec![],
+            last_seq: 0,
+            status: RunStatus::Planning,
+        })))
     }
 
     /// A chat is listed by its first message: the first one the person sends titles it.

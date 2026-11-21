@@ -158,7 +158,41 @@ pub const MIGRATIONS: &[Migration] = &[
              UPDATE runs SET config = json_remove(config, '$.costLimitUsd') WHERE json_type(config, '$.costLimitUsd') IS NOT NULL;",
         )],
     },
+    Migration {
+        version: 19,
+        name: "工作区 Loop：Run 记录是谁派出的（用户或哪个 Loop）、派发的 key 和来源链接，同一工作区的 key 不重复",
+        // Every run so far was the person's own.
+        steps: &[Step::Custom(add_run_origin)],
+    },
 ];
+
+/// Data version 19: `runs` records who a goal run is for (`origin`, `loop_id`) and a Loop's
+/// dispatch key and source, the key unique in its workspace. Columns already there are left alone,
+/// so it can run again.
+fn add_run_origin(tx: &Transaction) -> Result<usize> {
+    let has: Vec<String> = tx
+        .prepare("SELECT name FROM pragma_table_info('runs')")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut added = 0;
+    for (column, ty) in [
+        ("origin", "TEXT NOT NULL DEFAULT 'user'"),
+        ("loop_id", "TEXT"),
+        ("dispatch_key", "TEXT"),
+        ("source_url", "TEXT"),
+    ] {
+        if !has.iter().any(|c| c == column) {
+            tx.execute_batch(&format!("ALTER TABLE runs ADD COLUMN {column} {ty};"))?;
+            added += 1;
+        }
+    }
+    tx.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS runs_dispatch_key ON runs (json_extract(config, '$.workspace.id'), dispatch_key)
+           WHERE dispatch_key IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS runs_loop ON runs (loop_id) WHERE loop_id IS NOT NULL;",
+    )?;
+    Ok(added)
+}
 
 /// The data version this build reads and writes.
 pub fn latest() -> u32 {

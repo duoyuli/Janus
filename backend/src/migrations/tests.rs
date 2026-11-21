@@ -507,3 +507,32 @@ fn runs_lose_their_budget_ceilings() {
     assert_eq!(config, json!({ "team": [], "tokenLimit": 1000 }), "only the cost ceiling goes");
     assert_eq!(row("done"), ("delivered".to_string(), json!({ "team": [] })));
 }
+
+/// Runs made before Loops were the person's own; a Loop's dispatch key is unique in its workspace.
+#[test]
+fn runs_record_who_they_are_for() {
+    let path = old_database("origin");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute(
+        "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES ('old', 'g', '/x', '{\"workspace\":{\"id\":\"w\"}}', 'delivered', 0)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let (origin, loop_id): (String, Option<String>) = conn
+        .query_row("SELECT origin, loop_id FROM runs WHERE id = 'old'", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap();
+    assert_eq!((origin.as_str(), loop_id), ("user", None));
+    let dispatch = |id: &str, ws: &str| {
+        conn.execute(
+            "INSERT INTO runs (id, goal, cwd, config, status, created_at, origin, loop_id, dispatch_key)
+             VALUES (?1, 'g', '/x', ?2, 'queued', 0, 'loop', 'l1', 'k1')",
+            params![id, json!({ "workspace": { "id": ws } }).to_string()],
+        )
+    };
+    dispatch("a", "w").unwrap();
+    assert!(dispatch("b", "w").is_err(), "one run per key in a workspace");
+    dispatch("c", "other").unwrap();
+}

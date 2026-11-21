@@ -33,15 +33,36 @@ wire_enum! {
 }
 
 wire_enum! {
-    /// What a Run is: a goal the lead pursues with its team, or a conversation with one digital
-    /// employee (`runs.kind`). A chat has one member, no board, no goal and no delivery; it works in
-    /// its own scratch directory under Janus home.
+    /// What a Run is: a goal the lead pursues with its team, a conversation with one digital
+    /// employee, or a workspace Loop's session (`runs.kind`). A chat has one member, no board, no
+    /// goal and no delivery; it works in its own scratch directory under Janus home. A Loop's
+    /// session is the workspace lead alone, in the workspace's directory, waking on a rhythm.
     // @project-doc docs/domains/20261120-chats.md#chat_model
+    // @project-doc docs/domains/20261121-loops.md#loop_model
     #[derive(Default)]
     pub enum RunKind {
         #[default]
         Goal = "goal",
         Chat = "chat",
+        Loop = "loop",
+    }
+}
+
+wire_enum! {
+    /// Who asked for a goal run (`runs.origin`): the person on a workspace's home, or a Loop that
+    /// dispatched it (then `runs.loop_id` names the Loop).
+    #[derive(Default)]
+    pub enum RunOrigin {
+        #[default]
+        User = "user",
+        Loop = "loop",
+    }
+}
+
+impl RunKind {
+    /// One member in the run's main session, no board and no delivery: a chat or a Loop.
+    pub fn single_session(self) -> bool {
+        self != RunKind::Goal
     }
 }
 

@@ -140,8 +140,9 @@ struct JanusCommands: Commands {
         let store = model.store
         let run = store?.run
         let onRun: Bool = { if case .run = store?.screen { return run != nil } else { return false } }()
-        // A chat's page has no workbench, audit or team views, and nothing to pause or stop.
-        let onGoal = onRun && run?.isChat != true
+        // A chat's or a Loop's page has no workbench, audit or team views, and nothing to pause or
+        // stop as a task: a Loop is paused on its own page.
+        let onGoal = onRun && run?.isChat != true && run?.isLoop != true
         CommandGroup(after: .appInfo) {
             Button(L.text("检查更新…")) {
                 store?.openSettings(.updates)
@@ -180,11 +181,17 @@ struct JanusCommands: Commands {
             Button(L.text("从中断处继续")) { Task { await run?.act(["type": "resumeRun"]) } }
                 .disabled(!(onGoal && run?.canAct == true && r?.status.canResume == true))
             Button(L.text("停止任务…")) { if let run { cancelRun(run) } }.disabled(!active)
-            Button(run?.isChat == true && onRun ? L.text("删除对话…") : L.text("删除任务…"), role: .destructive) {
-                if let run { Task { await run.store.deleteRun(run.id) } }
+            Button(run?.isChat == true && onRun ? L.text("删除对话…") : run?.isLoop == true && onRun ? L.text("删除值班…") : L.text("删除任务…"), role: .destructive) {
+                if let run {
+                    if run.isLoop, let loop = run.store.loop(ofRun: run.id) {
+                        Task { await run.store.deleteLoop(loop) }
+                    } else {
+                        Task { await run.store.deleteRun(run.id) }
+                    }
+                }
             }
-            // A chat goes even while it talks; a goal is stopped first.
-            .disabled(!(onRun && run?.loaded == true && (run?.isChat == true || !(run?.state.run.status.isActive ?? true))))
+            // A chat or a Loop goes even while it talks; a goal is stopped first.
+            .disabled(!(onRun && run?.loaded == true && (run?.isChat == true || run?.isLoop == true || !(run?.state.run.status.isActive ?? true))))
             Divider()
             Button(L.text("复制交付摘要")) { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
             Button(L.text("回到实时")) { run?.replay = nil }.disabled(!(run?.isReplaying ?? false))

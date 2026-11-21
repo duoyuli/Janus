@@ -39,6 +39,9 @@ struct MainView: View {
         .sheet(isPresented: Binding(get: { store.editingWorkspace != nil }, set: { if !$0 { store.editingWorkspace = nil } })) {
             if let ws = store.editingWorkspace { WorkspaceEditor(store: store, original: ws) }
         }
+        .sheet(isPresented: Binding(get: { store.editingLoop != nil }, set: { if !$0 { store.editingLoop = nil } })) {
+            if let l = store.editingLoop { LoopEditor(store: store, original: l) }
+        }
     }
 
     @ViewBuilder private var detail: some View {
@@ -87,6 +90,8 @@ struct Sidebar: View {
                     }
                     ForEach(store.workspaces, id: \.self) { w in
                         WorkspaceRow(store: store, ws: w, current: w["id"].str == ws?["id"].str)
+                        // Its Loops, indented under it.
+                        ForEach(store.loops(of: w["id"].str), id: \.self) { l in LoopRow(store: store, loop: l) }
                     }
                     // Deleted workspaces whose runs stay, so those runs are still found.
                     ForEach(store.pastWorkspaces, id: \.self) { w in

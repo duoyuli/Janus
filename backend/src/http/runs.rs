@@ -21,13 +21,15 @@ pub(super) struct RunsQuery {
     workspace: Option<String>,
     /// `1`: only runs that may need the person (working, delivered, stopped part-way), however old.
     attention: Option<u8>,
+    /// Only the runs this Loop dispatched.
+    r#loop: Option<String>,
     /// `next` of the previous page.
     cursor: Option<String>,
     limit: Option<usize>,
 }
 
-/// Runs of one kind, newest first, a page at a time: goals (the default) or chats (`?kind=chat`),
-/// of one workspace with `?workspace=`. A page has `limit` runs (50 by default, at most 500) and
+/// Runs of one kind, newest first, a page at a time: goals (the default), chats (`?kind=chat`) or
+/// Loop sessions (`?kind=loop`), of one workspace with `?workspace=`, dispatched by one Loop with `?loop=`. A page has `limit` runs (50 by default, at most 500) and
 /// `next`, the cursor of the page after it (`null` on the last page).
 // @project-doc docs/interfaces/20261031-http_api.md#run_list
 pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>) -> ApiResult {
@@ -45,8 +47,14 @@ pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>
     };
     use RunStatus::*;
     let statuses = (q.attention == Some(1)).then(|| vec![Planning, Running, Delivered, Interrupted, Failed]);
-    let page =
-        db::RunsPage { kind, workspace: q.workspace, statuses, before, limit: q.limit.unwrap_or(50).clamp(1, 500) };
+    let page = db::RunsPage {
+        kind,
+        workspace: q.workspace,
+        statuses,
+        loop_id: q.r#loop,
+        before,
+        limit: q.limit.unwrap_or(50).clamp(1, 500),
+    };
     let (runs, more) = app.db.runs_page(&page)?;
     let next = runs
         .last()
@@ -86,7 +94,11 @@ pub(super) async fn create(State(app): State<Arc<App>>, Json(req): Json<NewRun>)
 /// go; the workspace's own files are not touched.
 // @project-doc docs/interfaces/20261031-http_api.md#run_delete
 pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    app.delete_run(&id).await?;
+    // A Loop's session goes only with its Loop.
+    match app.loop_of_session(&id) {
+        Some(loop_id) => app.delete_loop(&loop_id).await?,
+        None => app.delete_run(&id).await?,
+    }
     ok()
 }
 

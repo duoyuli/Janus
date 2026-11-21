@@ -31,6 +31,12 @@ A prompt that is not a task's and names "[write <file>]" appends to that file in
 the turn (a lead asked for more work after delivery).
 A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
 prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
+A workspace Loop's session (its system layer names "a Loop in the workspace") logs "loop wake <n>" for each wake
+and answers "看过了：<first line>"; on its first wake it titles the session ("标题：<the prompt's last line>",
+as `session_info_update`); "[write <file>]" in the Loop's prompt appends to that file in the workspace first,
+and "[hold]" keeps the turn going until FAKE_DIR/loop-go exists (then removes it). Each wake's prompt is logged
+("loop prompt <json>"); with a `loop-exit` file in FAKE_DIR the agent removes it and exits in the middle of the wake.
+The person's own messages to a Loop are answered "回复：<prompt>".
 A session's task and criteria are kept in FAKE_DIR (`session-<id>.json`), so a session loaded after a restart
 continues its task. Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
@@ -194,6 +200,32 @@ def wait_cancel(seconds):
 def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
+    if "a Loop in the workspace" in SYSTEM.get(sid, ""):
+        if not text.startswith("[Loop wake #"):
+            say(sid, "回复：" + text)
+            return {"stopReason": "end_turn"}
+        log("loop wake " + text[len("[Loop wake #"):].split("]")[0])
+        log("loop prompt " + json.dumps(text, ensure_ascii=False))
+        broken = os.path.join(DIR, "loop-exit")
+        if os.path.exists(broken):
+            os.remove(broken)
+            os._exit(1)
+        if sid not in TITLED:
+            TITLED.add(sid)
+            send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                "sessionUpdate": "session_info_update", "title": "标题：" + text.strip().splitlines()[-1][:20]}}})
+        w = re.search(r"\[write (\S+)\]", text)
+        if w:
+            with open(w.group(1), "a") as f:
+                f.write("loop\n")
+        if "[hold]" in text:
+            go = os.path.join(DIR, "loop-go")
+            while not os.path.exists(go):
+                if wait_cancel(0.2):
+                    return {"stopReason": "cancelled"}
+            os.remove(go)
+        say(sid, "看过了：" + text.splitlines()[0])
+        return {"stopReason": "end_turn"}
     if sid in CHATS:
         if "[slow]" in text and wait_cancel(600):
             return {"stopReason": "cancelled"}
@@ -432,16 +464,20 @@ def prompt(msg):
     return {"stopReason": "end_turn"}
 
 
-SYSTEM = {}  # session id -> what Janus put in its system layer (Claude Code's `_meta.systemPrompt.append`)
+SYSTEM = {}  # session id -> what Janus put in its system layer (`system_layer`)
+TITLED = set()  # sessions that titled themselves (a Loop's first wake)
 CHATS = set()  # session ids of chats with one digital employee: their prompts are answered "回复：<text>"
 
 
-def log_layer(method, sid, params):
-    """The system layer a session was opened or loaded with, on one line ("layer <new|load> <sid> <json>"):
-    Claude Code's `_meta.systemPrompt.append`, else Codex's `developer_instructions` from the environment."""
-    system = ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append") or json.loads(
+def system_layer(params):
+    """Claude Code's `_meta.systemPrompt.append`, else Codex's `developer_instructions` from the environment."""
+    return ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append") or json.loads(
         os.environ.get("CODEX_CONFIG") or "{}").get("developer_instructions", "")
-    log(f"layer {method} {sid} {json.dumps(system)}")
+
+
+def log_layer(method, sid, params):
+    """The system layer a session was opened or loaded with, on one line ("layer <new|load> <sid> <json>")."""
+    log(f"layer {method} {sid} {json.dumps(system_layer(params))}")
 
 
 def log_brief(params):
@@ -477,7 +513,7 @@ for line in sys.stdin:
             chat = log_brief(msg["params"])
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
-            SYSTEM[res["sessionId"]] = ((msg["params"].get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
+            SYSTEM[res["sessionId"]] = system_layer(msg["params"])
             log_layer("new", res["sessionId"], msg["params"])
             if chat:
                 CHATS.add(res["sessionId"])
@@ -486,7 +522,7 @@ for line in sys.stdin:
                 raise RuntimeError("session load failed")
             sid = msg["params"]["sessionId"]
             log(f"load {sid}")
-            SYSTEM[sid] = ((msg["params"].get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
+            SYSTEM[sid] = system_layer(msg["params"])
             log_layer("load", sid, msg["params"])
             if log_brief(msg["params"]):
                 CHATS.add(sid)

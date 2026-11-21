@@ -57,7 +57,9 @@ impl App {
             }
             Some(run) => run,
             None => {
-                let stored = self.db.run(run_id)?.and_then(|r| RunStatus::parse(r["status"].as_str()?));
+                let row = self.db.run(run_id)?;
+                let stored = row.as_ref().and_then(|r| RunStatus::parse(r["status"].as_str()?));
+                let run_kind = row.as_ref().and_then(|r| RunKind::parse(r["kind"].as_str()?)).unwrap_or_default();
                 match stored {
                     // A queued run has nothing live yet: it can only start now or be cancelled.
                     Some(RunStatus::Queued) => {
@@ -79,7 +81,7 @@ impl App {
                         };
                     }
                     // It just left the queue and is being set up.
-                    Some(RunStatus::Planning) => {
+                    Some(RunStatus::Planning) if run_kind == RunKind::Goal => {
                         return Err(Refused::Conflict("这个任务正在开始，稍后再试".into()));
                     }
                     _ => match kind {
@@ -90,8 +92,10 @@ impl App {
                             Some(run) => run,
                         },
                         "resumeRun" => return Ok(self.resume_run(run_id).await.map(|_| ())?),
-                        // Talking to an agent brings an interrupted run back first.
+                        // Talking to an agent brings an interrupted run back first, and so does
+                        // answering a Loop's question: they outlive its session.
                         "message" => self.resume_run(run_id).await?,
+                        "answer" if run_kind == RunKind::Loop => self.resume_run(run_id).await?,
                         _ => {
                             return Err(Refused::Conflict(
                                 "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
@@ -102,6 +106,35 @@ impl App {
             }
         };
         Ok(self.action(&run, body)?)
+    }
+
+    /// Hand `cmd` to the open session of `agent` (or of `task`); a message for an agent without an
+    /// open session waits for its next one.
+    pub(super) fn send_steer(&self, run: &Run, agent: &str, task: &str, cmd: Steer) -> Result<()> {
+        // Choosing the open session and leaving the message for the next one happen under one
+        // lock, the one a session registers under: a session that opens meanwhile either is
+        // chosen, or finds the message among the notes it takes when it starts.
+        let left = {
+            let mut st = run.st.lock().unwrap();
+            let key = if task.is_empty() { st.live_agent.get(agent).cloned() } else { Some(SessionKey::task(task)) };
+            match (key.and_then(|k| st.live.get(&k).cloned()), cmd) {
+                (Some(tx), cmd) => {
+                    tx.send(cmd).map_err(|_| anyhow!("这个会话已经结束"))?;
+                    None
+                }
+                // No open session: keep the message for this agent's next one.
+                (None, Steer::Message(m)) if !agent.is_empty() => {
+                    let id = m.id.clone();
+                    st.notes.entry(agent.to_string()).or_default().push(Note::new(m, task));
+                    Some(id)
+                }
+                (None, _) => bail!("{} 现在没有打开的会话", if agent.is_empty() { task } else { agent }),
+            }
+        };
+        if let Some(id) = left {
+            self.route_message(run, agent, "", 0, &id, Delivery::Next);
+        }
+        Ok(())
     }
 
     // @project-doc docs/interfaces/20261031-http_api.md#run_actions
@@ -134,6 +167,12 @@ impl App {
                 );
                 self.resolve(run, key, a.clone())?;
                 if task.is_empty() {
+                    // A Loop does not wait for the answer to its question: the answer wakes it.
+                    if run.kind == RunKind::Loop
+                        && let Some(id) = self.db.run(&run.id)?.and_then(|r| r["loopId"].as_str().map(str::to_owned))
+                    {
+                        self.wake_loop_later(&id, WakeReason::Answer);
+                    }
                     return Ok(());
                 }
                 self.emit(
@@ -187,6 +226,10 @@ impl App {
                 }
                 self.emit(run, e);
                 self.resolve(run, key, value)?;
+            }
+            // A Loop's clock is paused on the Loop, and its session is stopped by deleting the Loop.
+            "pause" | "resume" | "cancel" if run.kind == RunKind::Loop => {
+                bail!("值班在值班页暂停或删除，不能当作任务暂停或停止");
             }
             "pause" | "resume" => {
                 let pause = kind == "pause";
@@ -276,21 +319,7 @@ impl App {
                     "release" => Steer::Release,
                     _ => Steer::Finish,
                 };
-                let tx = {
-                    let st = run.st.lock().unwrap();
-                    let key =
-                        if task.is_empty() { st.live_agent.get(agent).cloned() } else { Some(SessionKey::task(task)) };
-                    key.and_then(|k| st.live.get(&k).cloned())
-                };
-                match (tx, cmd) {
-                    (Some(tx), cmd) => tx.send(cmd).map_err(|_| anyhow!("这个会话已经结束"))?,
-                    // No open session: keep the message for this agent's next one.
-                    (None, Steer::Message(m)) if !agent.is_empty() => {
-                        self.route_message(run, agent, "", 0, &m.id, Delivery::Next);
-                        run.st.lock().unwrap().notes.entry(agent.to_string()).or_default().push(Note::new(m, task));
-                    }
-                    (None, _) => bail!("{} 现在没有打开的会话", if agent.is_empty() { task } else { agent }),
-                }
+                self.send_steer(run, agent, task, cmd)?;
             }
             "accept" => {
                 // Only a delivered run has results to accept; accepting earlier would be undone
@@ -394,13 +423,14 @@ impl App {
         let previous = row["status"].as_str().and_then(RunStatus::parse);
         let kind = row["kind"].as_str().and_then(RunKind::parse).context("这个任务的类型无法读取")?;
         // Delivered and accepted runs reopen as a conversation; interrupted and failed runs
-        // rebuild the board and continue the goal. A chat is always a conversation: whatever
-        // ended its session (a restart, the agent exiting), the next message reopens it.
+        // rebuild the board and continue the goal. A chat (and a Loop's session) is always a
+        // conversation: whatever ended its session (a restart, the agent exiting), the next
+        // message (or wake) reopens it.
         // @project-doc docs/domains/20261120-chats.md#chat_session
         let conversation =
-            kind == RunKind::Chat || matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
+            kind.single_session() || matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
         let resumable = match kind {
-            RunKind::Chat => previous.is_some_and(|s| s != RunStatus::Cancelled),
+            RunKind::Chat | RunKind::Loop => previous.is_some_and(|s| s != RunStatus::Cancelled),
             RunKind::Goal => matches!(
                 previous,
                 Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
@@ -702,6 +732,9 @@ impl App {
                         .push(Note::new(msg, e.task.as_deref().unwrap_or("")));
                 }
             }
+        }
+        if kind == RunKind::Loop {
+            self.restore_loop_questions(&run, &events);
         }
         self.runs.lock().unwrap().insert(run_id.to_string(), run.clone());
         if conversation {

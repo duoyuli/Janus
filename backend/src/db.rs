@@ -68,6 +68,8 @@ pub struct RunsPage {
     pub workspace: Option<String>,
     /// Only runs in one of these states; `None` for any.
     pub statuses: Option<Vec<RunStatus>>,
+    /// Only the runs this Loop dispatched.
+    pub loop_id: Option<String>,
     /// The creation time and id of the last run already listed; `None` for the first page.
     pub before: Option<(i64, String)>,
     pub limit: usize,
@@ -101,7 +103,7 @@ fn insert_event_in(conn: &Connection, e: &Event) -> Result<()> {
 macro_rules! select_runs {
     ($rest:literal) => {
         concat!(
-            "SELECT id, goal, cwd, config, status, created_at, kind,
+            "SELECT id, goal, cwd, config, status, created_at, kind, origin, loop_id, dispatch_key, source_url,
                     CASE WHEN status = 'queued' THEN (
                       SELECT COUNT(*) FROM runs q WHERE q.status = 'queued'
                         AND (q.created_at < runs.created_at OR (q.created_at = runs.created_at AND q.id <= runs.id))
@@ -122,8 +124,36 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "status": r.get::<_, String>(4)?,
         "createdAt": r.get::<_, i64>(5)?,
         "kind": r.get::<_, String>(6)?,
-        "queuePosition": r.get::<_, Option<i64>>(7)?,
+        "origin": r.get::<_, String>(7)?,
+        "loopId": r.get::<_, Option<String>>(8)?,
+        "dispatchKey": r.get::<_, Option<String>>(9)?,
+        "sourceUrl": r.get::<_, Option<String>>(10)?,
+        "queuePosition": r.get::<_, Option<i64>>(11)?,
     }))
+}
+
+/// An `events` row.
+fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
+    Ok(Event {
+        run_id: r.get(0)?,
+        seq: r.get(1)?,
+        ts: r.get(2)?,
+        kind: r.get(3)?,
+        actor: r.get(4)?,
+        to: r.get(5)?,
+        task: r.get(6)?,
+        attempt: r.get(7)?,
+        text: r.get(8)?,
+        data: r.get::<_, Option<String>>(9)?.and_then(|s| serde_json::from_str(&s).ok()),
+    })
+}
+
+/// Who a goal run is for, as `runs` records it: the person's own, or a Loop's dispatch.
+pub struct OriginRow<'a> {
+    pub origin: crate::status::RunOrigin,
+    pub loop_id: Option<&'a str>,
+    pub key: Option<&'a str>,
+    pub source: Option<&'a str>,
 }
 
 impl Db {
@@ -154,14 +184,33 @@ impl Db {
 
     /// A goal run that waits in the dispatch queue, with its first event (`run.queued`, seq 1) in
     /// the same transaction: nothing can take it off the queue before its log begins. `cwd` is its
-    /// workspace's directory until it starts.
+    /// workspace's directory until it starts. A Loop's key is unique in its workspace
+    /// (`runs_dispatch_key`).
     // @project-doc docs/domains/20261031-run_lifecycle.md#dispatch_queue
-    pub fn insert_queued_run(&self, goal: &str, cwd: &str, config: &Value, first: &Event) -> Result<()> {
+    pub fn insert_queued_run(
+        &self,
+        goal: &str,
+        cwd: &str,
+        config: &Value,
+        origin: &OriginRow<'_>,
+        first: &Event,
+    ) -> Result<()> {
         let mut conn = self.0.lock().unwrap();
         let tx = conn.transaction()?;
         tx.execute(
-            "INSERT INTO runs (id, kind, goal, cwd, config, status, created_at) VALUES (?1, 'goal', ?2, ?3, ?4, 'queued', ?5)",
-            params![first.run_id, goal, cwd, config.to_string(), first.ts],
+            "INSERT INTO runs (id, kind, goal, cwd, config, status, created_at, origin, loop_id, dispatch_key, source_url)
+             VALUES (?1, 'goal', ?2, ?3, ?4, 'queued', ?5, ?6, ?7, ?8, ?9)",
+            params![
+                first.run_id,
+                goal,
+                cwd,
+                config.to_string(),
+                first.ts,
+                origin.origin.as_str(),
+                origin.loop_id,
+                origin.key,
+                origin.source
+            ],
         )?;
         insert_event_in(&tx, first)?;
         tx.commit()?;
@@ -185,6 +234,50 @@ impl Db {
         insert_event_in(&tx, &event)?;
         tx.commit()?;
         Ok(Some(event))
+    }
+
+    /// The Loop a run of kind `loop` is the session of.
+    pub fn set_run_loop(&self, id: &str, loop_id: &str) -> Result<()> {
+        self.0.lock().unwrap().execute("UPDATE runs SET loop_id = ?2 WHERE id = ?1", params![id, loop_id])?;
+        Ok(())
+    }
+
+    /// The run a workspace already has for a Loop's dispatch key, and its status.
+    pub fn dispatched(&self, workspace: &str, key: &str) -> Result<Option<(String, String)>> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT id, status FROM runs WHERE json_extract(config, '$.workspace.id') = ?1 AND dispatch_key = ?2",
+                params![workspace, key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
+    /// The goal runs a Loop dispatched (in one status), newest first.
+    pub fn dispatched_runs(&self, loop_id: &str, status: Option<RunStatus>, limit: usize) -> Result<Vec<Value>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(select_runs!(
+            "WHERE loop_id = ?1 AND kind = 'goal' AND (?2 IS NULL OR status = ?2) ORDER BY created_at DESC, id DESC LIMIT ?3"
+        ))?;
+        let rows = stmt.query_map(params![loop_id, status.map(|s| s.as_str()), limit as i64], run_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// How many runs a Loop dispatched, by status.
+    pub fn dispatched_counts(&self, loop_id: &str) -> Result<Value> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT status, COUNT(*) FROM runs WHERE loop_id = ?1 AND kind = 'goal' GROUP BY status")?;
+        let rows = stmt.query_map(params![loop_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut out = serde_json::Map::new();
+        for row in rows {
+            let (status, n) = row?;
+            out.insert(status, n.into());
+        }
+        Ok(out.into())
     }
 
     /// A queued run starts: where it works and the snapshot it works with (team, worktree, base).
@@ -213,6 +306,12 @@ impl Db {
     }
 
     /// A chat's title, from its first message.
+    /// A run's directory changed (a Loop's session follows its workspace).
+    pub fn set_run_cwd(&self, id: &str, cwd: &str) -> Result<()> {
+        self.0.lock().unwrap().execute("UPDATE runs SET cwd = ?2 WHERE id = ?1", params![id, cwd])?;
+        Ok(())
+    }
+
     pub fn set_run_goal(&self, id: &str, goal: &str) -> Result<()> {
         self.0.lock().unwrap().execute("UPDATE runs SET goal = ?2 WHERE id = ?1", params![id, goal])?;
         Ok(())
@@ -240,21 +339,34 @@ impl Db {
             "SELECT run_id, seq, ts, type, actor, to_agent, task, attempt, text, data
              FROM events WHERE run_id = ?1 AND seq > ?2 ORDER BY seq",
         )?;
-        let rows = stmt.query_map(params![run_id, after], |r| {
-            Ok(Event {
-                run_id: r.get(0)?,
-                seq: r.get(1)?,
-                ts: r.get(2)?,
-                kind: r.get(3)?,
-                actor: r.get(4)?,
-                to: r.get(5)?,
-                task: r.get(6)?,
-                attempt: r.get(7)?,
-                text: r.get(8)?,
-                data: r.get::<_, Option<String>>(9)?.and_then(|s| serde_json::from_str(&s).ok()),
-            })
-        })?;
+        let rows = stmt.query_map(params![run_id, after], event_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The events of type `kind` in a run after `after` (a sequence number), oldest first.
+    pub fn events_of(&self, run_id: &str, kind: &str, after: i64) -> Result<Vec<Event>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT run_id, seq, ts, type, actor, to_agent, task, attempt, text, data
+             FROM events WHERE run_id = ?1 AND type = ?2 AND seq > ?3 ORDER BY seq",
+        )?;
+        let rows = stmt.query_map(params![run_id, kind, after], event_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The latest event of type `kind` in a run, without reading the rest of its log.
+    pub fn latest_event(&self, run_id: &str, kind: &str) -> Result<Option<Event>> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT run_id, seq, ts, type, actor, to_agent, task, attempt, text, data
+                 FROM events WHERE run_id = ?1 AND type = ?2 ORDER BY seq DESC LIMIT 1",
+                params![run_id, kind],
+                event_row,
+            )
+            .optional()?)
     }
 
     /// The runs whose sessions were at work in `[from, to)` and their configs, oldest first, for a
@@ -299,7 +411,9 @@ impl Db {
 
     /// The newest 50 runs of one kind, for the role statistics. Goals and chats are counted apart.
     pub fn runs(&self, kind: RunKind) -> Result<Vec<Value>> {
-        Ok(self.runs_page(&RunsPage { kind, workspace: None, statuses: None, before: None, limit: 50 })?.0)
+        Ok(self
+            .runs_page(&RunsPage { kind, workspace: None, statuses: None, loop_id: None, before: None, limit: 50 })?
+            .0)
     }
 
     /// One page of runs, newest first: of one kind, of one workspace when given (`config.workspace.id`),
@@ -315,6 +429,7 @@ impl Db {
                AND (?2 IS NULL OR json_extract(config, '$.workspace.id') = ?2)
                AND (created_at < ?3 OR (created_at = ?3 AND ?4 != '' AND id < ?4))
                AND (?6 IS NULL OR status IN (SELECT value FROM json_each(?6)))
+               AND (?7 IS NULL OR loop_id = ?7)
              ORDER BY created_at DESC, id DESC LIMIT ?5"
         ))?;
         let statuses = page
@@ -322,7 +437,7 @@ impl Db {
             .as_ref()
             .map(|s| serde_json::to_string(&s.iter().map(|x| x.as_str()).collect::<Vec<_>>()).unwrap_or_default());
         let rows = stmt.query_map(
-            params![page.kind.as_str(), page.workspace, time, id, page.limit as i64 + 1, statuses],
+            params![page.kind.as_str(), page.workspace, time, id, page.limit as i64 + 1, statuses, page.loop_id],
             run_row,
         )?;
         let mut runs: Vec<Value> = rows.collect::<rusqlite::Result<_>>()?;
@@ -588,6 +703,7 @@ mod tests {
                     kind: RunKind::Goal,
                     workspace: workspace.map(str::to_owned),
                     statuses: None,
+                    loop_id: None,
                     before,
                     limit,
                 };
@@ -614,6 +730,7 @@ mod tests {
             kind: RunKind::Goal,
             workspace: None,
             statuses: Some(vec![RunStatus::Interrupted, RunStatus::Delivered]),
+            loop_id: None,
             before: None,
             limit: 50,
         };

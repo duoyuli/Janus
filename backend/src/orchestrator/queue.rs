@@ -6,39 +6,95 @@
 
 use super::*;
 
+/// Who asked for a goal run (`runs.origin` and what goes with it).
+pub(crate) enum Origin {
+    /// The person, on a workspace's home.
+    User,
+    /// A Loop's `dispatch`: which Loop, its key for what the run is about, where that came from.
+    Loop { id: String, key: String, source: Option<String> },
+}
+
+impl Origin {
+    fn row(&self) -> crate::db::OriginRow<'_> {
+        match self {
+            Origin::User => crate::db::OriginRow { origin: RunOrigin::User, loop_id: None, key: None, source: None },
+            Origin::Loop { id, key, source } => crate::db::OriginRow {
+                origin: RunOrigin::Loop,
+                loop_id: Some(id),
+                key: Some(key),
+                source: source.as_deref(),
+            },
+        }
+    }
+
+    /// Who the queue entry is from in the log.
+    fn actor(&self) -> &'static str {
+        match self {
+            Origin::User => "user",
+            Origin::Loop { .. } => "lead",
+        }
+    }
+
+    /// The origin as `run.queued` records it.
+    fn view(&self) -> Value {
+        match self {
+            Origin::User => json!({ "kind": RunOrigin::User }),
+            Origin::Loop { id, key, source } => {
+                json!({ "kind": RunOrigin::Loop, "loop": id, "key": key, "sourceUrl": source })
+            }
+        }
+    }
+}
+
 impl App {
-    /// Put a goal on the queue of its workspace. What can be checked now is checked now (the
-    /// workspace, its team, their agents), so the person hears at once; the run starts when a
-    /// slot is free, which with a free slot is right away.
+    /// Put the person's goal on the queue of its workspace.
     // @project-doc docs/domains/20261031-run_lifecycle.md#create_run
     pub async fn create_run(self: &Arc<Self>, req: NewRun) -> Result<String> {
         if req.goal.trim().is_empty() && req.images.is_empty() {
             bail!("目标不能为空");
         }
-        let ws = self.workspace(&req.workspace)?;
-        let (cwd, _) = self.startable_team(&ws)?;
         let goal = match req.goal.trim() {
-            "" => "按附图完成".to_string(),
-            g => g.to_string(),
+            "" => "按附图完成",
+            g => g,
         };
+        self.enqueue(&req.workspace, goal, &req.images, req.max_tokens, Origin::User).await
+    }
+
+    /// Put a goal on the queue of `workspace`. What can be checked now is checked now (the
+    /// workspace, its team, their agents), so whoever asked hears at once; the run starts when a
+    /// slot is free, which with a free slot is right away.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#create_run
+    pub(super) async fn enqueue(
+        self: &Arc<Self>,
+        workspace: &str,
+        goal: &str,
+        images: &[Value],
+        max_tokens: Option<i64>,
+        origin: Origin,
+    ) -> Result<String> {
+        let ws = self.workspace(workspace)?;
+        let (cwd, _) = self.startable_team(&ws)?;
         // Unique even for runs created in the same millisecond (side by side, as the e2e test does).
         let id = crate::agents::new_id("r");
         let dirs = self.cfg.layout.run(RunKind::Goal, &id);
-        let goal_images = crate::attachments::save(&dirs, &req.images).inspect_err(|_| {
+        let goal_images = crate::attachments::save(&dirs, images).inspect_err(|_| {
             crate::layout::remove(&dirs.data);
         })?;
-        let token_limit = req.max_tokens.filter(|&n| n > 0).or(self.cfg.run_token_budget).unwrap_or(0);
+        let token_limit = max_tokens.filter(|&n| n > 0).or(self.cfg.run_token_budget).unwrap_or(0);
         let mut config = json!({ "workspace": ws, "goalImages": goal_images });
         if token_limit > 0 {
             config["tokenLimit"] = json!(token_limit);
         }
-        let first = ev("run.queued", "user", format!("排队：{goal}"))
-            .data(json!({ "goal": goal, "workspace": { "id": ws["id"], "name": ws["name"] }, "images": goal_images }))
+        let first = ev("run.queued", origin.actor(), format!("排队：{goal}"))
+            .data(json!({
+                "goal": goal, "workspace": { "id": ws["id"], "name": ws["name"] }, "images": goal_images,
+                "origin": origin.view(),
+            }))
             .into_event(&id, 1);
         // Until this request has had its own turn at the slots, no other pump hands this run out,
-        // so with a free slot it is set up before the person is answered.
+        // so with a free slot it is set up before whoever asked is answered.
         self.fresh.lock().unwrap().insert(id.clone());
-        let queued = self.db.insert_queued_run(&goal, &cwd.to_string_lossy(), &config, &first);
+        let queued = self.db.insert_queued_run(goal, &cwd.to_string_lossy(), &config, &origin.row(), &first);
         if let Err(err) = queued {
             self.fresh.lock().unwrap().remove(&id);
             crate::layout::remove(&dirs.data);

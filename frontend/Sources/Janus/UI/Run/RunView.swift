@@ -20,6 +20,9 @@ struct RunView: View {
             } else if run.isChat {
                 // A chat is one conversation: no workbench, audit or team pages.
                 ChatView(run: run)
+            } else if run.isLoop {
+                // A Loop's session: the Loop's page.
+                LoopView(run: run)
             } else if run.state.run.status == .queued {
                 // Nothing of it has started: what it will do, where it waits, and the two choices.
                 QueuedView(run: run)
@@ -30,10 +33,12 @@ struct RunView: View {
                 }
             }
         }
-        .navigationTitle(run.isChat ? run.chatTitle : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
-        .navigationSubtitle(run.isChat ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前编排器进程里"))
+        .navigationTitle(run.isChat ? run.chatTitle : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
+        .navigationSubtitle(run.isChat || run.isLoop ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前编排器进程里"))
         .toolbar {
-            if run.isChat {
+            if run.isLoop {
+                ToolbarItem { DocumentsMenu(run: run) }
+            } else if run.isChat {
                 ToolbarItem { DocumentsMenu(run: run) }
                 ToolbarItem {
                     Button { run.exportLog() } label: { Label(L.text("导出事件日志…"), systemImage: "square.and.arrow.up") }

@@ -45,6 +45,7 @@
 │   │   ├── attachments/             # 随目标和消息粘贴的图片
 │   │   └── artifacts/<任务>/        # 每次尝试的回复和 diff
 │   ├── chats/<对话>/                # 对话：bundle/<成员>/、attachments/
+│   ├── loops/<run>/                 # 工作区值班的会话：bundle/<成员>/、attachments/（值班在工作区目录里工作，没有 work/ 目录）
 │   ├── deleted-runs/<run>.patch     # 删除 Run 时 worktree 里还没提交的改动
 │   └── app/permissions.json         # macOS 权限引导：安装标识和是否处理过引导（应用写）
 ├── work/                            # Agent 读写的目录
@@ -67,7 +68,8 @@
     ├── agents/<agent>/              # 配置检查（test.log）和登录（login.log）的输出
     ├── library/<资源>.log           # 预先准备命令服务器时它的 stderr
     ├── runs/<run>/                  # 每个 ACP 子进程的 stderr，MCP 路由启动的服务器的 mcp-<run 或会话>-<资源名>.log
-    └── chats/<对话>/                # 同上，对话的
+    ├── chats/<对话>/                # 同上，对话的
+    └── loops/<run>/                 # 同上，值班会话的（loop.log）
 ```
 
 | 分类 | 能不能删 | 说明 |

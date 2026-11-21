@@ -257,9 +257,9 @@ impl Layout {
         self.stored(path, &[RunKind::Goal], "artifacts", 3)
     }
 
-    /// Whether `path` is an image pasted into a run or a chat, `data/<runs|chats>/<id>/attachments/<file>`.
+    /// Whether `path` is an image pasted into a run, a chat or a Loop, `data/<runs|chats|loops>/<id>/attachments/<file>`.
     pub fn is_attachment(&self, path: &Path) -> bool {
-        self.stored(path, &[RunKind::Goal, RunKind::Chat], "attachments", 2)
+        self.stored(path, &[RunKind::Goal, RunKind::Chat, RunKind::Loop], "attachments", 2)
     }
 
     /// A file at `data/<group>/<id>/<part>/…`, `depth` names below the id; both sides resolved,
@@ -280,11 +280,12 @@ pub fn remove(path: &Path) {
     let _ = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
 }
 
-/// Runs and chats sit apart in every category: `runs/<id>` and `chats/<id>`.
+/// Runs, chats and Loop sessions sit apart in every category: `runs/<id>`, `chats/<id>`, `loops/<id>`.
 fn group(kind: RunKind) -> &'static str {
     match kind {
         RunKind::Goal => "runs",
         RunKind::Chat => "chats",
+        RunKind::Loop => "loops",
     }
 }
 

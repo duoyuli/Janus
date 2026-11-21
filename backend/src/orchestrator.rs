@@ -14,7 +14,7 @@ use crate::agents::{InstructionChannel, Runtime};
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
 use crate::git_probe;
-use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunStatus, TaskStatus};
+use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunOrigin, RunStatus, TaskStatus};
 use crate::traces::Overlap;
 use crate::wire::wire_enum;
 use anyhow::{Context, Result, anyhow, bail};
@@ -37,6 +37,7 @@ mod chat;
 mod flow_tests;
 mod lead;
 mod lifecycle;
+mod loops;
 mod mcp_client;
 mod mcp_router;
 mod mcp_server;
@@ -53,6 +54,7 @@ use attempts::*;
 use board::*;
 use board_tools::*;
 use lead::*;
+pub use loops::{LoopDef, WakeReason};
 use mcp_server::*;
 use messages::Delivery;
 use prompts::*;
@@ -1040,8 +1042,13 @@ pub struct App {
     /// them out meanwhile, so that request can wait for its run to be set up.
     fresh: StdMutex<HashSet<String>>,
     /// The `Arc` this `App` lives in, for work a status change starts in the background (the next
-    /// queued run).
+    /// queued run, a Loop's wake).
     me: std::sync::Weak<App>,
+    /// When each workspace Loop wakes next (`loops.rs`).
+    loops: loops::LoopClock,
+    /// A Loop changed (its settings, its clock, what it dispatched): what the global stream tells
+    /// the app, so its Loop lists follow without polling.
+    pub loop_changes: broadcast::Sender<String>,
 }
 
 /// A run's new status, as the global stream carries it (`GET /api/stream`).
@@ -1150,6 +1157,7 @@ impl App {
     pub fn new(db: Db, cfg: Config) -> Arc<App> {
         let (tx, _) = broadcast::channel(4096);
         let (changes, _) = broadcast::channel(1024);
+        let (loop_changes, _) = broadcast::channel(256);
         Arc::new_cyclic(|me| App {
             db,
             cfg,
@@ -1165,6 +1173,8 @@ impl App {
             queue: Default::default(),
             fresh: Default::default(),
             me: me.clone(),
+            loops: Default::default(),
+            loop_changes,
         })
     }
 
@@ -1212,6 +1222,14 @@ impl App {
         }
         let _ = self.tx.send(event);
         true
+    }
+
+    /// Write an event to run `run_id`, live or not.
+    fn note(&self, run_id: &str, e: Ev) -> Result<i64> {
+        match self.run(run_id) {
+            Some(run) => self.emit_kept(&run, e).context("事件没有写入"),
+            None => self.record(run_id, e),
+        }
     }
 
     /// Write an event to a run that is not live (queued, interrupted, delivered before a restart):
@@ -1301,10 +1319,12 @@ impl App {
     /// Withdraw every decision `owner` was waiting on: its session ended, so nobody can act on
     /// them any more, and the app removes their cards.
     fn withdraw_owned(&self, run: &Run, owner: &Owner, text: &str) {
+        // A Loop's questions are not about its session: the answer wakes it, whenever it comes.
+        let outlives = |p: &Pending| run.kind == RunKind::Loop && p.ask == Ask::Question;
         let keys: Vec<String> = {
             let mut st = run.st.lock().unwrap();
             let keys: Vec<String> =
-                st.pending.iter().filter(|(_, p)| &p.owner == owner).map(|(k, _)| k.clone()).collect();
+                st.pending.iter().filter(|(_, p)| &p.owner == owner && !outlives(p)).map(|(k, _)| k.clone()).collect();
             for k in &keys {
                 st.pending.remove(k);
             }

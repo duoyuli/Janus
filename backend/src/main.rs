@@ -167,6 +167,8 @@ async fn main() -> Result<()> {
     // Only once nothing can stop the start: runs queued before the restart start when slots are
     // free, as they did before it.
     app.pump();
+    // Each Loop wakes when it last said; one that missed its time while Janus was down wakes once now.
+    app.start_loops()?;
     config::log(format!("janus {VERSION}: http://{addr}  ·  home {}", app.cfg.layout.home().display()));
     axum::serve(listener, http::router(app)).await?;
     Ok(())

@@ -66,6 +66,8 @@ struct HomeView: View {
 
                 sharedMaterial
 
+                LoopSection(store: store, ws: ws)
+
                 if !waiting.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(L.text("等你处理")).font(.headline)
@@ -244,6 +246,12 @@ struct RunRows: View {
                 Button { store.open(.run(r["id"].str)) } label: {
                     HStack(spacing: 10) {
                         Text(L.goalTitle(r["goal"].str)).lineLimit(1)
+                        if r["origin"].str == "loop" {
+                            // Dispatched by a Loop: which one, and what it was about.
+                            Label(store.loops.first { $0["id"] == r["loopId"] }?["title"].string ?? L.text("已删除的值班"), systemImage: "arrow.triangle.2.circlepath")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                .help(r["dispatchKey"].str + (r["sourceUrl"].string.map { " · \($0)" } ?? ""))
+                        }
                         Spacer()
                         if dated { Text(L.dateTime(r["createdAt"].double ?? 0)).font(.caption).foregroundStyle(.secondary) }
                         Pill(l, t)

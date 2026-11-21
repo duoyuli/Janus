@@ -172,7 +172,8 @@ struct ChatCard: View {
         case .converse where info.chat:
             // A chat waits for the next message; a chat whose session is gone reopens with it.
             return (
-                info.open && live ? L.text("等你的消息") : L.text("会话已关闭"),
+                run.isLoop ? (info.open && live ? L.text("等下次醒来，或你的消息") : L.text("会话已关闭，下次醒来时打开"))
+                    : info.open && live ? L.text("等你的消息") : L.text("会话已关闭"),
                 .gray,
                 AnyView(btn("sessSend", L.text("发送"), true)),
                 info.open && live ? L.text("给 \(title) 发消息，可以 ⌘V 粘贴截图，\(sendKey.symbol) 发送") : L.text("发送后重新打开和 \(title) 的会话"),
@@ -528,12 +529,13 @@ struct ChatItem: View {
             let via = d["via"].str == "developer" ? L.text("开发者指令") : L.text("系统提示")
             // The system layer holds up to two sets of instructions, named by where they come from.
             let label = d["channel"].str == "instructions" ? L.text("数字员工的指令 · \(via)")
-                : d["channel"].str == "system" ? L.text("Agent Team 协作指令 · \(via)")
+                : d["channel"].str == "system" ? (run.isLoop ? L.text("值班的工作方式 · \(via)") : L.text("Agent Team 协作指令 · \(via)"))
                 : d["channel"].str == "history" ? L.text("之前的对话 · \(via)")
                 : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("验证没有通过 · 发回给它修复"), "board": L.text("看板推送 · 插入正在进行的这一轮"), L.text("goal_check"): L.text("目标确认 · 负责人停下了，目标还标着进行中")][d["channel"].str] ?? L.text("Janus 提示")
             let hint = [
                 "instructions": L.text("这名数字员工的指令，连同 Agent 设置里的自定义提示词。单 Agent 对话只注入这一份。"),
-                "system": L.text("Janus 只在 Agent Team 中注入：团队分工、共享看板、派工和验证的约定。"),
+                "system": run.isLoop ? L.text("值班怎样工作：自己不改文件，要改的事派成任务，只有你能决定的才问你；还有工作区共享资料和它记下的状态。")
+                    : L.text("Janus 只在 Agent Team 中注入：团队分工、共享看板、派工和验证的约定。"),
                 "history": L.text("对话重新打开时带上最近的往来，让新会话接上之前的内容。"),
             ][d["channel"].str]
             VStack(alignment: .leading, spacing: 4) {
@@ -676,7 +678,7 @@ struct ToolRow: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(board ? L.text("看板") : (d["tool"].truthy ? d["tool"].str : L.text("工具"))).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 4).background((board ? Color.accent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                    Text(board ? (run.isLoop ? L.text("值班") : L.text("看板")) : (d["tool"].truthy ? d["tool"].str : L.text("工具"))).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 4).background((board ? Color.accent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
                     Text(label).font(.callout).lineLimit(1).truncationMode(.tail)
                     if e.type == "tool.started" { Pill(d["live"].truthy ? L.text("进行中") : L.text("等待返回"), .blue) } else if d["status"].str == "failed" { Pill(L.text("失败"), .red) }
                     if !d["diffs"].array.isEmpty { Text(verbatim: L.text("改了 \(d["diffs"].array.count) 个文件")).font(.caption).foregroundStyle(.secondary) }

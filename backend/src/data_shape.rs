@@ -80,6 +80,8 @@ pub fn check(kind: &str, data: &Value) -> Vec<String> {
     match kind {
         "library_item" => round_trip::<crate::library::Item>(data),
         "library_source" => round_trip::<crate::library::Source>(data),
+        // A workspace Loop (`orchestrator/loops.rs`).
+        "loop" => round_trip::<crate::orchestrator::LoopDef>(data),
         "meta" => vec![],
         _ => match SHAPES.iter().find(|s| s.kind == kind) {
             Some(shape) => {

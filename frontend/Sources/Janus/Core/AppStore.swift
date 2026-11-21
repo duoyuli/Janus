@@ -39,6 +39,11 @@ final class AppStore {
     /// many newer ones there are: what the inbox and the quit check read (`GET /api/runs?attention=1`).
     var attention: [JSON] = []
     var chatAttention: [JSON] = []
+    /// Every workspace's Loops with what each is doing now (`GET /api/loops`), read again when the
+    /// global stream says one changed.
+    var loops: [JSON] = []
+    /// Loop sessions that may ask the person something (`GET /api/runs?kind=loop&attention=1`).
+    var loopAttention: [JSON] = []
     /// Every workspace goal runs were made in, as their snapshots name it (`GET /api/runs/workspaces`).
     var runWorkspaces: [JSON] = []
     /// Workspaces deleted since, whose runs stay: listed after the others, so their runs are found.
@@ -60,6 +65,8 @@ final class AppStore {
     }
     /// Workspace edited in the sheet (nil id for a new one).
     var editingWorkspace: JSON?
+    /// Loop made or edited in the sheet (empty id for a new one).
+    var editingLoop: JSON?
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
     /// so it opens only through `editRole`, which opens the panel too.
     private(set) var editingRole: JSON?
@@ -116,6 +123,7 @@ final class AppStore {
         for pager in histories.values { await pager.refresh() }
         if let r = try? await api.get("/api/runs?attention=1&limit=500"), r["runs"].array != attention { attention = r["runs"].array }
         if let r = try? await api.get("/api/runs?kind=chat&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=loop&attention=1&limit=500"), r["runs"].array != loopAttention { loopAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
         // An open run waiting in the queue moves up when a run ahead of it starts or goes, which
         // writes nothing to its own log: read its place again.
@@ -125,7 +133,7 @@ final class AppStore {
     func isChat(_ id: String) -> Bool { chats.contains { $0["id"].str == id } }
 
     /// Goals and chats still at work: quitting the server Janus started would interrupt them.
-    var working: [JSON] { (attention + chatAttention).filter { RunStatus($0["status"].str).isActive } }
+    var working: [JSON] { (attention + chatAttention + loopAttention).filter { RunStatus($0["status"].str).isActive } }
 
     func loadSetup() async {
         do {
@@ -225,7 +233,11 @@ final class AppStore {
                         guard let self else { return }
                         switch item {
                         case .named("ready", _), .lagged: await self.readAll()
-                        case .named("run", let c): self.note(c["run"].str, lists: true)
+                        case .named("run", let c):
+                            self.note(c["run"].str, lists: true)
+                            // A run a Loop dispatched changed: that Loop's counts and list did too.
+                            if let loop = c["loop"].string, !loop.isEmpty { await self.loadLoop(loop) }
+                        case .named("loop", let c): await self.loadLoop(c["loop"].str)
                         case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(n["type"].str, run: n["run"].str, store: self))
                         default: break
                         }
@@ -251,9 +263,11 @@ final class AppStore {
         if type == "run.created" { return true }
         if type == "user.message", let chat = store.chats.first(where: { $0["id"].str == run }) { return chat["goal"].str.isEmpty }
         return !store.attention.contains { $0["id"].str == run } && !store.chats.contains { $0["id"].str == run } && !store.runs.contains { $0["id"].str == run }
+            && !store.loops.contains { $0["run"].str == run }
     }
 
     private func readAll() async {
+        await loadLoops()
         await loadRuns()
         await inbox.refresh(self)
     }

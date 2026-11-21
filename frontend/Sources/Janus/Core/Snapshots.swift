@@ -91,10 +91,12 @@ enum Snapshots {
         // Read settings, the library and the run list again, as a fresh launch would: what a test
         // wrote through the API (instead of the app's own editors) shows up.
         case "reload":
-            await store.loadSetup(); await store.loadLibrary(); await store.loadRuns(); await store.loadAdapters(quiet: true)
+            await store.loadSetup(); await store.loadLibrary(); await store.loadLoops(); await store.loadRuns(); await store.loadAdapters(quiet: true)
         // The editor is a sheet of the settings panel, as when a person opens it from there.
         case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
+        // The form for a new Loop in workspace `arg`.
+        case "loop-new": store.editingLoop = AppStore.blankLoop(arg)
         // The library's MCP editor: `mcp-edit new|<name>|catalog:<pick> [json]`.
         case "mcp-edit":
             let p = arg.split(separator: " ").map(String.init)
@@ -119,7 +121,7 @@ enum Snapshots {
                 if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
             }
         case "close-sheet":
-            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingMcp = nil; store.showingSettings = false
+            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingLoop = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
@@ -135,7 +137,7 @@ enum Snapshots {
                 JSON.array(xs.map { ["key": JSON($0.key), "run": JSON($0.run), "kind": JSON($0.kind), "title": JSON($0.title),
                                      "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle), "actions": JSON($0.actions.map(\.label))] })
             }
-            let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"], "label": JSON(runLabel($0).0)] }) }
+            let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"], "label": JSON(runLabel($0).0), "origin": $0["origin"], "loopId": $0["loopId"]] }) }
             var j: JSON = [
                 "screen": JSON(String(describing: store.screen)), "settings": JSON(store.showingSettings),
                 "settingsTab": JSON(store.settingsTab.rawValue), "permissionsReview": JSON(model.permissions.reviewPresented),
@@ -149,6 +151,11 @@ enum Snapshots {
                 // The open agent editor's environment text, as the person sees it.
                 "agentEditorEnv": store.agentEditorEnv.map(JSON.init) ?? .null,
                 "chats": ids(store.chats),
+                // Every workspace's Loops as the app shows them: what each is doing and how it reads.
+                "loops": JSON.array(store.loops.map {
+                    ["id": $0["id"], "run": $0["run"], "workspace": $0["workspace"], "name": $0["name"], "phase": $0["status"]["phase"],
+                     "wakes": $0["status"]["wakes"], "label": JSON(LoopText.phase($0).0), "rhythm": JSON(LoopText.rhythm($0))]
+                }),
                 "sendKey": JSON(SendKeySetting.shared.value.rawValue),
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
@@ -173,6 +180,13 @@ enum Snapshots {
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "page": JSON(String(describing: r.page)),
                     "chat": JSON(r.isChat),
+                    // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.
+                    "loop": r.isLoop ? {
+                        let l = store.loop(ofRun: r.id) ?? .null
+                        return ["id": l["id"], "title": l["title"], "phase": l["status"]["phase"], "state": l["state"],
+                                "dispatchedCount": JSON(LoopText.dispatchedCount(l)),
+                                "dispatched": JSON.array(r.loopDispatched.map { ["id": $0["id"], "key": $0["dispatchKey"], "status": $0["status"]] })]
+                    }() : .null,
                     // What each session's composer holds, by session key.
                     "drafts": .object(r.sessionDrafts.mapValues { JSON($0) }),
                     "status": JSON(s.run.status.rawValue), "paused": JSON(s.run.paused), "delivered": JSON(s.result != nil),

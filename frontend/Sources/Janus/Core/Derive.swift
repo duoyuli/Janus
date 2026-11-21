@@ -207,6 +207,11 @@ struct RunInfo {
     /// board, no delivery, and its one member is not a lead.
     // @project-doc docs/domains/20261120-chats.md#chat_app
     var chat = false
+    /// A workspace Loop's session (`kind` `loop`): one member like a chat, woken on a rhythm.
+    var loop = false
+    /// One session and no board: a chat or a Loop. Waiting for the next message is its normal
+    /// state, and its session opening again means it is going.
+    var singleSession: Bool { chat || loop }
 }
 
 struct RunResult {
@@ -284,6 +289,7 @@ func derive(_ events: [Event]) -> RunState {
             s.run.baseRef = d["baseRef"].str
             s.run.workspace = d["workspace"].str
             s.run.chat = d["kind"].str == "chat"
+            s.run.loop = d["kind"].str == "loop"
             ag("lead").phase = "thinking"
         case "orchestration.accepted":
             for x in d["tasks"].array {
@@ -339,9 +345,9 @@ func derive(_ events: [Event]) -> RunState {
             if d["session"].exists { a.session = d["session"].string }
             if let t, let p = d["progress"].double { t.progress = p }
             // A chat's session opened (again): the conversation is going, whatever ended the last one.
-            if s.run.chat && d["session"].exists { s.run.status = .running; s.run.error = "" }
-            // A chat waiting for the next message is its normal state, not something to handle.
-            if d["turn"].str == "idle" && !s.run.chat {
+            if s.run.singleSession && d["session"].exists { s.run.status = .running; s.run.error = "" }
+            // A chat (or a Loop) waiting for the next message is its normal state, not something to handle.
+            if d["turn"].str == "idle" && !s.run.singleSession {
                 if let t {
                     t.session = t.session?.after(e)
                     if !s.inbox.contains(where: { $0.key == "sess-" + t.id }) { s.inbox.append(InboxItem(kind: "session", key: "sess-" + t.id, seq: e.seq, task: t.id)) }
@@ -409,7 +415,8 @@ func derive(_ events: [Event]) -> RunState {
             t.status = .failed; t.error = d["error"].str
         case "run.failed": s.run.status = .failed; s.run.error = d["error"].string ?? e.text
         case "run.interrupted":
-            s.run.status = .interrupted; s.inbox = []
+            // A Loop's questions outlive its session: the answer wakes it whenever it comes.
+            s.run.status = .interrupted; s.inbox = s.run.loop ? s.inbox.filter { $0.kind == "question" } : []
             for x in s.orderedTasks { x.session = nil; if let at = x.attempts.last, at.end == nil { at.end = e.ts } }
             for a in s.agents.values { a.phase = "idle" }
         case "run.recovered":
@@ -550,6 +557,9 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     var stalls: [String: (seq: Int, text: String)] = [:]
     // The lead's own stall goes to the person: nobody else watches the lead.
     var leadStall: (seq: Int, text: String)?
+    // A Loop's last wake: files it changed in the workspace, or why it could not wake. The next
+    // wake replaces it.
+    var loopNotice: (seq: Int, kind: String, text: String, files: [String])?
     // Two running tasks that edited the same files, or one (or the lead) that edited files the other owns.
     var conflicts: [(seq: Int, task: String, other: String, paths: [String], owned: Bool, byLead: Bool)] = []
     // Collaborator split proposals waiting on the lead's decision.
@@ -564,6 +574,9 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         switch e.type {
         case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
         case "lead.stalled": leadStall = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text)
+        case "loop.woke": loopNotice = nil
+        case "loop.touched": loopNotice = (seq: e.seq, kind: "loop_touched", text: e.text, files: d["files"].strings)
+        case "loop.failed": loopNotice = (seq: e.seq, kind: "loop_failed", text: e.text, files: [])
         case "task.conflict":
             if let task = e.task {
                 conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy, byLead: d["byLead"].truthy))
@@ -687,6 +700,11 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         }
         if text.isEmpty { text = i.d["reason"].str }
         f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, sub: t.map { "\($0.id) · \($0.title)" } ?? "", kind: i.kind, actions: actions))
+    }
+    if let n = loopNotice {
+        let title = n.kind == "loop_touched" ? L.text("值班改了工作区的文件") : L.text("值班没能醒来")
+        let sub = n.kind == "loop_touched" ? n.files.prefix(5).joined(separator: L.text("、")) : L.text("下次醒来会再试；也可以在值班页让它现在醒来")
+        f.open.append(OpenFact(key: "oloop\(n.seq)", seq: n.seq, title: title, text: n.text, tasks: [], agents: ["lead"], you: true, sub: sub, kind: n.kind))
     }
     if let ls = leadStall, st.active {
         f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: L.text("负责人可能卡住了"), text: ls.text, tasks: [], agents: ["lead"], you: true, sub: L.text("可以在负责人的会话里发消息、打断并接管，或者继续等"), kind: "lead_stall"))

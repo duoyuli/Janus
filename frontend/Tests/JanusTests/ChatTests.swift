@@ -146,3 +146,23 @@ private struct ChatLog {
     #expect(found.keys.contains("/Users/me/src/app/apps/client/docs/manual.md"))
     #expect(RunDocs.Moved.of(cwd: cwd, repo: "/Users/me/src/app", run: "r1", exists: { _ in true }) == nil, "a worktree still there is read as is")
 }
+
+/// A Loop sleeping between wakes asks nothing of the person; its question outlives its session,
+/// a restart included, and its session opening again means it is going.
+@Test func aSleepingLoopAsksNothingAndItsQuestionOutlivesItsSession() {
+    var log = ChatLog()
+    log.add("run.created", actor: "user", data: ["kind": "loop", "cwd": "/repo", "git": false, "loop": ["id": "l1", "name": "巡检"]])
+    log.add("loop.woke", data: ["reason": "manual", "n": 1])
+    log.add("agent.status", actor: "lead", text: "开始对话", data: ["phase": "thinking", "session": "s1", "mode": "chat"])
+    log.add("question.escalated", actor: "lead", to: "user", text: "负责人请你决定：先修哪个？", data: ["key": "q1", "question": "先修哪个？", "options": ["导出"], "from": "lead"])
+    log.add("agent.status", actor: "lead", text: "这一轮已结束，等待你的消息", data: ["phase": "waiting_for_input", "turn": "idle"])
+    var st = derive(log.events)
+    #expect(st.run.loop && st.run.singleSession)
+    #expect(st.inbox.map(\.key) == ["q1"], "only its question waits: \(st.inbox.map(\.kind))")
+    log.add("run.interrupted", text: "编排器重启")
+    st = derive(log.events)
+    #expect(st.run.status == .interrupted)
+    #expect(st.inbox.map(\.key) == ["q1"], "a restart does not take its question away")
+    log.add("agent.status", actor: "lead", text: "恢复了之前的会话", data: ["phase": "thinking", "session": "s1", "mode": "chat"])
+    #expect(derive(log.events).run.status == .running)
+}

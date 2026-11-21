@@ -323,11 +323,18 @@ fn drop_worktree(repo: &Path, path: &Path) {
 /// Files with changes not committed in the person's checkout: a new run starts from `HEAD`
 /// without them, which the person is reminded of.
 pub fn uncommitted(repo: &Path) -> Vec<String> {
-    read(repo, &["status", "--porcelain", "--untracked-files=normal"])
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| l.get(3..).map(str::to_owned))
-        .collect()
+    changed_files(repo).unwrap_or_default()
+}
+
+/// Files with changes not committed in `dir`; `None` outside a git repository (or when git
+/// fails), where changes cannot be seen.
+pub fn changed_files(dir: &Path) -> Option<Vec<String>> {
+    Some(
+        read(dir, &["status", "--porcelain", "--untracked-files=normal"])?
+            .lines()
+            .filter_map(|l| l.get(3..).map(str::to_owned))
+            .collect(),
+    )
 }
 
 /// Copy the ignored files `.worktreeinclude` names from the checkout into the worktree, the way

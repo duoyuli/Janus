@@ -427,7 +427,10 @@ impl App {
             if err.downcast_ref::<Cancelled>().is_some() || run.st.lock().unwrap().cancelled() {
                 return;
             }
-            if run.kind == RunKind::Chat && !run.driving.active() {
+            if run.kind == RunKind::Loop {
+                app.loop_session_ended(&run, &format!("{err:#}"));
+            }
+            if run.kind.single_session() && !run.driving.active() {
                 app.runs.lock().unwrap().remove(&run.id);
                 app.emit(
                     &run,
@@ -448,15 +451,24 @@ impl App {
     /// for a goal, the delivery).
     // @project-doc docs/domains/20261120-chats.md#chat_session
     pub(super) async fn lead_conversation(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
-        let chat = run.kind == RunKind::Chat;
+        // A chat and a Loop's session: one member, no board to run, no delivery.
+        let chat = run.kind.single_session();
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
         let channel = lead.kind.instruction_channel();
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
-        let brief = if chat { chat_brief(&events) } else { conversation_brief(run, &events) };
+        // How to work with Janus (the lead's brief after delivery, a Loop's rules), and for a chat
+        // or a Loop opened in a new session, what was said so far.
+        // @project-doc docs/domains/20261121-loops.md#loop_session
+        let guide = match run.kind {
+            RunKind::Goal => conversation_brief(run, &events),
+            RunKind::Loop => self.loop_brief(run),
+            RunKind::Chat => String::new(),
+        };
+        let history = if chat { chat_brief(&events) } else { String::new() };
         let skills = skills_note(self.skill_router_md(run, &lead));
-        let fresh = system_layer(&[&brief, &skills, &standing]);
+        let fresh = system_layer(&[&guide, &history, &skills, &standing]);
         let old = old_session.as_deref().map(|sid| {
             let kept = recorded_system(&events, sid).unwrap_or_else(|| system_layer(&[&skills, &standing]));
             (sid, kept)
@@ -516,9 +528,11 @@ impl App {
             // A loaded session already has its system layer and got it again unchanged: nothing new
             // went in, so nothing new is recorded.
             if !loaded {
-                if !brief.is_empty() {
-                    let part = if chat { SystemPart::History } else { SystemPart::Collaboration };
-                    self.record_system(run, &ctx, &sid, &channel, part, &brief);
+                if !guide.is_empty() {
+                    self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &guide);
+                }
+                if !history.is_empty() {
+                    self.record_system(run, &ctx, &sid, &channel, SystemPart::History, &history);
                 }
                 self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
                 self.record_instructions(run, &ctx, &sid, &channel, &standing);
@@ -577,6 +591,9 @@ impl App {
                         Some(&mut ctl),
                     )
                     .await?;
+                if run.kind == RunKind::Loop {
+                    self.loop_turn_ended(run, &next, &text);
+                }
                 if let Some(reason) = goal_refused(&text) {
                     self.emit(
                         run,
@@ -693,7 +710,6 @@ impl App {
         channel: &InstructionChannel,
         system: &str,
     ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
-        let chat = run.kind == RunKind::Chat;
         let spec = with_system(self.spec_for(&lead.runtime)?, channel, system);
         if lead.kind.trusts_workspaces() {
             // Claude Code only runs /goal in a workspace it trusts, in a chat too.
@@ -707,8 +723,12 @@ impl App {
                 st.mcp_token = token;
             }
         }
-        let log = self.dirs(run).log(if chat { "chat.log" } else { "lead-chat.log" });
-        let who = if chat { lead.name.as_str() } else { "负责人" };
+        let log = self.dirs(run).log(match run.kind {
+            RunKind::Goal => "lead-chat.log",
+            RunKind::Chat => "chat.log",
+            RunKind::Loop => "loop.log",
+        });
+        let who = if run.kind.single_session() { lead.name.as_str() } else { "负责人" };
         self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
     }
 
@@ -792,6 +812,7 @@ impl App {
         }
         let via = channel.as_str();
         let label = match part {
+            SystemPart::Collaboration if run.kind == RunKind::Loop => "向值班注入值班的工作方式",
             SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
             SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
             SystemPart::History => "向 Agent 注入之前的对话",

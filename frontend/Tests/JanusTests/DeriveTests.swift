@@ -569,3 +569,28 @@ private func goalRun() -> Log {
     #expect(runLabel(["status": "queued", "queuePosition": 2]).0 == expectedCopy("排队中 · 第 2 位", "Queued · #2"))
     #expect(runLabel(["status": "queued"]).0 == expectedCopy("排队中", "Queued"))
 }
+
+/// A Loop's last wake reaches the person when it changed workspace files or could not wake; the
+/// next wake replaces it. Its rhythm and phase read as the app shows them.
+@Test func aLoopsWakeNoticesReachTheInboxUntilTheNextWake() {
+    var log = Log()
+    log.add("run.created", actor: "user", data: ["kind": "loop", "cwd": "/tmp/ws", "git": false])
+    log.add("loop.woke", data: ["reason": "timer", "n": 1])
+    log.add("loop.touched", text: "Loop 醒来期间工作区多了 1 处改动", data: ["files": ["notes.md"]])
+    let f = boardFacts(derive(log.events)) { $0 }
+    let touched = f.open.first { $0.kind == "loop_touched" }
+    #expect(touched?.you == true && touched?.sub == "notes.md")
+    log.add("loop.woke", data: ["reason": "timer", "n": 2])
+    #expect(!boardFacts(derive(log.events)) { $0 }.open.contains { $0.kind == "loop_touched" }, "the next wake replaces it")
+    log.add("loop.failed", text: "Loop 没能醒来：工作区不存在")
+    #expect(boardFacts(derive(log.events)) { $0 }.open.contains { $0.kind == "loop_failed" })
+
+    let loop: JSON = ["rhythm": ["kind": "interval", "minutes": 120], "status": ["phase": "paused"]]
+    #expect(LoopText.rhythm(loop) == expectedCopy("每 2 小时", "Every 2 hours"))
+    #expect(LoopText.rhythm(["rhythm": ["kind": "interval", "minutes": 30]]) == expectedCopy("每 30 分钟", "Every 30 minutes"))
+    #expect(LoopText.rhythm(["rhythm": ["kind": "self_paced"]]) == expectedCopy("自己决定", "Its own call"))
+    #expect(LoopText.every(1440) == expectedCopy("每天", "Every day"))
+    #expect(LoopText.every(60) == expectedCopy("每小时", "Every hour"))
+    #expect(LoopText.phase(loop).0 == expectedCopy("已暂停", "Paused"))
+    #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("醒着", "Awake"))
+}
