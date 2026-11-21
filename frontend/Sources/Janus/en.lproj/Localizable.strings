@@ -1437,3 +1437,11 @@
 "新对话" = "New Chat";
 "选一名数字员工，和它一对一对话。它带着自己的指令和资源库，在为这次对话新建的目录里工作，没有团队和看板。" = "Pick a digital employee to talk with one on one. It brings its own instructions and the resource library, and works in a directory made for this chat, with no team and no board.";
 "双击卡片直接开始" = "Double-click a card to start right away";
+"选择颜色；也可以把图片拖到这里作为头像" = "Choose a color, or drop an image here to use as the avatar";
+"数字员工头像" = "Digital employee avatar";
+"没有头像图片时，显示这个颜色和文字。" = "Without an avatar image, this color and text are shown.";
+"更换头像…" = "Change Avatar…";
+"选一张图片作为头像，会从中间裁成正方形；也可以把图片拖到头像上" = "Choose an image for the avatar; it is cropped to a square from the center. You can also drop an image onto the avatar";
+"移除头像" = "Remove Avatar";
+"选择数字员工的头像，会从中间裁成正方形" = "Choose the digital employee's avatar; it is cropped to a square from the center";
+"这个文件不是图片" = "This file is not an image";

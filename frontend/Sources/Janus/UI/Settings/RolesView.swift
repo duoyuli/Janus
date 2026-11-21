@@ -103,15 +103,11 @@ struct RoleEditor: View {
                     Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased(), color: r["color"].str, size: 34,
                            role: picture == .remove ? "" : r["id"].str, picture: chosen)
                 }
-                .buttonStyle(.plain).help(L.text("更换头像或颜色，也可以把图片拖到这里")).accessibilityLabel(L.text("数字员工头像"))
+                .buttonStyle(.plain).help(L.text("选择颜色；也可以把图片拖到这里作为头像")).accessibilityLabel(L.text("数字员工头像"))
                 .dropDestination(for: URL.self) { urls, _ in choose(urls.first) }
                 .popover(isPresented: $colors) {
                     VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        Button(L.text("选择图片…")) { pickPicture() }
-                        if hasPicture { Button(L.text("移除图片")) { picture = .remove; colors = false } }
-                    }
-                    Text(L.text("没有图片时，头像显示下面的颜色和文字。")).font(.caption).foregroundStyle(.secondary)
+                    Text(L.text("没有头像图片时，显示这个颜色和文字。")).font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 8) {
                         ForEach(AppStore.roleColors, id: \.self) { col in
                             Button { r["color"] = JSON(col); colors = false } label: {
@@ -129,6 +125,12 @@ struct RoleEditor: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(r["id"].truthy ? L.text("编辑数字员工") : L.text("新建数字员工")).font(.display(.title3))
+                    HStack(spacing: 12) {
+                        Button(L.text("更换头像…")) { pickPicture() }
+                            .help(L.text("选一张图片作为头像，会从中间裁成正方形；也可以把图片拖到头像上"))
+                        if hasPicture { Button(L.text("移除头像")) { picture = .remove } }
+                    }
+                    .buttonStyle(.link).font(.caption)
                     if let line = RolesSection.statLine(store.roleStats["roles"][r["id"].str], runs: store.roleStats["runs"].int ?? 0) {
                         Text(line).font(.caption).foregroundStyle(.secondary).help(L.text("首次通过：第一次尝试就完成，且验证一次通过"))
                     }
