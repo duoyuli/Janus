@@ -37,6 +37,7 @@ prompt are appended to calls.log; it declares HTTP MCP support and image input. 
 script carries across the separate processes of separate attempts.
 """
 
+import fcntl
 import json
 import os
 import re
@@ -104,8 +105,15 @@ def next_outcome(task):
     script = json.load(open(os.path.join(DIR, "script.json")))
     steps = script.get(task, ["ok"])
     counter = os.path.join(DIR, f"count-{task}")
-    n = int(open(counter).read()) if os.path.exists(counter) else 0
-    open(counter, "w").write(str(n + 1))
+    # Agents of one FAKE_DIR run as separate processes (two connection checks at once share
+    # `count-unknown`): read and bump the count under a lock, and replace the file whole, so no
+    # process reads it half written.
+    with open(counter + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        n = int(open(counter).read()) if os.path.exists(counter) else 0
+        with open(counter + ".tmp", "w") as f:
+            f.write(str(n + 1))
+        os.replace(counter + ".tmp", counter)
     with open(os.path.join(DIR, "calls.log"), "a") as log:
         log.write(f"{task} {steps[min(n, len(steps) - 1)]}\n")
     return steps[min(n, len(steps) - 1)]
