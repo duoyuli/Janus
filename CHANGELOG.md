@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.21.2
+
+- 新增默认的数字员工「老友」：像老朋友一样陪你把一件事聊透，好奇、会追问、敢说真话，适合在对话里用。全新安装直接就有；已经在用的，升级后自动加上。你自己已经建过同名同 id 的「老友」时保留你的。
+- Claude 的「自定义 API」编辑时显示全部环境变量的值，令牌也在，改哪行就改哪行（本地优先：值仍只存在这台 Mac 上 Agent 的凭据文件里，只有本机的 Janus 应用读得到，网页读不到）。模板加上 `ANTHROPIC_DEFAULT_FABLE_MODEL`。
+- 修复升级到 2026.11.21 后，`~/.janus` 顶层留下旧的 `permissions` 目录。
+- 修复很早的数据（数据版本 2 之前）升级时，用户自己建的、和之后新增的默认数字员工同 id 的角色被误当作默认数字员工。
+
+- New default digital employee "老友" (Old Friend): talks a matter through with you like an old friend, curious, asking more and telling the truth, made for chats. New installs have it; existing ones get it on upgrading. A "老友" of your own with the same id stays yours.
+- Editing Claude's "Custom API" shows every environment variable with its value, the token included, so you change just the line you need (local first: values stay in the agent's credentials file on this Mac, readable only by the Janus app on this Mac, not by web pages). The template adds `ANTHROPIC_DEFAULT_FABLE_MODEL`.
+- Fixed an old `permissions` folder left at the top of `~/.janus` after upgrading to 2026.11.21.
+- Fixed very old data (before data version 2) treating a role of your own as a default one when it had the id of a later default.
+
 ## 2026.11.21
 
 - Claude 的「自定义 API」改为一个环境变量输入框：直接粘贴多行 `export KEY=value`，一起设置网关地址、令牌和各档模型；点「填入模板」带入常用的变量，已经填写的不会被覆盖。令牌等私有值只保存在 Agent 自己的凭据文件里，编辑时只显示变量名。原来单独填写的 API Key 升级后作为 `ANTHROPIC_API_KEY` 继续使用。
