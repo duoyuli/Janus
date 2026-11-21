@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.21.4
+
+- 服务返回的错误提示都改为中文，例如找不到任务时显示「任务不存在」，不再是英文的 `run not found`、`unknown kind`。
+- 不再兼容早期的图片和 diff 记录：早期消息里点名图片的 `[附图 N]` 行原样显示，早期 diff 里只记了文件名的新文件不再从工作目录补内容。新记录不受影响。
+- 删除 Agent、数字员工或工作区，以及安装、检查、切换适配器版本时，id 会按 URL 转义，带特殊字符的 id 也能正确处理；读取头像等原始数据时连不上服务，提示和其他请求一致。
+- 修复数据升级测试从 2026.11.21.3 升级时失败，从最近三个版本升级都重新纳入验证。
+
+- Error messages from the service are all in Chinese now, e.g. 「任务不存在」 when a task cannot be found, instead of English `run not found` or `unknown kind`.
+- Early image and diff records are no longer specially handled: the `[附图 N]` lines naming images in early messages show as they are, and a new file that an early diff recorded only by name is no longer filled in from the working directory. New records are unaffected.
+- Deleting an agent, a digital employee or a workspace, and installing, checking or switching an adapter version, now escape the id in the URL, so ids with special characters work; failing to reach the service while reading raw data such as an avatar shows the same message as other requests.
+- Fixed the data upgrade test failing when upgrading from 2026.11.21.3; upgrades from the last three releases are verified again.
+
 ## 2026.11.21.3
 
 - 数字员工可以有自己的头像：在数字员工编辑器里点「更换头像…」选一张图片，或者把图片拖到头像上，应用会从中间裁成正方形；「移除头像」回到原来的颜色和文字。设置、工作区、任务的团队和看板、收件箱、对话里都显示这张头像，删除数字员工时头像一起删除。
