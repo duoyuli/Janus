@@ -233,12 +233,9 @@
 "任务" = "Runs";
 "任务失败" = "Run Failed";
 "Token 用量参考值：%@" = "Token usage reference: %@";
-"任务已达到墙钟预算" = "Run reached its wall time budget";
-"任务已达到费用预算" = "Run reached its cost budget";
 "任务总计包含负责人；负责人和协作者分开列出，方便对比" = "The run total includes the lead. Lead and collaborator subtotals are shown separately.";
 "任务被取消" = "Run cancelled";
 "任务记录" = "Run History";
-"任务达到预算，等你追加或停止" = "The run reached its budget. Extend the budget or stop the run.";
 "任务还在进行，先停止任务再删除" = "Stop the run before deleting it";
 "会话" = "Sessions";
 "会话已结束" = "Session Ended";
@@ -844,7 +841,6 @@
 "等你处理 %lld 项，其余子任务继续调度" = "Waiting for you: %lld. Other subtasks continue to be scheduled.";
 "等你审批" = "Waiting for approval";
 "等你的消息" = "Waiting for Your Message";
-"等你追加预算" = "Waiting for a budget increase";
 "等依赖" = "Waiting for Dependencies";
 "等待 %@" = "Waiting for %@";
 "等待 %@ 修复" = "Waiting for a fix to %@";
@@ -1032,8 +1028,6 @@
 "进行中（%lld）" = "In Progress (%lld)";
 "连不上 Janus 后端：%@" = "Could not connect to the Janus service: %@";
 "连不上 Janus 服务：%@" = "Could not connect to the Janus service: %@";
-"追加 5 USD" = "Add 5 USD";
-"追加 60 分钟" = "Add 60 Minutes";
 "退出" = "Quit";
 "退出 Janus" = "Quit Janus";
 "退出 Janus？" = "Quit Janus?";
@@ -1071,8 +1065,6 @@
 "需要填写" = "Form Required";
 "非 Git 目录：任务直接在这个目录中执行，没有 diff" = "Non-Git directory. The run works directly here without producing diffs.";
 "项目目录" = "Project Directory";
-"预算" = "Budget";
-"预算用完" = "Budget Reached";
 "预览" = "Preview";
 "风险" = "Risks";
 "风险 %lld 条" = "Risks: %lld";

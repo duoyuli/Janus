@@ -276,7 +276,6 @@ fn test_run(team_size: usize) -> Run {
         goal_images: vec![],
         last_seq: 0,
         status: RunStatus::Planning,
-        cost_limit_micros: 0,
     })
 }
 
@@ -318,31 +317,6 @@ fn concurrent_events_are_broadcast_in_seq_order() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// After persistence, a cost reading advances the scheduler exactly once. Polling the budget
-/// through context-only updates keeps the same amount and needs no ledger rebuild.
-#[test]
-fn cost_budget_uses_only_committed_cost_deltas() {
-    let dir = std::env::temp_dir().join(format!("janus-cost-meter-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let app = test_app(&dir);
-    let run = test_run(2);
-    app.db.insert_run(&run.id, RunKind::Goal, "g", "/tmp", &json!({}), 1).unwrap();
-    run.cost_limit_micros.store(4_000_000, Ordering::SeqCst);
-    app.emit(&run, ev("session.usage", "m1", "").data(json!({"session":"s","cost":{"currency":"USD","amount":3}})));
-    let mut duplicate = app.db.events(&run.id, 0).unwrap().remove(0);
-    duplicate.data = Some(json!({"session":"s","cost":{"currency":"USD","amount":8}}));
-    assert!(!app.store(duplicate, Some(&run)));
-    for used in 0..1000 {
-        app.emit(&run, ev("session.usage", "m1", "").data(json!({"used":used,"size":1024})));
-        assert!(app.check_budget(&run).is_none());
-    }
-    app.emit(&run, ev("session.usage", "m1", "").data(json!({"session":"s","cost":{"currency":"USD","amount":4}})));
-    let ledger = app.usage(&run);
-    assert_eq!(ledger.run.cost.lines[0].amount, 4.0);
-    assert!(matches!(app.check_budget(&run), Some(BudgetHit::CostUsd { used: 4.0, limit: 4.0 })));
-    let _ = std::fs::remove_dir_all(dir);
-}
-
 /// An event the database refused is not broadcast: what the app sees is always in the log.
 #[test]
 fn an_event_that_was_not_written_is_not_broadcast() {
@@ -364,10 +338,10 @@ fn an_event_that_was_not_written_is_not_broadcast() {
         text: text.into(),
         data: None,
     };
-    assert!(app.store(event("written"), None));
+    assert!(app.store(event("written")));
     assert_eq!(rx.try_recv().unwrap().text, "written");
     // The same seq again: the database refuses it, and nobody hears of it.
-    assert!(!app.store(event("refused"), None));
+    assert!(!app.store(event("refused")));
     assert!(rx.try_recv().is_err(), "a refused event is not broadcast");
     assert_eq!(app.db.events("r1", 0).unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&dir);

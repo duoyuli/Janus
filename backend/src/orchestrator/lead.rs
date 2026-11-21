@@ -348,7 +348,6 @@ impl App {
                         &prompt,
                         &ctx,
                         Some(&mut ctl),
-                        None,
                     )
                     .await?;
                 if let Some(reason) = goal_refused(&text) {
@@ -576,7 +575,6 @@ impl App {
                         &next,
                         &ctx,
                         Some(&mut ctl),
-                        None,
                     )
                     .await?;
                 if let Some(reason) = goal_refused(&text) {

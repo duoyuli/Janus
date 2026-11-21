@@ -14,7 +14,6 @@
 | `JANUS_NODE` | `node` | `node` | 运行 ACP 适配器的 Node 可执行文件；安装适配器前也用它检查 Node 版本 |
 | `JANUS_MAX_CONCURRENT_ATTEMPTS` | `max_concurrent_attempts` | `3` | 单个 Run 同时运行的协作者尝试上限（范围 1 到 32），见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md) |
 | `JANUS_RUN_TOKEN_BUDGET` | `run_token_budget` | 无 | 新建 Run 的 Token 用量参考值（正整数，非正数忽略）。应用将它和已上报用量一起展示，达到参考值后继续执行 |
-| `JANUS_RUN_COST_BUDGET_USD` | `run_cost_budget_usd` | 无（不限） | 新建 Run 的默认美元费用预算上限（正浮点数；非正数忽略），只对照 Agent 上报的 `USD` 累计费用，不混入价格估算 |
 
 `config.toml` 示例：
 
@@ -34,11 +33,9 @@ max_concurrent_attempts = 3
 | 名称（`orchestrator.rs`） | 值 | 作用 |
 | --- | --- | --- |
 | `MAX_ATTEMPTS` | 2 | 每个委派任务的尝试次数 |
-| `ATTEMPT_TIMEOUT` | 30 分钟 | 单次尝试 |
 | `STARTUP_TIMEOUT` | 10 分钟 | Agent 启动和打开会话 |
 | `STEER_TIMEOUT` | 15 秒 | 发送打断、插入消息等控制指令 |
-| `RUN_BUDGET_MS` | 6 小时 | Run 的墙钟预算 |
-| `ACP_REQUEST_TIMEOUT`（`acp.rs`） | 30 分钟 | 单个 ACP 请求 |
+| `ACP_REQUEST_TIMEOUT`（`acp.rs`） | 30 分钟 | 单个 ACP 控制请求；`session/prompt` 不限时，见[时间限制](../domains/20261031-run_lifecycle.md#timeouts) |
 
 <a id="agent_env"></a>
 ## 传给 Agent 的变量

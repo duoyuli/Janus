@@ -288,7 +288,6 @@ async fn pasted_images_reach_the_agent() {
             workspace: "ws".into(),
             images: vec![json!({ "data": png, "name": "设计稿.png" })],
             max_tokens: None,
-            max_cost_usd: None,
         })
         .await
         .unwrap();

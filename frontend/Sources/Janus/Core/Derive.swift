@@ -185,8 +185,6 @@ struct InboxItem: Identifiable {
 
 struct RunInfo {
     var status = RunStatus.unknown
-    /// Latest reference recorded by older clients that supported token extensions.
-    var extendedTokenReference: Double?
     var goal = ""
     /// Stored paths of the images pasted with the goal.
     var images: [String] = []
@@ -290,16 +288,6 @@ func derive(_ events: [Event]) -> RunState {
             // the earlier delivery is not offered for acceptance meanwhile (FL-10).
             if s.run.status == .delivered || s.run.status == .accepted { s.run.status = .running }
         case "goal.status": ag("lead").note = e.text
-        case "run.budget_exhausted":
-            guard d["kind"].str != "tokens" else { break }
-            s.run.status = .waitingInput; s.inbox.removeAll { $0.kind == "budget" }
-            s.inbox.append(InboxItem(kind: "budget", key: "budget", seq: e.seq, d: ["text": JSON(e.text), "kind": d["kind"]]))
-        case "run.budget_extended":
-            if d["kind"].str == "tokens" {
-                s.run.extendedTokenReference = d["tokenLimit"].double
-                break
-            }
-            s.run.status = .running; s.inbox.removeAll { $0.kind == "budget" }
         case "decision.withdrawn":
             dropKey(d["key"].str)
             if let t, t.status.waitsOnPerson { t.status = .running }
@@ -458,7 +446,6 @@ func derive(_ events: [Event]) -> RunState {
             if let at = t.attempts.last, at.status == .running { at.status = .succeeded }
             let a = ag(t.agent); a.phase = t.agent == "lead" ? "coordinating" : "idle"; a.note = ""; a.progress = nil
         case "run.delivered":
-            s.inbox.removeAll { $0.kind == "budget" }
             s.run.status = .delivered; s.result = RunResult(d: d, seq: e.seq)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
         case "risk.accepted":
@@ -681,7 +668,6 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "input":
             title = i.d["mode"].str == "url" ? L.text("「\(who)」请你打开链接") : L.text("「\(who)」请你填写表单")
         case "session": title = L.text("「\(who)」这一轮结束，等你的消息")
-        case "budget": title = L.text("任务达到预算，等你追加或停止")
         default: title = L.text("等你处理")
         }
         var text: String
@@ -689,7 +675,6 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "question": text = t?.question?.question ?? ""
         case "approval": text = i.d["command"].str
         case "input": text = i.d["message"].str
-        case "budget": text = i.d["text"].str
         default: text = ""
         }
         if text.isEmpty { text = i.d["reason"].str }

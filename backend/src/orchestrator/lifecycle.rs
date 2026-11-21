@@ -72,15 +72,10 @@ impl App {
             g => g.to_string(),
         };
         let token_limit = req.max_tokens.filter(|&n| n > 0).or(self.cfg.run_token_budget).unwrap_or(0);
-        let cost_limit_usd = req.max_cost_usd.filter(|n| n.is_finite() && *n > 0.0).or(self.cfg.run_cost_budget_usd);
-        let cost_limit_micros = cost_limit_usd.map(|c| (c * 1_000_000.0).round() as i64).unwrap_or(0);
         let mut config =
             json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
         if token_limit > 0 {
             config["tokenLimit"] = json!(token_limit);
-        }
-        if let Some(c) = cost_limit_usd {
-            config["costLimitUsd"] = json!(c);
         }
         if let Some(w) = &worktree {
             config["worktree"] = json!({ "repo": w.repo, "branch": w.branch });
@@ -99,7 +94,6 @@ impl App {
             goal_images,
             last_seq: 0,
             status: RunStatus::Planning,
-            cost_limit_micros,
         }));
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
         self.launch(run, Phase::Start);
@@ -232,22 +226,6 @@ impl App {
         self.goal(run, false).await
     }
 
-    /// Check whether wall-clock or reported USD cost ceiling has been reached. Unreported
-    /// usage (`None`) never triggers a pause.
-    pub(super) fn check_budget(&self, run: &Run) -> Option<BudgetHit> {
-        if now_ms() > run.deadline_ms.load(Ordering::SeqCst) {
-            return Some(BudgetHit::WallClock);
-        }
-        let cost_limit_micros = run.cost_limit_micros.load(Ordering::SeqCst);
-        if cost_limit_micros > 0
-            && let Some(usd) = run.costs.lock().unwrap().usd
-            && (usd * 1_000_000.0).round() as i64 >= cost_limit_micros
-        {
-            return Some(BudgetHit::CostUsd { used: usd, limit: cost_limit_micros as f64 / 1_000_000.0 });
-        }
-        None
-    }
-
     /// The scheduling loop. It recomputes the run's status from the task graph on every pass and
     /// only returns once the run is delivered or cancelled, so every later decision still has a driver to act on it.
     // @project-doc docs/domains/20261031-run_lifecycle.md#scheduling
@@ -257,7 +235,6 @@ impl App {
             Deliver,
             /// Goal mode: the lead's session broke off; the person continues the run to restart it.
             LeadFailed(String),
-            Budget(BudgetHit),
             Paused,
             Running,
         }
@@ -265,8 +242,6 @@ impl App {
             if run.st.lock().unwrap().cancelled() {
                 return Err(Cancelled.into());
             }
-            let budget_hit = self.check_budget(run);
-            let over_budget = budget_hit.is_some();
             let cap = self.cfg.max_concurrent_attempts.max(1);
             let (starts, blocked, outcome) = {
                 let mut st = run.st.lock().unwrap();
@@ -294,7 +269,7 @@ impl App {
                     }
                 }
                 let mut starts = vec![];
-                if !st.paused() && !over_budget {
+                if !st.paused() {
                     let mut running_count = st.tasks.iter().filter(|t| t.status() == TaskStatus::Running).count();
                     let mut busy: HashSet<String> = st
                         .tasks
@@ -317,14 +292,13 @@ impl App {
                     }
                 }
                 let active = st.tasks.iter().any(|t| t.status() == TaskStatus::Running);
-                // A task that could start but for a pause, concurrency cap or budget is still work
+                // A task that could start but for a pause or the concurrency cap is still work
                 // to do: the run waits instead of delivering without it.
                 let runnable = st
                     .tasks
                     .iter()
                     .any(|t| t.status() == TaskStatus::Pending && t.def.deps.iter().all(|d| succeeded.contains(d)));
                 let finished = !active && !runnable;
-                let all_terminal = st.tasks.iter().all(|t| t.status().terminal());
                 // The lead decides what a failure means (it reads it on the board), so nothing
                 // waits for the person; the run ends once the lead is done and no task is running
                 // or can still start.
@@ -332,8 +306,6 @@ impl App {
                     Outcome::LeadFailed(err.clone())
                 } else if finished && st.lead.goal.ended() {
                     Outcome::Deliver
-                } else if let (Some(hit), false) = (budget_hit, all_terminal) {
-                    Outcome::Budget(hit)
                 } else if !active && starts.is_empty() && st.paused() {
                     Outcome::Paused
                 } else {
@@ -390,24 +362,6 @@ impl App {
                 Outcome::LeadFailed(err) => {
                     // Like any failed run: continuing it rebuilds the board and restarts the lead.
                     bail!("负责人的会话异常结束：{err}");
-                }
-                Outcome::Budget(hit) => {
-                    // Announced each time the run comes to wait on a budget ceiling, including when
-                    // the lead adds work after the run went back to running.
-                    if run.st.lock().unwrap().status != RunStatus::WaitingInput {
-                        self.set_status(run, RunStatus::WaitingInput);
-                        let (text, data) = match hit {
-                            BudgetHit::WallClock => (
-                                "任务达到墙钟预算，等待你追加预算或停止".to_string(),
-                                json!({ "kind": "wall_clock", "budgetMs": RUN_BUDGET_MS }),
-                            ),
-                            BudgetHit::CostUsd { used, limit } => (
-                                format!("任务已上报费用 ${used:.2}（达到上限 ${limit:.2}），等待你追加预算或停止"),
-                                json!({ "kind": "cost_usd", "usedCostUsd": used, "costLimitUsd": limit }),
-                            ),
-                        };
-                        self.emit(run, ev("run.budget_exhausted", "janus", text).data(data));
-                    }
                 }
                 Outcome::Running | Outcome::Paused => {
                     let status = run.st.lock().unwrap().status;

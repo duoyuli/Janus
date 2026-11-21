@@ -82,7 +82,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - 所有依赖（`deps`）都已 `succeeded`，并且没有被未通过的独立验证挡住（见下文）。
 - 执行者当前没有别的任务在执行。每个成员实例同一时间只做一个任务，派给同一实例的任务排队；工作区中配置了 `slots > 1` 的角色会展开为多个成员实例，可并行执行不同任务，见 [Agent、角色与工作区](20261031-agents_and_roles.md#workspaces)。
 - 当前正在运行的协作者尝试总数低于 `max_concurrent_attempts`（默认 3，见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md)）。超出上限时，已就绪的任务保持 `pending`，等有槽位空出后自动启动。
-- Run 没有暂停、没有取消，也没有超出墙钟或已上报美元费用预算。
+- Run 没有暂停、没有取消。
 
 依赖失败（失败、取消、阻塞或被跳过）时，下游任务变为 `blocked`（`task.blocked`）。有多个依赖失败时，处理好一个后任务仍保持 `blocked`，并再写一条 `task.blocked` 指向还没处理的依赖。
 
@@ -162,13 +162,13 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 <a id="timeouts"></a>
 ### 时间限制
 
+工作本身没有时间和费用上限：一轮提示、一次尝试、一个 Run 做多久都可以，用量和费用只观测、不触发暂停。卡住的会话由[停滞检测](#watchdog)报告给负责人（负责人自己卡住时报告给用户），由负责人或用户决定继续等、打断还是取消。下面几项只限制进程和控制请求有没有挂死：
+
 | 限制 | 值 |
 | --- | --- |
 | Agent 启动和打开会话 | 10 分钟 |
-| 单次尝试 | 30 分钟 |
-| 单个 ACP 请求 | 30 分钟 |
+| 单个 ACP 控制请求（打开会话、切换模式等；`session/prompt` 不限时） | 30 分钟 |
 | 发送打断等控制指令 | 15 秒 |
-| Run 预算 | 墙钟 6 小时，以及可选的已上报 `USD` 费用上限（`maxCostUsd` / `JANUS_RUN_COST_BUDGET_USD`），均可用 `extendBudget` 追加；未上报用量（`None`）永不触发暂停；调度循环每次唤醒时读取内存中的美元合计。费用读数持久化后按原生会话更新增量，从中断处继续时按事件顺序重建一次；从中断处继续时墙钟重新计 6 小时 |
 
 <a id="watchdog"></a>
 ### 停滞检测
@@ -192,7 +192,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 <a id="delivery_conditions"></a>
 ## 交付条件
 
-调度循环每次唤醒都重新判断结果。「没有可执行任务」指没有任务在执行，也没有 `pending` 任务的依赖已全部成功。因暂停或预算而没有启动的任务仍算可执行：负责人在暂停期间结束时，Run 等用户继续，不会丢下这些任务直接交付。
+调度循环每次唤醒都重新判断结果。「没有可执行任务」指没有任务在执行，也没有 `pending` 任务的依赖已全部成功。因暂停或并发上限而没有启动的任务仍算可执行：负责人在暂停期间结束时，Run 等用户继续，不会丢下这些任务直接交付。
 
 | 条件 | 结果 |
 | --- | --- |
@@ -200,7 +200,6 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | 没有可执行任务，且负责人目标已结束 | 交付（`run.delivered`），摘要取负责人最后一条回复 |
 | 交付后的对话里，负责人通过看板提交了新任务 | 回到运行，任务完成后再次交付；应用在新任务开始时就不再提供上一次交付的验收 |
 | 已验收的 worktree Run，对话中的一轮改了文件 | 再次交付，等用户再验收，验收时把新改动带回源分支；只是问问结果、没有改文件的一轮不改变验收记录 |
-| 超出预算，且还有未结束的任务 | 等待用户追加预算（`run.budget_exhausted`）。每次进入等待都写一条：回到运行后负责人再加任务、又超出预算时会再次提醒 |
 | 用户暂停，且没有任务在执行 | 暂停 |
 | 其他 | 继续运行 |
 
@@ -221,14 +220,13 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 | --- | --- |
 | `planning` | 刚创建，负责人会话正在启动 |
 | `running` | 运行中；暂停时状态也保持 `running` |
-| `waiting_input` | 超出预算，等待用户追加预算或取消 |
 | `delivered` | 已交付，等待验收 |
 | `accepted` | 用户核对后验收。只能从 `delivered` 进入；继续下指令或设置新目标时重新打开 |
 | `cancelled` | 用户取消 |
 | `failed` | Run 失败，例如负责人会话异常结束 |
 | `interrupted` | 编排器重启时 Run 还未结束 |
 
-状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning`、`running` 和 `waiting_input` 可以暂停、继续或追加预算；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；已验收的 Run 在会话里继续工作或再次交付时重新打开；取消直接由 `status == RunStatus::Cancelled` 表示，不另存布尔标记。
+状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning` 和 `running` 可以暂停和继续；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；已验收的 Run 在会话里继续工作或再次交付时重新打开；取消直接由 `status == RunStatus::Cancelled` 表示，不另存布尔标记。
 
 
 <a id="user_actions"></a>
@@ -238,7 +236,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 - **回答与审批**：`answer`、`approve`、`input`。
 - **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_session/steering` 时，见[插话](../interfaces/20261031-acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/20261031-events.md#message_flow)。
-- **控制 Run**：`pause`、`resume`、`extendBudget`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
+- **控制 Run**：`pause`、`resume`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
 - **删除 Run**：应用里删除一个已结束的 Run（`DELETE /api/runs/{id}`，见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)）。删除会移除它的事件、派生索引，以及 `~/.janus` 下的产物、日志、附件和成员资源包，不可恢复；工作目录中的文件不动。`planning`、`running` 或 `waiting_input` 的 Run 不能删除，要先停止。删除不是取消，也不影响其他 Run。
 
 取消 Run（`run.cancelled`）和取消任务（`task.skipped_by_decision`）在用量账本里的范围不同：前者把取消时刻仍在跑的所有尝试记「已取消」，备注「任务被取消」；后者只影响那个任务的尝试，备注「负责人取消了这个子任务」，同一个 Run 里其他任务的尝试保持「未完成」。两者都不改动取消前已经结束的尝试（失败、验证没通过、过期保持原状态），已经上报的用量照常计入。Janus 不为这两类取消写尝试级事件，杀连接后可能还有一条失败事件，也不算真的失败。见[用量口径](../interfaces/20261031-events.md#usage_accounting)。
@@ -256,7 +254,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 从 `runs.config` 重建团队，从事件日志重建任务；在 worktree 中的 Run，worktree 不在了就先重建。恢复、验收历史交付（`accept_archived`）和删除一个不在运行的 Run 先拿 `App.revival`，一次只做一件：两条消息同时发给已中断或已交付的 Run 时，第二条等第一条把 Run 恢复好，再发进同一个 Run，不会各自恢复出一个负责人会话；恢复期间到达的验收按运行中的 Run 处理：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。从快照和追加预算事件恢复美元费用上限。旧版 Token 预算只作为用量参考值显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（负责人重试时选的会话和 `from`、复审的对象都从最后一条 `task.reopened` 重建，复审对象被加回验证的依赖）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
+- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。Token 参考值只用于显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（负责人重试时选的会话和 `from`、复审的对象都从最后一条 `task.reopened` 重建，复审对象被加回验证的依赖）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
 - 排队但还没送达的消息保留下来。
 - 负责人以「从中断处继续」的说明重新启动，说明中列出看板上之前的任务。
 

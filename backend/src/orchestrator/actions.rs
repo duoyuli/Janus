@@ -180,57 +180,9 @@ impl App {
                 self.ensure_driver(run);
                 run.wake.notify_one();
             }
-            "extendBudget" => {
-                let status = run.st.lock().unwrap().status;
-                if !status.is_active() {
-                    bail!("任务现在是「{status}」，不能追加预算");
-                }
-                if a.get("tokens").is_some() {
-                    bail!("Token 预算仅供查看，无需追加");
-                }
-                let explicit_cost = a["costUsd"].as_f64();
-                let explicit_minutes = a["minutes"].as_i64();
-                let cost = explicit_cost.or_else(|| {
-                    (explicit_minutes.is_none() && matches!(self.check_budget(run), Some(BudgetHit::CostUsd { .. })))
-                        .then_some(5.0)
-                });
-                if let Some(cost_usd) = cost {
-                    let added = cost_usd.clamp(0.01, 10_000.0);
-                    let added_micros = (added * 1_000_000.0).round() as i64;
-                    let used_micros =
-                        run.costs.lock().unwrap().usd.map(|usd| (usd * 1_000_000.0).round() as i64).unwrap_or(0);
-                    let new_micros = run.cost_limit_micros.load(Ordering::SeqCst).max(used_micros) + added_micros;
-                    run.cost_limit_micros.store(new_micros, Ordering::SeqCst);
-                    let new_usd = new_micros as f64 / 1_000_000.0;
-                    self.emit(
-                        run,
-                        ev("run.budget_extended", "user", format!("追加费用预算 {added:.2} USD"))
-                            .data(json!({ "kind": "cost_usd", "costUsd": added, "costLimitUsd": new_usd })),
-                    );
-                } else {
-                    let minutes = explicit_minutes.unwrap_or(60).clamp(1, 24 * 60);
-                    let added = minutes * 60 * 1000;
-                    // Counted from now when the budget already ran out, so one extension is enough.
-                    let deadline = run.deadline_ms.load(Ordering::SeqCst).max(now_ms()) + added;
-                    run.deadline_ms.store(deadline, Ordering::SeqCst);
-                    self.emit(
-                        run,
-                        ev("run.budget_extended", "user", format!("追加任务预算 {minutes} 分钟"))
-                            .data(json!({ "kind": "wall_clock", "minutes": minutes, "addedMs": added })),
-                    );
-                }
-                if status == RunStatus::WaitingInput {
-                    self.set_status(run, RunStatus::Running);
-                }
-                self.ensure_driver(run);
-                run.wake.notify_one();
-            }
             "cancel" => {
                 let status = run.st.lock().unwrap().status;
-                if !matches!(
-                    status,
-                    RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput | RunStatus::Delivered
-                ) {
+                if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::Delivered) {
                     bail!("任务现在是「{status}」，不能停止");
                 }
                 let conns: Vec<Arc<AcpConn>> = {
@@ -390,21 +342,18 @@ impl App {
         let (text, data) =
             self.accept_worktree(run_id, worktree.as_ref(), base_ref, row["goal"].as_str().unwrap_or(""), true)?;
         let seq = self.db.max_seq(run_id)? + 1;
-        self.store(
-            Event {
-                run_id: run_id.into(),
-                seq,
-                ts: now_ms(),
-                kind: "risk.accepted".into(),
-                actor: "user".into(),
-                to: None,
-                task: None,
-                attempt: None,
-                text,
-                data: Some(data),
-            },
-            None,
-        );
+        self.store(Event {
+            run_id: run_id.into(),
+            seq,
+            ts: now_ms(),
+            kind: "risk.accepted".into(),
+            actor: "user".into(),
+            to: None,
+            task: None,
+            attempt: None,
+            text,
+            data: Some(data),
+        });
         self.db.set_run_status(run_id, RunStatus::Accepted)?;
         let _ = self.changes.send(RunChange { run: run_id.into(), status: RunStatus::Accepted });
         Ok(None)
@@ -451,14 +400,6 @@ impl App {
             self.spec_for(&m.runtime)?;
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
-        let mut cost_limit_micros =
-            config["costLimitUsd"].as_f64().map(|c| (c * 1_000_000.0).round() as i64).unwrap_or(0);
-        for e in events.iter().filter(|e| e.kind == "run.budget_extended") {
-            let Some(d) = e.data.as_ref() else { continue };
-            if let Some(cl) = d["costLimitUsd"].as_f64() {
-                cost_limit_micros = (cl * 1_000_000.0).round() as i64;
-            }
-        }
         let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
         // An accepted run's worktree was removed; working again brings it back where the last
         // acceptance left the result (or where the run started).
@@ -486,15 +427,8 @@ impl App {
             goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
             last_seq: self.db.max_seq(run_id)?,
             status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
-            cost_limit_micros,
         }));
 
-        {
-            let mut costs = run.costs.lock().unwrap();
-            for event in &events {
-                costs.observe(event);
-            }
-        }
         // The board's tasks are every orchestration the lead got accepted.
         // Each with the last event before its orchestration: what the lead knew when it planned it.
         let board: Vec<_> = events
@@ -790,21 +724,18 @@ impl App {
         }
         for run_id in self.db.unfinished_runs()? {
             let seq = self.db.max_seq(&run_id)? + 1;
-            self.store(
-                Event {
-                    run_id: run_id.clone(),
-                    seq,
-                    ts: now_ms(),
-                    kind: "run.interrupted".into(),
-                    actor: "janus".into(),
-                    to: None,
-                    task: None,
-                    attempt: None,
-                    text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(),
-                    data: None,
-                },
-                None,
-            );
+            self.store(Event {
+                run_id: run_id.clone(),
+                seq,
+                ts: now_ms(),
+                kind: "run.interrupted".into(),
+                actor: "janus".into(),
+                to: None,
+                task: None,
+                attempt: None,
+                text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(),
+                data: None,
+            });
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
         }
         // An accepted run kept its worktree while its conversation was open; nothing works there

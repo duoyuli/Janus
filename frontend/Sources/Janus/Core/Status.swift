@@ -5,7 +5,6 @@ import Foundation
 /// are stated here once instead of as string sets in each view.
 enum RunStatus: String {
     case planning, running
-    case waitingInput = "waiting_input"
     case delivered, accepted, cancelled, failed, interrupted
     /// Nothing read yet (before `run.created`), or a value this app does not know.
     case unknown
@@ -13,7 +12,7 @@ enum RunStatus: String {
     init(_ raw: String) { self = RunStatus(rawValue: raw) ?? .unknown }
 
     /// The run is live on the server: work can still start.
-    var isActive: Bool { [.planning, .running, .waitingInput].contains(self) }
+    var isActive: Bool { self == .planning || self == .running }
     /// Nothing more happens unless the person acts.
     var isFinished: Bool { [.delivered, .accepted, .cancelled, .failed, .interrupted].contains(self) }
     /// The run stopped short and can be continued where it was.
@@ -25,7 +24,6 @@ enum RunStatus: String {
     var listLabel: (String, Tone) {
         switch self {
         case .planning: return (L.text("负责人启动中"), .blue)
-        case .waitingInput: return (L.text("等你追加预算"), .amber)
         case .running: return (L.text("执行中"), .blue)
         case .delivered: return (L.text("已交付"), .green)
         case .accepted: return (L.text("已验收"), .green)

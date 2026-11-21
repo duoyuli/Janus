@@ -19,8 +19,6 @@ wire_enum! {
         #[default]
         Planning = "planning",
         Running = "running",
-        /// Over budget, waiting for the person to extend it or cancel.
-        WaitingInput = "waiting_input",
         /// Delivered, waiting for the person to accept it.
         Delivered = "delivered",
         Accepted = "accepted",
@@ -48,7 +46,7 @@ impl RunStatus {
     /// Work can still start or is in progress: the states in which a run's sessions may still
     /// write, so its data cannot be deleted out from under them.
     pub fn is_active(self) -> bool {
-        matches!(self, RunStatus::Planning | RunStatus::Running | RunStatus::WaitingInput)
+        matches!(self, RunStatus::Planning | RunStatus::Running)
     }
 
     /// Whether the Run may move from `self` to `to`. Repeating a state is always allowed: the
@@ -60,9 +58,8 @@ impl RunStatus {
         }
         matches!(
             (self, to),
-            (Planning, Running | WaitingInput | Delivered | Failed | Cancelled | Interrupted)
-                | (Running, WaitingInput | Delivered | Failed | Cancelled | Interrupted)
-                | (WaitingInput, Running | Delivered | Failed | Cancelled | Interrupted)
+            (Planning, Running | Delivered | Failed | Cancelled | Interrupted)
+                | (Running, Delivered | Failed | Cancelled | Interrupted)
                 | (Delivered, Accepted | Running | Failed | Cancelled | Interrupted)
                 // Continuing an accepted run (a new task or goal in its session) reopens it.
                 | (Accepted, Running | Delivered)
@@ -213,7 +210,6 @@ mod tests {
         for (s, name) in [
             (RunStatus::Planning, "planning"),
             (RunStatus::Running, "running"),
-            (RunStatus::WaitingInput, "waiting_input"),
             (RunStatus::Delivered, "delivered"),
             (RunStatus::Accepted, "accepted"),
             (RunStatus::Cancelled, "cancelled"),
@@ -241,8 +237,6 @@ mod tests {
     #[test]
     fn run_states_only_move_where_the_lifecycle_allows() {
         assert!(RunStatus::Planning.can_transition_to(RunStatus::Running));
-        assert!(RunStatus::Running.can_transition_to(RunStatus::WaitingInput));
-        assert!(RunStatus::WaitingInput.can_transition_to(RunStatus::Running));
         assert!(RunStatus::Running.can_transition_to(RunStatus::Delivered));
         assert!(RunStatus::Delivered.can_transition_to(RunStatus::Accepted));
         assert!(RunStatus::Delivered.can_transition_to(RunStatus::Running), "a retry reopens delivery");
@@ -252,7 +246,6 @@ mod tests {
         assert!(!RunStatus::Planning.can_transition_to(RunStatus::Accepted));
         // Only a delivered run is accepted.
         assert!(!RunStatus::Running.can_transition_to(RunStatus::Accepted));
-        assert!(!RunStatus::WaitingInput.can_transition_to(RunStatus::Accepted));
         assert!(
             [RunStatus::Cancelled, RunStatus::Interrupted, RunStatus::Failed]
                 .iter()
@@ -260,9 +253,7 @@ mod tests {
         );
         assert!(RunStatus::Running.can_transition_to(RunStatus::Running));
         // Only these states still have work that could write to the run.
-        assert!(
-            RunStatus::Planning.is_active() && RunStatus::Running.is_active() && RunStatus::WaitingInput.is_active()
-        );
+        assert!(RunStatus::Planning.is_active() && RunStatus::Running.is_active());
         assert!(
             ![
                 RunStatus::Delivered,

@@ -324,13 +324,8 @@ async fn recovery_uses_the_recorded_plan_boundary_and_preserves_legacy_holds() {
             assert_eq!(st.tasks.iter().find(|t| t.def.id == id).unwrap().status(), TaskStatus::Blocked);
         }
     }
-    assert_eq!(live.costs.lock().unwrap().usd, Some(3.0));
     let log = events(&h.app, id);
-    assert!(
-        !has(&log, "run.budget_exhausted")
-            && !task_event(&log, "attempt.started", "BEFORE")
-            && !task_event(&log, "attempt.started", "LEGACY")
-    );
+    assert!(!task_event(&log, "attempt.started", "BEFORE") && !task_event(&log, "attempt.started", "LEGACY"));
     wait_until(&h.app, id, "recovered delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -559,18 +554,12 @@ async fn token_reference_keeps_usage_visible_and_downstream_work_running() {
     .await;
     assert!(!err);
 
-    wait_until(&h.app, &run, "T2 finishes without extending any budget", |e| task_event(e, "task.succeeded", "T2"))
-        .await;
+    wait_until(&h.app, &run, "T2 finishes past the token reference", |e| task_event(e, "task.succeeded", "T2")).await;
     let live = h.app.run(&run).unwrap();
     assert!(h.app.usage(&live).run.tokens.total.unwrap() >= 1_200);
     assert_eq!(h.app.db.run(&run).unwrap().unwrap()["config"]["tokenLimit"], 1_000);
-    let deadline = live.deadline_ms.load(Ordering::SeqCst);
-    assert!(h.app.action(&live, &json!({ "type": "extendBudget", "tokens": 5000 })).is_err());
-    assert_eq!(live.deadline_ms.load(Ordering::SeqCst), deadline);
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    let log = events(&h.app, &run);
-    assert!(!has(&log, "run.budget_exhausted") && !has(&log, "run.budget_extended"));
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -655,17 +644,12 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
-    // Part 1: `stream_prompt` timeout sends `session/cancel` and still captures `prompt_usage` from the cancelled turn.
-    let h = harness(
-        "collab-abnormal-usage",
-        &[("lead", false), ("m1", true)],
-        json!({ "T_TIMEOUT": ["cancel-usage"], "T_CRASH": ["fail"] }),
-    );
+async fn a_crashed_attempt_recovers_its_isolated_native_usage() {
+    let h = harness("collab-abnormal-usage", &[("lead", false), ("m1", true)], json!({ "T_CRASH": ["fail"] }));
     let run = start(&h, json!([task("T_CRASH", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T_CRASH failed", |e| task_event(e, "task.failed", "T_CRASH")).await;
 
-    // Part 2: Verify `recover_native_usage` reads Janus's isolated `<agents_dir>/fake/home/projects/.../<sid>.jsonl`
+    // `recover_native_usage` reads Janus's isolated `<agents_dir>/fake/home/projects/.../<sid>.jsonl`
     // (the agent's `CLAUDE_CONFIG_DIR` is `<agents_dir>/fake/home`)
     // when an attempt crashed without reporting ACP usage, and never double-counts once reported.
     // Janus recovers usage as the attempt ends, while its session is the agent's current one: the last attempt's.
@@ -698,43 +682,6 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
     h.app.recover_native_usage(&r, &turn, &ctx);
     let ledger = h.app.usage(&r);
     assert_eq!(ledger.task("T_CRASH").unwrap().tokens.total, Some(560));
-
-    // Exercise `stream_prompt` short timeout directly against `cancel-usage` to verify post-cancel `prompt_usage`.
-    let spec = h.app.spec_for("fake").unwrap();
-    let owner = Owner { session: SessionKey::task("T_TIMEOUT"), attempt: 1 };
-    let log = h.app.dirs(&r).log("T_TIMEOUT-a1.log");
-    let (conn, mut rx, mut ctl) = h.app.open_session(&r, &owner, "m1", &spec, &log, "Agent ").await.unwrap();
-    let opening = h.app.opening(&r, "T1", &member, &conn.capabilities, vec![], None);
-    let session = new_session(&conn, &r.cwd, &opening).await.unwrap();
-    let sid = session["sessionId"].as_str().unwrap().to_string();
-    h.app.emit(
-        &r,
-        ev("attempt.started", "janus", "启动 T_TIMEOUT")
-            .task("T_TIMEOUT")
-            .attempt(1)
-            .to("m1")
-            .data(json!({ "session": sid })),
-    );
-    let t_ctx = Ctx { agent: "m1", task: Some("T_TIMEOUT"), attempt: Some(1), goal: false };
-    let res = h
-        .app
-        .stream_prompt(
-            &r,
-            &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
-            "你的子任务 T_TIMEOUT：慢操作\n\n验收标准：\n- 完成",
-            &t_ctx,
-            Some(&mut ctl),
-            Some(Duration::from_millis(400)),
-        )
-        .await;
-    assert!(res.is_err(), "short timeout must fail the turn");
-    h.app.close_session(&r, &owner, Some(&conn), "关闭").await;
-    let ledger2 = h.app.usage(&r);
-    assert_eq!(
-        ledger2.task("T_TIMEOUT").unwrap().tokens.total,
-        Some(900),
-        "post-cancel prompt_usage must be preserved on timeout"
-    );
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;

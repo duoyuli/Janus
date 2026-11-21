@@ -13,14 +13,13 @@ struct RequestCard: View {
         case "question": if item.task == nil { LeadAsk(run: run, st: st, item: item) } else { QuestionAsk(run: run, st: st, item: item) }
         case "approval": ApprovalAsk(run: run, st: st, item: item)
         case "input": InputAsk(run: run, st: st, item: item)
-        case "budget": BudgetAsk(run: run, st: st, item: item)
         case "session": SessionAsk(run: run, st: st, item: item)
         default: EmptyView()
         }
     }
 
     /// Kinds that have a card.
-    static let kinds: Set<String> = ["question", "approval", "input", "budget", "session"]
+    static let kinds: Set<String> = ["question", "approval", "input", "session"]
 }
 
 struct AskShell<Body: View, Controls: View>: View {
@@ -393,40 +392,6 @@ struct SessionAsk: View {
     }
 }
 
-struct BudgetAsk: View {
-    let run: RunModel
-    let st: RunState
-    let item: InboxItem
-
-    var body: some View {
-        let kind = item.d["kind"].str
-        let heading = switch kind {
-        case "cost_usd": L.text("任务已达到费用预算")
-        default: L.text("任务已达到墙钟预算")
-        }
-        let extendLabel = switch kind {
-        case "cost_usd": L.text("追加 5 USD")
-        default: L.text("追加 60 分钟")
-        }
-        let extendBody: JSON = switch kind {
-        case "cost_usd": ["type": "extendBudget", "costUsd": 5.0]
-        default: ["type": "extendBudget", "minutes": 60]
-        }
-        Card(tint: Tone.amber.color) {
-            HStack {
-                Pill(L.text("预算"), .amber)
-                Text(heading).font(.headline)
-                Spacer()
-                SeqButton(seq: item.seq, run: run)
-            }
-            Note(text: item.d["text"].str, tone: .red)
-            HStack {
-                Button(L.text("停止任务…"), role: .destructive) { cancelRun(run) }.disabled(!run.canAct)
-                Button(extendLabel) { Task { await run.act(extendBody) } }.buttonStyle(.primary).disabled(!run.canAct)
-            }
-        }
-    }
-}
 
 @MainActor
 func cancelRun(_ run: RunModel) {

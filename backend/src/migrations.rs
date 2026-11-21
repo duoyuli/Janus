@@ -145,6 +145,14 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "默认数字员工的 id 改为它的职能：pmo、marketing、developer、qa、friend",
         steps: &[Step::Home(crate::agents::rename_default_roles)],
     },
+    Migration {
+        version: 18,
+        name: "去掉任务的时间和费用上限：等你追加预算的任务改为已中断，快照去掉费用上限",
+        steps: &[Step::Sql(
+            "UPDATE runs SET status = 'interrupted' WHERE status = 'waiting_input';
+             UPDATE runs SET config = json_remove(config, '$.costLimitUsd') WHERE json_type(config, '$.costLimitUsd') IS NOT NULL;",
+        )],
+    },
 ];
 
 /// The data version this build reads and writes.

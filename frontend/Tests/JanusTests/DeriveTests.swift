@@ -283,10 +283,10 @@ private func goalRun() -> Log {
     let scheduler = ["pending", "running", "blocked", "succeeded", "failed", "cancelled", "skipped_by_decision"]
     let derived = ["ready", "assigned", "verifying", "verification_failed", "waiting_input", "waiting_approval"]
     for s in scheduler + derived { #expect(TaskStatus(rawValue: s) != nil, "\(s)") }
-    let runs = ["planning", "running", "waiting_input", "delivered", "accepted", "cancelled", "failed", "interrupted"]
+    let runs = ["planning", "running", "delivered", "accepted", "cancelled", "failed", "interrupted"]
     for s in runs { #expect(RunStatus(s) != .unknown, "\(s)") }
     #expect(RunStatus("idle") == .unknown)
-    #expect(Set(runs.map(RunStatus.init).filter(\.isActive)) == [.planning, .running, .waitingInput])
+    #expect(Set(runs.map(RunStatus.init).filter(\.isActive)) == [.planning, .running])
     #expect(Set(runs.map(RunStatus.init).filter(\.canResume)) == [.interrupted, .failed])
 }
 
@@ -431,7 +431,7 @@ private func goalRun() -> Log {
     #expect(a.summary.reminders.count == 1)
 }
 
-@Test func verifierVerdictSplitProposalsLeadConflictsAndTokenBudgetDeriveCleanly() throws {
+@Test func verifierVerdictSplitProposalsAndLeadConflictsDeriveCleanly() throws {
     var log = Log()
     log.add("run.created", actor: "user", data: ["mode": "goal", "goal": "核验与协作", "cwd": "/tmp/x", "git": true])
     log.add("orchestration.accepted", actor: "lead", data: ["tasks": [
@@ -461,41 +461,17 @@ private func goalRun() -> Log {
         "summary": "空输入崩溃", "verdict": "rejected",
         "checks": [["criterion": "边界通过", "passed": false, "method": "test", "evidence": "cargo test panic"]],
     ])
-    log.add("run.budget_exhausted", text: "Token 预算用完", data: ["kind": "tokens", "used": 1200, "limit": 1000])
     let s2 = derive(log.events)
     #expect(s2.tasks["T1"]?.handoff == "parse() 返回 Result")
     #expect(s2.tasks["V1"]?.status == .succeeded)
     #expect(s2.tasks["V1"]?.verdict == .rejected)
     let vr = VerificationRecord(try #require(s2.tasks["V1"]))
     #expect(vr.verdict == .rejected && vr.passed == false, "completed negative review is not an approval")
-    #expect(s2.run.status == .running && !s2.inbox.contains { $0.kind == "budget" })
+    #expect(s2.run.status == .running)
     let f2 = boardFacts(s2) { $0 }
     #expect(!f2.open.contains { $0.kind == "split_request" })
 }
 
-
-@Test func legacyTokenEventsPreserveAnUnrelatedBudgetDecision() {
-    var log = Log()
-    log.add("run.created")
-    log.add("run.budget_exhausted", data: ["kind": "cost_usd"])
-    log.add("run.budget_exhausted", data: ["kind": "tokens", "usedTokens": 1200, "tokenLimit": 1000])
-    log.add("run.budget_extended", data: ["kind": "tokens", "tokenLimit": 6200])
-    let s = derive(log.events)
-    #expect(s.run.extendedTokenReference == 6200)
-    #expect(s.run.status == .waitingInput)
-    #expect(s.inbox.filter { $0.kind == "budget" }.map { $0.d["kind"].str } == ["cost_usd"])
-}
-
-
-@Test func deliveryWithdrawsTheBudgetCardInDetailAndInbox() {
-    var log = goalRun()
-    log.add("run.budget_exhausted", data: ["kind": "cost_usd"])
-    #expect(derive(log.events).inbox.contains { $0.kind == "budget" })
-    log.add("run.delivered", data: ["summary": "已完成"])
-    let state = derive(log.events)
-    #expect(state.run.status == .delivered && !state.inbox.contains { $0.kind == "budget" })
-    #expect(Inbox.entries(row: ["id":"r1","status":"delivered"], workspace: "").map(\.kind) == ["delivered"])
-}
 
 /// An installed app does not use a Janus service of another release (its data upgrade has not run);
 /// an app run from source uses whatever runs.

@@ -62,12 +62,10 @@ use turn::*;
 
 /// Attempts per delegated task before it fails and the lead decides what to do next.
 const MAX_ATTEMPTS: i64 = 2;
-const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Spawning the adapter and opening the session; separate from the turn clock so a hung start fails fast.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// How long a steering request may hold up the session loop before the message is queued instead.
 const STEER_TIMEOUT: Duration = Duration::from_secs(15);
-const RUN_BUDGET_MS: i64 = 6 * 60 * 60 * 1000;
 /// The watchdog tells the lead about an attempt whose session has shown no sign of work this long.
 pub const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
 /// A failed attempt is tried again after this long, not at once: what made it fail (an adapter
@@ -159,9 +157,6 @@ pub struct NewRun {
     /// Optional display-only token reference overriding `Config.run_token_budget`.
     #[serde(default, rename = "maxTokens")]
     pub max_tokens: Option<i64>,
-    /// Optional per-run USD cost budget overriding `Config.run_cost_budget_usd`.
-    #[serde(default, rename = "maxCostUsd")]
-    pub max_cost_usd: Option<f64>,
 }
 
 /// A conversation with one digital employee: who it is with. The person writes the first message
@@ -757,13 +752,6 @@ impl Driving {
     }
 }
 
-/// Which run-level ceiling stopped new work (`run.budget_exhausted`).
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum BudgetHit {
-    WallClock,
-    CostUsd { used: f64, limit: f64 },
-}
-
 /// What a run is made of, from its creation or its record. Everything else about it starts empty.
 /// Where a run on a git repository works: its own worktree of `repo` (see `crate::worktrees`).
 /// A run without one works in the workspace directory itself.
@@ -813,7 +801,6 @@ struct RunRecord {
     /// The last event already in the log; the next one gets the following seq.
     last_seq: i64,
     status: RunStatus,
-    cost_limit_micros: i64,
 }
 
 pub struct Run {
@@ -841,11 +828,6 @@ pub struct Run {
     /// Held from checking an orchestration to putting its tasks on the board, so two submitted at
     /// once are checked one after the other and cannot both take the same task id (AT-05).
     orchestrating: StdMutex<()>,
-    deadline_ms: AtomicI64,
-    /// Optional USD cost ceiling in micro-dollars (`0` = unlimited).
-    cost_limit_micros: AtomicI64,
-    /// Updated in persistence order, seeded from the same events on recovery.
-    costs: StdMutex<crate::usage::SessionCosts>,
     st: StdMutex<RunState>,
     wake: Notify,
     driving: Driving,
@@ -960,9 +942,6 @@ impl Run {
             seq: AtomicI64::new(r.last_seq),
             emitting: StdMutex::new(false),
             orchestrating: StdMutex::new(()),
-            deadline_ms: AtomicI64::new(now_ms() + RUN_BUDGET_MS),
-            cost_limit_micros: AtomicI64::new(r.cost_limit_micros.max(0)),
-            costs: StdMutex::default(),
             st: StdMutex::new(RunState { status: r.status, ..Default::default() }),
             wake: Notify::new(),
             driving: Driving::default(),
@@ -1025,8 +1004,6 @@ pub struct Config {
     pub max_concurrent_attempts: usize,
     /// Default reference shown alongside reported token usage.
     pub run_token_budget: Option<i64>,
-    /// Default per-run reported USD cost budget (`None` = unlimited).
-    pub run_cost_budget_usd: Option<f64>,
 }
 
 pub struct App {
@@ -1189,7 +1166,7 @@ impl App {
         };
         let nudge = needs_lead(&event);
         let wakes_board = wakes_board_wait(&event);
-        let stored = self.store(event, Some(run));
+        let stored = self.store(event);
         drop(deleted);
         if !stored {
             return None;
@@ -1206,15 +1183,10 @@ impl App {
     /// Write an event, then broadcast it. The log is the source of truth: an event that could not
     /// be written is not broadcast either, so the app never shows what a reload would not find.
     /// Its `seq` stays unused.
-    fn store(&self, event: Event, run: Option<&Run>) -> bool {
+    fn store(&self, event: Event) -> bool {
         if let Err(err) = self.db.insert_event(&event) {
             crate::config::log(format!("janus: failed to persist event {}#{}: {err:#}", event.run_id, event.seq));
             return false;
-        }
-        if let Some(run) = run
-            && matches!(event.kind.as_str(), "attempt.started" | "agent.status" | "session.usage")
-        {
-            run.costs.lock().unwrap().observe(&event);
         }
         let _ = self.tx.send(event);
         true
@@ -1398,7 +1370,6 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
             retry_after: Duration::ZERO,
             max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
             run_token_budget: None,
-            run_cost_budget_usd: None,
         },
     )
 }

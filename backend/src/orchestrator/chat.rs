@@ -44,7 +44,6 @@ impl App {
             goal_images: vec![],
             last_seq: 0,
             status: RunStatus::Planning,
-            cost_limit_micros: 0,
         }));
         let name = run.team[0].name.clone();
         self.emit(

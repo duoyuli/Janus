@@ -242,7 +242,6 @@ enum CostSession {
 pub(crate) struct SessionCosts {
     current: HashMap<(String, Option<String>, Option<i64>), String>,
     previous: HashMap<(String, CostSession, String), f64>,
-    pub(crate) usd: Option<f64>,
 }
 
 impl SessionCosts {
@@ -284,9 +283,6 @@ impl SessionCosts {
                     *previous = amount;
                     delta
                 };
-                if currency == "USD" {
-                    *self.usd.get_or_insert(0.0) += delta;
-                }
                 Some((currency.into(), delta))
             }
             _ => None,

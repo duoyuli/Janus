@@ -44,8 +44,7 @@ pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>
         ),
     };
     use RunStatus::*;
-    let statuses =
-        (q.attention == Some(1)).then(|| vec![Planning, Running, WaitingInput, Delivered, Interrupted, Failed]);
+    let statuses = (q.attention == Some(1)).then(|| vec![Planning, Running, Delivered, Interrupted, Failed]);
     let page =
         db::RunsPage { kind, workspace: q.workspace, statuses, before, limit: q.limit.unwrap_or(50).clamp(1, 500) };
     let (runs, more) = app.db.runs_page(&page)?;

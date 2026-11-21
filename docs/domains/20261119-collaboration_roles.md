@@ -4,7 +4,7 @@
 
 本文列出一次 Run 中三方各自能做什么：负责人和协作者通过看板 MCP 调用的工具，以及编排器（Janus 自己）在后台自动做的事。它是一张总览，每一项只写一句用途，参数和校验规则见[看板 MCP 工具](../interfaces/20261031-board_mcp.md)，流程细节见 [Run 生命周期](20261031-run_lifecycle.md)和[目标模式与共享看板](20261031-goal_mode.md)。
 
-两个 Agent 都另有各自的原生工具（读写文件、执行命令），由 Agent 自己的权限模式决定能做什么，Janus 不另加限制，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。用户自己的操作（暂停、停止、接管、发消息、审批、追加预算、验收）见[用户操作](20261031-run_lifecycle.md#user_actions)。
+两个 Agent 都另有各自的原生工具（读写文件、执行命令），由 Agent 自己的权限模式决定能做什么，Janus 不另加限制，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。用户自己的操作（暂停、停止、接管、发消息、审批、验收）见[用户操作](20261031-run_lifecycle.md#user_actions)。
 
 <a id="division"></a>
 ## 分工
@@ -86,7 +86,6 @@
 | 用户介入 | 用户直接在协作者的会话里发消息、接管、交还、打断或让它以当前结果结束时，在负责人的看板上记「[用户介入]」，随下一次 `wait` 送到 | [共享看板](20261031-goal_mode.md#board_flow) |
 | 交给用户 | Agent 的审批请求和表单只交给用户，负责人不能代为批准 | [审批和表单](20261031-goal_mode.md#user_requests_in_goal_mode) |
 | 执行声明过的结构 | `retry` 时恢复因它被取消的下游；返工时让它的独立验证复审，并通知、列出已经用了旧结果的下游 | [重试、返工与失败](20261031-run_lifecycle.md#retry) |
-| 预算 | 墙钟或已上报的美元费用到上限时不再启动新的子任务，等用户追加预算或停止 | [任务调度](20261031-run_lifecycle.md#scheduling) |
 | 收尾 | 负责人的目标一直不自己结束时问它是否完成；没有子任务在跑、负责人也结束时生成交付，标出改了文件却没有独立验证的子任务（只陈述事实） | [目标不自己结束时](20261031-goal_mode.md#goal_settle)、[交付条件](20261031-run_lifecycle.md#delivery_conditions) |
 | 记录与恢复 | 每件事写成事件；服务重启后从事件重建看板，中断的尝试用原会话续接 | [中断与恢复](20261031-run_lifecycle.md#recovery) |
 

@@ -487,7 +487,6 @@ impl App {
                             &p,
                             &ctx,
                             Some(&mut ctl),
-                            Some(ATTEMPT_TIMEOUT),
                         )
                         .await?;
                     let suffix = if round == 0 { String::new() } else { format!("-r{round}") };

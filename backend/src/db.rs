@@ -267,12 +267,12 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The runs still working (planning, running or waiting for the person) in directory `cwd`.
+    /// The runs still working (planning or running) in directory `cwd`.
     pub fn active_runs_in(&self, cwd: &str) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, goal, cwd, config, status, created_at, kind FROM runs
-             WHERE cwd = ?1 AND status IN ('planning', 'running', 'waiting_input') ORDER BY created_at",
+             WHERE cwd = ?1 AND status IN ('planning', 'running') ORDER BY created_at",
         )?;
         let rows = stmt.query_map(params![cwd], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -538,11 +538,11 @@ mod tests {
         assert_eq!(w1.len(), 65);
         assert!(w1.iter().all(|id| id[1..].parse::<u32>().unwrap() % 2 == 0), "only the workspace's runs");
         // However many newer runs there are, one that waits on the person is still listed.
-        db.set_run_status("r000", RunStatus::WaitingInput).unwrap();
+        db.set_run_status("r000", RunStatus::Interrupted).unwrap();
         let waiting = RunsPage {
             kind: RunKind::Goal,
             workspace: None,
-            statuses: Some(vec![RunStatus::WaitingInput, RunStatus::Delivered]),
+            statuses: Some(vec![RunStatus::Interrupted, RunStatus::Delivered]),
             before: None,
             limit: 50,
         };

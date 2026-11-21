@@ -464,3 +464,34 @@ fn worktree_runs_record_where_accepting_merges_back() {
     assert_eq!(worktree("elsewhere"), json!({ "repo": repo, "branch": null }), "main lacks its start");
     assert_eq!(worktree("in-place"), Value::Null, "a run without a worktree is left alone");
 }
+
+/// Runs no longer have a time or cost ceiling: one that waited for more budget is interrupted (the
+/// person continues it), and no snapshot keeps the ceiling it was created with.
+#[test]
+fn runs_lose_their_budget_ceilings() {
+    let path = old_database("no-budgets");
+    let conn = Connection::open(&path).unwrap();
+    let run = |id: &str, status: &str, config: Value| {
+        conn.execute(
+            "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES (?1, 'g', '/x', ?2, ?3, 0)",
+            params![id, config.to_string(), status],
+        )
+        .unwrap();
+    };
+    run("waiting", "waiting_input", json!({ "team": [], "costLimitUsd": 2.5, "tokenLimit": 1000 }));
+    run("done", "delivered", json!({ "team": [] }));
+    drop(conn);
+
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let row = |id: &str| {
+        let (status, config): (String, String) = conn
+            .query_row("SELECT status, config FROM runs WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        (status, serde_json::from_str::<Value>(&config).unwrap())
+    };
+    let (status, config) = row("waiting");
+    assert_eq!(status, "interrupted");
+    assert_eq!(config, json!({ "team": [], "tokenLimit": 1000 }), "only the cost ceiling goes");
+    assert_eq!(row("done"), ("delivered".to_string(), json!({ "team": [] })));
+}

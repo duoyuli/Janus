@@ -13,19 +13,17 @@ impl App {
         text: &str,
         ctx: &Ctx<'_>,
         mut ctl: Option<&mut Control>,
-        limit: Option<Duration>,
     ) -> Result<String> {
         let PromptSession { conn, rx, sid } = session;
         let (conn, sid) = (*conn, *sid);
-        // The turn's own deadline replaces the ACP request timeout, so that time spent waiting
-        // for a person to decide on a permission request does not count against the agent.
+        // A turn takes as long as the work does: no ACP request timeout. A session that stops
+        // showing signs of work is reported by the watchdog, and the lead or the person decides.
         let send = |text: &str| {
             let params = json!({ "sessionId": sid, "prompt": self.prompt_blocks(run, conn, text) });
             let conn = conn.clone();
             Box::pin(async move { conn.request_timeout("session/prompt", params, None).await })
         };
         let mut prompt = send(text);
-        let mut deadline = limit.map(|l| tokio::time::Instant::now() + l);
         let mut out = String::new();
         let mut flushed = 0usize;
         let mut turn = crate::acp_view::Turn::default();
@@ -42,12 +40,6 @@ impl App {
             let steer = async {
                 match ctl.as_mut() {
                     Some(c) => c.rx.recv().await,
-                    None => std::future::pending().await,
-                }
-            };
-            let expire = async {
-                match deadline {
-                    Some(d) => tokio::time::sleep_until(d).await,
                     None => std::future::pending().await,
                 }
             };
@@ -126,17 +118,6 @@ impl App {
                     }
                     return Ok(out);
                 }
-                _ = expire => {
-                    let _ = conn.notify("session/cancel", json!({ "sessionId": sid })).await;
-                    if let Ok(Ok(res)) = tokio::time::timeout(Duration::from_secs(2), &mut prompt).await
-                        && let Some(u) = crate::acp_view::prompt_usage(&res)
-                    {
-                        self.show(run, u, ctx);
-                    }
-                    self.flush_thought(run, &mut turn.thought, ctx);
-                    self.flush_message(run, &out, &mut flushed, ctx);
-                    bail!("超过 {} 分钟没有完成", limit.unwrap_or_default().as_secs() / 60);
-                }
                 cmd = steer => {
                     let Some(c) = ctl.as_mut() else { continue };
                     match cmd {
@@ -169,11 +150,7 @@ impl App {
                     }
                     Some(Incoming::Request { id, method, params }) => {
                         if is_user_request(&method) {
-                            let waited = tokio::time::Instant::now();
                             let outcome = self.user_request(run, conn, sid, AgentRequest { method: &method, params: &params }, ctx, ctl.as_deref_mut()).await?;
-                            if let Some(d) = deadline.as_mut() {
-                                *d += waited.elapsed();
-                            }
                             conn.respond(id, outcome).await?;
                         } else {
                             conn.respond_error(id, "janus does not implement this client method").await?;

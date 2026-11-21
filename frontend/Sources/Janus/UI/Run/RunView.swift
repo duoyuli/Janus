@@ -294,7 +294,7 @@ struct RunCard: View {
                 .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
             summaryRow
-            if let reference = r.extendedTokenReference ?? run.runJSON["config"]["tokenLimit"].double, reference > 0 {
+            if let reference = run.runJSON["config"]["tokenLimit"].double, reference > 0 {
                 Text(verbatim: L.text("Token 用量参考值：\(reference.formatted(.number.locale(L.locale)))"))
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -402,7 +402,6 @@ struct RunCard: View {
         switch r.status {
         case .planning: return (L.text("负责人正在启动"), .blue)
         case .accepted: return (L.text("已验收"), .green)
-        case .waitingInput: return (L.text("等你追加预算"), .amber)
         case .delivered: return (L.text("已交付 · 等你验收"), .green)
         default: break
         }

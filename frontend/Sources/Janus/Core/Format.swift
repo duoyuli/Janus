@@ -47,11 +47,11 @@ enum L {
         "result.submitted": "⇪", "task.succeeded": "✓", "artifact.created": "▤", "context.handoff": "⇄",
         "question.asked": "?", "question.escalated": "⇡", "question.answered": "✎", "answer.delivered": "↩",
         "approval.requested": "⚑", "input.requested": "✎", "input.answered": "↩", "approval.granted": "✓", "approval.denied": "✕",
-        "run.delivered": "★", "run.budget_exhausted": "⌛", "risk.accepted": "✓", "task.failed": "✕",
+        "run.delivered": "★", "risk.accepted": "✓", "task.failed": "✕",
         "task.blocked": "⊘", "task.skipped_by_decision": "→", "verification.started": "◌", "verification.failed": "✕",
         "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓",
         "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
-        "run.budget_extended": "⌛", "agent.message": "❝", "user.message": "✎",
+        "agent.message": "❝", "user.message": "✎",
         "message.delivered": "↪", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
         "task.conflict": "⚠", "lead.stalled": "⏳", "task.stalled": "⏳", "task.claimed": "⚐", "task.split_requested": "✂",
     ]

@@ -20,7 +20,7 @@ struct TimelineMark: Identifiable {
     static let openKinds: [String: (String, String)] = [
         "approval": ("hand.raised.fill", "等你审批"), "input": ("square.and.pencil", "等你填写"),
         "question": ("questionmark.bubble.fill", "等你决定"), "session": ("text.bubble.fill", "等你的消息"),
-        "budget": ("hourglass.bottomhalf.filled", "预算用完"), "lead_stall": ("hourglass", "负责人可能卡住"),
+        "lead_stall": ("hourglass", "负责人可能卡住"),
         "conflict": ("arrow.triangle.merge", "同时改了一个文件"), "overstep": ("arrow.right.to.line", "越界"),
         "trace": ("doc.badge.ellipsis", "结果和工作目录对不上"), "stall": ("hourglass", "可能卡住"),
         "blocker": ("exclamationmark.octagon.fill", "阻塞"), "lead_question": ("questionmark.circle.fill", "问负责人"),

@@ -8,7 +8,7 @@ from scenarios import scenario, task
 
 @scenario("controls")
 def controls(ctx, c):
-    """Run 操作：暂停与继续、打断后发消息、接管与交还（负责人在看板上读到用户介入）、切换控制项、追加预算、状态冲突、取消、删除"""
+    """Run 操作：暂停与继续、打断后发消息、接管与交还（负责人在看板上读到用户介入）、切换控制项、没有预算可追加、状态冲突、取消、删除"""
     t = ctx.team("controls", members=("m1", "m2", "m3"), script={"T1": ["slow", "ok"], "T2": ["slow"], "T3": ["ok"]})
     run = t.run("可以被操作的目标")
     run.orchestrate(task("T1", t.member("m1")), task("T2", t.member("m2")), task("T3", t.member("m3"), deps=["T1"]))
@@ -55,10 +55,8 @@ def controls(ctx, c):
     wait(lambda: "set mode \"agent\"" in t.fake.calls(), "Agent 收到 set_config_option")
     code, _ = run.act_error("control", task="T2", id="mode", value="")
     c(code == 400, "空的控制项值被拒绝")
-    run.act("extendBudget", minutes=30)
-    c(run.wait_event("run.budget_extended")["data"].get("minutes") == 30, "追加 30 分钟预算")
-    run.act("extendBudget", minutes=5000)
-    c(run.has("run.budget_extended")[-1]["data"].get("minutes") == 1440, "超出范围的预算按上限 1440 分钟追加")
+    code, _ = run.act_error("extendBudget", minutes=30)
+    c(code == 400 and run.status() == "running", "任务没有时间和费用上限：不能追加预算，任务照常执行")
 
     code, _ = ctx.api_error("DELETE", f"/api/runs/{run.id}")
     c(code == 409, "进行中的 Run 不能删除（409）")

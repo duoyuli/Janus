@@ -349,9 +349,6 @@ def prompt(msg):
             return {"stopReason": "cancelled"}
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
             "sessionUpdate": "tool_call_update", "toolCallId": f"busy-{task}", "status": "completed"}}})
-    if outcome == "cancel-usage":
-        if wait_cancel(60):
-            return {"stopReason": "cancelled", "usage": tokens(900)}
     if outcome == "high-ctx":
         snapshot(sid, 160000, 200000)
         say(sid, result(sid, summary=f"{task} 高上下文完成"))

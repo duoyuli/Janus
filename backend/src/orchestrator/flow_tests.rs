@@ -593,8 +593,7 @@ async fn pause_keeps_running_status() {
 
 /// The run's own state follows the board: a lead that finishes while work is paused does not
 /// deliver without it; acceptance only follows delivery; a task with two failed dependencies
-/// stays blocked until both are settled; running out of budget is announced again when the
-/// lead adds work later; what never ran is listed as a risk.
+/// stays blocked until both are settled; what never ran is listed as a risk.
 #[tokio::test(flavor = "multi_thread")]
 async fn run_state_follows_the_board() {
     let h = harness(
@@ -631,26 +630,13 @@ async fn run_state_follows_the_board() {
     wait_until(&h.app, &run, "C blocked on the other one", |_| blocked_on(other)).await;
     assert!(!task_event(&events(&h.app, &run), "attempt.started", "C"));
 
-    // Out of budget: announced; back to running once nothing is left; announced again when
-    // the lead adds work.
-    let r = h.app.run(&run).unwrap();
-    r.deadline_ms.store(now_ms() - 1, Ordering::SeqCst);
-    r.wake.notify_one();
-    wait_until(&h.app, &run, "budget", |e| has(e, "run.budget_exhausted")).await;
-    act(&h, &run, json!({ "type": "extendBudget", "minutes": 1 }));
+    // The lead gives up on the other one and C, and adds D.
     let (_, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": [other, "C"] })).await;
     assert!(!err);
-    r.deadline_ms.store(now_ms() - 1, Ordering::SeqCst);
-    r.wake.notify_one();
-    wait_until(&h.app, &run, "running again", |_| status(&h.app, &run) == "running").await;
     let (_, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("D", "m1", json!({}))] })).await;
     assert!(!err);
-    wait_until(&h.app, &run, "budget again", |e| e.iter().filter(|e| e.kind == "run.budget_exhausted").count() == 2)
-        .await;
-    assert_eq!(status(&h.app, &run), "waiting_input");
 
-    // Paused with D still to run: the lead finishing does not deliver it away.
-    act(&h, &run, json!({ "type": "extendBudget", "minutes": 60 }));
+    // Paused with work still to run: the lead finishing does not deliver it away.
     act(&h, &run, json!({ "type": "pause" }));
     let (_, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("E", "m2", json!({}))] })).await;
     assert!(!err);
@@ -672,7 +658,7 @@ async fn run_state_follows_the_board() {
     act(&h, &run, json!({ "type": "accept" }));
     assert_eq!(status(&h.app, &run), "accepted");
     let r = h.app.run(&run).unwrap();
-    assert!(h.app.action(&r, &json!({ "type": "extendBudget", "minutes": 5 })).is_err());
+    assert!(h.app.action(&r, &json!({ "type": "pause" })).is_err());
     assert!(h.app.action(&r, &json!({ "type": "cancel" })).is_err());
     assert_eq!(status(&h.app, &run), "accepted");
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -688,11 +674,9 @@ async fn restart_restores_failed_and_blocked() {
     // Simulate the process going away: stop the old driver without writing anything.
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
-    // Older runs can have both reported usage and a persisted token ceiling at restart.
+    // Reported usage survives the restart.
     let old = h.app.run(&run).unwrap();
     h.app.emit(&old, ev("session.usage", "m1", "用量").task("T1").attempt(1).data(json!({ "totalTokens": 2_000 })));
-    h.app.emit(&old, ev("run.budget_extended", "user", "旧预算").data(json!({ "kind": "tokens", "tokenLimit": 1000 })));
-    h.app.emit(&old, ev("run.budget_exhausted", "janus", "旧预算用完").data(json!({ "kind": "tokens" })));
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
     assert_eq!(status(&app2, &run), "interrupted");
