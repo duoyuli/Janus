@@ -8,8 +8,10 @@ requests; `env` answers HOME and the variable `name` (null when unset), so a tes
 environment it was started in; `grow` adds a tool `extra` and says its tools changed; `quit` answers,
 then exits; `spawn` starts a long `sleep` of its own and answers its pid, so a test sees the
 server's children stop with it; `hang` never answers, and its cancellation
-(`notifications/cancelled`) is appended to FAKE_MCP_CANCELLED as "cancelled <reason>". The list
-comes in two pages (`nextCursor`), so a test sees the router read them all.
+(`notifications/cancelled`) is appended to FAKE_MCP_CANCELLED as "cancelled <reason>"; `task_only`
+can only run as a task (`execution.taskSupport: required`), so the router leaves it out. The list
+comes in two pages (`nextCursor`), so a test sees the router read them all. FAKE_MCP_VERSION sets the
+protocol version it answers `initialize` with.
 """
 
 import json
@@ -33,6 +35,8 @@ TOOLS = [
     {"name": "quit", "description": "回答后退出", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "spawn", "description": "启动一个子进程并返回它的 pid", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "hang", "description": "一直不回答，直到被取消", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "task_only", "description": "只能以 task 方式调用", "inputSchema": {"type": "object", "properties": {}},
+     "execution": {"taskSupport": "required"}},
 ]
 PAGE = 4
 
@@ -55,7 +59,7 @@ for line in sys.stdin:
                 f.write(f"cancelled {msg['params'].get('reason', '')}\n")
         continue
     if method == "initialize":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": os.environ.get("FAKE_MCP_VERSION", "2025-06-18"), "capabilities": {"tools": {}},
                                                        "serverInfo": {"name": "fake", "version": "1"}}})
     elif method == "tools/list":
         if (msg.get("params") or {}).get("cursor") == "page-2":

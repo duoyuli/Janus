@@ -10,7 +10,7 @@
 //! spawned (its process group). The transports themselves are in `mcp_client`.
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
-use super::mcp_client::Backend;
+use super::mcp_client::{Backend, agreed_version};
 use super::*;
 use crate::library::{Item, ItemKind, McpProcess, McpServer};
 use std::sync::atomic::AtomicBool;
@@ -192,6 +192,12 @@ pub(super) fn routed_name(server: &str, tool: &str) -> String {
     format!("{}_{hash}", &name[..name.len().min(NAME_MAX - hash.len() - 1)])
 }
 
+/// Whether the router can call the tool: one that only runs as a task (`execution.taskSupport`
+/// `required`, MCP 2025-11-25) needs task-augmented calls, which the router does not make.
+fn callable(tool: &Value) -> bool {
+    tool["execution"]["taskSupport"] != "required"
+}
+
 impl App {
     /// The router's entry for a session of `who`, beside the board's: same token rule.
     pub(super) fn tools_server(&self, run: &Run, who: &str) -> Value {
@@ -235,7 +241,7 @@ impl App {
                 b.stop();
                 let tools = tools?;
                 app.remember_tools(&item, &tools);
-                Ok(tools.len())
+                Ok(tools.iter().filter(|t| callable(t)).count())
             }
             .await;
             let done = match got {
@@ -394,7 +400,7 @@ impl App {
                 (None, None) => None,
             };
             match listed {
-                Some(Ok(list)) => out.extend(list.into_iter().map(|t| (item.clone(), t))),
+                Some(Ok(list)) => out.extend(list.into_iter().filter(callable).map(|t| (item.clone(), t))),
                 Some(Err(err)) => crate::config::log(format!("janus: MCP 路由列不出 {} 的工具：{err:#}", item.name)),
                 None => {
                     let (app, r, w, i) = (self.clone(), run.clone(), who.to_string(), item.clone());
@@ -404,7 +410,7 @@ impl App {
         }
         for (item, job) in asking {
             match tokio::time::timeout_at(until, job).await {
-                Ok(Ok(Ok(list))) => out.extend(list.into_iter().map(|t| (item.clone(), t))),
+                Ok(Ok(Ok(list))) => out.extend(list.into_iter().filter(callable).map(|t| (item.clone(), t))),
                 Ok(Ok(Err(err))) => crate::config::log(format!("janus: MCP 路由列不出 {} 的工具：{err:#}", item.name)),
                 Ok(Err(_)) => {}
                 Err(_) => crate::config::log(format!("janus: MCP 路由的 {} 还在启动，这次先不列出", item.name)),
@@ -446,7 +452,7 @@ impl App {
                     })
                     .collect();
                 json!({
-                    "protocolVersion": req["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                    "protocolVersion": agreed_version(&req["params"]["protocolVersion"]),
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": crate::library::MCP_ROUTER, "version": crate::VERSION },
                     "instructions": format!(
@@ -531,9 +537,20 @@ impl App {
                             .data(json!({ "tool": name, "server": found.as_ref().map(|(i, _)| i.name.clone()) })),
                     );
                 }
-                match outcome {
-                    Ok(result) => result,
-                    Err(err) => json!({ "content": [{ "type": "text", "text": format!("{err:#}") }], "isError": true }),
+                match (outcome, found) {
+                    (Ok(result), _) => result,
+                    // A name no server has is a protocol error (MCP: unknown tool, -32602); a
+                    // failing call is the tool's error, which the model can act on.
+                    (Err(err), None) => {
+                        return Ok(Some(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": -32602, "message": format!("{err:#}") }
+                        })));
+                    }
+                    (Err(err), Some(_)) => {
+                        json!({ "content": [{ "type": "text", "text": format!("{err:#}") }], "isError": true })
+                    }
                 }
             }
             other => {

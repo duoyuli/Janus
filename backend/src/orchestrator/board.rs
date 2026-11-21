@@ -77,7 +77,7 @@ impl App {
         }
         let result = match req["method"].as_str().unwrap_or("") {
             "initialize" => json!({
-                "protocolVersion": req["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                "protocolVersion": super::mcp_client::agreed_version(&req["params"]["protocolVersion"]),
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "janus", "version": crate::VERSION },
                 "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；子任务过大需要拆分时用 request_split 提议；用 peers 查看其他子任务的状态、改过的文件和完整结果。" },

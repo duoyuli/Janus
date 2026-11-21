@@ -27,9 +27,26 @@ async fn router_url(h: &Harness, who: &str) -> (String, String, String) {
     panic!("no router for {who} in {}", std::fs::read_to_string(&calls).unwrap_or_default());
 }
 
-async fn call(h: &Harness, (run, token, who): &(String, String, String), method: &str, params: Value) -> Result<Value> {
-    let req = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
-    Ok(h.app.mcp_tools(run, token, who, req).await?.unwrap()["result"].clone())
+async fn call(h: &Harness, at: &(String, String, String), method: &str, params: Value) -> Result<Value> {
+    Ok(reply(h, at, json!(1), method, params).await?["result"].clone())
+}
+
+/// The whole JSON-RPC reply to request `id`, error and all.
+async fn reply(
+    h: &Harness,
+    (run, token, who): &(String, String, String),
+    id: Value,
+    method: &str,
+    params: Value,
+) -> Result<Value> {
+    let req = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+    Ok(h.app.mcp_tools(run, token, who, req).await?.unwrap())
+}
+
+/// A name no server has is answered as MCP says for an unknown tool: a protocol error, -32602.
+async fn unknown(h: &Harness, at: &(String, String, String), name: &str) {
+    let r = reply(h, at, json!(1), "tools/call", json!({ "name": name, "arguments": {} })).await.unwrap();
+    assert!(r["error"]["code"] == -32602 && r["error"]["message"].as_str().unwrap().contains("没有这个工具"), "{r}");
 }
 
 async fn tool(h: &Harness, at: &(String, String, String), name: &str, args: Value) -> Value {
@@ -89,8 +106,11 @@ async fn command_servers_are_served_by_the_runs_router() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!((count(), browsers()), (0, 0), "opening a session starts nothing");
 
-    let init = call(&h, &at, "initialize", json!({})).await.unwrap();
+    let init = call(&h, &at, "initialize", json!({ "protocolVersion": "2025-06-18" })).await.unwrap();
     assert!(init["instructions"].as_str().unwrap().contains("probe"), "{init}");
+    assert_eq!(init["protocolVersion"], "2025-06-18", "a version Janus speaks is agreed to");
+    let newer = call(&h, &at, "initialize", json!({ "protocolVersion": "2099-01-01" })).await.unwrap();
+    assert_eq!(newer["protocolVersion"], "2025-11-25", "one it doesn't is answered with its newest");
     let names = listed(&h, &at).await;
     // The second page (`nextCursor`) is read too.
     let probe_tools = [
@@ -104,6 +124,7 @@ async fn command_servers_are_served_by_the_runs_router() {
         "probe__hang",
     ];
     assert!(probe_tools.iter().all(|t| names.contains(&t.to_string())), "{names:?}");
+    assert!(!names.contains(&"probe__task_only".to_string()), "a task-only tool is left out: {names:?}");
     assert_eq!((count(), browsers()), (1, 1), "a server that never listed starts once to say its tools");
     assert_eq!(listed(&h, &lead).await, names, "the lead sees the same tools");
     assert_eq!((count(), browsers()), (1, 1), "listing again starts nothing: the running one, or the list kept");
@@ -126,8 +147,8 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert_eq!(env["HOME"], json!(h.app.server_home(&probe.id).join("root")), "a HOME of its own");
     let own: Value = serde_json::from_str(&text(&tool(&h, &at, "probe__env", json!({ "name": "OWN" })).await)).unwrap();
     assert_eq!(own["OWN"], "mine", "its own values are there");
-    let missing = tool(&h, &at, "probe__nope", json!({})).await;
-    assert!(missing["isError"] == true && text(&missing).contains("没有这个工具"), "{missing}");
+    unknown(&h, &at, "probe__nope").await;
+    unknown(&h, &at, "probe__task_only").await;
 
     // The agent gives up on a call: the router stops waiting and tells the server, which stops.
     let (app, hung) = (h.app.clone(), at.clone());
@@ -303,8 +324,7 @@ async fn url_servers_are_reached_by_the_router_with_their_values() {
     assert_eq!(seen, json!({ "authorization": "Bearer good", "version": "2025-06-18" }), "over Streamable HTTP");
     let seen: Value = serde_json::from_str(&text(&tool(&h, &at, "legacy__whoami", json!({})).await)).unwrap();
     assert_eq!(seen["authorization"], "Bearer good", "over SSE");
-    let denied = tool(&h, &at, "denied__whoami", json!({})).await;
-    assert!(denied["isError"] == true && text(&denied).contains("没有这个工具"), "{denied}");
+    unknown(&h, &at, "denied__whoami").await;
     assert_eq!(lines().iter().filter(|l| *l == "init").count(), 1, "one Streamable HTTP session for the run");
 
     // The server forgets the session: the call that finds out fails, the next one starts again.
@@ -362,7 +382,7 @@ fn routed_names_fit_and_stay_apart() {
 
 /// A server is prepared once when it is added: a command started in its sandbox (where a package
 /// download stays for later runs), a URL reached; its tools counted, then let go. One that can't
-/// start says why.
+/// start, or answers in a protocol version Janus doesn't speak, says why.
 #[tokio::test(flavor = "multi_thread")]
 async fn servers_are_prepared_when_added() {
     let dir = std::env::temp_dir().join(format!("janus-warm-{}", std::process::id()));
@@ -375,6 +395,10 @@ async fn servers_are_prepared_when_added() {
         .await
         .unwrap();
     let broken = app.save_mcp(None, &json!({ "name": "broken", "command": "janus-no-such-command" })).await.unwrap();
+    let future = app
+        .save_mcp(None, &json!({ "name": "future", "command": "python3", "args": [script], "vars": [{ "name": "FAKE_MCP_VERSION", "value": "2099-01-01" }] }))
+        .await
+        .unwrap();
     let warm = |id: &str| {
         let view = app.library_view().unwrap();
         view["items"].as_array().unwrap().iter().find(|i| i["id"] == id).unwrap()["warm"].clone()
@@ -396,11 +420,15 @@ async fn servers_are_prepared_when_added() {
     app.warm_mcp(&probe.id);
     app.warm_mcp(&broken.id);
     eventually("the server is prepared", || warm(&probe.id)["state"] == "ready").await;
-    assert_eq!(warm(&probe.id)["tools"], 8, "both pages");
+    assert_eq!(warm(&probe.id)["tools"], 8, "both pages, without the task-only tool");
     assert_eq!(std::fs::read_to_string(&starts).unwrap().lines().count(), 1, "started once");
     assert!(app.server_home(&probe.id).join("root").is_dir(), "in its own sandbox, which runs reuse");
     eventually("the broken one says why", || warm(&broken.id)["state"] == "failed").await;
     assert!(warm(&broken.id)["error"].as_str().unwrap().contains("janus-no-such-command"), "{}", warm(&broken.id));
+    // A server that only speaks a protocol version Janus doesn't is not used, and says which.
+    app.warm_mcp(&future.id);
+    eventually("the one on another version says why", || warm(&future.id)["state"] == "failed").await;
+    assert!(warm(&future.id)["error"].as_str().unwrap().contains("2099-01-01"), "{}", warm(&future.id));
 
     // A change makes the old result stale: nothing is claimed for the new revision until prepared.
     app.save_mcp(Some(&probe.id), &json!({ "name": "probe", "command": "python3", "args": [script, "--changed"] }))
@@ -426,8 +454,7 @@ async fn a_server_deleted_from_the_library_is_gone_from_running_runs() {
 
     h.app.delete_item(&probe.id).await.unwrap();
     assert!(!listed(&h, &lead).await.iter().any(|t| t.starts_with("probe__")), "no longer listed");
-    let after = tool(&h, &lead, "probe__echo", json!({ "text": "hi" })).await;
-    assert!(after["isError"] == true, "not started again: {after}");
+    unknown(&h, &lead, "probe__echo").await;
     let r = h.app.run(&run).unwrap();
     h.app.action(&r, &json!({ "type": "cancel" })).unwrap();
     let _ = std::fs::remove_dir_all(&h.dir);

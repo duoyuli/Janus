@@ -18,10 +18,21 @@ const CONNECT_WAIT: Duration = Duration::from_secs(15);
 const SESSION: &str = "mcp-session-id";
 /// The header that names the protocol version agreed in `initialize`.
 const VERSION: &str = "mcp-protocol-version";
+/// The MCP versions Janus speaks, newest first: what the router and the board agree to with an
+/// agent, and what the router accepts from a library server. Every one has `initialize` and the
+/// same `tools/list` and `tools/call`; the stateless 2026-07-28 revision, which has neither
+/// `initialize` nor sessions, is not among them.
+const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 /// At most this many pages of `tools/list` are read from one server.
 const LIST_PAGES: usize = 100;
 /// How long telling a server to stop a request may take; it is told and not waited on beyond that.
 const CANCEL_WAIT: Duration = Duration::from_secs(5);
+
+/// The version to answer a client's `initialize` with: the one it asked for when Janus speaks it,
+/// otherwise the newest Janus speaks, and the client decides whether to go on.
+pub(super) fn agreed_version(asked: &Value) -> &'static str {
+    VERSIONS.into_iter().find(|v| asked.as_str() == Some(*v)).unwrap_or(VERSIONS[0])
+}
 
 /// One server the router reaches.
 pub(super) struct Backend {
@@ -219,13 +230,17 @@ impl Backend {
             }
         });
         let init = json!({
-            "protocolVersion": "2025-06-18",
+            "protocolVersion": VERSIONS[0],
             "capabilities": { "roots": { "listChanged": false } },
             "clientInfo": { "name": "janus", "version": crate::VERSION }
         });
         let agreed = backend.request("initialize", init, wait).await?;
+        let agreed = agreed["protocolVersion"].as_str().unwrap_or_default();
+        if !VERSIONS.contains(&agreed) {
+            bail!("服务器要用 MCP 协议版本「{agreed}」，Janus 支持的是 {}", VERSIONS.join("、"));
+        }
         if let Link::Http { version, .. } = &backend.link {
-            *version.lock().unwrap() = agreed["protocolVersion"].as_str().map(str::to_owned);
+            *version.lock().unwrap() = Some(agreed.to_string());
         }
         backend.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await?;
         Ok(backend)

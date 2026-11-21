@@ -130,9 +130,11 @@ def setup(ctx, c):
     path = "/" + router["url"].split("/", 3)[3]
     def rpc(method, params, at=path):
         return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
-    names = [t["name"] for t in rpc("tools/list", {})["tools"]]
+    tools = rpc("tools/list", {})["tools"]
+    names = [t["name"] for t in tools]
     c("e2e-route__cwd" in names and "e2e-http__whoami" in names and "e2e-route__hang" in names,
       f"MCP 路由列出命令和 HTTP 服务器的工具，分页的读完所有页：{names}")
+    c("e2e-route__task_only" not in names, "只能以 task 方式调用的工具不列出")
     started = lambda: open(starts).read().count("start")  # noqa: E731
     c(started() == 1, f"会话打开和列工具都没有启动服务器，只有添加时预先准备的那一次（{started()} 次）")
     got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})
@@ -146,6 +148,8 @@ def setup(ctx, c):
     c(code in (401, 403, 404), f"协作者的令牌不能冒充负责人使用路由（{code}）")
     calls_ = run.has("mcp.routed")
     c(calls_ and calls_[0]["data"]["tool"] == "e2e-route__cwd" and "arguments" not in calls_[0]["data"], "每次路由调用记一条 mcp.routed，不记参数")
+    unknown = ctx.api("POST", path, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "e2e-route__nope", "arguments": {}}})
+    c((unknown.get("error") or {}).get("code") == -32602, f"未知工具按 MCP 返回 -32602：{unknown}")
     detail = json.dumps(run.detail(), ensure_ascii=False)
     c(SECRET not in detail and SECRET not in ctx.api("GET", f"/api/runs/{run.id}/export", raw=True)[1].decode(), "Run 记录和导出中没有 MCP 的值")
     c("共享资料：用 Python 3。" in detail, "工作区共享资料进入负责人说明")
