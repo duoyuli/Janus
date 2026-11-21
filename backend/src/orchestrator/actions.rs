@@ -473,6 +473,7 @@ impl App {
         let worktree = WorktreeOf::of_config(config);
         if let Some(w) = &worktree {
             let accepted = last_accepted_commit(&events);
+            let _adding = self.worktree_adds.lock().unwrap_or_else(|p| p.into_inner());
             crate::worktrees::ensure(
                 &w.repo,
                 &self.worktree_root(run_id),

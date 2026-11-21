@@ -35,7 +35,10 @@ impl App {
             let prefix = git(&cwd, &["rev-parse", "--show-prefix"]).await.unwrap_or_default().trim().to_string();
             let path = self.worktree_dir(&id);
             let branch = crate::worktrees::current_branch(&top);
-            let included = crate::worktrees::create(&top, &path, &base_ref, &id)?;
+            let included = {
+                let _adding = self.worktree_adds.lock().unwrap_or_else(|p| p.into_inner());
+                crate::worktrees::create(&top, &path, &base_ref, &id)?
+            };
             // The path the agents' own tools report (`/private/var/…` for `/var/…` on macOS), so
             // the files they edit resolve against it.
             let root = path.canonicalize().unwrap_or(path);

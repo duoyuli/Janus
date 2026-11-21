@@ -1083,6 +1083,10 @@ pub struct App {
     /// so two requests for it (two messages sent quickly, a message and a delete) take turns and
     /// the second finds what the first did.
     pub revival: tokio::sync::Mutex<()>,
+    /// Taken around `git worktree add`: adding one reads every worktree the repository has, and
+    /// one being added at the same moment is half written (two runs created together on one
+    /// repository failed with `failed to read .git/worktrees/<run>/commondir`).
+    pub worktree_adds: StdMutex<()>,
 }
 
 /// A run's new status, as the global stream carries it (`GET /api/stream`).
@@ -1424,5 +1428,6 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
         prices: Default::default(),
         library: Default::default(),
         revival: Default::default(),
+        worktree_adds: Default::default(),
     })
 }
