@@ -40,6 +40,7 @@ pub fn kinds() -> Value {
 const CLAUDE_API_TEMPLATE: &str = "export ANTHROPIC_BASE_URL=https://xxx.xxx.com
 export ANTHROPIC_AUTH_TOKEN=sk-xxx
 export ANTHROPIC_MODEL=deepseek-v4.1-flash
+export ANTHROPIC_DEFAULT_FABLE_MODEL=deepseek-v4.1-flash
 export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4.1-flash
 export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4.1-flash
 export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4.1-flash

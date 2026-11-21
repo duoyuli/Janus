@@ -46,6 +46,7 @@ fn is_public(name: &str, value: &str) -> bool {
         }),
         "ANTHROPIC_MODEL"
         | "ANTHROPIC_SMALL_FAST_MODEL"
+        | "ANTHROPIC_DEFAULT_FABLE_MODEL"
         | "ANTHROPIC_DEFAULT_OPUS_MODEL"
         | "ANTHROPIC_DEFAULT_SONNET_MODEL"
         | "ANTHROPIC_DEFAULT_HAIKU_MODEL"
@@ -151,6 +152,10 @@ mod tests {
         for value in [saved, app.connection(id).unwrap(), json!(app.connections().unwrap())] {
             assert!(!value.to_string().contains("test-token-value"));
         }
+        // The editor reads every value back, the private one included.
+        let shown = app.connection_env(id).unwrap();
+        assert_eq!(shown["env"]["ANTHROPIC_AUTH_TOKEN"], "test-token-value");
+        assert_eq!(shown["env"]["ANTHROPIC_MODEL"], "deepseek-v4.1-flash");
         let file = app.cfg.layout.agent_secrets("gateway");
         assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(app.redact(id, "token=test-token-value"), "token=<secret>");

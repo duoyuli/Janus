@@ -69,6 +69,21 @@ impl App {
         Ok(())
     }
 
+    /// Every variable of the agent's environment with its value, private ones read from its secrets
+    /// file, for the editor to show and edit (`GET /api/connections/{id}/env`, local app only).
+    /// Everywhere else a private value is only its name.
+    pub fn connection_env(&self, id: &str) -> Result<Value> {
+        let c = self.connection(id)?;
+        let secrets = read_secrets(&self.cfg.layout.agent_secrets(id))?;
+        let env: serde_json::Map<String, Value> = c["env"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, v)| (k.clone(), json!(v.as_str().or_else(|| private_env_value(&secrets, k)).unwrap_or_default())))
+            .collect();
+        Ok(json!({ "env": env }))
+    }
+
     pub fn connection(&self, id: &str) -> Result<Value> {
         self.db.get_config(CONNECTION, id)?.ok_or_else(|| anyhow!("Provider {id} 不存在"))
     }

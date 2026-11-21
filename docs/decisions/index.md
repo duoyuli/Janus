@@ -12,7 +12,7 @@
 
 - [事件是唯一事实来源](20261031-events_as_source_of_truth.md)：状态变化先写成只追加的事件，界面、看板和恢复都从事件推导。阅读时机：想引入独立的状态表、修改事件格式，或调整恢复方式之前。
 - [每个 Agent 使用独立的配置目录](20261031-isolated_agent_homes.md)：Agent 的配置、HOME 和凭据都在 Janus 自己的目录中，不碰用户的 Agent 配置。阅读时机：修改运行环境构造、配置复制或凭据保存之前。
-- [Claude Code 的自定义 API 用环境变量设置](20261120-claude_env_auth.md)：「自定义 API」是一个环境变量输入框，可一键填入模板；手动填写的 Claude 变量按用途保存，原有 API Key 随数据升级。阅读时机：修改 Claude 的认证表单、模板、变量回显或凭据迁移之前。
+- [Claude Code 的自定义 API 用环境变量设置](20261120-claude_env_auth.md)：「自定义 API」是一个环境变量输入框，可一键填入模板；手动填写的 Claude 变量按用途保存，原有 API Key 随数据升级。其中「编辑时私有变量只显示名字」已被「Agent 的环境变量在编辑器里全部显示」取代。阅读时机：修改 Claude 的认证表单、模板、变量回显或凭据迁移之前。
 - [权限交给 Agent 原生模式](20261031-agent_native_permissions.md)：角色直接选择 Agent 声明的权限模式，Janus 不再有自己的读写开关，也不做校验。阅读时机：想在 Janus 层面增加权限控制，或修改角色的权限设置之前。
 - [任务直接在工作目录中运行](20261031-in_place_workspaces.md)：关闭并删除独立 worktree，所有任务在工作区目录中读写。Git 仓库的部分已被「每个任务在自己的 worktree 中运行」取代，现在只适用于非 Git 目录。阅读时机：调整非 Git 目录的工作方式之前。
 - [负责人以 /goal 推进目标](20261031-goal_mode_lead.md)：负责人用 `/goal` 自主推进，按需协作，只能是 Claude Code 或 Codex。阅读时机：修改负责人的启动方式、交付条件，或想让其他 Agent 担任负责人之前。
@@ -47,6 +47,7 @@
 - [Skill 路由是一份按需查找的目录](20261120-skill_catalog.md)：系统层写明 `janus-skills` 的位置；它的描述先写何时用再列名字和描述片段；目录 16 KB 以内逐行列出完整描述，超过时用 grep 搜 `catalog.txt`；按读过的会话数排序（`skill.used`）；资源库显示使用次数和描述的改进提示。阅读时机：修改 `janus-skills` 的内容、系统层里关于 Skill 的说明、Skill 的使用记录或改进提示之前。
 - [和一名数字员工的对话是一种 Run](20261120-chats_as_runs.md)：`runs.kind` 区分目标和对话；数字员工占用主会话、走交付后对话的同一个循环，没有看板和交付；工作目录是 Janus home 下新建的 `chats/<run>`；看板拒绝对话的令牌。阅读时机：修改对话、Run 的类型，或想为对话另建实体、换工作目录之前。
 - [Janus home 按「丢了能不能再有」分类，路径只从 `Layout` 取](20261121-home_layout.md)：顶层分为 `data/`、`work/`、`cache/`、`tmp/`、`logs/`、`backups/`，对象的东西放在它的 id 下，任务和对话分开；凭据集中在 `data/secrets/`；删除 Run 时也删 Agent 原生的会话记录；数据版本 14 搬移旧布局并改写记下的路径。阅读时机：新增要写盘的功能、改变任何文件的位置，或想改写事件里的路径之前。
+- [Agent 的环境变量在编辑器里全部显示，令牌也在](20261121-agent_env_visible.md)：本地优先，新增只回答本机应用的 `GET /api/connections/{id}/env`，编辑器显示完整的 `KEY=value`；值仍只存在 `0600` 凭据文件，其他接口和 SQLite 只有名字。阅读时机：想让接口返回凭据，或修改 Agent 环境变量的显示和保存之前。
 
 ## 历史决策
 

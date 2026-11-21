@@ -76,6 +76,11 @@ def setup(ctx, c):
     lib = ctx.api("GET", "/api/library")
     item = next(i for i in lib["items"] if i["id"] == mcp["id"])
     c(item["vars"] == [{"name": "E2E_TOKEN", "set": True}] and SECRET not in json.dumps(lib), "资源库只说 MCP 的值已填写，不返回值")
+    env_url = "/api/connections/setup-claude/env"
+    c(ctx.api("GET", env_url)["env"]["ANTHROPIC_AUTH_TOKEN"] == SECRET, "Agent 编辑器从本机读到保存的令牌")
+    for headers, why in (({"Origin": "https://evil.example"}, "网页发来的请求"), ({"Host": "evil.example"}, "改绑到本机的域名")):
+        code, text = ctx.api_error("GET", env_url, headers=headers)
+        c(code == 403 and SECRET not in text, f"{why}读不到 Agent 的环境变量（{code}）")
     values = f"/api/library/mcp/{mcp['id']}/values"
     c(ctx.api("GET", values) == {"values": {"E2E_TOKEN": SECRET}}, "MCP 编辑器从本机读到保存的值")
     for headers, why in (({"Origin": "https://evil.example"}, "网页发来的请求"), ({"Host": "evil.example"}, "改绑到本机的域名"),
@@ -181,12 +186,16 @@ def setup(ctx, c):
         c(_drawn(ctx, "agent-editor") and state["agentEditorEnv"] == template,
           "应用：新建 Claude 的自定义 API 时，「填入模板」带入的环境变量就是服务给的模板")
         ctx.app.do("close-sheet")
-        state = ctx.app.do("agent-edit setup-claude", "shot claude-env-edit", "close-sheet")
+        state = ctx.app.do("agent-edit setup-claude")
         lines = state["claudeEnvironments"]["setup-claude"].splitlines()
         expected = cs["setup-claude"]["env"]
         c(set(lines) == {k if v is None else f"{k}={v}" for k, v in expected.items()}
-          and "ANTHROPIC_AUTH_TOKEN" in lines and "ANTHROPIC_MODEL=deepseek-v4.1-flash" in lines
-          and SECRET not in "\n".join(lines), "应用：编辑器显示保存的模型和服务地址，私有变量只显示名称")
+          and "ANTHROPIC_AUTH_TOKEN" in lines and SECRET not in "\n".join(lines), "应用：设置列表里的 Agent 只有私有变量的名字")
+        shown = ctx.app.until(lambda s: SECRET in (s.get("agentEditorEnv") or ""), "编辑器读到保存的值", "shot claude-env-edit")
+        c(f"ANTHROPIC_AUTH_TOKEN={SECRET}" in shown["agentEditorEnv"].splitlines()
+          and "ANTHROPIC_MODEL=deepseek-v4.1-flash" in shown["agentEditorEnv"].splitlines(),
+          "应用：编辑 Agent 时环境变量全部显示值，令牌也在（本机优先）")
+        ctx.app.do("close-sheet")
         # The MCP editor: a saved server as the form and as JSON, and a new one.
         for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new"), ("mcp-edit catalog:github", "mcp-editor-catalog")):
             ctx.app.do(cmd, f"shot {shot}", "close-sheet")

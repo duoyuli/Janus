@@ -304,6 +304,7 @@ struct ConnectionEditor: View {
         }
         .frame(minWidth: 760, idealWidth: 860, minHeight: 480, idealHeight: 640)
         .onAppear { store.agentEditorEnv = draft["envText"].str }
+        .task { await showSavedValues() }
         .onChange(of: draft["envText"].str) { store.agentEditorEnv = draft["envText"].str }
         .onDisappear { store.agentEditorEnv = nil }
         .task(id: "\(draft["kind"].str)|\(draft["source"].str)|\(draft["auth"].str)") {
@@ -451,8 +452,11 @@ struct ConnectionEditor: View {
     /// API, with its template one click away), else an advanced setting.
     private func envField(template: String) -> some View {
         let primary = store.envAuth(draft["kind"].str, draft["auth"].str)
-        let hasPrivateValues = draft["env"].object.values.contains(.null)
-        let hint = hasPrivateValues
+        // A line with a name and no value keeps the saved value: shown when the values could not be read.
+        let keepsSaved = draft["envText"].str.components(separatedBy: .newlines).contains { line in
+            Setup.envName(line) != nil && !line.contains("=")
+        }
+        let hint = keepsSaved
             ? L.text("仅有变量名的行会沿用已保存的值。填写新值可替换，删除整行可移除。")
             : L.text("每行填写 KEY=value，也可以直接粘贴多行 export KEY=value。写成 KEY= 可清空变量。")
         return field(L.text("环境变量"), hint: hint, accessory: {
@@ -475,6 +479,18 @@ struct ConnectionEditor: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                 .accessibilityLabel(L.text("环境变量"))
         }
+    }
+
+    /// Janus is local first: an agent's environment shows every value, its token included, read
+    /// from this Mac's service when the editor opens (`GET /api/connections/{id}/env`). The text
+    /// opened with names in place of private values; it changes only if nobody typed meanwhile.
+    private func showSavedValues() async {
+        let id = draft["id"].str
+        guard !id.isEmpty, draft["env"].object.values.contains(.null),
+              let r = try? await store.api.get("/api/connections/\(API.q(id))/env") else { return }
+        let text = JSON(Setup.envText(r["env"]))
+        if draft["envText"] == saved["envText"] { draft["envText"] = text }
+        saved["envText"] = text
     }
 
     /// Keep pasted credentials with the provider and auth form where they were entered.

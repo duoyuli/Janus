@@ -1,6 +1,6 @@
 # ADR：Claude Code 的自定义 API 用环境变量设置
 
-- 状态：已采纳（accepted），记录于 2026-11-20。
+- 状态：部分被取代（superseded）：编辑时私有变量只显示名字，已被 [ADR：Agent 的环境变量在编辑器里全部显示](20261121-agent_env_visible.md) 取代；其余仍然有效。记录于 2026-11-20。
 - 相关文档：[Agent 环境变量](../domains/20261031-agents_and_roles.md#agent_env)、[凭据保存](../operations/20261031-security.md#secrets)、[数据升级](../architecture/20261031-data_model.md#migrations)。
 
 ## 背景

@@ -269,6 +269,20 @@ async fn mcp_values(
     reply(app.mcp_values_view(&id))
 }
 
+/// An agent's environment with every value, private ones included, for the editor. Like MCP
+/// values, it goes only to a client on this machine that isn't a web page: see `from_local_app`.
+// @project-doc docs/operations/20261031-security.md#secrets
+async fn connection_env(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    headers: axum::http::HeaderMap,
+) -> ApiResult {
+    if !from_local_app(&headers) {
+        return Err((StatusCode::FORBIDDEN, "Agent 的环境变量只返回给本机的 Janus 应用".into()));
+    }
+    reply(app.connection_env(&id))
+}
+
 /// A request from a program on this machine rather than a web page: the Host is a loopback name
 /// (a page that rebinds its own domain to 127.0.0.1 still sends that domain), and there is no
 /// `Origin` or `Sec-Fetch-Site` (browsers add them to a page's requests; the app sends neither).
@@ -855,6 +869,7 @@ async fn main() -> Result<()> {
         .route("/api/setup/{kind}/{id}", delete(remove))
         .route("/api/roles/{id}/seed", post(seed_choice))
         .route("/api/connections/{id}/test", post(test_connection))
+        .route("/api/connections/{id}/env", get(connection_env))
         .route("/api/connections/{id}/login", post(login_connection))
         .route("/api/file", get(file))
         .route("/api/stats/roles", get(role_stats))

@@ -37,7 +37,7 @@
 <a id="agent_env"></a>
 ### 环境变量
 
-每行可写 `KEY=value` 或 `export KEY=value`。空行和以 `#` 开头的行会跳过，值两端配对的引号会去掉。Janus 按文本读取这些赋值。编辑 Claude 时，普通服务地址、模型和常用运行参数显示原值，私有变量只显示名字。保留这一行就沿用已保存的值，改成 `KEY=新值` 可替换，删除整行可移除。取舍见 [ADR：Claude Code 通过环境变量接入 API](../decisions/20261120-claude_env_auth.md)。
+每行可写 `KEY=value` 或 `export KEY=value`。空行和以 `#` 开头的行会跳过，值两端配对的引号会去掉。Janus 按文本读取这些赋值。保存时，普通服务地址、模型和常用运行参数存进设置，令牌等私有值存进 Agent 的凭据文件，设置里只记名字。编辑时应用从本机服务读回全部值（`GET /api/connections/{id}/env`），输入框显示完整的 `KEY=value`，令牌也在，改哪行就改哪行，删除整行可移除；读不到值时只显示名字，名字单独一行表示沿用已保存的值。取舍见 [ADR：Claude Code 的自定义 API 用环境变量设置](../decisions/20261120-claude_env_auth.md) 和 [ADR：Agent 的环境变量在编辑器里全部显示](../decisions/20261121-agent_env_visible.md)。
 
 Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20261031-security.md)），它看到的变量按以下顺序叠加，同名时后面的覆盖前面的：
 
