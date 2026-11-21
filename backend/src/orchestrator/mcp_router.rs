@@ -65,12 +65,51 @@ pub(super) struct McpRouter {
     sweeping: AtomicBool,
     /// The run stopped: every server is stopped and none starts again.
     closed: AtomicBool,
+    /// The tool calls in progress, by session (`who`) and the id the agent gave the request, so
+    /// the agent's `notifications/cancelled` reaches the server doing the work.
+    calls: StdMutex<HashMap<(String, String), Arc<Notify>>>,
+}
+
+/// A tool call in progress, until it ends; `cancel` with its session and request id stops it.
+struct Calling<'a> {
+    router: &'a McpRouter,
+    key: (String, String),
+    stop: Arc<Notify>,
+}
+
+impl Calling<'_> {
+    async fn cancelled(&self) {
+        self.stop.notified().await;
+    }
+}
+
+impl Drop for Calling<'_> {
+    fn drop(&mut self) {
+        self.router.calls.lock().unwrap().remove(&self.key);
+    }
 }
 
 /// One server's place in the router: empty until it starts.
 type Slot = tokio::sync::Mutex<Option<Arc<Backend>>>;
 
 impl McpRouter {
+    /// A call of `who`'s request `id` starts; it can be cancelled until the returned value drops.
+    fn calling(&self, who: &str, id: &Value) -> Calling<'_> {
+        let key = (who.to_string(), id.to_string());
+        let stop = Arc::new(Notify::new());
+        self.calls.lock().unwrap().insert(key.clone(), stop.clone());
+        Calling { router: self, key, stop }
+    }
+
+    /// The agent gave up on its request `id` (`notifications/cancelled`): the call stops waiting
+    /// and tells the server. A request already answered, or never seen, is nothing to stop.
+    fn cancel(&self, who: &str, id: &Value) {
+        if let Some(stop) = self.calls.lock().unwrap().get(&(who.to_string(), id.to_string())) {
+            // Kept for the call even when it has not started waiting yet.
+            stop.notify_one();
+        }
+    }
+
     fn slot(&self, holder: &Holder, item: &str) -> Arc<Slot> {
         self.backends.lock().unwrap().entry((holder.clone(), item.to_string())).or_default().clone()
     }
@@ -135,15 +174,17 @@ impl McpRouter {
 }
 
 /// A tool's name as the router lists it: `<server>__<tool>` when that fits `NAME_MAX` in the
-/// characters MCP clients take; otherwise cut short and ended with a hash of the full pair, so two
-/// tools never share a name and a name never changes between runs.
+/// characters MCP clients take and reads back as one pair; otherwise cut short and ended with a
+/// hash of the full pair, so two tools never share a name and a name never changes between runs.
+/// A plain name splits at its first `__`, so a server name holding `__` or ending in `_` always
+/// takes the hash (server `a_` with tool `b` and server `a` with tool `_b` would both be `a___b`).
 pub(super) fn routed_name(server: &str, tool: &str) -> String {
     let clean = |s: &str| {
         s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect::<String>()
     };
     let plain = format!("{server}{SEP}{tool}");
     let name = format!("{}{SEP}{}", clean(server), clean(tool));
-    if name == plain && name.len() <= NAME_MAX {
+    if name == plain && name.len() <= NAME_MAX && !server.contains(SEP) && !server.ends_with('_') {
         return name;
     }
     let hash: String =
@@ -386,6 +427,9 @@ impl App {
             bail!("token 不对");
         }
         let Some(id) = req.get("id").cloned() else {
+            if req["method"] == "notifications/cancelled" {
+                run.router.cancel(who, &req["params"]["requestId"]);
+            }
             return Ok(None);
         };
         let servers = self.routed_servers(&run, who);
@@ -428,6 +472,8 @@ impl App {
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or_default();
                 let started = now_ms();
+                // From now on the agent can cancel it, even while the tool is still looked up.
+                let calling = run.router.calling(who, &id);
                 // The exact routed name: among the tools the session was shown, else among what the
                 // servers give now (a tool added since the list was written down).
                 let mut found = None;
@@ -449,7 +495,12 @@ impl App {
                     let args = req["params"]["arguments"].clone();
                     self.backend(&run, who, item)
                         .await?
-                        .request("tools/call", json!({ "name": tool, "arguments": args }), CALL_WAIT)
+                        .request_until(
+                            "tools/call",
+                            json!({ "name": tool, "arguments": args }),
+                            CALL_WAIT,
+                            calling.cancelled(),
+                        )
                         .await
                 }
                 .await;

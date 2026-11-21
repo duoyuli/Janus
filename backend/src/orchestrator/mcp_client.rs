@@ -2,7 +2,7 @@
 //! and talks to over stdio, a Streamable HTTP endpoint, or an endpoint of the older SSE transport.
 //! Every transport ends in the same inbox: a reply reaches whoever waits on its id, the server's own
 //! requests (`roots/list`, `ping`) are answered here, and `notifications/tools/list_changed` drops
-//! the tools it listed.
+//! the tools it listed. A request the router stops waiting for is cancelled on the server.
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
 use super::*;
@@ -18,6 +18,10 @@ const CONNECT_WAIT: Duration = Duration::from_secs(15);
 const SESSION: &str = "mcp-session-id";
 /// The header that names the protocol version agreed in `initialize`.
 const VERSION: &str = "mcp-protocol-version";
+/// At most this many pages of `tools/list` are read from one server.
+const LIST_PAGES: usize = 100;
+/// How long telling a server to stop a request may take; it is told and not waited on beyond that.
+const CANCEL_WAIT: Duration = Duration::from_secs(5);
 
 /// One server the router reaches.
 pub(super) struct Backend {
@@ -227,14 +231,27 @@ impl Backend {
         Ok(backend)
     }
 
-    /// Its tools: the list it gave, or asked now.
+    /// Its tools: the list it gave, or asked now, every page of it (`nextCursor`), all within `wait`.
     pub(super) async fn tools(&self, wait: Duration) -> Result<Vec<Value>> {
         if let Some(t) = self.inbox.tools.lock().unwrap().clone() {
             return Ok(t);
         }
-        let t = self.request("tools/list", json!({}), wait).await?["tools"].as_array().cloned().unwrap_or_default();
-        *self.inbox.tools.lock().unwrap() = Some(t.clone());
-        Ok(t)
+        let until = tokio::time::Instant::now() + wait;
+        let mut tools = vec![];
+        let mut cursor: Option<String> = None;
+        for _ in 0..LIST_PAGES {
+            let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({ "cursor": c }));
+            let left = until.saturating_duration_since(tokio::time::Instant::now());
+            let page = self.request("tools/list", params, left).await?;
+            tools.extend(page["tools"].as_array().cloned().unwrap_or_default());
+            match page["nextCursor"].as_str() {
+                // A server handing back the cursor it was given would never end.
+                Some(next) if cursor.as_deref() != Some(next) => cursor = Some(next.to_string()),
+                _ => break,
+            }
+        }
+        *self.inbox.tools.lock().unwrap() = Some(tools.clone());
+        Ok(tools)
     }
 
     pub(super) fn usable(&self) -> bool {
@@ -371,6 +388,20 @@ impl Backend {
     /// One request; its result, or the server's error as an error. `wait` covers sending it too:
     /// over HTTP the reply may come with the response.
     pub(super) async fn request(&self, method: &str, params: Value, wait: Duration) -> Result<Value> {
+        self.request_until(method, params, wait, std::future::pending()).await
+    }
+
+    /// A request the caller may give up on early (`cancel`). Whenever the wait ends without a
+    /// reply, out of time or cancelled, the server is told (`notifications/cancelled`), so it can
+    /// stop the work instead of finishing it for no one; `initialize` is never cancelled, as MCP
+    /// requires.
+    pub(super) async fn request_until(
+        &self,
+        method: &str,
+        params: Value,
+        wait: Duration,
+        cancel: impl std::future::Future<Output = ()>,
+    ) -> Result<Value> {
         let id = self.next.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.inbox.pending.lock().unwrap().insert(id, tx);
@@ -379,19 +410,34 @@ impl Backend {
         let asked = tokio::time::timeout(wait, async {
             self.send(&msg).await?;
             rx.await.map_err(|_| anyhow!("服务器已经退出"))
-        })
-        .await;
-        let reply = match asked {
-            Ok(Ok(reply)) => reply,
-            Ok(Err(err)) => {
-                self.inbox.pending.lock().unwrap().remove(&id);
-                return Err(err);
-            }
-            Err(_) => {
-                self.inbox.pending.lock().unwrap().remove(&id);
-                bail!("{} 秒内没有回应", wait.as_secs())
-            }
+        });
+        // A cancel that came before the request was sent wins: the request is not sent at all.
+        let (reason, err) = tokio::select! {
+            biased;
+            () = cancel => ("cancelled by the client", anyhow!("调用已取消")),
+            asked = asked => match asked {
+                Ok(Ok(reply)) => return Self::result(reply),
+                Ok(Err(err)) => {
+                    self.inbox.pending.lock().unwrap().remove(&id);
+                    return Err(err);
+                }
+                Err(_) => ("timed out", anyhow!("{} 秒内没有回应", wait.as_secs())),
+            },
         };
+        self.inbox.pending.lock().unwrap().remove(&id);
+        if method != "initialize" && self.usable() {
+            let cancelled = json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": { "requestId": id, "reason": reason }
+            });
+            let _ = tokio::time::timeout(CANCEL_WAIT, self.send(&cancelled)).await;
+        }
+        Err(err)
+    }
+
+    /// A reply's result, or its error as an error.
+    fn result(reply: Value) -> Result<Value> {
         if let Some(err) = reply.get("error") {
             bail!("{}", err["message"].as_str().unwrap_or("服务器返回了错误"));
         }

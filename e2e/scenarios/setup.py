@@ -131,7 +131,8 @@ def setup(ctx, c):
     def rpc(method, params, at=path):
         return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
     names = [t["name"] for t in rpc("tools/list", {})["tools"]]
-    c("e2e-route__cwd" in names and "e2e-http__whoami" in names, f"MCP 路由列出命令和 HTTP 服务器的工具：{names}")
+    c("e2e-route__cwd" in names and "e2e-http__whoami" in names and "e2e-route__hang" in names,
+      f"MCP 路由列出命令和 HTTP 服务器的工具，分页的读完所有页：{names}")
     started = lambda: open(starts).read().count("start")  # noqa: E731
     c(started() == 1, f"会话打开和列工具都没有启动服务器，只有添加时预先准备的那一次（{started()} 次）")
     got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})

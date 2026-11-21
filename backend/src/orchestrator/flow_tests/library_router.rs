@@ -65,8 +65,10 @@ async fn command_servers_are_served_by_the_runs_router() {
     let h = harness("library-router", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"], "T2": ["slow"] }));
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
     let starts = h.dir.join("mcp-starts.log");
+    let cancelled = h.dir.join("mcp-cancelled.log");
     let config = json!({ "mcpServers": { "probe": {
-        "command": "python3", "args": [script], "env": { "FAKE_MCP_LOG": starts, "OWN": "mine", "HOME": "/etc" }
+        "command": "python3", "args": [script],
+        "env": { "FAKE_MCP_LOG": starts, "FAKE_MCP_CANCELLED": cancelled, "OWN": "mine", "HOME": "/etc" }
     } } });
     h.app.import_mcp_config(&config.to_string()).await.unwrap();
     let probe = h.app.items().unwrap().into_iter().find(|i| i.name == "probe").unwrap();
@@ -90,8 +92,17 @@ async fn command_servers_are_served_by_the_runs_router() {
     let init = call(&h, &at, "initialize", json!({})).await.unwrap();
     assert!(init["instructions"].as_str().unwrap().contains("probe"), "{init}");
     let names = listed(&h, &at).await;
-    let probe_tools =
-        ["probe__cwd", "probe__echo", "probe__roots", "probe__env", "probe__grow", "probe__quit", "probe__spawn"];
+    // The second page (`nextCursor`) is read too.
+    let probe_tools = [
+        "probe__cwd",
+        "probe__echo",
+        "probe__roots",
+        "probe__env",
+        "probe__grow",
+        "probe__quit",
+        "probe__spawn",
+        "probe__hang",
+    ];
     assert!(probe_tools.iter().all(|t| names.contains(&t.to_string())), "{names:?}");
     assert_eq!((count(), browsers()), (1, 1), "a server that never listed starts once to say its tools");
     assert_eq!(listed(&h, &lead).await, names, "the lead sees the same tools");
@@ -117,6 +128,24 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert_eq!(own["OWN"], "mine", "its own values are there");
     let missing = tool(&h, &at, "probe__nope", json!({})).await;
     assert!(missing["isError"] == true && text(&missing).contains("没有这个工具"), "{missing}");
+
+    // The agent gives up on a call: the router stops waiting and tells the server, which stops.
+    let (app, hung) = (h.app.clone(), at.clone());
+    let pending = tokio::spawn(async move {
+        let req = json!({ "jsonrpc": "2.0", "id": "c-7", "method": "tools/call",
+            "params": { "name": "probe__hang", "arguments": {} } });
+        app.mcp_tools(&hung.0, &hung.1, &hung.2, req).await.unwrap().unwrap()
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!pending.is_finished(), "the call waits for the server");
+    let cancel = json!({ "jsonrpc": "2.0", "method": "notifications/cancelled", "params": { "requestId": "c-7" } });
+    assert!(h.app.mcp_tools(&at.0, &at.1, &at.2, cancel).await.unwrap().is_none());
+    let ended = tokio::time::timeout(Duration::from_secs(5), pending).await.unwrap().unwrap();
+    assert!(ended["result"]["isError"] == true && text(&ended["result"]).contains("取消"), "{ended}");
+    eventually("the server is told", || {
+        std::fs::read_to_string(&cancelled).unwrap_or_default().contains("cancelled cancelled by the client")
+    })
+    .await;
 
     // The run's sessions share the server: the lead's call goes to the process T1 started.
     assert_eq!(text(&tool(&h, &lead, "probe__cwd", json!({})).await), cwd);
@@ -324,6 +353,10 @@ fn routed_names_fit_and_stay_apart() {
     assert_ne!(one, two);
     assert_eq!(one, routed_name(&long, "list_open_pull_requests_for_repository"), "the same every run");
     assert_ne!(routed_name("fs", "read.file"), routed_name("fs", "read_file"), "cleaned names don't collide");
+    // A plain name splits at its first `__`: a server name that would blur the split is hashed.
+    assert_ne!(routed_name("a_", "b"), routed_name("a", "_b"));
+    assert_ne!(routed_name("a__b", "c"), routed_name("a", "b__c"));
+    assert_eq!(routed_name("a", "_b"), "a___b", "a plain one still reads back as one pair");
     assert!(routed_name("fs", "read.file").chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
 }
 
@@ -363,7 +396,7 @@ async fn servers_are_prepared_when_added() {
     app.warm_mcp(&probe.id);
     app.warm_mcp(&broken.id);
     eventually("the server is prepared", || warm(&probe.id)["state"] == "ready").await;
-    assert_eq!(warm(&probe.id)["tools"], 7);
+    assert_eq!(warm(&probe.id)["tools"], 8, "both pages");
     assert_eq!(std::fs::read_to_string(&starts).unwrap().lines().count(), 1, "started once");
     assert!(app.server_home(&probe.id).join("root").is_dir(), "in its own sandbox, which runs reuse");
     eventually("the broken one says why", || warm(&broken.id)["state"] == "failed").await;
