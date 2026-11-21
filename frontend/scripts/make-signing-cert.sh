@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Creates the self-signed code-signing certificate Janus releases are signed with, once.
 #
-#   frontend/scripts/make-signing-cert.sh [output dir, default ~/.janus/signing]
+#   frontend/scripts/make-signing-cert.sh [output dir, default ~/.config/janus/signing]
 #
 # Every release signed with the same certificate is the same app to macOS: permissions granted
 # to Janus survive updates, and the in-app updater accepts only updates signed with it. It is
@@ -14,7 +14,8 @@
 # updates the app will install.
 set -euo pipefail
 
-dir="${1:-$HOME/.janus/signing}"
+# Outside Janus home: the key is the developer's, not data of the app that runs here.
+dir="${1:-$HOME/.config/janus/signing}"
 name="Janus Self-Signed"
 if [ -e "$dir/janus-signing.p12" ]; then
   echo "已经有证书：$dir/janus-signing.p12（换证书会让已安装的应用拒绝之后的更新，确实要换就先移走它）" >&2

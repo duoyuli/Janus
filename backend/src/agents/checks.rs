@@ -68,8 +68,8 @@ impl App {
     /// What the chosen auth method needs before the agent can start, checked without launching it.
     pub(super) fn credential_check(&self, c: &Value) -> (bool, String) {
         let id = str_of(c, "id");
-        let home = self.agent_dir(id).join("home");
-        let secrets = match super::environment::read_secrets(&self.agent_dir(id)) {
+        let home = self.agent_config(id);
+        let secrets = match super::environment::read_secrets(&self.cfg.layout.agent_secrets(id)) {
             Ok(s) => s,
             Err(_) => return (false, "无法读取 Agent 凭据文件".into()),
         };
@@ -148,10 +148,12 @@ impl App {
     /// The full configuration check: runtime → credentials → ACP handshake → session and models →
     /// one real reply. A check that a newer one or a save of the connection replaced records nothing.
     async fn test_connection(self: &Arc<Self>, id: &str, started: i64) -> Result<()> {
-        let dir = self.agent_dir(id);
-        let probe = dir.join("probe");
+        // The session the check opens works in an empty folder of its own.
+        let probe = self.cfg.layout.agent_tmp(id).join("probe");
         std::fs::create_dir_all(&probe)?;
-        let log = dir.join("test.log");
+        let logs = self.cfg.layout.agent_logs(id);
+        std::fs::create_dir_all(&logs)?;
+        let log = logs.join("test.log");
         let _ = std::fs::remove_file(&log);
         let mut check = Check { started, steps: vec![] };
         let c0 = self.connection(id)?;
@@ -313,15 +315,16 @@ impl App {
         }
         let spec = self.spec_for(id)?;
         let entry = spec.args.first().context("ACP 适配器没有入口文件")?;
-        let dir = self.agent_dir(id);
-        let log = std::fs::File::create(dir.join("login.log"))?;
+        let logs = self.cfg.layout.agent_logs(id);
+        std::fs::create_dir_all(&logs)?;
+        let log = std::fs::File::create(logs.join("login.log"))?;
         let mut cmd = tokio::process::Command::new(&spec.program);
         cmd.env_clear();
         let mut child = cmd
             .envs(spec.env.iter().cloned())
             .arg(entry)
             .args(["cli", "login"])
-            .env("CODEX_HOME", dir.join("home"))
+            .env("CODEX_HOME", self.agent_config(id))
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log)

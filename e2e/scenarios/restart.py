@@ -34,7 +34,7 @@ def restart(ctx, c):
 
     ctx.server.stop()
     meta = ctx.server.start()
-    c(meta["dataDir"] == ctx.home, "服务在同一个 Janus home 上重新启动")
+    c(meta["home"] == ctx.home, "服务在同一个 Janus home 上重新启动")
     run.wait_status("interrupted")
     c(run.has("run.interrupted"), "重启时没结束的 Run 记为中断")
     c(done.status() == "delivered", "已交付的 Run 不受影响")

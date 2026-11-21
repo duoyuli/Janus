@@ -34,9 +34,9 @@ async fn a_skill_found_in_the_catalog_is_read_recorded_and_counted() {
             .map(|e| e.data.as_ref().unwrap()["prompt"].as_str().unwrap().to_string())
             .unwrap_or_else(|| panic!("no skills pointer for {to}"))
     };
-    let router = h.app.bundle_dir(&run, "m1").join("skills/janus-skills/SKILL.md");
+    let router = h.app.cfg.layout.run(RunKind::Goal, &run).bundle("m1").join("skills/janus-skills/SKILL.md");
     assert!(pointer("m1").contains(&format!("read {}", router.display())), "{}", pointer("m1"));
-    assert!(pointer("lead").contains("/members/lead/bundle/skills/janus-skills/SKILL.md"), "{}", pointer("lead"));
+    assert!(pointer("lead").contains("/bundle/lead/skills/janus-skills/SKILL.md"), "{}", pointer("lead"));
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     assert!(calls.contains("skill notes read"), "the agent found notes in the catalog: {calls}");
 
@@ -58,8 +58,9 @@ async fn a_skill_found_in_the_catalog_is_read_recorded_and_counted() {
 
     // The next run's catalog lists the used skill first, though alpha comes first by name.
     let team = h.app.run(&run).unwrap().team.clone();
-    h.app.bundle_team("next", &team).unwrap();
-    let md = std::fs::read_to_string(h.app.bundle_dir("next", "m1").join("skills/janus-skills/SKILL.md")).unwrap();
+    let next = h.app.cfg.layout.run(RunKind::Goal, "next");
+    h.app.bundle_team(&next, &team).unwrap();
+    let md = std::fs::read_to_string(next.bundle("m1").join("skills/janus-skills/SKILL.md")).unwrap();
     assert!(md.find("- notes：").unwrap() < md.find("- alpha：").unwrap(), "{md}");
 
     finish_lead(&h);

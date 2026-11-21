@@ -748,7 +748,7 @@ impl App {
     /// A message's ACP prompt: its text, the images pasted with it, and the workspace files it
     /// mentions as `@path` (`acp_view::resource_links`).
     pub(super) fn prompt_blocks(&self, run: &Run, conn: &AcpConn, text: &str) -> Vec<Value> {
-        let mut blocks = crate::attachments::prompt_blocks(&self.cfg.data_dir, text, takes_images(conn));
+        let mut blocks = crate::attachments::prompt_blocks(&self.cfg.layout, text, takes_images(conn));
         blocks.extend(crate::acp_view::resource_links(text, &run.cwd));
         blocks
     }

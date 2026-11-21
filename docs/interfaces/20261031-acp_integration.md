@@ -21,7 +21,7 @@
 ## 传输
 
 - JSON-RPC 2.0 over stdio，每行一个 JSON 对象。帧、请求 id、响应路由和取消由官方 Rust SDK [`agent-client-protocol`](https://github.com/agentclientprotocol/rust-sdk) 处理（稳定 v1）；`backend/src/acp.rs` 负责启动子进程、`initialize`，并把 SDK 收到的通知和请求交给编排器。
-- 每个会话一个子进程：环境变量只来自 Janus 构造的 `RuntimeSpec.env`，不继承 Janus 自己的环境；工作目录是 Run 的工作目录，stderr 写入 `~/.janus/logs/<run>/` 下的日志文件。适配器本身怎样安装和选版本见 [ACP 适配器管理](../architecture/20261031-adapters.md)。
+- 每个会话一个子进程：环境变量只来自 Janus 构造的 `RuntimeSpec.env`，不继承 Janus 自己的环境；工作目录是 Run 的工作目录，stderr 写入 `~/.janus/logs/runs/<run>/`（对话是 `logs/chats/<run>/`）下的日志文件。适配器本身怎样安装和选版本见 [ACP 适配器管理](../architecture/20261031-adapters.md)。
 - 子进程在自己的进程组中运行，结束会话时整组终止：先向进程组发 `SIGTERM`，5 秒内没退出再向整组发 `SIGKILL`，适配器启动的 Agent 进程不会留下来；之后最多再等 3 秒，卡在内核里退不出的进程不会让关闭会话一直挂着（`AcpConn::kill`）。
 - 单个请求默认 30 分钟超时；进程退出时，所有未完成的请求以「Agent 进程已退出」失败，会话随后收到结束信号。
 

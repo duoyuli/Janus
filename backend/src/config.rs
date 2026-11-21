@@ -57,8 +57,10 @@ static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
     let home = std::env::var("JANUS_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".janus"));
-    let file: toml::Table =
-        std::fs::read_to_string(home.join("config.toml")).ok().and_then(|t| t.parse().ok()).unwrap_or_default();
+    let file: toml::Table = std::fs::read_to_string(crate::layout::Layout::new(&home).config_file())
+        .ok()
+        .and_then(|t| t.parse().ok())
+        .unwrap_or_default();
     let pick = |env: &str, key: &str, default: &str| {
         std::env::var(env)
             .ok()
@@ -88,7 +90,7 @@ pub fn settings() -> &'static Settings {
     &SETTINGS
 }
 
-/// One line of Janus's own log: printed, and appended to `<home>/logs/janus.log`.
+/// One line of Janus's own log: printed, and appended to `logs/janus.log` in Janus home.
 pub fn log(line: impl AsRef<str>) {
     let line = line.as_ref();
     eprintln!("{line}");
@@ -96,9 +98,11 @@ pub fn log(line: impl AsRef<str>) {
     if cfg!(test) {
         return;
     }
-    let dir = settings().home.join("logs");
-    let _ = std::fs::create_dir_all(&dir);
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("janus.log")) {
+    let file = crate::layout::Layout::new(settings().home.clone()).janus_log();
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&file) {
         let _ = writeln!(f, "{} {line}", utc(crate::orchestrator::now_ms()));
     }
 }

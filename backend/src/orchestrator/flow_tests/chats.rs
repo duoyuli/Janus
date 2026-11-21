@@ -54,9 +54,9 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     assert_eq!(row["goal"], "你好\n第二行", "the first message titles the chat");
     assert_eq!(row["kind"], "chat");
     assert_eq!(row["status"], "running", "the session is open");
-    let dir = h.app.chat_dir(&id).canonicalize().unwrap();
+    let dir = h.app.cfg.layout.run(RunKind::Chat, &id).work.canonicalize().unwrap();
     assert_eq!(row["cwd"], json!(dir), "the chat works in its own directory under Janus home");
-    assert!(dir.starts_with(h.app.cfg.data_dir.canonicalize().unwrap()));
+    assert!(dir.starts_with(h.app.cfg.layout.home().join("work/chats").canonicalize().unwrap()), "apart from the runs");
     let team = row["config"]["team"].as_array().unwrap();
     assert_eq!(team.len(), 1, "the employee is the only member");
     assert_eq!(team[0]["role_id"], "m1");
@@ -226,11 +226,31 @@ async fn a_chat_is_deleted_with_its_directory() {
     let h = harness("chat-delete", &[("lead", false), ("m1", true)], json!({}));
     let id = chat(&h, "m1", "写个文件").await;
     wait_until(&h.app, &id, "the first reply", |e| replied(e, "写个文件")).await;
-    let dir = h.app.chat_dir(&id);
-    std::fs::write(dir.join("notes.md"), "scratch").unwrap();
+    let dirs = h.app.cfg.layout.run(RunKind::Chat, &id);
+    std::fs::write(dirs.work.join("notes.md"), "scratch").unwrap();
+    // What the agent itself kept of the chat's session, beside another session's.
+    let sid = events(&h.app, &id)
+        .into_iter()
+        .find_map(|e| (e.kind == "agent.status").then(|| e.data?["session"].as_str().map(str::to_owned)).flatten())
+        .unwrap();
+    let runtime = h.app.run(&id).unwrap().team[0].runtime.clone();
+    let config = h.app.cfg.layout.agent_config(&runtime);
+    let transcript = config.join("projects/-chat").join(format!("{sid}.jsonl"));
+    let other = config.join("projects/-chat/00000000-0000-4000-8000-000000000000.jsonl");
+    std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(config.join("session-env").join(&sid)).unwrap();
+    std::fs::write(&transcript, "{}").unwrap();
+    std::fs::write(&other, "{}").unwrap();
 
     assert!(h.app.delete_run(&id).await.is_ok(), "an open chat can be deleted");
-    assert!(!dir.exists(), "its directory goes with it");
+    for (path, what) in [(&dirs.work, "its directory"), (&dirs.data, "its bundle"), (&dirs.logs, "its logs")] {
+        assert!(!path.exists(), "{what} goes with it");
+    }
+    assert!(
+        !transcript.exists() && !config.join("session-env").join(&sid).exists(),
+        "the agent's record of it goes too"
+    );
+    assert!(other.exists(), "another session's record stays");
     assert!(h.app.db.run(&id).unwrap().is_none());
     assert!(h.app.run(&id).is_none());
 

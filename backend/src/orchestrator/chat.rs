@@ -21,12 +21,13 @@ impl App {
         let member = self.role_member(&role, &self.items()?, true)?;
         self.spec_for(&member.runtime)?;
         let id = crate::agents::new_id("r");
-        let dir = self.chat_dir(&id);
+        let dirs = self.cfg.layout.run(RunKind::Chat, &id);
+        let dir = dirs.work.clone();
         std::fs::create_dir_all(&dir).with_context(|| format!("创建对话目录 {} 失败", dir.display()))?;
         // The path the agent's own tools report, so the files it names resolve against it.
         let cwd = dir.canonicalize().unwrap_or(dir);
         let team = vec![member];
-        self.bundle_team(&id, &team)?;
+        self.bundle_team(&dirs, &team)?;
         let config = json!({ "team": team, "git": false, "baseRef": "" });
         // Titled by its first message, once there is one (`title_chat`).
         self.db.insert_run(&id, RunKind::Chat, "", &cwd.to_string_lossy(), &config, now_ms())?;
@@ -67,11 +68,6 @@ impl App {
             t => t,
         };
         self.db.set_run_goal(&run.id, title)
-    }
-
-    /// Where a chat works: its own directory under Janus home, removed with the chat.
-    pub(super) fn chat_dir(&self, run_id: &str) -> PathBuf {
-        self.cfg.data_dir.join("chats").join(run_id)
     }
 }
 

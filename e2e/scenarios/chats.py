@@ -2,7 +2,7 @@
 
 import os
 
-from lib import wait
+from lib import paths_with, wait
 from scenarios import scenario
 
 
@@ -40,7 +40,7 @@ def chats(ctx, c):
     c(row["goal"] == "你好", "第一条消息成为对话的标题")
     cwd = row["cwd"]
     home = os.path.realpath(ctx.home)
-    c(os.path.isdir(cwd) and os.path.realpath(cwd) == os.path.join(home, "chats", chat), f"对话在 Janus home 下自己的目录里：{cwd}")
+    c(os.path.isdir(cwd) and os.path.realpath(cwd) == os.path.join(home, "work", "chats", chat), f"对话在 Janus home 下自己的目录里，和任务分开：{cwd}")
     c([m["role_id"] for m in row["config"]["team"]] == [role], "团队只有选中的数字员工")
     servers = [line for line in t.fake.calls().splitlines() if line.startswith("mcp ")]
     c(servers and '"name": "janus"' not in servers[-1], "对话的会话没有看板 MCP")
@@ -73,6 +73,7 @@ def chats(ctx, c):
     with open(os.path.join(cwd, "notes.md"), "w") as f:
         f.write("scratch\n")
     ctx.api("DELETE", f"/api/runs/{chat}")
-    c(not os.path.exists(cwd), "删除对话时工作目录一起删除")
+    left = paths_with(ctx.home, chat)
+    c(not os.path.exists(cwd) and not left, f"删除对话时它的工作目录、资源包和日志都删除：{left}")
     code, _ = ctx.api_error("GET", f"/api/runs/{chat}")
     c(code == 404, f"删除后对话不存在（{code}）")

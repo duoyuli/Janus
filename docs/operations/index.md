@@ -8,7 +8,7 @@
 
 ## 文档列表
 
-- [部署方案](20261031-deployment.md)：目录规范、macOS 应用的安装与构建、前置条件、安装、以服务方式启动、日常操作、升级、备份与卸载，以及 `justfile` 中的命令。阅读时机：安装或升级 Janus，修改 `justfile` 或 launchd 配置，或新增要写盘的功能需要确定放在哪个目录。
+- [部署方案](20261031-deployment.md)：目录规范（Janus home 的分类、新增文件放在哪里）、macOS 应用的安装与构建、前置条件、安装、以服务方式启动、日常操作、升级、备份与卸载，以及 `justfile` 中的命令。阅读时机：安装或升级 Janus，修改 `justfile` 或 launchd 配置，或新增要写盘的功能需要确定放在哪个目录。
 - [CI 与发布](20261101-ci_release.md)：GitHub Actions 的测试工作流、推送版本标签时构建并发布 DMG、版本号和签名。阅读时机：修改 `.github/workflows/`、`frontend/scripts/package.sh`，或发布新版本。
 - [运行手册](20261031-runbook.md)：第一次运行、重启与恢复、按现象排查、数据清理。阅读时机：日常使用中重启服务，或排查 Agent 检查失败、适配器安装失败、Run 卡住、界面不更新。
 - [测试](20261031-testing.md)：测试分布、每个需求完成后的端到端验证（`just e2e`）、产品端到端测试的场景、脚本化 ACP Agent、`flow_tests` 夹具和编写测试的约定。阅读时机：运行或编写测试，完成一个需求准备合并，修改 `e2e/`、`backend/testdata/fake_acp.py` 或应用的快照命令，或测试随机失败。

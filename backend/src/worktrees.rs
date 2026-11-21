@@ -1,4 +1,4 @@
-//! Each run on a git repository works in its own worktree under `<Janus home>/worktrees`, so runs
+//! Each run on a git repository works in its own worktree under `<Janus home>/work/runs`, so runs
 //! on one repository do not write over each other. The worktree starts from the person's `HEAD`,
 //! detached, and accepting the run brings its result back where it came from: one commit
 //! fast-forwarded onto the branch the person was on (or their detached `HEAD`). Janus never leaves
@@ -195,7 +195,7 @@ pub fn accept(
 ) -> Result<Option<String>> {
     if !path.exists() {
         bail!(
-            "没有合并：这个任务的 worktree {} 不在了，无法核对它的结果。删除任务时没提交的改动存在 Janus 目录下的 worktrees/deleted/。",
+            "没有合并：这个任务的 worktree {} 不在了，无法核对它的结果。删除任务时没提交的改动存在 Janus 目录下的 data/deleted-runs/。",
             path.display()
         );
     }
@@ -294,6 +294,19 @@ pub fn remove(repo: &Path, path: &Path, kept: &Path, run_id: &str) -> Result<Opt
     }
     drop_worktree(repo, path);
     Ok(saved)
+}
+
+/// Tell the repository its worktree moved to `path` (a data upgrade moved Janus home's folders).
+/// It only rewrites the two links between them; when the repository is gone there is nothing to
+/// tell, and the worktree still works for what is left of the run.
+pub fn repair(repo: &Path, path: &Path) {
+    if let Err(err) = write(repo, &["worktree", "repair", &path.to_string_lossy()]) {
+        crate::config::log(format!(
+            "janus: could not tell {} its worktree moved to {}: {err:#}",
+            repo.display(),
+            path.display()
+        ));
+    }
 }
 
 /// Unlock and remove the worktree; when the repository cannot (it is gone or refuses), the
@@ -408,7 +421,7 @@ mod tests {
     #[test]
     fn a_worktree_has_the_code_and_the_included_ignored_files_only() {
         let dir = repo("create");
-        let (r, w) = (dir.join("repo"), dir.join("home/worktrees/r1"));
+        let (r, w) = (dir.join("repo"), dir.join("home/work/runs/r1"));
         std::fs::write(r.join("README.md"), "edited, not committed\n").unwrap();
         let copied = create(&r, &w, &head(&r), "r1").unwrap();
         assert_eq!(copied, vec![".env"]);
@@ -434,7 +447,7 @@ mod tests {
     #[test]
     fn accepting_fast_forwards_the_branch_the_person_is_on() {
         let dir = repo("accept");
-        let (r, w) = (dir.join("repo"), dir.join("home/worktrees/r2"));
+        let (r, w) = (dir.join("repo"), dir.join("home/work/runs/r2"));
         let base = head(&r);
         let branch = current_branch(&r).unwrap();
         // The repository's hooks are its own code; none runs on Janus's writes.
@@ -476,7 +489,7 @@ mod tests {
     #[test]
     fn a_branch_that_moved_on_gets_the_result_replayed_on_top_or_nothing() {
         let dir = repo("moved");
-        let (r, w1, w2) = (dir.join("repo"), dir.join("home/worktrees/a"), dir.join("home/worktrees/b"));
+        let (r, w1, w2) = (dir.join("repo"), dir.join("home/work/runs/a"), dir.join("home/work/runs/b"));
         let base = head(&r);
         let branch = current_branch(&r).unwrap();
         create(&r, &w1, &base, "a").unwrap();
@@ -509,7 +522,7 @@ mod tests {
     #[test]
     fn uncommitted_changes_in_the_way_stop_it_and_a_branch_checked_out_nowhere_just_moves() {
         let dir = repo("dirty");
-        let (r, w) = (dir.join("repo"), dir.join("home/worktrees/d"));
+        let (r, w) = (dir.join("repo"), dir.join("home/work/runs/d"));
         let base = head(&r);
         let branch = current_branch(&r).unwrap();
         create(&r, &w, &base, "d").unwrap();
@@ -534,7 +547,7 @@ mod tests {
     #[test]
     fn a_detached_head_moves_forward_only_from_where_it_was() {
         let dir = repo("detached");
-        let (r, w1, w2) = (dir.join("repo"), dir.join("home/worktrees/x"), dir.join("home/worktrees/y"));
+        let (r, w1, w2) = (dir.join("repo"), dir.join("home/work/runs/x"), dir.join("home/work/runs/y"));
         git(&r, &["checkout", "-q", "--detach"]);
         let base = head(&r);
         assert!(current_branch(&r).is_none());
@@ -562,7 +575,7 @@ mod tests {
         git(&r, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "b"]);
         git(&r, &["checkout", "-q", "--detach"]);
         let base = head(&r);
-        let w = dir.join("home/worktrees/z");
+        let w = dir.join("home/work/runs/z");
         create(&r, &w, &base, "z").unwrap();
         std::fs::write(w.join("z.txt"), "z\n").unwrap();
         git(&r, &["checkout", "-q", "HEAD~1"]);
@@ -583,13 +596,13 @@ mod tests {
     #[test]
     fn deleting_keeps_the_worktree_when_its_changes_cannot_be_saved() {
         let dir = repo("locked");
-        let (r, w) = (dir.join("repo"), dir.join("home/worktrees/r4"));
+        let (r, w) = (dir.join("repo"), dir.join("home/work/runs/r4"));
         let base = head(&r);
         create(&r, &w, &base, "r4").unwrap();
         std::fs::write(w.join("only-here.txt"), "work\n").unwrap();
         let git_dir = PathBuf::from(read(&w, &["rev-parse", "--absolute-git-dir"]).unwrap().trim());
         std::fs::write(git_dir.join("index.lock"), "").unwrap();
-        let kept = dir.join("home/worktrees/deleted");
+        let kept = dir.join("home/data/deleted-runs");
         assert!(remove(&r, &w, &kept, "r4").is_err());
         assert!(w.join("only-here.txt").exists(), "the file is still there");
         std::fs::remove_file(git_dir.join("index.lock")).unwrap();
@@ -603,14 +616,14 @@ mod tests {
     #[test]
     fn deleting_keeps_a_patch_and_nothing_changed_brings_nothing() {
         let dir = repo("nothing");
-        let (r, w) = (dir.join("repo"), dir.join("home/worktrees/r3"));
+        let (r, w) = (dir.join("repo"), dir.join("home/work/runs/r3"));
         let base = head(&r);
         let branch = current_branch(&r).unwrap();
         create(&r, &w, &base, "r3").unwrap();
         assert!(accept(&r, &w, Some(&branch), &base, "r3", false).unwrap().is_none());
         assert_eq!(head(&r), base);
         std::fs::write(w.join("more.txt"), "unfinished\n").unwrap();
-        let kept = remove(&r, &w, &dir.join("home/worktrees/deleted"), "r3").unwrap().unwrap();
+        let kept = remove(&r, &w, &dir.join("home/data/deleted-runs"), "r3").unwrap().unwrap();
         assert!(std::fs::read_to_string(kept).unwrap().contains("unfinished"));
         assert!(!w.exists());
         let _ = std::fs::remove_dir_all(&dir);

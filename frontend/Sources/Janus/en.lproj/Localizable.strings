@@ -1171,7 +1171,7 @@
 "没有独立验证" = "No independent verification";
 "%lld 个子任务没有独立验证" = "Without independent verification: %lld";
 " · 没有独立验证" = " · No independent verification";
-"%@的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。它单独的 worktree 也会删除，还没提交的改动先存成补丁（Janus 目录下的 worktrees/deleted）；你的工作目录和已经合并回去的结果不受影响。" = "The event log, subtasks, artifacts and logs of %@ will be deleted from this Mac and cannot be restored. Its own worktree is deleted too; changes never committed are saved as a patch first (worktrees/deleted in the Janus folder). Your working directory and results already merged back are not affected.";
+"%@的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。它单独的 worktree 也会删除，还没提交的改动先存成补丁（Janus 目录下的 data/deleted-runs）；你的工作目录和已经合并回去的结果不受影响。" = "The event log, subtasks, artifacts and logs of %@ will be deleted from this Mac and cannot be restored. Its own worktree is deleted too; changes never committed are saved as a patch first (data/deleted-runs in the Janus folder). Your working directory and results already merged back are not affected.";
 "%@ 当前的 detached HEAD" = "the detached HEAD of %@";
 "Git 仓库 %@" = "Git repository %@";
 "分支 %@" = "branch %@";

@@ -8,7 +8,8 @@ import Security
 ///
 /// A release carries update.json and two parts: the bundle without Node.js, and Node.js. Only the
 /// parts that changed are downloaded (Node.js is reused when its content hash is the same), each
-/// checked against update.json's SHA-256, put together under `<home>/updates/<version>/`, and
+/// checked against update.json's SHA-256, put together under `cache/updates/<version>/` in Janus
+/// home (only it and `previous/` are kept there), and
 /// checked as signed code: valid, and, when the running app has a stable signing identity,
 /// signed by that same identity. Then a small script swaps the bundle in after the app quits and
 /// opens the new one.
@@ -74,7 +75,7 @@ final class Updater {
     let current: String
     let repo: String?
     let bundle: URL
-    let home: URL
+    let home: JanusHome
     @ObservationIgnored private var timer: Task<Void, Never>?
 
     static let checkEvery: UInt64 = 6 * 3600
@@ -85,8 +86,16 @@ final class Updater {
         repo = (info["JanusUpdateRepo"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         bundle = Bundle.main.bundleURL
         let env = ProcessInfo.processInfo.environment
-        home = env["JANUS_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".janus")
+        home = JanusHome.current(env)
+    }
+
+    /// Before a download: everything an earlier update left in `dir` goes, versions downloaded and
+    /// never installed included, except `previous/`, the app to go back to by hand.
+    nonisolated static func clearStaged(_ dir: URL) {
+        let fm = FileManager.default
+        for name in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where name != "previous" {
+            try? fm.removeItem(at: dir.appendingPathComponent(name))
+        }
     }
 
     /// Only a packaged Janus.app updates itself; `swift run` and `just mac` do not.
@@ -196,10 +205,10 @@ final class Updater {
             state = .failed(L.text("没有写入 \(parent.path) 的权限，不能替换 Janus.app。请下载 DMG 手动安装。"))
             return
         }
-        let stage = home.appendingPathComponent("updates/\(r.version)")
+        let stage = home.updates.appendingPathComponent(r.version)
         let installed = installedNode
         do {
-            try? FileManager.default.removeItem(at: stage)
+            Self.clearStaged(home.updates)
             try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
             var parts = Self.plan(r, installedNode: installed)
             try await fetch(parts, into: stage)
@@ -278,18 +287,18 @@ final class Updater {
     }
 
     /// Hand over to a script that waits for this process to end, moves the old bundle to
-    /// `<home>/updates/previous/` (kept for going back by hand), moves the new one in and opens it.
+    /// `cache/updates/previous/` (kept for going back by hand), moves the new one in and opens it.
     /// When the new one cannot be moved in, the old one goes back in its place; when even that
     /// fails, the old one opens from `previous/`.
     private func relaunch(into app: URL) throws {
-        let dir = home.appendingPathComponent("updates")
+        let dir = home.updates
         let script = dir.appendingPathComponent("install.sh")
         try Self.installScript.write(to: script, atomically: true, encoding: .utf8)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = [script.path, String(getpid()), bundle.path, app.path,
                        dir.appendingPathComponent("previous/Janus.app").path,
-                       home.appendingPathComponent("logs/update.log").path]
+                       home.updateLog.path]
         p.standardInput = FileHandle.nullDevice
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice

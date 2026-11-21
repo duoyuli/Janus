@@ -1,6 +1,6 @@
 //! Model prices from models.dev, so the usage bill can show what the tokens would cost at API list
 //! prices. Janus downloads `https://models.dev/api.json` (data only: nothing in it is executed),
-//! keeps one price per model in `<home>/prices/models.json`, checks every hour and downloads again
+//! keeps one price per model in `cache/prices.json` in Janus home, checks every hour and downloads again
 //! once a day. Decision and trust boundary: `docs/decisions/20261115-model_prices.md`,
 //! `docs/operations/20261031-security.md#model_prices`.
 //!
@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -210,10 +210,6 @@ pub fn key(model: &str) -> String {
     m.rsplit('/').next().unwrap_or_default().trim().to_string()
 }
 
-fn path(home: &Path) -> PathBuf {
-    home.join("prices").join("models.json")
-}
-
 /// The price table in use, kept in memory once read from its file or synced. `App` holds it,
 /// next to the home its file lives in.
 #[derive(Default)]
@@ -225,7 +221,7 @@ impl crate::orchestrator::App {
         if let Some(t) = self.prices.0.read().unwrap().clone() {
             return Some(t);
         }
-        let t: Table = serde_json::from_slice(&std::fs::read(path(&self.cfg.data_dir)).ok()?).ok()?;
+        let t: Table = serde_json::from_slice(&std::fs::read(self.cfg.layout.prices()).ok()?).ok()?;
         let t = Arc::new(t);
         *self.prices.0.write().unwrap() = Some(t.clone());
         Some(t)
@@ -238,20 +234,20 @@ impl crate::orchestrator::App {
         if !force && let Some(t) = self.prices().filter(|t| now - t.fetched_at < SYNC_AFTER_MS) {
             return Ok(t);
         }
-        let home = self.cfg.data_dir.clone();
-        let table = Arc::new(tokio::task::spawn_blocking(move || fetch(&home, now)).await??);
+        let file = self.cfg.layout.prices();
+        let table = Arc::new(tokio::task::spawn_blocking(move || fetch(&file, now)).await??);
         *self.prices.0.write().unwrap() = Some(table.clone());
         crate::config::log(format!("janus: model prices from {SOURCE}: {} models", table.models.len()));
         Ok(table)
     }
 }
 
-/// `curl` over HTTPS only, with a time and a size limit, into the prices directory; the new table
+/// `curl` over HTTPS only, with a time and a size limit, next to the table's `file`; the new table
 /// replaces the old one in a single rename.
-fn fetch(home: &Path, now: i64) -> Result<Table> {
-    let dir = home.join("prices");
-    std::fs::create_dir_all(&dir)?;
-    let raw = dir.join("api.json.part");
+fn fetch(file: &Path, now: i64) -> Result<Table> {
+    let dir = file.parent().context("价格表没有所在目录")?;
+    std::fs::create_dir_all(dir)?;
+    let raw = dir.join("models-dev.json.part");
     let status = std::process::Command::new("curl")
         .args([
             "-fsSL",
@@ -278,9 +274,9 @@ fn fetch(home: &Path, now: i64) -> Result<Table> {
     if table.models.is_empty() {
         bail!("models.dev 的列表里没有读到任何价格");
     }
-    let tmp = dir.join("models.json.part");
+    let tmp = dir.join("prices.json.part");
     std::fs::write(&tmp, serde_json::to_vec(&table)?)?;
-    std::fs::rename(&tmp, path(home))?;
+    std::fs::rename(&tmp, file)?;
     Ok(table)
 }
 
@@ -386,7 +382,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         let (one, other) =
             (crate::orchestrator::test_app(&base.join("a")), crate::orchestrator::test_app(&base.join("b")));
-        let file = super::path(&one.cfg.data_dir);
+        let file = one.cfg.layout.prices();
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(&file, serde_json::to_vec(&Table::from_models_dev(&api(), 1)).unwrap()).unwrap();
         assert!(one.prices().is_some_and(|t| t.fetched_at == 1));

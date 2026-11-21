@@ -6,20 +6,24 @@ use serde_json::Map;
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::DirBuilderExt;
 
-pub(super) fn read_secrets(dir: &Path) -> Result<Value> {
-    match std::fs::read(dir.join("secrets.json")) {
+/// An agent's secrets file (`Layout::agent_secrets`); none yet reads as empty.
+pub(super) fn read_secrets(file: &Path) -> Result<Value> {
+    match std::fs::read(file) {
         Ok(bytes) => Ok(Value::Object(serde_json::from_slice(&bytes).context("无法读取 Agent 凭据文件")?)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(json!({})),
         Err(e) => Err(e.into()),
     }
 }
 
-pub(super) fn write_secrets(dir: &Path, secrets: &Value) -> Result<()> {
-    // Rename a complete 0600 file. A failed write must never truncate the previous credentials.
-    let mut file = tempfile::NamedTempFile::new_in(dir)?;
-    serde_json::to_writer_pretty(&mut file, secrets)?;
-    file.flush()?;
-    file.persist(dir.join("secrets.json"))?;
+pub(super) fn write_secrets(file: &Path, secrets: &Value) -> Result<()> {
+    // Rename a complete 0600 file in an owner-only folder. A failed write must never truncate
+    // the previous credentials.
+    let dir = file.parent().context("凭据文件没有所在目录")?;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    serde_json::to_writer_pretty(&mut tmp, secrets)?;
+    tmp.flush()?;
+    tmp.persist(file)?;
     Ok(())
 }
 
@@ -87,9 +91,10 @@ pub(crate) fn migrate_claude_env(tx: &rusqlite::Transaction, home: Option<&Path>
             return Ok(false);
         }
         check_id(id)?;
-        let dir = home.map(|h| h.join("agents").join(id));
-        let mut secrets = match &dir {
-            Some(dir) => read_secrets(dir)?,
+        // Where version 13 kept them; version 14 moves them (`layout::move_to_categories`).
+        let file = home.map(|h| h.join("agents").join(id).join("secrets.json"));
+        let mut secrets = match &file {
+            Some(file) => read_secrets(file)?,
             None => json!({}), // The dry run projects the database shape without touching credential files.
         };
         let before = secrets.clone();
@@ -102,10 +107,9 @@ pub(crate) fn migrate_claude_env(tx: &rusqlite::Transaction, home: Option<&Path>
         protect_claude_env(env, &mut secrets);
         let changed = *env != original;
         if secrets != before
-            && let Some(dir) = &dir
+            && let Some(file) = &file
         {
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-            write_secrets(dir, &secrets)?;
+            write_secrets(file, &secrets)?;
         }
         Ok(changed)
     })
@@ -147,7 +151,7 @@ mod tests {
         for value in [saved, app.connection(id).unwrap(), json!(app.connections().unwrap())] {
             assert!(!value.to_string().contains("test-token-value"));
         }
-        let file = dir.path().join("agents/gateway/secrets.json");
+        let file = app.cfg.layout.agent_secrets("gateway");
         assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(app.redact(id, "token=test-token-value"), "token=<secret>");
 

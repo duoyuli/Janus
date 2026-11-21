@@ -111,6 +111,8 @@ def main():
         if ctx.app:
             ctx.app.quit()
         server.stop()
+    # Every scenario wrote into this one home; nothing landed outside the layout.
+    results.append(_home_layout(home))
     elapsed = time.time() - t0
     report = os.path.join(report_dir, "report.md")
     shots = os.path.join(report_dir, "app")
@@ -131,6 +133,13 @@ def main():
     if not a.no_app:
         say(f"截图：{shots}（看一遍新功能涉及的页面）")
     sys.exit(1 if failed else 0)
+
+
+def _home_layout(home):
+    from lib import Checks, foreign
+    c = Checks("Janus home")
+    c(not foreign(home), f"所有场景跑完后，Janus home 顶层只有布局声明过的名字：{sorted(os.listdir(home))}")
+    return c
 
 
 def _setup_failure(error):

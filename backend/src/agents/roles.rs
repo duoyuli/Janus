@@ -69,7 +69,7 @@ impl App {
     /// Claude Code runs `/goal` only in a workspace it trusts. The lead's agent has its own
     /// config directory, so record the trust there (never in the user's own Claude config).
     pub fn trust_claude_workspace(&self, id: &str, path: &Path) -> Result<()> {
-        let file = self.agent_dir(id).join("home").join(".claude.json");
+        let file = self.agent_config(id).join(".claude.json");
         let mut cfg: Value = std::fs::read_to_string(&file)
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())

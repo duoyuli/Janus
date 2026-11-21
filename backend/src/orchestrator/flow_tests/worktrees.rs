@@ -114,7 +114,7 @@ async fn deleting_a_run_keeps_its_uncommitted_work_as_a_patch() {
     let cwd = cwd_of(&h, &run);
     h.app.delete_run(&run).await.unwrap();
     assert!(!cwd.exists());
-    let patch = h.dir.join("data/worktrees/deleted").join(format!("{run}.patch"));
+    let patch = h.app.cfg.layout.deleted_runs().join(format!("{run}.patch"));
     assert!(std::fs::read_to_string(patch).unwrap().contains("notes.md"));
     assert!(git_out(&h.repo, &["worktree", "list"]).lines().count() == 1, "git forgot the worktree");
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -161,8 +161,8 @@ async fn a_run_that_fails_to_start_leaves_no_worktree() {
         assert!(h.app.create_run(bad).await.is_err());
     }
     assert_eq!(count(), before, "git has no worktree left from the failed runs");
-    let left: Vec<_> = std::fs::read_dir(h.app.cfg.data_dir.join("worktrees"))
-        .map(|d| d.flatten().map(|e| e.file_name()).filter(|n| n != "deleted").collect())
+    let left: Vec<_> = std::fs::read_dir(h.app.cfg.layout.home().join("work/runs"))
+        .map(|d| d.flatten().map(|e| e.file_name()).collect())
         .unwrap_or_default();
     assert!(left.is_empty(), "no worktree directory left: {left:?}");
     assert!(h.app.db.runs(RunKind::Goal).unwrap().is_empty());
@@ -197,7 +197,7 @@ async fn a_workspace_folder_inside_a_repository_is_where_sessions_start() {
     assert!(sub.join("notes.md").exists(), "accepting brings it back into the folder");
 
     h.app.delete_run(&run).await.unwrap();
-    assert!(!h.app.cfg.data_dir.join("worktrees").join(&run).exists(), "the whole worktree goes");
+    assert!(!h.app.cfg.layout.run(RunKind::Goal, &run).work.exists(), "the whole worktree goes");
     assert_eq!(git_out(&h.repo, &["worktree", "list"]).lines().count(), 1);
     let _ = std::fs::remove_dir_all(&h.dir);
 }

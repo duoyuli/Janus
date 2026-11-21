@@ -193,7 +193,7 @@ async fn mcp_values_stay_out_of_records() {
     assert_eq!(app.mcp_values(&item.id).env["GITHUB_TOKEN"], "ghp-secret");
     let view = app.library_view().unwrap().to_string();
     assert!(!view.contains("ghp-secret") && view.contains("\"set\":true"), "{view}");
-    let db = std::fs::read(dir.join("janus.db")).unwrap();
+    let db = std::fs::read(app.cfg.layout.db()).unwrap();
     assert!(!String::from_utf8_lossy(&db).contains("ghp-secret"));
     use std::os::unix::fs::PermissionsExt;
     let mode = std::fs::metadata(app.values_path(&item.id).unwrap()).unwrap().permissions().mode();

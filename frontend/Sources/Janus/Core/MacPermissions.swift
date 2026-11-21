@@ -224,10 +224,10 @@ final class MacPermissions {
         MacPermissions(installation: nil, system: System(allowed: { _ in nil }, requestScreen: { false }, openSettings: { _ in false }, revealApp: {}, relaunch: {}))
     }
 
-    static func live(home: URL) -> MacPermissions {
+    static func live(home: JanusHome) -> MacPermissions {
         guard let installation = Installation.current() else { return unavailable() }
         let app = Bundle.main.bundleURL.resolvingSymlinksInPath().path
-        let file = home.appendingPathComponent("permissions/review.json")
+        let file = home.permissions
         let record = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Record.self, from: $0) }
         let appManagement = AppManagementCheck()
         let system = System(allowed: { permission in

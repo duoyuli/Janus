@@ -4,11 +4,23 @@
 use super::*;
 use serde_json::json;
 
+/// Where the database of a fresh home for `name` is (`data/janus.db`).
 fn temp_path(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("janus-migrate-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("janus.db")
+    let db = Layout::new(&dir).db();
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    db
+}
+
+/// The home a test database belongs to.
+fn home_of(db: &Path) -> &Path {
+    db.parent().and_then(Path::parent).unwrap()
+}
+
+/// Open the database the way the service does, upgrading it.
+fn open(db: &Path) -> Result<(crate::db::Db, Report)> {
+    crate::db::Db::open(&Layout::new(home_of(db)))
 }
 
 /// A database as Janus 2026.11.18 left it (`testdata/upgrade/v0.sql`, written by that release).
@@ -38,10 +50,10 @@ fn versions_count_up_from_one() {
 #[test]
 fn a_new_database_starts_at_the_latest_version_without_a_backup() {
     let path = temp_path("fresh");
-    let (db, report) = crate::db::Db::open(&path).unwrap();
+    let (db, report) = open(&path).unwrap();
     assert_eq!((report.from, report.to, db.data_version().unwrap()), (0, latest(), latest()));
     assert!(report.backup.is_none(), "nothing to back up");
-    assert!(!path.parent().unwrap().join("backups").exists());
+    assert!(!home_of(&path).join("backups").exists());
 }
 
 /// What 2026.11.18 wrote reaches the latest shape: the role label is gone from roles and run
@@ -59,7 +71,7 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
         .unwrap();
     drop(before);
 
-    let (_db, report) = crate::db::Db::open(&path).unwrap();
+    let (_db, report) = open(&path).unwrap();
     assert_eq!((report.from, report.to), (0, latest()));
     let backup = report.backup.expect("a backup before upgrading");
     assert!(backup.exists() && backup.file_name().unwrap().to_string_lossy().starts_with("janus-v0-"));
@@ -103,7 +115,7 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
 
     // Opening again changes nothing and takes no second backup; a table a migration dropped
     // (the run leases) does not come back with the baseline.
-    let (_db, again) = crate::db::Db::open(&path).unwrap();
+    let (_db, again) = open(&path).unwrap();
     assert!(again.applied.is_empty() && again.backup.is_none());
     assert_eq!(std::fs::read_dir(backup.parent().unwrap()).unwrap().count(), 1);
     let leases: i64 = Connection::open(&path)
@@ -139,7 +151,7 @@ fn every_item_is_for_everyone_and_the_general_worker_arrives() {
     conn.execute("UPDATE runs SET config = ?1 WHERE id = 'run-old'", params![snapshot.to_string()]).unwrap();
     drop(conn);
 
-    crate::db::Db::open(&path).unwrap();
+    open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
     for id in ["i-skill", "i-mcp"] {
         assert!(config(&conn, "library_item", id).get("reach").is_none(), "{id}");
@@ -188,7 +200,7 @@ fn preset_agents_become_claude_code_agents_with_their_variables() {
     agent("cx", "codex", "codex", "chatgpt", json!({}), json!({}));
     drop(conn);
 
-    crate::db::Db::open(&path).unwrap();
+    open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
     let glm = config(&conn, "connection", "glm");
     assert_eq!(
@@ -201,7 +213,7 @@ fn preset_agents_become_claude_code_agents_with_their_variables() {
     assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "glm-6", "the person's own value wins");
     assert!(env.get("API_TIMEOUT_MS").is_none(), "a variable the person unset stays unset");
     assert_eq!(env.get("MINE"), Some(&Value::Null));
-    let secrets = std::fs::read(path.parent().unwrap().join("agents/glm/secrets.json")).unwrap();
+    let secrets = std::fs::read(Layout::new(home_of(&path)).agent_secrets("glm")).unwrap();
     assert_eq!(serde_json::from_slice::<Value>(&secrets).unwrap()["env"]["MINE"], "1");
     assert_eq!(config(&conn, "connection", "ds")["env"]["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic");
     assert_eq!(config(&conn, "connection", "cx")["status"], "ok", "other agents are left alone");
@@ -223,31 +235,34 @@ fn claude_custom_api_keys_become_private_environment() {
     )
     .unwrap();
     drop(conn);
-    let agent = path.parent().unwrap().join("agents/cc");
+    // Where version 13 found it; version 14 moves it.
+    let agent = home_of(&path).join("agents/cc");
     std::fs::create_dir_all(&agent).unwrap();
     std::fs::write(agent.join("secrets.json"), r#"{"apiKey":"sk-ant-old"}"#).unwrap();
 
-    crate::db::Db::open(&path).unwrap();
+    open(&path).unwrap();
     let mut conn = Connection::open(&path).unwrap();
     let cc = config(&conn, "connection", "cc");
     assert_eq!(cc["auth"], "apikey", "the auth keeps its id");
     assert_eq!(cc["env"], json!({ "ANTHROPIC_MODEL": "m1", "ANTHROPIC_API_KEY": null, "GATEWAY_TOKEN": null }));
     assert!(!cc.to_string().contains("typed-in") && !cc.to_string().contains("sk-ant-old"));
-    let secrets: Value = serde_json::from_slice(&std::fs::read(agent.join("secrets.json")).unwrap()).unwrap();
+    let secrets: Value =
+        serde_json::from_slice(&std::fs::read(Layout::new(home_of(&path)).agent_secrets("cc")).unwrap()).unwrap();
     assert_eq!(
         (secrets["apiKey"].as_str(), secrets["env"]["GATEWAY_TOKEN"].as_str()),
         (Some("sk-ant-old"), Some("typed-in"))
     );
     let tx = conn.transaction().unwrap();
-    assert_eq!(apply(&tx, &Step::ClaudeEnv, path.parent()).unwrap(), 0, "a second run changes nothing");
+    let step = Step::Home(crate::agents::migrate_claude_env);
+    assert_eq!(apply(&tx, &step, Some(home_of(&path))).unwrap(), 0, "a second run changes nothing");
 }
 
 #[test]
 fn a_database_from_a_newer_janus_is_refused() {
     let path = temp_path("newer");
-    crate::db::Db::open(&path).unwrap();
+    open(&path).unwrap();
     Connection::open(&path).unwrap().pragma_update(None, "user_version", latest() + 1).unwrap();
-    let err = crate::db::Db::open(&path).err().expect("refused").to_string();
+    let err = open(&path).err().expect("refused").to_string();
     assert!(err.contains("更新的 Janus") && err.contains("backups"), "{err}");
 }
 
@@ -258,7 +273,7 @@ fn the_preview_leaves_the_database_alone() {
     assert!(text.contains(&format!("数据版本 0 → {}", latest())) && text.contains("所有数据都符合"), "{text}");
     let conn = Connection::open(&path).unwrap();
     assert_eq!(conn.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0)).unwrap(), 0);
-    assert!(!path.parent().unwrap().join("backups").exists());
+    assert!(!home_of(&path).join("backups").exists());
 }
 
 /// Field steps change only what they apply to, so running one again changes nothing.
@@ -310,7 +325,7 @@ fn the_data_shape_matches_its_snapshot() {
 #[test]
 fn worktree_runs_record_where_accepting_merges_back() {
     let path = old_database("source-branch");
-    let repo = path.parent().unwrap().join("repo");
+    let repo = home_of(&path).join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     let git = |args: &[&str]| {
         let out = std::process::Command::new("git")
@@ -346,7 +361,7 @@ fn worktree_runs_record_where_accepting_merges_back() {
     run("in-place", &base, false);
     drop(conn);
 
-    crate::db::Db::open(&path).unwrap();
+    open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
     let worktree = |id: &str| {
         let c: String = conn.query_row("SELECT config FROM runs WHERE id = ?1", [id], |r| r.get(0)).unwrap();

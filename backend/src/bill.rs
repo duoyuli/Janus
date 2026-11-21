@@ -129,9 +129,9 @@ mod tests {
 
     #[test]
     fn a_period_bill_counts_only_its_turns_and_its_part_of_the_cost() {
-        let path = std::env::temp_dir().join(format!("janus-bill-{}.db", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let db = Db::open(&path).unwrap().0;
+        let path = std::env::temp_dir().join(format!("janus-bill-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        let db = Db::open(&crate::layout::Layout::new(&path)).unwrap().0;
         let day = DAY_MS;
         db.insert_run("r1", RunKind::Goal, "g", "/tmp", &team(), 0).unwrap();
         let events = [
@@ -248,16 +248,16 @@ mod tests {
         assert!((e.amount - opus).abs() < 1e-12, "{e:?}");
         assert_eq!((e.unpriced_turns, e.unpriced_models.len()), (2, 2), "gpt-6 and haiku have no price here: {e:?}");
         assert_eq!(priced.agents[1].estimate, Some(opus));
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     /// A session that never reported usage still counts in the period's bill, as not reported,
     /// the way the run's own ledger counts it (FL-16).
     #[test]
     fn a_session_that_reported_nothing_counts_as_not_reported() {
-        let path = std::env::temp_dir().join(format!("janus-bill-silent-{}.db", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        let db = Db::open(&path).unwrap().0;
+        let path = std::env::temp_dir().join(format!("janus-bill-silent-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        let db = Db::open(&crate::layout::Layout::new(&path)).unwrap().0;
         db.insert_run("r1", RunKind::Chat, "", "/tmp", &team(), 0).unwrap();
         let t = 10 * DAY_MS;
         for e in [
@@ -280,6 +280,6 @@ mod tests {
         let bill = period(&db, t - DAY_MS, t + DAY_MS, 0, None).unwrap();
         assert_eq!(ledger.sessions.len(), 1, "the run's own ledger has the session");
         assert_eq!((bill.sessions, bill.unreported_sessions), (1, 1), "and so does the bill, as not reported");
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path);
     }
 }

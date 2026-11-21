@@ -112,3 +112,17 @@ private func install(in dir: URL, newArrives: Bool) throws -> (opened: String, l
     #expect(try String(contentsOf: cur.appendingPathComponent("version"), encoding: .utf8) == "new")
     #expect(done.opened == cur.path)
 }
+
+/// A new download starts from a clean folder: versions an earlier update left behind go, the
+/// app kept for going back by hand stays (docs/operations/20261031-deployment.md#layout).
+@Test func aDownloadClearsWhatEarlierUpdatesLeft() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("janus-updates-\(UUID().uuidString)")
+    let fm = FileManager.default
+    for name in ["2026.11.16.2/Janus.app", "2026.11.20.8/Janus.app", "previous/Janus.app"] {
+        try fm.createDirectory(at: dir.appendingPathComponent(name), withIntermediateDirectories: true)
+    }
+    try Data().write(to: dir.appendingPathComponent("install.sh"))
+    Updater.clearStaged(dir)
+    #expect(try fm.contentsOfDirectory(atPath: dir.path) == ["previous"])
+    try? fm.removeItem(at: dir)
+}

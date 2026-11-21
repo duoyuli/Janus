@@ -20,55 +20,91 @@
 <a id="layout"></a>
 ## 目录规范
 
-仓库只放代码。运行 Janus 产生和需要的一切都在 Janus home（`JANUS_HOME`，默认 `~/.janus`，权限 `0700`）：
+仓库只放代码。运行 Janus 产生和需要的一切都在 Janus home（`JANUS_HOME`，默认 `~/.janus`，权限 `0700`）。顶层按「丢了还能不能再有」分类，看名字就知道哪些要备份、哪些可以删；属于一个对象（Agent、Run、对话、资源）的东西放在它的 id 下。取舍见 [ADR：Janus home 按「丢了能不能再有」分类](../decisions/20261121-home_layout.md)。
 
 ```text
 ~/.janus/
-├── bin/janus                 # 安装的 Janus 二进制（just install）
-├── config.toml               # 用户配置，可选
-├── janus.db                  # SQLite：Agent、角色、工作区、Run、事件
-├── backups/                  # 数据升级前的数据库备份 janus-v<旧数据版本>-<毫秒时间>.db，保留最近 5 份
-├── janus.pid                 # 单实例锁，内容是正在运行的 Janus 的进程号
-├── agents/<agent-id>/        # 每个 Agent 的隔离配置目录、HOME、临时目录和凭据
-├── secrets/library/          # 资源库 MCP 服务器的环境变量和 HTTP header 值
-├── library/store/            # 资源库 Skill 的内容，按内容寻址
-├── library/sources/<id>/     # 资源库 Git 来源的仓库副本 repo/
-├── library/tools/            # MCP 服务器最近一次列出的工具，<资源 id>-<revision>.json；MCP 路由列工具时用它，不为列工具启动进程
-├── library/servers/<id>/     # MCP 路由启动的命令服务器的隔离目录（root/ 是它的 HOME，tmp/；warm/ 是预先准备时的工作目录）
-├── adapters/<id>/            # ACP 适配器，按需下载，每个版本一个目录
-├── artifacts/<run>/<task>/   # Run 的产物：回复和 diff
-├── runs/<run>/members/<member>/bundle/  # 成员的资源包：Run 创建时复制的 Skill
-├── runs/<run>/attachments/   # 随目标和消息粘贴的图片
-├── worktrees/<run>/          # Git 仓库上每个 Run 自己的 worktree（元数据在原仓库的 .git/worktrees/）
-├── worktrees/deleted/        # 删除 Run 时 worktree 里还没提交的改动，存成 <run>.patch
-├── chats/<run>/              # 和一名数字员工对话时的工作目录，每个对话新建一个，删除对话时一起删除
-├── prices/models.json        # 从 models.dev 同步的模型价格，每天更新，账单估算用
-├── updates/                  # 应用内更新：<版本>/ 下载和拼装中的新版本，previous/ 上一个版本，install.sh 替换脚本
-├── signing/                  # 发布签名证书（只在执行 make-signing-cert.sh 的机器上）
-├── permissions/review.json   # macOS 权限引导：安装标识和是否处理过引导，不是系统授权状态
+├── config.toml                      # 用户配置，可选
+├── janus.pid                        # 单实例锁，内容是正在运行的 Janus 的进程号
+├── bin/janus                        # 安装的 Janus 二进制（just install）
+├── data/                            # 无法再有：备份 Janus 只需备份它
+│   ├── janus.db                     # SQLite：Agent、角色、工作区、Run、事件
+│   ├── secrets/                     # 0700，Janus 保存的全部凭据，文件 0600
+│   │   ├── agents/<agent>.json      # Agent 的凭据字段和环境变量中的私有值
+│   │   └── library/<资源>.json      # 资源库 MCP 服务器的环境变量和 HTTP header 值
+│   ├── agents/<agent>/
+│   │   ├── config/                  # Agent 的配置目录（CODEX_HOME、CLAUDE_CONFIG_DIR）：登录状态、设置、会话记录
+│   │   └── home/                    # Agent 进程的 HOME 和 XDG 目录：它自己装的工具链和缓存
+│   ├── library/
+│   │   ├── skills/<sha256>/         # Skill 的内容，按内容寻址，存下后不再修改
+│   │   ├── sources/<来源>/repo/     # Git 来源的仓库副本
+│   │   └── servers/<资源>/          # MCP 路由启动的命令服务器的 HOME，跨 Run 保留
+│   ├── runs/<run>/                  # 任务：Janus 为它记下的内容
+│   │   ├── bundle/<成员>/           # 成员的资源包：Run 创建时复制的 Skill
+│   │   ├── attachments/             # 随目标和消息粘贴的图片
+│   │   └── artifacts/<任务>/        # 每次尝试的回复和 diff
+│   ├── chats/<对话>/                # 对话：bundle/<成员>/、attachments/
+│   ├── deleted-runs/<run>.patch     # 删除 Run 时 worktree 里还没提交的改动
+│   └── app/permissions.json         # macOS 权限引导：安装标识和是否处理过引导（应用写）
+├── work/                            # Agent 读写的目录
+│   ├── runs/<run>/                  # Git 仓库上每个任务自己的 worktree（元数据在原仓库的 .git/worktrees/）
+│   └── chats/<对话>/                # 对话的工作目录
+├── backups/                         # 数据升级前的 janus.db：janus-v<旧数据版本>-<毫秒时间>.db，保留 5 份
+├── cache/                           # 停止 Janus 后可以整个删掉，用到时重新生成
+│   ├── adapters/<id>/<版本>/        # ACP 适配器，按需下载
+│   ├── prices.json                  # 从 models.dev 同步的模型价格，每天更新
+│   ├── mcp-tools/<资源>/<revision>.json  # MCP 服务器最近一次列出的工具，只留当前 revision
+│   └── updates/                     # 应用内更新：<版本>/ 下载中的新版本，previous/ 上一个版本（应用写）
+├── tmp/                             # 每次启动 Janus 时清空
+│   ├── agents/<agent>/              # Agent 的 TMPDIR，配置检查用的空目录
+│   └── servers/<资源>/              # MCP 服务器的 TMPDIR，预先准备时的工作目录
 └── logs/
-    ├── janus.log             # Janus 自己的日志
-    ├── janus.out.log         # 以服务方式运行时进程的标准输出和错误
-    ├── adapters/<id>.log     # 适配器的安装和升级记录
-    ├── update.log            # 应用内更新替换应用包的记录
-    ├── library/              # 资源库预先准备命令启动的 MCP 服务器时它的 stderr，mcp-<名字>.log
-    └── <run>/                # 每个 ACP 子进程的 stderr，以及 MCP 路由启动的服务器的 mcp-<run 或会话>-<名字>.log
+    ├── janus.log                    # Janus 自己的日志
+    ├── janus.out.log                # 以服务方式运行或由应用启动时，进程的标准输出和错误
+    ├── update.log                   # 应用内更新替换应用包的记录（应用写）
+    ├── adapters/<id>.log            # 适配器的安装和升级记录
+    ├── agents/<agent>/              # 配置检查（test.log）和登录（login.log）的输出
+    ├── library/<资源>.log           # 预先准备命令服务器时它的 stderr
+    ├── runs/<run>/                  # 每个 ACP 子进程的 stderr，MCP 路由启动的服务器的 mcp-<run 或会话>-<资源名>.log
+    └── chats/<对话>/                # 同上，对话的
 ```
 
-| 类别 | 位置 | 说明 |
+| 分类 | 能不能删 | 说明 |
 | --- | --- | --- |
-| 用户级数据 | `janus.db`、`agents/`、`secrets/`、`library/`、`artifacts/`、`runs/` | 属于这台机器的这个用户，与仓库位置无关 |
-| Run 的工作目录 | `worktrees/` | 每个 Git 仓库上的 Run 一个 worktree，验收后由下次启动移除，删除 Run 时一起删；`deleted/` 下的补丁要手动清理，见 [ADR：每个任务在自己的 worktree 中运行](../decisions/20261119-run_worktrees.md) |
-| 全局依赖 | `adapters/` | 第一次用到时下载，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
-| 应用更新 | `updates/` | 只有最近一次的新版本和上一个版本，可以随时删除 |
-| 升级备份 | `backups/` | 数据升级前的 `janus.db` 副本，退回旧版本或升级出问题时用；确认新版本正常后可以删除，见[升级](#upgrade) |
-| 价格数据 | `prices/` | 从 models.dev 同步的模型价格，可以随时删除，下次同步时重新下载，见 [ADR：按 models.dev 的价格估算用量](../decisions/20261115-model_prices.md) |
-| 配置与日志 | `config.toml`、`logs/` | 配置项见[配置](../interfaces/20261031-configuration.md#settings) |
-| 程序 | `bin/janus` | 服务的二进制，不依赖仓库 |
+| `data/` | 不能 | 删掉就丢失全部设置、记录和登录状态。备份时复制它（服务停止时），或至少复制 `janus.db` 和 `secrets/` |
+| `work/` | 不要手动删 | 任务和对话还会用到；删除 Run 时 Janus 先把 worktree 里没提交的改动存成补丁再删，见 [ADR：每个任务在自己的 worktree 中运行](../decisions/20261119-run_worktrees.md) |
+| `cache/` | 停止 Janus 后可以 | 适配器、价格和工具列表用到时重新下载或生成；`updates/previous/` 是手动退回上一个应用版本时用的 |
+| `tmp/` | 可以 | 每次启动时清空 |
+| `logs/` | 可以 | 删除 Run、对话、Agent、资源时它们的日志一起删 |
+| `backups/` | 确认新版本正常后可以 | 退回旧版本或升级出问题时用，见[升级](#upgrade) |
+| `bin/`、`config.toml` | | 程序和配置，配置项见[配置](../interfaces/20261031-configuration.md#settings) |
 
-仓库中的 `backend/target/`、`frontend/.build/` 和 `dist/` 是构建输出，都在 `.gitignore` 中，运行时不会写入仓库。
+代码中的路径全部来自后端 `backend/src/layout.rs` 的 `Layout`（`App.cfg.layout`），应用中来自 `JanusHome`（`frontend/Sources/Janus/Core/JanusHome.swift`），两处的名字一致。删除 Run、对话、Agent 或资源时，删除的是 `Layout` 列出的属于它的全部路径（`RunDirs`、`agent_paths`、`item_paths`），删除 Run 时还删掉 Agent 自己存下的会话记录，见[删除](../interfaces/20261031-http_api.md#run_delete)。
 
-删除仓库不影响任何数据；删除 `~/.janus` 会丢失全部数据。理由见 [ADR：用户数据、依赖和日志都放在 Janus home](../decisions/20261031-user_home_layout.md)。
+仓库中的 `backend/target/`、`frontend/.build/` 和 `dist/` 是构建输出，都在 `.gitignore` 中，运行时不会写入仓库。删除仓库不影响任何数据。
+
+<a id="new_files"></a>
+## 新增文件放在哪里
+
+新功能要在本机存东西时，按顺序回答下面的问题，第一个答「是」的决定位置：
+
+| 问题 | 位置 | 例子 |
+| --- | --- | --- |
+| 是凭据（密钥、令牌、带凭据的值）吗？ | `data/secrets/<类别>/<id>.json`，文件 `0600`，写入时先写临时文件再改名 | Agent 的 API Key、MCP 服务器的 header |
+| 是 Agent 读写的工作目录吗？ | `work/<类别>/<id>/` | worktree、对话的工作目录 |
+| 只在一个进程运行期间用，重启后没有意义吗？ | `tmp/<类别>/<id>/` | `TMPDIR`、预先准备服务器时的目录 |
+| 删掉后能从网络或别的数据重新生成吗？ | `cache/<名字>`，写明谁在什么时候重新生成、留多少 | 适配器、价格表、工具列表 |
+| 是给人排查问题看的输出吗？ | `logs/<类别>/<id>/` 或 `logs/<类别>/<id>.log` | 子进程的 stderr |
+| 以上都不是：用户的数据或 Janus 的记录 | `data/<类别>/<id>/`；只有应用用的放 `data/app/` | 产物、附件、Skill 内容 |
+
+再按这几条落地：
+
+1. **属于某个对象的，放在它的 id 下**：`<类别>` 是对象的种类（`agents`、`runs`、`chats`、`library` 下的 `servers` 等），名字用 id，不用会改的名称，也不从文件名的形状认归属（规则 10）。新对象种类在 `Layout` 中加一个 `*_paths` 方法，列出它在各分类下的全部路径，删除时用它。
+2. **在 `Layout` 中加方法**：一个位置一个方法，注释写明放什么、谁写、什么时候删；应用要用时在 `JanusHome` 中加同名的属性。其他代码只调用这些方法，不在 home 上拼名字。
+3. **会增长的写明回收**：`cache/`、`logs/` 和 `data/` 中每次运行都会新增的东西，写明谁在什么时候删、保留多少，并在代码里实现。
+4. **顶层不加新名字**：上面的分类够用；确实需要新的顶层分类时，先写 ADR，再改 `layout::TOP`。
+5. **更新文档和测试**：在上面的目录树和分类表中加上它；删除对象时它也要删的，在删除的测试中检查。
+6. **移动已有的文件是一次数据升级**：在 `MIGRATIONS` 末尾加一条迁移（`Step::Home`），用 `backend/src/layout/relocate.rs` 的 `Relocation` 列出移动和删除，它负责改名、改写数据库和 Agent 文件中记下的旧路径（规则 11）；不在读取代码里兼容旧位置。
 
 <a id="macos_app"></a>
 ## macOS 应用
@@ -180,20 +216,21 @@ just install
 | 升级对象 | 做法 |
 | --- | --- |
 | Janus 本身（服务） | 更新仓库代码后执行 `just install`，再执行 `just restart` |
-| Janus 本身（macOS 应用） | 在「设置 → 通用 → 更新」中点「更新到 <版本>」；侧栏底部的「可以更新」和菜单栏 Janus 图标菜单中的「检查更新…」都打开这一节。上一个版本保留在 `~/.janus/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
+| Janus 本身（macOS 应用） | 在「设置 → 通用 → 更新」中点「更新到 <版本>」；侧栏底部的「可以更新」和菜单栏 Janus 图标菜单中的「检查更新…」都打开这一节。上一个版本保留在 `~/.janus/cache/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
 | ACP 适配器 | 在「设置 → 数字员工」的 Agent 卡片上检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
 | Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → 数字员工」重新检查 |
 
-数据随版本自动升级：新版本的服务第一次启动时，先把 `janus.db` 备份到 `backups/`，再把表结构、设置对象、Run 快照和默认数字员工升级到这个版本的数据版本，日志 `logs/janus.log` 写明升级了什么和备份位置。不需要单独运行升级脚本；想先看看会改什么，执行 `janus migrate --dry-run`（在副本上执行，不修改数据）。详见[数据升级](../architecture/20261031-data_model.md#migrations)。
+数据随版本自动升级：新版本的服务第一次启动时，先把 `data/janus.db` 备份到 `backups/`，再把表结构、设置对象、Run 快照和默认数字员工升级到这个版本的数据版本，日志 `logs/janus.log` 写明升级了什么和备份位置。不需要单独运行升级脚本；想先看看会改什么，执行 `janus migrate --dry-run`（在副本上执行，不修改数据）。详见[数据升级](../architecture/20261031-data_model.md#migrations)。
 
 - 升级要由新版本的服务执行。安装包里的应用连上其他版本的服务（例如还在运行的 `just dev` 或旧的 launchd 服务）时会提示，点「停止旧服务并重试」后改用应用自带的服务；以服务方式运行时先 `just stop`，或 `just install && just restart` 升级服务。
-- 退回旧版本：旧版本不能打开升级过的数据，会拒绝启动。先退出 Janus，把 `backups/` 中升级前的备份复制为 `janus.db`（同时删除 `janus.db-wal` 和 `janus.db-shm`），再打开旧版本；升级后新写入的数据不在备份里。
+- 退回旧版本：旧版本不能打开升级过的数据，会拒绝启动。先退出 Janus，把 `backups/` 中升级前的备份复制为 `data/janus.db`（同时删除 `data/janus.db-wal` 和 `data/janus.db-shm`），再打开旧版本；升级后新写入的数据不在备份里。
+- 退回数据版本 14 之前的版本（2026-11-21 之前发布的）：那些版本把数据库放在 Janus home 顶层，也不认识按类别整理后的目录。要把 `backups/` 中 `janus-v13-…` 或更早的备份复制为顶层的 `janus.db`，旧版本会把它当作全部数据，`data/` 等目录中的文件它都用不到，见 [ADR：Janus home 按「丢了能不能再有」分类](../decisions/20261121-home_layout.md)。
 
 <a id="backup"></a>
 ## 备份与迁移到另一台机器
 
-- 备份：先 `just stop`，再复制整个 `~/.janus`。`adapters/` 可以不备份，用到时会重新下载。
-- 迁移：在新机器上安装 Janus，把备份放回 `~/.janus`，执行 `just start`。数据库中记录的产物路径是绝对路径，用户名或 `JANUS_HOME` 不同时，旧 Run 的产物链接会失效，Run 记录本身不受影响。
+- 备份：先 `just stop`，再复制 `~/.janus/data`；要连正在进行的任务一起保留，也复制 `work/`。`cache/`、`tmp/` 和 `logs/` 不用备份。
+- 迁移：在新机器上安装 Janus，把备份放回 `~/.janus` 的同一位置，执行 `just start`。数据库中记录的路径是绝对路径，用户名或 `JANUS_HOME` 不同时，旧 Run 的产物链接会失效，Run 记录本身不受影响。
 
 <a id="uninstall"></a>
 ## 卸载

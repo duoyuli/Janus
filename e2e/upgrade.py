@@ -35,7 +35,7 @@ import tempfile
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from lib import ADDR, ROOT, ApiError, Checks, Server, http, run, say  # noqa: E402
+from lib import ADDR, ROOT, ApiError, Checks, Server, foreign, home_db, http, run, say  # noqa: E402
 
 check = Checks("升级")
 
@@ -157,7 +157,7 @@ def sql_text(s):
 
 
 def db_version(home):
-    db = sqlite3.connect(os.path.join(home, "janus.db"))
+    db = sqlite3.connect(home_db(home))
     v = db.execute("PRAGMA user_version").fetchone()[0]
     db.close()
     return v
@@ -209,8 +209,11 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         claude = next(c for c in setup["connections"] if c["id"] == "claude")
         check(claude["auth"] == "apikey" and "ANTHROPIC_API_KEY" in claude["env"] and claude["env"]["ANTHROPIC_API_KEY"] is None,
               "旧 Claude API Key 升级为已保存的私有环境变量")
-        with open(os.path.join(home, "agents", "claude", "secrets.json")) as f:
-            check(json.load(f)["apiKey"] == "sk-ant-e2e", "升级保留原来的 Claude 密钥")
+        with open(os.path.join(home, "data", "secrets", "agents", "claude.json")) as f:
+            check(json.load(f)["apiKey"] == "sk-ant-e2e", "升级保留原来的 Claude 密钥，移到 data/secrets/")
+        check(not foreign(home) and os.path.exists(os.path.join(home, "data", "janus.db")),
+              f"Janus home 按类别整理：顶层只有布局声明过的名字（{sorted(os.listdir(home))}）")
+        check(os.path.isdir(os.path.join(home, "data", "agents", "claude", "config")), "Agent 的配置目录移到 data/agents/<id>/config/")
         roles = {r["id"]: r for r in setup["roles"]}
         check(all("role" not in r for r in setup["roles"]), "数字员工不再带「定位」字段")
         for rid in ("coordinator", "researcher", "product-manager", "implementer"):
@@ -241,7 +244,7 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         else:
             check(t["connection"] == conn["id"] and conns[conn["id"]]["name"] == "Claude", "数字员工和绑定的 Claude Code 连接不变")
         check(setup["workspaces"] == before["workspaces"], "工作区不变")
-        db = sqlite3.connect(os.path.join(home, "janus.db"))
+        db = sqlite3.connect(home_db(home))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]
         worktree = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-wt'").fetchone()[0])["worktree"]
         db.close()
@@ -263,7 +266,7 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
 
     newer = os.path.join(tmp, "home-newer-" + tag)
     shutil.copytree(home, newer, ignore=shutil.ignore_patterns("janus.pid"))
-    db = sqlite3.connect(os.path.join(newer, "janus.db"))
+    db = sqlite3.connect(home_db(newer))
     db.execute(f"PRAGMA user_version = {latest + 1}")
     db.commit()
     db.close()

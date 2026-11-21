@@ -304,7 +304,7 @@ impl App {
         // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
         let (notes, note_ids) = self.peek_notes(run, "lead");
         let brief = format!("{}{notes}", self.goal_brief(run, resumed));
-        let skills = skills_note(self.skill_router_md(&run.id, &lead));
+        let skills = skills_note(self.skill_router_md(run, &lead));
         let system = system_layer(&[&brief, &skills, &standing]);
         let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
         let workspace = run.cwd.clone();
@@ -312,7 +312,7 @@ impl App {
             // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
             self.trust_claude_workspace(&lead.runtime, &workspace)?;
         }
-        let log = self.cfg.data_dir.join("logs").join(&run.id).join("lead-goal.log");
+        let log = self.dirs(run).log("lead-goal.log");
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
         let (conn, mut rx, mut ctl) = self.open_session(run, &owner, "lead", &spec, &log, "负责人").await?;
         let result = async {
@@ -474,7 +474,7 @@ impl App {
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
         let brief = if chat { chat_brief(&events) } else { conversation_brief(run, &events) };
-        let skills = skills_note(self.skill_router_md(&run.id, &lead));
+        let skills = skills_note(self.skill_router_md(run, &lead));
         let fresh = system_layer(&[&brief, &skills, &standing]);
         let old = old_session.as_deref().map(|sid| {
             let kept = recorded_system(&events, sid).unwrap_or_else(|| system_layer(&[&skills, &standing]));
@@ -727,7 +727,7 @@ impl App {
                 st.mcp_token = token;
             }
         }
-        let log = self.cfg.data_dir.join("logs").join(&run.id).join(if chat { "chat.log" } else { "lead-chat.log" });
+        let log = self.dirs(run).log(if chat { "chat.log" } else { "lead-chat.log" });
         let who = if chat { lead.name.as_str() } else { "负责人" };
         self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
     }

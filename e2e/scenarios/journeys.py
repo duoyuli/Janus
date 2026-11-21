@@ -77,7 +77,7 @@ def goal_codex(ctx, c):
     if diff:
         status, body, _ = ctx.api("GET", f"/api/file?path={diff['data']['path']}", raw=True)
         c(status == 200 and b"notes.md" in body, "产物可以通过 /api/file 读取")
-    code, _ = ctx.api_error("GET", f"/api/file?path={ctx.home}/janus.db")
+    code, _ = ctx.api_error("GET", f"/api/file?path={ctx.home}/data/janus.db")
     c(code == 403, "/api/file 不能读 Janus home 中产物以外的文件")
     before = [e["seq"] for e in run.events()]
     status, body, headers = ctx.api("GET", f"/api/runs/{run.id}/export", raw=True)

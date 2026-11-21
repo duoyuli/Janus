@@ -3,9 +3,11 @@
 //! snapshot, the default roles) adds one `Migration` to the end of `MIGRATIONS`; the service runs
 //! the missing ones when it opens the database, after copying it to `backups/`. Readers only ever
 //! see the latest shape, so no code keeps reading old shapes. The events of a run are history and
-//! are never rewritten.
+//! are never rewritten, except for where a file now is when a migration moves Janus home's folders
+//! (`layout::Relocation`).
 // @project-doc docs/architecture/20261031-data_model.md#migrations
 
+use crate::layout::Layout;
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, Transaction, params};
 use serde_json::{Map, Value};
@@ -46,8 +48,9 @@ pub enum Step {
     /// Anything else (a default computed from other fields, a type change); returns how many
     /// objects it changed.
     Custom(fn(&Transaction) -> Result<usize>),
-    /// Move Claude credentials from the old connection into its existing private file.
-    ClaudeEnv,
+    /// A change that also reaches files in Janus home (credentials, a move of folders). It gets
+    /// the home as that data version laid it out; the dry run passes none and changes no file.
+    Home(fn(&Transaction, Option<&Path>) -> Result<usize>),
 }
 
 /// Where a field step applies.
@@ -130,7 +133,12 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 13,
         name: "Claude 的自定义 API 改用环境变量：单独保存的 API Key 成为 ANTHROPIC_API_KEY，私有变量移出数据库",
-        steps: &[Step::ClaudeEnv],
+        steps: &[Step::Home(crate::agents::migrate_claude_env)],
+    },
+    Migration {
+        version: 14,
+        name: "Janus home 按类别整理：data、work、cache、tmp、logs，任务和对话分开存放",
+        steps: &[Step::Home(crate::layout::move_to_categories)],
     },
 ];
 
@@ -237,10 +245,10 @@ pub struct Report {
 /// Backups kept in `<home>/backups`; older ones are removed.
 const KEEP_BACKUPS: usize = 5;
 
-/// Bring a database to `latest()`. A database with data is copied to `<dir of db>/backups` first;
+/// Bring a database to `latest()`. A database with data is copied to `backups/` of its home first;
 /// each migration runs in its own transaction with its version. A database from a newer Janus is
 /// refused: this build does not know what that data means and could damage it.
-pub fn upgrade(conn: &mut Connection, db: Option<&Path>) -> Result<Report> {
+pub fn upgrade(conn: &mut Connection, layout: Option<&Layout>) -> Result<Report> {
     let fresh: i64 = conn.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table'", [], |r| r.get(0))?;
     let from: u32 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
     // Only a database at version 0 (new, or from before migrations) still needs the baseline:
@@ -250,7 +258,7 @@ pub fn upgrade(conn: &mut Connection, db: Option<&Path>) -> Result<Report> {
     }
     let to = latest();
     if from > to {
-        let backups = db.and_then(Path::parent).map(|d| d.join("backups").display().to_string()).unwrap_or_default();
+        let backups = layout.map(|l| l.backups().display().to_string()).unwrap_or_default();
         bail!(
             "这份数据来自更新的 Janus（数据版本 {from}，这个版本的 Janus 只支持到 {to}）。请升级 Janus；要退回这个版本，先从 {backups} 恢复升级前的备份。"
         );
@@ -260,15 +268,15 @@ pub fn upgrade(conn: &mut Connection, db: Option<&Path>) -> Result<Report> {
         return Ok(report);
     }
     if fresh > 0
-        && let Some(db) = db
+        && let Some(layout) = layout
     {
-        report.backup = Some(backup(conn, db, from)?);
+        report.backup = Some(backup(conn, layout, from)?);
     }
     for m in MIGRATIONS.iter().filter(|m| m.version > from) {
         let tx = conn.transaction()?;
         let mut changed = 0;
         for step in m.steps {
-            changed += apply(&tx, step, db.and_then(Path::parent))
+            changed += apply(&tx, step, layout.map(Layout::home))
                 .with_context(|| format!("数据升级 {}「{}」失败", m.version, m.name))?;
         }
         tx.pragma_update(None, "user_version", m.version)?;
@@ -279,8 +287,8 @@ pub fn upgrade(conn: &mut Connection, db: Option<&Path>) -> Result<Report> {
 }
 
 /// Copy the database to `backups/janus-v<version>-<ms>.db` and keep the newest few.
-fn backup(conn: &Connection, db: &Path, version: u32) -> Result<PathBuf> {
-    let dir = db.parent().unwrap_or(Path::new(".")).join("backups");
+fn backup(conn: &Connection, layout: &Layout, version: u32) -> Result<PathBuf> {
+    let dir = layout.backups();
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("janus-v{version}-{}.db", crate::orchestrator::now_ms()));
     conn.execute("VACUUM INTO ?1", params![path.to_string_lossy()]).context("升级前备份数据库失败")?;
@@ -325,7 +333,7 @@ fn apply(tx: &Transaction, step: &Step, home: Option<&Path>) -> Result<usize> {
             }
         }),
         Step::Custom(f) => f(tx),
-        Step::ClaudeEnv => crate::agents::migrate_claude_env(tx, home),
+        Step::Home(f) => f(tx, home),
     }
 }
 

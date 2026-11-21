@@ -33,6 +33,28 @@ FAKE_AGENT = os.path.join(ROOT, "backend", "testdata", "fake_acp.py")
 # The npm packages Janus runs for the built-in runtimes (backend/src/adapters.rs `ADAPTERS`).
 ADAPTER_PACKAGES = {"codex": "@agentclientprotocol/codex-acp", "claude": "@agentclientprotocol/claude-agent-acp"}
 STAND_IN_VERSION = "9.9.9"
+# The names that may stand at the top of Janus home: `layout::TOP` in backend/src/layout.rs
+# (docs/operations/20261031-deployment.md#layout).
+HOME_TOP = {"config.toml", "janus.pid", "bin", "data", "work", "cache", "tmp", "logs", "backups"}
+
+
+def home_db(home):
+    """The database of a Janus home: `data/janus.db`, or at the top in a home an older release wrote."""
+    new = os.path.join(home, "data", "janus.db")
+    return new if os.path.exists(new) else os.path.join(home, "janus.db")
+
+
+def paths_with(home, id_):
+    """Every path in a Janus home whose name holds `id_`: what is left of an object after deleting it."""
+    found = []
+    for root, dirs, files in os.walk(home):
+        found += [os.path.join(root, n) for n in dirs + files if id_ in n]
+    return found
+
+
+def foreign(home):
+    """What stands at the top of a Janus home that is not Janus's."""
+    return sorted(set(os.listdir(home)) - HOME_TOP - {".DS_Store"})
 
 _print = threading.Lock()
 
@@ -274,10 +296,10 @@ def stand_in_adapters(home, python):
     """Codex and Claude Code adapters that run the scripted agent instead of the real one.
 
     Janus starts a built-in runtime as `node <bin of the npm package>` from
-    `<home>/adapters/<id>/current`; here that script hands stdio to fake_acp.py, so the release
+    `<home>/cache/adapters/<id>/current`; here that script hands stdio to fake_acp.py, so the release
     build's own launch path (adapter lookup, Node, isolation, lead rules) runs unchanged."""
     for id_, package in ADAPTER_PACKAGES.items():
-        d = os.path.join(home, "adapters", id_)
+        d = os.path.join(home, "cache", "adapters", id_)
         pkg = os.path.join(d, STAND_IN_VERSION, "node_modules", package)
         os.makedirs(pkg, exist_ok=True)
         with open(os.path.join(pkg, "package.json"), "w") as f:

@@ -156,7 +156,7 @@ impl App {
         extra: Vec<Value>,
         system: Option<&str>,
     ) -> Opening {
-        let bundle = self.bundle_dir(&run.id, &m.id);
+        let bundle = self.dirs(run).bundle(&m.id);
         let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, self.tools_server(run, who));
         let mut meta = launch.meta;
         if m.kind == Runtime::Claude {

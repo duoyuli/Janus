@@ -147,7 +147,7 @@ async fn command_servers_are_served_by_the_runs_router() {
         std::env::var("CARGO_PKG_NAME").is_ok() && env["CARGO_PKG_NAME"].is_null(),
         "Janus's variables stay out: {env}"
     );
-    assert_eq!(env["HOME"], json!(h.app.server_home(&probe.id).join("root")), "a HOME of its own");
+    assert_eq!(env["HOME"], json!(h.app.cfg.layout.server_home(&probe.id)), "a HOME of its own");
     let own: Value = serde_json::from_str(&text(&tool(&h, &at, "probe__env", json!({ "name": "OWN" })).await)).unwrap();
     assert_eq!(own["OWN"], "mine", "its own values are there");
     unknown(&h, &at, "probe__nope").await;
@@ -231,7 +231,7 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert!(process_alive(&shared_child), "the run's shared server keeps going");
 
     // Another run lists from the list the server last gave, starting nothing.
-    let before = std::fs::read_dir(h.app.tools_dir()).unwrap().count();
+    let before = std::fs::read_dir(h.app.cfg.layout.home().join("cache/mcp-tools")).unwrap().count();
     assert!(before >= 2, "lists are written down");
     let second = start(&h, json!([task("T2", "m1", json!({}))])).await;
     wait_until(&h.app, &second, "T2 running", |e| task_event(e, "attempt.started", "T2")).await;
@@ -249,16 +249,10 @@ async fn command_servers_are_served_by_the_runs_router() {
     h.app.action(&second_run, &json!({ "type": "cancel" })).unwrap();
 
     // Deleting the item takes its sandbox and remembered lists along.
-    let home = h.app.server_home(&probe.id);
-    assert!(home.exists());
+    let owned = h.app.cfg.layout.item_paths(&probe.id);
+    assert!(h.app.cfg.layout.server_home(&probe.id).exists() && h.app.cfg.layout.mcp_tools(&probe.id).exists());
     h.app.delete_item(&probe.id).await.unwrap();
-    assert!(!home.exists());
-    assert!(
-        std::fs::read_dir(h.app.tools_dir())
-            .unwrap()
-            .flatten()
-            .all(|f| !f.file_name().to_string_lossy().starts_with(&probe.id))
-    );
+    assert!(owned.iter().all(|p| !p.exists()), "everything it owned goes: {owned:?}");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -425,7 +419,7 @@ async fn servers_are_prepared_when_added() {
     eventually("the server is prepared", || warm(&probe.id)["state"] == "ready").await;
     assert_eq!(warm(&probe.id)["tools"], 8, "both pages, without the task-only tool");
     assert_eq!(std::fs::read_to_string(&starts).unwrap().lines().count(), 1, "started once");
-    assert!(app.server_home(&probe.id).join("root").is_dir(), "in its own sandbox, which runs reuse");
+    assert!(app.cfg.layout.server_home(&probe.id).is_dir(), "in its own sandbox, which runs reuse");
     eventually("the broken one says why", || warm(&broken.id)["state"] == "failed").await;
     assert!(warm(&broken.id)["error"].as_str().unwrap().contains("janus-no-such-command"), "{}", warm(&broken.id));
     // A server that only speaks a protocol version Janus doesn't is not used, and says which.

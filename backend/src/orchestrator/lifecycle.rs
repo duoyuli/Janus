@@ -49,18 +49,18 @@ impl App {
         };
         // Nothing made for a run that is never recorded stays behind: a step that fails from here
         // takes back the worktree and the run's own directory.
-        let prepared =
-            self.bundle_team(&id, &team).and_then(|()| crate::attachments::save(&self.cfg.data_dir, &id, &req.images));
+        let dirs = self.cfg.layout.run(RunKind::Goal, &id);
+        let prepared = self.bundle_team(&dirs, &team).and_then(|()| crate::attachments::save(&dirs, &req.images));
         let goal_images = match prepared {
             Ok(images) => images,
             Err(err) => {
                 if let Some(w) = &worktree {
-                    let kept = self.cfg.data_dir.join("worktrees").join("deleted");
+                    let kept = self.cfg.layout.deleted_runs();
                     if let Err(e) = crate::worktrees::remove(&w.repo, &self.worktree_root(&id), &kept, &id) {
                         crate::config::log(format!("janus: could not take back the worktree of {id}: {e:#}"));
                     }
                 }
-                let _ = std::fs::remove_dir_all(self.cfg.data_dir.join("runs").join(&id));
+                crate::layout::remove(&dirs.data);
                 return Err(err);
             }
         };
@@ -175,9 +175,9 @@ impl App {
         }
     }
 
-    /// Where a run's worktree lives (see `crate::worktrees`).
+    /// Where a run's worktree lives (see `crate::worktrees`): its `work` directory.
     pub(super) fn worktree_dir(&self, run_id: &str) -> PathBuf {
-        self.cfg.data_dir.join("worktrees").join(run_id)
+        self.cfg.layout.run(RunKind::Goal, run_id).work
     }
 
     /// The top of a run's worktree as the agents' tools report it. The run's `cwd` is a folder in
@@ -187,24 +187,23 @@ impl App {
         dir.canonicalize().unwrap_or(dir)
     }
 
-    /// Where a member's resources live for this run: its skills, laid out the way its agent
-    /// reads them. Sessions are pointed here when they open.
-    pub(crate) fn bundle_dir(&self, run_id: &str, member: &str) -> PathBuf {
-        self.cfg.data_dir.join("runs").join(run_id).join("members").join(member).join("bundle")
+    /// The places of a run or chat (`Layout::run`).
+    pub(crate) fn dirs(&self, run: &Run) -> crate::layout::RunDirs {
+        self.cfg.layout.run(run.kind, &run.id)
     }
 
     /// The SKILL.md of the member's skill router in its bundle, when the member has skills.
-    pub(super) fn skill_router_md(&self, run_id: &str, m: &Member) -> Option<PathBuf> {
-        crate::library::skill_router_md(m.kind, &m.resources, &self.bundle_dir(run_id, &m.id))
+    pub(super) fn skill_router_md(&self, run: &Run, m: &Member) -> Option<PathBuf> {
+        crate::library::skill_router_md(m.kind, &m.resources, &self.dirs(run).bundle(&m.id))
     }
 
     /// Copy each member's skills into its bundle, so later edits to the library do not change
     /// the run and no agent reads the library itself.
     // @project-doc docs/domains/20261116-resource_library.md#delivery
-    pub(super) fn bundle_team(&self, run_id: &str, team: &[Member]) -> Result<()> {
+    pub(super) fn bundle_team(&self, dirs: &crate::layout::RunDirs, team: &[Member]) -> Result<()> {
         let uses = self.db.skill_uses()?.into_iter().map(|(id, (n, _))| (id, n)).collect();
         for m in team {
-            crate::library::bundle(&self.store_dir(), m.kind, &m.resources, &uses, &self.bundle_dir(run_id, &m.id))?;
+            crate::library::bundle(&self.store_dir(), m.kind, &m.resources, &uses, &dirs.bundle(&m.id))?;
         }
         Ok(())
     }
@@ -653,9 +652,9 @@ impl App {
         self.set_status(run, RunStatus::Delivered);
     }
 
-    /// Delete a run and everything Janus kept for it: its rows in SQLite and its directories under
-    /// Janus home (artifacts, logs, member bundles and attachments; a chat's directory too). A run
-    /// that is still working is refused, because its sessions and attempts would keep writing;
+    /// Delete a run and everything Janus kept for it: its rows in SQLite, its places in Janus home
+    /// (`RunDirs`: what it recorded, the folder it worked in, its logs) and the transcripts its
+    /// sessions left in the agents' own configuration directories. A run that is still working is refused, because its sessions and attempts would keep writing;
     /// stop it first. A chat has only its own session, which is stopped here. The workspace's own
     /// files are not touched.
     // @project-doc docs/interfaces/20261031-http_api.md#run_delete
@@ -664,8 +663,8 @@ impl App {
         let row = self.db.run(run_id).map_err(DeleteRefused::Invalid)?;
         let Some(row) = row else { return Err(DeleteRefused::NotFound) };
         let status = RunStatus::parse(row["status"].as_str().unwrap_or(""));
-        let chat = RunKind::parse(row["kind"].as_str().unwrap_or("")) == Some(RunKind::Chat);
-        if !chat && status.is_some_and(RunStatus::is_active) {
+        let kind = RunKind::parse(row["kind"].as_str().unwrap_or("")).unwrap_or_default();
+        if kind == RunKind::Goal && status.is_some_and(RunStatus::is_active) {
             return Err(DeleteRefused::Conflict("任务还在进行，先停止任务再删除".into()));
         }
         // A delivered run keeps its lead conversation open for more work; take the run out of the
@@ -685,7 +684,7 @@ impl App {
         }
         // The run's worktree goes too; changes never committed are kept as a patch first.
         if let Some(repo) = row["config"]["worktree"]["repo"].as_str() {
-            let kept = self.cfg.data_dir.join("worktrees").join("deleted");
+            let kept = self.cfg.layout.deleted_runs();
             match crate::worktrees::remove(Path::new(repo), &self.worktree_root(run_id), &kept, run_id) {
                 Ok(Some(patch)) => crate::config::log(format!(
                     "janus: run {run_id} deleted; its uncommitted changes are kept in {}",
@@ -695,12 +694,17 @@ impl App {
                 Err(err) => return Err(DeleteRefused::Invalid(err)),
             }
         }
-        // The directories go before the rows: the row is what lets a second request find the run,
-        // so a directory that could not be removed is removed by trying again.
-        let subs: &[&str] = if chat { &["artifacts", "logs", "runs", "chats"] } else { &["artifacts", "logs", "runs"] };
-        for sub in subs {
-            let path = self.cfg.data_dir.join(sub).join(run_id);
-            if let Err(err) = std::fs::remove_dir_all(&path)
+        // The files go before the rows: the row is what lets a second request find the run, so a
+        // file that could not be removed is removed by trying again.
+        let agents: HashSet<&str> =
+            row["config"]["team"].as_array().into_iter().flatten().filter_map(|m| m["runtime"].as_str()).collect();
+        let sessions = self.db.run_sessions(run_id).map_err(DeleteRefused::Invalid)?;
+        for agent in agents {
+            self.forget_sessions(agent, &sessions).map_err(DeleteRefused::Invalid)?;
+        }
+        let dirs = self.cfg.layout.run(kind, run_id);
+        for path in [&dirs.data, &dirs.work, &dirs.logs] {
+            if let Err(err) = std::fs::remove_dir_all(path)
                 && err.kind() != std::io::ErrorKind::NotFound
             {
                 return Err(DeleteRefused::Invalid(anyhow!("删除 {} 失败：{err}", path.display())));
@@ -976,8 +980,9 @@ mod delete_tests {
         };
         app.db.insert_event(&event(1, "run.created")).unwrap();
         app.db.insert_event(&event(2, "run.cancelled")).unwrap();
-        for sub in ["artifacts", "logs", "runs"] {
-            std::fs::create_dir_all(app.cfg.data_dir.join(sub).join("r1")).unwrap();
+        let dirs = app.cfg.layout.run(RunKind::Goal, "r1");
+        for path in [dirs.artifacts("T1"), dirs.bundle("lead"), dirs.attachments(), dirs.logs.clone()] {
+            std::fs::create_dir_all(path).unwrap();
         }
         (app, dir)
     }
@@ -1001,8 +1006,9 @@ mod delete_tests {
         app.delete_run("r1").await.unwrap();
         assert!(app.db.run("r1").unwrap().is_none());
         assert!(app.db.events("r1", 0).unwrap().is_empty());
-        for sub in ["artifacts", "logs", "runs"] {
-            assert!(!app.cfg.data_dir.join(sub).join("r1").exists(), "{sub}/r1 should be gone");
+        let dirs = app.cfg.layout.run(RunKind::Goal, "r1");
+        for path in [&dirs.data, &dirs.work, &dirs.logs] {
+            assert!(!path.exists(), "{} should be gone", path.display());
         }
         assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::NotFound)));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1014,7 +1020,7 @@ mod delete_tests {
     async fn a_delete_that_could_not_remove_a_directory_can_be_repeated() {
         use std::os::unix::fs::PermissionsExt;
         let (app, dir) = finished_app("retry");
-        let locked = app.cfg.data_dir.join("logs/r1/locked");
+        let locked = app.cfg.layout.run(RunKind::Goal, "r1").log("locked");
         std::fs::create_dir_all(&locked).unwrap();
         std::fs::write(locked.join("lead.log"), "x").unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
@@ -1025,8 +1031,9 @@ mod delete_tests {
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
         app.delete_run("r1").await.unwrap();
         assert!(app.db.run("r1").unwrap().is_none());
-        for sub in ["artifacts", "logs", "runs"] {
-            assert!(!app.cfg.data_dir.join(sub).join("r1").exists(), "{sub}/r1 should be gone");
+        let dirs = app.cfg.layout.run(RunKind::Goal, "r1");
+        for path in [&dirs.data, &dirs.work, &dirs.logs] {
+            assert!(!path.exists(), "{} should be gone", path.display());
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

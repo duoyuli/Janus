@@ -10,6 +10,7 @@ mod db;
 mod evidence;
 mod git_probe;
 mod goal_settle;
+mod layout;
 mod library;
 mod migrations;
 mod orchestrator;
@@ -57,18 +58,18 @@ fn janus_home() -> Result<PathBuf> {
 /// file also names the owner's pid, which the app reads to find a running Janus. Keep the
 /// returned file for as long as the process runs.
 // @project-doc docs/operations/20261031-deployment.md#single_instance
-fn lock_home(home: &std::path::Path) -> Result<std::fs::File> {
+fn lock_home(layout: &layout::Layout) -> Result<std::fs::File> {
     use std::io::Write;
-    let mut file =
-        std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(home.join("janus.pid"))?;
+    let pid = layout.pid_file();
+    let mut file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&pid)?;
     match file.try_lock() {
         Ok(()) => {}
         Err(std::fs::TryLockError::WouldBlock) => {
-            let owner = std::fs::read_to_string(home.join("janus.pid")).unwrap_or_default();
+            let owner = std::fs::read_to_string(&pid).unwrap_or_default();
             anyhow::bail!(
                 "另一个 Janus（pid {}）正在使用 {}。先停止它（以服务方式运行时执行 just stop），或用另一个 JANUS_HOME 启动",
                 owner.trim(),
-                home.display()
+                layout.home().display()
             );
         }
         Err(std::fs::TryLockError::Error(err)) => return Err(err.into()),
@@ -113,12 +114,13 @@ mod lock_tests {
         let home = std::env::temp_dir().join(format!("janus-lock-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
+        let home = crate::layout::Layout::new(home);
         let first = super::lock_home(&home).unwrap();
-        assert_eq!(std::fs::read_to_string(home.join("janus.pid")).unwrap(), std::process::id().to_string());
+        assert_eq!(std::fs::read_to_string(home.pid_file()).unwrap(), std::process::id().to_string());
         let err = super::lock_home(&home).unwrap_err().to_string();
         assert!(err.contains("另一个 Janus"), "{err}");
         assert_eq!(
-            std::fs::read_to_string(home.join("janus.pid")).unwrap(),
+            std::fs::read_to_string(home.pid_file()).unwrap(),
             std::process::id().to_string(),
             "the refused one does not overwrite the owner"
         );
@@ -132,7 +134,7 @@ mod lock_tests {
             })
         });
         assert!(again.is_some(), "the lock is released with its holder");
-        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_dir_all(home.home());
     }
 }
 
@@ -149,9 +151,8 @@ async fn meta(State(app): State<Arc<App>>) -> Json<Value> {
         },
         "version": VERSION,
         "dataVersion": app.db.data_version().unwrap_or_default(),
-        "dataDir": app.cfg.data_dir,
-        "agentsDir": app.cfg.agents_dir,
-        "db": app.cfg.data_dir.join("janus.db"),
+        "home": app.cfg.layout.home(),
+        "db": app.cfg.layout.db(),
     }))
 }
 
@@ -680,15 +681,15 @@ async fn export(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> Ap
         .into_response())
 }
 
-/// Artifacts are served read-only, and only from the artifacts directory: the rest of Janus home
-/// holds the database and credentials.
+/// Artifacts are served read-only, and nothing else: the rest of Janus home holds the database
+/// and credentials.
 async fn file(State(app): State<Arc<App>>, Query(q): Query<PathQuery>) -> ApiResult {
-    let base = app.cfg.data_dir.join("artifacts");
-    std::fs::create_dir_all(&base).map_err(|e| bad(e.into()))?;
-    let base = base.canonicalize().map_err(|e| bad(e.into()))?;
-    let path = PathBuf::from(&q.path).canonicalize().map_err(|_| (StatusCode::NOT_FOUND, "not found".into()))?;
-    if !path.starts_with(&base) {
-        return Err((StatusCode::FORBIDDEN, "只能读取 Janus 的产物目录".into()));
+    let path = PathBuf::from(&q.path);
+    if !path.exists() {
+        return Err((StatusCode::NOT_FOUND, "not found".into()));
+    }
+    if !app.cfg.layout.is_artifact(&path) {
+        return Err((StatusCode::FORBIDDEN, "只能读取 Janus 的产物".into()));
     }
     let text = std::fs::read_to_string(&path).map_err(|e| bad(e.into()))?;
     Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response())
@@ -712,7 +713,9 @@ async fn main() -> Result<()> {
         }
         Some("migrate") => {
             match args.next().as_deref() {
-                Some("--dry-run") => print!("{}", migrations::dry_run(&janus_home()?.join("janus.db"))?),
+                Some("--dry-run") => {
+                    print!("{}", migrations::dry_run(&layout::current_db(&layout::Layout::new(janus_home()?)))?)
+                }
                 Some("--shape") => println!("{}", serde_json::to_string_pretty(&data_shape::snapshot()?)?),
                 _ => anyhow::bail!(
                     "janus migrate --dry-run 预览这份数据升级到数据版本 {} 会改什么（不修改数据）；janus migrate --shape 输出当前的数据结构快照。升级本身在服务启动时自动执行。",
@@ -731,10 +734,12 @@ async fn main() -> Result<()> {
         Some(other) => anyhow::bail!("unknown argument {other}; see janus --help"),
         None => {}
     }
-    let home = janus_home()?;
-    let _home_lock = lock_home(&home)?;
-    let db_path = home.join("janus.db");
-    let (db, upgrade) = db::Db::open(&db_path)?;
+    let layout = layout::Layout::new(janus_home()?);
+    let _home_lock = lock_home(&layout)?;
+    // Nothing runs yet that could be using the scratch of the last run.
+    let _ = std::fs::remove_dir_all(layout.tmp());
+    layout::adopt_db(&layout)?;
+    let (db, upgrade) = db::Db::open(&layout)?;
     if !upgrade.applied.is_empty() {
         let backup = upgrade.backup.as_ref().map(|b| format!("，升级前的备份：{}", b.display())).unwrap_or_default();
         config::log(format!("数据从版本 {} 升级到 {}{backup}", upgrade.from, upgrade.to));
@@ -742,16 +747,17 @@ async fn main() -> Result<()> {
             config::log(format!("  {version}「{name}」：改动 {changed} 处"));
         }
     }
+    let foreign = layout.foreign();
+    if !foreign.is_empty() {
+        config::log(format!("Janus home 中这些不是 Janus 的：{}（Janus 不读也不删它们）", foreign.join("、")));
+    }
     let (tx, _) = tokio::sync::broadcast::channel(4096);
     let (changes, _) = tokio::sync::broadcast::channel(1024);
-    let agents_dir = home.join("agents");
-    std::fs::create_dir_all(&agents_dir)?;
     let settings = config::settings();
     let app = Arc::new(App {
         db,
         cfg: Config {
-            data_dir: home.clone(),
-            agents_dir,
+            layout,
             addr: settings.addr.clone(),
             node: settings.node.clone(),
             stall_after: orchestrator::STALL_AFTER,
@@ -873,7 +879,7 @@ async fn main() -> Result<()> {
 
     let addr = &app.cfg.addr;
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    config::log(format!("janus {VERSION}: http://{addr}  ·  home {}", home.display()));
+    config::log(format!("janus {VERSION}: http://{addr}  ·  home {}", app.cfg.layout.home().display()));
     axum::serve(listener, router).await?;
     Ok(())
 }

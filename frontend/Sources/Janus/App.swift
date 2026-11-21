@@ -246,8 +246,7 @@ final class AppModel {
     }
 
     func openLogs() {
-        let logs = backend.home.appendingPathComponent("logs")
-        NSWorkspace.shared.open(logs)
+        NSWorkspace.shared.open(backend.home.logs)
     }
 }
 

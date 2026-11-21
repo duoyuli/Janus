@@ -267,7 +267,7 @@ impl App {
                         }
                         // Pasted images are stored with the run; the text names each one. A message
                         // refused here (an image that is not one) does not title a chat.
-                        let images = crate::attachments::save(&self.cfg.data_dir, &run.id, &images)?;
+                        let images = crate::attachments::save(&self.dirs(run), &images)?;
                         self.title_chat(run, &text)?;
                         let text = crate::attachments::with_lines(&text, &images);
                         // Shown the moment it is sent; its session routes it once it can.
@@ -819,7 +819,7 @@ impl App {
         for row in self.db.accepted_worktrees()? {
             let Some(repo) = row["config"]["worktree"]["repo"].as_str() else { continue };
             let id = row["id"].as_str().unwrap_or_default();
-            let kept = self.cfg.data_dir.join("worktrees").join("deleted");
+            let kept = self.cfg.layout.deleted_runs();
             if let Err(err) = crate::worktrees::remove(Path::new(repo), &self.worktree_root(id), &kept, id) {
                 crate::config::log(format!("janus: could not remove the worktree of accepted run {id}: {err:#}"));
             }

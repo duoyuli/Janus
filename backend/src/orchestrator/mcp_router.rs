@@ -267,15 +267,15 @@ impl App {
             .insert(item.id.clone(), crate::library::Warm::Preparing { revision: revision.clone() });
         let app = self.clone();
         tokio::spawn(async move {
-            let home = app.server_home(&item.id);
-            let cwd = home.join("warm");
-            let log = app.cfg.data_dir.join("logs").join("library").join(format!("mcp-{}.log", item.name));
+            let sandbox = app.cfg.layout.server_sandbox(&item.id);
+            let cwd = sandbox.tmp.join("warm");
+            let log = app.cfg.layout.library_log(&item.id);
             let got: Result<usize> = async {
                 // Only a command runs here; a URL server needs no folder on this machine.
                 if matches!(server, McpServer::Stdio { .. }) {
                     std::fs::create_dir_all(&cwd)?;
                 }
-                let b = Backend::start(&server, &app.mcp_values(&item.id), &home, &cwd, &log, WARM_WAIT).await?;
+                let b = Backend::start(&server, &app.mcp_values(&item.id), &sandbox, &cwd, &log, WARM_WAIT).await?;
                 let tools = b.tools(START_WAIT).await;
                 b.stop();
                 let tools = tools?;
@@ -355,9 +355,9 @@ impl App {
             Holder::Run => "run".to_string(),
             Holder::Session(who) => who.clone(),
         };
-        let log = self.cfg.data_dir.join("logs").join(&run.id).join(format!("mcp-{tag}-{}.log", item.name));
-        let home = self.server_home(&item.id);
-        let b = Backend::start(server, &self.mcp_values(&item.id), &home, &run.cwd, &log, START_WAIT).await?;
+        let log = self.cfg.layout.run(run.kind, &run.id).log(&format!("mcp-{tag}-{}.log", item.name));
+        let sandbox = self.cfg.layout.server_sandbox(&item.id);
+        let b = Backend::start(server, &self.mcp_values(&item.id), &sandbox, &run.cwd, &log, START_WAIT).await?;
         if run.router.closed.load(Ordering::SeqCst) {
             b.stop();
             bail!("这个任务已经停止");
@@ -387,25 +387,27 @@ impl App {
         });
     }
 
-    /// The list a server last gave, kept by revision: what listing shows without starting it.
+    /// The list a server last gave, kept for its revision: what listing shows without starting it.
     fn tools_cache(&self, item: &Item) -> PathBuf {
-        self.tools_dir().join(format!("{}-{}.json", item.id, item.revision))
+        self.cfg.layout.mcp_tools(&item.id).join(format!("{}.json", item.revision))
     }
 
     fn cached_tools(&self, item: &Item) -> Option<Vec<Value>> {
         serde_json::from_slice(&std::fs::read(self.tools_cache(item)).ok()?).ok()
     }
 
-    /// A process's own list, written down for listing without starting it next time.
+    /// A process's own list, written down for listing without starting it next time. Only the
+    /// current revision's list is kept: an older one is never read again.
     fn remember_tools(&self, item: &Item, tools: &[Value]) {
         let path = self.tools_cache(item);
-        let saved = match path.parent() {
-            Some(dir) => std::fs::create_dir_all(dir),
-            None => Ok(()),
-        }
-        .and_then(|_| std::fs::write(&path, serde_json::to_vec(tools).unwrap_or_default()));
+        let dir = self.cfg.layout.mcp_tools(&item.id);
+        let saved = std::fs::create_dir_all(&dir)
+            .and_then(|_| std::fs::write(&path, serde_json::to_vec(tools).unwrap_or_default()));
         if let Err(err) = saved {
             crate::config::log(format!("janus: 记不下 {} 的工具列表：{err:#}", item.name));
+        }
+        for old in std::fs::read_dir(&dir).into_iter().flatten().flatten().filter(|e| e.path() != path) {
+            let _ = std::fs::remove_file(old.path());
         }
     }
 
@@ -644,7 +646,8 @@ mod tests {
             process: McpProcess::PerRun,
         };
         let (values, log) = (crate::library::McpValues::default(), dir.join("log"));
-        let start = || Backend::start(&server, &values, &dir, &dir, &log, START_WAIT);
+        let sandbox = crate::layout::Sandbox { home: dir.join("home"), tmp: dir.join("tmp") };
+        let start = || Backend::start(&server, &values, &sandbox, &dir, &log, START_WAIT);
         let router = McpRouter::default();
         let (shared, own) = (start().await.unwrap(), start().await.unwrap());
         *router.slot(&Holder::Run, "s").try_lock().unwrap() = Some(shared.clone());

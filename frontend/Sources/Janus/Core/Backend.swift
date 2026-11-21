@@ -21,7 +21,7 @@ final class Backend {
     private(set) var phase: Phase = .starting(L.text("正在启动 Janus 服务…"))
     /// Whether the app started the server it uses (and so owns its lifetime): it holds the process.
     var owned: Bool { process != nil }
-    let home: URL
+    let home: JanusHome
     /// The address Janus is configured for.
     let configured: String
     /// The address in use: the configured one, or the one the app moved to.
@@ -29,15 +29,14 @@ final class Backend {
     /// Why the address differs from the configured one, shown in the sidebar.
     private(set) var notice: String?
     var base: URL { URL(string: "http://\(addr)")! }
-    var logFile: URL { home.appendingPathComponent("logs/janus.out.log") }
+    var logFile: URL { home.serviceLog }
 
     private var process: Process?
     private var stopping = false
 
     init() {
         let env = ProcessInfo.processInfo.environment
-        let home = env["JANUS_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".janus")
+        let home = JanusHome.current(env)
         self.home = home
         // Same rule as the server's config.rs and the justfile's `_addr`.
         configured = env["JANUS_ADDR"].flatMap { $0.isEmpty ? nil : $0 } ?? Self.config(home, "addr") ?? "127.0.0.1:7878"
@@ -45,8 +44,8 @@ final class Backend {
     }
 
     /// A string setting from `<home>/config.toml` (`key = "value"` lines).
-    nonisolated static func config(_ home: URL, _ key: String) -> String? {
-        guard let text = try? String(contentsOf: home.appendingPathComponent("config.toml"), encoding: .utf8) else { return nil }
+    nonisolated static func config(_ home: JanusHome, _ key: String) -> String? {
+        guard let text = try? String(contentsOf: home.config, encoding: .utf8) else { return nil }
         for line in text.split(separator: "\n") {
             let l = line.trimmingCharacters(in: .whitespaces)
             guard let eq = l.firstIndex(of: "="), l[..<eq].trimmingCharacters(in: .whitespaces) == key else { continue }
@@ -134,7 +133,7 @@ final class Backend {
 
     /// Stop the Janus holding `<home>/janus.pid` (SIGTERM, waiting up to 5 seconds for it to exit).
     func stopRunning() async {
-        if let pid = (try? String(contentsOf: home.appendingPathComponent("janus.pid"), encoding: .utf8)).flatMap({ Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }),
+        if let pid = (try? String(contentsOf: home.pidFile, encoding: .utf8)).flatMap({ Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }),
            pid != process?.processIdentifier, kill(pid, SIGTERM) == 0 {
             for _ in 0..<50 where kill(pid, 0) == 0 { try? await Task.sleep(nanoseconds: 100_000_000) }
         }
@@ -168,7 +167,7 @@ final class Backend {
         cfg.timeoutIntervalForRequest = timeout
         guard let (data, resp) = try? await URLSession(configuration: cfg).data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let meta = try? JSON.parse(data), meta["kinds"].exists, let dir = meta["dataDir"].string else { return nil }
+              let meta = try? JSON.parse(data), meta["kinds"].exists, let dir = meta["home"].string else { return nil }
         return Self.samePath(dir, home.path) ? meta : nil
     }
 
@@ -179,9 +178,9 @@ final class Backend {
     /// The address of the Janus holding `<home>/janus.pid`, if that process is alive: the last
     /// "http://<addr>  ·  home <home>" line it wrote to janus.log.
     private func runningOwnerAddr() -> String? {
-        guard let pid = (try? String(contentsOf: home.appendingPathComponent("janus.pid"), encoding: .utf8)).flatMap({ Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }),
+        guard let pid = (try? String(contentsOf: home.pidFile, encoding: .utf8)).flatMap({ Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }),
               pid != process?.processIdentifier, kill(pid, 0) == 0 else { return nil }
-        guard let log = try? String(contentsOf: home.appendingPathComponent("logs/janus.log"), encoding: .utf8) else { return configured }
+        guard let log = try? String(contentsOf: home.janusLog, encoding: .utf8) else { return configured }
         for line in log.split(separator: "\n").reversed() {
             guard let r = line.range(of: #"http://(\S+)\s+·\s+home (.+)$"#, options: .regularExpression) else { continue }
             let m = line[r]
@@ -232,9 +231,7 @@ final class Backend {
         var candidates: [URL] = []
         if let u = Bundle.main.url(forAuxiliaryExecutable: "janus-server") { candidates.append(u) }
         if let p = ProcessInfo.processInfo.environment["JANUS_SERVER_BIN"], !p.isEmpty { candidates.append(URL(fileURLWithPath: p)) }
-        let home = ProcessInfo.processInfo.environment["JANUS_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? fm.homeDirectoryForCurrentUser.appendingPathComponent(".janus")
-        candidates.append(home.appendingPathComponent("bin/janus"))
+        candidates.append(JanusHome.current().server)
         return candidates.first { fm.isExecutableFile(atPath: $0.path) }
     }
 

@@ -1,6 +1,6 @@
 //! Git sources: a GitHub repository, or one of its folders, whose skills and MCP servers can be
 //! imported into the library. Adding a link clones it (shallow) into
-//! `<home>/library/sources/<id>/repo` and lists what it offers; nothing is imported until the
+//! `data/library/sources/<id>/repo` in Janus home and lists what it offers; nothing is imported until the
 //! person picks. An update fetches again and gives each imported item the content the repository
 //! has now.
 // @project-doc docs/domains/20261116-resource_library.md#sources
@@ -174,7 +174,7 @@ async fn fetch(dir: &Path, clone_url: &str, git_ref: &str) -> Result<String> {
 impl App {
     fn source_dir(&self, id: &str) -> Result<PathBuf> {
         crate::agents::check_id(id)?;
-        Ok(self.cfg.data_dir.join("library").join("sources").join(id))
+        Ok(self.cfg.layout.source(id))
     }
 
     pub(super) fn sources(&self) -> Result<Vec<Source>> {

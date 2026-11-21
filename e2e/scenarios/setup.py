@@ -15,7 +15,7 @@ SECRET = "secret-e2e-value-7f3a"
 def setup(ctx, c):
     """首次配置：Agent 检查、默认数字员工、负责人规则、资源库和两个路由、工作区，再用默认团队跑通一个目标"""
     meta = ctx.api("GET", "/api/meta")
-    c(meta["dataDir"] == ctx.home, f"服务使用临时 Janus home（{meta['dataDir']}）")
+    c(meta["home"] == ctx.home, f"服务使用临时 Janus home（{meta['home']}）")
     c(meta.get("version") and isinstance(meta.get("dataVersion"), int), f"meta 带版本 {meta.get('version')} 和数据版本 {meta.get('dataVersion')}")
     c({k["id"] for k in meta["kinds"]} == {"codex", "claude"}, "Agent 类型只有 Codex 和 Claude Code")
     code, _ = ctx.api_error("POST", "/api/setup/connections", {"kind": "custom", "name": "x", "command": "true"})

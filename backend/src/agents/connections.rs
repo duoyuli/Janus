@@ -5,13 +5,19 @@ use super::environment::{private_env_value, protect_claude_env, read_secrets, wr
 use super::*;
 
 impl App {
+    /// What Janus keeps for one agent (`Layout::agent`): its configuration directory and HOME.
     pub(super) fn agent_dir(&self, id: &str) -> PathBuf {
-        self.cfg.agents_dir.join(id)
+        self.cfg.layout.agent(id)
+    }
+
+    /// The agent's configuration directory (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`).
+    pub(super) fn agent_config(&self, id: &str) -> PathBuf {
+        self.cfg.layout.agent_config(id)
     }
 
     pub(super) fn redact(&self, id: &str, text: &str) -> String {
         let mut out = text.to_string();
-        let Ok(secrets) = read_secrets(&self.agent_dir(id)) else { return "<secret>".into() };
+        let Ok(secrets) = read_secrets(&self.cfg.layout.agent_secrets(id)) else { return "<secret>".into() };
         let mut values: Vec<_> = secrets
             .as_object()
             .into_iter()
@@ -30,6 +36,39 @@ impl App {
         out
     }
 
+    /// Remove what the agent itself kept of these sessions in its configuration directory: Claude
+    /// Code's `projects/<project>/<session>.jsonl` (with `<session>/` beside it) and
+    /// `session-env/<session>/`, Codex's `sessions/<date>/rollout-<time>-<session>.jsonl`.
+    // @project-doc docs/interfaces/20261031-http_api.md#run_delete
+    pub(crate) fn forget_sessions(&self, id: &str, sessions: &std::collections::HashSet<String>) -> Result<()> {
+        fn walk(dir: &Path, sessions: &std::collections::HashSet<String>, depth: u8) -> Result<()> {
+            let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let of = |s: &String| {
+                    let file = name.strip_suffix(".jsonl").unwrap_or(&name);
+                    !s.is_empty()
+                        && (file == s || file.strip_suffix(s.as_str()).is_some_and(|rest| rest.ends_with('-')))
+                };
+                if sessions.iter().any(of) {
+                    crate::layout::remove(&e.path());
+                } else if depth > 0 && e.file_type().is_ok_and(|t| t.is_dir()) {
+                    walk(&e.path(), sessions, depth - 1)?;
+                }
+            }
+            Ok(())
+        }
+        check_id(id)?;
+        if sessions.is_empty() {
+            return Ok(());
+        }
+        let config = self.agent_config(id);
+        for top in ["projects", "session-env", "sessions"] {
+            walk(&config.join(top), sessions, 4)?;
+        }
+        Ok(())
+    }
+
     pub fn connection(&self, id: &str) -> Result<Value> {
         self.db.get_config(CONNECTION, id)?.ok_or_else(|| anyhow!("Provider {id} 不存在"))
     }
@@ -39,16 +78,16 @@ impl App {
         let mut out = self.db.list_config(CONNECTION)?;
         for c in out.iter_mut() {
             let id = str_of(c, "id").to_string();
-            let dir = self.agent_dir(&id);
-            let secrets = read_secrets(&dir)?;
+            let secrets = read_secrets(&self.cfg.layout.agent_secrets(&id))?;
             c["secretsSet"] =
                 json!(secrets.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default());
-            c["home"] = json!(dir.join("home"));
+            let config = self.agent_config(&id);
+            c["home"] = json!(config);
             if account_login(c) {
-                c["loggedIn"] = json!(dir.join("home/auth.json").exists());
+                c["loggedIn"] = json!(config.join("auth.json").exists());
             }
             if !c["login"].is_null() {
-                c["loginLog"] = json!(self.redact(&id, &tail(&dir.join("login.log"), 12)));
+                c["loginLog"] = json!(self.redact(&id, &tail(&self.cfg.layout.agent_logs(&id).join("login.log"), 12)));
             }
             c["phase"] = json!(connection_phase(c));
             mark_defaults(c);
@@ -98,7 +137,8 @@ impl App {
             n => n.to_string(),
         };
         let dir = self.agent_dir(&id);
-        let mut secrets = read_secrets(&dir)?;
+        let secrets_file = self.cfg.layout.agent_secrets(&id);
+        let mut secrets = read_secrets(&secrets_file)?;
         let mut env = parse_env(body["envText"].as_str().unwrap_or(""), |name| {
             if kind == "claude" { private_env_value(&secrets, name) } else { None }
         })?;
@@ -138,7 +178,7 @@ impl App {
             protect_claude_env(&mut env, &mut secrets);
         }
         config["env"] = Value::Object(env);
-        let home = dir.join("home");
+        let home = self.agent_config(&id);
         std::fs::create_dir_all(&home)?;
         {
             use std::os::unix::fs::PermissionsExt;
@@ -148,7 +188,7 @@ impl App {
             config["importedEnv"] = json!(env.keys().collect::<Vec<_>>());
             secrets["importedEnv"] = Value::Object(env);
         }
-        write_secrets(&dir, &secrets)?;
+        write_secrets(&secrets_file, &secrets)?;
         self.db.put_config(CONNECTION, &id, &config, now_ms())?;
         Ok(config)
     }
@@ -188,7 +228,7 @@ impl App {
     }
 
     pub fn delete_connection(&self, id: &str) -> Result<()> {
-        // The id names the folder removed below.
+        // The id names the paths removed below.
         check_id(id)?;
         // A run holds the connection while it works or keeps a session open; one that was stopped
         // and has none left does not, though it stays in memory until the service restarts.
@@ -206,7 +246,9 @@ impl App {
             self.db.put_config(ROLE, str_of(&role, "id"), &role, now_ms())?;
         }
         self.db.delete_config(CONNECTION, id)?;
-        let _ = std::fs::remove_dir_all(self.agent_dir(id));
+        for path in self.cfg.layout.agent_paths(id) {
+            crate::layout::remove(&path);
+        }
         Ok(())
     }
 
@@ -218,9 +260,9 @@ impl App {
         if !kinds().as_array().unwrap().iter().any(|k| k["id"] == c["kind"]) {
             bail!("未知的 Provider 类型");
         }
-        let s = read_secrets(&self.agent_dir(id))?;
+        let s = read_secrets(&self.cfg.layout.agent_secrets(id))?;
         let secret = |k: &str| s[k].as_str().unwrap_or("").to_string();
-        let home = self.agent_dir(id).join("home").to_string_lossy().to_string();
+        let home = self.agent_config(id).to_string_lossy().to_string();
         // Sandbox first, then the variables configured on this agent (an empty value unsets one),
         // then its isolation and credentials, so nothing the user typed can point the agent back
         // at the host's own directories.
@@ -284,28 +326,28 @@ impl App {
         })
     }
 
-    /// A fresh user environment for one agent: its own HOME, XDG directories and temp dir under
-    /// `~/.janus/agents/<id>/`, so any lookup of `~/...` lands in the sandbox instead of the host.
+    /// A fresh user environment for one agent: its own HOME, XDG directories and temp dir
+    /// (`Layout::agent_sandbox`), so any lookup of `~/...` lands in the sandbox instead of the host.
     pub fn sandbox_env(&self, id: &str) -> Result<Vec<(String, String)>> {
-        let mut env = sandbox_at(&self.agent_dir(id))?;
+        let mut env = sandbox_vars(&self.cfg.layout.agent_sandbox(id))?;
         env.push(("JANUS_AGENT_ID".into(), id.to_string()));
         Ok(env)
     }
 }
 
-/// A fresh user environment rooted at `dir`: HOME and the XDG directories under `dir/root`, the
-/// temp dir at `dir/tmp`, and from the host only the few variables in `HOST_ENV`. Each agent gets
-/// one; so does each MCP server the router runs.
+/// A fresh user environment in `sandbox`: HOME and the XDG directories under its home, its temp
+/// dir, and from the host only the few variables in `HOST_ENV`. Each agent gets one; so does each
+/// MCP server the router runs.
 // @project-doc docs/operations/20261031-security.md#agent_isolation
-pub(crate) fn sandbox_at(dir: &Path) -> Result<Vec<(String, String)>> {
-    let root = dir.join("root");
+pub(crate) fn sandbox_vars(sandbox: &crate::layout::Sandbox) -> Result<Vec<(String, String)>> {
+    let root = sandbox.home.clone();
     let paths = [
         ("HOME", root.clone()),
         ("XDG_CONFIG_HOME", root.join(".config")),
         ("XDG_DATA_HOME", root.join(".local/share")),
         ("XDG_STATE_HOME", root.join(".local/state")),
         ("XDG_CACHE_HOME", root.join(".cache")),
-        ("TMPDIR", dir.join("tmp")),
+        ("TMPDIR", sandbox.tmp.clone()),
     ];
     let mut env: Vec<(String, String)> =
         HOST_ENV.iter().filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))).collect();

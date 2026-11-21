@@ -1,4 +1,4 @@
-//! Skills' files, kept by the sha256 of their content under `<home>/library/store/<hash>/`. A
+//! Skills' files, kept by the sha256 of their content under `data/library/skills/<hash>/` in Janus home. A
 //! stored tree never changes: an edit or an update is a new tree, and a run copies the tree it
 //! uses into its own bundle.
 

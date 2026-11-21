@@ -41,7 +41,7 @@
 
 Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20261031-security.md)），它看到的变量按以下顺序叠加，同名时后面的覆盖前面的：
 
-1. 沙箱变量：`HOME`、XDG 目录、`TMPDIR` 等，指向 `~/.janus/agents/<id>/` 下的隔离目录。
+1. 沙箱变量：`HOME` 和 XDG 目录指向 `~/.janus/data/agents/<id>/home`，`TMPDIR` 指向 `~/.janus/tmp/agents/<id>`。
 2. 用户在 Agent 上填写的环境变量，以及「复制本机配置」带来的变量。值为空（`KEY=`）表示去掉这个变量。沙箱变量不能在这里改写。
 3. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和所选登录方式的凭据（如 Claude 订阅的 `CLAUDE_CODE_OAUTH_TOKEN`）。Claude 的「自定义 API」使用第 2 步填写的变量。Claude Code 还有一项默认值 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，原因见 [Claude Code 会话的环境默认值](../interfaces/20261031-acp_integration.md#background_tasks)。
 

@@ -207,17 +207,14 @@ fn mcp_revision(server: &McpServer) -> String {
 }
 
 impl App {
-    fn library_dir(&self) -> PathBuf {
-        self.cfg.data_dir.join("library")
-    }
-
+    /// Skill contents, by hash (`Layout::skills`).
     pub(crate) fn store_dir(&self) -> PathBuf {
-        self.library_dir().join("store")
+        self.cfg.layout.skills()
     }
 
     fn values_path(&self, id: &str) -> Result<PathBuf> {
         crate::agents::check_id(id)?;
-        Ok(self.cfg.data_dir.join("secrets").join("library").join(format!("{id}.json")))
+        Ok(self.cfg.layout.mcp_values(id))
     }
 
     pub fn items(&self) -> Result<Vec<Item>> {
@@ -569,29 +566,13 @@ impl App {
         let _guard = self.library.lock.lock().await;
         self.item(id)?;
         self.db.delete_config(ITEM, id)?;
-        let _ = std::fs::remove_file(self.values_path(id)?);
-        // Its servers stop before the sandbox they run in goes.
+        crate::agents::check_id(id)?;
+        // Its servers stop before the sandbox they run in goes; then everything it owns goes.
         self.stop_item_servers(id);
-        let _ = std::fs::remove_dir_all(self.server_home(id));
-        if let Ok(lists) = std::fs::read_dir(self.tools_dir()) {
-            for f in lists.flatten().filter(|f| f.file_name().to_string_lossy().starts_with(&format!("{id}-"))) {
-                let _ = std::fs::remove_file(f.path());
-            }
+        for path in self.cfg.layout.item_paths(id) {
+            crate::layout::remove(&path);
         }
         self.sweep_store()
-    }
-
-    /// Where the MCP router runs a server for everyone: its own HOME and temp dir, kept across runs
-    /// so its caches and its own sign-in survive, removed with the item.
-    // @project-doc docs/domains/20261116-resource_library.md#mcp_router
-    pub(crate) fn server_home(&self, id: &str) -> PathBuf {
-        self.cfg.data_dir.join("library").join("servers").join(id)
-    }
-
-    /// The tool lists MCP servers last gave, `<id>-<revision>.json`: what the MCP router lists
-    /// without starting them.
-    pub(crate) fn tools_dir(&self) -> PathBuf {
-        self.cfg.data_dir.join("library").join("tools")
     }
 
     /// The library as the app shows it: each item with the state of its values and whether it is

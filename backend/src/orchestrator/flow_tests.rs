@@ -1806,7 +1806,7 @@ async fn library_resources_reach_the_session_only_through_the_routers() {
     for server in ["fetch", "docs", "local"] {
         assert!(via.contains(&(server.into(), "mcpRouter".into())), "{server}: {via:?}");
     }
-    let bundle = h.app.bundle_dir(&run, "lead");
+    let bundle = h.app.cfg.layout.run(RunKind::Goal, &run).bundle("lead");
     assert!(bundle.join("skills/janus-skills/.skills/notes/SKILL.md").is_file());
     assert!(!bundle.join("skills/notes").exists(), "the skill is not loaded on its own");
     let record =

@@ -1,6 +1,6 @@
 # ADR：用户数据、依赖和日志都放在 Janus home
 
-- 状态：已采纳（accepted），记录于 2026-10-30。
+- 状态：部分被取代（superseded）：目录怎样划分和第 5 条 `/api/file` 读哪里，见 [ADR：Janus home 按「丢了能不能再有」分类](20261121-home_layout.md)；「仓库只放代码、一切都在 Janus home、配置的读取顺序」仍然有效。记录于 2026-10-30。
 - 相关文档：[部署方案](../operations/20261031-deployment.md#layout)、[数据模型与存储](../architecture/20261031-data_model.md#locations)、[配置](../interfaces/20261031-configuration.md#settings)、[ADR：每个 Agent 使用独立的配置目录](20261031-isolated_agent_homes.md)。
 
 ## 背景

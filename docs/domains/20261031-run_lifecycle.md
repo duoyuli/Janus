@@ -34,7 +34,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 用户可以在目标和发给会话的消息里粘贴图片。实现在 `backend/src/attachments.rs`，接口见 [HTTP API](../interfaces/20261031-http_api.md#images)。
 
-- **保存**：图片随请求以 base64 上传，按文件头识别类型（PNG、JPEG、GIF、WebP，声明的类型不作数），每张最多 10 MB，一次最多 10 张；任何一张不合格时整条请求拒绝，不保存任何文件。文件写入 `~/.janus/runs/<run>/attachments/`，和这个 Run 的 Skill 快照放在一起。
+- **保存**：图片随请求以 base64 上传，按文件头识别类型（PNG、JPEG、GIF、WebP，声明的类型不作数），每张最多 10 MB，一次最多 10 张；任何一张不合格时整条请求拒绝，不保存任何文件。文件写入 `~/.janus/data/runs/<run>/attachments/`（对话在 `data/chats/<run>/attachments/`），和这个 Run 的 Skill 快照放在一起。
 - **点名**：Agent 收到的文字中，每张图片单独占一行 `[Image N] <路径>`。只有图片的消息会带英文查看提示。历史消息的 `[附图 N]` 标记仍可解析。目标的图片写进负责人说明，并提示负责人把路径写进任务说明，方便协作者参考。
 - **发送**：每次 `session/prompt` 和 `_session/steering` 发出前，`prompt_blocks` 找出文字点名的附件，在 Agent 声明了 `promptCapabilities.image` 时作为 ACP 图片块附在文字后面。只读取 `runs/*/attachments/` 下的文件，所以文字里看起来像附图行的内容不能让 Janus 发出任意文件。官方 Claude、Codex 和 Grok 适配器都声明了这项能力；其他 Agent 没有声明时只收到路径，由 Agent 自己打开文件。
 - **跟随消息流转**：图片行就是消息文字的一部分，所以插话、排队、留言、交还托管和中断后恢复的消息都带着它们，不需要另外处理。
@@ -43,13 +43,13 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 <a id="workspace_model"></a>
 ## 工作目录
 
-- **Git 仓库（有提交）**：每个 Run 在自己的 worktree 中运行（`crate::worktrees`），位置是 `<Janus home>/worktrees/<run>`，从创建时的 `HEAD` 开始、处于 detached HEAD、用 `git worktree lock` 锁住。Run 的负责人和所有子任务共用这个 worktree，改动彼此立即可见；同一个仓库上的其他 Run 和用户自己的目录都不受影响。`runs.cwd` 是 worktree 的路径（规范化后的真实路径，和 Agent 自己的工具报告的路径一致），`runs.config.worktree.repo` 是原仓库，`runs.config.worktree.branch` 是创建时检出的分支（处于 detached HEAD 时为 `null`）。
+- **Git 仓库（有提交）**：每个 Run 在自己的 worktree 中运行（`crate::worktrees`），位置是 `<Janus home>/work/runs/<run>`，从创建时的 `HEAD` 开始、处于 detached HEAD、用 `git worktree lock` 锁住。Run 的负责人和所有子任务共用这个 worktree，改动彼此立即可见；同一个仓库上的其他 Run 和用户自己的目录都不受影响。`runs.cwd` 是 worktree 的路径（规范化后的真实路径，和 Agent 自己的工具报告的路径一致），`runs.config.worktree.repo` 是原仓库，`runs.config.worktree.branch` 是创建时检出的分支（处于 detached HEAD 时为 `null`）。
 - **worktree 里有什么**：仓库跟踪的文件，加上原仓库根目录 `.worktreeinclude`（`.gitignore` 语法，用户自己维护）列出、并且被忽略的文件，创建时复制过去（跳过符号链接，不覆盖已有文件），复制了哪些记在 `run.created` 的 `data.worktree.included`。用户目录里没提交的改动不带过去，创建前提醒（[创建前的提醒](../interfaces/20261031-http_api.md#run_preflight)）。依赖、构建产物等不复制，负责人说明和任务提示告诉 Agent 按项目自己的方式在 worktree 里准备环境、改了依赖就重新安装。
 - **验收**：Janus 在 worktree 里提交全部改动，再把结果带回创建时检出的分支（`worktrees::accept`）：分支没动过时直接快进；有了新提交时先在 worktree 里把任务的提交变基到最新的分支上再快进，历史是线性的，不建 `janus/` 分支。分支检出在用户的目录（或用户的其他 worktree）时在那里 `git merge --ff-only`，文件随之更新，和任务无关的未提交改动保留；没有检出时只移动分支。变基冲突、源分支被删除、用户目录里未提交的改动（包括未跟踪的同名文件）会被覆盖时，验收失败（400），Run 保持 `delivered`，用户的目录和分支不变，结果留在 worktree 的提交里，错误信息给出提交号或重叠的文件。创建时处于 detached HEAD 的 Run，只在工作目录仍在原来的提交（或上次验收带到的提交）上时快进它，否则同样失败。Janus 的所有 Git 写操作都带 `-c core.hooksPath=/dev/null`，不运行仓库的钩子。worktree 始终 detached。负责人的对话还开着时 worktree 保留，继续对话就接着在里面改，再验收时再带回一个提交；没有会话在用时（例如服务重启后验收）验收后移除。服务启动时（`recover`）移除已验收 Run 留下的 worktree；之后继续这个 Run 时，`resume_run` 从最后一次验收带回的提交（`risk.accepted` 的 `data.commit`，没有就从基线）重建 worktree（`worktrees::ensure`）。
-- **删除 Run**：移除 worktree，还没提交的改动先存成补丁 `<Janus home>/worktrees/deleted/<run>.patch`。暂存、读出改动或写补丁任何一步失败时，worktree 和 Run 都保留，删除返回失败原因，排除后再删一次（`worktrees::remove`）。停止的 Run 保留 worktree，可以查看，但不能从中断处继续；失败和中断的 Run 保留 worktree，可以从中断处继续。
-- **工作区是仓库中的一个目录**（例如 `apps/client`）：worktree 仍是整个仓库的，会话从 worktree 里对应的目录开始（`runs.cwd` 是这个目录，worktree 的根是 `<Janus home>/worktrees/<run>`），所以工作区里的相对路径在任务中指向同一个文件。验收、删除和重建都按整个 worktree 进行。
-- **创建失败不留东西**：worktree 建好之后，资源包或图片保存失败时，这次的 worktree 和 `runs/<run>/` 目录一并收回，不留下没有记录的 worktree。
-- **验收的前提**：worktree 必须还在。它被外部删除时验收失败，Run 保持 `delivered`，提示到 `worktrees/deleted/` 找补丁；不会当作「没有改动」验收通过。创建时处于 detached HEAD 的 Run，验收时工作目录必须仍在创建时的提交（或上次验收带到的提交）上，用户切到别的提交（包括父提交）时不动它，提示自己合并。
+- **删除 Run**：移除 worktree，还没提交的改动先存成补丁 `<Janus home>/data/deleted-runs/<run>.patch`。暂存、读出改动或写补丁任何一步失败时，worktree 和 Run 都保留，删除返回失败原因，排除后再删一次（`worktrees::remove`）。停止的 Run 保留 worktree，可以查看，但不能从中断处继续；失败和中断的 Run 保留 worktree，可以从中断处继续。
+- **工作区是仓库中的一个目录**（例如 `apps/client`）：worktree 仍是整个仓库的，会话从 worktree 里对应的目录开始（`runs.cwd` 是这个目录，worktree 的根是 `<Janus home>/work/runs/<run>`），所以工作区里的相对路径在任务中指向同一个文件。验收、删除和重建都按整个 worktree 进行。
+- **创建失败不留东西**：worktree 建好之后，资源包或图片保存失败时，这次的 worktree 和 `data/runs/<run>/` 目录一并收回，不留下没有记录的 worktree。
+- **验收的前提**：worktree 必须还在。它被外部删除时验收失败，Run 保持 `delivered`，提示到 `data/deleted-runs/` 找补丁；不会当作「没有改动」验收通过。创建时处于 detached HEAD 的 Run，验收时工作目录必须仍在创建时的提交（或上次验收带到的提交）上，用户切到别的提交（包括父提交）时不动它，提示自己合并。
 - **非 Git 目录**（以及还没有提交的仓库）：负责人和所有任务直接在工作区目录中运行，没有 diff 产物。同一个目录上已有进行中的 Run 时只提醒，不阻止。
 - 一个任务能否修改文件，完全由它的 Agent 权限模式决定，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。负责人和协作者都不提交、不推送；只有用户验收时由 Janus 提交并合并回源分支。Janus 只隔离文件，端口、本机数据库这类共享资源由项目自己避免冲突。
 
@@ -101,7 +101,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
    接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/20261031-acp_integration.md#session_setup)。
 3. 发送任务提示（`task_prompt`）。回到这个任务自己的会话时（`retry` 的 `continue` 或复审），会话里已经有任务说明，只发新的内容（`continued_prompt`）：验证意见或上一轮的判定、负责人的说明、改过的说明、上次失败的原因和验收标准，见[重试、返工与失败](#retry)。其他情况发完整的任务提示：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含一句话摘要、专门给下游的 `handoff` 交接说明、前 5 条上游风险、负责人的修订、改过的文件及后续被他人或负责人修改的提醒）、同时进行的任务和上次失败原因；独立验证任务还会收到被验证任务的专属 diff 路径、实际改动文件、痕迹核对异常、弱证据条目提醒和风险（`teamwork::VerifiedContext`）。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
-4. 收集流式输出、工具调用、审批请求和表单请求。单轮超时发送 `session/cancel` 后，仍等待最多 2 秒读取返回值中的 `prompt_usage`；每轮发送前记录事件序号和会话日志末尾位置。若尝试异常结束且本轮尚未上报 Token，则从 Janus 隔离目录（Claude Code 的 `CLAUDE_CONFIG_DIR`，即 `~/.janus/agents/<id>/home`）下的 `projects/**/<sid>.jsonl` 读取本轮新增记录，按 `message.id` 取最后一次读数补齐用量。同一会话前面几轮的读数照常保留。
+4. 收集流式输出、工具调用、审批请求和表单请求。单轮超时发送 `session/cancel` 后，仍等待最多 2 秒读取返回值中的 `prompt_usage`；每轮发送前记录事件序号和会话日志末尾位置。若尝试异常结束且本轮尚未上报 Token，则从 Janus 隔离目录（Claude Code 的 `CLAUDE_CONFIG_DIR`，即 `~/.janus/data/agents/<id>/config`）下的 `projects/**/<sid>.jsonl` 读取本轮新增记录，按 `message.id` 取最后一次读数补齐用量。同一会话前面几轮的读数照常保留。
 5. 解析回复中最后一个 ```` ```json ```` 代码块作为结构化结果。
 
 <a id="structured_result"></a>

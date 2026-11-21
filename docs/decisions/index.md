@@ -16,7 +16,7 @@
 - [权限交给 Agent 原生模式](20261031-agent_native_permissions.md)：角色直接选择 Agent 声明的权限模式，Janus 不再有自己的读写开关，也不做校验。阅读时机：想在 Janus 层面增加权限控制，或修改角色的权限设置之前。
 - [任务直接在工作目录中运行](20261031-in_place_workspaces.md)：关闭并删除独立 worktree，所有任务在工作区目录中读写。Git 仓库的部分已被「每个任务在自己的 worktree 中运行」取代，现在只适用于非 Git 目录。阅读时机：调整非 Git 目录的工作方式之前。
 - [负责人以 /goal 推进目标](20261031-goal_mode_lead.md)：负责人用 `/goal` 自主推进，按需协作，只能是 Claude Code 或 Codex。阅读时机：修改负责人的启动方式、交付条件，或想让其他 Agent 担任负责人之前。
-- [用户数据、依赖和日志都放在 Janus home](20261031-user_home_layout.md)：仓库只放代码，数据库、适配器、产物、配置和日志都在 `~/.janus`。阅读时机：新增要写盘的功能，或想改变数据、依赖、日志的存放位置之前。
+- [用户数据、依赖和日志都放在 Janus home](20261031-user_home_layout.md)：仓库只放代码，数据库、适配器、产物、配置和日志都在 `~/.janus`。其中目录怎样划分已被「Janus home 按丢了能不能再有分类」取代。阅读时机：想让 Janus 在 Janus home 以外存东西之前。
 - [ACP 适配器按需安装，按版本存放](20261031-on_demand_adapters.md)：第一次用到时安装，每个版本一个目录，原子切换，可升级和回滚。阅读时机：修改适配器的安装、升级方式，或新增适配器来源之前。
 - [按验收标准自行验证](20261101-criteria_over_commands.md)：每个任务写验收标准，执行者用自己判断的方式逐条验证并给出证据，Janus 只核对结构，不运行验证命令。阅读时机：想让 Janus 执行验证命令、修改验收或结果核对的方式之前。
 - [用原生 macOS 应用做展示层](20261101-native_macos_app.md)：界面只有 SwiftUI 应用，通过 HTTP API 读写，包内带 Janus 服务和 Node.js，CI 打 DMG 发布，只做 ad-hoc 签名。阅读时机：想改变应用与服务的关系、增加其他界面、调整打包签名，或修改事件推导之前。
@@ -46,6 +46,7 @@
 - [资源库的每项资源都给所有数字员工，只经两个路由提供](20261120-library_routed_only.md)：去掉「给谁用」和角色的资源选择；命令、HTTP、SSE 服务器都只经 `janus-tools`，由 Janus 进程启动或连接（扩大信任边界：Janus 带着 header 的值连接用户填写的地址）；Skill 只经 `janus-skills`；Agent 自带的 Skill 和 MCP 不管。阅读时机：修改资源库、会话怎样拿到 Skill 和 MCP，或想恢复按数字员工划分资源之前。
 - [Skill 路由是一份按需查找的目录](20261120-skill_catalog.md)：系统层写明 `janus-skills` 的位置；它的描述先写何时用再列名字和描述片段；目录 16 KB 以内逐行列出完整描述，超过时用 grep 搜 `catalog.txt`；按读过的会话数排序（`skill.used`）；资源库显示使用次数和描述的改进提示。阅读时机：修改 `janus-skills` 的内容、系统层里关于 Skill 的说明、Skill 的使用记录或改进提示之前。
 - [和一名数字员工的对话是一种 Run](20261120-chats_as_runs.md)：`runs.kind` 区分目标和对话；数字员工占用主会话、走交付后对话的同一个循环，没有看板和交付；工作目录是 Janus home 下新建的 `chats/<run>`；看板拒绝对话的令牌。阅读时机：修改对话、Run 的类型，或想为对话另建实体、换工作目录之前。
+- [Janus home 按「丢了能不能再有」分类，路径只从 `Layout` 取](20261121-home_layout.md)：顶层分为 `data/`、`work/`、`cache/`、`tmp/`、`logs/`、`backups/`，对象的东西放在它的 id 下，任务和对话分开；凭据集中在 `data/secrets/`；删除 Run 时也删 Agent 原生的会话记录；数据版本 14 搬移旧布局并改写记下的路径。阅读时机：新增要写盘的功能、改变任何文件的位置，或想改写事件里的路径之前。
 
 ## 历史决策
 

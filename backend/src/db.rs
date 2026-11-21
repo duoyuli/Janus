@@ -2,11 +2,10 @@
 //! are indexes kept alongside them so the scheduler and UI can query without replaying.
 
 use crate::status::{AttemptStatus, CommandState, RunKind, RunStatus};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::Value;
-use std::path::Path;
 use std::sync::Mutex;
 
 #[derive(Serialize, Clone, Debug)]
@@ -91,10 +90,12 @@ impl Db {
     /// Opens the database and brings it up to this build's data version (see `migrations`), saying
     /// what the upgrade did.
     // @project-doc docs/architecture/20261031-data_model.md#migrations
-    pub fn open(path: &Path) -> Result<(Db, crate::migrations::Report)> {
-        let mut conn = Connection::open(path)?;
+    pub fn open(layout: &crate::layout::Layout) -> Result<(Db, crate::migrations::Report)> {
+        let path = layout.db();
+        std::fs::create_dir_all(path.parent().context("data")?)?;
+        let mut conn = Connection::open(&path)?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
-        let report = crate::migrations::upgrade(&mut conn, Some(path))?;
+        let report = crate::migrations::upgrade(&mut conn, Some(layout))?;
         Ok((Db(Mutex::new(conn)), report))
     }
 
@@ -302,6 +303,19 @@ impl Db {
             .optional()?)
     }
 
+    /// The agent sessions a run opened: each attempt's, and the lead's or the chat's (recorded
+    /// when it starts thinking). Their transcripts in the agents' own folders go with the run.
+    pub fn run_sessions(&self, run_id: &str) -> Result<std::collections::HashSet<String>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT json_extract(data, '$.session') FROM events WHERE run_id = ?1
+               AND type IN ('attempt.started', 'agent.status', 'session.prompt')
+               AND json_extract(data, '$.session') IS NOT NULL",
+        )?;
+        let found = stmt.query_map(params![run_id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(found)
+    }
+
     /// Remove a run's facts and the indexes beside them. The run's directories under Janus home
     /// are the caller's; the event log goes with the row it belongs to.
     pub fn delete_run(&self, run_id: &str) -> Result<()> {
@@ -472,9 +486,9 @@ mod tests {
     use serde_json::json;
 
     fn temp_db(name: &str) -> (Db, std::path::PathBuf) {
-        let path = std::env::temp_dir().join(format!("janus-{name}-{}.db", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        (Db::open(&path).unwrap().0, path)
+        let home = std::env::temp_dir().join(format!("janus-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        (Db::open(&crate::layout::Layout::new(&home)).unwrap().0, home)
     }
 
     /// Paging walks every run once, newest first, also through runs created in the same
@@ -534,7 +548,7 @@ mod tests {
         };
         let (runs, _) = db.runs_page(&waiting).unwrap();
         assert_eq!(runs.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), ["r000"]);
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     /// The workspaces runs were made in are listed from the runs' snapshots, so one deleted since
@@ -553,7 +567,7 @@ mod tests {
             (listed[0]["id"].as_str(), listed[0]["runs"].as_i64(), listed[0]["name"].as_str()),
             (Some("w1"), Some(2), Some("w1 名"))
         );
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     /// The app's list stops at the newest 50 runs; a run by id is found however old it is.
@@ -567,7 +581,7 @@ mod tests {
         assert!(!db.runs(RunKind::Goal).unwrap().iter().any(|r| r["id"] == "r0"), "the oldest is not on the list");
         assert_eq!(db.run("r0").unwrap().unwrap()["createdAt"], 0);
         assert!(db.run("nope").unwrap().is_none());
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -586,7 +600,7 @@ mod tests {
         db.interrupt_commands().unwrap();
         assert_eq!(claim("c2"), Some(CommandState::Interrupted));
         assert_eq!(claim("c1"), Some(CommandState::Done));
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -640,6 +654,6 @@ mod tests {
         // Deleting it again changes nothing else.
         db.delete_run("r1").unwrap();
         assert!(db.run("r2").unwrap().is_some());
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path);
     }
 }

@@ -138,9 +138,9 @@ private struct ChatLog {
 @Test func documentsOfAGoneWorktreeAreFoundInTheRepository() {
     var log = ChatLog()
     log.add("agent.message", actor: "lead", text: "写好了 docs/manual.md", data: ["text": "写好了 docs/manual.md"])
-    let cwd = "/Users/me/.janus/worktrees/r1/apps/client"
+    let cwd = "/Users/me/.janus/work/runs/r1/apps/client"
     let moved = RunDocs.Moved.of(cwd: cwd, repo: "/Users/me/src/app", run: "r1", exists: { _ in false })
-    #expect(moved == RunDocs.Moved(from: "/Users/me/.janus/worktrees/r1", to: "/Users/me/src/app"))
+    #expect(moved == RunDocs.Moved(from: "/Users/me/.janus/work/runs/r1", to: "/Users/me/src/app"))
     var found: [String: RunDocs.Doc] = [:]
     RunDocs.scan(log.events, cwd: cwd, moved: moved, into: &found)
     #expect(found.keys.contains("/Users/me/src/app/apps/client/docs/manual.md"))

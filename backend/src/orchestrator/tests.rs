@@ -28,7 +28,7 @@ async fn sessions_open_with_the_members_resources() {
     let caps = json!({ "mcpCapabilities": { "http": true } });
     let board = json!({ "type": "http", "name": "janus", "url": "http://board" });
     let o = app.opening(&run, "lead", &m, &caps, vec![board.clone()], Some("规则"));
-    let bundle = app.bundle_dir(&run.id, &m.id);
+    let bundle = app.dirs(&run).bundle(&m.id);
     assert_eq!(o.meta["claudeCode"]["options"]["plugins"], json!([{ "type": "local", "path": bundle }]));
     assert_eq!(o.meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
     assert_eq!(o.meta["systemPrompt"]["append"], "规则");

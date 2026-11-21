@@ -4,9 +4,9 @@
 //! agent needs it, or from the Agents page, and each version gets its own directory:
 //!
 //! ```text
-//! <home>/adapters/<id>/<version>/        the package and its node_modules
-//! <home>/adapters/<id>/<version>/.janus-adapter.json
-//! <home>/adapters/<id>/current -> <version>
+//! cache/adapters/<id>/<version>/        the package and its node_modules
+//! cache/adapters/<id>/<version>/.janus-adapter.json
+//! cache/adapters/<id>/current -> <version>
 //! ```
 //!
 //! A new version is installed in a staging directory and only becomes `current` once its entry
@@ -162,11 +162,11 @@ impl Drop for VersionPin {
 
 impl App {
     fn adapters_dir(&self) -> PathBuf {
-        self.cfg.data_dir.join("adapters")
+        self.cfg.layout.adapters()
     }
 
     fn adapter_log(&self, id: &str) -> PathBuf {
-        self.cfg.data_dir.join("logs").join("adapters").join(format!("{id}.log"))
+        self.cfg.layout.adapter_log(id)
     }
 
     /// The version directory `current` points to, if the adapter is installed.

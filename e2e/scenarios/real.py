@@ -15,7 +15,7 @@ import sqlite3
 import subprocess
 import time
 
-from lib import ROOT, Failure, Server, free_addr, git_repo, http, wait
+from lib import ROOT, Failure, Server, free_addr, git_repo, home_db, http, wait
 from scenarios import scenario
 
 ADDR = free_addr()
@@ -119,7 +119,8 @@ def real(ctx, c):
     finally:
         server.stop()
         # The copied credentials do not outlive the test, even with --keep.
-        shutil.rmtree(os.path.join(home, "agents"), ignore_errors=True)
+        for d in (("data", "agents"), ("data", "secrets")):
+            shutil.rmtree(os.path.join(home, *d), ignore_errors=True)
 
 
 # What a check derives or records; everything else is the connection's own settings.
@@ -130,7 +131,7 @@ DERIVED = {"agentInfo", "base", "check", "checkedAt", "createdAt", "elapsedMs", 
 def _copy_connections(src_home, home, api, c):
     """Copy the person's Codex and Claude Code connections (a checked one of each kind) into the
     test home and start their checks. Returns {kind: connection id}."""
-    db_path = os.path.join(src_home, "janus.db")
+    db_path = home_db(src_home)
     if not os.path.exists(db_path):
         raise Failure(f"{src_home} 中没有 Janus 数据，用 --real-from 指定一个配置好 Codex 和 Claude Code 的 Janus home")
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -144,12 +145,15 @@ def _copy_connections(src_home, home, api, c):
         if not mine:
             raise Failure(f"{src_home} 中没有 {label} 的 Agent，先在 Janus 中添加并通过配置检查")
         cfg = mine[0]
-        secrets = os.path.join(src_home, "agents", cfg["id"], "secrets.json")
+        # The source home may be one an older release laid out (secrets beside the agent's folders).
+        secrets = os.path.join(src_home, "data", "secrets", "agents", cfg["id"] + ".json")
+        if not os.path.exists(secrets):
+            secrets = os.path.join(src_home, "agents", cfg["id"], "secrets.json")
         if os.path.exists(secrets):
-            dest = os.path.join(home, "agents", cfg["id"])
+            dest = os.path.join(home, "data", "secrets", "agents")
             os.makedirs(dest, mode=0o700, exist_ok=True)
-            shutil.copyfile(secrets, os.path.join(dest, "secrets.json"))
-            os.chmod(os.path.join(dest, "secrets.json"), 0o600)
+            shutil.copyfile(secrets, os.path.join(dest, cfg["id"] + ".json"))
+            os.chmod(os.path.join(dest, cfg["id"] + ".json"), 0o600)
         body = {k: v for k, v in cfg.items() if k not in DERIVED}
         env = dict(cfg.get("env") or {})
         if kind == "claude" and cfg.get("auth") == "apikey" and os.path.exists(secrets):

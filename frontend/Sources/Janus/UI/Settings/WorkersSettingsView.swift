@@ -362,7 +362,7 @@ struct ConnectionEditor: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 field(L.text("名称")) { TextField(L.catalogText(k["name"].str), text: str("name")).textFieldStyle(.roundedBorder) }
-                field("ID", hint: "~/.janus/agents/\(editing ? draft["id"].str : draft["newId"].str)") {
+                field("ID", hint: L.tilde(JanusHome.current().agent(editing ? draft["id"].str : draft["newId"].str).path)) {
                     if editing { TextField("ID", text: .constant(draft["id"].str)).labelsHidden().textFieldStyle(.roundedBorder).disabled(true).font(.system(.body, design: .monospaced)) }
                     else { TextField("ID", text: Binding(get: { draft["newId"].str }, set: { draft["newId"] = JSON($0); idTouched = !$0.isEmpty }), prompt: Text(verbatim: "codex")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                 }

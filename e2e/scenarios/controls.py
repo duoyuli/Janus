@@ -1,6 +1,8 @@
 """The person's run operations: pause, interrupt, take over, switch controls, budget, cancel, delete."""
 
-from lib import wait
+import os
+
+from lib import paths_with, wait
 from scenarios import scenario, task
 
 
@@ -76,8 +78,9 @@ def controls(ctx, c):
     code, _ = ctx.api_error("GET", f"/api/runs/{run.id}")
     c(code == 404, "删除后 Run 不存在（404）")
     c(run.id not in [r["id"] for r in ctx.api("GET", "/api/runs")["runs"]], "删除后不在 Run 列表中")
-    import os
-    c(not os.path.exists(os.path.join(ctx.home, "artifacts", run.id)), "删除后 Janus home 中这个 Run 的产物目录也删掉了")
+    # Uncommitted changes of a deleted worktree are kept on purpose, as `data/deleted-runs/<run>.patch`.
+    left = [p for p in paths_with(ctx.home, run.id) if os.sep + os.path.join("data", "deleted-runs") + os.sep not in p]
+    c(not left, f"删除后 Janus home 中没有留下这个 Run 的任何东西（产物、日志、资源包、worktree）：{left}")
     if ctx.app:
         ctx.app.until(lambda s: run.id not in [x["id"] for x in s["runs"]], "应用的 Run 列表不再有它", "reload", f"open home:{t.ws['id']}")
         c(True, "应用：删除的 Run 不再出现")

@@ -2,9 +2,9 @@
 //!
 //! A connection is one coding agent: Codex or Claude Code, through its ACP adapter. Each
 //! connection owns an isolated home under
-//! `~/.janus/agents/<id>/home` that is handed to the agent as CODEX_HOME / CLAUDE_CONFIG_DIR, so
+//! `data/agents/<id>/config` in Janus home that is handed to the agent as CODEX_HOME / CLAUDE_CONFIG_DIR, so
 //! neither the user's own `~/.codex`, `~/.claude` nor their shell credentials leak in.
-//! Secrets live in `~/.janus/agents/<id>/secrets.json` (0600) and never in SQLite or the API.
+//! Secrets live in `data/secrets/agents/<id>.json` (0600) and never in SQLite or the API.
 //!
 //! The child modules each add one part: `catalog` (agent kinds), `connections`
 //! (saving agents, their homes and the sandboxed launch), `checks` (connection checks and
@@ -34,7 +34,7 @@ mod workspaces;
 pub use catalog::kinds;
 use catalog::*;
 pub use checks::CheckState;
-pub(crate) use connections::{drop_custom_agents, drop_preset_kinds, is_sandbox_var, sandbox_at};
+pub(crate) use connections::{drop_custom_agents, drop_preset_kinds, is_sandbox_var, sandbox_vars};
 pub(crate) use environment::migrate_claude_env;
 pub use local_config::local_preview;
 use local_config::*;

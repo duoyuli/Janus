@@ -674,7 +674,7 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
         .rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T_CRASH"))
         .and_then(|e| e.data?["session"].as_str().map(str::to_owned))
         .unwrap();
-    let proj_dir = h.app.cfg.agents_dir.join("fake").join("home/projects/demo");
+    let proj_dir = h.app.cfg.layout.agent_config("fake").join("projects/demo");
     std::fs::create_dir_all(&proj_dir).unwrap();
     let r = h.app.run(&run).unwrap();
     let member = r.member("m1").unwrap().clone();
@@ -702,7 +702,7 @@ async fn abnormal_attempts_preserve_cancelled_and_isolated_native_usage() {
     // Exercise `stream_prompt` short timeout directly against `cancel-usage` to verify post-cancel `prompt_usage`.
     let spec = h.app.spec_for("fake").unwrap();
     let owner = Owner { session: SessionKey::task("T_TIMEOUT"), attempt: 1 };
-    let log = h.app.cfg.data_dir.join("logs").join(&run).join("T_TIMEOUT-a1.log");
+    let log = h.app.dirs(&r).log("T_TIMEOUT-a1.log");
     let (conn, mut rx, mut ctl) = h.app.open_session(&r, &owner, "m1", &spec, &log, "Agent ").await.unwrap();
     let opening = h.app.opening(&r, "T1", &member, &conn.capabilities, vec![], None);
     let session = new_session(&conn, &r.cwd, &opening).await.unwrap();

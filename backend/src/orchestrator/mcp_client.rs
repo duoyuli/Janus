@@ -141,14 +141,14 @@ impl Drop for Backend {
 
 impl Backend {
     /// Start or reach `server` and initialize it. A command runs in `cwd`, in a sandbox of its own
-    /// (`sandbox_at(home)`), never in Janus's environment: it sees the sandbox variables and the
+    /// (`sandbox_vars(sandbox)`), never in Janus's environment: it sees the sandbox variables and the
     /// values saved on it, which can't override them; its stderr goes to `log`. A URL gets the
     /// headers saved on it, from this process. `roots/list` from the server is answered with `cwd`.
     // @project-doc docs/operations/20261031-security.md#library
     pub(super) async fn start(
         server: &McpServer,
         values: &McpValues,
-        home: &Path,
+        sandbox: &crate::layout::Sandbox,
         cwd: &Path,
         log: &Path,
         wait: Duration,
@@ -174,7 +174,7 @@ impl Backend {
                 let mut child = cmd
                     .args(args)
                     .env_clear()
-                    .envs(crate::agents::sandbox_at(home)?)
+                    .envs(crate::agents::sandbox_vars(sandbox)?)
                     .envs(own)
                     .current_dir(cwd)
                     .stdin(std::process::Stdio::piped())

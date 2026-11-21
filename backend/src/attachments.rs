@@ -1,7 +1,7 @@
 //! Images the person pastes into a goal or a message.
 //!
-//! The app sends them base64 with the goal or the message. They are stored in
-//! `<home>/runs/<run>/attachments/`, and the text the agent receives names each one on a line of
+//! The app sends them base64 with the goal or the message. They are stored in the run's or the
+//! chat's `attachments/` (`RunDirs::attachments`), and the text the agent receives names each one on a line of
 //! its own (`[Image N] <path>`). That text is what every delivery path already carries (steering,
 //! queued turns, notes for the next session, restored messages after a restart), so the images
 //! travel with it. When a prompt goes out, each named attachment is added as an ACP image block if
@@ -9,13 +9,14 @@
 //! agent without image input can still open the file.
 
 // @project-doc docs/domains/20261031-run_lifecycle.md#attachments
+use crate::layout::{Layout, RunDirs};
 use crate::orchestrator::now_ms;
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// At most this many images in one goal or message, each at most this large after decoding.
@@ -40,13 +41,9 @@ fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     }
 }
 
-pub fn dir(data_dir: &Path, run_id: &str) -> PathBuf {
-    data_dir.join("runs").join(run_id).join("attachments")
-}
-
 /// Decode and store the images of one goal or message. Returns, for each, `{path, mimeType,
 /// name, size}`; nothing is stored when any of them is refused.
-pub fn save(data_dir: &Path, run_id: &str, images: &[Value]) -> Result<Vec<Value>> {
+pub fn save(run: &RunDirs, images: &[Value]) -> Result<Vec<Value>> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     if images.len() > MAX_IMAGES {
         bail!("一次最多附 {MAX_IMAGES} 张图片");
@@ -67,7 +64,7 @@ pub fn save(data_dir: &Path, run_id: &str, images: &[Value]) -> Result<Vec<Value
     if decoded.is_empty() {
         return Ok(vec![]);
     }
-    let dir = dir(data_dir, run_id);
+    let dir = run.attachments();
     std::fs::create_dir_all(&dir)?;
     let mut out = vec![];
     for (bytes, mime, ext, name) in decoded {
@@ -100,30 +97,21 @@ pub fn with_lines(text: &str, saved: &[Value]) -> String {
     }
 }
 
-/// Whether `path` is a file this module stored: `<home>/runs/<run>/attachments/<file>`.
-fn is_attachment(runs: &Path, path: &Path) -> bool {
-    let (Ok(runs), Ok(path)) = (runs.canonicalize(), path.canonicalize()) else { return false };
-    let Ok(rest) = path.strip_prefix(&runs) else { return false };
-    let parts: Vec<_> = rest.components().collect();
-    parts.len() == 3 && parts[1].as_os_str() == "attachments" && path.is_file()
-}
-
 /// ACP content for one prompt: the text, then every attachment the text names, as image blocks
-/// when the agent takes images. Only files under `<home>/runs/*/attachments/` are read, so text
-/// that merely looks like a marker cannot make Janus send an arbitrary file.
-pub fn prompt_blocks(data_dir: &Path, text: &str, images: bool) -> Vec<Value> {
+/// when the agent takes images. Only files this module stored are read (`Layout::is_attachment`),
+/// so text that merely looks like a marker cannot make Janus send an arbitrary file.
+pub fn prompt_blocks(layout: &Layout, text: &str, images: bool) -> Vec<Value> {
     let mut out = vec![json!({ "type": "text", "text": text })];
     if !images {
         return out;
     }
-    let runs = data_dir.join("runs");
     let mut seen = HashSet::new();
     for line in text.lines() {
         let line = line.trim();
         let marker = line.strip_prefix(MARKER).or_else(|| line.strip_prefix(LEGACY_MARKER));
         let Some((_, path)) = marker.and_then(|r| r.split_once("] ")) else { continue };
         let path = PathBuf::from(path.trim());
-        if !seen.insert(path.clone()) || !is_attachment(&runs, &path) {
+        if !seen.insert(path.clone()) || !layout.is_attachment(&path) {
             continue;
         }
         let Ok(bytes) = std::fs::read(&path) else { continue };
@@ -144,47 +132,48 @@ mod tests {
         let home = std::env::temp_dir().join(format!("janus-attachments-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).unwrap();
+        let layout = Layout::new(&home);
+        let (r1, r2) = (layout.run(crate::status::RunKind::Goal, "r1"), layout.run(crate::status::RunKind::Chat, "r2"));
         let data = STANDARD.encode(PNG);
         let saved = save(
-            &home,
-            "r1",
+            &r1,
             &[json!({ "data": format!("data:image/png;base64,{data}"), "name": "截图.png", "mimeType": "image/jpeg" })],
         )
         .unwrap();
         assert_eq!(saved[0]["mimeType"], "image/png", "the type comes from the bytes");
         assert_eq!(saved[0]["name"], "截图.png");
         let path = saved[0]["path"].as_str().unwrap();
-        assert!(path.contains("/runs/r1/attachments/"), "{path}");
+        assert!(path.contains("/data/runs/r1/attachments/"), "{path}");
 
         let text = with_lines("看看这个报错", &saved);
         assert_eq!(text, format!("看看这个报错\n\nAttached images:\n[Image 1] {path}"));
         assert!(with_lines("", &saved).starts_with("Review the user's attached images:"));
 
-        let blocks = prompt_blocks(&home, &text, true);
+        let blocks = prompt_blocks(&layout, &text, true);
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[0]["text"], text);
         assert_eq!(blocks[1]["type"], "image");
         assert_eq!(blocks[1]["mimeType"], "image/png");
         assert_eq!(blocks[1]["data"], data);
-        let legacy = prompt_blocks(&home, &format!("[附图 1] {path}"), true);
+        let legacy = prompt_blocks(&layout, &format!("[附图 1] {path}"), true);
         assert_eq!(legacy.get(1), blocks.get(1), "historical messages still attach their images");
-        assert_eq!(prompt_blocks(&home, &text, false).len(), 1, "an agent without image input gets the path only");
+        assert_eq!(prompt_blocks(&layout, &text, false).len(), 1, "an agent without image input gets the path only");
         let twice = format!("{text}\n{text}");
-        assert_eq!(prompt_blocks(&home, &twice, true).len(), 2, "one block per file");
+        assert_eq!(prompt_blocks(&layout, &twice, true).len(), 2, "one block per file");
 
         // A marker naming a file outside the attachments folders is ignored.
         let other = home.join("secret.png");
         std::fs::write(&other, PNG).unwrap();
-        assert_eq!(prompt_blocks(&home, &format!("[Image 1] {}", other.display()), true).len(), 1);
-        let sneaky = format!("[附图 1] {}/runs/r1/attachments/../../../secret.png", home.display());
-        assert_eq!(prompt_blocks(&home, &sneaky, true).len(), 1);
+        assert_eq!(prompt_blocks(&layout, &format!("[Image 1] {}", other.display()), true).len(), 1);
+        let sneaky = format!("[附图 1] {}/data/runs/r1/attachments/../../../../secret.png", home.display());
+        assert_eq!(prompt_blocks(&layout, &sneaky, true).len(), 1);
 
         // Refused: not an image, too many. Nothing is stored for a refused message.
-        assert!(save(&home, "r2", &[json!({ "data": STANDARD.encode(b"hello") })]).is_err());
-        assert!(save(&home, "r2", &[json!({ "data": "%%%" })]).is_err());
+        assert!(save(&r2, &[json!({ "data": STANDARD.encode(b"hello") })]).is_err());
+        assert!(save(&r2, &[json!({ "data": "%%%" })]).is_err());
         let many: Vec<Value> = (0..=MAX_IMAGES).map(|_| json!({ "data": data })).collect();
-        assert!(save(&home, "r2", &many).is_err());
-        assert!(!dir(&home, "r2").exists());
+        assert!(save(&r2, &many).is_err());
+        assert!(!r2.attachments().exists());
         let _ = std::fs::remove_dir_all(&home);
     }
 }

@@ -39,7 +39,7 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 | Workspace | A local directory plus a set of digital employees, one of whom is the lead. |
 | Task | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
 | Lead agent | The agent that drives the goal with `/goal`. It can be Claude Code or Codex, and decides whether to work directly or delegate through orchestration. |
-| Chat | A one-to-one conversation with a single digital employee, outside any workspace: it brings its instructions, model, permissions, and the resource library, and works in a fresh directory under `~/.janus/chats/` that is deleted with the chat. The same session view as the lead's: steer, take over, approve, paste images, switch model and mode. |
+| Chat | A one-to-one conversation with a single digital employee, outside any workspace: it brings its instructions, model, permissions, and the resource library, and works in a fresh directory under `~/.janus/work/chats/` that is deleted with the chat. The same session view as the lead's: steer, take over, approve, paste images, switch model and mode. |
 | Orchestration and shared board | The set of subtasks submitted by the lead (assignee, dependencies, acceptance criteria). Janus validates them before execution; progress, blockers, and questions are written to the shared board. |
 
 ## Quick start

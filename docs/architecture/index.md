@@ -40,7 +40,7 @@ Rust 编排器（backend/，axum + tokio）
   └── SQLite：配置、Run、事件、尝试、产物
   │  stdio（每个会话一个子进程）
   ▼
-ACP 适配器（~/.janus/adapters/，按需安装）
+ACP 适配器（~/.janus/cache/adapters/，按需安装）
   ├── @agentclientprotocol/codex-acp         → Codex CLI
   └── @agentclientprotocol/claude-agent-acp  → Claude Code
   │

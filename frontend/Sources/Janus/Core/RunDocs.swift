@@ -64,10 +64,10 @@ enum RunDocs {
             return to + path.dropFirst(from.count)
         }
 
-        /// Where a run's worktree went when it is gone: `cwd` is in `<home>/worktrees/<run>` (or a
+        /// Where a run's worktree went when it is gone: `cwd` is in `<home>/work/runs/<run>` (or a
         /// folder of it), `repo` is where accepting brought the result. Nil while it is there.
         static func of(cwd: String, repo: String, run: String, exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> Moved? {
-            guard !repo.isEmpty, !cwd.isEmpty, !exists(cwd), let r = cwd.range(of: "/worktrees/\(run)") else { return nil }
+            guard !repo.isEmpty, !cwd.isEmpty, !exists(cwd), let r = cwd.range(of: "/work/runs/\(run)") else { return nil }
             return Moved(from: String(cwd[..<r.upperBound]), to: repo)
         }
     }
