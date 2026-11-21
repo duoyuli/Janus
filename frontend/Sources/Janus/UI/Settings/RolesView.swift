@@ -400,7 +400,7 @@ struct RoleEditor: View {
         saving = true
         Task {
             do {
-                let saved = try await store.save("roles", r)
+                let saved = try await store.save(.roles, r)
                 switch picture {
                 case .set(let png): try await store.setAvatar(saved["id"].str, png: png)
                 case .remove: try await store.setAvatar(saved["id"].str, png: nil)
@@ -416,7 +416,7 @@ struct RoleEditor: View {
     private func remove() {
         guard confirm(L.text("删除数字员工「\(r["name"].str)」？"), ok: L.text("删除")) else { return }
         Task {
-            do { try await store.delete("roles", r["id"].str); dismiss() } catch { store.show(error.localizedDescription) }
+            do { try await store.delete(.roles, r["id"].str); dismiss() } catch { store.show(error.localizedDescription) }
         }
     }
 }
@@ -447,14 +447,14 @@ struct AdapterLine: View {
                     .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
                 Spacer()
                 if let p = prev {
-                    Button(L.text("切回 \(p["version"].str)")) { Task { await store.adapterAction(id, "use", version: p["version"].str) } }
+                    Button(L.text("切回 \(p["version"].str)")) { Task { await store.adapterAction(id, .use, version: p["version"].str) } }
                         .buttonStyle(.link).font(.caption).disabled(running)
                 }
                 if !a["current"].truthy {
-                    Button(L.text("安装")) { Task { await store.adapterAction(id, "install") } }.controlSize(.small).disabled(running)
+                    Button(L.text("安装")) { Task { await store.adapterAction(id, .install) } }.controlSize(.small).disabled(running)
                 } else {
-                    if a["updateAvailable"].truthy { Button(String(L.text("升级到 \(a["latest"].str)"))) { Task { await store.adapterAction(id, "install") } }.buttonStyle(.primary).controlSize(.small).disabled(running) }
-                    Button(L.text("检查更新")) { Task { await store.adapterAction(id, "check") } }.controlSize(.small).disabled(running)
+                    if a["updateAvailable"].truthy { Button(String(L.text("升级到 \(a["latest"].str)"))) { Task { await store.adapterAction(id, .install) } }.buttonStyle(.primary).controlSize(.small).disabled(running) }
+                    Button(L.text("检查更新")) { Task { await store.adapterAction(id, .check) } }.controlSize(.small).disabled(running)
                 }
             }
             if running {

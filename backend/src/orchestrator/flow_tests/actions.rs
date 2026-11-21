@@ -22,8 +22,7 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     let replies = [a.await.unwrap(), b.await.unwrap()];
     let done = replies.iter().filter(|r| matches!(r, Ok(ActionReply::Done))).count();
     // The other one finds the action running (refused) or finished (a duplicate), and does nothing.
-    let other =
-        replies.iter().filter(|r| matches!(r, Ok(ActionReply::Duplicate) | Err(ActionRefused::Conflict(_)))).count();
+    let other = replies.iter().filter(|r| matches!(r, Ok(ActionReply::Duplicate) | Err(Refused::Conflict(_)))).count();
     assert_eq!((done, other), (1, 1), "the second request with the id does nothing");
     assert!(matches!(h.app.request_action(&run, &body).await, Ok(ActionReply::Duplicate)));
     let said = |text: &str| {
@@ -36,7 +35,7 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
 
     // An action that fails releases its id: the same id then acts.
     let failing = json!({ "type": "nonsense", "commandId": "c-2" });
-    assert!(matches!(h.app.request_action(&run, &failing).await, Err(ActionRefused::Invalid(_))));
+    assert!(matches!(h.app.request_action(&run, &failing).await, Err(Refused::Invalid(_))));
     let retry = json!({ "type": "message", "agent": "lead", "text": "第二次", "commandId": "c-2" });
     assert!(matches!(h.app.request_action(&run, &retry).await, Ok(ActionReply::Done)));
     assert_eq!(said("第二次"), 1);
@@ -46,10 +45,10 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     h.app.db.claim_command(&run, "c-3", &json!({ "type": "message" }), now_ms()).unwrap();
     h.app.db.interrupt_commands().unwrap();
     let cut_off = json!({ "type": "message", "agent": "lead", "text": "第三次", "commandId": "c-3" });
-    assert!(matches!(h.app.request_action(&run, &cut_off).await, Err(ActionRefused::Conflict(_))));
+    assert!(matches!(h.app.request_action(&run, &cut_off).await, Err(Refused::Conflict(_))));
     assert_eq!(said("第三次"), 0);
 
-    assert!(matches!(h.app.request_action("no-such-run", &body).await, Err(ActionRefused::NotFound)));
+    assert!(matches!(h.app.request_action("no-such-run", &body).await, Err(Refused::NotFound)));
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

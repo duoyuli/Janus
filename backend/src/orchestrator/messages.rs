@@ -3,32 +3,23 @@
 
 use super::*;
 
-/// How a sent message went into a session (`message.routed`, `data.delivery`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Delivery {
-    /// Joined the running turn.
-    Steer,
-    /// Waits for the running turn to end.
-    Queued,
-    /// Stopped the running turn and goes in right after it.
-    Interrupt,
-    /// A turn of its own.
-    Prompt,
-    /// Left for the agent's next session.
-    Next,
+wire_enum! {
+    /// How a sent message went into a session (`message.routed`, `data.delivery`).
+    pub(super) enum Delivery {
+        /// Joined the running turn.
+        Steer = "steer",
+        /// Waits for the running turn to end.
+        Queued = "queued",
+        /// Stopped the running turn and goes in right after it.
+        Interrupt = "interrupt",
+        /// A turn of its own.
+        Prompt = "prompt",
+        /// Left for the agent's next session.
+        Next = "next",
+    }
 }
 
 impl Delivery {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Delivery::Steer => "steer",
-            Delivery::Queued => "queued",
-            Delivery::Interrupt => "interrupt",
-            Delivery::Prompt => "prompt",
-            Delivery::Next => "next",
-        }
-    }
-
     fn label(self) -> &'static str {
         match self {
             Delivery::Steer => "插入到正在进行的这一轮",

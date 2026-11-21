@@ -209,7 +209,7 @@ struct ConnectionRow: View {
         let msg = used.isEmpty ? "" : L.text("这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：\(used.joined(separator: L.text("、")))")
         guard confirm(L.text("删除「\(c["name"].str)」和它的独立目录（包括登录凭据）？"), msg, ok: L.text("删除")) else { return }
         Task {
-            do { try await store.delete("connections", c["id"].str); store.show(L.text("已删除 \(c["name"].str)")) } catch { await store.loadSetup(); store.show(error.localizedDescription) }
+            do { try await store.delete(.connections, c["id"].str); store.show(L.text("已删除 \(c["name"].str)")) } catch { await store.loadSetup(); store.show(error.localizedDescription) }
         }
     }
 }
@@ -542,7 +542,7 @@ struct ConnectionEditor: View {
         for (k, v) in secrets where !v.isEmpty { body[k] = JSON(v) }
         Task {
             do {
-                let c = try await store.save("connections", body)
+                let c = try await store.save(.connections, body)
                 let id = c["id"].str
                 let auth = store.kind(c["kind"].str)?["auths"].array.first { $0["id"].str == c["auth"].str && $0["login"].truthy }
                 store.show(L.text("已保存 \(c["name"].str)，正在检查配置"))

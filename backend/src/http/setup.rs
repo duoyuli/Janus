@@ -1,0 +1,206 @@
+//! Setup: agents (connections), roles, workspaces, the ACP adapters, and what the setup screens
+//! read about this machine.
+
+use super::{ApiError, ApiResult, local_app_only, ok, reply};
+use crate::agents;
+use crate::orchestrator::{App, expand_home, git};
+use crate::wire::wire_enum;
+use axum::Json;
+use axum::extract::{Path as UrlPath, Query, State};
+use axum::http::{HeaderMap, header};
+use axum::response::IntoResponse;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+wire_enum! {
+    /// The kinds of setup object `/api/setup/{kind}` saves and deletes.
+    enum SetupKind {
+        Connections = "connections",
+        Roles = "roles",
+        Workspaces = "workspaces",
+    }
+}
+
+impl SetupKind {
+    fn of(kind: &str) -> Result<SetupKind, ApiError> {
+        SetupKind::parse(kind).ok_or_else(|| ApiError::not_found(format!("没有这类设置：{kind}")))
+    }
+}
+
+wire_enum! {
+    /// What `/api/adapters/{id}/{action}` does with an adapter.
+    enum AdapterAction {
+        /// Install a version (the body's, else the newest).
+        Install = "install",
+        /// Ask npm for the newest version.
+        Check = "check",
+        /// Switch to an installed version.
+        Use = "use",
+    }
+}
+
+pub(super) async fn meta(State(app): State<Arc<App>>) -> ApiResult {
+    reply(json!({
+        "kinds": agents::kinds(),
+        "local": {
+            "codex": agents::which("codex"), "claude": agents::which("claude"),
+        },
+        "version": crate::VERSION,
+        "dataVersion": app.db.data_version().unwrap_or_default(),
+        "home": app.cfg.layout.home(),
+        "db": app.cfg.layout.db(),
+    }))
+}
+
+/// Take or decline the newer default text of an edited default role: `{field, adopt}`.
+pub(super) async fn seed_choice(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let field = body["field"].as_str().unwrap_or_default();
+    reply(app.seed_choice(&id, field, body["adopt"].as_bool().unwrap_or(false))?)
+}
+
+/// Everything the setup screens need in one request.
+pub(super) async fn setup(State(app): State<Arc<App>>) -> ApiResult {
+    reply(json!({
+        "connections": app.connections()?,
+        "roles": app.roles()?,
+        "workspaces": app.workspaces()?,
+    }))
+}
+
+pub(super) async fn save(
+    State(app): State<Arc<App>>,
+    UrlPath(kind): UrlPath<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    reply(match SetupKind::of(&kind)? {
+        SetupKind::Connections => app.save_connection(&body),
+        SetupKind::Roles => app.save_role(&body),
+        SetupKind::Workspaces => app.save_workspace(&body),
+    }?)
+}
+
+pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath((kind, id)): UrlPath<(String, String)>) -> ApiResult {
+    match SetupKind::of(&kind)? {
+        SetupKind::Connections => app.delete_connection(&id),
+        SetupKind::Roles => app.delete_role(&id),
+        SetupKind::Workspaces => app.delete_workspace(&id),
+    }?;
+    ok()
+}
+
+pub(super) async fn test_connection(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    reply(app.start_check(&id)?)
+}
+
+pub(super) async fn login_connection(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    app.start_login(&id)?;
+    ok()
+}
+
+/// An agent's environment with every value, private ones included, for the editor. Like MCP
+/// values, it goes only to a client on this machine that isn't a web page: see `from_local_app`.
+// @project-doc docs/operations/20261031-security.md#secrets
+pub(super) async fn connection_env(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    headers: HeaderMap,
+) -> ApiResult {
+    local_app_only(&headers, "Agent 的环境变量")?;
+    reply(app.connection_env(&id)?)
+}
+
+/// A digital employee's picture, PNG; 404 when it shows its initials.
+pub(super) async fn role_avatar(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    match app.role_avatar(&id)? {
+        Some(png) => Ok(([(header::CONTENT_TYPE, "image/png")], png).into_response()),
+        None => Err(ApiError::not_found("这个数字员工没有头像")),
+    }
+}
+
+/// Set a digital employee's picture: `{"data": "<PNG, base64>"}`. Returns the role.
+pub(super) async fn set_role_avatar(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let data = body["data"].as_str().ok_or_else(|| ApiError::bad_request("缺少头像数据 data"))?;
+    reply(app.set_role_avatar(&id, Some(data))?)
+}
+
+/// Take a digital employee back to its initials. Returns the role.
+pub(super) async fn remove_role_avatar(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    reply(app.set_role_avatar(&id, None)?)
+}
+
+#[derive(Deserialize)]
+pub(super) struct PreviewQuery {
+    kind: String,
+    source: Option<String>,
+}
+
+pub(super) async fn local_preview(Query(q): Query<PreviewQuery>) -> ApiResult {
+    reply(agents::local_preview(&q.kind, q.source.as_deref().unwrap_or(""))?)
+}
+
+/// The ACP adapters: installed versions, the newest known one, and any install in progress.
+pub(super) async fn adapters(State(app): State<Arc<App>>) -> ApiResult {
+    reply(app.adapters())
+}
+
+/// `install` (body: optional `version`), `check` for the newest version, or `use` an installed
+/// `version`. Installs and checks run in the background; the app follows `GET /api/adapters`.
+pub(super) async fn adapter_action(
+    State(app): State<Arc<App>>,
+    UrlPath((id, action)): UrlPath<(String, String)>,
+    body: Option<Json<Value>>,
+) -> ApiResult {
+    let action = AdapterAction::parse(&action).ok_or_else(|| ApiError::not_found(format!("没有这个操作：{action}")))?;
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let version = body["version"].as_str().filter(|v| !v.is_empty()).map(str::to_owned);
+    match action {
+        AdapterAction::Install => app.start_adapter_install(&id, version),
+        AdapterAction::Check => app.start_adapter_check(&id),
+        AdapterAction::Use => app.use_adapter_version(&id, version.as_deref().unwrap_or("")),
+    }?;
+    reply(app.adapters())
+}
+
+#[derive(Deserialize)]
+pub(super) struct SuggestQuery {
+    kind: String,
+    name: Option<String>,
+}
+
+pub(super) async fn suggest_id(State(app): State<Arc<App>>, Query(q): Query<SuggestQuery>) -> ApiResult {
+    reply(json!({ "id": app.suggest_agent_id(&q.kind, q.name.as_deref().unwrap_or(""))? }))
+}
+
+#[derive(Deserialize)]
+pub(super) struct PathQuery {
+    pub(super) path: String,
+}
+
+/// What the workspace editor shows about a folder: whether it exists, and its Git branch and
+/// uncommitted changes.
+pub(super) async fn inspect(Query(q): Query<PathQuery>) -> ApiResult {
+    let path = PathBuf::from(expand_home(q.path.trim()));
+    if !path.is_dir() {
+        return reply(json!({ "exists": false, "path": path }));
+    }
+    let branch = git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).await.ok().map(|s| s.trim().to_string());
+    let dirty = match branch {
+        Some(_) => git(&path, &["status", "--porcelain"]).await.map(|s| s.lines().count()).unwrap_or(0),
+        None => 0,
+    };
+    reply(json!({ "exists": true, "path": path, "git": branch.is_some(), "branch": branch, "dirty": dirty }))
+}
+
+pub(super) async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
+    reply(app.role_stats()?)
+}

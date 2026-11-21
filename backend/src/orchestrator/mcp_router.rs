@@ -10,7 +10,7 @@
 //! spawned (its process group). The transports themselves are in `mcp_client`.
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
-use super::mcp_client::{Backend, agreed_version};
+use super::mcp_client::Backend;
 use super::*;
 use crate::library::{Item, ItemKind, McpProcess, McpServer};
 use std::sync::atomic::AtomicBool;
@@ -240,13 +240,7 @@ fn callable(tool: &Value) -> bool {
 impl App {
     /// The router's entry for a session of `who`, beside the board's: same token rule.
     pub(super) fn tools_server(&self, run: &Run, who: &str) -> Value {
-        let token = session_token(&run.st.lock().unwrap().mcp_token, who);
-        json!({
-            "type": "http",
-            "name": crate::library::MCP_ROUTER,
-            "url": format!("http://{}/mcp/{}/{}/{}/tools", self.cfg.addr, run.id, token, who),
-            "headers": []
-        })
+        self.session_server(run, who, crate::library::MCP_ROUTER, "/tools")
     }
 
     /// Prepare a server ahead of its runs: start a command once in its own sandbox (or connect to a
@@ -468,11 +462,7 @@ impl App {
         who: &str,
         req: Value,
     ) -> Result<Option<Value>> {
-        let run = self.run(run_id).context("这个任务不在运行")?;
-        let run_token = run.st.lock().unwrap().mcp_token.clone();
-        if run_token.is_empty() || token != session_token(&run_token, who) {
-            bail!("token 不对");
-        }
+        let run = self.session_run(run_id, token, who)?;
         let Some(id) = req.get("id").cloned() else {
             if req["method"] == "notifications/cancelled" {
                 run.router.cancel(who, &req["params"]["requestId"]);
@@ -481,12 +471,7 @@ impl App {
         };
         let servers = self.routed_servers(&run, who);
         let result = match req["method"].as_str().unwrap_or("") {
-            "initialize" => json!({
-                "protocolVersion": agreed_version(&req["params"]["protocolVersion"]),
-                "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": crate::library::MCP_ROUTER, "version": crate::VERSION },
-                "instructions": router_instructions(&servers),
-            }),
+            "initialize" => initialize(&req, crate::library::MCP_ROUTER, &router_instructions(&servers)),
             "ping" => json!({}),
             "tools/list" => {
                 let deadline = tokio::time::Instant::now() + LIST_WAIT;
@@ -542,16 +527,13 @@ impl App {
                 .await;
                 // Who called which server's tool, how long it took and how it ended; never the
                 // arguments, which may carry what the person typed or a credential.
-                let mut e = ev("mcp.routed", who, format!("经 MCP 路由调用 {name}")).data(json!({
+                let e = ev("mcp.routed", who, format!("经 MCP 路由调用 {name}")).data(json!({
                     "server": found.as_ref().map(|(i, _)| i.name.clone()),
                     "tool": name,
                     "ms": now_ms() - started,
                     "error": outcome.as_ref().err().map(|e| format!("{e:#}")),
                 }));
-                if who != "lead" {
-                    e = e.task(who);
-                }
-                self.emit(&run, e);
+                self.emit(&run, e.in_session(who));
                 // After handing out subtasks the lead only looks: a call it makes is put in front
                 // of it on the board, once per tool, and goes on the delivery as a risk.
                 // @project-doc docs/domains/20261031-goal_mode.md#lead_role
@@ -571,25 +553,13 @@ impl App {
                     (Ok(result), _) => result,
                     // A name no server has is a protocol error (MCP: unknown tool, -32602); a
                     // failing call is the tool's error, which the model can act on.
-                    (Err(err), None) => {
-                        return Ok(Some(json!({
-                            "jsonrpc": "2.0",
-                            "id": id,
-                            "error": { "code": -32602, "message": format!("{err:#}") }
-                        })));
-                    }
-                    (Err(err), Some(_)) => {
-                        json!({ "content": [{ "type": "text", "text": format!("{err:#}") }], "isError": true })
-                    }
+                    (Err(err), None) => return Ok(Some(rpc_error(id, INVALID_PARAMS, format!("{err:#}")))),
+                    (Err(err), Some(_)) => tool_text(&format!("{err:#}"), true),
                 }
             }
-            other => {
-                return Ok(Some(
-                    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("不支持 {other}") } }),
-                ));
-            }
+            other => return Ok(Some(rpc_error(id, METHOD_NOT_FOUND, format!("不支持 {other}")))),
         };
-        Ok(Some(json!({ "jsonrpc": "2.0", "id": id, "result": result })))
+        Ok(Some(rpc_result(id, result)))
     }
 }
 

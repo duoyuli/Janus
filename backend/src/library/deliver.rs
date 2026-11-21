@@ -13,15 +13,6 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Where a runtime reads a bundle's skills, relative to the bundle: Claude Code loads the bundle
-/// as a local plugin, Codex reads `.agents/skills` under each additional root.
-fn skills_dir(runtime: Runtime) -> &'static str {
-    match runtime {
-        Runtime::Claude => "skills",
-        Runtime::Codex => ".agents/skills",
-    }
-}
-
 fn skills(items: &[Item]) -> impl Iterator<Item = &Item> {
     items.iter().filter(|i| i.body == Body::Skill)
 }
@@ -40,12 +31,12 @@ pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], uses: &HashMap<Str
     if routed.is_empty() {
         return Ok(());
     }
-    let router = dir.join(skills_dir(runtime)).join(SKILL_ROUTER);
+    let router = dir.join(runtime.skills_dir()).join(SKILL_ROUTER);
     for item in &routed {
         place_skill(store, item, &router.join(".skills").join(&item.name))?;
     }
     super::skill_router::write(&router, &routed, uses)?;
-    if runtime == Runtime::Claude {
+    if runtime.bundle_is_plugin() {
         let manifest = dir.join(".claude-plugin").join("plugin.json");
         std::fs::create_dir_all(manifest.parent().unwrap())?;
         let plugin = json!({ "name": "janus", "description": "Janus 资源库的 Skill" });
@@ -59,7 +50,7 @@ pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], uses: &HashMap<Str
 /// listing has no room left for the router's description.
 pub fn skill_router_md(runtime: Runtime, items: &[Item], bundle: &Path) -> Option<PathBuf> {
     skills(items).next()?;
-    Some(bundle.join(skills_dir(runtime)).join(SKILL_ROUTER).join("SKILL.md"))
+    Some(bundle.join(runtime.skills_dir()).join(SKILL_ROUTER).join("SKILL.md"))
 }
 
 /// How one resource reached a session, or why it did not.
@@ -102,12 +93,7 @@ pub fn launch(runtime: Runtime, items: &[Item], caps: &Value, bundle: &Path, rou
     let mut out = Launch { mcp_servers: vec![], meta: json!({}), delivered: vec![] };
     if skills(items).next().is_some() {
         let path = bundle.to_string_lossy();
-        out.meta = match runtime {
-            Runtime::Claude => {
-                json!({ "claudeCode": { "options": { "plugins": [{ "type": "local", "path": path }] } } })
-            }
-            Runtime::Codex => json!({ "additionalRoots": [path] }),
-        };
+        out.meta = runtime.bundle_meta(&path);
     }
     let http = caps["mcpCapabilities"]["http"] == true;
     let mut router_used = false;

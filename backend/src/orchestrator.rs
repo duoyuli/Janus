@@ -10,12 +10,13 @@
 //! applies what the person does and recovers runs after a restart.
 
 use crate::acp::{AcpConn, Incoming};
-use crate::agents::Runtime;
+use crate::agents::{InstructionChannel, Runtime};
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
 use crate::git_probe;
 use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunStatus, TaskStatus};
 use crate::traces::Overlap;
+use crate::wire::wire_enum;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -38,6 +39,7 @@ mod lead;
 mod lifecycle;
 mod mcp_client;
 mod mcp_router;
+mod mcp_server;
 mod messages;
 mod prompts;
 mod session;
@@ -45,11 +47,12 @@ mod session;
 mod tests;
 mod turn;
 
-pub use actions::{ActionRefused, ActionReply, DeleteRefused};
+pub use actions::{ActionReply, Refused};
 use attempts::*;
 use board::*;
 use board_tools::*;
 use lead::*;
+use mcp_server::*;
 use messages::Delivery;
 use prompts::*;
 
@@ -221,25 +224,19 @@ pub struct SessionControl {
     pub via: ControlVia,
 }
 
-/// How an agent switches a control: as an ACP session mode (`session/set_mode`) or as a config
-/// option (`session/set_config_option`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ControlVia {
-    Mode,
-    Config,
+wire_enum! {
+    /// How an agent switches a control: as an ACP session mode (`session/set_mode`) or as a config
+    /// option (`session/set_config_option`).
+    pub enum ControlVia {
+        Mode = "mode",
+        Config = "config",
+    }
 }
 
 impl ControlVia {
     /// The `via` an action or a control declaration names; anything but `mode` is a config option.
-    pub fn parse(s: &str) -> ControlVia {
-        if s == "mode" { ControlVia::Mode } else { ControlVia::Config }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            ControlVia::Mode => "mode",
-            ControlVia::Config => "config",
-        }
+    pub fn of(s: &str) -> ControlVia {
+        ControlVia::parse(s).unwrap_or(ControlVia::Config)
     }
 }
 
@@ -517,59 +514,25 @@ impl Task {
     }
 }
 
-/// Which ACP session the next attempt of a retried task starts in. The lead names it with every
-/// `retry`: the task's own last session, or a fresh one.
-// @project-doc docs/domains/20261031-run_lifecycle.md#retry
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SessionChoice {
-    Continue,
-    New,
-}
-
-impl SessionChoice {
-    pub(crate) fn parse(s: &str) -> Option<SessionChoice> {
-        match s {
-            "continue" => Some(SessionChoice::Continue),
-            "new" => Some(SessionChoice::New),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            SessionChoice::Continue => "continue",
-            SessionChoice::New => "new",
-        }
+wire_enum! {
+    /// Which ACP session the next attempt of a retried task starts in. The lead names it with every
+    /// `retry`: the task's own last session, or a fresh one.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#retry
+    pub(crate) enum SessionChoice {
+        Continue = "continue",
+        New = "new",
     }
 }
 
-/// Why an ended task runs again, as `task.reopened` records it (`data.reason`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ReopenReason {
-    /// The lead's `retry`.
-    LeadRetry,
-    /// Dropped only because an upstream task was cancelled; it comes back with that task's retry.
-    UpstreamRetry,
-    /// A verification whose target the lead retried: its verdict was about the old result.
-    TargetReworked,
-}
-
-impl ReopenReason {
-    pub(crate) fn parse(s: &str) -> Option<ReopenReason> {
-        match s {
-            "lead.retry" => Some(ReopenReason::LeadRetry),
-            "upstream.retry" => Some(ReopenReason::UpstreamRetry),
-            "target.reworked" => Some(ReopenReason::TargetReworked),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            ReopenReason::LeadRetry => "lead.retry",
-            ReopenReason::UpstreamRetry => "upstream.retry",
-            ReopenReason::TargetReworked => "target.reworked",
-        }
+wire_enum! {
+    /// Why an ended task runs again, as `task.reopened` records it (`data.reason`).
+    pub(crate) enum ReopenReason {
+        /// The lead's `retry`.
+        LeadRetry = "lead.retry",
+        /// Dropped only because an upstream task was cancelled; it comes back with that task's retry.
+        UpstreamRetry = "upstream.retry",
+        /// A verification whose target the lead retried: its verdict was about the old result.
+        TargetReworked = "target.reworked",
     }
 }
 
@@ -1176,6 +1139,25 @@ struct NewArtifact<'a> {
 }
 
 impl App {
+    /// An `App` over an open database: no run in memory, nothing in progress.
+    pub fn new(db: Db, cfg: Config) -> Arc<App> {
+        let (tx, _) = broadcast::channel(4096);
+        let (changes, _) = broadcast::channel(1024);
+        Arc::new(App {
+            db,
+            cfg,
+            tx,
+            changes,
+            runs: Default::default(),
+            adapter_state: Default::default(),
+            checks: Default::default(),
+            prices: Default::default(),
+            library: Default::default(),
+            revival: Default::default(),
+            worktree_adds: Default::default(),
+        })
+    }
+
     pub fn run(&self, id: &str) -> Option<Arc<Run>> {
         self.runs.lock().unwrap().get(id).cloned()
     }
@@ -1403,11 +1385,9 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
     std::fs::create_dir_all(dir).unwrap();
     let layout = crate::layout::Layout::new(dir);
     stand_in_adapters(&layout);
-    let (tx, _) = broadcast::channel(4096);
-    let (changes, _) = broadcast::channel(1024);
-    Arc::new(App {
-        db: Db::open(&layout).unwrap().0,
-        cfg: Config {
+    App::new(
+        Db::open(&layout).unwrap().0,
+        Config {
             layout,
             addr: "127.0.0.1:7878".into(),
             // The stand-in adapters are Python scripts: see `stand_in_adapters`.
@@ -1420,14 +1400,5 @@ pub(crate) fn test_app(dir: &Path) -> Arc<App> {
             run_token_budget: None,
             run_cost_budget_usd: None,
         },
-        tx,
-        changes,
-        runs: StdMutex::new(HashMap::new()),
-        adapter_state: Default::default(),
-        checks: Default::default(),
-        prices: Default::default(),
-        library: Default::default(),
-        revival: Default::default(),
-        worktree_adds: Default::default(),
-    })
+    )
 }

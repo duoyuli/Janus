@@ -661,14 +661,14 @@ impl App {
     /// stop it first. A chat has only its own session, which is stopped here. The workspace's own
     /// files are not touched.
     // @project-doc docs/interfaces/20261031-http_api.md#run_delete
-    pub async fn delete_run(self: &Arc<Self>, run_id: &str) -> Result<(), DeleteRefused> {
+    pub async fn delete_run(self: &Arc<Self>, run_id: &str) -> Result<(), Refused> {
         let _turn = self.revival.lock().await;
-        let row = self.db.run(run_id).map_err(DeleteRefused::Invalid)?;
-        let Some(row) = row else { return Err(DeleteRefused::NotFound) };
+        let row = self.db.run(run_id)?;
+        let Some(row) = row else { return Err(Refused::NotFound) };
         let status = RunStatus::parse(row["status"].as_str().unwrap_or(""));
         let kind = RunKind::parse(row["kind"].as_str().unwrap_or("")).unwrap_or_default();
         if kind == RunKind::Goal && status.is_some_and(RunStatus::is_active) {
-            return Err(DeleteRefused::Conflict("任务还在进行，先停止任务再删除".into()));
+            return Err(Refused::Conflict("任务还在进行，先停止任务再删除".into()));
         }
         // A delivered run keeps its lead conversation open for more work; take the run out of the
         // live map first, then stop those sessions before the rows they could still write to are gone.
@@ -694,26 +694,26 @@ impl App {
                     patch.display()
                 )),
                 Ok(None) => {}
-                Err(err) => return Err(DeleteRefused::Invalid(err)),
+                Err(err) => return Err(Refused::Invalid(err)),
             }
         }
         // The files go before the rows: the row is what lets a second request find the run, so a
         // file that could not be removed is removed by trying again.
         let agents: HashSet<&str> =
             row["config"]["team"].as_array().into_iter().flatten().filter_map(|m| m["runtime"].as_str()).collect();
-        let sessions = self.db.run_sessions(run_id).map_err(DeleteRefused::Invalid)?;
+        let sessions = self.db.run_sessions(run_id)?;
         for agent in agents {
-            self.forget_sessions(agent, &sessions).map_err(DeleteRefused::Invalid)?;
+            self.forget_sessions(agent, &sessions)?;
         }
         let dirs = self.cfg.layout.run(kind, run_id);
         for path in [&dirs.data, &dirs.work, &dirs.logs] {
             if let Err(err) = std::fs::remove_dir_all(path)
                 && err.kind() != std::io::ErrorKind::NotFound
             {
-                return Err(DeleteRefused::Invalid(anyhow!("删除 {} 失败：{err}", path.display())));
+                return Err(Refused::Invalid(anyhow!("删除 {} 失败：{err}", path.display())));
             }
         }
-        self.db.delete_run(run_id).map_err(DeleteRefused::Invalid)
+        Ok(self.db.delete_run(run_id)?)
     }
 }
 
@@ -995,7 +995,7 @@ mod delete_tests {
     async fn a_run_that_is_still_working_cannot_be_deleted() {
         let (app, dir) = finished_app("active");
         app.db.set_run_status("r1", RunStatus::Running).unwrap();
-        assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::Conflict(_))));
+        assert!(matches!(app.delete_run("r1").await, Err(Refused::Conflict(_))));
         assert!(app.db.run("r1").unwrap().is_some());
         assert_eq!(app.db.events("r1", 0).unwrap().len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1013,7 +1013,7 @@ mod delete_tests {
         for path in [&dirs.data, &dirs.work, &dirs.logs] {
             assert!(!path.exists(), "{} should be gone", path.display());
         }
-        assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::NotFound)));
+        assert!(matches!(app.delete_run("r1").await, Err(Refused::NotFound)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1028,7 +1028,7 @@ mod delete_tests {
         std::fs::write(locked.join("lead.log"), "x").unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
 
-        assert!(matches!(app.delete_run("r1").await, Err(DeleteRefused::Invalid(_))));
+        assert!(matches!(app.delete_run("r1").await, Err(Refused::Invalid(_))));
         assert!(app.db.run("r1").unwrap().is_some(), "the run is still there to delete again");
 
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();

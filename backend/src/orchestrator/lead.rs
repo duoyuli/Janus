@@ -5,25 +5,16 @@ use super::actions::reached_agent;
 use super::chat::chat_brief;
 use super::*;
 
-/// What Janus puts in a session's system layer before the person's standing instructions.
-#[derive(Clone, Copy)]
-pub(super) enum SystemPart {
-    /// How to work with Janus and the team: the lead's brief, a collaborator's rules. Only an
-    /// Agent Team session gets it; a chat has the digital employee's instructions alone.
-    Collaboration,
-    /// A chat reopened: its recent exchanges, so the new session knows the conversation.
-    History,
-    /// Where the member's library skills are listed (`janus-skills`), when it has any.
-    Skills,
-}
-
-impl SystemPart {
-    fn as_str(self) -> &'static str {
-        match self {
-            SystemPart::Collaboration => "system",
-            SystemPart::History => "history",
-            SystemPart::Skills => "skills",
-        }
+wire_enum! {
+    /// What Janus puts in a session's system layer before the person's standing instructions.
+    pub(super) enum SystemPart {
+        /// How to work with Janus and the team: the lead's brief, a collaborator's rules. Only an
+        /// Agent Team session gets it; a chat has the digital employee's instructions alone.
+        Collaboration = "system",
+        /// A chat reopened: its recent exchanges, so the new session knows the conversation.
+        History = "history",
+        /// Where the member's library skills are listed (`janus-skills`), when it has any.
+        Skills = "skills",
     }
 }
 
@@ -38,35 +29,26 @@ struct Conversation {
     resources: Vec<crate::library::Delivery>,
 }
 
-/// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum PromptChannel {
-    /// `/goal <goal>`.
-    Goal,
-    /// What comes next in the lead's session: the person's message, or messages that waited.
-    Followup,
-    /// Board entries pushed into the lead's running turn.
-    Board,
-    /// Janus asks a lead whose goal does not settle whether it is done.
-    GoalCheck,
-    /// A result that did not pass its check, sent back to be fixed.
-    Fix,
+wire_enum! {
+    /// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
+    pub(super) enum PromptChannel {
+        /// `/goal <goal>`.
+        Goal = "goal",
+        /// What comes next in the lead's session: the person's message, or messages that waited.
+        Followup = "followup",
+        /// Board entries pushed into the lead's running turn.
+        Board = "board",
+        /// Janus asks a lead whose goal does not settle whether it is done.
+        GoalCheck = "goal_check",
+        /// A result that did not pass its check, sent back to be fixed.
+        Fix = "fix",
+    }
 }
 
 impl PromptChannel {
     /// A prompt in the lead's session: a slash command starts a goal, anything else follows up.
     pub(super) fn of_lead_prompt(prompt: &str) -> PromptChannel {
         if prompt.starts_with("/goal ") { PromptChannel::Goal } else { PromptChannel::Followup }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            PromptChannel::Goal => "goal",
-            PromptChannel::Followup => "followup",
-            PromptChannel::Board => "board",
-            PromptChannel::GoalCheck => "goal_check",
-            PromptChannel::Fix => "fix",
-        }
     }
 
     fn label(self) -> &'static str {
@@ -297,7 +279,7 @@ impl App {
     pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<String> {
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
-        let channel = instruction_channel(lead.kind);
+        let channel = lead.kind.instruction_channel();
         // The brief, with the messages left for the lead, goes in the system layer before the
         // standing rules. Codex reads it from its environment, so it is known before the adapter
         // starts; the notes are taken only once the session is open.
@@ -308,7 +290,7 @@ impl App {
         let system = system_layer(&[&brief, &skills, &standing]);
         let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
         let workspace = run.cwd.clone();
-        if lead.kind == Runtime::Claude {
+        if lead.kind.trusts_workspaces() {
             // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
             self.trust_claude_workspace(&lead.runtime, &workspace)?;
         }
@@ -325,7 +307,7 @@ impl App {
                     &lead,
                     &conn.capabilities,
                     board,
-                    (channel == Channel::System).then_some(system.as_str()),
+                    (channel == InstructionChannel::System).then_some(system.as_str()),
                 );
                 let session = new_session(&conn, &workspace, &opening).await?;
                 let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
@@ -470,7 +452,7 @@ impl App {
         let chat = run.kind == RunKind::Chat;
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
-        let channel = instruction_channel(lead.kind);
+        let channel = lead.kind.instruction_channel();
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
         let brief = if chat { chat_brief(&events) } else { conversation_brief(run, &events) };
@@ -661,7 +643,7 @@ impl App {
         &self,
         run: &Arc<Run>,
         lead: &Member,
-        channel: &Channel,
+        channel: &InstructionChannel,
         old: Option<(&str, &str)>,
         fresh: &str,
     ) -> Result<Conversation> {
@@ -680,7 +662,7 @@ impl App {
                     return Ok(Conversation { conn, rx, ctl, session, loaded: true, resources });
                 }
             }
-            if *channel == Channel::Developer && kept != fresh {
+            if *channel == InstructionChannel::Developer && kept != fresh {
                 self.close_session(run, &owner, Some(&conn), "重新打开会话，撤回这个请求").await;
             } else {
                 started = Some((conn, rx, ctl));
@@ -710,12 +692,12 @@ impl App {
         &self,
         run: &Run,
         lead: &Member,
-        channel: &Channel,
+        channel: &InstructionChannel,
         system: &str,
     ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
         let chat = run.kind == RunKind::Chat;
         let spec = with_system(self.spec_for(&lead.runtime)?, channel, system);
-        if lead.kind == Runtime::Claude {
+        if lead.kind.trusts_workspaces() {
             // Claude Code only runs /goal in a workspace it trusts, in a chat too.
             self.trust_claude_workspace(&lead.runtime, &run.cwd)?;
         }
@@ -740,7 +722,7 @@ impl App {
         run: &Run,
         lead: &Member,
         conn: &AcpConn,
-        channel: &Channel,
+        channel: &InstructionChannel,
         system: &str,
     ) -> Opening {
         let board = if run.kind != RunKind::Chat && conn.capabilities["mcpCapabilities"]["http"] == true {
@@ -748,7 +730,14 @@ impl App {
         } else {
             vec![]
         };
-        self.opening(run, "lead", lead, &conn.capabilities, board, (*channel == Channel::System).then_some(system))
+        self.opening(
+            run,
+            "lead",
+            lead,
+            &conn.capabilities,
+            board,
+            (*channel == InstructionChannel::System).then_some(system),
+        )
     }
 
     /// After the first goal, the lead session is a regular conversation: wait for the person's
@@ -796,17 +785,14 @@ impl App {
         run: &Run,
         ctx: &Ctx<'_>,
         sid: &str,
-        channel: &Channel,
+        channel: &InstructionChannel,
         part: SystemPart,
         text: &str,
     ) {
         if text.is_empty() {
             return;
         }
-        let via = match channel {
-            Channel::System => "system",
-            Channel::Developer => "developer",
-        };
+        let via = channel.as_str();
         let label = match part {
             SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
             SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
@@ -823,11 +809,15 @@ impl App {
     }
 
     /// What went into the system layer is invisible in the transcript: record it, with its channel.
-    pub(super) fn record_instructions(&self, run: &Run, ctx: &Ctx<'_>, sid: &str, channel: &Channel, text: &str) {
-        let via = match channel {
-            Channel::System => "system",
-            Channel::Developer => "developer",
-        };
+    pub(super) fn record_instructions(
+        &self,
+        run: &Run,
+        ctx: &Ctx<'_>,
+        sid: &str,
+        channel: &InstructionChannel,
+        text: &str,
+    ) {
+        let via = channel.as_str();
         if text.is_empty() {
             return;
         }

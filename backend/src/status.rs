@@ -1,99 +1,50 @@
 //! The states the orchestrator moves through, as types instead of strings.
 //!
 //! Every value here is stored and sent as the same snake_case string the database, the events
-//! and the app already use (`RunStatus::Running.as_str() == "running"`), so this module changes
-//! where a state is allowed to change, not the wire format. The allowed moves are stated once,
-//! in `can_transition_to`; a call that does not fit is a bug in the caller.
+//! and the app already use (`RunStatus::Running.as_str() == "running"`), written once in its
+//! `wire_enum!`. This module changes where a state is allowed to change, not the wire format. The
+//! allowed moves are stated once, in `can_transition_to`; a call that does not fit is a bug in the
+//! caller.
 
-use serde::{Deserialize, Serialize};
+use crate::wire::wire_enum;
 
-/// The lifecycle of one Run, as `runs.status` and the app's run list see it.
-///
-/// `paused` and `cancelled` are not separate values: a paused Run keeps `Running` (running
-/// attempts finish), and cancelling sets `Cancelled`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RunStatus {
-    /// Created, the lead's goal session is starting.
-    #[default]
-    Planning,
-    Running,
-    /// Over budget, waiting for the person to extend it or cancel.
-    WaitingInput,
-    /// Delivered, waiting for the person to accept it.
-    Delivered,
-    Accepted,
-    Cancelled,
-    Failed,
-    /// The orchestrator restarted while the Run was unfinished.
-    Interrupted,
-}
-
-/// What a Run is: a goal the lead pursues with its team, or a conversation with one digital
-/// employee (`runs.kind`). A chat has one member, no board, no goal and no delivery; it works in
-/// its own scratch directory under Janus home.
-// @project-doc docs/domains/20261120-chats.md#chat_model
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RunKind {
-    #[default]
-    Goal,
-    Chat,
-}
-
-impl RunKind {
-    /// Read a kind the database wrote.
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "goal" => RunKind::Goal,
-            "chat" => RunKind::Chat,
-            _ => return None,
-        })
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RunKind::Goal => "goal",
-            RunKind::Chat => "chat",
-        }
+wire_enum! {
+    /// The lifecycle of one Run, as `runs.status` and the app's run list see it.
+    ///
+    /// `paused` and `cancelled` are not separate values: a paused Run keeps `Running` (running
+    /// attempts finish), and cancelling sets `Cancelled`.
+    #[derive(Default)]
+    pub enum RunStatus {
+        /// Created, the lead's goal session is starting.
+        #[default]
+        Planning = "planning",
+        Running = "running",
+        /// Over budget, waiting for the person to extend it or cancel.
+        WaitingInput = "waiting_input",
+        /// Delivered, waiting for the person to accept it.
+        Delivered = "delivered",
+        Accepted = "accepted",
+        Cancelled = "cancelled",
+        Failed = "failed",
+        /// The orchestrator restarted while the Run was unfinished.
+        Interrupted = "interrupted",
     }
 }
 
-impl std::fmt::Display for RunStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+wire_enum! {
+    /// What a Run is: a goal the lead pursues with its team, or a conversation with one digital
+    /// employee (`runs.kind`). A chat has one member, no board, no goal and no delivery; it works in
+    /// its own scratch directory under Janus home.
+    // @project-doc docs/domains/20261120-chats.md#chat_model
+    #[derive(Default)]
+    pub enum RunKind {
+        #[default]
+        Goal = "goal",
+        Chat = "chat",
     }
 }
 
 impl RunStatus {
-    /// Read a status the database wrote.
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "planning" => RunStatus::Planning,
-            "running" => RunStatus::Running,
-            "waiting_input" => RunStatus::WaitingInput,
-            "delivered" => RunStatus::Delivered,
-            "accepted" => RunStatus::Accepted,
-            "cancelled" => RunStatus::Cancelled,
-            "failed" => RunStatus::Failed,
-            "interrupted" => RunStatus::Interrupted,
-            _ => return None,
-        })
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RunStatus::Planning => "planning",
-            RunStatus::Running => "running",
-            RunStatus::WaitingInput => "waiting_input",
-            RunStatus::Delivered => "delivered",
-            RunStatus::Accepted => "accepted",
-            RunStatus::Cancelled => "cancelled",
-            RunStatus::Failed => "failed",
-            RunStatus::Interrupted => "interrupted",
-        }
-    }
-
     /// Work can still start or is in progress: the states in which a run's sessions may still
     /// write, so its data cannot be deleted out from under them.
     pub fn is_active(self) -> bool {
@@ -122,43 +73,26 @@ impl RunStatus {
     }
 }
 
-/// A task on the shared board. These are the states the scheduler writes; the app additionally
-/// derives display states (`ready`, `assigned`, `verifying`, `verification_failed`,
-/// `waiting_input`, `waiting_approval`) from events, see `docs/domains/20261031-run_lifecycle.md`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
-    #[default]
-    Pending,
-    Running,
-    /// A dependency failed; returns to `Pending` once that dependency succeeds.
-    Blocked,
-    Succeeded,
-    Failed,
-    Cancelled,
-    /// The lead dropped the task with `cancel`.
-    SkippedByDecision,
-}
-
-impl std::fmt::Display for TaskStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+wire_enum! {
+    /// A task on the shared board. These are the states the scheduler writes; the app additionally
+    /// derives display states (`ready`, `assigned`, `verifying`, `verification_failed`,
+    /// `waiting_input`, `waiting_approval`) from events, see `docs/domains/20261031-run_lifecycle.md`.
+    #[derive(Default)]
+    pub enum TaskStatus {
+        #[default]
+        Pending = "pending",
+        Running = "running",
+        /// A dependency failed; returns to `Pending` once that dependency succeeds.
+        Blocked = "blocked",
+        Succeeded = "succeeded",
+        Failed = "failed",
+        Cancelled = "cancelled",
+        /// The lead dropped the task with `cancel`.
+        SkippedByDecision = "skipped_by_decision",
     }
 }
 
 impl TaskStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            TaskStatus::Pending => "pending",
-            TaskStatus::Running => "running",
-            TaskStatus::Blocked => "blocked",
-            TaskStatus::Succeeded => "succeeded",
-            TaskStatus::Failed => "failed",
-            TaskStatus::Cancelled => "cancelled",
-            TaskStatus::SkippedByDecision => "skipped_by_decision",
-        }
-    }
-
     /// What the lead and the person read.
     pub fn label(self) -> &'static str {
         match self {
@@ -205,112 +139,54 @@ impl TaskStatus {
     }
 }
 
-/// One ACP attempt, as the `attempts` table records it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AttemptStatus {
-    #[default]
-    Starting,
-    Running,
-    Succeeded,
-    Failed,
-    Cancelled,
-    /// The orchestrator restarted while the attempt was open.
-    Interrupted,
-}
-
-impl std::fmt::Display for AttemptStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+wire_enum! {
+    /// One ACP attempt, as the `attempts` table records it.
+    #[derive(Default)]
+    pub enum AttemptStatus {
+        #[default]
+        Starting = "starting",
+        Running = "running",
+        Succeeded = "succeeded",
+        Failed = "failed",
+        Cancelled = "cancelled",
+        /// The orchestrator restarted while the attempt was open.
+        Interrupted = "interrupted",
     }
 }
 
-impl AttemptStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AttemptStatus::Starting => "starting",
-            AttemptStatus::Running => "running",
-            AttemptStatus::Succeeded => "succeeded",
-            AttemptStatus::Failed => "failed",
-            AttemptStatus::Cancelled => "cancelled",
-            AttemptStatus::Interrupted => "interrupted",
-        }
+wire_enum! {
+    /// A person's action claimed by its `commandId`, as the `commands` table records it.
+    pub enum CommandState {
+        /// Claimed; the action is being carried out.
+        Running = "running",
+        /// The action took effect.
+        Done = "done",
+        /// The service stopped while the action was running: whether it took effect is not known.
+        Interrupted = "interrupted",
     }
 }
 
-/// A person's action claimed by its `commandId`, as the `commands` table records it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CommandState {
-    /// Claimed; the action is being carried out.
-    Running,
-    /// The action took effect.
-    Done,
-    /// The service stopped while the action was running: whether it took effect is not known.
-    Interrupted,
-}
-
-impl CommandState {
-    /// Read a state the database wrote.
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "running" => CommandState::Running,
-            "done" => CommandState::Done,
-            "interrupted" => CommandState::Interrupted,
-            _ => return None,
-        })
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            CommandState::Running => "running",
-            CommandState::Done => "done",
-            CommandState::Interrupted => "interrupted",
-        }
-    }
-}
-
-/// What an agent's session is doing, as `agent.status` events report it. The app maps unknown
-/// values to `idle`, but this is the complete set Janus emits.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentPhase {
-    #[default]
-    Idle,
-    Thinking,
-    Coordinating,
-    ReadingFiles,
-    Editing,
-    RunningTool,
-    RunningTest,
-    WaitingForInput,
-    WaitingForAgent,
-    WaitingApproval,
-    Error,
-}
-
-impl std::fmt::Display for AgentPhase {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
+wire_enum! {
+    /// What an agent's session is doing, as `agent.status` events report it. The app maps unknown
+    /// values to `idle`, but this is the complete set Janus emits.
+    #[derive(Default)]
+    pub enum AgentPhase {
+        #[default]
+        Idle = "idle",
+        Thinking = "thinking",
+        Coordinating = "coordinating",
+        ReadingFiles = "reading_files",
+        Editing = "editing",
+        RunningTool = "running_tool",
+        RunningTest = "running_test",
+        WaitingForInput = "waiting_for_input",
+        WaitingForAgent = "waiting_for_agent",
+        WaitingApproval = "waiting_approval",
+        Error = "error",
     }
 }
 
 impl AgentPhase {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AgentPhase::Idle => "idle",
-            AgentPhase::Thinking => "thinking",
-            AgentPhase::Coordinating => "coordinating",
-            AgentPhase::ReadingFiles => "reading_files",
-            AgentPhase::Editing => "editing",
-            AgentPhase::RunningTool => "running_tool",
-            AgentPhase::RunningTest => "running_test",
-            AgentPhase::WaitingForInput => "waiting_for_input",
-            AgentPhase::WaitingForAgent => "waiting_for_agent",
-            AgentPhase::WaitingApproval => "waiting_approval",
-            AgentPhase::Error => "error",
-        }
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             AgentPhase::Idle => "空闲",

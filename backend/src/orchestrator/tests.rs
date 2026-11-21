@@ -88,8 +88,8 @@ fn the_leads_suggestions_for_the_shared_material_are_split_off() {
 
 #[test]
 fn standing_instructions_go_in_the_system_layer() {
-    assert_eq!(instruction_channel(Runtime::Claude), Channel::System);
-    assert_eq!(instruction_channel(Runtime::Codex), Channel::Developer);
+    assert_eq!(Runtime::Claude.instruction_channel(), InstructionChannel::System);
+    assert_eq!(Runtime::Codex.instruction_channel(), InstructionChannel::Developer);
     let m = member_with(Runtime::Codex, "用中文回答", "只报有依据的问题");
     let text = standing_instructions(&m);
     assert_eq!(
@@ -149,10 +149,13 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
         env: vec![],
         pin: None,
     };
-    let codex = with_system(spec(), &Channel::Developer, &text);
+    let codex = with_system(spec(), &InstructionChannel::Developer, &text);
     let cfg: Value = serde_json::from_str(&codex.env[0].1).unwrap();
     assert_eq!(cfg["developer_instructions"], text);
-    assert!(with_system(spec(), &Channel::System, &text).env.is_empty(), "Claude Code takes it in session/new");
+    assert!(
+        with_system(spec(), &InstructionChannel::System, &text).env.is_empty(),
+        "Claude Code takes it in session/new"
+    );
 
     let run = test_run(2);
     let def = TaskDef {

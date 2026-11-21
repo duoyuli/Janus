@@ -159,17 +159,7 @@ impl App {
         let bundle = self.dirs(run).bundle(&m.id);
         let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, self.tools_server(run, who));
         let mut meta = launch.meta;
-        if m.kind == Runtime::Claude {
-            // Janus's own board tools only read and write this run's board; in its default mode
-            // Claude Code would ask the person every time a collaborator posts progress. Codex reads
-            // the tools' read-only annotations for the same effect. Nothing else changes what the
-            // role's mode allows.
-            meta["claudeCode"]["options"]["settings"] = json!({ "permissions": { "allow": ["mcp__janus"] } });
-            if let Some(text) = system {
-                // Appended to Claude Code's own system prompt, never replacing it.
-                meta["systemPrompt"] = json!({ "append": text });
-            }
-        }
+        m.kind.open_meta(&mut meta, system);
         let mut mcp_servers = launch.mcp_servers;
         mcp_servers.extend(extra);
         Opening { mcp_servers, meta, resources: launch.delivered }

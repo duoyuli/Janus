@@ -70,16 +70,15 @@ final class API: Sendable {
 
     /// Raw bytes of a response (a digital employee's picture).
     func data(_ path: String) async throws -> Data {
-        let (data, resp) = try await session.data(from: url(path))
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            let text = String(decoding: data, as: UTF8.self)
-            throw APIError(status: status, message: text.isEmpty ? "HTTP \(status)" : text)
-        }
-        return data
+        try await body(URLRequest(url: url(path)))
     }
 
     private func send(_ req: URLRequest) async throws -> JSON {
+        try JSON.parse(try await body(req))
+    }
+
+    /// The body of a successful response; a failed one throws the orchestrator's message.
+    private func body(_ req: URLRequest) async throws -> Data {
         let data: Data, resp: URLResponse
         do { (data, resp) = try await session.data(for: req) } catch {
             throw APIError(status: 0, message: L.text("连不上 Janus 服务：\(error.localizedDescription)"))
@@ -89,7 +88,7 @@ final class API: Sendable {
             let text = String(decoding: data, as: UTF8.self)
             throw APIError(status: status, message: text.isEmpty ? "HTTP \(status)" : text)
         }
-        return try JSON.parse(data)
+        return data
     }
 
     /// Server-sent events, one JSON payload per message: unnamed ones (a run's events) arrive as

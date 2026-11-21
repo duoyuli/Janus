@@ -59,9 +59,9 @@ pub(super) fn sanitize_json(text: &str, keep: &[&str], what: &str) -> Result<Str
     Ok(serde_json::to_string_pretty(&v)?)
 }
 
-/// Bring an agent home in line with the rules above. Runs on import and, for homes made by
-/// earlier versions, once at startup; files that are not configuration-for-a-model are removed.
-pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
+/// Bring an agent home in line with the rules above, on import: files that are not
+/// configuration-for-a-model are removed.
+fn sanitize_home(runtime: Runtime, home: &Path) -> Result<()> {
     let rewrite = |name: &str, f: &dyn Fn(&str) -> Result<String>| -> Result<()> {
         let p = home.join(name);
         if p.is_file() {
@@ -70,10 +70,9 @@ pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
         }
         Ok(())
     };
-    match base {
-        "codex" => rewrite("config.toml", &|t| sanitize_codex(t, home))?,
-        "claude" => rewrite("settings.json", &|t| sanitize_json(t, CLAUDE_KEEP, "settings.json"))?,
-        _ => {}
+    match runtime {
+        Runtime::Codex => rewrite("config.toml", &|t| sanitize_codex(t, home))?,
+        Runtime::Claude => rewrite("settings.json", &|t| sanitize_json(t, CLAUDE_KEEP, "settings.json"))?,
     }
     for global in ["AGENTS.md", "CLAUDE.md"] {
         let _ = std::fs::remove_file(home.join(global));
@@ -81,9 +80,9 @@ pub fn sanitize_home(base: &str, home: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn local_source(base: &str, source: &str) -> PathBuf {
-    let default = if base == "codex" { "~/.codex" } else { "~/.claude" };
-    PathBuf::from(expand_home(if source.trim().is_empty() { default } else { source.trim() }))
+pub(super) fn local_source(runtime: Runtime, source: &str) -> PathBuf {
+    let source = source.trim();
+    PathBuf::from(expand_home(if source.is_empty() { runtime.user_config_dir() } else { source }))
 }
 
 /// Claude Code keeps its login in the macOS keychain; Claude Code itself reads it through `security`.
@@ -122,10 +121,10 @@ pub(super) fn shell_env() -> HashMap<String, String> {
 
 /// Environment variables that carry an agent's credentials or endpoint when it is not logged in
 /// through its own store: the standard ones, plus any a Codex config names as a provider's `env_key`.
-pub(super) fn credential_vars(base: &str, src: &Path) -> Vec<String> {
-    let mut vars: Vec<String> = match base {
-        "codex" => vec!["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"],
-        _ => vec![
+pub(super) fn credential_vars(runtime: Runtime, src: &Path) -> Vec<String> {
+    let mut vars: Vec<String> = match runtime {
+        Runtime::Codex => vec!["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"],
+        Runtime::Claude => vec![
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_BASE_URL",
@@ -147,7 +146,7 @@ pub(super) fn credential_vars(base: &str, src: &Path) -> Vec<String> {
     .into_iter()
     .map(str::to_owned)
     .collect();
-    if base == "codex" {
+    if runtime == Runtime::Codex {
         let t: Option<toml::Table> = std::fs::read_to_string(src.join("config.toml")).ok().and_then(|s| s.parse().ok());
         if let Some(providers) = t.as_ref().and_then(|t| t.get("model_providers")).and_then(|v| v.as_table()) {
             for p in providers.values() {
@@ -163,12 +162,12 @@ pub(super) fn credential_vars(base: &str, src: &Path) -> Vec<String> {
 }
 
 /// What a migration would copy, described without secrets.
-pub(super) fn plan_import(base: &str, src: &Path) -> Vec<(String, String)> {
+pub(super) fn plan_import(runtime: Runtime, src: &Path) -> Vec<(String, String)> {
     let has = |f: &str| src.join(f).is_file();
     let mut out = vec![];
     let mut add = |name: &str, note: String| out.push((name.to_string(), note));
-    match base {
-        "codex" => {
+    match runtime {
+        Runtime::Codex => {
             if has("config.toml") {
                 let t: Option<toml::Table> =
                     std::fs::read_to_string(src.join("config.toml")).ok().and_then(|s| s.parse().ok());
@@ -185,7 +184,7 @@ pub(super) fn plan_import(base: &str, src: &Path) -> Vec<(String, String)> {
                 add("auth.json", if mode == "chatgpt" { "ChatGPT 登录令牌".into() } else { "API Key".into() });
             }
         }
-        "claude" => {
+        Runtime::Claude => {
             if has("settings.json") {
                 add("settings.json", "模型与接入点变量".into());
             }
@@ -200,54 +199,48 @@ pub(super) fn plan_import(base: &str, src: &Path) -> Vec<(String, String)> {
             if has(".credentials.json") {
                 add(".credentials.json", "登录令牌".into());
             } else if cfg!(target_os = "macos")
-                && src == PathBuf::from(expand_home("~/.claude"))
+                && src == PathBuf::from(expand_home(runtime.user_config_dir()))
                 && claude_keychain_credentials().is_some()
             {
                 add(".credentials.json", "登录令牌（来自钥匙串）".into());
             }
         }
-        _ => {}
     }
     out
 }
 
 /// Preview for the provider dialog: which files and shell variables would be copied, never their values.
-pub fn local_preview(kind: &str, source: &str) -> Value {
-    let base = kinds()
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|k| k["id"] == kind)
-        .and_then(|k| k["base"].as_str().map(str::to_owned))
-        .unwrap_or_default();
-    let src = local_source(&base, source);
+pub fn local_preview(kind: &str, source: &str) -> Result<Value> {
+    let base = kinds().as_array().unwrap().iter().find(|k| k["id"] == kind).map(|k| str_of(k, "base").to_string());
+    let runtime = Runtime::of(&base.unwrap_or_default())?;
+    let src = local_source(runtime, source);
     let files: Vec<Value> =
-        plan_import(&base, &src).into_iter().map(|(f, n)| json!({ "file": f, "note": n })).collect();
+        plan_import(runtime, &src).into_iter().map(|(f, n)| json!({ "file": f, "note": n })).collect();
     let shell = shell_env();
-    let env: Vec<Value> = credential_vars(&base, &src)
+    let env: Vec<Value> = credential_vars(runtime, &src)
         .into_iter()
         .filter(|k| shell.get(k).is_some_and(|v| !v.is_empty()))
         .map(|k| json!({ "name": k }))
         .collect();
-    json!({ "source": src, "exists": src.is_dir(), "files": files, "env": env })
+    Ok(json!({ "source": src, "exists": src.is_dir(), "files": files, "env": env }))
 }
 
 /// Copy the files into `home` and return the credential variables found in the user's shell.
 pub(super) fn import_local(
-    base: &str,
+    runtime: Runtime,
     src: &Path,
     home: &Path,
 ) -> Result<(Vec<String>, serde_json::Map<String, Value>)> {
-    let plan = plan_import(base, src);
+    let plan = plan_import(runtime, src);
     let shell = shell_env();
-    let env: serde_json::Map<String, Value> = credential_vars(base, src)
+    let env: serde_json::Map<String, Value> = credential_vars(runtime, src)
         .into_iter()
         .filter_map(|k| shell.get(&k).filter(|v| !v.is_empty()).map(|v| (k, json!(v))))
         .collect();
     for (file, _) in &plan {
         let from = src.join(file);
-        let body: Vec<u8> = match (base, file.as_str()) {
-            ("claude", ".claude.json") => {
+        let body: Vec<u8> = match (runtime, file.as_str()) {
+            (Runtime::Claude, ".claude.json") => {
                 let path = src
                     .parent()
                     .map(|p| p.join(".claude.json"))
@@ -263,13 +256,13 @@ pub(super) fn import_local(
                 }
                 serde_json::to_vec_pretty(&keep)?
             }
-            ("claude", ".credentials.json") if !from.is_file() => {
+            (Runtime::Claude, ".credentials.json") if !from.is_file() => {
                 claude_keychain_credentials().context("无法从钥匙串读取 Claude 登录令牌")?.into_bytes()
             }
             _ => std::fs::read(&from)?,
         };
         write_private(&home.join(file), &body)?;
     }
-    sanitize_home(base, home)?;
+    sanitize_home(runtime, home)?;
     Ok((plan.into_iter().map(|(f, _)| f).collect(), env))
 }

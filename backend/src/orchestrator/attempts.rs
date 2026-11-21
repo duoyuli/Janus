@@ -278,7 +278,7 @@ impl App {
         };
         let member = run.member(&agent).context("member missing")?.clone();
         let standing = standing_instructions(&member);
-        let channel = instruction_channel(member.kind);
+        let channel = member.kind.instruction_channel();
         // The collaborator rules, then the person's standing rules, in the system layer. Codex and
         // Claude Code both take HTTP MCP servers, so their sessions always have the board.
         // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
@@ -286,7 +286,7 @@ impl App {
         let skills = skills_note(self.skill_router_md(run, &member));
         let system_text = system_layer(&[&rules, &skills, &standing]);
         let spec = with_system(self.spec_for(&member.runtime)?, &channel, &system_text);
-        let system = (channel == Channel::System).then_some(system_text.as_str());
+        let system = (channel == InstructionChannel::System).then_some(system_text.as_str());
         self.db.start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
 
         let workspace = run.cwd.clone();
@@ -871,7 +871,7 @@ impl App {
         sid: &str,
         known_path: Option<PathBuf>,
     ) -> Option<NativeTurn> {
-        if member.kind == Runtime::Codex || sid.is_empty() || Path::new(sid).file_name()?.to_str()? != sid {
+        if !member.kind.native_transcript() || sid.is_empty() || Path::new(sid).file_name()?.to_str()? != sid {
             return None;
         }
         let projects = self.cfg.layout.agent_config(&member.runtime).join("projects");

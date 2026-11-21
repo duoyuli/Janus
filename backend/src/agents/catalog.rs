@@ -9,7 +9,7 @@ pub fn kinds() -> Value {
     json!([
         {
             "id": "codex", "base": "codex", "name": "Codex", "desc": "OpenAI Codex", "color": "#1f2937", "init": "CX",
-            "isolation": "CODEX_HOME", "runtime": runtime("codex"),
+            "isolation": Runtime::Codex.config_dir_var(), "runtime": runtime("codex"),
             "auths": [
                 { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.codex" }] },
                 { "id": "chatgpt", "label": "ChatGPT", "login": true, "desc": "创建后在浏览器里登录。", "fields": [] },
@@ -22,7 +22,7 @@ pub fn kinds() -> Value {
         },
         {
             "id": "claude", "base": "claude", "name": "Claude", "desc": "Anthropic Claude Code", "color": "#b4532a", "init": "CC",
-            "isolation": "CLAUDE_CONFIG_DIR", "runtime": runtime("claude"),
+            "isolation": Runtime::Claude.config_dir_var(), "runtime": runtime("claude"),
             "auths": [
                 { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.claude" }] },
                 { "id": "oauth", "label": "Claude 订阅", "desc": "在终端运行 claude setup-token，把生成的 token 粘贴到这里。",

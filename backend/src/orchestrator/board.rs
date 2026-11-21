@@ -33,21 +33,14 @@ impl Takers {
 impl App {
     /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
     pub(super) fn mcp_server(&self, run: &Run, who: &str) -> Value {
-        let token = session_token(&run.st.lock().unwrap().mcp_token, who);
-        json!({ "type": "http", "name": "janus", "url": format!("http://{}/mcp/{}/{}/{}", self.cfg.addr, run.id, token, who), "headers": [] })
+        self.session_server(run, who, "janus", "")
     }
 
     /// One MCP request (streamable HTTP, JSON responses) from a session of this run. `who` is
     /// "lead" or the task id of the collaborator's session. Notifications get no response.
     // @project-doc docs/interfaces/20261031-board_mcp.md#transport
     pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, who: &str, req: Value) -> Result<Option<Value>> {
-        let run = self.run(run_id).context("这个任务不在运行")?;
-        // The URL's token is bound to its `who`, so a collaborator cannot rename itself to `lead`
-        // or to another task: only the session Janus started holds the token for that name.
-        let run_token = run.st.lock().unwrap().mcp_token.clone();
-        if run_token.is_empty() || token != session_token(&run_token, who) {
-            bail!("token 不对");
-        }
+        let run = self.session_run(run_id, token, who)?;
         // A chat's agent holds a valid token for its library router; the same token must not
         // reach a board, which a chat does not have.
         // @project-doc docs/domains/20261120-chats.md#chat_model
@@ -63,25 +56,25 @@ impl App {
         let tool_input = req["params"]["arguments"].clone();
         let call_id = id.to_string();
         if tool_call {
-            let mut e = ev("tool.started", who, format!("调用 janus.{tool_name}，等待返回")).data(json!({
+            let e = ev("tool.started", who, format!("调用 janus.{tool_name}，等待返回")).data(json!({
                 "callId": call_id,
                 "tool": format!("janus.{tool_name}"),
                 "input": summarize_input(&tool_input, &tool_name),
                 "args": tool_input,
                 "status": "pending"
             }));
-            if !lead {
-                e = e.task(who);
-            }
-            self.emit(&run, e);
+            self.emit(&run, e.in_session(who));
         }
         let result = match req["method"].as_str().unwrap_or("") {
-            "initialize" => json!({
-                "protocolVersion": super::mcp_client::agreed_version(&req["params"]["protocolVersion"]),
-                "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": "janus", "version": crate::VERSION },
-                "instructions": if lead { "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。" } else { "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；子任务过大需要拆分时用 request_split 提议；用 peers 查看其他子任务的状态、改过的文件和完整结果。" },
-            }),
+            "initialize" => initialize(
+                &req,
+                "janus",
+                if lead {
+                    "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。"
+                } else {
+                    "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；子任务过大需要拆分时用 request_split 提议；用 peers 查看其他子任务的状态、改过的文件和完整结果。"
+                },
+            ),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
             "tools/call" => {
@@ -105,20 +98,16 @@ impl App {
                     _ => Err(format!("没有这个工具：{name}")),
                 };
                 match out {
-                    Ok(text) => json!({ "content": [{ "type": "text", "text": text }] }),
-                    Err(text) => json!({ "content": [{ "type": "text", "text": text }], "isError": true }),
+                    Ok(text) => tool_text(&text, false),
+                    Err(text) => tool_text(&text, true),
                 }
             }
-            m => {
-                return Ok(Some(
-                    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": format!("unknown method {m}") } }),
-                ));
-            }
+            m => return Ok(Some(rpc_error(id, METHOD_NOT_FOUND, format!("不支持 {m}")))),
         };
         if tool_call {
             let failed = result["isError"] == true;
             let output = result["content"][0]["text"].as_str().unwrap_or("");
-            let mut e = ev(
+            let e = ev(
                 "tool.completed",
                 who,
                 if failed { format!("janus.{tool_name} 失败") } else { format!("janus.{tool_name} 返回结果") },
@@ -131,12 +120,9 @@ impl App {
                 "output": short(output, 8000),
                 "status": if failed { "failed" } else { "completed" }
             }));
-            if !lead {
-                e = e.task(who);
-            }
-            self.emit(&run, e);
+            self.emit(&run, e.in_session(who));
         }
-        Ok(Some(json!({ "jsonrpc": "2.0", "id": id, "result": result })))
+        Ok(Some(rpc_result(id, result)))
     }
 
     /// The run's usage ledger, from its events (rules live in `usage`). Read-only: a failure to
@@ -1377,24 +1363,6 @@ fn running_pulse(run: &Run) -> String {
         lines.push(format!("- 另有 {pending} 个子任务等待启动或等待依赖完成"));
     }
     lines.join("\n")
-}
-
-// @project-doc docs/interfaces/20261031-board_mcp.md#transport
-/// The token in one session's MCP URL: derived from the run's secret and the session's `who`, so
-/// it only opens the board as that member.
-pub(super) fn session_token(run_token: &str, who: &str) -> String {
-    Sha256::digest(format!("{run_token}\0{who}").as_bytes())[..16].iter().map(|x| format!("{x:02x}")).collect()
-}
-
-/// The run's board secret, from the system's random source. Without one there is no secret
-/// worth the name, so the session does not start (AT-18).
-pub(super) fn random_token() -> Result<String> {
-    use std::io::Read;
-    let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut b))
-        .context("读取系统随机数失败，无法生成看板令牌")?;
-    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 #[derive(Default)]

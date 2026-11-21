@@ -432,9 +432,12 @@ final class AppStore {
         editRole(["id": "", "name": JSON(L.text("新数字员工")), "desc": "", "connection": JSON(connection.isEmpty ? okConnections.first?["id"].str ?? "" : connection), "model": "", "effort": "", "session": [:], "lead": false, "color": JSON(Self.roleColors[roles.count % Self.roleColors.count]), "init": "", "prompt": "", "resources": []])
     }
 
+    /// The kinds of setup object `/api/setup/{kind}` saves and deletes.
+    enum SetupKind: String { case connections, roles, workspaces }
+
     @discardableResult
-    func save(_ kind: String, _ body: JSON) async throws -> JSON {
-        let saved = try await api.post("/api/setup/\(kind)", body)
+    func save(_ kind: SetupKind, _ body: JSON) async throws -> JSON {
+        let saved = try await api.post("/api/setup/\(kind.rawValue)", body)
         await loadSetup()
         return saved
     }
@@ -454,8 +457,8 @@ final class AppStore {
         return saved
     }
 
-    func delete(_ kind: String, _ id: String) async throws {
-        try await api.delete("/api/setup/\(kind)/\(id)")
+    func delete(_ kind: SetupKind, _ id: String) async throws {
+        try await api.delete("/api/setup/\(kind.rawValue)/\(API.q(id))")
         await loadSetup()
     }
 
@@ -648,8 +651,12 @@ final class AppStore {
         }
     }
 
-    func adapterAction(_ id: String, _ action: String, version: String? = nil) async {
-        do { adapters = try await api.post("/api/adapters/\(id)/\(action)", version.map { ["version": JSON($0)] } ?? [:]) } catch { show(error.localizedDescription); return }
+    /// What `/api/adapters/{id}/{action}` does with an adapter: install a version (the newest
+    /// unless one is named), ask npm for the newest, or switch to an installed one.
+    enum AdapterAction: String { case install, check, use }
+
+    func adapterAction(_ id: String, _ action: AdapterAction, version: String? = nil) async {
+        do { adapters = try await api.post("/api/adapters/\(API.q(id))/\(action.rawValue)", version.map { ["version": JSON($0)] } ?? [:]) } catch { show(error.localizedDescription); return }
         await loadAdapters()
     }
 

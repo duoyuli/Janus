@@ -154,8 +154,9 @@ impl App {
         let dir = self.agent_dir(&id);
         let secrets_file = self.cfg.layout.agent_secrets(&id);
         let mut secrets = read_secrets(&secrets_file)?;
+        let runtime = Runtime::of(str_of(&desc, "base"))?;
         let mut env = parse_env(body["envText"].as_str().unwrap_or(""), |name| {
-            if kind == "claude" { private_env_value(&secrets, name) } else { None }
+            if runtime.env_holds_secrets() { private_env_value(&secrets, name) } else { None }
         })?;
         let mut config = json!({
             "id": id, "kind": kind, "base": desc["base"], "name": name, "auth": auth_desc["id"],
@@ -189,7 +190,7 @@ impl App {
             map.retain(|k, _| fields.iter().any(|f| f["key"] == k.as_str() && f["type"] == "secret"));
         }
 
-        if kind == "claude" {
+        if runtime.env_holds_secrets() {
             protect_claude_env(&mut env, &mut secrets);
         }
         config["env"] = Value::Object(env);
@@ -214,9 +215,9 @@ impl App {
         if str_of(c, "auth") != "import" {
             return Ok(None);
         }
-        let base = str_of(c, "base");
-        let src = local_source(base, str_of(c, "source"));
-        let (copied, env) = import_local(base, &src, home)?;
+        let runtime = Runtime::of(str_of(c, "base"))?;
+        let src = local_source(runtime, str_of(c, "source"));
+        let (copied, env) = import_local(runtime, &src, home)?;
         if copied.is_empty() && env.is_empty() {
             bail!("在 {} 和你的 shell 环境中都没有找到可以复制的配置", src.display());
         }
@@ -293,42 +294,13 @@ impl App {
         for (k, v) in s["importedEnv"].as_object().into_iter().flatten().filter(|(k, _)| !is_sandbox_var(k)) {
             override_env(&mut env, k, v.as_str().unwrap_or(""));
         }
-        let mut set = |k: &str, v: String| env.push((k.to_string(), v));
         let runtime = Runtime::of(str_of(&c, "base"))?;
-        match runtime {
-            Runtime::Codex => {
-                set("CODEX_HOME", home);
-                // The adapter bundles the Codex CLI. A path chosen on the agent overrides it.
-                if let Some(b) = configured_bin(&c) {
-                    set("CODEX_PATH", b);
-                }
-                if c["auth"] == "apikey" {
-                    set("OPENAI_API_KEY", secret("apiKey"));
-                    if !str_of(&c, "baseUrl").is_empty() {
-                        let provider = json!({
-                            "model_provider": "janus",
-                            "model_providers": { "janus": { "name": "Janus gateway", "base_url": str_of(&c, "baseUrl"), "env_key": "OPENAI_API_KEY", "wire_api": "responses", "requires_openai_auth": false } }
-                        });
-                        set("CODEX_CONFIG", provider.to_string());
-                        set("MODEL_PROVIDER", "janus".into());
-                    }
-                }
-            }
-            Runtime::Claude => {
-                set("CLAUDE_CONFIG_DIR", home);
-                // Janus reads a returned turn as the agent's answer. A command or subagent Claude
-                // Code sends to the background would end the turn before the work is done.
-                // @project-doc docs/interfaces/20261031-acp_integration.md#background_tasks
-                set("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1".into());
-                // The adapter ships its own Claude CLI. A path chosen on the agent overrides it.
-                if let Some(b) = configured_bin(&c) {
-                    set("CLAUDE_CODE_EXECUTABLE", b);
-                }
-                if c["auth"] == "oauth" {
-                    set("CLAUDE_CODE_OAUTH_TOKEN", secret("token"));
-                }
-            }
+        env.push((runtime.config_dir_var().to_string(), home));
+        // The adapter bundles the agent's CLI. A path chosen on the agent overrides it.
+        if let Some(b) = configured_bin(&c) {
+            env.push((runtime.bin_var().to_string(), b));
         }
+        env.extend(runtime.launch_env(&c, secret).into_iter().map(|(k, v)| (k.to_string(), v)));
         let (entry, version) = self.adapter_entry(runtime.as_str())?;
         Ok(RuntimeSpec {
             id: id.to_string(),

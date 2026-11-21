@@ -13,41 +13,29 @@
 //! `docs/domains/20261031-run_lifecycle.md#verification`; the wire format is in
 //! `docs/interfaces/20261031-events.md#evidence_methods`.
 
+use crate::wire::wire_enum;
 use serde::Serialize;
 use serde_json::Value;
 
-/// How a check was verified; the five values the structured result may name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Method {
-    /// Automated tests were run.
-    Test,
-    /// A command, script or checker was run.
-    Command,
-    /// Code, files, the interface or the actual state were inspected.
-    Inspection,
-    /// The agent reasons about it or judges it itself.
-    Reasoning,
-    /// The evidence is missing, cannot be reproduced, or cannot be checked right now.
-    Unverified,
+wire_enum! {
+    /// How a check was verified; the five values the structured result may name, in the order
+    /// counts and labels are listed. Only the exact values parse: anything else is not a method,
+    /// not a guess.
+    pub enum Method {
+        /// Automated tests were run.
+        Test = "test",
+        /// A command, script or checker was run.
+        Command = "command",
+        /// Code, files, the interface or the actual state were inspected.
+        Inspection = "inspection",
+        /// The agent reasons about it or judges it itself.
+        Reasoning = "reasoning",
+        /// The evidence is missing, cannot be reproduced, or cannot be checked right now.
+        Unverified = "unverified",
+    }
 }
 
 impl Method {
-    /// Every allowed method, in the order counts and labels are listed.
-    pub const ALL: [Method; 5] =
-        [Method::Test, Method::Command, Method::Inspection, Method::Reasoning, Method::Unverified];
-
-    /// The value written in the structured result and kept in the event log.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Method::Test => "test",
-            Method::Command => "command",
-            Method::Inspection => "inspection",
-            Method::Reasoning => "reasoning",
-            Method::Unverified => "unverified",
-        }
-    }
-
     /// What the lead, the person and the app read.
     pub fn label(self) -> &'static str {
         match self {
@@ -57,11 +45,6 @@ impl Method {
             Method::Reasoning => "推理判断",
             Method::Unverified => "未核实",
         }
-    }
-
-    /// Only the exact allowed values; anything else is not a method, not a guess.
-    pub fn parse(raw: &str) -> Option<Method> {
-        Method::ALL.into_iter().find(|m| m.as_str() == raw)
     }
 }
 
@@ -176,7 +159,7 @@ impl Summary {
             passed: checks.iter().take(criteria).filter(|c| c.passed).count(),
             ..Default::default()
         };
-        for m in Method::ALL {
+        for &m in Method::ALL {
             let count = checks.iter().filter(|c| c.method == Some(m)).count();
             if count > 0 {
                 s.methods.push(MethodCount { method: m.as_str(), label: m.label(), count });
@@ -230,42 +213,28 @@ impl Summary {
     }
 }
 
-/// One independent verification of a task (a task whose `verifies` names it), as the delivery
-/// records it. Completing the review (`status == "succeeded"`) and confirming the target's output
-/// (`verdict == Approved`) are separate facts: a verifier that finds blocking defects finishes its
-/// review cleanly with `verdict: "rejected"` and `passed: false`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Verdict {
-    /// The verified task's output meets its acceptance criteria.
-    Approved,
-    /// Blocking issues were found; the executor needs to revise its work.
-    Rejected,
-    /// Evidence is insufficient to confirm the target's output right now.
-    Inconclusive,
+wire_enum! {
+    /// One independent verification of a task (a task whose `verifies` names it), as the delivery
+    /// records it. Completing the review (`status == "succeeded"`) and confirming the target's output
+    /// (`verdict == Approved`) are separate facts: a verifier that finds blocking defects finishes its
+    /// review cleanly with `verdict: "rejected"` and `passed: false`.
+    pub enum Verdict {
+        /// The verified task's output meets its acceptance criteria.
+        Approved = "approved",
+        /// Blocking issues were found; the executor needs to revise its work.
+        Rejected = "rejected",
+        /// Evidence is insufficient to confirm the target's output right now.
+        Inconclusive = "inconclusive",
+    }
 }
 
 impl Verdict {
-    pub const ALL: [Verdict; 3] = [Verdict::Approved, Verdict::Rejected, Verdict::Inconclusive];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Verdict::Approved => "approved",
-            Verdict::Rejected => "rejected",
-            Verdict::Inconclusive => "inconclusive",
-        }
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             Verdict::Approved => "通过",
             Verdict::Rejected => "需要修改",
             Verdict::Inconclusive => "证据不足",
         }
-    }
-
-    pub fn parse(raw: &str) -> Option<Verdict> {
-        Verdict::ALL.into_iter().find(|v| v.as_str() == raw)
     }
 }
 

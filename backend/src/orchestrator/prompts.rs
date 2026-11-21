@@ -3,25 +3,6 @@
 
 use super::*;
 
-/// Where a member's system layer reaches the model: Janus's instructions for the session and the
-/// person's standing rules. They hold for the whole session and outrank the task text, so they go
-/// in the system layer wherever the agent offers one.
-// @project-doc docs/interfaces/20261031-acp_integration.md#standing_instructions
-#[derive(Debug, PartialEq)]
-pub(super) enum Channel {
-    /// Claude Code: `session/new` / `session/load` `_meta.systemPrompt.append`.
-    System,
-    /// Codex: `developer_instructions` in the adapter's `CODEX_CONFIG`.
-    Developer,
-}
-
-pub(super) fn instruction_channel(kind: Runtime) -> Channel {
-    match kind {
-        Runtime::Claude => Channel::System,
-        Runtime::Codex => Channel::Developer,
-    }
-}
-
 /// The person's standing rules for this member: the provider's prompt, then the role's.
 /// Skills and MCP are not here: they reach the agent through its own mechanisms.
 pub(super) fn standing_instructions(m: &Member) -> String {
@@ -282,8 +263,12 @@ pub(super) fn system_layer(parts: &[&str]) -> String {
 
 /// Start the adapter with the system layer when its agent takes it from the environment (Codex's
 /// developer instructions). Claude Code takes it in `session/new` instead.
-pub(super) fn with_system(spec: crate::acp::RuntimeSpec, channel: &Channel, text: &str) -> crate::acp::RuntimeSpec {
-    if channel == &Channel::Developer { with_developer_instructions(spec, text) } else { spec }
+pub(super) fn with_system(
+    spec: crate::acp::RuntimeSpec,
+    channel: &InstructionChannel,
+    text: &str,
+) -> crate::acp::RuntimeSpec {
+    if channel == &InstructionChannel::Developer { with_developer_instructions(spec, text) } else { spec }
 }
 
 pub(super) fn extract_json(text: &str) -> Option<Value> {

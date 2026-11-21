@@ -435,7 +435,7 @@ struct WorkspaceEditor: View {
         let body: JSON = ["id": original["id"], "name": JSON(name), "path": JSON(path), "lead": JSON(lead), "members": .array(members), "brief": JSON(brief)]
         Task {
             do {
-                let ws = try await store.save("workspaces", body)
+                let ws = try await store.save(.workspaces, body)
                 store.show(L.text("已保存工作区 \(ws["name"].str)"))
                 dismiss()
                 store.open(.home(ws["id"].str))
@@ -448,7 +448,7 @@ struct WorkspaceEditor: View {
         guard confirm(L.text("删除工作区「\(original["name"].str)」？"), L.text("已有的任务记录会保留，在侧栏的 Agent Team 里仍能找到。"), ok: L.text("删除")) else { return }
         Task {
             do {
-                try await store.delete("workspaces", original["id"].str)
+                try await store.delete(.workspaces, original["id"].str)
                 dismiss()
                 if let w = store.workspaces.first { store.open(.home(w["id"].str)) } else { store.open(.newWorkspace) }
             } catch { store.show(error.localizedDescription) }

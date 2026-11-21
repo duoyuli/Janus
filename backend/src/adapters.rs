@@ -19,6 +19,7 @@
 //! installed without them.
 
 use crate::orchestrator::{App, now_ms};
+use crate::wire::wire_enum;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -55,26 +56,17 @@ fn def(id: &str) -> Result<&'static AdapterDef> {
     ADAPTERS.iter().find(|a| a.id == id).ok_or_else(|| anyhow!("没有这个 ACP 适配器：{id}"))
 }
 
-/// What is going on with one adapter right now: an install or update check in progress, or how
-/// the last one ended. Kept in memory; the log file has the full output. A restart leaves no job
-/// at all, so there is no stale "running" to clear.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum JobState {
-    #[default]
-    Idle,
-    Running,
-    Ok,
-    Error,
-}
-
-impl JobState {
-    fn as_str(self) -> &'static str {
-        match self {
-            JobState::Idle => "idle",
-            JobState::Running => "running",
-            JobState::Ok => "ok",
-            JobState::Error => "error",
-        }
+wire_enum! {
+    /// What is going on with one adapter right now: an install or update check in progress, or how
+    /// the last one ended. Kept in memory; the log file has the full output. A restart leaves no job
+    /// at all, so there is no stale "running" to clear.
+    #[derive(Default)]
+    enum JobState {
+        #[default]
+        Idle = "idle",
+        Running = "running",
+        Ok = "ok",
+        Error = "error",
     }
 }
 

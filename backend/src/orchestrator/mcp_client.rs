@@ -217,14 +217,11 @@ impl Backend {
         tokio::spawn(async move {
             while let Some(req) = requests.recv().await {
                 let Some(b) = answering.upgrade() else { break };
+                let id = req["id"].clone();
                 let reply = match req["method"].as_str() {
-                    Some("roots/list") => {
-                        json!({ "jsonrpc": "2.0", "id": req["id"], "result": { "roots": [{ "uri": root, "name": "workspace" }] } })
-                    }
-                    Some("ping") => json!({ "jsonrpc": "2.0", "id": req["id"], "result": {} }),
-                    _ => {
-                        json!({ "jsonrpc": "2.0", "id": req["id"], "error": { "code": -32601, "message": "Janus 不支持这个请求" } })
-                    }
+                    Some("roots/list") => rpc_result(id, json!({ "roots": [{ "uri": root, "name": "workspace" }] })),
+                    Some("ping") => rpc_result(id, json!({})),
+                    _ => rpc_error(id, METHOD_NOT_FOUND, "Janus 不支持这个请求"),
                 };
                 let _ = b.send(&reply).await;
             }

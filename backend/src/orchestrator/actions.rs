@@ -12,26 +12,20 @@ impl App {
     /// `expectedSequence`, when given, must still be the run's last event. A run that is not live
     /// can be accepted, resumed, or talked to (which resumes it).
     // @project-doc docs/interfaces/20261031-http_api.md#run_actions
-    pub async fn request_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<ActionReply, ActionRefused> {
-        if self.db.run(run_id).map_err(ActionRefused::Invalid)?.is_none() {
-            return Err(ActionRefused::NotFound);
+    pub async fn request_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<ActionReply, Refused> {
+        if self.db.run(run_id)?.is_none() {
+            return Err(Refused::NotFound);
         }
         let command = body["commandId"].as_str().filter(|s| !s.trim().is_empty());
         if let Some(id) = command {
-            match self
-                .db
-                .claim_command(run_id, id, &json!({ "type": body["type"] }), now_ms())
-                .map_err(ActionRefused::Invalid)?
-            {
+            match self.db.claim_command(run_id, id, &json!({ "type": body["type"] }), now_ms())? {
                 None => {}
                 Some(CommandState::Done) => return Ok(ActionReply::Duplicate),
                 Some(CommandState::Running) => {
-                    return Err(ActionRefused::Conflict(format!(
-                        "commandId {id} 的操作还在执行，结束前无法确认是否生效"
-                    )));
+                    return Err(Refused::Conflict(format!("commandId {id} 的操作还在执行，结束前无法确认是否生效")));
                 }
                 Some(CommandState::Interrupted) => {
-                    return Err(ActionRefused::Conflict(format!(
+                    return Err(Refused::Conflict(format!(
                         "commandId {id} 的操作在服务重启时中断，无法确认是否生效：先查看任务的事件，需要时换一个 commandId 重试"
                     )));
                 }
@@ -48,40 +42,38 @@ impl App {
         done.map(|()| ActionReply::Done)
     }
 
-    async fn dispatch_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<(), ActionRefused> {
+    async fn dispatch_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<(), Refused> {
         if let Some(expected) = body["expectedSequence"].as_i64() {
-            let actual = self.db.max_seq(run_id).map_err(ActionRefused::Invalid)?;
+            let actual = self.db.max_seq(run_id)?;
             if expected != actual {
-                return Err(ActionRefused::Conflict(format!(
-                    "状态已变化：expectedSequence={expected}，当前为 {actual}"
-                )));
+                return Err(Refused::Conflict(format!("状态已变化：expectedSequence={expected}，当前为 {actual}")));
             }
         }
         let kind = body["type"].as_str().unwrap_or("");
         let run = match self.run(run_id) {
             // The run is live (a failed driver removes its run, see `launch`): nothing to resume.
             Some(_) if kind == "resumeRun" => {
-                return Err(ActionRefused::Conflict("这个任务正在进行，不需要从中断处继续".into()));
+                return Err(Refused::Conflict("这个任务正在进行，不需要从中断处继续".into()));
             }
             Some(run) => run,
             None => match kind {
                 // Acceptance needs no live agents, so it also works for runs delivered before a restart.
-                "accept" => match self.accept_archived(run_id).await.map_err(ActionRefused::Invalid)? {
+                "accept" => match self.accept_archived(run_id).await? {
                     None => return Ok(()),
                     // A message brought it back meanwhile: it is accepted as a live run.
                     Some(run) => run,
                 },
-                "resumeRun" => return self.resume_run(run_id).await.map(|_| ()).map_err(ActionRefused::Invalid),
+                "resumeRun" => return Ok(self.resume_run(run_id).await.map(|_| ())?),
                 // Talking to an agent brings an interrupted run back first.
-                "message" => self.resume_run(run_id).await.map_err(ActionRefused::Invalid)?,
+                "message" => self.resume_run(run_id).await?,
                 _ => {
-                    return Err(ActionRefused::Conflict(
+                    return Err(Refused::Conflict(
                         "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
                     ));
                 }
             },
         };
-        self.action(&run, body).map_err(ActionRefused::Invalid)
+        Ok(self.action(&run, body)?)
     }
 
     // @project-doc docs/interfaces/20261031-http_api.md#run_actions
@@ -295,7 +287,7 @@ impl App {
                         Steer::Control(SessionControl {
                             id: id.to_string(),
                             value: a["value"].clone(),
-                            via: ControlVia::parse(a["via"].as_str().unwrap_or_default()),
+                            via: ControlVia::of(a["via"].as_str().unwrap_or_default()),
                         })
                     }
                     "takeover" => Steer::TakeOver,
@@ -845,21 +837,19 @@ pub enum ActionReply {
     Duplicate,
 }
 
-/// Why a request to act on a run was turned down.
-pub enum ActionRefused {
+/// Why a request to act on a run, or to delete it, was turned down.
+#[derive(Debug)]
+pub enum Refused {
     NotFound,
-    /// The run's state does not allow it now.
+    /// The run's state does not allow it now (a delete: the run is still working; stop it first).
     Conflict(String),
     Invalid(anyhow::Error),
 }
 
-/// Why a request to delete a run was turned down.
-#[derive(Debug)]
-pub enum DeleteRefused {
-    NotFound,
-    /// The run is still working; stop it first.
-    Conflict(String),
-    Invalid(anyhow::Error),
+impl From<anyhow::Error> for Refused {
+    fn from(err: anyhow::Error) -> Refused {
+        Refused::Invalid(err)
+    }
 }
 
 /// Whether the person's message `id` reached its agent according to the events after it: joined

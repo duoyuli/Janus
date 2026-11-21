@@ -111,7 +111,7 @@ Codex：
 
 Janus 编写的系统层说明和段落标签始终用英文，独立于界面语言。数字员工指令、Provider 自定义提示词、共享资料、用户留言和历史对话保留原文。
 
-`instruction_channel` 按运行时选择注入方式：
+`Runtime::instruction_channel` 按运行时选择注入方式（`InstructionChannel`，`backend/src/agents/runtime.rs`）：
 
 | Agent | 通道 | 做法 |
 | --- | --- | --- |

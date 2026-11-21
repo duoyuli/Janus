@@ -15,7 +15,6 @@
 use crate::acp::{AcpConn, Incoming, RuntimeSpec};
 use crate::orchestrator::{App, Member, expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -28,6 +27,7 @@ mod connections;
 mod environment;
 mod local_config;
 mod roles;
+mod runtime;
 mod session_options;
 mod workspaces;
 
@@ -39,47 +39,13 @@ pub(crate) use environment::migrate_claude_env;
 pub use local_config::local_preview;
 use local_config::*;
 pub(crate) use roles::{add_generalist, add_old_friend, record_seed_origins, rename_default_roles};
+pub use runtime::{InstructionChannel, Runtime};
 use session_options::*;
 pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
 use workspaces::*;
 
 const CONNECTION: &str = "connection";
 
-/// What an agent runs on: Codex or Claude Code, each started through its official ACP adapter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Runtime {
-    Codex,
-    Claude,
-}
-
-impl Runtime {
-    /// The runtime of a connection's `base`.
-    pub fn of(base: &str) -> Result<Runtime> {
-        match base {
-            "codex" => Ok(Runtime::Codex),
-            "claude" => Ok(Runtime::Claude),
-            other => bail!("不支持的 Agent 类型：{other}"),
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Runtime::Codex => "codex",
-            Runtime::Claude => "claude",
-        }
-    }
-
-    /// The permission mode a session starts in when its role leaves the mode open: Codex's Full
-    /// access and Claude Code's Bypass permissions, so goals run without stopping for approvals.
-    // @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
-    pub fn default_mode(self) -> &'static str {
-        match self {
-            Runtime::Codex => "agent-full-access",
-            Runtime::Claude => "bypassPermissions",
-        }
-    }
-}
 pub(crate) const ROLE: &str = "role";
 
 /// Split a launch command like a shell would for the simple cases: whitespace, single and double quotes.
