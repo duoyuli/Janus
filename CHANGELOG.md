@@ -1,8 +1,20 @@
 # 更新记录 / Changelog
 
-Janus 的版本按日期命名，新版本写在最上面，每节列出用户能看到的变化，先中文后英文。发布前先在 `CHANGELOG.md` 写下这一版的 change log：`Release` 工作流把对应小节作为 GitHub Release 的说明，找不到「`## <版本>`」这一节时发布失败。格式和发布步骤见 [CI 与发布](docs/operations/20261101-ci_release.md#release)。
+Janus 的版本按日期命名，新版本写在最上面，每节列出这一版的变化：用户能看到的变化，以及缺陷修复、性能优化和稳定性改进（包括内部的），先中文后英文。发布前先在 `CHANGELOG.md` 写下这一版的 change log：`Release` 工作流把对应小节作为 GitHub Release 的说明，找不到「`## <版本>`」这一节时发布失败。格式和发布步骤见 [CI 与发布](docs/operations/20261101-ci_release.md#release)。
 
-Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
+Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
+
+## 2026.11.21
+
+- Claude 的「自定义 API」改为一个环境变量输入框：直接粘贴多行 `export KEY=value`，一起设置网关地址、令牌和各档模型；点「填入模板」带入常用的变量，已经填写的不会被覆盖。令牌等私有值只保存在 Agent 自己的凭据文件里，编辑时只显示变量名。原来单独填写的 API Key 升级后作为 `ANTHROPIC_API_KEY` 继续使用。
+- `~/.janus` 按「丢了还能不能再有」整理：`data/` 是无法恢复的数据（备份只需要它），`work/` 是 Agent 工作的目录，`cache/` 停止 Janus 后可以删，`tmp/` 每次启动清空，日志都在 `logs/`；任务和对话分开存放。升级时自动搬移，升级前的数据库备份在 `backups/`；退回更早的版本前，先把备份放回 `~/.janus/janus.db`。
+- 删除任务或对话时，Agent 自己留下的会话记录一起删除，删掉的对话不再留在 Agent 的目录里。应用下载新版本前清掉以前留下的旧版本，Agent 的临时文件每次启动时清理，资源库 MCP 服务器的工具列表只保留当前版本。
+- 修复在同一个 Git 仓库上同时创建多个任务时，偶尔因为另一个 worktree 还没建好而创建失败（`failed to read .git/worktrees/…/commondir`）：现在 worktree 依次建立。
+
+- Claude's "Custom API" is now one box for environment variables: paste several `export KEY=value` lines to set the gateway address, the token and the models together, or click "Insert Template" to bring in the usual variables without replacing what you typed. Private values such as the token are kept only in the agent's own credentials file, and editing shows only their names. An API key entered separately before keeps working as `ANTHROPIC_API_KEY`.
+- `~/.janus` is sorted by whether a thing can be had again: `data/` holds what cannot (back up just this), `work/` the folders agents work in, `cache/` what can go while Janus is stopped, `tmp/` what is cleared at each start, and all logs are in `logs/`; tasks and chats are kept apart. Upgrading moves everything by itself, with a backup of the database in `backups/`; before going back to an earlier version, put that backup back as `~/.janus/janus.db`.
+- Deleting a task or a chat also deletes the session records the agent kept of it, so a deleted chat no longer stays in the agent's folder. The app clears versions left over from earlier updates before downloading a new one, and agents' temporary files are cleared at each start; the tool lists of library MCP servers keep only the current version.
+- Fixed creating several tasks at once on one Git repository sometimes failing because another worktree was still being made (`failed to read .git/worktrees/…/commondir`): worktrees are now made one at a time.
 
 ## 2026.11.20.9
 
