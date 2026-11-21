@@ -29,6 +29,8 @@ pub const SHAPES: &[Shape] = &[
             "lead",
             "color",
             "init",
+            // The hash of its picture (`data/roles/<id>/avatar.png`); empty shows the initials.
+            "avatar",
         ],
         // Default roles remember which default they came from (see `agents::sync_seeds`).
         optional: &["seed"],

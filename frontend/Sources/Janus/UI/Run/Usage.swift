@@ -83,7 +83,7 @@ struct UsageSection: View {
                 Button { run.page = .agent(member.id) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         let w = run.who(member.id)
-                        Avatar(initials: w.initials, color: w.color, size: 14)
+                        Avatar(initials: w.initials, color: w.color, size: 14, role: w.role)
                         Text(w.name).font(.callout).lineLimit(1)
                         if member.id == "lead", w.name != L.text("负责人") { Text(L.text("负责人")).font(.caption2).foregroundStyle(.secondary) }
                         Spacer(minLength: 8)

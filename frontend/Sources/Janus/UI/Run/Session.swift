@@ -608,7 +608,7 @@ struct ChatItem: View {
     private func bubble<C: View>(agent: String, @ViewBuilder content: () -> C) -> some View {
         let w = run.who(agent)
         return HStack(alignment: .top, spacing: 8) {
-            Avatar(initials: w.initials, color: w.color, size: 22)
+            Avatar(initials: w.initials, color: w.color, size: 22, role: w.role)
             VStack(alignment: .leading, spacing: 4) { content() }
                 .padding(10)
                 .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
@@ -758,7 +758,7 @@ struct AgentView: View {
         ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Avatar(initials: w.initials, color: w.color, size: 34)
+                Avatar(initials: w.initials, color: w.color, size: 34, role: w.role)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(w.name).font(.display(.title2))
                     Text([w.runtime, w.model].filter { !$0.isEmpty }.joined(separator: " · ")).foregroundStyle(.secondary)

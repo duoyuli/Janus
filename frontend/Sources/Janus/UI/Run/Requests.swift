@@ -41,7 +41,7 @@ struct AskShell<Body: View, Controls: View>: View {
         Card(tint: tone.color) {
             HStack(spacing: 8) {
                 Pill(pill, tone)
-                Avatar(initials: w.initials, color: w.color, size: 20)
+                Avatar(initials: w.initials, color: w.color, size: 20, role: w.role)
                 Text(title).font(.headline).lineLimit(3)
                 Spacer()
                 if let e = st.event(item.seq) { Text(L.clock(e.ts)).font(.caption).foregroundStyle(.secondary) }
@@ -382,7 +382,7 @@ struct SessionAsk: View {
         Card(tint: Tone.amber.color) {
             HStack(spacing: 8) {
                 Pill(L.text("会话"), .amber)
-                Avatar(initials: w.initials, color: w.color, size: 20)
+                Avatar(initials: w.initials, color: w.color, size: 20, role: w.role)
                 Text(item.task.map { L.text("「\(w.name)」在 \($0) 中等你的消息") } ?? L.text("「\(w.name)」在等你的消息")).font(.headline)
                 Spacer()
                 if let e = st.event(item.seq) { Text(L.clock(e.ts)).font(.caption).foregroundStyle(.secondary) }

@@ -137,6 +137,23 @@ impl Layout {
         vec![self.agent(id), self.agent_secrets(id), self.agent_tmp(id), self.agent_logs(id)]
     }
 
+    // ---- Digital employees (roles)
+
+    /// What Janus keeps for one digital employee besides its record: `avatar.png`.
+    pub fn role(&self, id: &str) -> PathBuf {
+        self.data().join("roles").join(id)
+    }
+
+    /// The digital employee's own picture, a square PNG; none means its initials are shown.
+    pub fn role_avatar(&self, id: &str) -> PathBuf {
+        self.role(id).join("avatar.png")
+    }
+
+    /// Everything one digital employee owns besides its record, removed with it.
+    pub fn role_paths(&self, id: &str) -> Vec<PathBuf> {
+        vec![self.role(id)]
+    }
+
     // ---- Library
 
     /// Skill contents, by the hash of what they hold; written once, never changed.

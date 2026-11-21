@@ -221,7 +221,7 @@ struct RunTimeline: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(t.title).font(.callout).lineLimit(1).truncationMode(.tail)
                 HStack(spacing: 4) {
-                    Avatar(initials: w.initials, color: w.color, size: 14)
+                    Avatar(initials: w.initials, color: w.color, size: 14, role: w.role)
                     Text(verbatim: "\(w.name) · \(t.id)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }

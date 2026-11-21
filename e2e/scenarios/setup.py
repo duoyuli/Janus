@@ -1,6 +1,7 @@
 """First-run setup: what a person does in Settings before the first goal."""
 
 import atexit
+import base64
 import json
 import os
 import subprocess
@@ -200,8 +201,24 @@ def setup(ctx, c):
         for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new"), ("mcp-edit catalog:github", "mcp-editor-catalog")):
             ctx.app.do(cmd, f"shot {shot}", "close-sheet")
             c(_drawn(ctx, shot), f"应用：MCP 编辑器 {cmd} 画出来了")
+        # Digital employees' pictures: the default ones come with theirs; one of your own, cropped
+        # and scaled by the app, replaces it; removing it shows the initials again.
+        defaults = {"coordinator", "generalist", "researcher", "product-manager", "implementer", "reviewer", "inner-grill"}
+        st = ctx.app.until(lambda s: defaults <= set(s.get("avatars") or {}), "应用读到默认数字员工的头像", "reload")
+        c(all(st["avatars"][r] == 256 for r in defaults), f"应用：7 位默认数字员工都带着 256 像素的头像（{st['avatars']}）")
+        code, _ = ctx.api_error("PUT", "/api/roles/implementer/avatar", {"data": base64.b64encode(b"GIF89a not a png").decode()})
+        c(code == 400, f"不是 PNG 的头像被拒绝（{code}）")
+        before = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["implementer"]["avatar"]
+        ctx.app.do(f"avatar implementer {os.path.join(ROOT, 'backend', 'roles', 'inner-grill.png')}")
+        after = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["implementer"]["avatar"]
+        status, png, _ = ctx.api("GET", "/api/roles/implementer/avatar", raw=True)
+        side = int.from_bytes(png[16:20], "big") if png.startswith(b"\x89PNG") else 0
+        c(after and after != before and status == 200 and side == 256, f"应用：换上自己的图后，数字员工的头像是裁好的 256 像素 PNG（{side}）")
         ctx.app.do("close-sheet", "role implementer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
         c(_drawn(ctx, "role-editor"), "应用：数字员工编辑器画出来了")
+        st = ctx.app.do("avatar implementer none")
+        code, _ = ctx.api_error("GET", "/api/roles/implementer/avatar")
+        c(code == 404 and "implementer" not in (st.get("avatars") or {}), f"移除头像后回到文字头像（{code}）")
         c(_drawn(ctx, "workspace-editor"), "应用：工作区编辑器画出来了")
         ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and {t["id"]: t["status"] for t in r["tasks"]} == {"T1": "succeeded", "V1": "succeeded"}
                and next(t for t in r["tasks"] if t["id"] == "V1")["verdict"] == "approved",

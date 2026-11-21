@@ -232,7 +232,11 @@ final class RunModel {
 
     // MARK: Team
 
-    struct Who { let id, name, initials, color, runtime, model: String; let lead: Bool; let m: JSON }
+    struct Who {
+        let id, name, initials, color, runtime, model: String; let lead: Bool; let m: JSON
+        /// The digital employee it was made from, whose picture it shows; none for the person and Janus.
+        var role = ""
+    }
 
     func who(_ id: String) -> Who {
         if id == "user" {
@@ -251,7 +255,7 @@ final class RunModel {
         let own = m["color"].str
         let color = Avatar.neutral.contains(own.lowercased()) ? (lead ? Avatar.lead : Avatar.slate) : own
         let rt = m["runtime_name"].truthy ? m["runtime_name"].str : store.connection(m["runtime"].str)?["name"].str ?? m["runtime"].str
-        return Who(id: id, name: name, initials: initials, color: color, runtime: rt, model: m["model"].str, lead: lead, m: m)
+        return Who(id: id, name: name, initials: initials, color: color, runtime: rt, model: m["model"].str, lead: lead, m: m, role: m["role_id"].str)
     }
 
     func agentName(_ id: String) -> String {

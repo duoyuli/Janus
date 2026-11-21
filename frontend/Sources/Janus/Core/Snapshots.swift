@@ -109,6 +109,14 @@ enum Snapshots {
             if args.first == "new" {
                 store.editAgent(.new(kind: args.dropFirst().first ?? "codex", auth: args.dropFirst(2).first, template: args.dropFirst(3).first == "template"))
             } else { store.editAgent(.existing(arg)) }
+        // A digital employee's picture from an image file, cropped and saved the way the editor
+        // does: `avatar <role> <path>`, or `avatar <role> none` to take it back to the initials.
+        case "avatar":
+            let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            if p.count == 2 {
+                let png = p[1] == "none" ? nil : (try? Data(contentsOf: URL(fileURLWithPath: p[1]))).flatMap { AvatarImages.square($0) }
+                if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
+            }
         case "close-sheet":
             store.closeRoleEditor(); store.editingWorkspace = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
@@ -140,6 +148,10 @@ enum Snapshots {
                 // The open agent editor's environment text, as the person sees it.
                 "agentEditorEnv": store.agentEditorEnv.map(JSON.init) ?? .null,
                 "chats": ids(store.chats),
+                // The digital employees whose own picture the app has loaded, with its size in pixels.
+                "avatars": .object(AvatarImages.shared.images.mapValues { img in
+                    JSON(img.representations.first.map { $0.pixelsWide } ?? 0)
+                }),
                 // The task records each workspace page read and shows, by workspace.
                 "histories": .object(store.histories.mapValues { ids($0.runs) }),
                 "adapterUpdates": JSON.array(store.adapterUpdates.map { $0["id"] }),

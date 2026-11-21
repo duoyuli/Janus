@@ -131,6 +131,7 @@ final class AppStore {
             roles = s["roles"].array
             workspaces = s["workspaces"].array
         } catch { show(L.text("读取设置失败：\(error.localizedDescription)")) }
+        await AvatarImages.shared.sync(roles, api: api)
         // How each role's tasks went in recent runs; the list works without it.
         roleStats = (try? await api.get("/api/stats/roles")) ?? .null
     }
@@ -436,6 +437,13 @@ final class AppStore {
         let saved = try await api.post("/api/setup/\(kind)", body)
         await loadSetup()
         return saved
+    }
+
+    /// Give a digital employee its own picture (a square PNG), or take it back to its initials.
+    func setAvatar(_ role: String, png: Data?) async throws {
+        let path = "/api/roles/\(API.q(role))/avatar"
+        if let png { _ = try await api.put(path, ["data": JSON(png.base64EncodedString())]) } else { try await api.delete(path) }
+        await loadSetup()
     }
 
     /// Take (`adopt`) or decline the newer default text of a field the person edited on a default

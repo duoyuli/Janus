@@ -116,6 +116,10 @@ struct Avatar: View {
     let initials: String
     let color: String
     var size: CGFloat = 22
+    /// The digital employee shown: its own picture replaces the initials when it has one.
+    var role = ""
+    /// A picture to show instead, such as one chosen in the editor and not saved yet.
+    var picture: NSImage?
 
     /// The slate a role gets when it has no color of its own.
     static let neutral: Set<String> = ["", "#64748b", "#94a3b8"]
@@ -124,11 +128,22 @@ struct Avatar: View {
     static let lead = "#0b6bcb"
 
     var body: some View {
+        if let picture = picture ?? AvatarImages.shared.image(role) {
+            Image(nsImage: picture).resizable().interpolation(.high).scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.3))
+                .accessibilityHidden(true)
+        } else {
+            tile
+        }
+    }
+
+    private var tile: some View {
         let base = Color(hex: Self.neutral.contains(color.lowercased()) ? Self.slate : color)
         // Two CJK characters crowd a small tile; one reads at a glance.
         let cjk = initials.unicodeScalars.first.map { $0.value >= 0x2E80 } ?? false
         let text = cjk && size < 34 ? String(initials.prefix(1)) : initials
-        Text(text)
+        return Text(text)
             .font(.system(size: size * (text.count == 1 ? 0.5 : 0.4), weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)

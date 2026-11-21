@@ -40,7 +40,7 @@ struct RolesSection: View {
         let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? L.text("提示词") : ""].filter { !$0.isEmpty }
         return Button { store.editRole(r) } label: {
             HStack(spacing: 12) {
-                Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30)
+                Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30, role: r["id"].str)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) { Text(r["name"].str).fontWeight(.semibold); if r["lead"].truthy { Pill(L.text("负责人"), .violet) } }
                     Text(([r["desc"].truthy ? r["desc"].str : L.text("还没有填写职责")] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -85,6 +85,14 @@ struct RoleEditor: View {
     @Local private var r: JSON = [:]
     @Local private var saving = false
     @Local private var colors = false
+    /// The picture chosen here, saved with the role.
+    @Local private var picture = PictureChange.unchanged
+
+    enum PictureChange: Equatable {
+        case unchanged
+        case set(Data)
+        case remove
+    }
 
     var body: some View {
         let c = store.connection(r["connection"].str)
@@ -92,10 +100,18 @@ struct RoleEditor: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Button { colors.toggle() } label: {
-                    Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased(), color: r["color"].str, size: 34)
+                    Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased(), color: r["color"].str, size: 34,
+                           role: picture == .remove ? "" : r["id"].str, picture: chosen)
                 }
-                .buttonStyle(.plain).help(L.text("选择颜色")).accessibilityLabel(L.text("数字员工颜色"))
+                .buttonStyle(.plain).help(L.text("更换头像或颜色，也可以把图片拖到这里")).accessibilityLabel(L.text("数字员工头像"))
+                .dropDestination(for: URL.self) { urls, _ in choose(urls.first) }
                 .popover(isPresented: $colors) {
+                    VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Button(L.text("选择图片…")) { pickPicture() }
+                        if hasPicture { Button(L.text("移除图片")) { picture = .remove; colors = false } }
+                    }
+                    Text(L.text("没有图片时，头像显示下面的颜色和文字。")).font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 8) {
                         ForEach(AppStore.roleColors, id: \.self) { col in
                             Button { r["color"] = JSON(col); colors = false } label: {
@@ -107,6 +123,7 @@ struct RoleEditor: View {
                             .accessibilityLabel(col)
                             .accessibilityAddTraits(r["color"].str == col ? .isSelected : [])
                         }
+                    }
                     }
                     .padding(12)
                 }
@@ -344,11 +361,49 @@ struct RoleEditor: View {
         r["session"] = s
     }
 
+    /// The picture chosen here and not saved yet.
+    private var chosen: NSImage? {
+        if case .set(let png) = picture { return NSImage(data: png) }
+        return nil
+    }
+
+    private var hasPicture: Bool {
+        switch picture {
+        case .set: true
+        case .remove: false
+        case .unchanged: store.roles.first { $0["id"].str == r["id"].str }?["avatar"].truthy == true
+        }
+    }
+
+    private func pickPicture() {
+        colors = false
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.message = L.text("选择数字员工的头像，会从中间裁成正方形")
+        if panel.runModal() == .OK { _ = choose(panel.url) }
+    }
+
+    /// Take an image file as the picture: cropped square and scaled down here, saved with the role.
+    @discardableResult
+    private func choose(_ url: URL?) -> Bool {
+        guard let url, let data = try? Data(contentsOf: url), let png = AvatarImages.square(data) else {
+            if url != nil { store.show(L.text("这个文件不是图片")) }
+            return false
+        }
+        picture = .set(png)
+        return true
+    }
+
     private func save() {
         saving = true
         Task {
             do {
                 let saved = try await store.save("roles", r)
+                switch picture {
+                case .set(let png): try await store.setAvatar(saved["id"].str, png: png)
+                case .remove: try await store.setAvatar(saved["id"].str, png: nil)
+                case .unchanged: break
+                }
                 store.show(L.text("已保存数字员工 \(saved["name"].str)"))
                 dismiss()
             } catch { store.show(error.localizedDescription) }

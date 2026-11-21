@@ -128,7 +128,7 @@ struct ConnectionRow: View {
                 Spacer()
                 if roles.isEmpty { Button(L.text("新建数字员工"), action: newRole).buttonStyle(.link) }
                 else {
-                    HStack(spacing: -4) { ForEach(roles.prefix(4), id: \.self) { r in Avatar(initials: r["init"].str, color: r["color"].str, size: 20) } }
+                    HStack(spacing: -4) { ForEach(roles.prefix(4), id: \.self) { r in Avatar(initials: r["init"].str, color: r["color"].str, size: 20, role: r["id"].str) } }
                     Text(verbatim: L.text("\(roles.count) 个数字员工")).font(.caption).foregroundStyle(.secondary)
                 }
                 Dot(tone: tone, text: label).frame(width: 90, alignment: .leading).accessibilityElement(children: .combine)

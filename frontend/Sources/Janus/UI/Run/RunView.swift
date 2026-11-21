@@ -623,7 +623,7 @@ struct AgentsPanel: View {
         return Button { run.page = .agent(id) } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 10) {
-                    Avatar(initials: w.initials, color: w.color, size: 30)
+                    Avatar(initials: w.initials, color: w.color, size: 30, role: w.role)
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
                             Text(w.name).font(.callout.weight(.semibold))
@@ -769,7 +769,7 @@ struct RunInspector: View {
                         Text(t.title).font(.callout.weight(.medium)).lineLimit(2).multilineTextAlignment(.leading)
                         HStack(spacing: 5) {
                             TaskTag(id: t.id)
-                            Avatar(initials: w.initials, color: w.color, size: 14)
+                            Avatar(initials: w.initials, color: w.color, size: 14, role: w.role)
                             Text(verbatim: "\(w.name) · \(label)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }

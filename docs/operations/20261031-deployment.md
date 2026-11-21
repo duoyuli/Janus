@@ -32,6 +32,7 @@
 │   ├── secrets/                     # 0700，Janus 保存的全部凭据，文件 0600
 │   │   ├── agents/<agent>.json      # Agent 的凭据字段和环境变量中的私有值
 │   │   └── library/<资源>.json      # 资源库 MCP 服务器的环境变量和 HTTP header 值
+│   ├── roles/<数字员工>/avatar.png  # 数字员工的头像，256×256 PNG，删除数字员工时一起删
 │   ├── agents/<agent>/
 │   │   ├── config/                  # Agent 的配置目录（CODEX_HOME、CLAUDE_CONFIG_DIR）：登录状态、设置、会话记录
 │   │   └── home/                    # Agent 进程的 HOME 和 XDG 目录：它自己装的工具链和缓存

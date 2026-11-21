@@ -269,6 +269,29 @@ async fn mcp_values(
     reply(app.mcp_values_view(&id))
 }
 
+/// A digital employee's picture, PNG; 404 when it shows its initials.
+async fn role_avatar(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    match app.role_avatar(&id).map_err(bad)? {
+        Some(png) => Ok(([(header::CONTENT_TYPE, "image/png")], png).into_response()),
+        None => Err((StatusCode::NOT_FOUND, "这个数字员工没有头像".into())),
+    }
+}
+
+/// Set a digital employee's picture: `{"data": "<PNG, base64>"}`. Returns the role.
+async fn set_role_avatar(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let data = body["data"].as_str().ok_or_else(|| bad(anyhow::anyhow!("缺少头像数据 data")))?;
+    reply(app.set_role_avatar(&id, Some(data)))
+}
+
+/// Take a digital employee back to its initials. Returns the role.
+async fn remove_role_avatar(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    reply(app.set_role_avatar(&id, None))
+}
+
 /// An agent's environment with every value, private ones included, for the editor. Like MCP
 /// values, it goes only to a client on this machine that isn't a web page: see `from_local_app`.
 // @project-doc docs/operations/20261031-security.md#secrets
@@ -870,6 +893,7 @@ async fn main() -> Result<()> {
         .route("/api/roles/{id}/seed", post(seed_choice))
         .route("/api/connections/{id}/test", post(test_connection))
         .route("/api/connections/{id}/env", get(connection_env))
+        .route("/api/roles/{id}/avatar", get(role_avatar).put(set_role_avatar).delete(remove_role_avatar))
         .route("/api/connections/{id}/login", post(login_connection))
         .route("/api/file", get(file))
         .route("/api/stats/roles", get(role_stats))

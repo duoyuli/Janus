@@ -65,11 +65,18 @@ final class API: Sendable {
 
     /// Raw text of a response (artifacts, exports).
     func text(_ path: String) async throws -> String {
+        String(decoding: try await data(path), as: UTF8.self)
+    }
+
+    /// Raw bytes of a response (a digital employee's picture).
+    func data(_ path: String) async throws -> Data {
         let (data, resp) = try await session.data(from: url(path))
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        let text = String(decoding: data, as: UTF8.self)
-        guard (200..<300).contains(status) else { throw APIError(status: status, message: text.isEmpty ? "HTTP \(status)" : text) }
-        return text
+        guard (200..<300).contains(status) else {
+            let text = String(decoding: data, as: UTF8.self)
+            throw APIError(status: status, message: text.isEmpty ? "HTTP \(status)" : text)
+        }
+        return data
     }
 
     private func send(_ req: URLRequest) async throws -> JSON {

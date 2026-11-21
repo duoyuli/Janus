@@ -94,7 +94,7 @@ struct HomeView: View {
             HStack(spacing: -4) {
                 ForEach(members.indices, id: \.self) { i in
                     let r = members[i].1
-                    Avatar(initials: r?["init"].str ?? "?", color: r?["color"].str ?? "#64748b", size: 22)
+                    Avatar(initials: r?["init"].str ?? "?", color: r?["color"].str ?? "#64748b", size: 22, role: r?["id"].str ?? "")
                         .overlay(RoundedRectangle(cornerRadius: 22 * 0.28).strokeBorder(Color.page, lineWidth: 1.5))
                         .help(r?["name"].str ?? L.text("已删除的数字员工"))
                 }
@@ -311,7 +311,7 @@ struct WorkspaceEditor: View {
                             HStack(spacing: 10) {
                                 Toggle(L.text("启用 \(r["name"].str)"), isOn: Binding(get: { on.contains(id) }, set: { v in if v { on.insert(id) } else { on.remove(id); if lead == id { lead = "" } } }))
                                     .labelsHidden().disabled(c == nil)
-                                Avatar(initials: r["init"].str.isEmpty ? String(r["name"].str.prefix(2)).uppercased() : r["init"].str, color: r["color"].str, size: 24)
+                                Avatar(initials: r["init"].str.isEmpty ? String(r["name"].str.prefix(2)).uppercased() : r["init"].str, color: r["color"].str, size: 24, role: r["id"].str)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(r["name"].str).font(.body.weight(.medium))
                                     Text(c.map { "\($0["name"].str) · \(r["model"].truthy ? r["model"].str : L.text("默认模型"))" } ?? L.text("未绑定 Agent")).font(.caption).foregroundStyle(.secondary)

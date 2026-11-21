@@ -26,7 +26,6 @@ pub enum Step {
     /// Schema changes: new tables, columns, indexes.
     Sql(&'static str),
     /// A new field, with the value existing objects take.
-    #[cfg_attr(not(test), expect(dead_code, reason = "no migration adds a field yet; the next one that does uses it"))]
     Add {
         at: Target,
         field: &'static str,
@@ -144,6 +143,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 15,
         name: "新增默认的数字员工「老友」",
         steps: &[Step::Custom(crate::agents::add_old_friend)],
+    },
+    Migration {
+        version: 16,
+        name: "数字员工可以有自己的头像：已有的数字员工没有头像，显示文字",
+        steps: &[Step::Add { at: Target::Config("role"), field: "avatar", default: || serde_json::json!("") }],
     },
 ];
 

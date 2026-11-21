@@ -172,7 +172,7 @@ struct TeamView: View {
                         let (pl, pt) = L.phase(full.agents[id]?.phase ?? "idle")
                         Card {
                             HStack(spacing: 10) {
-                                Avatar(initials: w.initials, color: w.color, size: 34)
+                                Avatar(initials: w.initials, color: w.color, size: 34, role: w.role)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(w.name + (w.lead ? L.text(" · 负责人") : "")).font(.headline)
                                     Text(verbatim: "\(w.runtime) · ACP").font(.caption).foregroundStyle(.secondary)

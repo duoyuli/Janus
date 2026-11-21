@@ -105,7 +105,7 @@ private struct RoleChoice: View {
         let shape = RoundedRectangle(cornerRadius: 12)
         Button(action: pick) {
             HStack(alignment: .top, spacing: 12) {
-                Avatar(initials: role["init"].truthy ? role["init"].str : String(role["name"].str.prefix(2)), color: role["color"].str, size: 36)
+                Avatar(initials: role["init"].truthy ? role["init"].str : String(role["name"].str.prefix(2)), color: role["color"].str, size: 36, role: role["id"].str)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(role["name"].str).font(.headline).lineLimit(1)
@@ -164,7 +164,7 @@ struct ChatView: View {
         let info = chatSession(st, live: run.live)
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
-                Avatar(initials: me.initials, color: me.color, size: 34)
+                Avatar(initials: me.initials, color: me.color, size: 34, role: me.role)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(me.name).font(.display(.title3))
                     Text(verbatim: [me.runtime, me.model, me.m["permission"].str].filter { !$0.isEmpty }.joined(separator: " · "))

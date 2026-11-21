@@ -290,7 +290,7 @@ pub(crate) fn test_connection(id: &str, kind: &str, base: &str, extra: Value) ->
 pub(crate) fn test_role(id: &str, extra: Value) -> Value {
     let mut r = json!({
         "id": id, "name": id, "desc": "", "prompt": "", "connection": "", "model": "", "effort": "",
-        "session": {}, "lead": false, "color": "#64748b", "init": "",
+        "session": {}, "lead": false, "color": "#64748b", "init": "", "avatar": "",
     });
     for (k, v) in extra.as_object().cloned().unwrap_or_default() {
         r[k] = v;
