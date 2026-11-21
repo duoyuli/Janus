@@ -197,6 +197,9 @@ pub(crate) fn move_to_categories(tx: &Transaction, home: Option<&Path>) -> Resul
     plan.drop(old("prices"));
     plan.mv(old("updates"), new.updates());
     plan.mv(old("permissions/review.json"), new.app_state().join("permissions.json"));
+    // The app opens before the service and may have written its new record already; that one
+    // stands, and the old folder goes either way.
+    plan.drop(old("permissions"));
 
     for dir in ["runs", "artifacts", "chats", "worktrees", "agents", "library", "secrets", "permissions"] {
         plan.emptied(old(dir));

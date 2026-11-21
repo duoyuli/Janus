@@ -149,9 +149,11 @@ fn version_14_moves_the_first_layout_into_categories() {
     std::os::unix::fs::symlink(p("agents/cc/root/.npm/tool"), p("agents/cc/root/.local/bin/tool")).unwrap();
 
     let layout = Layout::new(&h);
+    // The app starts before the service upgrades the home, and records its guidance in the new place.
+    write(&layout.app_state().join("permissions.json"), "{\"new\":true}");
     adopt_db(&layout).unwrap();
     let (db, report14) = crate::db::Db::open(&layout).unwrap();
-    assert_eq!((report14.from, report14.to), (13, 14));
+    assert_eq!((report14.from, report14.to), (13, crate::migrations::latest()));
     assert!(report14.backup.is_some_and(|b| b.starts_with(layout.backups())));
 
     let (rg, rc) = (layout.run(RunKind::Goal, "rg"), layout.run(RunKind::Chat, "rc"));
@@ -178,11 +180,12 @@ fn version_14_moves_the_first_layout_into_categories() {
         layout.adapters().join("claude/1.0.0/package.json"),
         layout.prices(),
         layout.updates().join("previous/Janus.app/Info.plist"),
-        layout.app_state().join("permissions.json"),
     ] {
         assert!(path.exists(), "{} is there", path.display());
     }
     assert_eq!(layout.foreign(), ["repo", "signing"], "only what is not Janus's is left at the top");
+    let record = std::fs::read_to_string(layout.app_state().join("permissions.json")).unwrap();
+    assert_eq!(record, "{\"new\":true}", "the record the app wrote first stands");
     assert!(!layout.agent_tmp("cc").exists() && !layout.server_tmp("i1").exists(), "scratch is not kept");
 
     // The recorded paths follow the files.
