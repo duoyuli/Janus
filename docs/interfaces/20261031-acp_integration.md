@@ -120,6 +120,13 @@ Janus 编写的系统层说明和段落标签始终用英文，独立于界面�
 
 Janus 把注入的内容记成 `session.prompt` 事件，都带 `via`（`system` 或 `developer`），会话页可以展开查看。Agent Team 的会话记两条：协作指令（`channel` 为 `system`，负责人说明或协作约定，会话页标为「Agent Team 协作指令」）和用户的长期要求（`channel` 为 `instructions`，会话页标为「数字员工的指令」）。对话只记数字员工的指令；新开会话接着之前的对话时，最近的对话另记一条（`channel` 为 `history`，标为「之前的对话」）。有资源库 Skill 时，不论哪种会话都另记一条 Skill 目录的位置（`channel` 为 `skills`）。
 
+<a id="reload_system_layer"></a>
+### 恢复会话时的系统层
+
+`session/load` 恢复的会话已经有自己的系统层，Janus 原样交回它打开时的那一份，不重新拼：`recorded_system` 从事件日志中取这个会话最近一次记下的各段（带 `via` 的 `session.prompt`），按原顺序拼回。系统层一变，适配器就会把它当作新的指令再交给模型（codex-acp 在 `thread/resume` 时把不同的 `developer_instructions` 当作修改系统提示词），所以恢复时只要有一个字不同，Agent 就会收到第二份指令。恢复成功时 Janus 不记新的 `session.prompt`，会话页不会出现第二份注入。
+
+只有新开会话才用新拼的系统层：对话和交付后负责人的对话在这里带上之前的对话（`chat_brief`、`conversation_brief`）。Codex 的系统层在适配器启动时就定了，所以 `lead_conversation` 先用原会话的系统层启动适配器去加载；加载失败要新开、而新系统层和原来不同时，关掉这个适配器，用新的系统层重新启动（`open_conversation`）。Claude Code 的系统层随 `session/new` 传入，用同一个适配器新开即可。任务的尝试恢复会话（从中断处继续、`continues`、回到原会话返工）时，成员和协作约定都没变，系统层和原来相同，同样不再记录。
+
 Skill、MCP 和权限模式本身不属于系统层，它们按各 Agent 自己的机制生效，系统层只指出 Skill 目录在哪里，见[资源库](../domains/20261116-resource_library.md#delivery)。
 
 <a id="session_setup"></a>

@@ -439,6 +439,14 @@ SYSTEM = {}  # session id -> what Janus put in its system layer (Claude Code's `
 CHATS = set()  # session ids of chats with one digital employee: their prompts are answered "回复：<text>"
 
 
+def log_layer(method, sid, params):
+    """The system layer a session was opened or loaded with, on one line ("layer <new|load> <sid> <json>"):
+    Claude Code's `_meta.systemPrompt.append`, else Codex's `developer_instructions` from the environment."""
+    system = ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append") or json.loads(
+        os.environ.get("CODEX_CONFIG") or "{}").get("developer_instructions", "")
+    log(f"layer {method} {sid} {json.dumps(system)}")
+
+
 def log_brief(params):
     """A lead's brief arrives in the system layer: Claude Code's `_meta.systemPrompt.append`. A chat's
     session is logged with its working directory ("chat session <cwd>")."""
@@ -473,6 +481,7 @@ for line in sys.stdin:
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
             SYSTEM[res["sessionId"]] = ((msg["params"].get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
+            log_layer("new", res["sessionId"], msg["params"])
             if chat:
                 CHATS.add(res["sessionId"])
         elif method == "session/load":
@@ -481,6 +490,7 @@ for line in sys.stdin:
             sid = msg["params"]["sessionId"]
             log(f"load {sid}")
             SYSTEM[sid] = ((msg["params"].get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
+            log_layer("load", sid, msg["params"])
             if log_brief(msg["params"]):
                 CHATS.add(sid)
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))

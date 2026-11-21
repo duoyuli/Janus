@@ -27,6 +27,17 @@ impl SystemPart {
     }
 }
 
+/// A conversation's main session once it is open: loaded (the old session, with the system layer
+/// it had) or new.
+struct Conversation {
+    conn: Arc<AcpConn>,
+    rx: mpsc::UnboundedReceiver<Incoming>,
+    ctl: Control,
+    session: Value,
+    loaded: bool,
+    resources: Vec<crate::library::Delivery>,
+}
+
 /// Why Janus sent a prompt into a session (`session.prompt`, `data.channel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PromptChannel {
@@ -451,8 +462,9 @@ impl App {
     /// A conversation in the run's main session. For a delivered or accepted run it is the lead's
     /// regular conversation after the goal; for a chat, the conversation with its one digital
     /// employee, without board, goal or delivery. The session is restored with `session/load`
-    /// when the adapter still has it; otherwise a new session starts with a compact brief of what
-    /// was said so far (and, for a goal, the delivery).
+    /// when the adapter still has it, with the system layer it already has, so it is told nothing
+    /// again; otherwise a new session starts with a compact brief of what was said so far (and,
+    /// for a goal, the delivery).
     // @project-doc docs/domains/20261120-chats.md#chat_session
     pub(super) async fn lead_conversation(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
         let chat = run.kind == RunKind::Chat;
@@ -463,30 +475,15 @@ impl App {
         let old_session = last_lead_session(&events);
         let brief = if chat { chat_brief(&events) } else { conversation_brief(run, &events) };
         let skills = skills_note(self.skill_router_md(&run.id, &lead));
-        let system = system_layer(&[&brief, &skills, &standing]);
-        let opened = async {
-            let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
-            if lead.kind == Runtime::Claude {
-                // Claude Code only runs /goal in a workspace it trusts, in a chat too.
-                self.trust_claude_workspace(&lead.runtime, &run.cwd)?;
-            }
-            // The library router's URL carries this secret; a run reopened after a restart has none yet.
-            let token = random_token()?;
-            {
-                let mut st = run.st.lock().unwrap();
-                if st.mcp_token.is_empty() {
-                    st.mcp_token = token;
-                }
-            }
-            let log =
-                self.cfg.data_dir.join("logs").join(&run.id).join(if chat { "chat.log" } else { "lead-chat.log" });
-            let who = if chat { lead.name.as_str() } else { "负责人" };
-            self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
-        }
-        .await;
-        let workspace = run.cwd.clone();
+        let fresh = system_layer(&[&brief, &skills, &standing]);
+        let old = old_session.as_deref().map(|sid| {
+            let kept = recorded_system(&events, sid).unwrap_or_else(|| system_layer(&[&skills, &standing]));
+            (sid, kept)
+        });
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let (conn, mut rx, mut ctl) = match opened {
+        let opened =
+            self.open_conversation(run, &lead, &channel, old.as_ref().map(|(s, k)| (*s, k.as_str())), &fresh).await;
+        let Conversation { conn, mut rx, mut ctl, session, loaded, resources } = match opened {
             Ok(opened) => opened,
             Err(err) => {
                 self.runs.lock().unwrap().remove(&run.id);
@@ -494,45 +491,12 @@ impl App {
             }
         };
         let result = async {
-            // A chat has no board: its one member has no team to lead.
-            let board = if !chat && conn.capabilities["mcpCapabilities"]["http"] == true {
-                vec![self.mcp_server(run, "lead")]
-            } else {
-                vec![]
-            };
-            let opening = self.opening(
-                run,
-                "lead",
-                &lead,
-                &conn.capabilities,
-                board,
-                (channel == Channel::System).then_some(system.as_str()),
-            );
-            let mut loaded = false;
-            let mut session = Value::Null;
-            if conn.capabilities["loadSession"] == true
-                && let Some(old) = old_session.as_deref()
-            {
-                let params = opening.load_params(old, &workspace);
-                if let Ok(Ok(r)) = tokio::time::timeout(STARTUP_TIMEOUT, conn.request("session/load", params)).await {
-                    drain_replay(&conn, &mut rx).await;
-                    let mut r = if r.is_object() { r } else { json!({}) };
-                    r["sessionId"] = json!(old);
-                    session = r;
-                    loaded = true;
-                }
-            }
-            if !loaded {
-                session = tokio::time::timeout(STARTUP_TIMEOUT, new_session(&conn, &workspace, &opening))
-                    .await
-                    .map_err(|_| anyhow!("负责人打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
-            }
             let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
             if sid.is_empty() {
                 bail!("恢复会话没有返回 sessionId");
             }
             let mut applied = configure_session(&conn, &session, &lead).await?;
-            applied["resources"] = json!(opening.resources);
+            applied["resources"] = json!(resources);
             let controls = crate::acp_view::controls(&session, &applied);
             let opened = match (chat, loaded || old_session.is_some()) {
                 (true, false) => "开始对话",
@@ -568,12 +532,16 @@ impl App {
             if has_controls {
                 self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             }
-            if !brief.is_empty() {
-                let part = if chat { SystemPart::History } else { SystemPart::Collaboration };
-                self.record_system(run, &ctx, &sid, &channel, part, &brief);
+            // A loaded session already has its system layer and got it again unchanged: nothing new
+            // went in, so nothing new is recorded.
+            if !loaded {
+                if !brief.is_empty() {
+                    let part = if chat { SystemPart::History } else { SystemPart::Collaboration };
+                    self.record_system(run, &ctx, &sid, &channel, part, &brief);
+                }
+                self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
+                self.record_instructions(run, &ctx, &sid, &channel, &standing);
             }
-            self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
-            self.record_instructions(run, &ctx, &sid, &channel, &standing);
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
             let mut prompt = {
@@ -683,6 +651,104 @@ impl App {
         }
         run.lead_nudge.notify_one();
         result
+    }
+
+    /// Open a conversation's main session. `old` is the session to load and the system layer it
+    /// already has: it is loaded with exactly that layer. When it cannot be loaded, a new session
+    /// starts with `fresh`, which carries what was said so far. Codex reads its layer from the
+    /// environment its adapter starts with, so that new session needs a new adapter process.
+    async fn open_conversation(
+        &self,
+        run: &Arc<Run>,
+        lead: &Member,
+        channel: &Channel,
+        old: Option<(&str, &str)>,
+        fresh: &str,
+    ) -> Result<Conversation> {
+        let owner = Owner { session: SessionKey::Lead, attempt: 0 };
+        let mut started = None;
+        if let Some((sid, kept)) = old {
+            let (conn, mut rx, ctl) = self.start_conversation_agent(run, lead, channel, kept).await?;
+            if conn.capabilities["loadSession"] == true {
+                let opening = self.conversation_opening(run, lead, &conn, channel, kept);
+                let params = opening.load_params(sid, &run.cwd);
+                if let Ok(Ok(r)) = tokio::time::timeout(STARTUP_TIMEOUT, conn.request("session/load", params)).await {
+                    drain_replay(&conn, &mut rx).await;
+                    let mut session = if r.is_object() { r } else { json!({}) };
+                    session["sessionId"] = json!(sid);
+                    let resources = opening.resources;
+                    return Ok(Conversation { conn, rx, ctl, session, loaded: true, resources });
+                }
+            }
+            if *channel == Channel::Developer && kept != fresh {
+                self.close_session(run, &owner, Some(&conn), "重新打开会话，撤回这个请求").await;
+            } else {
+                started = Some((conn, rx, ctl));
+            }
+        }
+        let (conn, rx, ctl) = match started {
+            Some(started) => started,
+            None => self.start_conversation_agent(run, lead, channel, fresh).await?,
+        };
+        let opening = self.conversation_opening(run, lead, &conn, channel, fresh);
+        let session = tokio::time::timeout(STARTUP_TIMEOUT, new_session(&conn, &run.cwd, &opening))
+            .await
+            .map_err(|_| anyhow!("负责人打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))
+            .and_then(|r| r);
+        match session {
+            Ok(session) => Ok(Conversation { conn, rx, ctl, session, loaded: false, resources: opening.resources }),
+            Err(err) => {
+                self.close_session(run, &owner, Some(&conn), "负责人的会话已结束，撤回这个请求").await;
+                Err(err)
+            }
+        }
+    }
+
+    /// Start the adapter of a conversation's main session, with `system` as its system layer where
+    /// the agent reads it from its environment (Codex).
+    async fn start_conversation_agent(
+        &self,
+        run: &Run,
+        lead: &Member,
+        channel: &Channel,
+        system: &str,
+    ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
+        let chat = run.kind == RunKind::Chat;
+        let spec = with_system(self.spec_for(&lead.runtime)?, channel, system);
+        if lead.kind == Runtime::Claude {
+            // Claude Code only runs /goal in a workspace it trusts, in a chat too.
+            self.trust_claude_workspace(&lead.runtime, &run.cwd)?;
+        }
+        // The library router's URL carries this secret; a run reopened after a restart has none yet.
+        let token = random_token()?;
+        {
+            let mut st = run.st.lock().unwrap();
+            if st.mcp_token.is_empty() {
+                st.mcp_token = token;
+            }
+        }
+        let log = self.cfg.data_dir.join("logs").join(&run.id).join(if chat { "chat.log" } else { "lead-chat.log" });
+        let who = if chat { lead.name.as_str() } else { "负责人" };
+        self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
+    }
+
+    /// The opening of a conversation's main session, with `system` as its system layer where the
+    /// agent takes it in the session's parameters (Claude Code). A chat has no board: its one
+    /// member has no team to lead.
+    fn conversation_opening(
+        &self,
+        run: &Run,
+        lead: &Member,
+        conn: &AcpConn,
+        channel: &Channel,
+        system: &str,
+    ) -> Opening {
+        let board = if run.kind != RunKind::Chat && conn.capabilities["mcpCapabilities"]["http"] == true {
+            vec![self.mcp_server(run, "lead")]
+        } else {
+            vec![]
+        };
+        self.opening(run, "lead", lead, &conn.capabilities, board, (*channel == Channel::System).then_some(system))
     }
 
     /// After the first goal, the lead session is a regular conversation: wait for the person's
@@ -1002,6 +1068,30 @@ pub(super) fn last_lead_session(events: &[Event]) -> Option<String> {
         let lead = e.actor == "lead" || e.to.as_deref() == Some("lead");
         lead.then(|| e.data.as_ref()?.get("session")?.as_str().map(str::to_owned)).flatten()
     })
+}
+
+/// The system layer session `sid` last opened with, put back together from what Janus recorded of
+/// it (`session.prompt` events with a `via`). Loading the session with exactly this layer changes
+/// nothing in it: the adapter re-sends instructions only when the layer differs (codex-acp treats
+/// a different one as a system prompt change). A session recorded twice keeps its last layer.
+// @project-doc docs/interfaces/20261031-acp_integration.md#standing_instructions
+pub(super) fn recorded_system(events: &[Event], sid: &str) -> Option<String> {
+    let mut parts: Vec<(&str, &str)> = vec![];
+    for d in events.iter().rev().filter(|e| e.kind == "session.prompt").filter_map(|e| e.data.as_ref()) {
+        if d["session"].as_str() != Some(sid) || !d["via"].is_string() {
+            continue;
+        }
+        let channel = d["channel"].as_str().unwrap_or_default();
+        if parts.iter().any(|(c, _)| *c == channel) {
+            break;
+        }
+        parts.push((channel, d["prompt"].as_str().unwrap_or_default()));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let texts: Vec<&str> = parts.iter().rev().map(|(_, t)| *t).collect();
+    Some(system_layer(&texts))
 }
 
 /// The summary of the last delivery in the event log.

@@ -119,38 +119,104 @@ async fn a_chat_agent_cannot_reach_a_board() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// Give `role` standing instructions, so its sessions have a system layer of the person's own.
+fn with_instructions(h: &Harness, role: &str) {
+    let r = crate::agents::test_role(role, json!({ "connection": "fake", "prompt": "像朋友一样聊" }));
+    h.app.db.put_config("role", role, &r, now_ms()).unwrap();
+}
+
+/// Lose the chat's live session the way a restart does: only the event log survives.
+async fn restart(h: &Harness, id: &str) {
+    let old = h.app.runs.lock().unwrap().remove(id).unwrap();
+    let conns: Vec<_> = old.st.lock().unwrap().conns.values().cloned().collect();
+    for c in conns {
+        c.kill().await;
+    }
+    h.app.db.set_run_status(id, RunStatus::Interrupted).unwrap();
+}
+
+/// The system layers the stand-in agent saw, in order: (`new` or `load`, session, layer).
+fn layers(h: &Harness) -> Vec<(String, String, String)> {
+    calls(h)
+        .lines()
+        .filter_map(|l| l.strip_prefix("layer "))
+        .map(|l| {
+            let mut p = l.splitn(3, ' ');
+            let (m, s, t) = (p.next().unwrap(), p.next().unwrap(), p.next().unwrap());
+            (m.to_string(), s.to_string(), serde_json::from_str::<String>(t).unwrap())
+        })
+        .collect()
+}
+
+/// What Janus recorded as going into the system layer (`session.prompt` with a `via`), by channel.
+fn recorded_layer(evs: &[Event]) -> Vec<String> {
+    evs.iter()
+        .filter(|e| e.kind == "session.prompt")
+        .filter_map(|e| e.data.as_ref().filter(|d| d["via"].is_string()))
+        .map(|d| d["channel"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
 /// After a restart the chat is not live; the next message reopens it, back in the session it had.
+/// The session is loaded with exactly the system layer it opened with, so the agent is told
+/// nothing again: no history, no second copy of the instructions, and nothing new recorded.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_chat_reopens_with_the_next_message() {
     let h = harness("chat-reopen", &[("lead", false), ("m1", true)], json!({}));
+    with_instructions(&h, "m1");
     let id = chat(&h, "m1", "你好").await;
     wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
     let sid = events(&h.app, &id)
         .iter()
         .find_map(|e| e.data.as_ref()?["session"].as_str().filter(|_| e.kind == "agent.status").map(str::to_owned))
         .unwrap();
+    let before = recorded_layer(&events(&h.app, &id));
+    assert_eq!(before, vec!["instructions".to_string()], "a new chat records only the employee's instructions");
 
-    // Only the event log survives a restart.
-    let old = h.app.runs.lock().unwrap().remove(&id).unwrap();
-    for c in old.st.lock().unwrap().conns.values() {
-        let c = c.clone();
-        tokio::spawn(async move { c.kill().await });
-    }
-    h.app.db.set_run_status(&id, RunStatus::Interrupted).unwrap();
+    restart(&h, &id).await;
     let body = json!({ "type": "message", "agent": "lead", "text": "还在吗" });
     assert!(matches!(h.app.request_action(&id, &body).await, Ok(ActionReply::Done)));
     wait_until(&h.app, &id, "the reply after reopening", |e| replied(e, "还在吗")).await;
     assert!(calls(&h).contains(&format!("load {sid}")), "the old session is loaded");
     assert_eq!(status(&h.app, &id), "running");
-    // The earlier exchanges go in as the conversation's history, never as Janus's collaboration
-    // instructions, which only an Agent Team session gets.
-    let channels: Vec<String> = events(&h.app, &id)
-        .iter()
-        .filter(|e| e.kind == "session.prompt")
-        .filter_map(|e| e.data.as_ref()?["channel"].as_str().map(str::to_owned))
-        .collect();
-    assert!(channels.contains(&"history".into()) && !channels.contains(&"system".into()), "{channels:?}");
+    let seen = layers(&h);
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert_eq!((seen[1].0.as_str(), seen[1].1.as_str()), ("load", sid.as_str()));
+    assert_eq!(seen[1].2, seen[0].2, "the loaded session gets the system layer it opened with");
+    assert!(seen[1].2.contains("像朋友一样聊") && !seen[1].2.contains("Recent conversation"), "{}", seen[1].2);
+    assert_eq!(recorded_layer(&events(&h.app, &id)), before, "nothing new went into the loaded session");
     let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A chat whose old session cannot be loaded goes on in a new one that gets the conversation so
+/// far, recorded as history and never as Janus's collaboration instructions. Codex reads its
+/// system layer from its environment, so it gets a new adapter started with the history in it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_that_cannot_load_its_session_starts_one_with_its_history() {
+    for kind in ["claude", "codex"] {
+        let h = harness(&format!("chat-fresh-{kind}"), &[("lead", false), ("m1", true)], json!({}));
+        let mut c = h.app.db.get_config("connection", "fake").unwrap().unwrap();
+        c["kind"] = json!(kind);
+        c["base"] = json!(kind);
+        h.app.db.put_config("connection", "fake", &c, now_ms()).unwrap();
+        with_instructions(&h, "m1");
+        let id = chat(&h, "m1", "你好").await;
+        wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
+
+        restart(&h, &id).await;
+        std::fs::write(h.dir.join("fake").join("fail-load"), "").unwrap();
+        let body = json!({ "type": "message", "agent": "lead", "text": "还在吗" });
+        assert!(matches!(h.app.request_action(&id, &body).await, Ok(ActionReply::Done)));
+        wait_until(&h.app, &id, "the reply in a new session", |e| replied(e, "还在吗")).await;
+        let seen = layers(&h);
+        let (method, _, layer) = seen.last().unwrap();
+        assert_eq!(method, "new", "{kind}: {seen:?}");
+        assert!(layer.contains("Recent conversation") && layer.contains("你好"), "{kind}: {layer}");
+        assert!(layer.contains("像朋友一样聊") && !layer.contains("还在吗"), "{kind}: {layer}");
+        let channels = recorded_layer(&events(&h.app, &id));
+        assert_eq!(channels, vec!["instructions", "history", "instructions"], "{kind}");
+        let _ = std::fs::remove_dir_all(&h.dir);
+    }
 }
 
 /// Deleting a chat stops its session and removes its directory with everything Janus kept; a

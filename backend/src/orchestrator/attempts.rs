@@ -459,9 +459,13 @@ impl App {
 
         let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
         self.show(run, ("session.controls", "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
-        self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &rules);
-        self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
-        self.record_instructions(run, &ctx, &sid, &channel, &standing);
+        // A loaded session is the same member's, so its system layer is the same as when it opened:
+        // nothing new went in, so nothing new is recorded.
+        if !resumed && followup_from.is_none() {
+            self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &rules);
+            self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
+            self.record_instructions(run, &ctx, &sid, &channel, &standing);
+        }
         self.watch_session(run, &owner.session, n);
         let mut next = Some(prompt);
         let mut text = String::new();

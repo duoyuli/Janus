@@ -1,5 +1,6 @@
 """The server going away mid-run: what is kept, what is interrupted, and how work continues."""
 
+import json
 import threading
 
 from lib import drawn, wait
@@ -8,7 +9,7 @@ from scenarios import scenario, task
 
 @scenario("restart", serial=True)
 def restart(ctx, c):
-    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续；已交付的 Run 回放时会话只读，重启后还能继续对话，同时发来的两条消息只恢复一次会话；应用重新连上"""
+    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续；已交付的 Run 回放时会话只读，重启后还能继续对话，同时发来的两条消息只恢复一次会话；恢复的会话拿到和原来一样的系统层，不再注入历史和第二份指令；应用重新连上"""
     t = ctx.team("restart", members=("m1", "m2", "m3"), script={"T1": ["write:a.txt"], "T2": ["slow", "ok"], "T3": ["ok"]})
     run = t.run("跨越重启的目标")
     run.orchestrate(task("T1", t.member("m1"), owns=["a.txt"]), task("T2", t.member("m2")), task("T3", t.member("m3"), deps=["T2"]))
@@ -19,6 +20,17 @@ def restart(ctx, c):
     done.orchestrate(task("D1", d.member("m1")))
     done.wait_event("task.succeeded", task="D1")
     done.finish("交付了")
+    h = ctx.team("restart-chat", members=("m1",))
+    chat = ctx.api("POST", "/api/chats", {"role": h.member("m1")})["id"]
+    ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "重启前说的话"})
+
+    def chat_events():
+        return ctx.api("GET", f"/api/runs/{chat}")["events"]
+
+    def chat_replied(text):
+        return [e for e in chat_events() if e["type"] == "agent.message" and f"回复：{text}" in e["text"]]
+
+    wait(lambda: chat_replied("重启前说的话"), "对话在重启前回复了一条", 60)
 
     ctx.server.stop()
     meta = ctx.server.start()
@@ -64,7 +76,7 @@ def restart(ctx, c):
     said = wait(lambda: done.has("user.message")[1:] and done.has("user.message"), "两条消息都记下")
     sent = max(e["seq"] for e in said)
     wait(lambda: [e for e in done.events() if e["type"] == "agent.message" and e["actor"] == "lead" and e["seq"] > sent], "负责人回复")
-    c(d.fake.calls().count("load ") == 1, "两条消息同时发给只有事件记录的历史 Run，只加载一次原会话（session/load）")
+    c(sum(line.startswith("load ") for line in d.fake.calls().splitlines()) == 1, "两条消息同时发给只有事件记录的历史 Run，只加载一次原会话（session/load）")
 
     def reached(m):
         mid = m["data"]["id"]
@@ -72,5 +84,27 @@ def restart(ctx, c):
                    or e["type"] == "message.delivered" and mid in e["data"].get("ids", []) for e in done.events())
     wait(lambda: all(reached(m) for m in said), "两条消息都送到负责人")
     c(True, "同时发来的两条消息都送到恢复的负责人会话")
+    kept_layer(c, d.fake.calls(), "重启前交付的 Run")
+    c(not [e for e in done.events() if e["seq"] > sent and e["type"] == "session.prompt" and e["data"].get("via")],
+      "恢复的负责人会话没有再注入任何系统层内容（没有交付摘要、之前的对话和第二份指令）")
+
+    # A chat opened before the restart: the next message loads its session, which hears nothing again.
+    before = max(e["seq"] for e in chat_events())
+    ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "重启后还在吗"})
+    wait(lambda: chat_replied("重启后还在吗"), "重新打开的对话回复", 60)
+    kept_layer(c, h.fake.calls(), "重启前的对话")
+    c(not [e for e in chat_events() if e["seq"] > before and e["type"] == "session.prompt" and e["data"].get("via")],
+      "恢复的对话没有注入之前的对话，也没有第二份数字员工的指令")
+    ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running", "重启后重新打开的对话", pages=("density detail",))
     ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and all(x["status"] == "succeeded" for x in r["tasks"]),
            "恢复后的 Run 在应用中已交付，任务都已完成", pages=("board", "audit"))
+
+
+def kept_layer(c, calls, what):
+    """The stand-in agent logs the system layer of each `session/new` and `session/load`: a loaded
+    session must get exactly the one it was opened with."""
+    layers = [line.split(" ", 3) for line in calls.splitlines() if line.startswith("layer ")]
+    loads = [(sid, json.loads(text)) for _, method, sid, text in layers if method == "load"]
+    opened = {sid: json.loads(text) for _, method, sid, text in layers if method == "new"}
+    c(len(loads) == 1 and loads[0][0] in opened and loads[0][1] == opened[loads[0][0]],
+      f"{what}：恢复原会话（session/load）时交回的系统层和打开时完全一样")
