@@ -162,3 +162,28 @@ private let docs: JSON = [
     let context7 = try #require(Catalog.servers.first { $0.name == "context7" })
     #expect(context7.oneClick && context7.draft.vars.isEmpty, "an optional key is added later, not left empty")
 }
+
+/// The skill tab follows the router: the guide shows the skills in the catalog's order (most read
+/// first), says whether the catalog is listed or searched, and each row says how often its skill
+/// was read and what would make it easier to find.
+@Test func skillRowsShowUseAndHints() {
+    let skills: [JSON] = [
+        ["name": "beta", "uses": ["sessions": 2, "lastAt": 1_000]],
+        ["name": "alpha", "uses": ["sessions": 0, "lastAt": nil]],
+        ["name": "gamma", "uses": ["sessions": 5, "lastAt": 1_000]],
+    ]
+    #expect(Library.catalogOrder(skills).map { $0["name"].str } == ["gamma", "beta", "alpha"])
+    #expect(Library.searched(["skillRouter": ["catalog": "search"]]))
+    #expect(!Library.searched(["skillRouter": ["catalog": "list"]]) && !Library.searched(nil))
+    #expect(Library.usage(skills[1], now: 1_000) == expectedCopy("还没有会话读过", "Not read by any session yet"))
+    #expect(Library.usage(skills[0], now: 3_000) == expectedCopy("被 2 个会话读过 · 最近一次：刚刚", "Sessions that read it: 2 · last: Just now"))
+    let hinted: JSON = ["kind": "skill", "origin": ["type": "created"], "hints": [["kind": "short"]]]
+    #expect(LibraryView.warning(hinted) == expectedCopy("描述可以改进", "Description could be better"))
+    #expect(Library.hint(["kind": "long", "chars": 1700, "kept": 1536])
+        == expectedCopy("描述有 1700 个字，目录里只保留前 1536 个：把关键用途和触发词写在开头",
+                        "The description has 1,700 characters; the catalog keeps the first 1,536, so put the key use and trigger words first."))
+    #expect(Library.hint(["kind": "alike", "skill": "review"])
+        == expectedCopy("和 review 的描述很像，Agent 可能分不清用哪个：写出各自适用的场合",
+                        "Reads much like review's description, so the agent may not tell them apart: say when each one applies."))
+    #expect(!Library.hint(["kind": "short"]).isEmpty && !Library.hint(["kind": "noWhen"]).isEmpty)
+}

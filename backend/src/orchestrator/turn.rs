@@ -670,6 +670,9 @@ impl App {
                     }
                     let e = ev("tool.call", ctx.agent, short(&title, 80)).data(data).scope(ctx);
                     let seq = self.emit(run, e);
+                    if status == "completed" {
+                        self.record_skill_reads(run, &entry, &mut turn.skills_read, ctx);
+                    }
                     // The lead polls the board on purpose; only its other calls can go in circles.
                     if ctx.task.is_some() || !title.contains("janus") {
                         self.watch_call(run, &key, &entry);
@@ -699,6 +702,30 @@ impl App {
                 if let Some(shown) = crate::acp_view::event_for(u, turn) {
                     self.show(run, shown, ctx);
                 }
+            }
+        }
+    }
+
+    /// The library skills a finished tool call read (`skill.used`), once per skill per turn: the
+    /// count the library shows and the catalog's order come from these.
+    // @project-doc docs/domains/20261116-resource_library.md#skill_uses
+    fn record_skill_reads(&self, run: &Run, call: &Value, seen: &mut std::collections::HashSet<String>, ctx: &Ctx<'_>) {
+        let text = [&call["rawInput"], &call["locations"], &call["title"]].map(Value::to_string).join("\n");
+        let names = crate::library::skills_read(&text);
+        if names.is_empty() {
+            return;
+        }
+        let Some(member) = run.member(ctx.agent) else { return };
+        for name in names {
+            let Some(item) = member.resources.iter().find(|i| i.name == name && i.body == crate::library::Body::Skill)
+            else {
+                continue;
+            };
+            if seen.insert(name.clone()) {
+                let e = ev("skill.used", ctx.agent, format!("读了资源库的 Skill {name}"))
+                    .data(json!({ "skill": name, "item": item.id, "revision": item.revision }))
+                    .scope(ctx);
+                self.emit(run, e);
             }
         }
     }

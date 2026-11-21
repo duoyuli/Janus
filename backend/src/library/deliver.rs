@@ -10,7 +10,8 @@ use crate::agents::Runtime;
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// Where a runtime reads a bundle's skills, relative to the bundle: Claude Code loads the bundle
 /// as a local plugin, Codex reads `.agents/skills` under each additional root.
@@ -31,11 +32,10 @@ pub const SKILL_ROUTER: &str = "janus-skills";
 pub const MCP_ROUTER: &str = "janus-tools";
 
 /// Copy a member's skills into its bundle, under `janus-skills/.skills/`, hidden from the agent's
-/// own scan; `janus-skills/SKILL.md` lists each with its description and path. The session's
-/// prompt so gets one description however many skills the library holds. A member with no skill
-/// gets no bundle.
+/// own scan; `janus-skills` is the catalog of them (`skill_router`). The session's prompt so gets
+/// one description however many skills the library holds. A member with no skill gets no bundle.
 // @project-doc docs/domains/20261116-resource_library.md#skill_router
-pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], dir: &Path) -> Result<()> {
+pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], uses: &HashMap<String, u64>, dir: &Path) -> Result<()> {
     let routed: Vec<&Item> = skills(items).collect();
     if routed.is_empty() {
         return Ok(());
@@ -44,41 +44,22 @@ pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], dir: &Path) -> Res
     for item in &routed {
         place_skill(store, item, &router.join(".skills").join(&item.name))?;
     }
-    std::fs::write(router.join("SKILL.md"), router_skill(&routed, &router))?;
+    super::skill_router::write(&router, &routed, uses)?;
     if runtime == Runtime::Claude {
         let manifest = dir.join(".claude-plugin").join("plugin.json");
         std::fs::create_dir_all(manifest.parent().unwrap())?;
-        let plugin = json!({ "name": "janus", "description": "Janus 资源库中这个数字员工能用的 Skill" });
+        let plugin = json!({ "name": "janus", "description": "Janus 资源库的 Skill" });
         std::fs::write(manifest, serde_json::to_vec_pretty(&plugin)?)?;
     }
     Ok(())
 }
 
-/// `janus-skills`' SKILL.md: a description naming the skills (within the 1024 bytes Codex takes),
-/// then each skill's whole description and the path of its SKILL.md.
-fn router_skill(routed: &[&Item], router: &Path) -> String {
-    let mut desc = String::from("Janus 资源库中可以用的 Skill，任务用得上时读对应的 SKILL.md：");
-    for (i, item) in routed.iter().enumerate() {
-        let next = format!("{}{}", if i == 0 { "" } else { "、" }, item.name);
-        if desc.len() + next.len() > 1000 {
-            desc.push_str(&format!(" 等 {} 个", routed.len()));
-            break;
-        }
-        desc.push_str(&next);
-    }
-    let mut body = format!(
-        "---\nname: {SKILL_ROUTER}\ndescription: {}\n---\n\n# Janus 资源库的 Skill\n\n下面每个 Skill 都可以用。任务和某个 Skill 的描述相符时，先读它的 SKILL.md（路径如下），再照着做；它提到的其他文件和 SKILL.md 在同一个目录。\n",
-        desc.replace('\n', " ")
-    );
-    for item in routed {
-        body.push_str(&format!(
-            "\n## {}\n\n{}\n\n路径：{}\n",
-            item.name,
-            item.description,
-            router.join(".skills").join(&item.name).join("SKILL.md").display()
-        ));
-    }
-    body
+/// The router's SKILL.md in a member's bundle, when the member has skills. Janus's instructions
+/// for the session name it, so the agent finds the library's skills even when its own skill
+/// listing has no room left for the router's description.
+pub fn skill_router_md(runtime: Runtime, items: &[Item], bundle: &Path) -> Option<PathBuf> {
+    skills(items).next()?;
+    Some(bundle.join(skills_dir(runtime)).join(SKILL_ROUTER).join("SKILL.md"))
 }
 
 /// How one resource reached a session, or why it did not.
@@ -226,7 +207,7 @@ mod tests {
     }
 
     /// Every skill, one or many, sits under `janus-skills`' hidden
-    /// `.skills`, so the agent loads only `janus-skills`, which lists them with their paths. The
+    /// `.skills`, so the agent loads only `janus-skills`, the catalog of them. The
     /// copy is the member's own: what an agent does to it stays in the bundle.
     #[test]
     fn skills_go_through_janus_skills() {
@@ -243,22 +224,25 @@ mod tests {
         };
         let list = vec![skill("pdf"), skill("docx")];
         let claude = root.join("claude");
-        bundle(&store, Runtime::Claude, &list, &claude).unwrap();
+        bundle(&store, Runtime::Claude, &list, &HashMap::new(), &claude).unwrap();
         assert!(claude.join(".claude-plugin/plugin.json").is_file());
         let router = std::fs::read_to_string(claude.join("skills/janus-skills/SKILL.md")).unwrap();
         assert!(router.starts_with("---\nname: janus-skills\n"), "{router}");
-        assert!(router.contains("## pdf") && router.contains(".skills/docx/SKILL.md"), "{router}");
+        assert!(router.contains("- pdf：d") && router.contains("- docx：d"), "{router}");
+        let path = skill_router_md(Runtime::Claude, &list, &claude).unwrap();
+        assert_eq!(path, claude.join("skills/janus-skills/SKILL.md"));
+        assert_eq!(skill_router_md(Runtime::Claude, &items()[1..], &claude), None, "no skill, no router");
         let md = std::fs::read_to_string(claude.join("skills/janus-skills/.skills/pdf/SKILL.md")).unwrap();
         assert!(md.starts_with("---\nname: pdf\n"), "the library's name: {md}");
         assert!(!claude.join("skills/pdf").exists() && !claude.join("skills/docx").exists());
         let codex = root.join("codex");
-        bundle(&store, Runtime::Codex, &list[..1], &codex).unwrap();
+        bundle(&store, Runtime::Codex, &list[..1], &HashMap::new(), &codex).unwrap();
         let copy = codex.join(".agents/skills/janus-skills/.skills/pdf/SKILL.md");
         assert!(copy.is_file());
         std::fs::write(&copy, "changed").unwrap();
         assert!(std::fs::read_to_string(store.join(&rev).join("SKILL.md")).unwrap().contains("original"));
         let empty = root.join("empty");
-        bundle(&store, Runtime::Codex, &items()[1..], &empty).unwrap();
+        bundle(&store, Runtime::Codex, &items()[1..], &HashMap::new(), &empty).unwrap();
         assert!(!empty.exists());
         let _ = std::fs::remove_dir_all(&root);
     }

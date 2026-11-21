@@ -27,6 +27,16 @@ GOAL = ("给 calc.py 增加 mod(a, b)：返回 a 除以 b 的余数，b 为 0 �
         "质量协作者开始验证前，先调用 janus-tools 里的 probe__echo 工具，text 写「开始验证」。")
 # Several skills, all of which reach the agents through the janus-skills router.
 ROUTED_SKILLS = [f"e2e-skill-{i}" for i in range(11)]
+# A skill the goal needs without naming it or echoing its description: the agents have to find it
+# in janus-skills' catalog (a trigger check on wording that does not repeat the description, which
+# would overstate how well routing works). Following it leaves a mark the test can see.
+CONVENTIONS = {
+    "name": "calc-test-conventions",
+    "description": "calc 项目的测试写法：每个测试方法以 test_<被测函数名>_ 开头，并单独覆盖异常情况。"
+                   "在 calc 项目里新增或修改函数、编写或补充单元测试时使用。",
+    "content": "# calc 的测试写法\n\n- 测试方法名以 `test_<被测函数名>_` 开头，例如 `test_mod_negative`。\n"
+               "- 每种异常单独一个测试方法，用 `assertRaises`。\n",
+}
 
 
 @scenario("real", serial=True, real=True)
@@ -55,6 +65,7 @@ def real(ctx, c):
                                                  "command": f"{shutil.which('python3') or 'python3'} {os.path.join(ROOT, 'backend', 'testdata', 'fake_mcp.py')}"})
         for name in ROUTED_SKILLS:
             api("POST", "/api/library/skills", {"name": name, "description": f"端到端测试用的 Skill {name}", "content": "只在被要求时使用。"})
+        conventions = api("POST", "/api/library/skills", CONVENTIONS)
 
         roles = {r["id"]: r for r in api("GET", "/api/setup")["roles"]}
         api("POST", "/api/setup/roles", dict(roles["coordinator"], connection=ids["codex"], lead=True))
@@ -92,8 +103,13 @@ def real(ctx, c):
             leaked = sorted(n for n in names if any(n.endswith(s) for s in ROUTED_SKILLS))
             c(router in names and not leaked,
               f"{agent} 只加载了 Skill 路由，没有单独加载被收起的 Skill（有 {router}：{router in names}，单独出现的：{leaked}，共 {len(names)} 个命令）")
+        # The skill trigger: some session found calc-test-conventions in the catalog and read it.
+        used = [e for e in events if e["type"] == "skill.used"]
+        c(any(e["data"]["item"] == conventions["id"] for e in used),
+          f"真实 Agent 从 janus-skills 的目录里找到了任务用得上的 Skill 并读了它：{[(e.get('task') or e['actor'], e['data']['skill']) for e in used]}")
         worktree = api("GET", f"/api/runs/{run}")["run"]["cwd"]
         c("def mod" in open(os.path.join(worktree, "calc.py")).read(), "任务的 worktree 里 calc.py 有 mod 函数")
+        c("def test_mod_" in open(os.path.join(worktree, "test_calc.py")).read(), "新测试照 Skill 的写法命名（test_mod_…）")
         tests = subprocess.run([shutil.which("python3") or "python3", "-m", "unittest", "-q"], cwd=worktree, capture_output=True, text=True)
         c(tests.returncode == 0, f"worktree 里的测试通过：{(tests.stderr or tests.stdout).strip().splitlines()[-1:]}")
         usage = api("GET", f"/api/runs/{run}/usage")

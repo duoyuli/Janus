@@ -283,7 +283,8 @@ impl App {
         // Claude Code both take HTTP MCP servers, so their sessions always have the board.
         // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
         let rules = collaborator_rules(true);
-        let system_text = system_layer(&rules, &standing);
+        let skills = skills_note(self.skill_router_md(&run.id, &member));
+        let system_text = system_layer(&[&rules, &skills, &standing]);
         let spec = with_system(self.spec_for(&member.runtime)?, &channel, &system_text);
         let system = (channel == Channel::System).then_some(system_text.as_str());
         self.db.start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
@@ -459,6 +460,7 @@ impl App {
         let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
         self.show(run, ("session.controls", "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
         self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &rules);
+        self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
         self.record_instructions(run, &ctx, &sid, &channel, &standing);
         self.watch_session(run, &owner.session, n);
         let mut next = Some(prompt);

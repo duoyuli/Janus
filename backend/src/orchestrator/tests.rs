@@ -130,10 +130,16 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
     assert!(rules.is_ascii(), "{rules}");
     assert!(!collaborator_rules(false).contains("janus.board_post"), "no board, no board tools");
     let standing = standing_instructions(&member_with(Runtime::Codex, "", "先运行现有测试"));
-    let text = system_layer(&rules, &standing);
+    let text = system_layer(&[&rules, "", &standing]);
     assert!(text.starts_with("You are a collaborator on the Janus team."));
     assert!(text.ends_with("Role instructions (Reviewer):\n先运行现有测试"));
-    assert_eq!(system_layer(" ", ""), "");
+    assert_eq!(system_layer(&[" ", ""]), "");
+    let skills = skills_note(Some("/j/runs/r/members/m1/bundle/.agents/skills/janus-skills/SKILL.md".into()));
+    assert!(skills.contains("read /j/runs/r/members/m1/bundle/.agents/skills/janus-skills/SKILL.md"), "{skills}");
+    let text = system_layer(&[&rules, &skills, &standing]);
+    assert!(text.find("Library skills:").unwrap() > text.find("Result:").unwrap(), "after Janus's rules");
+    assert!(text.find("Library skills:").unwrap() < text.find("Role instructions").unwrap(), "before the person's");
+    assert_eq!(skills_note(None), "", "no skill, no note");
     let spec = || crate::acp::RuntimeSpec {
         id: "c".into(),
         kind: Runtime::Codex,

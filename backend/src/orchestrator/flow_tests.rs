@@ -13,6 +13,7 @@ mod delivery;
 mod evidence;
 mod library_router;
 mod owners;
+mod skill_router;
 mod usage;
 mod worktrees;
 

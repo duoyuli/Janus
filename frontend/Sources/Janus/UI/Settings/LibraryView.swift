@@ -128,9 +128,13 @@ struct LibraryView: View {
     // @project-doc docs/domains/20261116-resource_library.md#skill_router
     @ViewBuilder private var skillTab: some View {
         let skills = items(.skill)
-        RouterGuide(kind: .skill, names: skills.map { $0["name"].str }, now: skills.isEmpty
+        let searched = Library.searched(store.library)
+        RouterGuide(kind: .skill, names: Library.catalogOrder(skills).map { $0["name"].str }, now: skills.isEmpty
             ? L.text("还没有 Skill。添加后都经 janus-skills 给所有数字员工。")
-            : L.text("现在 \(skills.count) 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述。"))
+            : searched
+            ? L.text("现在 \(skills.count) 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述；Skill 较多，Agent 按关键词搜索目录。")
+            : L.text("现在 \(skills.count) 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述，目录直接列出每个 Skill。"),
+            searched: searched)
         let groups = Library.skillGroups(skills, sources: store.librarySources)
         let shown = groups.filter { query.isEmpty || $0.items.contains(where: matches) }
         VStack(alignment: .leading, spacing: 10) {
@@ -407,9 +411,11 @@ struct LibraryView: View {
         let vars = Library.vars(i)
         let process = i["server"]["process"].str == "perSession" ? L.text("每个会话单独运行") : L.text("同一个任务的会话共用一个进程，用到才启动")
         let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text,
-                     i["server"]["transport"].str == "stdio" ? process : ""].filter { !$0.isEmpty }
+                     i["server"]["transport"].str == "stdio" ? process : "", mcp ? "" : Library.usage(i, now: L.nowMs())].filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            // How findable the skill is: the agent picks it by its description alone.
+            ForEach(i["hints"].array.map(Library.hint), id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color).textSelection(.enabled) }
             if mcp { warmState(i) }
             HStack(spacing: 12) {
                 if mcp || i["origin"]["type"].str == "created" { Button(L.text("编辑")) { edit(i) }.buttonStyle(.link) }
@@ -446,7 +452,8 @@ struct LibraryView: View {
     static func warning(_ i: JSON) -> String {
         let vars = Library.vars(i)
         let gone = i["origin"]["type"].str == "git" && !i["source"]["inSource"].truthy
-        return [vars.complete ? "" : vars.text, gone ? L.text("来源中已删除") : ""].filter { !$0.isEmpty }.joined(separator: " · ")
+        let hints = i["hints"].array.isEmpty ? "" : L.text("描述可以改进")
+        return [vars.complete ? "" : vars.text, gone ? L.text("来源中已删除") : "", hints].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func importedNames(_ preview: JSON) -> [String: String] {

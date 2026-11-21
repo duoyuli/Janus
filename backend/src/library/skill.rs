@@ -18,33 +18,23 @@ pub(super) fn read_meta(dir: &Path) -> Result<Meta> {
 }
 
 pub(super) fn parse_meta(text: &str, folder: &str) -> Meta {
-    let mut name = String::new();
-    let mut description = String::new();
-    if let Some(front) = front_matter(text) {
-        let lines: Vec<&str> = front.lines().collect();
-        for (i, line) in lines.iter().enumerate() {
-            if let Some(v) = line.strip_prefix("name:") {
-                name = unquote(v);
-            } else if let Some(v) = line.strip_prefix("description:") {
-                description = unquote(v);
-                // YAML block scalars (`>`, `|`, `>-`) continue on the indented lines that follow.
-                if matches!(description.as_str(), ">" | "|" | ">-" | "|-" | ">+" | "|+") {
-                    description = lines[i + 1..]
-                        .iter()
-                        .take_while(|l| l.starts_with(' ') || l.is_empty())
-                        .map(|l| l.trim())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                        .trim()
-                        .to_string();
-                }
-            }
-        }
+    let name = field(text, "name").filter(|n| !n.is_empty()).unwrap_or_else(|| folder.to_string());
+    Meta { name, description: field(text, "description").unwrap_or_default() }
+}
+
+/// A top-level front matter field of a `SKILL.md`, as text. YAML block scalars (`>`, `|`, `>-`)
+/// continue on the indented lines that follow and are folded into one line.
+pub(super) fn field(text: &str, key: &str) -> Option<String> {
+    let lines: Vec<&str> = front_matter(text)?.lines().collect();
+    let prefix = format!("{key}:");
+    let i = lines.iter().position(|l| l.starts_with(&prefix))?;
+    let value = unquote(&lines[i][prefix.len()..]);
+    if !matches!(value.as_str(), ">" | "|" | ">-" | "|-" | ">+" | "|+") {
+        return Some(value);
     }
-    if name.is_empty() {
-        name = folder.to_string();
-    }
-    Meta { name, description }
+    let block: Vec<&str> =
+        lines[i + 1..].iter().take_while(|l| l.starts_with(' ') || l.is_empty()).map(|l| l.trim()).collect();
+    Some(block.join(" ").trim().to_string())
 }
 
 fn unquote(v: &str) -> String {
@@ -119,6 +109,10 @@ mod tests {
         let m = parse_meta("---\nname: \"pdf\"\ndescription: >\n  Read and\n  fill PDFs.\n---\nbody", "folder");
         assert_eq!(m, Meta { name: "pdf".into(), description: "Read and fill PDFs.".into() });
         assert_eq!(parse_meta("no front matter", "folder").name, "folder");
+        let text = "---\nname: pdf\nwhen_to_use: |\n  A PDF is\n  attached.\ndisable-model-invocation: true\n---\n";
+        assert_eq!(field(text, "when_to_use").as_deref(), Some("A PDF is attached."));
+        assert_eq!(field(text, "disable-model-invocation").as_deref(), Some("true"));
+        assert_eq!(field(text, "license"), None);
     }
 
     /// The agent sees the library's name; the rest of the file stays as written.

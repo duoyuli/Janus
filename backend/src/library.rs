@@ -1,21 +1,24 @@
-//! The resource library: skills and MCP servers, kept once and chosen by roles.
+//! The resource library: skills and MCP servers, kept once and given to every digital worker.
 //!
 //! An item has an opaque id; its kind, origin and revision are fields. A skill's files are stored
 //! by content hash (`store`); an MCP server's definition is in the item and its values in
-//! `secrets/library/<id>.json`. Roles refer to items by id. A run pins the items its members use
-//! (`Member::resources`) and copies their skills into per-member bundles (`deliver`), which
+//! `secrets/library/<id>.json`. A run pins the whole library for each member
+//! (`Member::resources`) and copies the skills into per-member bundles (`deliver`), which
 //! sessions get at launch; nothing is ever written into an agent's own configuration.
 // @project-doc docs/domains/20261116-resource_library.md#model
 
 mod deliver;
 mod mcp;
 mod offers;
+mod quality;
 mod skill;
+mod skill_router;
 mod sources;
 mod store;
 
-pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch};
+pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch, skill_router_md};
 pub use mcp::{McpProcess, McpServer, McpValues};
+pub use skill_router::skills_read;
 pub use sources::{CHECK_EVERY, Source};
 
 use crate::agents::{new_id, str_of, write_private};
@@ -592,26 +595,49 @@ impl App {
     }
 
     /// The library as the app shows it: each item with the state of its values and whether it is
-    /// still in its source; then the sources.
+    /// still in its source, each skill with how often it was used and how findable it is; then
+    /// the sources.
     pub fn library_view(&self) -> Result<Value> {
         let sources = self.sources()?;
-        let items: Vec<Value> = self.items()?.iter().map(|i| self.item_json(i, &sources)).collect::<Result<_>>()?;
+        let all = self.items()?;
+        let notes = self.skill_notes(&all)?;
+        let items: Vec<Value> = all.iter().map(|i| self.item_json(i, &sources, &notes)).collect::<Result<_>>()?;
         let sources: Vec<Value> = sources.iter().map(|s| self.source_json(s)).collect::<Result<_>>()?;
-        Ok(json!({ "items": items, "sources": sources }))
+        let catalog = if notes.listed { "list" } else { "search" };
+        Ok(json!({ "items": items, "sources": sources, "skillRouter": { "catalog": catalog } }))
     }
 
     /// One item, with its SKILL.md when it is a skill.
     pub fn item_view(&self, id: &str) -> Result<Value> {
         let item = self.item(id)?;
-        let mut v = self.item_json(&item, &self.sources()?)?;
+        let notes = self.skill_notes(&self.items()?)?;
+        let mut v = self.item_json(&item, &self.sources()?, &notes)?;
         if item.kind() == ItemKind::Skill {
             v["content"] = json!(self.skill_text(&item)?);
         }
         Ok(v)
     }
 
-    fn item_json(&self, item: &Item, sources: &[Source]) -> Result<Value> {
+    /// What the library says about its skills beyond their fields: the sessions that read each
+    /// (`skill.used`), and the hints on its description, judged against all the others.
+    // @project-doc docs/domains/20261116-resource_library.md#skill_hints
+    fn skill_notes(&self, items: &[Item]) -> Result<SkillNotes> {
+        let mut entries = vec![];
+        for item in items.iter().filter(|i| i.body == Body::Skill) {
+            let md = self.skill_text(item).unwrap_or_default();
+            entries.push((item.id.clone(), skill_router::Entry::read(item, &md)));
+        }
+        let listed = skill_router::listed(entries.iter().map(|(_, e)| e));
+        Ok(SkillNotes { uses: self.db.skill_uses()?, hints: quality::skill_hints(&entries), listed })
+    }
+
+    fn item_json(&self, item: &Item, sources: &[Source], notes: &SkillNotes) -> Result<Value> {
         let mut v = serde_json::to_value(item)?;
+        if item.body == Body::Skill {
+            let (sessions, last) = notes.uses.get(&item.id).copied().map_or((0, None), |(n, at)| (n, Some(at)));
+            v["uses"] = json!({ "sessions": sessions, "lastAt": last });
+            v["hints"] = json!(notes.hints.get(&item.id).cloned().unwrap_or_default());
+        }
         if let Body::Mcp { server } = &item.body {
             let values = self.mcp_values(&item.id);
             let set = |k: &String| {
@@ -635,6 +661,14 @@ impl App {
         }
         Ok(v)
     }
+}
+
+/// Per skill, by item id: how many sessions read it and when last, and the hints on its
+/// description; and whether the router's catalog lists them all or is searched.
+struct SkillNotes {
+    uses: HashMap<String, (u64, i64)>,
+    hints: HashMap<String, Vec<quality::Hint>>,
+    listed: bool,
 }
 
 /// A skill from the editor: its name, description and full SKILL.md.

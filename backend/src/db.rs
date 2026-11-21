@@ -189,6 +189,21 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// How often each library skill was read, by item id: the sessions that read it (one per run,
+    /// agent, subtask and attempt, however many times it read it there), and when last.
+    // @project-doc docs/domains/20261116-resource_library.md#skill_uses
+    pub fn skill_uses(&self) -> Result<std::collections::HashMap<String, (u64, i64)>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT item, COUNT(*), MAX(ts) FROM (
+               SELECT json_extract(data, '$.item') AS item, MAX(ts) AS ts FROM events WHERE type = 'skill.used'
+               GROUP BY item, run_id, actor, task, attempt
+             ) WHERE item IS NOT NULL GROUP BY item",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)? as u64, r.get(2)?))))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn max_seq(&self, run_id: &str) -> Result<i64> {
         Ok(self.0.lock().unwrap().query_row(
             "SELECT COALESCE(MAX(seq), 0) FROM events WHERE run_id = ?1",

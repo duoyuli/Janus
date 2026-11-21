@@ -134,6 +134,16 @@ enum Snapshots {
                 // The task records each workspace page read and shows, by workspace.
                 "histories": .object(store.histories.mapValues { ids($0.runs) }),
                 "adapterUpdates": JSON.array(store.adapterUpdates.map { $0["id"] }),
+                // The library's skill tab as shown: the router guide's catalog mode and order, and
+                // each skill's usage line and hints.
+                "skills": [
+                    "searched": JSON(Library.searched(store.library)),
+                    "items": JSON.array(Library.catalogOrder(store.libraryItems.filter { $0["kind"].str == "skill" }).map {
+                        ["name": $0["name"], "sessions": $0["uses"]["sessions"], "usage": JSON(Library.usage($0, now: L.nowMs())),
+                         "hints": JSON.array($0["hints"].array.map { $0["kind"] }), "hintText": JSON.array($0["hints"].array.map { JSON(Library.hint($0)) }),
+                         "warning": JSON(LibraryView.warning($0))]
+                    }),
+                ],
             ]
             if let r = store.run {
                 let s = r.state

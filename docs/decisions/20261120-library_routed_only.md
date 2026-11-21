@@ -1,6 +1,6 @@
 # ADR：资源库的每项资源都给所有数字员工，只经两个路由提供
 
-- 状态：已采纳（accepted），记录于 2026-11-20。
+- 状态：已采纳（accepted），记录于 2026-11-20。第 3 条中 `janus-skills` 的内容由 [ADR：Skill 路由是一份按需查找的目录](20261120-skill_catalog.md) 修订（同日）：按使用次数排序、太大时按关键词搜索，系统层写明它的位置。
 - 取代：[ADR：资源库默认给所有数字员工，经 MCP 路由和 Skill 路由提供](20261119-library_routing.md) 的第 1、2 条（「给谁用」和收口的资源直接注入）、第 4 条（Skill 按数量切换），以及第 3 条中「http、sse 服务器照旧直接注入」的实现修订。那份 ADR 中路由本身的设计（用到才启动、同一个 Run 共用、有状态的服务器按会话运行、列工具不启动进程、工具名、调用记录、负责人派出后的提醒）不变。
 - 相关文档：[资源库](../domains/20261116-resource_library.md)、[安全边界](../operations/20261031-security.md#library)、[ADR：资源库统一管理 Skill 和 MCP，在会话启动时注入](20261116-launch_time_resources.md)。
 

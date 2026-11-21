@@ -280,6 +280,23 @@ def prompt(msg):
             "status": "completed", "locations": [{"path": os.path.join(os.getcwd(), name)}], "rawInput": {"file_path": name}}}})
         if wait_cancel(2):
             return {"stopReason": "cancelled"}
+    if outcome.startswith("skill:"):
+        # Like an agent using a library skill: the system layer names janus-skills' SKILL.md, the
+        # catalog there says where each skill's SKILL.md is; read both, as Claude Code's Read does.
+        name = outcome.split(":", 1)[1]
+        system = SYSTEM.get(sid) or json.loads(os.environ.get("CODEX_CONFIG") or "{}").get("developer_instructions", "")
+        router = re.search(r"read (\S+/janus-skills/SKILL\.md)", system)
+        found = False
+        if router:
+            catalog = open(router.group(1)).read()
+            base = re.search(r"每个 Skill 的 SKILL\.md 在 `(\S+)/<名字>/SKILL\.md`", catalog)
+            path = os.path.join(base.group(1), name, "SKILL.md") if base else ""
+            found = f"- {name}：" in catalog and os.path.isfile(path)
+            for i, p in enumerate([router.group(1)] + ([path] if found else [])):
+                send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+                    "sessionUpdate": "tool_call", "toolCallId": f"skill-{task}-{i}", "title": f"Read {os.path.basename(p)}",
+                    "kind": "read", "status": "completed", "locations": [{"path": p}], "rawInput": {"file_path": p}}}})
+        log(f"skill {name} {'read' if found else 'missing'}")
     if outcome.startswith("write:"):
         name = outcome.split(":", 1)[1]
         with open(name, "a") as f:
@@ -418,6 +435,7 @@ def prompt(msg):
     return {"stopReason": "end_turn"}
 
 
+SYSTEM = {}  # session id -> what Janus put in its system layer (Claude Code's `_meta.systemPrompt.append`)
 CHATS = set()  # session ids of chats with one digital employee: their prompts are answered "回复：<text>"
 
 
@@ -454,6 +472,7 @@ for line in sys.stdin:
             chat = log_brief(msg["params"])
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
+            SYSTEM[res["sessionId"]] = ((msg["params"].get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
             if chat:
                 CHATS.add(res["sessionId"])
         elif method == "session/load":
@@ -461,6 +480,7 @@ for line in sys.stdin:
                 raise RuntimeError("session load failed")
             sid = msg["params"]["sessionId"]
             log(f"load {sid}")
+            SYSTEM[sid] = ((msg["params"].get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
             if log_brief(msg["params"]):
                 CHATS.add(sid)
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))

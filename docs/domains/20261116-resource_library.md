@@ -14,6 +14,8 @@
 - [Run 和会话怎样拿到资源](#delivery)：修改资源在 Run 开始时怎样固定和交给会话时阅读。
 - [MCP 路由](#mcp_router)：修改 `janus-tools` 路由时阅读。
 - [Skill 路由](#skill_router)：修改 `janus-skills` 路由时阅读。
+- [Skill 的使用记录](#skill_uses)：修改 Agent 读 Skill 的识别和计数时阅读。
+- [Skill 的改进提示](#skill_hints)：修改资源库对 Skill 描述的检查时阅读。
 
 <a id="model"></a>
 ## 资源
@@ -92,14 +94,14 @@ Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后�
 资源库里的每项资源都给所有数字员工：资源没有「给谁用」，角色也不选资源。会话只经两个路由拿到它们，`mcpServers` 和提示词不随资源库增长。Agent 自带的 Skill 和 MCP（例如 Codex 登录账号后自带的 `codex_apps`、Claude Code 的内置 Skill）由 Agent 自己决定，不在此列。
 
 1. **固定**：创建 Run 时（`team_for`），每个成员的 `resources` 记下整个资源库当时的完整记录（名字、版本、MCP 定义，不含值），从中断处继续时也用这份记录。Skill 按这份记录复制进资源包，之后资源库的修改不影响这个 Run。MCP 服务器分两层：这份记录决定 Run 有哪些服务器，之后新加进资源库的不会进来；每个服务器怎样运行看资源库当前的设置，改了命令、地址或值，在它下次启动时生效（正在运行的实例在保存时就停下）；从资源库删除的服务器在已开始的 Run 里也一起停用，不再列出它的工具，也不再启动（`routed_servers`）。
-2. **资源包**：同时（`bundle_team`），成员的 Skill 从内容存储复制到 `~/.janus/runs/<run>/members/<成员 id>/bundle/` 中 [Skill 路由](#skill_router)的位置：Claude Code 是一个本地插件（`.claude-plugin/plugin.json` 和 `skills/janus-skills/`），Codex 是 `.agents/skills/janus-skills/`。复制的是普通文件，Agent 改了它也不影响资源库和其他成员。资源库里没有 Skill 时没有资源包。
+2. **资源包**：同时（`bundle_team`），成员的 Skill 从内容存储复制到 `~/.janus/runs/<run>/members/<成员 id>/bundle/` 中 [Skill 路由](#skill_router)的位置：Claude Code 是一个本地插件（`.claude-plugin/plugin.json` 和 `skills/janus-skills/`），Codex 是 `.agents/skills/janus-skills/`。复制的是普通文件，Agent 改了它也不影响资源库和其他成员。同时生成 `janus-skills` 的目录，排序用到这时为止的[使用记录](#skill_uses)。资源库里没有 Skill 时没有资源包。
 3. **打开会话**：`App::opening` 用 `library::launch` 算出会话参数，`session/new` 和 `session/load` 用同一组：
    - Claude Code：`_meta.claudeCode.options.plugins` 指向资源包，会话中显示为 `janus:janus-skills`。
    - Codex：`_meta.additionalRoots` 指向资源包，Codex 读取其中的 `.agents/skills`，显示为 `$janus-skills`。这个目录同时扩大了会话的文件访问范围。
    - MCP 服务器不论传输方式，都不放进 `mcpServers`，由这个 Run 的 [MCP 路由](#mcp_router)提供：资源库里有服务器时，会话拿到一个 `janus-tools`，看板 MCP 排在它后面。服务器的值不交给 Agent。Agent 没有声明 HTTP MCP 能力时拿不到路由，也就拿不到资源库的服务器（记为 `skipped`）。
 4. **记录**：每项资源怎样到达会话（`skillRouter`、`mcpRouter`，或 `skipped` 及原因）写进 `agent.status`（负责人）和 `attempt.started`（协作者）的 `data.config.resources`，见[事件](../interfaces/20261031-events.md)。
 
-Janus 不把 Skill 或 MCP 列进提示，也不列工作目录中的项目 Skill：Claude Code 和 Codex 按自己的规则读取工作目录中的 `.claude/skills`、`.agents/skills`。负责人说明只写一句：资源库对它和每个协作者开放，派出子任务后只用来查看。
+Janus 不把单个 Skill 或 MCP 服务器列进提示，也不列工作目录中的项目 Skill：Claude Code 和 Codex 按自己的规则读取工作目录中的 `.claude/skills`、`.agents/skills`。系统层只写两处：负责人说明里一句「资源库（`janus-tools` 和 `janus-skills`）对它和每个协作者开放，派出子任务后只用来查看」；成员有资源库 Skill 时，负责人、协作者和对话的系统层都另有一句，写明 `janus-skills` 的 `SKILL.md` 的绝对路径，开始任务时先读它（`skills_note`，见 [Skill 路由](#skill_router)）。
 
 <a id="mcp_router"></a>
 ## MCP 路由
@@ -122,6 +124,36 @@ Janus 不把 Skill 或 MCP 列进提示，也不列工作目录中的项目 Skil
 <a id="skill_router"></a>
 ## Skill 路由
 
-成员快照中的 Skill 不论多少，都放在资源包的 `janus-skills/.skills/<名字>/` 下（隐藏目录，Agent 不会逐个加载），另外生成一个 Skill `janus-skills`：`SKILL.md` 的描述列出这些 Skill 的名字（不超过 1000 个字节，Codex 拒绝更长的描述），正文是每个 Skill 的完整描述和它的 `SKILL.md` 路径。Agent 判断任务用得上时，再读对应的 `SKILL.md`。这样提示词里只有一条描述，资源库里的 Skill 也不出现在 Agent 原生的 `/` 菜单中。名字 `janus-skills` 留给 Janus，资源库里的 Skill 不能用。
+成员快照中的 Skill 不论多少，都放在资源包的 `janus-skills/.skills/<名字>/` 下（隐藏目录，Agent 不会逐个加载），另外生成一个 Skill `janus-skills`，它是这些 Skill 的目录（`library/skill_router.rs`）。这样提示词里只有一条描述，资源库里的 Skill 也不出现在 Agent 原生的 `/` 菜单中。名字 `janus-skills` 留给 Janus，资源库里的 Skill 不能用。设计取舍和调研见 [ADR：Skill 路由是一份按需查找的目录](../decisions/20261120-skill_catalog.md) 和[调研：Skill 路由的通行做法](../research/20261120-skill_routing_practices.md)。
+
+- **每个 Skill 写什么**：从这个 Skill 交给 Agent 的 `SKILL.md` 读出完整的 `description`，加上 `when_to_use`（Claude Code 的第二个路由字段），合成一行，最多 1536 个字符（和 Claude Code 列表的上限相同）。资源上存的描述截到 240 个字符，只用于列表显示，不用于目录。`disable-model-invocation: true` 的 Skill 照样列出，标注「只在用户或负责人点名时使用」：资源库 Skill 不进 Agent 的 `/` 菜单，隐藏后用户在目标里点名也找不到它。
+- **顺序**：被读过的会话多的在前（见[使用记录](#skill_uses)），一样多的按名字。描述放不下时先保住常用的。
+- **描述**：`janus-skills` 自己的描述是 Agent 一直看得到的唯一部分，所以先写何时用（「Janus 资源库中 N 个 Skill 的目录。开始一项任务时先读它……」），再按顺序列出「名字（描述片段）」。片段依次取 100、50、24 个字符，取能让全部 Skill 都放下的最长一种；名字都放不下时列出放得下的名字和总数。总长不超过 1000 个字节（Codex 拒绝超过 1024 个字节的描述）。
+- **正文**：先说明怎样用（按任务找描述相符的 Skill，读它的 `SKILL.md` 照着做，没有相符的就不用），并写一次路径规则 `<资源包>/…/janus-skills/.skills/<名字>/SKILL.md`。目录分两档（`listed`）：每个 Skill 一行加起来不超过 16 KB（约 5k token，和两种 Agent 自己的 Skill 列表预算相当）时，正文逐行列出；超过时正文只列名字，描述写进同一目录的 `catalog.txt`（每行「名字、制表符、描述」），正文给出 `grep -i -E` 的用法，让 Agent 用中英文关键词和同义词搜索，再读最相符的一两个。这样资源库再大，读一次目录的开销也大致不变。
+- **系统层指路**：Agent 自己的 Skill 列表有预算（Claude Code 占上下文的 1%，超出时从最少用的开始只留名字；Codex 占 2%，超出时先截短再去掉描述），`janus-skills` 的描述可能被挤掉。所以成员有资源库 Skill 时，Janus 在系统层写明它的 `SKILL.md` 的绝对路径（`skills_note`，英文），负责人、协作者和对话都有，记成 `channel` 为 `skills` 的 `session.prompt`。它只指向目录，不列出具体的 Skill。
 
 Skill 路由让 Agent 读取 Janus 目录下资源包里的文件：默认的权限模式（Codex 的 Full access、Claude Code 的 Bypass permissions）不需要确认，更严格的模式会询问。
+
+<a id="skill_uses"></a>
+## Skill 的使用记录
+
+Agent 读了资源库某个 Skill 的 `SKILL.md`，Janus 记一条 `skill.used`（`actor` 是读它的会话，协作者的带 `task` 和 `attempt`；`data.skill`、`data.item`、`data.revision`），见[事件](../interfaces/20261031-events.md)。
+
+- **怎样认出**：一次工具调用完成时（`status` 为 `completed`），在它的 `rawInput`、`locations` 和标题里找 `…/janus-skills/.skills/<名字>/SKILL.md`（`skills_read`）：Claude Code 的 Read 带路径，Codex 的 shell 命令里有路径。名字要是这个成员快照里的 Skill。读目录、搜 `catalog.txt`、读 Skill 目录里的其他文件都不算。同一轮里读同一个 Skill 只记一次。
+- **怎样计数**：资源库按 Skill 数「读过它的会话」，同一个 Run、同一个成员、同一个子任务和尝试里读几次都算一次，并记下最近一次的时间（`Db::skill_uses`）。资源库列表里每个 Skill 带 `uses`：`sessions` 和 `lastAt`（没读过时为 `null`），应用在展开的详情里显示「被 N 个会话读过 · 最近一次：…」。
+- **用在哪里**：新 Run 的目录按这个计数排序（见上节）；资源库显示它，帮助用户看出哪些 Skill 一直没被用上，多半是描述没写清楚。
+- 删除 Run 时它的事件一起删除，计数随之减少。
+
+<a id="skill_hints"></a>
+## Skill 的改进提示
+
+Agent 只凭描述从目录里挑 Skill，所以资源库检查每个 Skill 的描述（`library/quality.rs`，用的是目录里的那一行），在列表的 `hints` 里按类别返回，应用按界面语言写成文字（`Library.hint`）。它们只是提示：不拒绝保存，Skill 照常进入目录。
+
+| 类别（`kind`） | 什么时候 |
+| --- | --- |
+| `short` | 描述太短：按字符数算不到 40（一个汉字算 2），说不清做什么、什么时候用 |
+| `noWhen` | 描述没写什么时候用：没有 `when_to_use`，描述里也没有「when」「use for」「用于」「时使用」「适用」「当」这类说法。已经是 `short` 的不再提示 |
+| `long` | 描述和 `when_to_use` 合起来超过 1536 个字符（`chars`），目录只保留前 `kept` 个：把关键用途和触发词写在开头 |
+| `alike` | 和另一个 Skill（`skill`）的描述很像：两段描述的词（英文是 3 个字母以上的单词，中文是相邻的两个汉字）有 60% 以上相同（Jaccard），且各自至少有 6 个词，Agent 可能分不清用哪个 |
+
+列表顶层的 `skillRouter.catalog` 是 `list` 或 `search`，说明新 Run 的目录会直接列出每个 Skill，还是让 Agent 按关键词搜索，和生成目录用同一个判断；应用的路由说明据此显示「先查目录」这一步。

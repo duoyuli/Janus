@@ -1227,9 +1227,17 @@
 "一个会话" = "A session";
 "收进路由" = "Into the Router";
 "只占一条描述" = "One Description";
-"另外生成一个 janus-skills，描述列出全部名字：提示词里只多这一条。" = "A janus-skills skill is generated whose description lists every name, so the prompt gains just this one entry.";
 "用到再读" = "Read When Needed";
-"Agent 判断任务用得上某个 Skill 时，按 janus-skills 里的路径读它的 SKILL.md。" = "When the Agent decides a skill fits the task, it reads that SKILL.md at the path janus-skills gives.";
+"任务开始时把资源库的 Skill 放进资源包的隐藏目录，不逐个加载：Agent 自己的 Skill 列表里只有 janus-skills。" = "When a run starts, the library's skills go into a hidden folder in the bundle instead of loading one by one: the Agent's own skill list holds only janus-skills.";
+"janus-skills 的描述写明开始任务时先读它，带上各个 Skill 的名字和描述片段，常用的在前；会话说明里也写了它的位置。" = "The janus-skills description says to read it at the start of a task and carries each skill's name with part of its description, most used first; the session's instructions also say where it is.";
+"先查目录" = "Look Up the Catalog";
+"Skill 较多，目录只列名字：Agent 想几个关键词，在 catalog.txt 里搜出描述相符的 Skill。" = "With many skills the catalog lists only names: the Agent picks a few keywords and searches catalog.txt for skills whose descriptions fit.";
+"Agent 读 janus-skills 的目录：每个 Skill 一行，写着完整描述和什么时候用。" = "The Agent reads the janus-skills catalog: one line per skill, with its full description and when to use it.";
+"找到相符的 Skill，再读它的 SKILL.md 照着做。每次读取都记下来，资源库据此显示用过几次。" = "Once a skill fits, the Agent reads its SKILL.md and follows it. Each read is recorded, and the library shows how often each skill was used.";
+"目录 · 按关键词搜" = "Catalog · searched";
+"目录 · %lld 行" = "Catalog · %lld lines";
+"目录" = "Catalog";
+"相符的 2 行" = "2 matching lines";
 "只多一个入口" = "One Entry Point";
 "会话只拿到一个 janus-tools，打开时不启动任何服务器。它列出全部工具，用上次记下的列表；工具名和说明都带服务器名。" = "Sessions get a single janus-tools, and no server starts when a session opens. It lists every tool from the last list recorded; each tool's name and description carry its server's name.";
 "用到才启动" = "Started on First Use";
@@ -1238,7 +1246,6 @@
 "闲置就停" = "Stopped When Idle";
 "共用的闲置 10 分钟后停止，下次用到再启动；单独运行的跟着会话结束；任务停止、取消或失败时全部停止。" = "A shared server stops after 10 idle minutes and starts again when next used; one that runs per session ends with its session; all stop when the run is stopped, cancelled or fails.";
 "还有 %lld 个" = "%lld more";
-"%lld 个名字" = "%lld names";
 "提示词 +1 条" = "Prompt +1";
 "1 条描述" = "1 description";
 "任务用得上 %@" = "Task needs %@";
@@ -1331,7 +1338,16 @@
 
 /* Every library item for every digital worker, only through the routers. */
 "还没有 Skill。添加后都经 janus-skills 给所有数字员工。" = "No skills yet. Once added, they all reach every digital employee through janus-skills.";
-"现在 %lld 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述。" = "All %lld skills reach every digital employee through janus-skills: the prompt holds only its one description.";
+"现在 %lld 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述；Skill 较多，Agent 按关键词搜索目录。" = "All %lld skills reach every digital employee through janus-skills: the prompt holds only its one description; with this many, the Agent searches the catalog by keyword.";
+"现在 %lld 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述，目录直接列出每个 Skill。" = "All %lld skills reach every digital employee through janus-skills: the prompt holds only its one description, and the catalog lists every skill.";
+"描述可以改进" = "Description could be better";
+"还没有会话读过" = "Not read by any session yet";
+"最近一次：%@" = "last: %@";
+"被 %lld 个会话读过" = "Sessions that read it: %lld";
+"描述太短：Agent 只凭描述判断什么时候用它，写清它做什么、什么时候用" = "The description is too short: the agent decides when to use a skill from its description alone, so say what it does and when to use it.";
+"描述没写什么时候用：加一句「在……时使用」，或写在 when_to_use 字段里" = "The description never says when to use the skill: add “Use when …”, or put it in the when_to_use field.";
+"描述有 %lld 个字，目录里只保留前 %lld 个：把关键用途和触发词写在开头" = "The description has %lld characters; the catalog keeps the first %lld, so put the key use and trigger words first.";
+"和 %@ 的描述很像，Agent 可能分不清用哪个：写出各自适用的场合" = "Reads much like %@'s description, so the agent may not tell them apart: say when each one applies.";
 "还没有 MCP 服务器。添加后都经 janus-tools 给所有数字员工。" = "No MCP servers yet. Once added, they all reach every digital employee through janus-tools.";
 "现在 %lld 个服务器都经 janus-tools 给所有数字员工：会话只多这一个入口。" = "All %lld servers reach every digital employee through janus-tools: a session gets just this one entry.";
 "都经 janus-tools 给所有数字员工" = "All through janus-tools, for every digital employee";
@@ -1340,7 +1356,6 @@
 "还没有 MCP 服务器" = "No MCP servers yet";
 "正在连接，列出它的工具…" = "Connecting and listing its tools…";
 "还没有准备过：任务里第一次用到时再启动或连接" = "Not prepared yet: it starts or connects the first time a run uses it";
-"任务开始时把资源库的 Skill 放进资源包的隐藏目录，不逐个加载。" = "When a run starts, the library's skills go into a hidden folder of the bundle instead of loading one by one.";
 "第一次调用某个服务器的工具时才启动它：命令在任务的工作目录里、隔离的环境中运行，HTTP、SSE 服务器由 Janus 连接。" = "A server starts on the first call to one of its tools: a command runs in the run's working directory and an isolated environment; Janus connects to HTTP and SSE servers.";
 "资源库里的每项资源都给所有数字员工，经 Skill 路由和 MCP 路由按需取用。任务开始时固定它用的资源，这里的改动从下一个任务起生效。" = "Every resource in the library goes to all digital employees and is used on demand through the Skill and MCP routers. A run pins its resources when it starts, so changes here apply from the next run.";
 "Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。导入的 Skill 给所有数字员工，第三方内容请先看过再导入。" = "Janus fetches the repository and lists its skills (SKILL.md) for you to choose from. It only reads files and never runs anything from the repository. Imported skills go to all digital employees, so review third-party content before importing it.";

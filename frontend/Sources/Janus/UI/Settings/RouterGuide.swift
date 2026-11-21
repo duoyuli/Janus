@@ -8,10 +8,12 @@ import SwiftUI
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 struct RouterGuide: View {
     let kind: AppStore.LibraryKind
-    /// Names of what goes through the router: every skill, or every MCP server.
+    /// Names of what goes through the router: every skill (in the catalog's order), or every MCP server.
     let names: [String]
     /// What the router does with the library as it is now, in one line.
     let now: String
+    /// The skill router's catalog is searched by keyword rather than listed in full.
+    var searched = false
 
     @AppStorage("janus.routerGuide", store: .janus) private var open = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -34,7 +36,7 @@ struct RouterGuide: View {
                     HStack(alignment: .top, spacing: 18) {
                         Group {
                             switch kind {
-                            case .skill: SkillRouteScene(names: names, step: step, p: p)
+                            case .skill: SkillRouteScene(names: names, searched: searched, step: step, p: p)
                             case .mcp: McpRouteScene(names: names, step: step, p: p)
                             }
                         }
@@ -94,9 +96,12 @@ struct RouterGuide: View {
     private var steps: [(title: String, detail: String)] {
         switch kind {
         case .skill: return [
-            (L.text("收进路由"), L.text("任务开始时把资源库的 Skill 放进资源包的隐藏目录，不逐个加载。")),
-            (L.text("只占一条描述"), L.text("另外生成一个 janus-skills，描述列出全部名字：提示词里只多这一条。")),
-            (L.text("用到再读"), L.text("Agent 判断任务用得上某个 Skill 时，按 janus-skills 里的路径读它的 SKILL.md。")),
+            (L.text("收进路由"), L.text("任务开始时把资源库的 Skill 放进资源包的隐藏目录，不逐个加载：Agent 自己的 Skill 列表里只有 janus-skills。")),
+            (L.text("只占一条描述"), L.text("janus-skills 的描述写明开始任务时先读它，带上各个 Skill 的名字和描述片段，常用的在前；会话说明里也写了它的位置。")),
+            (L.text("先查目录"), searched
+                ? L.text("Skill 较多，目录只列名字：Agent 想几个关键词，在 catalog.txt 里搜出描述相符的 Skill。")
+                : L.text("Agent 读 janus-skills 的目录：每个 Skill 一行，写着完整描述和什么时候用。")),
+            (L.text("用到再读"), L.text("找到相符的 Skill，再读它的 SKILL.md 照着做。每次读取都记下来，资源库据此显示用过几次。")),
         ]
         case .mcp: return [
             (L.text("只多一个入口"), L.text("会话只拿到一个 janus-tools，打开时不启动任何服务器。它列出全部工具，用上次记下的列表；工具名和说明都带服务器名。")),
@@ -168,9 +173,11 @@ private struct Packet: View {
 }
 
 /// The skill router: the skills go into a hidden folder behind one `janus-skills`, the session's
-/// prompt gets its one description, and the Agent reads a skill's SKILL.md when the task needs it.
+/// prompt gets its one description, the Agent looks the task up in its catalog (listed, or
+/// searched by keyword), and reads the SKILL.md of the skill that fits.
 private struct SkillRouteScene: View {
     let names: [String]
+    let searched: Bool
     let step: Int
     let p: Double
 
@@ -187,7 +194,7 @@ private struct SkillRouteScene: View {
             let readFrom = CGPoint(x: agent.x, y: agent.y - 22), readTo = CGPoint(x: chips[pick].x + 20, y: chips[pick].y - 13)
             let arc = CGPoint(x: w * 0.5, y: h * 0.02)
             let filled = step > 0 ? 1 : span(p, 0.2, 0.95)
-            let prompt = step == 1 ? span(p, 0.1, 0.75) : step == 2 ? 1 : 0
+            let prompt = step == 1 ? span(p, 0.1, 0.75) : step >= 2 ? 1 : 0
             ZStack {
                 Canvas { ctx, _ in
                     for c in chips {
@@ -196,22 +203,23 @@ private struct SkillRouteScene: View {
                     }
                     var out = Path(); out.move(to: hub); out.addLine(to: agent)
                     ctx.stroke(out, with: .color(Color.accent.opacity(0.25 + 0.5 * prompt)), lineWidth: 1.5)
-                    if step == 2 {
+                    if step == 3 {
                         var read = Path(); read.move(to: readFrom)
                         read.addQuadCurve(to: readTo, control: arc)
                         ctx.stroke(read, with: .color(Color.accent.opacity(0.6 * span(p, 0, 0.3))), style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
                     }
                 }
                 ForEach(chips.indices, id: \.self) { i in
-                    Node(title: shown[i], lit: step == 2 && i == pick && p > 0.3, width: 108).position(chips[i])
+                    Node(title: shown[i], lit: step == 3 && i == pick && p > 0.3, width: 108).position(chips[i])
                 }
                 if more > 0 {
                     Text(L.text("还有 \(more) 个")).font(.system(size: 9.5)).foregroundStyle(.secondary)
                         .position(x: w * 0.18, y: h * 0.93)
                 }
-                Node(title: "janus-skills", caption: L.text("\(names.count) 个名字"), lit: filled >= 1, width: 104)
+                Node(title: "janus-skills", caption: searched ? L.text("目录 · 按关键词搜") : L.text("目录 · \(names.count) 行"),
+                     lit: filled >= 1 && step != 3, width: 104)
                     .opacity(0.45 + 0.55 * filled).position(hub)
-                Node(title: "Agent", caption: prompt > 0.99 ? L.text("提示词 +1 条") : L.text("一个会话"), lit: step == 2, width: 82).position(agent)
+                Node(title: "Agent", caption: prompt > 0.99 ? L.text("提示词 +1 条") : L.text("一个会话"), lit: step >= 2, width: 82).position(agent)
                 // 1: copies of the skills slide in behind janus-skills, one after another.
                 if step == 0 {
                     ForEach(chips.indices, id: \.self) { i in
@@ -223,8 +231,20 @@ private struct SkillRouteScene: View {
                 if step == 1, prompt > 0, prompt < 1 {
                     Packet(label: L.text("1 条描述")).position(along(hub, agent, 52, 41, prompt))
                 }
-                // 3: the Agent reads the one SKILL.md it needs.
+                // 3: the Agent looks the task up in the catalog: reads it whole, or greps it and
+                // gets back the matching lines.
                 if step == 2 {
+                    if searched {
+                        let ask = span(p, 0.05, 0.45), back = span(p, 0.5, 0.9)
+                        if ask > 0 && ask < 1 { Packet(label: "grep").position(along(agent, hub, 41, 52, ask)) }
+                        if back > 0 && back < 1 { Packet(label: L.text("相符的 2 行")).position(along(hub, agent, 52, 41, back)) }
+                    } else {
+                        let read = span(p, 0.1, 0.8)
+                        if read > 0 && read < 1 { Packet(label: L.text("目录")).position(along(hub, agent, 52, 41, read)) }
+                    }
+                }
+                // 4: the Agent reads the one SKILL.md that fits.
+                if step == 3 {
                     let back = span(p, 0.35, 0.9)
                     if back > 0 && back < 1 {
                         Packet(label: "SKILL.md").position(curve(readTo, readFrom, control: arc, back))

@@ -263,9 +263,21 @@ Question format: {\"text\":\"Question\",\"options\":[\"Option A\",\"Option B\"],
     p
 }
 
-/// A session's system layer: Janus's instructions for it, then the person's standing rules.
-pub(super) fn system_layer(janus: &str, standing: &str) -> String {
-    [janus.trim(), standing.trim()].into_iter().filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n")
+/// Where a member's library skills are listed, for Janus's instructions to its session, when it
+/// has any. The agent's own skill listing may have no room left for the router's description
+/// (Claude Code keeps only the names once its listing budget is spent), so the instructions name
+/// the router's SKILL.md.
+// @project-doc docs/domains/20261116-resource_library.md#skill_router
+pub(super) fn skills_note(router: Option<PathBuf>) -> String {
+    router
+        .map(|p| format!("Library skills: the janus-skills skill is the catalog of the skills in the Janus resource library. At the start of each task, read {} to see whether one of them fits, and follow it if one does.", p.display()))
+        .unwrap_or_default()
+}
+
+/// A session's system layer: Janus's instructions for it (its brief or rules, then where the
+/// library's skills are listed), then the person's standing rules.
+pub(super) fn system_layer(parts: &[&str]) -> String {
+    parts.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n")
 }
 
 /// Start the adapter with the system layer when its agent takes it from the environment (Codex's

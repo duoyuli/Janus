@@ -10,12 +10,14 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// One turn's running state: tool calls under way, thought not yet shown, and what was last
-/// reported, so an unchanged plan or command list is not recorded again.
+/// reported, so an unchanged plan or command list, or a library skill read again, is not
+/// recorded again.
 #[derive(Default)]
 pub struct Turn {
     pub tools: HashMap<String, Value>,
     pub last_status: i64,
     pub thought: String,
+    pub skills_read: std::collections::HashSet<String>,
     plan: String,
     commands: String,
 }

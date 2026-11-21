@@ -13,6 +13,8 @@ pub(super) enum SystemPart {
     Collaboration,
     /// A chat reopened: its recent exchanges, so the new session knows the conversation.
     History,
+    /// Where the member's library skills are listed (`janus-skills`), when it has any.
+    Skills,
 }
 
 impl SystemPart {
@@ -20,6 +22,7 @@ impl SystemPart {
         match self {
             SystemPart::Collaboration => "system",
             SystemPart::History => "history",
+            SystemPart::Skills => "skills",
         }
     }
 }
@@ -290,7 +293,8 @@ impl App {
         // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
         let (notes, note_ids) = self.peek_notes(run, "lead");
         let brief = format!("{}{notes}", self.goal_brief(run, resumed));
-        let system = system_layer(&brief, &standing);
+        let skills = skills_note(self.skill_router_md(&run.id, &lead));
+        let system = system_layer(&[&brief, &skills, &standing]);
         let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
         let workspace = run.cwd.clone();
         if lead.kind == Runtime::Claude {
@@ -331,6 +335,7 @@ impl App {
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
             self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
+            self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
             let mut prompt = format!("/goal {}", goal_condition(&run.goal));
             let mut delivered = false;
@@ -457,7 +462,8 @@ impl App {
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
         let brief = if chat { chat_brief(&events) } else { conversation_brief(run, &events) };
-        let system = system_layer(&brief, &standing);
+        let skills = skills_note(self.skill_router_md(&run.id, &lead));
+        let system = system_layer(&[&brief, &skills, &standing]);
         let opened = async {
             let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
             if lead.kind == Runtime::Claude {
@@ -566,6 +572,7 @@ impl App {
                 let part = if chat { SystemPart::History } else { SystemPart::Collaboration };
                 self.record_system(run, &ctx, &sid, &channel, part, &brief);
             }
+            self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
@@ -727,6 +734,9 @@ impl App {
         part: SystemPart,
         text: &str,
     ) {
+        if text.is_empty() {
+            return;
+        }
         let via = match channel {
             Channel::System => "system",
             Channel::Developer => "developer",
@@ -735,6 +745,7 @@ impl App {
             SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
             SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
             SystemPart::History => "向 Agent 注入之前的对话",
+            SystemPart::Skills => "告诉 Agent 资源库 Skill 的目录在哪里",
         };
         self.emit(
             run,
@@ -787,7 +798,7 @@ impl App {
         let mut p = format!(
             "You are the lead of the Janus team and are responsible for achieving the user's goal. First decide whether the goal is small enough to finish yourself in this session; if it is, do it yourself without delegating. Otherwise delegate parts of it to the collaborators below, deciding whom to involve and how to divide the work.
 
-Once you submit any subtask, you only manage for the rest of the goal: plan, read the board, decide, verify, and deliver. Do not edit files in the working directory from then on; reading files, running tests, and inspecting diffs are fine. Janus reports every file you edit after delegating, on the board and as a risk in the delivery. The workspace's resource library (the janus-tools MCP server and the library's skills) is open to you and to every collaborator; after you delegate, use it only to look (read, query, check) and leave anything with side effects to a subtask.
+Once you submit any subtask, you only manage for the rest of the goal: plan, read the board, decide, verify, and deliver. Do not edit files in the working directory from then on; reading files, running tests, and inspecting diffs are fine. Janus reports every file you edit after delegating, on the board and as a risk in the delivery. The workspace's resource library (the janus-tools MCP server and the janus-skills skill) is open to you and to every collaborator; after you delegate, use it only to look (read, query, check) and leave anything with side effects to a subtask.
 
 Working directory: {cwd}. You and the collaborators work directly in this directory, where changes are immediately visible to everyone. {git}
 
