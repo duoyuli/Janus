@@ -24,7 +24,6 @@ pub const MAX_IMAGES: usize = 10;
 pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 /// How a line naming an attachment starts: `[Image 1] /path/to/file.png`.
 const MARKER: &str = "[Image ";
-const LEGACY_MARKER: &str = "[附图 ";
 
 /// The image type, from the file's first bytes. The declared type is not trusted.
 fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
@@ -108,8 +107,7 @@ pub fn prompt_blocks(layout: &Layout, text: &str, images: bool) -> Vec<Value> {
     let mut seen = HashSet::new();
     for line in text.lines() {
         let line = line.trim();
-        let marker = line.strip_prefix(MARKER).or_else(|| line.strip_prefix(LEGACY_MARKER));
-        let Some((_, path)) = marker.and_then(|r| r.split_once("] ")) else { continue };
+        let Some((_, path)) = line.strip_prefix(MARKER).and_then(|r| r.split_once("] ")) else { continue };
         let path = PathBuf::from(path.trim());
         if !seen.insert(path.clone()) || !layout.is_attachment(&path) {
             continue;
@@ -155,8 +153,6 @@ mod tests {
         assert_eq!(blocks[1]["type"], "image");
         assert_eq!(blocks[1]["mimeType"], "image/png");
         assert_eq!(blocks[1]["data"], data);
-        let legacy = prompt_blocks(&layout, &format!("[附图 1] {path}"), true);
-        assert_eq!(legacy.get(1), blocks.get(1), "historical messages still attach their images");
         assert_eq!(prompt_blocks(&layout, &text, false).len(), 1, "an agent without image input gets the path only");
         let twice = format!("{text}\n{text}");
         assert_eq!(prompt_blocks(&layout, &twice, true).len(), 2, "one block per file");
@@ -165,7 +161,7 @@ mod tests {
         let other = home.join("secret.png");
         std::fs::write(&other, PNG).unwrap();
         assert_eq!(prompt_blocks(&layout, &format!("[Image 1] {}", other.display()), true).len(), 1);
-        let sneaky = format!("[附图 1] {}/data/runs/r1/attachments/../../../../secret.png", home.display());
+        let sneaky = format!("[Image 1] {}/data/runs/r1/attachments/../../../../secret.png", home.display());
         assert_eq!(prompt_blocks(&layout, &sneaky, true).len(), 1);
 
         // Refused: not an image, too many. Nothing is stored for a refused message.

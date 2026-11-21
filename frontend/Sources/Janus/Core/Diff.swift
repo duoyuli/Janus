@@ -23,12 +23,9 @@ enum Diff {
         var hunks: [Hunk] = []
         var added: Int { hunks.flatMap(\.lines).filter { $0.kind == .added }.count }
         var removed: Int { hunks.flatMap(\.lines).filter { $0.kind == .removed }.count }
-        /// A new file Git does not track yet. Its diff is included when Janus could read it;
-        /// older artifacts list its name alone.
+        /// A new file Git does not track yet. Its diff is included when Git could read it;
+        /// otherwise the artifact lists its name alone.
         var untracked = false
-        /// The content was read from the working tree at review time because the artifact
-        /// recorded only the file's name.
-        var fromWorkingTree = false
     }
 
     static func parse(_ text: String) -> [File] {
@@ -41,8 +38,8 @@ enum Diff {
             if inUntracked {
                 let p = line.trimmingCharacters(in: .whitespaces)
                 guard !p.isEmpty else { continue }
-                // Newer artifacts include the file's diff above this list; older ones only the
-                // name. Mark the file instead of adding it twice.
+                // The file's diff is above this list when Git could read it. Mark the file instead
+                // of adding it twice.
                 if let i = files.firstIndex(where: { $0.path == p }) {
                     files[i].untracked = true
                 } else {
@@ -89,21 +86,6 @@ enum Diff {
             }
         }
         return files
-    }
-
-    /// The diff of a new file made from content read now, for artifacts that recorded only its
-    /// name. `firstID` keeps line ids unique across files; comments are keyed by them.
-    static func newFile(id: Int, path: String, content: String, firstID: Int) -> (File, Int) {
-        var rows: [String] = content.isEmpty ? [] : content.components(separatedBy: "\n")
-        if rows.last == "" { rows.removeLast() }
-        var lines: [Line] = []
-        var next = firstID
-        for (i, row) in rows.enumerated() {
-            lines.append(Line(id: next, kind: .added, text: row, old: nil, new: i + 1))
-            next += 1
-        }
-        let hunks = rows.isEmpty ? [] : [Hunk(id: 0, header: "@@ -0,0 +1,\(rows.count) @@", lines: lines)]
-        return (File(id: id, path: path, hunks: hunks, untracked: true, fromWorkingTree: true), next)
     }
 
     /// One comment on one line, as the person wrote it in the review.

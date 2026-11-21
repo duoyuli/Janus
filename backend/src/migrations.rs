@@ -35,15 +35,6 @@ pub enum Step {
         at: Target,
         field: &'static str,
     },
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "no migration renames a field yet; the next one that does uses it")
-    )]
-    Rename {
-        at: Target,
-        from: &'static str,
-        to: &'static str,
-    },
     /// Anything else (a default computed from other fields, a type change); returns how many
     /// objects it changed.
     Custom(fn(&Transaction) -> Result<usize>),
@@ -334,18 +325,6 @@ fn apply(tx: &Transaction, step: &Step, home: Option<&Path>) -> Result<usize> {
             true
         }),
         Step::Drop { at, field } => edit(tx, *at, |o| o.remove(*field).is_some()),
-        Step::Rename { at, from, to } => edit(tx, *at, |o| {
-            if o.contains_key(*to) {
-                return false;
-            }
-            match o.remove(*from) {
-                Some(v) => {
-                    o.insert(to.to_string(), v);
-                    true
-                }
-                None => false,
-            }
-        }),
         Step::Custom(f) => f(tx),
         Step::Home(f) => f(tx, home),
     }

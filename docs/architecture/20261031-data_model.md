@@ -81,7 +81,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 - **执行时机**：服务启动时 `Db::open` 对数据版本 0 的库（新库或有迁移之前的库）先建出版本 0 的表（`BASELINE`），再按顺序执行版本号大于当前版本的迁移（`migrations::upgrade`）。版本 0 以后的库不再执行 `BASELINE`，否则迁移删掉的表会被重新建出来。每条迁移在一个事务中执行并写入自己的版本号，失败时回滚，服务不启动。新数据库同样从 0 执行到最新，不需要备份。
 - **备份**：库里已有数据时，升级前用 `VACUUM INTO` 复制到 `<Janus home>/backups/janus-v<旧版本>-<毫秒时间>.db`，只保留最近 5 份。日志写明从哪个版本升到哪个版本、每条迁移改了几处和备份位置。
 - **更新的数据**：数据版本高于当前版本时拒绝打开，提示升级 Janus 或从 `backups/` 恢复。
-- **迁移的写法**：`MIGRATIONS` 中每条是一个版本号、一句说明和若干步骤。`Sql` 改表结构；`Add` 加字段，旧对象取给定的默认值（已有这个字段的不变）；`Drop` 删字段；`Rename` 改名；其他情况用 `Custom` 函数；也要改 Janus home 中文件的（凭据、移动目录）用 `Home`，它拿到那个数据版本时的 Janus home，`--dry-run` 时拿不到、不改文件。字段步骤的目标是某类设置对象（`Target::Config(kind)`）或 Run 快照中的每个成员（`Target::RunMember`），重复执行不会再改动。事件不迁移，唯一的例外是移动目录时把事件里的旧路径改成新路径（`backend/src/layout/relocate.rs` 的 `Relocation`）：改的是文件现在在哪，不是发生了什么。
+- **迁移的写法**：`MIGRATIONS` 中每条是一个版本号、一句说明和若干步骤。`Sql` 改表结构；`Add` 加字段，旧对象取给定的默认值（已有这个字段的不变）；`Drop` 删字段；其他情况（改名、由其他字段算出的默认值、改类型）用 `Custom` 函数；也要改 Janus home 中文件的（凭据、移动目录）用 `Home`，它拿到那个数据版本时的 Janus home，`--dry-run` 时拿不到、不改文件。字段步骤的目标是某类设置对象（`Target::Config(kind)`）或 Run 快照中的每个成员（`Target::RunMember`），重复执行不会再改动。事件不迁移，唯一的例外是移动目录时把事件里的旧路径改成新路径（`backend/src/layout/relocate.rs` 的 `Relocation`）：改的是文件现在在哪，不是发生了什么。
 - **登记的结构**：`data_shape.rs` 登记每类设置对象的必填和可选字段（`connection` 另外允许 Agent 类型目录中登录方式的普通字段），资源库对象和 Run 快照成员按读回再写出必须不变检查。测试中每次 `put_config` 都按它检查；`janus migrate --dry-run` 在库的副本上执行升级，列出每条迁移改了几处和仍不符合当前结构的对象，不修改原库。
 - **快照**：表结构和登记的字段记在 `backend/testdata/data_shape.json`（`janus migrate --shape` 生成，`just data-shape` 写入）。结构变了但数据版本没变时测试失败，提示先加迁移。
 

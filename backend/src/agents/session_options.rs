@@ -5,7 +5,7 @@ use super::*;
 
 /// The ACP session config options Janus reads from an agent: model and reasoning effort, plus
 /// `controls`, everything else the agent lets a session choose. Each agent declares its own:
-/// Codex sandbox presets, Claude Code permission modes, Grok's permission mode and Plan toggle.
+/// Codex sandbox presets, Claude Code permission modes, any other mode or toggle an agent declares.
 /// Roles pick values from `controls`; nothing about them is hard-coded per agent.
 // @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
 pub fn session_options(session: &Value) -> Value {
@@ -30,7 +30,7 @@ pub fn session_options(session: &Value) -> Value {
             "options": select_choices(&o["options"])
         });
     }
-    // Agents that predate config options report permission modes as ACP session modes.
+    // Agents without config options report permission modes as ACP session modes.
     let modes = &session["modes"]["availableModes"];
     if !controls.iter().any(|c| c["category"] == "mode") && modes.as_array().is_some_and(|m| !m.is_empty()) {
         controls.push(json!({
@@ -55,8 +55,8 @@ pub fn session_options(session: &Value) -> Value {
     out
 }
 
-/// A control that switches the agent into a plan mode: Codex's `plan-mode` (an on/off select),
-/// Grok's `plan_mode` (a boolean).
+/// A control that switches the agent into a plan mode: Codex's `plan-mode` (an on/off select), or
+/// a boolean toggle such as `plan_mode`.
 // @project-doc docs/domains/20261031-agents_and_roles.md#no_plan_mode
 pub fn is_plan_toggle(c: &Value) -> bool {
     str_of(c, "id").to_ascii_lowercase().contains("plan")
@@ -219,20 +219,20 @@ mod session_option_tests {
 
     #[test]
     fn controls_follow_what_each_agent_declares() {
-        // Grok: permission mode under its own category, Plan as a boolean, model and effort apart.
-        let grok = session_options(&json!({ "configOptions": [
+        // An agent with its permission mode under its own category, Plan as a boolean, model apart.
+        let toggles = session_options(&json!({ "configOptions": [
             { "id": "plan_mode", "name": "Plan", "type": "boolean", "currentValue": false },
             { "id": "permission_mode", "name": "Permission Mode", "category": "_permission", "type": "select", "currentValue": "ask",
               "options": [{ "value": "ask", "name": "Ask Every Time" }, { "value": "always-approve", "name": "Always Approve" }] },
-            { "id": "model", "category": "model", "type": "select", "currentValue": "grok-4", "options": [{ "value": "grok-4", "name": "Grok 4" }] },
+            { "id": "model", "category": "model", "type": "select", "currentValue": "m-4", "options": [{ "value": "m-4", "name": "M 4" }] },
         ] }));
-        let c = grok["controls"].as_array().unwrap();
+        let c = toggles["controls"].as_array().unwrap();
         assert_eq!(c.len(), 1, "Plan is never a role choice");
-        assert_eq!(grok["planToggles"][0]["id"], "plan_mode", "kept apart so a session can switch it off");
+        assert_eq!(toggles["planToggles"][0]["id"], "plan_mode", "kept apart so a session can switch it off");
         assert!(c.iter().all(|c| c["permission"] == true));
-        assert_eq!(grok["model"]["current"], "grok-4");
+        assert_eq!(toggles["model"]["current"], "m-4");
         let role = json!({ "session": { "permission_mode": "always-approve", "plan_mode": "yes", "gone": "x" } });
-        let conn = json!({ "options": grok });
+        let conn = json!({ "options": toggles });
         assert_eq!(role_session(&role, &conn), json!({ "permission_mode": "always-approve" }));
         assert_eq!(session_label(&role_session(&role, &conn), &conn), "Always Approve");
         // Claude Code's Plan permission mode is not offered, and a role that chose it loses it.
@@ -264,17 +264,17 @@ mod session_option_tests {
         assert_eq!(fast["permission"], false);
 
         // Agents that report ACP session modes: they become a control set through session/set_mode.
-        let legacy = session_options(
+        let modes = session_options(
             &json!({ "modes": { "currentModeId": "default", "availableModes": [{ "id": "default", "name": "Default" }, { "id": "plan", "name": "Plan" }] } }),
         );
-        assert_eq!(legacy["controls"][0]["via"], "mode");
+        assert_eq!(modes["controls"][0]["via"], "mode");
         assert_eq!(
-            legacy["controls"][0]["options"].as_array().unwrap().len(),
+            modes["controls"][0]["options"].as_array().unwrap().len(),
             1,
             "the plan session mode is not offered"
         );
 
-        // Pi: nothing declared.
+        // An agent that declares nothing.
         assert_eq!(session_options(&json!({ "configOptions": [] }))["controls"], json!([]));
     }
 

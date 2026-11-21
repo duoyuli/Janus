@@ -383,7 +383,7 @@ fn field_steps_apply_once() {
     let steps = [
         Step::Add { at: Target::Config("workspace"), field: "limit", default: || json!(4) },
         Step::Add { at: Target::Config("workspace"), field: "keep", default: || json!(false) },
-        Step::Rename { at: Target::Config("workspace"), from: "old", to: "new" },
+        Step::Drop { at: Target::Config("workspace"), field: "old" },
         Step::Drop { at: Target::Config("workspace"), field: "gone" },
         Step::Sql("CREATE TABLE extra (id TEXT)"),
     ];
@@ -393,7 +393,7 @@ fn field_steps_apply_once() {
     assert_eq!(again, [0, 0, 0, 0]);
     tx.commit().unwrap();
     let data: String = conn.query_row("SELECT data FROM configs WHERE id = 'w'", [], |r| r.get(0)).unwrap();
-    assert_eq!(serde_json::from_str::<Value>(&data).unwrap(), json!({ "id": "w", "new": 1, "keep": true, "limit": 4 }));
+    assert_eq!(serde_json::from_str::<Value>(&data).unwrap(), json!({ "id": "w", "keep": true, "limit": 4 }));
 }
 
 /// The registered shapes and the tables match `testdata/data_shape.json`. A change to either is a

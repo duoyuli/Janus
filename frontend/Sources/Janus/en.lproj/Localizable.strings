@@ -1022,7 +1022,6 @@
 "这个工作区已经删除" = "This workspace has been deleted";
 "这个版本没有发布说明。" = "This version has no release notes.";
 "这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：%@" = "Deleting this Agent removes it from these digital employees. Assign them another Agent: %@";
-"这次 diff 只记录了文件名；下面是工作目录中的当前内容。" = "This diff recorded only the filename. The current contents of the working copy are shown below.";
 "这次任务的用量明细" = "Usage Details for This Run";
 "这次结果没有说明证据方法" = "This result does not specify an evidence method";
 "这段时间没有进展：%@" = "No activity for %@";

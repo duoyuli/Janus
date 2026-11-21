@@ -64,16 +64,6 @@ notes.md
     #expect(notes.hunks[0].lines.map(\.new) == [1, 2])
 }
 
-/// An older artifact records only a new file's name; the review can fill in what is on disk.
-@Test func aNewFileDiffCanBeMadeFromItsCurrentContent() {
-    let (f, next) = Diff.newFile(id: 3, path: "notes.md", content: "# 笔记\n内容\n", firstID: 10)
-    #expect(f.id == 3 && f.untracked && f.fromWorkingTree)
-    #expect(f.hunks[0].lines.map(\.id) == [10, 11])
-    #expect(f.hunks[0].lines.map(\.text) == ["# 笔记", "内容"])
-    #expect(f.hunks[0].lines.map(\.new) == [1, 2])
-    #expect(next == 12)
-}
-
 /// A deleted tracked file keeps its path and its removed lines; the new-file handling does not
 /// touch it.
 @Test func aDeletedFileKeepsItsPathAndRemovedLines() {
@@ -90,7 +80,7 @@ notes.md
     let files = Diff.parse(text)
     #expect(files.count == 1)
     let old = files[0]
-    #expect(old.path == "old.md" && !old.untracked && !old.fromWorkingTree)
+    #expect(old.path == "old.md" && !old.untracked)
     #expect(old.added == 0 && old.removed == 2)
     #expect(old.hunks[0].lines.map(\.kind) == [.removed, .removed])
     #expect(old.hunks[0].lines.map(\.old) == [1, 2])
