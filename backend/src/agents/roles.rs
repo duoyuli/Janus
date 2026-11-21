@@ -302,7 +302,7 @@ fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     Ok(1)
 }
 
-/// The default roles, one Markdown file each in `backend/roles/` (see its README.md): the
+/// The default roles, one Markdown file each in `backend/roles/`: the
 /// metadata in a `---` header, the role's instructions as the body. They are built into Janus,
 /// in this order: a PMO lead, the general digital worker that a default workspace pairs with it,
 /// the specialists (research and market, PRD, engineering, QA) for whoever wants them, and 老友
@@ -379,7 +379,7 @@ mod seed_tests {
             .unwrap()
             .flatten()
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|n| n.ends_with(".md") && n != "README.md")
+            .filter(|n| n.ends_with(".md"))
             .collect();
         files.sort();
         let mut listed: Vec<String> = ROLE_FILES.iter().map(|(f, _)| f.to_string()).collect();

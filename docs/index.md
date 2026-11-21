@@ -30,7 +30,7 @@ Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库�
 
 ## 仓库结构
 
-- `backend/`：Rust 编排器（Cargo 包名 `janus`），各模块的职责见[模块与启动顺序](architecture/20261116-modules.md#modules)。`backend/roles/` 是默认数字员工，一人一个 Markdown 文件（元数据加指令），格式见其中的 `README.md`。`backend/testdata/` 放测试用的脚本化 ACP Agent、前后端共用的用量用例、数据结构快照和旧版本写出的样本数据。
+- `backend/`：Rust 编排器（Cargo 包名 `janus`），各模块的职责见[模块与启动顺序](architecture/20261116-modules.md#modules)。`backend/roles/` 是默认数字员工，一人一个 Markdown 文件（元数据加指令），格式见[默认角色](domains/20261031-agents_and_roles.md#product_launch_roles)。`backend/testdata/` 放测试用的脚本化 ACP Agent、前后端共用的用量用例、数据结构快照和旧版本写出的样本数据。
 - `frontend/`：macOS 应用（SwiftUI，Swift Package），源码结构见 [macOS 应用](architecture/20261031-frontend.md#source_layout)。`frontend/scripts/` 放打包脚本。
 - `e2e/`：端到端验证脚本（Python 标准库）：`product.py` 在真实构建的服务和应用上跑每条用户旅程，场景在 `e2e/scenarios/`；`upgrade.py` 是数据升级测试；`lib.py` 是两者共用的部分。见[端到端验证](operations/20261031-testing.md#e2e)。
 - `docs/`：本文档库。`README.md` 是产品入口，`CHANGELOG.md` 是更新记录，`LESSONS.md` 是清理 Agent 合并的代码时积累的经验教训和 `AGENTS.md` 每条合并规则的来由，它们都在仓库根目录，不属于本库。

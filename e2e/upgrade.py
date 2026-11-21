@@ -48,7 +48,7 @@ def seeds_in(backend):
     if os.path.isdir(roles):
         out = {}
         for name in sorted(os.listdir(roles)):
-            if not name.endswith(".md") or name == "README.md":
+            if not name.endswith(".md"):
                 continue
             with open(os.path.join(roles, name)) as f:
                 head, body = f.read()[len("---\n"):].split("\n---\n", 1)
