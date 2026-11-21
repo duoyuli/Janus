@@ -38,7 +38,7 @@ pub(crate) use connections::{drop_custom_agents, drop_preset_kinds, is_sandbox_v
 pub(crate) use environment::migrate_claude_env;
 pub use local_config::local_preview;
 use local_config::*;
-pub(crate) use roles::{add_generalist, record_seed_origins};
+pub(crate) use roles::{add_generalist, add_old_friend, record_seed_origins};
 use session_options::*;
 pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
 use workspaces::*;

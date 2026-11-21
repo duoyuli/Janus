@@ -140,6 +140,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "Janus home 按类别整理：data、work、cache、tmp、logs，任务和对话分开存放",
         steps: &[Step::Home(crate::layout::move_to_categories)],
     },
+    Migration {
+        version: 15,
+        name: "新增默认的数字员工「老友」",
+        steps: &[Step::Custom(crate::agents::add_old_friend)],
+    },
 ];
 
 /// The data version this build reads and writes.

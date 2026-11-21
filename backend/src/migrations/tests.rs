@@ -257,6 +257,41 @@ fn claude_custom_api_keys_become_private_environment() {
     assert_eq!(apply(&tx, &step, Some(home_of(&path))).unwrap(), 0, "a second run changes nothing");
 }
 
+/// Version 15: data seeded before 老友 existed gets it as a default role with no agent bound. A
+/// person's own role under that id keeps its own settings; it becomes the default role only when
+/// its text is the very text shipped, and otherwise stays theirs as it is.
+#[test]
+fn old_friend_joins_the_default_roles() {
+    let path = old_database("old-friend");
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let shipped = config(&conn, "role", "inner-grill");
+    assert_eq!((shipped["name"].as_str(), shipped["connection"].as_str()), (Some("老友"), Some("")));
+    assert_eq!(shipped["seed"]["id"], "inner-grill");
+    assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
+    drop(conn);
+
+    let mine = |name: &str, prompt: &str| {
+        let path = old_database(name);
+        let conn = Connection::open(&path).unwrap();
+        let role = json!({ "id": "inner-grill", "name": "老友", "desc": shipped["desc"], "prompt": prompt,
+            "connection": "", "model": "opus", "effort": "max", "session": {}, "lead": false, "color": "#be185d", "init": "老友" });
+        conn.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES ('role', 'inner-grill', ?1, 0)",
+            params![role.to_string()],
+        )
+        .unwrap();
+        drop(conn);
+        open(&path).unwrap();
+        config(&Connection::open(&path).unwrap(), "role", "inner-grill")
+    };
+    let copied = mine("old-friend-copied", shipped["prompt"].as_str().unwrap());
+    assert_eq!(copied["seed"], shipped["seed"], "the shipped text copied by hand becomes the default role");
+    assert_eq!(copied["model"], "opus", "keeping the person's own settings");
+    let edited = mine("old-friend-edited", "我自己的老友");
+    assert!(edited.get("seed").is_none() && edited["prompt"] == "我自己的老友", "an edited one stays the person's");
+}
+
 #[test]
 fn a_database_from_a_newer_janus_is_refused() {
     let path = temp_path("newer");

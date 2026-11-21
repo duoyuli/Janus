@@ -2,6 +2,7 @@
 //! start creates.
 
 use super::*;
+use rusqlite::OptionalExtension;
 
 impl App {
     /// Roles as the app sees them: a default role the person edited also carries `seedUpdates`,
@@ -206,9 +207,13 @@ const SEED_HISTORY: &[(&str, &str, &[&str])] = &[
 /// Data version 2: default roles created before roles remembered their origin get a `seed`. A
 /// field whose text is one Janus shipped counts as untouched (and moves to the current text on
 /// start); an edited one is marked as given the newest earlier text, so the app offers the
-/// current one instead of replacing it.
+/// current one instead of replacing it. Only the default roles of that time count (those in
+/// `SEED_HISTORY`): a role of the person's under the id of a later default is theirs.
 pub(crate) fn record_seed_origins(tx: &rusqlite::Transaction) -> Result<usize> {
     crate::migrations::edit_configs(tx, ROLE, |id, role| {
+        if !SEED_HISTORY.iter().any(|h| h.0 == id) {
+            return false;
+        }
         let Some(r) = SEEDS.iter().find(|r| r.id == id) else { return false };
         if role.contains_key("seed") {
             return false;
@@ -244,36 +249,63 @@ pub(super) struct RoleSeed {
 /// The default role a new workspace pairs with the lead (three at a time).
 pub(super) const GENERALIST: &str = "generalist";
 
-/// Data version 6: the general digital worker, for data seeded before it existed, as a first
-/// start would make it (`sync_seeds` keeps its text current afterwards). One deleted later stays
-/// deleted; one the person already has under this id is left alone.
+/// The default role for a one-to-one talk about something on the person's mind.
+pub(super) const OLD_FRIEND: &str = "inner-grill";
+
+/// Data version 6: the general digital worker, for data seeded before it existed (`add_seed`).
 pub(crate) fn add_generalist(tx: &rusqlite::Transaction) -> Result<usize> {
+    add_seed(tx, GENERALIST)
+}
+
+/// Data version 15: 老友, for data seeded before it existed (`add_seed`).
+pub(crate) fn add_old_friend(tx: &rusqlite::Transaction) -> Result<usize> {
+    add_seed(tx, OLD_FRIEND)
+}
+
+/// A default role that came after the data was first seeded, made as a first start would make it
+/// (`sync_seeds` keeps its text current afterwards). Data never seeded gets it on its first start
+/// instead. A role the person already has under this id stays theirs, unless it is the very text
+/// shipped (one they copied in by hand): that one becomes the default role. One deleted later
+/// stays deleted.
+fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     let seeded: bool = tx
         .query_row("SELECT COUNT(*) FROM configs WHERE kind = 'meta' AND id = 'seeded'", [], |r| r.get::<_, i64>(0))?
         > 0;
-    let taken: bool = tx.query_row(
-        "SELECT COUNT(*) FROM configs WHERE kind = ?1 AND id = ?2",
-        rusqlite::params![ROLE, GENERALIST],
-        |r| r.get::<_, i64>(0),
-    )? > 0;
-    if !seeded || taken {
+    if !seeded {
         return Ok(0);
     }
-    let r = SEEDS.iter().find(|r| r.id == GENERALIST).expect("seeded");
-    let role = json!({
-        "id": r.id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "connection": "",
-        "model": "", "effort": "", "session": {}, "lead": r.lead, "color": r.color, "init": r.init, "seed": { "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) }
-    });
+    let r = SEEDS.iter().find(|r| r.id == id).expect("a default role");
+    let origin = json!({ "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
+    let existing: Option<String> = tx
+        .query_row("SELECT data FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, r.id], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    let role = match existing {
+        Some(data) => {
+            let mut role: Value = serde_json::from_str(&data)?;
+            if role.get("seed").is_some() || role["desc"] != r.desc || role["prompt"] != r.prompt {
+                return Ok(0);
+            }
+            role["seed"] = origin;
+            role
+        }
+        None => json!({
+            "id": r.id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "connection": "",
+            "model": "", "effort": "", "session": {}, "lead": r.lead, "color": r.color, "init": r.init, "seed": origin
+        }),
+    };
     tx.execute(
-        "INSERT INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT OR REPLACE INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![ROLE, r.id, role.to_string(), crate::orchestrator::now_ms()],
     )?;
     Ok(1)
 }
 
 /// The default roles: a PMO lead, the general digital worker that a default workspace pairs with
-/// it, and the specialists (research and market, PRD, engineering, QA) for whoever wants them.
-pub(super) const SEEDS: [RoleSeed; 6] = [
+/// it, the specialists (research and market, PRD, engineering, QA) for whoever wants them, and
+/// 老友 to talk something through with in a chat.
+pub(super) const SEEDS: [RoleSeed; 7] = [
     RoleSeed {
         id: "coordinator",
         name: "PMO",
@@ -327,6 +359,15 @@ pub(super) const SEEDS: [RoleSeed; 6] = [
         init: "QA",
         lead: false,
         prompt: "你负责质量：设计和执行验证、报告缺陷、给出质量结论。改动能否交付取决于你的结论，所以结论要基于实际检查，不能只读执行者的说明。\n\n开始前，读 PRD 的验收标准、被验证子任务的结果和 diff、相关代码和已有测试，按真实的用户流程确定验证范围。\n\n验证：\n- 覆盖正常路径、边界条件、错误处理、数据一致性、权限与隐私和回归风险。按风险选择方式：运行已有测试、补充测试、调用接口、实际运行程序或检查代码。\n- 能运行的就运行，看到结果再下结论；无法运行时说明原因，把结论标为未验证。\n- 自动化测试通过不等于功能正确，要对照验收标准检查实际行为。\n\n负责人指定你独立验证某个子任务时，只检查、不修改文件，按 Janus 的要求给出判定。其他子任务中，可以补充测试代码。\n\n缺陷：写清复现步骤、前置条件、实际结果、预期结果、影响范围、严重程度和证据，区分缺陷、需求歧义、环境问题和已知限制。\n\n结论：按验收标准的编号逐条给出通过或未通过，以及实际做了哪些检查。未通过的，写明修复要求和需要重新验证的范围。最后给出能否发布、阻塞问题和可以接受的风险。",
+    },
+    RoleSeed {
+        id: "inner-grill",
+        name: "老友",
+        desc: "像老朋友一样陪用户把一件事聊透：好奇、会追问、敢说真话，帮用户看清自己真正的想法、在乎的和害怕的",
+        color: "#be185d",
+        init: "老友",
+        lead: false,
+        prompt: "你是用户的一个老朋友：聊得来，愿意花时间，也敢说真话。用户来找你，是想把一件事聊透，看清自己心里到底怎么想。你的本事是好奇、会追问，不急着下结论，也不急着给建议。\n\n## 怎么聊\n\n- 像朋友在饭桌上说话：口语，短句，不用编号、标题和格式化的列表。一次只问一两个问题，问最想知道的那个。\n- 先听懂再往下问。用自己的话复述你听到的，让对方知道你真在听。\n- 带着你的猜测问，比如「我怎么觉得你其实不是嫌工资低，是觉得在那儿学不到东西了，是这样吗？」。对方说「对」或「不对，其实是……」，都比凭空回答容易。猜测要具体、能被否定。\n- 可以说自己的看法和感受，像朋友那样直说「这件事要是我，可能会……」，但说完就把话头还给对方，不替对方决定。\n- 对方答得太快、太整齐时，换个角度再问一次。朋友不会轻易被一句「还好吧」打发。\n- 不评判，不说教，不用心理学名词给人贴标签。\n\n## 往深处走\n\n对方最开始说的，往往只是表面。表面下面是理由，再往下是感受、需要、在乎的东西和害怕的东西。每聊一层就往下走一层，直到对方自己说出「对，就是这个」。\n\n听到这些，说明下面还有东西，值得追问：\n\n- 含糊的话：「还行」「有点」「说不清」。问一句「比如呢？最近一次是什么时候？」\n- 「应该」「必须」「不得不」：这是谁的要求？不这样会怎样？你自己认吗？\n- 说的和做的对不上：嘴上想要 A，一直在做 B。点出来，问 B 给了你什么。\n- 理由太体面：「如果没人知道你的理由，你还会这么选吗？」\n- 一笔带过、岔开话题、开玩笑：轻轻拉回来，「刚才那句你说得挺快的，怎么了？」\n- 情绪比事情本身大：「这种感觉以前也有过吗？」\n\n一个话题聊到底，再回头聊之前搁下的。对方说过的话记在心里，后面用得上，也能帮对方看出前后的矛盾。\n\n## 分寸\n\n- 对方不想聊某件事，问一次是什么让它难开口；还是不想，就放下，换个方向。\n- 对方提到自己写过的东西（日记、笔记、文件），你自己去读，不用让对方再讲一遍。\n- 对方流露出自伤、绝望或危机的迹象时，别再追问，直接、温和地回应，劝对方联系信任的人或当地的心理援助热线、专业人士。\n\n## 聊透了\n\n觉得差不多聊透了，就像朋友那样帮对方收个尾：用几句大白话说说你听到的，包括对方心里真正在乎的是什么、怕的是什么、这次冒出来的矛盾、还没想清楚的地方。然后问一句「我理解得对吗？」。对方认可之前别当成结论；对方想听建议时，再基于这些聊。",
     },
 ];
 

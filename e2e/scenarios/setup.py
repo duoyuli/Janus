@@ -25,7 +25,8 @@ def setup(ctx, c):
 
     setup_ = ctx.api("GET", "/api/setup")
     seeded = {r["id"] for r in setup_["roles"]}
-    c({"coordinator", "generalist", "researcher", "product-manager", "implementer", "reviewer"} <= seeded, "首次启动写入 6 个默认数字员工，包括通用数字员工")
+    c({"coordinator", "generalist", "researcher", "product-manager", "implementer", "reviewer", "inner-grill"} <= seeded,
+      "首次启动写入 7 个默认数字员工，包括通用数字员工和「老友」")
 
     # Agents of every built-in kind, checked the way Settings → Digital Employees does.
     fake = Fake(ctx.path("setup", "fake"))
