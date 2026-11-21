@@ -118,26 +118,28 @@ def write_old_data(ws):
         custom = None  # releases from 2026.11.20 on run only Codex and Claude Code
     setup = api("GET", "/api/setup")
     roles = {r["id"]: r for r in setup["roles"]}
-    for rid in ("coordinator", "implementer", "reviewer"):
+    # The default roles under the ids this release gives them: the old ones until 2026.11.21.3.
+    ids = {then: then if then in roles else RENAMED[then] for then in ("coordinator", "implementer", "reviewer")}
+    for then, rid in ids.items():
         body = dict(roles[rid], connection=conn["id"])
-        if rid == "coordinator":
+        if then == "coordinator":
             body["lead"] = True
-        if rid == "reviewer":
+        if then == "reviewer":
             body["prompt"] = "我自己写的质量要求：先跑全部测试。"
         api("POST", "/api/setup/roles", body)
     tester = api("POST", "/api/setup/roles", {"name": "测试员", "role": "旧定位", "desc": "写测试", "connection": (custom or conn)["id"], "prompt": "只写测试"})
     api("POST", "/api/setup/workspaces", {
-        "name": "e2e", "path": ws, "lead": "coordinator", "brief": "共享资料",
-        "members": [{"role": "coordinator"}, {"role": "implementer"}, {"role": "reviewer"}, {"role": tester["id"], "slots": 2}],
+        "name": "e2e", "path": ws, "lead": ids["coordinator"], "brief": "共享资料",
+        "members": [{"role": ids["coordinator"]}, {"role": ids["implementer"]}, {"role": ids["reviewer"]}, {"role": tester["id"], "slots": 2}],
     })
-    return conn, custom, tester
+    return conn, custom, tester, ids
 
 
-def insert_old_run(home, version, ws):
+def insert_old_run(home, version, ws, ids):
     """A delivered run working in place, and one in a worktree of `ws`. Written in the shape of
     data version `version`: before version 10 a worktree has no record of the branch it started on."""
-    team = [old_member("lead", "PMO", "claude", True, "coordinator", version),
-            old_member("implementer", "研发工程师", "claude", False, "implementer", version)]
+    team = [old_member("lead", "PMO", "claude", True, ids["coordinator"], version),
+            old_member("implementer", "研发工程师", "claude", False, ids["implementer"], version)]
     head = subprocess.run(["git", "-C", ws, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     worktree = {"repo": ws}
     if version >= 10:
@@ -201,12 +203,12 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
     old = Server(old_bin, home, log)
     old.start()
     try:
-        conn, custom, tester = write_old_data(ws)
+        conn, custom, tester, ids = write_old_data(ws)
         before = api("GET", "/api/setup")
     finally:
         old.stop()
     old_version = db_version(home)
-    insert_old_run(home, old_version, ws)
+    insert_old_run(home, old_version, ws, ids)
     upgrades = old_version < latest
     say(f"  {tag} 的数据版本是 {old_version}" + ("" if upgrades else "，已是最新，没有要升级的"))
     if dump:
