@@ -3,103 +3,6 @@
 use super::*;
 
 impl App {
-    // @project-doc docs/domains/20261031-run_lifecycle.md#create_run
-    // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
-    pub async fn create_run(self: &Arc<Self>, req: NewRun) -> Result<String> {
-        if req.goal.trim().is_empty() && req.images.is_empty() {
-            bail!("目标不能为空");
-        }
-        let ws = self.workspace(&req.workspace)?;
-        let (cwd, team) = self.team_for(&ws)?;
-        if !cwd.is_dir() {
-            bail!("工作目录不存在：{}", cwd.display());
-        }
-        for m in &team {
-            self.spec_for(&m.runtime)?;
-        }
-        let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await.is_ok();
-        let base_ref = if is_git {
-            git(&cwd, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string()
-        } else {
-            String::new()
-        };
-        // Unique even for runs created in the same millisecond (side by side, as the e2e test does).
-        let id = crate::agents::new_id("r");
-        // A run on a git repository works in its own worktree, so runs on one repository do not
-        // write over each other; one without commits yet, or outside git, works in place.
-        // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
-        let (cwd, worktree) = if is_git && !base_ref.is_empty() {
-            // The worktree is of the whole repository; a workspace that is a folder inside it
-            // (`apps/client`) has its sessions start in that folder of the worktree (FL-09).
-            let top = PathBuf::from(git(&cwd, &["rev-parse", "--show-toplevel"]).await?.trim());
-            let prefix = git(&cwd, &["rev-parse", "--show-prefix"]).await.unwrap_or_default().trim().to_string();
-            let path = self.worktree_dir(&id);
-            let branch = crate::worktrees::current_branch(&top);
-            let included = {
-                let _adding = self.worktree_adds.lock().unwrap_or_else(|p| p.into_inner());
-                crate::worktrees::create(&top, &path, &base_ref, &id)?
-            };
-            // The path the agents' own tools report (`/private/var/…` for `/var/…` on macOS), so
-            // the files they edit resolve against it.
-            let root = path.canonicalize().unwrap_or(path);
-            let start = match prefix.trim_end_matches('/') {
-                "" => root,
-                p => root.join(p),
-            };
-            (start, Some(WorktreeOf { repo: top, branch, included }))
-        } else {
-            (cwd, None)
-        };
-        // Nothing made for a run that is never recorded stays behind: a step that fails from here
-        // takes back the worktree and the run's own directory.
-        let dirs = self.cfg.layout.run(RunKind::Goal, &id);
-        let prepared = self.bundle_team(&dirs, &team).and_then(|()| crate::attachments::save(&dirs, &req.images));
-        let goal_images = match prepared {
-            Ok(images) => images,
-            Err(err) => {
-                if let Some(w) = &worktree {
-                    let kept = self.cfg.layout.deleted_runs();
-                    if let Err(e) = crate::worktrees::remove(&w.repo, &self.worktree_root(&id), &kept, &id) {
-                        crate::config::log(format!("janus: could not take back the worktree of {id}: {e:#}"));
-                    }
-                }
-                crate::layout::remove(&dirs.data);
-                return Err(err);
-            }
-        };
-        let goal = match req.goal.trim() {
-            "" => "按附图完成".to_string(),
-            g => g.to_string(),
-        };
-        let token_limit = req.max_tokens.filter(|&n| n > 0).or(self.cfg.run_token_budget).unwrap_or(0);
-        let mut config =
-            json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
-        if token_limit > 0 {
-            config["tokenLimit"] = json!(token_limit);
-        }
-        if let Some(w) = &worktree {
-            config["worktree"] = json!({ "repo": w.repo, "branch": w.branch });
-        }
-        self.db.insert_run(&id, RunKind::Goal, &goal, &cwd.to_string_lossy(), &config, now_ms())?;
-        let run = Arc::new(Run::new(RunRecord {
-            id: id.clone(),
-            kind: RunKind::Goal,
-            goal,
-            cwd,
-            worktree,
-            team,
-            git: is_git && !base_ref.is_empty(),
-            base_ref,
-            brief: ws["brief"].as_str().unwrap_or("").trim().to_string(),
-            goal_images,
-            last_seq: 0,
-            status: RunStatus::Planning,
-        }));
-        self.runs.lock().unwrap().insert(id.clone(), run.clone());
-        self.launch(run, Phase::Start);
-        Ok(id)
-    }
-
     /// What the person is reminded of before a run starts in `workspace`; they may go ahead
     /// anyway. A git repository's run starts from `HEAD` in its own worktree, without the changes
     /// not committed yet; a directory outside git has no worktree, so another run still working
@@ -624,6 +527,10 @@ impl App {
         if kind == RunKind::Goal && status.is_some_and(RunStatus::is_active) {
             return Err(Refused::Conflict("任务还在进行，先停止任务再删除".into()));
         }
+        // A queued run is taken off the queue first, so it cannot start while it is deleted.
+        if status == Some(RunStatus::Queued) && !self.leave_queue_for_delete(run_id)? {
+            return Err(Refused::Conflict("任务刚刚开始，先停止任务再删除".into()));
+        }
         // A delivered run keeps its lead conversation open for more work; take the run out of the
         // live map first, then stop those sessions before the rows they could still write to are gone.
         let live = self.runs.lock().unwrap().remove(run_id);
@@ -667,7 +574,12 @@ impl App {
                 return Err(Refused::Invalid(anyhow!("删除 {} 失败：{err}", path.display())));
             }
         }
-        Ok(self.db.delete_run(run_id)?)
+        self.db.delete_run(run_id)?;
+        // Other clients drop it from their lists (and the runs queued behind it move up).
+        if let Some(status) = status {
+            let _ = self.changes.send(RunChange { run: run_id.into(), status });
+        }
+        Ok(())
     }
 }
 

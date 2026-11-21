@@ -222,6 +222,13 @@ struct PastWorkspaceView: View {
 /// Runs of a workspace in one card, one row each: the goal, when it started (`dated`), how it stands
 /// (「等你处理」 when something waits on the person), a click to open it and a right click to delete it.
 // @project-doc docs/architecture/20261031-frontend.md#screens
+/// How a run's row names its state: a queued one also says where it is in the queue.
+func runLabel(_ r: JSON) -> (String, Tone) {
+    let status = RunStatus(r["status"].str)
+    if status == .queued, let n = r["queuePosition"].int { return (L.text("排队中 · 第 \(n) 位"), .gray) }
+    return status.listLabel
+}
+
 struct RunRows: View {
     let store: AppStore
     let runs: [JSON]
@@ -233,7 +240,7 @@ struct RunRows: View {
         Card(padding: 4) {
             ForEach(runs, id: \.self) { r in
                 let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
-                let (l, t) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : RunStatus(r["status"].str).listLabel
+                let (l, t) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : runLabel(r)
                 Button { store.open(.run(r["id"].str)) } label: {
                     HStack(spacing: 10) {
                         Text(L.goalTitle(r["goal"].str)).lineLimit(1)

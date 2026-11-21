@@ -4,6 +4,8 @@ import Foundation
 /// groups the app acts on (still running, finished, can be continued, reopens as a conversation)
 /// are stated here once instead of as string sets in each view.
 enum RunStatus: String {
+    /// Waiting in the dispatch queue for a free slot; nothing of it has started.
+    case queued
     case planning, running
     case delivered, accepted, cancelled, failed, interrupted
     /// Nothing read yet (before `run.created`), or a value this app does not know.
@@ -23,6 +25,7 @@ enum RunStatus: String {
     /// How the run lists name it.
     var listLabel: (String, Tone) {
         switch self {
+        case .queued: return (L.text("排队中"), .gray)
         case .planning: return (L.text("负责人启动中"), .blue)
         case .running: return (L.text("执行中"), .blue)
         case .delivered: return (L.text("已交付"), .green)

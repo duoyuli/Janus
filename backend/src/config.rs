@@ -18,18 +18,23 @@ pub struct Settings {
     pub node: String,
     /// Maximum collaborator task attempts running at the same time in one run (`1..=32`, default `3`).
     pub max_concurrent_attempts: usize,
+    /// Goal runs working at the same time across all workspaces; more wait in the dispatch queue
+    /// (`1..=32`, default `8`).
+    pub max_running_runs: usize,
     /// Optional reference for displaying reported token usage.
     pub run_token_budget: Option<i64>,
 }
 
 pub const DEFAULT_MAX_CONCURRENT_ATTEMPTS: usize = 3;
+pub const DEFAULT_MAX_RUNNING_RUNS: usize = 8;
 
-fn parse_concurrency(env: Option<&str>, toml_val: Option<&toml::Value>) -> usize {
+/// A count from 1 to 32 from the environment, else `config.toml`, else `default`.
+fn parse_concurrency(env: Option<&str>, toml_val: Option<&toml::Value>, default: usize) -> usize {
     env.filter(|v| !v.trim().is_empty())
         .and_then(|v| v.trim().parse::<i64>().ok())
         .or_else(|| toml_val.and_then(|v| v.as_integer().or_else(|| v.as_str()?.trim().parse().ok())))
         .map(|n| n.clamp(1, 32) as usize)
-        .unwrap_or(DEFAULT_MAX_CONCURRENT_ATTEMPTS)
+        .unwrap_or(default)
 }
 
 fn parse_positive_i64(env: Option<&str>, toml_val: Option<&toml::Value>) -> Option<i64> {
@@ -58,6 +63,12 @@ static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
     let max_concurrent_attempts = parse_concurrency(
         std::env::var("JANUS_MAX_CONCURRENT_ATTEMPTS").ok().as_deref(),
         file.get("max_concurrent_attempts"),
+        DEFAULT_MAX_CONCURRENT_ATTEMPTS,
+    );
+    let max_running_runs = parse_concurrency(
+        std::env::var("JANUS_MAX_RUNNING_RUNS").ok().as_deref(),
+        file.get("max_running_runs"),
+        DEFAULT_MAX_RUNNING_RUNS,
     );
     let run_token_budget =
         parse_positive_i64(std::env::var("JANUS_RUN_TOKEN_BUDGET").ok().as_deref(), file.get("run_token_budget"));
@@ -66,6 +77,7 @@ static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
         node: pick("JANUS_NODE", "node", "node"),
         home,
         max_concurrent_attempts,
+        max_running_runs,
         run_token_budget,
     }
 });
@@ -119,11 +131,13 @@ mod tests {
 
     #[test]
     fn concurrency_and_token_settings_clamp_and_ignore_non_positive() {
-        let t: toml::Table = "max_concurrent_attempts = 6\nrun_token_budget = 500000".parse().unwrap();
-        assert_eq!(parse_concurrency(None, t.get("max_concurrent_attempts")), 6);
-        assert_eq!(parse_concurrency(Some("99"), t.get("max_concurrent_attempts")), 32);
-        assert_eq!(parse_concurrency(Some("0"), None), 1);
-        assert_eq!(parse_concurrency(None, None), DEFAULT_MAX_CONCURRENT_ATTEMPTS);
+        let t: toml::Table =
+            "max_concurrent_attempts = 6\nmax_running_runs = 2\nrun_token_budget = 500000".parse().unwrap();
+        assert_eq!(parse_concurrency(None, t.get("max_concurrent_attempts"), 3), 6);
+        assert_eq!(parse_concurrency(None, t.get("max_running_runs"), DEFAULT_MAX_RUNNING_RUNS), 2);
+        assert_eq!(parse_concurrency(Some("99"), t.get("max_concurrent_attempts"), 3), 32);
+        assert_eq!(parse_concurrency(Some("0"), None, 3), 1);
+        assert_eq!(parse_concurrency(None, None, DEFAULT_MAX_RUNNING_RUNS), DEFAULT_MAX_RUNNING_RUNS);
         assert_eq!(parse_positive_i64(None, t.get("run_token_budget")), Some(500_000));
         assert_eq!(parse_positive_i64(Some("0"), t.get("run_token_budget")), None);
     }

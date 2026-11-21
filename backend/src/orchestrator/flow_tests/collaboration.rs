@@ -463,13 +463,13 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn role_slots_and_concurrency_cap_schedule_parallel_work_safely() {
-    let mut h = harness(
+    // Cap concurrent attempts at 2 while 3 tasks (`dev-1`, `dev-2`, `qa`) are ready at once.
+    let h = harness_with(
         "collab-slots-cap",
         &[("lead", false), ("dev", true), ("qa", true)],
         json!({ "T1": ["busy-tool"], "T2": ["busy-tool"], "T3": ["ok"] }),
+        |c| c.max_concurrent_attempts = 2,
     );
-    // Cap concurrent attempts at 2 while 3 tasks (`dev-1`, `dev-2`, `qa`) are ready at once.
-    Arc::get_mut(&mut h.app).unwrap().cfg.max_concurrent_attempts = 2;
     let ws = h
         .app
         .save_workspace(&json!({

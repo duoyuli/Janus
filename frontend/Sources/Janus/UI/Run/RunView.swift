@@ -20,6 +20,9 @@ struct RunView: View {
             } else if run.isChat {
                 // A chat is one conversation: no workbench, audit or team pages.
                 ChatView(run: run)
+            } else if run.state.run.status == .queued {
+                // Nothing of it has started: what it will do, where it waits, and the two choices.
+                QueuedView(run: run)
             } else {
                 VStack(spacing: 0) {
                     if run.isReplaying && (run.page == .board || run.page.isDetail) { ReplayBar(run: run) }
@@ -113,6 +116,42 @@ struct RunView: View {
         }
     }
 
+}
+
+/// A run waiting in the dispatch queue: it starts by itself once a slot is free; the person may
+/// start it now (past the slots) or cancel it.
+// @project-doc docs/architecture/20261031-frontend.md#queued_run
+struct QueuedView: View {
+    let run: RunModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Card {
+                    HStack {
+                        Pill(run.queuePosition.map { L.text("排队中 · 第 \($0) 位") } ?? L.text("排队中"), .gray)
+                        Spacer()
+                    }
+                    Text(L.goalTitle(run.state.run.goal)).font(.display(.title2)).textSelection(.enabled)
+                    if run.state.run.goal.contains("\n") {
+                        Text(run.state.run.goal).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    StoredImages(paths: run.state.run.images, size: 64)
+                    Text(L.text("同时在做的任务已经满了。前面的任务做完、停止或暂停后，这个任务会自动开始；开始时才建 worktree，团队和资源库也按那时的设置。"))
+                        .font(.callout).foregroundStyle(.secondary)
+                    HStack {
+                        Button(L.text("取消任务"), role: .destructive) { Task { await run.act(["type": "cancel"]) } }
+                        Button(L.text("立即开始")) { Task { await run.act(["type": "start"]) } }
+                            .buttonStyle(.primary)
+                            .help(L.text("不等空位，现在就开始"))
+                    }
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 860, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
 }
 
 /// The run's Markdown files, one click from anywhere in the run: deliverables, artifacts, and

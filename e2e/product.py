@@ -78,7 +78,9 @@ def main():
     # The server's adapter update checks ask a stand-in registry, never npm (the --real smoke test
     # runs its own server, which installs from npm).
     registry = Registry()
-    env = {"JANUS_NODE": node, "npm_config_registry": registry.url}
+    # Scenarios run side by side and leave runs working; enough slots that none of them waits in the
+    # dispatch queue by accident (the queue scenario restarts the server with one slot).
+    env = {"JANUS_NODE": node, "npm_config_registry": registry.url, "JANUS_MAX_RUNNING_RUNS": "32"}
     server = Server(server_bin, home, os.path.join(report_dir, "janus.log"), env=env)
     ctx = scenarios.Ctx(tmp=tmp, home=home, addr=ADDR, server=server, report=report_dir, python=sys.executable, registry=registry,
                         node=node, server_bin=server_bin, app_bin=app_bin, packaged=a.packaged,

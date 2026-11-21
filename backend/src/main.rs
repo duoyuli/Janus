@@ -100,7 +100,7 @@ async fn main() -> Result<()> {
         }
         Some("--help" | "-h") => {
             println!(
-                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n`janus migrate --dry-run` previews the data upgrade without changing anything.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node), JANUS_MAX_CONCURRENT_ATTEMPTS (max_concurrent_attempts), JANUS_RUN_TOKEN_BUDGET (run_token_budget).\nSee docs/operations/20261031-deployment.md.",
+                "janus {}: local multi-agent workspace. Run without arguments to start the server.\n`janus migrate --dry-run` previews the data upgrade without changing anything.\n\nSettings (environment, else ~/.janus/config.toml): JANUS_HOME, JANUS_ADDR (addr), JANUS_NODE (node), JANUS_MAX_CONCURRENT_ATTEMPTS (max_concurrent_attempts), JANUS_MAX_RUNNING_RUNS (max_running_runs), JANUS_RUN_TOKEN_BUDGET (run_token_budget).\nSee docs/operations/20261031-deployment.md.",
                 VERSION
             );
             return Ok(());
@@ -136,6 +136,7 @@ async fn main() -> Result<()> {
             goal_settle: goal_settle::SETTLE,
             retry_after: orchestrator::RETRY_AFTER,
             max_concurrent_attempts: settings.max_concurrent_attempts,
+            max_running_runs: settings.max_running_runs,
             run_token_budget: settings.run_token_budget,
         },
     );
@@ -163,6 +164,9 @@ async fn main() -> Result<()> {
 
     let addr = app.cfg.addr.clone();
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    // Only once nothing can stop the start: runs queued before the restart start when slots are
+    // free, as they did before it.
+    app.pump();
     config::log(format!("janus {VERSION}: http://{addr}  ·  home {}", app.cfg.layout.home().display()));
     axum::serve(listener, http::router(app)).await?;
     Ok(())

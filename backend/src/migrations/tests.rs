@@ -479,6 +479,11 @@ fn runs_lose_their_budget_ceilings() {
         .unwrap();
     };
     run("waiting", "waiting_input", json!({ "team": [], "costLimitUsd": 2.5, "tokenLimit": 1000 }));
+    conn.execute(
+        "INSERT INTO events (run_id, seq, ts, type, actor, text) VALUES ('waiting', 1, 0, 'run.budget_exhausted', 'janus', '预算用完')",
+        [],
+    )
+    .unwrap();
     run("done", "delivered", json!({ "team": [] }));
     drop(conn);
 
@@ -492,6 +497,13 @@ fn runs_lose_their_budget_ceilings() {
     };
     let (status, config) = row("waiting");
     assert_eq!(status, "interrupted");
+    // Its log says so too, so the run's own page shows it interrupted, with 「从中断处继续」.
+    let (seq, kind): (i64, String) = conn
+        .query_row("SELECT seq, type FROM events WHERE run_id = 'waiting' ORDER BY seq DESC LIMIT 1", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!((seq, kind.as_str()), (2, "run.interrupted"));
     assert_eq!(config, json!({ "team": [], "tokenLimit": 1000 }), "only the cost ceiling goes");
     assert_eq!(row("done"), ("delivered".to_string(), json!({ "team": [] })));
 }

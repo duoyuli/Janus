@@ -283,7 +283,7 @@ private func goalRun() -> Log {
     let scheduler = ["pending", "running", "blocked", "succeeded", "failed", "cancelled", "skipped_by_decision"]
     let derived = ["ready", "assigned", "verifying", "verification_failed", "waiting_input", "waiting_approval"]
     for s in scheduler + derived { #expect(TaskStatus(rawValue: s) != nil, "\(s)") }
-    let runs = ["planning", "running", "delivered", "accepted", "cancelled", "failed", "interrupted"]
+    let runs = ["queued", "planning", "running", "delivered", "accepted", "cancelled", "failed", "interrupted"]
     for s in runs { #expect(RunStatus(s) != .unknown, "\(s)") }
     #expect(RunStatus("idle") == .unknown)
     #expect(Set(runs.map(RunStatus.init).filter(\.isActive)) == [.planning, .running])
@@ -545,4 +545,27 @@ private func goalRun() -> Log {
     #expect(turn == .person(idle: false))
     #expect(turn.after(ev("session.interrupted", ["finish": true])) == turn, "finishing is not taking over")
     #expect(turn.after(ev("control.released")) == .opened)
+}
+
+/// A queued run is only its goal until it starts: `run.queued` names the goal and the queued
+/// state, `run.created` starts it; the run list names its place in the queue.
+@Test func aQueuedRunShowsItsGoalUntilItStarts() {
+    var log = Log()
+    log.add("run.queued", actor: "user", data: ["goal": "修复导出乱码", "workspace": ["id": "w1", "name": "W"], "images": []])
+    let queued = derive(log.events)
+    #expect(queued.run.status == .queued && queued.run.goal == "修复导出乱码")
+    #expect(!queued.run.status.isActive && !queued.run.status.isFinished)
+    // Taken off the queue: being set up, no longer offered to start or cancel.
+    log.add("run.starting", text: "有了空位，开始准备")
+    #expect(derive(log.events).run.status == .planning)
+    log.add("run.created", actor: "user", data: ["goal": "修复导出乱码", "cwd": "/tmp/x", "git": true])
+    #expect(derive(log.events).run.status == .running)
+    // One whose setup never finished goes back on the queue.
+    var again = Log()
+    again.add("run.queued", actor: "user", data: ["goal": "g", "images": []])
+    again.add("run.starting")
+    again.add("run.requeued")
+    #expect(derive(again.events).run.status == .queued)
+    #expect(runLabel(["status": "queued", "queuePosition": 2]).0 == expectedCopy("排队中 · 第 2 位", "Queued · #2"))
+    #expect(runLabel(["status": "queued"]).0 == expectedCopy("排队中", "Queued"))
 }

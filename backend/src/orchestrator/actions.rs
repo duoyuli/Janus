@@ -56,22 +56,50 @@ impl App {
                 return Err(Refused::Conflict("这个任务正在进行，不需要从中断处继续".into()));
             }
             Some(run) => run,
-            None => match kind {
-                // Acceptance needs no live agents, so it also works for runs delivered before a restart.
-                "accept" => match self.accept_archived(run_id).await? {
-                    None => return Ok(()),
-                    // A message brought it back meanwhile: it is accepted as a live run.
-                    Some(run) => run,
-                },
-                "resumeRun" => return Ok(self.resume_run(run_id).await.map(|_| ())?),
-                // Talking to an agent brings an interrupted run back first.
-                "message" => self.resume_run(run_id).await?,
-                _ => {
-                    return Err(Refused::Conflict(
-                        "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
-                    ));
+            None => {
+                let stored = self.db.run(run_id)?.and_then(|r| RunStatus::parse(r["status"].as_str()?));
+                match stored {
+                    // A queued run has nothing live yet: it can only start now or be cancelled.
+                    Some(RunStatus::Queued) => {
+                        return match kind {
+                            "start" => self.start_now(run_id),
+                            "cancel" => self.cancel_queued(run_id),
+                            _ => Err(Refused::Conflict("这个任务还在排队：可以立即开始，或者取消".into())),
+                        };
+                    }
+                    // One that could not start has no snapshot to continue from: it queues again.
+                    Some(RunStatus::Failed) if self.never_started(run_id)? => {
+                        return match kind {
+                            "resumeRun" => {
+                                self.requeue(run_id, "重新排队：上次没能开始")?;
+                                self.pump();
+                                Ok(())
+                            }
+                            _ => Err(Refused::Conflict("这个任务没能开始：点「从中断处继续」重新排队".into())),
+                        };
+                    }
+                    // It just left the queue and is being set up.
+                    Some(RunStatus::Planning) => {
+                        return Err(Refused::Conflict("这个任务正在开始，稍后再试".into()));
+                    }
+                    _ => match kind {
+                        // Acceptance needs no live agents, so it also works for runs delivered before a restart.
+                        "accept" => match self.accept_archived(run_id).await? {
+                            None => return Ok(()),
+                            // A message brought it back meanwhile: it is accepted as a live run.
+                            Some(run) => run,
+                        },
+                        "resumeRun" => return Ok(self.resume_run(run_id).await.map(|_| ())?),
+                        // Talking to an agent brings an interrupted run back first.
+                        "message" => self.resume_run(run_id).await?,
+                        _ => {
+                            return Err(Refused::Conflict(
+                                "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
+                            ));
+                        }
+                    },
                 }
-            },
+            }
         };
         Ok(self.action(&run, body)?)
     }
@@ -179,6 +207,8 @@ impl App {
                 );
                 self.ensure_driver(run);
                 run.wake.notify_one();
+                // A paused run gives its slot to the queue; resuming takes one again.
+                self.pump();
             }
             "cancel" => {
                 let status = run.st.lock().unwrap().status;
@@ -341,22 +371,14 @@ impl App {
         let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
         let (text, data) =
             self.accept_worktree(run_id, worktree.as_ref(), base_ref, row["goal"].as_str().unwrap_or(""), true)?;
-        let seq = self.db.max_seq(run_id)? + 1;
-        self.store(Event {
-            run_id: run_id.into(),
-            seq,
-            ts: now_ms(),
-            kind: "risk.accepted".into(),
-            actor: "user".into(),
-            to: None,
-            task: None,
-            attempt: None,
-            text,
-            data: Some(data),
-        });
-        self.db.set_run_status(run_id, RunStatus::Accepted)?;
-        let _ = self.changes.send(RunChange { run: run_id.into(), status: RunStatus::Accepted });
+        self.record(run_id, ev("risk.accepted", "user", text).data(data))?;
+        self.set_stored_status(run_id, RunStatus::Accepted)?;
         Ok(None)
+    }
+
+    /// A goal run that left the queue but never got its snapshot (`config.team`).
+    fn never_started(&self, run_id: &str) -> Result<bool> {
+        Ok(self.db.run(run_id)?.is_some_and(|r| r["kind"] == RunKind::Goal.as_str() && r["config"]["team"].is_null()))
     }
 
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
@@ -723,19 +745,19 @@ impl App {
             )?;
         }
         for run_id in self.db.unfinished_runs()? {
-            let seq = self.db.max_seq(&run_id)? + 1;
-            self.store(Event {
-                run_id: run_id.clone(),
-                seq,
-                ts: now_ms(),
-                kind: "run.interrupted".into(),
-                actor: "janus".into(),
-                to: None,
-                task: None,
-                attempt: None,
-                text: "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息".into(),
-                data: None,
-            });
+            // Taken off the queue but not set up yet: it goes back in its place.
+            if self.never_started(&run_id)? {
+                self.requeue(&run_id, "服务重启时这个任务还在准备，重新排队")?;
+                continue;
+            }
+            self.record(
+                &run_id,
+                ev(
+                    "run.interrupted",
+                    "janus",
+                    "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息",
+                ),
+            )?;
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
         }
         // An accepted run kept its worktree while its conversation was open; nothing works there

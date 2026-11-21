@@ -16,6 +16,7 @@ mod lead;
 mod library_router;
 mod messages;
 mod owners;
+mod queue;
 mod skill_router;
 mod teamwork;
 mod usage;
@@ -47,6 +48,11 @@ fn sh(cwd: &Path, args: &[&str]) {
 /// `members`: (role id, writable). The first one leads.
 // @project-doc docs/operations/20261031-testing.md#harness
 fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
+    harness_with(name, members, script, |_| {})
+}
+
+/// `harness` with some of the app's settings changed by `set`.
+fn harness_with(name: &str, members: &[(&str, bool)], script: Value, set: impl FnOnce(&mut Config)) -> Harness {
     let dir = std::env::temp_dir().join(format!("janus-flow-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let (repo, fake) = (dir.join("repo"), dir.join("fake"));
@@ -60,7 +66,7 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
     std::fs::write(repo.join("README.md"), "test\n").unwrap();
     sh(&repo, &["add", "-A"]);
     sh(&repo, &["commit", "-q", "-m", "init"]);
-    let app = test_app(&dir);
+    let app = test_app_with(&dir, set);
     // What a check of the fake agent reads: whether a member writes follows from its mode.
     let modes: Vec<Value> =
         ["read-only", "ask", "agent", "full"].iter().map(|v| json!({ "value": v, "name": v })).collect();
@@ -234,12 +240,12 @@ fn task_event(evs: &[Event], kind: &str, task: &str) -> bool {
 /// the same tool call, and leaves alone an attempt that waits on the person.
 #[tokio::test(flavor = "multi_thread")]
 async fn watchdog_reports_stalled_tasks() {
-    let mut h = harness(
+    let h = harness_with(
         "watchdog",
         &[("lead", false), ("m1", true), ("m2", true)],
         json!({ "T1": ["slow"], "T2": ["loop"], "T3": ["permission"] }),
+        |c| c.stall_after = Duration::from_secs(1),
     );
-    Arc::get_mut(&mut h.app).unwrap().cfg.stall_after = Duration::from_secs(1);
     let run = start(
         &h,
         json!([task("T1", "m1", json!({})), task("T2", "m2", json!({})), task("T3", "m2", json!({ "deps": ["T2"] }))]),

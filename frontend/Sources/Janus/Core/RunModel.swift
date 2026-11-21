@@ -96,6 +96,9 @@ final class RunModel {
 
     var team: [JSON] { runJSON["config"]["team"].array }
     var workspaceId: String { runJSON["config"]["workspace"]["id"].str }
+    /// Its place in the dispatch queue (1 is next), while it waits: an open queued run is read
+    /// again whenever any run's status changes (`AppStore.loadRuns`), so it follows runs ahead of it.
+    var queuePosition: Int? { runJSON["queuePosition"].int }
     /// A conversation with one digital employee (`runs.kind`), shown as a chat page instead of the workbench.
     var isChat: Bool { runJSON["kind"].str == "chat" }
 
@@ -199,6 +202,8 @@ final class RunModel {
             if self.events.count > events.count { self.scheduleDerive() }
             // The sidebar lists run statuses; refresh it when this one's changes.
             if derived.run.status != before { await self.store.loadRuns() }
+            // A run that left the queue is read again: being set up, then live once it started.
+            if !self.live, derived.run.status != before, derived.run.status.isActive { await self.read() }
         }
     }
 

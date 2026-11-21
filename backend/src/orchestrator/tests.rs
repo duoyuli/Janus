@@ -446,3 +446,11 @@ fn a_tasks_state_carries_its_own_data() {
     t.set_phase(TaskPhase::SkippedByDecision { because: Some("T0".into()) });
     assert_eq!((t.status(), t.skipped_because()), (TaskStatus::SkippedByDecision, Some("T0")));
 }
+
+/// A goal with a field this build does not know is refused rather than quietly done without it:
+/// a cost ceiling from an older client is not kept any more.
+#[test]
+fn a_goal_with_an_unknown_field_is_refused() {
+    assert!(serde_json::from_value::<NewRun>(json!({ "goal": "g", "workspace": "w" })).is_ok());
+    assert!(serde_json::from_value::<NewRun>(json!({ "goal": "g", "workspace": "w", "maxCostUsd": 1 })).is_err());
+}

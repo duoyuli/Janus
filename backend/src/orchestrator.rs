@@ -42,6 +42,7 @@ mod mcp_router;
 mod mcp_server;
 mod messages;
 mod prompts;
+mod queue;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -147,7 +148,10 @@ pub struct Member {
     pub role_id: String,
 }
 
+/// A goal for a workspace (`POST /api/runs`). A field this build does not know is refused, so a
+/// client that asks for something no longer done (a cost ceiling) hears so.
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct NewRun {
     pub goal: String,
     pub workspace: String,
@@ -1002,6 +1006,8 @@ pub struct Config {
     pub retry_after: Duration,
     /// Maximum collaborator task attempts running concurrently in a run (`1..=32`).
     pub max_concurrent_attempts: usize,
+    /// Goal runs working at the same time; more wait in the dispatch queue (`1..=32`).
+    pub max_running_runs: usize,
     /// Default reference shown alongside reported token usage.
     pub run_token_budget: Option<i64>,
 }
@@ -1027,6 +1033,15 @@ pub struct App {
     /// one being added at the same moment is half written (two runs created together on one
     /// repository failed with `failed to read .git/worktrees/<run>/commondir`).
     pub worktree_adds: StdMutex<()>,
+    /// Held while the dispatch queue hands out slots or a queued run leaves it, so a run is started,
+    /// cancelled or deleted once (`queue.rs`).
+    queue: StdMutex<()>,
+    /// Runs whose own create request has not yet had its turn at the slots; no other pump hands
+    /// them out meanwhile, so that request can wait for its run to be set up.
+    fresh: StdMutex<HashSet<String>>,
+    /// The `Arc` this `App` lives in, for work a status change starts in the background (the next
+    /// queued run).
+    me: std::sync::Weak<App>,
 }
 
 /// A run's new status, as the global stream carries it (`GET /api/stream`).
@@ -1067,6 +1082,21 @@ impl Ev {
     fn data(mut self, data: Value) -> Ev {
         self.data = Some(data);
         self
+    }
+    /// The event as it is stored: `seq` in `run_id`'s log, stamped now.
+    fn into_event(self, run_id: &str, seq: i64) -> Event {
+        Event {
+            run_id: run_id.into(),
+            seq,
+            ts: now_ms(),
+            kind: self.kind,
+            actor: self.actor,
+            to: self.to,
+            task: self.task,
+            attempt: self.attempt,
+            text: self.text,
+            data: self.data,
+        }
     }
     /// The event happens in the session `ctx` speaks in: its task and attempt, if it has them.
     fn scope(mut self, ctx: &Ctx<'_>) -> Ev {
@@ -1120,7 +1150,7 @@ impl App {
     pub fn new(db: Db, cfg: Config) -> Arc<App> {
         let (tx, _) = broadcast::channel(4096);
         let (changes, _) = broadcast::channel(1024);
-        Arc::new(App {
+        Arc::new_cyclic(|me| App {
             db,
             cfg,
             tx,
@@ -1132,6 +1162,9 @@ impl App {
             library: Default::default(),
             revival: Default::default(),
             worktree_adds: Default::default(),
+            queue: Default::default(),
+            fresh: Default::default(),
+            me: me.clone(),
         })
     }
 
@@ -1152,18 +1185,7 @@ impl App {
             return None;
         }
         let seq = run.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let event = Event {
-            run_id: run.id.clone(),
-            seq,
-            ts: now_ms(),
-            kind: e.kind,
-            actor: e.actor,
-            to: e.to,
-            task: e.task,
-            attempt: e.attempt,
-            text: e.text,
-            data: e.data,
-        };
+        let event = e.into_event(&run.id, seq);
         let nudge = needs_lead(&event);
         let wakes_board = wakes_board_wait(&event);
         let stored = self.store(event);
@@ -1192,6 +1214,24 @@ impl App {
         true
     }
 
+    /// Write an event to a run that is not live (queued, interrupted, delivered before a restart):
+    /// nothing else writes to its log, so it takes the next seq after the last one stored.
+    fn record(&self, run_id: &str, e: Ev) -> Result<i64> {
+        let seq = self.db.max_seq(run_id)? + 1;
+        if !self.store(e.into_event(run_id, seq)) {
+            bail!("任务 {run_id} 的事件没有写入");
+        }
+        Ok(seq)
+    }
+
+    /// The status of a run that is not live changes: stored, and told to the global stream.
+    fn set_stored_status(&self, run_id: &str, status: RunStatus) -> Result<()> {
+        self.db.set_run_status(run_id, status)?;
+        let _ = self.changes.send(RunChange { run: run_id.into(), status });
+        self.pump();
+        Ok(())
+    }
+
     /// The only place a run's lifecycle state changes. `RunStatus` states the legal moves;
     /// cancelling also records the flag the schedulers check.
     fn set_status(&self, run: &Run, status: RunStatus) {
@@ -1207,6 +1247,9 @@ impl App {
             if !status.is_active() {
                 st.paused = false;
             }
+            // Stored while the state is held, so two changes reach the database in the order they
+            // were made: a late write cannot undo a cancel (and leave its slot taken).
+            let _ = self.db.set_run_status(&run.id, status);
             changed
         };
         // A stopped run's library servers stop with it, mid-call too: nothing it started keeps
@@ -1215,9 +1258,10 @@ impl App {
         if matches!(status, RunStatus::Cancelled | RunStatus::Failed | RunStatus::Interrupted) {
             run.router.close();
         }
-        let _ = self.db.set_run_status(&run.id, status);
         if changed {
             let _ = self.changes.send(RunChange { run: run.id.clone(), status });
+            // A run that stops working frees its slot for the next queued one.
+            self.pump();
         }
     }
 
@@ -1354,22 +1398,28 @@ pub(crate) fn stand_in_adapters(layout: &crate::layout::Layout) {
 /// An `App` over a fresh database in `dir`, for tests, with the stand-in adapters installed.
 #[cfg(test)]
 pub(crate) fn test_app(dir: &Path) -> Arc<App> {
+    test_app_with(dir, |_| {})
+}
+
+/// `test_app` with some of its settings changed by `set`.
+#[cfg(test)]
+pub(crate) fn test_app_with(dir: &Path, set: impl FnOnce(&mut Config)) -> Arc<App> {
     std::fs::create_dir_all(dir).unwrap();
     let layout = crate::layout::Layout::new(dir);
     stand_in_adapters(&layout);
-    App::new(
-        Db::open(&layout).unwrap().0,
-        Config {
-            layout,
-            addr: "127.0.0.1:7878".into(),
-            // The stand-in adapters are Python scripts: see `stand_in_adapters`.
-            node: "python3".into(),
-            stall_after: STALL_AFTER,
-            goal_settle: crate::goal_settle::SETTLE,
-            // Tests retry at once; the one about the pause sets it.
-            retry_after: Duration::ZERO,
-            max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
-            run_token_budget: None,
-        },
-    )
+    let mut cfg = Config {
+        layout,
+        addr: "127.0.0.1:7878".into(),
+        // The stand-in adapters are Python scripts: see `stand_in_adapters`.
+        node: "python3".into(),
+        stall_after: STALL_AFTER,
+        goal_settle: crate::goal_settle::SETTLE,
+        // Tests retry at once; the one about the pause sets it.
+        retry_after: Duration::ZERO,
+        max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
+        max_running_runs: crate::config::DEFAULT_MAX_RUNNING_RUNS,
+        run_token_budget: None,
+    };
+    set(&mut cfg);
+    App::new(Db::open(&cfg.layout).unwrap().0, cfg)
 }

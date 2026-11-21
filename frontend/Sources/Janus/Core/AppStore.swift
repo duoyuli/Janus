@@ -117,6 +117,9 @@ final class AppStore {
         if let r = try? await api.get("/api/runs?attention=1&limit=500"), r["runs"].array != attention { attention = r["runs"].array }
         if let r = try? await api.get("/api/runs?kind=chat&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
+        // An open run waiting in the queue moves up when a run ahead of it starts or goes, which
+        // writes nothing to its own log: read its place again.
+        if let r = run, r.state.run.status == .queued { await r.read() }
     }
 
     func isChat(_ id: String) -> Bool { chats.contains { $0["id"].str == id } }

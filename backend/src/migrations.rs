@@ -149,7 +149,12 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 18,
         name: "去掉任务的时间和费用上限：等你追加预算的任务改为已中断，快照去掉费用上限",
         steps: &[Step::Sql(
-            "UPDATE runs SET status = 'interrupted' WHERE status = 'waiting_input';
+            "INSERT INTO events (run_id, seq, ts, type, actor, text)
+               SELECT id, (SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = runs.id),
+                      CAST(strftime('%s', 'now') AS INTEGER) * 1000, 'run.interrupted', 'janus',
+                      '任务不再有时间和费用上限：等你追加预算的任务改为已中断，可以从中断处继续'
+               FROM runs WHERE status = 'waiting_input';
+             UPDATE runs SET status = 'interrupted' WHERE status = 'waiting_input';
              UPDATE runs SET config = json_remove(config, '$.costLimitUsd') WHERE json_type(config, '$.costLimitUsd') IS NOT NULL;",
         )],
     },

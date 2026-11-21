@@ -135,7 +135,7 @@ enum Snapshots {
                 JSON.array(xs.map { ["key": JSON($0.key), "run": JSON($0.run), "kind": JSON($0.kind), "title": JSON($0.title),
                                      "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle), "actions": JSON($0.actions.map(\.label))] })
             }
-            let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"]] }) }
+            let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"], "label": JSON(runLabel($0).0)] }) }
             var j: JSON = [
                 "screen": JSON(String(describing: store.screen)), "settings": JSON(store.showingSettings),
                 "settingsTab": JSON(store.settingsTab.rawValue), "permissionsReview": JSON(model.permissions.reviewPresented),
@@ -176,6 +176,7 @@ enum Snapshots {
                     // What each session's composer holds, by session key.
                     "drafts": .object(r.sessionDrafts.mapValues { JSON($0) }),
                     "status": JSON(s.run.status.rawValue), "paused": JSON(s.run.paused), "delivered": JSON(s.result != nil),
+                    "goal": JSON(s.run.goal), "queuePosition": r.queuePosition.map { JSON($0) } ?? .null,
                     "accepted": JSON(s.result?.accepted != nil), "events": JSON(s.events.count),
                     "tasks": JSON.array(s.orderedTasks.map { t in
                         ["id": JSON(t.id), "status": JSON(t.status.rawValue), "agent": JSON(t.agent), "attempts": JSON(t.attempts.count),

@@ -15,6 +15,9 @@ wire_enum! {
     /// attempts finish), and cancelling sets `Cancelled`.
     #[derive(Default)]
     pub enum RunStatus {
+        /// Waiting in the dispatch queue for a free slot (`orchestrator/queue.rs`): nothing of it
+        /// has started, no worktree, no team snapshot, no session.
+        Queued = "queued",
         /// Created, the lead's goal session is starting.
         #[default]
         Planning = "planning",
@@ -58,7 +61,12 @@ impl RunStatus {
         }
         matches!(
             (self, to),
-            (Planning, Running | Delivered | Failed | Cancelled | Interrupted)
+            // A queued run starts, is cancelled, or cannot start (its workspace is gone).
+            (Queued, Planning | Cancelled | Failed)
+                // One that never got set up goes back on the queue: the service stopped while it
+                // was being set up, or it could not start and the person continues it.
+                | (Planning | Failed, Queued)
+                | (Planning, Running | Delivered | Failed | Cancelled | Interrupted)
                 | (Running, Delivered | Failed | Cancelled | Interrupted)
                 | (Delivered, Accepted | Running | Failed | Cancelled | Interrupted)
                 // Continuing an accepted run (a new task or goal in its session) reopens it.
@@ -208,6 +216,7 @@ mod tests {
     #[test]
     fn every_state_keeps_its_wire_name() {
         for (s, name) in [
+            (RunStatus::Queued, "queued"),
             (RunStatus::Planning, "planning"),
             (RunStatus::Running, "running"),
             (RunStatus::Delivered, "delivered"),
@@ -237,6 +246,9 @@ mod tests {
     #[test]
     fn run_states_only_move_where_the_lifecycle_allows() {
         assert!(RunStatus::Planning.can_transition_to(RunStatus::Running));
+        assert!(RunStatus::Queued.can_transition_to(RunStatus::Planning));
+        assert!(!RunStatus::Queued.can_transition_to(RunStatus::Running), "a queued run starts by planning");
+        assert!(!RunStatus::Queued.is_active(), "nothing of a queued run is working yet");
         assert!(RunStatus::Running.can_transition_to(RunStatus::Delivered));
         assert!(RunStatus::Delivered.can_transition_to(RunStatus::Accepted));
         assert!(RunStatus::Delivered.can_transition_to(RunStatus::Running), "a retry reopens delivery");

@@ -13,6 +13,7 @@
 | `JANUS_ADDR` | `addr` | `127.0.0.1:7878` | HTTP 监听地址；也是写进看板 MCP URL 的地址 |
 | `JANUS_NODE` | `node` | `node` | 运行 ACP 适配器的 Node 可执行文件；安装适配器前也用它检查 Node 版本 |
 | `JANUS_MAX_CONCURRENT_ATTEMPTS` | `max_concurrent_attempts` | `3` | 单个 Run 同时运行的协作者尝试上限（范围 1 到 32），见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md) |
+| `JANUS_MAX_RUNNING_RUNS` | `max_running_runs` | `8` | 所有工作区同时在做的目标 Run 上限（范围 1 到 32），更多的在派发队列里排队，见 [Run 生命周期：派发队列](../domains/20261031-run_lifecycle.md#dispatch_queue) |
 | `JANUS_RUN_TOKEN_BUDGET` | `run_token_budget` | 无 | 新建 Run 的 Token 用量参考值（正整数，非正数忽略）。应用将它和已上报用量一起展示，达到参考值后继续执行 |
 
 `config.toml` 示例：
@@ -21,6 +22,7 @@
 addr = "127.0.0.1:7878"
 node = "/opt/homebrew/bin/node"
 max_concurrent_attempts = 3
+max_running_runs = 8
 ```
 
 `JANUS_ADDR` 改成非回环地址会把全部接口暴露出去，见[安全边界](../operations/20261031-security.md#network_exposure)。

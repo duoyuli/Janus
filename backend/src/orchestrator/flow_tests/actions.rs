@@ -72,6 +72,9 @@ async fn runs_created_together_get_distinct_ids() {
     }
     assert_eq!(ids.len(), 8);
     for id in &ids {
+        // With free slots every request's own run is set up before it is answered.
+        let row = h.app.db.run(id).unwrap().unwrap();
+        assert!(row["config"]["team"].is_array(), "{id} has its team when its request returns");
         h.app.action(&h.app.run(id).unwrap(), &json!({ "type": "cancel" })).unwrap();
     }
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -125,7 +128,7 @@ async fn a_run_that_is_not_live_comes_back_once() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// Every status a run moves through reaches the global stream's subscribers once, in order, so the
+/// Every status a run moves through (from the queue to acceptance) reaches the global stream's subscribers once, in order, so the
 /// app's lists follow without polling; a status set again without changing is not announced.
 #[tokio::test(flavor = "multi_thread")]
 async fn status_changes_reach_the_global_stream() {
@@ -141,7 +144,7 @@ async fn status_changes_reach_the_global_stream() {
         assert_eq!(c.run, run);
         seen.push(c.status.as_str());
     }
-    assert_eq!(seen, ["running", "delivered", "accepted"]);
+    assert_eq!(seen, ["queued", "planning", "running", "delivered", "accepted"]);
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

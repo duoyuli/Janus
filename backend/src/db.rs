@@ -73,6 +73,45 @@ pub struct RunsPage {
     pub limit: usize,
 }
 
+/// Write one event through `conn` (a connection, or a transaction in progress).
+fn insert_event_in(conn: &Connection, e: &Event) -> Result<()> {
+    conn.execute(
+        "INSERT INTO events (run_id, seq, ts, type, actor, to_agent, task, attempt, text, data)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            e.run_id,
+            e.seq,
+            e.ts,
+            e.kind,
+            e.actor,
+            e.to,
+            e.task,
+            e.attempt,
+            e.text,
+            e.data.as_ref().map(Value::to_string)
+        ],
+    )?;
+    Ok(())
+}
+
+/// A query over `runs` that reads whole rows (`run_row`): `rest` follows `FROM runs`. A queued
+/// run's place in the dispatch queue is counted in the same statement, so it is of the same moment
+/// as its status.
+// @project-doc docs/domains/20261031-run_lifecycle.md#dispatch_queue
+macro_rules! select_runs {
+    ($rest:literal) => {
+        concat!(
+            "SELECT id, goal, cwd, config, status, created_at, kind,
+                    CASE WHEN status = 'queued' THEN (
+                      SELECT COUNT(*) FROM runs q WHERE q.status = 'queued'
+                        AND (q.created_at < runs.created_at OR (q.created_at = runs.created_at AND q.id <= runs.id))
+                    ) END
+             FROM runs ",
+            $rest
+        )
+    };
+}
+
 /// A `runs` row as the API and the orchestrator read it.
 fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
     Ok(serde_json::json!({
@@ -83,6 +122,7 @@ fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
         "status": r.get::<_, String>(4)?,
         "createdAt": r.get::<_, i64>(5)?,
         "kind": r.get::<_, String>(6)?,
+        "queuePosition": r.get::<_, Option<i64>>(7)?,
     }))
 }
 
@@ -112,6 +152,66 @@ impl Db {
         Ok(())
     }
 
+    /// A goal run that waits in the dispatch queue, with its first event (`run.queued`, seq 1) in
+    /// the same transaction: nothing can take it off the queue before its log begins. `cwd` is its
+    /// workspace's directory until it starts.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#dispatch_queue
+    pub fn insert_queued_run(&self, goal: &str, cwd: &str, config: &Value, first: &Event) -> Result<()> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO runs (id, kind, goal, cwd, config, status, created_at) VALUES (?1, 'goal', ?2, ?3, ?4, 'queued', ?5)",
+            params![first.run_id, goal, cwd, config.to_string(), first.ts],
+        )?;
+        insert_event_in(&tx, first)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Take run `id` off the dispatch queue into `to`, with `event` (its seq is the next in the
+    /// run's log) in the same transaction. `None` when it was no longer queued: someone else
+    /// started, cancelled or deleted it first. The event as stored comes back.
+    pub fn leave_queue(&self, id: &str, to: RunStatus, event: Event) -> Result<Option<Event>> {
+        let mut conn = self.0.lock().unwrap();
+        let tx = conn.transaction()?;
+        let left =
+            tx.execute("UPDATE runs SET status = ?2 WHERE id = ?1 AND status = 'queued'", params![id, to.as_str()])?;
+        if left == 0 {
+            return Ok(None);
+        }
+        let seq: i64 =
+            tx.query_row("SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?1", params![id], |r| r.get(0))?;
+        let event = Event { seq, ..event };
+        insert_event_in(&tx, &event)?;
+        tx.commit()?;
+        Ok(Some(event))
+    }
+
+    /// A queued run starts: where it works and the snapshot it works with (team, worktree, base).
+    pub fn start_run(&self, id: &str, cwd: &str, config: &Value) -> Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .execute("UPDATE runs SET cwd = ?2, config = ?3 WHERE id = ?1", params![id, cwd, config.to_string()])?;
+        Ok(())
+    }
+
+    /// The dispatch queue: queued runs, the one waiting longest first.
+    pub fn queued_runs(&self) -> Result<Vec<String>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id FROM runs WHERE status = 'queued' ORDER BY created_at, id")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Goal runs working now (planning or running), the ones that take a slot of the queue.
+    pub fn working_goal_runs(&self) -> Result<Vec<String>> {
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id FROM runs WHERE kind = 'goal' AND status IN ('planning', 'running')")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// A chat's title, from its first message.
     pub fn set_run_goal(&self, id: &str, goal: &str) -> Result<()> {
         self.0.lock().unwrap().execute("UPDATE runs SET goal = ?2 WHERE id = ?1", params![id, goal])?;
@@ -131,23 +231,7 @@ impl Db {
     }
 
     pub fn insert_event(&self, e: &Event) -> Result<()> {
-        self.0.lock().unwrap().execute(
-            "INSERT INTO events (run_id, seq, ts, type, actor, to_agent, task, attempt, text, data)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                e.run_id,
-                e.seq,
-                e.ts,
-                e.kind,
-                e.actor,
-                e.to,
-                e.task,
-                e.attempt,
-                e.text,
-                e.data.as_ref().map(Value::to_string)
-            ],
-        )?;
-        Ok(())
+        insert_event_in(&self.0.lock().unwrap(), e)
     }
 
     pub fn events(&self, run_id: &str, after: i64) -> Result<Vec<Event>> {
@@ -226,14 +310,13 @@ impl Db {
     pub fn runs_page(&self, page: &RunsPage) -> Result<(Vec<Value>, bool)> {
         let conn = self.0.lock().unwrap();
         let (time, id) = page.before.clone().unwrap_or((i64::MAX, String::new()));
-        let mut stmt = conn.prepare(
-            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs
-             WHERE kind = ?1
+        let mut stmt = conn.prepare(select_runs!(
+            "WHERE kind = ?1
                AND (?2 IS NULL OR json_extract(config, '$.workspace.id') = ?2)
                AND (created_at < ?3 OR (created_at = ?3 AND ?4 != '' AND id < ?4))
                AND (?6 IS NULL OR status IN (SELECT value FROM json_each(?6)))
-             ORDER BY created_at DESC, id DESC LIMIT ?5",
-        )?;
+             ORDER BY created_at DESC, id DESC LIMIT ?5"
+        ))?;
         let statuses = page
             .statuses
             .as_ref()
@@ -270,10 +353,8 @@ impl Db {
     /// The runs still working (planning or running) in directory `cwd`.
     pub fn active_runs_in(&self, cwd: &str) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs
-             WHERE cwd = ?1 AND status IN ('planning', 'running') ORDER BY created_at",
-        )?;
+        let mut stmt =
+            conn.prepare(select_runs!("WHERE cwd = ?1 AND status IN ('planning', 'running') ORDER BY created_at"))?;
         let rows = stmt.query_map(params![cwd], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -281,26 +362,16 @@ impl Db {
     /// Accepted runs that worked in a worktree (`config.worktree`).
     pub fn accepted_worktrees(&self) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, goal, cwd, config, status, created_at, kind FROM runs
-             WHERE status = 'accepted' AND json_extract(config, '$.worktree.repo') IS NOT NULL",
-        )?;
+        let mut stmt = conn.prepare(select_runs!(
+            "WHERE status = 'accepted' AND json_extract(config, '$.worktree.repo') IS NOT NULL"
+        ))?;
         let rows = stmt.query_map([], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// One run by id, however old it is.
     pub fn run(&self, id: &str) -> Result<Option<Value>> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .query_row(
-                "SELECT id, goal, cwd, config, status, created_at, kind FROM runs WHERE id = ?1",
-                params![id],
-                run_row,
-            )
-            .optional()?)
+        Ok(self.0.lock().unwrap().query_row(select_runs!("WHERE id = ?1"), params![id], run_row).optional()?)
     }
 
     /// The agent sessions a run opened: each attempt's, and the lead's or the chat's (recorded
@@ -367,7 +438,7 @@ impl Db {
     pub fn unfinished_runs(&self) -> Result<Vec<String>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id FROM runs WHERE status NOT IN ('delivered', 'accepted', 'cancelled', 'failed', 'interrupted')",
+            "SELECT id FROM runs WHERE status NOT IN ('queued', 'delivered', 'accepted', 'cancelled', 'failed', 'interrupted')",
         )?;
         let rows = stmt.query_map([], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

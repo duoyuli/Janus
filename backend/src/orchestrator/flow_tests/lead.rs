@@ -346,8 +346,9 @@ async fn board_events_are_pushed_into_a_steerable_lead() {
 /// with the lead's summary.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_goal_that_never_settles_is_confirmed_with_the_lead() {
-    let mut h = harness("goalsettle", &[("lead", false), ("m1", true)], json!({}));
-    Arc::get_mut(&mut h.app).unwrap().cfg.goal_settle = Duration::from_secs(1);
+    let h = harness_with("goalsettle", &[("lead", false), ("m1", true)], json!({}), |c| {
+        c.goal_settle = Duration::from_secs(1)
+    });
     std::fs::write(h.dir.join("fake/goal-sticky"), "").unwrap();
     let run =
         h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
@@ -375,8 +376,9 @@ async fn a_goal_that_never_settles_is_confirmed_with_the_lead() {
 /// withdrawn when it moves again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_silent_lead_is_reported_to_the_person() {
-    let mut h = harness("leadstall", &[("lead", false), ("m1", true)], json!({}));
-    Arc::get_mut(&mut h.app).unwrap().cfg.stall_after = Duration::from_secs(1);
+    let h = harness_with("leadstall", &[("lead", false), ("m1", true)], json!({}), |c| {
+        c.stall_after = Duration::from_secs(1)
+    });
     let run =
         h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
     let stalls = |e: &[Event], resolved: bool| {

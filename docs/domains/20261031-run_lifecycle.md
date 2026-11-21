@@ -4,7 +4,7 @@
 
 ## 导航
 
-- [创建 Run](#create_run)：修改 `create_run` 或快照内容时阅读。
+- [创建 Run](#create_run)、[派发队列](#dispatch_queue)：修改 `create_run`、快照内容，或同时在做的 Run 数和排队规则时阅读。
 - [图片附件](#attachments)：修改 `backend/src/attachments.rs`、目标或消息的图片、提示中的图片块时阅读。
 - [工作目录](#workspace_model)：涉及任务在哪里读写、diff 和 Git 时阅读。
 - [任务调度](#scheduling)、[一次尝试](#attempt)、[验证](#verification)、[重试、返工与失败](#retry)：修改调度循环、尝试流程或 `retry` 时阅读。
@@ -17,17 +17,36 @@
 <a id="create_run"></a>
 ## 创建 Run
 
-`App::create_run` 依次执行：
+每个目标 Run 都先进[派发队列](#dispatch_queue)，有空位时立即开始。`App::create_run`（`orchestrator/queue.rs`）依次执行：
 
-1. 目标不能为空（只附了图片时目标记为「按附图完成」），工作区和工作目录必须存在。
-2. 为每个成员构建运行环境（`spec_for`），缺少 CLI 或适配器没有安装时直接报错。
-3. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线和当前检出的分支（验收时合并回这里），并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
-4. 写入 Run 快照（含可选的 Token 展示参考值 `tokenLimit` 和费用上限 `costLimitUsd`），复制 Skill，保存随目标粘贴的图片（快照的 `goalImages`），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
-5. 启动驱动任务，进入负责人的目标会话（`goal`）。
+1. 目标不能为空（只附了图片时目标记为「按附图完成」），工作区和工作目录必须存在，每个成员都能构建运行环境（`spec_for`）；缺少 CLI 或适配器没有安装时直接报错，不排队。
+2. 保存随目标粘贴的图片，写入状态为 `queued` 的 Run（快照只有工作区、`goalImages` 和可选的 Token 展示参考值 `tokenLimit`），记一条 `run.queued`。
+3. 有空位时这个 Run 立即离开队列并开始，开始完才返回，和不排队时一样；否则留在队列里，返回 id。
+
+开始（`start_run`）时按工作区当时的设置准备：
+
+1. 重新读取工作区和团队，检查目录和每个成员的运行环境；工作区已被删除或 Agent 不能用时，Run 记为 `failed`（`run.failed`，「任务没能开始」）。
+2. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线和当前检出的分支（验收时合并回这里），并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
+3. 复制 Skill，写入完整的 Run 快照（团队、是否 Git、基线、工作区、worktree），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
+4. 启动驱动任务，记 `run.created`，进入负责人的目标会话（`goal`）。
 
 Run id 是 `r` 加当前毫秒时间戳的 base36 编码（`agents::new_id`）；同一毫秒内创建的 Run 依次加一，id 不会重复。
 
-Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_roles.md#workspace_brief)，之后修改工作区的共享资料不影响这个 Run，从中断处继续时也使用快照中的版本。
+Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_roles.md#workspace_brief)，之后修改工作区的共享资料不影响这个 Run，从中断处继续时也使用快照中的版本。
+
+<a id="dispatch_queue"></a>
+## 派发队列
+
+一个 Janus 服务只有一个派发队列，跨所有工作区，先进先出（`orchestrator/queue.rs`）。它限制的是同时在做的目标 Run 数，和 Run 内部的[并发上限](#scheduling) `max_concurrent_attempts` 是两层。
+
+- **槽位**：`max_running_runs`（`JANUS_MAX_RUNNING_RUNS`，默认 8，范围 1 到 32，见[配置](../interfaces/20261031-configuration.md#settings)）。只有状态是 `planning` 或 `running`、且没有暂停的目标 Run 占槽位；已交付、已验收、已中断的 Run，对话，暂停中的 Run 都不占。
+- **排队的 Run** 只有记录和 `run.queued` 事件：没有 worktree、团队快照和会话，团队、资源库和基线都在开始时才确定。队列就是状态为 `queued` 的 Run 按创建时间排序，不另存，服务重启后原样保留。
+- **进队**：Run 的记录和第一条事件 `run.queued`（序号 1）在同一个数据库事务里写入，进队之前没有任何人能把它领走。
+- **补位**（`pump`）：有 Run 状态变化（`set_status`）、暂停或继续时，把空出的槽位按顺序交给排队最久的 Run。数不清槽位（读数据库出错）时这一次不派。领走是带条件的更新（只改仍是 `queued` 的行）加一条 `run.starting`，在同一个事务里；没领到就不开始，所以同一个 Run 不会被开始两次。服务在开始监听之后才补位，启动失败不会消耗队首。
+- **有空位时准备好才返回**：创建请求自己的 Run 在这个请求轮到补位之前不会被别的补位领走（`App.fresh`），所以有空位时请求返回时 Run 已经准备好、在运行；没轮上就立即再补位一次，不会空等。
+- **准备没完成的 Run**：领走后、写入快照前服务停了的 Run，重启时回到队列原来的位置（`run.requeued`），不记为中断；准备失败（工作区不在、Agent 不能运行）的记为 `failed`，用户「从中断处继续」时重新排队。这类 Run 没有快照，不能直接恢复，也不能发消息。开始准备时如果发现上次留下的同名 worktree，先移走再重建。
+- **用户操作**：排队的 Run 只接受 `start`（立即开始，不等空位）和 `cancel`（取消，`run.cancelled` 和状态在同一个事务里），其余操作返回 409；已经被领走时这两个操作也返回 409。也可以删除。「从中断处继续」和给中断的任务发消息同「立即开始」一样，是用户直接要求开始，不等空位。暂停一个 Run 会让出槽位，继续后它照常进行，这时同时在做的 Run 可能超过槽位数，新的 Run 继续排队直到有空位。
+- **排位**：`GET /api/runs` 和 `GET /api/runs/{id}` 中排队的 Run 带 `queuePosition`（1 是下一个），和状态在同一条查询里算出，见 [HTTP API](../interfaces/20261031-http_api.md#run_list)。删除 Run 也发全局事件流通知，排在后面的 Run 的排位随之更新。
 
 <a id="attachments"></a>
 ## 图片附件
@@ -185,7 +204,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - 等人的时间不算：尝试在等提问的回答、审批或表单（`Run::held` 返回的守卫存在期间），或会话被用户接管或打断（`Run::set_human`）时，计时从头开始。这些状态由尝试自己在内存中标记，停滞检测不读事件日志。
 - 同一段没有动静的时间只报告一次。会话再发出任何更新后重新计时，并写入一条 `data.resolved` 为 `true` 的 `task.stalled`，应用据此撤下「可能卡住了」，负责人不会读到它。同一个调用每连续满 5 次报告一次（5、10、15……），换了调用后重新计数。
 - 负责人会话按同样的规则检查（看门狗按会话记录，负责人的会话是 `SessionKey::Lead`），结果写 `lead.stalled`，`to` 为 `user`：负责人之上没有别人会发现它卡住。应用在「需要你处理」中显示「负责人可能卡住了」，再有动静时撤下。负责人调用 Janus 看板工具不计入原地打转，反复 `wait` 是正常的。
-- 只有操作和结果都没变才算重复：同一个文件连续编辑但每次改的内容不同，或「编辑 → 跑测试」交替而测试输出在变，都是在推进，不报告。比较结果前去掉其中每次运行都会变的耗时（数字加时间单位，如 `0.23s`、`120 ms`）和时刻（如 `12:34:56`），反复跑同一个失败的测试仍算重复；失败数量之类的其他数字照常比较。参数按原样比较。结果里还有别的每次都变的内容（例如进程号、临时路径）时，这样的循环不会被认出：协作者一直在调用工具，「没有动静」的检测也不会触发，只能靠时间限制。内存中只保存每次调用的哈希，不保存参数和输出。
+- 只有操作和结果都没变才算重复：同一个文件连续编辑但每次改的内容不同，或「编辑 → 跑测试」交替而测试输出在变，都是在推进，不报告。比较结果前去掉其中每次运行都会变的耗时（数字加时间单位，如 `0.23s`、`120 ms`）和时刻（如 `12:34:56`），反复跑同一个失败的测试仍算重复；失败数量之类的其他数字照常比较。参数按原样比较。结果里还有别的每次都变的内容（例如进程号、临时路径）时，这样的循环不会被认出：协作者一直在调用工具，「没有动静」的检测也不会触发；工作没有时间上限，这时由负责人或用户看到后打断或取消。内存中只保存每次调用的哈希，不保存参数和输出。
 - 停滞检测只报告，不打断、不重试也不取消。负责人在 `wait` 中读到 `[停滞]`，自己判断继续等、`reply`、`retry` 还是 `cancel`，见[目标模式与共享看板](20261031-goal_mode.md#failures_in_goal_mode)。
 - 计时状态只在内存中（`Run.watch`），重启后从头开始；`task.stalled` 不影响恢复。
 
@@ -218,7 +237,8 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 
 | 状态 | 含义 |
 | --- | --- |
-| `planning` | 刚创建，负责人会话正在启动 |
+| `queued` | 在[派发队列](#dispatch_queue)里等空位，还没有开始任何东西 |
+| `planning` | 刚开始，负责人会话正在启动 |
 | `running` | 运行中；暂停时状态也保持 `running` |
 | `delivered` | 已交付，等待验收 |
 | `accepted` | 用户核对后验收。只能从 `delivered` 进入；继续下指令或设置新目标时重新打开 |
@@ -237,7 +257,7 @@ Run 快照中的工作区带着创建时的[共享资料](20261031-agents_and_ro
 - **回答与审批**：`answer`、`approve`、`input`。
 - **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_session/steering` 时，见[插话](../interfaces/20261031-acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/20261031-events.md#message_flow)。
 - **控制 Run**：`pause`、`resume`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
-- **删除 Run**：应用里删除一个已结束的 Run（`DELETE /api/runs/{id}`，见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)）。删除会移除它的事件、派生索引，以及 `~/.janus` 下的产物、日志、附件和成员资源包，不可恢复；工作目录中的文件不动。`planning`、`running` 或 `waiting_input` 的 Run 不能删除，要先停止。删除不是取消，也不影响其他 Run。
+- **删除 Run**：应用里删除一个已结束的 Run（`DELETE /api/runs/{id}`，见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)）。删除会移除它的事件、派生索引，以及 `~/.janus` 下的产物、日志、附件和成员资源包，不可恢复；工作目录中的文件不动。`planning`、`running` 的 Run 不能删除，要先停止；排队中的 Run 可以删除，先离开队列（记 `run.cancelled`），不会在删除期间开始。删除不是取消，也不影响其他 Run。
 
 取消 Run（`run.cancelled`）和取消任务（`task.skipped_by_decision`）在用量账本里的范围不同：前者把取消时刻仍在跑的所有尝试记「已取消」，备注「任务被取消」；后者只影响那个任务的尝试，备注「负责人取消了这个子任务」，同一个 Run 里其他任务的尝试保持「未完成」。两者都不改动取消前已经结束的尝试（失败、验证没通过、过期保持原状态），已经上报的用量照常计入。Janus 不为这两类取消写尝试级事件，杀连接后可能还有一条失败事件，也不算真的失败。见[用量口径](../interfaces/20261031-events.md#usage_accounting)。
 

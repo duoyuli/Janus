@@ -89,8 +89,9 @@ async fn a_reply_for_a_task_waits_for_that_task() {
 /// A failed attempt is tried again after a pause, not the moment it fails (AT-10).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_attempt_is_retried_after_a_pause() {
-    let mut h = harness("retry-pause", &[("lead", false), ("m1", true)], json!({ "T1": ["fail", "ok"] }));
-    Arc::get_mut(&mut h.app).unwrap().cfg.retry_after = Duration::from_millis(1500);
+    let h = harness_with("retry-pause", &[("lead", false), ("m1", true)], json!({ "T1": ["fail", "ok"] }), |c| {
+        c.retry_after = Duration::from_millis(1500)
+    });
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
     let evs = events(&h.app, &run);

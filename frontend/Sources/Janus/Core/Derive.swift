@@ -264,6 +264,14 @@ func derive(_ events: [Event]) -> RunState {
         let t = e.task.flatMap { s.tasks[$0] }
         let d = e.data
         switch e.type {
+        case "run.queued":
+            // Waiting for a slot: what it will do is known, nothing of it has started.
+            s.run.status = .queued
+            s.run.goal = d["goal"].str
+            s.run.images = Attach.paths(d)
+            s.run.start = e.ts
+        case "run.starting": s.run.status = .planning
+        case "run.requeued": s.run.status = .queued
         case "run.created":
             s.run.status = .running
             s.run.goal = d["goal"].str
