@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.21.5
+
+- 「设置 → 通用」新增「发送消息」：可以选择 ⌘↩ 发送（默认，↩ 换行）或 ↩ 发送（⇧↩ 换行，⌘↩ 也能发送）。目标输入框、任务会话和对话都按这个设置，切换后已经打开的输入框立即生效，输入框的提示也写出当前的发送键。用输入法打字时，选字过程中按 ↩ 是让候选字上屏，不会把消息发出去。
+
+- Settings › General has a new Send Messages option: ⌘↩ sends (the default, ↩ starts a new line), or ↩ sends (⇧↩ starts a new line and ⌘↩ still sends). The goal box, task sessions and chats all follow it; composers that are already open switch at once, and their hints name the current key. While an input method is composing, ↩ commits the composition instead of sending the message.
+
 ## 2026.11.21.4
 
 - 服务返回的错误提示都改为中文，例如找不到任务时显示「任务不存在」，不再是英文的 `run not found`、`unknown kind`。
