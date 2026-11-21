@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.21.3
+
+- 数字员工可以有自己的头像：在数字员工编辑器里点「更换头像…」选一张图片，或者把图片拖到头像上，应用会从中间裁成正方形；「移除头像」回到原来的颜色和文字。设置、工作区、任务的团队和看板、收件箱、对话里都显示这张头像，删除数字员工时头像一起删除。
+- 7 位默认数字员工都有了拟人的默认头像。升级后，没换过头像的默认数字员工自动用上；以后的版本换了默认头像，你没换过的跟着更新，换成自己的或移除了的保持不变。
+- 默认数字员工的 id 改为它的职能：PMO 是 `pmo`，市场运营是 `marketing`，研发工程师是 `developer`，质量工程师是 `qa`，老友是 `friend`。升级时工作区成员、负责人和历史任务里的引用一起改；你自己用这些旧 id 建的数字员工不受影响。
+
+- Digital employees can have their own picture: click "Change Avatar…" in the digital employee editor to pick an image, or drop one onto the avatar, and the app crops it to a square from the center; "Remove Avatar" goes back to the color and initials. The picture shows in Settings, workspaces, a task's team and board, the inbox and chats, and is deleted with the digital employee.
+- The seven default digital employees now have person-like default pictures. After upgrading, default employees whose picture you never changed get theirs; when a later version changes a default picture, yours follows unless you replaced or removed it.
+- The default digital employees' ids now say what they do: the PMO is `pmo`, marketing `marketing`, the engineer `developer`, quality `qa`, and 老友 `friend`. Upgrading updates workspace members, leads and past tasks to match; digital employees you made yourself under these old ids are left alone.
+
 ## 2026.11.21.2
 
 - 新增默认的数字员工「老友」：像老朋友一样陪你把一件事聊透，好奇、会追问、敢说真话，适合在对话里用。全新安装直接就有；已经在用的，升级后自动加上。你自己已经建过同名同 id 的「老友」时保留你的。
