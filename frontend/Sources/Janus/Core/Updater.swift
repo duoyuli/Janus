@@ -310,7 +310,7 @@ final class Updater {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { exit(0) }
     }
 
-    static let installScript = """
+    nonisolated static let installScript = """
     #!/bin/sh
     # Janus in-app update: wait for the app to quit, swap the bundle, open the new one.
     pid="$1"; cur="$2"; new="$3"; prev="$4"; log="$5"
