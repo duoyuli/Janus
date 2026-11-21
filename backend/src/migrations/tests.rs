@@ -96,7 +96,17 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     assert_eq!(agents, ["claude"], "only the Claude Code agent is left");
     let workspace_after: String =
         conn.query_row("SELECT data FROM configs WHERE kind = 'workspace'", [], |r| r.get(0)).unwrap();
-    assert_eq!(workspace_after, workspace_before, "objects no migration touches are left alone");
+    // Version 17 renames the default roles it names; nothing else in it changes.
+    let mut expected: Value = serde_json::from_str(&workspace_before).unwrap();
+    expected["lead"] = json!("pmo");
+    for (m, now) in expected["members"].as_array_mut().unwrap().iter_mut().zip(["pmo", "developer", "qa"]) {
+        m["role"] = json!(now);
+    }
+    assert_eq!(
+        serde_json::from_str::<Value>(&workspace_after).unwrap(),
+        expected,
+        "the rest of the workspace is left alone"
+    );
     let team: Value = serde_json::from_str(
         &conn.query_row("SELECT config FROM runs WHERE id = 'run-old'", [], |r| r.get::<_, String>(0)).unwrap(),
     )
@@ -108,7 +118,7 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     let members: Vec<crate::orchestrator::Member> =
         serde_json::from_value(team["team"].clone()).unwrap_or_else(|e| panic!("the past run's team reads: {e}"));
     assert!(!members.is_empty());
-    for id in ["coordinator", "researcher", "product-manager", "implementer", "reviewer", "generalist"] {
+    for id in ["pmo", "marketing", "product-manager", "developer", "qa", "generalist", "friend"] {
         assert_eq!(config(&conn, "role", id)["seed"]["id"], id, "{id} knows its origin");
     }
     drop(conn);
@@ -265,13 +275,14 @@ fn old_friend_joins_the_default_roles() {
     let path = old_database("old-friend");
     open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
-    let shipped = config(&conn, "role", "inner-grill");
+    // Added under the id of its time, moved to its current one by version 17.
+    let shipped = config(&conn, "role", "friend");
     assert_eq!((shipped["name"].as_str(), shipped["connection"].as_str()), (Some("老友"), Some("")));
-    assert_eq!(shipped["seed"]["id"], "inner-grill");
+    assert_eq!(shipped["seed"]["id"], "friend");
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
     drop(conn);
 
-    let mine = |name: &str, prompt: &str| {
+    let mine = |name: &str, prompt: &str, id: &str| {
         let path = old_database(name);
         let conn = Connection::open(&path).unwrap();
         let role = json!({ "id": "inner-grill", "name": "老友", "desc": shipped["desc"], "prompt": prompt,
@@ -283,13 +294,60 @@ fn old_friend_joins_the_default_roles() {
         .unwrap();
         drop(conn);
         open(&path).unwrap();
-        config(&Connection::open(&path).unwrap(), "role", "inner-grill")
+        config(&Connection::open(&path).unwrap(), "role", id)
     };
-    let copied = mine("old-friend-copied", shipped["prompt"].as_str().unwrap());
+    let copied = mine("old-friend-copied", shipped["prompt"].as_str().unwrap(), "friend");
     assert_eq!(copied["seed"], shipped["seed"], "the shipped text copied by hand becomes the default role");
     assert_eq!(copied["model"], "opus", "keeping the person's own settings");
-    let edited = mine("old-friend-edited", "我自己的老友");
+    let edited = mine("old-friend-edited", "我自己的老友", "inner-grill");
     assert!(edited.get("seed").is_none() && edited["prompt"] == "我自己的老友", "an edited one stays the person's");
+}
+
+/// Version 17: the default roles take ids that name what they do, everywhere they are named: the
+/// record, a workspace's lead and members, the members of past runs, and the picture's folder.
+/// A role of the person's own under an old id, or a default whose new id is taken, stays.
+#[test]
+fn default_roles_take_ids_that_name_what_they_do() {
+    let path = old_database("rename");
+    let home = home_of(&path).to_path_buf();
+    let conn = Connection::open(&path).unwrap();
+    // The person made their own "pmo" before, so the PMO keeps its old id.
+    let pmo = json!({ "id": "pmo", "name": "我的 PMO", "desc": "", "prompt": "", "connection": "", "model": "", "effort": "",
+        "session": {}, "lead": false, "color": "#64748b", "init": "PM" });
+    conn.execute(
+        "INSERT INTO configs (kind, id, data, updated_at) VALUES ('role', 'pmo', ?1, 0)",
+        params![pmo.to_string()],
+    )
+    .unwrap();
+    drop(conn);
+    // A picture where version 16 kept it.
+    let picture = home.join("data/roles/implementer/avatar.png");
+    std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+    std::fs::write(&picture, b"png").unwrap();
+
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    for (then, now) in [("researcher", "marketing"), ("implementer", "developer"), ("reviewer", "qa")] {
+        assert!(
+            conn.query_row("SELECT 1 FROM configs WHERE kind = 'role' AND id = ?1", [then], |_| Ok(())).is_err(),
+            "{then} is gone"
+        );
+        let role = config(&conn, "role", now);
+        assert_eq!((role["id"].as_str(), role["seed"]["id"].as_str()), (Some(now), Some(now)));
+    }
+    assert_eq!(config(&conn, "role", "coordinator")["seed"]["id"], "coordinator", "its new id was taken");
+    assert_eq!(config(&conn, "role", "pmo")["name"], "我的 PMO", "the person's own role is theirs");
+    let ws: String = conn.query_row("SELECT data FROM configs WHERE kind = 'workspace'", [], |r| r.get(0)).unwrap();
+    let ws: Value = serde_json::from_str(&ws).unwrap();
+    assert_eq!(ws["lead"], "coordinator");
+    let members: Vec<&str> = ws["members"].as_array().unwrap().iter().map(|m| m["role"].as_str().unwrap()).collect();
+    assert_eq!(&members[..3], ["coordinator", "developer", "qa"]);
+    let team: String = conn.query_row("SELECT config FROM runs WHERE id = 'run-old'", [], |r| r.get(0)).unwrap();
+    let team: Value = serde_json::from_str(&team).unwrap();
+    let roles: Vec<&str> = team["team"].as_array().unwrap().iter().map(|m| m["role_id"].as_str().unwrap()).collect();
+    assert_eq!(roles, ["coordinator", "developer"], "past runs show the roles they came from");
+    assert!(!picture.exists() && home.join("data/roles/developer/avatar.png").exists(), "the picture follows its role");
+    assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
 }
 
 #[test]

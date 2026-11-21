@@ -1,5 +1,5 @@
 ---
-id: implementer
+id: developer
 name: 研发工程师
 desc: 技术方案、编码实现、缺陷修复和自动化测试；适合需要改代码、配置或构建脚本的子任务
 color: "#11845a"

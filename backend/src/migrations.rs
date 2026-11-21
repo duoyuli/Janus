@@ -149,6 +149,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "数字员工可以有自己的头像：已有的数字员工没有头像，显示文字",
         steps: &[Step::Add { at: Target::Config("role"), field: "avatar", default: || serde_json::json!("") }],
     },
+    Migration {
+        version: 17,
+        name: "默认数字员工的 id 改为它的职能：pmo、marketing、developer、qa、friend",
+        steps: &[Step::Home(crate::agents::rename_default_roles)],
+    },
 ];
 
 /// The data version this build reads and writes.

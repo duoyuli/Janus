@@ -68,11 +68,11 @@ def real(ctx, c):
         conventions = api("POST", "/api/library/skills", CONVENTIONS)
 
         roles = {r["id"]: r for r in api("GET", "/api/setup")["roles"]}
-        api("POST", "/api/setup/roles", dict(roles["coordinator"], connection=ids["codex"], lead=True))
-        api("POST", "/api/setup/roles", dict(roles["implementer"], connection=ids["claude"]))
-        api("POST", "/api/setup/roles", dict(roles["reviewer"], connection=ids["claude"]))
-        api("POST", "/api/setup/workspaces", {"id": "calc", "name": "calc", "path": repo, "lead": "coordinator",
-                                              "members": [{"role": "coordinator"}, {"role": "implementer"}, {"role": "reviewer"}]})
+        api("POST", "/api/setup/roles", dict(roles["pmo"], connection=ids["codex"], lead=True))
+        api("POST", "/api/setup/roles", dict(roles["developer"], connection=ids["claude"]))
+        api("POST", "/api/setup/roles", dict(roles["qa"], connection=ids["claude"]))
+        api("POST", "/api/setup/workspaces", {"id": "calc", "name": "calc", "path": repo, "lead": "pmo",
+                                              "members": [{"role": "pmo"}, {"role": "developer"}, {"role": "qa"}]})
         run = api("POST", "/api/runs", {"goal": GOAL, "workspace": "calc"})["id"]
         c(True, f"提交目标（Run {run}）")
         status = _drive(api, run, c, timeout=30 * 60)

@@ -26,7 +26,7 @@ def setup(ctx, c):
 
     setup_ = ctx.api("GET", "/api/setup")
     seeded = {r["id"] for r in setup_["roles"]}
-    c({"coordinator", "generalist", "researcher", "product-manager", "implementer", "reviewer", "inner-grill"} <= seeded,
+    c({"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend"} <= seeded,
       "首次启动写入 7 个默认数字员工，包括通用数字员工和「老友」")
 
     # Agents of every built-in kind, checked the way Settings → Digital Employees does.
@@ -64,9 +64,9 @@ def setup(ctx, c):
     ctx.api("POST", "/api/setup/roles", {"id": "setup-unbound-lead", "name": "没绑定的负责人", "desc": "x", "connection": "", "lead": True})
     repo = git_repo(ctx.path("setup", "repo"))
     code, text = ctx.api_error("POST", "/api/setup/workspaces", {
-        "id": "setup-bad", "name": "bad", "path": repo, "lead": "setup-unbound-lead", "members": [{"role": "setup-unbound-lead"}, {"role": "implementer"}]})
+        "id": "setup-bad", "name": "bad", "path": repo, "lead": "setup-unbound-lead", "members": [{"role": "setup-unbound-lead"}, {"role": "developer"}]})
     c(code == 400, f"没有绑定 Agent 的数字员工不能担任负责人（{code} {text.strip()[:80]}）")
-    code, _ = ctx.api_error("POST", "/api/setup/workspaces", {"id": "setup-bad", "name": "bad", "path": repo + "/missing", "lead": "coordinator", "members": [{"role": "coordinator"}]})
+    code, _ = ctx.api_error("POST", "/api/setup/workspaces", {"id": "setup-bad", "name": "bad", "path": repo + "/missing", "lead": "pmo", "members": [{"role": "pmo"}]})
     c(code == 400, "不存在的工作目录被拒绝")
 
     # The library: a Skill and an MCP server with a secret value, both for every digital employee.
@@ -95,7 +95,7 @@ def setup(ctx, c):
     routed = ctx.api("POST", "/api/library/mcp", {"name": "e2e-route", "description": "路由测试", "transport": "stdio",
                                                   "command": f"{ctx.python} {os.path.join(ROOT, 'backend', 'testdata', 'fake_mcp.py')}",
                                                   "vars": [{"name": "FAKE_MCP_LOG", "value": starts}]})
-    for path, body in (("reach", {"reach": "picked"}), ("roles", {"roles": ["implementer"]})):
+    for path, body in (("reach", {"reach": "picked"}), ("roles", {"roles": ["developer"]})):
         code, _ = ctx.api_error("POST", f"/api/library/items/{routed['id']}/{path}", body)
         c(code in (404, 405), f"不能再把资源收口或勾给个别数字员工（{path}：{code}）")
     # A Streamable HTTP server with a credential header: Janus reaches it, the agent never sees it.
@@ -114,27 +114,27 @@ def setup(ctx, c):
     warm = wait(lambda: prepared(remote["id"]), "新添加的 HTTP 服务器预先连接完", 60)
     c(warm.get("state") == "ready" and warm.get("tools") == 2, f"HTTP 服务器添加后预先连接一次并数出工具：{warm}")
 
-    # The default team, bound to the agents: PMO leads on Codex, the engineer and the reviewer on Claude Code.
+    # The default team, bound to the agents: PMO leads on Codex, the engineer and the qa on Claude Code.
     roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
-    ctx.api("POST", "/api/setup/roles", dict(roles["coordinator"], connection="setup-codex", lead=True))
-    ctx.api("POST", "/api/setup/roles", dict(roles["implementer"], connection="setup-claude"))
-    ctx.api("POST", "/api/setup/roles", dict(roles["reviewer"], connection="setup-claude"))
+    ctx.api("POST", "/api/setup/roles", dict(roles["pmo"], connection="setup-codex", lead=True))
+    ctx.api("POST", "/api/setup/roles", dict(roles["developer"], connection="setup-claude"))
+    ctx.api("POST", "/api/setup/roles", dict(roles["qa"], connection="setup-claude"))
     roles = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
     c(not any("resources" in r for r in roles.values()), "数字员工不再选资源")
-    ws = ctx.api("POST", "/api/setup/workspaces", {"id": "setup", "name": "默认团队", "path": repo, "lead": "coordinator", "brief": "共享资料：用 Python 3。",
-                                                   "members": [{"role": "coordinator"}, {"role": "implementer"}, {"role": "reviewer"}]})
+    ws = ctx.api("POST", "/api/setup/workspaces", {"id": "setup", "name": "默认团队", "path": repo, "lead": "pmo", "brief": "共享资料：用 Python 3。",
+                                                   "members": [{"role": "pmo"}, {"role": "developer"}, {"role": "qa"}]})
     c(ws["path"] == repo, "工作区保存规范化的绝对路径")
     insp = ctx.api("GET", f"/api/inspect?path={repo}")
     c(insp.get("git") is True, f"检查目录识别出 Git 仓库：{insp}")
-    code, _ = ctx.api_error("DELETE", "/api/setup/roles/implementer")
+    code, _ = ctx.api_error("DELETE", "/api/setup/roles/developer")
     c(code == 400, "被工作区使用的数字员工不能删除")
 
-    team = Team(ctx, "setup", fake, repo, ws, {"implementer": "implementer", "reviewer": "reviewer"}, cs["setup-codex"], cs["setup-claude"])
+    team = Team(ctx, "setup", fake, repo, ws, {"developer": "developer", "qa": "qa"}, cs["setup-codex"], cs["setup-claude"])
     fake.script({"T1": ["write:hello.py"], "V1": ["approve"]})
     run = team.run("写一个 hello.py")
     fake.wait_call("goal 写一个 hello.py")
     c(True, "负责人（Codex 替身）收到 /goal")
-    run.orchestrate(task("T1", "implementer", owns=["hello.py"]), task("V1", "reviewer", verifies="T1"))
+    run.orchestrate(task("T1", "developer", owns=["hello.py"]), task("V1", "qa", verifies="T1"))
     board = run.read_board(lambda b: "[完成] V1" in b)
     c("[完成] T1" in board and "[完成] V1" in board, "研发完成，质量工程师（Claude 替身）独立验证完成")
     sessions = [line for line in fake.calls().splitlines() if line.startswith("mcp ") and f"/mcp/{run.id}/" in line and '/T1"' in line]
@@ -177,7 +177,7 @@ def setup(ctx, c):
         st = ctx.app.until(lambda s: {x["id"]: x["phase"] for x in s["connections"]}.get("setup-codex") == "ok"
                            and "setup" in [w["id"] for w in s["workspaces"]], "应用读到 Agent、数字员工和工作区", "reload", "open home:setup")
         c(True, "应用：设置里的 Agent 状态与服务一致（检查通过）")
-        c({"coordinator", "implementer"} <= {r["id"] for r in st["roles"]}, "应用：读到默认数字员工")
+        c({"pmo", "developer"} <= {r["id"] for r in st["roles"]}, "应用：读到默认数字员工")
         for tab in ("general", "agents", "library:skill", "library:mcp", "usage", "permissions", "updates"):
             shot = "settings-" + tab.replace(":", "-")
             ctx.app.do(f"open settings:{tab}", f"shot {shot}")
@@ -203,22 +203,22 @@ def setup(ctx, c):
             c(_drawn(ctx, shot), f"应用：MCP 编辑器 {cmd} 画出来了")
         # Digital employees' pictures: the default ones come with theirs; one of your own, cropped
         # and scaled by the app, replaces it; removing it shows the initials again.
-        defaults = {"coordinator", "generalist", "researcher", "product-manager", "implementer", "reviewer", "inner-grill"}
+        defaults = {"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend"}
         st = ctx.app.until(lambda s: defaults <= set(s.get("avatars") or {}), "应用读到默认数字员工的头像", "reload")
         c(all(st["avatars"][r] == 256 for r in defaults), f"应用：7 位默认数字员工都带着 256 像素的头像（{st['avatars']}）")
-        code, _ = ctx.api_error("PUT", "/api/roles/implementer/avatar", {"data": base64.b64encode(b"GIF89a not a png").decode()})
+        code, _ = ctx.api_error("PUT", "/api/roles/developer/avatar", {"data": base64.b64encode(b"GIF89a not a png").decode()})
         c(code == 400, f"不是 PNG 的头像被拒绝（{code}）")
-        before = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["implementer"]["avatar"]
-        ctx.app.do(f"avatar implementer {os.path.join(ROOT, 'backend', 'roles', 'inner-grill.png')}")
-        after = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["implementer"]["avatar"]
-        status, png, _ = ctx.api("GET", "/api/roles/implementer/avatar", raw=True)
+        before = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["developer"]["avatar"]
+        ctx.app.do(f"avatar developer {os.path.join(ROOT, 'backend', 'roles', 'friend.png')}")
+        after = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["developer"]["avatar"]
+        status, png, _ = ctx.api("GET", "/api/roles/developer/avatar", raw=True)
         side = int.from_bytes(png[16:20], "big") if png.startswith(b"\x89PNG") else 0
         c(after and after != before and status == 200 and side == 256, f"应用：换上自己的图后，数字员工的头像是裁好的 256 像素 PNG（{side}）")
-        ctx.app.do("close-sheet", "role implementer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
+        ctx.app.do("close-sheet", "role developer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
         c(_drawn(ctx, "role-editor"), "应用：数字员工编辑器画出来了")
-        st = ctx.app.do("avatar implementer none")
-        code, _ = ctx.api_error("GET", "/api/roles/implementer/avatar")
-        c(code == 404 and "implementer" not in (st.get("avatars") or {}), f"移除头像后回到文字头像（{code}）")
+        st = ctx.app.do("avatar developer none")
+        code, _ = ctx.api_error("GET", "/api/roles/developer/avatar")
+        c(code == 404 and "developer" not in (st.get("avatars") or {}), f"移除头像后回到文字头像（{code}）")
         c(_drawn(ctx, "workspace-editor"), "应用：工作区编辑器画出来了")
         ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and {t["id"]: t["status"] for t in r["tasks"]} == {"T1": "succeeded", "V1": "succeeded"}
                and next(t for t in r["tasks"] if t["id"] == "V1")["verdict"] == "approved",

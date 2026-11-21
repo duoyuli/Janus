@@ -22,7 +22,7 @@ def app_server(ctx, c):
         st = app.until(lambda s: s.get("connections") is not None, "应用连上自己启动的服务", timeout=90)
         meta = http(ADDR, "GET", "/api/meta")
         c(os.path.realpath(meta["home"]) == os.path.realpath(home), f"应用在 {ADDR} 上为这个 Janus home 启动了服务")
-        c({"coordinator", "implementer"} <= {r["id"] for r in st["roles"]}, "应用读到新 home 的默认数字员工")
+        c({"pmo", "developer"} <= {r["id"] for r in st["roles"]}, "应用读到新 home 的默认数字员工")
         c(os.path.exists(os.path.join(home, "data", "janus.db")), "数据写进这个 Janus home 的 data/")
         app.do("shot first-launch")
     finally:

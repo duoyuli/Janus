@@ -103,8 +103,9 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 12 | `runs` 表加 `kind` 列（`goal`、`chat`），已有的 Run 都取 `goal`，见[对话](../domains/20261120-chats.md) |
 | 13 | Claude 连接的自定义 API（`apikey`）改用环境变量：原来单独保存的密钥作为 `ANTHROPIC_API_KEY` 继续使用。手动填写的私有变量移入 Agent 的凭据文件（当时是 `agents/<id>/secrets.json`，版本 14 移到 `data/secrets/agents/<id>.json`），连接的 `env` 将对应值记为 `null`，见[凭据保存](../operations/20261031-security.md#secrets) |
 | 14 | Janus home 按类别整理（这一步除了数据库还移动文件，`Step::Home`）：服务打开数据库前先把顶层的 `janus.db` 移到 `data/`；再把旧布局的每个目录移到新位置（Agent 的 `home/` 改名 `config/`、`root/` 改名 `home/`，凭据移到 `data/secrets/`，适配器、价格表、工具列表和应用更新移到 `cache/`，Agent 和服务器的 `tmp/` 删除），数据库（`runs`、`attempts`、`artifacts`、事件）和 `data/agents/`、`data/library/servers/` 下进程自己写的文本文件和符号链接中记下的旧路径按完整前缀改成新路径，Claude Code 的项目目录随工作目录改名，worktree 用 `git worktree repair` 告诉原仓库新位置，见 [ADR：Janus home 按「丢了能不能再有」分类](../decisions/20261121-home_layout.md) |
-| 15 | 已经写入过默认角色的数据加上默认的「老友」（`inner-grill`），没有绑定 Agent；用户已有同 id 的角色时保留用户的，文本和默认完全一样时只补上 `seed`。数据版本 2 的迁移只认当时就有的默认角色（`SEED_HISTORY` 中的），不再把用户自己用了之后默认角色 id 的角色当作默认角色，见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
+| 15 | 已经写入过默认角色的数据加上默认的「老友」（当时的 id 是 `inner-grill`，版本 17 改为 `friend`），没有绑定 Agent；用户已有同 id 的角色时保留用户的，文本和默认完全一样时只补上 `seed`。数据版本 2 的迁移只认当时就有的默认角色（`SEED_HISTORY` 中的），不再把用户自己用了之后默认角色 id 的角色当作默认角色，见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 16 | 数字员工可以有自己的头像：角色加 `avatar`（图片的哈希），已有的取空字符串（显示文字），见[头像](../domains/20261031-agents_and_roles.md#avatars) |
+| 17 | 默认数字员工的 id 改为它的职能：`coordinator`→`pmo`、`researcher`→`marketing`、`implementer`→`developer`、`reviewer`→`qa`、`inner-grill`→`friend`（`RENAMED`）。默认数字员工（`seed.id` 是旧 id 的）的记录、工作区的负责人和成员、历史任务和对话的成员（`role_id`）、头像目录一起改；用户自己用旧 id 建的角色、新 id 已被占用的不改。更早的迁移按当时的 id 写入，所以从任何旧版本升级都先得到旧 id，再由这一版改名 |
 
 <a id="snapshots"></a>
 ## Run 快照

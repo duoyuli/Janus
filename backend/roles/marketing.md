@@ -1,5 +1,5 @@
 ---
-id: researcher
+id: marketing
 name: 市场运营
 desc: 市场和用户研究、竞品分析、市场侧成功指标、发布与增长方案；适合需要外部证据或对外内容的子任务
 color: "#7c3aed"

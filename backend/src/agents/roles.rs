@@ -300,11 +300,12 @@ pub(crate) fn record_seed_origins(tx: &rusqlite::Transaction) -> Result<usize> {
         if !SEED_HISTORY.iter().any(|h| h.0 == id) {
             return false;
         }
-        let Some(r) = SEEDS.iter().find(|r| r.id == id) else { return false };
+        let Some(r) = seed_once_named(id) else { return false };
         if role.contains_key("seed") {
             return false;
         }
-        let mut seed = json!({ "id": r.id });
+        // Under the id it had then: data version 17 moves it to the current one.
+        let mut seed = json!({ "id": id });
         for (field, text) in [("desc", r.desc), ("prompt", r.prompt)] {
             let shipped = text_hash(text);
             let history: Vec<&str> =
@@ -334,20 +335,98 @@ pub(super) struct RoleSeed {
     avatar: &'static [u8],
 }
 
-/// The default role a new workspace pairs with the lead (three at a time).
-pub(super) const GENERALIST: &str = "generalist";
+/// Default roles whose id changed in data version 17, the id they had then first: ids name what
+/// each one does (项目管理, 市场运营, 开发, 质量, 老友).
+const RENAMED: &[(&str, &str)] = &[
+    ("coordinator", "pmo"),
+    ("researcher", "marketing"),
+    ("implementer", "developer"),
+    ("reviewer", "qa"),
+    ("inner-grill", "friend"),
+];
 
-/// The default role for a one-to-one talk about something on the person's mind.
-pub(super) const OLD_FRIEND: &str = "inner-grill";
+/// The default role that went by `id` at some data version: older migrations name roles as they
+/// were then, and get today's text.
+fn seed_once_named(id: &str) -> Option<&'static RoleSeed> {
+    let now = RENAMED.iter().find(|(then, _)| *then == id).map_or(id, |(_, now)| *now);
+    SEEDS.iter().find(|r| r.id == now)
+}
 
 /// Data version 6: the general digital worker, for data seeded before it existed (`add_seed`).
 pub(crate) fn add_generalist(tx: &rusqlite::Transaction) -> Result<usize> {
-    add_seed(tx, GENERALIST)
+    add_seed(tx, "generalist")
 }
 
-/// Data version 15: 老友, for data seeded before it existed (`add_seed`).
+/// Data version 15: 老友, for data seeded before it existed (`add_seed`), under the id it had then.
 pub(crate) fn add_old_friend(tx: &rusqlite::Transaction) -> Result<usize> {
-    add_seed(tx, OLD_FRIEND)
+    add_seed(tx, "inner-grill")
+}
+
+/// Data version 17: the default roles move to ids that name what they do (`RENAMED`). A default
+/// role (its `seed` says so) takes its new id everywhere it is named: its record, workspaces
+/// (members and lead), the members of runs and chats, and its picture's folder. A role of the
+/// person's own under an old id, or one whose new id is taken, is left as it is.
+// @project-doc docs/architecture/20261031-data_model.md#migrations
+pub(crate) fn rename_default_roles(tx: &rusqlite::Transaction, home: Option<&Path>) -> Result<usize> {
+    let mut moved = vec![];
+    for &(then, now) in RENAMED {
+        let row = |id: &str| -> Result<Option<Value>> {
+            let data: Option<String> = tx
+                .query_row("SELECT data FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, id], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            Ok(data.map(|d| serde_json::from_str(&d)).transpose()?)
+        };
+        let Some(mut role) = row(then)? else { continue };
+        if role["seed"]["id"] != then || row(now)?.is_some() {
+            continue;
+        }
+        role["id"] = json!(now);
+        role["seed"]["id"] = json!(now);
+        tx.execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, then])?;
+        tx.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![ROLE, now, role.to_string(), crate::orchestrator::now_ms()],
+        )?;
+        if let Some(home) = home {
+            // Where version 16 kept pictures (`Layout::role`).
+            let (from, to) = (home.join("data/roles").join(then), home.join("data/roles").join(now));
+            if from.exists() && !to.exists() {
+                std::fs::rename(&from, &to)?;
+            }
+        }
+        moved.push((then, now));
+    }
+    if moved.is_empty() {
+        return Ok(0);
+    }
+    let renamed = |id: &str| moved.iter().find(|(then, _)| *then == id).map(|(_, now)| *now);
+    let mut changed = moved.len();
+    changed += crate::migrations::edit_configs(tx, WORKSPACE, |_, w| {
+        let mut any = false;
+        if let Some(now) = w.get("lead").and_then(Value::as_str).and_then(renamed) {
+            w.insert("lead".into(), json!(now));
+            any = true;
+        }
+        for m in w.get_mut("members").and_then(Value::as_array_mut).into_iter().flatten() {
+            if let Some(now) = m["role"].as_str().and_then(renamed) {
+                m["role"] = json!(now);
+                any = true;
+            }
+        }
+        any
+    })?;
+    changed += crate::migrations::edit(tx, crate::migrations::Target::RunMember, |m| {
+        match m.get("role_id").and_then(Value::as_str).and_then(renamed) {
+            Some(now) => {
+                m.insert("role_id".into(), json!(now));
+                true
+            }
+            None => false,
+        }
+    })?;
+    Ok(changed)
 }
 
 /// A default role that came after the data was first seeded, made as a first start would make it
@@ -362,10 +441,10 @@ fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     if !seeded {
         return Ok(0);
     }
-    let r = SEEDS.iter().find(|r| r.id == id).expect("a default role");
-    let origin = json!({ "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
+    let r = seed_once_named(id).expect("a default role");
+    let origin = json!({ "id": id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
     let existing: Option<String> = tx
-        .query_row("SELECT data FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, r.id], |row| {
+        .query_row("SELECT data FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, id], |row| {
             row.get(0)
         })
         .optional()?;
@@ -379,13 +458,13 @@ fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
             role
         }
         None => json!({
-            "id": r.id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "connection": "",
+            "id": id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "connection": "",
             "model": "", "effort": "", "session": {}, "lead": r.lead, "color": r.color, "init": r.init, "avatar": "", "seed": origin
         }),
     };
     tx.execute(
         "INSERT OR REPLACE INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![ROLE, r.id, role.to_string(), crate::orchestrator::now_ms()],
+        rusqlite::params![ROLE, id, role.to_string(), crate::orchestrator::now_ms()],
     )?;
     Ok(1)
 }
@@ -397,17 +476,17 @@ fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
 /// the specialists (research and market, PRD, engineering, QA) for whoever wants them, and 老友
 /// to talk something through with in a chat.
 const ROLE_FILES: &[(&str, &str, &[u8])] = &[
-    ("coordinator", include_str!("../../roles/coordinator.md"), include_bytes!("../../roles/coordinator.png")),
-    ("researcher", include_str!("../../roles/researcher.md"), include_bytes!("../../roles/researcher.png")),
+    ("pmo", include_str!("../../roles/pmo.md"), include_bytes!("../../roles/pmo.png")),
+    ("marketing", include_str!("../../roles/marketing.md"), include_bytes!("../../roles/marketing.png")),
     (
         "product-manager",
         include_str!("../../roles/product-manager.md"),
         include_bytes!("../../roles/product-manager.png"),
     ),
     ("generalist", include_str!("../../roles/generalist.md"), include_bytes!("../../roles/generalist.png")),
-    ("implementer", include_str!("../../roles/implementer.md"), include_bytes!("../../roles/implementer.png")),
-    ("reviewer", include_str!("../../roles/reviewer.md"), include_bytes!("../../roles/reviewer.png")),
-    ("inner-grill", include_str!("../../roles/inner-grill.md"), include_bytes!("../../roles/inner-grill.png")),
+    ("developer", include_str!("../../roles/developer.md"), include_bytes!("../../roles/developer.png")),
+    ("qa", include_str!("../../roles/qa.md"), include_bytes!("../../roles/qa.png")),
+    ("friend", include_str!("../../roles/friend.md"), include_bytes!("../../roles/friend.png")),
 ];
 
 // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
@@ -509,25 +588,25 @@ mod seed_tests {
             assert_eq!(app.role_avatar(r.id).unwrap().as_deref(), Some(r.avatar));
         }
         // As if seeded before pictures: no picture, nothing recorded as given.
-        let mut old = role(&app, "implementer").unwrap();
+        let mut old = role(&app, "developer").unwrap();
         old["avatar"] = json!("");
         old["seed"].as_object_mut().unwrap().remove("avatar");
-        app.db.put_config(ROLE, "implementer", &old, 1).unwrap();
-        std::fs::remove_file(app.cfg.layout.role_avatar("implementer")).unwrap();
+        app.db.put_config(ROLE, "developer", &old, 1).unwrap();
+        std::fs::remove_file(app.cfg.layout.role_avatar("developer")).unwrap();
         // One the person took back to initials, one they gave their own picture.
-        app.set_role_avatar("reviewer", None).unwrap();
+        app.set_role_avatar("qa", None).unwrap();
         let mine = [b"\x89PNG\r\n\x1a\n".as_slice(), b"mine"].concat();
-        app.set_role_avatar("coordinator", Some(&base64::engine::general_purpose::STANDARD.encode(&mine))).unwrap();
+        app.set_role_avatar("pmo", Some(&base64::engine::general_purpose::STANDARD.encode(&mine))).unwrap();
 
         app.sync_seeds().unwrap();
         let shipped = |id: &str| avatar_hash(SEEDS.iter().find(|r| r.id == id).unwrap().avatar);
         assert_eq!(
-            role(&app, "implementer").unwrap()["avatar"],
-            json!(shipped("implementer")),
+            role(&app, "developer").unwrap()["avatar"],
+            json!(shipped("developer")),
             "an older role gets its picture"
         );
-        assert_eq!(role(&app, "reviewer").unwrap()["avatar"], "", "a removed picture stays removed");
-        assert_eq!(app.role_avatar("coordinator").unwrap(), Some(mine), "the person's own picture stays");
+        assert_eq!(role(&app, "qa").unwrap()["avatar"], "", "a removed picture stays removed");
+        assert_eq!(app.role_avatar("pmo").unwrap(), Some(mine), "the person's own picture stays");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -571,9 +650,9 @@ mod seed_tests {
             );
         }
         // A deleted default role stays deleted on the next start.
-        app.db.delete_config(ROLE, "reviewer").unwrap();
+        app.db.delete_config(ROLE, "qa").unwrap();
         app.sync_seeds().unwrap();
-        assert!(role(&app, "reviewer").is_none());
+        assert!(role(&app, "qa").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -593,44 +672,41 @@ mod seed_tests {
     fn new_default_text_replaces_only_what_the_person_never_edited() {
         let (app, dir) = app("sync");
         app.sync_seeds().unwrap();
-        let implementer = SEEDS.iter().find(|r| r.id == "implementer").unwrap();
-        given(&app, "implementer", "旧职责", "旧指令");
-        given(&app, "reviewer", "旧职责", "我改过的指令");
+        let developer = SEEDS.iter().find(|r| r.id == "developer").unwrap();
+        given(&app, "developer", "旧职责", "旧指令");
+        given(&app, "qa", "旧职责", "我改过的指令");
         app.sync_seeds().unwrap();
 
-        let r = role(&app, "implementer").unwrap();
-        assert_eq!(
-            (r["desc"].as_str().unwrap(), r["prompt"].as_str().unwrap()),
-            (implementer.desc, implementer.prompt)
-        );
+        let r = role(&app, "developer").unwrap();
+        assert_eq!((r["desc"].as_str().unwrap(), r["prompt"].as_str().unwrap()), (developer.desc, developer.prompt));
         assert!(seed_updates(&r).as_object().unwrap().is_empty());
-        let reviewer = SEEDS.iter().find(|r| r.id == "reviewer").unwrap();
-        let r = role(&app, "reviewer").unwrap();
+        let qa = SEEDS.iter().find(|r| r.id == "qa").unwrap();
+        let r = role(&app, "qa").unwrap();
         assert_eq!(r["prompt"], "我改过的指令", "edited text is the person's");
-        assert_eq!(r["desc"], reviewer.desc, "the untouched field still moves");
-        assert_eq!(seed_updates(&r), json!({ "prompt": reviewer.prompt }));
-        let listed = app.roles().unwrap().into_iter().find(|r| r["id"] == "reviewer").unwrap();
-        assert_eq!(listed["seedUpdates"]["prompt"], reviewer.prompt, "the app is offered the new text");
+        assert_eq!(r["desc"], qa.desc, "the untouched field still moves");
+        assert_eq!(seed_updates(&r), json!({ "prompt": qa.prompt }));
+        let listed = app.roles().unwrap().into_iter().find(|r| r["id"] == "qa").unwrap();
+        assert_eq!(listed["seedUpdates"]["prompt"], qa.prompt, "the app is offered the new text");
 
         // Saving from the editor keeps the origin; the editor cannot set it.
         let mut body = r.clone();
-        body["seed"] = json!({ "id": "implementer" });
+        body["seed"] = json!({ "id": "developer" });
         app.save_role(&body).unwrap();
-        assert_eq!(role(&app, "reviewer").unwrap()["seed"], r["seed"]);
+        assert_eq!(role(&app, "qa").unwrap()["seed"], r["seed"]);
 
         // Keeping the person's text stops the offer; a later start leaves it alone.
-        let kept = app.seed_choice("reviewer", "prompt", false).unwrap();
+        let kept = app.seed_choice("qa", "prompt", false).unwrap();
         assert_eq!(kept["prompt"], "我改过的指令");
         app.sync_seeds().unwrap();
-        let r = role(&app, "reviewer").unwrap();
+        let r = role(&app, "qa").unwrap();
         assert_eq!(r["prompt"], "我改过的指令");
         assert!(seed_updates(&r).as_object().unwrap().is_empty());
 
         // Taking the new text replaces it.
-        given(&app, "reviewer", reviewer.desc, "又改了一次");
-        let taken = app.seed_choice("reviewer", "prompt", true).unwrap();
-        assert_eq!(taken["prompt"], reviewer.prompt);
-        assert!(app.seed_choice("reviewer", "name", true).is_err(), "only desc and prompt have default text");
+        given(&app, "qa", qa.desc, "又改了一次");
+        let taken = app.seed_choice("qa", "prompt", true).unwrap();
+        assert_eq!(taken["prompt"], qa.prompt);
+        assert!(app.seed_choice("qa", "name", true).is_err(), "only desc and prompt have default text");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

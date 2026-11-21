@@ -40,6 +40,10 @@ from lib import ADDR, ROOT, ApiError, Checks, Server, foreign, home_db, http, ru
 check = Checks("升级")
 
 
+# Default roles whose id changed in data version 17 (`RENAMED` in backend/src/agents/roles.rs).
+RENAMED = {"coordinator": "pmo", "researcher": "marketing", "implementer": "developer", "reviewer": "qa", "inner-grill": "friend"}
+
+
 def seeds_in(backend):
     """The default roles' id → (desc, prompt) in a version's `backend/`: one Markdown file each in
     `roles/` (metadata between `---` lines, then the instructions), or, in releases before that,
@@ -187,6 +191,8 @@ def backups(home):
 def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
     say(f"\n== 从 {tag} 升级")
     old_bin, old_seeds = build_old(tag, tmp)
+    # Compared by the ids the roles have after upgrading.
+    old_seeds = {RENAMED.get(k, k): v for k, v in old_seeds.items()}
     home, ws = os.path.join(tmp, "home-" + tag), os.path.join(tmp, "ws-" + tag)
     os.makedirs(ws)
     run(["git", "init", "-q", ws])
@@ -232,21 +238,24 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         check(os.path.isdir(os.path.join(home, "data", "agents", "claude", "config")), "Agent 的配置目录移到 data/agents/<id>/config/")
         roles = {r["id"]: r for r in setup["roles"]}
         check(all("role" not in r for r in setup["roles"]), "数字员工不再带「定位」字段")
-        for rid in ("coordinator", "researcher", "product-manager", "implementer"):
+        for then in ("coordinator", "researcher", "implementer"):
+            check(then not in roles, f"默认数字员工 {then} 改用职能命名的 id {RENAMED[then]}")
+        for rid in ("pmo", "marketing", "product-manager", "developer"):
             r = roles[rid]
             check((r["desc"], r["prompt"]) == current_seeds[rid] and "seedUpdates" not in r,
                   f"没改过的默认数字员工 {rid} 换成当前默认文本" + ("" if old_seeds[rid] != current_seeds[rid] else "（这个版本的默认文本没变）"))
             check(r.get("seed", {}).get("id") == rid, f"{rid} 记录了来源")
-        friend = roles.get("inner-grill") or {}
-        check(friend.get("name") == "老友" and friend.get("seed", {}).get("id") == "inner-grill"
-              and (friend.get("desc"), friend.get("prompt")) == current_seeds["inner-grill"], "升级后有默认的数字员工「老友」，文本是当前版本的")
-        rv = roles["reviewer"]
+        friend = roles.get("friend") or {}
+        check(friend.get("name") == "老友" and friend.get("seed", {}).get("id") == "friend"
+              and (friend.get("desc"), friend.get("prompt")) == current_seeds["friend"], "升级后有默认的数字员工「老友」，文本是当前版本的")
+        check(all(roles[r].get("avatar") for r in current_seeds), "升级后每位默认数字员工都有默认头像")
+        rv = roles["qa"]
         check(rv["prompt"] == "我自己写的质量要求：先跑全部测试。", "改过指令的 reviewer 保留用户的文本")
-        check(rv["desc"] == current_seeds["reviewer"][0], "reviewer 没改过的职责换成当前默认文本")
+        check(rv["desc"] == current_seeds["qa"][0], "reviewer 没改过的职责换成当前默认文本")
         # Data from before data version 2 does not say which default an edited field started from,
         # so the current default is offered once; later, only a changed default is offered.
-        if old_seeds["reviewer"][1] != current_seeds["reviewer"][1] or old_version < 2:
-            check(rv.get("seedUpdates", {}).get("prompt") == current_seeds["reviewer"][1], "reviewer 提示有新版默认指令")
+        if old_seeds["qa"][1] != current_seeds["qa"][1] or old_version < 2:
+            check(rv.get("seedUpdates", {}).get("prompt") == current_seeds["qa"][1], "reviewer 提示有新版默认指令")
         else:
             check("seedUpdates" not in rv, "默认指令没有新版本时 reviewer 不提示")
         t = roles[tester["id"]]
@@ -263,17 +272,22 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
             check(conns[conn["id"]]["name"] == "Claude" and custom["id"] not in conns, "Claude Code 连接不变，「自定义命令」的 Agent 已删除")
         else:
             check(t["connection"] == conn["id"] and conns[conn["id"]]["name"] == "Claude", "数字员工和绑定的 Claude Code 连接不变")
-        check(setup["workspaces"] == before["workspaces"], "工作区不变")
+        renamed = json.loads(json.dumps(before["workspaces"]))
+        for w in renamed:
+            w["lead"] = RENAMED.get(w["lead"], w["lead"])
+            for m in w["members"]:
+                m["role"] = RENAMED.get(m["role"], m["role"])
+        check(setup["workspaces"] == renamed, "工作区除了默认数字员工的新 id 外不变")
         db = sqlite3.connect(home_db(home))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]
         worktree = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-wt'").fetchone()[0])["worktree"]
         db.close()
         branch = subprocess.run(["git", "-C", ws, "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
         check(worktree == {"repo": ws, "branch": branch}, f"worktree 中的旧 Run 记下验收时合并回的分支 {branch}：{worktree}")
-        check(all("role" not in m and "model_label" not in m for m in team) and team[0]["role_id"] == "coordinator",
+        check(all("role" not in m and "model_label" not in m for m in team) and team[0]["role_id"] == "pmo",
               "Run 快照的成员去掉了定位和模型标签，其余不变")
-        kept = api("POST", "/api/roles/reviewer/seed", {"field": "prompt", "adopt": False})
-        check(kept["prompt"] == rv["prompt"] and "seedUpdates" not in {r["id"]: r for r in api("GET", "/api/setup")["roles"]}["reviewer"],
+        kept = api("POST", "/api/roles/qa/seed", {"field": "prompt", "adopt": False})
+        check(kept["prompt"] == rv["prompt"] and "seedUpdates" not in {r["id"]: r for r in api("GET", "/api/setup")["roles"]}["qa"],
               "选择「保留我的」后不再提示")
     finally:
         new.stop()
