@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.8
+
+- 资源库的 Skill 更容易被 Agent 找到并用上：`janus-skills` 的描述先写明开始任务时先读它，再带上各个 Skill 的名字和描述片段；负责人、协作者和对话的会话说明里都写明它的位置，Agent 自己的 Skill 列表放不下描述时也找得到。目录用每个 Skill 完整的描述和 `when_to_use`，不再截到 240 个字；Skill 多了，目录只列名字，Agent 按关键词搜索；常用的 Skill 排在前面。标了只能手动调用的 Skill 写明只在点名时使用。
+- 资源库显示每个 Skill 被几个会话读过、最近一次在什么时候，并指出描述哪里可以改进：太短、没写什么时候用、太长被截断、和别的 Skill 太像。「Skill 路由怎样工作」的说明改为四步，加上「先查目录」，并按 Skill 实际的目录顺序和方式演示。
+- 资源库的 MCP 服务器按 MCP 规范处理得更完整：分页列出的工具都能列全；只能以 task 方式调用的工具不再列出；Agent 放弃的调用会通知服务器停下，一次调用最多等 5 分钟；只支持 Janus 不认识的协议版本的服务器在准备时写明原因；工具说明带上服务器名，Agent 搜工具时更容易找到。
+
+- Library skills are easier for agents to find and use. The `janus-skills` description now says to read it at the start of a task and carries each skill's name with part of its description, and the instructions of every lead, collaborator and chat session say where it is, so agents find it even when their own skill list has no room for its description. The catalog uses each skill's full description and `when_to_use` instead of cutting it at 240 characters; with many skills it lists only names and the agent searches it by keyword; the most used skills come first. Skills marked as manual-only say they are used only when someone names them.
+- The library shows how many sessions read each skill and when it was last read, and points out how its description could be better: too short, never saying when to use it, too long to keep whole, or too much like another skill's. "How the Skill Router Works" now has four steps, adding "Look Up the Catalog", and plays them in the library's actual catalog order and mode.
+- Library MCP servers are handled more fully by the MCP spec: tool lists given in pages are read in full; tools that can only be called as tasks are no longer listed; a call the agent gives up on tells the server to stop, and a call waits at most 5 minutes; a server that only speaks a protocol version Janus does not know says so when it is prepared; tool descriptions carry the server's name, so the agents' tool search finds them more easily.
+
 ## 2026.11.20.7
 
 - 工作区首页重新显示「任务记录」：按时间从新到旧列出这个工作区的全部任务，正在进行的也在其中。此前它从 2026.11.20.5 起一直是空的。
