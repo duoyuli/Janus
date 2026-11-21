@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出用户�
 
 Janus versions are named by date, newest first. Each section lists the changes people can see, in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.20.9
+
+- 对话和交付后与负责人的对话重新打开时，能恢复原会话就原样接着聊：Agent 不再收到「之前的对话」，也不会再收到第二份数字员工的指令，会话页也不再多出这两条。原会话恢复不了、只能新开时，才带上最近的对话。子任务回到原会话时，会话页同样不再重复显示指令。
+
+- When a chat, or the conversation with the lead after delivery, is reopened and its session can be restored, it simply carries on: the agent no longer gets the earlier conversation or a second copy of the digital employee's instructions, and the session page no longer shows them again. Only when the old session cannot be restored does the new one get the recent conversation. A subtask going back to its own session no longer shows its instructions twice either.
+
 ## 2026.11.20.8
 
 - 资源库的 Skill 更容易被 Agent 找到并用上：`janus-skills` 的描述先写明开始任务时先读它，再带上各个 Skill 的名字和描述片段；负责人、协作者和对话的会话说明里都写明它的位置，Agent 自己的 Skill 列表放不下描述时也找得到。目录用每个 Skill 完整的描述和 `when_to_use`，不再截到 240 个字；Skill 多了，目录只列名字，Agent 按关键词搜索；常用的 Skill 排在前面。标了只能手动调用的 Skill 写明只在点名时使用。
