@@ -251,11 +251,12 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
             check("seedUpdates" not in rv, "默认指令没有新版本时 reviewer 不提示")
         t = roles[tester["id"]]
         b = {r["id"]: r for r in before["roles"]}[tester["id"]]
-        # Version 1 dropped `role`, version 9 may unbind a custom-command agent, version 11 dropped `resources`.
-        changed = ("role", "connection", "resources")
+        # Version 1 dropped `role`, version 9 may unbind a custom-command agent, version 11 dropped
+        # `resources`, version 16 added `avatar` (empty: no picture).
+        changed = ("role", "connection", "resources", "avatar")
         check({k: v for k, v in t.items() if k not in changed} == {k: v for k, v in b.items() if k not in changed},
               "自定义数字员工除「定位」、选的资源和绑定的 Agent 外不变")
-        check("resources" not in t, "数字员工不再带选的资源")
+        check("resources" not in t and t.get("avatar") == "", "数字员工不再带选的资源，没有头像（显示文字）")
         conns = {c["id"]: c for c in setup["connections"]}
         if custom:
             check(t["connection"] == "", "绑定「自定义命令」Agent 的数字员工改为没有绑定 Agent")
