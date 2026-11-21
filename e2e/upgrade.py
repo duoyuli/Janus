@@ -40,8 +40,23 @@ from lib import ADDR, ROOT, ApiError, Checks, Server, foreign, home_db, http, ru
 check = Checks("升级")
 
 
-def seeds_in(source):
-    """The default roles' id → (desc, prompt) in a version of roles.rs."""
+def seeds_in(backend):
+    """The default roles' id → (desc, prompt) in a version's `backend/`: one Markdown file each in
+    `roles/` (metadata between `---` lines, then the instructions), or, in releases before that,
+    the `SEEDS` of `src/agents/roles.rs`."""
+    roles = os.path.join(backend, "roles")
+    if os.path.isdir(roles):
+        out = {}
+        for name in sorted(os.listdir(roles)):
+            if not name.endswith(".md") or name == "README.md":
+                continue
+            with open(os.path.join(roles, name)) as f:
+                head, body = f.read()[len("---\n"):].split("\n---\n", 1)
+            meta = dict(line.split(":", 1) for line in head.splitlines())
+            out[meta["id"].strip()] = (meta["desc"].strip().strip('"'), body.strip())
+        return out
+    with open(os.path.join(backend, "src", "agents", "roles.rs")) as f:
+        source = f.read()
     src = source[source.index("pub(super) const SEEDS") :]
     out = {}
     for blk in src.split("RoleSeed {")[1:]:
@@ -72,8 +87,7 @@ def build_old(tag, tmp):
         env=dict(os.environ, CARGO_TARGET_DIR=target))
     binary = os.path.join(tmp, "janus-" + tag)
     shutil.copy(os.path.join(target, "debug", "janus"), binary)
-    old_roles = subprocess.run(["git", "-C", ROOT, "show", f"{tag}:backend/src/agents/roles.rs"], capture_output=True, text=True, check=True).stdout
-    return binary, seeds_in(old_roles)
+    return binary, seeds_in(os.path.join(src, "backend"))
 
 
 def old_member(id_, name, runtime, lead, role_id, version):
@@ -293,8 +307,7 @@ def main():
         run(["cargo", "build", "--locked", "-q"], cwd=os.path.join(ROOT, "backend"))
         new_bin = os.path.join(ROOT, "backend", "target", "debug", "janus")
         shape = json.loads(subprocess.run([new_bin, "migrate", "--shape"], capture_output=True, text=True, check=True).stdout)
-        with open(os.path.join(ROOT, "backend", "src", "agents", "roles.rs")) as f:
-            current_seeds = seeds_in(f.read())
+        current_seeds = seeds_in(os.path.join(ROOT, "backend"))
         oldest = sorted(tags)[0]
         for tag in tags:
             upgrade_from(tag, tmp, new_bin, shape["dataVersion"], current_seeds, a.dump_fixture if tag == oldest else None)

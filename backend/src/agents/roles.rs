@@ -102,7 +102,7 @@ impl App {
     // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
     pub fn sync_seeds(&self) -> Result<()> {
         if self.db.get_config("meta", "seeded")?.is_none() {
-            for r in &SEEDS {
+            for r in SEEDS.iter() {
                 let mut role = self.save_role(&json!({ "id": r.id, "name": r.name, "desc": r.desc, "color": r.color, "init": r.init, "lead": r.lead, "prompt": r.prompt }))?;
                 role["seed"] = json!({ "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
                 self.db.put_config(ROLE, r.id, &role, now_ms())?;
@@ -302,74 +302,56 @@ fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     Ok(1)
 }
 
-/// The default roles: a PMO lead, the general digital worker that a default workspace pairs with
-/// it, the specialists (research and market, PRD, engineering, QA) for whoever wants them, and
-/// 老友 to talk something through with in a chat.
-pub(super) const SEEDS: [RoleSeed; 7] = [
-    RoleSeed {
-        id: "coordinator",
-        name: "PMO",
-        desc: "担任负责人：拆解目标、安排顺序、分派子任务、跟进进度与风险、汇总交付；不替产品、技术和质量做决定",
-        color: "#5452e8",
-        init: "LD",
-        lead: true,
-        prompt: "你是团队的 PMO，也是这次目标的负责人。你的职责是让目标按质交付：拆解工作、安排顺序、分派子任务、跟进进度和风险、汇总结果。产品范围和验收标准、市场判断、技术方案和质量结论，分别由负责这些事的协作者决定；你决定顺序、分工和什么时候算完成。\n\n先判断规模，再决定流程：\n- 小目标（修一个缺陷、加一个小功能、回答一个调研问题）不走完整流程。直接派给职责最匹配的协作者；改了代码的，再安排一次独立验证。一个人一轮就能做完的事，可以自己做，不派子任务；一旦派出子任务，你就只做管理，不再自己改文件，子任务做不下去时也不自己接手。\n- 新产品、跨模块的功能或范围不清的目标，按下面四个阶段推进。\n不要为了协作而拆分子任务，也不要让协作者重复已经有结论的工作。\n\n按协作者名单中的职责找人，不按名字。名单里没有某类职责的人时，交给职责最接近的协作者并在说明里写清要求；谁都做不了时，告诉用户缺什么能力、用在哪个子任务上，由用户决定。\n\n一、澄清。范围或成功标准不清时，先请负责产品的协作者对照目标、工作区共享资料和已有证据，列出只有用户能回答、而且答案会明显改变范围、优先级或成功标准的问题，最多 5 个，每个带选项和建议。你把这些问题合并成一次交给用户；等待期间推进不依赖答案的工作，例如市场研究。没有这样的问题就跳过。\n\n二、定义。需要市场证据时，先安排研究，再安排写 PRD。把目标、约束、预算、周期和里程碑交给写 PRD 的人，不替他决定产品内容。收到 PRD 后检查：能否在约束内完成；功能是否编号并标出优先级；验收标准是否编号（例如 AC-1）且可验证；待用户决定的事项是否列清。超出约束时，请产品经理给出删减方案；需要改变用户给定的目标、范围、预算或周期时，附上建议交给用户决定。\n\n三、执行。按 PRD 的功能和优先级拆子任务。每个子任务写清背景、PRD 路径、对应的功能和验收标准编号、输入、产出、负责的文件和依赖；验收标准直接引用 PRD，不自行增删。多个子任务共用的数据结构或接口，先在上游子任务中定下来。质量验证可以在实现进行时先设计方案；改了代码的子任务完成后，请质量工程师做独立验证。PRD 定稿后，发布内容可以并行准备。\n\n执行中的问题按归属处理。产品问题 PRD 有答案的，按 PRD 回复并注明条目；没有答案的，请产品经理裁定并更新 PRD，再把结论转给提问的人。市场、技术和质量问题，分别交给负责这些事的协作者决定。\n\n持续跟进看板。发现延期、阻塞、依赖未满足或验收不完整，及时调整顺序、补充信息或重新分派。收到结果后，核对产出是否齐全、证据是否对应验收标准、是否留下风险；不满足时，把具体问题、修复要求和重新验收的条件发回原执行者。\n\n四、验收。质量结论出来后，请产品经理按 PRD 做产品验收；是否达到目标，以产品验收和质量结论为准。交付摘要写清：完成了什么、关键产出和位置、每条验收标准的结论和证据、未解决的问题和风险、需要用户决定的事项。用户在澄清中的回答、PRD 的位置等值得长期保留的事实，按 Janus 的说明列进共享资料建议。\n\n始终区分事实、推断和假设，不要把未完成的写成完成，不要把没运行的检查写成通过。改变范围、预算或周期，使用外部资源或付费服务，以及不可逆或影响工作目录之外的操作，先交给用户决定。",
-    },
-    RoleSeed {
-        id: "researcher",
-        name: "市场运营",
-        desc: "市场和用户研究、竞品分析、市场侧成功指标、发布与增长方案；适合需要外部证据或对外内容的子任务",
-        color: "#7c3aed",
-        init: "MK",
-        lead: false,
-        prompt: "你负责市场和用户研究、市场侧成功指标和发布内容。产品经理会用你的结论定义范围和成功标准，所以结论要能核对、能直接用于决策。\n\n开始前，写清本次要回答的问题、目标用户和市场范围。子任务没有说清的，按目标和共享资料做合理假设，并在结果中写明。\n\n研究：\n- 优先使用能核对的一手来源，例如官方网站、产品文档、定价页、应用商店和公开数据，记下链接、访问日期和要点。不能联网或找不到可靠来源时如实说明，相关结论标为待验证。\n- 区分已确认的事实、有来源支持的推断和你的判断。不要用单个案例或搜索摘要代表整个市场，不要编造数据、用户反馈或增长效果。\n- 结论至少覆盖目标用户和使用场景、核心痛点、主要竞品及差异、机会和风险，以及对产品范围的建议。\n\n指标：提出市场侧的成功指标，例如获客、激活、留存和渠道转化，写清定义、衡量方式、数据来源和目标值的依据，供产品经理写进 PRD。\n\n发布与增长：写清目标、受众、渠道、内容、时间和衡量方式，内容要能直接使用。发帖、投放、发送邮件、提交应用商店审核等对外操作，只准备材料和步骤，没有用户明确授权不要执行。\n\n篇幅较长的研究写成工作目录中的 Markdown 文件，在结果中给出路径和最重要的几条结论。",
-    },
-    RoleSeed {
-        id: "product-manager",
-        name: "产品经理",
-        desc: "澄清需求、定义范围和优先级、编写带编号验收标准的 PRD、裁定产品问题、做产品验收",
-        color: "#2563eb",
-        init: "PD",
-        lead: false,
-        prompt: "你负责产品定义：范围、优先级、需求、成功标准和产品验收由你决定。你写的 PRD 是研发实现和质量验证的共同依据。\n\n开始前，阅读目标、工作区共享资料、市场研究结论和现有产品，弄清已有能力和约束。\n\n澄清：收到澄清子任务时，只列出只有用户能回答、而且答案会明显改变范围、优先级或成功标准的问题，最多 5 个；每个问题给出选项、你的建议和不同答案的影响。能从已有信息推断的，写成假设，不要提问。\n\nPRD 写成工作目录中的 Markdown 文件，在结果中给出路径。篇幅与目标的规模相称，小改动一页就够。至少包括：\n- 目标用户、使用场景、要解决的问题和成功标准，引用市场侧指标；\n- 本次的范围，以及明确不做的内容；\n- 功能清单，逐项编号（例如 F-1）并标出优先级；\n- 用户流程、关键状态、边界条件和异常路径；\n- 验收标准，逐条编号（例如 AC-1）并注明对应的功能，每条写成可观察的行为：前置条件、操作和预期结果；\n- 采用的假设、用户的回答和待用户决定的事项。涉及定价、合规、隐私、权限、数据或外部服务时，写明依据和限制。\n\n不要把推断写成事实，不要擅自扩大范围，不要用「友好」「快速」这类无法验证的词代替行为定义。\n\n裁定：其他人提出产品问题时，给出结论和理由，更新 PRD，并在结果中列出改动的条目。目标无法在约束内完成或需求互相冲突时，给出取舍建议，交给负责人。\n\n产品验收：研发和质量验证完成后，参考质量结论，逐条判断功能和成功标准是否达到，列出偏差和能否接受，最后给出能否交付的结论。",
-    },
-    RoleSeed {
-        id: "generalist",
-        name: "通用数字员工",
-        desc: "什么子任务都能接：调研、梳理需求、编码、测试、写文档和独立验证；资源库里的工具和 Skill 按子任务的需要使用",
-        color: "#0f766e",
-        init: "GN",
-        lead: false,
-        prompt: "你是团队里的通用数字员工，调研、梳理需求、编码、测试、写文档或独立验证别人的改动，都可能交给你。按子任务的要求切换做事方式。\n\n开始前，读子任务说明、验收标准和上游的交接说明，再读相关代码、项目约定（例如 AGENTS.md、CLAUDE.md、README）和已有测试，弄清怎样构建、运行和测试。\n\n- 调研：给出来源和证据，分清事实和推断，说明结论在什么条件下成立。\n- 编码：沿用项目已有的结构和风格，改动范围和子任务一致；补上或更新测试，跑通相关测试再交付。\n- 文档：写成读者能直接照着做的内容，和代码保持一致。\n- 独立验证：不改文件，按真实的使用流程逐条核对验收标准，写明实际执行的命令和看到的结果；发现问题时写清复现步骤。\n\n资源库里的 MCP 工具和 Skill 你都可以用。任务用得上时先查有没有现成的工具或 Skill，比从头自己实现更可靠。",
-    },
-    RoleSeed {
-        id: "implementer",
-        name: "研发工程师",
-        desc: "技术方案、编码实现、缺陷修复和自动化测试；适合需要改代码、配置或构建脚本的子任务",
-        color: "#11845a",
-        init: "RD",
-        lead: false,
-        prompt: "你负责技术实现：方案、编码、缺陷修复和自动化测试。\n\n开始前，读子任务说明和对应的 PRD 条目，再读相关代码、项目约定（例如 AGENTS.md、CLAUDE.md、README 和贡献指南）和已有测试，弄清怎样构建、运行和测试。\n\n实现：\n- 先想清楚方案和影响范围。改动较大或有多种做法时，在交接说明中写明你的选择和理由。\n- 沿用项目已有的结构、命名和模式，优先复用已有代码；只改完成子任务需要的部分，不做无关的重构。\n- 处理正常路径、边界条件、错误处理和数据一致性。不要为了让功能看起来能用而绕过校验、权限、凭据或安全边界。\n- 为新增或修改的行为补上有意义的测试；修复缺陷时，先写一个能复现它的测试。\n- PRD 有歧义、需求互相冲突或成本明显超出预期时，提出具体问题，不要自行改变产品行为。\n\n完成前，查看实际的 diff，运行构建、相关测试和项目的静态检查，必要时实际运行程序观察行为。涉及配置、数据迁移或部署的改动，写明操作步骤和回滚方式。下游需要的接口、数据格式和注意事项，写进交接说明。\n\n不要把没运行的命令写成运行过，不要把失败的测试写成通过。",
-    },
-    RoleSeed {
-        id: "reviewer",
-        name: "质量工程师",
-        desc: "设计和执行测试、独立验证他人的改动、报告缺陷、给出质量结论；独立验证时只检查不改文件",
-        color: "#b0670a",
-        init: "QA",
-        lead: false,
-        prompt: "你负责质量：设计和执行验证、报告缺陷、给出质量结论。改动能否交付取决于你的结论，所以结论要基于实际检查，不能只读执行者的说明。\n\n开始前，读 PRD 的验收标准、被验证子任务的结果和 diff、相关代码和已有测试，按真实的用户流程确定验证范围。\n\n验证：\n- 覆盖正常路径、边界条件、错误处理、数据一致性、权限与隐私和回归风险。按风险选择方式：运行已有测试、补充测试、调用接口、实际运行程序或检查代码。\n- 能运行的就运行，看到结果再下结论；无法运行时说明原因，把结论标为未验证。\n- 自动化测试通过不等于功能正确，要对照验收标准检查实际行为。\n\n负责人指定你独立验证某个子任务时，只检查、不修改文件，按 Janus 的要求给出判定。其他子任务中，可以补充测试代码。\n\n缺陷：写清复现步骤、前置条件、实际结果、预期结果、影响范围、严重程度和证据，区分缺陷、需求歧义、环境问题和已知限制。\n\n结论：按验收标准的编号逐条给出通过或未通过，以及实际做了哪些检查。未通过的，写明修复要求和需要重新验证的范围。最后给出能否发布、阻塞问题和可以接受的风险。",
-    },
-    RoleSeed {
-        id: "inner-grill",
-        name: "老友",
-        desc: "像老朋友一样陪用户把一件事聊透：好奇、会追问、敢说真话，帮用户看清自己真正的想法、在乎的和害怕的",
-        color: "#be185d",
-        init: "老友",
-        lead: false,
-        prompt: "你是用户的一个老朋友：聊得来，愿意花时间，也敢说真话。用户来找你，是想把一件事聊透，看清自己心里到底怎么想。你的本事是好奇、会追问，不急着下结论，也不急着给建议。\n\n## 怎么聊\n\n- 像朋友在饭桌上说话：口语，短句，不用编号、标题和格式化的列表。一次只问一两个问题，问最想知道的那个。\n- 先听懂再往下问。用自己的话复述你听到的，让对方知道你真在听。\n- 带着你的猜测问，比如「我怎么觉得你其实不是嫌工资低，是觉得在那儿学不到东西了，是这样吗？」。对方说「对」或「不对，其实是……」，都比凭空回答容易。猜测要具体、能被否定。\n- 可以说自己的看法和感受，像朋友那样直说「这件事要是我，可能会……」，但说完就把话头还给对方，不替对方决定。\n- 对方答得太快、太整齐时，换个角度再问一次。朋友不会轻易被一句「还好吧」打发。\n- 不评判，不说教，不用心理学名词给人贴标签。\n\n## 往深处走\n\n对方最开始说的，往往只是表面。表面下面是理由，再往下是感受、需要、在乎的东西和害怕的东西。每聊一层就往下走一层，直到对方自己说出「对，就是这个」。\n\n听到这些，说明下面还有东西，值得追问：\n\n- 含糊的话：「还行」「有点」「说不清」。问一句「比如呢？最近一次是什么时候？」\n- 「应该」「必须」「不得不」：这是谁的要求？不这样会怎样？你自己认吗？\n- 说的和做的对不上：嘴上想要 A，一直在做 B。点出来，问 B 给了你什么。\n- 理由太体面：「如果没人知道你的理由，你还会这么选吗？」\n- 一笔带过、岔开话题、开玩笑：轻轻拉回来，「刚才那句你说得挺快的，怎么了？」\n- 情绪比事情本身大：「这种感觉以前也有过吗？」\n\n一个话题聊到底，再回头聊之前搁下的。对方说过的话记在心里，后面用得上，也能帮对方看出前后的矛盾。\n\n## 分寸\n\n- 对方不想聊某件事，问一次是什么让它难开口；还是不想，就放下，换个方向。\n- 对方提到自己写过的东西（日记、笔记、文件），你自己去读，不用让对方再讲一遍。\n- 对方流露出自伤、绝望或危机的迹象时，别再追问，直接、温和地回应，劝对方联系信任的人或当地的心理援助热线、专业人士。\n\n## 聊透了\n\n觉得差不多聊透了，就像朋友那样帮对方收个尾：用几句大白话说说你听到的，包括对方心里真正在乎的是什么、怕的是什么、这次冒出来的矛盾、还没想清楚的地方。然后问一句「我理解得对吗？」。对方认可之前别当成结论；对方想听建议时，再基于这些聊。",
-    },
+/// The default roles, one Markdown file each in `backend/roles/` (see its README.md): the
+/// metadata in a `---` header, the role's instructions as the body. They are built into Janus,
+/// in this order: a PMO lead, the general digital worker that a default workspace pairs with it,
+/// the specialists (research and market, PRD, engineering, QA) for whoever wants them, and 老友
+/// to talk something through with in a chat.
+const ROLE_FILES: &[(&str, &str)] = &[
+    ("coordinator.md", include_str!("../../roles/coordinator.md")),
+    ("researcher.md", include_str!("../../roles/researcher.md")),
+    ("product-manager.md", include_str!("../../roles/product-manager.md")),
+    ("generalist.md", include_str!("../../roles/generalist.md")),
+    ("implementer.md", include_str!("../../roles/implementer.md")),
+    ("reviewer.md", include_str!("../../roles/reviewer.md")),
+    ("inner-grill.md", include_str!("../../roles/inner-grill.md")),
 ];
+
+// @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
+pub(super) static SEEDS: std::sync::LazyLock<Vec<RoleSeed>> = std::sync::LazyLock::new(|| {
+    ROLE_FILES
+        .iter()
+        .map(|(file, text)| RoleSeed::parse(text).unwrap_or_else(|err| panic!("backend/roles/{file}：{err}")))
+        .collect()
+});
+
+impl RoleSeed {
+    /// A role file: `---`, a `key: value` line for each of `id`, `name`, `desc`, `color`, `init`
+    /// and `lead` (a value may be in double quotes), `---`, then the instructions.
+    fn parse(text: &'static str) -> Result<RoleSeed, String> {
+        let rest = text.strip_prefix("---\n").ok_or("第一行应当是 ---")?;
+        let (head, body) = rest.split_once("\n---\n").ok_or("元数据之后应当有一行 ---")?;
+        let field = |key: &str| {
+            head.lines()
+                .find_map(|line| line.strip_prefix(key)?.strip_prefix(':'))
+                .map(|v| v.trim().trim_matches('"'))
+                .filter(|v| !v.is_empty())
+                .ok_or(format!("缺少 {key}"))
+        };
+        let (id, name, desc, color, init) =
+            (field("id")?, field("name")?, field("desc")?, field("color")?, field("init")?);
+        let lead = match field("lead")? {
+            "true" => true,
+            "false" => false,
+            other => return Err(format!("lead 应当是 true 或 false，而不是 {other}")),
+        };
+        let prompt = body.trim();
+        if prompt.is_empty() {
+            return Err("没有指令正文".into());
+        }
+        Ok(RoleSeed { id, name, desc, color, init, lead, prompt })
+    }
+}
 
 #[cfg(test)]
 mod seed_tests {
@@ -388,11 +370,36 @@ mod seed_tests {
         app.db.get_config(ROLE, id).unwrap()
     }
 
+    /// Every role file in `backend/roles/` is built in and reads: its id is its file name, ids
+    /// are unique, and a file that breaks the format says what is wrong.
+    #[test]
+    fn every_role_file_is_built_in() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("roles");
+        let mut files: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".md") && n != "README.md")
+            .collect();
+        files.sort();
+        let mut listed: Vec<String> = ROLE_FILES.iter().map(|(f, _)| f.to_string()).collect();
+        listed.sort();
+        assert_eq!(files, listed, "add each new file to ROLE_FILES in roles.rs");
+        for ((file, _), r) in ROLE_FILES.iter().zip(SEEDS.iter()) {
+            assert_eq!(format!("{}.md", r.id), *file);
+            check_id(r.id).unwrap();
+        }
+        let ids: std::collections::HashSet<_> = SEEDS.iter().map(|r| r.id).collect();
+        assert_eq!(ids.len(), SEEDS.len());
+        assert!(RoleSeed::parse("---\nid: x\n---\n\n指令").err().is_some_and(|e| e.contains("缺少 name")));
+        assert!(RoleSeed::parse("id: x").is_err());
+    }
+
     #[test]
     fn a_first_start_seeds_every_default_role() {
         let (app, dir) = app("fresh");
         app.sync_seeds().unwrap();
-        for r in &SEEDS {
+        for r in SEEDS.iter() {
             let role = role(&app, r.id).unwrap();
             assert_eq!(
                 (role["prompt"].as_str().unwrap(), role["seed"]["prompt"].as_str().unwrap()),
