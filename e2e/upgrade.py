@@ -91,7 +91,9 @@ def old_member(id_, name, runtime, lead, role_id, version):
 
 def write_old_data(ws):
     """Data written through the old release's API, the way the app writes it."""
-    conn = api("POST", "/api/setup/connections", {"kind": "claude", "name": "Claude", "auth": "apikey", "apiKey": "sk-ant-e2e"})
+    # Before 2026.11.21 the key had a field of its own; from then on it is a line of the environment.
+    conn = api("POST", "/api/setup/connections", {"kind": "claude", "name": "Claude", "auth": "apikey", "apiKey": "sk-ant-e2e",
+                                                  "envText": "ANTHROPIC_API_KEY=sk-ant-e2e"})
     try:
         custom = api("POST", "/api/setup/connections", {"kind": "custom", "name": "Fake", "command": "python3 fake_acp.py"})
     except ApiError:
@@ -123,7 +125,7 @@ def insert_old_run(home, version, ws):
     if version >= 10:
         worktree["branch"] = subprocess.run(["git", "-C", ws, "branch", "--show-current"], capture_output=True, text=True,
                                             check=True).stdout.strip()
-    db = sqlite3.connect(os.path.join(home, "janus.db"))
+    db = sqlite3.connect(home_db(home))
     db.execute(
         "INSERT INTO runs (id, goal, cwd, config, status, created_at) VALUES ('run-old', '旧目标', '/tmp', ?, 'delivered', 1)",
         (json.dumps({"team": team, "git": False, "baseRef": None, "workspace": "e2e", "goalImages": []}),),
@@ -137,7 +139,7 @@ def insert_old_run(home, version, ws):
 
 
 def dump_fixture(home, ws, path):
-    db = sqlite3.connect(os.path.join(home, "janus.db"))
+    db = sqlite3.connect(home_db(home))
     lines = ["-- Data written by an old release (data version 0), for the upgrade tests. Made by",
              "-- e2e/upgrade.py --dump-fixture; paths point nowhere on purpose."]
     for kind, id_, data in db.execute("SELECT kind, id, data FROM configs ORDER BY kind, id"):
@@ -221,6 +223,9 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
             check((r["desc"], r["prompt"]) == current_seeds[rid] and "seedUpdates" not in r,
                   f"没改过的默认数字员工 {rid} 换成当前默认文本" + ("" if old_seeds[rid] != current_seeds[rid] else "（这个版本的默认文本没变）"))
             check(r.get("seed", {}).get("id") == rid, f"{rid} 记录了来源")
+        friend = roles.get("inner-grill") or {}
+        check(friend.get("name") == "老友" and friend.get("seed", {}).get("id") == "inner-grill"
+              and (friend.get("desc"), friend.get("prompt")) == current_seeds["inner-grill"], "升级后有默认的数字员工「老友」，文本是当前版本的")
         rv = roles["reviewer"]
         check(rv["prompt"] == "我自己写的质量要求：先跑全部测试。", "改过指令的 reviewer 保留用户的文本")
         check(rv["desc"] == current_seeds["reviewer"][0], "reviewer 没改过的职责换成当前默认文本")
