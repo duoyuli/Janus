@@ -84,6 +84,13 @@ pub fn check(kind: &str, data: &Value) -> Vec<String> {
                 let extra = if kind == "connection" { connection_fields() } else { vec![] };
                 let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
                 let mut problems = fields(data, shape.required, &[shape.optional, &extra].concat());
+                if kind == "connection"
+                    && !data["env"].as_object().is_some_and(|env| {
+                        env.values().all(|v| v.is_string() || (data["kind"] == "claude" && v.is_null()))
+                    })
+                {
+                    problems.push("env 的值必须是字符串，Claude 的私有变量用 null 记录变量名".into());
+                }
                 if kind == "workspace" {
                     for m in data["members"].as_array().into_iter().flatten() {
                         problems.extend(

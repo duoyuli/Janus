@@ -151,7 +151,14 @@ def _copy_connections(src_home, home, api, c):
             shutil.copyfile(secrets, os.path.join(dest, "secrets.json"))
             os.chmod(os.path.join(dest, "secrets.json"), 0o600)
         body = {k: v for k, v in cfg.items() if k not in DERIVED}
-        body["envText"] = "\n".join(f"{k}={v}" for k, v in (cfg.get("env") or {}).items())
+        env = dict(cfg.get("env") or {})
+        if kind == "claude" and cfg.get("auth") == "apikey" and os.path.exists(secrets):
+            # A source home not yet at data version 13 keeps Claude's key apart from the environment;
+            # naming it makes the copied secrets.json provide it, as version 13 does.
+            with open(secrets) as f:
+                if json.load(f).get("apiKey"):
+                    env.setdefault("ANTHROPIC_API_KEY", None)
+        body["envText"] = "\n".join(k if v is None else f'{k}="{v}"' for k, v in env.items())
         api("POST", "/api/setup/connections", body)
         api("POST", f"/api/connections/{cfg['id']}/test")
         source = f"，复制自 {cfg.get('source') or '默认目录'}" if cfg.get("auth") == "import" else ""

@@ -12,6 +12,7 @@
 
 - [事件是唯一事实来源](20261031-events_as_source_of_truth.md)：状态变化先写成只追加的事件，界面、看板和恢复都从事件推导。阅读时机：想引入独立的状态表、修改事件格式，或调整恢复方式之前。
 - [每个 Agent 使用独立的配置目录](20261031-isolated_agent_homes.md)：Agent 的配置、HOME 和凭据都在 Janus 自己的目录中，不碰用户的 Agent 配置。阅读时机：修改运行环境构造、配置复制或凭据保存之前。
+- [Claude Code 的自定义 API 用环境变量设置](20261120-claude_env_auth.md)：「自定义 API」是一个环境变量输入框，可一键填入模板；手动填写的 Claude 变量按用途保存，原有 API Key 随数据升级。阅读时机：修改 Claude 的认证表单、模板、变量回显或凭据迁移之前。
 - [权限交给 Agent 原生模式](20261031-agent_native_permissions.md)：角色直接选择 Agent 声明的权限模式，Janus 不再有自己的读写开关，也不做校验。阅读时机：想在 Janus 层面增加权限控制，或修改角色的权限设置之前。
 - [任务直接在工作目录中运行](20261031-in_place_workspaces.md)：关闭并删除独立 worktree，所有任务在工作区目录中读写。Git 仓库的部分已被「每个任务在自己的 worktree 中运行」取代，现在只适用于非 Git 目录。阅读时机：调整非 Git 目录的工作方式之前。
 - [负责人以 /goal 推进目标](20261031-goal_mode_lead.md)：负责人用 `/goal` 自主推进，按需协作，只能是 Claude Code 或 Codex。阅读时机：修改负责人的启动方式、交付条件，或想让其他 Agent 担任负责人之前。

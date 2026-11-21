@@ -1,6 +1,7 @@
 //! Agent connections: saving and deleting them, their isolated homes and secrets, and the sandboxed
 //! command and environment a session of one runs with.
 
+use super::environment::{private_env_value, protect_claude_env, read_secrets, write_secrets};
 use super::*;
 
 impl App {
@@ -8,19 +9,23 @@ impl App {
         self.cfg.agents_dir.join(id)
     }
 
-    pub(super) fn secrets(&self, id: &str) -> Value {
-        std::fs::read_to_string(self.agent_dir(id).join("secrets.json"))
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_else(|| json!({}))
-    }
-
     pub(super) fn redact(&self, id: &str, text: &str) -> String {
         let mut out = text.to_string();
-        if let Some(map) = self.secrets(id).as_object() {
-            for v in map.values().filter_map(Value::as_str).filter(|s| s.len() >= 6) {
-                out = out.replace(v, "<secret>");
-            }
+        let Ok(secrets) = read_secrets(&self.agent_dir(id)) else { return "<secret>".into() };
+        let mut values: Vec<_> = secrets
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+            .flat_map(|v| {
+                v.as_str()
+                    .into_iter()
+                    .chain(v.as_object().into_iter().flat_map(|m| m.values().filter_map(Value::as_str)))
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+        values.sort_unstable_by_key(|v| std::cmp::Reverse(v.len()));
+        for value in values {
+            out = out.replace(value, "<secret>");
         }
         out
     }
@@ -35,7 +40,7 @@ impl App {
         for c in out.iter_mut() {
             let id = str_of(c, "id").to_string();
             let dir = self.agent_dir(&id);
-            let secrets = self.secrets(&id);
+            let secrets = read_secrets(&dir)?;
             c["secretsSet"] =
                 json!(secrets.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default());
             c["home"] = json!(dir.join("home"));
@@ -61,7 +66,7 @@ impl App {
             .cloned()
             .ok_or_else(|| anyhow!("不支持的 Provider 类型：{kind}"))?;
         let auths = desc["auths"].as_array().cloned().unwrap_or_default();
-        let auth_desc = match auths.iter().find(|a| a["id"] == str_of(body, "auth")).or(auths.first()) {
+        let auth_desc = match auths.iter().find(|a| a["id"] == body["auth"]).or(auths.first()) {
             Some(a) => a.clone(),
             None => json!({ "id": "", "fields": [] }),
         };
@@ -92,17 +97,20 @@ impl App {
             "" => desc["name"].as_str().unwrap().to_string(),
             n => n.to_string(),
         };
-        let env = parse_env(body["envText"].as_str().unwrap_or(""))?;
+        let dir = self.agent_dir(&id);
+        let mut secrets = read_secrets(&dir)?;
+        let mut env = parse_env(body["envText"].as_str().unwrap_or(""), |name| {
+            if kind == "claude" { private_env_value(&secrets, name) } else { None }
+        })?;
         let mut config = json!({
             "id": id, "kind": kind, "base": desc["base"], "name": name, "auth": auth_desc["id"],
-            "bin": str_of(body, "bin"), "prompt": body["prompt"].as_str().unwrap_or("").trim(), "env": env,
+            "bin": str_of(body, "bin"), "prompt": body["prompt"].as_str().unwrap_or("").trim(),
             "createdAt": prev.as_ref().map(|p| p["createdAt"].clone()).unwrap_or(json!(now_ms())),
         });
         // A saved agent is checked again before it runs (`start_check`).
         set_check(&mut config, ConnCheck::Untested);
 
         // Plain fields are stored as config; secret fields go to the provider's own directory.
-        let mut secrets = self.secrets(&id);
         let fields: Vec<Value> = auth_desc["fields"].as_array().cloned().unwrap_or_default();
         for f in &fields {
             let key = f["key"].as_str().unwrap();
@@ -126,7 +134,10 @@ impl App {
             map.retain(|k, _| fields.iter().any(|f| f["key"] == k.as_str() && f["type"] == "secret"));
         }
 
-        let dir = self.agent_dir(&id);
+        if kind == "claude" {
+            protect_claude_env(&mut env, &mut secrets);
+        }
+        config["env"] = Value::Object(env);
         let home = dir.join("home");
         std::fs::create_dir_all(&home)?;
         {
@@ -137,7 +148,7 @@ impl App {
             config["importedEnv"] = json!(env.keys().collect::<Vec<_>>());
             secrets["importedEnv"] = Value::Object(env);
         }
-        write_private(&dir.join("secrets.json"), serde_json::to_string_pretty(&secrets)?.as_bytes())?;
+        write_secrets(&dir, &secrets)?;
         self.db.put_config(CONNECTION, &id, &config, now_ms())?;
         Ok(config)
     }
@@ -207,7 +218,7 @@ impl App {
         if !kinds().as_array().unwrap().iter().any(|k| k["id"] == c["kind"]) {
             bail!("未知的 Provider 类型");
         }
-        let s = self.secrets(id);
+        let s = read_secrets(&self.agent_dir(id))?;
         let secret = |k: &str| s[k].as_str().unwrap_or("").to_string();
         let home = self.agent_dir(id).join("home").to_string_lossy().to_string();
         // Sandbox first, then the variables configured on this agent (an empty value unsets one),
@@ -215,13 +226,14 @@ impl App {
         // at the host's own directories.
         // @project-doc docs/domains/20261031-agents_and_roles.md#agent_env
         let mut env = self.sandbox_env(id)?;
-        for (k, v) in c["env"]
-            .as_object()
-            .into_iter()
-            .chain(s["importedEnv"].as_object())
-            .flat_map(|m| m.iter())
-            .filter(|(k, _)| !is_sandbox_var(k))
-        {
+        for (k, v) in c["env"].as_object().into_iter().flatten().filter(|(k, _)| !is_sandbox_var(k)) {
+            let value = v
+                .as_str()
+                .or_else(|| private_env_value(&s, k))
+                .with_context(|| format!("请在环境变量中重新填写 {k}"))?;
+            override_env(&mut env, k, value);
+        }
+        for (k, v) in s["importedEnv"].as_object().into_iter().flatten().filter(|(k, _)| !is_sandbox_var(k)) {
             override_env(&mut env, k, v.as_str().unwrap_or(""));
         }
         let mut set = |k: &str, v: String| env.push((k.to_string(), v));
@@ -255,10 +267,8 @@ impl App {
                 if let Some(b) = configured_bin(&c) {
                     set("CLAUDE_CODE_EXECUTABLE", b);
                 }
-                match str_of(&c, "auth") {
-                    "oauth" => set("CLAUDE_CODE_OAUTH_TOKEN", secret("token")),
-                    "apikey" => set("ANTHROPIC_API_KEY", secret("apiKey")),
-                    _ => {}
+                if c["auth"] == "oauth" {
+                    set("CLAUDE_CODE_OAUTH_TOKEN", secret("token"));
                 }
             }
         }

@@ -200,10 +200,46 @@ fn preset_agents_become_claude_code_agents_with_their_variables() {
     assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.z.ai/api/anthropic", "the endpoint it was given");
     assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "glm-6", "the person's own value wins");
     assert!(env.get("API_TIMEOUT_MS").is_none(), "a variable the person unset stays unset");
-    assert_eq!(env["MINE"], "1");
+    assert_eq!(env.get("MINE"), Some(&Value::Null));
+    let secrets = std::fs::read(path.parent().unwrap().join("agents/glm/secrets.json")).unwrap();
+    assert_eq!(serde_json::from_slice::<Value>(&secrets).unwrap()["env"]["MINE"], "1");
     assert_eq!(config(&conn, "connection", "ds")["env"]["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic");
     assert_eq!(config(&conn, "connection", "cx")["status"], "ok", "other agents are left alone");
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
+}
+
+/// Version 13: Claude's custom API keeps its id; the key saved apart from the environment becomes
+/// its `ANTHROPIC_API_KEY`, and a private value typed into the environment leaves SQLite. Running
+/// the step again changes nothing.
+#[test]
+fn claude_custom_api_keys_become_private_environment() {
+    let path = old_database("claude-env");
+    let conn = Connection::open(&path).unwrap();
+    let c = json!({ "id": "cc", "kind": "claude", "base": "claude", "name": "cc", "auth": "apikey", "bin": "", "prompt": "",
+        "env": { "ANTHROPIC_MODEL": "m1", "GATEWAY_TOKEN": "typed-in" }, "status": "ok", "createdAt": 1 });
+    conn.execute(
+        "INSERT INTO configs (kind, id, data, updated_at) VALUES ('connection', 'cc', ?1, 0)",
+        params![c.to_string()],
+    )
+    .unwrap();
+    drop(conn);
+    let agent = path.parent().unwrap().join("agents/cc");
+    std::fs::create_dir_all(&agent).unwrap();
+    std::fs::write(agent.join("secrets.json"), r#"{"apiKey":"sk-ant-old"}"#).unwrap();
+
+    crate::db::Db::open(&path).unwrap();
+    let mut conn = Connection::open(&path).unwrap();
+    let cc = config(&conn, "connection", "cc");
+    assert_eq!(cc["auth"], "apikey", "the auth keeps its id");
+    assert_eq!(cc["env"], json!({ "ANTHROPIC_MODEL": "m1", "ANTHROPIC_API_KEY": null, "GATEWAY_TOKEN": null }));
+    assert!(!cc.to_string().contains("typed-in") && !cc.to_string().contains("sk-ant-old"));
+    let secrets: Value = serde_json::from_slice(&std::fs::read(agent.join("secrets.json")).unwrap()).unwrap();
+    assert_eq!(
+        (secrets["apiKey"].as_str(), secrets["env"]["GATEWAY_TOKEN"].as_str()),
+        (Some("sk-ant-old"), Some("typed-in"))
+    );
+    let tx = conn.transaction().unwrap();
+    assert_eq!(apply(&tx, &Step::ClaudeEnv, path.parent()).unwrap(), 0, "a second run changes nothing");
 }
 
 #[test]
@@ -243,9 +279,9 @@ fn field_steps_apply_once() {
         Step::Drop { at: Target::Config("workspace"), field: "gone" },
         Step::Sql("CREATE TABLE extra (id TEXT)"),
     ];
-    let changed: Vec<usize> = steps.iter().map(|s| apply(&tx, s).unwrap()).collect();
+    let changed: Vec<usize> = steps.iter().map(|s| apply(&tx, s, None).unwrap()).collect();
     assert_eq!(changed, [1, 0, 1, 0, 0], "an existing field keeps its value; a missing one is not dropped");
-    let again: Vec<usize> = steps[..4].iter().map(|s| apply(&tx, s).unwrap()).collect();
+    let again: Vec<usize> = steps[..4].iter().map(|s| apply(&tx, s, None).unwrap()).collect();
     assert_eq!(again, [0, 0, 0, 0]);
     tx.commit().unwrap();
     let data: String = conn.query_row("SELECT data FROM configs WHERE id = 'w'", [], |r| r.get(0)).unwrap();

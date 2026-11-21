@@ -74,14 +74,19 @@ struct AgentsSection: View {
 
     /// Opens the agent editor another screen asked for: a new agent, or one by id.
     private func takeAgentRequest() {
-        guard let id = store.agentEditorRequest else { return }
+        guard let request = store.agentEditorRequest else { return }
         store.agentEditorRequest = nil
-        if id.isEmpty { editing = newDraft("codex") } else if let c = store.connection(id) { editing = editDraft(c) }
+        switch request {
+        case let .new(kind, auth, template): editing = newDraft(kind, auth: auth, template: template)
+        case let .existing(id): if let c = store.connection(id) { editing = editDraft(c) }
+        }
     }
 
-    private func newDraft(_ kind: String) -> JSON {
+    private func newDraft(_ kind: String, auth: String? = nil, template: Bool = false) -> JSON {
         let k = store.kind(kind)
-        return ["kind": JSON(kind), "auth": k?["auths"][0]["id"] ?? "", "name": k?["name"] ?? "", "api": "openai-completions", "prompt": "", "envText": ""]
+        let auth = auth ?? k?["auths"][0]["id"].str ?? ""
+        let env = template ? Setup.withTemplate("", store.auth(kind, auth)?["template"].str ?? "") : ""
+        return ["kind": JSON(kind), "auth": JSON(auth), "name": k?["name"] ?? "", "api": "openai-completions", "prompt": "", "envText": JSON(env)]
     }
 
     private func editDraft(_ c: JSON) -> JSON {
@@ -244,6 +249,7 @@ struct ConnectionEditor: View {
     @Environment(\.dismiss) private var dismiss
     @Local private var query = ""
     @Local private var secrets: [String: String] = [:]
+    @Local private var envDrafts: [String: JSON] = [:]
     @Local private var preview: JSON?
     @Local private var saving = false
     @Local private var idTouched = false
@@ -297,6 +303,9 @@ struct ConnectionEditor: View {
             }
         }
         .frame(minWidth: 760, idealWidth: 860, minHeight: 480, idealHeight: 640)
+        .onAppear { store.agentEditorEnv = draft["envText"].str }
+        .onChange(of: draft["envText"].str) { store.agentEditorEnv = draft["envText"].str }
+        .onDisappear { store.agentEditorEnv = nil }
         .task(id: "\(draft["kind"].str)|\(draft["source"].str)|\(draft["auth"].str)") {
             guard draft["auth"].str == "import" else { return }
             preview = nil
@@ -360,7 +369,10 @@ struct ConnectionEditor: View {
             }
             if let auth {
                 field(L.text("认证"), hint: L.catalogText(auth["desc"].str)) {
-                    Picker(L.text("认证"), selection: Binding(get: { auth["id"].str }, set: { draft["auth"] = JSON($0) })) {
+                    Picker(L.text("认证"), selection: Binding(get: { auth["id"].str }, set: { next in
+                        draft["envText"] = environment(for: draft["kind"].str, auth: next)
+                        draft["auth"] = JSON(next)
+                    })) {
                         ForEach(auths, id: \.self) { a in Text(L.catalogText(a["label"].str)).tag(a["id"].str) }
                     }
                     .pickerStyle(.segmented).labelsHidden()
@@ -368,6 +380,8 @@ struct ConnectionEditor: View {
                 if auth["id"].str == "import" {
                     if showSource { ForEach(auth["fields"].array, id: \.self) { f in inputField(f, prev) } }
                     importPreview(k)
+                } else if auth["env"].truthy {
+                    envField(template: auth["template"].str)
                 } else {
                     ForEach(auth["fields"].array, id: \.self) { f in inputField(f, prev) }
                 }
@@ -394,7 +408,7 @@ struct ConnectionEditor: View {
                     field(L.text("自定义提示词"), hint: L.text("排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令）。")) {
                         TextEditor(text: str("prompt")).font(.body).frame(height: 70).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     }
-                    envField
+                    if !store.envAuth(draft["kind"].str, draft["auth"].str) { envField(template: "") }
                 }
                 .padding(.top, 8)
             }
@@ -402,8 +416,13 @@ struct ConnectionEditor: View {
     }
 
     private func field<C: View>(_ label: String, hint: String = "", @ViewBuilder content: () -> C) -> some View {
+        field(label, hint: hint, accessory: { EmptyView() }, content: content)
+    }
+
+    /// A labelled field with something beside the label on the right, such as a button.
+    private func field<A: View, C: View>(_ label: String, hint: String = "", @ViewBuilder accessory: () -> A, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(label).font(.callout.weight(.semibold))
+            HStack { Text(label).font(.callout.weight(.semibold)); Spacer(); accessory() }
             content()
             if !hint.isEmpty { Text(hint).font(.caption).foregroundStyle(.secondary) }
         }
@@ -428,10 +447,43 @@ struct ConnectionEditor: View {
         }
     }
 
-    private var envField: some View {
-        field(L.text("环境变量"), hint: L.text("写成 KEY= 表示不设置这个变量。")) {
-            TextEditor(text: str("envText")).font(.system(.callout, design: .monospaced)).frame(minHeight: 70, maxHeight: 200).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
+    /// The environment lines: the whole form of an auth set up by its environment (Claude's custom
+    /// API, with its template one click away), else an advanced setting.
+    private func envField(template: String) -> some View {
+        let primary = store.envAuth(draft["kind"].str, draft["auth"].str)
+        let hasPrivateValues = draft["env"].object.values.contains(.null)
+        let hint = hasPrivateValues
+            ? L.text("仅有变量名的行会沿用已保存的值。填写新值可替换，删除整行可移除。")
+            : L.text("每行填写 KEY=value，也可以直接粘贴多行 export KEY=value。写成 KEY= 可清空变量。")
+        return field(L.text("环境变量"), hint: hint, accessory: {
+            if !template.isEmpty {
+                Button(L.text("填入模板")) { draft["envText"] = JSON(Setup.withTemplate(draft["envText"].str, template)) }
+                    .buttonStyle(.link)
+                    .help(L.text("把模板中还没有填写的变量加到末尾，已填写的不变"))
+            }
+        }) {
+            TextEditor(text: str("envText"))
+                .font(.system(.callout, design: .monospaced))
+                .frame(minHeight: primary ? 155 : 70, maxHeight: 200)
+                .overlay(alignment: .topLeading) {
+                    if primary && draft["envText"].str.isEmpty {
+                        Text(verbatim: "export ANTHROPIC_BASE_URL=https://api.example.com\nexport ANTHROPIC_AUTH_TOKEN=…\nexport ANTHROPIC_MODEL=…")
+                            .font(.system(.callout, design: .monospaced)).foregroundStyle(.tertiary)
+                            .padding(.horizontal, 6).allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
+                .accessibilityLabel(L.text("环境变量"))
         }
+    }
+
+    /// Keep pasted credentials with the provider and auth form where they were entered.
+    private func environment(for kind: String, auth: String) -> JSON {
+        let current = store.envAuth(draft["kind"].str, draft["auth"].str) ? "env" : draft["kind"].str
+        let next = store.envAuth(kind, auth) ? "env" : kind
+        if current == next { return draft["envText"] }
+        envDrafts[current] = draft["envText"]
+        return envDrafts[next] ?? ""
     }
 
     @ViewBuilder private func importPreview(_ k: JSON) -> some View {
@@ -453,12 +505,14 @@ struct ConnectionEditor: View {
         }
     }
 
-    /// Switching type keeps the name the person typed, the prompt and the environment lines.
+    /// Switching type keeps the name the person typed and the prompt.
     private func pickType(_ v: String) {
+        guard v != draft["kind"].str else { return }
         let k = store.kind(v)
         let oldKind = store.kind(draft["kind"].str)
         let keepName = draft["name"].truthy && draft["name"].str != oldKind?["name"].str
-        var d: JSON = ["kind": JSON(v), "auth": k?["auths"][0]["id"] ?? "", "name": keepName ? draft["name"] : (k?["name"] ?? ""), "api": "openai-completions", "prompt": draft["prompt"], "envText": draft["envText"]]
+        let auth = k?["auths"][0]["id"] ?? ""
+        var d: JSON = ["kind": JSON(v), "auth": auth, "name": keepName ? draft["name"] : (k?["name"] ?? ""), "api": "openai-completions", "prompt": draft["prompt"], "envText": environment(for: v, auth: auth.str)]
         if idTouched { d["newId"] = draft["newId"] }
         draft = d
         preview = nil

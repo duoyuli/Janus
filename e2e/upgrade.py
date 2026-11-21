@@ -206,6 +206,11 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         else:
             check(not backups(home), "没有要升级的数据时不备份")
         setup = api("GET", "/api/setup")
+        claude = next(c for c in setup["connections"] if c["id"] == "claude")
+        check(claude["auth"] == "apikey" and "ANTHROPIC_API_KEY" in claude["env"] and claude["env"]["ANTHROPIC_API_KEY"] is None,
+              "旧 Claude API Key 升级为已保存的私有环境变量")
+        with open(os.path.join(home, "agents", "claude", "secrets.json")) as f:
+            check(json.load(f)["apiKey"] == "sk-ant-e2e", "升级保留原来的 Claude 密钥")
         roles = {r["id"]: r for r in setup["roles"]}
         check(all("role" not in r for r in setup["roles"]), "数字员工不再带「定位」字段")
         for rid in ("coordinator", "researcher", "product-manager", "implementer"):

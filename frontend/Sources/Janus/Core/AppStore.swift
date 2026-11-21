@@ -318,12 +318,17 @@ final class AppStore {
         didSet { UserDefaults.janus.set(libraryKind.rawValue, forKey: "janus.libraryKind") }
     }
 
-    /// An agent to open in the editor once the digital workers pane shows: an id, or "" for a new one.
-    /// The pane clears it after opening.
-    var agentEditorRequest: String?
+    enum AgentEditorRequest: Equatable {
+        /// A new agent of `kind` on `auth`; `template` brings that auth's environment template in.
+        case new(kind: String, auth: String?, template: Bool)
+        case existing(String)
+    }
+    var agentEditorRequest: AgentEditorRequest?
+    /// The environment text of the agent editor while it is open, for the end-to-end state.
+    var agentEditorEnv: String?
 
-    func editAgent(_ id: String) {
-        agentEditorRequest = id
+    func editAgent(_ request: AgentEditorRequest) {
+        agentEditorRequest = request
         openSettings(.agents)
     }
 
@@ -388,6 +393,10 @@ final class AppStore {
     // MARK: Lookups
 
     func kind(_ id: String) -> JSON? { meta["kinds"].array.first { $0["id"].str == id } }
+    /// One way to sign in of an agent kind, as the catalog describes it.
+    func auth(_ kind: String, _ id: String) -> JSON? { self.kind(kind)?["auths"].array.first { $0["id"].str == id } }
+    /// Whether the agent is set up by its environment lines (Claude's custom API).
+    func envAuth(_ kind: String, _ auth: String) -> Bool { self.auth(kind, auth)?["env"].truthy == true }
     func connection(_ id: String) -> JSON? { connections.first { $0["id"].str == id } }
     func role(_ id: String) -> JSON? { roles.first { $0["id"].str == id } }
     func workspace(_ id: String) -> JSON? { workspaces.first { $0["id"].str == id } }

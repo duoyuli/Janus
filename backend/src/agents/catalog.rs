@@ -27,12 +27,25 @@ pub fn kinds() -> Value {
                 { "id": "import", "label": "复制本机配置", "desc": "", "fields": [{ "key": "source", "label": "来源目录", "type": "text", "placeholder": "~/.claude" }] },
                 { "id": "oauth", "label": "Claude 订阅", "desc": "在终端运行 claude setup-token，把生成的 token 粘贴到这里。",
                   "fields": [{ "key": "token", "label": "OAuth Token", "type": "secret", "required": true, "placeholder": "sk-ant-oat01-..." }] },
-                { "id": "apikey", "label": "API Key", "desc": "",
-                  "fields": [{ "key": "apiKey", "label": "API Key", "type": "secret", "required": true, "placeholder": "sk-ant-api03-..." }] }
+                // Filled in as environment lines (`env`); the template is what the app's
+                // "Insert template" button brings in.
+                { "id": "apikey", "label": "自定义 API", "desc": "Anthropic API，或兼容 Anthropic API 的网关：用环境变量设置地址、令牌和模型。",
+                  "env": true, "template": CLAUDE_API_TEMPLATE, "fields": [] }
             ]
         }
     ])
 }
+
+/// The environment of Claude's custom API, as a gateway in front of another model expects it.
+const CLAUDE_API_TEMPLATE: &str = "export ANTHROPIC_BASE_URL=https://xxx.xxx.com
+export ANTHROPIC_AUTH_TOKEN=sk-xxx
+export ANTHROPIC_MODEL=deepseek-v4.1-flash
+export ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-v4.1-flash
+export ANTHROPIC_DEFAULT_SONNET_MODEL=deepseek-v4.1-flash
+export ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-v4.1-flash
+export CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4.1-flash
+export CLAUDE_CODE_EFFORT_LEVEL=max
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=786432";
 
 /// The runtime binary the person chose for this agent, if any. The built-in adapters ship their
 /// own CLI, so an empty value means "use the bundled one" rather than "look on PATH".
@@ -49,8 +62,11 @@ pub(super) fn override_env(env: &mut Vec<(String, String)>, k: &str, v: &str) {
     }
 }
 
-/// `KEY=VALUE` per line; a leading `export` and matching quotes are dropped, `#` starts a comment.
-pub fn parse_env(text: &str) -> Result<serde_json::Map<String, Value>> {
+/// A bare name keeps its previously saved private value. Assignment lines are parsed as data.
+pub(super) fn parse_env<'a>(
+    text: &str,
+    saved: impl Fn(&str) -> Option<&'a str>,
+) -> Result<serde_json::Map<String, Value>> {
     let mut out = serde_json::Map::new();
     for (i, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -58,10 +74,14 @@ pub fn parse_env(text: &str) -> Result<serde_json::Map<String, Value>> {
             continue;
         }
         let line = line.strip_prefix("export ").map(str::trim).unwrap_or(line);
-        let (k, v) = line.split_once('=').ok_or_else(|| anyhow!("环境变量第 {} 行缺少 =", i + 1))?;
+        let Some((k, v)) = line.split_once('=') else {
+            let stored = saved(line).with_context(|| format!("环境变量第 {} 行缺少 =", i + 1))?;
+            out.insert(line.to_string(), json!(stored));
+            continue;
+        };
         let k = k.trim();
         if k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            bail!("环境变量第 {} 行的名字无效：{k}", i + 1);
+            bail!("环境变量第 {} 行的名字无效", i + 1);
         }
         let v = v.trim();
         let v = match (v.chars().next(), v.chars().last()) {

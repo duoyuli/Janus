@@ -286,7 +286,9 @@
 "写下任务，发送后恢复负责人会话" = "Send a task to reopen the lead’s session";
 "写下接下来要做的，或用 /goal 设置新的目标" = "Describe the next task, or use /goal to set a new goal";
 "写回看板：%@" = "Post to the board: %@";
-"写成 KEY= 表示不设置这个变量。" = "Use KEY= to leave a variable unset.";
+"每行填写 KEY=value，也可以直接粘贴多行 export KEY=value。写成 KEY= 可清空变量。" = "Enter KEY=value per line or paste multiple export KEY=value lines. Use KEY= to unset a variable.";
+"仅有变量名的行会沿用已保存的值。填写新值可替换，删除整行可移除。" = "A name on its own keeps the saved value. Assign a new value to replace it or delete the line to remove it.";
+"由 Claude Code 在试运行时验证环境变量" = "Claude Code verifies these settings during the trial run";
 "决定" = "Decision";
 "决定与待处理" = "Decisions & Requests";
 "决策" = "Decisions";
@@ -1119,6 +1121,9 @@
 "OpenAI API，或兼容 Responses API 的网关。" = "OpenAI API or a gateway compatible with the Responses API.";
 "创建后在浏览器里登录。" = "Sign in through the browser after creating the Agent.";
 "在终端运行 claude setup-token，把生成的 token 粘贴到这里。" = "Run claude setup-token in Terminal and paste the resulting token here.";
+"Anthropic API，或兼容 Anthropic API 的网关：用环境变量设置地址、令牌和模型。" = "Anthropic API or a gateway compatible with it: set the endpoint, token and models as environment variables.";
+"填入模板" = "Insert Template";
+"把模板中还没有填写的变量加到末尾，已填写的不变" = "Adds the template’s variables that are not set yet at the end; variables already set stay as they are";
 "来源目录" = "Source Directory";
 "自定义 API" = "Custom API";
 "语言" = "Language";

@@ -30,12 +30,20 @@ def setup(ctx, c):
     # Agents of every built-in kind, checked the way Settings → Digital Employees does.
     fake = Fake(ctx.path("setup", "fake"))
     env = f"FAKE_DIR={fake.dir}"
+    claude_env = f"{env}\nexport ANTHROPIC_AUTH_TOKEN={SECRET}\nexport ANTHROPIC_BASE_URL=https://gateway.example.com\nexport ANTHROPIC_MODEL=deepseek-v4.1-flash"
+    auths = next(k["auths"] for k in meta["kinds"] if k["id"] == "claude")
+    custom = auths[-1]
+    template = custom.get("template", "")
+    c([a["id"] for a in auths] == ["import", "oauth", "apikey"] and custom["label"] == "自定义 API" and custom.get("env")
+      and not custom["fields"] and "export ANTHROPIC_AUTH_TOKEN=" in template and "export ANTHROPIC_BASE_URL=" in template,
+      "Claude 的自定义 API 用环境变量设置，没有单独的 API Key 字段，并带模板")
     conns = [
         {"id": "setup-codex", "kind": "codex", "name": "Codex 替身", "auth": "apikey", "apiKey": SECRET, "envText": env},
-        {"id": "setup-claude", "kind": "claude", "name": "Claude 替身", "auth": "apikey", "apiKey": SECRET, "envText": env},
+        {"id": "setup-claude", "kind": "claude", "name": "Claude 替身", "auth": "apikey", "envText": claude_env},
     ]
     for body in conns:
-        ctx.api("POST", "/api/setup/connections", body)
+        saved = ctx.api("POST", "/api/setup/connections", body)
+        c(SECRET not in json.dumps(saved), f"保存 {body['name']} 的响应隐藏凭据")
         ctx.api("POST", f"/api/connections/{body['id']}/test")
     def checked():
         cs = {x["id"]: x for x in ctx.api("GET", "/api/setup")["connections"]}
@@ -168,8 +176,16 @@ def setup(ctx, c):
             ctx.app.do(f"open settings:{tab}", f"shot {shot}")
             c(_drawn(ctx, shot), f"应用：设置 → {tab} 画出来了")
         # Adding an Agent offers only Codex and Claude Code.
-        ctx.app.do("agent-edit new", "shot agent-editor", "close-sheet")
-        c(_drawn(ctx, "agent-editor"), "应用：添加 Agent 的编辑器画出来了")
+        state = ctx.app.do("agent-edit new claude apikey template", "shot agent-editor")
+        c(_drawn(ctx, "agent-editor") and state["agentEditorEnv"] == template,
+          "应用：新建 Claude 的自定义 API 时，「填入模板」带入的环境变量就是服务给的模板")
+        ctx.app.do("close-sheet")
+        state = ctx.app.do("agent-edit setup-claude", "shot claude-env-edit", "close-sheet")
+        lines = state["claudeEnvironments"]["setup-claude"].splitlines()
+        expected = cs["setup-claude"]["env"]
+        c(set(lines) == {k if v is None else f"{k}={v}" for k, v in expected.items()}
+          and "ANTHROPIC_AUTH_TOKEN" in lines and "ANTHROPIC_MODEL=deepseek-v4.1-flash" in lines
+          and SECRET not in "\n".join(lines), "应用：编辑器显示保存的模型和服务地址，私有变量只显示名称")
         # The MCP editor: a saved server as the form and as JSON, and a new one.
         for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new"), ("mcp-edit catalog:github", "mcp-editor-catalog")):
             ctx.app.do(cmd, f"shot {shot}", "close-sheet")

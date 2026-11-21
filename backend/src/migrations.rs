@@ -46,6 +46,8 @@ pub enum Step {
     /// Anything else (a default computed from other fields, a type change); returns how many
     /// objects it changed.
     Custom(fn(&Transaction) -> Result<usize>),
+    /// Move Claude credentials from the old connection into its existing private file.
+    ClaudeEnv,
 }
 
 /// Where a field step applies.
@@ -124,6 +126,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 12,
         name: "Run 记录是目标还是和一名数字员工的对话：已有的 Run 都是目标",
         steps: &[Step::Sql("ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'goal';")],
+    },
+    Migration {
+        version: 13,
+        name: "Claude 的自定义 API 改用环境变量：单独保存的 API Key 成为 ANTHROPIC_API_KEY，私有变量移出数据库",
+        steps: &[Step::ClaudeEnv],
     },
 ];
 
@@ -261,7 +268,8 @@ pub fn upgrade(conn: &mut Connection, db: Option<&Path>) -> Result<Report> {
         let tx = conn.transaction()?;
         let mut changed = 0;
         for step in m.steps {
-            changed += apply(&tx, step).with_context(|| format!("数据升级 {}「{}」失败", m.version, m.name))?;
+            changed += apply(&tx, step, db.and_then(Path::parent))
+                .with_context(|| format!("数据升级 {}「{}」失败", m.version, m.name))?;
         }
         tx.pragma_update(None, "user_version", m.version)?;
         tx.commit()?;
@@ -290,7 +298,7 @@ fn backup(conn: &Connection, db: &Path, version: u32) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn apply(tx: &Transaction, step: &Step) -> Result<usize> {
+fn apply(tx: &Transaction, step: &Step, home: Option<&Path>) -> Result<usize> {
     match step {
         Step::Sql(sql) => {
             tx.execute_batch(sql)?;
@@ -317,6 +325,7 @@ fn apply(tx: &Transaction, step: &Step) -> Result<usize> {
             }
         }),
         Step::Custom(f) => f(tx),
+        Step::ClaudeEnv => crate::agents::migrate_claude_env(tx, home),
     }
 }
 
@@ -356,6 +365,14 @@ pub fn edit_configs(
     kind: &str,
     mut f: impl FnMut(&str, &mut Map<String, Value>) -> bool,
 ) -> Result<usize> {
+    try_edit_configs(tx, kind, |id, config| Ok(f(id, config)))
+}
+
+pub(crate) fn try_edit_configs(
+    tx: &Transaction,
+    kind: &str,
+    mut f: impl FnMut(&str, &mut Map<String, Value>) -> Result<bool>,
+) -> Result<usize> {
     let rows: Vec<(String, String)> = tx
         .prepare("SELECT id, data FROM configs WHERE kind = ?1")?
         .query_map(params![kind], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -364,7 +381,7 @@ pub fn edit_configs(
     for (id, data) in rows {
         let Ok(mut data) = serde_json::from_str::<Value>(&data) else { continue };
         let Some(o) = data.as_object_mut() else { continue };
-        if f(&id, o) {
+        if f(&id, o)? {
             tx.execute(
                 "UPDATE configs SET data = ?1 WHERE kind = ?2 AND id = ?3",
                 params![data.to_string(), kind, id],

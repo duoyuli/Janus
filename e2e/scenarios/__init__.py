@@ -70,10 +70,13 @@ class Ctx:
             fake.touch(f)
         repo = git_repo(self.path(name, "repo"), files)
         env = f"FAKE_DIR={fake.dir}"
-        lead_conn = self.api("POST", "/api/setup/connections", {
-            "id": f"{name}-{lead}", "kind": lead, "name": f"{name} {lead}", "auth": "apikey", "apiKey": "sk-e2e-not-a-key", "envText": env})
-        member_conn = self.api("POST", "/api/setup/connections", {
-            "id": f"{name}-fake", "kind": "claude", "name": f"{name} fake", "auth": "apikey", "apiKey": "sk-e2e-not-a-key", "envText": env})
+        def connection(suffix, kind):
+            auth = ({"auth": "apikey", "envText": env + "\nexport ANTHROPIC_AUTH_TOKEN=e2e-token"} if kind == "claude"
+                    else {"auth": "apikey", "apiKey": "sk-e2e-not-a-key", "envText": env})
+            return self.api("POST", "/api/setup/connections", {"id": f"{name}-{suffix}", "kind": kind,
+                                                               "name": f"{name} {suffix}", **auth})
+        lead_conn = connection(lead, lead)
+        member_conn = connection("fake", "claude")
         lead_role = self.api("POST", "/api/setup/roles", {
             "id": f"{name}-lead", "name": f"{name} 负责人", "desc": "负责人", "connection": lead_conn["id"], "lead": True})
         roles = {}

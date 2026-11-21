@@ -103,8 +103,12 @@ enum Snapshots {
             } else {
                 await store.editMcp(store.libraryItems.first { $0["kind"].str == "mcp" && $0["name"].str == p.first }, json: p.last == "json")
             }
-        // The agent editor: `agent-edit <id>`, or `agent-edit new`.
-        case "agent-edit": store.editAgent(arg == "new" ? "" : arg)
+        // The agent editor: `agent-edit <id>` or `agent-edit new [kind auth [template]]`.
+        case "agent-edit":
+            let args = arg.split(separator: " ").map(String.init)
+            if args.first == "new" {
+                store.editAgent(.new(kind: args.dropFirst().first ?? "codex", auth: args.dropFirst(2).first, template: args.dropFirst(3).first == "template"))
+            } else { store.editAgent(.existing(arg)) }
         case "close-sheet":
             store.closeRoleEditor(); store.editingWorkspace = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
@@ -130,6 +134,11 @@ enum Snapshots {
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
                 "connections": ids(store.connections), "roles": ids(store.roles), "workspaces": ids(store.workspaces), "runs": ids(store.runs),
+                "claudeEnvironments": .object(Dictionary(uniqueKeysWithValues: store.connections.filter {
+                    store.envAuth($0["kind"].str, $0["auth"].str)
+                }.map { ($0["id"].str, JSON(Setup.envText($0["env"]))) })),
+                // The open agent editor's environment text, as the person sees it.
+                "agentEditorEnv": store.agentEditorEnv.map(JSON.init) ?? .null,
                 "chats": ids(store.chats),
                 // The task records each workspace page read and shows, by workspace.
                 "histories": .object(store.histories.mapValues { ids($0.runs) }),

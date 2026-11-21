@@ -22,7 +22,7 @@
 | 类型 | 基础运行时 | 认证方式 | 配置目录变量 |
 | --- | --- | --- | --- |
 | `codex` | `codex` | 复制本机配置、ChatGPT 登录、自定义 API（OpenAI 或兼容 Responses API 的网关） | `CODEX_HOME` |
-| `claude` | `claude` | 复制本机配置、Claude 订阅 OAuth Token、API Key | `CLAUDE_CONFIG_DIR` |
+| `claude` | `claude` | 复制本机配置、Claude 订阅 OAuth Token、自定义 API（Anthropic API 或兼容的网关，用环境变量设置） | `CLAUDE_CONFIG_DIR` |
 
 只有这两种：不能用启动命令接入其他 ACP Agent，见 [ADR：去掉「自定义命令」](../decisions/20261120-codex_and_claude_code_only.md)。
 
@@ -32,16 +32,18 @@
 - 内置运行时通过 ACP 适配器启动。适配器在第一次检查用到它的 Agent 时自动安装，见 [ACP 适配器管理](../architecture/20261031-adapters.md#on_demand)。
 - 有正在运行的任务使用某个 Agent 时，不能删除它。
 - 「复制本机配置」只复制与模型接入有关的配置项和凭据，见[安全边界](../operations/20261031-security.md#local_config_import)。
-- 用其他厂商的 Anthropic 兼容接口驱动 Claude Code 时，选 `claude` 类型的 API Key，在环境变量里填厂商的 `ANTHROPIC_BASE_URL` 和模型名。Janus 不再提供按厂商的预设类型：以前的 `deepseek-claude`、`minimax-claude`、`glm-claude` 在数据版本 7 改为这样的 Claude Code Agent，预设的变量写进它自己的环境变量（用户改过或去掉的保持原样），状态改为未检查；预设的 token 不会自动变成 API Key，要在编辑页重新填一次。
+- 通过 Anthropic API 或兼容网关接入 Claude Code 时，选择「自定义 API」（`apikey`），在环境变量中整段粘贴服务地址、凭据和模型设置；「填入模板」把 catalog 中这种认证方式的模板（`template`）里还没有填写的变量加到末尾，已填写的不变。网关可使用 `ANTHROPIC_AUTH_TOKEN`，Anthropic API 可使用 `ANTHROPIC_API_KEY`。旧连接中单独填写的 API Key 在数据版本 13 升级为该 Agent 的 `ANTHROPIC_API_KEY`。
 
 <a id="agent_env"></a>
 ### 环境变量
+
+每行可写 `KEY=value` 或 `export KEY=value`。空行和以 `#` 开头的行会跳过，值两端配对的引号会去掉。Janus 按文本读取这些赋值。编辑 Claude 时，普通服务地址、模型和常用运行参数显示原值，私有变量只显示名字。保留这一行就沿用已保存的值，改成 `KEY=新值` 可替换，删除整行可移除。取舍见 [ADR：Claude Code 通过环境变量接入 API](../decisions/20261120-claude_env_auth.md)。
 
 Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20261031-security.md)），它看到的变量按以下顺序叠加，同名时后面的覆盖前面的：
 
 1. 沙箱变量：`HOME`、XDG 目录、`TMPDIR` 等，指向 `~/.janus/agents/<id>/` 下的隔离目录。
 2. 用户在 Agent 上填写的环境变量，以及「复制本机配置」带来的变量。值为空（`KEY=`）表示去掉这个变量。沙箱变量不能在这里改写。
-3. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和凭据（如 API Key 对应的 `ANTHROPIC_API_KEY`）。Claude Code 还有一项默认值：`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，原因见 [Claude Code 会话的环境默认值](../interfaces/20261031-acp_integration.md#background_tasks)。
+3. 隔离目录变量（如 `CLAUDE_CONFIG_DIR`、`CODEX_HOME`）、运行时路径和所选登录方式的凭据（如 Claude 订阅的 `CLAUDE_CODE_OAUTH_TOKEN`）。Claude 的「自定义 API」使用第 2 步填写的变量。Claude Code 还有一项默认值 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，原因见 [Claude Code 会话的环境默认值](../interfaces/20261031-acp_integration.md#background_tasks)。
 
 <a id="connection_check"></a>
 ## 配置检查
@@ -50,7 +52,7 @@ Agent 进程不继承 Janus 自己的环境（见[安全边界](../operations/20
 
 1. **ACP 适配器**：Agent 需要的适配器没有安装时，当场安装最新版本。
 2. **运行时**：找到 CLI 和适配器入口。
-3. **凭据**：检查所选认证方式需要的凭据是否齐全。
+3. **凭据**：检查所选认证方式需要的凭据是否齐全。Claude 的「自定义 API」由 Claude Code 在后续的试运行中验证，网关可以使用自己的变量名。
 4. **启动 Agent**：启动子进程并完成 ACP `initialize`，60 秒超时。
 5. **打开会话**：`session/new`，读取 Agent 声明的模型、推理强度和会话控制项，保存到连接的 `options`。
 6. **试运行**：发送一句测试消息，确认有回复。

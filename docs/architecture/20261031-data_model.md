@@ -91,6 +91,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 10 | worktree 中的 Run 的快照加 `worktree.branch`：取升级时工作目录检出的分支，这个分支的历史不含 Run 的起点（`baseRef`）时取 `null`，见 [ADR：验收时把结果合并回任务开始时的分支](../decisions/20261120-merge_back_on_accept.md) |
 | 11 | 每项资源都给所有数字员工：资源和 Run 快照中的资源删除 `reach`，数字员工删除 `resources`，见 [ADR：资源库的每项资源都给所有数字员工，只经两个路由提供](../decisions/20261120-library_routed_only.md) |
 | 12 | `runs` 表加 `kind` 列（`goal`、`chat`），已有的 Run 都取 `goal`，见[对话](../domains/20261120-chats.md) |
+| 13 | Claude 连接的自定义 API（`apikey`）改用环境变量：原来单独保存的密钥作为 `ANTHROPIC_API_KEY` 继续使用。手动填写的私有变量移入 Agent 的 `secrets.json`，连接的 `env` 将对应值记为 `null`，见[凭据保存](../operations/20261031-security.md#secrets) |
 
 <a id="snapshots"></a>
 ## Run 快照

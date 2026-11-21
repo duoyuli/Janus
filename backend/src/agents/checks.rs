@@ -69,7 +69,10 @@ impl App {
     pub(super) fn credential_check(&self, c: &Value) -> (bool, String) {
         let id = str_of(c, "id");
         let home = self.agent_dir(id).join("home");
-        let secrets = self.secrets(id);
+        let secrets = match super::environment::read_secrets(&self.agent_dir(id)) {
+            Ok(s) => s,
+            Err(_) => return (false, "无法读取 Agent 凭据文件".into()),
+        };
         let has = |k: &str| secrets[k].as_str().is_some_and(|v| !v.is_empty());
         let desc = kinds().as_array().unwrap().iter().find(|k| k["id"] == c["kind"]).cloned().unwrap_or(Value::Null);
         if !desc["token"].is_null() {
@@ -121,7 +124,10 @@ impl App {
                     (false, "还没有登录".into())
                 }
             }
-            (_, "apikey") => {
+            // Claude's custom API is its environment; a gateway may name its credential anything,
+            // so only the trial run can tell whether it works.
+            ("claude", "apikey") => (true, "由 Claude Code 在试运行时验证环境变量".into()),
+            ("codex", "apikey") => {
                 if has("apiKey") {
                     (true, "已保存 API Key".into())
                 } else {
@@ -275,7 +281,8 @@ impl App {
                 set_check(&mut c, ConnCheck::Ok);
                 c["agentInfo"] = found["agentInfo"].clone();
                 c["options"] = found["options"].clone();
-                c["reply"] = json!(crate::orchestrator::short(found["reply"].as_str().unwrap_or(""), 80));
+                c["reply"] =
+                    json!(crate::orchestrator::short(&self.redact(id, found["reply"].as_str().unwrap_or("")), 80));
             }
             Err(err) => {
                 let failed = check

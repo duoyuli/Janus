@@ -51,7 +51,30 @@ enum Setup {
 
     static func envLine(_ k: String, _ v: String) -> String {
         let needsQuote = v.range(of: #"\s|#"#, options: .regularExpression) != nil
-        return "\(k)=\(needsQuote ? String(decoding: JSON(v).data(), as: UTF8.self) : v)"
+        let quoted = v.first == v.last && (v.first == "\"" || v.first == "'")
+        return "\(k)=\(needsQuote || quoted ? "\"\(v)\"" : v)"
     }
-    static func envText(_ env: JSON) -> String { env.object.sorted { $0.key < $1.key }.map { envLine($0.key, $0.value.str) }.joined(separator: "\n") }
+    static func envText(_ env: JSON) -> String {
+        env.object.sorted { $0.key < $1.key }.map { name, value in
+            value == .null ? name : envLine(name, value.str)
+        }.joined(separator: "\n")
+    }
+
+    /// The variable a line sets or keeps: `export KEY=value`, `KEY=value` or a bare `KEY`.
+    static func envName(_ line: String) -> String? {
+        var l = line.trimmingCharacters(in: .whitespaces)
+        if l.isEmpty || l.hasPrefix("#") { return nil }
+        if l.hasPrefix("export ") { l = String(l.dropFirst(7)).trimmingCharacters(in: .whitespaces) }
+        let name = l.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        return name.isEmpty ? nil : name
+    }
+
+    /// Bring an auth's template into the environment text: its lines for variables the text does
+    /// not set yet go after what is there, so a value already typed or pasted is never replaced.
+    static func withTemplate(_ text: String, _ template: String) -> String {
+        let have = Set(text.components(separatedBy: .newlines).compactMap(envName))
+        let add = template.components(separatedBy: .newlines).filter { envName($0).map { !have.contains($0) } ?? false }
+        let kept = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ([kept].filter { !$0.isEmpty } + add).joined(separator: "\n")
+    }
 }
