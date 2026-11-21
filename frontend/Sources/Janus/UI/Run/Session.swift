@@ -101,6 +101,7 @@ struct ChatCard: View {
     /// How much of the agent's work to show (`ChatDensity`). One choice for all conversations,
     /// remembered on this Mac.
     @AppStorage("janus.chatDensity", store: .janus) private var density = ChatDensity.detail
+    private var sendKey: SendKey { SendKeySetting.shared.value }
     /// Counts the person's messages: sending one brings the conversation to its newest item.
     @Local private var sent = 0
 
@@ -151,7 +152,7 @@ struct ChatCard: View {
     }
 
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
-        let ph = L.text("给 Agent 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送")
+        let ph = L.text("给 Agent 发消息，可以 ⌘V 粘贴截图，\(sendKey.symbol) 发送")
         let composer = SessionComposer(info, live: live, replaying: run.isReplaying)
         switch composer {
         case .replay:
@@ -174,7 +175,7 @@ struct ChatCard: View {
                 info.open && live ? L.text("等你的消息") : L.text("会话已关闭"),
                 .gray,
                 AnyView(btn("sessSend", L.text("发送"), true)),
-                info.open && live ? L.text("给 \(title) 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送") : L.text("发送后重新打开和 \(title) 的会话"),
+                info.open && live ? L.text("给 \(title) 发消息，可以 ⌘V 粘贴截图，\(sendKey.symbol) 发送") : L.text("发送后重新打开和 \(title) 的会话"),
                 true
             )
         case .converse:
@@ -199,7 +200,7 @@ struct ChatCard: View {
         Group {
             if primary {
                 Button(label) { send(act == "sessSend" ? "message" : act) }.buttonStyle(.primary)
-                    .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? L.text("先写下要发送的内容，或者粘贴图片") : "⌘↩")
+                    .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? L.text("先写下要发送的内容，或者粘贴图片") : sendKey.symbol)
             }
             // ⌘. stops the turn, as it stops a running command elsewhere on the Mac.
             else if danger { Button(label, role: .destructive) { send(act) }.keyboardShortcut(".", modifiers: .command).help("⌘.") }

@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Settings › 通用: language and appearance, then the update and macOS permission sections. Other places
+/// Settings › 通用: language, appearance and the send key, then the update and macOS permission sections. Other places
 /// (the update badge, "Check for Updates…") open this pane at a section through `AppStore.generalSection`.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct GeneralSettingsView: View {
     let store: AppStore
     @Local private var appearance = Appearance.saved
+    private var sendKey: SendKey { SendKeySetting.shared.value }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -50,7 +51,16 @@ struct GeneralSettingsView: View {
             HStack(spacing: 22) {
                 settingLabel(L.text("外观"), detail: L.text("选择 Janus 的界面外观，更改后立即生效。"))
                 Spacer(minLength: 0)
-                appearanceControl
+                choice(Appearance.allCases, selected: appearance, label: L.text("外观"), title: \.title) {
+                    appearance = $0
+                    $0.apply()
+                }
+            }
+            Divider()
+            HStack(spacing: 22) {
+                settingLabel(L.text("发送消息"), detail: L.text("选择输入框里发送消息的按键，更改后立即生效。\(sendKey.note)"))
+                Spacer(minLength: 0)
+                choice(SendKey.allCases, selected: sendKey, label: L.text("发送消息"), title: \.title) { SendKeySetting.shared.value = $0 }
             }
             Divider()
             sectionTitle(L.text("更新"))
@@ -81,15 +91,17 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private var appearanceControl: some View {
+    /// A row of choices, one selected: the appearance, the send key.
+    private func choice<T: Identifiable & Equatable>(
+        _ items: [T], selected current: T, label: String, title: @escaping (T) -> String, pick: @escaping (T) -> Void
+    ) -> some View {
         HStack(spacing: 2) {
-            ForEach(Appearance.allCases) { item in
-                let selected = item == appearance
+            ForEach(items) { item in
+                let selected = item == current
                 Button {
-                    appearance = item
-                    item.apply()
+                    pick(item)
                 } label: {
-                    Text(item.title)
+                    Text(title(item))
                         .font(.body.weight(selected ? .semibold : .regular))
                         .foregroundStyle(selected ? Color.primary : .secondary)
                         .frame(minWidth: 56, minHeight: 28)
@@ -111,6 +123,6 @@ struct GeneralSettingsView: View {
         .background(Color.soft, in: RoundedRectangle(cornerRadius: 9))
         .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.12)) }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(L.text("外观"))
+        .accessibilityLabel(label)
     }
 }

@@ -871,7 +871,7 @@
 "结论 · %@\n%@\n点按在审计日志中查看" = "Findings · %@\n%@\nClick to view in the audit log";
 "结论没有得到确认" = "The findings were not confirmed";
 "给 %@ 的补充" = "Follow-up for %@";
-"给 Agent 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送" = "Message the Agent. Paste screenshots with ⌘V and send with ⌘↩.";
+"给 Agent 发消息，可以 ⌘V 粘贴截图，%@ 发送" = "Message the Agent. Paste screenshots with ⌘V and send with %@.";
 "继续" = "Continue";
 "继续提示" = "Resume Prompt";
 "继续调度子任务（⇧⌘P）" = "Resume scheduling subtasks (⇧⌘P)";
@@ -919,7 +919,7 @@
 "详情" = "Details";
 "详细" = "Detailed";
 "详细：每次工具调用都显示；摘要：只看对话、请求和结果" = "Detailed: every tool call. Summary: only messages, requests and results.";
-"说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给负责人" = "Describe the outcome you want. Paste screenshots with ⌘V and send to the lead with ⌘↩.";
+"说出你想要的结果，可以 ⌘V 粘贴截图，%@ 交给负责人" = "Describe the outcome you want. Paste screenshots with ⌘V and send to the lead with %@.";
 "请从已安装的 Janus.app 打开此页。从源码运行时，系统权限可能属于启动它的终端。" = "Open this page in the installed Janus.app. When running from source, macOS permissions may apply to the terminal.";
 "请你决定：%@" = "Ask you to decide: %@";
 "请使用安装包" = "Use the Installed App";
@@ -1370,7 +1370,7 @@
 
 /* Chats with one digital employee */
 "会话已关闭" = "Session closed";
-"给 %@ 发消息，可以 ⌘V 粘贴截图，⌘↩ 发送" = "Message %@ — paste screenshots with ⌘V, send with ⌘↩";
+"给 %@ 发消息，可以 ⌘V 粘贴截图，%@ 发送" = "Message %1$@ — paste screenshots with ⌘V, send with %2$@";
 "发送后重新打开和 %@ 的会话" = "Sending reopens the session with %@";
 "对话 · %@ · %@" = "Chat · %1$@ · %2$@";
 "工作目录 %@：为这次对话新建，删除对话时一起删除" = "Working directory %@: made for this chat and deleted with it";
@@ -1444,3 +1444,9 @@
 "移除头像" = "Remove Avatar";
 "选择数字员工的头像，会从中间裁成正方形" = "Choose the digital employee's avatar; it is cropped to a square from the center";
 "这个文件不是图片" = "This file is not an image";
+"发送消息" = "Send Messages";
+"⌘↩ 发送" = "⌘↩ Sends";
+"↩ 发送" = "↩ Sends";
+"现在 ↩ 换行。" = "↩ starts a new line.";
+"现在 ⇧↩ 换行，⌘↩ 也能发送。" = "⇧↩ starts a new line; ⌘↩ also sends.";
+"选择输入框里发送消息的按键，更改后立即生效。%@" = "Choose which key sends what you type. Changes take effect immediately. %@";

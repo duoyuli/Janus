@@ -11,6 +11,7 @@ import SwiftUI
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
 ///     inbox-act <entry>:<action> (clicks a quick answer in the inbox, by position from 0) | density detail|summary | draft <task or agent> <text>
+///     send-key commandReturn|return | press return|shift-return|command-return (into the first composer)
 @MainActor
 enum Snapshots {
     /// The window `shot` pictures when set: the first visible one whose title starts with it.
@@ -148,6 +149,7 @@ enum Snapshots {
                 // The open agent editor's environment text, as the person sees it.
                 "agentEditorEnv": store.agentEditorEnv.map(JSON.init) ?? .null,
                 "chats": ids(store.chats),
+                "sendKey": JSON(SendKeySetting.shared.value.rawValue),
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
                     JSON(img.representations.first.map { $0.pixelsWide } ?? 0)
@@ -171,6 +173,8 @@ enum Snapshots {
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "page": JSON(String(describing: r.page)),
                     "chat": JSON(r.isChat),
+                    // What each session's composer holds, by session key.
+                    "drafts": .object(r.sessionDrafts.mapValues { JSON($0) }),
                     "status": JSON(s.run.status.rawValue), "paused": JSON(s.run.paused), "delivered": JSON(s.result != nil),
                     "accepted": JSON(s.result?.accepted != nil), "events": JSON(s.events.count),
                     "tasks": JSON.array(s.orderedTasks.map { t in
@@ -193,6 +197,16 @@ enum Snapshots {
         case "doc": ArtifactWindow.open(path: arg, api: store.api)
         case "window": target = arg.isEmpty ? nil : arg
         case "density": UserDefaults.janus.set(arg, forKey: "janus.chatDensity")
+        // The send key, as Settings › 通用 saves it.
+        case "send-key": SendKeySetting.shared.value = SendKey(rawValue: arg) ?? .standard
+        // A key press in the first composer of the key window, through the same handler as typing.
+        case "press":
+            let flags: NSEvent.ModifierFlags = arg == "shift-return" ? .shift : arg == "command-return" ? .command : []
+            if let v = composer(), let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: v.window?.windowNumber ?? 0,
+                                                             context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
+                v.window?.makeFirstResponder(v)
+                v.keyDown(with: e)
+            }
         // Type into a session's composer: `draft <task or agent> <text>`.
         case "draft":
             let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
@@ -210,9 +224,7 @@ enum Snapshots {
             let pb = NSPasteboard(name: .init("janus-snapshot-paste"))
             pb.clearContents()
             pb.writeObjects([URL(fileURLWithPath: arg) as NSURL])
-            let wins = NSApp.windows.filter { $0.isVisible && $0.contentView != nil }
-            func find(_ v: NSView) -> ComposerField.TextView? { (v as? ComposerField.TextView) ?? v.subviews.lazy.compactMap(find).first }
-            if let v = (wins.first(where: { $0.isKeyWindow }) ?? wins.first)?.contentView.flatMap(find) { v.takeImages(from: pb) }
+            composer()?.takeImages(from: pb)
         case "size":
             let wh = arg.split(separator: "x").compactMap { Double($0) }
             if wh.count == 2, let w = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
@@ -236,6 +248,13 @@ enum Snapshots {
             }
         default: break
         }
+    }
+
+    /// The first composer of the key window (or the first visible one).
+    private static func composer() -> ComposerField.TextView? {
+        let wins = NSApp.windows.filter { $0.isVisible && $0.contentView != nil }
+        func find(_ v: NSView) -> ComposerField.TextView? { (v as? ComposerField.TextView) ?? v.subviews.lazy.compactMap(find).first }
+        return (wins.first(where: { $0.isKeyWindow }) ?? wins.first)?.contentView.flatMap(find)
     }
 
     /// A picture of one flat colour: what the window server returns when it may not show the window.

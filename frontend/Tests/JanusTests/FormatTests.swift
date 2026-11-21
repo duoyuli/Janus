@@ -72,6 +72,9 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     let first = "T1", second = "T2", percent = 25
     #expect(L.text("依赖的 \(first) 没有完成，\(second) 还不能开始。", bundle: en) == "T2 cannot start until its dependency T1 is complete.")
     #expect(L.text("本会话 上下文 \(percent)%", bundle: en) == "Session context: 25%")
+    let key = SendKey.returnKey.symbol
+    #expect(L.text("给 \(name) 发消息，可以 ⌘V 粘贴截图，\(key) 发送", bundle: en) == "Message 实现者 — paste screenshots with ⌘V, send with ↩")
+    #expect(L.text("给 \(name) 发消息，可以 ⌘V 粘贴截图，\(key) 发送", bundle: zh) == "给 实现者 发消息，可以 ⌘V 粘贴截图，↩ 发送")
 }
 
 /// Usage numbers keep their state: a reported 0 is written as 0, a missing number as words, and

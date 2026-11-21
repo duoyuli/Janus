@@ -250,7 +250,8 @@ struct Bar: View {
     }
 }
 
-/// A text field that grows with its content, sent with ⌘↩. Given `images`, it also takes
+/// A text field that grows with its content, sent with the key chosen in Settings › 通用
+/// (`SendKey`, ⌘↩ unless changed). Given `images`, it also takes
 /// images: ⌘V pastes a screenshot or image files copied in Finder, images can be dropped on it,
 /// and the paperclip picks files. They show as thumbnails above the text until sent.
 struct Composer: View {
@@ -261,6 +262,7 @@ struct Composer: View {
     var minHeight: CGFloat = 60
     var onSubmit: () -> Void
     @Local private var height: CGFloat = 0
+    private var sendKey: SendKey { SendKeySetting.shared.value }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -270,7 +272,7 @@ struct Composer: View {
                     if text.isEmpty {
                         Text(placeholder).foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
                     }
-                    ComposerField(text: $text, height: $height, disabled: disabled, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
+                    ComposerField(text: $text, height: $height, disabled: disabled, sendKey: sendKey, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
                         .frame(height: max(minHeight, min(max(height, 18), 240)))
                         .accessibilityLabel(placeholder)
                 }
@@ -361,28 +363,29 @@ struct StoredImages: View {
 }
 
 /// The editable text of a `Composer`: an NSTextView, so that paste and drop can take images
-/// (a SwiftUI text field only takes text), with ⌘↩ to send.
+/// (a SwiftUI text field only takes text), sent with `sendKey`.
 struct ComposerField: NSViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
     var disabled: Bool
+    var sendKey: SendKey
     var onImages: (([PastedImage]) -> Void)?
     var onSubmit: () -> Void
 
     final class TextView: NSTextView {
         var onImages: (([PastedImage]) -> Void)?
         var onSubmit: () -> Void = {}
+        var sendKey = SendKey.standard
         /// Where ⌘V and Edit > Paste read from; a test gives it a pasteboard of its own.
         var pasteboard: NSPasteboard = .general
 
         override func keyDown(with event: NSEvent) {
-            // Return (36) or Enter (76) with ⌘ sends; anything else edits as usual. An input
-            // method's composition is not in the draft yet, so wait for it to be committed.
-            if [36, 76].contains(event.keyCode), event.modifierFlags.contains(.command) {
-                if !hasMarkedText() { onSubmit() }
-                return
-            }
-            super.keyDown(with: event)
+            // The send key sends; anything else edits as usual. An input method's composition is
+            // not in the draft yet: ⌘↩ waits for it to be committed, and a bare ↩ goes to the
+            // input method, which commits the composition with it.
+            guard sendKey.sends(keyCode: event.keyCode, modifiers: event.modifierFlags) else { return super.keyDown(with: event) }
+            if !hasMarkedText() { onSubmit() }
+            else if !event.modifierFlags.contains(.command) { super.keyDown(with: event) }
         }
 
         /// Applies text from SwiftUI, except while an input method is composing. The marked
@@ -500,6 +503,7 @@ struct ComposerField: NSViewRepresentable {
         tv.isSelectable = !disabled
         tv.onImages = onImages
         tv.onSubmit = onSubmit
+        tv.sendKey = sendKey
         context.coordinator.measure(tv)
     }
 }

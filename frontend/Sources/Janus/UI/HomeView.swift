@@ -5,6 +5,7 @@ import SwiftUI
 struct HomeView: View {
     let store: AppStore
     let ws: JSON
+    private var sendKey: SendKey { SendKeySetting.shared.value }
 
     private let suggestions = [
         (L.text("新功能上线"), L.text("为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明")),
@@ -37,7 +38,7 @@ struct HomeView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("说出你想要的结果，可以 ⌘V 粘贴截图，⌘↩ 交给负责人"), minHeight: 96) { start(problems) }
+                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("说出你想要的结果，可以 ⌘V 粘贴截图，\(sendKey.symbol) 交给负责人"), minHeight: 96) { start(problems) }
                     HStack {
                         // Examples only help before the first run.
                         if runs.isEmpty {
@@ -50,7 +51,7 @@ struct HomeView: View {
                         Button(L.text("交给负责人")) { start(problems) }
                             .buttonStyle(.primary)
                             .disabled(!problems.isEmpty || empty)
-                            .help(!problems.isEmpty ? L.text("还有数字员工不能运行") : empty ? L.text("先写下你想要的结果") : "⌘↩")
+                            .help(!problems.isEmpty ? L.text("还有数字员工不能运行") : empty ? L.text("先写下你想要的结果") : sendKey.symbol)
                     }
                 }
                 // One line per cause, with the place that fixes it.
