@@ -6,15 +6,25 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 ## 2026.11.22.3
 
-- 本机环境改为镜像你的用户目录：Agent 和 MCP 服务器的用户目录里，你本机的每一项都链接到原位置，登录、钥匙串、工具链和配置直接能用，以后装的新工具也一样，不用再一项项打开。只有「Agent 看不到的路径」里列出的看不到：默认是常见 Agent 自己的配置（`~/.claude`、`~/.codex`、`~/.pi`、`~/.agents` 等，数字员工的指令、Skill 和 MCP 仍只由 Janus 给）和一些高危数据（`~/.aws`、`~/.gnupg`、`~/.kube`、浏览器、邮件和信息等），清单只列你这台 Mac 上有的路径；你可以移除、恢复默认，或者点「选择要挡住的文件夹或文件…」在系统的选择窗口里直接选；Janus 自己的数据目录一直挡着。升级时原来逐项打开的记录换成这份默认清单。
+- 本机环境改为镜像你的用户目录：Agent 和 MCP 服务器的用户目录里，你本机的每一项都链接到原位置，登录、钥匙串、工具链和配置直接能用，以后装的新工具也一样，不用再一项项打开。只有「挡住的路径」里列出的看不到：默认是常见 Agent 自己的配置（`~/.claude`、`~/.codex`、`~/.pi`、`~/.agents` 等，数字员工的指令、Skill 和 MCP 仍只由 Janus 给）和一些高危数据（`~/.aws`、`~/.gnupg`、`~/.kube`、浏览器、邮件和信息等），清单只列你这台 Mac 上有的路径；你可以点 × 移除、恢复默认，或者点标题旁的「+」在系统的选择窗口里直接选；Janus 自己的数据目录一直挡着。升级时原来逐项打开的记录换成这份默认清单。
 - 修复飞书 CLI 打开后，Agent 里 `--as user` 仍报 `token_missing` 的问题：它的用户令牌在 `~/Library/Application Support/lark-cli`，原来只共享了 `~/.lark-cli`。
 - 新增「试一条命令」：在设置里输入一条命令，同时在本机和 Agent 的环境里各跑一次，并排看结果，就知道某个工具在 Agent 里能不能用。
 - Agent 能用你的 ssh-agent（传入 `SSH_AUTH_SOCK`）；界面里的「家目录」改叫「用户目录」。
+- 界面文案整体打磨：同一件事在每个页面只用一个说法（例如要你动手的事统一叫「待处理」，单个事项写「等你回答 / 等你审批 / 等你拍板」；Agent 配置统一叫「检查」；侧栏的两组改叫「团队」「对话」），说明文字压到一句左右，不再出现「编排器」「墙钟」这类内部用词；任务和 Agent 的状态换成和值班一样的口吻（干活中、摸鱼中、待开工、已派活、等上游、思考中、跑测试、出错了），让排队的任务立刻开始的按钮叫「马上开工」；英文界面一起改写。
+- 默认数字员工的职责描述更短。你没改过的会自动换成新文本；改过的保留，编辑器里提示有新版本。
+- 工作区首页更好区分：「待处理」每行开头是它在等什么的图标（提问、审批、等你验收、已中断……），值班有自己的紫色身份标（值班页标题处也是它），值班派出的任务改为在标题后面标出来自哪个值班；团队摘要去掉了和「工作区操作」菜单重复的「管理团队…」。
+- 标题旁的添加、编辑、移除改成图标按钮：共享资料、新建值班、挡住的路径和 diff 审阅里的意见；新建值班的表单把「它自己不改文件……」的说明放到标题下面，写提示之前先看到。
+- 修复英文界面里，负责人停下而目标还没完成时，Janus 发出的「目标确认」提示被标成通用的「Janus Prompt」。
 
-- Host Environment now mirrors your home folder: in every Agent's and MCP server's home folder, each item of yours is linked to where it is, so sign-ins, the keychain, toolchains and settings just work, and so will tools you install later, without switching anything on. Only the paths under Hidden from Agents stay out of sight: by default common Agents' own settings (`~/.claude`, `~/.codex`, `~/.pi`, `~/.agents` and more; digital employees still get instructions, skills and MCP from Janus only) and some sensitive data (`~/.aws`, `~/.gnupg`, `~/.kube`, browsers, mail and messages and more). The list shows only paths on your Mac; remove any, restore the defaults, or pick more in the system's open panel with Choose Folders or Files to Hide…; Janus's own data folder is always hidden. On upgrade, the items you switched on one by one give way to this default list.
+- Host Environment now mirrors your home folder: in every Agent's and MCP server's home folder, each item of yours is linked to where it is, so sign-ins, the keychain, toolchains and settings just work, and so will tools you install later, without switching anything on. Only the paths under Hidden Paths stay out of sight: by default common Agents' own settings (`~/.claude`, `~/.codex`, `~/.pi`, `~/.agents` and more; digital employees still get instructions, skills and MCP from Janus only) and some sensitive data (`~/.aws`, `~/.gnupg`, `~/.kube`, browsers, mail and messages and more). The list shows only paths on your Mac; remove any with its ×, restore the defaults, or pick more in the system's open panel with the + beside the heading; Janus's own data folder is always hidden. On upgrade, the items you switched on one by one give way to this default list.
 - Fixed Agents getting `token_missing` from `lark-cli --as user` after the Lark CLI was switched on: its user tokens are in `~/Library/Application Support/lark-cli`, and only `~/.lark-cli` was shared.
 - New Try a Command: type a command in Settings and it runs both for you and in an Agent's environment, side by side, so you see whether a tool works for Agents.
 - Agents can use your ssh-agent (`SSH_AUTH_SOCK` is passed on); the Chinese interface calls the home folder 「用户目录」.
+- The app's wording got a full pass: each thing has one name on every page (what needs you is always Pending; an Agent's setup test is always a check; the Chinese sidebar groups are now 团队 and 对话), notes are cut to about a sentence, and internal words such as orchestrator and wall time are gone. Task and Agent states take the Loop's easygoing tone (Working, Idle, Ready, Assigned, Waiting on upstream, Thinking, Running tests, Error), and the button that starts a queued run right away is Start Now. The English text was rewritten to match.
+- The default digital employees have shorter responsibilities. Ones you never edited move to the new text; edited ones stay and the editor offers the new version.
+- The workspace page tells things apart: each Pending row starts with an icon for what it waits on (question, approval, ready to accept, interrupted…), a Loop has its own violet badge (also on its page), and a run a Loop dispatched names that Loop in a tag after its title. The team line drops Manage Team…, which the workspace menu already offers.
+- Add, edit and remove beside a heading are icon buttons: shared context, new Loop, hidden paths and diff comments. The new-Loop form explains how a Loop works under its title, before you write the prompt.
+- Fixed the English interface labelling Janus's goal check (sent when the lead stops while the goal is still open) as the generic Janus Prompt.
 
 ## 2026.11.22.2
 
