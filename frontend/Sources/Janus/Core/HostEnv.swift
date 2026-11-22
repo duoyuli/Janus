@@ -22,8 +22,14 @@ enum HostEnv {
 }
 
 extension AppStore {
-    func loadHostEnv() async {
-        do { hostEnv = try await api.get("/api/host-env") } catch { show(L.text("读取本机环境失败：\(error.localizedDescription)")) }
+    /// Read what is shared; the reason when it could not be read.
+    func loadHostEnv() async -> String? {
+        do {
+            hostEnv = try await api.get("/api/host-env")
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     /// Share exactly `paths` from now on; the server refuses what may not be shared.

@@ -14,7 +14,10 @@ enum Screen: Hashable {
 /// The sections of the general settings pane that other places link to directly.
 enum GeneralSection: Hashable {
     case updates
+    /// 权限: the macOS permissions Janus needs, and what of the home folder agents may use.
     case permissions
+    /// 本机环境, the second part of 权限.
+    case hostEnv
 }
 
 /// Global state: setup objects (Agents, roles, workspaces), runs, adapters and the resource library.
@@ -324,7 +327,7 @@ final class AppStore {
 
     /// The settings panel's panes.
     enum SettingsTab: String, CaseIterable {
-        case general, agents, hostEnv, library, usage
+        case general, agents, library, usage
     }
 
     /// The settings page's pane. The last one opened comes back.

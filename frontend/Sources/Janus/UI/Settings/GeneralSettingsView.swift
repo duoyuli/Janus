@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Settings › 通用: language, appearance and the send key, then the update and macOS permission sections. Other places
+/// Settings › 通用: language, appearance and the send key, then the update section and 权限: the macOS
+/// permissions Janus needs, and what of the person's home folder agents may use (本机环境). Other places
 /// (the update badge, "Check for Updates…") open this pane at a section through `AppStore.generalSection`.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct GeneralSettingsView: View {
@@ -67,9 +68,13 @@ struct GeneralSettingsView: View {
                 .id(GeneralSection.updates)
             UpdatesView()
             Divider()
-            sectionTitle(L.text("macOS 权限"))
+            sectionTitle(L.text("权限"))
                 .id(GeneralSection.permissions)
+            Text(L.text("macOS 权限")).font(.headline)
             MacPermissionsView(permissions: store.permissions)
+            Text(L.text("本机环境")).font(.headline).padding(.top, 10)
+                .id(GeneralSection.hostEnv)
+            HostEnvView(store: store)
         }
         .frame(maxWidth: 760, alignment: .leading)
         .padding(28)

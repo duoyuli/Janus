@@ -5,7 +5,7 @@ import SwiftUI
 /// `<dir>/cmd` and saves pictures of its own window, so screens can be checked without screen
 /// recording rights (docs/operations/20261031-testing.md#macos_app).
 ///
-///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> (library:skill|library:mcp for the library's tabs) | page board|audit|team|task:<id>|agent:<id>
+///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> (library:skill|library:mcp for the library's tabs; permissions|updates|host-env for a section of 通用) | page board|audit|team|task:<id>|agent:<id>
 ///     workspace <id> | brief <id> (its settings, or its shared material) | loop-new <id> | host-tool <id> on|off
 ///     role <id> | agent-edit <id>|new | mcp-edit new|<name>|catalog:<pick> [json] | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
@@ -55,6 +55,7 @@ enum Snapshots {
                 switch kv.last {
                 case "permissions": store.openSettings(.permissions)
                 case "updates": store.openSettings(.updates)
+                case "host-env": store.openSettings(.hostEnv)
                 // The library's tabs: `library:skill`, `library:mcp`.
                 case let tab? where tab.hasPrefix("library:"):
                     store.openLibrary(AppStore.LibraryKind(rawValue: String(tab.dropFirst("library:".count))) ?? .skill)
@@ -99,7 +100,7 @@ enum Snapshots {
         // Switch a tool of 本机环境 on or off, as its row does: `host-tool <id> on|off`.
         case "host-tool":
             let p = arg.split(separator: " ").map(String.init)
-            if store.hostEnv == nil { await store.loadHostEnv() }
+            if store.hostEnv == nil { _ = await store.loadHostEnv() }
             if let t = store.hostEnv?["tools"].array.first(where: { $0["id"].str == p.first }) { await store.shareTool(t, on: p.last == "on") }
         // Workspace `arg`'s shared material, in its own sheet.
         case "brief": store.editingBrief = store.workspace(arg)

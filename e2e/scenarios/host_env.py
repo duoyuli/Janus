@@ -33,7 +33,7 @@ def host_env(ctx, c):
     want = {".config/gh", KEYCHAIN}
     if ctx.app:
         st = ctx.app.until(lambda s: set((s.get("hostEnv") or {}).get("shared") or []) == want,
-                           "应用里打开 GitHub CLI，连同钥匙串一起共享", "open settings:hostEnv", "host-tool gh on")
+                           "应用里打开 GitHub CLI，连同钥匙串一起共享", "open settings:host-env", "host-tool gh on")
         ctx.app.do("shot host-env")
         c(drawn(ctx.app.picture("host-env")) and "gh" in st["hostEnv"]["tools"], "应用：本机环境页画出来了（host-env.png）")
     else:
