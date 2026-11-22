@@ -63,8 +63,11 @@ final class AppStore {
     var chatRole: String = UserDefaults.janus.string(forKey: "janus.chatRole") ?? "" {
         didSet { UserDefaults.janus.set(chatRole, forKey: "janus.chatRole") }
     }
-    /// Workspace edited in the sheet (nil id for a new one).
+    /// Workspace edited in the sheet (nil id for a new one): its folder, name and team.
     var editingWorkspace: JSON?
+    /// Workspace whose shared material is edited in its own sheet; its `brief` is what the sheet
+    /// opens with (the saved text, or that with a lead's suggested lines added).
+    var editingBrief: JSON?
     /// Loop made or edited in the sheet (empty id for a new one).
     var editingLoop: JSON?
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
@@ -420,11 +423,12 @@ final class AppStore {
     func workspace(_ id: String) -> JSON? { workspaces.first { $0["id"].str == id } }
     var okConnections: [JSON] { connections.filter { $0["phase"].str == "ok" } }
     var boundRoles: [JSON] { roles.filter { $0["connection"].truthy && connection($0["connection"].str) != nil } }
-    func runs(of ws: JSON) -> [JSON] {
-        runs.filter { r in
-            let wid = r["config"]["workspace"]["id"]
-            return wid.truthy ? wid.str == ws["id"].str : r["cwd"].str == ws["path"].str
-        }
+    func runs(of ws: JSON) -> [JSON] { runs.filter { Self.belongs($0, to: ws) } }
+
+    /// Whether a run row is one of the workspace's: by the workspace it recorded, or by its folder.
+    static func belongs(_ r: JSON, to ws: JSON) -> Bool {
+        let wid = r["config"]["workspace"]["id"]
+        return wid.truthy ? wid.str == ws["id"].str : r["cwd"].str == ws["path"].str
     }
 
     /// What is still missing before a first task can run, in order.

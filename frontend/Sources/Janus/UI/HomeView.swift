@@ -1,7 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// A workspace: start a goal; the team in one line and only the runs that wait on the person.
+/// A workspace, all of it on one page (the sidebar only lists workspaces): who it is and what every
+/// goal and Loop is given, a goal to start, what waits on the person, its Loops and its task records,
+/// in that order.
+// @project-doc docs/architecture/20261031-frontend.md#screens
 struct HomeView: View {
     let store: AppStore
     let ws: JSON
@@ -17,24 +20,23 @@ struct HomeView: View {
         let members = ws["members"].array.map { m in (m, store.role(m["role"].str)) }
         let problems = Self.problems(members.map(\.1), connection: store.connection)
         let runs = store.runs(of: ws)
-        // Runs waiting on the person, the same as the inbox: any run with something waiting on them.
-        // Below them, every task record of this workspace, newest first (`WorkspaceHistory`).
-        let waiting = runs.filter { r in store.inbox.open.contains { $0.run == r["id"].str } }
+        // What waits on the person, the same as the inbox and the count in the sidebar; those runs
+        // are listed there only, not again in the task records.
+        let waiting = store.waiting(in: ws)
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // The workspace's own problems below say the same, more precisely.
                 if problems.isEmpty { OnboardingBar(store: store) }
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(ws["name"].str).font(.display(.largeTitle))
-                        Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).help(ws["path"].str).textSelection(.enabled)
+                // The shared material beside the name when there is room, under it when not.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 24) {
+                        identity(members).frame(minWidth: 0, idealWidth: 380, maxWidth: .infinity, alignment: .leading)
+                        sharedMaterial.frame(width: 300)
                     }
-                    Spacer()
-                    Menu {
-                        Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
-                        Button(L.text("工作区设置…")) { store.editingWorkspace = ws }
-                    } label: { Label(L.text("工作区操作"), systemImage: "ellipsis.circle") }
-                    .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help(L.text("工作区操作"))
+                    VStack(alignment: .leading, spacing: 16) {
+                        identity(members)
+                        sharedMaterial
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -62,20 +64,20 @@ struct HomeView: View {
                     }
                 }
 
-                team(members)
-
-                sharedMaterial
-
-                LoopSection(store: store, ws: ws)
-
                 if !waiting.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(L.text("等你处理")).font(.headline)
-                        RunRows(store: store, runs: waiting)
+                        let n = waiting.reduce(0) { $0 + $1.entries.count }
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(L.text("等你处理")).font(.headline)
+                            Text(verbatim: "\(n)").font(.headline).foregroundStyle(Tone.amber.color).accessibilityLabel(L.text("\(n) 项"))
+                        }
+                        WaitingRows(store: store, rows: waiting)
                     }
                 }
 
-                WorkspaceHistory(store: store, workspace: ws["id"].str)
+                LoopSection(store: store, ws: ws)
+
+                WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
             }
             .padding(24)
             .frame(maxWidth: 820, alignment: .leading)
@@ -83,7 +85,25 @@ struct HomeView: View {
         }
     }
 
-    /// The team in one line; models, permissions and tools are in the workspace settings.
+    /// The name, the folder and the team in one line; models, permissions and tools are in the
+    /// workspace settings.
+    private func identity(_ members: [(JSON, JSON?)]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(ws["name"].str).font(.display(.largeTitle))
+                    Menu {
+                        Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
+                        Button(L.text("工作区设置…")) { store.editingWorkspace = ws }
+                    } label: { Label(L.text("工作区操作"), systemImage: "ellipsis.circle") }
+                    .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help(L.text("工作区操作"))
+                }
+                Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).help(ws["path"].str).textSelection(.enabled)
+            }
+            team(members)
+        }
+    }
+
     private func team(_ members: [(JSON, JSON?)]) -> some View {
         let lead = store.role(ws["lead"].str)
         let totalSlots = members.reduce(0) { acc, pair in
@@ -93,7 +113,6 @@ struct HomeView: View {
             ? L.text("\(members.count) 个数字员工（共 \(totalSlots) 个并发实例）")
             : L.text("\(members.count) 个数字员工")
         return HStack(spacing: 10) {
-            Text(L.text("团队")).foregroundStyle(.secondary)
             HStack(spacing: -4) {
                 ForEach(members.indices, id: \.self) { i in
                     let r = members[i].1
@@ -104,41 +123,40 @@ struct HomeView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: L.text("、")))
-            Text(verbatim: "\(countLabel)\(lead.map { $0["name"].str == L.text("负责人") ? L.text(" · 有负责人") : L.text(" · 负责人：\($0["name"].str)") } ?? "")").font(.callout).foregroundStyle(.secondary)
-            Spacer()
-            Button(L.text("管理团队…")) { store.editingWorkspace = ws }.buttonStyle(.link)
+            Text(verbatim: "\(countLabel)\(lead.map { $0["name"].str == L.text("负责人") ? L.text(" · 有负责人") : L.text(" · 负责人：\($0["name"].str)") } ?? "")")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Button(L.text("管理团队…")) { store.editingWorkspace = ws }.buttonStyle(.link).fixedSize()
         }
     }
 
-    /// The workspace's shared material, readable where goals start; editing stays in the workspace settings.
+    /// The workspace's shared material, beside its name and above everything that is given it
+    /// (goals and Loops). It is edited in its own sheet (`BriefEditor`), apart from the team.
     // @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
     @ViewBuilder private var sharedMaterial: some View {
         let brief = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
-        let long = brief.split(separator: "\n", omittingEmptySubsequences: false).count > Self.previewLines || brief.count > 400
-        VStack(alignment: .leading, spacing: 6) {
+        let long = brief.split(separator: "\n", omittingEmptySubsequences: false).count > Self.previewLines || brief.count > 160
+        Card(padding: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(L.text("共享资料")).font(.headline)
-                Text(L.text("每次任务开始时交给负责人和协作者")).font(.callout).foregroundStyle(.secondary)
                 Spacer()
-                Button(brief.isEmpty ? L.text("添加…") : L.text("编辑…")) { store.editingWorkspace = ws }.buttonStyle(.link)
+                Button(brief.isEmpty ? L.text("添加…") : L.text("编辑…")) { store.editingBrief = ws }.buttonStyle(.link)
                     .help(L.text("产品定位、目标用户、约定、重要文件的位置：写下后，之后的任务不必重新调研或再问你"))
             }
             if !brief.isEmpty {
-                Card {
-                    Text(brief)
-                        .lineLimit(briefExpanded || !long ? nil : Self.previewLines)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if long {
-                        Button(briefExpanded ? L.text("收起") : L.text("展开全部")) { briefExpanded.toggle() }.buttonStyle(.link)
-                    }
+                Text(brief)
+                    .font(.callout)
+                    .lineLimit(briefExpanded || !long ? nil : Self.previewLines)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if long {
+                    Button(briefExpanded ? L.text("收起") : L.text("展开全部")) { briefExpanded.toggle() }.buttonStyle(.link)
                 }
             }
         }
     }
 
     @Local private var briefExpanded = false
-    private static let previewLines = 6
+    private static let previewLines = 4
 
     struct Problem { let text, action: String; let tab: AppStore.SettingsTab }
 
@@ -181,13 +199,20 @@ struct HomeView: View {
 struct WorkspaceHistory: View {
     let store: AppStore
     let workspace: String
+    /// Runs listed elsewhere on the page (those waiting on the person), left out here.
+    var hiding: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let history = store.histories[workspace], !history.runs.isEmpty {
-                Text(L.text("任务记录")).font(.headline)
-                RunRows(store: store, runs: history.runs, dated: true) { Task { await history.loadMore() } }
-                if history.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity) }
+                let shown = history.runs.filter { !hiding.contains($0["id"].str) }
+                if !shown.isEmpty {
+                    Text(L.text("任务记录")).font(.headline)
+                    RunRows(store: store, runs: shown, dated: true) { Task { await history.loadMore() } }
+                }
+                // Shown at the end while there is more: also reads on when every row of the page
+                // read so far is listed elsewhere.
+                if history.more { ProgressView().controlSize(.small).frame(maxWidth: .infinity).onAppear { Task { await history.loadMore() } } }
             } else {
                 // Something on screen before the first read: an empty container is never shown,
                 // and its `task` would never run, so the records would never be read.
@@ -221,9 +246,6 @@ struct PastWorkspaceView: View {
     }
 }
 
-/// Runs of a workspace in one card, one row each: the goal, when it started (`dated`), how it stands
-/// (「等你处理」 when something waits on the person), a click to open it and a right click to delete it.
-// @project-doc docs/architecture/20261031-frontend.md#screens
 /// How a run's row names its state: a queued one also says where it is in the queue.
 func runLabel(_ r: JSON) -> (String, Tone) {
     let status = RunStatus(r["status"].str)
@@ -231,6 +253,59 @@ func runLabel(_ r: JSON) -> (String, Tone) {
     return status.listLabel
 }
 
+/// A small mark before a goal a Loop dispatched: which Loop, and (on hover) its key and source.
+struct LoopMark: View {
+    let store: AppStore
+    let run: JSON
+
+    var body: some View {
+        if run["origin"].str == "loop" {
+            let name = store.loops.first { $0["id"] == run["loopId"] }?["title"].string ?? L.text("已删除的值班")
+            Image(systemName: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary)
+                .help(L.text("来自值班：\(name)") + (run["dispatchKey"].string.map { " · \($0)" } ?? "") + (run["sourceUrl"].string.map { " · \($0)" } ?? ""))
+                .accessibilityLabel(L.text("来自值班：\(name)"))
+        }
+    }
+}
+
+/// What waits on the person in a workspace, one row per goal or Loop: what it is, and what it
+/// waits on (「等你验收」「等你决定」「2 件事」…); a click opens it.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+struct WaitingRows: View {
+    let store: AppStore
+    let rows: [WaitingRow]
+
+    var body: some View {
+        Card(padding: 4) {
+            ForEach(rows) { w in
+                Button { store.open(.run(w.id)) } label: {
+                    HStack(spacing: 8) {
+                        if let l = w.loop {
+                            Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.secondary).accessibilityHidden(true)
+                            Text(l["title"].str).lineLimit(1)
+                            Text(L.text("值班")).font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            LoopMark(store: store, run: w.run)
+                            Text(L.goalTitle(w.run["goal"].str)).lineLimit(1)
+                        }
+                        Spacer(minLength: 12)
+                        Pill(w.label, w.tone)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                    .hoverable(6)
+                    .help(w.entries.map(\.title).joined(separator: "\n"))
+                }
+                .buttonStyle(.plain)
+                if w != rows.last { Divider() }
+            }
+        }
+    }
+}
+
+/// Runs of a workspace in one card, one row each: the goal (marked when a Loop dispatched it), when
+/// it started (`dated`), how it stands, a click to open it and a right click to delete it.
+// @project-doc docs/architecture/20261031-frontend.md#screens
 struct RunRows: View {
     let store: AppStore
     let runs: [JSON]
@@ -244,15 +319,10 @@ struct RunRows: View {
                 let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
                 let (l, t) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : runLabel(r)
                 Button { store.open(.run(r["id"].str)) } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        LoopMark(store: store, run: r)
                         Text(L.goalTitle(r["goal"].str)).lineLimit(1)
-                        if r["origin"].str == "loop" {
-                            // Dispatched by a Loop: which one, and what it was about.
-                            Label(store.loops.first { $0["id"] == r["loopId"] }?["title"].string ?? L.text("已删除的值班"), systemImage: "arrow.triangle.2.circlepath")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                .help(r["dispatchKey"].str + (r["sourceUrl"].string.map { " · \($0)" } ?? ""))
-                        }
-                        Spacer()
+                        Spacer(minLength: 12)
                         if dated { Text(L.dateTime(r["createdAt"].double ?? 0)).font(.caption).foregroundStyle(.secondary) }
                         Pill(l, t)
                     }
@@ -272,7 +342,8 @@ struct RunRows: View {
     }
 }
 
-/// New or existing workspace: which directory, which roles, who leads.
+/// New or existing workspace: which directory, which roles, who leads. The shared material is
+/// edited apart from it (`BriefEditor`); saving here keeps what is saved there.
 struct WorkspaceEditor: View {
     let store: AppStore
     let original: JSON
@@ -282,7 +353,6 @@ struct WorkspaceEditor: View {
     @Local private var lead = ""
     @Local private var on: Set<String> = []
     @Local private var slots: [String: Int] = [:]
-    @Local private var brief = ""
     @Local private var inspect: JSON?
     @Local private var saving = false
 
@@ -305,18 +375,6 @@ struct WorkspaceEditor: View {
                     Text(inspectLine).font(.callout).foregroundStyle(inspect?["exists"].bool == false ? Tone.red.color : .secondary)
                     TextField(L.text("名称（可选，默认用目录名）"), text: $name).textFieldStyle(.roundedBorder)
 
-                    Text(L.text("共享资料")).font(.headline).padding(.top, 6)
-                    Text(L.text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次任务开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。")).font(.callout).foregroundStyle(.secondary)
-                    TextEditor(text: $brief)
-                        .font(.body)
-                        .frame(height: 140)
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(brief.count > Self.briefLimit ? Tone.red.color : Color.line))
-                        .accessibilityLabel(L.text("共享资料"))
-                    HStack {
-                        if let saved = initial?.last, saved != brief, !isNew { Text(L.text("还没保存：保存后，之后的任务才会用到新的共享资料。")).font(.caption).foregroundStyle(Tone.amber.color) }
-                        Spacer()
-                        Text(verbatim: "\(brief.count) / \(Self.briefLimit)").font(.caption).foregroundStyle(brief.count > Self.briefLimit ? Tone.red.color : .secondary)
-                    }
 
                     Text(L.text("启用的数字员工")).font(.headline).padding(.top, 6)
                     if store.roles.isEmpty { Note(text: L.text("还没有数字员工，先去「设置 → 数字员工」创建。")) }
@@ -369,7 +427,7 @@ struct WorkspaceEditor: View {
                 Spacer()
                 Button(L.text("取消")) { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
                 Button(saving ? L.text("正在保存…") : isNew ? L.text("创建工作区") : L.text("保存")) { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
-                    .disabled(saving || path.trimmingCharacters(in: .whitespaces).isEmpty || inspect?["exists"].bool == false || brief.count > Self.briefLimit)
+                    .disabled(saving || path.trimmingCharacters(in: .whitespaces).isEmpty || inspect?["exists"].bool == false)
             }
             .padding(16)
         }
@@ -394,18 +452,14 @@ struct WorkspaceEditor: View {
     private var dirty: Bool { initial.map { $0 != snapshot } ?? false }
     private var snapshot: [String] {
         let slotSpec = on.sorted().map { id in "\(id):\(lead == id ? 1 : min(8, max(1, slots[id] ?? 1)))" }.joined(separator: ",")
-        return [name, path, lead, slotSpec, brief]
+        return [name, path, lead, slotSpec]
     }
-    /// The backend's `BRIEF_LIMIT`: the shared material goes into every session's prompt.
-    static let briefLimit = 8000
     @Local private var initial: [String]?
 
     private func setup() {
-        // Opened with suggested lines already added: those count as unsaved edits.
-        defer { initial = Array(snapshot.dropLast()) + [store.workspace(original["id"].str)?["brief"].str ?? original["brief"].str] }
+        defer { initial = snapshot }
         let isNew = original["id"].str.isEmpty
         name = original["name"].str
-        brief = original["brief"].str
         path = original["path"].str
         let rawMembers = original["members"].array
         let members = rawMembers.map { $0["role"].str }
@@ -448,7 +502,9 @@ struct WorkspaceEditor: View {
             let n = lead == id ? 1 : min(8, max(1, slots[id] ?? 1))
             return n > 1 ? JSON.object(["role": JSON(id), "slots": JSON(n)]) : JSON.object(["role": JSON(id)])
         }
-        let body: JSON = ["id": original["id"], "name": JSON(name), "path": JSON(path), "lead": JSON(lead), "members": .array(members), "brief": JSON(brief)]
+        // The workspace is saved whole: keep its shared material as saved now.
+        let brief = store.workspace(original["id"].str)?["brief"] ?? original["brief"]
+        let body: JSON = ["id": original["id"], "name": JSON(name), "path": JSON(path), "lead": JSON(lead), "members": .array(members), "brief": brief]
         Task {
             do {
                 let ws = try await store.save(.workspaces, body)
@@ -468,6 +524,75 @@ struct WorkspaceEditor: View {
                 dismiss()
                 if let w = store.workspaces.first { store.open(.home(w["id"].str)) } else { store.open(.newWorkspace) }
             } catch { store.show(error.localizedDescription) }
+        }
+    }
+}
+
+/// A workspace's shared material, on its own: what every goal and Loop of the workspace is given.
+/// Opened from the workspace page, or from a delivered run with the lead's suggested lines added
+/// (those count as unsaved). The team stays in the workspace settings.
+// @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
+struct BriefEditor: View {
+    let store: AppStore
+    let original: JSON
+    @Environment(\.dismiss) private var dismiss
+    @Local private var brief = ""
+    @Local private var saving = false
+
+    /// The backend's `BRIEF_LIMIT`: the shared material goes into every session's prompt.
+    static let limit = 8000
+
+    /// What is saved now; the sheet may have opened with lines added to it.
+    private var saved: String { store.workspace(original["id"].str)?["brief"].str ?? original["brief"].str }
+    private var dirty: Bool { brief != saved }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L.text("共享资料 · \(original["name"].str)")).font(.display(.title2)).padding(20)
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L.text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次任务开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。")).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextEditor(text: $brief)
+                    .font(.body)
+                    .frame(minHeight: 240)
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(brief.count > Self.limit ? Tone.red.color : Color.line))
+                    .accessibilityLabel(L.text("共享资料"))
+                HStack {
+                    if dirty { Text(L.text("还没保存：保存后，之后的任务才会用到新的共享资料。")).font(.caption).foregroundStyle(Tone.amber.color) }
+                    Spacer()
+                    Text(verbatim: "\(brief.count) / \(Self.limit)").font(.caption).foregroundStyle(brief.count > Self.limit ? Tone.red.color : .secondary)
+                }
+            }
+            .padding(20)
+            Divider()
+            HStack {
+                Spacer()
+                Button(L.text("取消")) { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
+                Button(saving ? L.text("正在保存…") : L.text("保存")) { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction)
+                    .disabled(saving || !dirty || brief.count > Self.limit)
+            }
+            .padding(16)
+        }
+        .frame(minWidth: 560, idealWidth: 600, minHeight: 420, idealHeight: 480)
+        .onAppear { brief = original["brief"].str }
+    }
+
+    /// The workspace is saved whole: everything but the shared material as it is saved now.
+    static func body(_ ws: JSON, brief: String) -> JSON {
+        ["id": ws["id"], "name": ws["name"], "path": ws["path"], "lead": ws["lead"], "members": ws["members"], "brief": JSON(brief)]
+    }
+
+    private func save() {
+        saving = true
+        let body = Self.body(store.workspace(original["id"].str) ?? original, brief: brief)
+        Task {
+            do {
+                _ = try await store.save(.workspaces, body)
+                store.show(L.text("已保存共享资料"))
+                dismiss()
+            } catch { store.show(error.localizedDescription) }
+            saving = false
         }
     }
 }

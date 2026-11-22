@@ -39,6 +39,9 @@ struct MainView: View {
         .sheet(isPresented: Binding(get: { store.editingWorkspace != nil }, set: { if !$0 { store.editingWorkspace = nil } })) {
             if let ws = store.editingWorkspace { WorkspaceEditor(store: store, original: ws) }
         }
+        .sheet(isPresented: Binding(get: { store.editingBrief != nil }, set: { if !$0 { store.editingBrief = nil } })) {
+            if let ws = store.editingBrief { BriefEditor(store: store, original: ws) }
+        }
         .sheet(isPresented: Binding(get: { store.editingLoop != nil }, set: { if !$0 { store.editingLoop = nil } })) {
             if let l = store.editingLoop { LoopEditor(store: store, original: l) }
         }
@@ -64,10 +67,10 @@ struct MainView: View {
     }
 }
 
-/// The sidebar in three parts: the inbox at the top (across everything, always in sight), then 工作区
-/// (the workspace's team and its task records) and 对话 (chats with one digital employee and their
-/// history), which follow one another in one scrolling list. Task records lead with their status;
-/// chats with the employee they are with.
+/// The sidebar in three parts: the inbox at the top (across everything, always in sight), then the
+/// workspaces (one row each: its team, Loops and task records are on its page) and the chats with
+/// one digital employee, which follow one another in one scrolling list. Chats lead with the
+/// employee they are with.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct Sidebar: View {
     let store: AppStore
@@ -90,8 +93,6 @@ struct Sidebar: View {
                     }
                     ForEach(store.workspaces, id: \.self) { w in
                         WorkspaceRow(store: store, ws: w, current: w["id"].str == ws?["id"].str)
-                        // Its Loops, indented under it.
-                        ForEach(store.loops(of: w["id"].str), id: \.self) { l in LoopRow(store: store, loop: l) }
                     }
                     // Deleted workspaces whose runs stay, so those runs are still found.
                     ForEach(store.pastWorkspaces, id: \.self) { w in
@@ -396,15 +397,17 @@ struct WorkspaceRow: View {
         guard current else { return false }
         switch store.screen {
         case .home(let id): return id == ws["id"].str
-        case .run(let id): return store.runs(of: ws).contains { $0["id"].str == id }
+        case .run(let id):
+            return store.runs(of: ws).contains { $0["id"].str == id } || store.loops(of: ws["id"].str).contains { $0["run"].str == id }
         default: return false
         }
     }
 
+    // The sidebar lists workspaces only: a workspace's Loops are on its page, and count here.
     var body: some View {
-        let ids = Set(store.runs(of: ws).map { $0["id"].str })
-        let waiting = store.inbox.open.filter { ids.contains($0.run) }.count
+        let waiting = store.waiting(in: ws).reduce(0) { $0 + $1.entries.count }
         let working = store.runs(of: ws).contains { RunStatus($0["status"].str).isActive }
+            || store.loops(of: ws["id"].str).contains { $0["status"]["phase"].str == "awake" }
         SidebarItem(title: ws["name"].str, selected: shown, waiting: waiting, live: working, help: L.tilde(ws["path"].str),
                     accessibility: waiting == 0 ? "" : L.text("\(waiting) 项等你处理"),
                     action: { store.open(.home(ws["id"].str)) }) {

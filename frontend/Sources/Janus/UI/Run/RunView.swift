@@ -705,7 +705,7 @@ struct AgentsPanel: View {
 }
 
 /// What the lead suggests keeping in the workspace's shared material. Nothing is written until the
-/// person opens the workspace settings with the lines added and saves there.
+/// person opens the shared material with the lines added and saves there.
 // @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
 struct BriefSuggestions: View {
     let run: RunModel
@@ -719,9 +719,9 @@ struct BriefSuggestions: View {
                 Text(L.text("采纳后，之后在这个工作区的任务都会看到这些内容。")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if let ws = run.store.workspace(run.workspaceId) {
-                    Button(L.text("加入共享资料…")) { run.store.editingWorkspace = Self.adding(lines, to: ws) }
+                    Button(L.text("加入共享资料…")) { run.store.editingBrief = Self.adding(lines, to: ws) }
                         .disabled(run.isReplaying)
-                        .help(L.text("打开工作区设置，把这些内容加到共享资料末尾，确认后保存"))
+                        .help(L.text("打开共享资料，把这些内容加到末尾，确认后保存"))
                 } else {
                     Text(L.text("这个工作区已经删除")).font(.caption).foregroundStyle(.secondary)
                 }
@@ -731,7 +731,7 @@ struct BriefSuggestions: View {
         .background(Color.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
     }
 
-    /// The workspace as the settings sheet opens it: its shared material with the lines appended.
+    /// The workspace as the shared material sheet opens it: its shared material with the lines appended.
     static func adding(_ lines: [String], to ws: JSON) -> JSON {
         var ws = ws
         let current = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)

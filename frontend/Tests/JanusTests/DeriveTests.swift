@@ -321,6 +321,15 @@ private func goalRun() -> Log {
     #expect(BriefSuggestions.adding(["A", "B"], to: ["id": "w"])["brief"].str == "- A\n- B")
 }
 
+/// Saving the shared material on its own keeps the workspace's team, lead, name and folder.
+@MainActor @Test func savingTheSharedMaterialKeepsTheTeam() {
+    let ws: JSON = ["id": "w", "name": "商城", "path": "/tmp/shop", "lead": "pmo", "brief": "旧的",
+                    "members": [["role": "pmo"], ["role": "generalist", "slots": 3]]]
+    let body = BriefEditor.body(ws, brief: "新的")
+    #expect(body["brief"] == "新的")
+    for k in ["id", "name", "path", "lead", "members"] { #expect(body[k] == ws[k], "\(k)") }
+}
+
 /// The five methods read back with the words the task page shows; a value outside the set stays as
 /// written instead of becoming one of them, and a check with none is 「未说明」, not 「推理判断」.
 @Test func evidenceMethodsLabelThemselves() {

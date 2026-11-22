@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Workspace Loops in the app: the section on a workspace's home, the rows under it in the sidebar,
-/// the form to make or change one, and its page (its session, what it dispatched, its notes).
+/// Workspace Loops in the app: the section on a workspace's home, the form to make or change one,
+/// and its page (its session, what it dispatched, its notes).
 // @project-doc docs/architecture/20261031-frontend.md#loops
 
 /// What the app says about a Loop: its schedule and what it is doing now.
@@ -39,7 +39,7 @@ enum LoopText {
     }
 }
 
-/// The Loops of one workspace, between its shared material and its task records.
+/// The Loops of one workspace, between what waits on the person and the task records.
 struct LoopSection: View {
     let store: AppStore
     let ws: JSON
@@ -49,7 +49,10 @@ struct LoopSection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(L.text("值班")).font(.headline)
-                Text(L.text("按时间表开工：看一眼、做判断，要改的事派成任务")).font(.callout).foregroundStyle(.secondary)
+                // What a Loop is, until there is one to show it.
+                if loops.isEmpty {
+                    Text(L.text("按时间表开工：看一眼、做判断，要改的事派成任务")).font(.callout).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button(L.text("新建…")) { store.editingLoop = AppStore.blankLoop(ws["id"].str) }.buttonStyle(.link)
                     .help(L.text("新建值班"))
@@ -81,25 +84,6 @@ struct LoopSection: View {
                 }
             }
         }
-    }
-}
-
-/// A Loop under its workspace in the sidebar: a click opens its page.
-struct LoopRow: View {
-    let store: AppStore
-    let loop: JSON
-
-    var body: some View {
-        let open: Bool = { if case .run(let id) = store.screen { return id == loop["run"].str } else { return false } }()
-        let waiting = store.inbox.open.filter { $0.run == loop["run"].str }.count
-        SidebarItem(title: loop["title"].str, selected: open, waiting: waiting, live: loop["status"]["phase"].str == "awake",
-                    help: "\(LoopText.schedule(loop)) · \(LoopText.phase(loop).0)",
-                    accessibility: waiting == 0 ? "" : L.text("\(waiting) 项等你处理"),
-                    action: { store.open(.run(loop["run"].str)) }) {
-            Image(systemName: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary).frame(width: 18)
-        }
-        .padding(.leading, 18)
-        .opacity(loop["state"].str == "paused" ? 0.6 : 1)
     }
 }
 

@@ -203,3 +203,56 @@ final class InboxModel {
         (UserDefaults.janus.dictionary(forKey: key) as? [String: Double]) ?? [:]
     }
 }
+
+/// One row of a workspace's 「等你处理」: a goal, or one of its Loops, with what waits on the person there.
+struct WaitingRow: Identifiable, Equatable {
+    /// The run that waits: a goal, or the Loop's session.
+    let id: String
+    /// The goal's run row; null for a Loop.
+    let run: JSON
+    /// The Loop whose session waits; nil for a goal.
+    let loop: JSON?
+    var entries: [InboxEntry]
+
+    /// What it waits on, at a glance: the one thing by name, or how many.
+    var label: String {
+        guard entries.count == 1, let e = entries.first else { return L.text("\(entries.count) 件事") }
+        switch e.kind {
+        case "delivered": return L.text("等你验收")
+        case "interrupted": return L.text("已中断")
+        case "failed": return L.text("失败了")
+        default: return L.catalogText(TimelineMark.openKinds[e.kind]?.1 ?? "等你处理")
+        }
+    }
+
+    /// Red when an agent is held up until the person answers; amber when it can wait.
+    var tone: Tone { entries.allSatisfy(\.canWait) ? .amber : .red }
+}
+
+extension AppStore {
+    /// What waits on the person in one workspace, one row per goal or Loop, newest first: the same
+    /// entries as the inbox, so the workspace's count in the sidebar, its page and the inbox agree.
+    /// Goals come from the attention list, so an old run that waits is never left out by newer ones.
+    // @project-doc docs/architecture/20261031-frontend.md#screens
+    func waiting(in ws: JSON) -> [WaitingRow] {
+        Inbox.waiting(inbox.open, goals: attention.filter { Self.belongs($0, to: ws) }, loops: loops(of: ws["id"].str))
+    }
+}
+
+extension Inbox {
+    /// Open entries grouped into rows, one per goal or Loop session among `goals` and `loops`, in
+    /// the entries' order (newest first); entries of other runs are left out.
+    static func waiting(_ open: [InboxEntry], goals: [JSON], loops: [JSON]) -> [WaitingRow] {
+        var rows: [WaitingRow] = []
+        for e in open {
+            if let i = rows.firstIndex(where: { $0.id == e.run }) {
+                rows[i].entries.append(e)
+            } else if let r = goals.first(where: { $0["id"].str == e.run }) {
+                rows.append(WaitingRow(id: e.run, run: r, loop: nil, entries: [e]))
+            } else if let l = loops.first(where: { $0["run"].str == e.run }) {
+                rows.append(WaitingRow(id: e.run, run: .null, loop: l, entries: [e]))
+            }
+        }
+        return rows
+    }
+}

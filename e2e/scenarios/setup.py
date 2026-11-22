@@ -215,6 +215,11 @@ def setup(ctx, c):
         side = int.from_bytes(png[16:20], "big") if png.startswith(b"\x89PNG") else 0
         c(after and after != before and status == 200 and side == 256, f"应用：换上自己的图后，数字员工的头像是裁好的 256 像素 PNG（{side}）")
         ctx.app.do("close-sheet", "role developer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
+        # The shared material has a sheet of its own, apart from the team's.
+        st = ctx.app.do("brief setup", "shot brief-editor")
+        c(st.get("editingBrief") == "setup" and st.get("editingWorkspace") is None and _drawn(ctx, "brief-editor"),
+          "应用：共享资料在单独的表单里编辑，不打开工作区设置（brief-editor.png）")
+        ctx.app.do("close-sheet")
         c(_drawn(ctx, "role-editor"), "应用：数字员工编辑器画出来了")
         st = ctx.app.do("avatar developer none")
         code, _ = ctx.api_error("GET", "/api/roles/developer/avatar")

@@ -545,7 +545,7 @@
 "打开会话" = "Open Session";
 "打开其他 Markdown 文件…" = "Open Another Markdown File…";
 "打开对话" = "Open Conversation";
-"打开工作区设置，把这些内容加到共享资料末尾，确认后保存" = "Open Workspace Settings and append these items to the shared context for review before saving";
+"打开共享资料，把这些内容加到末尾，确认后保存" = "Open the shared context with these items appended, to review before saving";
 "打开数字员工设置" = "Open Digital Employee Settings";
 "打开日志目录" = "Open Logs Folder";
 "打开系统设置" = "Open System Settings";
@@ -749,7 +749,6 @@
 "每一轮 Agent 上报的 token 相加（含子 Agent，Agent 按模型上报时以它为准）；缺失写「未上报」，不写 0；上下文快照不计入" = "Totals include each turn reported by the agents and their subagents. Model-level reports take precedence when available. Missing values are shown as Not reported and context snapshots are excluded.";
 "每个 Agent 在独立的进程和配置目录里运行，不影响你本机的 Agent。" = "Each Agent runs in its own process with a separate configuration directory. Your local Agent setup is kept intact.";
 "每个子任务同一时间最多一个进行中的尝试" = "At most one active attempt per subtask";
-"每次任务开始时交给负责人和协作者" = "Given to the lead and collaborators at the start of each run";
 "没有上报 token" = "No tokens reported";
 "没有会话" = "No sessions";
 "没有会话上报 token" = "No sessions reported tokens";
@@ -1535,3 +1534,10 @@
 "周五" = "Friday";
 "周六" = "Saturday";
 "工作区不在 Git 仓库里：值班直接在你的目录里干活，改了哪些文件 Janus 看不出来，也就不会提醒你。" = "The workspace is not in a Git repository: the Loop works right in your folder, and Janus cannot see which files it changes, so it cannot tell you.";
+"等你验收" = "Ready to Accept";
+"失败了" = "Failed";
+"%lld 件事" = "%lld Items";
+"%lld 项" = "%lld items";
+"来自值班：%@" = "From Loop: %@";
+"共享资料 · %@" = "Shared Context · %@";
+"已保存共享资料" = "Shared context saved";

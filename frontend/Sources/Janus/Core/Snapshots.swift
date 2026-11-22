@@ -6,6 +6,7 @@ import SwiftUI
 /// recording rights (docs/operations/20261031-testing.md#macos_app).
 ///
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> (library:skill|library:mcp for the library's tabs) | page board|audit|team|task:<id>|agent:<id>
+///     workspace <id> | brief <id> (its settings, or its shared material) | loop-new <id>
 ///     role <id> | agent-edit <id>|new | mcp-edit new|<name>|catalog:<pick> [json] | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
@@ -95,6 +96,8 @@ enum Snapshots {
         // The editor is a sheet of the settings panel, as when a person opens it from there.
         case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
+        // Workspace `arg`'s shared material, in its own sheet.
+        case "brief": store.editingBrief = store.workspace(arg)
         // The form for a new Loop in workspace `arg`.
         case "loop-new": store.editingLoop = AppStore.blankLoop(arg)
         // The library's MCP editor: `mcp-edit new|<name>|catalog:<pick> [json]`.
@@ -121,7 +124,7 @@ enum Snapshots {
                 if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
             }
         case "close-sheet":
-            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingLoop = nil; store.editingMcp = nil; store.showingSettings = false
+            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
@@ -140,7 +143,9 @@ enum Snapshots {
             let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"], "label": JSON(runLabel($0).0), "origin": $0["origin"], "loopId": $0["loopId"]] }) }
             var j: JSON = [
                 "screen": JSON(String(describing: store.screen)), "settings": JSON(store.showingSettings),
-                "settingsTab": JSON(store.settingsTab.rawValue), "permissionsReview": JSON(model.permissions.reviewPresented),
+                "settingsTab": JSON(store.settingsTab.rawValue),
+                // Which sheet of a workspace is open: its settings or its shared material.
+                "editingWorkspace": store.editingWorkspace?["id"] ?? .null, "editingBrief": store.editingBrief?["id"] ?? .null,
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
@@ -162,8 +167,21 @@ enum Snapshots {
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
                     JSON(img.representations.first.map { $0.pixelsWide } ?? 0)
                 }),
-                // The task records each workspace page read and shows, by workspace.
+                // The task records each workspace page read, by workspace.
                 "histories": .object(store.histories.mapValues { ids($0.runs) }),
+                // Each workspace's count in the sidebar (its goals' and its Loops' open items).
+                "sidebar": .object(Dictionary(uniqueKeysWithValues: store.workspaces.map { w in
+                    (w["id"].str, JSON(store.waiting(in: w).reduce(0) { $0 + $1.entries.count }))
+                })),
+                // The open workspace page as shown: what waits on the person, one row per goal or
+                // Loop, and the task records listed below it (those waiting are not listed again).
+                "home": {
+                    guard case .home(let id) = store.screen, let w = store.workspace(id) else { return .null }
+                    let waiting = store.waiting(in: w)
+                    let hidden = Set(waiting.map(\.id))
+                    return ["waiting": JSON.array(waiting.map { ["run": JSON($0.id), "loop": $0.loop?["id"] ?? .null, "label": JSON($0.label), "items": JSON($0.entries.count)] }),
+                            "records": JSON.array((store.histories[id]?.runs ?? []).filter { !hidden.contains($0["id"].str) }.map { $0["id"] })]
+                }(),
                 "adapterUpdates": JSON.array(store.adapterUpdates.map { $0["id"] }),
                 // The library's skill tab as shown: the router guide's catalog mode and order, and
                 // each skill's usage line and hints.

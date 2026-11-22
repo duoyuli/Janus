@@ -100,3 +100,19 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
         #expect(cached.unchangedEntries(newEvents: [], row: renamed, workspace: "W", locale: zh) == nil)
     }
 }
+
+/// A workspace's 「等你处理」: one row per goal or Loop of that workspace, newest first, saying what
+/// it waits on; other workspaces' entries are left out.
+@Test func aWorkspaceGroupsWhatWaitsByGoalAndLoop() {
+    func e(_ key: String, _ run: String, _ kind: String, wait: Bool = true) -> InboxEntry {
+        InboxEntry(key: "\(run)/\(key)", run: run, goal: "", workspace: "", title: key, text: "", sub: "", ts: 0, canWait: wait, canSettle: false, kind: kind)
+    }
+    let open = [e("q", "loop-run", "question"), e("d", "g1", "delivered"), e("a", "g2", "approval", wait: false),
+                e("q2", "g2", "question"), e("x", "elsewhere", "question")]
+    let rows = Inbox.waiting(open, goals: [["id": "g1", "goal": "上线"], ["id": "g2", "goal": "修复"]],
+                             loops: [["id": "l1", "run": "loop-run", "title": "issue 分拣"]])
+    #expect(rows.map(\.id) == ["loop-run", "g1", "g2"])
+    #expect(rows[0].loop?["id"] == "l1" && rows[0].label == expectedCopy("等你决定", "Decision Required") && rows[0].tone == .amber)
+    #expect(rows[1].loop == nil && rows[1].label == expectedCopy("等你验收", "Ready to Accept"))
+    #expect(rows[2].entries.count == 2 && rows[2].label == expectedCopy("2 件事", "2 Items") && rows[2].tone == .red, "an approval holds an agent up")
+}
