@@ -415,6 +415,36 @@ fn registered(repo: &Path, path: &Path) -> bool {
     })
 }
 
+/// Move a Loop's worktree to `commit`, dropping whatever was changed or committed there since:
+/// tracked changes, new files and commits go; ignored files (the `.worktreeinclude` ones) stay.
+pub fn move_to(path: &Path, commit: &str) -> Result<()> {
+    write(path, &["reset", "-q", "--hard", commit]).context("把值班的副本移到最新提交失败")?;
+    write(path, &["clean", "-q", "-fd"]).context("清理值班的副本失败")?;
+    Ok(())
+}
+
+/// Files changed in `dir` since `base`: uncommitted ones and those in commits made after it.
+pub fn changed_since(dir: &Path, base: &str) -> Option<Vec<String>> {
+    let mut files = changed_files(dir)?;
+    let committed = read(dir, &["diff", "--name-only", "-z", base, "HEAD"]).unwrap_or_default();
+    files.extend(committed.split('\0').filter(|f| !f.is_empty()).map(str::to_owned));
+    files.sort();
+    files.dedup();
+    Some(files)
+}
+
+/// The commit a worktree is on.
+pub fn head_of(path: &Path) -> Option<String> {
+    rev(path, "HEAD")
+}
+
+/// The repository a worktree belongs to, while git can still read it.
+pub fn repo_of(path: &Path) -> Option<PathBuf> {
+    let common = read(path, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    let common = PathBuf::from(common.trim());
+    if common.file_name().is_some_and(|n| n == ".git") { common.parent().map(Path::to_path_buf) } else { Some(common) }
+}
+
 /// Files with changes not committed in the person's checkout: a new run starts from `HEAD`
 /// without them, which the person is reminded of.
 pub fn uncommitted(repo: &Path) -> Vec<String> {

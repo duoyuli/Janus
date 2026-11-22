@@ -1,5 +1,5 @@
 {
-  "dataVersion": 19,
+  "dataVersion": 20,
   "tables": [
     "CREATE INDEX events_type_ts ON events (type, ts)",
     "CREATE UNIQUE INDEX runs_dispatch_key ON runs (json_extract(config, '$.workspace.id'), dispatch_key) WHERE dispatch_key IS NOT NULL",

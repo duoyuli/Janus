@@ -164,7 +164,33 @@ pub const MIGRATIONS: &[Migration] = &[
         // Every run so far was the person's own.
         steps: &[Step::Custom(add_run_origin)],
     },
+    Migration {
+        version: 20,
+        name: "值班的节奏改为时间表（cron）：固定间隔换成对应的 cron，自己决定换成每 30 分钟，只手动换成不按时间",
+        steps: &[Step::Custom(rhythm_to_schedule)],
+    },
 ];
+
+/// Data version 20: a Loop's `rhythm` becomes a `schedule` in the service's time zone. An interval
+/// comes round on the clock now (every 30 minutes: on the hour and the half hour); a self-paced
+/// Loop wakes every 30 minutes and can still ask for another time; a manual one has none.
+fn rhythm_to_schedule(tx: &Transaction) -> Result<usize> {
+    let tz = crate::schedule::local_zone();
+    edit_configs(tx, "loop", |_, o| {
+        let Some(rhythm) = o.remove("rhythm") else { return false };
+        let cron = match rhythm["kind"].as_str() {
+            Some("interval") => match rhythm["minutes"].as_u64().unwrap_or(30).max(1) {
+                m if m < 60 => Some(format!("*/{m} * * * *")),
+                m if m < 24 * 60 => Some(format!("0 */{} * * *", m / 60)),
+                _ => Some("0 0 * * *".to_string()),
+            },
+            Some("manual") => None,
+            _ => Some("*/30 * * * *".to_string()),
+        };
+        o.insert("schedule".into(), cron.map_or(Value::Null, |c| serde_json::json!({ "cron": c, "tz": tz })));
+        true
+    })
+}
 
 /// Data version 19: `runs` records who a goal run is for (`origin`, `loop_id`) and a Loop's
 /// dispatch key and source, the key unique in its workspace. Columns already there are left alone,

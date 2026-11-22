@@ -8,20 +8,26 @@ fn count(evs: &[Event], kind: &str) -> usize {
     evs.iter().filter(|e| e.kind == kind).count()
 }
 
-async fn new_loop(h: &Harness, prompt: &str, rhythm: Value, wake_now: bool) -> (String, String) {
+/// A schedule in UTC.
+fn cron(expr: &str) -> Value {
+    json!({ "cron": expr, "tz": "UTC" })
+}
+
+async fn new_loop(h: &Harness, prompt: &str, schedule: Value, wake_now: bool) -> (String, String) {
     let view =
-        h.app.create_loop("ws", &json!({ "prompt": prompt, "rhythm": rhythm, "wakeNow": wake_now })).await.unwrap();
+        h.app.create_loop("ws", &json!({ "prompt": prompt, "schedule": schedule, "wakeNow": wake_now })).await.unwrap();
     (view["id"].as_str().unwrap().to_string(), view["run"].as_str().unwrap().to_string())
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let h = harness("loops", &[("lead", false), ("m1", false)], json!({}));
-    let (id, run) = new_loop(&h, "看看有什么新 issue", json!({ "kind": "interval", "minutes": 60 }), true).await;
+    let (id, run) = new_loop(&h, "看看有什么新 issue", cron("0 * * * *"), true).await;
     assert_eq!(h.app.db.run(&run).unwrap().unwrap()["kind"], "loop");
     assert_eq!(h.app.db.run(&run).unwrap().unwrap()["loopId"], id.as_str());
 
-    // One wake: the prompt goes in as a turn from Janus, the turn ends, the Loop sleeps an interval.
+    // One wake: the prompt goes in as a turn from Janus, the turn ends, the Loop sleeps until its
+    // schedule comes round.
     wait_until(&h.app, &run, "the first wake ends", |e| has(e, "loop.slept")).await;
     let evs = events(&h.app, &run);
     let woke = evs.iter().find(|e| e.kind == "loop.woke").unwrap();
@@ -31,22 +37,31 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     assert_eq!(sent.actor, "janus", "a wake is Janus's prompt, not the person's");
     let text = sent.data.as_ref().unwrap()["text"].as_str().unwrap();
     assert!(text.starts_with("[Loop wake #1]") && text.ends_with("看看有什么新 issue"), "{text}");
+    assert!(text.contains("Your schedule: `0 * * * *` (UTC); next "), "{text}");
     let slept = evs.iter().find(|e| e.kind == "loop.slept").unwrap().data.clone().unwrap();
     let until = slept["until"].as_i64().unwrap();
-    assert!((until - now_ms() - 3_600_000).abs() < 60_000, "an interval counts from the end of the wake");
+    assert_eq!(until % 3_600_000, 0, "on the hour, not counted from the end of the wake");
+    assert!(until > now_ms() - 60_000 && until <= now_ms() + 3_600_000);
+    assert_eq!(slept["reason"], "timer");
     assert_eq!(slept["summary"], "看过了：[Loop wake #1] ".to_string() + &text.lines().next().unwrap()[15..]);
-    // Its system layer says how a Loop works.
-    let layer =
-        evs.iter().find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"));
-    assert!(
-        layer.is_some_and(|e| e.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("a Loop in the workspace"))
-    );
+    // Its system layer says how a Loop works; the person's prompt comes only in the wake's prompt.
+    let layer = evs
+        .iter()
+        .find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
+        .and_then(|e| e.data.as_ref().unwrap()["prompt"].as_str().map(str::to_owned))
+        .unwrap();
+    assert!(layer.starts_with("You are a Loop in the workspace") && !layer.contains("看看有什么新 issue"), "{layer}");
 
-    // Before its first wake it went by its prompt's first line; its agent's title names it now.
-    let named = h.app.loop_def(&id).unwrap();
-    assert_eq!(named.name, "标题：看看有什么新 issue");
-    assert_eq!(h.app.db.run(&run).unwrap().unwrap()["goal"], "标题：看看有什么新 issue");
-    assert!(has(&evs, "loop.named"));
+    // Its first wake asks it to name itself; a session title (the fake agent gives one) does not.
+    assert!(text.contains("janus.set_name"), "{text}");
+    assert_eq!(h.app.loop_def(&id).unwrap().name, "");
+    let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "  issue 分拣\n多余的行" })).await;
+    assert!(!err, "{said}");
+    assert_eq!(h.app.loop_def(&id).unwrap().name, "issue 分拣");
+    assert_eq!(h.app.db.run(&run).unwrap().unwrap()["goal"], "issue 分拣");
+    assert!(has(&events(&h.app, &run), "loop.named"));
+    let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "别的名字" })).await;
+    assert!(err && said.contains("只起一次"), "{said}");
 
     // Its session has the Loop's tools, not the board's.
     let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [] })).await;
@@ -79,10 +94,6 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     assert!(text.contains(&goal_run) && text.contains("github:o/r#1"), "{text}");
     let (_, err) = tool(&h.app, &run, "lead", "dispatch", json!({ "goal": "", "key": "k" })).await;
     assert!(err, "a dispatch needs a goal");
-    // `next_wake` is only for a self-paced Loop.
-    let (_, err) = tool(&h.app, &run, "lead", "next_wake", json!({ "after_seconds": 120, "reason": "r" })).await;
-    assert!(err);
-
     // A question to the person does not hold the Loop; the answer wakes it.
     let (text, err) =
         tool(&h.app, &run, "lead", "ask_user", json!({ "question": "先修哪个？", "why": "只有你知道优先级" })).await;
@@ -128,8 +139,12 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
 async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
     let h = harness("loops-pending", &[("lead", false), ("m1", false)], json!({}));
     let go = h.dir.join("fake/loop-go");
-    let (id, run) = new_loop(&h, "[hold] 慢慢看 [write loop-notes.md]", json!({ "kind": "manual" }), true).await;
+    let (id, run) = new_loop(&h, "[hold] 慢慢看 [write loop-notes.md]", Value::Null, true).await;
     wait_until(&h.app, &run, "the wake holds", |e| has(e, "loop.woke")).await;
+    // Without a schedule it asks to look again in ten minutes; the wakes before then keep it.
+    let (text, err) =
+        tool(&h.app, &run, "lead", "next_wake", json!({ "after_seconds": 600, "reason": "等 CI 跑完" })).await;
+    assert!(!err, "{text}");
     // Two more wakes while it is awake: they wait for this turn and become one.
     h.app.wake_loop(&id, WakeReason::Manual).await.unwrap();
     h.app.wake_loop(&id, WakeReason::Manual).await.unwrap();
@@ -140,13 +155,27 @@ async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
     wait_until(&h.app, &run, "the second wake ends", |e| count(e, "loop.slept") == 2).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(count(&events(&h.app, &run), "loop.woke"), 2, "the two waiting wakes were one");
-    // It wrote a file in the workspace: that is noticed, not undone.
+    // It works in its own copy of the repository: the file it wrote is noticed there, and the
+    // person's workspace never had it.
+    let copy = h.app.cfg.layout.run(RunKind::Loop, &run).work;
     let touched = events(&h.app, &run).into_iter().find(|e| e.kind == "loop.touched").unwrap();
     assert_eq!(touched.data.unwrap()["files"], json!(["loop-notes.md"]));
-    assert!(h.repo.join("loop-notes.md").exists());
-    // A manual Loop sleeps without a time.
-    let slept = events(&h.app, &run).into_iter().rfind(|e| e.kind == "loop.slept").unwrap();
-    assert!(slept.data.unwrap()["until"].is_null());
+    assert!(!h.repo.join("loop-notes.md").exists(), "the workspace is untouched");
+    // Each wake starts from a clean copy: the second one wrote the file again, it did not add to it.
+    assert_eq!(std::fs::read_to_string(copy.join("loop-notes.md")).unwrap(), "loop\n");
+    let session_cwd = h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap().to_string();
+    assert_eq!(PathBuf::from(&session_cwd), copy.canonicalize().unwrap(), "its session works in the copy");
+    // The person commits meanwhile: the next wake starts from that commit, without its old file.
+    std::fs::write(h.repo.join("new.md"), "new\n").unwrap();
+    for args in [&["add", "new.md"][..], &["commit", "-q", "-m", "new"]] {
+        assert!(std::process::Command::new("git").args(args).current_dir(&h.repo).status().unwrap().success());
+    }
+    // The time it asked for outlived the merged wake; the person sees when and why.
+    let slept = events(&h.app, &run).into_iter().rfind(|e| e.kind == "loop.slept").unwrap().data.unwrap();
+    assert_eq!(slept["reason"], "self");
+    assert!((slept["until"].as_i64().unwrap() - now_ms() - 600_000).abs() < 60_000, "{slept}");
+    let status = h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap()["status"].clone();
+    assert_eq!((status["nextWakeReason"].as_str(), status["nextWakeWhy"].as_str()), (Some("self"), Some("等 CI 跑完")));
 
     // Paused: its clock does not wake it, the person still can.
     h.app.pause_loop(&id, true).unwrap();
@@ -156,6 +185,19 @@ async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
     std::fs::write(&go, "").unwrap();
     wait_until(&h.app, &run, "a wake by hand", |e| count(e, "loop.woke") == 3).await;
     assert!(has(&events(&h.app, &run), "loop.paused"));
+    wait_until(&h.app, &run, "the wake by hand ends", |e| count(e, "loop.slept") == 3).await;
+    assert_eq!(std::fs::read_to_string(copy.join("loop-notes.md")).unwrap(), "loop\n", "what it left went first");
+    assert!(copy.join("new.md").exists(), "at the workspace's latest commit");
+    let prompt = events(&h.app, &run).into_iter().rfind(|e| e.kind == "user.message").unwrap();
+    assert!(
+        prompt.text.contains("own checkout") || prompt.data.unwrap()["text"].as_str().unwrap().contains("own checkout")
+    );
+
+    // Deleting the Loop removes its copy and the repository's entry for it.
+    h.app.delete_loop(&id).await.unwrap();
+    assert!(!copy.exists());
+    let list = std::process::Command::new("git").args(["worktree", "list"]).current_dir(&h.repo).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&list.stdout).lines().count(), 1, "only the person's own checkout");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -164,13 +206,13 @@ async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_loop_that_missed_its_time_wakes_once_after_a_restart() {
     let h = harness("loops-restart", &[("lead", false), ("m1", false)], json!({}));
-    let (id, run) = new_loop(&h, "巡检", json!({ "kind": "interval", "minutes": 60 }), true).await;
+    let (id, run) = new_loop(&h, "巡检", cron("0 * * * *"), true).await;
     wait_until(&h.app, &run, "the first wake", |e| has(e, "loop.slept")).await;
     // Pretend the hour passed while the service was down.
     let live = h.app.run(&run).unwrap();
     h.app.emit(
         &live,
-        ev("loop.scheduled", "janus", "排定下次醒来").data(json!({ "until": now_ms() - 1, "reason": "timer" })),
+        ev("loop.scheduled", "janus", "排好下次开工").data(json!({ "until": now_ms() - 1, "reason": "timer" })),
     );
     let restarted = test_app(&h.dir);
     restarted.recover().unwrap();
@@ -193,19 +235,16 @@ async fn a_loop_goes_by_its_prompt_until_its_agent_names_it() {
     let h = harness("loops-title", &[("lead", false), ("m1", false)], json!({}));
     let view = h
         .app
-        .create_loop(
-            "ws",
-            &json!({ "prompt": "\n  盯一下依赖更新\n细节……", "rhythm": { "kind": "manual" }, "wakeNow": false }),
-        )
+        .create_loop("ws", &json!({ "prompt": "\n  盯一下依赖更新\n细节……", "schedule": null, "wakeNow": false }))
         .await
         .unwrap();
     assert_eq!(view["name"], "");
     assert_eq!(view["title"], "盯一下依赖更新");
     let id = view["id"].as_str().unwrap();
-    let changed = h.app.update_loop(id, &json!({ "prompt": "看 CI", "rhythm": { "kind": "manual" } })).unwrap();
+    let changed = h.app.update_loop(id, &json!({ "prompt": "看 CI", "schedule": null })).unwrap();
     assert_eq!(changed["title"], "看 CI");
     assert_eq!(h.app.db.run(view["run"].as_str().unwrap()).unwrap().unwrap()["goal"], "看 CI");
-    let refused = h.app.create_loop("ws", &json!({ "prompt": "  ", "rhythm": { "kind": "manual" } })).await;
+    let refused = h.app.create_loop("ws", &json!({ "prompt": "  ", "schedule": null })).await;
     assert!(refused.is_err(), "a Loop needs something to do");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -225,7 +264,7 @@ fn wake_prompts(h: &Harness) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
     let h = harness("loops-answers", &[("lead", false), ("m1", false)], json!({}));
-    let (_, run) = new_loop(&h, "看看队列", json!({ "kind": "manual" }), true).await;
+    let (_, run) = new_loop(&h, "看看队列", Value::Null, true).await;
     wait_until(&h.app, &run, "the first wake", |e| has(e, "loop.slept")).await;
     let ask = |q: &str| {
         let (app, run, q) = (h.app.clone(), run.clone(), q.to_string());
@@ -264,12 +303,12 @@ async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
 }
 
 /// A wake whose agent exits in the middle fails on record and frees the clock: the next wake
-/// works. `next_wake` belongs to a wake's turn, and counts from its end.
+/// works. `next_wake` belongs to a wake's turn.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_wake_frees_the_clock_and_next_wake_counts_from_the_turns_end() {
     let h = harness("loops-failed", &[("lead", false), ("m1", false)], json!({}));
     std::fs::write(h.dir.join("fake/loop-exit"), "").unwrap();
-    let (id, run) = new_loop(&h, "巡检", json!({ "kind": "self_paced" }), true).await;
+    let (id, run) = new_loop(&h, "巡检", cron("*/30 * * * *"), true).await;
     wait_until(&h.app, &run, "the wake fails", |e| has(e, "loop.failed")).await;
     let view = h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap();
     assert_eq!(view["status"]["phase"], "failed");
@@ -278,7 +317,7 @@ async fn a_failed_wake_frees_the_clock_and_next_wake_counts_from_the_turns_end()
     wait_until(&h.app, &run, "the next wake works", |e| has(e, "loop.slept")).await;
     assert_eq!(h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap()["status"]["phase"], "sleeping");
 
-    // Outside a wake there is nothing to choose for.
+    // Outside a wake there is nothing to ask for.
     let (text, err) = tool(&h.app, &run, "lead", "next_wake", json!({ "after_seconds": 600, "reason": "r" })).await;
     assert!(err && text.contains("不是一次醒来"), "{text}");
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -288,7 +327,7 @@ async fn a_failed_wake_frees_the_clock_and_next_wake_counts_from_the_turns_end()
 #[tokio::test(flavor = "multi_thread")]
 async fn a_loops_session_is_not_a_task_to_pause_stop_or_delete_alone() {
     let h = harness("loops-session", &[("lead", false), ("m1", false)], json!({}));
-    let (id, run) = new_loop(&h, "巡检", json!({ "kind": "manual" }), true).await;
+    let (id, run) = new_loop(&h, "巡检", Value::Null, true).await;
     wait_until(&h.app, &run, "the wake", |e| has(e, "loop.slept")).await;
     for kind in ["pause", "cancel"] {
         let refused = h.app.request_action(&run, &json!({ "type": kind })).await;
@@ -298,26 +337,28 @@ async fn a_loops_session_is_not_a_task_to_pause_stop_or_delete_alone() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// When a Loop wakes next is on record whenever it changes, so a restart keeps a new rhythm, a
+/// When a Loop wakes next is on record whenever it changes, so a restart keeps a new schedule, a
 /// pause and a resume.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_restart_keeps_the_schedule_a_change_of_rhythm_or_a_pause_made() {
+async fn a_restart_keeps_when_it_wakes_after_a_new_schedule_or_a_pause() {
     let h = harness("loops-schedule", &[("lead", false), ("m1", false)], json!({}));
-    let (id, _) = new_loop(&h, "巡检", json!({ "kind": "manual" }), false).await;
+    let (id, _) = new_loop(&h, "巡检", Value::Null, false).await;
     let next_after_restart = || {
         let restarted = test_app(&h.dir);
         restarted.start_loops().unwrap();
         restarted.loop_view(&restarted.loop_def(&id).unwrap()).unwrap()["status"]["nextWakeAt"].clone()
     };
     assert!(next_after_restart().is_null());
-    h.app.update_loop(&id, &json!({ "prompt": "巡检", "rhythm": { "kind": "interval", "minutes": 30 } })).unwrap();
-    let next = next_after_restart();
-    assert!((next.as_i64().unwrap() - now_ms() - 30 * 60_000).abs() < 60_000, "{next}");
+    h.app.update_loop(&id, &json!({ "prompt": "巡检", "schedule": cron("*/30 * * * *") })).unwrap();
+    let next = next_after_restart().as_i64().unwrap();
+    assert!(next % 1_800_000 == 0 && next > now_ms() - 60_000 && next <= now_ms() + 1_800_000, "{next}");
+    let refused = h.app.update_loop(&id, &json!({ "prompt": "巡检", "schedule": cron("0 9 * *") }));
+    assert!(format!("{:#}", refused.unwrap_err()).contains("5 段"));
     h.app.pause_loop(&id, true).unwrap();
     assert!(next_after_restart().is_null());
     h.app.pause_loop(&id, false).unwrap();
     assert!(next_after_restart().is_i64());
-    h.app.update_loop(&id, &json!({ "prompt": "巡检", "rhythm": { "kind": "manual" } })).unwrap();
+    h.app.update_loop(&id, &json!({ "prompt": "巡检", "schedule": null })).unwrap();
     assert!(next_after_restart().is_null());
     let _ = std::fs::remove_dir_all(&h.dir);
 }

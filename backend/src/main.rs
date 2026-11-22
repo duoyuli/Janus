@@ -16,6 +16,7 @@ mod library;
 mod migrations;
 mod orchestrator;
 mod prices;
+mod schedule;
 mod status;
 mod teamwork;
 mod traces;

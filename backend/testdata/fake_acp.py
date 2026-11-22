@@ -33,7 +33,7 @@ A chat with one digital employee (a session in a `/chats/` directory) logs "chat
 prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
 A workspace Loop's session (its system layer names "a Loop in the workspace") logs "loop wake <n>" for each wake
 and answers "看过了：<first line>"; on its first wake it titles the session ("标题：<the prompt's last line>",
-as `session_info_update`); "[write <file>]" in the Loop's prompt appends to that file in the workspace first,
+as `session_info_update`, which must not name the Loop); "[write <file>]" in the Loop's prompt appends to that file in the workspace first,
 and "[hold]" keeps the turn going until FAKE_DIR/loop-go exists (then removes it). Each wake's prompt is logged
 ("loop prompt <json>"); with a `loop-exit` file in FAKE_DIR the agent removes it and exits in the middle of the wake.
 The person's own messages to a Loop are answered "回复：<prompt>".

@@ -702,8 +702,8 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, sub: t.map { "\($0.id) · \($0.title)" } ?? "", kind: i.kind, actions: actions))
     }
     if let n = loopNotice {
-        let title = n.kind == "loop_touched" ? L.text("值班改了工作区的文件") : L.text("值班没能醒来")
-        let sub = n.kind == "loop_touched" ? n.files.prefix(5).joined(separator: L.text("、")) : L.text("下次醒来会再试；也可以在值班页让它现在醒来")
+        let title = n.kind == "loop_touched" ? L.text("值班在自己的副本里改了文件") : L.text("值班没能开工")
+        let sub = n.kind == "loop_touched" ? n.files.prefix(5).joined(separator: L.text("、")) : L.text("下次开工时会再试；也可以在值班页叫它现在开工")
         f.open.append(OpenFact(key: "oloop\(n.seq)", seq: n.seq, title: title, text: n.text, tasks: [], agents: ["lead"], you: true, sub: sub, kind: n.kind))
     }
     if let ls = leadStall, st.active {

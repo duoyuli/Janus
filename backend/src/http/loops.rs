@@ -4,6 +4,7 @@
 
 use super::{ApiResult, ok, reply};
 use crate::orchestrator::{App, WakeReason};
+use crate::schedule::Schedule;
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
 use serde::Deserialize;
@@ -15,12 +16,27 @@ pub(super) struct LoopsQuery {
     workspace: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct ScheduleQuery {
+    cron: String,
+    tz: Option<String>,
+}
+
+/// A schedule checked as a Loop would take it (`?cron=&tz=`), with the next three times it comes
+/// round, so the app shows them without reading cron itself; 400 with the reason when it is wrong.
+pub(super) async fn schedule(Query(q): Query<ScheduleQuery>) -> ApiResult {
+    let s = Schedule::new(&q.cron, q.tz.as_deref())?;
+    let next = s.upcoming(crate::orchestrator::now_ms(), 3);
+    reply(json!({ "cron": s.cron, "tz": s.tz, "next": next }))
+}
+
 /// Every Loop (of one workspace with `?workspace=`), with what each is doing now.
 pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<LoopsQuery>) -> ApiResult {
     reply(json!({ "loops": app.loops(q.workspace.as_deref())? }))
 }
 
-/// A new Loop in a workspace, run by its lead: `prompt`, `rhythm`, and `wakeNow`.
+/// A new Loop in a workspace, run by its lead: `prompt`, `schedule` (`{cron, tz}`, or null for
+/// only when called) and `wakeNow`.
 pub(super) async fn create(
     State(app): State<Arc<App>>,
     UrlPath(workspace): UrlPath<String>,
@@ -33,7 +49,7 @@ pub(super) async fn get(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String
     reply(app.loop_view(&app.loop_def(&id)?)?)
 }
 
-/// Change a Loop's `prompt` and `rhythm`.
+/// Change a Loop's `prompt` and `schedule`.
 pub(super) async fn update(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<String>,
@@ -48,7 +64,7 @@ pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath(id): UrlPath<Str
     ok()
 }
 
-/// Wake a Loop now (`wake`), or stop and start its rhythm (`pause`, `resume`).
+/// Wake a Loop now (`wake`), or stop and start its schedule (`pause`, `resume`).
 pub(super) async fn act(State(app): State<Arc<App>>, UrlPath((id, action)): UrlPath<(String, String)>) -> ApiResult {
     match action.as_str() {
         "wake" => {

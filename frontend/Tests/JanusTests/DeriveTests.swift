@@ -610,12 +610,30 @@ private func goalRun() -> Log {
     log.add("loop.failed", text: "Loop 没能醒来：工作区不存在")
     #expect(boardFacts(derive(log.events)) { $0 }.open.contains { $0.kind == "loop_failed" })
 
-    let loop: JSON = ["rhythm": ["kind": "interval", "minutes": 120], "status": ["phase": "paused"]]
-    #expect(LoopText.rhythm(loop) == expectedCopy("每 2 小时", "Every 2 hours"))
-    #expect(LoopText.rhythm(["rhythm": ["kind": "interval", "minutes": 30]]) == expectedCopy("每 30 分钟", "Every 30 minutes"))
-    #expect(LoopText.rhythm(["rhythm": ["kind": "self_paced"]]) == expectedCopy("自己决定", "Its own call"))
-    #expect(LoopText.every(1440) == expectedCopy("每天", "Every day"))
-    #expect(LoopText.every(60) == expectedCopy("每小时", "Every hour"))
+    let loop: JSON = ["schedule": ["cron": "0 */2 * * *", "tz": "UTC"], "status": ["phase": "paused"]]
+    #expect(LoopText.schedule(loop) == expectedCopy("每 2 小时", "Every 2 hours"))
+    #expect(LoopText.schedule(["schedule": .null]) == expectedCopy("只在你叫它时", "Only when you call it"))
     #expect(LoopText.phase(loop).0 == expectedCopy("已暂停", "Paused"))
-    #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("醒着", "Awake"))
+    // A time it asked for says so, with why.
+    let asked: JSON = ["status": ["phase": "sleeping", "nextWakeAt": JSON(floatLiteral: L.nowMs() + 600_000), "nextWakeReason": "self", "nextWakeWhy": "等 CI"]]
+    #expect(LoopText.asked(asked)?.hasSuffix(expectedCopy("再看一次：等 CI", ": 等 CI")) == true)
+    #expect(LoopText.asked(loop) == nil)
+    #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("干活中", "Awake"))
+}
+
+/// The form's common schedules are cron expressions and read back as the same shape; anything else
+/// is an expression of its own.
+@Test func aLoopsScheduleReadsBackAsTheShapeTheFormMadeIt() {
+    let shapes: [LoopSchedule] = [.minutes(15), .hours(1), .hours(6), .daily(hour: 9, minute: 0), .weekdays(hour: 18, minute: 30),
+                                  .weekly(day: 1, hour: 9, minute: 5), .weekly(day: 0, hour: 20, minute: 0), .monthly(day: 1, hour: 8, minute: 0)]
+    for s in shapes { #expect(LoopSchedule(cron: s.cron) == s, "\(s.cron)") }
+    #expect(LoopSchedule.daily(hour: 9, minute: 0).cron == "0 9 * * *")
+    #expect(LoopSchedule.weekdays(hour: 9, minute: 0).cron == "0 9 * * 1-5")
+    #expect(LoopSchedule(cron: "0  9-18 * *  1-5") == .cron("0 9-18 * * 1-5"))
+    #expect(LoopSchedule(cron: "*/7 * * * *") == .cron("*/7 * * * *"))
+    #expect(LoopSchedule(cron: "0 9 * 1 *") == .cron("0 9 * 1 *"))
+    #expect(LoopSchedule.weekdays(hour: 9, minute: 0).words == expectedCopy("工作日 09:00", "Weekdays at 09:00"))
+    #expect(LoopSchedule.weekly(day: 1, hour: 9, minute: 0).words == expectedCopy("每周一 09:00", "Every Monday at 09:00"))
+    #expect(LoopSchedule.minutes(30).words == expectedCopy("每 30 分钟", "Every 30 minutes"))
+    #expect(LoopSchedule.cron("0 9-18 * * 1-5").words == expectedCopy("cron：0 9-18 * * 1-5", "cron: 0 9-18 * * 1-5"))
 }

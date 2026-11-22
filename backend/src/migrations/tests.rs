@@ -536,3 +536,41 @@ fn runs_record_who_they_are_for() {
     assert!(dispatch("b", "w").is_err(), "one run per key in a workspace");
     dispatch("c", "other").unwrap();
 }
+
+/// A Loop's rhythm becomes a schedule: an interval comes round on the clock, a self-paced Loop
+/// every 30 minutes, a manual one never by itself.
+#[test]
+fn loop_rhythms_become_schedules() {
+    let path = old_database("schedule");
+    let conn = Connection::open(&path).unwrap();
+    let rhythm = |id: &str, rhythm: Value| {
+        let data = json!({ "id": id, "workspace": "w", "name": "", "prompt": "p", "rhythm": rhythm, "state": "active", "run": "r" });
+        conn.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES ('loop', ?1, ?2, 0)",
+            params![id, data.to_string()],
+        )
+        .unwrap();
+    };
+    rhythm("half", json!({ "kind": "interval", "minutes": 30 }));
+    rhythm("hours", json!({ "kind": "interval", "minutes": 120 }));
+    rhythm("day", json!({ "kind": "interval", "minutes": 1440 }));
+    rhythm("self", json!({ "kind": "self_paced" }));
+    rhythm("manual", json!({ "kind": "manual" }));
+    drop(conn);
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let tz = crate::schedule::local_zone();
+    for (id, cron) in
+        [("half", "*/30 * * * *"), ("hours", "0 */2 * * *"), ("day", "0 0 * * *"), ("self", "*/30 * * * *")]
+    {
+        let def = config(&conn, "loop", id);
+        assert_eq!(def["schedule"], json!({ "cron": cron, "tz": tz }), "{id}");
+        assert!(def.get("rhythm").is_none());
+        assert!(
+            crate::data_shape::check("loop", &def).is_empty(),
+            "{id}: {:?}",
+            crate::data_shape::check("loop", &def)
+        );
+    }
+    assert_eq!(config(&conn, "loop", "manual")["schedule"], Value::Null);
+}

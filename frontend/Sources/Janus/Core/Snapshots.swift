@@ -154,7 +154,8 @@ enum Snapshots {
                 // Every workspace's Loops as the app shows them: what each is doing and how it reads.
                 "loops": JSON.array(store.loops.map {
                     ["id": $0["id"], "run": $0["run"], "workspace": $0["workspace"], "name": $0["name"], "phase": $0["status"]["phase"],
-                     "wakes": $0["status"]["wakes"], "label": JSON(LoopText.phase($0).0), "rhythm": JSON(LoopText.rhythm($0))]
+                     "wakes": $0["status"]["wakes"], "label": JSON(LoopText.phase($0).0),
+                     "schedule": JSON(LoopText.schedule($0)), "asked": LoopText.asked($0).map(JSON.init) ?? .null]
                 }),
                 "sendKey": JSON(SendKeySetting.shared.value.rawValue),
                 // The digital employees whose own picture the app has loaded, with its size in pixels.

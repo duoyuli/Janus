@@ -45,11 +45,12 @@
 │   │   ├── attachments/             # 随目标和消息粘贴的图片
 │   │   └── artifacts/<任务>/        # 每次尝试的回复和 diff
 │   ├── chats/<对话>/                # 对话：bundle/<成员>/、attachments/
-│   ├── loops/<run>/                 # 工作区值班的会话：bundle/<成员>/、attachments/（值班在工作区目录里工作，没有 work/ 目录）
+│   ├── loops/<run>/                 # 工作区值班的会话：bundle/<成员>/、attachments/
 │   ├── deleted-runs/<run>.patch     # 删除 Run 时 worktree 里还没提交的改动
 │   └── app/permissions.json         # macOS 权限引导：安装标识和是否处理过引导（应用写）
 ├── work/                            # Agent 读写的目录
-│   ├── runs/<run>/                  # Git 仓库上每个任务自己的 worktree（元数据在原仓库的 .git/worktrees/）
+│   ├── runs/<run>/                  # Git 仓库上每个任务自己的 worktree（元数据在原仓库的 .git/worktrees/）；runs/ 和 loops/ 下各有一个 .metadata_never_index，不让 Spotlight 索引这些副本
+│   ├── loops/<run>/                 # Git 仓库上每个值班自己的副本（worktree），每次开工前对齐到工作区当前的提交
 │   └── chats/<对话>/                # 对话的工作目录
 ├── backups/                         # 数据升级前的 janus.db：janus-v<旧数据版本>-<毫秒时间>.db，保留 5 份
 ├── cache/                           # 停止 Janus 后可以整个删掉，用到时重新生成

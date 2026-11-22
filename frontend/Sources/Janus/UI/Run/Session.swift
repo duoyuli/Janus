@@ -172,7 +172,7 @@ struct ChatCard: View {
         case .converse where info.chat:
             // A chat waits for the next message; a chat whose session is gone reopens with it.
             return (
-                run.isLoop ? (info.open && live ? L.text("等下次醒来，或你的消息") : L.text("会话已关闭，下次醒来时打开"))
+                run.isLoop ? (info.open && live ? L.text("摸鱼中，等下次开工或你的消息") : L.text("会话已关闭，下次开工时再打开"))
                     : info.open && live ? L.text("等你的消息") : L.text("会话已关闭"),
                 .gray,
                 AnyView(btn("sessSend", L.text("发送"), true)),
