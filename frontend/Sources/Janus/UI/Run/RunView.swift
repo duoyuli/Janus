@@ -142,7 +142,7 @@ struct QueuedView: View {
                         Text(run.state.run.goal).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                     StoredImages(paths: run.state.run.images, size: 64)
-                    Text(L.text("同时在做的任务已经满了。前面的任务做完、停止或暂停后，这个任务会自动开始；开始时才建 worktree，团队和资源库也按那时的设置。"))
+                    Text(L.text("同时在做的任务已经满了。前面的任务做完、停止或暂停后，这个任务会自动开始；开始时才建它的独立副本，团队和资源库也按那时的设置。"))
                         .font(.callout).foregroundStyle(.secondary)
                     HStack {
                         Button(L.text("取消任务"), role: .destructive) { Task { await run.act(["type": "cancel"]) } }

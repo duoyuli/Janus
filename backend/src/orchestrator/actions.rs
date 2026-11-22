@@ -369,21 +369,27 @@ impl App {
         };
         let title: String = goal.lines().next().unwrap_or_default().chars().take(72).collect();
         let message = format!("{title}\n\nJanus 任务 {run_id}");
-        // A detached HEAD must still be where the run started, or where its last acceptance left it.
+        // The source must still be where the run started, or where its last acceptance left it, or
+        // have moved on from there.
         let since = last_accepted_commit(&self.db.events(run_id, 0)?).unwrap_or_else(|| base_ref.to_string());
-        let commit = crate::worktrees::accept(
-            &w.repo,
-            &self.worktree_root(run_id),
-            w.branch.as_deref(),
-            &since,
-            &message,
-            remove,
-        )?;
-        let text = match &commit {
-            Some(c) => format!("核对证据后验收通过，结果已合并到 {}（提交 {}）", w.source(), short_sha(c)),
-            None => "核对证据后验收通过，这个任务没有新的改动，没有提交".into(),
+        let accepted = {
+            let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+            crate::worktrees::accept(
+                &w.repo,
+                &self.worktree_root(run_id),
+                w.branch.as_deref(),
+                &since,
+                &message,
+                remove,
+            )?
         };
-        Ok((text, json!({ "repo": w.repo, "branch": w.branch, "commit": commit })))
+        let text = if accepted.brought {
+            format!("核对证据后验收通过，结果已合并到 {}（提交 {}）", w.source(), short_sha(&accepted.result))
+        } else {
+            "核对证据后验收通过，这个任务没有新的改动，没有提交".into()
+        };
+        let commit = accepted.brought.then_some(&accepted.result);
+        Ok((text, json!({ "repo": w.repo, "branch": w.branch, "commit": commit, "result": accepted.result })))
     }
 
     pub async fn accept_archived(&self, run_id: &str) -> Result<Option<Arc<Run>>> {
@@ -458,7 +464,7 @@ impl App {
         let worktree = WorktreeOf::of_config(config);
         if let Some(w) = &worktree {
             let accepted = last_accepted_commit(&events);
-            let _adding = self.worktree_adds.lock().unwrap_or_else(|p| p.into_inner());
+            let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
             crate::worktrees::ensure(
                 &w.repo,
                 &self.worktree_root(run_id),
@@ -794,10 +800,16 @@ impl App {
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
         }
         // An accepted run kept its worktree while its conversation was open; nothing works there
-        // after a restart, and the result is back where the run started.
-        for row in self.db.accepted_worktrees()? {
+        // after a restart, and the result is back where the run started. Any other worktree git
+        // cannot read (Janus home moved and its repair failed then) is repaired.
+        for row in self.db.worktree_runs()? {
             let Some(repo) = row["config"]["worktree"]["repo"].as_str() else { continue };
             let id = row["id"].as_str().unwrap_or_default();
+            let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+            if row["status"] != "accepted" {
+                crate::worktrees::heal(Path::new(repo), &self.worktree_root(id));
+                continue;
+            }
             let kept = self.cfg.layout.deleted_runs();
             if let Err(err) = crate::worktrees::remove(Path::new(repo), &self.worktree_root(id), &kept, id) {
                 crate::config::log(format!("janus: could not remove the worktree of accepted run {id}: {err:#}"));
@@ -807,13 +819,13 @@ impl App {
     }
 }
 
-/// The commit the last acceptance brought back (`risk.accepted` `data.commit`), if any did.
+/// The commit holding the result of the last acceptance (`risk.accepted` `data.result`; events
+/// from before it was recorded have only `data.commit`, what that acceptance brought back).
 fn last_accepted_commit(events: &[Event]) -> Option<String> {
-    events
-        .iter()
-        .rev()
-        .filter(|e| e.kind == "risk.accepted")
-        .find_map(|e| e.data.as_ref()?["commit"].as_str().map(str::to_owned))
+    events.iter().rev().filter(|e| e.kind == "risk.accepted").find_map(|e| {
+        let d = e.data.as_ref()?;
+        d["result"].as_str().or(d["commit"].as_str()).map(str::to_owned)
+    })
 }
 
 /// What a request to act on a run came to.

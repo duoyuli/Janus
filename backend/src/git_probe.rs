@@ -10,14 +10,57 @@ use std::process::Command;
 /// index regardless: compare against HEAD with the plumbing `git diff-index`, which never does.
 /// See docs/research/20261112-multi_agent_collaboration.md (P0).
 pub fn read_only(cwd: &Path, args: &[&str]) -> Command {
+    let mut cmd = command(cwd);
+    cmd.args(args).env("GIT_OPTIONAL_LOCKS", "0");
+    cmd
+}
+
+/// What could point git at another repository than `cwd`, or add settings to it, when Janus was
+/// itself started from git (a hook, an editor's terminal): never passed on.
+const INHERITED: [&str; 10] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+    "GIT_PREFIX",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+];
+
+/// `git` on a directory the person or an agent owns (`cwd`), apart from the environment Janus was
+/// started in: variables that point it elsewhere are dropped, it never waits for an answer on a
+/// terminal, and the repository's file-system monitor, a program it would run, stays off.
+// @project-doc docs/operations/20261031-security.md#workspace_access
+pub fn command(cwd: &Path) -> Command {
     let mut cmd = Command::new("git");
-    cmd.args(args).current_dir(cwd).env("GIT_OPTIONAL_LOCKS", "0");
+    for name in INHERITED {
+        cmd.env_remove(name);
+    }
+    cmd.args(["-c", "core.fsmonitor=false"])
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::null());
     cmd
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Janus started from inside another repository's git (a hook) does not carry that over.
+    #[test]
+    fn git_does_not_inherit_where_janus_was_started() {
+        let cmd = command(Path::new("/tmp"));
+        let envs: Vec<_> = cmd.get_envs().collect();
+        for name in INHERITED {
+            assert!(envs.iter().any(|(k, v)| *k == name && v.is_none()), "{name} is passed on");
+        }
+        assert!(envs.iter().any(|(k, v)| *k == "GIT_TERMINAL_PROMPT" && *v == Some("0".as_ref())));
+        assert!(cmd.get_args().any(|a| a == "core.fsmonitor=false"));
+    }
     use std::path::PathBuf;
 
     fn repo(name: &str) -> PathBuf {

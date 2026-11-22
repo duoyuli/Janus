@@ -254,7 +254,8 @@ impl App {
         let queued = &row["config"];
         let ws = self.workspace(queued["workspace"]["id"].as_str().unwrap_or(""))?;
         let (cwd, team) = self.startable_team(&ws)?;
-        let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await.is_ok();
+        // A bare repository answers `false`: it has no files to work on.
+        let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await.is_ok_and(|o| o.trim() == "true");
         let base_ref = if is_git {
             git(&cwd, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string()
         } else {
@@ -270,7 +271,7 @@ impl App {
             let path = self.worktree_dir(id);
             let branch = crate::worktrees::current_branch(&top);
             let included = {
-                let _adding = self.worktree_adds.lock().unwrap_or_else(|p| p.into_inner());
+                let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
                 // A start the service did not finish (it stopped) left its worktree: begin again
                 // from a clean one.
                 if path.exists() {
@@ -294,6 +295,7 @@ impl App {
         if let Err(err) = self.bundle_team(&dirs, &team) {
             if let Some(w) = &worktree {
                 let kept = self.cfg.layout.deleted_runs();
+                let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
                 if let Err(e) = crate::worktrees::remove(&w.repo, &self.worktree_root(id), &kept, id) {
                     crate::config::log(format!("janus: could not take back the worktree of {id}: {e:#}"));
                 }

@@ -18,6 +18,7 @@
 - [2026-11-20 Skill 路由的通行做法](20261120-skill_routing_practices.md)：对照 Agent Skills 规范、Claude Code 和 Codex 的 Skill 列表预算、开源框架、MCP Skills 扩展和 Skill 检索论文检查 `janus-skills`，采纳系统层指路、先写何时用的描述、两档目录、常用优先、使用记录和描述提示，不做向量检索和 Skill 搜索工具。采纳的部分见 [ADR：Skill 路由是一份按需查找的目录](../decisions/20261120-skill_catalog.md)。阅读时机：评估 Skill 检索、资源库规模变大后的目录方式，或核实 Agent 的 Skill 列表预算。
 - [2026-11-20 Vercel Board 与 Janus 的工作台演进](20261120-vercel_board_workbench.md)：对照两者的身份、事件、任务与外部同步机制，给出工作台的目标形态和分阶段建议。阅读时机：设计服务端收件箱、GitHub issue 入口、PR 交付或手机访问时。
 - [2026-11-20 Vercel Board 模板源码研究](20261120-vercel_board_templates.md)：沿 factory 和 swarm 模板追踪从 issue 到 PR 的分流、执行、审查和跟进。阅读时机：核对凭据隔离、仓库权限、自动化预算和人工决策位置时。
+- [2026-11-21 Codex 怎样用 git worktree](20261121-codex_worktrees.md)：Codex 和 Antigravity 各自读 `openai/codex` 源码和官方文档的两份报告：Codex 的 worktree 是用户看得见、自己选的并行工作区，detached、不加锁（用 `codex-thread.json` 记归属）、不复制被忽略的文件、不自动合并回去、桌面版保留最近 15 个并在删除前存快照；git 调用关掉钩子、fsmonitor、过滤器和继承的 `GIT_*` 变量，macOS 上写 `.metadata_never_index` 不让 Spotlight 索引。结论是 Janus 在「不让用户感知」上已经走得更远，可借鉴的是这些加固和清理策略。阅读时机：改动 worktree 的创建、清理、git 调用环境或界面上怎样提到它时。
 
 ## 约定
 

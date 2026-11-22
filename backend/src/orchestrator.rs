@@ -1031,10 +1031,12 @@ pub struct App {
     /// so two requests for it (two messages sent quickly, a message and a delete) take turns and
     /// the second finds what the first did.
     pub revival: tokio::sync::Mutex<()>,
-    /// Taken around `git worktree add`: adding one reads every worktree the repository has, and
-    /// one being added at the same moment is half written (two runs created together on one
-    /// repository failed with `failed to read .git/worktrees/<run>/commondir`).
-    pub worktree_adds: StdMutex<()>,
+    /// Taken around every write to worktrees and the repositories they belong to (adding,
+    /// rebuilding, accepting, removing, repairing, a Loop's worktree moving to the latest commit):
+    /// adding one reads every worktree the repository has, and one being added at the same moment
+    /// is half written (two runs created together failed with `failed to read
+    /// .git/worktrees/<run>/commondir`); two acceptances into one branch would race for its tip.
+    pub worktree_writes: StdMutex<()>,
     /// Held while the dispatch queue hands out slots or a queued run leaves it, so a run is started,
     /// cancelled or deleted once (`queue.rs`).
     queue: StdMutex<()>,
@@ -1169,7 +1171,7 @@ impl App {
             prices: Default::default(),
             library: Default::default(),
             revival: Default::default(),
-            worktree_adds: Default::default(),
+            worktree_writes: Default::default(),
             queue: Default::default(),
             fresh: Default::default(),
             me: me.clone(),

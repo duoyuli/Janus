@@ -534,7 +534,7 @@ private func goalRun() -> Log {
                                                   "worktree": ["repo": "/code/app", "included": [".env"], "branch": "main"]])
     var st = derive(log.events)
     #expect(st.run.repo == "/code/app" && st.run.branch == "main" && !st.run.merged)
-    #expect(SessionView.worktreeNote(st.run, accepted: false) == expectedCopy("改动在这个任务单独的 worktree /h/work/runs/r1 中，验收时合并回 /code/app 的分支 main。", "The changes are in this task's own worktree /h/work/runs/r1; accepting merges them back into branch main of /code/app."))
+    #expect(SessionView.worktreeNote(st.run, accepted: false) == expectedCopy("改动在这个任务单独的副本里，验收时合并回 /code/app 的分支 main。", "The changes are in this task's own copy; accepting merges them back into branch main of /code/app."))
     log.add("risk.accepted", actor: "user", data: ["branch": "main", "commit": "abc", "repo": "/code/app"])
     st = derive(log.events)
     #expect(st.run.merged)
@@ -549,9 +549,9 @@ private func goalRun() -> Log {
     #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("这个任务没有新的改动，没有提交。", "This task brought no new changes, so nothing was committed."))
     st.run.merged = true
     #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("结果已合并到 /code/app 当前的 detached HEAD。", "The result is merged into the detached HEAD of /code/app."))
-    #expect(SessionView.runGitNote(log.events[0].data) == expectedCopy("Git 仓库 /code/app · 分支 main · worktree /h/work/runs/r1", "Git repository /code/app · branch main · worktree /h/work/runs/r1"))
+    #expect(SessionView.runGitNote(log.events[0].data) == expectedCopy("Git 仓库 /code/app · 分支 main", "Git repository /code/app · branch main"))
     log.add("attempt.started", task: "T1", attempt: 1, data: ["git": ["repo": "/code/app", "branch": .null, "worktree": "/h/work/runs/r1", "head": "0123456789abcdef"]])
-    #expect(SessionView.taskGitNote(derive(log.events), "T1") == expectedCopy("Git 仓库 /code/app · detached HEAD · 提交 01234567 · worktree /h/work/runs/r1", "Git repository /code/app · detached HEAD · commit 01234567 · worktree /h/work/runs/r1"))
+    #expect(SessionView.taskGitNote(derive(log.events), "T1") == expectedCopy("Git 仓库 /code/app · detached HEAD · 提交 01234567", "Git repository /code/app · detached HEAD · commit 01234567"))
     var inPlace = Log()
     inPlace.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/code/notes", "git": false])
     #expect(SessionView.worktreeNote(derive(inPlace.events).run, accepted: true) == nil)
@@ -596,7 +596,7 @@ private func goalRun() -> Log {
 }
 
 /// A Loop's last wake reaches the person when it changed workspace files or could not wake; the
-/// next wake replaces it. Its rhythm and phase read as the app shows them.
+/// next wake replaces it. Its schedule and phase read as the app shows them.
 @Test func aLoopsWakeNoticesReachTheInboxUntilTheNextWake() {
     var log = Log()
     log.add("run.created", actor: "user", data: ["kind": "loop", "cwd": "/tmp/ws", "git": false])

@@ -20,7 +20,7 @@ impl App {
             let more =
                 if changed.len() > shown.len() { format!(" 等 {} 个文件", changed.len()) } else { String::new() };
             return Ok(vec![format!(
-                "工作目录里有还没提交的改动（{}{more}）。这些改动不会带进这个任务：任务从最近一次提交开始，在单独的 worktree 中进行。",
+                "工作目录里有还没提交的改动（{}{more}）。这些改动不会带进这个任务：任务从最近一次提交开始，在单独的副本里进行。",
                 shown.join("、")
             )]);
         }
@@ -111,7 +111,7 @@ impl App {
     pub(super) async fn drive(self: &Arc<Self>, run: &Arc<Run>) -> Result<()> {
         let workspace_note = match &run.worktree {
             Some(w) => format!(
-                "Git 仓库 {} 的独立 worktree，从{} {} 开始",
+                "Git 仓库 {} 的独立副本，从{} {} 开始",
                 w.repo.display(),
                 w.branch.as_deref().map(|b| format!("分支 {b} 的")).unwrap_or_default(),
                 short_sha(&run.base_ref)
@@ -493,9 +493,8 @@ impl App {
             json!({
                 "summary": match &run.worktree {
                     Some(w) => format!(
-                        "{} 改动在这个任务单独的 worktree {} 中，还没有提交；验收时 Janus 把它们提交并合并回 {}。",
+                        "{} 改动在这个任务单独的副本里，还没有提交；验收时 Janus 把它们提交并合并回 {}。",
                         lead_summary(&text),
-                        run.cwd.display(),
                         w.source()
                     ),
                     None => format!("{} 改动直接在工作目录 {} 中，Janus 没有提交。", lead_summary(&text), run.cwd.display()),
@@ -549,7 +548,11 @@ impl App {
         // The run's worktree goes too; changes never committed are kept as a patch first.
         if let Some(repo) = row["config"]["worktree"]["repo"].as_str() {
             let kept = self.cfg.layout.deleted_runs();
-            match crate::worktrees::remove(Path::new(repo), &self.worktree_root(run_id), &kept, run_id) {
+            let removed = {
+                let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+                crate::worktrees::remove(Path::new(repo), &self.worktree_root(run_id), &kept, run_id)
+            };
+            match removed {
                 Ok(Some(patch)) => crate::config::log(format!(
                     "janus: run {run_id} deleted; its uncommitted changes are kept in {}",
                     patch.display()

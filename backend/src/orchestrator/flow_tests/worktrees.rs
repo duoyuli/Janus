@@ -89,7 +89,7 @@ async fn accepting_over_the_persons_uncommitted_work_fails_and_keeps_the_run_del
     std::fs::write(h.repo.join("notes.md"), "mine\n").unwrap();
     let live = h.app.run(&run).unwrap();
     let err = format!("{:#}", h.app.action(&live, &json!({ "type": "accept" })).unwrap_err());
-    assert!(err.contains("notes.md") && err.contains("先提交或暂存"), "{err}");
+    assert!(err.contains("notes.md") && err.contains("先移走或改名"), "{err}");
     assert_eq!(status(&h.app, &run), "delivered");
     assert!(!has(&events(&h.app, &run), "risk.accepted"));
     assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "mine\n", "theirs stays");

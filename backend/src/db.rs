@@ -474,12 +474,10 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Accepted runs that worked in a worktree (`config.worktree`).
-    pub fn accepted_worktrees(&self) -> Result<Vec<Value>> {
+    /// Runs that work in a worktree (`config.worktree`).
+    pub fn worktree_runs(&self) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare(select_runs!(
-            "WHERE status = 'accepted' AND json_extract(config, '$.worktree.repo') IS NOT NULL"
-        ))?;
+        let mut stmt = conn.prepare(select_runs!("WHERE json_extract(config, '$.worktree.repo') IS NOT NULL"))?;
         let rows = stmt.query_map([], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }

@@ -1162,16 +1162,15 @@
 "没有独立验证" = "No independent verification";
 "%lld 个子任务没有独立验证" = "Without independent verification: %lld";
 " · 没有独立验证" = " · No independent verification";
-"%@的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。它单独的 worktree 也会删除，还没提交的改动先存成补丁（Janus 目录下的 data/deleted-runs）；你的工作目录和已经合并回去的结果不受影响。" = "The event log, subtasks, artifacts and logs of %@ will be deleted from this Mac and cannot be restored. Its own worktree is deleted too; changes never committed are saved as a patch first (data/deleted-runs in the Janus folder). Your working directory and results already merged back are not affected.";
+"%@的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。它单独的副本也会删除，还没提交的改动先存成补丁（Janus 目录下的 data/deleted-runs）；你的工作目录和已经合并回去的结果不受影响。" = "The event log, subtasks, artifacts and logs of %@ will be deleted from this Mac and cannot be restored. Its own copy is deleted too; changes never committed are saved as a patch first (data/deleted-runs in the Janus folder). Your working directory and results already merged back are not affected.";
 "%@ 当前的 detached HEAD" = "the detached HEAD of %@";
 "Git 仓库 %@" = "Git repository %@";
 "分支 %@" = "branch %@";
 "提交 %@" = "commit %@";
-"worktree %@" = "worktree %@";
 "%@ 的分支 %@" = "branch %2$@ of %1$@";
 "结果已合并到 %@。" = "The result is merged into %@.";
 "这个任务没有新的改动，没有提交。" = "This task brought no new changes, so nothing was committed.";
-"改动在这个任务单独的 worktree %@ 中，验收时合并回 %@。" = "The changes are in this task's own worktree %1$@; accepting merges them back into %2$@.";
+"改动在这个任务单独的副本里，验收时合并回 %@。" = "The changes are in this task's own copy; accepting merges them back into %@.";
 "分支" = "Branch";
 "已合并到 %@" = "Merged into %@";
 "验收时合并回 %@" = "Merged back into %@ on acceptance";
@@ -1444,13 +1443,13 @@
 "选择输入框里发送消息的按键，更改后立即生效。%@" = "Choose which key sends what you type. Changes take effect immediately. %@";
 "排队中" = "Queued";
 "排队中 · 第 %lld 位" = "Queued · #%lld";
-"同时在做的任务已经满了。前面的任务做完、停止或暂停后，这个任务会自动开始；开始时才建 worktree，团队和资源库也按那时的设置。" = "As many runs as allowed are already working. This run starts by itself once one of them finishes, stops or is paused; its worktree is made then, with the team and library as they are at that time.";
+"同时在做的任务已经满了。前面的任务做完、停止或暂停后，这个任务会自动开始；开始时才建它的独立副本，团队和资源库也按那时的设置。" = "As many runs as allowed are already working. This run starts by itself once one of them finishes, stops or is paused; its own copy is made then, with the team and library as they are at that time.";
 "取消任务" = "Cancel Run";
 "立即开始" = "Start Now";
 "不等空位，现在就开始" = "Start now without waiting for a free slot";
 "每 %lld 小时" = "Every %lld hours";
 "每 %lld 分钟" = "Every %lld minutes";
-"醒着" = "Awake";
+"干活中" = "Awake";
 "出错" = "Failed";
 "睡着 · %@ 醒" = "Asleep · wakes %@";
 "睡着" = "Asleep";
@@ -1461,8 +1460,6 @@
 "新建值班" = "New Loop";
 "编辑值班" = "Edit Loop";
 "要它做什么" = "What it does";
-"节奏" = "Rhythm";
-"固定间隔" = "Fixed interval";
 "只创建" = "Create Only";
 "创建并醒来一次" = "Create and Wake Once";
 "醒来 %lld 次" = "Woke %lld times";
@@ -1489,8 +1486,6 @@
 "等下次醒来，或你的消息" = "Waiting for its next wake, or your message";
 "会话已关闭，下次醒来时打开" = "Session closed; it opens at the next wake";
 
-"自己决定" = "Its own call";
-"只在叫它时" = "Only when called";
 "每天" = "Every day";
 "分拣 GitHub issue" = "Triage GitHub issues";
 "用 gh 看 <owner/repo> 新开和有更新的 issue。能复现的 bug 和范围清楚的需求派成任务，key 用 github:<owner/repo>#<编号>；只是提问的，直接在 issue 下回答；需求不清楚的问我。" = "Use gh to look at new and updated issues in <owner/repo>. Dispatch reproducible bugs and well-scoped requests as runs, with the key github:<owner/repo>#<number>; answer plain questions right in the issue; ask me when a request is unclear.";

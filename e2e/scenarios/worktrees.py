@@ -45,9 +45,9 @@ def worktrees(ctx, c):
     git = first.wait_event("attempt.started", task="T1")["data"].get("git") or {}
     c(git.get("branch") == branch and git.get("head") == start and os.path.realpath(git.get("worktree", "")) == os.path.realpath(a),
       f"子任务的每次执行记下 Git 信息：分支、开始时的提交和 worktree 路径（{git}）")
-    ctx.ui(c, first.id, lambda r, s: any(x["id"] == "T1" and branch in (x.get("git") or "") and os.path.basename(a) in (x.get("git") or "")
-                                         for x in r["tasks"]),
-           "子任务页显示 Git 仓库、分支、提交和 worktree 路径", pages=("task:T1", "board"))
+    ctx.ui(c, first.id, lambda r, s: any(x["id"] == "T1" and branch in (x.get("git") or "") and start[:8] in (x.get("git") or "")
+                                         and os.path.basename(a) not in (x.get("git") or "") for x in r["tasks"]),
+           "子任务页显示 Git 仓库、分支和提交，不显示 Janus 放副本的路径", pages=("task:T1", "board"))
 
     delivered = first.finish("第一个任务完成")
     c("worktree" in delivered["data"]["summary"] and branch in delivered["data"]["summary"],

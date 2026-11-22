@@ -68,7 +68,7 @@ def goal_codex(ctx, c):
     delivered = run.finish("目标已完成：笔记写好了")
     c("笔记写好了" in delivered["data"]["summary"], "交付摘要来自负责人的最后回复")
     c(read_file(f"{run.cwd()}/notes.md") == "T1\n" and not os.path.exists(f"{t.repo}/notes.md"),
-      "T1 在这个任务单独的 worktree 里写了文件，工作区目录不受影响")
+      "T1 在这个任务单独的副本里写了文件，工作区目录不受影响")
 
     # What the run left: artifacts, the readable diff, the export and the live stream.
     arts = run.has("artifact.created", task="T1")
