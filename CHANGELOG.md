@@ -15,6 +15,7 @@ Janus versions are named by date, newest first. Each section lists the changes o
 - 工作区首页更好区分：「待处理」每行开头是它在等什么的图标（提问、审批、等你验收、已中断……），值班有自己的紫色身份标（值班页标题处也是它），值班派出的任务改为在标题后面标出来自哪个值班；团队摘要去掉了和「工作区操作」菜单重复的「管理团队…」。
 - 标题旁的添加、编辑、移除改成图标按钮：共享资料、新建值班、挡住的路径和 diff 审阅里的意见；新建值班的表单把「它自己不改文件……」的说明放到标题下面，写提示之前先看到。
 - 修复英文界面里，负责人停下而目标还没完成时，Janus 发出的「目标确认」提示被标成通用的「Janus Prompt」。
+- 修复新建对话后马上删除时报「Directory not empty」、删不掉的问题：对话的会话还在打开，往正在删除的日志目录里写了文件。现在删除会先让还在打开的会话和资源库服务器停下，等正在建的日志建完再删目录。
 
 - Host Environment now mirrors your home folder: in every Agent's and MCP server's home folder, each item of yours is linked to where it is, so sign-ins, the keychain, toolchains and settings just work, and so will tools you install later, without switching anything on. Only the paths under Hidden Paths stay out of sight: by default common Agents' own settings (`~/.claude`, `~/.codex`, `~/.pi`, `~/.agents` and more; digital employees still get instructions, skills and MCP from Janus only) and some sensitive data (`~/.aws`, `~/.gnupg`, `~/.kube`, browsers, mail and messages and more). The list shows only paths on your Mac; remove any with its ×, restore the defaults, or pick more in the system's open panel with the + beside the heading; Janus's own data folder is always hidden. On upgrade, the items you switched on one by one give way to this default list.
 - Fixed Agents getting `token_missing` from `lark-cli --as user` after the Lark CLI was switched on: its user tokens are in `~/Library/Application Support/lark-cli`, and only `~/.lark-cli` was shared.
@@ -25,6 +26,7 @@ Janus versions are named by date, newest first. Each section lists the changes o
 - The workspace page tells things apart: each Pending row starts with an icon for what it waits on (question, approval, ready to accept, interrupted…), a Loop has its own violet badge (also on its page), and a run a Loop dispatched names that Loop in a tag after its title. The team line drops Manage Team…, which the workspace menu already offers.
 - Add, edit and remove beside a heading are icon buttons: shared context, new Loop, hidden paths and diff comments. The new-Loop form explains how a Loop works under its title, before you write the prompt.
 - Fixed the English interface labelling Janus's goal check (sent when the lead stops while the goal is still open) as the generic Janus Prompt.
+- Fixed deleting a chat right after creating it failing with "Directory not empty": its session was still opening and wrote into the log folder being removed. Deleting now stops a session or library server still starting, and waits for a log being made, before removing the folders.
 
 ## 2026.11.22.2
 
