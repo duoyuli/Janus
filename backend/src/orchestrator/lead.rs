@@ -769,6 +769,8 @@ impl App {
         ctl: &mut Control,
         ctx: &Ctx<'_>,
     ) -> Result<Option<String>> {
+        run.st.lock().unwrap().lead.idle_since = now_ms();
+        let mut idle = Box::pin(tokio::time::sleep(self.cfg.idle_after));
         loop {
             tokio::select! {
                 cmd = ctl.rx.recv() => match cmd {
@@ -779,8 +781,19 @@ impl App {
                     }
                     Some(Steer::Control(c)) => self.apply_control(run, conn, sid, c, ctx).await,
                     Some(Steer::Finish) => return Ok(None),
-                    Some(Steer::TakeOver | Steer::Interrupt | Steer::Release | Steer::Redirect(_)) => {}
+                    Some(Steer::Park) if self.parkable(run) => {
+                        self.park(run, parking::Parked::Full);
+                        return Ok(None);
+                    }
+                    Some(Steer::Park | Steer::TakeOver | Steer::Interrupt | Steer::Release | Steer::Redirect(_)) => {}
                 },
+                () = &mut idle => {
+                    if self.parkable(run) {
+                        self.park(run, parking::Parked::Idle);
+                        return Ok(None);
+                    }
+                    idle.as_mut().reset(tokio::time::Instant::now() + self.cfg.idle_after);
+                }
                 msg = rx.recv() => match msg {
                     None | Some(Incoming::Closed) => return Err(anyhow!("Agent 进程已退出")),
                     Some(Incoming::Request { id, method, .. }) => {

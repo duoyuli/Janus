@@ -274,6 +274,8 @@ impl App {
                         .data(json!({ "finish": finish })),
                 );
             }
+            // In a turn the session is not idle.
+            Steer::Park => {}
             Steer::TakeOver => {
                 if !c.held_by_person() {
                     c.set_hold(run, Hold::Person);

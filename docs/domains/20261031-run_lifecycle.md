@@ -39,7 +39,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 一个 Janus 服务只有一个派发队列，跨所有工作区，先进先出（`orchestrator/queue.rs`）。它限制的是同时在做的目标 Run 数，和 Run 内部的[并发上限](#scheduling) `max_concurrent_attempts` 是两层。
 
-- **槽位**：`max_running_runs`（`JANUS_MAX_RUNNING_RUNS`，默认 8，范围 1 到 32，见[配置](../interfaces/20261031-configuration.md#settings)）。只有状态是 `planning` 或 `running`、且没有暂停的目标 Run 占槽位；已交付、已验收、已中断的 Run，对话，暂停中的 Run 都不占。
+- **槽位**：`max_running_runs`（`JANUS_MAX_RUNNING_RUNS`，默认 8，范围 1 到 32，见[配置](../interfaces/20261031-configuration.md#settings)）。只有状态是 `planning` 或 `running`、且没有暂停的目标 Run 占槽位；已交付、已验收、已中断的 Run，对话，暂停中的 Run 都不占（它们开着的 Agent 进程算在[座位](#agent_seats)里）。
 - **排队的 Run** 只有记录和 `run.queued` 事件：没有 worktree、团队快照和会话，团队、资源库和基线都在开始时才确定。队列就是状态为 `queued` 的 Run 按创建时间排序，不另存，服务重启后原样保留。
 - **进队**：Run 的记录和第一条事件 `run.queued`（序号 1）在同一个数据库事务里写入，进队之前没有任何人能把它领走。
 - **补位**（`pump`）：有 Run 状态变化（`set_status`）、暂停或继续时，把空出的槽位按顺序交给排队最久的 Run。数不清槽位（读数据库出错）时这一次不派。领走是带条件的更新（只改仍是 `queued` 的行）加一条 `run.starting`，在同一个事务里；没领到就不开始，所以同一个 Run 不会被开始两次。服务在开始监听之后才补位，启动失败不会消耗队首。
@@ -47,6 +47,16 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 - **准备没完成的 Run**：领走后、写入快照前服务停了的 Run，重启时回到队列原来的位置（`run.requeued`），不记为中断；准备失败（工作区不在、Agent 不能运行）的记为 `failed`，用户「从中断处继续」时重新排队。这类 Run 没有快照，不能直接恢复，也不能发消息。开始准备时如果发现上次留下的同名 worktree，先移走再重建。
 - **用户操作**：排队的 Run 只接受 `start`（立即开始，不等空位）和 `cancel`（取消，`run.cancelled` 和状态在同一个事务里），其余操作返回 409；已经被领走时这两个操作也返回 409。也可以删除。「从中断处继续」和给中断的任务发消息同「立即开始」一样，是用户直接要求开始，不等空位。暂停一个 Run 会让出槽位，继续后它照常进行，这时同时在做的 Run 可能超过槽位数，新的 Run 继续排队直到有空位。
 - **排位**：`GET /api/runs` 和 `GET /api/runs/{id}` 中排队的 Run 带 `queuePosition`（1 是下一个），和状态在同一条查询里算出，见 [HTTP API](../interfaces/20261031-http_api.md#run_list)。删除 Run 也发全局事件流通知，排在后面的 Run 的排位随之更新。
+
+<a id="agent_seats"></a>
+## Agent 进程的上限与闲置回收
+
+每个 ACP 会话是一对常驻进程（适配器和 Agent，闲着时一对 Codex 约 250 MB 内存）。派发队列和 `max_concurrent_attempts` 管「同时做多少事」，这里管「同时开多少进程」，对目标 Run、对话和值班一起算（`seats.rs`、`orchestrator/parking.rs`），见 [ADR](../decisions/20261122-agent_seats.md)。
+
+- **座位**：`max_agent_sessions`（`JANUS_MAX_AGENT_SESSIONS`，默认 12，范围 1 到 64，见[配置](../interfaces/20261031-configuration.md#settings)），实际取它和 `max_running_runs + 1` 中较大的：在做的目标 Run 的负责人一直占着座位，至少留一个给它们的协作者。每个会话在启动进程前拿一个座位（`open_session` 的 `take_seat`），进程被关掉或释放时还回。配置检查和登录这类一次性的进程不占座位。
+- **满了的时候**：先请闲得最久的、可以关掉的会话让出座位（`Steer::Park`），新会话等空位，它的 Agent 状态是「等空位」（`agent.status`，`phase` 为 `waiting_for_seat`）；空出的座位按谁在等分先后：你在等的（对话或交付后的消息、「现在开工」、回答值班的问题、手动继续任务）最先，按时间表来的（排到的目标、值班按时开工）其次，协作者的尝试最后，同一类按先后。等的时候 Run 被取消或删除就不再等；每 10 秒再找一次可以关掉的会话。
+- **闲置回收**：会话一轮结束后闲着超过 `IDLE_AFTER`（10 分钟），且 Run 里没有别的事需要它时，关掉它的 Agent 进程（`park`）：对话、两次开工之间的值班，以及目标已经完成、没有任务在跑的目标 Run 的负责人。目标还在做（负责人在等协作者）、这一轮还没结束、人工接管中的会话都不关。
+- **关掉以后**：记一条 `session.parked`（`data.reason` 为 `idle` 或 `full`）；对话和值班的会话 Run 记为 `interrupted`，和服务重启后一样，界面上显示已关闭，退出 Janus 时不算在进行中；目标 Run 的状态不变。下一条消息或下一次开工照常打开它（`resume_run_by`），能加载原会话就加载，否则带上之前的对话新开；关闭过程中发来的消息等它离开内存后进入新会话，没送达的消息在重新打开时补上。值班的提问不受影响。
 
 <a id="attachments"></a>
 ## 图片附件

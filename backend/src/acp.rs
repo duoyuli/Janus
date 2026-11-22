@@ -61,6 +61,9 @@ pub struct AcpConn {
     pub steering: bool,
     /// Keeps the adapter version this session was started from (`RuntimeSpec::pin`).
     _pin: Option<Arc<crate::adapters::VersionPin>>,
+    /// The place this process takes among the open agent processes (`seats`), given back when it is
+    /// killed or dropped.
+    seat: StdMutex<Option<crate::seats::Seat>>,
 }
 
 impl AcpConn {
@@ -191,6 +194,7 @@ impl AcpConn {
             capabilities: init["agentCapabilities"].clone(),
             steering: init["_meta"]["steering"]["supported"] == true,
             _pin: spec.pin.clone(),
+            seat: StdMutex::new(None),
         };
         Ok((Arc::new(conn), rx))
     }
@@ -240,6 +244,11 @@ impl AcpConn {
         Ok(())
     }
 
+    /// Hold `seat` for as long as this process is open.
+    pub fn hold(&self, seat: crate::seats::Seat) {
+        *self.seat.lock().unwrap() = Some(seat);
+    }
+
     pub async fn kill(&self) {
         if let Some(task) = self.task.lock().unwrap().take() {
             task.abort();
@@ -264,6 +273,8 @@ impl AcpConn {
             // A process stuck in the kernel may not go even now; closing the session goes on.
             let _ = tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await;
         }
+        drop(child);
+        self.seat.lock().unwrap().take();
     }
 }
 

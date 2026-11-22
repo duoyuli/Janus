@@ -21,6 +21,9 @@ pub struct Settings {
     /// Goal runs working at the same time across all workspaces; more wait in the dispatch queue
     /// (`1..=32`, default `8`).
     pub max_running_runs: usize,
+    /// Agent processes open at the same time across goal runs, chats and Loops (`1..=64`, default
+    /// `12`); never fewer than `max_running_runs + 1` (`seats`).
+    pub max_agent_sessions: usize,
     /// Optional reference for displaying reported token usage.
     pub run_token_budget: Option<i64>,
     /// The person's own home folder, whose sign-ins and tool settings may be shared with agents
@@ -30,14 +33,20 @@ pub struct Settings {
 
 pub const DEFAULT_MAX_CONCURRENT_ATTEMPTS: usize = 3;
 pub const DEFAULT_MAX_RUNNING_RUNS: usize = 8;
+pub const DEFAULT_MAX_AGENT_SESSIONS: usize = 12;
 
-/// A count from 1 to 32 from the environment, else `config.toml`, else `default`.
-fn parse_concurrency(env: Option<&str>, toml_val: Option<&toml::Value>, default: usize) -> usize {
+/// A count from 1 to `max` from the environment, else `config.toml`, else `default`.
+fn parse_count(env: Option<&str>, toml_val: Option<&toml::Value>, default: usize, max: i64) -> usize {
     env.filter(|v| !v.trim().is_empty())
         .and_then(|v| v.trim().parse::<i64>().ok())
         .or_else(|| toml_val.and_then(|v| v.as_integer().or_else(|| v.as_str()?.trim().parse().ok())))
-        .map(|n| n.clamp(1, 32) as usize)
+        .map(|n| n.clamp(1, max) as usize)
         .unwrap_or(default)
+}
+
+/// A count from 1 to 32 from the environment, else `config.toml`, else `default`.
+fn parse_concurrency(env: Option<&str>, toml_val: Option<&toml::Value>, default: usize) -> usize {
+    parse_count(env, toml_val, default, 32)
 }
 
 fn parse_positive_i64(env: Option<&str>, toml_val: Option<&toml::Value>) -> Option<i64> {
@@ -73,6 +82,12 @@ static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
         file.get("max_running_runs"),
         DEFAULT_MAX_RUNNING_RUNS,
     );
+    let max_agent_sessions = parse_count(
+        std::env::var("JANUS_MAX_AGENT_SESSIONS").ok().as_deref(),
+        file.get("max_agent_sessions"),
+        DEFAULT_MAX_AGENT_SESSIONS,
+        64,
+    );
     let run_token_budget =
         parse_positive_i64(std::env::var("JANUS_RUN_TOKEN_BUDGET").ok().as_deref(), file.get("run_token_budget"));
     Settings {
@@ -81,6 +96,7 @@ static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
         home,
         max_concurrent_attempts,
         max_running_runs,
+        max_agent_sessions,
         run_token_budget,
         host_home: std::env::var("JANUS_HOST_HOME")
             .ok()

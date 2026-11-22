@@ -14,6 +14,7 @@ use crate::agents::{InstructionChannel, Runtime};
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
 use crate::git_probe;
+use crate::seats::Asker;
 use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunOrigin, RunStatus, TaskStatus};
 use crate::traces::Overlap;
 use crate::wire::wire_enum;
@@ -42,6 +43,7 @@ mod mcp_client;
 mod mcp_router;
 mod mcp_server;
 mod messages;
+mod parking;
 mod prompts;
 mod queue;
 mod session;
@@ -71,6 +73,9 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const STEER_TIMEOUT: Duration = Duration::from_secs(15);
 /// The watchdog tells the lead about an attempt whose session has shown no sign of work this long.
 pub const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
+/// A session idle this long (its turn over, nothing at work in its run) closes its agent process;
+/// the next message or wake opens it again.
+pub const IDLE_AFTER: Duration = Duration::from_secs(10 * 60);
 /// A failed attempt is tried again after this long, not at once: what made it fail (an adapter
 /// that did not start, a dropped connection) often lasts a moment (AT-10).
 pub const RETRY_AFTER: Duration = Duration::from_secs(3);
@@ -213,6 +218,9 @@ pub enum Steer {
     TakeOver,
     Release,
     Finish,
+    /// Close the session's agent if it is idle and nothing in its run needs it (`park`); ignored
+    /// in a turn. The next message or wake opens it again.
+    Park,
     /// Switch one of the session's controls.
     Control(SessionControl),
 }
@@ -701,6 +709,12 @@ struct LeadState {
     /// The lead is working on a message (a follow-up goal included), not idle waiting for the
     /// person. Only matters after delivery: see `on_duty`.
     in_turn: bool,
+    /// Since when its session waits for the next message (ms): the longest idle is closed first
+    /// when every seat is taken.
+    idle_since: i64,
+    /// Its session is closing to free its seat (`park`): the run leaves memory soon, and the next
+    /// message opens it anew.
+    parked: bool,
 }
 
 impl LeadState {
@@ -807,6 +821,7 @@ struct RunRecord {
     /// The last event already in the log; the next one gets the following seq.
     last_seq: i64,
     status: RunStatus,
+    asker: Asker,
 }
 
 pub struct Run {
@@ -820,6 +835,8 @@ pub struct Run {
     pub cwd: PathBuf,
     worktree: Option<WorktreeOf>,
     pub team: Vec<Member>,
+    /// Who this opening of the run is for: its lead's agent waits for a seat in that order (`seats`).
+    asker: Asker,
     git: bool,
     base_ref: String,
     /// The workspace's shared material when the run was created (see `brief_section`).
@@ -941,6 +958,7 @@ impl Run {
             cwd: r.cwd,
             worktree: r.worktree,
             team: r.team,
+            asker: r.asker,
             git: r.git,
             base_ref: r.base_ref,
             brief: r.brief,
@@ -1010,6 +1028,10 @@ pub struct Config {
     pub max_concurrent_attempts: usize,
     /// Goal runs working at the same time; more wait in the dispatch queue (`1..=32`).
     pub max_running_runs: usize,
+    /// Agent processes open at the same time (`seats`); raised to `max_running_runs + 1` if lower.
+    pub max_agent_sessions: usize,
+    /// How long a session waits idle before its agent process is closed (`IDLE_AFTER`).
+    pub idle_after: Duration,
     /// Default reference shown alongside reported token usage.
     pub run_token_budget: Option<i64>,
     /// The person's own home folder, whose picked paths are shared with agents (`host_env`).
@@ -1039,6 +1061,8 @@ pub struct App {
     /// is half written (two runs created together failed with `failed to read
     /// .git/worktrees/<run>/commondir`); two acceptances into one branch would race for its tip.
     pub worktree_writes: StdMutex<()>,
+    /// The places for agent processes (`seats`): every ACP session holds one while it is open.
+    pub seats: Arc<crate::seats::Seats>,
     /// Held while the dispatch queue hands out slots or a queued run leaves it, so a run is started,
     /// cancelled or deleted once (`queue.rs`).
     queue: StdMutex<()>,
@@ -1162,7 +1186,10 @@ impl App {
         let (tx, _) = broadcast::channel(4096);
         let (changes, _) = broadcast::channel(1024);
         let (loop_changes, _) = broadcast::channel(256);
+        // Working leads hold their seats while their collaborators need some: never all of them.
+        let seats = crate::seats::Seats::new(cfg.max_agent_sessions.max(cfg.max_running_runs + 1));
         Arc::new_cyclic(|me| App {
+            seats,
             db,
             cfg,
             tx,
@@ -1442,6 +1469,8 @@ pub(crate) fn test_app_with(dir: &Path, set: impl FnOnce(&mut Config)) -> Arc<Ap
         retry_after: Duration::ZERO,
         max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
         max_running_runs: crate::config::DEFAULT_MAX_RUNNING_RUNS,
+        max_agent_sessions: crate::config::DEFAULT_MAX_AGENT_SESSIONS,
+        idle_after: IDLE_AFTER,
         run_token_budget: None,
         host_home: dir.join("host-home"),
     };

@@ -419,6 +419,11 @@ func derive(_ events: [Event]) -> RunState {
             s.run.status = .interrupted; s.inbox = s.run.loop ? s.inbox.filter { $0.kind == "question" } : []
             for x in s.orderedTasks { x.session = nil; if let at = x.attempts.last, at.end == nil { at.end = e.ts } }
             for a in s.agents.values { a.phase = "idle" }
+        case "session.parked":
+            // The lead's agent closed while idle to give its seat back: a chat or a Loop's session
+            // reads as closed, as after a restart; a goal keeps its status. The next message opens it.
+            if s.run.chat || s.run.loop { s.run.status = .interrupted }
+            let a = ag("lead"); a.phase = "idle"; a.note = e.text
         case "run.recovered":
             s.run.status = RunStatus(d["phase"].str)
             // A resumed run schedules again: whatever pause came before the restart is over (FL-12).

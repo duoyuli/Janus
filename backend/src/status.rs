@@ -208,6 +208,8 @@ wire_enum! {
         WaitingForInput = "waiting_for_input",
         WaitingForAgent = "waiting_for_agent",
         WaitingApproval = "waiting_approval",
+        /// Every seat for an agent process is taken (`seats`).
+        WaitingForSeat = "waiting_for_seat",
         Error = "error",
     }
 }
@@ -225,6 +227,7 @@ impl AgentPhase {
             AgentPhase::WaitingForInput => "等待输入",
             AgentPhase::WaitingForAgent => "等待协作者",
             AgentPhase::WaitingApproval => "等待用户审批",
+            AgentPhase::WaitingForSeat => "等空位",
             AgentPhase::Error => "出错",
         }
     }

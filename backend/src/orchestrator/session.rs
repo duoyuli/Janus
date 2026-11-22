@@ -29,6 +29,8 @@ impl App {
     /// run kills it), the person's commands reach it, its agent can be found by name, and Janus
     /// pushes into it when it takes steering. `who` names it in the timeout message. Everything
     /// here is taken back by `close_session`.
+    /// Its process takes a seat first (`take_seat`): a collaborator's waits in line as the team's,
+    /// the lead's as its run's (`Run::asker`).
     pub(super) async fn open_session(
         &self,
         run: &Run,
@@ -38,9 +40,15 @@ impl App {
         log: &Path,
         who: &str,
     ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
+        let asker = match owner.session {
+            SessionKey::Task(_) => Asker::Team,
+            SessionKey::Lead => run.asker,
+        };
+        let seat = self.take_seat(run, owner, agent, asker).await?;
         let (conn, rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(spec, &run.cwd, log))
             .await
             .map_err(|_| anyhow!("{who}启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+        conn.hold(seat);
         let key = &owner.session;
         let (tx, steer_rx) = mpsc::unbounded_channel();
         let cancelled = {

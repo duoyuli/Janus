@@ -76,6 +76,7 @@ impl App {
             goal_images: vec![],
             last_seq: 0,
             status: RunStatus::Planning,
+            asker: Asker::Person,
         })))
     }
 

@@ -18,6 +18,7 @@ mod migrations;
 mod orchestrator;
 mod prices;
 mod schedule;
+mod seats;
 mod status;
 mod teamwork;
 mod traces;
@@ -139,6 +140,8 @@ async fn main() -> Result<()> {
             retry_after: orchestrator::RETRY_AFTER,
             max_concurrent_attempts: settings.max_concurrent_attempts,
             max_running_runs: settings.max_running_runs,
+            max_agent_sessions: settings.max_agent_sessions,
+            idle_after: orchestrator::IDLE_AFTER,
             run_token_budget: settings.run_token_budget,
             host_home: settings.host_home.clone(),
         },

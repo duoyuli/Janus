@@ -1556,3 +1556,4 @@
 "家目录下的路径，例如 .config/mytool" = "A path in your home folder, such as .config/mytool";
 "它的登录存在 macOS 钥匙串里，打开时一起共享钥匙串" = "Its sign-in is in the macOS keychain, which is shared along with it";
 "本机没有" = "Not on This Mac";
+"等空位" = "Waiting for a Seat";

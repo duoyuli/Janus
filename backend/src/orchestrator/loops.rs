@@ -413,11 +413,13 @@ impl App {
             let changed: Vec<&Value> =
                 runs.iter().filter(|r| seen_before[r["id"].as_str().unwrap_or("")] != r["status"]).collect();
             let since = self.db.latest_event(&def.run, "loop.slept")?.map(|e| e.ts);
-            let run = match self.run(&def.run) {
-                Some(run) => run,
-                // Its session opens again (a restart, the first wake): like a chat, from its log.
-                None => self.resume_run(&def.run).await?,
+            // Its session opens again when it is closed (a restart, the first wake, parked while
+            // it slept): like a chat, from its log. A timer's wake waits for a seat as a schedule.
+            let asker = match reason {
+                WakeReason::Timer | WakeReason::Chosen => Asker::Schedule,
+                WakeReason::Manual | WakeReason::Answer => Asker::Person,
             };
+            let run = self.resume_run_by(&def.run, asker).await?;
             if let Some(w) = self.loops.timers.lock().unwrap().get_mut(id).and_then(|t| t.wake.as_mut()) {
                 w.n = n;
                 w.cwd = seen_at;

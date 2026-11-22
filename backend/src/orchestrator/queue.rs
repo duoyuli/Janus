@@ -325,6 +325,7 @@ impl App {
             goal_images,
             last_seq: self.db.max_seq(id)?,
             status: RunStatus::Planning,
+            asker: Asker::Schedule,
         }));
         self.runs.lock().unwrap().insert(id.to_string(), run.clone());
         self.launch(run, Phase::Start);

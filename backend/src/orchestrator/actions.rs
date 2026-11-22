@@ -420,7 +420,22 @@ impl App {
     /// Bring an interrupted run back from its event log: finished tasks stay finished, unfinished
     /// ones start again (reopening their old session when possible), and planning resumes where it was.
     // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
+    /// Open run `run_id` again for the person (`resume_run_by`).
     pub async fn resume_run(self: &Arc<Self>, run_id: &str) -> Result<Arc<Run>> {
+        self.resume_run_by(run_id, Asker::Person).await
+    }
+
+    /// Open run `run_id` again, its agents waiting for seats as `asker` (a Loop's timer as a
+    /// schedule, the person's message first).
+    pub async fn resume_run_by(self: &Arc<Self>, run_id: &str, asker: Asker) -> Result<Arc<Run>> {
+        // A session closing to free its seat (`park`) is not reused: wait for its run to leave
+        // memory, then open it anew, so nothing sent now goes to the closing session.
+        for _ in 0..600 {
+            match self.run(run_id) {
+                Some(run) if run.st.lock().unwrap().lead.parked => tokio::time::sleep(Duration::from_millis(50)).await,
+                _ => break,
+            }
+        }
         let _turn = self.revival.lock().await;
         if let Some(run) = self.run(run_id) {
             return Ok(run);
@@ -485,6 +500,7 @@ impl App {
             goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
             last_seq: self.db.max_seq(run_id)?,
             status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
+            asker,
         }));
 
         // The board's tasks are every orchestration the lead got accepted.

@@ -18,6 +18,7 @@ mod loops;
 mod messages;
 mod owners;
 mod queue;
+mod seats;
 mod skill_router;
 mod teamwork;
 mod usage;

@@ -276,6 +276,7 @@ fn test_run(team_size: usize) -> Run {
         goal_images: vec![],
         last_seq: 0,
         status: RunStatus::Planning,
+        asker: Asker::Person,
     })
 }
 

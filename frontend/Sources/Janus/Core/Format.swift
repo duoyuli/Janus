@@ -34,7 +34,7 @@ enum L {
     static let agentPhase: [String: (String, Tone)] = [
         "idle": ("空闲", .gray), "thinking": ("规划中", .blue), "coordinating": ("协调中", .blue), "reading_files": ("读取文件", .blue),
         "editing": ("修改文件", .blue), "running_tool": ("调用工具", .blue), "running_test": ("运行测试", .blue),
-        "waiting_for_input": ("等待输入", .amber), "waiting_for_agent": ("等待协作者", .amber), "waiting_approval": ("等待审批", .amber), "error": ("异常", .red),
+        "waiting_for_input": ("等待输入", .amber), "waiting_for_agent": ("等待协作者", .amber), "waiting_approval": ("等待审批", .amber), "waiting_for_seat": ("等空位", .amber), "error": ("异常", .red),
     ]
     static func phase(_ s: String) -> (String, Tone) {
         let (key, tone) = agentPhase[s] ?? agentPhase["idle"]!
@@ -52,7 +52,7 @@ enum L {
         "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓",
         "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
         "agent.message": "❝", "user.message": "✎",
-        "message.delivered": "↪", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
+        "message.delivered": "↪", "session.parked": "◌", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
         "task.conflict": "⚠", "lead.stalled": "⏳", "task.stalled": "⏳", "task.claimed": "⚐", "task.split_requested": "✂",
     ]
 
@@ -60,7 +60,7 @@ enum L {
         .green: ["task.succeeded", "approval.granted", "input.answered", "run.delivered", "risk.accepted"],
         .amber: ["question.asked", "question.escalated", "approval.requested", "input.requested", "run.paused", "control.taken", "session.interrupted", "user.message", "task.conflict", "lead.stalled", "task.stalled", "task.split_requested"],
         .red: ["attempt.failed", "approval.denied", "run.cancelled", "task.failed", "run.failed", "run.interrupted"],
-        .gray: ["agent.status", "tool.call", "tool.completed", "task.ready"],
+        .gray: ["agent.status", "tool.call", "tool.completed", "task.ready", "session.parked"],
         .blue: ["tool.started", "session.prompt"],
     ]
     static func tone(of type: String) -> Tone? { toneTable.first { $0.value.contains(type) }?.key }

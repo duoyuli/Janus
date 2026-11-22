@@ -167,7 +167,8 @@ impl App {
                     return Ok(None);
                 }
                 Some(Steer::Control(c)) => self.apply_control(run, session.conn, session.sid, c, ctx).await,
-                Some(Steer::TakeOver | Steer::Interrupt) => {}
+                // The person holds this session: it is not idle.
+                Some(Steer::TakeOver | Steer::Interrupt | Steer::Park) => {}
             }
         }
     }
