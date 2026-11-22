@@ -16,8 +16,6 @@ Janus is the Roman god of gates, with one face turned toward what is being creat
 
 Janus turns your coding agents into a team that runs on your Mac. You give a goal to a lead agent. The lead does the work itself or splits it among digital employees, checks what comes back, and delivers. You only step in for the decisions that are yours to make. Every session, subtask, approval and delivery is recorded as an event you can replay.
 
-The current version is an MVP. It connects Codex and Claude Code through the Agent Client Protocol (ACP); support for more agents comes later.
-
 ## Why Janus
 
 One coding agent is a tool. Run four at once and you become their manager. You carry one agent's output to another for review. You decide who fixes what the reviewer found. You restart the one that stalled, keep two of them from editing the same file, and wake them up when their quota comes back.
