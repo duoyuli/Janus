@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.22.1
+
+- 新增设置里的「本机环境」：Agent 和 MCP 服务器都在自己独立的家目录里工作，之前用不了你本机的 GitHub CLI、飞书 CLI、钥匙串里的登录，也找不到 rustup、nvm 这类工具链。现在可以逐项打开要共享的内容，它们会链接进每个 Agent 和 MCP 服务器的家目录，用的就是你本机的同一份登录，改动立即生效，正在运行的会话也一样。页面列出 Janus 认识、你这台 Mac 上有的工具（登录与账号、工具链、macOS 钥匙串），以及家目录里的其他配置，也可以手填路径；默认一项都不共享。打开一个登录存在钥匙串里的工具（GitHub CLI、飞书 CLI、Git）时，钥匙串会一起打开。Agent 自己的配置（`~/.codex`、`~/.claude`、`~/.agents` 等）不能共享，数字员工的指令、Skill 和 MCP 仍只由 Janus 给。
+- 工作区首页重新排版，工作区的一切都在这一页，侧栏只列工作区：值班不再缩进在侧栏里，工作区的数字算上它的值班。首页从上到下是名称和团队（共享资料在右上角）、目标输入框、「等你处理」、值班和任务记录。「等你处理」紧跟在输入框下面，数字和侧栏一致，每行写明在等什么（「等你验收」「等你决定」「2 件事」），值班的提问和没能开工也在这里；任务记录不再重复列出等你处理的任务，值班派出的任务前面是一个小图标。
+- 共享资料和团队分开编辑：首页共享资料卡片上的「添加… / 编辑…」和交付结果的「加入共享资料…」打开只编辑共享资料的表单，工作区设置里只管目录、名称和团队。
+- 修复工作区首页的「等你处理」只看最近 50 个任务、更早的等你处理的任务不显示的问题，现在和收件箱用同一份列表。
+
+- New Host Environment in Settings. Agents and MCP servers work in home folders of their own, so they could not use your GitHub CLI, Lark CLI or keychain sign-ins, nor find toolchains such as rustup or nvm. You can now switch on, one by one, what to share: it is linked into every Agent's and MCP server's home folder, so they use the very same sign-in as you, and a change applies at once, to sessions already running too. The page lists the tools Janus knows that are on your Mac (sign-ins and accounts, toolchains, the macOS keychain) and the other settings in your home folder, and takes a path of your own; nothing is shared until you switch it on. Switching on a tool that keeps its sign-in in the keychain (GitHub CLI, Lark CLI, Git) switches on the keychain too. Agents' own settings (`~/.codex`, `~/.claude`, `~/.agents` and the like) cannot be shared: digital employees' instructions, skills and MCP still come from Janus only.
+- A workspace's home is laid out anew, with everything about the workspace on it and only workspaces in the sidebar: Loops are no longer listed under their workspace there, and a workspace's count includes its Loops. From the top: the name and team (shared context at the top right), the goal box, Needs Attention, Loops and the run history. Needs Attention sits right under the goal box, its count matches the sidebar's, and each row says what it waits for (Ready to Accept, Decision Required, 2 Items); a Loop's questions and failed wakes are there too. The run history no longer lists again the runs that need attention, and runs a Loop dispatched carry a small mark.
+- Shared context is edited on its own: Add… / Edit… on the shared context card and Add to Shared Context… on a delivery open a sheet for the shared context only, and Workspace Settings keep the folder, name and team.
+- Fixed Needs Attention on a workspace's home looking only at the 50 newest runs, so older runs waiting for you were missing; it now uses the same list as the inbox.
+
 ## 2026.11.21.7
 
 - 值班改为按时间表开工：在「什么时候开工」里选「按时间表」（每隔几分钟、每隔几小时、每天、工作日、每周、每月，或者直接写一条 5 段的 cron 表达式），表单下面实时显示接下来三次开工的时间；也可以选「只在你叫它时」。原来的「由它自己决定」不再是一个设置：值班仍可以自己约一次时间表之外的开工（比如等 CI 跑完再看），值班页写明它约的时间和原因。升级时已有的值班自动换成时间表：固定间隔换成对应的钟点（每 30 分钟就是每个整点和半点），「自己决定」换成每 30 分钟，「只在叫它时」不变。
