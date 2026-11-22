@@ -145,7 +145,6 @@
 "Token 总量含缓存读取。" = "Total tokens include cache reads.";
 "Token 总量：%@（%@）" = "Total tokens: %@ (%@)";
 "Token 用量偏高：已上报 %@ tokens，达到默认提醒阈值 500,000" = "High token usage: %@ tokens reported, reaching the default threshold of 500,000";
-"goal_check" = "Goal Check · The Lead Stopped While the Goal Was Still Active";
 "macOS 权限" = "macOS Permissions";
 "shell 环境变量" = "Shell Environment Variables";
 "update.json 不完整" = "update.json is incomplete";

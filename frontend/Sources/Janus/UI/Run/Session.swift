@@ -531,7 +531,7 @@ struct ChatItem: View {
             let label = d["channel"].str == "instructions" ? L.text("数字员工的指令 · \(via)")
                 : d["channel"].str == "system" ? (run.isLoop ? L.text("值班的工作方式 · \(via)") : L.text("Agent Team 协作指令 · \(via)"))
                 : d["channel"].str == "history" ? L.text("之前的对话 · \(via)")
-                : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("验证没有通过 · 发回给它修复"), "board": L.text("看板推送 · 插入正在进行的这一轮"), L.text("goal_check"): L.text("目标确认 · 负责人停下了，目标还标着进行中")][d["channel"].str] ?? L.text("Janus 提示")
+                : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("验证没有通过 · 发回给它修复"), "board": L.text("看板推送 · 插入正在进行的这一轮"), "goal_check": L.text("目标确认 · 负责人停下了，目标还标着进行中")][d["channel"].str] ?? L.text("Janus 提示")
             let hint = [
                 "instructions": L.text("这名数字员工的指令，连同 Agent 设置里的自定义提示词。单 Agent 对话只注入这一份。"),
                 "system": run.isLoop ? L.text("值班怎样工作：自己不改文件，要改的事派成任务，只有你能决定的才问你；还有工作区共享资料和它记下的状态。")
