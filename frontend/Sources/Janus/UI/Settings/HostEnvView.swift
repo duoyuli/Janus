@@ -23,7 +23,7 @@ struct HostEnvView: View {
         let toolPaths = Set(tools.flatMap { $0["paths"].strings })
         let added = shared.filter { !toolPaths.contains($0) && !others.contains($0) }
         VStack(alignment: .leading, spacing: 18) {
-            Text(L.text("每个 Agent 和 MCP 服务器都在自己独立的家目录里工作，看不到你本机的登录和工具配置。在这里打开的项会链接进它们的家目录，用的就是你本机的同一份登录：在 Agent 里刷新的令牌也写回你这里。没打开的一律看不到；Agent 自己的配置（~/.codex、~/.claude、~/.agents 等）不能共享。改动立即生效，正在运行的会话也一样。"))
+            Text(L.text("每个 Agent 和 MCP 服务器都在自己独立的用户目录里工作，看不到你本机的登录和工具配置。在这里打开的项会链接进它们的用户目录，用的就是你本机的同一份登录：在 Agent 里刷新的令牌也写回你这里。没打开的一律看不到；Agent 自己的配置（~/.codex、~/.claude、~/.agents 等）不能共享。改动立即生效，正在运行的会话也一样。"))
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let failure, store.hostEnv == nil {
                 HStack {
@@ -40,7 +40,7 @@ struct HostEnvView: View {
                         toolRow(k, shared, name: L.text("登录钥匙串"))
                     }
                 }
-                section(L.text("家目录里的其他内容"), note: L.text("上面没有的工具，按它在家目录里的位置打开。")) {
+                section(L.text("用户目录里的其他内容"), note: L.text("上面没有的工具，按它在用户目录里的位置打开。")) {
                     let list = showAll ? others : Array(others.prefix(12))
                     ForEach(list, id: \.self) { p in pathRow(p, shared) }
                     ForEach(added, id: \.self) { p in pathRow(p, shared, missing: env["missing"].strings.contains(p)) }
@@ -48,7 +48,7 @@ struct HostEnvView: View {
                         Button(L.text("显示全部 \(others.count) 项")) { showAll = true }.buttonStyle(.link).padding(.horizontal, 10).padding(.vertical, 6)
                     }
                     HStack {
-                        TextField(L.text("家目录下的路径，例如 .config/mytool"), text: $custom)
+                        TextField(L.text("用户目录下的路径，例如 .config/mytool"), text: $custom)
                             .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
                             .onSubmit(addCustom)
                         Button(L.text("添加")) { addCustom() }

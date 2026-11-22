@@ -10,7 +10,7 @@ KEYCHAIN = "Library/Keychains"
 
 @scenario("host-env")
 def host_env(ctx, c):
-    """本机环境：只列本机有的工具和家目录里的其他内容，不列 Agent 自己的配置；只有本机应用能读写，Agent 自己的配置被拒；在应用里打开 GitHub CLI 时连同钥匙串一起共享，新开的会话的家目录里链接到本机的同一份，关掉后撤回且不动本机的文件"""
+    """本机环境：只列本机有的工具和用户目录里的其他内容，不列 Agent 自己的配置；只有本机应用能读写，Agent 自己的配置被拒；在应用里打开 GitHub CLI 时连同钥匙串一起共享，新开的会话的用户目录里链接到本机的同一份，关掉后撤回且不动本机的文件"""
     host = ctx.host_home
     files = {".config/gh/hosts.yml": "github.com:\n  user: e2e\n", ".lark-cli/config.json": "{}", f"{KEYCHAIN}/login.keychain-db": "",
              ".codex/config.toml": "", ".zshrc": "", ".zsh_history": ""}
@@ -25,7 +25,7 @@ def host_env(ctx, c):
     v = ctx.api("GET", "/api/host-env")
     ids = [t["id"] for t in v["tools"]]
     c({"keychain", "gh", "lark"} <= set(ids) and "codex" not in ids and ".zshrc" in v["others"]
-      and not {".codex", ".zsh_history"} & set(v["others"]), f"只列本机有的工具和家目录里的其他内容，不列 Agent 自己的配置和历史（{ids}，{v['others']}）")
+      and not {".codex", ".zsh_history"} & set(v["others"]), f"只列本机有的工具和用户目录里的其他内容，不列 Agent 自己的配置和历史（{ids}，{v['others']}）")
     code, why = ctx.api_error("PUT", "/api/host-env", {"paths": [".codex"]})
     c(code == 400 and "Agent 自己的配置" in why, f"Agent 自己的配置不能共享（{code}）")
 
@@ -48,12 +48,12 @@ def host_env(ctx, c):
     gh = os.path.join(sandbox, ".config", "gh")
     c(os.path.islink(gh) and os.path.realpath(gh) == os.path.realpath(os.path.join(host, ".config", "gh"))
       and open(os.path.join(gh, "hosts.yml")).read() == files[".config/gh/hosts.yml"] and os.path.islink(os.path.join(sandbox, KEYCHAIN)),
-      "新开的会话的家目录里，~/.config/gh 和钥匙串链接到本机的同一份")
+      "新开的会话的用户目录里，~/.config/gh 和钥匙串链接到本机的同一份")
 
     if ctx.app:
         ctx.app.until(lambda s: (s.get("hostEnv") or {}).get("shared") == [KEYCHAIN], "应用里关掉 GitHub CLI", "host-tool gh off")
     else:
         ctx.api("PUT", "/api/host-env", {"paths": [KEYCHAIN]})
     c(not os.path.lexists(gh) and os.path.exists(os.path.join(host, ".config/gh/hosts.yml")),
-      "关掉后会话的家目录里撤回链接，本机的文件不动")
+      "关掉后会话的用户目录里撤回链接，本机的文件不动")
     ctx.api("PUT", "/api/host-env", {"paths": []})

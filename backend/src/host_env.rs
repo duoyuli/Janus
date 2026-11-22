@@ -154,18 +154,18 @@ pub fn normalize(path: &str) -> Result<String> {
     let p = path.trim();
     let p = p.strip_prefix("~/").unwrap_or(p).trim_end_matches('/');
     if p.is_empty() || p == "~" {
-        bail!("请填写家目录下的一个路径，例如 .config/gh");
+        bail!("请填写用户目录下的一个路径，例如 .config/gh");
     }
     let mut parts = vec![];
     for c in Path::new(p).components() {
         match c {
             Component::Normal(s) => parts.push(s.to_string_lossy().to_string()),
             Component::CurDir => {}
-            _ => bail!("{path} 不是家目录下的路径：只能填 ~/ 之后的部分，不能用 .."),
+            _ => bail!("{path} 不是用户目录下的路径：只能填 ~/ 之后的部分，不能用 .."),
         }
     }
     if parts.is_empty() {
-        bail!("请填写家目录下的一个路径，例如 .config/gh");
+        bail!("请填写用户目录下的一个路径，例如 .config/gh");
     }
     Ok(parts.join("/"))
 }
@@ -443,7 +443,7 @@ mod tests {
             (json!([".aws"]), "本机没有"),
             (json!(["Library", KEYCHAIN]), "范围太大"),
             (json!([".config/gh", ".config/gh/hosts"]), "本机没有"),
-            (json!(["/etc"]), "不是家目录下的路径"),
+            (json!(["/etc"]), "不是用户目录下的路径"),
         ] {
             let err = app.save_host_env(&json!({ "paths": bad })).unwrap_err().to_string();
             assert!(err.contains(why), "{bad}: {err}");

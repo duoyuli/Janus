@@ -15,7 +15,7 @@
 | `JANUS_MAX_CONCURRENT_ATTEMPTS` | `max_concurrent_attempts` | `3` | 单个 Run 同时运行的协作者尝试上限（范围 1 到 32），见 [ADR：角色并发槽位与全局并发上限](../decisions/20261118-role_slots_and_concurrency_cap.md) |
 | `JANUS_MAX_RUNNING_RUNS` | `max_running_runs` | `8` | 所有工作区同时在做的目标 Run 上限（范围 1 到 32），更多的在派发队列里排队，见 [Run 生命周期：派发队列](../domains/20261031-run_lifecycle.md#dispatch_queue) |
 | `JANUS_MAX_AGENT_SESSIONS` | `max_agent_sessions` | `12` | 同时开着的 Agent 进程上限（范围 1 到 64），目标 Run、对话和值班一起算；实际取它和 `max_running_runs + 1` 中较大的，见 [Agent 进程的上限与闲置回收](../domains/20261031-run_lifecycle.md#agent_seats) |
-| `JANUS_HOST_HOME` | 无 | `$HOME` | 用户自己的家目录：设置的「本机环境」从这里列出、链接路径，见[安全边界：共享的本机环境](../operations/20261031-security.md#host_env)；端到端测试用它指向替身目录 |
+| `JANUS_HOST_HOME` | 无 | `$HOME` | 用户自己的用户目录：设置的「本机环境」从这里列出、链接路径，见[安全边界：共享的本机环境](../operations/20261031-security.md#host_env)；端到端测试用它指向替身目录 |
 | `JANUS_RUN_TOKEN_BUDGET` | `run_token_budget` | 无 | 新建 Run 的 Token 用量参考值（正整数，非正数忽略）。应用将它和已上报用量一起展示，达到参考值后继续执行 |
 
 `config.toml` 示例：
