@@ -24,7 +24,7 @@ The models are good enough. What is missing is the organization around them: som
 
 ## How it works
 
-- **A lead that manages.** The lead drives your goal with `/goal`. If the goal is small, it does the work in its own session. Otherwise it submits subtasks, with an assignee, dependencies and acceptance criteria for each. Once it has delegated, it only manages: it sends work back, reassigns it, or checks it, and never takes it over. Collaborators do not message each other; everything goes through the lead and the shared board.
+- **A lead that manages.** The lead is the agent in charge. It drives your goal with `/goal`. If the goal is small, it does the work in its own session. Otherwise it submits subtasks, with an assignee, dependencies and acceptance criteria for each. Once it has delegated, it only manages: it sends work back, reassigns it, or checks it, and never takes it over. Collaborators do not message each other; everything goes through the lead and the shared board.
 - **You decide only what is yours.** The lead settles technical choices and trade-offs itself. Approvals, decisions the lead hands up, and deliveries waiting for acceptance reach your inbox, from every workspace. You can step into any agent's session at any time to steer it or take over.
 - **Your machine stays yours.** Janus never writes your own agent configuration. On a Git repository, each run works in its own worktree, started from your `HEAD`, and accepting it fast-forwards one commit onto the branch you were on. Janus never leaves a half-done merge in your checkout or overwrites your uncommitted changes. Agents see a mirror of your home directory, so `gh`, SSH and your other tools keep working, while the paths you hide (by default, other agents' configuration and high-risk credentials) stay out of reach.
 - **Replayable by default.** Every session, orchestration step, approval, artifact and delivery is an event, so a run can be inspected and resumed instead of reconstructed from memory.
@@ -46,11 +46,12 @@ Janus is developed by agents. Its own changes are written, reviewed and merged b
 | --- | --- |
 | Agent | A launchable coding agent, Codex or Claude Code in this version, with its own configuration directory and credentials. |
 | Employee | A digital employee: an agent bound to a name, avatar, responsibilities, instructions, model, reasoning effort and permission mode. Its instructions go into the agent's system layer. |
+| Lead | The agent in charge: an employee with **Can Be Lead** turned on, bound to Codex or Claude Code. It drives the goal with `/goal`, decides what to do itself and what to delegate to collaborators, checks the results and delivers. Loops are run by it too. Every other employee on the team is a collaborator. |
 | Library | Skills and MCP servers, kept once and given to every employee. Each session gets one skill, `janus-skills`, a catalog the agent searches when it needs a skill, and one MCP server, `janus-tools`, which starts or connects the real servers on first use. No agent configuration file is written. Import skills from a GitHub repository, copy them from a local folder, or write them in the app; add MCP servers with a form or pasted JSON, or in one click from Recommended. |
 | Workspace | A local directory, a team of employees with one lead, and shared context: background that every run and Loop in the workspace starts from. |
 | Run | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
 | Subtasks and board | The work the lead delegates, each with an assignee, dependencies and acceptance criteria. Janus validates them before they run. Progress, blockers and questions go on the shared board. |
-| Loop | A workspace's lead on a schedule: presets or any standard five-field cron expression, in your time zone. It dispatches runs and asks you questions, and both land in the inbox. |
+| Loop | A workspace's lead agent on a schedule: presets or any standard five-field cron expression, in your time zone. It dispatches runs and asks you questions, and both land in the inbox. |
 | Chat | A one-to-one conversation with a single employee, outside any workspace, in a fresh directory that is deleted with the chat. It uses the same session view as a run: steer, take over, approve, paste images, switch model and mode. |
 | Inbox | Everything waiting on you across all workspaces. Choices are answered in place, and what nobody is blocked on can wait until later. |
 
