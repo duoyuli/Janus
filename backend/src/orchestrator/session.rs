@@ -45,7 +45,15 @@ impl App {
             SessionKey::Lead => run.asker,
         };
         let seat = self.take_seat(run, owner, agent, asker).await?;
-        let (conn, rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(spec, &run.cwd, log))
+        // The log goes in the run's folders: never once `delete_run` has marked the run (`Run.files`).
+        let open = || {
+            let _files = run.files.read().unwrap_or_else(|p| p.into_inner());
+            if *run.emitting.lock().unwrap_or_else(|p| p.into_inner()) {
+                return Err(Cancelled.into());
+            }
+            crate::acp::open_log(log)
+        };
+        let (conn, rx) = tokio::time::timeout(STARTUP_TIMEOUT, AcpConn::spawn(spec, &run.cwd, open))
             .await
             .map_err(|_| anyhow!("{who}启动超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
         conn.hold(seat);

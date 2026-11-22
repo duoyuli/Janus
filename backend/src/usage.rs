@@ -510,7 +510,7 @@ struct Wait {
 /// A run's whole ledger. Every number comes from the same events.
 #[derive(Clone, Debug, Serialize)]
 pub struct Ledger {
-    /// The run in one line: `用量：15,400 tokens（部分上报） · 费用：未上报 · 耗时 3 分 12 秒（墙钟）`.
+    /// The run in one line: `用量：15,400 tokens（部分上报） · 费用：未上报 · 耗时 3 分 12 秒（总时长）`.
     pub text: String,
     pub run: Scope,
     pub lead: Scope,
@@ -695,7 +695,7 @@ fn context_text(context: &Context) -> Option<String> {
 
 fn duration_text(ms: Option<i64>) -> String {
     match ms {
-        Some(ms) => format!("{}（墙钟）", duration(ms)),
+        Some(ms) => format!("{}（总时长）", duration(ms)),
         None => "没有时长记录".into(),
     }
 }

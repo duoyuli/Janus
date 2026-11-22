@@ -265,6 +265,41 @@ async fn a_chat_is_deleted_with_its_directory() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// A chat deleted while something of it is still making its log (a session opening right after
+/// the chat was created, a library server starting) is removed whole: deleting waits for that log,
+/// then takes the folders with it, and nothing of the run writes there again.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_chat_waits_for_a_log_being_made() {
+    let h = harness("chat-delete-opening", &[("lead", false), ("m1", true)], json!({}));
+    let id = chat(&h, "m1", "你好").await;
+    wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
+    let run = h.app.run(&id).unwrap();
+    let dirs = h.app.cfg.layout.run(RunKind::Chat, &id);
+
+    // Something of the run making its log, on a thread of its own as the real ones are brief and
+    // never wait on the runtime while they hold the lock.
+    let (held_tx, held_rx) = std::sync::mpsc::channel();
+    let making = {
+        let (run, logs) = (run.clone(), dirs.logs.clone());
+        std::thread::spawn(move || {
+            let _files = run.files.read().unwrap();
+            held_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let waited = logs.exists();
+            std::fs::write(logs.join("mcp-run-probe.log"), "started").unwrap();
+            waited
+        })
+    };
+    held_rx.recv().unwrap();
+    assert!(h.app.delete_run(&id).await.is_ok(), "the chat is deleted once the log is made");
+    assert!(making.join().unwrap(), "the folders waited for the log being made");
+    assert!(!dirs.logs.exists() && !dirs.work.exists(), "with the log made meanwhile");
+    assert!(*run.emitting.lock().unwrap(), "what still opens for it sees the mark and makes no log");
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!dirs.logs.exists(), "nothing writes there again");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
 /// A first message the service refuses (an image that is not one) does not title the chat; the
 /// first one it takes does (FL-15).
 #[tokio::test(flavor = "multi_thread")]

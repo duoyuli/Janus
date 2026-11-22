@@ -66,17 +66,25 @@ pub struct AcpConn {
     seat: StdMutex<Option<crate::seats::Seat>>,
 }
 
+/// A log file to append to, made with its folder when missing: where a started process writes
+/// its stderr (an adapter, a library server).
+pub fn open_log(path: &Path) -> Result<std::fs::File> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    Ok(std::fs::OpenOptions::new().create(true).append(true).open(path)?)
+}
+
 impl AcpConn {
     // @project-doc docs/interfaces/20261031-acp_integration.md#transport
+    /// Start the adapter in `cwd`; its stderr goes to the file `stderr_log` opens (`open_log`, or
+    /// one that first checks the run still has folders to write in).
     pub async fn spawn(
         spec: &RuntimeSpec,
         cwd: &Path,
-        stderr_log: &Path,
+        stderr_log: impl FnOnce() -> Result<std::fs::File>,
     ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>)> {
-        if let Some(dir) = stderr_log.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let log = std::fs::OpenOptions::new().create(true).append(true).open(stderr_log)?;
+        let log = stderr_log()?;
         let mut cmd = Command::new(&spec.program);
         cmd.env_clear();
         #[cfg(unix)]

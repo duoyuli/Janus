@@ -848,6 +848,10 @@ pub struct Run {
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
     /// `true` once the run is deleted: what its sessions still say on the way out is not written.
     emitting: StdMutex<bool>,
+    /// Held (shared) while a session or library server of the run makes its log file, after
+    /// checking the run is not being deleted; `delete_run` takes it alone before removing the run's
+    /// folders, so nothing new appears in them while they go.
+    files: std::sync::RwLock<()>,
     /// Held from checking an orchestration to putting its tasks on the board, so two submitted at
     /// once are checked one after the other and cannot both take the same task id (AT-05).
     orchestrating: StdMutex<()>,
@@ -965,6 +969,7 @@ impl Run {
             goal_images: r.goal_images,
             seq: AtomicI64::new(r.last_seq),
             emitting: StdMutex::new(false),
+            files: std::sync::RwLock::new(()),
             orchestrating: StdMutex::new(()),
             st: StdMutex::new(RunState { status: r.status, ..Default::default() }),
             wake: Notify::new(),

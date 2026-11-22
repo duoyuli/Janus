@@ -142,7 +142,7 @@ impl Drop for Backend {
 impl Backend {
     /// Start or reach `server` and initialize it. A command runs in `cwd`, in a sandbox of its own
     /// (`sandbox_vars(sandbox)`), never in Janus's environment: it sees the sandbox variables and the
-    /// values saved on it, which can't override them; its stderr goes to `log`. A URL gets the
+    /// values saved on it, which can't override them; its stderr goes to the file `log` opens. A URL gets the
     /// headers saved on it, from this process. `roots/list` from the server is answered with `cwd`.
     // @project-doc docs/operations/20261031-security.md#library
     pub(super) async fn start(
@@ -150,7 +150,7 @@ impl Backend {
         values: &McpValues,
         sandbox: &crate::layout::Sandbox,
         cwd: &Path,
-        log: &Path,
+        log: impl FnOnce() -> Result<std::fs::File>,
         wait: Duration,
     ) -> Result<Arc<Backend>> {
         let (requests_tx, mut requests) = mpsc::unbounded_channel::<Value>();
@@ -163,10 +163,7 @@ impl Backend {
         let set = server.set_values(values);
         let link = match server {
             McpServer::Stdio { command, args, .. } => {
-                if let Some(dir) = log.parent() {
-                    std::fs::create_dir_all(dir)?;
-                }
-                let err = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
+                let err = log()?;
                 let own = set.into_iter().filter(|(k, _)| !crate::agents::is_sandbox_var(k));
                 let mut cmd = tokio::process::Command::new(command);
                 #[cfg(unix)]

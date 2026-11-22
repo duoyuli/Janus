@@ -544,6 +544,11 @@ impl App {
             for c in conns {
                 c.kill().await;
             }
+            // No library server starts for it any more, and a session or server making its log
+            // right now finishes first (`Run.files`): one still opening stops itself on seeing the
+            // mark, so nothing is written into the folders removed below.
+            run.router.close();
+            drop(run.files.write().unwrap_or_else(|p| p.into_inner()));
         }
         // The run's worktree goes too; changes never committed are kept as a patch first.
         if let Some(repo) = row["config"]["worktree"]["repo"].as_str() {

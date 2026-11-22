@@ -272,7 +272,15 @@ impl App {
                 if matches!(server, McpServer::Stdio { .. }) {
                     std::fs::create_dir_all(&cwd)?;
                 }
-                let b = Backend::start(&server, &app.mcp_values(&item.id), &sandbox, &cwd, &log, WARM_WAIT).await?;
+                let b = Backend::start(
+                    &server,
+                    &app.mcp_values(&item.id),
+                    &sandbox,
+                    &cwd,
+                    || crate::acp::open_log(&log),
+                    WARM_WAIT,
+                )
+                .await?;
                 let tools = b.tools(START_WAIT).await;
                 b.stop();
                 let tools = tools?;
@@ -355,7 +363,15 @@ impl App {
         let log = self.cfg.layout.run(run.kind, &run.id).log(&format!("mcp-{tag}-{}.log", item.name));
         let sandbox = self.cfg.layout.server_sandbox(&item.id);
         self.link_host(&sandbox)?;
-        let b = Backend::start(server, &self.mcp_values(&item.id), &sandbox, &run.cwd, &log, START_WAIT).await?;
+        // Its log goes in the run's folders, so not once the run is closed for deleting (`Run.files`).
+        let open = || {
+            let _files = run.files.read().unwrap_or_else(|p| p.into_inner());
+            if run.router.closed.load(Ordering::SeqCst) {
+                bail!("这个任务已经停止");
+            }
+            crate::acp::open_log(&log)
+        };
+        let b = Backend::start(server, &self.mcp_values(&item.id), &sandbox, &run.cwd, open, START_WAIT).await?;
         if run.router.closed.load(Ordering::SeqCst) {
             b.stop();
             bail!("这个任务已经停止");
@@ -621,7 +637,7 @@ mod tests {
         };
         let (values, log) = (crate::library::McpValues::default(), dir.join("log"));
         let sandbox = crate::layout::Sandbox { home: dir.join("home"), tmp: dir.join("tmp") };
-        let start = || Backend::start(&server, &values, &sandbox, &dir, &log, START_WAIT);
+        let start = || Backend::start(&server, &values, &sandbox, &dir, || crate::acp::open_log(&log), START_WAIT);
         let router = McpRouter::default();
         let (shared, own) = (start().await.unwrap(), start().await.unwrap());
         *router.slot(&Holder::Run, "s").try_lock().unwrap() = Some(shared.clone());

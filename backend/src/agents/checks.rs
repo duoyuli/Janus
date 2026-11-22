@@ -193,7 +193,7 @@ impl App {
             }
 
             self.check_step(id, &mut check, "启动 Agent", None, "通过 ACP 握手…".into());
-            let (conn, mut rx) = match tokio::time::timeout(Duration::from_secs(60), AcpConn::spawn(&spec, &probe, &log)).await {
+            let (conn, mut rx) = match tokio::time::timeout(Duration::from_secs(60), AcpConn::spawn(&spec, &probe, || crate::acp::open_log(&log))).await {
                 Ok(Ok(x)) => x,
                 Ok(Err(err)) => {
                     self.check_step(id, &mut check, "启动 Agent", Some(false), format!("{err:#}"));

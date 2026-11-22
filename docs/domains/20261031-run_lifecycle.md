@@ -234,7 +234,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 任务失败不会让 Run 停下来等用户。负责人结束时还有协作者在等负责人回答的，提问转给用户，见[目标模式与共享看板](20261031-goal_mode.md#question_routing)。
 
-交付时 `run.delivered` 的 `data.usage` 是一行用量摘要（token 及完整性、费用状态、墙钟时长），和 Run 页、`task_detail`、`GET /api/runs/{id}/usage` 读同一份账本，见[用量口径](../interfaces/20261031-events.md#usage_accounting)。用量不是交付条件：没有会话上报 token、费用缺失或口径未知时，摘要写「未上报」「部分上报」「口径未知」，Run 照常交付。
+交付时 `run.delivered` 的 `data.usage` 是一行用量摘要（token 及完整性、费用状态、总时长），和 Run 页、`task_detail`、`GET /api/runs/{id}/usage` 读同一份账本，见[用量口径](../interfaces/20261031-events.md#usage_accounting)。用量不是交付条件：没有会话上报 token、费用缺失或口径未知时，摘要写「未上报」「部分上报」「口径未知」，Run 照常交付。
 
 交付后负责人的会话不结束，而是保留为常规对话：用户可以直接写下一轮任务，或用 `/goal` 设置新的目标。负责人空闲等消息时不接收看板推送，协作者的提问转给用户；处理一条消息的这一轮里，看板推送和提问照第一个目标处理（见[提问的流转](20261031-goal_mode.md#question_routing)）。它在对话中通过看板提交的新任务会重新启动调度循环，完成后再次交付。
 
