@@ -35,11 +35,11 @@
 │   ├── roles/<数字员工>/avatar.png  # 数字员工的头像，256×256 PNG，删除数字员工时一起删
 │   ├── agents/<agent>/
 │   │   ├── config/                  # Agent 的配置目录（CODEX_HOME、CLAUDE_CONFIG_DIR）：登录状态、设置、会话记录
-│   │   └── home/                    # Agent 进程的 HOME 和 XDG 目录：它自己装的工具链和缓存，以及链接到用户在「本机环境」共享的路径（原有的同名内容改名为 <名字>.janus-own）
+│   │   └── home/                    # Agent 进程的 HOME 和 XDG 目录：用户目录的镜像（每项链接到用户的原位置，挡住的除外；原有的同名内容改名为 <名字>.janus-own），和它自己装的工具链和缓存
 │   ├── library/
 │   │   ├── skills/<sha256>/         # Skill 的内容，按内容寻址，存下后不再修改
 │   │   ├── sources/<来源>/repo/     # Git 来源的仓库副本
-│   │   └── servers/<资源>/          # MCP 路由启动的命令服务器的 HOME，跨 Run 保留；共享的本机路径同上
+│   │   └── servers/<资源>/          # MCP 路由启动的命令服务器的 HOME，跨 Run 保留；同样镜像用户目录
 │   ├── runs/<run>/                  # 任务：Janus 为它记下的内容
 │   │   ├── bundle/<成员>/           # 成员的资源包：Run 创建时复制的 Skill
 │   │   ├── attachments/             # 随目标和消息粘贴的图片
@@ -60,6 +60,7 @@
 │   └── updates/                     # 应用内更新：<版本>/ 下载中的新版本，previous/ 上一个版本（应用写）
 ├── tmp/                             # 每次启动 Janus 时清空
 │   ├── agents/<agent>/              # Agent 的 TMPDIR，配置检查用的空目录
+│   ├── host-probe/                  # 设置里「试一条命令」以 Agent 的方式运行的沙箱（home/ 镜像用户目录，tmp/）
 │   └── servers/<资源>/              # MCP 服务器的 TMPDIR，预先准备时的工作目录
 └── logs/
     ├── janus.log                    # Janus 自己的日志

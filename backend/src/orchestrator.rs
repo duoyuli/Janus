@@ -1034,7 +1034,7 @@ pub struct Config {
     pub idle_after: Duration,
     /// Default reference shown alongside reported token usage.
     pub run_token_budget: Option<i64>,
-    /// The person's own home folder, whose picked paths are shared with agents (`host_env`).
+    /// The person's own home folder, mirrored into every sandbox's HOME but what is hidden (`host_env`).
     pub host_home: PathBuf,
 }
 
@@ -1063,6 +1063,9 @@ pub struct App {
     pub worktree_writes: StdMutex<()>,
     /// The places for agent processes (`seats`): every ACP session holds one while it is open.
     pub seats: Arc<crate::seats::Seats>,
+    /// Held while a sandbox mirrors the person's home folder (`host_env`), so a launch and a
+    /// change of the hidden list do not move the same entries at once.
+    pub host_mirror: StdMutex<()>,
     /// Held while the dispatch queue hands out slots or a queued run leaves it, so a run is started,
     /// cancelled or deleted once (`queue.rs`).
     queue: StdMutex<()>,
@@ -1190,6 +1193,7 @@ impl App {
         let seats = crate::seats::Seats::new(cfg.max_agent_sessions.max(cfg.max_running_runs + 1));
         Arc::new_cyclic(|me| App {
             seats,
+            host_mirror: Default::default(),
             db,
             cfg,
             tx,

@@ -186,6 +186,13 @@ impl Layout {
         agents.chain(dirs(self.data().join("library").join("servers"))).collect()
     }
 
+    /// Where a command tried from the settings runs as an agent would (`host_env`), mirrored
+    /// afresh each time; cleared with the rest of `tmp/` at start.
+    pub fn host_probe(&self) -> Sandbox {
+        let dir = self.tmp().join("host-probe");
+        Sandbox { home: dir.join("home"), tmp: dir.join("tmp") }
+    }
+
     pub fn server_sandbox(&self, id: &str) -> Sandbox {
         Sandbox { home: self.server_home(id), tmp: self.server_tmp(id) }
     }

@@ -135,6 +135,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/library/sources/{id}/update", post(library::update_source))
         .route("/api/agent-id", get(setup::suggest_id))
         .route("/api/host-env", get(setup::host_env).put(setup::save_host_env))
+        .route("/api/host-env/try", post(setup::try_host_command))
         .route("/api/setup", get(setup::setup))
         .route("/api/setup/{kind}", post(setup::save))
         .route("/api/setup/{kind}/{id}", delete(setup::remove))

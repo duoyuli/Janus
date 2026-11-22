@@ -73,8 +73,10 @@ final class AppStore {
     var editingBrief: JSON?
     /// Loop made or edited in the sheet (empty id for a new one).
     var editingLoop: JSON?
-    /// What of the person's home is shared with agents, as the settings page last read it.
+    /// What of the person's home agents do not see, as the settings page last read it.
     var hostEnv: JSON?
+    /// The last command tried as the person and as an agent (`tryOnHost`).
+    var hostTry: JSON?
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
     /// so it opens only through `editRole`, which opens the panel too.
     private(set) var editingRole: JSON?

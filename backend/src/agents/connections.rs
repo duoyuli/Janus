@@ -318,7 +318,7 @@ impl App {
     pub fn sandbox_env(&self, id: &str) -> Result<Vec<(String, String)>> {
         let sandbox = self.cfg.layout.agent_sandbox(id);
         let mut env = sandbox_vars(&sandbox)?;
-        // What the person shares of their own home (sign-ins, tool settings).
+        // The person's home folder, but what is hidden (sign-ins, tool settings).
         self.link_host(&sandbox)?;
         env.push(("JANUS_AGENT_ID".into(), id.to_string()));
         Ok(env)
@@ -348,10 +348,11 @@ pub(crate) fn sandbox_vars(sandbox: &crate::layout::Sandbox) -> Result<Vec<(Stri
     Ok(env)
 }
 
-/// The only variables an agent inherits from the host: enough to find executables and render text.
-/// Everything else (HOME, XDG_*, credentials, proxies, SSH, Git and agent settings) is set by Janus or absent.
+/// The only variables an agent inherits from the host: enough to find executables, render text and
+/// reach the person's ssh-agent. Everything else (HOME, XDG_*, credentials, proxies, Git and agent
+/// settings) is set by Janus or absent; the person's sign-ins reach it through its HOME (`host_env`).
 pub(super) const HOST_ENV: &[&str] =
-    &["PATH", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TERM", "USER", "LOGNAME", "SHELL", "TZ"];
+    &["PATH", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TERM", "USER", "LOGNAME", "SHELL", "TZ", "SSH_AUTH_SOCK"];
 
 /// Variables that only Janus may set; an agent's own environment settings cannot override them.
 pub(crate) fn is_sandbox_var(k: &str) -> bool {

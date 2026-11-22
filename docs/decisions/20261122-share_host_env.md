@@ -1,6 +1,6 @@
 # ADR：用户自己选择共享给 Agent 的本机登录和工具配置
 
-- 状态：已采纳（accepted），记录于 2026-11-22。补充 [ADR：每个 Agent 使用独立的配置目录](20261031-isolated_agent_homes.md)：隔离的 HOME 不变，用户可以逐项把本机的路径链接进去。
+- 状态：已被取代（superseded），记录于 2026-11-22。被 [ADR：Agent 的用户目录镜像用户自己的，只挡列出的路径](20261122-mirror_host_home.md) 取代：逐项共享的路径清单补不全。补充 [ADR：每个 Agent 使用独立的配置目录](20261031-isolated_agent_homes.md)：隔离的 HOME 不变，用户可以逐项把本机的路径链接进去。
 - 相关文档：[安全边界：共享的本机环境](../operations/20261031-security.md#host_env)、[配置：传给 Agent 的变量](../interfaces/20261031-configuration.md#agent_env)、[macOS 应用：本机环境](../architecture/20261031-frontend.md#host_env)、[ADR：角色的 Skill、MCP 和指令只在会话启动时注入](20261116-launch_time_resources.md)。
 
 ## 背景
@@ -8,9 +8,9 @@
 每个 Agent 和资源库路由启动的 MCP 服务器都在自己的 HOME 里运行（`sandbox_vars`）。命令行工具在里面找不到用户的登录和配置：
 
 - macOS 按 `$HOME/Library/Keychains` 找登录钥匙串，HOME 换掉后 `security list-keychains` 只剩系统钥匙串，GitHub CLI、飞书 CLI、Git 的 `osxkeychain` 都存在这里。
-- 工具自己的目录（`~/.config/gh`、`~/.lark-cli`、`~/.gitconfig`、`~/.aws`、`~/.rustup` 等）也在 HOME 下。
+- 工具自己的目录（`~/.config/gh`、`~/.lark-cli`、`~/Library/Application Support/lark-cli`、`~/.gitconfig`、`~/.aws`、`~/.rustup` 等）也在 HOME 下。
 
-实测：把 `~/Library/Keychains` 和 `~/.config/gh` 链接进隔离的 HOME 后 `gh api` 可用，只设 `GH_CONFIG_DIR` 不够；`~/.lark-cli` 加钥匙串后 `lark-cli auth status` 可用。又实测：隔离的 HOME 本来就挡不住凭据，在里面给出钥匙串的完整路径照样能读，用绝对路径也能读 `~/.config/gh/hosts.yml`。隔离 HOME 的作用是不让用户自己的指令、Skill、MCP 被 Agent 默认读进来，原 ADR 也写明「不是沙箱」。
+实测：把 `~/Library/Keychains` 和 `~/.config/gh` 链接进隔离的 HOME 后 `gh api` 可用，只设 `GH_CONFIG_DIR` 不够；Lark 还要同时链接 `~/.lark-cli` 和 `~/Library/Application Support/lark-cli`，再加钥匙串后 `lark-cli auth status` 才能读取用户 token。又实测：隔离的 HOME 本来就挡不住凭据，在里面给出钥匙串的完整路径照样能读，用绝对路径也能读 `~/.config/gh/hosts.yml`。隔离 HOME 的作用是不让用户自己的指令、Skill、MCP 被 Agent 默认读进来，原 ADR 也写明「不是沙箱」。
 
 常用工具不可能列全，用户各自的开发环境也不同。
 

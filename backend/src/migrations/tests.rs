@@ -574,3 +574,25 @@ fn loop_rhythms_become_schedules() {
     }
     assert_eq!(config(&conn, "loop", "manual")["schedule"], Value::Null);
 }
+
+/// The paths shared one by one before mean nothing once agents' HOME mirrors the home folder: they
+/// go, and the hidden list starts as the defaults.
+#[test]
+fn shared_host_paths_go() {
+    let path = old_database("host-links");
+    let conn = Connection::open(&path).unwrap();
+    for p in [".config/gh", "Library/Keychains"] {
+        conn.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES ('host_link', ?1, ?2, 0)",
+            params![p, json!({ "path": p }).to_string()],
+        )
+        .unwrap();
+    }
+    drop(conn);
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let left: i64 = conn
+        .query_row("SELECT COUNT(*) FROM configs WHERE kind IN ('host_link', 'host_env')", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(left, 0);
+}

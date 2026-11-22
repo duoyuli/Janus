@@ -169,7 +169,18 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "值班的节奏改为时间表（cron）：固定间隔换成对应的 cron，自己决定换成每 30 分钟，只手动换成不按时间",
         steps: &[Step::Custom(rhythm_to_schedule)],
     },
+    Migration {
+        version: 21,
+        name: "本机环境改为默认镜像用户目录、只挡列出的路径：去掉原来逐项共享的记录",
+        steps: &[Step::Custom(drop_host_links)],
+    },
 ];
+
+/// Data version 21: agents' HOME mirrors the person's home folder but a hidden list (`host_env`),
+/// which starts as the defaults; the paths shared one by one before (`host_link`) mean nothing now.
+fn drop_host_links(tx: &Transaction) -> Result<usize> {
+    Ok(tx.execute("DELETE FROM configs WHERE kind = 'host_link'", [])?)
+}
 
 /// Data version 20: a Loop's `rhythm` becomes a `schedule` in the service's time zone. An interval
 /// comes round on the clock now (every 30 minutes: on the hour and the half hour); a self-paced

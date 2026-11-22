@@ -22,14 +22,12 @@ import Testing
     #expect(Setup.envName("   ") == nil)
 }
 
-/// Switching a tool on shares all its paths, and the keychain when its sign-in is kept there;
-/// switching it off takes back its own paths only.
-@Test func aToolBringsItsPathsAndItsKeychain() {
-    let gh = [".config/gh"]
-    let on = HostEnv.toggled([".aws"], paths: gh, on: true, keychain: true)
-    #expect(on == [".aws", ".config/gh", HostEnv.keychain])
-    #expect(HostEnv.isOn(on, paths: gh) && !HostEnv.isOn(on, paths: [".config/gh", ".gitconfig"]))
-    #expect(HostEnv.toggled(on, paths: gh, on: false) == [".aws", HostEnv.keychain], "the keychain stays")
-    #expect(HostEnv.toggled([], paths: [".npmrc"], on: true) == [".npmrc"], "no keychain unless its sign-in is there")
-    #expect(!HostEnv.isOn([], paths: []))
+/// Hiding a path adds it once; showing it again takes it out.
+@Test func theHiddenListTakesAPathOnceAndGivesItBack() {
+    let list = HostEnv.with([".codex"], ".aws", hide: true)
+    #expect(list == [".codex", ".aws"])
+    #expect(HostEnv.with(list, ".aws", hide: true) == list)
+    #expect(HostEnv.with(list, ".codex", hide: false) == [".aws"])
+    #expect(HostEnv.why(["why": "agent"]) == expectedCopy("Agent 的配置", "Agent Settings"))
+    #expect(HostEnv.why(["why": "custom"]) == expectedCopy("你加的", "Yours"))
 }

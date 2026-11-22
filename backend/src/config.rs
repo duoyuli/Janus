@@ -26,7 +26,7 @@ pub struct Settings {
     pub max_agent_sessions: usize,
     /// Optional reference for displaying reported token usage.
     pub run_token_budget: Option<i64>,
-    /// The person's own home folder, whose sign-ins and tool settings may be shared with agents
+    /// The person's own home folder, which agents' and MCP servers' HOME mirrors but for what is hidden
     /// (`host_env`): `JANUS_HOST_HOME`, default `$HOME`.
     pub host_home: PathBuf,
 }

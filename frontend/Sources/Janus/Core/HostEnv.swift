@@ -1,28 +1,27 @@
 import Foundation
 
-/// What of the person's own home folder is shared with every agent and MCP server
-/// (`GET/PUT /api/host-env`): sign-ins and tool settings, linked into each one's own HOME.
+/// What of the person's home folder agents and MCP servers do not see (`GET/PUT /api/host-env`):
+/// their HOME mirrors the person's but for a list of hidden paths, and a command can be tried both
+/// ways (`POST /api/host-env/try`).
 // @project-doc docs/architecture/20261031-frontend.md#host_env
 enum HostEnv {
-    /// The keychain folder; GitHub CLI, Lark CLI and Git keep their sign-ins there.
-    static let keychain = "Library/Keychains"
-
-    /// The shared paths after a tool or a path is switched on or off. A tool switched on brings all
-    /// its paths found here, and the keychain when its sign-in is kept there (and the keychain is
-    /// on this Mac); switched off, it takes back its own paths only, the keychain stays.
-    static func toggled(_ shared: [String], paths: [String], on: Bool, keychain: Bool = false) -> [String] {
-        if !on { return shared.filter { !paths.contains($0) } }
-        var out = shared
-        for p in paths + (keychain ? [Self.keychain] : []) where !out.contains(p) { out.append(p) }
-        return out
+    /// The hidden list with `path` added (`hide`) or taken out.
+    static func with(_ hidden: [String], _ path: String, hide: Bool) -> [String] {
+        hide ? (hidden.contains(path) ? hidden : hidden + [path]) : hidden.filter { $0 != path }
     }
 
-    /// Whether every path of a tool is shared.
-    static func isOn(_ shared: [String], paths: [String]) -> Bool { !paths.isEmpty && paths.allSatisfy(shared.contains) }
+    /// How a hidden path is labelled: an agent's own settings, something sensitive, or the person's.
+    static func why(_ entry: JSON) -> String {
+        switch entry["why"].str {
+        case "agent": return L.text("Agent 的配置")
+        case "sensitive": return L.text("敏感")
+        default: return L.text("你加的")
+        }
+    }
 }
 
 extension AppStore {
-    /// Read what is shared; the reason when it could not be read.
+    /// Read the hidden list; the reason when it could not be read.
     func loadHostEnv() async -> String? {
         do {
             hostEnv = try await api.get("/api/host-env")
@@ -32,11 +31,12 @@ extension AppStore {
         }
     }
 
-    /// Share exactly `paths` from now on; the server refuses what may not be shared.
+    /// Hide exactly `paths` from now on (`nil`: back to the defaults); the server refuses a path it
+    /// cannot take.
     @discardableResult
-    func shareHost(_ paths: [String]) async -> Bool {
+    func hideFromAgents(_ paths: [String]?) async -> Bool {
         do {
-            hostEnv = try await api.put("/api/host-env", ["paths": JSON.array(paths.map(JSON.init))])
+            hostEnv = try await api.put("/api/host-env", ["paths": paths.map { JSON.array($0.map(JSON.init)) } ?? .null])
             return true
         } catch {
             show(error.localizedDescription)
@@ -44,14 +44,17 @@ extension AppStore {
         }
     }
 
-    /// Switch a tool of the survey on or off, as its row on the settings page does.
-    func shareTool(_ tool: JSON, on: Bool) async {
-        let env = hostEnv ?? [:]
-        let keychainHere = env["tools"].array.contains { $0["id"].str == "keychain" }
-        let shared = env["shared"].strings
-        let next = HostEnv.toggled(shared, paths: tool["paths"].strings, on: on, keychain: tool["keychain"].bool == true && keychainHere)
-        if await shareHost(next), on, !shared.contains(HostEnv.keychain), next.contains(HostEnv.keychain) {
-            show(L.text("\(tool["name"].str) 的登录存在钥匙串里，同时共享了 macOS 钥匙串"))
+    /// The paths hidden now, as the list stands.
+    var hostHidden: [String] { hostEnv?["hidden"].array.map(\.["path"].str) ?? [] }
+
+    /// Run `command` as the person and as an agent would; the two results, or nil when it could not run.
+    func tryOnHost(_ command: String) async -> JSON? {
+        do {
+            hostTry = try await api.post("/api/host-env/try", ["command": JSON(command)], timeout: 60)
+            return hostTry
+        } catch {
+            show(error.localizedDescription)
+            return nil
         }
     }
 }

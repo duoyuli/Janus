@@ -1,152 +1,85 @@
-//! The person's own environment, shared with agents on purpose. Every agent and MCP server works in
-//! a HOME of its own, so it finds none of the person's sign-ins (GitHub CLI, Lark CLI, the macOS
-//! keychain …) or tool settings (rustup, nvm …). The person picks, in the settings, which paths
-//! of their home to share; each is linked into every sandbox's HOME at the same place, so a tool
-//! there reads and refreshes the very same sign-in. Nothing is shared until picked, and an agent's
-//! own settings never are.
+//! The person's own environment, in every agent's and MCP server's HOME. Each works in a HOME of
+//! its own (`Layout::agent_sandbox`, `Layout::server_sandbox`) that mirrors the person's: every
+//! entry of their home folder is linked there at the same place, so sign-ins (the macOS keychain,
+//! GitHub CLI, Lark CLI …), toolchains and settings work as in their terminal, and what a tool
+//! refreshes is written back to theirs. Only what is hidden stays out: agents' own settings
+//! (instructions, skills and MCP come from Janus alone) and what the person thinks too risky, in
+//! one list they edit in the settings; Janus home is always hidden.
 // @project-doc docs/operations/20261031-security.md#host_env
 
-use crate::agents::str_of;
 use crate::layout::Sandbox;
 use crate::orchestrator::{App, now_ms};
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
-/// One stored row per shared path, its id the path.
-pub const KIND: &str = "host_link";
+/// The stored list of hidden paths: one row (`KIND`, `ID`) holding `paths`. Without it the
+/// defaults apply, so new defaults reach everyone who never changed the list.
+pub const KIND: &str = "host_env";
+const ID: &str = "hidden";
 
-/// The macOS keychain folder: where the GitHub CLI, the Lark CLI and Git's credential helper keep
-/// their sign-ins. A process finds the login keychain under `$HOME/Library/Keychains`.
-pub const KEYCHAIN: &str = "Library/Keychains";
-
-/// What a known tool is, for grouping on the settings page.
+/// Why a path is hidden by default.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Group {
-    /// Sign-ins and accounts.
-    Login,
-    /// Toolchains and their package caches.
-    Toolchain,
-    /// The macOS keychain.
-    System,
+pub enum Why {
+    /// An agent's own settings: instructions, skills, MCP and sign-in.
+    Agent,
+    /// Credentials or personal data an agent at work has no business with.
+    Sensitive,
 }
 
-impl Group {
+impl Why {
     fn as_str(self) -> &'static str {
         match self {
-            Group::Login => "login",
-            Group::Toolchain => "toolchain",
-            Group::System => "system",
+            Why::Agent => "agent",
+            Why::Sensitive => "sensitive",
         }
     }
 }
 
-/// A tool Janus knows where it keeps its things. Only the ones found on this Mac are offered;
-/// anything else in the home folder is offered by its path (`others`).
-pub struct Tool {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub group: Group,
-    pub paths: &'static [&'static str],
-    /// Its sign-in is in the keychain: picking it offers the keychain too.
-    pub keychain: bool,
-}
-
-const fn tool(
-    id: &'static str,
-    name: &'static str,
-    group: Group,
-    paths: &'static [&'static str],
-    keychain: bool,
-) -> Tool {
-    Tool { id, name, group, paths, keychain }
-}
-
-pub const TOOLS: &[Tool] = &[
-    tool("keychain", "macOS Keychain", Group::System, &[KEYCHAIN], false),
-    tool("gh", "GitHub CLI", Group::Login, &[".config/gh"], true),
-    tool("glab", "GitLab CLI", Group::Login, &[".config/glab-cli"], true),
-    tool("lark", "Lark / Feishu CLI", Group::Login, &[".lark-cli"], true),
-    tool("git", "Git", Group::Login, &[".gitconfig", ".config/git", ".git-credentials"], true),
-    tool("netrc", "netrc", Group::Login, &[".netrc"], false),
-    tool("npm", "npm", Group::Login, &[".npmrc"], false),
-    tool("aws", "AWS CLI", Group::Login, &[".aws"], false),
-    tool("gcloud", "Google Cloud CLI", Group::Login, &[".config/gcloud"], false),
-    tool("azure", "Azure CLI", Group::Login, &[".azure"], false),
-    tool("docker", "Docker", Group::Login, &[".docker"], false),
-    tool("kube", "kubectl", Group::Login, &[".kube"], false),
-    tool("huggingface", "Hugging Face", Group::Login, &[".cache/huggingface"], false),
-    tool("rust", "Rust (rustup, cargo)", Group::Toolchain, &[".rustup", ".cargo"], false),
-    tool("nvm", "nvm", Group::Toolchain, &[".nvm"], false),
-    tool("pyenv", "pyenv", Group::Toolchain, &[".pyenv"], false),
-    tool("mise", "mise", Group::Toolchain, &[".config/mise", ".local/share/mise"], false),
-    tool("asdf", "asdf", Group::Toolchain, &[".asdf", ".tool-versions"], false),
-    tool("uv", "uv", Group::Toolchain, &[".config/uv", ".local/share/uv"], false),
-    tool("go", "Go", Group::Toolchain, &["go"], false),
-    tool("bun", "Bun", Group::Toolchain, &[".bun"], false),
-    tool("deno", "Deno", Group::Toolchain, &[".deno"], false),
-    tool("pnpm", "pnpm", Group::Toolchain, &["Library/pnpm"], false),
-    tool("gradle", "Gradle", Group::Toolchain, &[".gradle"], false),
-    tool("maven", "Maven", Group::Toolchain, &[".m2"], false),
+/// The hidden paths a list starts with.
+pub const DEFAULT_HIDDEN: &[(&str, Why)] = &[
+    (".agents", Why::Agent),
+    (".claude", Why::Agent),
+    (".claude.json", Why::Agent),
+    (".codeium", Why::Agent),
+    (".codex", Why::Agent),
+    (".config/claude", Why::Agent),
+    (".config/codex", Why::Agent),
+    (".config/github-copilot", Why::Agent),
+    (".config/opencode", Why::Agent),
+    (".copilot", Why::Agent),
+    (".cursor", Why::Agent),
+    (".gemini", Why::Agent),
+    (".kiro", Why::Agent),
+    (".opencode", Why::Agent),
+    (".pi", Why::Agent),
+    (".qwen", Why::Agent),
+    (".windsurf", Why::Agent),
+    ("Library/Application Support/Claude", Why::Agent),
+    ("Library/Application Support/Cursor", Why::Agent),
+    (".aws", Why::Sensitive),
+    (".azure", Why::Sensitive),
+    (".config/gcloud", Why::Sensitive),
+    (".gnupg", Why::Sensitive),
+    (".kube", Why::Sensitive),
+    (".password-store", Why::Sensitive),
+    ("Library/Application Support/1Password", Why::Sensitive),
+    ("Library/Application Support/Google/Chrome", Why::Sensitive),
+    ("Library/Application Support/Firefox", Why::Sensitive),
+    ("Library/Cookies", Why::Sensitive),
+    ("Library/Mail", Why::Sensitive),
+    ("Library/Messages", Why::Sensitive),
 ];
 
-/// Agents' own settings, instructions, skills and MCP, and Janus's: never shared, so a role gets
-/// only what Janus gives it at launch.
-const AGENT_OWN: &[&str] = &[
-    ".agents",
-    ".claude",
-    ".claude.json",
-    ".codeium",
-    ".codex",
-    ".config/claude",
-    ".config/codex",
-    ".config/github-copilot",
-    ".config/opencode",
-    ".copilot",
-    ".cursor",
-    ".gemini",
-    ".janus",
-    ".kiro",
-    ".opencode",
-    ".qwen",
-    ".windsurf",
-];
+/// Folders whose entries are mirrored one by one rather than linked whole: a sandbox's XDG
+/// directories live in them, and they hold other agents' and tools' settings side by side.
+const SPLIT: &[&str] =
+    &[".cache", ".config", ".local", ".local/share", ".local/state", "Library", "Library/Application Support"];
 
-/// Folders too wide to share whole: what is in them is offered instead.
-const WIDE: &[&str] = &[
-    ".cache",
-    ".config",
-    ".local",
-    ".local/share",
-    ".local/state",
-    "Library",
-    "Library/Application Support",
-    "Library/Caches",
-    "Library/Preferences",
-];
-
-/// Found in a home folder but nothing a tool runs on: system files and shell histories.
-fn noise(name: &str) -> bool {
-    matches!(
-        name,
-        ".DS_Store"
-            | ".Trash"
-            | ".CFUserTextEncoding"
-            | ".localized"
-            | ".bash_history"
-            | ".bash_sessions"
-            | ".zsh_history"
-            | ".zsh_sessions"
-            | ".lesshst"
-            | ".viminfo"
-            | ".python_history"
-            | ".node_repl_history"
-            | ".sqlite_history"
-            | ".psql_history"
-            | ".wget-hsts"
-    ) || name.starts_with(".zcompdump")
-}
+/// What is never linked: the Trash, which macOS keeps from other processes anyway.
+const SKIP: &[&str] = &[".Trash"];
 
 /// A path in the home folder, as stored: relative, with `/` between its parts. `~/` in front is
 /// taken off; an absolute path or one that climbs out (`..`) is refused.
@@ -154,7 +87,7 @@ pub fn normalize(path: &str) -> Result<String> {
     let p = path.trim();
     let p = p.strip_prefix("~/").unwrap_or(p).trim_end_matches('/');
     if p.is_empty() || p == "~" {
-        bail!("请填写用户目录下的一个路径，例如 .config/gh");
+        bail!("请填写用户目录下的一个路径，例如 .aws");
     }
     let mut parts = vec![];
     for c in Path::new(p).components() {
@@ -165,7 +98,7 @@ pub fn normalize(path: &str) -> Result<String> {
         }
     }
     if parts.is_empty() {
-        bail!("请填写用户目录下的一个路径，例如 .config/gh");
+        bail!("请填写用户目录下的一个路径，例如 .aws");
     }
     Ok(parts.join("/"))
 }
@@ -174,77 +107,43 @@ fn within(path: &str, folder: &str) -> bool {
     path == folder || path.starts_with(&format!("{folder}/"))
 }
 
-/// Why a (normalized) path may not be shared, if it may not.
-pub fn refused(path: &str) -> Option<String> {
-    if WIDE.contains(&path) {
-        return Some(format!("~/{path} 范围太大，不能整个共享：请选它里面具体的目录"));
-    }
-    if AGENT_OWN.iter().any(|a| within(path, a) || within(a, path)) {
-        return Some(format!(
-            "~/{path} 是 Agent 自己的配置（或包含它）：数字员工的指令、Skill 和 MCP 只由 Janus 在启动时给，不能共享"
-        ));
-    }
-    None
-}
-
 /// Whether something is at `path` (a link counts, even a broken one).
 fn present(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok()
 }
 
-/// What else the home folder holds that a tool may run on: its hidden entries, and what is in
-/// `.config` and `.local/share`, less the known tools' paths, agents' own settings and noise.
-fn others(home: &Path) -> Vec<String> {
-    let known: BTreeSet<&str> = TOOLS.iter().flat_map(|t| t.paths.iter().copied()).collect();
-    let mut out = BTreeSet::new();
-    for (dir, hidden_only) in [("", true), (".config", false), (".local/share", false)] {
-        let Ok(entries) = std::fs::read_dir(home.join(dir)) else { continue };
-        for e in entries.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            if (hidden_only && !name.starts_with('.')) || noise(&name) {
-                continue;
-            }
-            let path = if dir.is_empty() { name } else { format!("{dir}/{name}") };
-            if !known.contains(path.as_str()) && refused(&path).is_none() {
-                out.insert(path);
-            }
-        }
+/// What stays out of a mirror: the hidden paths and what is in them.
+struct Rules {
+    hidden: Vec<String>,
+}
+
+impl Rules {
+    fn hidden(&self, rel: &str) -> bool {
+        SKIP.contains(&rel) || self.hidden.iter().any(|h| within(rel, h))
     }
-    out.into_iter().collect()
+
+    /// A folder mirrored entry by entry: a wide one, or one with something hidden inside.
+    fn split(&self, rel: &str) -> bool {
+        SPLIT.contains(&rel) || self.hidden.iter().any(|h| h != rel && within(h, rel))
+    }
 }
 
-/// What the settings page shows: the known tools found in `home` (with the paths of theirs that
-/// are there), everything else found there, and what is shared, with what of it is gone.
-pub fn survey(home: &Path, shared: &[String]) -> Value {
-    let tools: Vec<Value> = TOOLS
-        .iter()
-        .filter_map(|t| {
-            let found: Vec<&str> = t.paths.iter().copied().filter(|p| present(&home.join(p))).collect();
-            (!found.is_empty()).then(|| {
-                json!({ "id": t.id, "name": t.name, "group": t.group.as_str(), "paths": found, "keychain": t.keychain })
-            })
-        })
-        .collect();
-    let missing: Vec<&String> = shared.iter().filter(|p| !present(&home.join(p))).collect();
-    json!({ "tools": tools, "others": others(home), "shared": shared, "missing": missing })
-}
-
-/// The name a sandbox's own file or folder is kept under while the person's is shared there.
+/// The name a sandbox's own file or folder is kept under while the person's is linked there.
 fn aside(at: &Path) -> PathBuf {
     let mut name = at.file_name().unwrap_or_default().to_os_string();
     name.push(".janus-own");
     at.with_file_name(name)
 }
 
+fn ours(at: &Path, target: &Path) -> bool {
+    std::fs::symlink_metadata(at).is_ok_and(|m| m.file_type().is_symlink())
+        && std::fs::read_link(at).is_ok_and(|t| t == target)
+}
+
 /// Link `rel` of `home` into `sandbox` at the same place. What the sandbox had there itself is
-/// kept aside (`aside`) and comes back when the path is no longer shared. Nothing at `rel` in
-/// `home` (any more): nothing to link.
+/// kept aside (`aside`) and comes back when the path is hidden.
 fn link(sandbox: &Path, home: &Path, rel: &str) -> Result<()> {
-    let target = home.join(rel);
-    if !present(&target) {
-        return Ok(());
-    }
-    let at = sandbox.join(rel);
+    let (at, target) = (sandbox.join(rel), home.join(rel));
     match std::fs::symlink_metadata(&at) {
         Ok(m) if m.file_type().is_symlink() => {
             if std::fs::read_link(&at)? == target {
@@ -252,29 +151,37 @@ fn link(sandbox: &Path, home: &Path, rel: &str) -> Result<()> {
             }
             std::fs::remove_file(&at)?;
         }
+        // A folder mirrored entry by entry before (something in it was hidden) holds only links
+        // Janus made: it goes, the whole folder is linked now.
+        Ok(m) if m.is_dir() && only_ours(&at, &target) => {
+            for e in std::fs::read_dir(&at)?.flatten() {
+                std::fs::remove_file(e.path())?;
+            }
+            std::fs::remove_dir(&at)?;
+        }
         Ok(_) => {
             let kept = aside(&at);
             if present(&kept) {
-                bail!("{} 已有自己的 {rel}，也已经存过一份，没有共享", sandbox.display());
+                bail!("{} 已有自己的 {rel}，也已经存过一份，没有链接", sandbox.display());
             }
             std::fs::rename(&at, &kept)?;
         }
         Err(_) => {}
     }
-    if let Some(parent) = at.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     std::os::unix::fs::symlink(&target, &at)?;
     Ok(())
 }
 
-/// Take back the link `link` made: only a link to the person's own path is removed, and what the
-/// sandbox kept aside comes back.
+/// Whether folder `at` holds nothing but links Janus made to what is in `target`.
+fn only_ours(at: &Path, target: &Path) -> bool {
+    std::fs::read_dir(at).is_ok_and(|entries| entries.flatten().all(|e| ours(&e.path(), &target.join(e.file_name()))))
+}
+
+/// Take back the link `link` made, and put back what the sandbox kept aside. Anything else at
+/// `rel` (the sandbox's own) is left alone; the person's own files are never touched.
 fn unlink(sandbox: &Path, home: &Path, rel: &str) -> Result<()> {
     let at = sandbox.join(rel);
-    let ours = std::fs::symlink_metadata(&at).is_ok_and(|m| m.file_type().is_symlink())
-        && std::fs::read_link(&at).is_ok_and(|t| t == home.join(rel));
-    if ours {
+    if ours(&at, &home.join(rel)) {
         std::fs::remove_file(&at)?;
         let kept = aside(&at);
         if present(&kept) {
@@ -284,69 +191,186 @@ fn unlink(sandbox: &Path, home: &Path, rel: &str) -> Result<()> {
     Ok(())
 }
 
+/// A real folder at `rel` in the sandbox, to mirror into: a link Janus made there goes, a file the
+/// sandbox had is kept aside.
+fn real_dir(sandbox: &Path, home: &Path, rel: &str) -> Result<()> {
+    let at = sandbox.join(rel);
+    match std::fs::symlink_metadata(&at) {
+        Ok(m) if m.is_dir() => return Ok(()),
+        Ok(m) if m.file_type().is_symlink() && ours(&at, &home.join(rel)) => std::fs::remove_file(&at)?,
+        Ok(_) => std::fs::rename(&at, aside(&at))?,
+        Err(_) => {}
+    }
+    std::fs::create_dir_all(&at)?;
+    Ok(())
+}
+
+/// Make `sandbox` mirror `home` but what `rules` hide, in folder `dir`: each entry is linked, a
+/// split folder is mirrored in turn, and links to what is now hidden or gone are taken back.
+/// Problems with single entries are collected, not fatal: the rest is still mirrored.
+fn mirror_dir(sandbox: &Path, home: &Path, dir: &str, rules: &Rules, problems: &mut Vec<String>) {
+    let join = |name: &str| if dir.is_empty() { name.to_string() } else { format!("{dir}/{name}") };
+    let mut seen = BTreeSet::new();
+    for e in std::fs::read_dir(home.join(dir)).into_iter().flatten().flatten() {
+        let rel = join(&e.file_name().to_string_lossy());
+        seen.insert(rel.clone());
+        let done = if rules.hidden(&rel) {
+            unlink(sandbox, home, &rel)
+        } else if rules.split(&rel) && e.file_type().is_ok_and(|t| t.is_dir()) {
+            real_dir(sandbox, home, &rel).map(|()| mirror_dir(sandbox, home, &rel, rules, problems))
+        } else {
+            link(sandbox, home, &rel)
+        };
+        if let Err(err) = done {
+            problems.push(format!("~/{rel}：{err:#}"));
+        }
+    }
+    for e in std::fs::read_dir(sandbox.join(dir)).into_iter().flatten().flatten() {
+        let rel = join(&e.file_name().to_string_lossy());
+        if !seen.contains(&rel)
+            && let Err(err) = unlink(sandbox, home, &rel)
+        {
+            problems.push(format!("~/{rel}：{err:#}"));
+        }
+    }
+}
+
+/// Make the sandbox HOME `sandbox` mirror `home`, but what `hidden` names.
+fn mirror(sandbox: &Path, home: &Path, hidden: Vec<String>) -> Vec<String> {
+    let mut problems = vec![];
+    if let Err(err) = std::fs::create_dir_all(sandbox) {
+        problems.push(format!("{}：{err:#}", sandbox.display()));
+        return problems;
+    }
+    mirror_dir(sandbox, home, "", &Rules { hidden }, &mut problems);
+    problems
+}
+
+/// A command's exit code and output, cut to a readable length.
+async fn run(command: &str, env: Option<&[(String, String)]>, cwd: &Path) -> Value {
+    let mut cmd = tokio::process::Command::new("/bin/sh");
+    cmd.args(["-c", command]).current_dir(cwd).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    if let Some(env) = env {
+        cmd.env_clear().envs(env.iter().cloned());
+    }
+    match tokio::time::timeout(TRY_FOR, cmd.output()).await {
+        Err(_) => json!({ "code": null, "output": format!("{} 秒没有结束，已停止", TRY_FOR.as_secs()) }),
+        Ok(Err(err)) => json!({ "code": null, "output": format!("运行失败：{err}") }),
+        Ok(Ok(out)) => {
+            let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+            text.push_str(&String::from_utf8_lossy(&out.stderr));
+            let text: String = text.chars().take(4000).collect();
+            json!({ "code": out.status.code(), "output": text })
+        }
+    }
+}
+
+/// How long a command tried from the settings may run.
+const TRY_FOR: Duration = Duration::from_secs(20);
+
 impl App {
-    /// The paths of the person's home shared with every agent and MCP server.
-    pub fn host_links(&self) -> Result<Vec<String>> {
-        Ok(self.db.list_config(KIND)?.iter().map(|v| str_of(v, "path").to_string()).collect())
+    /// The paths hidden from every sandbox: the person's list (the defaults until they change it),
+    /// and Janus home when it is in the home folder.
+    pub fn host_hidden(&self) -> Result<Vec<String>> {
+        let mut hidden: Vec<String> = match self.db.get_config(KIND, ID)? {
+            Some(v) => {
+                v["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect()
+            }
+            None => DEFAULT_HIDDEN.iter().map(|(p, _)| p.to_string()).collect(),
+        };
+        hidden.extend(self.janus_home_in_host());
+        Ok(hidden)
     }
 
-    /// Link what is shared into a sandbox about to be used. A path that cannot be linked there is
-    /// written to the log; the process starts without it.
+    /// Janus home, relative to the home folder when it is in it: never mirrored, or a sandbox
+    /// (which lives in it) would hold itself.
+    fn janus_home_in_host(&self) -> Option<String> {
+        let home = self.cfg.layout.home();
+        let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
+        let host = self.cfg.host_home.canonicalize().unwrap_or_else(|_| self.cfg.host_home.clone());
+        home.strip_prefix(&host).ok().map(|r| r.to_string_lossy().to_string()).filter(|r| !r.is_empty())
+    }
+
+    /// Mirror the person's home into a sandbox about to be used. Entries that cannot be linked are
+    /// written to the log; the process starts without them.
     pub fn link_host(&self, sandbox: &Sandbox) -> Result<()> {
-        for rel in self.host_links()? {
-            if let Err(e) = link(&sandbox.home, &self.cfg.host_home, &rel) {
-                crate::config::log(format!("没能把 ~/{rel} 共享进 {}：{e:#}", sandbox.home.display()));
-            }
+        let hidden = self.host_hidden()?;
+        let _one = self.host_mirror.lock().unwrap_or_else(|p| p.into_inner());
+        for p in mirror(&sandbox.home, &self.cfg.host_home, hidden) {
+            crate::config::log(format!("没能把 {p} 链接进 {}", sandbox.home.display()));
         }
         Ok(())
     }
 
-    /// The settings page's view of the person's environment (`survey`).
+    /// The settings page's view: the hidden list, each path with why it is hidden by default
+    /// (`agent`, `sensitive`, or `custom` for one the person added) and whether it is on this Mac;
+    /// Janus home, hidden always; whether the list is still the defaults.
     pub fn host_env(&self) -> Result<Value> {
-        Ok(survey(&self.cfg.host_home, &self.host_links()?))
+        let stored = self.db.get_config(KIND, ID)?;
+        let defaults: Vec<(String, Why)> = DEFAULT_HIDDEN.iter().map(|(p, w)| (p.to_string(), *w)).collect();
+        let listed: Vec<String> = match &stored {
+            Some(v) => {
+                v["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect()
+            }
+            None => defaults.iter().map(|(p, _)| p.clone()).collect(),
+        };
+        let hidden: Vec<Value> = listed
+            .iter()
+            .map(|p| {
+                let why = defaults.iter().find(|(d, _)| d == p).map_or("custom", |(_, w)| w.as_str());
+                json!({ "path": p, "why": why, "here": present(&self.cfg.host_home.join(p)) })
+            })
+            .collect();
+        Ok(json!({ "hidden": hidden, "janusHome": self.janus_home_in_host(), "defaults": stored.is_none() }))
     }
 
-    /// Share exactly `paths` from now on: each must be in the home folder, not refused, and there;
-    /// one inside another is refused. Every sandbox there is changes at once, so sessions already
+    /// Hide exactly `paths` from now on (`null` goes back to the defaults): each a path in the home
+    /// folder, none inside another. Every sandbox there is changes at once, so sessions already
     /// running see it too.
     // @project-doc docs/operations/20261031-security.md#host_env
     pub fn save_host_env(&self, body: &Value) -> Result<Value> {
-        let mut wanted = BTreeSet::new();
-        for p in body["paths"].as_array().into_iter().flatten() {
-            let p = normalize(p.as_str().unwrap_or(""))?;
-            if let Some(why) = refused(&p) {
-                bail!(why);
-            }
-            if !present(&self.cfg.host_home.join(&p)) {
-                bail!("本机没有 ~/{p}");
-            }
-            wanted.insert(p);
-        }
-        for a in &wanted {
-            if let Some(b) = wanted.iter().find(|b| *b != a && within(b, a)) {
-                bail!("~/{b} 在 ~/{a} 里面，共享 ~/{a} 就够了");
-            }
-        }
-        let before: BTreeSet<String> = self.host_links()?.into_iter().collect();
-        for gone in before.difference(&wanted) {
-            self.db.delete_config(KIND, gone)?;
-        }
-        for new in wanted.difference(&before) {
-            self.db.put_config(KIND, new, &json!({ "path": new }), now_ms())?;
-        }
-        for sandbox in self.cfg.layout.sandbox_homes() {
-            for gone in before.difference(&wanted) {
-                if let Err(e) = unlink(&sandbox, &self.cfg.host_home, gone) {
-                    crate::config::log(format!("没能从 {} 撤回 ~/{gone}：{e:#}", sandbox.display()));
+        if body["paths"].is_null() {
+            self.db.delete_config(KIND, ID)?;
+        } else {
+            let mut wanted: Vec<String> = vec![];
+            for p in body["paths"].as_array().into_iter().flatten() {
+                let p = normalize(p.as_str().unwrap_or(""))?;
+                if self.janus_home_in_host().is_some_and(|j| within(&p, &j) || within(&j, &p)) {
+                    bail!("~/{p} 是 Janus 的数据目录（或包含它），它一直挡着，不用再加");
+                }
+                if !wanted.contains(&p) {
+                    wanted.push(p);
                 }
             }
-            for rel in &wanted {
-                if let Err(e) = link(&sandbox, &self.cfg.host_home, rel) {
-                    crate::config::log(format!("没能把 ~/{rel} 共享进 {}：{e:#}", sandbox.display()));
+            for a in &wanted {
+                if let Some(b) = wanted.iter().find(|b| *b != a && within(b, a)) {
+                    bail!("~/{b} 在 ~/{a} 里面，挡住 ~/{a} 就够了");
                 }
             }
+            self.db.put_config(KIND, ID, &json!({ "paths": wanted }), now_ms())?;
+        }
+        for home in self.cfg.layout.sandbox_homes() {
+            let sandbox = Sandbox { home: home.clone(), tmp: PathBuf::new() };
+            self.link_host(&sandbox)?;
         }
         self.host_env()
+    }
+
+    /// Run `command` (`/bin/sh -c`) twice: as this Mac's user (Janus's environment, in the home
+    /// folder) and as an agent would (a sandbox of its own, mirrored like an agent's), and say how
+    /// each went, so the person sees whether a tool works for agents.
+    pub async fn try_host_command(&self, command: &str) -> Result<Value> {
+        if command.trim().is_empty() {
+            bail!("请填写要试的命令，例如 gh auth status");
+        }
+        let probe = self.cfg.layout.host_probe();
+        let env = crate::agents::sandbox_vars(&probe)?;
+        self.link_host(&probe)?;
+        let mut mine: Vec<(String, String)> = std::env::vars().filter(|(k, _)| k != "HOME").collect();
+        mine.push(("HOME".into(), self.cfg.host_home.to_string_lossy().to_string()));
+        let (host, agent) =
+            tokio::join!(run(command, Some(&mine), &self.cfg.host_home), run(command, Some(&env), &probe.home));
+        Ok(json!({ "host": host, "agent": agent }))
     }
 }
 
@@ -354,110 +378,153 @@ impl App {
 mod tests {
     use super::*;
 
+    fn rules(hidden: &[&str]) -> Rules {
+        Rules { hidden: hidden.iter().map(|s| s.to_string()).collect() }
+    }
+
     #[test]
-    fn paths_are_kept_inside_home_and_away_from_agents_own_settings() {
-        assert_eq!(normalize("~/.config/gh/").unwrap(), ".config/gh");
-        assert_eq!(normalize("./.lark-cli").unwrap(), ".lark-cli");
+    fn paths_stay_inside_home() {
+        assert_eq!(normalize("~/.aws/").unwrap(), ".aws");
+        assert_eq!(normalize("./.config/gh").unwrap(), ".config/gh");
         for bad in ["", "~", "/etc/passwd", "../x", ".config/../.codex"] {
             assert!(normalize(bad).is_err(), "{bad}");
         }
-        for own in [".codex", ".claude/skills", ".agents", ".config/claude", ".janus"] {
-            assert!(refused(own).is_some_and(|w| w.contains("Agent 自己的配置")), "{own}");
-        }
-        for wide in [".config", "Library", ".local/share"] {
-            assert!(refused(wide).is_some_and(|w| w.contains("范围太大")), "{wide}");
-        }
-        assert!(refused(KEYCHAIN).is_none() && refused(".config/gh").is_none());
+        let r = rules(&[".codex", ".config/claude", "Library/Application Support/Claude"]);
+        assert!(r.hidden(".codex") && r.hidden(".codex/auth.json") && r.hidden(".Trash"));
+        assert!(!r.hidden(".codexx") && !r.hidden(".config"));
+        assert!(r.split(".config") && r.split("Library") && r.split("Library/Application Support"));
+        assert!(!r.split(".codex") && !r.split(".lark-cli"));
+        assert!(
+            rules(&[".ssh/id_rsa"]).split(".ssh"),
+            "a folder with something hidden inside is mirrored entry by entry"
+        );
     }
 
+    /// Everything of the home folder reaches the sandbox but what is hidden: wide folders entry by
+    /// entry, the rest linked whole; what the sandbox had itself is kept aside, and comes back when
+    /// the person's is hidden; links to what is gone or hidden are taken back.
     #[test]
-    fn the_survey_offers_only_what_is_there() {
-        let dir = tempfile::tempdir().unwrap();
-        let home = dir.path();
-        for p in [".config/gh", ".config/zed", ".codex", ".lark-cli", "Library/Keychains", ".local/share/mise"] {
-            std::fs::create_dir_all(home.join(p)).unwrap();
-        }
-        for f in [".zshrc", ".zsh_history", ".DS_Store", ".claude.json", "notes.txt"] {
-            std::fs::write(home.join(f), "").unwrap();
-        }
-        let s = survey(home, &[".config/gh".into(), ".aws".into()]);
-        let ids: Vec<&str> = s["tools"].as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["keychain", "gh", "lark", "mise"]);
-        assert_eq!(s["others"], json!([".config/zed", ".zshrc"]), "no noise, no agents' own, no known paths");
-        assert_eq!(s["missing"], json!([".aws"]));
-    }
-
-    #[test]
-    fn a_link_reaches_the_persons_own_and_gives_back_what_the_sandbox_had() {
+    fn a_sandbox_mirrors_home_but_what_is_hidden() {
         let dir = tempfile::tempdir().unwrap();
         let (home, sandbox) = (dir.path().join("home"), dir.path().join("sandbox"));
-        std::fs::create_dir_all(home.join(".config/gh")).unwrap();
+        for d in [
+            ".config/gh",
+            ".config/claude",
+            ".lark-cli",
+            "Library/Keychains",
+            "Library/Application Support/lark-cli",
+            ".codex",
+        ] {
+            std::fs::create_dir_all(home.join(d)).unwrap();
+        }
         std::fs::write(home.join(".config/gh/hosts.yml"), "github.com").unwrap();
-        // The sandbox once made its own, signed out.
-        std::fs::create_dir_all(sandbox.join(".config/gh")).unwrap();
-        std::fs::write(sandbox.join(".config/gh/config.yml"), "own").unwrap();
-        link(&sandbox, &home, ".config/gh").unwrap();
-        link(&sandbox, &home, ".config/gh").unwrap();
+        std::fs::write(home.join(".gitconfig"), "[user]").unwrap();
+        // The sandbox made its own before: a signed-out profile, and its XDG folder.
+        std::fs::create_dir_all(sandbox.join(".lark-cli")).unwrap();
+        std::fs::write(sandbox.join(".lark-cli/config.json"), "own").unwrap();
+        std::fs::create_dir_all(sandbox.join(".config")).unwrap();
+
+        let hidden = vec![".codex".to_string(), ".config/claude".to_string()];
+        assert!(mirror(&sandbox, &home, hidden.clone()).is_empty());
         assert_eq!(std::fs::read_to_string(sandbox.join(".config/gh/hosts.yml")).unwrap(), "github.com");
-        assert!(sandbox.join(".config/gh.janus-own/config.yml").exists());
-        // Nothing on this Mac: nothing linked.
-        link(&sandbox, &home, ".aws").unwrap();
-        assert!(!present(&sandbox.join(".aws")));
-        unlink(&sandbox, &home, ".config/gh").unwrap();
-        assert_eq!(std::fs::read_to_string(sandbox.join(".config/gh/config.yml")).unwrap(), "own");
-        assert!(home.join(".config/gh/hosts.yml").exists(), "the person's own stays");
-        // A folder the sandbox has of its own is never taken for a link.
-        unlink(&sandbox, &home, ".config/gh").unwrap();
-        assert!(sandbox.join(".config/gh/config.yml").exists());
+        assert!(
+            std::fs::symlink_metadata(sandbox.join(".config")).unwrap().is_dir(),
+            "a wide folder is mirrored entry by entry"
+        );
+        assert!(ours(&sandbox.join(".gitconfig"), &home.join(".gitconfig")));
+        assert!(ours(&sandbox.join(KEYCHAIN), &home.join(KEYCHAIN)));
+        assert!(ours(
+            &sandbox.join("Library/Application Support/lark-cli"),
+            &home.join("Library/Application Support/lark-cli")
+        ));
+        assert!(!present(&sandbox.join(".codex")) && !present(&sandbox.join(".config/claude")), "agents' own stay out");
+        assert_eq!(std::fs::read_to_string(sandbox.join(".lark-cli.janus-own/config.json")).unwrap(), "own");
+        assert!(mirror(&sandbox, &home, hidden).is_empty(), "mirroring again changes nothing");
+
+        // Hidden later: the link goes and the sandbox's own comes back; gone from home: link goes.
+        std::fs::remove_file(home.join(".gitconfig")).unwrap();
+        assert!(mirror(&sandbox, &home, vec![".lark-cli".into(), ".config/gh/hosts.yml".into()]).is_empty());
+        assert_eq!(std::fs::read_to_string(sandbox.join(".lark-cli/config.json")).unwrap(), "own");
+        assert!(!present(&sandbox.join(".gitconfig")));
+        assert!(
+            std::fs::symlink_metadata(sandbox.join(".config/gh")).unwrap().is_dir(),
+            "split to hide one file inside"
+        );
+        assert!(!present(&sandbox.join(".config/gh/hosts.yml")));
+        assert!(ours(&sandbox.join(".codex"), &home.join(".codex")), "no longer hidden");
+        assert!(home.join(".config/gh/hosts.yml").exists() && home.join(".lark-cli").exists(), "the person's own stay");
+        // Shown again: the folder split for it is one link again.
+        assert!(mirror(&sandbox, &home, vec![]).is_empty());
+        assert!(ours(&sandbox.join(".config/gh"), &home.join(".config/gh")));
     }
 
-    /// Saving what is shared changes every sandbox at once and launches link it; agents' own
-    /// settings, paths that are not there and one path inside another are refused.
+    const KEYCHAIN: &str = "Library/Keychains";
+
+    /// The list starts as the defaults, is saved whole, changes every sandbox at once and launches
+    /// mirror it; Janus home is always hidden; one path inside another is refused.
     #[test]
-    fn saving_changes_every_sandbox_and_refuses_what_may_not_be_shared() {
+    fn the_hidden_list_starts_as_the_defaults_and_applies_everywhere() {
         let dir = tempfile::tempdir().unwrap();
-        let app = crate::orchestrator::test_app(dir.path());
-        let home = &app.cfg.host_home;
-        for p in [".config/gh", ".codex", "Library/Keychains"] {
+        let app = crate::orchestrator::test_app_with(&dir.path().join("janus"), |_| {});
+        let home = app.cfg.host_home.clone();
+        for p in [".codex", ".aws", ".config/gh", KEYCHAIN] {
             std::fs::create_dir_all(home.join(p)).unwrap();
         }
-        // An agent that already ran, and an MCP server's sandbox.
+        let v = app.host_env().unwrap();
+        assert_eq!(v["defaults"], true);
+        let codex = v["hidden"].as_array().unwrap().iter().find(|h| h["path"] == ".codex").unwrap();
+        assert_eq!((codex["why"].as_str(), codex["here"].as_bool()), (Some("agent"), Some(true)));
+        assert!(v["hidden"].as_array().unwrap().iter().any(|h| h["path"] == ".aws" && h["why"] == "sensitive"));
+
         let agent = app.cfg.layout.agent_sandbox("a1");
-        std::fs::create_dir_all(&agent.home).unwrap();
-        let server = app.cfg.layout.server_sandbox("s1");
-        std::fs::create_dir_all(&server.home).unwrap();
+        app.link_host(&agent).unwrap();
+        assert!(ours(&agent.home.join(".config/gh"), &home.join(".config/gh")));
+        assert!(!present(&agent.home.join(".codex")) && !present(&agent.home.join(".aws")));
 
-        let v = app.save_host_env(&json!({ "paths": ["~/.config/gh", KEYCHAIN] })).unwrap();
-        assert_eq!(v["shared"], json!([".config/gh", KEYCHAIN]));
-        for h in [&agent.home, &server.home] {
-            assert_eq!(std::fs::read_link(h.join(".config/gh")).unwrap(), home.join(".config/gh"));
-            assert!(h.join(KEYCHAIN).is_dir());
-        }
-        // A new agent's sandbox gets them when it starts.
-        let new = app.cfg.layout.agent_sandbox("a2");
-        app.link_host(&new).unwrap();
-        assert!(new.home.join(".config/gh").is_dir());
+        let v = app.save_host_env(&json!({ "paths": [".codex", "~/.config/gh", "notes"] })).unwrap();
+        assert_eq!(v["defaults"], false);
+        let whys: Vec<_> = v["hidden"].as_array().unwrap().iter().map(|h| h["why"].as_str().unwrap()).collect();
+        assert_eq!(whys, ["agent", "custom", "custom"]);
+        assert!(!present(&agent.home.join(".config/gh")), "hidden at once in a sandbox already there");
+        assert!(ours(&agent.home.join(".aws"), &home.join(".aws")), "no longer hidden");
 
-        for (bad, why) in [
-            (json!([".codex"]), "Agent 自己的配置"),
-            (json!([".aws"]), "本机没有"),
-            (json!(["Library", KEYCHAIN]), "范围太大"),
-            (json!([".config/gh", ".config/gh/hosts"]), "本机没有"),
-            (json!(["/etc"]), "不是用户目录下的路径"),
-        ] {
+        for (bad, why) in
+            [(json!([".config", ".config/gh"]), "在 ~/.config 里面"), (json!(["../x"]), "不是用户目录下的路径")]
+        {
             let err = app.save_host_env(&json!({ "paths": bad })).unwrap_err().to_string();
             assert!(err.contains(why), "{bad}: {err}");
         }
-        std::fs::write(home.join(".config/gh/hosts.yml"), "").unwrap();
-        let err =
-            app.save_host_env(&json!({ "paths": [".config/gh", ".config/gh/hosts.yml"] })).unwrap_err().to_string();
-        assert!(err.contains("在 ~/.config/gh 里面"), "{err}");
-        assert_eq!(app.host_links().unwrap(), [".config/gh", KEYCHAIN], "a refused save changes nothing");
+        app.save_host_env(&json!({ "paths": null })).unwrap();
+        assert_eq!(app.host_env().unwrap()["defaults"], true, "null goes back to the defaults");
+    }
 
-        app.save_host_env(&json!({ "paths": [KEYCHAIN] })).unwrap();
-        for h in [&agent.home, &server.home, &new.home] {
-            assert!(!present(&h.join(".config/gh")), "taken back from {}", h.display());
-        }
-        assert!(home.join(".config/gh/hosts.yml").exists());
+    /// A Janus home inside the home folder is never mirrored into the sandboxes it holds.
+    #[test]
+    fn janus_home_is_always_hidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::orchestrator::test_app_with(&dir.path().join("host-home/.janus"), |c| {
+            c.host_home = dir.path().join("host-home");
+        });
+        assert_eq!(app.host_hidden().unwrap().last().unwrap(), ".janus");
+        let agent = app.cfg.layout.agent_sandbox("a1");
+        app.link_host(&agent).unwrap();
+        assert!(!present(&agent.home.join(".janus")));
+        let err = app.save_host_env(&json!({ "paths": [".janus/data"] })).unwrap_err().to_string();
+        assert!(err.contains("Janus 的数据目录"), "{err}");
+    }
+
+    /// A command tried from the settings runs as the person and as an agent, each with its output.
+    #[tokio::test]
+    async fn a_command_runs_as_the_person_and_as_an_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::orchestrator::test_app(dir.path());
+        std::fs::create_dir_all(app.cfg.host_home.join(".aws")).unwrap();
+        std::fs::write(app.cfg.host_home.join(".aws/config"), "aws").unwrap();
+        std::fs::write(app.cfg.host_home.join(".gitconfig"), "git").unwrap();
+        let v = app.try_host_command("cat ~/.gitconfig && cat ~/.aws/config").await.unwrap();
+        assert_eq!((v["host"]["code"].as_i64(), v["host"]["output"].as_str()), (Some(0), Some("gitaws")));
+        assert_eq!(v["agent"]["code"].as_i64(), Some(1), "~/.aws is hidden by default: {v}");
+        assert!(v["agent"]["output"].as_str().unwrap().starts_with("git"), "{v}");
+        assert!(app.try_host_command("  ").await.is_err());
     }
 }

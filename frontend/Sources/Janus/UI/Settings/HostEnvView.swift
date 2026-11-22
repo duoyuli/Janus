@@ -1,29 +1,26 @@
 import SwiftUI
 
-/// 本机环境, in Settings › 通用 › 权限: what of the person's own home folder agents and MCP servers
-/// may use. Each works in a HOME of its own and sees none of the person's sign-ins or tool settings
-/// until they are switched on here.
-/// The tools Janus knows are offered when found on this Mac; everything else in the home folder is
-/// offered by its path, and any other path can be added. A switch takes effect at once, sessions
-/// already running included.
+/// 本机环境, in Settings › 通用 › 权限: every agent's and MCP server's HOME mirrors the person's home
+/// folder, so their sign-ins, toolchains and settings work there as in their terminal, except the
+/// paths in one list: agents' own settings and sensitive data to begin with, then whatever the
+/// person adds or takes out. Janus home is always hidden. Below, a command can be tried as the
+/// person and as an agent, to see whether a tool works for agents. Changes apply at once,
+/// sessions already running included.
 // @project-doc docs/architecture/20261031-frontend.md#host_env
 struct HostEnvView: View {
     let store: AppStore
-    @Local private var custom = ""
-    @Local private var showAll = false
+    @Local private var added = ""
+    @Local private var command = ""
+    @Local private var trying = false
+    /// The hidden paths not on this Mac are folded away until asked for.
+    @Local private var showAbsent = false
     /// Why it could not be read, when it could not.
     @Local private var failure: String?
 
     var body: some View {
         let env = store.hostEnv ?? [:]
-        let shared = env["shared"].strings
-        let tools = env["tools"].array
-        let others = env["others"].strings
-        // Shared paths that are neither a found tool's nor in the list of others: added by hand.
-        let toolPaths = Set(tools.flatMap { $0["paths"].strings })
-        let added = shared.filter { !toolPaths.contains($0) && !others.contains($0) }
         VStack(alignment: .leading, spacing: 18) {
-            Text(L.text("每个 Agent 和 MCP 服务器都在自己独立的用户目录里工作，看不到你本机的登录和工具配置。在这里打开的项会链接进它们的用户目录，用的就是你本机的同一份登录：在 Agent 里刷新的令牌也写回你这里。没打开的一律看不到；Agent 自己的配置（~/.codex、~/.claude、~/.agents 等）不能共享。改动立即生效，正在运行的会话也一样。"))
+            Text(L.text("Agent 和 MCP 服务器的用户目录是你用户目录的镜像：你本机的登录、钥匙串、工具链和配置，它们都能直接用，刷新的令牌也写回你这里。只有下面列出的路径它们看不到。改动立即生效，正在运行的会话也一样。"))
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let failure, store.hostEnv == nil {
                 HStack {
@@ -33,72 +30,110 @@ struct HostEnvView: View {
             } else if store.hostEnv == nil {
                 ProgressView().frame(maxWidth: .infinity)
             } else {
-                group(L.text("登录与账号"), tools.filter { $0["group"].str == "login" }, shared)
-                group(L.text("工具链"), tools.filter { $0["group"].str == "toolchain" }, shared)
-                if let k = tools.first(where: { $0["group"].str == "system" }) {
-                    section(L.text("macOS 钥匙串"), note: L.text("GitHub CLI、飞书 CLI 和 Git 的登录存在这里。打开后，Agent 也能读到钥匙串里的其他条目。")) {
-                        toolRow(k, shared, name: L.text("登录钥匙串"))
-                    }
-                }
-                section(L.text("用户目录里的其他内容"), note: L.text("上面没有的工具，按它在用户目录里的位置打开。")) {
-                    let list = showAll ? others : Array(others.prefix(12))
-                    ForEach(list, id: \.self) { p in pathRow(p, shared) }
-                    ForEach(added, id: \.self) { p in pathRow(p, shared, missing: env["missing"].strings.contains(p)) }
-                    if others.count > list.count {
-                        Button(L.text("显示全部 \(others.count) 项")) { showAll = true }.buttonStyle(.link).padding(.horizontal, 10).padding(.vertical, 6)
-                    }
-                    HStack {
-                        TextField(L.text("用户目录下的路径，例如 .config/mytool"), text: $custom)
-                            .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
-                            .onSubmit(addCustom)
-                        Button(L.text("添加")) { addCustom() }
-                            .disabled(custom.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    .padding(10)
-                }
+                hiddenList(env)
+                tryCommand
             }
         }
         .task { await load() }
     }
 
-    @ViewBuilder private func group(_ title: String, _ tools: [JSON], _ shared: [String]) -> some View {
-        if !tools.isEmpty {
-            section(title) { ForEach(tools, id: \.self) { t in toolRow(t, shared) } }
-        }
-    }
-
-    private func section<Content: View>(_ title: String, note: String = "", @ViewBuilder content: () -> Content) -> some View {
+    private func hiddenList(_ env: JSON) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.headline)
-            if !note.isEmpty { Text(note).font(.caption).foregroundStyle(.secondary) }
-            Card(padding: 4) { VStack(alignment: .leading, spacing: 0) { content() } }
-        }
-    }
-
-    private func toolRow(_ t: JSON, _ shared: [String], name: String? = nil) -> some View {
-        let paths = t["paths"].strings
-        return Toggle(isOn: Binding(get: { HostEnv.isOn(shared, paths: paths) }, set: { on in Task { await store.shareTool(t, on: on) } })) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name ?? t["name"].str)
-                Text(paths.map { "~/" + $0 }.joined(separator: "  ")).font(.caption.monospaced()).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .toggleStyle(.switch)
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .help(t["keychain"].bool == true ? L.text("它的登录存在 macOS 钥匙串里，打开时一起共享钥匙串") : "")
-    }
-
-    private func pathRow(_ p: String, _ shared: [String], missing: Bool = false) -> some View {
-        Toggle(isOn: Binding(get: { shared.contains(p) }, set: { on in Task { await store.shareHost(HostEnv.toggled(shared, paths: [p], on: on)) } })) {
-            HStack {
-                Text(verbatim: "~/" + p).font(.callout.monospaced())
-                if missing { Pill(L.text("本机没有"), .gray) }
+            HStack(alignment: .firstTextBaseline) {
+                Text(L.text("Agent 看不到的路径")).font(.headline)
                 Spacer()
+                Button(L.text("恢复默认")) { Task { await store.hideFromAgents(nil) } }
+                    .buttonStyle(.link)
+                    .disabled(env["defaults"].bool == true)
+                    .help(L.text("回到 Janus 默认挡住的路径：常见 Agent 的配置和敏感数据"))
+            }
+            Text(L.text("默认挡住常见 Agent 自己的配置（数字员工的指令、Skill 和 MCP 只由 Janus 给）和一些敏感数据，可以删掉，也可以再加。"))
+                .font(.caption).foregroundStyle(.secondary)
+            Card(padding: 4) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let janus = env["janusHome"].string {
+                        row("~/" + janus, label: L.text("Janus 的数据"), here: true, removable: false)
+                    }
+                    // What is on this Mac first; the rest (most defaults, for Agents not installed
+                    // here) folded into one line.
+                    let all = env["hidden"].array
+                    let absent = all.filter { $0["here"].bool != true }
+                    ForEach(all.filter { $0["here"].bool == true } + (showAbsent ? absent : []), id: \.self) { h in
+                        row("~/" + h["path"].str, label: HostEnv.why(h), here: h["here"].bool == true, removable: true) {
+                            Task { await store.hideFromAgents(HostEnv.with(store.hostHidden, h["path"].str, hide: false)) }
+                        }
+                    }
+                    if !absent.isEmpty {
+                        Button(showAbsent ? L.text("收起本机没有的路径") : L.text("另有 \(absent.count) 个本机没有的路径")) { showAbsent.toggle() }
+                            .buttonStyle(.link).padding(.horizontal, 10).padding(.vertical, 6)
+                    }
+                    HStack {
+                        TextField(L.text("用户目录下的路径，例如 .aws 或 Library/Application Support/某个应用"), text: $added)
+                            .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
+                            .onSubmit(add)
+                        Button(L.text("挡住")) { add() }
+                            .disabled(added.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    .padding(10)
+                }
             }
         }
-        .toggleStyle(.switch)
-        .padding(.horizontal, 10).padding(.vertical, 5)
+    }
+
+    private func row(_ path: String, label: String, here: Bool, removable: Bool, remove: (() -> Void)? = nil) -> some View {
+        HStack(spacing: 8) {
+            Text(verbatim: path).font(.callout.monospaced())
+            Pill(label, .gray)
+            if !here { Text(L.text("本机没有")).font(.caption).foregroundStyle(.secondary) }
+            Spacer()
+            if removable, let remove {
+                Button(L.text("移除"), action: remove).buttonStyle(.link)
+                    .help(L.text("让 Agent 也能用这个路径"))
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+    }
+
+    private var tryCommand: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L.text("试一条命令")).font(.headline)
+            Text(L.text("同一条命令在本机和 Agent 的环境里各跑一次（/bin/sh，最多 20 秒），看看某个工具在 Agent 里能不能用。"))
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField(L.text("例如 gh auth status"), text: $command)
+                    .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
+                    .onSubmit(runCommand)
+                Button(trying ? L.text("正在试…") : L.text("试一下")) { runCommand() }
+                    .disabled(trying || command.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            if let result = store.hostTry {
+                HStack(alignment: .top, spacing: 12) {
+                    outcome(L.text("本机"), result["host"])
+                    outcome(L.text("Agent"), result["agent"])
+                }
+            }
+        }
+    }
+
+    private func outcome(_ title: String, _ r: JSON) -> some View {
+        let code = r["code"].int
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title).font(.callout.weight(.semibold))
+                Spacer()
+                Pill(code.map { $0 == 0 ? L.text("成功") : L.text("退出码 \($0)") } ?? L.text("没有跑完"), code == 0 ? .green : .red)
+            }
+            ScrollView {
+                Text(verbatim: r["output"].str.isEmpty ? L.text("（没有输出）") : r["output"].str)
+                    .font(.caption.monospaced()).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 160)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.line))
     }
 
     private func load() async {
@@ -106,10 +141,20 @@ struct HostEnvView: View {
         failure = why
     }
 
-    private func addCustom() {
-        let p = custom.trimmingCharacters(in: .whitespaces)
+    private func add() {
+        let p = added.trimmingCharacters(in: .whitespaces)
         guard !p.isEmpty else { return }
-        let shared = store.hostEnv?["shared"].strings ?? []
-        Task { if await store.shareHost(shared + [p]) { custom = "" } }
+        let next = HostEnv.with(store.hostHidden, p, hide: true)
+        Task { if await store.hideFromAgents(next) { added = "" } }
+    }
+
+    private func runCommand() {
+        let c = command.trimmingCharacters(in: .whitespaces)
+        guard !c.isEmpty else { return }
+        trying = true
+        Task {
+            _ = await store.tryOnHost(c)
+            trying = false
+        }
     }
 }
