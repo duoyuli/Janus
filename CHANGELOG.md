@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.22.3
+
+- 本机环境改为镜像你的用户目录：Agent 和 MCP 服务器的用户目录里，你本机的每一项都链接到原位置，登录、钥匙串、工具链和配置直接能用，以后装的新工具也一样，不用再一项项打开。只有「Agent 看不到的路径」里列出的看不到：默认是常见 Agent 自己的配置（`~/.claude`、`~/.codex`、`~/.pi`、`~/.agents` 等，数字员工的指令、Skill 和 MCP 仍只由 Janus 给）和一些高危数据（`~/.aws`、`~/.gnupg`、`~/.kube`、浏览器、邮件和信息等），清单只列你这台 Mac 上有的路径；你可以移除、恢复默认，或者点「选择要挡住的文件夹或文件…」在系统的选择窗口里直接选；Janus 自己的数据目录一直挡着。升级时原来逐项打开的记录换成这份默认清单。
+- 修复飞书 CLI 打开后，Agent 里 `--as user` 仍报 `token_missing` 的问题：它的用户令牌在 `~/Library/Application Support/lark-cli`，原来只共享了 `~/.lark-cli`。
+- 新增「试一条命令」：在设置里输入一条命令，同时在本机和 Agent 的环境里各跑一次，并排看结果，就知道某个工具在 Agent 里能不能用。
+- Agent 能用你的 ssh-agent（传入 `SSH_AUTH_SOCK`）；界面里的「家目录」改叫「用户目录」。
+
+- Host Environment now mirrors your home folder: in every Agent's and MCP server's home folder, each item of yours is linked to where it is, so sign-ins, the keychain, toolchains and settings just work, and so will tools you install later, without switching anything on. Only the paths under Hidden from Agents stay out of sight: by default common Agents' own settings (`~/.claude`, `~/.codex`, `~/.pi`, `~/.agents` and more; digital employees still get instructions, skills and MCP from Janus only) and some sensitive data (`~/.aws`, `~/.gnupg`, `~/.kube`, browsers, mail and messages and more). The list shows only paths on your Mac; remove any, restore the defaults, or pick more in the system's open panel with Choose Folders or Files to Hide…; Janus's own data folder is always hidden. On upgrade, the items you switched on one by one give way to this default list.
+- Fixed Agents getting `token_missing` from `lark-cli --as user` after the Lark CLI was switched on: its user tokens are in `~/Library/Application Support/lark-cli`, and only `~/.lark-cli` was shared.
+- New Try a Command: type a command in Settings and it runs both for you and in an Agent's environment, side by side, so you see whether a tool works for Agents.
+- Agents can use your ssh-agent (`SSH_AUTH_SOCK` is passed on); the Chinese interface calls the home folder 「用户目录」.
+
 ## 2026.11.22.2
 
 - 限制同时开着的 Agent 进程：每个会话都是常驻的适配器和 Agent 进程（一个闲着的 Codex 约占 250 MB 内存），之前已交付任务的负责人、打开过的每个对话、两次开工之间的值班都一直开着，直到服务重启。现在会话闲置 10 分钟、它所在的任务或值班没有别的事需要它时，就关掉进程，下次发消息或开工时自动重新打开；所有 Agent 进程一起最多 12 个（可用 `JANUS_MAX_AGENT_SESSIONS` 或 `config.toml` 的 `max_agent_sessions` 调整，不少于同时在做的任务数加一），满了时先关掉闲得最久的会话，新来的显示「等空位」，按你在等的、按时间表来的、协作者的先后拿到位置。被关掉的对话在列表里显示「已关闭」，退出 Janus 时也不再算作进行中。
