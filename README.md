@@ -14,7 +14,7 @@
 
 Janus is the Roman god of gates, with one face turned toward what is being created and one toward what has been done. The name, Joint Adversarial Network for Unified Software, is also how Janus works: what one agent creates, another examines, and only what holds up is delivered.
 
-Janus turns your coding agents into a team that runs on your Mac. You give a goal to a lead agent. The lead does the work itself or splits it among digital employees, checks what comes back, and delivers. You only step in for the decisions that are yours to make. Every session, subtask, approval and delivery is recorded as an event you can replay.
+Janus turns your coding agents into a team that runs on your Mac. You give a goal to a lead agent. It does the work itself or splits it among digital employees, checks what comes back, and delivers. You only step in for the decisions that are yours to make. Every session, subtask, approval and delivery is recorded as an event you can replay.
 
 ## Why Janus
 
@@ -24,21 +24,21 @@ The models are good enough. What is missing is the organization around them: som
 
 ## How it works
 
-- **A lead that manages.** The lead is the agent in charge. It drives your goal with `/goal`. If the goal is small, it does the work in its own session. Otherwise it submits subtasks, with an assignee, dependencies and acceptance criteria for each. Once it has delegated, it only manages: it sends work back, reassigns it, or checks it, and never takes it over. Collaborators do not message each other; everything goes through the lead and the shared board.
-- **You decide only what is yours.** The lead settles technical choices and trade-offs itself. Approvals, decisions the lead hands up, and deliveries waiting for acceptance reach your inbox, from every workspace. You can step into any agent's session at any time to steer it or take over.
+- **A lead agent that coordinates.** The lead agent drives your goal with `/goal`. If the goal is small, it does the work in its own session. Otherwise it submits subtasks, with an assignee, dependencies and acceptance criteria for each. Once it has delegated, it only coordinates: it sends work back, reassigns it, or checks the results, and never takes the work over. Collaborator agents do not message each other; everything goes through the lead agent and the shared board.
+- **You decide only what is yours.** The lead agent settles technical choices and trade-offs itself. Approvals, decisions the lead agent hands to you, and deliveries waiting for acceptance reach your inbox, from every workspace. You can step into any agent's session at any time to steer it or take over.
 - **Your machine stays yours.** Janus never writes your own agent configuration. On a Git repository, each run works in its own worktree, started from your `HEAD`, and accepting it fast-forwards one commit onto the branch you were on. Janus never leaves a half-done merge in your checkout or overwrites your uncommitted changes. Agents see a mirror of your home directory, so `gh`, SSH and your other tools keep working, while the paths you hide (by default, other agents' configuration and high-risk credentials) stay out of reach.
 - **Replayable by default.** Every session, orchestration step, approval, artifact and delivery is an event, so a run can be inspected and resumed instead of reconstructed from memory.
 - **Native permissions.** Each agent keeps its own permission modes. Janus adds no second switchboard. An employee with no mode set starts in Codex's Full access or Claude Code's Bypass permissions, so goals run without stopping for approvals.
 
 ## From a run to a Loop
 
-A run is one goal, from start to delivery. A Loop keeps a workspace's lead on duty. It wakes on a schedule you set, looks around, answers what a sentence can answer, and dispatches what needs changing as new runs. It asks you only what only you can decide, and everything it does lands in your inbox.
+A run is one goal, from start to delivery. A Loop wakes a workspace's lead agent on a schedule you set. It looks around, answers what a sentence can answer, and dispatches what needs changing as new runs. It asks you only what only you can decide, and everything it does lands in your inbox.
 
 Runs never depend on each other, and there is no time or token budget. The only limit is the machine: by default up to 8 runs work at once and up to 12 agent processes stay open. The rest wait in a queue and start as slots free up.
 
 ## Built the same way
 
-Janus is developed by agents. Its own changes are written, reviewed and merged by coding agents working under [AGENTS.md](AGENTS.md). Each rule in its pre-merge checklist comes from something that went wrong. For example, a run once deleted files inside the repository, and a collaborator once impersonated the lead on the board. Each of those incidents is recorded in [LESSONS.md](LESSONS.md). Every change ends with `just e2e`, which runs every user journey on a real build of the service and the app and checks what each page shows against the service's own records.
+Janus is developed by agents. Its own changes are written, reviewed and merged by coding agents working under [AGENTS.md](AGENTS.md). Each rule in its pre-merge checklist comes from something that went wrong. For example, a run once deleted files inside the repository, and a collaborator agent once impersonated the lead agent on the board. Each of those incidents is recorded in [LESSONS.md](LESSONS.md). Every change ends with `just e2e`, which runs every user journey on a real build of the service and the app and checks what each page shows against the service's own records.
 
 ## Core concepts
 
@@ -46,11 +46,12 @@ Janus is developed by agents. Its own changes are written, reviewed and merged b
 | --- | --- |
 | Agent | A launchable coding agent, Codex or Claude Code in this version, with its own configuration directory and credentials. |
 | Employee | A digital employee: an agent bound to a name, avatar, responsibilities, instructions, model, reasoning effort and permission mode. Its instructions go into the agent's system layer. |
-| Lead | The agent in charge: an employee with **Can Be Lead** turned on, bound to Codex or Claude Code. It drives the goal with `/goal`, decides what to do itself and what to delegate to collaborators, checks the results and delivers. Loops are run by it too. Every other employee on the team is a collaborator. |
+| Lead agent | The agent in charge, played by an employee with **Can Be Lead** turned on and bound to Codex or Claude Code. It drives the goal with `/goal`, decides what to do itself and what to delegate to collaborator agents, checks the results and delivers. Loops are run by it too. |
+| Collaborator agent | Any other employee on the team. It takes the subtasks the lead agent delegates. |
 | Library | Skills and MCP servers, kept once and given to every employee. Each session gets one skill, `janus-skills`, a catalog the agent searches when it needs a skill, and one MCP server, `janus-tools`, which starts or connects the real servers on first use. No agent configuration file is written. Import skills from a GitHub repository, copy them from a local folder, or write them in the app; add MCP servers with a form or pasted JSON, or in one click from Recommended. |
-| Workspace | A local directory, a team of employees with one lead, and shared context: background that every run and Loop in the workspace starts from. |
+| Workspace | A local directory, a team of employees with one lead agent, and shared context: background that every run and Loop in the workspace starts from. |
 | Run | A goal submitted in a workspace, followed from creation through delivery and acceptance. |
-| Subtasks and board | The work the lead delegates, each with an assignee, dependencies and acceptance criteria. Janus validates them before they run. Progress, blockers and questions go on the shared board. |
+| Subtasks and board | The work the lead agent delegates, each with an assignee, dependencies and acceptance criteria. Janus validates them before they run. Progress, blockers and questions go on the shared board. |
 | Loop | A workspace's lead agent on a schedule: presets or any standard five-field cron expression, in your time zone. It dispatches runs and asks you questions, and both land in the inbox. |
 | Chat | A one-to-one conversation with a single employee, outside any workspace, in a fresh directory that is deleted with the chat. It uses the same session view as a run: steer, take over, approve, paste images, switch model and mode. |
 | Inbox | Everything waiting on you across all workspaces. Choices are answered in place, and what nobody is blocked on can wait until later. |
@@ -98,12 +99,12 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 1. Add an agent under Settings › Employees and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back from the adapter line on the agent's card.
    To connect Claude through an API, select **Custom API** under authentication, then click **Insert Template** or paste your `export KEY=value` lines for the endpoint, token, and models.
 2. Bind employees to agents on the same page, choose a model and permission mode, and turn on **Can Be Lead** for the ones that should lead.
-3. Create a workspace: choose a directory, pick its team, and name a lead.
+3. Create a workspace: choose a directory, pick its team, and choose its lead agent.
 4. Enter a goal on the workspace home page and choose **Send to Lead**.
 
 The repository holds code only. Janus data, adapters, configuration, and logs live in `~/.janus`; see [Deployment](docs/operations/20261031-deployment.md).
 
-`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace. Make the copy a Git repository with one commit (`git init && git add -A && git commit -m init`): each run then works in its own worktree, keeps a diff, and when you accept it Janus commits the result and fast-forwards the branch you were on, so it lands in your directory. Without Git, the lead and subtasks edit the directory in place and keep no diff; if another run is already working there, Janus warns you but does not stop you. Verify it with `python3 -m unittest discover -s examples/calc`.
+`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace. Make the copy a Git repository with one commit (`git init && git add -A && git commit -m init`): each run then works in its own worktree, keeps a diff, and when you accept it Janus commits the result and fast-forwards the branch you were on, so it lands in your directory. Without Git, the lead agent and subtasks edit the directory in place and keep no diff; if another run is already working there, Janus warns you but does not stop you. Verify it with `python3 -m unittest discover -s examples/calc`.
 
 ## Documentation
 
