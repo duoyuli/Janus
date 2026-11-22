@@ -21,3 +21,15 @@ import Testing
     #expect(Setup.envName("# KEY=value") == nil)
     #expect(Setup.envName("   ") == nil)
 }
+
+/// Switching a tool on shares all its paths, and the keychain when its sign-in is kept there;
+/// switching it off takes back its own paths only.
+@Test func aToolBringsItsPathsAndItsKeychain() {
+    let gh = [".config/gh"]
+    let on = HostEnv.toggled([".aws"], paths: gh, on: true, keychain: true)
+    #expect(on == [".aws", ".config/gh", HostEnv.keychain])
+    #expect(HostEnv.isOn(on, paths: gh) && !HostEnv.isOn(on, paths: [".config/gh", ".gitconfig"]))
+    #expect(HostEnv.toggled(on, paths: gh, on: false) == [".aws", HostEnv.keychain], "the keychain stays")
+    #expect(HostEnv.toggled([], paths: [".npmrc"], on: true) == [".npmrc"], "no keychain unless its sign-in is there")
+    #expect(!HostEnv.isOn([], paths: []))
+}

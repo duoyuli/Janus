@@ -70,6 +70,8 @@ final class AppStore {
     var editingBrief: JSON?
     /// Loop made or edited in the sheet (empty id for a new one).
     var editingLoop: JSON?
+    /// What of the person's home is shared with agents, as the settings page last read it.
+    var hostEnv: JSON?
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
     /// so it opens only through `editRole`, which opens the panel too.
     private(set) var editingRole: JSON?
@@ -322,7 +324,7 @@ final class AppStore {
 
     /// The settings panel's panes.
     enum SettingsTab: String, CaseIterable {
-        case general, agents, library, usage
+        case general, agents, hostEnv, library, usage
     }
 
     /// The settings page's pane. The last one opened comes back.

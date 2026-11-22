@@ -263,6 +263,9 @@ impl App {
         tokio::spawn(async move {
             let sandbox = app.cfg.layout.server_sandbox(&item.id);
             let cwd = sandbox.tmp.join("warm");
+            if let Err(e) = app.link_host(&sandbox) {
+                crate::config::log(format!("没能读出共享的本机环境：{e:#}"));
+            }
             let log = app.cfg.layout.library_log(&item.id);
             let got: Result<usize> = async {
                 // Only a command runs here; a URL server needs no folder on this machine.
@@ -351,6 +354,7 @@ impl App {
         };
         let log = self.cfg.layout.run(run.kind, &run.id).log(&format!("mcp-{tag}-{}.log", item.name));
         let sandbox = self.cfg.layout.server_sandbox(&item.id);
+        self.link_host(&sandbox)?;
         let b = Backend::start(server, &self.mcp_values(&item.id), &sandbox, &run.cwd, &log, START_WAIT).await?;
         if run.router.closed.load(Ordering::SeqCst) {
             b.stop();

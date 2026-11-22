@@ -10,6 +10,7 @@ mod db;
 mod evidence;
 mod git_probe;
 mod goal_settle;
+mod host_env;
 mod http;
 mod layout;
 mod library;
@@ -139,6 +140,7 @@ async fn main() -> Result<()> {
             max_concurrent_attempts: settings.max_concurrent_attempts,
             max_running_runs: settings.max_running_runs,
             run_token_budget: settings.run_token_budget,
+            host_home: settings.host_home.clone(),
         },
     );
     app.recover()?;

@@ -36,6 +36,8 @@ pub const SHAPES: &[Shape] = &[
         optional: &["seed"],
     },
     Shape { kind: "workspace", required: &["id", "name", "path", "lead", "members", "brief"], optional: &[] },
+    // A path of the person's home shared with agents (`host_env`), stored under its own id.
+    Shape { kind: "host_link", required: &["path"], optional: &[] },
     Shape {
         kind: "connection",
         required: &["id", "kind", "base", "name", "auth", "bin", "prompt", "env", "status", "createdAt"],

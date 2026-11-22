@@ -43,6 +43,12 @@
       ],
       "optional": []
     },
+    "host_link": {
+      "required": [
+        "path"
+      ],
+      "optional": []
+    },
     "connection": {
       "required": [
         "id",

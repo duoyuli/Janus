@@ -1,6 +1,7 @@
 # ADR：每个 Agent 使用独立的配置目录
 
 - 状态：已采纳（accepted），记录于 2026-10-30，决策早于本记录。
+- 补充：[ADR：用户自己选择共享给 Agent 的本机登录和工具配置](20261122-share_host_env.md)，用户可以逐项把本机的路径链接进隔离的 HOME。
 - 相关文档：[安全边界](../operations/20261031-security.md#agent_isolation)、[配置](../interfaces/20261031-configuration.md#agent_env)、[Agent、角色与工作区](../domains/20261031-agents_and_roles.md#providers)。
 
 ## 背景

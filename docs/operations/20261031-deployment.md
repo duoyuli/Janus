@@ -35,11 +35,11 @@
 │   ├── roles/<数字员工>/avatar.png  # 数字员工的头像，256×256 PNG，删除数字员工时一起删
 │   ├── agents/<agent>/
 │   │   ├── config/                  # Agent 的配置目录（CODEX_HOME、CLAUDE_CONFIG_DIR）：登录状态、设置、会话记录
-│   │   └── home/                    # Agent 进程的 HOME 和 XDG 目录：它自己装的工具链和缓存
+│   │   └── home/                    # Agent 进程的 HOME 和 XDG 目录：它自己装的工具链和缓存，以及链接到用户在「本机环境」共享的路径（原有的同名内容改名为 <名字>.janus-own）
 │   ├── library/
 │   │   ├── skills/<sha256>/         # Skill 的内容，按内容寻址，存下后不再修改
 │   │   ├── sources/<来源>/repo/     # Git 来源的仓库副本
-│   │   └── servers/<资源>/          # MCP 路由启动的命令服务器的 HOME，跨 Run 保留
+│   │   └── servers/<资源>/          # MCP 路由启动的命令服务器的 HOME，跨 Run 保留；共享的本机路径同上
 │   ├── runs/<run>/                  # 任务：Janus 为它记下的内容
 │   │   ├── bundle/<成员>/           # 成员的资源包：Run 创建时复制的 Skill
 │   │   ├── attachments/             # 随目标和消息粘贴的图片

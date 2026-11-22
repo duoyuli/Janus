@@ -23,6 +23,9 @@ pub struct Settings {
     pub max_running_runs: usize,
     /// Optional reference for displaying reported token usage.
     pub run_token_budget: Option<i64>,
+    /// The person's own home folder, whose sign-ins and tool settings may be shared with agents
+    /// (`host_env`): `JANUS_HOST_HOME`, default `$HOME`.
+    pub host_home: PathBuf,
 }
 
 pub const DEFAULT_MAX_CONCURRENT_ATTEMPTS: usize = 3;
@@ -79,6 +82,11 @@ static SETTINGS: LazyLock<Settings> = LazyLock::new(|| {
         max_concurrent_attempts,
         max_running_runs,
         run_token_budget,
+        host_home: std::env::var("JANUS_HOST_HOME")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default())),
     }
 });
 

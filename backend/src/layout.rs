@@ -177,6 +177,15 @@ impl Layout {
         self.tmp().join("servers").join(id)
     }
 
+    /// The HOME of every sandbox there is: each agent's and each MCP server's.
+    pub fn sandbox_homes(&self) -> Vec<PathBuf> {
+        let dirs = |dir: PathBuf| -> Vec<PathBuf> {
+            std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()
+        };
+        let agents = dirs(self.data().join("agents")).into_iter().map(|a| a.join("home")).filter(|h| h.is_dir());
+        agents.chain(dirs(self.data().join("library").join("servers"))).collect()
+    }
+
     pub fn server_sandbox(&self, id: &str) -> Sandbox {
         Sandbox { home: self.server_home(id), tmp: self.server_tmp(id) }
     }

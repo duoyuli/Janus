@@ -6,7 +6,7 @@ import SwiftUI
 /// recording rights (docs/operations/20261031-testing.md#macos_app).
 ///
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> (library:skill|library:mcp for the library's tabs) | page board|audit|team|task:<id>|agent:<id>
-///     workspace <id> | brief <id> (its settings, or its shared material) | loop-new <id>
+///     workspace <id> | brief <id> (its settings, or its shared material) | loop-new <id> | host-tool <id> on|off
 ///     role <id> | agent-edit <id>|new | mcp-edit new|<name>|catalog:<pick> [json] | close-sheet | doc <path> | size <w>x<h> | shot <name>
 ///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
@@ -96,6 +96,11 @@ enum Snapshots {
         // The editor is a sheet of the settings panel, as when a person opens it from there.
         case "role": if let r = store.role(arg) { store.editRole(r) }
         case "workspace": store.editingWorkspace = store.workspace(arg)
+        // Switch a tool of 本机环境 on or off, as its row does: `host-tool <id> on|off`.
+        case "host-tool":
+            let p = arg.split(separator: " ").map(String.init)
+            if store.hostEnv == nil { await store.loadHostEnv() }
+            if let t = store.hostEnv?["tools"].array.first(where: { $0["id"].str == p.first }) { await store.shareTool(t, on: p.last == "on") }
         // Workspace `arg`'s shared material, in its own sheet.
         case "brief": store.editingBrief = store.workspace(arg)
         // The form for a new Loop in workspace `arg`.
@@ -146,6 +151,8 @@ enum Snapshots {
                 "settingsTab": JSON(store.settingsTab.rawValue),
                 // Which sheet of a workspace is open: its settings or its shared material.
                 "editingWorkspace": store.editingWorkspace?["id"] ?? .null, "editingBrief": store.editingBrief?["id"] ?? .null,
+                // 本机环境 as the settings page shows it: tools found, others found, what is shared.
+                "hostEnv": store.hostEnv.map { ["tools": JSON.array($0["tools"].array.map { $0["id"] }), "others": $0["others"], "shared": $0["shared"]] } ?? .null, "permissionsReview": JSON(model.permissions.reviewPresented),
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),

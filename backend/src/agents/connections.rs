@@ -316,7 +316,10 @@ impl App {
     /// A fresh user environment for one agent: its own HOME, XDG directories and temp dir
     /// (`Layout::agent_sandbox`), so any lookup of `~/...` lands in the sandbox instead of the host.
     pub fn sandbox_env(&self, id: &str) -> Result<Vec<(String, String)>> {
-        let mut env = sandbox_vars(&self.cfg.layout.agent_sandbox(id))?;
+        let sandbox = self.cfg.layout.agent_sandbox(id);
+        let mut env = sandbox_vars(&sandbox)?;
+        // What the person shares of their own home (sign-ins, tool settings).
+        self.link_host(&sandbox)?;
         env.push(("JANUS_AGENT_ID".into(), id.to_string()));
         Ok(env)
     }

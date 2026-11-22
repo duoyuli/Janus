@@ -80,9 +80,12 @@ def main():
     registry = Registry()
     # Scenarios run side by side and leave runs working; enough slots that none of them waits in the
     # dispatch queue by accident (the queue scenario restarts the server with one slot).
-    env = {"JANUS_NODE": node, "npm_config_registry": registry.url, "JANUS_MAX_RUNNING_RUNS": "32"}
+    # The person's own home folder as the server sees it (本机环境): a stand-in, never the real one.
+    host_home = os.path.join(tmp, "host-home")
+    os.makedirs(host_home)
+    env = {"JANUS_NODE": node, "npm_config_registry": registry.url, "JANUS_MAX_RUNNING_RUNS": "32", "JANUS_HOST_HOME": host_home}
     server = Server(server_bin, home, os.path.join(report_dir, "janus.log"), env=env)
-    ctx = scenarios.Ctx(tmp=tmp, home=home, addr=ADDR, server=server, report=report_dir, python=sys.executable, registry=registry,
+    ctx = scenarios.Ctx(tmp=tmp, home=home, host_home=host_home, addr=ADDR, server=server, report=report_dir, python=sys.executable, registry=registry,
                         node=node, server_bin=server_bin, app_bin=app_bin, packaged=a.packaged,
                         real_from=os.path.expanduser(a.real_from))
     results = []

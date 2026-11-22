@@ -1012,6 +1012,8 @@ pub struct Config {
     pub max_running_runs: usize,
     /// Default reference shown alongside reported token usage.
     pub run_token_budget: Option<i64>,
+    /// The person's own home folder, whose picked paths are shared with agents (`host_env`).
+    pub host_home: PathBuf,
 }
 
 pub struct App {
@@ -1441,6 +1443,7 @@ pub(crate) fn test_app_with(dir: &Path, set: impl FnOnce(&mut Config)) -> Arc<Ap
         max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
         max_running_runs: crate::config::DEFAULT_MAX_RUNNING_RUNS,
         run_token_budget: None,
+        host_home: dir.join("host-home"),
     };
     set(&mut cfg);
     App::new(Db::open(&cfg.layout).unwrap().0, cfg)

@@ -73,6 +73,23 @@ pub(super) async fn setup(State(app): State<Arc<App>>) -> ApiResult {
     }))
 }
 
+/// What of the person's own home is shared with agents, and what could be. It lists the home
+/// folder and changes what agents can reach, so only the app on this Mac may use it.
+// @project-doc docs/operations/20261031-security.md#host_env
+pub(super) async fn host_env(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult {
+    local_app_only(&headers, "本机环境")?;
+    reply(app.host_env()?)
+}
+
+pub(super) async fn save_host_env(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    local_app_only(&headers, "本机环境")?;
+    reply(app.save_host_env(&body)?)
+}
+
 pub(super) async fn save(
     State(app): State<Arc<App>>,
     UrlPath(kind): UrlPath<String>,
