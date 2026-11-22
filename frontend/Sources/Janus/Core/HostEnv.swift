@@ -10,6 +10,11 @@ enum HostEnv {
         hide ? (hidden.contains(path) ? hidden : hidden + [path]) : hidden.filter { $0 != path }
     }
 
+    /// The hidden paths the list shows: those on this Mac, and those the person added.
+    static func shown(_ hidden: [JSON]) -> [JSON] {
+        hidden.filter { $0["here"].bool == true || $0["why"].str == "custom" }
+    }
+
     /// How a hidden path is labelled: an agent's own settings, something sensitive, or the person's.
     static func why(_ entry: JSON) -> String {
         switch entry["why"].str {

@@ -1556,7 +1556,6 @@
 "回到 Janus 默认挡住的路径：常见 Agent 的配置和敏感数据" = "Go back to the paths Janus hides by default: common Agents' settings and sensitive data";
 "默认挡住常见 Agent 自己的配置（数字员工的指令、Skill 和 MCP 只由 Janus 给）和一些敏感数据，可以删掉，也可以再加。" = "Common Agents' own settings are hidden by default (digital employees get instructions, skills and MCP from Janus only), and so is some sensitive data. Remove any of them, or add more.";
 "Janus 的数据" = "Janus Data";
-"用户目录下的路径，例如 .aws 或 Library/Application Support/某个应用" = "A path in your home folder, such as .aws or Library/Application Support/SomeApp";
 "挡住" = "Hide";
 "移除" = "Remove";
 "让 Agent 也能用这个路径" = "Let Agents use this path too";
@@ -1569,5 +1568,6 @@
 "退出码 %lld" = "Exit Code %lld";
 "没有跑完" = "Did Not Finish";
 "（没有输出）" = "(No output)";
-"收起本机没有的路径" = "Hide Paths Not on This Mac";
-"另有 %lld 个本机没有的路径" = "%lld More Not on This Mac";
+"选择要挡住的文件夹或文件…" = "Choose Folders or Files to Hide…";
+"在用户目录里选，可以一次选多个；隐藏的文件和文件夹也显示" = "Pick in your home folder, several at once if you like; hidden files and folders are shown";
+"选择 Agent 不该看到的文件夹或文件" = "Choose the folders or files Agents should not see";

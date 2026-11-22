@@ -291,6 +291,21 @@ impl App {
         home.strip_prefix(&host).ok().map(|r| r.to_string_lossy().to_string()).filter(|r| !r.is_empty())
     }
 
+    /// A path as the settings give it: under the home folder, or a full path in it (what the
+    /// system's open panel picks), which is made relative to it.
+    fn in_host_home(&self, path: &str) -> Result<String> {
+        if !path.starts_with('/') {
+            return Ok(path.to_string());
+        }
+        let host = &self.cfg.host_home;
+        let real = host.canonicalize().unwrap_or_else(|_| host.clone());
+        let p = Path::new(path);
+        match p.strip_prefix(host).or_else(|_| p.strip_prefix(&real)) {
+            Ok(rel) if !rel.as_os_str().is_empty() => Ok(rel.to_string_lossy().to_string()),
+            _ => bail!("{path} 不在用户目录（{}）里，挡不了", host.display()),
+        }
+    }
+
     /// Mirror the person's home into a sandbox about to be used. Entries that cannot be linked are
     /// written to the log; the process starts without them.
     pub fn link_host(&self, sandbox: &Sandbox) -> Result<()> {
@@ -334,7 +349,7 @@ impl App {
         } else {
             let mut wanted: Vec<String> = vec![];
             for p in body["paths"].as_array().into_iter().flatten() {
-                let p = normalize(p.as_str().unwrap_or(""))?;
+                let p = normalize(&self.in_host_home(p.as_str().unwrap_or(""))?)?;
                 if self.janus_home_in_host().is_some_and(|j| within(&p, &j) || within(&j, &p)) {
                     bail!("~/{p} 是 Janus 的数据目录（或包含它），它一直挡着，不用再加");
                 }
@@ -488,9 +503,15 @@ mod tests {
         assert!(!present(&agent.home.join(".config/gh")), "hidden at once in a sandbox already there");
         assert!(ours(&agent.home.join(".aws"), &home.join(".aws")), "no longer hidden");
 
-        for (bad, why) in
-            [(json!([".config", ".config/gh"]), "在 ~/.config 里面"), (json!(["../x"]), "不是用户目录下的路径")]
-        {
+        // A full path in the home folder, as the open panel picks it, is made relative.
+        let full = home.join(".aws").to_string_lossy().to_string();
+        let v = app.save_host_env(&json!({ "paths": [full] })).unwrap();
+        assert_eq!(v["hidden"][0]["path"], ".aws");
+        for (bad, why) in [
+            (json!([".config", ".config/gh"]), "在 ~/.config 里面"),
+            (json!(["../x"]), "不是用户目录下的路径"),
+            (json!(["/etc"]), "不在用户目录"),
+        ] {
             let err = app.save_host_env(&json!({ "paths": bad })).unwrap_err().to_string();
             assert!(err.contains(why), "{bad}: {err}");
         }

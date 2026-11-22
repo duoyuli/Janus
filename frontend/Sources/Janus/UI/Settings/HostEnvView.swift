@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 本机环境, in Settings › 通用 › 权限: every agent's and MCP server's HOME mirrors the person's home
@@ -9,11 +10,8 @@ import SwiftUI
 // @project-doc docs/architecture/20261031-frontend.md#host_env
 struct HostEnvView: View {
     let store: AppStore
-    @Local private var added = ""
     @Local private var command = ""
     @Local private var trying = false
-    /// The hidden paths not on this Mac are folded away until asked for.
-    @Local private var showAbsent = false
     /// Why it could not be read, when it could not.
     @Local private var failure: String?
 
@@ -54,27 +52,16 @@ struct HostEnvView: View {
                     if let janus = env["janusHome"].string {
                         row("~/" + janus, label: L.text("Janus 的数据"), here: true, removable: false)
                     }
-                    // What is on this Mac first; the rest (most defaults, for Agents not installed
-                    // here) folded into one line.
-                    let all = env["hidden"].array
-                    let absent = all.filter { $0["here"].bool != true }
-                    ForEach(all.filter { $0["here"].bool == true } + (showAbsent ? absent : []), id: \.self) { h in
+                    // Only what is on this Mac (most defaults are for Agents not installed here),
+                    // and what the person added, so a path they just added does not vanish.
+                    ForEach(HostEnv.shown(env["hidden"].array), id: \.self) { h in
                         row("~/" + h["path"].str, label: HostEnv.why(h), here: h["here"].bool == true, removable: true) {
                             Task { await store.hideFromAgents(HostEnv.with(store.hostHidden, h["path"].str, hide: false)) }
                         }
                     }
-                    if !absent.isEmpty {
-                        Button(showAbsent ? L.text("收起本机没有的路径") : L.text("另有 \(absent.count) 个本机没有的路径")) { showAbsent.toggle() }
-                            .buttonStyle(.link).padding(.horizontal, 10).padding(.vertical, 6)
-                    }
-                    HStack {
-                        TextField(L.text("用户目录下的路径，例如 .aws 或 Library/Application Support/某个应用"), text: $added)
-                            .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
-                            .onSubmit(add)
-                        Button(L.text("挡住")) { add() }
-                            .disabled(added.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    .padding(10)
+                    Button(L.text("选择要挡住的文件夹或文件…")) { pick() }
+                        .padding(10)
+                        .help(L.text("在用户目录里选，可以一次选多个；隐藏的文件和文件夹也显示"))
                 }
             }
         }
@@ -141,11 +128,20 @@ struct HostEnvView: View {
         failure = why
     }
 
-    private func add() {
-        let p = added.trimmingCharacters(in: .whitespaces)
-        guard !p.isEmpty else { return }
-        let next = HostEnv.with(store.hostHidden, p, hide: true)
-        Task { if await store.hideFromAgents(next) { added = "" } }
+    /// The system's open panel, in the home folder with hidden items shown: what is picked is
+    /// hidden (the server makes full paths relative to the home folder, and refuses others).
+    private func pick() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = true
+        panel.showsHiddenFiles = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        panel.prompt = L.text("挡住")
+        panel.message = L.text("选择 Agent 不该看到的文件夹或文件")
+        guard panel.runModal() == .OK else { return }
+        let next = panel.urls.reduce(store.hostHidden) { HostEnv.with($0, $1.path, hide: true) }
+        Task { await store.hideFromAgents(next) }
     }
 
     private func runCommand() {
