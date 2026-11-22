@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.22.2
+
+- 限制同时开着的 Agent 进程：每个会话都是常驻的适配器和 Agent 进程（一个闲着的 Codex 约占 250 MB 内存），之前已交付任务的负责人、打开过的每个对话、两次开工之间的值班都一直开着，直到服务重启。现在会话闲置 10 分钟、它所在的任务或值班没有别的事需要它时，就关掉进程，下次发消息或开工时自动重新打开；所有 Agent 进程一起最多 12 个（可用 `JANUS_MAX_AGENT_SESSIONS` 或 `config.toml` 的 `max_agent_sessions` 调整，不少于同时在做的任务数加一），满了时先关掉闲得最久的会话，新来的显示「等空位」，按你在等的、按时间表来的、协作者的先后拿到位置。被关掉的对话在列表里显示「已关闭」，退出 Janus 时也不再算作进行中。
+- 值班开工时发出的消息只有你写的提示（你回答过它的问题时带上回答），不再拼上开工次数、时间、时间表、工作目录和派出任务的变化；这些规则写在值班的工作方式里，派出任务的情况它用工具自己查。
+- 「本机环境」并进设置的「通用 › 权限」，和 macOS 权限放在一起；读不出来时写明原因并可以重试，不再一直转圈。
+
+- Open agent processes are now limited. Each session is an adapter and an agent that stay in memory (an idle Codex is about 250 MB), and before, delivered runs' leads, every chat ever opened and Loops between wakes stayed open until a restart. A session idle for 10 minutes whose run or Loop needs nothing of it now closes its process, and the next message or wake opens it again; all agent processes together are limited to 12 (`JANUS_MAX_AGENT_SESSIONS` or `max_agent_sessions` in `config.toml`, never fewer than running goal runs plus one). When all are taken the idlest session closes, newcomers show Waiting for a Seat, and seats go to what you are waiting for first, then to schedules, then to collaborators. A closed chat reads as closed in the list and no longer counts as running when you quit Janus.
+- A Loop's wake now sends only your prompt (with your answers to its questions when there are any) instead of a header with the wake number, time, schedule, working directory and dispatch changes; its working instructions hold the rules, and it looks up its dispatches with its tools.
+- Host Environment moved into Settings › General › Permissions, next to the macOS permissions; when it cannot be read it says why and offers to retry instead of spinning.
+
 ## 2026.11.22.1
 
 - 新增设置里的「本机环境」：Agent 和 MCP 服务器都在自己独立的家目录里工作，之前用不了你本机的 GitHub CLI、飞书 CLI、钥匙串里的登录，也找不到 rustup、nvm 这类工具链。现在可以逐项打开要共享的内容，它们会链接进每个 Agent 和 MCP 服务器的家目录，用的就是你本机的同一份登录，改动立即生效，正在运行的会话也一样。页面列出 Janus 认识、你这台 Mac 上有的工具（登录与账号、工具链、macOS 钥匙串），以及家目录里的其他配置，也可以手填路径；默认一项都不共享。打开一个登录存在钥匙串里的工具（GitHub CLI、飞书 CLI、Git）时，钥匙串会一起打开。Agent 自己的配置（`~/.codex`、`~/.claude`、`~/.agents` 等）不能共享，数字员工的指令、Skill 和 MCP 仍只由 Janus 给。
