@@ -12,6 +12,8 @@
 
 > A gate has two faces. One looks forward, to what can be built. The other looks back, at what must hold.
 
+Janus is the Roman god of gates, with one face turned toward what is being created and one toward what has been done. The name, Joint Adversarial Network for Unified Software, is also how Janus works: what one agent creates, another examines, and only what holds up is delivered.
+
 Janus turns your coding agents into a team that runs on your Mac. You give a goal to a lead agent. The lead does the work itself or splits it among digital employees, checks what comes back, and delivers. You only step in for the decisions that are yours to make. Every session, subtask, approval and delivery is recorded as an event you can replay.
 
 The current version is an MVP. It connects Codex and Claude Code through the Agent Client Protocol (ACP); support for more agents comes later.
@@ -53,6 +55,10 @@ Janus is developed by agents. Its own changes are written, reviewed and merged b
 | Loop | A workspace's lead on a schedule: presets or any standard five-field cron expression, in your time zone. It dispatches runs and asks you questions, and both land in the inbox. |
 | Chat | A one-to-one conversation with a single employee, outside any workspace, in a fresh directory that is deleted with the chat. It uses the same session view as a run: steer, take over, approve, paste images, switch model and mode. |
 | Inbox | Everything waiting on you across all workspaces. Choices are answered in place, and what nobody is blocked on can wait until later. |
+
+## Scope
+
+Janus is built for one machine and one person. Runs change the directory you choose (or a worktree that is merged back when you accept). Agents can read and write everything in your home directory except the paths you hide, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/20261031-security.md) before pointing it at a real project.
 
 ## Quick start
 
@@ -115,13 +121,3 @@ Engineering documentation starts at [docs/index.md](docs/index.md) and is organi
 | [Review](docs/review/index.md) | Code review and audit reports |
 
 Agents working in this repository should read [AGENTS.md](AGENTS.md) first (`CLAUDE.md` points to the same file).
-
-## The name
-
-Janus is the Roman god of gates, beginnings, and transitions. He has two faces: one turned toward the future, where work is created, and one turned toward the past, where work is examined. A gate is both a passage and a threshold, and a delivery is not real until it has survived scrutiny.
-
-**Joint Adversarial Network for Unified Software** puts that image into engineering terms: agents with different models, contexts and blind spots work on the same problem, and each one's work is challenged by another. What survives is delivered.
-
-## Scope
-
-Janus is built for one machine and one person. Runs change the directory you choose (or a worktree that is merged back when you accept). Agents can read and write everything in your home directory except the paths you hide, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/20261031-security.md) before pointing it at a real project.
