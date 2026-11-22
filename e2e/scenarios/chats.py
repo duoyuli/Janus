@@ -90,7 +90,7 @@ def chats(ctx, c):
                         f"open run:{chat}", "draft lead 第三条", "press shift-return")
         c(st["sendKey"] == "return" and _new_line(st) and not replied("第三条"),
           f"应用：改成 ↩ 发送后，⇧↩ 换行不发送（{st['run']['drafts']}）")
-        c(drawn(ctx.app.picture("settings-send-key")), "应用：设置 → 通用里的「发送消息」画出来了（settings-send-key.png）")
+        c(drawn(ctx.app.picture("settings-send-key")), "应用：设置 › 通用里的「发送消息」画出来了（settings-send-key.png）")
         # Scenarios share the app: each batch opens the chat itself, since another one may have
         # opened its own run between batches.
         ctx.app.do(f"open run:{chat}", "draft lead 第三条", "press return")

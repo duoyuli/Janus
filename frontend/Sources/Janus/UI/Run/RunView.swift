@@ -34,7 +34,7 @@ struct RunView: View {
             }
         }
         .navigationTitle(run.isChat ? run.chatTitle : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
-        .navigationSubtitle(run.isChat || run.isLoop ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前编排器进程里"))
+        .navigationSubtitle(run.isChat || run.isLoop ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前运行的 Janus 服务里"))
         .toolbar {
             if run.isLoop {
                 ToolbarItem { DocumentsMenu(run: run) }
@@ -42,12 +42,12 @@ struct RunView: View {
                 ToolbarItem { DocumentsMenu(run: run) }
                 ToolbarItem {
                     Button { run.exportLog() } label: { Label(L.text("导出事件日志…"), systemImage: "square.and.arrow.up") }
-                        .help(L.text("导出这次对话的事件日志（JSONL）"))
+                        .help(L.text("导出这次对话的事件日志"))
                 }
                 ToolbarItem {
                     Button { Task { await run.store.deleteRun(run.id) } } label: { Label(L.text("删除对话"), systemImage: "trash") }
                         .disabled(!run.loaded)
-                        .help(L.text("删除这次对话、它的记录和工作目录，不可恢复"))
+                        .help(L.text("删掉这次对话、记录和工作目录，删了就找不回来"))
                         .accessibilityLabel(L.text("删除对话"))
                 }
             } else {
@@ -67,7 +67,7 @@ struct RunView: View {
                     .pickerStyle(.segmented)
                     .frame(width: 330)
                     .help(L.text("切换视图（⌘1 / ⌘2 / ⌘3）"))
-                    .accessibilityValue(inboxCount == 0 ? "" : L.text("\(inboxCount) 项需要你处理"))
+                    .accessibilityValue(inboxCount == 0 ? "" : L.text("\(inboxCount) 件待处理"))
                 }
                 ToolbarItem {
                     DocumentsMenu(run: run)
@@ -86,7 +86,7 @@ struct RunView: View {
                         Label(L.text("删除任务"), systemImage: "trash")
                     }
                     .disabled(!run.loaded || active)
-                    .help(!run.loaded ? L.text("正在读取任务") : active ? L.text("任务还在进行，先停止任务再删除") : L.text("删除这个任务及它的全部记录和产物，不可恢复"))
+                    .help(!run.loaded ? L.text("正在读取任务") : active ? L.text("任务还在进行，先停止任务再删除") : L.text("删掉这个任务和它的全部记录、产物，删了就找不回来"))
                     .accessibilityLabel(L.text("删除任务"))
                 }
             }
@@ -142,13 +142,13 @@ struct QueuedView: View {
                         Text(run.state.run.goal).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                     StoredImages(paths: run.state.run.images, size: 64)
-                    Text(L.text("同时在做的任务已经满了。前面的任务做完、停止或暂停后，这个任务会自动开始；开始时才建它的独立副本，团队和资源库也按那时的设置。"))
+                    Text(L.text("并行任务已满，排队中。前面的任务结束或暂停后自动开始。"))
                         .font(.callout).foregroundStyle(.secondary)
                     HStack {
                         Button(L.text("取消任务"), role: .destructive) { Task { await run.act(["type": "cancel"]) } }
-                        Button(L.text("立即开始")) { Task { await run.act(["type": "start"]) } }
+                        Button(L.text("马上开工")) { Task { await run.act(["type": "start"]) } }
                             .buttonStyle(.primary)
-                            .help(L.text("不等空位，现在就开始"))
+                            .help(L.text("跳过排队，马上开工"))
                     }
                 }
             }
@@ -252,7 +252,7 @@ struct ReplayBar: View {
         let e = pos >= 1 && pos <= n ? run.events[pos - 1] : nil
         HStack(spacing: 10) {
             Text(L.text("回放模式")).font(.headline)
-            Text(L.text("只读 · 界面显示的是当时的状态")).font(.caption).foregroundStyle(.secondary)
+            Text(L.text("只读 · 当时的状态")).font(.caption).foregroundStyle(.secondary)
             Button { run.replay = max(1, pos - 1) } label: { Label(L.text("上一条事件"), systemImage: "chevron.left") }
                 .labelStyle(.iconOnly).help(L.text("上一条事件（←）")).keyboardShortcut(.leftArrow, modifiers: [])
             Slider(value: Binding(get: { Double(pos) }, set: { run.replay = max(1, min(n, Int($0.rounded()))) }), in: 1...Double(max(n, 2)))
@@ -330,7 +330,7 @@ struct RunCard: View {
             if r.status == .failed { Note(text: r.error, tone: .red) }
             if r.status.canResume && !run.isReplaying {
                 HStack {
-                    Text(verbatim: L.text("\(r.status == .interrupted ? L.text("编排器重启时中断了。已完成的子任务会保留，未完成的从原处继续。") : L.text("可以从失败处继续。"))也可以点右侧的 Agent 进入对话，补充信息后再继续。")).font(.callout).foregroundStyle(.secondary)
+                    Text(verbatim: L.text("\(r.status == .interrupted ? L.text("Janus 服务重启，任务中断了。做完的保留，没做完的接着做。") : L.text("可以从失败处继续。")) 也可以点右侧的 Agent，补充信息后再继续。")).font(.callout).foregroundStyle(.secondary)
                     Spacer()
                     Button(L.text("从中断处继续")) { Task { await run.act(["type": "resumeRun"]) } }.buttonStyle(.primary)
                 }
@@ -359,7 +359,7 @@ struct RunCard: View {
         let s = status
         VStack(alignment: .leading, spacing: 6) {
             Pill(s.0, s.1)
-            Text(title.isEmpty ? L.text("正在连接编排器…") : title).font(.display(.title2)).textSelection(.enabled)
+            Text(title.isEmpty ? L.text("正在连接 Janus 服务…") : title).font(.display(.title2)).textSelection(.enabled)
             if long {
                 Button(run.goalOpen ? L.text("收起完整目标") : L.text("查看完整目标")) { run.goalOpen.toggle() }.buttonStyle(.link)
                 if run.goalOpen { MarkdownText(text: r.goal).padding(.top, 4) }
@@ -378,7 +378,7 @@ struct RunCard: View {
                     Button { Task { await run.togglePause() } } label: {
                         Label(r.paused ? L.text("继续") : L.text("暂停"), systemImage: r.paused ? "play.fill" : "pause.fill")
                     }
-                    .help(r.paused ? L.text("继续调度子任务（⇧⌘P）") : L.text("暂停后不再启动新子任务，进行中的尝试会继续（⇧⌘P）"))
+                    .help(r.paused ? L.text("继续调度子任务（⇧⌘P）") : L.text("暂停：不再派新活，已开工的照常跑（⇧⌘P）"))
                 }
                 Button(L.text("停止…"), role: .destructive) { cancelRun(run) }.help(L.text("结束这个任务的所有会话"))
             }
@@ -430,7 +430,7 @@ struct RunCard: View {
             .foregroundStyle(Color.accent)
         }
         .buttonStyle(.plain)
-        .help(L.text("展开这次任务的 Token、构成、费用、耗时、上下文和各子任务的用量"))
+        .help(L.text("展开用量：Token、费用、耗时、上下文"))
         .accessibilityLabel(run.usageOpen ? L.text("收起用量明细") : L.text("展开用量明细"))
     }
 
@@ -444,13 +444,13 @@ struct RunCard: View {
         }
         if r.paused { return (L.text("已暂停"), .gray) }
         switch r.status {
-        case .planning: return (L.text("负责人正在启动"), .blue)
+        case .planning: return (L.text("负责人正在上岗"), .blue)
         case .accepted: return (L.text("已验收"), .green)
         case .delivered: return (L.text("已交付 · 等你验收"), .green)
         default: break
         }
-        if !st.inbox.isEmpty { return (L.text("等你处理 \(st.inbox.count) 项"), .amber) }
-        return (L.text("团队执行中"), .blue)
+        if !st.inbox.isEmpty { return (L.text("\(st.inbox.count) 件待处理"), .amber) }
+        return (L.text("团队干活中"), .blue)
     }
 }
 
@@ -462,7 +462,7 @@ struct InboxSection: View {
         let open = st.inbox.filter { RequestCard.kinds.contains($0.kind) }
         // Nothing to do shows nothing; the toolbar's 工作台 count says the same.
         if !open.isEmpty {
-            SectionHeader(title: L.text("需要你处理"), count: open.count)
+            SectionHeader(title: L.text("待处理"), count: open.count)
             ForEach(open) { item in RequestCard(run: run, st: st, item: item) }
         }
     }
@@ -487,7 +487,7 @@ struct ResultCard: View {
             let overview = deliveryOverview(acceptance, runRisks: risks)
             let long = d["summary"].str.count > 360
             let canAccept = r.accepted == nil && !run.isReplaying
-            SectionHeader(title: L.text("交付结果"))
+            SectionHeader(title: L.text("交付物"))
             Card(padding: 18, tint: Tone.green.color) {
                 // The acceptance state replaces the old "已交付" capsule: the card itself is the
                 // delivery, and one green capsule is enough (W1 F5).
@@ -530,7 +530,7 @@ struct ResultCard: View {
                             Text(L.text("风险与限制")).font(.callout.weight(.semibold))
                             // Named so it reads against the overview's two counts: this section
                             // is the run-level risks; the tasks' risks are in the rows below.
-                            Text(verbatim: L.text("运行级 \(risks.count) 条")).font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: L.text("任务级 \(risks.count) 条")).font(.caption).foregroundStyle(.secondary)
                         }
                         ForEach(riskList.shown.indices, id: \.self) { i in
                             HStack(alignment: .firstTextBaseline) { Text("⚠").foregroundStyle(Tone.amber.color).accessibilityLabel(L.text("风险")); tagged(riskList.shown[i]) }
@@ -538,7 +538,7 @@ struct ResultCard: View {
                         if let label = riskList.toggleLabel(open: run.risksOpen) {
                             Button(label) { run.risksOpen.toggle() }
                                 .buttonStyle(.link)
-                                .help(run.risksOpen ? L.text("收起运行级风险，只列出前 \(RunRiskList.previewLimit) 条") : L.text("展开全部运行级风险，内容不截断"))
+                                .help(run.risksOpen ? L.text("收起任务级风险，只列前 \(RunRiskList.previewLimit) 条") : L.text("展开全部任务级风险"))
                         }
                     }
                 }
@@ -628,7 +628,7 @@ struct AgentsPanel: View {
         let members = run.team
         let active = members.filter { phase($0["id"].str, lead: $0["lead"].truthy) != "idle" }.count
         VStack(alignment: .leading, spacing: 8) {
-            if active > 0 { Text(verbatim: L.text("\(active) 个在工作")).font(.caption).foregroundStyle(.secondary) }
+            if active > 0 { Text(verbatim: L.text("\(active) 个在干活")).font(.caption).foregroundStyle(.secondary) }
             // Rows divided by hairlines: no boxes inside the box.
             VStack(spacing: 0) {
                 ForEach(Array(members.enumerated()), id: \.offset) { i, m in
@@ -649,7 +649,7 @@ struct AgentsPanel: View {
         let (pl, pt) = L.phase(phase)
         var line: String
         if lead {
-            line = !st.inbox.isEmpty ? L.text("等你处理 \(st.inbox.count) 项，其余子任务继续调度") : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == .delivered ? L.text("已完成最终验收") : L.text("按依赖调度子任务"))
+            line = !st.inbox.isEmpty ? L.text("\(st.inbox.count) 件待处理，其他子任务照常推进") : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == .delivered ? L.text("已完成最终验收") : L.text("按依赖调度子任务"))
         } else if let cur {
             line = "\(cur.id) \(cur.title)"
             if cur.status == .waitingInput { line += L.text(" · 等你回答") } else if cur.status == .waitingApproval { line += L.text(" · 等你审批") } else if let n = a?.note, !n.isEmpty { line += " · \(n)" }
@@ -658,10 +658,10 @@ struct AgentsPanel: View {
             let waiting = next.deps.filter { st.tasks[$0]?.status != .succeeded }.joined(separator: L.text("、"))
             line = next.status == .blocked ? L.text("\(next.id) 等待 \(next.blockedBy) 修复") : L.text("下一步 \(next.id) · 等待 \(waiting.isEmpty ? L.text("调度") : waiting)")
         } else {
-            line = !mine.isEmpty ? L.text("分配的子任务都已完成") : !st.order.isEmpty ? L.text("负责人没有给它派子任务") : L.text("待命")
+            line = !mine.isEmpty ? L.text("派给它的子任务都做完了") : !st.order.isEmpty ? L.text("负责人没有给它派子任务") : L.text("待命")
         }
         var meta: [String] = []
-        if phase != "idle", let beat = a?.beat, beat > 0 { meta.append(L.text("心跳 \(L.ago(beat, st.run.now))")) }
+        if phase != "idle", let beat = a?.beat, beat > 0 { meta.append(L.text("最近活动 \(L.ago(beat, st.run.now))")) }
         if !lead, let rs = runStats(id, mine) { meta.append(rs) }
         return Button { run.page = .agent(id) } label: {
             VStack(alignment: .leading, spacing: 5) {
@@ -716,7 +716,7 @@ struct BriefSuggestions: View {
             Text(L.text("负责人建议写入共享资料")).font(.callout.weight(.semibold))
             ForEach(lines.indices, id: \.self) { i in Text("· \(lines[i])").font(.callout).textSelection(.enabled) }
             HStack {
-                Text(L.text("采纳后，之后在这个工作区的任务都会看到这些内容。")).font(.caption).foregroundStyle(.secondary)
+                Text(L.text("采纳后，这个工作区之后的任务都能看到。")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if let ws = run.store.workspace(run.workspaceId) {
                     Button(L.text("加入共享资料…")) { run.store.editingBrief = Self.adding(lines, to: ws) }

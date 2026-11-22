@@ -186,7 +186,7 @@ private struct Log {
     log.add("task.succeeded", actor: "m1", task: "T1", attempt: 1, at: 59000, data: ["summary": "完成"])
     let l = usageLedger(log.events)
     #expect(l.run.durationMs == 59000 && l.run.waitMs == 30000)
-    #expect(l.task("T1")?.summaryRows.first { $0.label == expectedCopy("耗时", "Elapsed") }?.value == expectedCopy("58 秒（墙钟） · 其中等待你 30 秒", "58 sec (wall time) · Waiting for you: 30 sec"))
+    #expect(l.task("T1")?.summaryRows.first { $0.label == expectedCopy("耗时", "Elapsed") }?.value == expectedCopy("58 秒（总时长） · 其中等待你 30 秒", "58 sec (total time) · Waiting for you: 30 sec"))
 }
 
 /// The ledger follows the replay position: each prefix of the log has its own numbers.
@@ -240,7 +240,7 @@ private struct Log {
 
     let live = running.usageForDisplay(now: 1_061_000, live: true)
     #expect(live.run.durationMs == 61_000, "live and unfinished: now minus run.created")
-    #expect(live.runCardLine(tasks: 0, done: 0) == expectedCopy("耗时 1 分 01 秒（墙钟）", "Elapsed: 1 min 01 sec (wall time)"))
+    #expect(live.runCardLine(tasks: 0, done: 0) == expectedCopy("耗时 1 分 01 秒（总时长）", "Elapsed: 1 min 01 sec (total time)"))
     // Everything but the run's own wall-clock time stays what the events recorded.
     #expect(live.run.waitMs == running.usage.run.waitMs && live.reminders == running.usage.reminders)
     #expect(live.tasks.map(\.durationMs) == running.usage.tasks.map(\.durationMs), "task durations stay recorded")

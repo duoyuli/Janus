@@ -132,7 +132,7 @@ struct CatalogShelf: View {
                 }
                 let r = try await store.api.post("/api/library/sources/\(source["id"].str)/import", ["paths": JSON([s.path])])
                 await store.loadLibrary()
-                store.show(L.text("已导入 \(r.array.map { $0["name"].str }.joined(separator: L.text("、")))，给所有数字员工"))
+                store.show(L.text("已导入 \(r.array.map { $0["name"].str }.joined(separator: L.text("、")))，全员可用"))
             } catch { store.show(error.localizedDescription) }
         }
     }
@@ -149,7 +149,7 @@ struct CatalogShelf: View {
             do {
                 let item = try await store.api.post("/api/library/mcp", s.draft.body)
                 await store.loadLibrary()
-                store.show(L.text("已添加 \(item["name"].str)，给所有数字员工"))
+                store.show(L.text("已添加 \(item["name"].str)，全员可用"))
             } catch { store.show(error.localizedDescription) }
         }
     }

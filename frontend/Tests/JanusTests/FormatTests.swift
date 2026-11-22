@@ -67,14 +67,14 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     #expect(L.text("收件箱", bundle: en) == "Inbox")
     #expect(L.text("收件箱", bundle: zh) == "收件箱")
     let name = "实现者"
-    #expect(L.text("「\(name)」请求你决定", bundle: en) == "实现者 asks you to decide")
-    #expect(L.text("「\(name)」请求你决定", bundle: zh) == "「实现者」请求你决定")
+    #expect(L.text("「\(name)」等你拍板", bundle: en) == "实现者 needs your call")
+    #expect(L.text("「\(name)」等你拍板", bundle: zh) == "「实现者」等你拍板")
     let first = "T1", second = "T2", percent = 25
     #expect(L.text("依赖的 \(first) 没有完成，\(second) 还不能开始。", bundle: en) == "T2 cannot start until its dependency T1 is complete.")
     #expect(L.text("本会话 上下文 \(percent)%", bundle: en) == "Session context: 25%")
     let key = SendKey.returnKey.symbol
-    #expect(L.text("给 \(name) 发消息，可以 ⌘V 粘贴截图，\(key) 发送", bundle: en) == "Message 实现者 — paste screenshots with ⌘V, send with ↩")
-    #expect(L.text("给 \(name) 发消息，可以 ⌘V 粘贴截图，\(key) 发送", bundle: zh) == "给 实现者 发消息，可以 ⌘V 粘贴截图，↩ 发送")
+    #expect(L.text("发消息给 \(name) · ⌘V 贴截图 · \(key) 发送", bundle: en) == "Message 实现者 · ⌘V to paste a screenshot · ↩ to send")
+    #expect(L.text("发消息给 \(name) · ⌘V 贴截图 · \(key) 发送", bundle: zh) == "发消息给 实现者 · ⌘V 贴截图 · ↩ 发送")
 }
 
 /// Usage numbers keep their state: a reported 0 is written as 0, a missing number as words, and

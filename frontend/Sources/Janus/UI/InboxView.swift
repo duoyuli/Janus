@@ -15,11 +15,11 @@ struct InboxView: View {
         let working = store.attention.filter { RunStatus($0["status"].str).isActive }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SectionHeader(title: L.text("需要你处理"), sub: L.text("所有工作区"), count: open.isEmpty ? nil : open.count)
+                SectionHeader(title: L.text("待处理"), sub: L.text("所有工作区"), count: open.isEmpty ? nil : open.count)
                 if open.isEmpty {
                     Card {
-                        Text(L.text("没有需要你处理的事。")).font(.headline)
-                        Text(working.isEmpty ? L.text("也没有正在进行的任务。") : L.text("\(working.count) 个任务在进行，有需要你决定的事会出现在这里。")).foregroundStyle(.secondary)
+                        Text(L.text("清空了，没有待处理的事。")).font(.headline)
+                        Text(working.isEmpty ? L.text("也没有在干活的任务。") : L.text("\(working.count) 个任务在干活，需要你拍板时会出现在这里。")).foregroundStyle(.secondary)
                     }
                 } else {
                     Card(padding: 4) {
@@ -53,7 +53,7 @@ struct InboxView: View {
 
                 DisclosureGroup(isExpanded: Binding(get: { inbox.showWorking }, set: { inbox.showWorking = $0 })) {
                     Card(padding: 4) {
-                        if working.isEmpty { Text(L.text("没有正在进行的任务")).foregroundStyle(.secondary).padding(10) }
+                        if working.isEmpty { Text(L.text("没有在干活的任务")).foregroundStyle(.secondary).padding(10) }
                         ForEach(working, id: \.self) { r in
                             let (label, tone) = RunStatus(r["status"].str).listLabel
                             Button { store.open(.run(r["id"].str)) } label: {
@@ -75,9 +75,9 @@ struct InboxView: View {
                     }
                     .padding(.top, 6)
                 } label: {
-                    Text(L.text("进行中（\(working.count)）")).font(.headline)
+                    Text(L.text("干活中（\(working.count)）")).font(.headline)
                 }
-                .help(L.text("正在工作的任务默认收起：有需要你的地方，它会出现在上面"))
+                .help(L.text("干活中的任务默认收起，需要你时会冒出来"))
             }
             .padding(24)
             .frame(maxWidth: 820, alignment: .leading)
@@ -115,11 +115,11 @@ struct InboxView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help(L.text("放到「稍后处理」，到时间再回到这里。没有人在等它，推迟不会卡住任务"))
+                .help(L.text("先放一放，到点再提醒。没人在等，推迟不会卡住任务"))
             }
             if e.canSettle {
                 Button(L.text("标记已处理")) { store.inbox.settle(e.key) }
-                    .help(L.text("不再提醒这个任务；它保持现在的状态，仍可以在任务记录中打开"))
+                    .help(L.text("不再提醒；任务保持原样，在任务记录里还能找到"))
             }
             if e.actions.isEmpty {
                 Button(L.text("去处理")) { store.open(.run(e.run)) }.buttonStyle(.primary)

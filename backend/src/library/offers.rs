@@ -85,10 +85,10 @@ pub(super) fn discover(root: &Path, start: &Path) -> (Vec<Offer>, Vec<String>) {
     let mut out = vec![];
     let mut warnings = vec![];
     if scan.count_limited {
-        warnings.push(format!("已达到 {MAX_OFFERS} 个候选路径，部分资源未列出。请选择更具体的子目录。"));
+        warnings.push(format!("候选路径到 {MAX_OFFERS} 个上限了，部分资源没列出。选个更具体的子目录试试。"));
     }
     if scan.depth_limited {
-        warnings.push(format!("只扫描到第 {MAX_DEPTH} 层，部分子目录未扫描。请选择更具体的子目录。"));
+        warnings.push(format!("只扫描了 {MAX_DEPTH} 层，更深的没扫到。选个更具体的子目录试试。"));
     }
     for rel in scan.skills {
         let dir = root.join(&rel);

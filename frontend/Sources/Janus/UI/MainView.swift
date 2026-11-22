@@ -88,7 +88,7 @@ struct Sidebar: View {
                 VStack(alignment: .leading, spacing: 1) {
                     // Every workspace, one row each: a click opens it (its task records are on its
                     // page), the plus makes a new one.
-                    SidebarHeading(title: L.text("Agent Team"), plus: L.text("新建工作区…")) {
+                    SidebarHeading(title: L.text("团队"), plus: L.text("新建工作区…")) {
                         store.editingWorkspace = AppStore.blankWorkspace
                     }
                     ForEach(store.workspaces, id: \.self) { w in
@@ -103,7 +103,7 @@ struct Sidebar: View {
                         }
                         .foregroundStyle(.secondary)
                     }
-                    SidebarHeading(title: L.text("Chat"), plus: L.text("新对话：选一名数字员工单独对话（⌥⌘N）")) { store.open(.chats) }
+                    SidebarHeading(title: L.text("对话"), plus: L.text("新对话：选一名数字员工单独对话（⌥⌘N）")) { store.open(.chats) }
                     chatRows()
                 }
                 .padding(.bottom, 10)
@@ -121,7 +121,7 @@ struct Sidebar: View {
                     Button { store.openSettings(store.settingsTab) } label: { Label(L.text("设置"), systemImage: "gearshape") }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
-                        .help(L.text("Agent、数字员工和 ACP（⌘,）"))
+                        .help(L.text("设置（⌘,）"))
                 }
                 UpdateBadge(updater: Updater.shared) { store.openSettings(.updates) }
                 if !store.sourceUpdates.isEmpty {
@@ -306,7 +306,7 @@ struct NoWorkspaceView: View {
                 OnboardingBar(store: store)
                 Card {
                     Text(L.text("还没有工作区")).font(.display(.title3))
-                    Text(L.text("工作区指定任务在哪个目录执行、由哪些数字员工参与。")).foregroundStyle(.secondary)
+                    Text(L.text("工作区 = 一个目录 + 一支数字员工团队")).foregroundStyle(.secondary)
                     Button(L.text("新建工作区")) { store.editingWorkspace = AppStore.blankWorkspace }
                         .buttonStyle(.primary)
                 }
@@ -331,7 +331,7 @@ struct UpdateBadge: View {
                     .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
-            .help(L.text("在设置 → 通用 → 更新中查看更新内容并安装"))
+            .help(L.text("去「设置 › 通用 › 更新」看更新内容并安装"))
         case .downloading, .verifying, .relaunching:
             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(updater.state.workingText ?? "").font(.caption).foregroundStyle(.secondary) }
         case .failed(let text) where updater.latest != nil:
@@ -357,8 +357,8 @@ struct InboxButton: View {
 
     var body: some View {
         let n = store.inbox.open.count
-        SidebarItem(title: L.text("收件箱"), selected: on, waiting: n, help: L.text("所有工作区中需要你处理的事"),
-                    accessibility: n > 0 ? L.text("所有工作区，\(n) 项等你处理") : L.text("所有工作区"),
+        SidebarItem(title: L.text("收件箱"), selected: on, waiting: n, help: L.text("所有工作区的待处理"),
+                    accessibility: n > 0 ? L.text("所有工作区，\(n) 件待处理") : L.text("所有工作区"),
                     action: { store.open(.inbox) }) {
             Image(systemName: "tray").foregroundStyle(on ? Color.primary : Color.secondary)
         }
@@ -379,7 +379,7 @@ struct AdapterUpdatesBadge: View {
                     .font(.caption).foregroundStyle(Tone.blue.color)
             }
             .buttonStyle(.plain)
-            .help(updates.map { "\($0["name"].str) \($0["current"].str) → \($0["latest"].str)" }.joined(separator: L.text("、")) + L.text("：在设置的「数字员工」页升级，正在运行的会话不受影响"))
+            .help(updates.map { "\($0["name"].str) \($0["current"].str) → \($0["latest"].str)" }.joined(separator: L.text("、")) + L.text("：去「设置 › 数字员工」升级，正在跑的会话不受影响"))
         }
     }
 }
@@ -409,7 +409,7 @@ struct WorkspaceRow: View {
         let working = store.runs(of: ws).contains { RunStatus($0["status"].str).isActive }
             || store.loops(of: ws["id"].str).contains { $0["status"]["phase"].str == "awake" }
         SidebarItem(title: ws["name"].str, selected: shown, waiting: waiting, live: working, help: L.tilde(ws["path"].str),
-                    accessibility: waiting == 0 ? "" : L.text("\(waiting) 项等你处理"),
+                    accessibility: waiting == 0 ? "" : L.text("\(waiting) 件待处理"),
                     action: { store.open(.home(ws["id"].str)) }) {
             InitialMark(text: ws["name"].str, selected: shown)
         }

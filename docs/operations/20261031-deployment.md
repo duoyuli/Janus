@@ -117,14 +117,14 @@
 ### 从安装包安装
 
 1. 在 GitHub Release 中下载 `Janus-<版本>.dmg`，打开后把 Janus 拖进「应用程序」。
-2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 → 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
+2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 › 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
 3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 15 或更高（只支持最近三个 macOS 大版本，见 [macOS 应用](../architecture/20261031-frontend.md)）。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js。Codex 和 Claude Code 的适配器在第一次使用时从 npm 下载，并自带对应的 CLI。
 
 应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/20261031-frontend.md#server_process)。
 
-升级：有新版本时，侧栏底部显示「Janus <版本> 可以更新」，点击打开「设置 → 通用」并滚到「更新」一节，在那里点「更新到 <版本>」后应用下载更新、退出并重新打开；菜单栏 Janus 图标菜单中的「检查更新…」也打开这一节并立即检查。应用内更新不需要再到「隐私与安全性」中允许，见[应用内更新](../architecture/20261031-frontend.md#updates)。应用不在可写的目录中（例如直接从 DMG 中运行）时不能自动更新，先把它拖进「应用程序」。
+升级：有新版本时，侧栏底部显示「Janus <版本> 可以更新」，点击打开「设置 › 通用」并滚到「更新」一节，在那里点「更新到 <版本>」后应用下载更新、退出并重新打开；菜单栏 Janus 图标菜单中的「检查更新…」也打开这一节并立即检查。应用内更新不需要再到「隐私与安全性」中允许，见[应用内更新](../architecture/20261031-frontend.md#updates)。应用不在可写的目录中（例如直接从 DMG 中运行）时不能自动更新，先把它拖进「应用程序」。
 
-首次安装或升级后的权限引导见 [macOS 权限](../architecture/20261031-frontend.md#macos_permissions)。发布版本用固定的自签名证书签名（见[签名](20261101-ci_release.md#signing)），macOS 把各个版本当作同一个应用，完整磁盘访问、应用程序管理和屏幕录制在更新后保留。之前的 ad-hoc 签名版本每次更新都会变成「另一个应用」，2026.11.18.5 起 bundle ID 也换成了 `io.github.duoyuli.janus`：从这些版本升级上来时还需要重新授权一次（通知权限也要重新允许），应用的偏好设置恢复默认，系统设置里显示已打开的 Janus 属于旧版本，要先选中它点「−」删除，再在「设置 → 通用 → macOS 权限」中重新申请；授权后重新打开 Janus 才会生效。这与首次打开安装包时的 Gatekeeper 放行分别处理。
+首次安装或升级后的权限引导见 [macOS 权限](../architecture/20261031-frontend.md#macos_permissions)。发布版本用固定的自签名证书签名（见[签名](20261101-ci_release.md#signing)），macOS 把各个版本当作同一个应用，完整磁盘访问、应用程序管理和屏幕录制在更新后保留。之前的 ad-hoc 签名版本每次更新都会变成「另一个应用」，2026.11.18.5 起 bundle ID 也换成了 `io.github.duoyuli.janus`：从这些版本升级上来时还需要重新授权一次（通知权限也要重新允许），应用的偏好设置恢复默认，系统设置里显示已打开的 Janus 属于旧版本，要先选中它点「−」删除，再在「设置 › 通用 › macOS 权限」中重新申请；授权后重新打开 Janus 才会生效。这与首次打开安装包时的 Gatekeeper 放行分别处理。
 
 ### 从源码构建
 
@@ -221,9 +221,9 @@ just install
 | 升级对象 | 做法 |
 | --- | --- |
 | Janus 本身（服务） | 更新仓库代码后执行 `just install`，再执行 `just restart` |
-| Janus 本身（macOS 应用） | 在「设置 → 通用 → 更新」中点「更新到 <版本>」；侧栏底部的「可以更新」和菜单栏 Janus 图标菜单中的「检查更新…」都打开这一节。上一个版本保留在 `~/.janus/cache/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
-| ACP 适配器 | 在「设置 → 数字员工」的 Agent 卡片上检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
-| Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 → 数字员工」重新检查 |
+| Janus 本身（macOS 应用） | 在「设置 › 通用 › 更新」中点「更新到 <版本>」；侧栏底部的「可以更新」和菜单栏 Janus 图标菜单中的「检查更新…」都打开这一节。上一个版本保留在 `~/.janus/cache/updates/previous/Janus.app`，需要退回时退出应用、把它拖回「应用程序」。也可以下载 DMG 覆盖安装 |
+| ACP 适配器 | 在「设置 › 数字员工」的 Agent 卡片上检查更新、升级或切回上一个版本，不需要重启 Janus，见 [ACP 适配器管理](../architecture/20261031-adapters.md) |
+| Agent CLI | 用它自己的方式升级（例如 Homebrew），然后在「设置 › 数字员工」重新检查 |
 
 数据随版本自动升级：新版本的服务第一次启动时，先把 `data/janus.db` 备份到 `backups/`，再把表结构、设置对象、Run 快照和默认数字员工升级到这个版本的数据版本，日志 `logs/janus.log` 写明升级了什么和备份位置。不需要单独运行升级脚本；想先看看会改什么，执行 `janus migrate --dry-run`（在副本上执行，不修改数据）。详见[数据升级](../architecture/20261031-data_model.md#migrations)。
 

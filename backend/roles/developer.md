@@ -1,7 +1,7 @@
 ---
 id: developer
 name: 研发工程师
-desc: 技术方案、编码实现、缺陷修复和自动化测试；适合需要改代码、配置或构建脚本的子任务
+desc: 写方案、写代码、修 bug、补测试；改代码和配置的活儿交给它
 color: "#11845a"
 init: RD
 lead: false

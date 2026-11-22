@@ -50,7 +50,7 @@ struct MenuBarLabel: View {
                 .frame(width: 16, height: 16)
             if n > 0 { Text("\(n)") }
         }
-        .accessibilityLabel(n > 0 ? L.text("Janus，\(n) 项等你处理") : "Janus")
+        .accessibilityLabel(n > 0 ? L.text("Janus，\(n) 件待处理") : "Janus")
         // The label lives as long as the app, so it is where a notification click finds a way
         // to open the window.
         .onAppear {
@@ -112,9 +112,9 @@ struct StatusMenu: View {
         let store = model.store
         let waiting = store?.inbox.open.count ?? 0
         let active = store?.working.count ?? 0
-        Button(waiting > 0 ? L.text("收件箱：\(waiting) 项等你处理") : L.text("收件箱：没有等你处理的事")) { show(); store?.open(.inbox) }.disabled(store == nil)
+        Button(waiting > 0 ? L.text("收件箱：\(waiting) 件待处理") : L.text("收件箱：没有待处理")) { show(); store?.open(.inbox) }.disabled(store == nil)
         Button(L.text("打开 Janus")) { show() }
-        if active > 0 { Text(L.text("\(active) 个任务正在进行")) }
+        if active > 0 { Text(L.text("\(active) 个任务在干活")) }
         Divider()
         Button(L.text("新目标")) { show(); model.newGoal() }.disabled(store == nil)
         Button(L.text("新对话")) { show(); store?.open(.chats) }.disabled(store == nil)
@@ -319,7 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !Updater.shared.quitting, model.backend.owned, let s = model.store,
            !s.working.isEmpty {
             // Chats count too: a chat answering or waiting on an approval is cut off as well.
-            if !confirm(L.text("退出 Janus？"), L.text("还有正在执行的任务或对话。退出会停止 Janus 服务，它们会中断：任务下次打开后可以「从中断处继续」，对话发下一条消息时重新打开会话。"), ok: L.text("退出")) { return .terminateCancel }
+            if !confirm(L.text("退出 Janus？"), L.text("还有任务或对话在跑。退出会中断它们，回来后可以接着做。"), ok: L.text("退出")) { return .terminateCancel }
         }
         model.backend.stop()
         return .terminateNow

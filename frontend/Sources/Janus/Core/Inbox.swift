@@ -221,7 +221,7 @@ struct WaitingRow: Identifiable, Equatable {
         case "delivered": return L.text("等你验收")
         case "interrupted": return L.text("已中断")
         case "failed": return L.text("失败了")
-        default: return L.catalogText(TimelineMark.openKinds[e.kind]?.1 ?? "等你处理")
+        default: return L.catalogText(TimelineMark.openKinds[e.kind]?.1 ?? "待处理")
         }
     }
 

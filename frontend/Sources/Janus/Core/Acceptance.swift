@@ -45,7 +45,7 @@ struct Check: Hashable {
     /// 「测试」/「推理判断」/「未核实」/「未说明」; an illegal value is shown as written.
     var methodLabel: String {
         if let method { return method.label }
-        if let badMethod { return L.text("方法「\(badMethod)」不合法（未说明）") }
+        if let badMethod { return L.text("证据方法「\(badMethod)」不认识（没说明）") }
         return L.text("未说明")
     }
 }
@@ -272,7 +272,7 @@ extension DeliveryAcceptance {
         var markers: [String] = []
         if status != .succeeded { markers.append(status.label.0) }
         if !risks.isEmpty { markers.append(L.text("风险 \(risks.count) 条")) }
-        if !traceGaps.isEmpty { markers.append(L.text("痕迹 \(traceGaps.count) 处")) }
+        if !traceGaps.isEmpty { markers.append(L.text("对不上 \(traceGaps.count) 处")) }
         if !summary.reminders.isEmpty { markers.append(L.text("提醒 \(summary.reminders.count) 条")) }
         if unverified { markers.append(L.text("没有独立验证")) }
         let failed = summary.criteria - summary.passed
@@ -346,9 +346,9 @@ struct DeliveryOverview: Equatable {
         if unspecified > 0 { methodsText.append(L.text("未说明 \(unspecified) 条")) }
         if invalid > 0 { methodsText.append(L.text("方法不合法 \(invalid) 条")) }
         if !methodsText.isEmpty { parts.append(methodsText.joined(separator: L.text("、"))) }
-        if runRisks > 0 { parts.append(L.text("运行级风险 \(runRisks) 条")) }
+        if runRisks > 0 { parts.append(L.text("任务级风险 \(runRisks) 条")) }
         if taskRisks > 0 { parts.append(L.text("子任务风险 \(taskRisks) 条")) }
-        if traceGaps > 0 { parts.append(L.text("痕迹 \(traceGaps) 处")) }
+        if traceGaps > 0 { parts.append(L.text("对不上 \(traceGaps) 处")) }
         if unverifiedTasks > 0 { parts.append(L.text("\(unverifiedTasks) 个子任务没有独立验证")) }
         return parts.joined(separator: " · ")
     }
@@ -357,10 +357,10 @@ struct DeliveryOverview: Equatable {
     /// uses, or nil when nothing does.
     var issuesText: String? {
         var parts: [String] = []
-        if failed > 0 { parts.append(L.text("\(failed) 条标准未通过")) }
-        if runRisks > 0 { parts.append(L.text("运行级风险 \(runRisks) 条")) }
+        if failed > 0 { parts.append(L.text("\(failed) 条标准没通过")) }
+        if runRisks > 0 { parts.append(L.text("任务级风险 \(runRisks) 条")) }
         if taskRisks > 0 { parts.append(L.text("子任务风险 \(taskRisks) 条")) }
-        if traceGaps > 0 { parts.append(L.text("\(traceGaps) 处痕迹对不上")) }
+        if traceGaps > 0 { parts.append(L.text("\(traceGaps) 处对不上")) }
         if unconfirmedVerifications > 0 { parts.append(L.text("\(unconfirmedVerifications) 项独立验证未确认")) }
         return parts.isEmpty ? nil : parts.joined(separator: L.text("、"))
     }

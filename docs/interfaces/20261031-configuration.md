@@ -52,7 +52,7 @@ Agent 子进程的环境由 `spec_for` 完整构造，按以下顺序叠加，�
    - 从宿主继承：`PATH`、`LANG`、`LC_ALL`、`LC_CTYPE`、`LC_MESSAGES`、`TERM`、`USER`、`LOGNAME`、`SHELL`、`TZ`、`SSH_AUTH_SOCK`。
    - 指向 Agent 自己目录的：`HOME`、`XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_STATE_HOME`、`XDG_CACHE_HOME`、`TMPDIR`。
    - `JANUS_AGENT_ID`。
-   - 隔离的 `HOME` 是用户目录的镜像，只挡「Agent 看不到的路径」，见[安全边界：本机环境](../operations/20261031-security.md#host_env)。
+   - 隔离的 `HOME` 是用户目录的镜像，只挡「挡住的路径」，见[安全边界：本机环境](../operations/20261031-security.md#host_env)。
 2. **用户配置的变量**：Agent 设置中的环境变量文本，以及「复制本机配置」带来的凭据变量。沙箱变量不能被这里覆盖。
 3. **运行时变量**：
 

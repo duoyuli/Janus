@@ -587,7 +587,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
                 conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy, byLead: d["byLead"].truthy))
             }
         case "task.claimed":
-            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("认领：\(d["paths"].strings.joined(separator: L.text("、")))"), artifacts: []))
+            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("认领了：\(d["paths"].strings.joined(separator: L.text("、")))"), artifacts: []))
         case "task.split_requested":
             let reason = d["reason"].string ?? e.text
             let count = d["subtasks"].array.count
@@ -599,10 +599,10 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: d["from"].str, to: e.task ?? "", agent: e.to ?? "", summary: d["summary"].str, artifacts: d["artifacts"].strings))
         case "orchestration.accepted":
             let ts = d["tasks"].array
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人提交编排"), text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : L.text("（依赖 \(x["deps"].strings.joined(separator: L.text("、")))）"))" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人派出子任务"), text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : L.text("（依赖 \(x["deps"].strings.joined(separator: L.text("、")))）"))" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
         case "orchestration.rejected":
             let errs = d["errors"].strings
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("编排没有通过校验"), text: errs.isEmpty ? e.text : errs.joined(separator: "\n"), agents: ["lead"]))
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("派工方案没通过校验"), text: errs.isEmpty ? e.text : errs.joined(separator: "\n"), agents: ["lead"]))
         case "board.posted":
             let text = d["text"].string ?? e.text
             if d["kind"].str == "blocker" { blockers.append((key: "ob\(e.seq)", seq: e.seq, task: e.task ?? "", text: text, actor: e.actor)) }
@@ -624,7 +624,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             if let task = e.task { gaps[task] = nil; splits[task] = nil }
             if e.actor == "lead" {
                 let session: String? = switch d["session"].str {
-                case "continue": L.text("会话：接着原会话")
+                case "continue": L.text("会话：接上原会话")
                 case "new": L.text("会话：新开会话")
                 default: nil
                 }
@@ -677,24 +677,24 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         var actions: [QuickAction] = []
         switch i.kind {
         case "question" where i.task != nil:
-            title = L.text("「\(who)」的提问等你回答")
+            title = L.text("「\(who)」问你一个问题")
             actions = (t?.question?.options ?? []).map { o in
                 QuickAction(label: o, prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": JSON(i.task ?? ""), "answer": JSON(o), "note": ""])
             }
         case "question":
-            title = L.text("负责人请你决定：\(L.short(i.d["question"].str, 40))")
+            title = L.text("负责人等你拍板：\(L.short(i.d["question"].str, 40))")
             actions = i.d["options"].strings.map { o in
                 QuickAction(label: o, help: o == i.d["recommend"].str ? L.text("负责人建议") : "", prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": "", "answer": JSON(o), "note": ""])
             }
         case "approval":
-            title = L.text("「\(who)」请求你决定")
+            title = L.text("「\(who)」等你拍板")
             actions = L.permissionOptions(i.d["options"]).map { o in
                 QuickAction(label: o.label, help: o.help, prominent: o.kind == "allow_once", body: ["type": "approve", "key": JSON(i.key), "task": JSON(i.task ?? ""), "agent": JSON(i.agent ?? ""), "allow": JSON(o.kind.hasPrefix("allow")), "option": o.id.isEmpty ? .null : JSON(o.id), "label": JSON(o.name)])
             }
         case "input":
-            title = i.d["mode"].str == "url" ? L.text("「\(who)」请你打开链接") : L.text("「\(who)」请你填写表单")
-        case "session": title = L.text("「\(who)」这一轮结束，等你的消息")
-        default: title = L.text("等你处理")
+            title = i.d["mode"].str == "url" ? L.text("「\(who)」需要你打开一个链接") : L.text("「\(who)」需要你填一张表")
+        case "session": title = L.text("「\(who)」这一轮结束，等你回话")
+        default: title = L.text("待处理")
         }
         var text: String
         switch i.kind {
@@ -708,14 +708,14 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     }
     if let n = loopNotice {
         let title = n.kind == "loop_touched" ? L.text("值班在自己的副本里改了文件") : L.text("值班没能开工")
-        let sub = n.kind == "loop_touched" ? n.files.prefix(5).joined(separator: L.text("、")) : L.text("下次开工时会再试；也可以在值班页叫它现在开工")
+        let sub = n.kind == "loop_touched" ? n.files.prefix(5).joined(separator: L.text("、")) : L.text("下次开工会再试；也可以在值班页叫它现在开工")
         f.open.append(OpenFact(key: "oloop\(n.seq)", seq: n.seq, title: title, text: n.text, tasks: [], agents: ["lead"], you: true, sub: sub, kind: n.kind))
     }
     if let ls = leadStall, st.active {
         f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: L.text("负责人可能卡住了"), text: ls.text, tasks: [], agents: ["lead"], you: true, sub: L.text("可以在负责人的会话里发消息、打断并接管，或者继续等"), kind: "lead_stall"))
     }
     // Everything else that holds work up is the lead's to settle, not the person's.
-    let lead = L.text("负责人在处理，不需要你操作")
+    let lead = L.text("负责人在处理，你不用管")
     // A shared edit that an overstep already covers is the same fact: keep the overstep.
     let covered = { (c: (seq: Int, task: String, other: String, paths: [String], owned: Bool, byLead: Bool)) in
         !c.owned && conflicts.contains { o in o.owned && o.byLead == c.byLead && Set([o.task, o.other]) == Set([c.task, c.other]) && Set(c.paths).isSubset(of: Set(o.paths)) }

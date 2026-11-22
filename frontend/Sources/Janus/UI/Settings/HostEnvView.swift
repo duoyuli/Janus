@@ -18,7 +18,7 @@ struct HostEnvView: View {
     var body: some View {
         let env = store.hostEnv ?? [:]
         VStack(alignment: .leading, spacing: 18) {
-            Text(L.text("Agent 和 MCP 服务器的用户目录是你用户目录的镜像：你本机的登录、钥匙串、工具链和配置，它们都能直接用，刷新的令牌也写回你这里。只有下面列出的路径它们看不到。改动立即生效，正在运行的会话也一样。"))
+            Text(L.text("Agent 和 MCP 服务器用的是你用户目录的镜像：登录、钥匙串、工具链直接能用。只有下面这些路径被挡住，改动立即生效。"))
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let failure, store.hostEnv == nil {
                 HStack {
@@ -38,14 +38,14 @@ struct HostEnvView: View {
     private func hiddenList(_ env: JSON) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(L.text("Agent 看不到的路径")).font(.headline)
+                Text(L.text("挡住的路径")).font(.headline)
                 Spacer()
                 Button(L.text("恢复默认")) { Task { await store.hideFromAgents(nil) } }
                     .buttonStyle(.link)
                     .disabled(env["defaults"].bool == true)
                     .help(L.text("回到 Janus 默认挡住的路径：常见 Agent 的配置和敏感数据"))
             }
-            Text(L.text("默认挡住常见 Agent 自己的配置（数字员工的指令、Skill 和 MCP 只由 Janus 给）和一些敏感数据，可以删掉，也可以再加。"))
+            Text(L.text("默认挡住常见 Agent 的配置和敏感数据，可增可删。"))
                 .font(.caption).foregroundStyle(.secondary)
             Card(padding: 4) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -75,7 +75,7 @@ struct HostEnvView: View {
             Spacer()
             if removable, let remove {
                 Button(L.text("移除"), action: remove).buttonStyle(.link)
-                    .help(L.text("让 Agent 也能用这个路径"))
+                    .help(L.text("不再挡住这个路径"))
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -84,7 +84,7 @@ struct HostEnvView: View {
     private var tryCommand: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L.text("试一条命令")).font(.headline)
-            Text(L.text("同一条命令在本机和 Agent 的环境里各跑一次（/bin/sh，最多 20 秒），看看某个工具在 Agent 里能不能用。"))
+            Text(L.text("同一条命令在本机和 Agent 环境各跑一次（/bin/sh，限时 20 秒），看工具能不能用。"))
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 TextField(L.text("例如 gh auth status"), text: $command)

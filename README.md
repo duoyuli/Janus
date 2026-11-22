@@ -48,14 +48,14 @@ Janus is the Roman god of gates, beginnings, and transitions. He is shown with t
 ### The macOS app (recommended)
 
 1. Download `Janus-<version>.dmg` from [GitHub Releases](https://github.com/duoyuli/Janus/releases) and drag Janus into Applications.
-2. On first launch, macOS may say the developer cannot be verified (the package is not signed with an Apple certificate). Open System Settings → Privacy & Security and choose Open Anyway.
+2. On first launch, macOS may say the developer cannot be verified (the package is not signed with an Apple certificate). Open System Settings › Privacy & Security and choose Open Anyway.
 3. Requires an Apple silicon Mac (M series) and macOS 15 or later: Janus supports the three latest major versions of macOS (15, 26 and 27). The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex and Claude Code adapters bundle their CLIs.
 
 The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/20261031-deployment.md#macos_app).
 
-Press ⌘, to open Janus Settings. In General → Language, choose Follow System, 简体中文, or English. Changes take effect immediately and persist across launches.
+Press ⌘, to open Janus Settings. In General › Language, choose Follow System, 简体中文, or English. Changes take effect immediately and persist across launches.
 
-After the first installation, or when Janus’s signing identity changes (for example when upgrading from a release before 2026.11.18.5), Janus shows a macOS permission checklist; updates with the same signature keep the permissions you granted. The checklist is also available under Settings → General → macOS Permissions. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; you still switch each one on in macOS, and Janus detects the status of all three. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
+After the first installation, or when Janus’s signing identity changes (for example when upgrading from a release before 2026.11.18.5), Janus shows a macOS permission checklist; updates with the same signature keep the permissions you granted. The checklist is also available under Settings › General › macOS Permissions. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; you still switch each one on in macOS, and Janus detects the status of all three. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
 
 ### From source
 
@@ -79,7 +79,7 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 ### First run
 
-1. Add an agent under Settings → Digital Employees and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back from the adapter line on the agent's card.
+1. Add an agent under Settings › Digital Employees and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back from the adapter line on the agent's card.
    To connect Claude through an API, select **Custom API** under authentication, then click **Insert Template** or paste your `export KEY=value` lines for the endpoint, token, and models.
 2. Bind digital employees to agents on the same page, choose a model and permission mode, and turn on “Can Be Lead” for the ones that should lead.
 3. Create a workspace: choose a directory, enable digital employees, and name one bound to Claude Code or Codex as the lead.

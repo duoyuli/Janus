@@ -93,7 +93,7 @@ struct TaskView: View {
                                 }
                                 if !t.evidence.isEmpty {
                                     Divider()
-                                    Text(L.text("执行者提交的其他证据")).font(.callout).foregroundStyle(.secondary)
+                                    Text(L.text("协作者提交的其他证据")).font(.callout).foregroundStyle(.secondary)
                                     VStack(alignment: .leading, spacing: 3) {
                                         ForEach(t.evidence.indices, id: \.self) { i in
                                             Text(MD.inline(t.evidence[i])).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -107,7 +107,7 @@ struct TaskView: View {
                                 }
                                 if !t.risks.isEmpty {
                                     Divider()
-                                    Text(L.text("风险（执行者报告）")).font(.callout).foregroundStyle(.secondary)
+                                    Text(L.text("风险（协作者自报）")).font(.callout).foregroundStyle(.secondary)
                                     VStack(alignment: .leading, spacing: 3) { RiskList(risks: t.risks) }
                                 }
                                 if !t.summary.isEmpty {
@@ -120,7 +120,7 @@ struct TaskView: View {
                             }
                         }
                         Card {
-                            KV(rows: [(L.text("执行者"), w.name)])
+                            KV(rows: [(L.text("协作者"), w.name)])
                             depRow(L.text("上游"), t.deps, st)
                             depRow(L.text("下游"), st.order.filter { st.tasks[$0]?.deps.contains(t.id) == true }, st)
                             if !t.attempts.isEmpty {

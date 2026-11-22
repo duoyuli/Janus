@@ -263,11 +263,11 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
 /// runs again, so a rework reads as the same conversation going on.
 @Test func attemptHeadersSayWhichSessionAndWhy() {
     #expect(SessionView.attemptNote(["session": "s1"], task: "T1") == "")
-    #expect(SessionView.attemptNote(["resumed": true], task: "T1") == expectedCopy(" · 恢复了原会话", " · Resumed previous session"))
+    #expect(SessionView.attemptNote(["resumed": true], task: "T1") == expectedCopy(" · 接上了原会话", " · Picked up the previous session"))
     let rework: JSON = ["continuation": ["from": "T1", "session": "s1", "loaded": true], "reopen": ["reason": "lead.retry", "session": "continue", "from": "V1"]]
-    #expect(SessionView.attemptNote(rework, task: "T1") == expectedCopy(" · 接着原会话 · 按 V1 的意见返工", " · Continues its own session · Rework on V1's findings"))
+    #expect(SessionView.attemptNote(rework, task: "T1") == expectedCopy(" · 接上原会话 · 按 V1 的意见返工", " · Picks up its own session · Rework on V1's findings"))
     let follow: JSON = ["continuation": ["from": "T1", "session": "s1", "loaded": true]]
-    #expect(SessionView.attemptNote(follow, task: "T2") == expectedCopy(" · 接着 T1 的会话", " · Continues T1's session"))
+    #expect(SessionView.attemptNote(follow, task: "T2") == expectedCopy(" · 接上 T1 的会话", " · Picks up T1's session"))
     let never: JSON = ["continuation": ["from": "T4", "loaded": false, "fallback": "no_session"], "reopen": ["reason": "lead.retry", "session": "continue"]]
     #expect(SessionView.attemptNote(never, task: "T4") == expectedCopy(" · 新开会话（这个子任务之前没有会话）", " · New session (this subtask had no session before)"))
     let full: JSON = ["continuation": ["from": "V1", "loaded": false, "fallback": "context_over_75pct"], "reopen": ["reason": "target.reworked", "target": "T1"]]

@@ -10,7 +10,7 @@ struct UpdatesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(L.text("安装包里的 Janus 在应用内更新：下载新版本、校验签名后替换当前应用并重新打开。"))
+            Text(L.text("下载新版、校验签名、替换并重开，一步完成。"))
                 .font(.callout).foregroundStyle(.secondary)
             Card(padding: 22) {
                 HStack(alignment: .top, spacing: 12) {
@@ -42,7 +42,7 @@ struct UpdatesView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text(L.text("Janus 启动 20 秒后检查一次，之后每 6 小时一次；菜单栏图标菜单里也有「检查更新…」。"))
+            Text(L.text("启动 20 秒后查一次，之后每 6 小时一次。"))
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -58,7 +58,7 @@ struct UpdatesView: View {
 
     private var installNote: String {
         let size = ByteCountFormatter.string(fromByteCount: Int64(updater.downloadSize), countStyle: .file)
-        return L.text("更新会下载 \(size)，然后退出并重新打开 Janus；正在执行的任务会中断，重新打开后可以从中断处继续。")
+        return L.text("将下载 \(size) 并重开 Janus；进行中的任务会中断，重开后可以接着做。")
     }
 
     /// What the pane says above the buttons, and how it should read.

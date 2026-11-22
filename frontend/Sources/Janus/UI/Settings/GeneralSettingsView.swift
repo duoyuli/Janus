@@ -33,7 +33,7 @@ struct GeneralSettingsView: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, 6)
             HStack(spacing: 22) {
-                settingLabel(L.text("语言"), detail: L.text("选择 Janus 的界面语言，更改后立即生效。"))
+                settingLabel(L.text("语言"), detail: L.text("Janus 的界面语言"))
                 Spacer(minLength: 0)
                 Picker(L.text("语言"), selection: Bindable(LanguageSettings.shared).selection) {
                     ForEach(AppLanguage.allCases, id: \.self) { item in
@@ -50,7 +50,7 @@ struct GeneralSettingsView: View {
             }
             Divider()
             HStack(spacing: 22) {
-                settingLabel(L.text("外观"), detail: L.text("选择 Janus 的界面外观，更改后立即生效。"))
+                settingLabel(L.text("外观"), detail: L.text("Janus 的界面外观"))
                 Spacer(minLength: 0)
                 choice(Appearance.allCases, selected: appearance, label: L.text("外观"), title: \.title) {
                     appearance = $0
@@ -59,7 +59,7 @@ struct GeneralSettingsView: View {
             }
             Divider()
             HStack(spacing: 22) {
-                settingLabel(L.text("发送消息"), detail: L.text("选择输入框里发送消息的按键，更改后立即生效。\(sendKey.note)"))
+                settingLabel(L.text("发送消息"), detail: L.text("输入框里发送消息的按键。\(sendKey.note)"))
                 Spacer(minLength: 0)
                 choice(SendKey.allCases, selected: sendKey, label: L.text("发送消息"), title: \.title) { SendKeySetting.shared.value = $0 }
             }

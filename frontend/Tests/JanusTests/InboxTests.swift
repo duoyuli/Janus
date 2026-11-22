@@ -67,7 +67,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     ]
     let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城")
     let approval = try #require(entries.first { $0.kind == "approval" })
-    #expect(approval.title == expectedCopy("「实现者」请求你决定", "实现者 asks you to decide") && approval.sub == "T1 · 清理旧构建", "named like the request card")
+    #expect(approval.title == expectedCopy("「实现者」等你拍板", "实现者 needs your call") && approval.sub == "T1 · 清理旧构建", "named like the request card")
     #expect(approval.actions.map(\.label) == [expectedCopy("允许一次", "Allow Once"), expectedCopy("始终允许", "Always Allow"), expectedCopy("拒绝", "Deny")])
     #expect(approval.actions[0].prominent && approval.actions[0].body["option"].str == "o1" && approval.actions[0].body["allow"] == true)
     #expect(approval.actions[2].body["allow"] == false && approval.actions[2].body["label"].str == "Reject", "the agent's own words go back")
@@ -101,7 +101,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     }
 }
 
-/// A workspace's 「等你处理」: one row per goal or Loop of that workspace, newest first, saying what
+/// A workspace's 「待处理」: one row per goal or Loop of that workspace, newest first, saying what
 /// it waits on; other workspaces' entries are left out.
 @Test func aWorkspaceGroupsWhatWaitsByGoalAndLoop() {
     func e(_ key: String, _ run: String, _ kind: String, wait: Bool = true) -> InboxEntry {
@@ -112,7 +112,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     let rows = Inbox.waiting(open, goals: [["id": "g1", "goal": "上线"], ["id": "g2", "goal": "修复"]],
                              loops: [["id": "l1", "run": "loop-run", "title": "issue 分拣"]])
     #expect(rows.map(\.id) == ["loop-run", "g1", "g2"])
-    #expect(rows[0].loop?["id"] == "l1" && rows[0].label == expectedCopy("等你决定", "Decision Required") && rows[0].tone == .amber)
+    #expect(rows[0].loop?["id"] == "l1" && rows[0].label == expectedCopy("等你拍板", "Your Call") && rows[0].tone == .amber)
     #expect(rows[1].loop == nil && rows[1].label == expectedCopy("等你验收", "Ready to Accept"))
     #expect(rows[2].entries.count == 2 && rows[2].label == expectedCopy("2 件事", "2 Items") && rows[2].tone == .red, "an approval holds an agent up")
 }

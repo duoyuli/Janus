@@ -75,7 +75,7 @@ extension AppStore {
 
     /// Delete a Loop with its session; the runs it dispatched stay.
     func deleteLoop(_ loop: JSON) async {
-        guard confirm(L.text("删除值班「\(loop["title"].str)」？"), L.text("它的会话和记录一起删除，不可恢复；它派出的任务保留。"), ok: L.text("删除")) else { return }
+        guard confirm(L.text("删除值班「\(loop["title"].str)」？"), L.text("它的会话和记录一起删掉，找不回来；派出的任务保留。"), ok: L.text("删除")) else { return }
         do {
             try await api.delete("/api/loops/\(API.q(loop["id"].str))")
             if run?.id == loop["run"].str { open(.home(loop["workspace"].str)) }

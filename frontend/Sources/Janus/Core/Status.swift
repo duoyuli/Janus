@@ -26,8 +26,8 @@ enum RunStatus: String {
     var listLabel: (String, Tone) {
         switch self {
         case .queued: return (L.text("排队中"), .gray)
-        case .planning: return (L.text("负责人启动中"), .blue)
-        case .running: return (L.text("执行中"), .blue)
+        case .planning: return (L.text("负责人上岗中"), .blue)
+        case .running: return (L.text("干活中"), .blue)
         case .delivered: return (L.text("已交付"), .green)
         case .accepted: return (L.text("已验收"), .green)
         case .failed: return (L.text("失败"), .red)
@@ -63,16 +63,16 @@ enum TaskStatus: String {
 
     var label: (String, Tone) {
         switch self {
-        case .pending: return (L.text("等待依赖"), .gray)
-        case .ready: return (L.text("就绪"), .gray)
-        case .assigned: return (L.text("已分配"), .blue)
-        case .running: return (L.text("执行中"), .blue)
+        case .pending: return (L.text("等上游"), .gray)
+        case .ready: return (L.text("待开工"), .gray)
+        case .assigned: return (L.text("已派活"), .blue)
+        case .running: return (L.text("干活中"), .blue)
         case .waitingInput: return (L.text("等你回答"), .amber)
         case .waitingApproval: return (L.text("等你审批"), .amber)
-        case .blocked: return (L.text("依赖失败"), .amber)
+        case .blocked: return (L.text("上游出错"), .amber)
         case .skippedByDecision: return (L.text("负责人取消"), .gray)
         case .verifying: return (L.text("核对中"), .violet)
-        case .verificationFailed: return (L.text("没通过验收"), .red)
+        case .verificationFailed: return (L.text("验收没通过"), .red)
         case .succeeded: return (L.text("已完成"), .green)
         case .failed: return (L.text("失败"), .red)
         case .cancelled: return (L.text("已取消"), .gray)

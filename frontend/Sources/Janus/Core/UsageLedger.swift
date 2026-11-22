@@ -372,7 +372,7 @@ extension UsageScope {
     }
 
     /// Wall-clock time; it never stands in for agent execution time.
-    var durationText: String { durationMs.map { L.text("\(L.dur(Double($0)))（墙钟）") } ?? L.text("没有时长记录") }
+    var durationText: String { durationMs.map { L.text("\(L.dur(Double($0)))（总时长）") } ?? L.text("没有时长记录") }
 
     /// `其中等待你 1 分 20 秒` when the range waited on a person.
     var waitText: String? { waitMs.map { L.text("其中等待你 \(L.dur(Double($0)))") } }
@@ -710,7 +710,7 @@ func usageReminders(_ ledger: UsageLedger, declared: Int) -> [String] {
         out.append(L.text("协作者多但没有有效产出：\(collaborators) 个协作者，30 分钟内没有任何子任务成功"))
     }
     if let n = total, n >= 100_000, !ledger.run.cost.reported {
-        out.append(L.text("费用无法判断：有 token 用量，但没有任何会话上报费用"))
+        out.append(L.text("费用算不出来：有 Token 用量，但没有会话上报费用"))
     }
     return out
 }

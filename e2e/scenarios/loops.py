@@ -8,7 +8,7 @@ from scenarios import scenario
 
 @scenario("loops")
 def loops(ctx, c):
-    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次开工自己起名，开工的消息只有值班的提示；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（等你处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量）都与服务端一致"""
+    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次开工自己起名，开工的消息只有值班的提示；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（待处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量）都与服务端一致"""
     t = ctx.team("loops", members=("m1",))
     ws = t.ws["id"]
     preview = ctx.api("GET", "/api/loops/schedule?cron=0+9+*+*+1-5&tz=Asia/Shanghai")
@@ -87,18 +87,18 @@ def loops(ctx, c):
     if ctx.app:
         s = ctx.app.until(lambda s: any(e["run"] == run and e["kind"] == "question" for e in s["open"]), "问题进了收件箱", "open inbox")
         c(True, "应用：值班的问题在收件箱里")
-        # The workspace page lists it under 等你处理 as the Loop's row, the sidebar counts it, and no
+        # The workspace page lists it under 待处理 as the Loop's row, the sidebar counts it, and no
         # run is listed both there and in the task records.
         mine = [e for e in s["open"] if e["run"] == run]
         home = ctx.app.until(lambda h: any(w["loop"] == loop_id for w in ((h.get("home") or {}).get("waiting") or [])),
-                             "工作区页的等你处理列出值班", "reload", f"open home:{ws}")
+                             "工作区页的待处理列出值班", "reload", f"open home:{ws}")
         w = next(w for w in home["home"]["waiting"] if w["loop"] == loop_id)
-        c(w["run"] == run and w["items"] == len(mine) and (len(mine) > 1 or w["label"] in ("等你决定", "Decision Required")),
-          f"应用：工作区页的等你处理有值班这一行，写它在等什么（{w['label']}）")
+        c(w["run"] == run and w["items"] == len(mine) and (len(mine) > 1 or w["label"] in ("等你拍板", "Your Call")),
+          f"应用：工作区页的待处理有值班这一行，写它在等什么（{w['label']}）")
         here = sum(x["items"] for x in home["home"]["waiting"])
         c(home["sidebar"].get(ws) == here == len([e for e in home["open"] if e["run"] in {x["run"] for x in home["home"]["waiting"]}]),
           f"应用：侧栏的工作区数字算上值班的事，和工作区页一致（{here}）")
-        c(not {x["run"] for x in home["home"]["waiting"]} & set(home["home"]["records"]), "应用：等你处理的任务不在任务记录里重复列出")
+        c(not {x["run"] for x in home["home"]["waiting"]} & set(home["home"]["records"]), "应用：待处理的任务不在任务记录里重复列出")
         ctx.app.do("shot loops-waiting")
         ctx.app.until(lambda s: any(i["key"] == asked["data"]["key"] for i in (s.get("run") or {}).get("inbox", [])),
                       "值班页也能回答这个问题", f"open run:{run}")

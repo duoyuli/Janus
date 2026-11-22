@@ -172,11 +172,11 @@ struct DiffReviewView: View {
             if let sent { Text(sent).font(.callout).foregroundStyle(Tone.green.color).fixedSize() }
             Button(L.text("发给\(name)")) { send(to: agent, label: name) }
                 .disabled(!run.canAct || !ready || agent.isEmpty)
-                .help(L.text("直接发给做这个子任务的 Agent：它在会话里时插入这一轮，否则在它下次会话开始时带给它"))
+                .help(L.text("直接发给做这个子任务的 Agent：在线就插进这一轮，不在线就下次会话带给它"))
             Button(L.text("交给负责人")) { send(to: "lead", label: L.text("负责人")) }
                 .buttonStyle(.primary)
                 .disabled(!run.canAct || !ready)
-                .help(run.canAct ? L.text("负责人读到意见后决定：让执行者修改、重做这个子任务，或者自己处理") : L.text("这个任务已经结束，不能再发消息"))
+                .help(run.canAct ? L.text("负责人读完决定：让协作者修改、重做，或者自己处理") : L.text("这个任务已经结束，不能再发消息"))
         }
         .padding(12)
         .background(Color.card)

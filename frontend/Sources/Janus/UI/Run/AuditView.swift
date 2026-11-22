@@ -34,11 +34,11 @@ struct AuditView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: broken == 0 ? "checkmark.seal" : "exclamationmark.triangle.fill").foregroundStyle(broken == 0 ? Tone.green.color : Tone.red.color).accessibilityHidden(true)
-                    Text(broken == 0 ? L.text("系统不变量全部满足") : L.text("\(broken) 条系统不变量不满足")).font(.callout.weight(.medium))
+                    Text(broken == 0 ? L.text("系统规则全部满足") : L.text("\(broken) 条系统规则没满足")).font(.callout.weight(.medium))
                     Text(verbatim: L.text("\(invs.count) 条，基于 \(events.count) 条事件")).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .help(L.text("工作台上的状态都由这些事件推导；子任务状态只由编排器改变。选中一条事件查看原文，点「回放到这里」看当时的工作台。"))
+            .help(L.text("工作台的状态都由这些事件推出。选中一条看原文，点「回放到这里」看当时的样子。"))
             HStack(spacing: 10) {
                 Picker(L.text("事件类别"), selection: Binding(get: { run.auditCat }, set: { run.auditCat = $0 })) {
                     ForEach(L.categoryLabel, id: \.0) { Text($0.1).tag($0.0) }
@@ -125,7 +125,7 @@ struct AuditView: View {
         return [
             (L.text("每个子任务同一时间最多一个进行中的尝试"), overlap == 0, L.text("\(attempts) 次尝试")),
             (L.text("重试会新建尝试，旧记录保留"), gaps == 0, L.text("\(numbers.count) 个子任务")),
-            (L.text("子任务状态只由编排器（Janus）改变"), badActor == 0, L.text("Agent 只提交进度与结果")),
+            (L.text("子任务状态只由 Janus 改变"), badActor == 0, L.text("Agent 只提交进度与结果")),
             (L.text("标记完成前已提交结构化结果和证据"), noEvidence == 0 && unsubmitted == 0, L.text("\(events.filter { $0.type == "task.succeeded" }.count) 次完成")),
             (L.text("等待输入时附带可回答的问题"), badQuestion == 0, L.text("\(events.filter { $0.type == "question.asked" }.count) 个问题")),
         ]
@@ -139,7 +139,7 @@ struct TeamView: View {
     /// What the run does to its directory, from facts rather than the sentence recorded at creation.
     private func wsNote(_ r: RunInfo) -> String {
         if r.git { return r.workspace.isEmpty ? L.text("Git 仓库，基线 \(String(r.baseRef.prefix(7)))") : r.workspace }
-        return L.text("非 Git 目录：任务直接在这个目录中执行，没有 diff")
+        return L.text("不是 Git 仓库：直接改这个目录，没有 diff")
     }
 
     /// Where a run in a worktree merges its result back, and whether it has.

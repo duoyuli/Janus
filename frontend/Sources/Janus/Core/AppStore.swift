@@ -115,7 +115,7 @@ final class AppStore {
     }
 
     func loadMeta() async {
-        do { meta = try await api.get("/api/meta") } catch { show(L.text("连不上 Janus 后端：\(error.localizedDescription)")) }
+        do { meta = try await api.get("/api/meta") } catch { show(L.text("连不上 Janus 服务：\(error.localizedDescription)")) }
     }
 
     /// Read a workspace's task records the first time its page shows; later reads come with `loadRuns`.
@@ -495,7 +495,7 @@ final class AppStore {
             // What the person should know before it starts (changes a worktree leaves out, another
             // run in a directory outside git); they may go ahead anyway.
             let warnings = try await api.get("/api/runs/preflight?workspace=\(workspace.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? workspace)")["warnings"].strings
-            if !warnings.isEmpty, !confirm(L.text("确定继续执行吗？"), warnings.joined(separator: "\n\n"), ok: L.text("继续执行"), destructive: false) { return }
+            if !warnings.isEmpty, !confirm(L.text("继续执行？"), warnings.joined(separator: "\n\n"), ok: L.text("继续"), destructive: false) { return }
             let r = try await api.post("/api/runs", ["goal": JSON(goal), "workspace": JSON(workspace), "images": .array(images.map(\.json))], timeout: images.isEmpty ? nil : 120)
             goalDraft = ""
             goalImages = []
@@ -575,7 +575,7 @@ final class AppStore {
     // MARK: Agent checks and logins run on the server; the app only polls.
 
     func testConnection(_ id: String) async {
-        do { _ = try await api.post("/api/connections/\(id)/test") } catch { show(L.text("无法开始检查：\(error.localizedDescription)")); return }
+        do { _ = try await api.post("/api/connections/\(id)/test") } catch { show(L.text("没法开始检查：\(error.localizedDescription)")); return }
         await loadSetup()
         watchChecks()
     }
@@ -607,7 +607,7 @@ final class AppStore {
 
     func login(_ id: String) async {
         do { _ = try await api.post("/api/connections/\(id)/login") } catch { show(error.localizedDescription); return }
-        show(L.text("已开始登录：按卡片上的提示完成，完成后会自动测试。"))
+        show(L.text("已开始登录：按卡片上的提示操作，完成后自动检查。"))
         polls["login"]?.cancel()
         polls["login"] = Task { [weak self] in
             while !Task.isCancelled {

@@ -36,11 +36,11 @@ struct MethodTag: View {
             case .command: return (L.text("命令"), .blue, "terminal", L.text("运行命令、脚本或检查工具得到的结果"))
             case .inspection: return (L.text("检查"), .blue, "doc.text.magnifyingglass", L.text("检查代码、文件、界面或实际状态得到的结果"))
             case .reasoning: return (L.text("推理判断"), .amber, "brain", L.text("根据推理或自我判断得到的结果，不是运行得到的结果"))
-            case .unverified: return (L.text("未核实"), .amber, "questionmark.circle", L.text("证据缺失、无法复现或暂时无法核实"))
+            case .unverified: return (L.text("未核实"), .amber, "questionmark.circle", L.text("证据缺失、复现不了或暂时没法核实"))
             }
         }
         if check.badMethod != nil {
-            return (check.methodLabel, .red, "exclamationmark.triangle", L.text("不是允许的取证方法，由核对报出"))
+            return (check.methodLabel, .red, "exclamationmark.triangle", L.text("不认识的证据方法"))
         }
         return (L.text("未说明"), .gray, "minus.circle", L.text("这次结果没有说明证据方法"))
     }
@@ -253,7 +253,7 @@ struct DeliveryTaskView: View {
                 VerificationList(records: record.verifications).padding(.leading, 2)
             }
             if !record.traceGaps.isEmpty {
-                Note(text: L.text("痕迹核对（结果和工作目录对不上）：\n\(record.traceGaps.map { "· \($0)" }.joined(separator: "\n"))"), tone: .amber)
+                Note(text: L.text("改动核对（结果和工作目录对不上）：\n\(record.traceGaps.map { "· \($0)" }.joined(separator: "\n"))"), tone: .amber)
             }
             if !record.risks.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {

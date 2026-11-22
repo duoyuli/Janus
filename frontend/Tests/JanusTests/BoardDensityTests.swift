@@ -30,10 +30,10 @@ private func ledger(tokens: UsageTokens? = nil, completeness: UsageCompleteness 
         sessions: [UsageSession(key: "a", actor: "lead", task: nil, attempt: nil, turns: 2,
                                 context: UsageContext(used: 78_000, size: 200_000, reports: 4))])
     #expect(all.runCardLine(tasks: 10, done: 3)
-        == expectedCopy("子任务 3 / 10 · 用量 76.8M tokens（完整） · 费用 44.2864 USD · 耗时 47 分 58 秒（墙钟） · 上下文 39%", "Subtasks: 3 / 10 · Usage: 76.8M tokens (Complete) · Cost: 44.2864 USD · Elapsed: 47 min 58 sec (wall time) · Context: 39%"))
+        == expectedCopy("子任务 3 / 10 · 用量 76.8M tokens（完整） · 费用 44.2864 USD · 耗时 47 分 58 秒（总时长） · 上下文 39%", "Subtasks: 3 / 10 · Usage: 76.8M tokens (Complete) · Cost: 44.2864 USD · Elapsed: 47 min 58 sec (total time) · Context: 39%"))
     // VoiceOver gets every digit, never the compact form.
     #expect(all.runCardVoice(tasks: 10, done: 3)
-        == expectedCopy("子任务 3 / 10，用量 76,800,000 tokens（完整），费用 44.2864 USD，耗时 47 分 58 秒（墙钟），上下文 78,000 / 200,000（39%） · 峰值 90,000", "Subtasks: 3 / 10, Usage: 76,800,000 tokens (Complete), Cost: 44.2864 USD, Elapsed: 47 min 58 sec (wall time), Context: 78,000 / 200,000 (39%) · Peak: 90,000"))
+        == expectedCopy("子任务 3 / 10，用量 76,800,000 tokens（完整），费用 44.2864 USD，耗时 47 分 58 秒（总时长），上下文 78,000 / 200,000（39%） · 峰值 90,000", "Subtasks: 3 / 10, Usage: 76,800,000 tokens (Complete), Cost: 44.2864 USD, Elapsed: 47 min 58 sec (total time), Context: 78,000 / 200,000 (39%) · Peak: 90,000"))
 
     // The compact line keeps 「N 个会话」 out (it is in the expanded ledger), while a cost row
     // that names several sessions still says so.
@@ -47,18 +47,18 @@ private func ledger(tokens: UsageTokens? = nil, completeness: UsageCompleteness 
 @Test func runCardLineLeavesOutWhatWasNotReported() {
     let partial = ledger(tokens: UsageTokens(total: 15_400), completeness: .partial, durationMs: 65_000,
                          sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1, turns: 1)])
-    #expect(partial.runCardLine(tasks: 3, done: 2) == expectedCopy("子任务 2 / 3 · 用量 15.4K tokens（部分上报） · 耗时 1 分 05 秒（墙钟）", "Subtasks: 2 / 3 · Usage: 15.4K tokens (Partially reported) · Elapsed: 1 min 05 sec (wall time)"))
+    #expect(partial.runCardLine(tasks: 3, done: 2) == expectedCopy("子任务 2 / 3 · 用量 15.4K tokens（部分上报） · 耗时 1 分 05 秒（总时长）", "Subtasks: 2 / 3 · Usage: 15.4K tokens (Partially reported) · Elapsed: 1 min 05 sec (total time)"))
 
     // Only a context snapshot: no tokens, no cost, but the ledger opens and the ratio is shown.
     let contextOnly = ledger(durationMs: 2_000, context: UsageContext(used: 52_000, size: 200_000, reports: 2),
                              sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1,
                                                      context: UsageContext(used: 52_000, size: 200_000, reports: 2))])
-    #expect(contextOnly.runCardLine(tasks: 2, done: 1) == expectedCopy("子任务 1 / 2 · 耗时 2 秒（墙钟） · 上下文 26%", "Subtasks: 1 / 2 · Elapsed: 2 sec (wall time) · Context: 26%"))
+    #expect(contextOnly.runCardLine(tasks: 2, done: 1) == expectedCopy("子任务 1 / 2 · 耗时 2 秒（总时长） · 上下文 26%", "Subtasks: 1 / 2 · Elapsed: 2 sec (total time) · Context: 26%"))
     #expect(contextOnly.hasUsage)
 
     // Nothing reported at all: only the wall-clock time, and no ledger control.
     let fresh = ledger(durationMs: 400)
-    #expect(fresh.runCardLine(tasks: 0, done: 0) == expectedCopy("耗时 不到 1 秒（墙钟）", "Elapsed: Under 1 sec (wall time)"))
+    #expect(fresh.runCardLine(tasks: 0, done: 0) == expectedCopy("耗时 不到 1 秒（总时长）", "Elapsed: Under 1 sec (total time)"))
     #expect(!fresh.hasUsage)
     #expect(!UsageLedger.empty.hasUsage)
 }
@@ -92,7 +92,7 @@ private func check(_ criterion: String, _ method: String?, passed: Bool = true, 
 }
 
 private func verification(_ task: String, passed: Bool) -> VerificationRecord {
-    VerificationRecord(["task": JSON(task), "label": JSON(passed ? "已完成" : "没通过验收"), "passed": JSON(passed),
+    VerificationRecord(["task": JSON(task), "label": JSON(passed ? "已完成" : "验收没通过"), "passed": JSON(passed),
                         "summary": JSON(""), "checks": [], "evidence": [], "risks": []])!
 }
 
@@ -145,7 +145,7 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
 
     // A task that did not succeed says so in words.
     let failed = record("T2", status: .verificationFailed, accept: ["一"], checks: passed)
-    #expect(failed.row.markers == [expectedCopy("没通过验收", "Acceptance check failed")])
+    #expect(failed.row.markers == [expectedCopy("验收没通过", "Acceptance failed")])
     #expect(!failed.row.needsAttention, "the default expansion rules do not include the status alone")
 }
 
@@ -159,8 +159,8 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     let o = deliveryOverview([first, second], runRisks: ["上线前要跑一次全量"])
     #expect(o.criteria == 8 && o.passed == 7 && o.failed == 1)
     #expect(o.runRisks == 1 && o.taskRisks == 1 && o.risks == 2)
-    #expect(o.text == expectedCopy("通过 7 / 8 条 · 测试 4 条、命令 2 条、检查 1 条、推理判断 1 条 · 运行级风险 1 条 · 子任务风险 1 条 · 痕迹 1 处", "Passed 7 of 8 · Test: 4, Command: 2, Inspection: 1, Reasoning: 1 · Run risks: 1 · Subtask risks: 1 · Trace discrepancies: 1"))
-    #expect(o.issuesText == expectedCopy("1 条标准未通过、运行级风险 1 条、子任务风险 1 条、1 处痕迹对不上、1 项独立验证未确认", "Failed criteria: 1, Run risks: 1, Subtask risks: 1, Trace discrepancies: 1, Unconfirmed independent reviews: 1"))
+    #expect(o.text == expectedCopy("通过 7 / 8 条 · 测试 4 条、命令 2 条、检查 1 条、推理判断 1 条 · 任务级风险 1 条 · 子任务风险 1 条 · 对不上 1 处", "Passed 7 of 8 · Test: 4, Command: 2, Inspection: 1, Reasoning: 1 · Run-level risks: 1 · Subtask risks: 1 · Mismatches: 1"))
+    #expect(o.issuesText == expectedCopy("1 条标准没通过、任务级风险 1 条、子任务风险 1 条、1 处对不上、1 项独立验证未确认", "Failed criteria: 1, Run-level risks: 1, Subtask risks: 1, Mismatches: 1, Unconfirmed independent reviews: 1"))
     #expect(deliveryOverview([], runRisks: []).issuesText == nil)
     let unchecked = deliveryOverview([record("T3", accept: ["一"], checks: [check("一", "test")], unverified: true)], runRisks: [])
     #expect(unchecked.unverifiedTasks == 1)
@@ -262,7 +262,7 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
                          "criteria": 3, "passed": 1, "methods": [["method": "inspection", "label": "检查", "count": 1], ["method": "reasoning", "label": "推理判断", "count": 1]],
                          "checks": [check(1, "新接口有测试", "test", passed: false), check(2, "旧调用方迁移", "inspection", passed: true),
                                     check(3, "性能不变", "reasoning", passed: false)],
-                         "verifications": [["task": "V1", "label": "没通过验收", "passed": false, "summary": "没有独立复现", "checks": [], "evidence": [], "risks": []]],
+                         "verifications": [["task": "V1", "label": "验收没通过", "passed": false, "summary": "没有独立复现", "checks": [], "evidence": [], "risks": []]],
                          "traceGaps": ["T2 声称改了 shared.swift，但 diff 里没有"], "risks": ["没有跑集成测试"]]
     var events: [Event] = []
     func add(_ type: String, actor: String = "janus", task: String? = nil, attempt: Int? = nil, ts: Int, data: JSON = [:]) {

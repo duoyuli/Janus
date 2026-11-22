@@ -96,8 +96,8 @@ private struct ChatLog {
 
 /// The recent chats say whether a chat's session is open; a closed one is not a run to resume.
 @Test func chatRowsSayWhetherTheSessionIsOpen() {
-    #expect(ChatRowStatus.label(.interrupted) == (L.text("已关闭"), .gray))
-    #expect(ChatRowStatus.label(.failed) == (L.text("已关闭"), .gray))
+    #expect(ChatRowStatus.label(.interrupted) == (L.text("已结束"), .gray))
+    #expect(ChatRowStatus.label(.failed) == (L.text("已结束"), .gray))
     #expect(ChatRowStatus.label(.running) == (L.text("会话中"), .blue))
 }
 

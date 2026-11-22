@@ -46,8 +46,8 @@ enum MacPermissionStatus: Equatable {
 
     var label: String {
         switch self {
-        case .unavailable: L.text("请使用安装包")
-        case .unknown: L.text("无法检测")
+        case .unavailable: L.text("用安装包里的 Janus")
+        case .unknown: L.text("测不出来")
         case .granted: L.text("已授权")
         case .notGranted: L.text("未检测到授权")
         }
@@ -179,7 +179,7 @@ final class MacPermissions {
         else {
             // The return value alone is not cached as a grant: the preflight check is the source.
             if !system.requestScreen() {
-                actionError = L.text("尚未获得屏幕录制权限。请在系统提示中允许；若没有提示，请打开系统设置。")
+                actionError = L.text("还没拿到屏幕录制权限。在系统弹窗里允许；没弹窗就去系统设置。")
             }
             refresh()
             if status(first) == .granted { actionError = nil }
@@ -190,7 +190,7 @@ final class MacPermissions {
         guard available else { return }
         actionError = nil
         if !system.openSettings(permission) {
-            actionError = L.text("无法打开系统设置。请手动打开「系统设置 → 隐私与安全性 → \(permission.title)」。")
+            actionError = L.text("打不开系统设置，手动去「系统设置 › 隐私与安全性 › \(permission.title)」看看。")
         }
     }
 
@@ -217,7 +217,7 @@ final class MacPermissions {
     private func persist() {
         guard let record else { return }
         do { try save(record); persistenceError = nil }
-        catch { persistenceError = L.text("无法保存权限引导记录，下次启动可能再次提醒：\(error.localizedDescription)") }
+        catch { persistenceError = L.text("没法保存权限引导记录，下次启动可能还会提醒：\(error.localizedDescription)") }
     }
 
     static func unavailable() -> MacPermissions {

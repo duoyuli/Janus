@@ -19,12 +19,12 @@ struct UsageSection: View {
 
     /// What each row means, shown on hover.
     private var help: [String: String] { [
-        "Token": L.text("每一轮 Agent 上报的 token 相加（含子 Agent，Agent 按模型上报时以它为准）；缺失写「未上报」，不写 0；上下文快照不计入"),
-        L.text("构成"): L.text("Agent 上报的输入、缓存读取、缓存写入和输出；为 0 或没有上报的部分不列出"),
-        L.text("费用"): L.text("Agent 上报的原值，不同币种或口径不合并；没有上报时写「未上报」，不根据 token 估算"),
-        L.text("耗时"): L.text("墙钟时长：从任务创建到最后一条事件。等待你的时间单独写出，不当作 Agent 执行时间"),
-        L.text("上下文"): L.text("上下文快照只显示最近值、峰值和比例，不计入 token 总量"),
-        L.text("小计"): L.text("任务总计包含负责人；负责人和协作者分开列出，方便对比"),
+        "Token": L.text("每轮 Agent 上报的 Token 之和（含子 Agent）；没上报写「未上报」，上下文快照不计入"),
+        L.text("构成"): L.text("输入、缓存读取、缓存写入和输出；为 0 的不列"),
+        L.text("费用"): L.text("Agent 上报的原值；没上报就写「未上报」，不按 Token 估算"),
+        L.text("耗时"): L.text("总时长：从任务创建到最后一条事件；等你的时间单独列出"),
+        L.text("上下文"): L.text("上下文快照只看最近值和峰值，不算进 Token 总量"),
+        L.text("小计"): L.text("总计含负责人；负责人和协作者分开列"),
     ] }
 
     var body: some View {
@@ -50,7 +50,7 @@ struct UsageSection: View {
                     .foregroundStyle(Color.accent)
                 }
                 .buttonStyle(.plain)
-                .help(L.text("按子任务和成员展开这次任务的用量，每个数字都来自 session.usage 事件"))
+                .help(L.text("按子任务和成员拆开看用量"))
                 .accessibilityLabel(detail ? L.text("收起子任务与成员明细") : L.text("展开子任务与成员明细"))
             }
             if detail { details(u) }
@@ -132,7 +132,7 @@ struct UsageReceipt: View {
             VStack(spacing: 3) {
                 Text(bill.headlineCaption).font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(bill.headline).font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
-                    .help(bill.tokens.total.map { "\(usageNum($0)) tokens" } ?? L.text("没有会话上报 token"))
+                    .help(bill.tokens.total.map { "\(usageNum($0)) tokens" } ?? L.text("没有会话上报 Token"))
                 Text(bill.headlineDetail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
@@ -145,7 +145,7 @@ struct UsageReceipt: View {
                 HStack {
                     Text(bill.groupsTitle)
                     Spacer()
-                    Text(bill.priced ? L.text("估算 · TOKEN") : "TOKEN")
+                    Text(bill.priced ? L.text("估算 · Token") : "TOKEN")
                 }
                 .font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
                 ForEach(bill.groups) { g in ReceiptGroup(group: g) }
@@ -210,7 +210,7 @@ private struct ReceiptAmount: View {
             }
         }
         .monospacedDigit()
-        .help(tokens.total.map { L.text("\(usageNum($0)) tokens · \(turns) 轮") } ?? L.text("没有上报 token"))
+        .help(tokens.total.map { L.text("\(usageNum($0)) tokens · \(turns) 轮") } ?? L.text("没有上报 Token"))
     }
 }
 

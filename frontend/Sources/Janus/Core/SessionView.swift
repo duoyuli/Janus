@@ -120,7 +120,7 @@ enum SessionView {
     /// back where the run started. `nil` for a run working in place.
     static func worktreeNote(_ r: RunInfo, accepted: Bool) -> String? {
         guard !r.repo.isEmpty else { return nil }
-        let source = r.branch.isEmpty ? L.text("\(r.repo) 当前的 detached HEAD") : L.text("\(r.repo) 的分支 \(r.branch)")
+        let source = r.branch.isEmpty ? L.text("\(r.repo) 当前的提交（不在分支上）") : L.text("\(r.repo) 的分支 \(r.branch)")
         if accepted && r.merged { return L.text("结果已合并到 \(source)。") }
         if accepted { return L.text("这个任务没有新的改动，没有提交。") }
         return L.text("改动在这个任务单独的副本里，验收时合并回 \(source)。")
@@ -156,10 +156,10 @@ enum SessionView {
     /// the task's own conversation, so the header says so instead of looking like a new session.
     static func attemptNote(_ d: JSON, task: String?) -> String {
         var parts: [String] = []
-        if d["resumed"].truthy { parts.append(L.text("恢复了原会话")) }
+        if d["resumed"].truthy { parts.append(L.text("接上了原会话")) }
         let c = d["continuation"]
         if c["loaded"].truthy {
-            parts.append(c["from"].str == task ? L.text("接着原会话") : L.text("接着 \(c["from"].str) 的会话"))
+            parts.append(c["from"].str == task ? L.text("接上原会话") : L.text("接上 \(c["from"].str) 的会话"))
         } else if c.exists {
             switch c["fallback"].str {
             case "context_over_75pct": parts.append(L.text("新开会话（原会话上下文超过 75%）"))

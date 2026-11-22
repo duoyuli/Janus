@@ -10,18 +10,18 @@ struct RolesSection: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L.text("数字员工")).font(.display(.title3))
-                    Text(L.text("决定谁用什么 Agent 和模型、带什么指令做事。资源库里的 Skill 和 MCP 每个员工都有。")).font(.callout).foregroundStyle(.secondary)
+                    Text(L.text("给每位数字员工配 Agent、模型和指令；资源库全员可用。")).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
             }
             if store.okConnections.isEmpty && !store.connections.isEmpty {
-                Note(text: L.text("还没有检查通过的 Agent。可以先编辑数字员工，Agent 检查通过后才能运行。"), tone: .amber)
+                Note(text: L.text("还没有通过检查的 Agent。可以先编辑数字员工，Agent 通过检查后才能运行。"), tone: .amber)
             }
             if store.roles.isEmpty {
                 Card(padding: 20) {
                     Text(L.text("还没有数字员工")).font(.display(.title3))
-                    Text(L.text("数字员工决定谁做什么。先建一个负责人，再建一个通用数字员工。")).foregroundStyle(.secondary)
+                    Text(L.text("先建一个负责人，再来一个通用数字员工，团队就能开工。")).foregroundStyle(.secondary)
                     Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
                 }
             } else {
@@ -103,7 +103,7 @@ struct RoleEditor: View {
                     Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased(), color: r["color"].str, size: 34,
                            role: picture == .remove ? "" : r["id"].str, picture: chosen)
                 }
-                .buttonStyle(.plain).help(L.text("选择颜色；也可以把图片拖到这里作为头像")).accessibilityLabel(L.text("数字员工头像"))
+                .buttonStyle(.plain).help(L.text("选颜色，或拖张图片当头像")).accessibilityLabel(L.text("数字员工头像"))
                 .dropDestination(for: URL.self) { urls, _ in choose(urls.first) }
                 .popover(isPresented: $colors) {
                     VStack(alignment: .leading, spacing: 10) {
@@ -127,7 +127,7 @@ struct RoleEditor: View {
                     Text(r["id"].truthy ? L.text("编辑数字员工") : L.text("新建数字员工")).font(.display(.title3))
                     HStack(spacing: 12) {
                         Button(L.text("更换头像…")) { pickPicture() }
-                            .help(L.text("选一张图片作为头像，会从中间裁成正方形；也可以把图片拖到头像上"))
+                            .help(L.text("选张图片当头像，会裁成正方形；也可以直接拖进来"))
                         if hasPicture { Button(L.text("移除头像")) { picture = .remove } }
                     }
                     .buttonStyle(.link).font(.caption)
@@ -144,7 +144,7 @@ struct RoleEditor: View {
                     labeled(L.text("名称")) { TextField("Reviewer", text: bind("name")).textFieldStyle(.roundedBorder) }
                     labeled(L.text("职责")) {
                         TextField(L.text("独立检查变更，寻找风险与反例"), text: bind("desc")).textFieldStyle(.roundedBorder)
-                        Text(L.text("负责人会根据这段描述，把合适的子任务交给它。写下它擅长什么、负责交付什么。")).font(.caption).foregroundStyle(.secondary)
+                        Text(L.text("写它擅长什么、交付什么，负责人据此派活。")).font(.caption).foregroundStyle(.secondary)
                     }
                     seedUpdate("desc", L.text("默认职责有新版本。你改过这一项，所以升级时没有替换。"))
                     Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
@@ -165,7 +165,7 @@ struct RoleEditor: View {
                             if !r["prompt"].truthy { Text(L.text("告诉这个数字员工怎么做事，例如：先读相关代码和已有测试；重点检查边界条件、错误处理和测试覆盖。")).foregroundStyle(.tertiary).padding(6).allowsHitTesting(false) }
                         }
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
-                    Text(L.text("这段指令会作为系统提示词交给 Coding Agent，在整个会话中持续生效。")).font(.caption).foregroundStyle(.secondary)
+                    Text(L.text("作为系统提示词交给 Agent，整个会话都有效。")).font(.caption).foregroundStyle(.secondary)
                     seedUpdate("prompt", L.text("默认指令有新版本。你改过这一项，所以升级时没有替换。"))
 
                     section(L.text("由谁来做"))
@@ -186,7 +186,7 @@ struct RoleEditor: View {
                                 }
                                 .labelsHidden()
                             } else if c?["status"].str == "testing" { Text(L.text("读取模型中…")).foregroundStyle(.secondary) }
-                            else { Button(c?["status"].str == "error" ? L.text("检查未通过，重新检查") : L.text("检查 Agent 以读取模型")) { Task { await store.testConnection(c!["id"].str) } }.buttonStyle(.link) }
+                            else { Button(c?["status"].str == "error" ? L.text("检查没通过，再查一次") : L.text("检查 Agent 以读取模型")) { Task { await store.testConnection(c!["id"].str) } }.buttonStyle(.link) }
                         }
                         labeled(L.text("推理强度")) {
                             if !opt["effort"]["options"].array.isEmpty {
@@ -202,7 +202,7 @@ struct RoleEditor: View {
                     section(L.text("权限"), trailing: Setup.controls(c).contains { $0["permission"].truthy } ? L.text("\(c?["name"].str ?? "") 的权限模式") : "")
                     permissions(c)
                     if c?["options"]["controls"].exists == true {
-                        Text(L.text("Agent 自己判断哪些操作要先问你，它发起的审批、表单和链接都会进入「需要你处理」，按 Agent 给出的选项呈现。")).font(.caption).foregroundStyle(.secondary)
+                        Text(L.text("要不要先问你，由 Agent 自己判断；它发来的审批、表单和链接都进「待处理」。")).font(.caption).foregroundStyle(.secondary)
                     }
                     otherControls(c)
                 }
@@ -289,7 +289,7 @@ struct RoleEditor: View {
                 HStack { Note(text: L.text("还没有读取 \(c["name"].str) 的权限模式。"), tone: .amber); Button(L.text("检查 Agent")) { Task { await store.testConnection(c["id"].str) } } }
             } else {
                 let perms = Setup.controls(c).filter { $0["permission"].truthy }
-                if perms.isEmpty { Note(text: L.text("\(c["name"].str) 没有声明权限模式：工具调用直接执行，不会发起审批，可以修改工作目录中的文件。")) }
+                if perms.isEmpty { Note(text: L.text("\(c["name"].str) 没有权限模式：工具直接执行，不经审批，能改工作目录里的文件。")) }
                 ForEach(perms, id: \.self) { x in
                     let v = Setup.value(r["session"], x)
                     if x["type"].str == "boolean" {
@@ -330,7 +330,7 @@ struct RoleEditor: View {
                 }
             }
         } else {
-            Note(text: L.text("先选择 Agent。权限选项由 Agent 自己声明，每种 Agent 都不一样。"))
+            Note(text: L.text("先选 Agent，权限选项由它自己声明。"))
         }
     }
 
@@ -381,7 +381,7 @@ struct RoleEditor: View {
         colors = false
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
-        panel.message = L.text("选择数字员工的头像，会从中间裁成正方形")
+        panel.message = L.text("选张图片当头像，会裁成正方形")
         if panel.runModal() == .OK { _ = choose(panel.url) }
     }
 

@@ -548,7 +548,7 @@ func confirmDeleteRun(_ title: String) -> Bool {
     let name = title.isEmpty ? L.text("这个任务") : L.text("「\(title)」")
     return confirm(
         L.text("删除任务？"),
-        L.text("\(name)的事件记录、子任务、产物和日志都会从这台电脑删除，无法恢复。它单独的副本也会删除，还没提交的改动先存成补丁（Janus 目录下的 data/deleted-runs）；你的工作目录和已经合并回去的结果不受影响。"),
+        L.text("\(name)的记录、子任务、产物和日志都会删除，找不回来。没提交的改动先存成补丁；你的目录和已合并的结果不受影响。"),
         ok: L.text("删除"),
         dontAskAgainFor: "janus.deleteRunNoConfirm"
     )
@@ -560,7 +560,7 @@ func confirmDeleteChat(_ title: String, role: String) -> Bool {
     let name = title.isEmpty ? L.text("这个对话") : L.text("「\(title)」")
     return confirm(
         L.text("删除对话？"),
-        L.text("\(name)的对话记录和日志，以及为它新建的工作目录（里面\(role.isEmpty ? L.text("这名数字员工") : role)留下的文件）都会从这台电脑删除，无法恢复。正在进行的会话会停止。"),
+        L.text("\(name)的聊天记录、日志和专属工作目录（含\(role.isEmpty ? L.text("这名数字员工") : role)留下的文件）都会删除，找不回来；进行中的会话会停止。"),
         ok: L.text("删除")
     )
 }

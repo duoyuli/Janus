@@ -15,7 +15,7 @@ struct UsageBillView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(L.text("按时间段汇总所有任务里 Agent 上报的 token：每一轮都计入，按 Agent 和模型分开。金额按 models.dev 的 API 价格估算，Janus 每天同步一次价格；Agent 自己上报的费用另列。"))
+                Text(L.text("按时间段汇总各 Agent 上报的 Token。金额按 models.dev API 价估算（不是账单），价格每天同步。"))
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Picker(L.text("区间"), selection: $period) {

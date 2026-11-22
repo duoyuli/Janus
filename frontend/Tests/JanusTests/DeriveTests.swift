@@ -119,22 +119,22 @@ private func goalRun() -> Log {
     var log = goalRun()
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "idleMs": 600000])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") && !$0.you })
+    #expect(f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stuck") && !$0.you })
     log.add("tool.call", actor: "researcher", task: "T1", attempt: 1, data: ["tool": "read", "status": "completed"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") })
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stuck") })
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "idleMs": 600000])
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "idle", "resolved": true])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") }, "the backend saw the agent move again")
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stuck") }, "the backend saw the agent move again")
     log.add("task.stalled", to: "lead", task: "T1", attempt: 1, data: ["reason": "loop", "repeats": 5])
     log.add("attempt.started", to: "researcher", task: "T1", attempt: 2, data: ["session": "s2"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") }, "a new attempt starts clean")
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stuck") }, "a new attempt starts clean")
     log.add("task.stalled", to: "lead", task: "T1", attempt: 2, data: ["reason": "loop", "repeats": 5])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stalled") })
+    #expect(!f.open.contains { $0.title == expectedCopy("T1 可能卡住了", "T1 may be stuck") })
 }
 
 @Test func leadStallsAndConflictsOpenOnTheBoard() {
@@ -142,12 +142,12 @@ private func goalRun() -> Log {
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "idleMs": 600000])
     log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"]])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") && $0.you }, "nobody but the person watches the lead")
+    #expect(f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stuck") && $0.you }, "nobody but the person watches the lead")
     #expect(f.open.contains { $0.title == expectedCopy("T1 和 T2 改了同一个文件", "T1 and T2 edited the same file") && $0.text == "calc.py" && !$0.you })
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "idle", "resolved": true])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "x"])
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") })
+    #expect(!f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stuck") })
     #expect(!f.open.contains { $0.title.contains(expectedCopy("改了同一个文件", "edited the same file")) }, "neither task is running any more")
 }
 
@@ -156,10 +156,10 @@ private func goalRun() -> Log {
     var log = goalRun()
     log.add("lead.stalled", actor: "janus", to: "user", data: ["reason": "loop", "tool": "Read", "repeats": 5])
     var f = boardFacts(derive(log.events)) { $0 }
-    #expect(f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") && $0.you })
+    #expect(f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stuck") && $0.you })
     log.add("agent.message", actor: "lead", text: "换个办法")
     f = boardFacts(derive(log.events)) { $0 }
-    #expect(!f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stalled") })
+    #expect(!f.open.contains { $0.title == expectedCopy("负责人可能卡住了", "The lead may be stuck") })
 }
 
 @Test func tracesOpenOnTheBoardUntilTheLeadActs() {
@@ -212,7 +212,7 @@ private func goalRun() -> Log {
     #expect(f.results.count == 1)
     #expect(f.results[0].usedBy == ["T2"])
     #expect(f.handoffs.map(\.to) == ["T2"])
-    #expect(f.decisions.map(\.title).contains(expectedCopy("负责人提交编排", "Lead submitted a plan")))
+    #expect(f.decisions.map(\.title).contains(expectedCopy("负责人派出子任务", "The lead dispatched subtasks")))
     #expect(f.decisions.map(\.title).contains(expectedCopy("给 lead 的补充", "Follow-up for lead")))
 }
 
@@ -348,7 +348,7 @@ private func goalRun() -> Log {
     let bad = Check(["criterion": "标准1", "passed": true, "method": "vibes", "evidence": "看着没问题"])
     #expect(bad.method == nil)
     #expect(bad.badMethod == "vibes")
-    #expect(bad.methodLabel == expectedCopy("方法「vibes」不合法（未说明）", "Invalid method “vibes” (unspecified)"))
+    #expect(bad.methodLabel == expectedCopy("证据方法「vibes」不认识（没说明）", "Unknown evidence method “vibes” (not given)"))
 }
 
 /// Every criterion gets a row even with no check, and every check is kept even when the result
@@ -529,7 +529,7 @@ private func goalRun() -> Log {
     let st = derive(log.events)
     #expect(st.tasks["T1"]?.status == .ready && st.tasks["T2"]?.verdict == nil)
     let d = boardFacts(st) { $0 }.decisions.first { $0.title == expectedCopy("负责人让 T1 返工", "Lead sent T1 back for rework") }
-    #expect(d?.text.contains(expectedCopy("会话：接着原会话", "Session: continue its own")) == true)
+    #expect(d?.text.contains(expectedCopy("会话：接上原会话", "Session: picks up its own")) == true)
     #expect(d?.text.contains(expectedCopy("依据 T2 的意见", "On T2's findings")) == true)
     #expect(d?.text.contains("空输入按错误处理") == true)
     #expect(d?.tasks == ["T1", "T2"])
@@ -557,7 +557,7 @@ private func goalRun() -> Log {
     #expect(st.run.branch.isEmpty && !st.run.merged)
     #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("这个任务没有新的改动，没有提交。", "This task brought no new changes, so nothing was committed."))
     st.run.merged = true
-    #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("结果已合并到 /code/app 当前的 detached HEAD。", "The result is merged into the detached HEAD of /code/app."))
+    #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("结果已合并到 /code/app 当前的提交（不在分支上）。", "The result is merged into the current commit of /code/app (not on a branch)."))
     #expect(SessionView.runGitNote(log.events[0].data) == expectedCopy("Git 仓库 /code/app · 分支 main", "Git repository /code/app · branch main"))
     log.add("attempt.started", task: "T1", attempt: 1, data: ["git": ["repo": "/code/app", "branch": .null, "worktree": "/h/work/runs/r1", "head": "0123456789abcdef"]])
     #expect(SessionView.taskGitNote(derive(log.events), "T1") == expectedCopy("Git 仓库 /code/app · detached HEAD · 提交 01234567", "Git repository /code/app · detached HEAD · commit 01234567"))
@@ -627,7 +627,7 @@ private func goalRun() -> Log {
     let asked: JSON = ["status": ["phase": "sleeping", "nextWakeAt": JSON(floatLiteral: L.nowMs() + 600_000), "nextWakeReason": "self", "nextWakeWhy": "等 CI"]]
     #expect(LoopText.asked(asked)?.hasSuffix(expectedCopy("再看一次：等 CI", ": 等 CI")) == true)
     #expect(LoopText.asked(loop) == nil)
-    #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("干活中", "Awake"))
+    #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("干活中", "Working"))
 }
 
 /// The form's common schedules are cron expressions and read back as the same shape; anything else

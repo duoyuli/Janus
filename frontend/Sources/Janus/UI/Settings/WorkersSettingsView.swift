@@ -36,7 +36,7 @@ struct AgentsSection: View {
             if store.connections.isEmpty {
                 Card(padding: 20) {
                     Text(L.text("还没有接入 Agent")).font(.display(.title3))
-                    Text(L.text("把你本机已经在用的 Agent 迁移过来，配置和凭据会一并复制。")).foregroundStyle(.secondary)
+                    Text(L.text("把本机在用的 Agent 搬过来，配置和凭据一起带上。")).foregroundStyle(.secondary)
                     HStack {
                         ForEach(["codex", "claude"].compactMap { store.kind($0) }, id: \.self) { k in
                             Button { editing = newDraft(k["id"].str) } label: {
@@ -153,7 +153,7 @@ struct ConnectionRow: View {
     @ViewBuilder private func extra(_ login: JSON?) -> some View {
         if login != nil && c["login"]["state"].str == "running" {
             VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: L.text("按提示完成 \(login!["label"].str) 登录，完成后会自动测试。")).font(.callout)
+                Text(verbatim: L.text("按提示完成 \(login!["label"].str) 登录，完成后自动检查。")).font(.callout)
                 if c["loginLog"].truthy {
                     let log = c["loginLog"].str.replacingOccurrences(of: "\u{1b}\\[[0-9;]*m", with: "", options: .regularExpression)
                     CodeBlock(text: log, maxHeight: 160)
@@ -192,7 +192,7 @@ struct ConnectionRow: View {
         case "testing": return (L.text("检查中…"), .blue)
         case "ok": return (L.text("可用"), .green)
         case "error": return (L.text("失败"), .red)
-        default: return (L.text("未测试"), .gray)
+        default: return (L.text("未检查"), .gray)
         }
     }
 
@@ -297,7 +297,7 @@ struct ConnectionEditor: View {
                     Spacer()
                     Button(L.text("取消")) { if !dirty || confirmDiscard() { dismiss() } }.keyboardShortcut(.cancelAction)
                     Button(saving ? L.text("正在保存…") : editing ? L.text("保存") : L.text("创建")) { save() }.buttonStyle(.primary).keyboardShortcut(.defaultAction).disabled(saving)
-                        .help(L.text("保存后检查运行时、凭据、启动、会话和一次真实回复，进度显示在 Agent 卡片上"))
+                        .help(L.text("保存后自动检查：运行时、凭据、启动、会话、一次真实回复，进度看卡片。"))
                 }
                 .padding(14)
             }
@@ -406,7 +406,7 @@ struct ConnectionEditor: View {
                     if k["runtime"].truthy {
                         field(L.text("运行时路径")) { TextField(k["runtime"]["detected"].truthy ? k["runtime"]["detected"].str : k["runtime"]["placeholder"].str, text: str("bin")).textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced)) }
                     }
-                    field(L.text("自定义提示词"), hint: L.text("排在数字员工指令之前，和数字员工指令走同一种注入方式（Claude Code 是系统提示，Codex 是开发者指令）。")) {
+                    field(L.text("自定义提示词"), hint: L.text("放在数字员工指令前面一起注入（Claude Code 走系统提示，Codex 走开发者指令）。")) {
                         TextEditor(text: str("prompt")).font(.body).frame(height: 70).overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
                     }
                     if !store.envAuth(draft["kind"].str, draft["auth"].str) { envField(template: "") }
@@ -457,8 +457,8 @@ struct ConnectionEditor: View {
             Setup.envName(line) != nil && !line.contains("=")
         }
         let hint = keepsSaved
-            ? L.text("仅有变量名的行会沿用已保存的值。填写新值可替换，删除整行可移除。")
-            : L.text("每行填写 KEY=value，也可以直接粘贴多行 export KEY=value。写成 KEY= 可清空变量。")
+            ? L.text("只写变量名的行保留原值；删掉整行就移除。")
+            : L.text("每行一个 KEY=value，可以直接贴 export 行；写 KEY= 表示清空。")
         return field(L.text("环境变量"), hint: hint, accessory: {
             if !template.isEmpty {
                 Button(L.text("填入模板")) { draft["envText"] = JSON(Setup.withTemplate(draft["envText"].str, template)) }

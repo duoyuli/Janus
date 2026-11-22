@@ -34,7 +34,7 @@ struct UsageBill: Equatable {
     var headline: String { priced ? usageUSD(estimate?.amount ?? 0) : tokens.total.map(usageCompact) ?? L.text("未上报") }
 
     /// What the headline is: an estimate at list prices, or the token total.
-    var headlineCaption: String { priced ? L.text("按 models.dev API 价格折算 · 非账单") : L.text("TOKEN 总量") }
+    var headlineCaption: String { priced ? L.text("按 models.dev API 价格折算 · 非账单") : L.text("Token 总量") }
 
     /// `3,111,893 tokens · Agent 上报费用 0.25 USD`, under the headline.
     var headlineDetail: String {
@@ -85,19 +85,19 @@ extension UsageBill {
         let tokens = UsageTokens.bill(j["tokens"])
         let active = j["activeDays"].int ?? 0
         var stats = [UsageLine(label: L.text("任务"), value: L.text("\(j["runs"].int ?? 0) 个")),
-                     UsageLine(label: L.text("请求"), value: L.text("\(usageNum(j["turns"].int ?? 0)) 轮")),
+                     UsageLine(label: L.text("轮次"), value: L.text("\(usageNum(j["turns"].int ?? 0)) 轮")),
                      UsageLine(label: L.text("会话"), value: L.text("\(j["sessions"].int ?? 0) 个")),
                      UsageLine(label: L.text("活跃天数"), value: "\(active) / \(j["days"].int ?? 0)")]
         if let total = tokens.total, active > 0 { stats.append(UsageLine(label: L.text("活跃日均"), value: "\(usageCompact(total / active)) tokens")) }
         var notes = [L.text("Token 总量含缓存读取。")]
-        if let n = j["unreportedSessions"].int, n > 0 { notes.insert(L.text("\(n) 个会话没有上报 token，没有计入。"), at: 0) }
+        if let n = j["unreportedSessions"].int, n > 0 { notes.insert(L.text("\(n) 个会话没上报 Token，没算进来。"), at: 0) }
         let e = j["estimate"]
         var bill = UsageBill(
             title: L.text("用量账单"),
             meta: [UsageLine(label: L.text("区间"), value: "\(L.calendarDate(from)) – \(L.calendarDate(last))"),
-                   UsageLine(label: L.text("开具"), value: L.datedTime(issued))],
+                   UsageLine(label: L.text("生成于"), value: L.datedTime(issued))],
             tokens: tokens, cost: UsageCost.bill(j["cost"]), stats: stats,
-            groupsTitle: L.text("AGENT / 模型"),
+            groupsTitle: L.text("Agent / 模型"),
             groups: j["agents"].array.map { g in
                 UsageBillGroup(id: g["id"].str, name: g["name"].str, tokens: .bill(g["tokens"]), turns: g["turns"].int ?? 0, cost: .bill(g["cost"]),
                                models: g["models"].array.map { UsageModelLine(model: $0["model"].str, tokens: .bill($0["tokens"]), turns: $0["turns"].int ?? 0, estimate: $0["estimate"].double) },

@@ -78,11 +78,11 @@ final class Backend {
                 use(running: meta)
                 return
             }
-            phase = .failed(L.text("另一个 Janus 正在使用 \(home.path)，但连不上它（\(other)）。先退出那个 Janus（以服务方式运行时执行 just stop），再点重试。"))
+            phase = .failed(L.text("另一个 Janus 占着 \(home.path) 但连不上（\(other)）。先退出它（服务方式运行的执行 just stop），再点重试。"))
             return
         }
         guard let bin = Self.serverBinary() else {
-            phase = .failed(L.text("找不到 Janus 服务程序。安装包里的 Janus.app 自带服务；从源码运行时先执行 just install，或设置 JANUS_SERVER_BIN。"))
+            phase = .failed(L.text("找不到 Janus 服务程序。源码运行先 just install，或者设置 JANUS_SERVER_BIN。"))
             return
         }
         // The port can be taken between the check and the server binding it: try a few.
@@ -119,7 +119,7 @@ final class Backend {
         let app = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         if Self.isStale(server: meta["version"].string, app: app) {
             let server = meta["version"].string ?? L.text("旧版本")
-            phase = .stale(L.text("正在运行的 Janus 服务是 \(server)，这个应用是 \(app)。数据升级和新功能要在新版服务启动后才生效。停止它之后，应用会启动自带的服务。以服务方式运行（just start）时，请先执行 just stop。"))
+            phase = .stale(L.text("后台跑的是旧版服务 \(server)，应用是 \(app)。停掉旧服务就能用上新版（服务方式运行的先 just stop）。"))
             return
         }
         phase = .ready

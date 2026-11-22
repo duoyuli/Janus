@@ -23,7 +23,7 @@ struct ProgressBoard: View {
                     Text(L.text("进展")).font(.display(.title3))
                     Button(run.progressOpen ? L.text("收起进展") : L.text("展开进展")) { run.progressOpen.toggle() }
                         .buttonStyle(.link).font(.callout)
-                        .help(L.text("展开后显示这次任务的进展时间线，回答什么时候、谁做了什么、交给了谁"))
+                        .help(L.text("按时间看谁做了什么、交给了谁"))
                         .accessibilityLabel(run.progressOpen ? L.text("收起进展") : L.text("展开进展"))
                     Spacer()
                     Button(L.text("在审计日志中查看全部")) { run.auditCat = "all"; run.auditTask = ""; run.auditActor = ""; run.highlight = nil; run.show(.audit) }

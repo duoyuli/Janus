@@ -31,7 +31,7 @@ enum LoopText {
         switch s["phase"].str {
         case "awake": return (L.text("干活中"), .blue)
         case "paused": return (L.text("已暂停"), .gray)
-        case "failed": return (L.text("出错"), .red)
+        case "failed": return (L.text("出错了"), .red)
         default:
             if let at = s["nextWakeAt"].double { return (L.text("摸鱼中 · \(when(at)) 开工"), .gray) }
             return (L.text("摸鱼中"), .gray)
@@ -323,8 +323,8 @@ struct LoopEditor: View {
 
     private var scheduleNote: String {
         scheduled
-            ? L.text("按这台 Mac 的时间（\(TimeZone.current.identifier)）。到点时它还在干活，就等这次干完再来一次；Mac 睡眠时错过的，Mac 醒来后只补一次。它也可以自己约一次时间表之外的开工，比如等 CI 跑完再看，值班页上会写明时间和原因。")
-            : L.text("只在你点「现在开工」或回答它的问题时开工；它也可以自己约一次，值班页上会写明时间和原因。")
+            ? L.text("按本机时间（\(TimeZone.current.identifier)）。上次没干完就顺延；Mac 睡着错过的，醒来补一次。它也能自己约个时间再来，值班页会写明。")
+            : L.text("只在你点「现在开工」或回答它时开工；它也能自己约一次，值班页会写明。")
     }
 
     private var valid: Bool {
@@ -387,10 +387,10 @@ struct LoopView: View {
                     .accessibilityLabel(L.text("更多"))
             }
             if loop["status"]["watchesFiles"] == .bool(false) {
-                Note(text: L.text("工作区不在 Git 仓库里：值班直接在你的目录里干活，改了哪些文件 Janus 看不出来，也就不会提醒你。"), tone: .amber)
+                Note(text: L.text("不是 Git 仓库：值班直接改你的目录，Janus 看不出它改了什么，也就没法提醒你。"), tone: .amber)
             }
             if st.run.status == .failed && !st.run.error.isEmpty {
-                Note(text: L.text("会话已结束：\(st.run.error)。下次开工时重新打开。"), tone: .amber)
+                Note(text: L.text("会话已结束：\(st.run.error) · 下次开工时再接上"), tone: .amber)
             }
             HStack(alignment: .top, spacing: 14) {
                 ChatCard(run: run, st: st, title: loop["title"].str, info: info, target: .agent("lead"))

@@ -72,7 +72,7 @@ struct McpEditor: View {
                 Text(d.name.isEmpty ? (item == nil ? L.text("添加 MCP 服务器") : L.text("MCP 服务器")) : d.name)
                     .font(.headline).lineLimit(1)
                 if item == nil {
-                    Text(L.text("填写表单，或切到 JSON 粘贴 README 里的配置")).font(.caption).foregroundStyle(.secondary)
+                    Text(L.text("填表单，或切到 JSON 贴 README 里的配置")).font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -114,13 +114,13 @@ struct McpEditor: View {
     }
 
     private var valuesHint: String {
-        L.text("值只保存在本机的 Janus home（0600），会话启动时交给 Agent，不写进数据库、任务记录和事件。")
+        L.text("值只存在本机（权限 0600），会话启动时交给 Agent，不进数据库和日志。")
     }
 
     @ViewBuilder private var jsonFields: some View {
         field("JSON", hint: bad.isEmpty
             ? (item == nil
-                ? L.text("与 Claude Code 的 .mcp.json 格式相同，也接受 VS Code 的 servers。可以一次粘贴多个服务器，保存时全部添加。")
+                ? L.text("兼容 Claude Code 的 .mcp.json 和 VS Code 的 servers，可以一次贴多个。")
                 : L.text("与 Claude Code 的 .mcp.json 格式相同，值也在里面。"))
             : bad, warn: !bad.isEmpty) {
             TextEditor(text: $text)
@@ -134,13 +134,13 @@ struct McpEditor: View {
         }
         if !several.isEmpty {
             field("") {
-                Note(text: L.text("JSON 里有 \(several.count) 个服务器：\(several.map(\.name).joined(separator: L.text("、")))。保存时全部添加，说明取 JSON 里写的，名字被占用时自动加后缀。"), tone: .blue)
+                Note(text: L.text("JSON 里有 \(several.count) 个服务器：\(several.map(\.name).joined(separator: L.text("、")))。保存时全部添加，重名自动加后缀。"), tone: .blue)
             }
         }
     }
 
     private var processField: some View {
-        field(L.text("进程"), hint: L.text("默认同一个任务的会话共用一个进程，用到才启动。浏览器、终端这类会记住状态的服务器打开这一项，每个会话各开一份。")) {
+        field(L.text("进程"), hint: L.text("浏览器、终端这类有状态的服务器打开这项，每个会话各开一份。")) {
             Toggle(L.text("每个会话单独运行"), isOn: Binding(get: { d.process == .perSession }, set: { d.process = $0 ? .perSession : .perRun }))
                 .toggleStyle(.switch).controlSize(.small)
         }
@@ -190,7 +190,7 @@ struct McpEditor: View {
                         .buttonStyle(.borderless).help(L.text("移除这个变量和它的值"))
                 }
             }
-            Button(L.text("＋ 添加")) { d.vars.append(McpDraft.Var(name: "")) }.buttonStyle(.link)
+            Button(L.text("+ 添加")) { d.vars.append(McpDraft.Var(name: "")) }.buttonStyle(.link)
         }
     }
 

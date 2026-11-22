@@ -32,9 +32,9 @@ enum Tone: String { case gray, blue, green, amber, red, violet }
 /// Labels and small formatting helpers.
 enum L {
     static let agentPhase: [String: (String, Tone)] = [
-        "idle": ("空闲", .gray), "thinking": ("规划中", .blue), "coordinating": ("协调中", .blue), "reading_files": ("读取文件", .blue),
-        "editing": ("修改文件", .blue), "running_tool": ("调用工具", .blue), "running_test": ("运行测试", .blue),
-        "waiting_for_input": ("等待输入", .amber), "waiting_for_agent": ("等待协作者", .amber), "waiting_approval": ("等待审批", .amber), "waiting_for_seat": ("等空位", .amber), "error": ("异常", .red),
+        "idle": ("摸鱼中", .gray), "thinking": ("思考中", .blue), "coordinating": ("协调中", .blue), "reading_files": ("翻文件", .blue),
+        "editing": ("改文件", .blue), "running_tool": ("用工具", .blue), "running_test": ("跑测试", .blue),
+        "waiting_for_input": ("等你输入", .amber), "waiting_for_agent": ("等队友", .amber), "waiting_approval": ("等你审批", .amber), "waiting_for_seat": ("等空位", .amber), "error": ("出错了", .red),
     ]
     static func phase(_ s: String) -> (String, Tone) {
         let (key, tone) = agentPhase[s] ?? agentPhase["idle"]!

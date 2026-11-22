@@ -260,7 +260,7 @@ async fn git_sources_offer_import_and_update() {
     let url = format!("file://{}", upstream.display());
     let at = || sources::RepoAt { repo: "acme/kit".into(), git_ref: String::new(), path: String::new() };
     let deep = sources::RepoAt { path: "deep".into(), ..at() };
-    assert!(app.add_source_at(deep, &url).await.unwrap_err().to_string().contains("第 8 层"));
+    assert!(app.add_source_at(deep, &url).await.unwrap_err().to_string().contains("只扫描了 8 层"));
     let src = app.add_source_at(at(), &url).await.unwrap();
     let id = src["id"].as_str().unwrap().to_string();
     let offered: Vec<&str> = src["offers"].as_array().unwrap().iter().map(|o| o["path"].as_str().unwrap()).collect();

@@ -6,7 +6,7 @@ from scenarios import scenario, task
 
 @scenario("queue", serial=True)
 def queue(ctx, c):
-    """派发队列：同时在做的任务满了时新目标排队，按先后开始；排队的任务只能立即开始或取消；暂停的任务让出位置；应用显示排位；队列跨工作区，服务重启后排队的目标自动开始"""
+    """派发队列：同时在做的任务满了时新目标排队，按先后开始；排队的任务只能马上开工或取消；暂停的任务让出位置；应用显示排位；队列跨工作区，服务重启后排队的目标自动开始"""
     # One slot, on a fresh start: runs other scenarios left working are interrupted by the restart.
     ctx.server.env["JANUS_MAX_RUNNING_RUNS"] = "1"
     ctx.server.stop()
@@ -54,7 +54,7 @@ def queue(ctx, c):
         ctx.ui(c, fourth.id, lambda r, s: r["status"] == "queued" and r["queuePosition"] == 1, "排队的任务排在第一位")
         fourth.act("start")
         fourth.wait_status("running")
-        c(True, "「立即开始」越过位置开始排队的目标")
+        c(True, "「马上开工」越过位置开始排队的目标")
         if ctx.app:
             ctx.app.until(lambda s: rows(s).get(third.id, {}).get("status") == "cancelled", "工作区的任务记录读到取消的目标",
                           "reload", f"open home:{t.ws['id']}")

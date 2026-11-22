@@ -143,7 +143,7 @@ import Testing
     system.settingsOpen = false
     let p = system.make()
     p.begin(.appManagement)
-    #expect(p.error?.contains(expectedCopy("无法打开系统设置", "Could not open System Settings")) == true)
+    #expect(p.error?.contains(expectedCopy("打不开系统设置", "Couldn't open System Settings")) == true)
     #expect(p.status(.appManagement) == .notGranted)
     system.settingsOpen = true
     p.openSettings(.appManagement)
@@ -152,7 +152,7 @@ import Testing
     let launch = system.make()
     launch.prepareForLaunch()
     #expect(launch.reviewPresented)
-    #expect(launch.error?.contains(expectedCopy("无法保存", "Could not save")) == true)
+    #expect(launch.error?.contains(expectedCopy("没法保存", "Couldn't save")) == true)
     #expect(system.saved == nil)
 }
 

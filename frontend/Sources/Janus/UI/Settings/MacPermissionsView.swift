@@ -9,14 +9,14 @@ struct MacPermissionsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
-                Text(L.text("按 Agent 的任务需要开启，可以跳过暂时不用的权限。Janus 自动检测每一项是否已授权。"))
+                Text(L.text("按任务需要开，用不到的可以先跳过。Janus 会自动检测。"))
                     .font(.callout).foregroundStyle(.secondary)
                 Spacer(minLength: 12)
                 Button(L.text("重新检查")) { permissions.refresh() }
                     .disabled(!permissions.available)
             }
             if !permissions.available {
-                Note(text: L.text("请从已安装的 Janus.app 打开此页。从源码运行时，系统权限可能属于启动它的终端。"))
+                Note(text: L.text("从已安装的 Janus.app 打开这页。源码运行时权限可能记在终端名下。"))
             } else {
                 HStack(spacing: 12) {
                     Button(L.text("一键开始授权")) { permissions.beginAll() }
@@ -35,10 +35,10 @@ struct MacPermissionsView: View {
                 }
             }
             ForEach(MacPermission.allCases) { permission in permissionCard(permission) }
-            Text(L.text("本页检查当前 Janus。Agent 由独立服务或其他终端启动时，可能需要给实际执行程序单独授权。系统权限不会改变 Agent 自己的权限模式。"))
+            Text(L.text("这里检查的是 Janus 本身。Agent 由别的终端启动时可能要单独授权；系统权限不改变 Agent 的权限模式。"))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(L.text("授权后如系统要求重启，请在任务结束后重新打开 Janus，并启动新的 Agent 会话。"))
+            Text(L.text("授权后系统要是要求重启，等任务结束再重开 Janus，并开新的 Agent 会话。"))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -52,7 +52,7 @@ struct MacPermissionsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(L.text("系统设置里已经打开，这里仍未检测到？")).font(.callout.weight(.semibold))
             Text(L.text("1. 有的授权要等 Janus 重新打开后才生效。点「重新打开 Janus」。"))
-            Text(L.text("2. 重新打开后仍未检测到，说明列表里打开的是更新前的旧 Janus。在「系统设置 → 隐私与安全性 → \(permission.title)」中选中 Janus，点「−」删除，再用「+」添加当前的 Janus.app 并打开，然后重新打开 Janus。"))
+            Text(L.text("2. 还是没检测到？在「系统设置 › 隐私与安全性 › \(permission.title)」里删掉旧的 Janus，再用 + 加回当前的 Janus.app，然后重开 Janus。"))
             Button(L.text("重新打开 Janus")) { permissions.relaunch() }
                 .padding(.top, 2)
         }
@@ -83,7 +83,7 @@ struct MacPermissionsView: View {
             }
             if active {
                 Divider()
-                Text(L.text("在「系统设置 → 隐私与安全性 → \(permission.title)」中允许 Janus。列表里没有时，用添加按钮选择当前 Janus.app。回到 Janus 后自动检测。"))
+                Text(L.text("去「系统设置 › 隐私与安全性 › \(permission.title)」打开 Janus。列表里没有就点 + 添加当前的 Janus.app，回来会自动检测。"))
                     .font(.callout).fixedSize(horizontal: false, vertical: true)
                 if state == .notGranted { notDetectedHelp(permission) }
                 HStack {
@@ -115,7 +115,7 @@ struct MacPermissionReview: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L.text("检查 Janus 的系统权限")).font(.display(.title2))
-                    Text(L.text("首次安装，或 Janus 的签名身份变化后，需要重新授权。授权之后，同一签名的更新会保留这些权限。"))
+                    Text(L.text("首次安装或签名变化后要重新授权；同签名的更新会保留。"))
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -127,7 +127,7 @@ struct MacPermissionReview: View {
             ScrollView { MacPermissionsView(permissions: permissions).padding(22) }
             Divider()
             HStack {
-                Text(L.text("之后可从「设置 → 通用 → macOS 权限」继续。")).font(.caption).foregroundStyle(.secondary)
+                Text(L.text("之后可以在「设置 › 通用 › macOS 权限」接着来。")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(L.text("完成")) { permissions.dismissReview() }
             }

@@ -19,12 +19,12 @@ struct TimelineMark: Identifiable {
     /// Open items, by kind: glyph and name. The person's are red, the lead's amber.
     static let openKinds: [String: (String, String)] = [
         "approval": ("hand.raised.fill", "等你审批"), "input": ("square.and.pencil", "等你填写"),
-        "question": ("questionmark.bubble.fill", "等你决定"), "session": ("text.bubble.fill", "等你的消息"),
-        "lead_stall": ("hourglass", "负责人可能卡住"), "loop_touched": ("doc.badge.ellipsis", "值班改了文件"), "loop_failed": ("exclamationmark.triangle", "值班没能开工"),
+        "question": ("questionmark.bubble.fill", "等你拍板"), "session": ("text.bubble.fill", "等你回话"),
+        "lead_stall": ("hourglass", "负责人可能卡住了"), "loop_touched": ("doc.badge.ellipsis", "值班改了文件"), "loop_failed": ("exclamationmark.triangle", "值班没能开工"),
         "conflict": ("arrow.triangle.merge", "同时改了一个文件"), "overstep": ("arrow.right.to.line", "越界"),
-        "trace": ("doc.badge.ellipsis", "结果和工作目录对不上"), "stall": ("hourglass", "可能卡住"),
+        "trace": ("doc.badge.ellipsis", "结果和工作目录对不上"), "stall": ("hourglass", "可能卡住了"),
         "blocker": ("exclamationmark.octagon.fill", "阻塞"), "lead_question": ("questionmark.circle.fill", "问负责人"),
-        "failed": ("xmark.octagon.fill", "失败"), "blocked": ("pause.circle.fill", "等依赖"),
+        "failed": ("xmark.octagon.fill", "失败"), "blocked": ("pause.circle.fill", "等上游"),
     ]
 
     var symbol: String {
@@ -245,7 +245,7 @@ struct RunTimeline: View {
     }
 
     private func labelHelp(_ t: TimelineTask) -> String {
-        var lines = ["\(t.id) \(t.title)", L.text("执行者：\(run.who(t.agent).name) · \(t.status.label.0)")]
+        var lines = ["\(t.id) \(t.title)", L.text("协作者：\(run.who(t.agent).name) · \(t.status.label.0)")]
         let ups = t.deps.map { d in L.text("\(d)（\(run.who(tasks.first { $0.id == d }?.agent ?? "").name)）") }
         if !ups.isEmpty { lines.append(L.text("上游交接：\(ups.joined(separator: L.text("、")))")) }
         if let w = t.waiting { lines.append(L.text("还没开始 · \(w)")) }
@@ -301,7 +301,7 @@ struct RunTimeline: View {
             .frame(width: TimeScale.breakW - 8, height: height - axisH)
             .offset(x: x + 4, y: axisH)
         .help(L.text("这段时间没有进展：\(Self.idle(ms))"))
-        .accessibilityLabel(L.text("空闲 \(Self.idle(ms))"))
+        .accessibilityLabel(L.text("摸鱼 \(Self.idle(ms))"))
     }
 
     static func idle(_ ms: Double) -> String {

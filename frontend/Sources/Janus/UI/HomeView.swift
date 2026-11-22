@@ -40,7 +40,7 @@ struct HomeView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("说出你想要的结果，可以 ⌘V 粘贴截图，\(sendKey.symbol) 交给负责人"), minHeight: 96) { start(problems) }
+                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("想要什么结果？⌘V 贴截图 · \(sendKey.symbol) 交给负责人"), minHeight: 96) { start(problems) }
                     HStack {
                         // Examples only help before the first run.
                         if runs.isEmpty {
@@ -68,7 +68,7 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         let n = waiting.reduce(0) { $0 + $1.entries.count }
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(L.text("等你处理")).font(.headline)
+                            Text(L.text("待处理")).font(.headline)
                             Text(verbatim: "\(n)").font(.headline).foregroundStyle(Tone.amber.color).accessibilityLabel(L.text("\(n) 项"))
                         }
                         WaitingRows(store: store, rows: waiting)
@@ -110,7 +110,7 @@ struct HomeView: View {
             acc + (pair.0["role"].str == ws["lead"].str ? 1 : max(1, pair.0["slots"].int ?? 1))
         }
         let countLabel = totalSlots > members.count
-            ? L.text("\(members.count) 个数字员工（共 \(totalSlots) 个并发实例）")
+            ? L.text("\(members.count) 个数字员工（共 \(totalSlots) 个分身）")
             : L.text("\(members.count) 个数字员工")
         return HStack(spacing: 10) {
             HStack(spacing: -4) {
@@ -140,7 +140,7 @@ struct HomeView: View {
                 Text(L.text("共享资料")).font(.headline)
                 Spacer()
                 Button(brief.isEmpty ? L.text("添加…") : L.text("编辑…")) { store.editingBrief = ws }.buttonStyle(.link)
-                    .help(L.text("产品定位、目标用户、约定、重要文件的位置：写下后，之后的任务不必重新调研或再问你"))
+                    .help(L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。"))
             }
             if !brief.isEmpty {
                 Text(brief)
@@ -165,11 +165,11 @@ struct HomeView: View {
     static func problems(_ roles: [JSON?], connection: (String) -> JSON?) -> [Problem] {
         var out: [Problem] = []
         let deleted = roles.filter { $0 == nil }.count
-        if deleted > 0 { out.append(Problem(text: L.text("工作区里有 \(deleted) 个数字员工已被删除，请在工作区设置中移除或换成别的数字员工。"), action: L.text("打开数字员工设置"), tab: .agents)) }
+        if deleted > 0 { out.append(Problem(text: L.text("有 \(deleted) 个数字员工已被删除，去工作区设置里移除或换人。"), action: L.text("打开数字员工设置"), tab: .agents)) }
         let unbound = roles.compactMap { $0 }.filter { connection($0["connection"].str) == nil }.map { $0["name"].str }
         if !unbound.isEmpty {
             let names = unbound.joined(separator: L.text("、"))
-            out.append(Problem(text: L.text("尚未绑定 Agent 的数字员工：\(names)。"), action: L.text("打开数字员工设置"), tab: .agents))
+            out.append(Problem(text: L.text("还没绑 Agent：\(names)"), action: L.text("打开数字员工设置"), tab: .agents))
         }
         var untested: [(String, [String])] = []
         for r in roles.compactMap({ $0 }) {
@@ -179,7 +179,7 @@ struct HomeView: View {
         }
         for (agent, names) in untested {
             let affected = names.joined(separator: L.text("、"))
-            out.append(Problem(text: L.text("Agent「\(agent)」还没有测试通过或未登录，以下数字员工无法运行：\(affected)。"), action: L.text("去测试"), tab: .agents))
+            out.append(Problem(text: L.text("Agent「\(agent)」还没通过检查或没登录，这些数字员工跑不起来：\(affected)"), action: L.text("去检查"), tab: .agents))
         }
         return out
     }
@@ -236,7 +236,7 @@ struct PastWorkspaceView: View {
                     Text(ws["name"].str.isEmpty ? L.text("已删除的工作区") : ws["name"].str).font(.display(.largeTitle))
                     Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                 }
-                Note(text: L.text("这个工作区已经删除，下面是它留下的任务记录，可以打开查看、继续对话或删除。要在这个目录里提交新目标，新建一个工作区。"))
+                Note(text: L.text("工作区已删除。留下的任务记录还能查看、继续对话或删除；想在这里提新目标，新建一个工作区。"))
                 WorkspaceHistory(store: store, workspace: ws["id"].str)
             }
             .padding(24)
@@ -317,7 +317,7 @@ struct RunRows: View {
         Card(padding: 4) {
             ForEach(runs, id: \.self) { r in
                 let waiting = store.inbox.open.filter { $0.run == r["id"].str }.count
-                let (l, t) = waiting > 0 ? (L.text("等你处理"), Tone.amber) : runLabel(r)
+                let (l, t) = waiting > 0 ? (L.text("待处理"), Tone.amber) : runLabel(r)
                 Button { store.open(.run(r["id"].str)) } label: {
                     HStack(spacing: 8) {
                         LoopMark(store: store, run: r)
@@ -377,7 +377,7 @@ struct WorkspaceEditor: View {
 
 
                     Text(L.text("启用的数字员工")).font(.headline).padding(.top, 6)
-                    if store.roles.isEmpty { Note(text: L.text("还没有数字员工，先去「设置 → 数字员工」创建。")) }
+                    if store.roles.isEmpty { Note(text: L.text("还没有数字员工，先去「设置 › 数字员工」建一个。")) }
                     VStack(spacing: 0) {
                         ForEach(store.roles, id: \.self) { r in
                             let id = r["id"].str
@@ -395,10 +395,10 @@ struct WorkspaceEditor: View {
                                 if on.contains(id) && lead != id {
                                     let count = min(8, max(1, slots[id] ?? 1))
                                     Stepper(value: Binding(get: { count }, set: { slots[id] = min(8, max(1, $0)) }), in: 1...8) {
-                                        Text(verbatim: L.text("\(count) 个实例")).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                        Text(verbatim: L.text("\(count) 个分身")).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                                     }
                                     .controlSize(.small)
-                                    .help(L.text("并发实例数：大于 1 时，这个数字员工可同时执行多个子任务"))
+                                    .help(L.text("分身数：大于 1 时可以同时接多个子任务"))
                                 }
                                 if r["lead"].truthy && Setup.leadCapable(c) {
                                     Button { lead = id } label: {
@@ -440,10 +440,10 @@ struct WorkspaceEditor: View {
     }
 
     private var inspectLine: String {
-        if path.trimmingCharacters(in: .whitespaces).isEmpty { return L.text("请填写一个目录") }
+        if path.trimmingCharacters(in: .whitespaces).isEmpty { return L.text("先选一个目录") }
         guard let i = inspect else { return L.text("检查中…") }
         if i["exists"].bool == false { return L.text("目录不存在") }
-        if !i["git"].truthy { return L.text("不是 Git 仓库：任务直接在这个目录中执行，Janus 不会生成改动的 diff") }
+        if !i["git"].truthy { return L.text("不是 Git 仓库：直接改这个目录，没有 diff") }
         let dirty = i["dirty"].int ?? 0
         return L.text("✓ Git 仓库 · 当前分支 \(i["branch"].str) · \(dirty > 0 ? L.text("⚠ 有 \(dirty) 个未提交改动（不会带进任务）") : L.text("工作区干净"))")
     }
@@ -517,7 +517,7 @@ struct WorkspaceEditor: View {
     }
 
     private func remove() {
-        guard confirm(L.text("删除工作区「\(original["name"].str)」？"), L.text("已有的任务记录会保留，在侧栏的 Agent Team 里仍能找到。"), ok: L.text("删除")) else { return }
+        guard confirm(L.text("删除工作区「\(original["name"].str)」？"), L.text("任务记录会保留，在侧栏的「团队」里还能找到。"), ok: L.text("删除")) else { return }
         Task {
             do {
                 try await store.delete(.workspaces, original["id"].str)
@@ -551,7 +551,7 @@ struct BriefEditor: View {
             Text(L.text("共享资料 · \(original["name"].str)")).font(.display(.title2)).padding(20)
             Divider()
             VStack(alignment: .leading, spacing: 10) {
-                Text(L.text("产品定位、目标用户、约定、过去的决定、重要文件的位置等长期背景。每次任务开始时交给负责人和所有协作者，已经写在这里的事实不会再被重新调研或再问你。")).font(.callout).foregroundStyle(.secondary)
+                Text(L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")).font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 TextEditor(text: $brief)
                     .font(.body)
@@ -559,7 +559,7 @@ struct BriefEditor: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(brief.count > Self.limit ? Tone.red.color : Color.line))
                     .accessibilityLabel(L.text("共享资料"))
                 HStack {
-                    if dirty { Text(L.text("还没保存：保存后，之后的任务才会用到新的共享资料。")).font(.caption).foregroundStyle(Tone.amber.color) }
+                    if dirty { Text(L.text("还没保存 · 保存后下个任务起生效")).font(.caption).foregroundStyle(Tone.amber.color) }
                     Spacer()
                     Text(verbatim: "\(brief.count) / \(Self.limit)").font(.caption).foregroundStyle(brief.count > Self.limit ? Tone.red.color : .secondary)
                 }

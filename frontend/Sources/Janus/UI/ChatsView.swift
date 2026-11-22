@@ -19,7 +19,7 @@ struct ChatsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L.text("新对话")).font(.display(.largeTitle))
-                    Text(L.text("选一名数字员工，和它一对一对话。它带着自己的指令和资源库，在为这次对话新建的目录里工作，没有团队和看板。"))
+                    Text(L.text("选一名数字员工一对一聊。它带着自己的指令和资源库，在专属目录里干活，不带团队和看板。"))
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if roles.isEmpty {
@@ -50,7 +50,7 @@ struct ChatsView: View {
                         .controlSize(.large)
                         .keyboardShortcut(.defaultAction)
                         .disabled(chosen == nil || starting != nil)
-                        .help(chosen == nil ? L.text("没有可以运行的数字员工") : L.text("打开会话，带上数字员工的指令，然后由你先说（↩）"))
+                        .help(chosen == nil ? L.text("没有可以运行的数字员工") : L.text("开聊，你先说（↩）"))
                     }
                 }
             }
@@ -79,7 +79,7 @@ struct ChatsView: View {
     /// Why a digital employee cannot chat now: no agent bound, or its agent not checked yet.
     static func unavailable(_ role: JSON, connection: (String) -> JSON?) -> String? {
         guard let c = connection(role["connection"].str) else { return L.text("还没有绑定 Agent") }
-        return c["phase"].str == "ok" ? nil : L.text("Agent「\(c["name"].str)」还没有测试通过")
+        return c["phase"].str == "ok" ? nil : L.text("Agent「\(c["name"].str)」还没通过检查")
     }
 
     /// "Claude Code · claude-sonnet · Bypass permissions": who does the work, in one line.
@@ -132,7 +132,7 @@ private struct RoleChoice: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded { if why == nil { start() } })
         .hoverable(12)
         .disabled(why != nil)
-        .help(why.map { L.text("\($0)：在设置的「数字员工」页处理") } ?? ChatsView.setup(role, store: store))
+        .help(why.map { L.text("\($0)：去「设置 › 数字员工」处理") } ?? ChatsView.setup(role, store: store))
         .accessibilityLabel(role["name"].str)
         .accessibilityValue(why ?? (starting ? L.text("正在打开") : selected ? L.text("已选择") : ""))
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -142,7 +142,7 @@ private struct RoleChoice: View {
 /// A chat is talking while its session is open; otherwise the next message reopens it.
 enum ChatRowStatus {
     static func label(_ s: RunStatus) -> (String, Tone) {
-        s.isActive ? (L.text("会话中"), .blue) : (L.text("已关闭"), .gray)
+        s.isActive ? (L.text("会话中"), .blue) : (L.text("已结束"), .gray)
     }
 
     /// A chat is listed by its first message; before there is one, by who it is with.
@@ -177,7 +177,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(st.run.cwd.isEmpty || !FileManager.default.fileExists(atPath: st.run.cwd))
-                .help(L.text("在 Finder 中显示这次对话的工作目录：为它新建，删除对话时一起删除"))
+                .help(L.text("在 Finder 中显示工作目录（对话专用，随对话删除）"))
             }
             if st.run.status == .failed && !st.run.error.isEmpty {
                 Note(text: L.text("会话已结束：\(st.run.error)"), tone: .amber)

@@ -1,7 +1,7 @@
 ---
 id: product-manager
 name: 产品经理
-desc: 澄清需求、定义范围和优先级、编写带编号验收标准的 PRD、裁定产品问题、做产品验收
+desc: 理清需求和优先级，写带验收标准的 PRD，产品问题由它拍板
 color: "#2563eb"
 init: PD
 lead: false

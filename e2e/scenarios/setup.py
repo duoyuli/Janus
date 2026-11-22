@@ -181,7 +181,7 @@ def setup(ctx, c):
         for tab in ("general", "agents", "library:skill", "library:mcp", "usage", "permissions", "updates"):
             shot = "settings-" + tab.replace(":", "-")
             ctx.app.do(f"open settings:{tab}", f"shot {shot}")
-            c(_drawn(ctx, shot), f"应用：设置 → {tab} 画出来了")
+            c(_drawn(ctx, shot), f"应用：设置 › {tab} 画出来了")
         # Adding an Agent offers only Codex and Claude Code.
         state = ctx.app.do("agent-edit new claude apikey template", "shot agent-editor")
         c(_drawn(ctx, "agent-editor") and state["agentEditorEnv"] == template,

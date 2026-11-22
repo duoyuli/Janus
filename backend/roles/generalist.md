@@ -1,7 +1,7 @@
 ---
 id: generalist
 name: 通用数字员工
-desc: 什么子任务都能接：调研、梳理需求、编码、测试、写文档和独立验证；资源库里的工具和 Skill 按子任务的需要使用
+desc: 什么都能接：调研、需求、编码、测试、文档、独立验证
 color: "#0f766e"
 init: GN
 lead: false

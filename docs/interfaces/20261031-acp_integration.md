@@ -118,7 +118,7 @@ Janus 编写的系统层说明和段落标签始终用英文，独立于界面�
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
 | Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并（`with_system`、`with_developer_instructions`） |
 
-Janus 把注入的内容记成 `session.prompt` 事件，都带 `via`（`system` 或 `developer`），会话页可以展开查看。Agent Team 的会话记两条：协作指令（`channel` 为 `system`，负责人说明或协作约定，会话页标为「Agent Team 协作指令」）和用户的长期要求（`channel` 为 `instructions`，会话页标为「数字员工的指令」）。对话只记数字员工的指令；新开会话接着之前的对话时，最近的对话另记一条（`channel` 为 `history`，标为「之前的对话」）。有资源库 Skill 时，不论哪种会话都另记一条 Skill 目录的位置（`channel` 为 `skills`）。
+Janus 把注入的内容记成 `session.prompt` 事件，都带 `via`（`system` 或 `developer`），会话页可以展开查看。Agent Team 的会话记两条：协作指令（`channel` 为 `system`，负责人说明或协作约定，会话页标为「团队协作指令」）和用户的长期要求（`channel` 为 `instructions`，会话页标为「数字员工的指令」）。对话只记数字员工的指令；新开会话接着之前的对话时，最近的对话另记一条（`channel` 为 `history`，标为「之前的对话」）。有资源库 Skill 时，不论哪种会话都另记一条 Skill 目录的位置（`channel` 为 `skills`）。
 
 <a id="reload_system_layer"></a>
 ### 恢复会话时的系统层

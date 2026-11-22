@@ -96,18 +96,18 @@ struct RouterGuide: View {
     private var steps: [(title: String, detail: String)] {
         switch kind {
         case .skill: return [
-            (L.text("收进路由"), L.text("任务开始时把资源库的 Skill 放进资源包的隐藏目录，不逐个加载：Agent 自己的 Skill 列表里只有 janus-skills。")),
-            (L.text("只占一条描述"), L.text("janus-skills 的描述写明开始任务时先读它，带上各个 Skill 的名字和描述片段，常用的在前；会话说明里也写了它的位置。")),
+            (L.text("收进路由"), L.text("资源库的 Skill 统一收进 janus-skills，Agent 的 Skill 列表里只多这一项。")),
+            (L.text("只占一条描述"), L.text("janus-skills 的描述提醒 Agent 先读它，并列出常用 Skill。")),
             (L.text("先查目录"), searched
-                ? L.text("Skill 较多，目录只列名字：Agent 想几个关键词，在 catalog.txt 里搜出描述相符的 Skill。")
+                ? L.text("Skill 多时目录只列名字，Agent 按关键词搜。")
                 : L.text("Agent 读 janus-skills 的目录：每个 Skill 一行，写着完整描述和什么时候用。")),
-            (L.text("用到再读"), L.text("找到相符的 Skill，再读它的 SKILL.md 照着做。每次读取都记下来，资源库据此显示用过几次。")),
+            (L.text("用到再读"), L.text("找到合适的 Skill 再读 SKILL.md 照做；每次读取都会计数。")),
         ]
         case .mcp: return [
-            (L.text("只多一个入口"), L.text("会话只拿到一个 janus-tools，打开时不启动任何服务器。它列出全部工具，用上次记下的列表；工具名和说明都带服务器名。")),
-            (L.text("用到才启动"), L.text("第一次调用某个服务器的工具时才启动它：命令在任务的工作目录里、隔离的环境中运行，HTTP、SSE 服务器由 Janus 连接。")),
-            (L.text("同一个任务共用"), L.text("负责人和子任务共用这个进程；浏览器这类会记状态的服务器可以设成每个会话单独运行。")),
-            (L.text("闲置就停"), L.text("共用的闲置 10 分钟后停止，下次用到再启动；单独运行的跟着会话结束；任务停止、取消或失败时全部停止。")),
+            (L.text("只多一个入口"), L.text("会话只拿到 janus-tools 一个入口，不预先启动服务器；工具名带服务器前缀。")),
+            (L.text("用到才启动"), L.text("第一次调用时才启动：命令型在隔离环境里跑，HTTP / SSE 由 Janus 连接。")),
+            (L.text("同一个任务共用"), L.text("负责人和子任务共用进程；浏览器这类有状态的服务器可以每个会话一份。")),
+            (L.text("闲置就停"), L.text("共用的闲置 10 分钟自动停；单独的随会话结束；任务结束时全停。")),
         ]
         }
     }

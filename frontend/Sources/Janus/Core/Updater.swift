@@ -202,7 +202,7 @@ final class Updater {
         }
         let parent = bundle.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
-            state = .failed(L.text("没有写入 \(parent.path) 的权限，不能替换 Janus.app。请下载 DMG 手动安装。"))
+            state = .failed(L.text("没有写入 \(parent.path) 的权限，替换不了 Janus.app。下载 DMG 手动装吧。"))
             return
         }
         let stage = home.updates.appendingPathComponent(r.version)

@@ -233,7 +233,7 @@ final class RunModel {
                 // Resuming (or messaging an interrupted run) makes it live again: reconnect.
                 if !live, ["resumeRun", "message"].contains(body["type"].str) {
                     await read()
-                    store.show(body["type"].str == "resumeRun" ? L.text("已从中断处继续") : L.text("正在恢复会话"))
+                    store.show(body["type"].str == "resumeRun" ? L.text("已从中断处继续") : L.text("正在接上会话"))
                 }
                 return true
             } catch let err as APIError where err.status == 409 && attempt == 0 {

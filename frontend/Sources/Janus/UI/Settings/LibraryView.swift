@@ -38,7 +38,7 @@ struct LibraryView: View {
                     TextField(store.libraryKind == .skill ? L.text("搜索 Skill") : L.text("搜索 MCP 服务器"), text: $query)
                         .textFieldStyle(.roundedBorder).frame(width: 200)
                 }
-                Text(L.text("资源库里的每项资源都给所有数字员工，经 Skill 路由和 MCP 路由按需取用。任务开始时固定它用的资源，这里的改动从下一个任务起生效。"))
+                Text(L.text("资源库全员可用，按需取用。改动下个任务起生效。"))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 12)
@@ -130,10 +130,10 @@ struct LibraryView: View {
         let skills = items(.skill)
         let searched = Library.searched(store.library)
         RouterGuide(kind: .skill, names: Library.catalogOrder(skills).map { $0["name"].str }, now: skills.isEmpty
-            ? L.text("还没有 Skill。添加后都经 janus-skills 给所有数字员工。")
+            ? L.text("还没有 Skill。加进来就全员可用。")
             : searched
-            ? L.text("现在 \(skills.count) 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述；Skill 较多，Agent 按关键词搜索目录。")
-            : L.text("现在 \(skills.count) 个 Skill 都经 janus-skills 给所有数字员工：提示词里只有它的一条描述，目录直接列出每个 Skill。"),
+            ? L.text("\(skills.count) 个 Skill 全员可用，经 janus-skills 按关键词搜索。")
+            : L.text("\(skills.count) 个 Skill 全员可用，经 janus-skills 直接列出。"),
             searched: searched)
         let groups = Library.skillGroups(skills, sources: store.librarySources)
         let shown = groups.filter { query.isEmpty || $0.items.contains(where: matches) }
@@ -169,7 +169,7 @@ struct LibraryView: View {
                 .disabled(folder.busy)
             }
             if shown.isEmpty {
-                empty(query.isEmpty ? L.text("还没有 Skill。拖入 GitHub 链接、从文件夹复制、新建，或从下面的推荐里添加。") : L.text("没有匹配的 Skill"))
+                empty(query.isEmpty ? L.text("还没有 Skill。拖个 GitHub 链接进来，或者从文件夹导入、新建、挑个推荐。") : L.text("没有匹配的 Skill"))
             }
             ForEach(shown) { skillGroup($0) }
         }
@@ -211,7 +211,7 @@ struct LibraryView: View {
             addSource()
             return true
         } isTargeted: { dropping = $0 }
-        .help(L.text("Janus 拉取仓库，列出其中的 Skill（SKILL.md），由你选择导入哪些。只读取，不执行仓库中的任何文件。导入的 Skill 给所有数字员工，第三方内容请先看过再导入。"))
+        .help(L.text("Janus 只读取仓库、列出 Skill，不执行任何文件。第三方内容先看再导入。"))
     }
 
     /// One place skills came from: a GitHub source (with its updates and the skills still to
@@ -259,7 +259,7 @@ struct LibraryView: View {
             }
         case .folder(let path):
             group(Self.key(g.origin), open: open, icon: "folder", title: (path as NSString).abbreviatingWithTildeInPath,
-                  caption: L.text("本机文件夹 · 复制时的内容，展开某个 Skill 可以刷新"), summary: summary) {
+                  caption: L.text("本机文件夹 · 导入时的快照，展开可刷新"), summary: summary) {
                 EmptyView()
             } content: {
                 ForEach(list, id: \.self) { i in Divider(); row(i) }
@@ -297,16 +297,16 @@ struct LibraryView: View {
     @ViewBuilder private var mcpTab: some View {
         let servers = items(.mcp)
         RouterGuide(kind: .mcp, names: servers.map { $0["name"].str }, now: servers.isEmpty
-            ? L.text("还没有 MCP 服务器。添加后都经 janus-tools 给所有数字员工。")
-            : L.text("现在 \(servers.count) 个服务器都经 janus-tools 给所有数字员工：会话只多这一个入口。"))
+            ? L.text("还没有 MCP 服务器。加进来就全员可用。")
+            : L.text("\(servers.count) 个服务器全员可用，经 janus-tools 一个入口取用。"))
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(L.text("已添加"), count: servers.count, caption: L.text("都经 janus-tools 给所有数字员工")) {
+            sectionHeader(L.text("已添加"), count: servers.count, caption: L.text("全员可用，经 janus-tools 取用")) {
                 Button(L.text("添加服务器")) { Task { await store.editMcp(nil) } }
-                    .help(L.text("填写表单，或切到 JSON 粘贴 README 里的配置（Claude 的 mcpServers、VS Code 的 servers）"))
+                    .help(L.text("填表单，或切到 JSON 贴 README 里的配置"))
             }
-            Text(L.text("环境变量和 HTTP header 的值只保存在本机的 Janus home，在编辑器里查看和修改，不写进数据库、任务记录和事件。")).font(.caption).foregroundStyle(.secondary)
+            Text(L.text("值只存在本机，不进数据库、任务记录和事件。")).font(.caption).foregroundStyle(.secondary)
             mcpGroup("all", icon: "point.3.connected.trianglepath.dotted", title: L.text("所有服务器"),
-                     caption: L.text("用到才启动或连接，命令启动的在任务的工作目录里运行"),
+                     caption: L.text("用到才启动或连接"),
                      list: servers, empty: L.text("还没有 MCP 服务器"))
         }
         CatalogShelf(store: store, kind: .mcp, query: query)
@@ -409,7 +409,7 @@ struct LibraryView: View {
     private func details(_ i: JSON) -> some View {
         let mcp = i["kind"].str == "mcp"
         let vars = Library.vars(i)
-        let process = i["server"]["process"].str == "perSession" ? L.text("每个会话单独运行") : L.text("同一个任务的会话共用一个进程，用到才启动")
+        let process = i["server"]["process"].str == "perSession" ? L.text("每个会话单独运行") : L.text("同一任务共用一个进程，用到才启动")
         let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text,
                      i["server"]["transport"].str == "stdio" ? process : "", mcp ? "" : Library.usage(i, now: L.nowMs())].filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 3) {
@@ -436,7 +436,7 @@ struct LibraryView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             switch w["state"].str {
             case "preparing":
-                Text(i["server"]["transport"].str == "stdio" ? L.text("正在启动一次，下载它需要的包，大的包可能要几分钟…") : L.text("正在连接，列出它的工具…"))
+                Text(i["server"]["transport"].str == "stdio" ? L.text("首次启动，正在下载依赖，大的包要等几分钟…") : L.text("正在连接，列出它的工具…"))
                     .font(.caption).foregroundStyle(.secondary)
             case "ready": Text(L.text("已准备好 · \(w["tools"].int ?? 0) 个工具")).font(.caption).foregroundStyle(Tone.green.color)
             case "failed": Text(L.text("启动失败：\(w["error"].str)")).font(.caption).foregroundStyle(Tone.red.color).textSelection(.enabled)
@@ -528,13 +528,13 @@ struct LibraryView: View {
             do {
                 let r = try await store.api.post("/api/library/items/\(i["id"].str)/refresh")
                 await store.loadLibrary()
-                store.show(r["revision"].str == i["revision"].str ? L.text("\(i["name"].str) 没有变化") : L.text("已从文件夹刷新 \(i["name"].str)，新的任务使用新内容"))
+                store.show(r["revision"].str == i["revision"].str ? L.text("\(i["name"].str) 没有变化") : L.text("已刷新 \(i["name"].str)，下个任务起生效"))
             } catch { store.show(error.localizedDescription) }
         }
     }
 
     private func remove(_ i: JSON) {
-        let note = L.text("已经开始的任务有自己的副本，不受影响；正在运行的这个 MCP 服务器会停止。MCP 服务器的值会一起删除。")
+        let note = L.text("进行中的任务不受影响；这个服务器会停下，它的值一起删除。")
         guard confirm(L.text("删除 \(i["name"].str)？"), note, ok: L.text("删除")) else { return }
         Task {
             do { try await store.api.delete("/api/library/items/\(i["id"].str)"); await store.loadLibrary() }
@@ -645,7 +645,7 @@ struct SkillEditor: View {
             if !editing {
                 TextField(L.text("什么时候用，例如：写发布说明时使用"), text: field("description")).textFieldStyle(.roundedBorder)
             }
-            Text(editing ? L.text("SKILL.md（front matter 中的 name 以上面的名称为准）") : L.text("正文：Agent 使用这个 Skill 时读到的说明")).font(.caption).foregroundStyle(.secondary)
+            Text(editing ? L.text("SKILL.md（名称以上面填写的为准）") : L.text("正文：Agent 使用这个 Skill 时读到的说明")).font(.caption).foregroundStyle(.secondary)
             TextEditor(text: field("content"))
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 260)
