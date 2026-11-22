@@ -4,6 +4,24 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.21.7
+
+- 值班改为按时间表开工：在「什么时候开工」里选「按时间表」（每隔几分钟、每隔几小时、每天、工作日、每周、每月，或者直接写一条 5 段的 cron 表达式），表单下面实时显示接下来三次开工的时间；也可以选「只在你叫它时」。原来的「由它自己决定」不再是一个设置：值班仍可以自己约一次时间表之外的开工（比如等 CI 跑完再看），值班页写明它约的时间和原因。升级时已有的值班自动换成时间表：固定间隔换成对应的钟点（每 30 分钟就是每个整点和半点），「自己决定」换成每 30 分钟，「只在叫它时」不变。
+- 值班在 Git 仓库里有了自己的副本：每次开工前对齐到工作区当前的提交，它改的文件只在副本里，不会碰你的工作区，下次开工前清掉。之前值班直接在工作区目录里干活，靠前后比较目录判断它改了什么，你或其他程序同时改的文件也会被算成值班改的。
+- 值班第一次开工时自己起名。之前取会话标题当名字，用 Codex 时会变成「[Loop wake #1] …」这样的一串。值班的工作方式里不再重复你写的提示；每次开工的摘要取它最后一条消息，不再是开头那句「我先看看」。
+- 中文界面里值班「开工」「摸鱼」：「干活中」「摸鱼中 · 明天 09:00 开工」「现在开工」「开工 3 次」，时间只显示到分钟；工作区首页值班一节的按钮改叫「新建…」。
+- 任务的独立副本（Git worktree）在界面上不再出现「worktree」这个词和 Janus 目录下的路径：交付说明、删除确认、排队提示和子任务页的 Git 信息只写仓库、分支和提交；验收冲突时列出冲突的文件，并给出可以自己合并的提交。
+- 修复任务副本的一批问题：副本目录被手动删掉后，任务既不能继续也删不干净；建副本中途失败时留下残留；验收会悄悄覆盖你目录里被忽略的同名文件（例如 `.env`），或者在你把分支回退后把删掉的历史带回来；分支已经包含结果时继续任务会从起点重建；两个任务同时验收进同一个分支会互相冲突；仓库被移动后任务删不掉；`.worktreeinclude` 里的中文文件名被跳过。清理副本时只删 Janus 自己的那一条，不再清理整个仓库里其他过期的 worktree 记录。
+- Janus 调用 git 时不再继承启动环境里指向别处的 `GIT_DIR` 这类变量，不运行仓库的文件系统监视程序，不等终端输入；Spotlight 不再索引任务和值班的副本。
+
+- Loops now wake on a schedule: under When It Wakes, choose On a schedule (every few minutes or hours, daily, weekdays, weekly, monthly, or a five-field cron expression of your own), and the form shows the next three times as you edit; or choose Only when you call it. Its own call is no longer a setting: a Loop can still ask to look again once outside its schedule (say, after CI finishes), and its page shows when and why. Existing Loops get a schedule on upgrade: a fixed interval becomes the matching clock times (every 30 minutes means on the hour and the half hour), its own call becomes every 30 minutes, and only when called stays.
+- In a Git repository a Loop has its own copy: before each wake it moves to the workspace's current commit, files it changes stay in the copy, never in your workspace, and are cleared before the next wake. Before, a Loop worked right in the workspace folder and Janus compared the folder before and after, so files you or other programs changed meanwhile were blamed on the Loop.
+- A Loop names itself on its first wake. Before, its name came from the session title, which under Codex became a string like “[Loop wake #1] …”. A Loop's working instructions no longer repeat your prompt, and a wake's summary comes from its last message instead of an opening “let me take a look”.
+- In the Chinese interface Loops now 「开工」 and 「摸鱼」 (start work and slack off), and wake times show to the minute; the button in a workspace's Loop section is now New….
+- A task's own copy (its Git worktree) no longer shows the word worktree or Janus's paths in the app: delivery notes, delete confirmations, the queue note and a subtask's Git line show the repository, branch and commit only; a conflict on acceptance names the files and the commit to merge yourself.
+- Fixed a set of problems with tasks' copies: a copy whose folder was deleted by hand left the task unable to continue or be deleted; a copy that failed half way through creation was left behind; accepting could silently overwrite an ignored file of yours with the same name (such as `.env`), or bring back history after you reset the branch; continuing a task whose result the branch already had rebuilt it from the start; two tasks accepted into one branch at once collided; a task whose repository was moved could not be deleted; `.worktreeinclude` skipped file names outside ASCII. Cleaning up a copy now removes only Janus's own entry instead of pruning every stale worktree record in the repository.
+- Janus's git calls no longer inherit variables such as `GIT_DIR` that point elsewhere, never run the repository's file system monitor and never wait for terminal input; Spotlight no longer indexes the copies of tasks and Loops.
+
 ## 2026.11.21.6
 
 - 新增工作区的「值班」（英文界面叫 Loop）：在工作区首页点「新建值班…」，写下要它做什么，选多久醒一次（固定间隔、由它自己决定、只在叫它时）。值班由工作区的负责人来跑，不带团队；每次醒来看一眼、做判断，一两句话能答的直接答，要改东西的事派成独立的任务（同一件事按 key 只派一次），结果进收件箱。只有你能决定的事它会问你，不等回答；你的回答会唤醒它，并写在那次醒来的提示里。新建时不用起名字，它第一次醒来时自己起。值班出现在工作区首页和侧栏里，值班页有它的会话（随时可以和它说话）、待回答的问题、派出的任务和它记下的状态，可以现在唤醒、暂停、继续、编辑和删除。值班醒来期间改了工作区的文件、或者没能醒来，收件箱会提醒你；工作区不在 Git 仓库里时，值班页会说明看不出它改了哪些文件。
