@@ -4,7 +4,7 @@ import SwiftUI
 /// 本机环境, in Settings › 通用 › 权限: every agent's and MCP server's HOME mirrors the person's home
 /// folder, so their sign-ins, toolchains and settings work there as in their terminal, except the
 /// paths in one list: agents' own settings and sensitive data to begin with, then whatever the
-/// person adds or takes out. Janus home is always hidden. Below, a command can be tried as the
+/// person adds (from the header) or takes out (each row's ×). Janus home is always hidden. Below, a command can be tried as the
 /// person and as an agent, to see whether a tool works for agents. Changes apply at once,
 /// sessions already running included.
 // @project-doc docs/architecture/20261031-frontend.md#host_env
@@ -44,6 +44,8 @@ struct HostEnvView: View {
                     .buttonStyle(.link)
                     .disabled(env["defaults"].bool == true)
                     .help(L.text("回到 Janus 默认挡住的路径：常见 Agent 的配置和敏感数据"))
+                IconButton(symbol: "plus", label: L.text("添加要挡住的路径"),
+                           help: L.text("在用户目录里选要挡住的文件夹或文件，可以一次选多个；隐藏的文件和文件夹也显示")) { pick() }
             }
             Text(L.text("默认挡住常见 Agent 的配置和敏感数据，可增可删。"))
                 .font(.caption).foregroundStyle(.secondary)
@@ -59,9 +61,6 @@ struct HostEnvView: View {
                             Task { await store.hideFromAgents(HostEnv.with(store.hostHidden, h["path"].str, hide: false)) }
                         }
                     }
-                    Button(L.text("选择要挡住的文件夹或文件…")) { pick() }
-                        .padding(10)
-                        .help(L.text("在用户目录里选，可以一次选多个；隐藏的文件和文件夹也显示"))
                 }
             }
         }
@@ -74,8 +73,10 @@ struct HostEnvView: View {
             if !here { Text(L.text("本机没有")).font(.caption).foregroundStyle(.secondary) }
             Spacer()
             if removable, let remove {
-                Button(L.text("移除"), action: remove).buttonStyle(.link)
+                Button(action: remove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                    .buttonStyle(.plain)
                     .help(L.text("不再挡住这个路径"))
+                    .accessibilityLabel(L.text("移除 \(path)"))
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)

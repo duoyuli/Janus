@@ -368,6 +368,7 @@
 "团队干活中" = "Team working";
 "图片 %@" = "Image %@";
 "在 %@ 没有找到 %@ 的配置。" = "Could not find settings for %2$@ at %1$@.";
+"在用户目录里选要挡住的文件夹或文件，可以一次选多个；隐藏的文件和文件夹也显示" = "Pick folders or files in your home folder to hide; select several at once. Hidden items are shown.";
 "在 Finder 中显示" = "Show in Finder";
 "在 Finder 中显示 Janus" = "Show Janus in Finder";
 "在 Janus 中新建" = "Created in Janus";
@@ -1519,9 +1520,7 @@
 "没有跑完" = "Did Not Finish";
 "（没有输出）" = "(No output)";
 "选择 Agent 不该看到的文件夹或文件" = "Choose the folders or files Agents should not see";
-"移除" = "Remove";
-"选择要挡住的文件夹或文件…" = "Choose Folders or Files to Hide…";
-"在用户目录里选，可以一次选多个；隐藏的文件和文件夹也显示" = "Pick in your home folder, several at once if you like; hidden files and folders are shown";
-"管理团队…" = "Manage Team…";
-"添加…" = "Add…";
-"新建…" = "New…";
+"添加共享资料" = "Add Shared Context";
+"编辑共享资料" = "Edit Shared Context";
+"添加要挡住的路径" = "Hide More Paths";
+"编辑这条意见" = "Edit This Comment";

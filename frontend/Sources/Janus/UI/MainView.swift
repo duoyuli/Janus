@@ -180,16 +180,7 @@ struct SidebarHeading: View {
             Text(title)
             Spacer(minLength: 6)
             if let plus {
-                Button(action: action) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hoverable(5)
-                .help(plus)
-                .accessibilityLabel(plus)
+                IconButton(symbol: "plus", label: plus, size: 11, color: .secondary, action: action)
             }
         }
         .font(.caption)

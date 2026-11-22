@@ -586,6 +586,31 @@ extension View {
     func hoverable(_ cornerRadius: CGFloat = 8) -> some View { modifier(Hoverable(cornerRadius: cornerRadius)) }
 }
 
+/// A small action beside a heading or an item (add, edit, remove): a glyph, not a word. What it
+/// does is its hover help and its VoiceOver label, so the page shows a button and not a link.
+struct IconButton: View {
+    let symbol: String
+    let label: String
+    var size: CGFloat = 13
+    var color: Color = .accent
+    var help: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: size, weight: .medium))
+                .frame(width: size + 11, height: size + 11)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(color)
+        .hoverable(5)
+        .help(help ?? label)
+        .accessibilityLabel(label)
+    }
+}
+
 /// A transient confirmation at the bottom of the window. It uses the system material so it reads
 /// in both appearances, and VoiceOver announces it.
 struct Toast: View {

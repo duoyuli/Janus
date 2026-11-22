@@ -154,7 +154,7 @@ struct DiffReviewView: View {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "text.bubble").foregroundStyle(Color.accent)
                     Text(c.text).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-                    Button(L.text("编辑")) { editing = l.id; draft = c.text }.buttonStyle(.link).font(.caption)
+                    IconButton(symbol: "square.and.pencil", label: L.text("编辑这条意见"), size: 11) { editing = l.id; draft = c.text }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(Color.soft)

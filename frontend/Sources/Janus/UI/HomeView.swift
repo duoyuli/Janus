@@ -86,7 +86,7 @@ struct HomeView: View {
     }
 
     /// The name, the folder and the team in one line; models, permissions and tools are in the
-    /// workspace settings.
+    /// workspace settings, reached from the 「工作区操作」 menu beside the name (one way in, not two).
     private func identity(_ members: [(JSON, JSON?)]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -125,7 +125,6 @@ struct HomeView: View {
             .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: L.text("、")))
             Text(verbatim: "\(countLabel)\(lead.map { $0["name"].str == L.text("负责人") ? L.text(" · 有负责人") : L.text(" · 负责人：\($0["name"].str)") } ?? "")")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Button(L.text("管理团队…")) { store.editingWorkspace = ws }.buttonStyle(.link).fixedSize()
         }
     }
 
@@ -139,8 +138,9 @@ struct HomeView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(L.text("共享资料")).font(.headline)
                 Spacer()
-                Button(brief.isEmpty ? L.text("添加…") : L.text("编辑…")) { store.editingBrief = ws }.buttonStyle(.link)
-                    .help(L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。"))
+                IconButton(symbol: brief.isEmpty ? "plus" : "square.and.pencil",
+                           label: brief.isEmpty ? L.text("添加共享资料") : L.text("编辑共享资料"),
+                           help: L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")) { store.editingBrief = ws }
             }
             if !brief.isEmpty {
                 Text(brief)
@@ -253,7 +253,23 @@ func runLabel(_ r: JSON) -> (String, Tone) {
     return status.listLabel
 }
 
-/// A small mark before a goal a Loop dispatched: which Loop, and (on hover) its key and source.
+/// A Loop's own mark, wherever the Loop itself is shown (its row, its page): a tinted tile, so
+/// it reads apart from what waits on the person and from the goals it dispatched.
+struct LoopBadge: View {
+    var size: CGFloat = 24
+
+    var body: some View {
+        Image(systemName: "clock.arrow.circlepath")
+            .font(.system(size: size * 0.55, weight: .semibold))
+            .foregroundStyle(Tone.violet.color)
+            .frame(width: size, height: size)
+            .background(Tone.violet.color.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.28))
+            .accessibilityHidden(true)
+    }
+}
+
+/// A small tag after the title of a goal a Loop dispatched: which Loop, and (on hover) its key
+/// and source. The goal stays the row's subject; the tag only says where it came from.
 struct LoopMark: View {
     let store: AppStore
     let run: JSON
@@ -261,15 +277,21 @@ struct LoopMark: View {
     var body: some View {
         if run["origin"].str == "loop" {
             let name = store.loops.first { $0["id"] == run["loopId"] }?["title"].string ?? L.text("已删除的值班")
-            Image(systemName: "arrow.triangle.2.circlepath").font(.caption).foregroundStyle(.secondary)
-                .help(L.text("来自值班：\(name)") + (run["dispatchKey"].string.map { " · \($0)" } ?? "") + (run["sourceUrl"].string.map { " · \($0)" } ?? ""))
-                .accessibilityLabel(L.text("来自值班：\(name)"))
+            HStack(spacing: 3) {
+                Image(systemName: "clock.arrow.circlepath").accessibilityHidden(true)
+                Text(name).lineLimit(1)
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .fixedSize()
+            .help(L.text("来自值班：\(name)") + (run["dispatchKey"].string.map { " · \($0)" } ?? "") + (run["sourceUrl"].string.map { " · \($0)" } ?? ""))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(L.text("来自值班：\(name)"))
         }
     }
 }
 
-/// What waits on the person in a workspace, one row per goal or Loop: what it is, and what it
-/// waits on (「等你验收」「等你决定」「2 件事」…); a click opens it.
+/// What waits on the person in a workspace, one row per goal or Loop: a glyph and pill for what it
+/// waits on (「等你验收」「等你拍板」「2 件事」…), then what it is; a click opens it.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct WaitingRows: View {
     let store: AppStore
@@ -280,13 +302,13 @@ struct WaitingRows: View {
             ForEach(rows) { w in
                 Button { store.open(.run(w.id)) } label: {
                     HStack(spacing: 8) {
+                        Image(systemName: w.symbol).foregroundStyle(w.tone.color).frame(width: 18).accessibilityHidden(true)
                         if let l = w.loop {
-                            Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.secondary).accessibilityHidden(true)
                             Text(l["title"].str).lineLimit(1)
                             Text(L.text("值班")).font(.caption).foregroundStyle(.secondary)
                         } else {
-                            LoopMark(store: store, run: w.run)
                             Text(L.goalTitle(w.run["goal"].str)).lineLimit(1)
+                            LoopMark(store: store, run: w.run)
                         }
                         Spacer(minLength: 12)
                         Pill(w.label, w.tone)
@@ -320,8 +342,8 @@ struct RunRows: View {
                 let (l, t) = waiting > 0 ? (L.text("待处理"), Tone.amber) : runLabel(r)
                 Button { store.open(.run(r["id"].str)) } label: {
                     HStack(spacing: 8) {
-                        LoopMark(store: store, run: r)
                         Text(L.goalTitle(r["goal"].str)).lineLimit(1)
+                        LoopMark(store: store, run: r)
                         Spacer(minLength: 12)
                         if dated { Text(L.dateTime(r["createdAt"].double ?? 0)).font(.caption).foregroundStyle(.secondary) }
                         Pill(l, t)

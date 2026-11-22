@@ -225,6 +225,18 @@ struct WaitingRow: Identifiable, Equatable {
         }
     }
 
+    /// What it waits on, as a glyph: the one thing's kind, or a stack for several. It leads the
+    /// row, so a Loop that waits does not look like the Loop itself or a goal it dispatched.
+    var symbol: String {
+        guard entries.count == 1, let e = entries.first else { return "tray.full.fill" }
+        switch e.kind {
+        case "delivered": return "checkmark.seal.fill"
+        case "interrupted": return "pause.circle.fill"
+        case "failed": return "xmark.octagon.fill"
+        default: return TimelineMark.openKinds[e.kind]?.0 ?? "exclamationmark.circle.fill"
+        }
+    }
+
     /// Red when an agent is held up until the person answers; amber when it can wait.
     var tone: Tone { entries.allSatisfy(\.canWait) ? .amber : .red }
 }

@@ -115,4 +115,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(rows[0].loop?["id"] == "l1" && rows[0].label == expectedCopy("等你拍板", "Your Call") && rows[0].tone == .amber)
     #expect(rows[1].loop == nil && rows[1].label == expectedCopy("等你验收", "Ready to Accept"))
     #expect(rows[2].entries.count == 2 && rows[2].label == expectedCopy("2 件事", "2 Items") && rows[2].tone == .red, "an approval holds an agent up")
+    // The leading glyph says what it waits on, not who: a Loop's question looks like a question.
+    #expect(rows.map(\.symbol) == ["questionmark.bubble.fill", "checkmark.seal.fill", "tray.full.fill"])
+    #expect(Inbox.waiting([e("i", "g1", "interrupted")], goals: [["id": "g1"]], loops: []).first?.symbol == "pause.circle.fill")
 }

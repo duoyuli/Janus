@@ -54,8 +54,7 @@ struct LoopSection: View {
                     Text(L.text("按时间表开工：看一眼、做判断，要改的事派成任务")).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button(L.text("新建…")) { store.editingLoop = AppStore.blankLoop(ws["id"].str) }.buttonStyle(.link)
-                    .help(L.text("新建值班"))
+                IconButton(symbol: "plus", label: L.text("新建值班")) { store.editingLoop = AppStore.blankLoop(ws["id"].str) }
             }
             if !loops.isEmpty {
                 Card(padding: 4) {
@@ -64,14 +63,14 @@ struct LoopSection: View {
                         Button { store.open(.run(l["run"].str)) } label: {
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(spacing: 10) {
-                                    Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.secondary).accessibilityHidden(true)
+                                    LoopBadge()
                                     Text(l["title"].str).lineLimit(1)
                                     Text(LoopText.schedule(l)).font(.caption).foregroundStyle(.secondary)
                                     Spacer()
                                     Pill(label, tone)
                                 }
                                 if let last = l["status"]["lastSummary"].string, !last.isEmpty {
-                                    Text(L.text("上次：\(last)")).font(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.leading, 26)
+                                    Text(L.text("上次：\(last)")).font(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.leading, 34)
                                 }
                             }
                             .padding(.horizontal, 10).padding(.vertical, 8)
@@ -129,6 +128,9 @@ struct LoopEditor: View {
                     Text(who.isEmpty ? L.text("在「\(place)」值班") : L.text("在「\(place)」值班，由负责人「\(who)」来跑"))
                         .font(.callout).foregroundStyle(.secondary)
                 }
+                // How a Loop works, under the title: read before writing what it should do.
+                Text(L.text("它自己不改文件，要改的事派成任务，结果到收件箱；名字等它第一次开工时自己起。"))
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -201,9 +203,6 @@ struct LoopEditor: View {
                 }
             }
             .task(id: scheduled ? schedule.cron : "") { await check() }
-
-            Label(L.text("它自己不改文件，要改的事派成任务，结果到收件箱；名字等它第一次开工时自己起。"), systemImage: "info.circle")
-                .font(.caption).foregroundStyle(.secondary)
 
             HStack {
                 Spacer()
@@ -355,7 +354,7 @@ struct LoopView: View {
         let (phase, tone) = LoopText.phase(loop)
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "arrow.triangle.2.circlepath").font(.title3).foregroundStyle(.secondary).accessibilityHidden(true)
+                LoopBadge(size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
                         Text(loop["title"].string ?? st.run.goal).font(.display(.title3))
