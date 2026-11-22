@@ -592,7 +592,7 @@ impl App {
                     )
                     .await?;
                 if run.kind == RunKind::Loop {
-                    self.loop_turn_ended(run, &next);
+                    self.loop_turn_ended(run);
                 }
                 if let Some(reason) = goal_refused(&text) {
                     self.emit(

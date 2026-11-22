@@ -201,10 +201,10 @@ def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
     if "a Loop in the workspace" in SYSTEM.get(sid, ""):
-        if not text.startswith("[Loop wake #"):
-            say(sid, "回复：" + text)
+        # A wake sends the Loop's prompt as it is; the tests talk to a Loop as the person with "[me] ".
+        if text.startswith("[me] "):
+            say(sid, "回复：" + text[len("[me] "):])
             return {"stopReason": "end_turn"}
-        log("loop wake " + text[len("[Loop wake #"):].split("]")[0])
         log("loop prompt " + json.dumps(text, ensure_ascii=False))
         broken = os.path.join(DIR, "loop-exit")
         if os.path.exists(broken):

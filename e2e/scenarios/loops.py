@@ -8,7 +8,7 @@ from scenarios import scenario
 
 @scenario("loops")
 def loops(ctx, c):
-    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次醒来自己起名；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（等你处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量）都与服务端一致"""
+    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次开工自己起名，开工的消息只有值班的提示；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（等你处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量）都与服务端一致"""
     t = ctx.team("loops", members=("m1",))
     ws = t.ws["id"]
     preview = ctx.api("GET", "/api/loops/schedule?cron=0+9+*+*+1-5&tz=Asia/Shanghai")
@@ -33,13 +33,14 @@ def loops(ctx, c):
     woke = kinds("loop.woke")[0]["data"]
     c(woke["reason"] == "manual" and woke["n"] == 1, "新建并马上开工：第 1 次开工，原因是手动")
     sent = next(e for e in events() if e["type"] == "user.message")
-    c(sent["actor"] == "janus" and sent["data"]["text"].endswith("看看有什么新 issue"), "醒来的提示来自 Janus，以值班的指令结尾")
+    c(sent["actor"] == "janus" and sent["data"]["text"] == "看看有什么新 issue", "开工的消息来自 Janus，只有值班的提示，不带环境信息")
     v = view()
     slept = kinds("loop.slept")[0]["data"]
     c(v["status"]["phase"] == "sleeping" and v["status"]["nextWakeAt"] == slept["until"] and v["status"]["wakes"] == 1
       and slept["until"] % 3_600_000 == 0 and v["status"]["nextWakeReason"] == "timer",
       "值班睡到时间表的下一个整点，下次醒来的时刻就是 loop.slept 记下的")
-    c(v["name"] == "" and "janus.set_name" in sent["data"]["text"], "会话标题不当名字；第一次醒来的提示请它自己起名")
+    layer = next(e for e in events() if e["type"] == "session.prompt" and (e.get("data") or {}).get("channel") == "system")["data"]["prompt"]
+    c(v["name"] == "" and "janus.set_name" in layer, "会话标题不当名字；还没有名字时，值班的工作方式里请它自己起名")
     c((v["status"]["lastSummary"] or "").startswith("看过了："), f"这次醒来的摘要是最后一条消息的第一行（{v['status']['lastSummary']}）")
 
     janus = t.fake.board(run, "lead")

@@ -36,14 +36,13 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let sent = evs.iter().find(|e| e.kind == "user.message").unwrap();
     assert_eq!(sent.actor, "janus", "a wake is Janus's prompt, not the person's");
     let text = sent.data.as_ref().unwrap()["text"].as_str().unwrap();
-    assert!(text.starts_with("[Loop wake #1]") && text.ends_with("看看有什么新 issue"), "{text}");
-    assert!(text.contains("Your schedule: `0 * * * *` (UTC); next "), "{text}");
+    assert_eq!(text, "看看有什么新 issue", "a wake sends the person's prompt and nothing else");
     let slept = evs.iter().find(|e| e.kind == "loop.slept").unwrap().data.clone().unwrap();
     let until = slept["until"].as_i64().unwrap();
     assert_eq!(until % 3_600_000, 0, "on the hour, not counted from the end of the wake");
     assert!(until > now_ms() - 60_000 && until <= now_ms() + 3_600_000);
     assert_eq!(slept["reason"], "timer");
-    assert_eq!(slept["summary"], "看过了：[Loop wake #1] ".to_string() + &text.lines().next().unwrap()[15..]);
+    assert_eq!(slept["summary"], "看过了：看看有什么新 issue");
     // Its system layer says how a Loop works; the person's prompt comes only in the wake's prompt.
     let layer = evs
         .iter()
@@ -52,8 +51,9 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
         .unwrap();
     assert!(layer.starts_with("You are a Loop in the workspace") && !layer.contains("看看有什么新 issue"), "{layer}");
 
-    // Its first wake asks it to name itself; a session title (the fake agent gives one) does not.
-    assert!(text.contains("janus.set_name"), "{text}");
+    // Its system layer asks it to name itself while it has no name; a session title (the fake agent
+    // gives one) does not name it.
+    assert!(layer.contains("janus.set_name"), "{layer}");
     assert_eq!(h.app.loop_def(&id).unwrap().name, "");
     let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "  issue 分拣\n多余的行" })).await;
     assert!(!err, "{said}");
@@ -113,7 +113,7 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
 
     // The person talking to it is a turn of its own, not a wake: the clock does not move.
     let before = h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap()["status"]["nextWakeAt"].clone();
-    h.app.action(&live, &json!({ "type": "message", "agent": "lead", "text": "你好" })).unwrap();
+    h.app.action(&live, &json!({ "type": "message", "agent": "lead", "text": "[me] 你好" })).unwrap();
     wait_until(&h.app, &run, "its reply", |e| {
         e.iter().any(|e| e.kind == "agent.message" && e.text.contains("回复：你好"))
     })
@@ -188,10 +188,6 @@ async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
     wait_until(&h.app, &run, "the wake by hand ends", |e| count(e, "loop.slept") == 3).await;
     assert_eq!(std::fs::read_to_string(copy.join("loop-notes.md")).unwrap(), "loop\n", "what it left went first");
     assert!(copy.join("new.md").exists(), "at the workspace's latest commit");
-    let prompt = events(&h.app, &run).into_iter().rfind(|e| e.kind == "user.message").unwrap();
-    assert!(
-        prompt.text.contains("own checkout") || prompt.data.unwrap()["text"].as_str().unwrap().contains("own checkout")
-    );
 
     // Deleting the Loop removes its copy and the repository's entry for it.
     h.app.delete_loop(&id).await.unwrap();
@@ -283,7 +279,7 @@ async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
     h.app.action(&live, &json!({ "type": "answer", "key": first, "answer": "先修导出", "note": "今天就要" })).unwrap();
     wait_until(&h.app, &run, "the answer's wake", |e| count(e, "loop.slept") == 2).await;
     let prompt = wake_prompts(&h).pop().unwrap();
-    assert!(prompt.contains("the person answered your question"), "{prompt}");
+    assert!(prompt.starts_with("看看队列\n\nThe person answered your questions:"), "{prompt}");
     assert!(prompt.contains("Q: 先修哪个？\n  A: 先修导出\n  Note: 今天就要"), "{prompt}");
 
     // Asked, then the service restarts: the question still waits, and answering it reopens the
