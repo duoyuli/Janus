@@ -71,11 +71,21 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     assert_eq!(h.app.db.memories("ws").unwrap().len(), 2);
     assert_eq!(h.app.db.memory(&member_note.id).unwrap().unwrap().hook, "别用 7878");
 
-    // Reading: by id, and by words.
+    // Reading: by id, by what one wants to know (ranked, any word counts, Chinese without spaces
+    // too), and the list of notes.
     let (text, err) = tool(&h.app, &run, "T1", "recall", json!({ "id": lead_note.id })).await;
     assert!(!err && text.contains("just setup"), "{text}");
     let (text, _) = tool(&h.app, &run, "lead", "recall", json!({ "query": "空闲 端口" })).await;
     assert!(text.contains("端口被占用") && !text.contains("怎么跑测试"), "{text}");
+    let (text, _) = tool(&h.app, &run, "lead", "recall", json!({ "query": "测试的端口被占用" })).await;
+    assert!(
+        text.find("端口被占用").unwrap() < text.find("怎么跑测试").unwrap_or(usize::MAX),
+        "the better match first: {text}"
+    );
+    let (text, _) = tool(&h.app, &run, "lead", "recall", json!({ "query": "部署 回滚" })).await;
+    assert!(text.contains("没有和「部署 回滚」相关的笔记"), "{text}");
+    let (text, _) = tool(&h.app, &run, "T1", "recall", json!({})).await;
+    assert!(text.starts_with("2 notes") && text.contains(&lead_note.id) && text.contains("端口被占用"), "{text}");
 
     // What a note must not be: empty, of no known kind, or carrying a credential.
     let (text, err) =
@@ -114,14 +124,19 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     }
     assert_eq!(h.app.db.memories("ws").unwrap().len(), 2);
 
-    // The sessions of the workspace are handed the index: the lead's goal session and the task's.
+    // The sessions of the workspace are told how to search the notes, not handed them: the lead's
+    // goal session and the task's.
     let lead_layer = layer(&h, &run, None);
     assert!(lead_layer.contains("Team memory:") && lead_layer.contains("janus.remember"), "{lead_layer}");
     let task_layer = layer(&h, &run, Some("T1"));
     assert!(task_layer.contains("Team memory:") && task_layer.contains("janus.recall"), "{task_layer}");
     let live = h.app.run(&run).unwrap();
-    let index = h.app.memory_section(&live, MemoryAccess::Write);
-    assert!(index.contains(&lead_note.id) && index.contains("端口被占用") && !index.contains("m-other"), "{index}");
+    let section = h.app.memory_section(&live, MemoryAccess::Write);
+    assert!(section.contains("has 2 notes") && section.contains("janus.recall"), "{section}");
+    assert!(
+        !section.contains(&lead_note.id) && !section.contains("端口被占用"),
+        "no note in the instructions: {section}"
+    );
 
     std::fs::write(h.dir.join("fake/go"), "").unwrap();
     finish_lead(&h);
@@ -137,8 +152,14 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     assert!(!err, "{said}");
     act(&h, &cancelled, json!({ "type": "cancel" }));
     wait_until(&h.app, &cancelled, "cancel", |_| status(&h.app, &cancelled) == "cancelled").await;
-    let index = h.app.memory_section(&live, MemoryAccess::Write);
-    assert!(!index.contains("被取消的结论") && index.contains("怎么跑测试"), "{index}");
+    assert!(
+        h.app.memory_section(&live, MemoryAccess::Write).contains("has 2 notes"),
+        "the cancelled run's not counted"
+    );
+    let (text, _) = tool(&h.app, &run, "lead", "recall", json!({ "query": "被取消的结论" })).await;
+    assert!(!text.contains("被取消的结论 ·"), "not found: {text}");
+    let (text, _) = tool(&h.app, &run, "lead", "recall", json!({})).await;
+    assert!(!text.contains("被取消的结论") && text.contains("怎么跑测试"), "nor listed: {text}");
     assert!(
         h.app
             .memory_section(&live, MemoryAccess::Consolidate)

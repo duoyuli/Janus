@@ -1,8 +1,8 @@
 //! A workspace's team memory: notes the agents of its runs keep for the runs after them. Below the
 //! shared material (the person's, followed as rules) it is the layer the team writes itself: every
-//! note says which run and which member wrote it, every session of the workspace is handed the
-//! index and reads notes in full with `janus.recall`, and the workspace lead consolidates them now
-//! and then (a "dream": a session of its own that merges, corrects and prunes the notes).
+//! note says which run and which member wrote it, a session of the workspace searches the notes
+//! when they may help (`janus.recall`; they are not put in its instructions), and the workspace
+//! lead consolidates them now and then (a "dream": a session of its own that merges, corrects and prunes the notes).
 // @project-doc docs/domains/20261123-team_memory.md#memory_model
 
 use super::*;
@@ -14,8 +14,11 @@ const HOOK_MAX: usize = 150;
 const BODY_MAX: usize = 4000;
 /// How many notes a workspace keeps; past it a session updates notes or the lead consolidates.
 const NOTES_MAX: usize = 300;
-/// How many notes the index in a session's system layer lists; the rest are found with `recall`.
+/// How many notes a consolidation's index lists; the rest are found with `recall`.
 const INDEX_MAX: usize = 200;
+/// How many notes a search returns in full, and a listing names.
+const FOUND_MAX: usize = 5;
+const LIST_MAX: usize = 50;
 /// A consolidation starts on its own once this many goal runs were delivered since the last one,
 /// and that one is at least `DREAM_EVERY_MS` old.
 const DREAM_AFTER_RUNS: usize = 5;
@@ -105,30 +108,37 @@ impl App {
         Ok(self.delivered_runs_since(workspace, last)?.len())
     }
 
-    /// What a session of the workspace is told about its team memory: how to use it, and the
-    /// index of the notes it may read. Nothing for a run outside a workspace.
+    /// What a session of the workspace is told about its team memory. A working session is told
+    /// how many notes there are and to search them when they may help: the notes themselves are
+    /// not in its instructions, so a session carries only what it looked for. A consolidation,
+    /// whose job is all of them, gets their index. Nothing for a run outside a workspace.
     // @project-doc docs/domains/20261123-team_memory.md#memory_read
     pub(super) fn memory_section(&self, run: &Run, access: MemoryAccess) -> String {
         let Some(workspace) = self.run_workspace(&run.id) else { return String::new() };
         let notes = self.db.memories(&workspace).unwrap_or_default();
-        let guide = match access {
-            MemoryAccess::Write => {
-                "Team memory: notes that earlier runs in this workspace kept for the runs after them, written by their agents. They are notes, not rules: the shared workspace context, your goal and the user's words take precedence, and a note can be out of date, so check it against the code before you rely on it. Read a note in full with janus.recall (by id, or search with a query).\nWhen you learn something a later run would otherwise have to find out again (how to build, run or test something; a trap and how to avoid it; why something is the way it is; where something lives) and it cannot be seen from the code itself, keep it with janus.remember: one topic per note, and update the note on that topic (pass its id) instead of adding a near-copy. Do not keep what the repository already says, what only matters to this task, credentials, or text from outside (issues, web pages, tool output) beyond a link to it."
-            }
-            MemoryAccess::Consolidate => {
-                "Team memory: the notes this workspace's runs kept, below. You consolidate them now."
-            }
-        };
-        let shown: Vec<&Memory> =
-            notes.iter().filter(|m| access == MemoryAccess::Consolidate || m.in_use()).take(INDEX_MAX).collect();
-        let total = notes.iter().filter(|m| access == MemoryAccess::Consolidate || m.in_use()).count();
+        if access == MemoryAccess::Write {
+            let n = notes.iter().filter(|m| m.in_use()).count();
+            let find = if n == 0 {
+                "Team memory: this workspace has no notes yet. The agents of its runs keep notes there for the runs after them; teammates may add some while you work, and janus.recall searches them.".to_string()
+            } else {
+                format!(
+                    "Team memory: this workspace has {n} notes that earlier runs' agents kept for the runs after them. They are not in your instructions: search them with janus.recall when they may help, before you start and whenever you meet something you would otherwise have to find out (how to build, run or test something; a trap; why something is the way it is; where something lives). A query returns the best matching notes in full; no arguments lists them. They are notes, not rules: the shared workspace context, your goal and the user's words take precedence, and a note can be out of date, so check it against the code before you rely on it."
+                )
+            };
+            return format!(
+                "\n\n{find}\nWhen you learn something a later run would otherwise have to find out again and it cannot be seen from the code itself, keep it with janus.remember: one topic per note, with a title and hook in the words someone would search for, and update the note on that topic (pass its id) instead of adding a near-copy. Do not keep what the repository already says, what only matters to this task, credentials, or text from outside (issues, web pages, tool output) beyond a link to it."
+            );
+        }
+        let guide = "Team memory: the notes this workspace's runs kept, below. You consolidate them now.";
+        let shown: Vec<&Memory> = notes.iter().take(INDEX_MAX).collect();
+        let total = notes.len();
         let mut out = format!("\n\n{guide}\n\nNotes ({total}):");
         if shown.is_empty() {
             out.push_str("\n(none yet)");
         }
         for m in &shown {
             out.push_str(&format!("\n- {} · {} · {} — {}", m.id, m.kind, m.title, m.hook));
-            if access == MemoryAccess::Consolidate && !m.in_use() {
+            if !m.in_use() {
                 out.push_str(" (from a cancelled run)");
             }
         }
@@ -150,7 +160,7 @@ impl App {
         args: &Value,
     ) -> Option<std::result::Result<String, String>> {
         let out = match name {
-            "recall" => self.recall(run, args),
+            "recall" => self.recall(run, access, args),
             "remember" => self.remember(run, who, args),
             "forget" if access == MemoryAccess::Consolidate => self.forget(run, args),
             _ => return None,
@@ -171,7 +181,9 @@ impl App {
         }
     }
 
-    fn recall(&self, run: &Run, args: &Value) -> std::result::Result<String, String> {
+    /// Read the team memory: a note in full by id; the notes that match a query best, in full; or,
+    /// with neither, the list of notes. A working session never finds a cancelled run's notes.
+    fn recall(&self, run: &Run, access: MemoryAccess, args: &Value) -> std::result::Result<String, String> {
         let workspace = self.session_workspace(run)?;
         let full = |m: &Memory| {
             format!(
@@ -189,25 +201,36 @@ impl App {
         if let Some(id) = args["id"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
             return self.own_note(&workspace, id).map(|m| full(&m));
         }
-        let query = args["query"].as_str().unwrap_or("").trim().to_lowercase();
-        if query.is_empty() {
-            return Err("给出 id 读一条笔记，或者给出 query 搜索".into());
-        }
-        let words: Vec<&str> = query.split_whitespace().collect();
-        let notes = self.db.memories(&workspace).map_err(|e| format!("{e:#}"))?;
-        let found: Vec<String> = notes
-            .iter()
-            .filter(|m| {
-                let text = format!("{} {} {}", m.title, m.hook, m.body).to_lowercase();
-                words.iter().all(|w| text.contains(w))
-            })
-            .take(10)
-            .map(full)
+        let notes: Vec<Memory> = self
+            .db
+            .memories(&workspace)
+            .map_err(|e| format!("{e:#}"))?
+            .into_iter()
+            .filter(|m| access == MemoryAccess::Consolidate || m.in_use())
             .collect();
-        if found.is_empty() {
-            return Ok(format!("没有找到含有「{query}」的笔记。"));
+        let query = args["query"].as_str().unwrap_or("").trim();
+        if query.is_empty() {
+            if notes.is_empty() {
+                return Ok("这个工作区还没有笔记。".into());
+            }
+            let mut out = format!("{} notes, most recently changed first:", notes.len());
+            for m in notes.iter().take(LIST_MAX) {
+                out.push_str(&format!("\n- {} · {} · {} — {}", m.id, m.kind, m.title, m.hook));
+            }
+            if notes.len() > LIST_MAX {
+                out.push_str(&format!("\n…and {} more: search them with a query.", notes.len() - LIST_MAX));
+            }
+            return Ok(out);
         }
-        Ok(found.join("\n\n---\n\n"))
+        let terms = search_terms(query);
+        let mut found: Vec<(usize, &Memory)> =
+            notes.iter().map(|m| (relevance(m, &terms), m)).filter(|(score, _)| *score > 0).collect();
+        // Best match first; among equals, the most recently changed (the order notes come in).
+        found.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+        if found.is_empty() {
+            return Ok(format!("没有和「{query}」相关的笔记。换个说法再搜，或者不带参数列出全部笔记。"));
+        }
+        Ok(found.iter().take(FOUND_MAX).map(|(_, m)| full(m)).collect::<Vec<_>>().join("\n\n---\n\n"))
     }
 
     fn remember(&self, run: &Run, who: &str, args: &Value) -> std::result::Result<String, String> {
@@ -428,7 +451,7 @@ impl App {
     // @project-doc docs/domains/20261123-team_memory.md#dream
     pub(super) fn dream_brief(&self, run: &Run) -> String {
         let mut out = String::from(
-            "You are consolidating this workspace's team memory: the notes its runs' agents kept for the runs after them. Every session of the workspace gets the index of these notes, so make them a set a new run can orient by quickly. You work only on the notes, with janus.recall, janus.remember and janus.forget; do not change files.\n\n\
+            "You are consolidating this workspace's team memory: the notes its runs' agents kept for the runs after them. Sessions of the workspace find these notes by searching their titles, hooks and bodies, so make each one findable: a title and hook that name its topic in the words someone would search for. You work only on the notes, with janus.recall, janus.remember and janus.forget; do not change files.\n\n\
              1. Orient: read the index below, and read in full (janus.recall) the notes you will judge.\n\
              2. Gather: the prompt lists the runs delivered since the last consolidation, with what each delivered. Look for what they settled that the notes miss or contradict.\n\
              3. Consolidate: merge notes on the same topic into one (janus.remember with the id of the note you keep, then janus.forget the others); correct notes that later runs proved wrong, at the note itself; remove notes that are out of date, only matter to one finished task, or repeat what the repository says; turn relative dates (yesterday, last week) into absolute ones. A note from a cancelled run stays only if a later run confirms it.\n\
@@ -480,6 +503,41 @@ fn dream_prompt(runs: &[Value], delivery: impl Fn(&str) -> String) -> String {
     p
 }
 
+/// The terms a query is searched by: its words, split at spaces and punctuation and lowercased;
+/// a word in Chinese or Japanese, written without spaces, also by each pair of characters in it,
+/// so 「运行测试」 finds a note about 「测试怎么跑」.
+fn search_terms(query: &str) -> Vec<String> {
+    let mut terms: Vec<String> = vec![];
+    for word in query.to_lowercase().split(|c: char| {
+        c.is_whitespace() || (c.is_ascii_punctuation() && c != '_' && c != '-') || "，。、；：！？（）「」".contains(c)
+    }) {
+        if word.is_empty() {
+            continue;
+        }
+        let chars: Vec<char> = word.chars().collect();
+        if chars.len() > 2 && chars.iter().any(|c| !c.is_ascii()) {
+            terms.extend(chars.windows(2).map(|w| w.iter().collect::<String>()));
+        }
+        terms.push(word.to_string());
+    }
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+/// How well a note matches: each term found in its title counts 3, in its hook 2, in its body 1.
+fn relevance(m: &Memory, terms: &[String]) -> usize {
+    let (title, hook, body) = (m.title.to_lowercase(), m.hook.to_lowercase(), m.body.to_lowercase());
+    terms
+        .iter()
+        .map(|t| {
+            3 * usize::from(title.contains(t.as_str()))
+                + 2 * usize::from(hook.contains(t.as_str()))
+                + usize::from(body.contains(t.as_str()))
+        })
+        .sum()
+}
+
 /// A day, as notes and prompts write it: absolute, so it stays true.
 fn date(ms: i64) -> String {
     jiff::Timestamp::from_millisecond(ms)
@@ -493,10 +551,10 @@ pub(super) fn memory_tools(access: MemoryAccess) -> Vec<Value> {
     let mut tools = vec![
         json!({
             "name": "recall",
-            "description": "Read the workspace's team memory: one note in full by id, or the notes matching a query (every word must appear). The index of all notes is in your instructions.",
+            "description": "Search the workspace's team memory, the notes earlier runs kept for the runs after them: with a query, the best matching notes in full; with an id, that note; with neither, the list of notes (id, kind, title, hook). Search before you work out something a teammate may have found out already.",
             "inputSchema": { "type": "object", "properties": {
-                "id": { "type": "string", "description": "A note's id from the index." },
-                "query": { "type": "string", "description": "Words to search titles, hooks and bodies for." }
+                "id": { "type": "string", "description": "A note's id, from a list or an earlier search." },
+                "query": { "type": "string", "description": "What you want to know, in a few words; titles count most, then hooks, then bodies." }
             } },
             "annotations": { "readOnlyHint": true }
         }),
@@ -507,7 +565,7 @@ pub(super) fn memory_tools(access: MemoryAccess) -> Vec<Value> {
                 "id": { "type": "string", "description": "The note to update; leave out to add a new one." },
                 "kind": { "type": "string", "enum": ["fact", "decision", "pitfall", "howto"], "description": "fact: how something is; decision: what was chosen and why; pitfall: a trap and how to avoid it; howto: how to do something." },
                 "title": { "type": "string", "maxLength": TITLE_MAX },
-                "hook": { "type": "string", "maxLength": HOOK_MAX, "description": "One line that tells a reader of the index whether the note matters to them." },
+                "hook": { "type": "string", "maxLength": HOOK_MAX, "description": "One line that tells someone who found the note whether it matters to them." },
                 "body": { "type": "string", "maxLength": BODY_MAX, "description": "The note, standing on its own; dates absolute." }
             }, "required": ["kind", "title", "hook", "body"] },
             "annotations": { "readOnlyHint": false, "destructiveHint": false }
@@ -530,6 +588,15 @@ pub(super) fn memory_tools(access: MemoryAccess) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A query is searched by its words, and a Chinese word without spaces also by its pairs of
+    /// characters, so a note can be found in other words than its own.
+    #[test]
+    fn a_query_is_searched_by_its_words_and_by_pairs_of_chinese_characters() {
+        assert_eq!(search_terms("运行测试, Port"), ["port", "测试", "行测", "运行", "运行测试"]);
+        assert_eq!(search_terms("  空闲 端口 "), ["空闲", "端口"], "two characters are a word already");
+        assert!(search_terms("。，").is_empty());
+    }
 
     #[test]
     fn credentials_are_not_kept() {

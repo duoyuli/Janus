@@ -6,7 +6,7 @@ from scenarios import scenario, task
 
 @scenario("memory")
 def memory(ctx, c):
-    """团队记忆：负责人和协作者用 remember 记笔记，记下是谁在哪个任务里写的；recall 按 id 读、按词搜；不收空笔记、未知类型和像凭据的内容；别的工作区的笔记读不到也改不了；只有整理能删笔记；协作者的会话和之后任务的负责人拿到笔记的索引；你改过的笔记算你的；现在整理开一个负责人的整理会话，只有记忆工具，同一时间只有一个；整理一轮后记下改了什么、已交付，收件箱里出现「团队记忆整理好了」；应用的工作区页（笔记、来源、整理）、笔记的表单和整理页都与服务端一致"""
+    """团队记忆：负责人和协作者用 remember 记笔记，记下是谁在哪个任务里写的；recall 按 id 读、按词搜；不收空笔记、未知类型和像凭据的内容；别的工作区的笔记读不到也改不了；只有整理能删笔记；协作者的会话和之后任务的负责人只拿到用法，需要时按关键词检索笔记；你改过的笔记算你的；现在整理开一个负责人的整理会话，只有记忆工具，同一时间只有一个；整理一轮后记下改了什么、已交付，收件箱里出现「团队记忆整理好了」；应用的工作区页（笔记、来源、整理）、笔记的表单和整理页都与服务端一致"""
     t = ctx.team("memory", members=("m1",), script={"T1": ["hold:t1-go"]})
     other = ctx.team("memory-b", members=("m1",))
     ws = t.ws["id"]
@@ -58,17 +58,20 @@ def memory(ctx, c):
 
     layer = next((e["data"]["prompt"] for e in r.events() if e["type"] == "session.prompt" and e.get("task") == "T1"
                   and (e.get("data") or {}).get("channel") == "system"), "")
-    c("Team memory:" in layer and "janus.recall" in layer, "协作者的会话拿到团队记忆的用法和索引")
+    c("Team memory:" in layer and "janus.recall" in layer and howto["id"] not in layer, "协作者的会话拿到团队记忆的用法，笔记本身不在里面")
     t.fake.touch("t1-go")
     r.finish()
 
-    # The next run's lead is handed the index of the notes.
+    # The next run's lead is told how many notes there are and searches them; the notes are not
+    # in its instructions.
     r2 = t.run("加一个命令")
-    r2.lead()
-    r2.finish()
+    lead2 = r2.lead()
     first = next((e["data"]["prompt"] for e in r2.events() if e["type"] == "session.prompt" and not e.get("task")
                   and (e.get("data") or {}).get("channel") == "system"), "")
-    c(howto["id"] in first and "端口被占用" in first and foreign not in first, "之后任务的负责人拿到这个工作区的笔记索引")
+    c("has 2 notes" in first and howto["id"] not in first and "端口被占用" not in first, "之后任务的负责人只知道有几条笔记，笔记不在说明里")
+    text, _ = lead2.call("recall", {"query": "测试的端口被占用"})
+    c("端口被占用" in text and foreign not in text, "之后任务的负责人按需检索到这个工作区的笔记，别的工作区的检索不到")
+    r2.finish()
 
     # The person's change makes the note theirs.
     edited = ctx.api("PUT", f"/api/memories/{pitfall['id']}", {"hook": "测试别用 7878"})

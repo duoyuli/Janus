@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 
 /// A workspace, all of it on one page (the sidebar only lists workspaces): who it is and a goal to
-/// start, with what every goal and Loop is given beside them (shared material, team memory); then
-/// what waits on the person, its Loops and its task records, in that order.
+/// start, with what the workspace's runs know beside them (the shared material every run is given,
+/// the team memory its agents search); then what waits on the person, its Loops and its task
+/// records, in that order.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct HomeView: View {
     let store: AppStore
@@ -27,9 +28,8 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // The workspace's own problems below say the same, more precisely.
                 if problems.isEmpty { OnboardingBar(store: store) }
-                // What every goal and Loop of the workspace is given, the person's shared material
-                // and the agents' team memory, beside the name and the goal when there is room,
-                // under the name when not.
+                // What the workspace's runs know, the person's shared material and the agents' team
+                // memory, beside the name and the goal when there is room, under the name when not.
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 24) {
                         VStack(alignment: .leading, spacing: 20) {
@@ -95,8 +95,9 @@ struct HomeView: View {
         }
     }
 
-    /// The shared material and the team memory, one card each: both go to every goal and Loop of
-    /// the workspace; the person writes the one, the agents the other.
+    /// The shared material and the team memory, one card each: what the workspace's runs know. The
+    /// person writes the one, which every run is given; the agents write the other and search it
+    /// when they need it.
     private var context: some View {
         VStack(alignment: .leading, spacing: 12) {
             sharedMaterial

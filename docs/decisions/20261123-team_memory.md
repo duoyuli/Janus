@@ -1,6 +1,7 @@
 # ADR：工作区的团队记忆由 Agent 写、记来源、定期整理
 
 - 状态：已采纳（accepted），记录于 2026-11-23。
+- 部分取代：第 4 条「索引常驻、正文按需」被 [ADR：团队记忆按需检索，不放进会话的说明](20261123-memory_on_demand.md) 取代：会话的说明里不再放索引，Agent 需要时检索。
 - 相关文档：[团队记忆](../domains/20261123-team_memory.md)、[工作区共享资料](../domains/20261031-agents_and_roles.md#workspace_brief)、[看板 MCP 工具：团队记忆的工具](../interfaces/20261031-board_mcp.md#memory_tools)、[HTTP API：团队记忆](../interfaces/20261031-http_api.md#memories)、[安全边界：团队记忆](../operations/20261031-security.md#team_memory)、[ADR：工作区值班派发独立的 Run](20261121-workspace_loops.md)。
 
 ## 背景
