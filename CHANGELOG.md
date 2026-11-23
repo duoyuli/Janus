@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23
+
+- 修复值班表单里的时间输入：在小时上慢慢打「18」（两个数字之间停顿约一秒）会变成 08，要再打一次才对（#3）。系统的时间输入框把这样的停顿当成小时已经输完。现在时间是「时」「分」两个菜单，和频率、星期等菜单在同一行：小时 00–23，分钟每 5 分钟一档，编辑已有值班时原来不在档上的分钟也保留。
+
+- Fixed the time in the Loop form: typing 18 slowly into the hour (a pause of about a second between the digits) set 08, and it took a second try (#3). The system's time field takes such a pause as the end of the hour. The time is now two menus, hour and minute, in the same row as the frequency and weekday menus: hours 00–23 and minutes every five, keeping an edited Loop's minute when it falls between them.
+
 ## 2026.11.22.5
 
 - 修复 Codex 负责人显示 Full access，用 `/goal` 推进目标时却仍在沙箱里：读钥匙串、写工作目录外的文件、启动后台进程都会弹审批，任务停下来等你。Codex 的适配器只把会话模式带进普通提示，`/goal` 的各轮用的是线程自己的默认设置（需要时询问、只能写工作目录）。现在 Janus 启动 Codex 时按数字员工的权限模式一并设好线程的审批和沙箱，Full access 在目标里也真正不受限；选了其他模式的照那个模式执行。Claude Code 不受影响。
