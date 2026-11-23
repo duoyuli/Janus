@@ -704,6 +704,13 @@
 "检查于 %@。" = "Checked %@.";
 "检查代码、文件、界面或实际状态得到的结果" = "Result from inspecting code, files, the interface, or the actual state";
 "检查更新" = "Check for Updates";
+"自动更新" = "Automatic Updates";
+"有新版本就自动下载，没有任务和对话在跑时重开换上。" = "Downloads new versions as they come out and reopens on them when no task or chat is running.";
+"现在更新" = "Update Now";
+"%@ 已下载，没有任务和对话在跑时自动重开换上。" = "%@ is downloaded. Janus reopens on it when no task or chat is running.";
+"%@ 已下载，点「现在更新」重开换上。" = "%@ is downloaded. Choose Update Now to reopen on it.";
+"Janus %@ 已下载，空闲时更新" = "Janus %@ Downloaded, Updates When Idle";
+"没有任务和对话在跑时自动重开换上；去「设置 › 通用 › 更新」可以现在更新" = "Janus reopens on the new version when no task or chat is running; update now in Settings › General › Updates";
 "检查更新…" = "Check for Updates…";
 "检查更新失败：%@" = "Could not check for updates: %@";
 "检查没通过，再查一次" = "Check failed · Check again";

@@ -1,17 +1,27 @@
 import AppKit
 import SwiftUI
 
-/// The update section of Settings › 通用: the version running, whether it is the latest, when it was
-/// last checked, and the release notes and install button of a newer one. Everything stays in
-/// this section; the update never opens a panel of its own.
+/// The update section of Settings › 通用: whether updates install themselves, the version running,
+/// whether it is the latest, when it was last checked, and the release notes and install button of
+/// a newer one. Everything stays in this section; the update never opens a panel of its own.
 // @project-doc docs/architecture/20261031-frontend.md#updates
 struct UpdatesView: View {
-    private let updater = Updater.shared
+    @Bindable private var updater = Updater.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(L.text("下载新版、校验签名、替换并重开，一步完成。"))
-                .font(.callout).foregroundStyle(.secondary)
+            HStack(spacing: 22) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L.text("自动更新")).font(.headline)
+                    Text(L.text("有新版本就自动下载，没有任务和对话在跑时重开换上。"))
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Toggle(L.text("自动更新"), isOn: $updater.automatic)
+                    .labelsHidden().toggleStyle(.switch)
+                    .disabled(!updater.enabled)
+            }
             Card(padding: 22) {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -25,8 +35,12 @@ struct UpdatesView: View {
                             Button(L.text("更新到 \(rel.version)")) { Task { await updater.install() } }
                                 .buttonStyle(.primary)
                         }
+                        if updater.state == .ready {
+                            Button(L.text("现在更新")) { updater.installStaged() }
+                                .buttonStyle(.primary)
+                        }
                         Button(checking ? L.text("正在检查…") : L.text("检查更新")) { Task { await updater.check() } }
-                            .disabled(updater.state == .checking || updater.state.isWorking)
+                            .disabled(updater.state == .checking || updater.state.isWorking || updater.state == .ready)
                     }
                 }
                 if let rel = updater.latest {
@@ -75,6 +89,11 @@ struct UpdatesView: View {
             return (L.text("已是最新版本。") + checked, .secondary)
         case .available:
             return (L.text("有新版本 \(updater.latest?.version ?? "")。") + checked, Color.accent)
+        case .ready:
+            let v = updater.latest?.version ?? ""
+            return (updater.automatic
+                ? L.text("\(v) 已下载，没有任务和对话在跑时自动重开换上。")
+                : L.text("\(v) 已下载，点「现在更新」重开换上。"), Color.accent)
         case .downloading, .verifying, .relaunching:
             return (updater.state.workingText ?? L.text("正在更新…"), .secondary)
         case .failed(let text):

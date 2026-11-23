@@ -182,6 +182,13 @@ def setup(ctx, c):
             shot = "settings-" + tab.replace(":", "-")
             ctx.app.do(f"open settings:{tab}", f"shot {shot}")
             c(_drawn(ctx, shot), f"应用：设置 › {tab} 画出来了")
+        # Settings › 通用 › 更新: automatic updates are on until turned off, and the switch keeps it.
+        state = ctx.app.do("open settings:updates")
+        c(state["autoUpdate"] is True, f"应用：自动更新默认开着（{state['autoUpdate']}）")
+        state = ctx.app.do("auto-update off", "open settings:updates", "shot settings-auto-update-off")
+        c(state["autoUpdate"] is False and _drawn(ctx, "settings-auto-update-off"), "应用：关掉自动更新后状态跟着变，更新一节画出来了")
+        state = ctx.app.do("auto-update on")
+        c(state["autoUpdate"] is True, "应用：再打开自动更新")
         # Adding an Agent offers only Codex and Claude Code.
         state = ctx.app.do("agent-edit new claude apikey template", "shot agent-editor")
         c(_drawn(ctx, "agent-editor") and state["agentEditorEnv"] == template,

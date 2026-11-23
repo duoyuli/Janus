@@ -16,6 +16,9 @@ import Security
 ///
 /// The app downloads with URLSession, which sets no quarantine flag, so Gatekeeper does not stop
 /// the new version the way it stops a DMG downloaded in a browser.
+///
+/// With automatic updates on (the default, Settings › 通用), a new version found by a check is
+/// downloaded and checked at once, then swapped in once nothing the app runs is at work.
 // @project-doc docs/architecture/20261031-frontend.md#updates
 @Observable @MainActor
 final class Updater {
@@ -26,6 +29,8 @@ final class Updater {
         case idle, checking, upToDate, available
         case downloading(part: String, index: Int, count: Int, size: String)
         case verifying
+        /// Downloaded and checked (`staged`): swapped in once nothing is at work, or by hand.
+        case ready
         case relaunching
         case failed(String)
 
@@ -71,16 +76,39 @@ final class Updater {
     private(set) var quitting = false
     /// Stops the server the app started before it exits to install a new version.
     var onQuit: (() -> Void)?
+    /// Whether a task or chat is at work that reopening the app would cut off; until the app knows
+    /// (not connected yet), it counts as busy.
+    var isBusy: () -> Bool = { true }
+    /// The new version downloaded and checked, waiting to be swapped in (`State.ready`).
+    private(set) var staged: URL?
+    /// Install new versions without asking: download one as soon as it is found and swap it in
+    /// once nothing is at work. Saved in the app's preferences; on unless turned off.
+    var automatic: Bool {
+        didSet {
+            defaults.set(automatic, forKey: Self.automaticKey)
+            if automatic, case .ready = state { swapInWhenQuiet() } else if !automatic { waiting?.cancel() }
+        }
+    }
 
     let current: String
     let repo: String?
     let bundle: URL
     let home: JanusHome
     @ObservationIgnored private var timer: Task<Void, Never>?
+    @ObservationIgnored private var waiting: Task<Void, Never>?
+    @ObservationIgnored private let defaults: UserDefaults
 
     static let checkEvery: UInt64 = 6 * 3600
+    static let automaticKey = "janus.autoUpdate"
+    /// How often a staged version looks whether nothing is at work.
+    static let quietCheck: UInt64 = 30
+    /// Checks in a row with nothing at work before swapping in: a task that is only starting
+    /// (created, not yet listed as working) is not cut off.
+    static let quietRounds = 2
 
-    init() {
+    init(defaults: UserDefaults = .janus) {
+        self.defaults = defaults
+        automatic = defaults.object(forKey: Self.automaticKey) as? Bool ?? true
         let info = Bundle.main.infoDictionary ?? [:]
         current = info["CFBundleShortVersionString"] as? String ?? "0"
         repo = (info["JanusUpdateRepo"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -128,7 +156,8 @@ final class Updater {
     /// nothing pops up.
     func check() async {
         guard enabled, let repo else { return }
-        if state.isWorking { return }
+        // Installing, or a version waiting to be swapped in: nothing to ask GitHub.
+        if state.isWorking || state == .ready { return }
         state = .checking
         do {
             let rel = try await Self.fetchLatest(repo: repo)
@@ -136,6 +165,7 @@ final class Updater {
             if Self.isNewer(rel.version, than: current) && Self.systemAllows(rel.minimumSystemVersion) {
                 latest = rel
                 state = .available
+                if automatic { await install(now: false) }
             } else {
                 latest = nil
                 state = .upToDate
@@ -194,16 +224,68 @@ final class Updater {
 
     // MARK: Installing
 
-    func install() async {
-        guard let r = latest else { return }
+    /// Download, check and put together the latest release, then swap it in: now (`now`, the
+    /// person asked), or once nothing is at work (an automatic update).
+    func install(now: Bool = true) async {
+        guard let app = await prepare() else { return }
+        if now {
+            swapIn(app)
+        } else {
+            staged = app
+            state = .ready
+            swapInWhenQuiet()
+        }
+    }
+
+    /// The staged version, swapped in now: the person asked for it.
+    func installStaged() {
+        guard let app = staged else { return }
+        swapIn(app)
+    }
+
+    // @project-doc docs/architecture/20261031-frontend.md#auto_update
+    /// Wait until nothing has been at work for `quietRounds` checks in a row, then swap in the
+    /// staged version. Turning automatic updates off stops waiting; the version stays staged.
+    private func swapInWhenQuiet() {
+        waiting?.cancel()
+        waiting = Task { [weak self] in
+            var quiet = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.quietCheck * 1_000_000_000)
+                guard let self, self.automatic, self.state == .ready, let app = self.staged, !Task.isCancelled else { return }
+                quiet = Self.quiet(after: quiet, busy: self.isBusy())
+                if quiet >= Self.quietRounds {
+                    self.swapIn(app)
+                    return
+                }
+            }
+        }
+    }
+
+    /// Checks in a row with nothing at work, after one more check.
+    nonisolated static func quiet(after rounds: Int, busy: Bool) -> Int { busy ? 0 : rounds + 1 }
+
+    private func swapIn(_ app: URL) {
+        state = .relaunching
+        do {
+            try relaunch(into: app)
+        } catch {
+            state = .failed(L.text("更新失败：\(error.localizedDescription)"))
+        }
+    }
+
+    /// The latest release downloaded (only the parts that changed), put together and checked as
+    /// signed code; `nil` (with the reason in `state`) when it cannot be installed.
+    private func prepare() async -> URL? {
+        guard let r = latest else { return nil }
         if bundle.path.contains("/AppTranslocation/") {
             state = .failed(L.text("Janus 正从隔离位置运行，不能自动更新。先把 Janus 拖到「应用程序」文件夹，再从那里打开。"))
-            return
+            return nil
         }
         let parent = bundle.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
             state = .failed(L.text("没有写入 \(parent.path) 的权限，替换不了 Janus.app。下载 DMG 手动装吧。"))
-            return
+            return nil
         }
         let stage = home.updates.appendingPathComponent(r.version)
         let installed = installedNode
@@ -222,10 +304,10 @@ final class Updater {
                 app = try await Self.assemble(r, parts: parts, stage: stage, current: bundle)
             }
             try await Self.verify(app, like: bundle, version: r.version)
-            state = .relaunching
-            try relaunch(into: app)
+            return app
         } catch {
             state = .failed(L.text("更新失败：\(error.localizedDescription)"))
+            return nil
         }
     }
 

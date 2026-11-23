@@ -326,6 +326,13 @@ struct UpdateBadge: View {
             }
             .buttonStyle(.plain)
             .help(L.text("去「设置 › 通用 › 更新」看更新内容并安装"))
+        case .ready:
+            Button { open() } label: {
+                Label(L.text("Janus \(updater.latest?.version ?? "") 已下载，空闲时更新"), systemImage: "arrow.down.app")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(L.text("没有任务和对话在跑时自动重开换上；去「设置 › 通用 › 更新」可以现在更新"))
         case .downloading, .verifying, .relaunching:
             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(updater.state.workingText ?? "").font(.caption).foregroundStyle(.secondary) }
         case .failed(let text) where updater.latest != nil:

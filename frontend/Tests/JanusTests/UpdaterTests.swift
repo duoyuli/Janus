@@ -126,3 +126,23 @@ private func install(in dir: URL, newArrives: Bool) throws -> (opened: String, l
     #expect(try fm.contentsOfDirectory(atPath: dir.path) == ["previous"])
     try? fm.removeItem(at: dir)
 }
+
+/// Automatic updates are on until the person turns them off, and the choice is kept.
+@MainActor @Test func automaticUpdatesAreOnUntilTurnedOff() throws {
+    let suite = "janus.tests.autoUpdate.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    #expect(Updater(defaults: defaults).automatic, "on by default")
+    Updater(defaults: defaults).automatic = false
+    #expect(!Updater(defaults: defaults).automatic, "kept across launches")
+}
+
+/// A staged version is swapped in only after enough checks in a row with nothing at work: one
+/// busy check starts the count again.
+@Test func aStagedVersionWaitsForQuietChecksInARow() {
+    var rounds = 0
+    for busy in [false, true, false] { rounds = Updater.quiet(after: rounds, busy: busy) }
+    #expect(rounds == 1 && rounds < Updater.quietRounds, "a task that started in between starts the count again")
+    rounds = Updater.quiet(after: rounds, busy: false)
+    #expect(rounds >= Updater.quietRounds)
+}

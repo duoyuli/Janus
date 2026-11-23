@@ -178,6 +178,8 @@ enum Snapshots {
                      "schedule": JSON(LoopText.schedule($0)), "asked": LoopText.asked($0).map(JSON.init) ?? .null]
                 }),
                 "sendKey": JSON(SendKeySetting.shared.value.rawValue),
+                // Settings › 通用 › 更新: whether updates install themselves.
+                "autoUpdate": JSON(Updater.shared.automatic),
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
                     JSON(img.representations.first.map { $0.pixelsWide } ?? 0)
@@ -261,6 +263,8 @@ enum Snapshots {
         case "density": UserDefaults.janus.set(arg, forKey: "janus.chatDensity")
         // The send key, as Settings › 通用 saves it.
         case "send-key": SendKeySetting.shared.value = SendKey(rawValue: arg) ?? .standard
+        // The automatic update switch, as Settings › 通用 › 更新 saves it.
+        case "auto-update": Updater.shared.automatic = arg != "off"
         // A key press in the first composer of the key window, through the same handler as typing.
         case "press":
             let flags: NSEvent.ModifierFlags = arg == "shift-return" ? .shift : arg == "command-return" ? .command : []
