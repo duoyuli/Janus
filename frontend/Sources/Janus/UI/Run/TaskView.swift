@@ -159,7 +159,7 @@ struct TaskView: View {
                                 HStack { Text(L.text("产物")).font(.headline); Text(verbatim: "\(t.artifacts.count)").font(.caption).foregroundStyle(.secondary) }
                                 ForEach(t.artifacts, id: \.seq) { a in
                                     VStack(alignment: .leading, spacing: 2) {
-                                        HStack { Text(a.name).fontWeight(.semibold); Spacer(); Button(a.kind == "git_diff" ? L.text("审阅") : L.text("查看")) { if a.kind == "git_diff" { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) } }.buttonStyle(.link) }
+                                        HStack { Text(a.name).fontWeight(.semibold); Spacer(); Button(a.isDiff ? L.text("审阅") : L.text("查看")) { if a.isDiff { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) } }.buttonStyle(.link) }
                                         if !a.desc.isEmpty { Text(a.desc).font(.caption).foregroundStyle(.secondary) }
                                     }
                                     .help(L.text("\(L.tilde(a.path)) · 尝试 \(a.attempt) · sha256 \(a.hash)…"))

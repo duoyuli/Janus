@@ -41,6 +41,10 @@ fn it_recognizes_only_what_janus_stored() {
     write(&image, "png");
     write(&layout.db(), "");
     assert!(layout.is_artifact(&report));
+    let whole = run.changes().join("run-0123456789ab.diff");
+    write(&whole, "diff");
+    assert!(layout.is_artifact(&whole), "the whole run's diff");
+    assert!(!layout.is_artifact(&run.changes().join("../../../../janus.db")));
     assert!(!layout.is_artifact(&layout.db()), "the database is not an artifact");
     assert!(!layout.is_artifact(&run.artifacts("T1").join("../../../../janus.db")));
     assert!(layout.is_attachment(&image) && !layout.is_attachment(&report));

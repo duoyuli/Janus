@@ -97,8 +97,8 @@ enum Diff {
 
     /// The review as a message to an agent: where each comment is, the line it is about, and
     /// what to do. The agent reads the workspace for the rest.
-    static func message(task: String, artifact: String, comments: [Comment], summary: String) -> String {
-        var out = ["对 \(task) 的改动（\(artifact)）的审阅意见，请按这些意见修改，改完再逐条说明怎么处理的："]
+    static func message(subject: String, artifact: String, comments: [Comment], summary: String) -> String {
+        var out = ["对\(subject)（\(artifact)）的审阅意见，请按这些意见修改，改完再逐条说明怎么处理的："]
         let s = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         if !s.isEmpty { out.append("\n总体意见：\(s)") }
         for c in comments {

@@ -388,3 +388,23 @@ pub(super) fn parse_result(text: &str) -> TaskResult {
         },
     }
 }
+
+/// What the lead is told when accepting ran into the branch's new commits: replay the run's own
+/// commits onto the branch in the worktree, resolve the conflict, and tell the person how.
+// @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
+pub(super) fn conflict_prompt(c: &crate::worktrees::Conflict) -> String {
+    let files = if c.files.is_empty() { String::new() } else { format!("（{}）", c.files.join("、")) };
+    format!(
+        "[Janus] 用户点了验收，但没能合并：分支 {branch} 在任务开始后有了新的提交，和这个任务的改动冲突{files}。用户的目录和分支都没有动；任务的结果已由 Janus 提交在这个 worktree 的 {head}。
+
+请在这个 worktree 里把任务自己的提交重放到 {branch} 的最新提交上，并解决冲突：
+GIT_EDITOR=true git rebase --onto {onto} {since}
+逐个读冲突文件两边的改动，按两边的意图合在一起，不要直接丢掉任何一边；拿不准保留哪边时用 janus.ask_user 问用户。解决一个就 git add，再 GIT_EDITOR=true git rebase --continue，直到变基完成，然后跑和这些文件相关的检查。不要改 {branch} 本身，也不要把它 merge 进来。
+
+最后用几句话告诉用户哪些文件冲突、各自怎么合的、跑了什么检查。这一轮结束后 Janus 会再次交付，用户再点验收就能直接合并。",
+        branch = c.branch,
+        head = &c.head[..c.head.len().min(8)],
+        onto = c.onto,
+        since = c.since,
+    )
+}

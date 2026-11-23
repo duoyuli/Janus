@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Reviewing a task's changes inside Janus: the diff file by file, a comment on any line, and the
+/// Reviewing a task's changes, or the whole run's, inside Janus: the diff file by file, a comment on any line, and the
 /// comments sent back as one message, to the lead (which decides: reply, redo, or accept) or to
 /// the agent that did the task.
 // @project-doc docs/architecture/20261031-frontend.md#diff_review
@@ -17,7 +17,7 @@ enum DiffWindow {
             return
         }
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1040, height: 760), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        w.title = L.text("审阅 \(artifact.task) 的改动 · \(artifact.name)")
+        w.title = artifact.ofRun ? L.text("审阅整个任务的改动 · \(artifact.name)") : L.text("审阅 \(artifact.task) 的改动 · \(artifact.name)")
         w.isReleasedWhenClosed = false
         w.contentView = NSHostingView(rootView: view)
         w.setFrameAutosaveName("JanusDiffReview")
@@ -170,9 +170,12 @@ struct DiffReviewView: View {
             TextField(L.text("总体意见（可选）"), text: $summary).textFieldStyle(.roundedBorder)
             Text(verbatim: L.text("\(comments.count) 条意见")).font(.callout).foregroundStyle(.secondary).fixedSize()
             if let sent { Text(sent).font(.callout).foregroundStyle(Tone.green.color).fixedSize() }
-            Button(L.text("发给\(name)")) { send(to: agent, label: name) }
-                .disabled(!run.canAct || !ready || agent.isEmpty)
-                .help(L.text("直接发给做这个子任务的 Agent：在线就插进这一轮，不在线就下次会话带给它"))
+            // The whole run's diff has no one agent behind it: its review goes to the lead.
+            if !artifact.ofRun {
+                Button(L.text("发给\(name)")) { send(to: agent, label: name) }
+                    .disabled(!run.canAct || !ready || agent.isEmpty)
+                    .help(L.text("直接发给做这个子任务的 Agent：在线就插进这一轮，不在线就下次会话带给它"))
+            }
             Button(L.text("交给负责人")) { send(to: "lead", label: L.text("负责人")) }
                 .buttonStyle(.primary)
                 .disabled(!run.canAct || !ready)
@@ -184,7 +187,7 @@ struct DiffReviewView: View {
 
     private func send(to agent: String, label: String) {
         let list = comments.values.sorted { ($0.file, $0.line.id) < ($1.file, $1.line.id) }.map { Diff.Comment(file: $0.file, line: $0.line, text: $0.text) }
-        let text = Diff.message(task: artifact.task, artifact: artifact.name, comments: list, summary: summary)
+        let text = Diff.message(subject: artifact.subject, artifact: artifact.name, comments: list, summary: summary)
         Task {
             if await run.act(["type": "message", "agent": JSON(agent), "text": JSON(text)]) {
                 comments = [:]; summary = ""; sent = L.text("已发给\(label)")

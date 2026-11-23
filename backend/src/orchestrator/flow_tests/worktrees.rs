@@ -101,6 +101,71 @@ async fn accepting_over_the_persons_uncommitted_work_fails_and_keeps_the_run_del
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// The whole run's diff (`run_diff`) comes with the delivery and keeps up with the lead's own
+/// edits, which no task's diff has. An acceptance that runs into the branch's new commits changes
+/// nothing on the person's side: the conflict goes to the lead with what it needs to resolve it,
+/// and the turn that does delivers the run again.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_runs_whole_diff_and_a_conflict_at_acceptance_go_to_the_lead() {
+    let h = harness("worktree-conflict", &[("lead", false), ("m1", true)], json!({ "T1": ["write:notes.md"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    delivered(&h, &run).await;
+    let evs = events(&h.app, &run);
+    let d = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap();
+    let first = &d["deliverables"][0];
+    assert_eq!(first["kind"], "run_diff", "{d}");
+    let diff = std::fs::read_to_string(first["path"].as_str().unwrap()).unwrap();
+    assert!(diff.contains("notes.md"), "{diff}");
+    let created =
+        evs.iter().find(|e| e.kind == "artifact.created" && e.data.as_ref().unwrap()["kind"] == "run_diff").unwrap();
+    assert!(created.task.is_none(), "the whole run's, not a task's");
+
+    // The lead edits a file itself after delivery: the run's diff has it.
+    h.app
+        .request_action(&run, &json!({ "type": "message", "agent": "lead", "text": "[write lead.md]" }))
+        .await
+        .ok()
+        .unwrap();
+    wait_until(&h.app, &run, "the lead's edit in the run's diff", |evs| {
+        evs.iter().any(|e| {
+            let d = e.data.as_ref();
+            e.kind == "artifact.created"
+                && d.is_some_and(|d| d["kind"] == "run_diff")
+                && std::fs::read_to_string(d.unwrap()["path"].as_str().unwrap()).is_ok_and(|t| t.contains("lead.md"))
+        })
+    })
+    .await;
+    for _ in 0..100 {
+        if !h.app.run(&run).unwrap().st.lock().unwrap().lead.in_turn {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // Meanwhile the person committed their own notes.md: replaying the run's commit conflicts.
+    std::fs::write(h.repo.join("notes.md"), "mine\n").unwrap();
+    sh(&h.repo, &["add", "notes.md"]);
+    sh(&h.repo, &["commit", "-q", "-m", "mine"]);
+    let tip = git_out(&h.repo, &["rev-parse", "HEAD"]).trim().to_string();
+    assert!(h.app.request_action(&run, &json!({ "type": "accept" })).await.is_ok(), "handed to the lead, not refused");
+    assert!(!has(&events(&h.app, &run), "risk.accepted"));
+    assert_eq!(status(&h.app, &run), "delivered");
+    assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "mine\n", "the person's side is as it was");
+    assert_eq!(git_out(&h.repo, &["rev-parse", "HEAD"]).trim(), tip);
+    let told = events(&h.app, &run)
+        .into_iter()
+        .find(|e| e.kind == "user.message" && e.actor == "janus")
+        .and_then(|e| e.data.unwrap()["text"].as_str().map(str::to_owned))
+        .unwrap();
+    assert!(told.contains(&format!("git rebase --onto {tip} ")) && told.contains("notes.md"), "{told}");
+    wait_until(&h.app, &run, "delivered again", |evs| evs.iter().filter(|e| e.kind == "run.delivered").count() == 2)
+        .await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
 /// Deleting a run removes its worktree and keeps what was never committed as a patch.
 #[tokio::test(flavor = "multi_thread")]
 async fn deleting_a_run_keeps_its_uncommitted_work_as_a_patch() {

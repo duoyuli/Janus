@@ -564,7 +564,14 @@ struct ResultCard: View {
                             ForEach(deliverables.indices, id: \.self) { i in
                                 let a = deliverables[i]
                                 VStack(alignment: .leading, spacing: 2) {
-                                    HStack { Text(a["name"].str).fontWeight(.semibold); SeqButton(seq: a["seq"].int, run: run); Button(L.text("查看")) { ArtifactWindow.open(run: run, path: a["path"].str, title: a["name"].str) }.buttonStyle(.link) }
+                                    // A diff opens in the review, like it does in the inspector.
+                                    let diff = run.state.artifacts.first { $0.path == a["path"].str && $0.isDiff }
+                                    HStack {
+                                        Text(diff?.ofRun == true ? L.text("整个任务的改动") : a["name"].str).fontWeight(.semibold); SeqButton(seq: a["seq"].int, run: run)
+                                        Button(diff == nil ? L.text("查看") : L.text("审阅")) {
+                                            if let diff { DiffWindow.open(run: run, artifact: diff) } else { ArtifactWindow.open(run: run, path: a["path"].str, title: a["name"].str) }
+                                        }.buttonStyle(.link)
+                                    }
                                     if a["desc"].truthy { Text(a["desc"].str).font(.callout).foregroundStyle(.secondary) }
                                     Text(L.tilde(a["path"].str)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).help(a["path"].str)
                                 }
@@ -752,8 +759,9 @@ struct RunInspector: View {
     let st: RunState
 
     var body: some View {
-        let diffs = latest(st.artifacts.filter { $0.kind == "git_diff" })
-        let files = latest(st.artifacts.filter { $0.kind != "git_diff" })
+        // The whole run's diff first: it is what accepting brings back, the lead's own edits included.
+        let diffs = latest(st.artifacts.filter(\.isDiff)).sorted { $0.ofRun && !$1.ofRun }
+        let files = latest(st.artifacts.filter { !$0.isDiff })
         let tab = self.tab
         Card(padding: 12) {
             Picker(L.text("查看"), selection: tabBinding) {
@@ -766,7 +774,7 @@ struct RunInspector: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     switch tab {
-                    case "changes": artifacts(diffs, empty: L.text("还没有子任务改过文件。"))
+                    case "changes": artifacts(diffs, empty: L.text("还没有改动。"))
                     case "files": artifacts(files, empty: L.text("还没有产物。"))
                     case "team": AgentsPanel(run: run, st: st)
                     default: tasks
@@ -835,12 +843,15 @@ struct RunInspector: View {
             if i > 0 { Divider() }
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) { TaskTag(id: a.task); Text(a.name).font(.callout.weight(.medium)).lineLimit(1) }
+                    HStack(spacing: 6) {
+                        if a.ofRun { Text(L.text("整个任务")).font(.callout.weight(.medium)) } else { TaskTag(id: a.task) }
+                        Text(a.name).font(.callout.weight(a.ofRun ? .regular : .medium)).foregroundStyle(a.ofRun ? .secondary : .primary).lineLimit(1)
+                    }
                     if !a.desc.isEmpty { Text(a.desc).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
                 }
                 Spacer()
-                Button(a.kind == "git_diff" ? L.text("审阅") : L.text("查看")) {
-                    if a.kind == "git_diff" { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) }
+                Button(a.isDiff ? L.text("审阅") : L.text("查看")) {
+                    if a.isDiff { DiffWindow.open(run: run, artifact: a) } else { ArtifactWindow.open(run: run, path: a.path, title: a.name) }
                 }
                 .buttonStyle(.link)
             }
@@ -851,6 +862,6 @@ struct RunInspector: View {
     /// The newest artifact of each task and name kind: an older attempt's diff is history.
     private func latest(_ xs: [Artifact]) -> [Artifact] {
         var seen = Set<String>()
-        return xs.sorted { $0.seq > $1.seq }.filter { seen.insert("\($0.task)/\($0.kind)/\($0.kind == "git_diff" ? "" : $0.name)").inserted }
+        return xs.sorted { $0.seq > $1.seq }.filter { seen.insert("\($0.task)/\($0.kind)/\($0.isDiff ? "" : $0.name)").inserted }
     }
 }

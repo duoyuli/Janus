@@ -49,10 +49,18 @@ final class Attempt {
 struct Artifact: Hashable {
     let name, kind, path, desc, hash: String
     let bytes: Int?
+    /// The task it belongs to; empty for the whole run's diff (`run_diff`).
     let task: String
     let attempt: Int
     let seq: Int
     let by: String
+
+    /// A diff to review: a task's (`git_diff`) or the whole run's against where it started (`run_diff`).
+    var isDiff: Bool { kind == "git_diff" || ofRun }
+    /// The whole run's diff: everything accepting brings back, the lead's own edits included.
+    var ofRun: Bool { kind == "run_diff" }
+    /// What its review is about, in the message to the agent (Janus talks to agents in Chinese).
+    var subject: String { ofRun ? "整个任务的改动" : "\(task) 的改动" }
 }
 
 struct Question {

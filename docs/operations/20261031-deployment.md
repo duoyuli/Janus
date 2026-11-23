@@ -43,7 +43,8 @@
 │   ├── runs/<run>/                  # 任务：Janus 为它记下的内容
 │   │   ├── bundle/<成员>/           # 成员的资源包：Run 创建时复制的 Skill
 │   │   ├── attachments/             # 随目标和消息粘贴的图片
-│   │   └── artifacts/<任务>/        # 每次尝试的回复和 diff
+│   │   ├── artifacts/<任务>/        # 每次尝试的回复和 diff
+│   │   └── changes/                 # 整个任务相对开始时的 diff，按内容命名，负责人每一轮结束时有变化就存一份
 │   ├── chats/<对话>/                # 对话：bundle/<成员>/、attachments/
 │   ├── loops/<run>/                 # 工作区值班的会话：bundle/<成员>/、attachments/
 │   ├── dreams/<run>/                # 团队记忆的整理：bundle/<成员>/

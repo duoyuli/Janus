@@ -967,7 +967,10 @@
 "还没有分配子任务。" = "No subtasks have been assigned.";
 "还没有填写职责" = "No responsibilities specified";
 "还没有子任务和会话。" = "No subtasks or sessions yet.";
-"还没有子任务改过文件。" = "No subtasks have changed files.";
+"还没有改动。" = "No changes yet.";
+"整个任务" = "Whole run";
+"整个任务的改动" = "Changes of the whole run";
+"审阅整个任务的改动 · %@" = "Review Changes of the Whole Run · %@";
 "还没有工作区" = "No Workspaces Yet";
 "还没有接入 Agent" = "No Agents Connected";
 "还没有数字员工" = "No Digital Employees Yet";

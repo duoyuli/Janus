@@ -384,7 +384,9 @@ impl App {
                     .collect()
             };
             let st = run.st.lock().unwrap();
-            let mut deliverables = vec![];
+            // Everything the run changed comes first: with a lead that did the work itself, it is
+            // the only diff there is.
+            let mut deliverables: Vec<Value> = st.run_diff.iter().map(|(_, a)| a.clone()).collect();
             let mut evidence = vec![];
             let mut risks = vec![];
             let mut acceptance = vec![];

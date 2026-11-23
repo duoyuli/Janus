@@ -89,13 +89,16 @@ notes.md
 
 @Test func reviewCommentsBecomeOneMessage() {
     let l = Diff.parse(sample)[0].hunks[0].lines
-    let text = Diff.message(task: "T1", artifact: "T1-a1.diff", comments: [
+    let text = Diff.message(subject: "T1 的改动", artifact: "T1-a1.diff", comments: [
         Diff.Comment(file: "pay.js", line: l[2], text: "加上错误处理"),
         Diff.Comment(file: "pay.js", line: l[1], text: "旧接口还有人用吗"),
     ], summary: "整体可以")
     #expect(text.contains("T1 的改动（T1-a1.diff）") && text.contains("总体意见：整体可以"))
     #expect(text.contains("pay.js 第 2 行：`+return sdk.pay()`\n  加上错误处理"))
     #expect(text.contains("原第 2 行（已删除）"))
+    let run = Artifact(name: "run-1.diff", kind: "run_diff", path: "", desc: "", hash: "", bytes: nil, task: "", attempt: 0, seq: 1, by: "janus")
+    #expect(run.isDiff && run.ofRun && run.subject == "整个任务的改动")
+    #expect(Diff.message(subject: run.subject, artifact: run.name, comments: [], summary: "好").hasPrefix("对整个任务的改动（run-1.diff）"))
 }
 
 /// Only what is new since the last look is announced, and nothing on the first look.

@@ -137,6 +137,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | --- | --- | --- |
 | `<task>-a<n>-report.md` | `report` | 总是保存，内容是 Agent 的最终回复 |
 | `<task>-a<n>.diff` | `git_diff` | 工作目录是 Git 仓库，任务负责和改过的文件相对 `HEAD` 有未提交改动；两样都没有记录时是整个工作目录的改动，且工作目录与上一个任务结束时不同，见[工作目录里的痕迹](../domains/20261031-goal_mode.md#traces) |
+| `run-<内容哈希前 12 位>.diff`（在 `changes/` 下） | `run_diff` | 不是哪次尝试的：负责人每一轮结束时，Git 仓库上的目标 Run 相对开始时（`baseRef`）有改动、且和上次保存的不同，就保存整个任务的 diff；`artifacts` 表的 `task` 为空字符串，`attempt` 为 0 |
 
 目标模式下，diff 的比较基准从 Run 开始时的工作目录状态算起，Run 之前就存在的改动不会算到任务头上。
 

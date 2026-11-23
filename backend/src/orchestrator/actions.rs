@@ -31,7 +31,14 @@ impl App {
                 }
             }
         }
-        let done = self.dispatch_action(run_id, body).await;
+        let done = match self.dispatch_action(run_id, body).await {
+            // Accepting ran into the branch's new commits: the lead resolves that, not the person.
+            Err(Refused::Invalid(err)) => match err.downcast::<crate::worktrees::Conflict>() {
+                Ok(conflict) => self.hand_conflict_to_lead(run_id, conflict).await,
+                Err(err) => Err(Refused::Invalid(err)),
+            },
+            done => done,
+        };
         if let Some(id) = command {
             let recorded =
                 if done.is_ok() { self.db.finish_command(run_id, id) } else { self.db.release_command(run_id, id) };
@@ -40,6 +47,23 @@ impl App {
             }
         }
         done.map(|()| ActionReply::Done)
+    }
+
+    /// Accepting stopped because the branch the run goes back to moved on with commits that
+    /// conflict with the run's. Nothing changed on the person's side, so the run stays delivered:
+    /// its lead replays the run's commits onto the branch in the worktree, resolves the conflict
+    /// and tells the person how, and that turn delivers the run again for the person to accept.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
+    async fn hand_conflict_to_lead(
+        self: &Arc<Self>,
+        run_id: &str,
+        conflict: crate::worktrees::Conflict,
+    ) -> Result<(), Refused> {
+        let run = self.resume_run(run_id).await?;
+        run.st.lock().unwrap().lead.redeliver = true;
+        let m = self.post_message(&run, "janus", "lead", "", &conflict_prompt(&conflict), &[]);
+        self.send_steer(&run, "lead", "", Steer::Message(m))?;
+        Ok(())
     }
 
     async fn dispatch_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<(), Refused> {

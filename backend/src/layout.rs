@@ -267,10 +267,11 @@ impl Layout {
 
     // ---- Recognizing files Janus stored
 
-    /// Whether `path` is an artifact of a run, `data/runs/<run>/artifacts/<task>/<file>`: the
-    /// only files `/api/file` serves, since the rest of the home holds the database and secrets.
+    /// Whether `path` is an artifact of a run, `data/runs/<run>/artifacts/<task>/<file>` or the
+    /// whole run's diff, `data/runs/<run>/changes/<file>`: the only files `/api/file` serves, since
+    /// the rest of the home holds the database and secrets.
     pub fn is_artifact(&self, path: &Path) -> bool {
-        self.stored(path, &[RunKind::Goal], "artifacts", 3)
+        self.stored(path, &[RunKind::Goal], "artifacts", 3) || self.stored(path, &[RunKind::Goal], "changes", 2)
     }
 
     /// Whether `path` is an image pasted into a run, a chat or a Loop, `data/<runs|chats|loops>/<id>/attachments/<file>`.
@@ -339,6 +340,11 @@ impl RunDirs {
     /// What one task's attempts left: their replies and diffs.
     pub fn artifacts(&self, task: &str) -> PathBuf {
         self.data.join("artifacts").join(task)
+    }
+
+    /// What the whole run changed so far, against where it started: one diff per content.
+    pub fn changes(&self) -> PathBuf {
+        self.data.join("changes")
     }
 
     /// One process's stderr.

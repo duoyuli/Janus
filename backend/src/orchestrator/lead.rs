@@ -75,7 +75,7 @@ impl App {
             st.lead.goal = LeadGoal::Working;
             // Changes already in the directory are not this run's: a task's diff starts from here.
             if run.git && st.last_diff.is_empty() {
-                st.last_diff = working_diff(&run.cwd, &[]);
+                st.last_diff = working_diff(&run.cwd, "HEAD", &[]);
             }
             // Continuing: the restarted lead is told the board so far; `wait` brings only what is new.
             if resumed {
@@ -150,6 +150,22 @@ impl App {
         run.worktree.is_some()
             && run.st.lock().unwrap().status == RunStatus::Accepted
             && !crate::worktrees::uncommitted(&run.cwd).is_empty()
+    }
+
+    /// A turn that is not a new goal delivers the run again when it worked on files after
+    /// acceptance, or resolved the conflict an acceptance ran into.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
+    fn delivers_again(&self, run: &Run) -> bool {
+        let resolved = std::mem::take(&mut run.st.lock().unwrap().lead.redeliver);
+        resolved || self.changed_since_acceptance(run)
+    }
+
+    /// A turn of the lead ended: keep what the whole run changed so far, before a delivery lists
+    /// it. Failing to read it only costs the Run page that diff.
+    fn run_changes_after_turn(&self, run: &Run) {
+        if let Err(err) = self.record_run_changes(run) {
+            crate::config::log(format!("janus: run {}: could not save the run's changes: {err:#}", run.id));
+        }
     }
 
     /// The lead finished a turn and waits for the person: a collaborator still waiting on the
@@ -351,6 +367,7 @@ impl App {
                         Some(&mut ctl),
                     )
                     .await?;
+                self.run_changes_after_turn(run);
                 if let Some(reason) = goal_refused(&text) {
                     bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
                 }
@@ -390,9 +407,9 @@ impl App {
                         ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标")
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
-                } else if goal_turn || self.changed_since_acceptance(run) {
+                } else if self.delivers_again(run) || goal_turn {
                     // A new goal in the conversation is a new result, and so is work on files after
-                    // acceptance: deliver it like the first one.
+                    // acceptance or a conflict resolved for one: deliver it like the first one.
                     run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
                     if !run.driving.active() {
@@ -595,6 +612,7 @@ impl App {
                         Some(&mut ctl),
                     )
                     .await?;
+                self.run_changes_after_turn(run);
                 if run.kind == RunKind::Loop {
                     self.loop_turn_ended(run);
                 }
@@ -620,8 +638,9 @@ impl App {
                         ev("agent.status", "lead", "这一轮已结束，等待你的消息")
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
-                } else if goal_turn || self.changed_since_acceptance(run) {
-                    // A new goal is a new result, and so is work on files after acceptance.
+                } else if self.delivers_again(run) || goal_turn {
+                    // A new goal is a new result, and so is work on files after acceptance or a
+                    // conflict resolved for one.
                     run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
                     if !run.driving.active() {

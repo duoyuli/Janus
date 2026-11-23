@@ -441,13 +441,13 @@ fn untracked_files_come_with_their_content() {
     git(&["commit", "-q", "-m", "init"]);
     std::fs::write(dir.join("研究.md"), "# 笔记\n内容\n").unwrap();
 
-    let diff = working_diff(&dir, &[]);
+    let diff = working_diff(&dir, "HEAD", &[]);
     assert!(diff.contains("diff --git a/研究.md b/研究.md"), "{diff}");
     assert!(diff.contains("\n+# 笔记\n"), "{diff}");
     assert!(diff.contains("\n+内容\n"), "{diff}");
     assert!(diff.contains("# 未跟踪的新文件\n研究.md"), "{diff}");
 
-    let scoped = working_diff(&dir, &["a.txt".into()]);
+    let scoped = working_diff(&dir, "HEAD", &["a.txt".into()]);
     assert!(!scoped.contains("研究.md"), "outside the scope: {scoped}");
     std::fs::remove_dir_all(&dir).unwrap();
 }

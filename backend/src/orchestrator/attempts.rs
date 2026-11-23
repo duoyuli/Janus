@@ -496,7 +496,7 @@ impl App {
                         self.save_artifact(
                             run,
                             NewArtifact {
-                                task: id,
+                                task: Some(id),
                                 attempt: n,
                                 agent: &agent,
                                 name: &format!("{id}-a{n}-report{suffix}.md"),
@@ -931,9 +931,9 @@ impl App {
             let t = st.tasks.iter().find(|t| t.def.id == id).context("task missing")?;
             crate::traces::scope(&t.def, &st.traces.files(id))
         };
-        let whole = working_diff(workspace, &[]);
+        let whole = working_diff(workspace, "HEAD", &[]);
         let unchanged = std::mem::replace(&mut run.st.lock().unwrap().last_diff, whole.clone()) == whole;
-        let diff = if scope.is_empty() { whole } else { working_diff(workspace, &scope) };
+        let diff = if scope.is_empty() { whole } else { working_diff(workspace, "HEAD", &scope) };
         if diff.trim().is_empty() || (scope.is_empty() && unchanged) {
             return Ok(());
         }
@@ -954,7 +954,7 @@ impl App {
         self.save_artifact(
             run,
             NewArtifact {
-                task: id,
+                task: Some(id),
                 attempt: n,
                 agent,
                 name: &format!("{id}-a{n}.diff"),
@@ -962,19 +962,72 @@ impl App {
                 bytes: diff.as_bytes(),
                 desc: &desc,
             },
-        )
+        )?;
+        Ok(())
     }
 
-    pub(super) fn save_artifact(&self, run: &Run, artifact: NewArtifact<'_>) -> Result<()> {
+    /// What the whole run changed so far against where it started (`base_ref`): the lead's own
+    /// edits, every task's, and commits made in the run, which is what accepting brings back. A
+    /// task's diff only covers that task, so a lead that did the work itself left none. Saved as a
+    /// `run_diff` artifact after each of the lead's turns when it differs from the last one.
+    // @project-doc docs/domains/20261031-goal_mode.md#traces
+    pub(super) fn record_run_changes(&self, run: &Run) -> Result<()> {
+        if run.kind != RunKind::Goal || !run.git || run.base_ref.is_empty() {
+            return Ok(());
+        }
+        let diff = working_diff(&run.cwd, &run.base_ref, &[]);
+        let hash: String = Sha256::digest(diff.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        let name = format!("run-{}.diff", &hash[..12]);
+        // After a restart nothing is remembered: the same diff saved before is already there.
+        let saved = match &run.st.lock().unwrap().run_diff {
+            Some((last, _)) => *last == hash,
+            None => self.dirs(run).changes().join(&name).exists(),
+        };
+        if diff.trim().is_empty() || saved {
+            return Ok(());
+        }
+        let stat = git_out(&run.cwd, &["diff-index", "--shortstat", &run.base_ref]);
+        let new_files = git_out(&run.cwd, &["ls-files", "--others", "--exclude-standard"])
+            .lines()
+            .filter(|l| !l.is_empty())
+            .count();
+        let desc = [
+            crate::traces::diff_summary(&stat, new_files),
+            "整个任务相对开始时的改动，验收时合并回去的就是这些".into(),
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
+        let artifact = self.save_artifact(
+            run,
+            NewArtifact {
+                task: None,
+                attempt: 0,
+                agent: "janus",
+                name: &name,
+                kind: "run_diff",
+                bytes: diff.as_bytes(),
+                desc: &desc,
+            },
+        )?;
+        run.st.lock().unwrap().run_diff = Some((hash, artifact));
+        Ok(())
+    }
+
+    /// Store an artifact and announce it; returns it as the run's state and the delivery list it.
+    pub(super) fn save_artifact(&self, run: &Run, artifact: NewArtifact<'_>) -> Result<Value> {
         let NewArtifact { task, attempt: n, agent, name, kind, bytes, desc } = artifact;
-        let dir = self.dirs(run).artifacts(task);
+        let dirs = self.dirs(run);
+        let dir = task.map_or_else(|| dirs.changes(), |t| dirs.artifacts(t));
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(name);
         std::fs::write(&path, bytes)?;
         let sha: String = Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
         self.db.insert_artifact(&ArtifactRow {
             run_id: &run.id,
-            task,
+            // The table's column has no empty value of its own: the whole run's has kind `run_diff`.
+            task: task.unwrap_or_default(),
             attempt: n,
             name,
             kind,
@@ -983,18 +1036,20 @@ impl App {
             bytes: bytes.len() as i64,
             created_at: now_ms(),
         })?;
-        let seq = self.emit(
-            run,
-            ev("artifact.created", agent, format!("提交产物 {name}")).task(task).attempt(n).data(json!({
-                "name": name, "kind": kind, "desc": desc, "path": path, "hash": &sha[..12], "bytes": bytes.len()
-            })),
-        );
-        let mut st = run.st.lock().unwrap();
-        if let Some(t) = Run::task_mut(&mut st, task) {
-            t.artifacts.retain(|a| a["kind"] != kind || kind == "report");
-            t.artifacts.push(json!({ "name": name, "kind": kind, "desc": desc, "path": path, "seq": seq }));
+        let mut e = ev("artifact.created", agent, format!("提交产物 {name}")).data(json!({
+            "name": name, "kind": kind, "desc": desc, "path": path, "hash": &sha[..12], "bytes": bytes.len()
+        }));
+        if let Some(t) = task {
+            e = e.task(t).attempt(n);
         }
-        Ok(())
+        let seq = self.emit(run, e);
+        let artifact = json!({ "name": name, "kind": kind, "desc": desc, "path": path, "seq": seq });
+        let mut st = run.st.lock().unwrap();
+        if let Some(t) = task.and_then(|t| Run::task_mut(&mut st, t)) {
+            t.artifacts.retain(|a| a["kind"] != kind || kind == "report");
+            t.artifacts.push(artifact.clone());
+        }
+        Ok(artifact)
     }
 }
 
@@ -1017,12 +1072,12 @@ pub(super) fn git_scoped(cwd: &Path, args: &[&str], scope: &[String]) -> String 
     git_out(cwd, &all)
 }
 
-/// What the working tree differs from HEAD by within `scope` (everything when empty), untracked
-/// files included as diffs against an empty file.
-pub(super) fn working_diff(cwd: &Path, scope: &[String]) -> String {
+/// What the working tree differs from the commit `against` by within `scope` (everything when
+/// empty), untracked files included as diffs against an empty file.
+pub(super) fn working_diff(cwd: &Path, against: &str, scope: &[String]) -> String {
     // `diff-index`, not `diff`: porcelain `git diff` refreshes the index even with optional locks
     // off (see `git_probe`).
-    let mut diff = git_scoped(cwd, &["diff-index", "-p", "HEAD"], scope);
+    let mut diff = git_scoped(cwd, &["diff-index", "-p", against], scope);
     // Untracked files have no `diff-index` entry. Diff each against /dev/null so the artifact
     // carries their content, then list them so a review can mark them as new files.
     let untracked = git_scoped(cwd, &["ls-files", "--others", "--exclude-standard", "-z"], scope);

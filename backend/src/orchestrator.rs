@@ -663,6 +663,9 @@ struct RunState {
     /// Working in place: the working-tree diff last saved as an artifact, so a task that changed
     /// nothing does not repeat what an earlier one changed.
     last_diff: String,
+    /// The last diff of the whole run saved (`record_run_changes`): its hash, so an unchanged
+    /// directory saves nothing, and its artifact, which the delivery lists first.
+    run_diff: Option<(String, Value)>,
     /// Secret in this run's MCP URL, so only its lead reaches the team tools.
     mcp_token: String,
     lead: LeadState,
@@ -717,6 +720,9 @@ struct LeadState {
     /// Its session is closing to free its seat (`park`): the run leaves memory soon, and the next
     /// message opens it anew.
     parked: bool,
+    /// Accepting ran into the branch's new commits and Janus handed the conflict to the lead: the
+    /// turn that resolves it delivers the run again (`hand_conflict_to_lead`).
+    redeliver: bool,
 }
 
 impl LeadState {
@@ -1186,7 +1192,8 @@ struct PromptSession<'a> {
 
 /// A file an attempt produced, saved under the run's artifacts (`save_artifact`).
 struct NewArtifact<'a> {
-    task: &'a str,
+    /// The task it belongs to; `None` for one of the whole run (`run_diff`).
+    task: Option<&'a str>,
     attempt: i64,
     agent: &'a str,
     name: &'a str,

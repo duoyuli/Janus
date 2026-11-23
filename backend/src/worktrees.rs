@@ -213,6 +213,37 @@ fn untracked_in_the_way(dir: &Path, tip: &str, head: &str) -> Vec<String> {
         .collect()
 }
 
+/// Accepting stopped because the source branch moved on with commits that conflict with the
+/// run's: nothing changed on the person's side, and the run's result is committed in its worktree.
+/// The run's lead can replay its commits onto `onto` there and resolve the conflict.
+#[derive(Debug)]
+pub struct Conflict {
+    /// The branch, as the person knows it (`main`).
+    pub branch: String,
+    /// The branch's tip now.
+    pub onto: String,
+    /// Where the run's own commits start: they are the ones after it.
+    pub since: String,
+    /// The commit holding the run's result.
+    pub head: String,
+    /// The files the replay conflicted on.
+    pub files: Vec<String>,
+}
+
+impl std::fmt::Display for Conflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "没有合并：分支 {} 在任务开始后有了新的提交，和任务的改动冲突{}。任务的结果在提交 {}。",
+            self.branch,
+            if self.files.is_empty() { String::new() } else { format!("（{}）", self.files.join("、")) },
+            short(&self.head)
+        )
+    }
+}
+
+impl std::error::Error for Conflict {}
+
 /// What accepting a run came to.
 #[derive(Debug, PartialEq)]
 pub struct Accepted {
@@ -283,16 +314,17 @@ pub fn accept(
         // replayed again.
         if let Err(err) = write(path, &["rebase", "-q", "--onto", &source.tip, since]) {
             let conflicted = read(path, &["diff", "--name-only", "-z", "--diff-filter=U"]).unwrap_or_default();
-            let files: Vec<&str> = conflicted.split('\0').filter(|f| !f.is_empty()).collect();
+            let files = conflicted.split('\0').filter(|f| !f.is_empty()).map(str::to_owned).collect();
             let _ = write(path, &["rebase", "--abort"]);
             crate::config::log(format!("janus: replaying {} onto {} failed: {err:#}", short(&head), source.name));
-            bail!(
-                "没有合并：{} 在任务开始后有了新的提交，和任务的改动冲突{}。任务的结果在提交 {}，可以在你的目录里用 git merge {} 自己合并。",
-                source.name,
-                if files.is_empty() { String::new() } else { format!("（{}）", files.join("、")) },
-                short(&head),
-                short(&head)
-            );
+            return Err(Conflict {
+                branch: branch.unwrap_or_default().to_string(),
+                onto: source.tip,
+                since: since.to_string(),
+                head,
+                files,
+            }
+            .into());
         }
         head = rev(path, "HEAD").context("读取任务副本的提交失败")?;
     }
@@ -630,7 +662,8 @@ mod tests {
     }
 
     /// The branch moved on while the run worked: the run's commit is replayed on top of it
-    /// (linear history). A conflicting replay leaves the branch and the checkout as they were.
+    /// (linear history). A conflicting replay leaves the branch and the checkout as they were and
+    /// says what the lead needs to resolve it; once it has, accepting fast-forwards.
     #[test]
     fn a_branch_that_moved_on_gets_the_result_replayed_on_top_or_nothing() {
         let dir = repo("moved");
@@ -652,13 +685,38 @@ mod tests {
         assert_eq!(read(&r, &["rev-list", "--merges", "--count", "HEAD"]).unwrap().trim(), "0");
         assert_eq!(head(&w1), a, "the worktree holds what the branch has");
 
-        let err = accept(&r, &w2, Some(&branch), &base, "b", true).unwrap_err().to_string();
-        assert!(err.contains("冲突"), "{err}");
+        let err = accept(&r, &w2, Some(&branch), &base, "b", true).unwrap_err();
+        assert!(err.to_string().contains("冲突"), "{err}");
+        // What the run's lead needs to replay its commits there itself.
+        let c = err.downcast_ref::<Conflict>().expect("a conflict");
+        assert_eq!(
+            (c.branch.as_str(), c.onto.as_str(), c.since.as_str()),
+            (branch.as_str(), a.as_str(), base.as_str())
+        );
+        assert_eq!(c.files, ["a.txt"]);
+        assert_eq!(c.head, head(&w2), "the run's result, committed in its worktree");
         assert_eq!(head(&r), a, "the branch did not move");
         assert_eq!(file(&r, "a.txt").as_deref(), Some("run a\n"));
         assert!(read(&r, &["status", "--porcelain"]).unwrap().trim().is_empty(), "nothing half-merged");
         assert!(w2.exists(), "kept with its result: a failed acceptance changes nothing");
         assert_eq!(read(&w2, &["show", "HEAD:a.txt"]).unwrap(), "run b\n", "the result is committed there");
+        // The lead replays the run's commits onto the branch and resolves the conflict.
+        assert!(
+            Command::new("git")
+                .args(["rebase", "-q", "--onto", &c.onto, &c.since])
+                .current_dir(&w2)
+                .status()
+                .unwrap()
+                .code()
+                != Some(0)
+        );
+        std::fs::write(w2.join("a.txt"), "run a\nrun b\n").unwrap();
+        git(&w2, &["add", "a.txt"]);
+        git(&w2, &["-c", "core.editor=true", "rebase", "--continue"]);
+        let b = accept(&r, &w2, Some(&branch), &base, "b", true).unwrap();
+        assert!(b.brought);
+        assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), a, "on top of run a");
+        assert_eq!(file(&r, "a.txt").as_deref(), Some("run a\nrun b\n"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
