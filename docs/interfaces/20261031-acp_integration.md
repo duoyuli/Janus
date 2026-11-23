@@ -200,6 +200,8 @@ Agent 声明了 `_meta.steering.supported` 时，会话正在进行的一轮可�
 
 Janus 为 Claude Code 设置 `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`：Janus 把返回的一轮当作 Agent 的回答，而 Claude Code 允许把命令或子 Agent 放到后台，这一轮会在工作完成之前返回。
 
+Janus 还设置 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`：Claude Code 的 auto memory 按工作目录保存，而 Janus 里每个 Run 和对话都有自己的目录，下一个 Run 读不到；工作区的知识放在[团队记忆](../domains/20261123-team_memory.md#native_memory)里。
+
 官方 Claude Code 适配器不提供 `dontAsk` 权限模式。选了这个模式的角色会以 Agent 当前的模式运行（实际生效的模式记在 `agent.status` 的 `data.config` 中），需要在角色设置中重新选择。
 
 <a id="user_request_replies"></a>

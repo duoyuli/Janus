@@ -121,6 +121,10 @@ impl Runtime {
                 // Code sends to the background would end the turn before the work is done.
                 // @project-doc docs/interfaces/20261031-acp_integration.md#background_tasks
                 env.push(("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1".into()));
+                // Its own memory would be kept per working directory, and every run and chat has
+                // its own: what a run learns goes to the workspace's team memory instead.
+                // @project-doc docs/domains/20261123-team_memory.md#native_memory
+                env.push(("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1".into()));
                 if conn["auth"] == "oauth" {
                     env.push(("CLAUDE_CODE_OAUTH_TOKEN", secret("token")));
                 }
