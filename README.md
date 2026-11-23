@@ -32,7 +32,7 @@ The models are good enough. What is missing is the organization around them: som
 
 ## From a run to a Loop
 
-A run is one goal, from start to delivery. A Loop wakes a workspace's lead agent on a schedule you set. It looks around, answers what a sentence can answer, and dispatches what needs changing as new runs. It asks you only what only you can decide, and everything it does lands in your inbox.
+A run is one goal, from start to delivery. A Loop wakes a workspace's lead agent on a schedule you set. It looks around, answers what a sentence can answer, and dispatches what needs changing as new runs. Each run sees its goal through on its own; when it ends, the Loop wakes to look at the result. It asks you only what only you can decide, and everything it does lands in your inbox.
 
 Runs never depend on each other, and there is no time or token budget. The only limit is the machine: by default up to 8 runs work at once and up to 12 agent processes stay open. The rest wait in a queue and start as slots free up.
 

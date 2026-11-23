@@ -8,7 +8,7 @@ from scenarios import scenario
 
 @scenario("loops")
 def loops(ctx, c):
-    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次开工自己起名，开工的消息只有值班的提示；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（待处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量）都与服务端一致"""
+    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次开工自己起名，开工的消息只有值班的提示；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；值班只能给自己派出、进行中的任务转话；派出的任务结束时以 dispatch 唤醒值班，结果写进醒来的提示；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（待处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量）都与服务端一致"""
     t = ctx.team("loops", members=("m1",))
     ws = t.ws["id"]
     preview = ctx.api("GET", "/api/loops/schedule?cron=0+9+*+*+1-5&tz=Asia/Shanghai")
@@ -45,7 +45,7 @@ def loops(ctx, c):
 
     janus = t.fake.board(run, "lead")
     names = sorted(janus.tools())
-    c(names == ["ask_user", "dispatch", "dispatches", "next_wake", "save_state", "set_name"], f"值班的会话只有值班的工具（{names}）")
+    c(names == ["ask_user", "dispatch", "dispatches", "next_wake", "note_dispatch", "save_state", "set_name"], f"值班的会话只有值班的工具（{names}）")
     text, err = janus.call("set_name", {"name": "issue 分拣"})
     v = view()
     c(not err and v["name"] == v["title"] == "issue 分拣", f"值班用 set_name 给自己起名（{v['name']}）")
@@ -64,6 +64,14 @@ def loops(ctx, c):
     dispatched = sent_runs[0]["id"]
     text, err = janus.call("dispatch", {"goal": "再修一次", "key": "github:o/r#7"})
     c(not err and dispatched in text and len(ctx.api("GET", f"/api/runs?loop={loop_id}")["runs"]) == 1, "同一个 key 不再派发，告诉值班已有的任务")
+    # While the run works, what the Loop knows goes to its lead; only to its own runs.
+    wait(lambda: ctx.api("GET", f"/api/runs/{dispatched}")["run"]["status"] == "running", "派出的任务开始干活", 60)
+    text, err = janus.call("note_dispatch", {"run": dispatched, "text": "文件名里可能有全角空格"})
+    told = [e for e in ctx.api("GET", f"/api/runs/{dispatched}")["events"] if e["type"] == "user.message" and e["actor"] == "janus"]
+    c(not err and told and "来自工作区的值班" in told[-1]["data"]["text"] and "全角空格" in told[-1]["data"]["text"],
+      f"值班把补充转给进行中的派出任务的负责人，写明来自值班（{text[:40]}）")
+    text, err = janus.call("note_dispatch", {"run": run, "text": "x"})
+    c(err and "不是这个值班派出的" in text, f"不是它派出的任务收不到值班的话（{text[:40]}）")
     if ctx.app:
         def row(s):
             return next((r for r in (s.get("histories") or {}).get(ws, []) if r["id"] == dispatched), None)
@@ -128,10 +136,19 @@ def loops(ctx, c):
     resumed = ctx.api("POST", f"/api/loops/{loop_id}/resume", {})
     c(resumed["state"] == "active" and resumed["status"]["nextWakeAt"] is not None, "继续后按时间表排下次醒来")
 
+    # The run it dispatched ends: the Loop wakes to judge it, told how it ended.
+    ctx.api("POST", f"/api/runs/{dispatched}/actions", {"type": "cancel"})
+    wait(lambda: len(kinds("loop.woke")) == 4, "派出的任务结束唤醒值班", 60)
+    ended = kinds("loop.dispatch_ended")
+    c(kinds("loop.woke")[3]["data"]["reason"] == "dispatch" and ended and ended[-1]["data"]["run"] == dispatched
+      and ended[-1]["data"]["status"] == "cancelled", "派出的任务被取消后，值班以 dispatch 醒来，记下是哪个任务、怎么结束的")
+    wait(lambda: len(kinds("loop.slept")) == 4, "这次醒来结束", 60)
+    prompts = [json.loads(l[len("loop prompt "):]) for l in t.fake.calls().splitlines() if l.startswith("loop prompt ")]
+    c(f"- {dispatched} (key github:o/r#7): cancelled by the person" in prompts[-1], "醒来的提示写着结束的任务和它是被你取消的")
+
     # Deleting it removes its session; the run it dispatched stays.
     ctx.api("DELETE", f"/api/loops/{loop_id}")
     c(not ctx.api("GET", f"/api/loops?workspace={ws}")["loops"], "删除值班")
     code, _ = ctx.api_error("GET", f"/api/runs/{run}")
     c(code == 404, "值班的会话一起删除")
     c(ctx.api("GET", f"/api/runs/{dispatched}")["run"]["origin"] == "loop", "它派出的任务保留")
-    ctx.api("POST", f"/api/runs/{dispatched}/actions", {"type": "cancel"})

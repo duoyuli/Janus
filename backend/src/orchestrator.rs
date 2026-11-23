@@ -1286,6 +1286,7 @@ impl App {
     fn set_stored_status(&self, run_id: &str, status: RunStatus) -> Result<()> {
         self.db.set_run_status(run_id, status)?;
         let _ = self.changes.send(RunChange { run: run_id.into(), status });
+        self.dispatch_ended(run_id, status);
         self.pump();
         Ok(())
     }
@@ -1318,6 +1319,8 @@ impl App {
         }
         if changed {
             let _ = self.changes.send(RunChange { run: run.id.clone(), status });
+            // A run a Loop dispatched that ended wakes the Loop.
+            self.dispatch_ended(&run.id, status);
             // A run that stops working frees its slot for the next queued one.
             self.pump();
         }

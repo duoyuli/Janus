@@ -358,3 +358,89 @@ async fn a_restart_keeps_when_it_wakes_after_a_new_schedule_or_a_pause() {
     assert!(next_after_restart().is_null());
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A run a Loop dispatched owns its goal until it ends: the Loop can pass it what it knows while
+/// it works (`note_dispatch`, only to its own runs), and its end wakes the Loop with what it came
+/// to. A paused Loop is not woken, and hears of it in its next wake.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
+    let h = harness("loops-ended", &[("lead", false), ("m1", false)], json!({}));
+    let (id, run) = new_loop(&h, "盯着导出", Value::Null, true).await;
+    wait_until(&h.app, &run, "the first wake", |e| has(e, "loop.slept")).await;
+    let dispatch = |key: &str| {
+        let (app, run, key) = (h.app.clone(), run.clone(), key.to_string());
+        async move {
+            let (text, err) =
+                tool(&app, &run, "lead", "dispatch", json!({ "goal": format!("处理 {key}"), "key": key })).await;
+            assert!(!err, "{text}");
+            app.db
+                .dispatched(&app.loop_def(&app.loop_of_session(&run).unwrap()).unwrap().workspace, &key)
+                .unwrap()
+                .unwrap()
+                .0
+        }
+    };
+    let (a, b) = (dispatch("a").await, dispatch("b").await);
+    wait_until(&h.app, &a, "a's lead works", |e| {
+        e.iter().any(|e| e.kind == "session.prompt" && e.text.contains("目标提示"))
+    })
+    .await;
+
+    // While it works, what the Loop knows goes to its lead, said to come from the Loop.
+    let (text, err) =
+        tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": a, "text": "导出要支持 UTF-8 BOM" })).await;
+    assert!(!err, "{text}");
+    let note = events(&h.app, &a).into_iter().rfind(|e| e.kind == "user.message").unwrap();
+    assert_eq!((note.actor.as_str(), note.to.as_deref()), ("janus", Some("lead")));
+    assert!(note.data.unwrap()["text"].as_str().unwrap().contains("来自工作区的值班"), "says who it is from");
+    // Only to its own runs: another Loop's run, its own session, or nothing at all are refused.
+    let (_, other) = new_loop(&h, "盯着别的", Value::Null, true).await;
+    wait_until(&h.app, &other, "the other wake", |e| has(e, "loop.slept")).await;
+    let (text, err) = tool(&h.app, &other, "lead", "note_dispatch", json!({ "run": a, "text": "冒充" })).await;
+    assert!(err && text.contains("不是这个值班派出的"), "{text}");
+    let (text, err) = tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": run, "text": "x" })).await;
+    assert!(err && text.contains("不是这个值班派出的"), "{text}");
+    let (_, err) = tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": a, "text": " " })).await;
+    assert!(err, "a note needs text");
+
+    // Cancelled by the person: the Loop wakes, told it was their decision.
+    h.app.request_action(&b, &json!({ "type": "cancel" })).await.unwrap();
+    wait_until(&h.app, &run, "the cancel's wake", |e| count(e, "loop.slept") == 2).await;
+    let woke = events(&h.app, &run).into_iter().rfind(|e| e.kind == "loop.woke").unwrap();
+    assert_eq!(woke.data.unwrap()["reason"], "dispatch");
+    let prompt = wake_prompts(&h).pop().unwrap();
+    assert!(prompt.starts_with("盯着导出\n\nRuns you dispatched that ended"), "{prompt}");
+    assert!(prompt.contains(&format!("- {b} (key b): cancelled by the person")) && !prompt.contains(&a), "{prompt}");
+
+    // Delivered: woken with the delivery's summary; a run that ended takes no more notes.
+    finish_lead(&h);
+    wait_until(&h.app, &run, "the delivery's wake", |e| count(e, "loop.slept") == 3).await;
+    let prompt = wake_prompts(&h).pop().unwrap();
+    let delivered = events(&h.app, &a).into_iter().find(|e| e.kind == "run.delivered").unwrap();
+    let summary = delivered.data.unwrap()["summary"].as_str().unwrap().to_string();
+    assert!(
+        prompt.contains(&format!(
+            "- {a} (key a): delivered; the person accepts it from their inbox\n  {}",
+            short(summary.trim(), 600)
+        )),
+        "{prompt}"
+    );
+    let (text, err) = tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": a, "text": "还有" })).await;
+    assert!(err && text.contains("不在进行中"), "{text}");
+
+    // Paused: the end is noted but does not wake it; the next wake tells it.
+    h.app.pause_loop(&id, true).unwrap();
+    let c = dispatch("c").await;
+    wait_until(&h.app, &run, "c's end is noted", |e| count(e, "loop.dispatch_ended") == 3).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(count(&events(&h.app, &run), "loop.woke"), 3, "a paused Loop sleeps on");
+    h.app.wake_loop(&id, WakeReason::Manual).await.unwrap();
+    wait_until(&h.app, &run, "the wake by hand", |e| count(e, "loop.slept") == 4).await;
+    let prompt = wake_prompts(&h).pop().unwrap();
+    assert!(prompt.contains(&format!("- {c} (key c): delivered")) && !prompt.contains(&b), "{prompt}");
+
+    // Its system layer says the run owns its goal and its end wakes the Loop.
+    let layer = h.app.loop_brief(&h.app.run(&run).unwrap());
+    assert!(layer.contains("owns its goal until it ends") && layer.contains("janus.note_dispatch"), "{layer}");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

@@ -187,6 +187,8 @@ impl App {
         let Some(event) = self.db.leave_queue(id, to, e.into_event(id, 0))? else { return Ok(false) };
         let _ = self.tx.send(event);
         let _ = self.changes.send(RunChange { run: id.into(), status: to });
+        // A queued run cancelled before it started also ends a Loop's dispatch.
+        self.dispatch_ended(id, to);
         Ok(true)
     }
 
