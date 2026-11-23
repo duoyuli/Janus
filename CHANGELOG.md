@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.3
+
+- 修复目标里明确要求「提交并发布」时，负责人仍回复「规则禁止我直接 commit、push 或 deploy」，跑完验证就停下、改动留着没提交。原因是 Janus 写给负责人和协作者的固定约定里有一句无条件的「不要 commit、push、部署」。现在改为：你在目标或回答里要求时，Agent 照做，并且只做到你要求的程度（只说提交就不推送），不再反复问你；没有要求时和以前一样，改动保持未提交，验收时由 Janus 提交。任务在 worktree 里自己做的提交，验收时会和剩下的改动一起合并回你的分支；负责人也知道怎样从 worktree 推送到你指定的分支。Janus 自己仍然从不推送。
+
+- Fixed a lead that, with a goal asking it to commit and release, replied that rules forbade it to commit, push or deploy, stopped after verifying, and left the changes uncommitted. Janus's fixed instructions to the lead and collaborators said "do not commit, push, or deploy" with no exception. Agents now do these when you ask for them in the goal or an answer, and only as far as you asked (a request to commit is not one to push), without asking you again; when you don't, changes stay uncommitted as before and Janus commits them when you accept. Commits a run makes in its worktree come back to your branch with the rest when you accept, and the lead is told how to push from the worktree to the branch you mean. Janus itself still never pushes.
+
 ## 2026.11.23.2
 
 - 新增团队记忆（#4）：工作区里的 Agent 在任务中记下之后的任务还用得上的事（怎么跑测试、踩过的坑、为什么这样做），之后这个工作区的每个任务都拿到这些笔记的索引，需要时读全文。负责人和协作者都能写，每条记着是谁在哪个任务里写的；笔记不跨工作区，像密钥、令牌的内容不收，被取消的任务写的不给之后的任务。工作区页新增「团队记忆」一节：可以改、删笔记，或把一条加进共享资料，让它成为团队必须遵守的规则。
