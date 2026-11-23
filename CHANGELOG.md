@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.2
+
+- 新增团队记忆（#4）：工作区里的 Agent 在任务中记下之后的任务还用得上的事（怎么跑测试、踩过的坑、为什么这样做），之后这个工作区的每个任务都拿到这些笔记的索引，需要时读全文。负责人和协作者都能写，每条记着是谁在哪个任务里写的；笔记不跨工作区，像密钥、令牌的内容不收，被取消的任务写的不给之后的任务。工作区页新增「团队记忆」一节：可以改、删笔记，或把一条加进共享资料，让它成为团队必须遵守的规则。
+- 团队记忆会自动整理：攒够 5 个交付的任务、并且距上次整理超过一天时，负责人开一个只能动笔记的会话，合并重复的、改正被推翻的、删掉过时的；也可以在工作区页点「现在整理」。整理完后收件箱出现「团队记忆整理好了」，打开能看到改了什么。
+- Janus 启动的 Claude Code 不再使用它自带的 auto memory：那份记忆按工作目录保存，而每个任务和对话都有自己的目录，下一个任务读不到；现在任务里学到的都放进团队记忆。你自己在 Janus 之外用 Claude Code 不受影响。
+
+- New team memory (#4): agents in a workspace note what later runs will need (how to run the tests, a trap they fell into, why something is the way it is), and every later run in that workspace gets the index of these notes and reads one in full when it needs to. The lead and collaborators both write notes, each saying who wrote it in which run; notes stay within their workspace, credential-like text is refused, and notes from cancelled runs are not handed on. The workspace page has a new Team Memory section where you can edit or delete a note, or add it to the shared context to make it a rule for the team.
+- Team memory is consolidated on its own: after 5 delivered runs and at least a day since the last time, the lead opens a session that can only touch the notes, to merge duplicates, correct what later runs disproved and remove what is out of date; you can also click Consolidate Now on the workspace page. When it is done, "Team memory consolidated" lands in your inbox with what changed.
+- Claude Code started by Janus no longer uses its own auto memory: it was kept per working directory, and every run and chat has its own, so the next run never read it. What a run learns now goes to the team memory. Using Claude Code yourself outside Janus is unaffected.
+
 ## 2026.11.23
 
 - 修复值班表单里的时间输入：在小时上慢慢打「18」（两个数字之间停顿约一秒）会变成 08，要再打一次才对（#3）。系统的时间输入框把这样的停顿当成小时已经输完。现在时间是「时」「分」两个菜单，和频率、星期等菜单在同一行：小时 00–23，分钟每 5 分钟一档，编辑已有值班时原来不在档上的分钟也保留。
