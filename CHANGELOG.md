@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.22.5
+
+- 修复 Codex 负责人显示 Full access，用 `/goal` 推进目标时却仍在沙箱里：读钥匙串、写工作目录外的文件、启动后台进程都会弹审批，任务停下来等你。Codex 的适配器只把会话模式带进普通提示，`/goal` 的各轮用的是线程自己的默认设置（需要时询问、只能写工作目录）。现在 Janus 启动 Codex 时按数字员工的权限模式一并设好线程的审批和沙箱，Full access 在目标里也真正不受限；选了其他模式的照那个模式执行。Claude Code 不受影响。
+
+- Fixed a Codex lead showing Full access yet running its `/goal` inside a sandbox: reading the keychain, writing outside the workspace or starting a background process asked for approval and held the run until you answered. Codex's adapter applies the session mode only to ordinary prompts, while `/goal` turns use the thread's own defaults (ask when needed, write only the workspace). Janus now sets the thread's approval and sandbox from the digital employee's permission mode when it starts Codex, so Full access is unrestricted in goals too, and other modes apply as chosen. Claude Code is unaffected.
+
 ## 2026.11.22.4
 
 - 值班派出的任务从头到尾自己闭环：自己做、自己验收、不合格自己返工。任务交付、失败或被你取消时立即叫醒值班，开工的提示里写着结束的任务和结果（交付摘要、失败原因，或者「是你取消的，不要再派」），值班不用再隔一会儿醒来查一次。值班的工作方式里写明，任务没结束时不查它的半成品，也不为同一件事再派一个任务（换个 key 也不行）。暂停的值班不被叫醒，下次开工时一并告诉它。已有的值班要删掉重建才会用上新的工作方式（叫醒是服务端的，升级后就生效）。
