@@ -4,6 +4,24 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.5
+
+- Git 仓库上的任务，结果在交付时就合并回你的分支，不用再等你点验收：每次交付，Janus 都把任务的改动提交，你的分支前进过就先把它们变基到最新的分支上，再快进你的分支，你在自己的目录里马上能看到。你对负责人说「提交一下」「合并到 main」，它把工作做完、交付，代码就到了；验收只表示你认可了这次结果。交付卡片写明合并到了哪个提交，决策里记一条「交付时合并到你的分支」。值班派出的任务交付时也一样合并。
+- 交付时和分支上的新提交冲突，你的目录和分支都不动：Janus 照常交付，把冲突的文件和解决步骤交给负责人，它在任务的副本里解决、跑完检查，再次交付时合并。同一个冲突只自动交给它一次，没解决时交付说明仍然冲突，你可以继续和它处理，或者点验收让它再试一次。你目录里没提交的改动挡住时，交付说明原因，你处理后点验收再合并。
+- 修复验收之后负责人按你的要求提交的改动不再交付：以前只看有没有未提交的文件，一个提交让副本变干净，任务一直停在「已验收」，这次提交永远到不了你的分支。现在有未提交的改动，或者有上次合并之后的新提交，都会再次交付并合并。
+- 修复验收之后的一轮被服务重启打断时，重启会删掉任务的副本，这一轮的提交跟着丢失。现在副本保留，任务再次交付并合并。
+- 负责人解决冲突后分支又前进了，下一次合并不再把分支自己的提交重放一遍、产生和任务无关的冲突，只重放任务自己的提交。负责人的变基或合并做到一半时，Janus 不再把冲突标记提交上去，而是交给负责人做完或中止。
+- 要推送或发布时，负责人先在任务的副本里把工作变基到最新的分支上再推送，交付时你的分支快进到同一个提交，本地和远端不再分叉。
+- 任务页「改动」里整个任务的 diff 不再混进分支上别人的提交，只含下一次交付要合并的改动。
+
+- On a Git repository, a run's result now goes back to your branch when it is delivered, not when you accept it: each delivery commits the run's changes, replays them onto your branch if it moved, and fast-forwards your branch, so you see them in your own checkout at once. Ask the lead to commit or to merge into main, and the work is on the branch once it is delivered; accepting only says you approve the result. The delivery card says which commit it was merged as, and the decisions list a "Merged into your branch on delivery" entry. Runs a Loop dispatches merge on delivery too.
+- When a delivery conflicts with new commits on your branch, your checkout and branch stay as they are: Janus delivers as usual and hands the conflicting files and the steps to resolve them to the lead, which resolves them in the run's copy, runs its checks and delivers again, merging then. The same conflict goes to the lead on its own only once; if it is still there, the delivery says so, and you can keep working it out with the lead or accept to have it try again. Uncommitted changes of yours in the way are named in the delivery; sort them out and accept to merge.
+- Fixed changes the lead committed at your request after you accepted a run never being delivered: only uncommitted files counted, so a commit left the copy clean, the run stayed accepted and the commit never reached your branch. Uncommitted changes or commits made after the last merge now deliver and merge the run again.
+- Fixed a restart during a turn after acceptance removing the run's copy, and the turn's commits with it. The copy now stays and the run is delivered and merged again.
+- After the lead resolves a conflict and the branch moves again, the next merge no longer replays the branch's own commits and hits conflicts unrelated to the run; only the run's commits are replayed. A rebase or merge the lead left half done is no longer committed with its conflict markers; it goes back to the lead to finish or abort.
+- To push or release, the lead first rebases the work onto the latest branch in the run's copy and then pushes, and the delivery fast-forwards your branch to that same commit, so local and remote no longer diverge.
+- The whole-run diff under Changes no longer includes other people's commits on the branch, only what the next delivery merges.
+
 ## 2026.11.23.4
 
 - 团队记忆改为按需检索：笔记不再塞进每个任务的说明里，Agent 只知道这个工作区有多少条，开始工作前和遇到不熟悉的事时自己检索。检索也改了：以前要每个词都出现才算找到，换个说法、中文不分词就搜不到；现在按标题、摘要、正文的命中程度排序，返回最相关的几条，中文换个说法也能搜到，不带关键词时列出全部笔记。被取消的任务写的笔记，以前按关键词还能搜到，现在搜不到了。
