@@ -4,6 +4,14 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.6
+
+- 结束 Agent 会话和资源库 MCP 服务器时，改为直接向它们的进程组发信号，不再调用 `kill` 命令。在 Linux 上（Debian 的 `kill`），原来的命令会把信号发给所有能发到的进程；macOS 不受影响，这次是在把测试挪到 Linux 时发现的。
+- 发布和 CI 提速：发布时不再重复跑 CI 已经跑过的测试，改为打包和 CI 同时进行、CI 通过后才发布；打包时服务和应用同时编译；CI 的应用只编译一次，编排器的测试改在 Linux 上跑，不再排队等 macOS 运行器。
+
+- Ending an agent's session or a library MCP server now signals its process group directly instead of running the `kill` command. On Linux (Debian's `kill`) the old command sent the signal to every process it could reach; macOS was not affected. It came up while moving the tests to Linux.
+- Faster releases and CI: a release no longer reruns the tests CI already ran; it packages while CI tests the same commit and publishes once CI passes. Packaging builds the server and the app side by side. CI builds the app once, and runs the orchestrator's tests on Linux instead of waiting for a macOS runner.
+
 ## 2026.11.23.5
 
 - Git 仓库上的任务，结果在交付时就合并回你的分支，不用再等你点验收：每次交付，Janus 都把任务的改动提交，你的分支前进过就先把它们变基到最新的分支上，再快进你的分支，你在自己的目录里马上能看到。你对负责人说「提交一下」「合并到 main」，它把工作做完、交付，代码就到了；验收只表示你认可了这次结果。交付卡片写明合并到了哪个提交，决策里记一条「交付时合并到你的分支」。值班派出的任务交付时也一样合并。
