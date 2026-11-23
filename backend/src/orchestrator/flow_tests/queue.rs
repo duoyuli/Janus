@@ -90,6 +90,10 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     wait_live(&app, &sixth).await;
     let seventh = new_run(&app, "第七个").await;
     assert_eq!(status(&app, &seventh), "queued");
+    // The process goes away: the sixth's setup stops writing before the restarted service writes
+    // to the same log (two writers would take the same seq).
+    app.run(&sixth).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     let restarted = test_app_with(&h.dir, |c| c.max_running_runs = 1);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &sixth), "interrupted");
