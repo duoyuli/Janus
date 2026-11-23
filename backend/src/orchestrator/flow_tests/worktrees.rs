@@ -221,6 +221,17 @@ async fn tasks_work_in_the_runs_own_worktree() {
     assert_eq!(created["worktree"]["repo"], json!(h.repo.canonicalize().unwrap()), "{created}");
     let branch = git_branch(&h.repo);
     assert_eq!(created["worktree"]["branch"], json!(branch), "the branch the run started on");
+    // The lead commits, pushes or deploys when the user asks, and is told how a push goes from a
+    // detached worktree; nothing in its brief forbids what the user asked for.
+    let brief = evs
+        .iter()
+        .filter(|e| e.kind == "session.prompt")
+        .filter_map(|e| e.data.as_ref().unwrap()["prompt"].as_str())
+        .find(|p| p.contains("You are the lead"))
+        .unwrap();
+    assert!(brief.contains("Commit, push, deploy, or release only when the user asks for it"), "{brief}");
+    assert!(brief.contains(&format!("git push origin HEAD:{branch}")), "{brief}");
+    assert!(!brief.contains("Do not commit"), "{brief}");
     let started = evs.iter().find(|e| e.kind == "attempt.started").unwrap();
     assert_eq!(started.data.as_ref().unwrap()["path"], json!(cwd));
     let git = &started.data.as_ref().unwrap()["git"];

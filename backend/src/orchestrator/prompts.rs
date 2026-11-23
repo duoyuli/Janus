@@ -97,12 +97,13 @@ pub(super) fn task_prompt(
 pub(super) fn workdir_brief(run: &Run) -> String {
     match &run.worktree {
         Some(w) => format!(
-            "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does (README, justfile, package.json and the like) before running anything, and reinstall when a change touches dependencies. Changes stay uncommitted: when the user accepts the run, Janus commits them and brings them back to {source}.",
+            "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does (README, justfile, package.json and the like) before running anything, and reinstall when a change touches dependencies. Unless the user asks for commits, changes stay uncommitted: when the user accepts the run, Janus commits what is uncommitted and brings it back to {source} together with any commits made here, replaying them with new ids if that branch moved meanwhile. The worktree is on a detached HEAD, not a branch: to push, push HEAD to the branch the user means, for example git push origin HEAD:{target}.",
             repo = w.repo.display(),
             source = match &w.branch {
                 Some(b) => format!("the branch {b} the user was on"),
                 None => "the user's detached HEAD".into(),
-            }
+            },
+            target = w.branch.as_deref().unwrap_or("<branch>")
         ),
         None if run.git => "This is a Git repository.".into(),
         None => {
@@ -115,7 +116,7 @@ pub(super) fn workdir_brief(run: &Run) -> String {
 fn workdir_note(run: &Run) -> String {
     match &run.worktree {
         Some(w) => format!(
-            "（{} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里。运行测试或程序前，先按项目自己的方式准备环境（看 README、justfile、package.json 等）；你的改动涉及依赖时重新安装。改动不要提交，用户验收时由 Janus 统一提交并合并回用户的分支。）",
+            "（{} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里。运行测试或程序前，先按项目自己的方式准备环境（看 README、justfile、package.json 等）；你的改动涉及依赖时重新安装。子任务说明没有要求提交时，改动不要提交，用户验收时由 Janus 统一提交并合并回用户的分支；这里处于 detached HEAD，不在任何分支上，要推送时把 HEAD 推到说明指定的分支。）",
             w.repo.display()
         ),
         None => String::new(),
@@ -232,7 +233,7 @@ pub(super) fn collaborator_rules(board: bool) -> String {
 
 Acceptance: Verify each criterion before finishing. Choose a method that can establish the result, such as running tests, observing the running program, inspecting code, or comparing outputs. File existence alone is insufficient. In checks, report each criterion in order with its pass status, evidence (what you did and observed), and an optional method: test (automated test), command (command or script), inspection (code, files, UI, or actual state), reasoning (inference or judgment), or unverified (missing, irreproducible, or currently unverifiable evidence). The method identifies the evidence type. Report unverified when you cannot verify a result and use test only for an automated test you ran. For unmet criteria, set passed: false and explain why. If a criterion is unreasonable or impossible to verify in the current environment, ask the lead to revise it in question.
 
-Working directory: Work directly in the project's working directory. Your changes take effect immediately and are visible to other members. Do not commit, push, deploy, or modify files outside the working directory.",
+Working directory: Work directly in the project's working directory. Your changes take effect immediately and are visible to other members. Do not modify files outside the working directory. Commit, push, or deploy only when your subtask's instructions ask for it, and only as far as they ask.",
     );
     if board {
         p.push_str("\n\nShared board (janus MCP tools): Post progress and blockers with janus.board_post. Before editing files outside your assigned scope, claim them with janus.claim. If the subtask is much larger than expected and needs splitting, propose a split with janus.request_split for the lead to decide. Use janus.peers to see the status, owned files, and edits of other subtasks. Pass task to see a specific subtask's full result and the lead's amendments. Janus alerts you when two subtasks edit the same file or a subtask edits files owned by another. Report changes that match the working directory. Janus checks the result against your edits.");

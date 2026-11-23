@@ -163,6 +163,9 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
     assert!(rules.contains("janus.board_post") && rules.contains("```json"), "{rules}");
     assert!(rules.is_ascii(), "{rules}");
     assert!(!collaborator_rules(false).contains("janus.board_post"), "no board, no board tools");
+    // Committing, pushing and deploying follow the subtask's instructions, not a ban of Janus's own.
+    assert!(rules.contains("Commit, push, or deploy only when your subtask's instructions ask for it"), "{rules}");
+    assert!(!rules.contains("Do not commit"), "{rules}");
     let standing = standing_instructions(&member_with(Runtime::Codex, "", "先运行现有测试"));
     let text = system_layer(&[&rules, "", &standing]);
     assert!(text.starts_with("You are a collaborator on the Janus team."));

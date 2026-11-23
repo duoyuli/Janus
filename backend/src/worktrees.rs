@@ -1,10 +1,11 @@
 //! Each run on a git repository works in its own worktree under `<Janus home>/work/runs`, so runs
 //! on one repository do not write over each other. The worktree starts from the person's `HEAD`,
-//! detached, and accepting the run brings its result back where it came from: one commit
-//! fast-forwarded onto the branch the person was on (or their detached `HEAD`). Janus never leaves
+//! detached, and accepting the run brings its result back where it came from: one commit, after
+//! any the run made itself when the person asked for them, fast-forwarded onto the branch the
+//! person was on (or their detached `HEAD`). Janus never leaves
 //! a half-done merge in the person's checkout and never overwrites their uncommitted changes: when
 //! that would happen, accepting fails and the result stays in the run's commit. Nothing is pushed
-//! and the repository's hooks never run.
+//! by Janus and the repository's hooks never run on Janus's writes.
 // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
 // @project-doc docs/operations/20261031-security.md#workspace_access
 
@@ -658,6 +659,35 @@ mod tests {
         assert!(read(&r, &["status", "--porcelain"]).unwrap().trim().is_empty(), "nothing half-merged");
         assert!(w2.exists(), "kept with its result: a failed acceptance changes nothing");
         assert_eq!(read(&w2, &["show", "HEAD:a.txt"]).unwrap(), "run b\n", "the result is committed there");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Commits the run made itself (the user asked for them) come back with what it left
+    /// uncommitted, replayed in order onto a branch that moved on; Janus adds one commit for the
+    /// rest.
+    #[test]
+    fn the_runs_own_commits_come_back_with_the_rest() {
+        let dir = repo("own-commits");
+        let (r, w) = (dir.join("repo"), dir.join("home/work/runs/c"));
+        let base = head(&r);
+        let branch = current_branch(&r).unwrap();
+        create(&r, &w, &base, "c").unwrap();
+        std::fs::write(w.join("one.txt"), "committed by the agent\n").unwrap();
+        git(&w, &["add", "one.txt"]);
+        git(&w, &["commit", "-q", "-m", "agent: one"]);
+        std::fs::write(w.join("two.txt"), "left uncommitted\n").unwrap();
+        std::fs::write(r.join("mine.txt"), "the person's commit\n").unwrap();
+        git(&r, &["add", "mine.txt"]);
+        git(&r, &["commit", "-q", "-m", "mine"]);
+        let mine = head(&r);
+
+        let result = accept(&r, &w, Some(&branch), &base, "Janus 任务 c", false).unwrap();
+        assert!(result.brought);
+        assert_eq!(head(&r), result.result);
+        let log = read(&r, &["log", "--format=%s", &format!("{mine}..HEAD")]).unwrap();
+        assert_eq!(log.lines().collect::<Vec<_>>(), ["Janus 任务 c", "agent: one"], "both, in order, on top");
+        assert_eq!(file(&r, "one.txt").as_deref(), Some("committed by the agent\n"));
+        assert_eq!(file(&r, "two.txt").as_deref(), Some("left uncommitted\n"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
