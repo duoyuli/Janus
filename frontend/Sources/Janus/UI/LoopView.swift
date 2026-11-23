@@ -100,7 +100,8 @@ struct LoopEditor: View {
     @Local private var shape = "daily"
     @Local private var minutes = 30
     @Local private var hours = 1
-    @Local private var time = Calendar.current.date(from: DateComponents(hour: 9, minute: 0)) ?? Date()
+    @Local private var hour = 9
+    @Local private var minute = 0
     @Local private var weekday = 1
     @Local private var monthDay = 1
     @Local private var cronText = ""
@@ -240,7 +241,19 @@ struct LoopEditor: View {
     /// The controls of the chosen shape: how many minutes or hours, which day, what time, or the
     /// expression itself.
     @ViewBuilder private var shapeControls: some View {
-        let timePicker = DatePicker(L.text("时间"), selection: $time, displayedComponents: .hourAndMinute).labelsHidden().fixedSize()
+        // The time as two menus like the rest of the row: AppKit's typed time field took a pause
+        // between two digits as the end of the hour, so a slowly typed 18 became 08 (issue #3).
+        let timePicker = HStack(spacing: 4) {
+            Picker(L.text("时"), selection: $hour) {
+                ForEach(0..<24, id: \.self) { h in Text(String(format: "%02d", h)).tag(h) }
+            }
+            .labelsHidden().fixedSize()
+            Text(":")
+            Picker(L.text("分"), selection: $minute) {
+                ForEach(LoopSchedule.minuteMarks(keeping: minute), id: \.self) { m in Text(String(format: "%02d", m)).tag(m) }
+            }
+            .labelsHidden().fixedSize()
+        }
         switch shape {
         case "minutes":
             Picker(L.text("分钟"), selection: $minutes) {
@@ -277,8 +290,7 @@ struct LoopEditor: View {
 
     /// The schedule the form says in one shape.
     private func schedule(_ shape: String) -> LoopSchedule {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: time)
-        let (h, m) = (c.hour ?? 9, c.minute ?? 0)
+        let (h, m) = (hour, minute)
         switch shape {
         case "minutes": return .minutes(minutes)
         case "hours": return .hours(hours)
@@ -296,7 +308,7 @@ struct LoopEditor: View {
         guard let cron = original["schedule"]["cron"].string else { scheduled = false; return }
         let parsed = LoopSchedule(cron: cron)
         cronText = parsed.cron
-        let at = { (h: Int, m: Int) in time = Calendar.current.date(from: DateComponents(hour: h, minute: m)) ?? time }
+        let at = { (h: Int, m: Int) in (hour, minute) = (h, m) }
         switch parsed {
         case .minutes(let m): (shape, minutes) = ("minutes", m)
         case .hours(let h): (shape, hours) = ("hours", h)

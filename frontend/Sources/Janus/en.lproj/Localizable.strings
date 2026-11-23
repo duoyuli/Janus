@@ -1465,9 +1465,10 @@
 "每月" = "Monthly";
 "写 cron 表达式" = "Write a cron expression";
 "接下来：%@" = "Next: %@";
-"时间" = "Time";
 "分钟" = "Minutes";
 "小时" = "Hours";
+"时" = "Hour";
+"分" = "Minute";
 "星期" = "Weekday";
 "日" = "Day";
 "%lld 日" = "Day %lld";

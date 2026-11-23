@@ -111,6 +111,11 @@ enum LoopSchedule: Equatable {
     static let minuteChoices = [5, 10, 15, 20, 30]
     static let hourChoices = [1, 2, 3, 4, 6, 8, 12]
 
+    /// The minutes the time menu offers: every five, and the one a Loop already has.
+    static func minuteMarks(keeping minute: Int) -> [Int] {
+        Set(stride(from: 0, to: 60, by: 5)).union([minute]).sorted()
+    }
+
     /// The shape a cron expression has, `.cron` when it is none of the common ones.
     init(cron: String) {
         let f = cron.split(separator: " ").map(String.init)

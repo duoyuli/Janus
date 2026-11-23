@@ -644,5 +644,8 @@ private func goalRun() -> Log {
     #expect(LoopSchedule.weekdays(hour: 9, minute: 0).words == expectedCopy("工作日 09:00", "Weekdays at 09:00"))
     #expect(LoopSchedule.weekly(day: 1, hour: 9, minute: 0).words == expectedCopy("每周一 09:00", "Every Monday at 09:00"))
     #expect(LoopSchedule.minutes(30).words == expectedCopy("每 30 分钟", "Every 30 minutes"))
+    // The time menu offers every five minutes and keeps a minute a Loop already has.
+    #expect(LoopSchedule.minuteMarks(keeping: 0) == Array(stride(from: 0, to: 60, by: 5)))
+    #expect(LoopSchedule.minuteMarks(keeping: 7) == [0, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55])
     #expect(LoopSchedule.cron("0 9-18 * * 1-5").words == expectedCopy("cron：0 9-18 * * 1-5", "cron: 0 9-18 * * 1-5"))
 }
