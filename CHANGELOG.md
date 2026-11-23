@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.7
+
+- 自动更新：「设置 › 通用 › 更新」新增「自动更新」开关，默认打开。打开时，Janus 一发现新版本就在后台下载并校验（和手动更新一样只下载有变化的部分、核对 SHA-256、要求和当前版本同一个签名者），然后等没有任务、对话和值班在进行时（每 30 秒看一次，连续两次都空闲）自动重开换上新版本。等待期间侧栏显示「Janus X 已下载，空闲时更新」，更新一节可以点「现在更新」立即换上。关掉开关后和以前一样，只提醒有新版本，由你点更新。
+
+- Automatic updates: Settings › General › Updates has a new Automatic Updates switch, on by default. With it on, Janus downloads and verifies a new version in the background as soon as it finds one (as a manual update does: only the parts that changed, checked against their SHA-256 and required to come from the same signer as the running version), then reopens on the new version once no run, conversation or Loop is working (checked every 30 seconds, idle twice in a row). While it waits, the sidebar says the version is downloaded and will be installed when idle, and Update Now in the updates section installs it at once. With the switch off, Janus only tells you about new versions and you choose when to update, as before.
+
 ## 2026.11.23.6
 
 - 结束 Agent 会话和资源库 MCP 服务器时，改为直接向它们的进程组发信号，不再调用 `kill` 命令。在 Linux 上（Debian 的 `kill`），原来的命令会把信号发给所有能发到的进程；macOS 不受影响，这次是在把测试挪到 Linux 时发现的。
