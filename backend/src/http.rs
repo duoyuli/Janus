@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 mod library;
 mod loops;
+mod memory;
 mod runs;
 mod setup;
 mod streams;
@@ -159,6 +160,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/workspaces/{id}/loops", post(loops::create))
         .route("/api/loops/{id}", get(loops::get).put(loops::update).delete(loops::remove))
         .route("/api/loops/{id}/{action}", post(loops::act))
+        .route("/api/workspaces/{id}/memories", get(memory::list))
+        .route("/api/workspaces/{id}/memories/consolidate", post(memory::consolidate))
+        .route("/api/memories/{id}", put(memory::update).delete(memory::remove))
         .route("/api/runs/preflight", get(runs::preflight))
         .route("/api/runs/workspaces", get(runs::workspaces))
         .route("/api/runs/{id}", get(runs::get).delete(runs::remove))

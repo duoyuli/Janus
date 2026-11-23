@@ -77,6 +77,8 @@ struct HomeView: View {
 
                 LoopSection(store: store, ws: ws)
 
+                MemorySection(store: store, ws: ws)
+
                 WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
             }
             .padding(24)

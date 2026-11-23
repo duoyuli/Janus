@@ -103,6 +103,8 @@ final class RunModel {
     var isChat: Bool { runJSON["kind"].str == "chat" }
     /// A Loop's session (`runs.kind` `loop`), shown as the Loop's page.
     var isLoop: Bool { runJSON["kind"].str == "loop" }
+    /// A consolidation of a workspace's team memory (`runs.kind` `dream`), shown as its own page.
+    var isDream: Bool { runJSON["kind"].str == "dream" }
     /// A Loop's page: the runs it dispatched that the page has read, newest first, and where the
     /// next page of them starts (nil when all are read).
     var loopDispatched: [JSON] = []

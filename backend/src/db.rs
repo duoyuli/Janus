@@ -8,6 +8,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::sync::Mutex;
 
+mod memories;
+pub use memories::{Memory, MemoryKind, MemoryWrite};
+
 #[derive(Serialize, Clone, Debug)]
 pub struct Event {
     pub run_id: String,

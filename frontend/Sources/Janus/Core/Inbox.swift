@@ -58,6 +58,15 @@ enum Inbox {
         func entry(_ what: String, _ title: String, _ sub: String, wait: Bool, settle: Bool) -> InboxEntry {
             InboxEntry(key: "\(id)/\(what)", run: id, goal: row["goal"].str, workspace: workspace, title: title, text: "", sub: sub, ts: at, canWait: wait, canSettle: settle, kind: what)
         }
+        // A consolidation of the team memory asks only to be looked at, and is settled once seen.
+        // @project-doc docs/domains/20261123-team_memory.md#memory_review
+        if row["kind"].str == "dream" {
+            switch RunStatus(row["status"].str) {
+            case .delivered: return [entry("dream", L.text("团队记忆整理好了"), L.text("看看改了什么，再标记为已处理"), wait: true, settle: true)]
+            case .interrupted, .failed: return [entry("dream_failed", L.text("团队记忆没整理完"), L.text("已经改的保留；可以在工作区页重新整理"), wait: true, settle: true)]
+            default: return []
+            }
+        }
         switch RunStatus(row["status"].str) {
         case .delivered: return [entry("delivered", L.text("已交付，等你验收"), L.text("核对证据和风险后验收"), wait: true, settle: false)]
         case .interrupted: return [entry("interrupted", L.text("已中断，可以从中断处继续"), L.text("继续，或者标记为已处理"), wait: true, settle: true)]
@@ -126,8 +135,11 @@ final class InboxModel {
         // @project-doc docs/architecture/20261031-frontend.md#inbox
         // A Loop asks of the person whether or not its session is open: its questions outlive the
         // session, and a wake that failed (or changed files) is told between wakes.
-        let chats = store.chatAttention.filter { RunStatus($0["status"].str).isActive } + store.loopAttention
-        let read = { (row: JSON) in RunStatus(row["status"].str).isActive || RunStatus(row["status"].str) == .delivered || row["kind"].str == "loop" }
+        // A consolidation's approvals and forms wait while it works; once it ends, its row says it all.
+        let chats = store.chatAttention.filter { RunStatus($0["status"].str).isActive } + store.loopAttention + store.dreamAttention
+        let read = { (row: JSON) in
+            RunStatus(row["status"].str).isActive || (RunStatus(row["status"].str) == .delivered && row["kind"].str != "dream") || row["kind"].str == "loop"
+        }
         let live = store.attention.filter(read) + chats
         for row in store.attention + chats {
             let ws = row["kind"].str == "chat" ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? row["config"]["workspace"]["name"].str
@@ -222,6 +234,8 @@ struct WaitingRow: Identifiable, Equatable {
         case "delivered": return L.text("等你验收")
         case "interrupted": return L.text("已中断")
         case "failed": return L.text("失败了")
+        case "dream": return L.text("整理好了")
+        case "dream_failed": return L.text("没整理完")
         default: return L.catalogText(TimelineMark.openKinds[e.kind]?.1 ?? "待处理")
         }
     }
@@ -234,6 +248,8 @@ struct WaitingRow: Identifiable, Equatable {
         case "delivered": return "checkmark.seal.fill"
         case "interrupted": return "pause.circle.fill"
         case "failed": return "xmark.octagon.fill"
+        case "dream": return "brain.head.profile"
+        case "dream_failed": return "exclamationmark.triangle.fill"
         default: return TimelineMark.openKinds[e.kind]?.0 ?? "exclamationmark.circle.fill"
         }
     }

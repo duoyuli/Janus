@@ -45,7 +45,8 @@ def loops(ctx, c):
 
     janus = t.fake.board(run, "lead")
     names = sorted(janus.tools())
-    c(names == ["ask_user", "dispatch", "dispatches", "next_wake", "note_dispatch", "save_state", "set_name"], f"值班的会话只有值班的工具（{names}）")
+    c(names == ["ask_user", "dispatch", "dispatches", "next_wake", "note_dispatch", "recall", "remember", "save_state", "set_name"],
+      f"值班的会话只有值班的工具和团队记忆的读写（{names}）")
     text, err = janus.call("set_name", {"name": "issue 分拣"})
     v = view()
     c(not err and v["name"] == v["title"] == "issue 分拣", f"值班用 set_name 给自己起名（{v['name']}）")

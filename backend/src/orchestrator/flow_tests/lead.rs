@@ -59,7 +59,8 @@ async fn goal_mode_orchestrates_through_the_board() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 10);
+    // The board's ten, and the team memory's two (`forget` is a consolidation's).
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 12);
     let member = h
         .app
         .mcp(&run, &member_token, "T1", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
@@ -68,7 +69,7 @@ async fn goal_mode_orchestrates_through_the_board() {
         .unwrap();
     let names: Vec<&str> =
         member["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["board_post", "claim", "peers", "request_split"]);
+    assert_eq!(names, ["board_post", "claim", "peers", "request_split", "recall", "remember"]);
     // Claims are a collaborator's: the lead assigns files through `owns` instead.
     let (text, err) = tool(&h.app, &run, "lead", "claim", json!({ "paths": ["x"] })).await;
     assert!(err && text.contains("没有这个工具"), "{text}");

@@ -27,7 +27,7 @@ impl App {
             return false;
         }
         match run.kind {
-            RunKind::Chat | RunKind::Loop => true,
+            RunKind::Chat | RunKind::Loop | RunKind::Dream => true,
             RunKind::Goal => st.lead.goal.ended() && !run.driving.active(),
         }
     }

@@ -452,6 +452,8 @@ impl App {
             kind.single_session() || matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
         let resumable = match kind {
             RunKind::Chat | RunKind::Loop => previous.is_some_and(|s| s != RunStatus::Cancelled),
+            // A consolidation is one turn; a new one starts from the workspace's page.
+            RunKind::Dream => bail!("整理团队记忆只有一轮，结束后不能继续；可以在工作区页重新整理"),
             RunKind::Goal => matches!(
                 previous,
                 Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)

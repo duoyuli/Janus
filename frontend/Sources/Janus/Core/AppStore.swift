@@ -47,6 +47,12 @@ final class AppStore {
     var loops: [JSON] = []
     /// Loop sessions that may ask the person something (`GET /api/runs?kind=loop&attention=1`).
     var loopAttention: [JSON] = []
+    /// Consolidations of a workspace's team memory that are running or that the person has not
+    /// looked at yet (`GET /api/runs?kind=dream&attention=1`).
+    var dreamAttention: [JSON] = []
+    /// Each workspace's team memory whose page has shown (`loadMemories`): its notes and its
+    /// consolidation, read again when the global stream says it changed.
+    var memories: [String: JSON] = [:]
     /// Every workspace goal runs were made in, as their snapshots name it (`GET /api/runs/workspaces`).
     var runWorkspaces: [JSON] = []
     /// Workspaces deleted since, whose runs stay: listed after the others, so their runs are found.
@@ -73,6 +79,8 @@ final class AppStore {
     var editingBrief: JSON?
     /// Loop made or edited in the sheet (empty id for a new one).
     var editingLoop: JSON?
+    /// Team memory note read or changed in the sheet.
+    var editingMemory: JSON?
     /// What of the person's home agents do not see, as the settings page last read it.
     var hostEnv: JSON?
     /// The last command tried as the person and as an agent (`tryOnHost`).
@@ -134,6 +142,7 @@ final class AppStore {
         if let r = try? await api.get("/api/runs?attention=1&limit=500"), r["runs"].array != attention { attention = r["runs"].array }
         if let r = try? await api.get("/api/runs?kind=chat&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs?kind=loop&attention=1&limit=500"), r["runs"].array != loopAttention { loopAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=dream&attention=1&limit=500"), r["runs"].array != dreamAttention { dreamAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
         // An open run waiting in the queue moves up when a run ahead of it starts or goes, which
         // writes nothing to its own log: read its place again.
@@ -248,6 +257,8 @@ final class AppStore {
                             // A run a Loop dispatched changed: that Loop's counts and list did too.
                             if let loop = c["loop"].string, !loop.isEmpty { await self.loadLoop(loop) }
                         case .named("loop", let c): await self.loadLoop(c["loop"].str)
+                        // A workspace's team memory changed: read it again if its page has shown.
+                        case .named("memory", let c): if self.memories[c["workspace"].str] != nil { await self.loadMemories(c["workspace"].str) }
                         case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(n["type"].str, run: n["run"].str, store: self))
                         default: break
                         }

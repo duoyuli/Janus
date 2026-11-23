@@ -45,6 +45,9 @@ struct MainView: View {
         .sheet(isPresented: Binding(get: { store.editingLoop != nil }, set: { if !$0 { store.editingLoop = nil } })) {
             if let l = store.editingLoop { LoopEditor(store: store, original: l) }
         }
+        .sheet(isPresented: Binding(get: { store.editingMemory != nil }, set: { if !$0 { store.editingMemory = nil } })) {
+            if let m = store.editingMemory { MemoryEditor(store: store, original: m) }
+        }
     }
 
     @ViewBuilder private var detail: some View {

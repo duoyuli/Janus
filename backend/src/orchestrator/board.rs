@@ -54,6 +54,9 @@ impl App {
         // A Loop's session reaches the same server, with the Loop's tools instead of the board's.
         // @project-doc docs/interfaces/20261031-board_mcp.md#loop_tools
         let looping = run.kind == RunKind::Loop;
+        // A consolidation reaches it too, with only the memory tools (and `forget`).
+        // @project-doc docs/interfaces/20261031-board_mcp.md#memory_tools
+        let access = if run.kind == RunKind::Dream { MemoryAccess::Consolidate } else { MemoryAccess::Write };
         let tool_call = req["method"].as_str() == Some("tools/call");
         let tool_name = req["params"]["name"].as_str().unwrap_or("工具").to_string();
         let tool_input = req["params"]["arguments"].clone();
@@ -72,7 +75,9 @@ impl App {
             "initialize" => initialize(
                 &req,
                 "janus",
-                if looping {
+                if access == MemoryAccess::Consolidate {
+                    "Janus 工作区的团队记忆。用 recall 读笔记，remember 合并或改正，forget 删掉重复、被推翻或过时的笔记。"
+                } else if looping {
                     super::loops::LOOP_INSTRUCTIONS
                 } else if lead {
                     "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。"
@@ -81,12 +86,22 @@ impl App {
                 },
             ),
             "ping" => json!({}),
-            "tools/list" if looping => json!({ "tools": loops::loop_tools() }),
-            "tools/list" => json!({ "tools": if lead { lead_tools() } else { member_tools() } }),
+            "tools/list" => {
+                let mut tools = match (access, looping, lead) {
+                    (MemoryAccess::Consolidate, ..) => vec![],
+                    (_, true, _) => loops::loop_tools(),
+                    (_, false, true) => lead_tools().as_array().cloned().unwrap_or_default(),
+                    (_, false, false) => member_tools().as_array().cloned().unwrap_or_default(),
+                };
+                tools.extend(memory::memory_tools(access));
+                json!({ "tools": tools })
+            }
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
                 let args = &req["params"]["arguments"];
                 let out = match (lead, name) {
+                    _ if let Some(out) = self.memory_tool(&run, who, access, name, args) => out,
+                    _ if access == MemoryAccess::Consolidate => Err(format!("没有这个工具：{name}")),
                     _ if looping => self.loop_tool(&run, name, args).await,
                     (true, "team") => Ok(self.board_team(&run)),
                     (true, "orchestrate") => self.board_orchestrate(&run, args),

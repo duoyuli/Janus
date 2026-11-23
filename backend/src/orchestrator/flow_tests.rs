@@ -15,6 +15,7 @@ mod evidence;
 mod lead;
 mod library_router;
 mod loops;
+mod memory;
 mod messages;
 mod owners;
 mod queue;

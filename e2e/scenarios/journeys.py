@@ -26,7 +26,7 @@ def goal_codex(ctx, c):
     brief = json.dumps(system[:1], ensure_ascii=False)
     c("janus.orchestrate" in brief, "负责人说明在系统层注入，先于 /goal")
     c("[Image 1]" in brief and "/attachments/" in brief, "随目标粘贴的图片以路径写进负责人说明")
-    c(len(lead.tools()) == 10, "负责人有 10 个看板工具")
+    c(len(lead.tools()) == 12, "负责人有 10 个看板工具和团队记忆的 2 个工具")
 
     # Validation first: every problem at once, and nothing starts.
     text, err = lead.call("orchestrate", {"tasks": [
@@ -41,7 +41,7 @@ def goal_codex(ctx, c):
 
     # Each session's board URL is bound to its owner.
     t1 = t.fake.board(run.id, "T1")
-    c(t1.tools() == ["board_post", "claim", "peers", "request_split"], "协作者只有自己的 4 个工具")
+    c(t1.tools() == ["board_post", "claim", "peers", "request_split", "recall", "remember"], "协作者只有自己的 4 个工具和团队记忆的读写")
     text, err = t1.call("board_post", {"kind": "progress", "text": "笔记写了一半"})
     c(not err, "协作者写回进展")
     c(Mcp(t1.url.rsplit("/", 1)[0] + "/lead").post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0] == 403,

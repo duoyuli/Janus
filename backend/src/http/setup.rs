@@ -123,6 +123,8 @@ pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath((kind, id)): Url
             // its workspace gone (`create_loop`).
             app.delete_loops_of(&id).await?;
             app.delete_workspace(&id)?;
+            // Its team memory goes too; its consolidations stay among its runs.
+            app.db.delete_workspace_memories(&id)?;
             app.delete_loops_of(&id).await
         }
     }?;

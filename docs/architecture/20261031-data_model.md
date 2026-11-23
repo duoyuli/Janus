@@ -58,12 +58,13 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 | 表 | 主键 | 内容 |
 | --- | --- | --- |
-| `runs` | `id` | 类型（`kind`：`goal` 目标、`chat` [对话](../domains/20261120-chats.md) 或 `loop` [值班](../domains/20261121-loops.md) 的会话）；为谁做（`origin`：`user` 或 `loop`，`loop_id` 是派出它的值班，值班的会话也记它的值班）、值班派发的 `dispatch_key` 和 `source_url`（`runs_dispatch_key`：同一工作区的 key 唯一）、目标（对话是第一条消息）、工作目录（Git 仓库上的 Run 是它自己的 worktree `work/runs/<run>`，对话是 `work/chats/<run>`）、状态、创建时间；`config` 是 Run 开始时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
+| `runs` | `id` | 类型（`kind`：`goal` 目标、`chat` [对话](../domains/20261120-chats.md)、`loop` [值班](../domains/20261121-loops.md) 的会话或 `dream` [团队记忆的整理](../domains/20261123-team_memory.md#dream)）；为谁做（`origin`：`user` 或 `loop`，`loop_id` 是派出它的值班，值班的会话也记它的值班）、值班派发的 `dispatch_key` 和 `source_url`（`runs_dispatch_key`：同一工作区的 key 唯一）、目标（对话是第一条消息）、工作目录（Git 仓库上的 Run 是它自己的 worktree `work/runs/<run>`，对话是 `work/chats/<run>`）、状态、创建时间；`config` 是 Run 开始时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
 | `configs` | `(kind, id)` | 设置对象：`connection`、`role`、`workspace`、`loop`（[工作区值班](../domains/20261121-loops.md#loop_model)，按 `LoopDef` 读写），资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
+| `memories` | `id` | 工作区的[团队记忆](../domains/20261123-team_memory.md#memory_model)：`workspace`、`kind`（`fact`、`decision`、`pitfall`、`howto`）、`title`、`hook`、`body`，最后写它的 `run_id`、`who`（成员 id，用户是 `user`）和 `author`，`created_at`、`updated_at`；删除工作区时一并删除 |
 | `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入（`state` 为 `running`），生效后改为 `done`，失败时删除；服务启动时把还是 `running` 的改为 `interrupted`（`CommandState`）。用于按 `commandId` 只执行一次 |
 
 约束：
@@ -107,6 +108,11 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 15 | 已经写入过默认角色的数据加上默认的「老友」（当时的 id 是 `inner-grill`，版本 17 改为 `friend`），没有绑定 Agent；用户已有同 id 的角色时保留用户的，文本和默认完全一样时只补上 `seed`。数据版本 2 的迁移只认当时就有的默认角色（`SEED_HISTORY` 中的），不再把用户自己用了之后默认角色 id 的角色当作默认角色，见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 16 | 数字员工可以有自己的头像：角色加 `avatar`（图片的哈希），已有的取空字符串（显示文字），见[头像](../domains/20261031-agents_and_roles.md#avatars) |
 | 17 | 默认数字员工的 id 改为它的职能：`coordinator`→`pmo`、`researcher`→`marketing`、`implementer`→`developer`、`reviewer`→`qa`、`inner-grill`→`friend`（`RENAMED`）。默认数字员工（`seed.id` 是旧 id 的）的记录、工作区的负责人和成员、历史任务和对话的成员（`role_id`）、头像目录一起改；用户自己用旧 id 建的角色、新 id 已被占用的不改。更早的迁移按当时的 id 写入，所以从任何旧版本升级都先得到旧 id，再由这一版改名 |
+| 18 | 去掉任务的时间和费用上限：等你追加预算的 Run（`waiting_input`）改为已中断并记一条 `run.interrupted`，快照去掉 `costLimitUsd`，见 [ADR：工作不设时间和费用上限](../decisions/20261121-no_work_limits.md) |
+| 19 | `runs` 表加 `origin`（已有的取 `user`）、`loop_id`、`dispatch_key`、`source_url`，同一工作区的 `dispatch_key` 唯一（`runs_dispatch_key`），见[工作区值班](../domains/20261121-loops.md) |
+| 20 | 值班的 `rhythm` 改为 `schedule`（cron 加服务所在机器的时区）：固定间隔换成对应的 cron，自己决定的换成每 30 分钟，只手动的为 `null`，见[时间表](../domains/20261121-loops.md#schedule) |
+| 21 | 本机环境改为默认镜像用户目录、只挡列出的路径：删除原来逐项共享的 `host_link` 记录，见 [ADR：Agent 的用户目录镜像用户自己的](../decisions/20261122-mirror_host_home.md) |
+| 22 | 新增 `memories` 表（工作区的团队记忆：类型、标题、摘要、正文，最后写它的 Run、成员和名字，创建和修改时间）和索引 `memories_workspace`，见[团队记忆](../domains/20261123-team_memory.md) |
 
 <a id="snapshots"></a>
 ## Run 快照

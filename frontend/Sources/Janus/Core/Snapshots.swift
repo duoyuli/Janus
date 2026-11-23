@@ -108,6 +108,10 @@ enum Snapshots {
         case "brief": store.editingBrief = store.workspace(arg)
         // The form for a new Loop in workspace `arg`.
         case "loop-new": store.editingLoop = AppStore.blankLoop(arg)
+        // A note of a workspace's team memory, in its sheet: `memory <id>` (its page must have shown).
+        case "memory": store.editingMemory = store.memories.values.flatMap { $0["memories"].array }.first { $0["id"].str == arg }
+        // Consolidate a workspace's team memory now, as the button on its page does.
+        case "consolidate": await store.consolidate(arg)
         // The library's MCP editor: `mcp-edit new|<name>|catalog:<pick> [json]`.
         case "mcp-edit":
             let p = arg.split(separator: " ").map(String.init)
@@ -132,7 +136,7 @@ enum Snapshots {
                 if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
             }
         case "close-sheet":
-            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMcp = nil; store.showingSettings = false
+            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
@@ -178,6 +182,15 @@ enum Snapshots {
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
                     JSON(img.representations.first.map { $0.pixelsWide } ?? 0)
                 }),
+                // Each workspace's team memory as its page shows it: the notes (kind, title, the
+                // line under them) and the consolidation, by workspace.
+                "memories": .object(store.memories.mapValues { m in
+                    ["notes": JSON.array(m["memories"].array.map {
+                        ["id": $0["id"], "kind": JSON(MemoryText.kind($0["kind"].str)), "title": $0["title"], "hook": $0["hook"], "source": JSON(MemoryText.source($0))]
+                     }),
+                     "running": m["consolidation"]["running"], "last": m["consolidation"]["last"]["run"]]
+                }),
+                "editingMemory": store.editingMemory?["id"] ?? .null,
                 // The task records each workspace page read, by workspace.
                 "histories": .object(store.histories.mapValues { ids($0.runs) }),
                 // Each workspace's count in the sidebar (its goals' and its Loops' open items).
@@ -209,7 +222,9 @@ enum Snapshots {
                 let s = r.state
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "page": JSON(String(describing: r.page)),
-                    "chat": JSON(r.isChat),
+                    "chat": JSON(r.isChat), "dream": JSON(r.isDream),
+                    // A consolidation's outcome as its page shows it.
+                    "consolidated": s.events.last { $0.type == "memory.consolidated" }.map { $0.data } ?? .null,
                     // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.
                     "loop": r.isLoop ? {
                         let l = store.loop(ofRun: r.id) ?? .null

@@ -285,7 +285,8 @@ impl App {
         // starts; the notes are taken only once the session is open.
         // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
         let (notes, note_ids) = self.peek_notes(run, "lead");
-        let brief = format!("{}{notes}", self.goal_brief(run, resumed));
+        let brief =
+            format!("{}{}{notes}", self.goal_brief(run, resumed), self.memory_section(run, MemoryAccess::Write));
         let skills = skills_note(self.skill_router_md(run, &lead));
         let system = system_layer(&[&brief, &skills, &standing]);
         let spec = member_spec(self.spec_for(&lead.runtime)?, &lead, &system);
@@ -462,8 +463,11 @@ impl App {
         // or a Loop opened in a new session, what was said so far.
         // @project-doc docs/domains/20261121-loops.md#loop_session
         let guide = match run.kind {
-            RunKind::Goal => conversation_brief(run, &events),
-            RunKind::Loop => self.loop_brief(run),
+            RunKind::Goal => {
+                format!("{}{}", conversation_brief(run, &events), self.memory_section(run, MemoryAccess::Write))
+            }
+            RunKind::Loop => format!("{}{}", self.loop_brief(run), self.memory_section(run, MemoryAccess::Write)),
+            RunKind::Dream => self.dream_brief(run),
             RunKind::Chat => String::new(),
         };
         let history = if chat { chat_brief(&events) } else { String::new() };
@@ -593,6 +597,11 @@ impl App {
                     .await?;
                 if run.kind == RunKind::Loop {
                     self.loop_turn_ended(run);
+                }
+                // A consolidation is one turn: on record, delivered, and its session closes.
+                if run.kind == RunKind::Dream {
+                    self.dream_turn_ended(run, &text);
+                    return Ok(());
                 }
                 if let Some(reason) = goal_refused(&text) {
                     self.emit(
@@ -726,6 +735,7 @@ impl App {
             RunKind::Goal => "lead-chat.log",
             RunKind::Chat => "chat.log",
             RunKind::Loop => "loop.log",
+            RunKind::Dream => "dream.log",
         });
         let who = if run.kind.single_session() { lead.name.as_str() } else { "负责人" };
         self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
@@ -825,6 +835,7 @@ impl App {
         let via = channel.as_str();
         let label = match part {
             SystemPart::Collaboration if run.kind == RunKind::Loop => "向值班注入值班的工作方式",
+            SystemPart::Collaboration if run.kind == RunKind::Dream => "向负责人注入整理团队记忆的做法",
             SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
             SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
             SystemPart::History => "向 Agent 注入之前的对话",

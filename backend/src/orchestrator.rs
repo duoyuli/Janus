@@ -42,6 +42,8 @@ mod loops;
 mod mcp_client;
 mod mcp_router;
 mod mcp_server;
+mod memory;
+use memory::MemoryAccess;
 mod messages;
 mod parking;
 mod prompts;
@@ -1085,6 +1087,11 @@ pub struct App {
     /// A Loop changed (its settings, its clock, what it dispatched): what the global stream tells
     /// the app, so its Loop lists follow without polling.
     pub loop_changes: broadcast::Sender<String>,
+    /// A workspace's team memory changed (a note, its consolidation): the workspace's id, for the
+    /// global stream, so the workspace page follows without polling.
+    pub memory_changes: broadcast::Sender<String>,
+    /// Held while a workspace's consolidation is checked for and started (`memory.rs`).
+    dream_starts: StdMutex<()>,
 }
 
 /// A run's new status, as the global stream carries it (`GET /api/stream`).
@@ -1194,6 +1201,7 @@ impl App {
         let (tx, _) = broadcast::channel(4096);
         let (changes, _) = broadcast::channel(1024);
         let (loop_changes, _) = broadcast::channel(256);
+        let (memory_changes, _) = broadcast::channel(256);
         // Working leads hold their seats while their collaborators need some: never all of them.
         let seats = crate::seats::Seats::new(cfg.max_agent_sessions.max(cfg.max_running_runs + 1));
         Arc::new_cyclic(|me| App {
@@ -1215,6 +1223,8 @@ impl App {
             me: me.clone(),
             loops: Default::default(),
             loop_changes,
+            memory_changes,
+            dream_starts: StdMutex::new(()),
         })
     }
 
@@ -1287,6 +1297,7 @@ impl App {
         self.db.set_run_status(run_id, status)?;
         let _ = self.changes.send(RunChange { run: run_id.into(), status });
         self.dispatch_ended(run_id, status);
+        self.run_delivered(run_id, status);
         self.pump();
         Ok(())
     }
@@ -1321,6 +1332,8 @@ impl App {
             let _ = self.changes.send(RunChange { run: run.id.clone(), status });
             // A run a Loop dispatched that ended wakes the Loop.
             self.dispatch_ended(&run.id, status);
+            // Enough delivered runs consolidate their workspace's team memory.
+            self.run_delivered(&run.id, status);
             // A run that stops working frees its slot for the next queued one.
             self.pump();
         }

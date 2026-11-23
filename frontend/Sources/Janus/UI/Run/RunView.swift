@@ -23,6 +23,9 @@ struct RunView: View {
             } else if run.isLoop {
                 // A Loop's session: the Loop's page.
                 LoopView(run: run)
+            } else if run.isDream {
+                // A consolidation of the team memory: one turn of the lead over the notes.
+                DreamView(run: run)
             } else if run.state.run.status == .queued {
                 // Nothing of it has started: what it will do, where it waits, and the two choices.
                 QueuedView(run: run)
@@ -33,10 +36,10 @@ struct RunView: View {
                 }
             }
         }
-        .navigationTitle(run.isChat ? run.chatTitle : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
-        .navigationSubtitle(run.isChat || run.isLoop ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前运行的 Janus 服务里"))
+        .navigationTitle(run.isChat ? run.chatTitle : run.isDream ? L.text("整理团队记忆") : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
+        .navigationSubtitle(run.isChat || run.isLoop || run.isDream ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前运行的 Janus 服务里"))
         .toolbar {
-            if run.isLoop {
+            if run.isLoop || run.isDream {
                 ToolbarItem { DocumentsMenu(run: run) }
             } else if run.isChat {
                 ToolbarItem { DocumentsMenu(run: run) }

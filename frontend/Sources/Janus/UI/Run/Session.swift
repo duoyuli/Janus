@@ -154,6 +154,10 @@ struct ChatCard: View {
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
         let ph = L.text("发消息给 Agent · ⌘V 贴截图 · \(sendKey.symbol) 发送")
         let composer = SessionComposer(info, live: live, replaying: run.isReplaying)
+        // A consolidation is one turn: once it ends there is nothing to send it.
+        if run.isDream && !(info.open && live) && composer != .replay {
+            return (L.text("整理结束"), .gray, AnyView(EmptyView()), L.text("整理只有一轮；要再整理，在工作区页点「现在整理」"), false)
+        }
         switch composer {
         case .replay:
             return (L.text("回放中"), .gray, AnyView(EmptyView()), L.text("回放中只能看，回到实时再发消息"), false)
@@ -504,6 +508,8 @@ struct ChatItem: View {
         case "run.created" where d["kind"].str == "chat":
             divider(L.text("对话 · \(d["role"]["name"].str) · \(L.dateTime(e.ts))"))
             Text(verbatim: L.text("工作目录 \(L.tilde(d["cwd"].str)) · 对话专用，删对话时一起删")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        case "run.created" where d["kind"].str == "dream":
+            divider(L.text("整理团队记忆 · \(L.dateTime(e.ts))"))
         case "run.created":
             divider(L.text("目标 · \(L.goalTitle(d["goal"].str))"))
             if let git = SessionView.runGitNote(d) {
@@ -529,12 +535,13 @@ struct ChatItem: View {
             let via = d["via"].str == "developer" ? L.text("开发者指令") : L.text("系统提示")
             // The system layer holds up to two sets of instructions, named by where they come from.
             let label = d["channel"].str == "instructions" ? L.text("数字员工的指令 · \(via)")
-                : d["channel"].str == "system" ? (run.isLoop ? L.text("值班的工作方式 · \(via)") : L.text("团队协作指令 · \(via)"))
+                : d["channel"].str == "system" ? (run.isLoop ? L.text("值班的工作方式 · \(via)") : run.isDream ? L.text("怎么整理团队记忆 · \(via)") : L.text("团队协作指令 · \(via)"))
                 : d["channel"].str == "history" ? L.text("之前的对话 · \(via)")
                 : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("验证没通过 · 打回修复"), "board": L.text("看板推送 · 插入正在进行的这一轮"), "goal_check": L.text("目标确认 · 负责人停了，但目标还没完成")][d["channel"].str] ?? L.text("Janus 提示")
             let hint = [
                 "instructions": L.text("数字员工的指令 + Agent 的自定义提示词。一对一对话只带这一份。"),
                 "system": run.isLoop ? L.text("值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料和它记下的状态。")
+                    : run.isDream ? L.text("只动笔记：合并重复的、改正过时的、删掉没用的；附带全部笔记的索引。")
                     : L.text("团队任务专属：分工、看板、派工和验证规则。"),
                 "history": L.text("重开对话时带上最近的聊天，接着聊。"),
             ][d["channel"].str]

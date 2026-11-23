@@ -174,6 +174,26 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "本机环境改为默认镜像用户目录、只挡列出的路径：去掉原来逐项共享的记录",
         steps: &[Step::Custom(drop_host_links)],
     },
+    Migration {
+        version: 22,
+        name: "工作区的团队记忆：Agent 在 Run 里记下、之后的 Run 读到的笔记，记着是谁在哪个 Run 里写的",
+        steps: &[Step::Sql(
+            "CREATE TABLE IF NOT EXISTS memories (
+               id TEXT PRIMARY KEY,
+               workspace TEXT NOT NULL,
+               kind TEXT NOT NULL,
+               title TEXT NOT NULL,
+               hook TEXT NOT NULL,
+               body TEXT NOT NULL,
+               run_id TEXT,
+               who TEXT NOT NULL,
+               author TEXT NOT NULL,
+               created_at INTEGER NOT NULL,
+               updated_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS memories_workspace ON memories (workspace, updated_at);",
+        )],
+    },
 ];
 
 /// Data version 21: agents' HOME mirrors the person's home folder but a hidden list (`host_env`),

@@ -302,6 +302,7 @@ fn group(kind: RunKind) -> &'static str {
         RunKind::Goal => "runs",
         RunKind::Chat => "chats",
         RunKind::Loop => "loops",
+        RunKind::Dream => "dreams",
     }
 }
 

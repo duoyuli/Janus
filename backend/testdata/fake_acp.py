@@ -37,6 +37,9 @@ as `session_info_update`, which must not name the Loop); "[write <file>]" in the
 and "[hold]" keeps the turn going until FAKE_DIR/loop-go exists (then removes it). Each wake's prompt is logged
 ("loop prompt <json>"); with a `loop-exit` file in FAKE_DIR the agent removes it and exits in the middle of the wake.
 The person's own messages to a Loop are answered "回复：<prompt>".
+A consolidation of a workspace's team memory (its system layer says "consolidating this workspace's team memory")
+logs "dream prompt <json>" and keeps its one turn going until FAKE_DIR/dream-go exists, then ends it with that file's
+text (and removes it), so a test can call the memory tools meanwhile.
 A session's task and criteria are kept in FAKE_DIR (`session-<id>.json`), so a session loaded after a restart
 continues its task. Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
@@ -225,6 +228,15 @@ def prompt(msg):
                     return {"stopReason": "cancelled"}
             os.remove(go)
         say(sid, "看过了：" + text.splitlines()[0])
+        return {"stopReason": "end_turn"}
+    if "consolidating this workspace's team memory" in SYSTEM.get(sid, ""):
+        log("dream prompt " + json.dumps(text, ensure_ascii=False))
+        go = os.path.join(DIR, "dream-go")
+        while not os.path.exists(go):
+            if wait_cancel(0.2):
+                return {"stopReason": "cancelled"}
+        say(sid, open(go).read())
+        os.remove(go)
         return {"stopReason": "end_turn"}
     if sid in CHATS:
         if "[slow]" in text and wait_cancel(600):

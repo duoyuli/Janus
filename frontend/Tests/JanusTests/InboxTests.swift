@@ -127,3 +127,26 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(rows.map(\.symbol) == ["questionmark.bubble.fill", "checkmark.seal.fill", "tray.full.fill"])
     #expect(Inbox.waiting([e("i", "g1", "interrupted")], goals: [["id": "g1"]], loops: []).first?.symbol == "pause.circle.fill")
 }
+
+/// A consolidation of the team memory asks only to be looked at: once it ends, settled once seen;
+/// one that did not finish says so; while it works its row asks nothing.
+@Test func aConsolidationAsksToBeLookedAt() {
+    let done = Inbox.entries(row: ["id": "d1", "kind": "dream", "status": "delivered", "goal": "整理团队记忆"], workspace: "W")
+    #expect(done.count == 1 && done[0].kind == "dream" && done[0].canWait && done[0].canSettle)
+    #expect(done[0].title == expectedCopy("团队记忆整理好了", "Team memory consolidated"))
+    let broke = Inbox.entries(row: ["id": "d2", "kind": "dream", "status": "failed"], workspace: "W")
+    #expect(broke.count == 1 && broke[0].kind == "dream_failed" && broke[0].canSettle)
+    #expect(Inbox.entries(row: ["id": "d3", "kind": "dream", "status": "running"], workspace: "W").isEmpty)
+}
+
+/// Where a note came from, as the workspace page and its sheet say it.
+@Test func aNoteSaysWhoWroteItWhere() {
+    let byLead: JSON = ["who": "lead", "author": "PMO", "runGoal": "修复导出", "runStatus": "delivered", "updatedAt": 0]
+    #expect(MemoryText.source(byLead).hasPrefix("PMO · "))
+    #expect(MemoryText.source(byLead).contains("修复导出"))
+    let cancelled: JSON = ["who": "lead", "author": "PMO", "runGoal": "试试", "runStatus": "cancelled", "updatedAt": 0]
+    #expect(MemoryText.source(cancelled).contains(expectedCopy("来自已取消的任务", "from a cancelled run")))
+    let mine: JSON = ["who": "user", "author": "你", "updatedAt": 0]
+    #expect(MemoryText.source(mine).hasPrefix(expectedCopy("你 · ", "You · ")))
+    #expect(MemoryText.briefLine(["title": "测试命令", "body": "先装依赖\n\n再跑 just test"]) == "测试命令：先装依赖 再跑 just test")
+}

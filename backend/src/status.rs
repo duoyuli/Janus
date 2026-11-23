@@ -45,6 +45,8 @@ wire_enum! {
         Goal = "goal",
         Chat = "chat",
         Loop = "loop",
+        /// The workspace lead consolidating the workspace's team memory (`orchestrator/memory.rs`).
+        Dream = "dream",
     }
 }
 

@@ -282,7 +282,7 @@ impl App {
         // The collaborator rules, then the person's standing rules, in the system layer. Codex and
         // Claude Code both take HTTP MCP servers, so their sessions always have the board.
         // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
-        let rules = collaborator_rules(true);
+        let rules = format!("{}{}", collaborator_rules(true), self.memory_section(run, MemoryAccess::Write));
         let skills = skills_note(self.skill_router_md(run, &member));
         let system_text = system_layer(&[&rules, &skills, &standing]);
         let spec = member_spec(self.spec_for(&member.runtime)?, &member, &system_text);
