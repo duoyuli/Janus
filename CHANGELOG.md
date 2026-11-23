@@ -8,9 +8,13 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 - 修复目标里明确要求「提交并发布」时，负责人仍回复「规则禁止我直接 commit、push 或 deploy」，跑完验证就停下、改动留着没提交。原因是 Janus 写给负责人和协作者的固定约定里有一句无条件的「不要 commit、push、部署」。现在改为：你在目标或回答里要求时，Agent 照做，并且只做到你要求的程度（只说提交就不推送），不再反复问你；没有要求时和以前一样，改动保持未提交，验收时由 Janus 提交。任务在 worktree 里自己做的提交，验收时会和剩下的改动一起合并回你的分支；负责人也知道怎样从 worktree 推送到你指定的分支。Janus 自己仍然从不推送。
 - 团队记忆移到工作区首页上部，放在目标输入框之前，不再夹在值班和任务记录之间。
+- 修复任务页右边「改动」显示 0：负责人自己动手改的文件不在任何子任务的 diff 里，没派子任务时这里一直是空的。现在负责人每一轮结束后，Janus 保存一份「整个任务」相对开始时的改动（就是验收时会合并回去的内容），放在「改动」的最上面和交付物的第一个，可以打开审阅，意见交给负责人。
+- 验收时分支有了新提交、和任务的改动冲突，不再让你在自己的目录里 git merge（那样会留下没完成的合并）。现在你的目录和分支都不动，Janus 把冲突交给负责人：它在任务自己的副本里把提交变基到最新的分支上、解决冲突、跑检查，再告诉你哪些文件冲突、怎么合的，然后再次交付，你再点验收就能直接合并。你目录里有未提交的改动挡着、分支被删除这类情况仍由你处理。
 
 - Fixed a lead that, with a goal asking it to commit and release, replied that rules forbade it to commit, push or deploy, stopped after verifying, and left the changes uncommitted. Janus's fixed instructions to the lead and collaborators said "do not commit, push, or deploy" with no exception. Agents now do these when you ask for them in the goal or an answer, and only as far as you asked (a request to commit is not one to push), without asking you again; when you don't, changes stay uncommitted as before and Janus commits them when you accept. Commits a run makes in its worktree come back to your branch with the rest when you accept, and the lead is told how to push from the worktree to the branch you mean. Janus itself still never pushes.
 - Team memory now appears near the top of the workspace home, before the goal composer, instead of between Loops and task history.
+- Fixed Changes on the run page showing 0: files the lead edited itself are in no subtask's diff, so a run without subtasks always showed none. After each of the lead's turns Janus now keeps the whole run's changes since it started (what accepting brings back), at the top of Changes and first among the deliverables, to review with comments that go to the lead.
+- When accepting meets new commits on the branch that conflict with the run, you are no longer told to git merge in your own checkout (which left a merge half done). Your checkout and branch stay as they are, and Janus hands the conflict to the lead: it replays the run's commits onto the latest branch in the run's own copy, resolves the conflict, runs checks and tells you which files conflicted and how it merged them, then delivers again so the next accept merges straight away. Uncommitted changes of yours in the way, a deleted branch and the like are still yours to sort out.
 
 ## 2026.11.23.2
 
