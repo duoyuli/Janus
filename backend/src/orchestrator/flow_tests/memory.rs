@@ -177,6 +177,8 @@ async fn a_consolidation_merges_and_prunes_notes_in_one_turn() {
     assert!(!err, "{said}");
 
     // Its layer lists every note; its prompt says it should consolidate.
+    // The session records its layer once it is open, which a slow machine may not have done yet.
+    wait_until(&h.app, &dream, "the consolidation's layer", |_| !layer(&h, &dream, None).is_empty()).await;
     let layer = layer(&h, &dream, None);
     assert!(layer.contains("You are consolidating") && layer.contains("m-a") && layer.contains("m-c"), "{layer}");
     let sent = events(&h.app, &dream).into_iter().find(|e| e.kind == "user.message").unwrap();
