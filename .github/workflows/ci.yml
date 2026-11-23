@@ -12,9 +12,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Linux: the orchestrator's code and tests do not depend on macOS, and Linux runners start at once
+  # and have more cores, while macOS runners can queue for minutes. The macOS app needs macOS.
   backend:
     name: Orchestrator (cargo fmt + clippy + test)
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -40,9 +42,11 @@ jobs:
       - uses: actions/checkout@v7
       - name: Swift version
         run: swift --version
+      # One build for both: `swift test` builds with testing enabled, which a plain `swift build`
+      # does not share, so building first would compile everything twice.
       - name: Build
         working-directory: frontend
-        run: swift build
+        run: swift build --build-tests
       - name: Test
         working-directory: frontend
-        run: swift test
+        run: swift test --skip-build

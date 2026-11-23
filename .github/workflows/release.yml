@@ -16,6 +16,8 @@ on:
 
 permissions:
   contents: write
+  # Reading CI's runs for the tagged commit.
+  actions: read
 
 jobs:
   dmg:
@@ -25,23 +27,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # No Rust cache: caches saved on a tag are visible to that tag only, so the next release could
+      # never use one, and main's (debug) cache does not help a release build.
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
 
       - name: Version
         id: v
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ inputs.version }}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
-
-      - name: Test orchestrator
-        working-directory: backend
-        run: cargo test --locked
-      - name: Test macOS app
-        working-directory: frontend
-        run: swift test
 
       # The self-signed certificate (frontend/scripts/make-signing-cert.sh) gives every release the
       # same identity; without the secrets the app is signed ad hoc.
@@ -93,6 +87,28 @@ jobs:
             dist/Janus-*.tar.gz
             dist/update.json
             dist/SHA256SUMS.txt
+
+      # The tests are CI's, for the same commit (pushed to main with the tag), running while this
+      # packages: publish only once they passed there.
+      - name: Wait for CI on this commit
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 120); do
+            r="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --commit "$GITHUB_SHA" --event push --limit 1 \
+                  --json status,conclusion,url --jq '.[0] // empty | "\(.status) \(.conclusion) \(.url)"')"
+            set -- $r
+            if [ "${1:-}" = completed ]; then
+              [ "$2" = success ] && { echo "CI passed: $3"; exit 0; }
+              echo "CI for ${GITHUB_SHA} ended with $2: $3. Fix it (or rerun it) and run this workflow again."; exit 1
+            fi
+            if [ -z "$r" ] && [ "$i" -ge 30 ]; then
+              echo "No CI run for ${GITHUB_SHA}: push the commit to main before tagging it."; exit 1
+            fi
+            sleep 20
+          done
+          echo "CI for ${GITHUB_SHA} did not finish within 40 minutes."; exit 1
 
       - name: Publish release
         if: github.ref_type == 'tag'

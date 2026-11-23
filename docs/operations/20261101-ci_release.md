@@ -17,28 +17,33 @@
 
 | 任务 | 运行环境 | 内容 |
 | --- | --- | --- |
-| Orchestrator | `macos-15` | `cargo fmt --check`（按 `backend/rustfmt.toml`，格式不一致就失败）、`cargo clippy --all-targets --locked -- -D warnings`（没有诊断才通过），然后 `cargo test --locked`（Rust 编排器的全部测试，含 `flow_tests`） |
-| macOS app | `macos-15` | `swift build`、`swift test`（应用的构建和 Swift Testing 测试） |
+| Orchestrator | `ubuntu-latest` | `cargo fmt --check`（按 `backend/rustfmt.toml`，格式不一致就失败）、`cargo clippy --all-targets --locked -- -D warnings`（没有诊断才通过），然后 `cargo test --locked`（Rust 编排器的全部测试，含 `flow_tests`） |
+| macOS app | `macos-15` | `swift build --build-tests`、`swift test --skip-build`（应用的构建和 Swift Testing 测试，只编译一次） |
 
-前两步本地用 `just lint` 执行，`just fmt` 按配置格式化。两项都在 macOS 上运行：编排器的测试需要 `git` 和 `python3`，应用的测试需要 Xcode，运行环境都自带。
+前两步本地用 `just lint` 执行，`just fmt` 按配置格式化。
+
+- **编排器在 Linux 上测**：它的代码和测试不依赖 macOS（测试要 `git` 和 `python3`，运行环境自带），Linux 运行器几乎不用排队、CPU 也更多；macOS arm64 运行器紧张时一个任务要排 5 到 10 分钟，甚至排不到。产品只在 macOS 上运行，打包和发布仍在 macOS 上做，本地的 `just test` 也在 macOS 上。测试以普通用户运行（权限类测试要求文件权限生效），进程组用系统调用结束（`acp::signal_group`：Debian 的 `kill` 命令会把 `kill -TERM -<进程组>` 当成发给所有进程）。
+- **应用只编译一次**：`swift test` 要用打开测试支持的设置编译，和普通的 `swift build` 不共用产物，先 `swift build` 再 `swift test` 会把整个应用编译两遍。
+- **不缓存 SwiftPM 的 `.build`**：应用没有外部依赖，每次检出的源文件都比缓存新，缓存省不了编译，反而多花上传下载的时间。Rust 用 `Swatinem/rust-cache` 只缓存依赖。
 
 <a id="release"></a>
 ## 发布
 
 `.github/workflows/release.yml` 在推送 `v*` 标签时运行：
 
-1. 安装 Rust。运行环境 `macos-15` 是 Apple 芯片，构建出的都是 arm64。
-2. 运行编排器和应用的测试，任一失败就不发布。
+1. 安装 Rust。运行环境 `macos-15` 是 Apple 芯片，构建出的都是 arm64。不用 Rust 缓存：标签上存的缓存只有这个标签自己能读，下一次发布用不上，main 上的缓存是 debug 的，对 release 构建没用。
+2. 不在这里跑测试：测试是 CI 的，标签指向的提交推到 main 时 CI 已经在跑，和这里的打包同时进行；发布前一步等这个提交在 main 上的 CI 结束，没通过（失败、被取消）或找不到这个提交的 CI 时不发布。
 3. 有 `MACOS_SIGNING_P12` secret 时，把证书导入临时钥匙串，设置 `JANUS_SIGN_IDENTITY` 和 `JANUS_SIGN_KEYCHAIN`，见[签名](#signing)；没有时用 ad-hoc 签名。
-4. 执行 `frontend/scripts/package.sh --version <标签去掉 v>`，得到 `dist/Janus.app`、`dist/Janus-<版本>.dmg` 和[更新部分](#update_parts)。
+4. 执行 `frontend/scripts/package.sh --version <标签去掉 v>`（服务和应用互不依赖，同时编译），得到 `dist/Janus.app`、`dist/Janus-<版本>.dmg` 和[更新部分](#update_parts)。
 5. 检查应用、服务和内置 Node.js 都是 arm64，校验签名；把两个更新部分重新拼装成应用再校验一次签名（更新器就是这样拼装的）；计算 SHA-256 写入 `SHA256SUMS.txt`（只写文件名，下载后在同一目录执行 `shasum -a 256 -c SHA256SUMS.txt` 即可核对）。
-6. 上传为工作流产物，并创建同名的 GitHub Release（已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节（中英双语）加上中英文的首次打开步骤和系统权限提示组成；找不到这一节时工作流失败。首次打开的 Gatekeeper 放行与资源访问授权分别说明，升级后可在「设置 › 通用 › macOS 权限」处理后者。
+6. 上传为工作流产物；等这个提交的 CI 通过（见第 2 步）后创建同名的 GitHub Release（已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节（中英双语）加上中英文的首次打开步骤和系统权限提示组成；找不到这一节时工作流失败。首次打开的 Gatekeeper 放行与资源访问授权分别说明，升级后可在「设置 › 通用 › macOS 权限」处理后者。
 
 发布一个版本（版本号按日期，见[版本号](#versioning)）：
 
 ```sh
 # 先在 CHANGELOG.md 最上面写下这一版的「## 2026.11.01」一节
 just e2e --packaged --real   # 打包版和真实 Agent 的端到端验证，见 docs/operations/20261031-testing.md#e2e
+git push origin main          # 先推提交：CI 在 main 上测它，Release 发布前等这次 CI 通过
 git tag v2026.11.01
 git push origin v2026.11.01
 ```

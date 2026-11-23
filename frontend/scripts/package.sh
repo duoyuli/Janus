@@ -39,12 +39,26 @@ work="$out/work"
 rm -rf "$work" "$out/Janus.app"
 mkdir -p "$work"
 
-echo "==> Janus server (Rust)"
-(cd "$root/backend" && JANUS_VERSION="$version" cargo build --release --locked)
+# The server and the app do not depend on each other: build them side by side, each into its own
+# log, shown when it fails (and its last line when it does not).
+echo "==> Janus server (Rust) and Janus app (SwiftUI)"
+(cd "$root/backend" && JANUS_VERSION="$version" cargo build --release --locked) >"$work/server.log" 2>&1 &
+server=$!
+(cd "$root/frontend" && swift build -c release) >"$work/app.log" 2>&1 &
+app=$!
+failed=0
+for part in server app; do
+  if [ "$part" = server ]; then pid=$server; else pid=$app; fi
+  if wait "$pid"; then
+    tail -n 1 "$work/$part.log"
+  else
+    echo "==> Janus $part failed to build:" >&2
+    cat "$work/$part.log" >&2
+    failed=1
+  fi
+done
+[ "$failed" = 0 ] || exit 1
 cp "$root/backend/target/release/janus" "$work/janus-server"
-
-echo "==> Janus app (SwiftUI)"
-(cd "$root/frontend" && swift build -c release)
 bin_dir="$(cd "$root/frontend" && swift build -c release --show-bin-path)"
 
 echo "==> Node.js $NODE_VERSION"

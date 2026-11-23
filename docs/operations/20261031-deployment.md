@@ -141,7 +141,7 @@
 | `just dmg` | 构建 `dist/Janus.app` 和 `dist/Janus-<版本>.dmg` |
 | `just test-mac` | 运行应用的测试，需要 Xcode 或命令行工具 |
 
-`frontend/scripts/package.sh` 只在 Apple 芯片的 Mac 上运行，依次：构建 release 服务、构建应用、下载 Node.js（`NODE_VERSION`，默认 24.22.0，按 nodejs.org 的 SHASUMS256.txt 校验，缓存在 `dist/cache/`）、生成图标、组装 `Janus.app`、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。发布由 CI 完成，见 [CI 与发布](20261101-ci_release.md)。
+`frontend/scripts/package.sh` 只在 Apple 芯片的 Mac 上运行，依次：同时构建 release 服务和应用（各自的输出写进 `dist/work/server.log`、`app.log`，失败时打印出来）、下载 Node.js（`NODE_VERSION`，默认 24.22.0，按 nodejs.org 的 SHASUMS256.txt 校验，缓存在 `dist/cache/`）、生成图标、组装 `Janus.app`、ad-hoc 签名、用 `hdiutil` 打成带「应用程序」快捷方式的 DMG。发布由 CI 完成，见 [CI 与发布](20261101-ci_release.md)。
 
 `Janus.app` 的内容：
 
