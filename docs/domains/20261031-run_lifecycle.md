@@ -26,7 +26,7 @@
 开始（`start_run`）时按工作区当时的设置准备：
 
 1. 重新读取工作区和团队，检查目录和每个成员的运行环境；工作区已被删除或 Agent 不能用时，Run 记为 `failed`（`run.failed`，「任务没能开始」）。
-2. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线和当前检出的分支（验收时合并回这里），并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
+2. 判断工作目录是不是 Git 仓库；是则记录当前 `HEAD` 作为基线和当前检出的分支（交付时合并回这里），并为这个 Run 创建 worktree（`worktrees::create`），见[工作目录](#workspace_model)。
 3. 复制 Skill，写入完整的 Run 快照（团队、是否 Git、基线、工作区、worktree），见[数据模型与存储](../architecture/20261031-data_model.md#snapshots)和[图片附件](#attachments)。
 4. 启动驱动任务，记 `run.created`，进入负责人的目标会话（`goal`）。
 
@@ -74,16 +74,21 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 - **Git 仓库（有提交）**：每个 Run 在自己的 worktree 中运行（`crate::worktrees`），位置是 `<Janus home>/work/runs/<run>`，从创建时的 `HEAD` 开始、处于 detached HEAD、用 `git worktree lock` 锁住。Run 的负责人和所有子任务共用这个 worktree，改动彼此立即可见；同一个仓库上的其他 Run 和用户自己的目录都不受影响。`runs.cwd` 是 worktree 的路径（规范化后的真实路径，和 Agent 自己的工具报告的路径一致），`runs.config.worktree.repo` 是原仓库，`runs.config.worktree.branch` 是创建时检出的分支（处于 detached HEAD 时为 `null`）。
 - **worktree 里有什么**：仓库跟踪的文件，加上原仓库根目录 `.worktreeinclude`（`.gitignore` 语法，用户自己维护）列出、并且被忽略的文件，创建时复制过去（跳过符号链接，不覆盖已有文件；文件名不限于 ASCII），复制了哪些记在 `run.created` 的 `data.worktree.included`。用户目录里没提交的改动不带过去，创建前提醒（[创建前的提醒](../interfaces/20261031-http_api.md#run_preflight)）。依赖、构建产物等不复制，负责人说明和任务提示告诉 Agent 按项目自己的方式在 worktree 里准备环境、改了依赖就重新安装。
-- **验收**：Janus 在 worktree 里提交剩下的全部改动（用户要求时 Agent 自己做的提交排在它前面，一起带回，见 [ADR：用户要求时 Agent 提交、推送和部署](../decisions/20261123-commit_push_on_request.md)），再把结果带回创建时检出的分支（`worktrees::accept`）：分支没动过时直接快进；有了新提交时先在 worktree 里把任务自己的提交（任务开始或上次验收之后的）变基到最新的分支上再快进，历史是线性的，不建 `janus/` 分支。分支必须仍在任务开始时（或上次验收带到）的提交上，或者从那里往前走了；被回退、强推或重新建过时验收失败，不会把用户删掉的历史带回来。分支检出在用户的目录（或用户的其他 worktree）时在那里 `git merge --ff-only`，文件随之更新，和任务无关的未提交改动保留；没有检出时只移动分支。变基冲突时，Janus 中止变基，用户的目录和分支不动，把冲突交给负责人（`hand_conflict_to_lead`，见 [ADR：验收冲突交给负责人解决](../decisions/20261123-lead_resolves_accept_conflicts.md)）：给它发一条消息，写明冲突的文件和确切的命令 `git rebase --onto <分支现在的提交> <任务提交的起点>`，要它在 worktree 里解决冲突、跑相关检查、向用户说明怎么合的；这一轮结束后 Run 再次交付，用户再验收时直接快进。源分支被删除、用户目录里未提交的改动会被覆盖、任务新建的文件在用户目录里已经有一个没纳入版本管理的同名文件（包括被忽略的，例如 `.env`；git 快进时会悄悄覆盖被忽略的文件，所以 Janus 先查）时，验收失败（400），Run 保持 `delivered`，用户的目录和分支不变，结果留在 worktree 的提交里，错误信息给出提交号或重叠的文件。创建时处于 detached HEAD 的 Run，只在工作目录仍在原来的提交（或上次验收带到的提交）上时快进它，否则同样失败。Janus 的所有 Git 写操作都带 `-c core.hooksPath=/dev/null`，不运行仓库的钩子。worktree 始终 detached。负责人的对话还开着时 worktree 保留，继续对话就接着在里面改，再验收时再带回一个提交；没有会话在用时（例如服务重启后验收）验收后移除，移除失败只记日志（结果已经带回）。服务启动时（`recover`）移除已验收 Run 留下的 worktree，并修复 git 读不了的 worktree（Janus home 移动时没修好的，`worktrees::heal`）；之后继续这个 Run 时，`resume_run` 从最后一次验收的结果所在的提交（`risk.accepted` 的 `data.result`；分支早已包含结果、这次没带回提交时也是它；没有就从基线）重建 worktree（`worktrees::ensure`）。worktree 目录被外部删掉时，重建先清掉仓库里那一条（加了锁的）残留记录再建，只动这一条，不 `prune` 整个仓库，用户自己的其他 worktree 记录不受影响。
+- **交付时合并回分支**：Run 每次交付（`deliver`，以及交付之后对话里的一轮又改了文件或做了提交时的再次交付），Janus 都把结果带回创建时检出的分支（`App::merge_at_delivery` → `worktrees::accept`），用户的目录里随即能看到，和不用 worktree 时一样；验收只表示用户认可、结束这次交付，不再是代码回到分支的时机。见 [ADR：交付时把结果合并回分支](../decisions/20261123-merge_back_on_delivery.md)。合并的做法：Janus 在 worktree 里提交剩下的全部改动（提交说明是目标的第一行；Agent 按用户要求自己做的提交排在它前面，一起带回，见 [ADR：用户要求时 Agent 提交、推送和部署](../decisions/20261123-commit_push_on_request.md)），分支没动过时直接快进；有了新提交时先在 worktree 里把分支还没有的提交（任务开始或上次合并之后的）变基到最新的分支上再快进，历史是线性的，不建 `janus/` 分支。worktree 在这期间已经并入的分支提交（负责人解决冲突时变基过，或推送前变基到了最新的分支）不再重放。分支必须仍在任务开始时（或上次合并带到）的提交上，或者从那里往前走了；被回退、强推或重新建过时不合并，不会把用户删掉的历史带回来；worktree 里的历史也必须仍包含这个提交。分支检出在用户的目录（或用户的其他 worktree）时在那里 `git merge --ff-only`，文件随之更新，和任务无关的未提交改动保留；没有检出时只移动分支。带回了提交时记一条 `run.merged`（`actor` 为 `janus`），之后的合并从它的 `data.result` 开始；交付摘要写明合并到了哪个提交、没有新的改动，或没能合并的原因。
+- **合并冲突交给负责人**：变基冲突时，Janus 中止变基，用户的目录和分支不动，照常交付，并把冲突交给负责人（`hand_merge_to_lead`，见 [ADR：验收冲突交给负责人解决](../decisions/20261123-lead_resolves_accept_conflicts.md)）：给它发一条消息（`merge_handback`），写明冲突的文件和确切的命令 `git rebase <分支现在的提交>`，要它在 worktree 里解决冲突、跑相关检查、向用户说明怎么合的；这一轮结束后 Run 再次交付，交付时合并。worktree 里有没做完的变基、合并、拣选或还原，或者还有冲突的文件（负责人解决冲突时被服务重启打断，或做到一半停下）时，Janus 什么都不提交，同样交给负责人先做完或中止（`worktrees::Unfinished`）。同一个问题只自动交给负责人一次（`lead.merge_handed_back`，直到有一次交付合并成功）：它这一轮没解决时，再次交付只说明仍然冲突，由用户决定继续和负责人处理，或者点验收让负责人再解决一次。
+- **用户那边挡住时**：源分支被删除、用户目录里未提交的改动会被覆盖、任务新建的文件在用户目录里已经有一个没纳入版本管理的同名文件（包括被忽略的，例如 `.env`；git 快进时会悄悄覆盖被忽略的文件，所以 Janus 先查）时不合并，用户的目录和分支不变，结果留在 worktree 的提交里，交付摘要给出原因、提交号或重叠的文件。用户处理后点验收，Janus 再合并一次；仍然挡住时验收失败（400），Run 保持 `delivered`。创建时处于 detached HEAD 的 Run，只在工作目录仍在原来的提交（或上次合并带到的提交）上时快进它，否则同样不合并。Janus 的所有 Git 写操作都带 `-c core.hooksPath=/dev/null`，不运行仓库的钩子。worktree 始终 detached。
+- **验收**：用户核对交付后验收（`risk.accepted`）。交付时已经合并的，验收不再提交，说明写明结果已在哪个提交；交付时没能合并的，验收时按上面的做法再合并（冲突同样交给负责人）。负责人的对话还开着时 worktree 保留，继续对话就接着在里面改，这一轮结束时再次交付并合并；没有会话在用时（例如服务重启后验收）验收后移除，移除失败只记日志（结果已经带回）。服务启动时（`recover`）移除已验收 Run 留下的 worktree，并修复 git 读不了的 worktree（Janus home 移动时没修好的，`worktrees::heal`）；已验收 Run 的 worktree 里有上次合并之后的改动或提交（验收后的一轮被重启打断）时不移除，Run 再次交付并合并（`redeliver_after_restart`；冲突时等用户验收再交给负责人）。之后继续这个 Run 时，`resume_run` 从最后一次合并的结果所在的提交（`run.merged` 或 `risk.accepted` 的 `data.result`；分支早已包含结果、这次没带回提交时也是它；没有就从基线）重建 worktree（`worktrees::ensure`）。worktree 目录被外部删掉时，重建先清掉仓库里那一条（加了锁的）残留记录再建，只动这一条，不 `prune` 整个仓库，用户自己的其他 worktree 记录不受影响。
+- **提交和推送**：用户要求提交时，负责人可以在 worktree 里自己提交，也可以留给交付时由 Janus 提交；Agent 的沙箱不让它写 worktree 的 Git 数据时（例如 Codex 的 `workspace-write`，它把 linked worktree 的 gitdir 设为只读）只能是后者。用户要求推送或发布时，负责人先在 worktree 里 `git rebase <分支>` 把工作放到最新的分支上（冲突在这里解决，再跑检查），再推 `HEAD`；交付时用户的分支快进到同一个提交，本地和远端一致。负责人不在用户的仓库目录里运行 git，也不在 worktree 里切换分支。
+- **整个 Run 的 diff**（`run_diff`）：比较的起点是上次合并带到的提交（没有时是任务开始的提交），并跳过 worktree 并入的分支提交（`worktrees::fork_point`），所以它就是下一次交付要带回的改动；负责人每一轮结束时保存，没有新的改动时交付里不再列出它。
 - **删除 Run**：移除 worktree，还没提交的改动先存成补丁 `<Janus home>/data/deleted-runs/<run>.patch`；补丁不含被忽略的文件（例如复制进来的 `.env`），以免凭据进补丁。暂存、读出改动、写补丁或移除 worktree 任何一步失败时，worktree 和 Run 都保留，删除返回失败原因，排除后再删一次（`worktrees::remove`）。原仓库被移动或删除、git 读不了这个 worktree 时，整个目录原样移到 `data/deleted-runs/<run>/`，Run 照样能删；这样的 Run 也不能再从中断处继续（重建 worktree 时说明仓库不在了）。停止的 Run 保留 worktree，可以查看，但不能从中断处继续；失败和中断的 Run 保留 worktree，可以从中断处继续。
-- **工作区是仓库中的一个目录**（例如 `apps/client`）：worktree 仍是整个仓库的，会话从 worktree 里对应的目录开始（`runs.cwd` 是这个目录，worktree 的根是 `<Janus home>/work/runs/<run>`），所以工作区里的相对路径在任务中指向同一个文件。验收、删除和重建都按整个 worktree 进行。
-- **依次写入**：`git worktree add` 会读同一仓库所有 worktree 的元数据，另一个正在建的还没写完时会失败；两个任务同时验收进同一个分支会争它的提交。所以 Janus 里对 worktree 和原仓库的写操作（新建、重建、验收、移除、修复）都依次进行（`App.worktree_writes`）。
+- **工作区是仓库中的一个目录**（例如 `apps/client`）：worktree 仍是整个仓库的，会话从 worktree 里对应的目录开始（`runs.cwd` 是这个目录，worktree 的根是 `<Janus home>/work/runs/<run>`），所以工作区里的相对路径在任务中指向同一个文件。合并、删除和重建都按整个 worktree 进行。
+- **依次写入**：`git worktree add` 会读同一仓库所有 worktree 的元数据，另一个正在建的还没写完时会失败；两个任务同时合并进同一个分支会争它的提交。所以 Janus 里对 worktree 和原仓库的写操作（新建、重建、合并、移除、修复）都依次进行（`App.worktree_writes`）。
 - **创建失败不留东西**：`git worktree add` 之后加锁或复制 `.worktreeinclude` 的文件失败时，worktree 当场收回；worktree 建好之后，资源包或图片保存失败时，这次的 worktree 和 `data/runs/<run>/` 目录一并收回，不留下没有记录的 worktree。用户另一个检出这个分支的 worktree 目录被手动删掉（没有 prune）时，Janus 当作分支没有检出，只移动分支。
-- **验收的前提**：worktree 必须还在。它被外部删除时验收失败，Run 保持 `delivered`，提示到 `data/deleted-runs/` 找补丁；不会当作「没有改动」验收通过。创建时处于 detached HEAD 的 Run，验收时工作目录必须仍在创建时的提交（或上次验收带到的提交）上，用户切到别的提交（包括父提交）时不动它，提示自己合并。
+- **合并的前提**：worktree 必须还在。它被外部删除时不合并，验收失败，Run 保持 `delivered`，提示到 `data/deleted-runs/` 找补丁；不会当作「没有改动」验收通过。创建时处于 detached HEAD 的 Run，合并时工作目录必须仍在创建时的提交（或上次合并带到的提交）上，用户切到别的提交（包括父提交）时不动它，提示自己合并。
 - **非 Git 目录**（以及还没有提交的仓库、裸仓库）：负责人和所有任务直接在工作区目录中运行，没有 diff 产物。同一个目录上已有进行中的 Run 时只提醒，不阻止。
-- 一个任务能否修改文件，完全由它的 Agent 权限模式决定，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。负责人和协作者只在用户要求时提交、推送或部署；没有要求时改动保持未提交，用户验收时由 Janus 提交并合并回源分支。Janus 自己从不推送。Janus 只隔离文件，端口、本机数据库这类共享资源由项目自己避免冲突。
+- 一个任务能否修改文件，完全由它的 Agent 权限模式决定，见 [Agent、角色与工作区](20261031-agents_and_roles.md#permission_modes)。负责人和协作者只在用户要求时提交、推送或部署；没有要求时改动保持未提交，交付时由 Janus 提交并合并回源分支。Janus 自己从不推送。Janus 只隔离文件，端口、本机数据库这类共享资源由项目自己避免冲突。
 
-设计取舍见 [ADR：Git 仓库上的每个任务在自己的 worktree 中运行](../decisions/20261119-run_worktrees.md)、[ADR：worktree 写入用户仓库的边界](../decisions/20261119-worktree_trust_boundary.md) 和 [ADR：验收时把结果合并回任务开始时的分支](../decisions/20261120-merge_back_on_accept.md)。
+设计取舍见 [ADR：Git 仓库上的每个任务在自己的 worktree 中运行](../decisions/20261119-run_worktrees.md)、[ADR：worktree 写入用户仓库的边界](../decisions/20261119-worktree_trust_boundary.md) 、[ADR：验收时把结果合并回任务开始时的分支](../decisions/20261120-merge_back_on_accept.md) 和 [ADR：交付时把结果合并回分支](../decisions/20261123-merge_back_on_delivery.md)。
 
 <a id="scheduling"></a>
 ## 任务调度
@@ -226,10 +231,10 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 | 条件 | 结果 |
 | --- | --- |
 | 没有可执行任务，且负责人会话异常结束 | Run 失败（`run.failed`），可以从中断处继续 |
-| 没有可执行任务，且负责人目标已结束 | 交付（`run.delivered`），摘要取负责人最后一条回复 |
+| 没有可执行任务，且负责人目标已结束 | 交付（`run.delivered`），摘要取负责人最后一条回复；worktree 中的 Run 同时合并回源分支，见[工作目录](#workspace_model) |
 | 交付后的对话里，负责人通过看板提交了新任务 | 回到运行，任务完成后再次交付；应用在新任务开始时就不再提供上一次交付的验收 |
-| 已验收的 worktree Run，对话中的一轮改了文件 | 再次交付，等用户再验收，验收时把新改动带回源分支；只是问问结果、没有改文件的一轮不改变验收记录 |
-| 验收时变基冲突，Janus 把冲突交给了负责人 | 处理这条消息的一轮结束时再次交付（`LeadState.redeliver`），等用户再验收 |
+| 已交付或已验收的 worktree Run，对话中的一轮改了文件或做了提交（`worktrees::moved_on`：有未提交的改动，或 `HEAD` 不再是上次合并带到的提交或任务开始的提交） | 再次交付，交付时把新改动合并回源分支，等用户再验收；只是问问结果、没有改文件的一轮不再次交付。上一次交付没能合并（用户那边挡住、仍然冲突）时，之后每一轮结束都会再次交付、再试一次 |
+| 交付或验收时变基冲突，或 worktree 里有没做完的操作，Janus 交给了负责人 | 处理这条消息的一轮结束时再次交付（`LeadState.redeliver`），交付时合并 |
 | 用户暂停，且没有任务在执行 | 暂停 |
 | 其他 | 继续运行 |
 
@@ -281,7 +286,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 - 仍在进行的尝试标记为 `interrupted`。
 - 未结束的 Run 写入 `run.interrupted` 事件，状态改为 `interrupted`。
-- 已验收的 Run 留下的 worktree 被移除（结果已经合并回源分支）。
+- 已验收的 Run 留下的 worktree 被移除（结果已经合并回源分支）。worktree 里有上次合并之后的改动或提交时保留，Run 再次交付（`redeliver_after_restart`，带上一次交付的内容）并合并回源分支，等用户验收。
 
 用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run` 从 `runs.config` 重建团队，从事件日志重建任务；在 worktree 中的 Run，worktree 不在了就先重建。恢复、验收历史交付（`accept_archived`）和删除一个不在运行的 Run 先拿 `App.revival`，一次只做一件：两条消息同时发给已中断或已交付的 Run 时，第二条等第一条把 Run 恢复好，再发进同一个 Run，不会各自恢复出一个负责人会话；恢复期间到达的验收按运行中的 Run 处理：
 

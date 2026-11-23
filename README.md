@@ -26,7 +26,7 @@ The models are good enough. What is missing is the organization around them: som
 
 - **A lead agent that coordinates.** The lead agent drives your goal with `/goal`. If the goal is small, it does the work in its own session. Otherwise it submits subtasks, with an assignee, dependencies and acceptance criteria for each. Once it has delegated, it only coordinates: it sends work back, reassigns it, or checks the results, and never takes the work over. Collaborator agents do not message each other; everything goes through the lead agent and the shared board.
 - **You decide only what is yours.** The lead agent settles technical choices and trade-offs itself. Approvals, decisions the lead agent hands to you, and deliveries waiting for acceptance reach your inbox, from every workspace. You can step into any agent's session at any time to steer it or take over.
-- **Your machine stays yours.** Janus never writes your own agent configuration. On a Git repository, each run works in its own worktree, started from your `HEAD`, and accepting it fast-forwards one commit onto the branch you were on. Janus never leaves a half-done merge in your checkout or overwrites your uncommitted changes. Agents see a mirror of your home directory, so `gh`, SSH and your other tools keep working, while the paths you hide (by default, other agents' configuration and high-risk credentials) stay out of reach.
+- **Your machine stays yours.** Janus never writes your own agent configuration. On a Git repository, each run works in its own worktree, started from your `HEAD`, and each delivery fast-forwards the branch you were on to its result. Janus never leaves a half-done merge in your checkout or overwrites your uncommitted changes. Agents see a mirror of your home directory, so `gh`, SSH and your other tools keep working, while the paths you hide (by default, other agents' configuration and high-risk credentials) stay out of reach.
 - **Replayable by default.** Every session, orchestration step, approval, artifact and delivery is an event, so a run can be inspected and resumed instead of reconstructed from memory.
 - **Native permissions.** Each agent keeps its own permission modes. Janus adds no second switchboard. An employee with no mode set starts in Codex's Full access or Claude Code's Bypass permissions, so goals run without stopping for approvals.
 
@@ -59,7 +59,7 @@ Janus is developed by agents. Its own changes are written, reviewed and merged b
 
 ## Scope
 
-Janus is built for one machine and one person. Runs change the directory you choose (or a worktree that is merged back when you accept). Agents can read and write everything in your home directory except the paths you hide, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/20261031-security.md) before pointing it at a real project.
+Janus is built for one machine and one person. Runs change the directory you choose (or a worktree that is merged back into your branch when the run is delivered). Agents can read and write everything in your home directory except the paths you hide, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/20261031-security.md) before pointing it at a real project.
 
 ## Quick start
 
@@ -105,7 +105,7 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 The repository holds code only. Janus data, adapters, configuration, and logs live in `~/.janus`; see [Deployment](docs/operations/20261031-deployment.md).
 
-`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace. Make the copy a Git repository with one commit (`git init && git add -A && git commit -m init`): each run then works in its own worktree, keeps a diff, and when you accept it Janus commits the result and fast-forwards the branch you were on, so it lands in your directory. Without Git, the lead agent and subtasks edit the directory in place and keep no diff; if another run is already working there, Janus warns you but does not stop you. Verify it with `python3 -m unittest discover -s examples/calc`.
+`examples/calc/` is a minimal example project. Copy it outside the repository (for example `cp -R examples/calc ~/calc`) before using it as a workspace. Make the copy a Git repository with one commit (`git init && git add -A && git commit -m init`): each run then works in its own worktree, keeps a diff, and when it is delivered Janus commits the result and fast-forwards the branch you were on, so it lands in your directory. Without Git, the lead agent and subtasks edit the directory in place and keep no diff; if another run is already working there, Janus warns you but does not stop you. Verify it with `python3 -m unittest discover -s examples/calc`.
 
 ## Documentation
 

@@ -47,7 +47,7 @@ enum L {
         "result.submitted": "⇪", "task.succeeded": "✓", "artifact.created": "▤", "context.handoff": "⇄",
         "question.asked": "?", "question.escalated": "⇡", "question.answered": "✎", "answer.delivered": "↩",
         "approval.requested": "⚑", "input.requested": "✎", "input.answered": "↩", "approval.granted": "✓", "approval.denied": "✕",
-        "run.delivered": "★", "risk.accepted": "✓", "task.failed": "✕",
+        "run.delivered": "★", "risk.accepted": "✓", "run.merged": "✓", "task.failed": "✕",
         "task.blocked": "⊘", "task.skipped_by_decision": "→", "verification.started": "◌", "verification.failed": "✕",
         "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓",
         "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
@@ -57,7 +57,7 @@ enum L {
     ]
 
     private static let toneTable: [Tone: [String]] = [
-        .green: ["task.succeeded", "approval.granted", "input.answered", "run.delivered", "risk.accepted"],
+        .green: ["task.succeeded", "approval.granted", "input.answered", "run.delivered", "risk.accepted", "run.merged"],
         .amber: ["question.asked", "question.escalated", "approval.requested", "input.requested", "run.paused", "control.taken", "session.interrupted", "user.message", "task.conflict", "lead.stalled", "task.stalled", "task.split_requested"],
         .red: ["attempt.failed", "approval.denied", "run.cancelled", "task.failed", "run.failed", "run.interrupted"],
         .gray: ["agent.status", "tool.call", "tool.completed", "task.ready", "session.parked"],
@@ -70,7 +70,7 @@ enum L {
     /// matching patterns.
     static func category(_ type: String) -> String {
         func m(_ prefixes: [String]) -> Bool { prefixes.contains { type.hasPrefix($0) } }
-        if m(["question.answered", "input.answered", "approval.granted", "approval.denied", "risk.", "run.paused", "run.resumed", "run.cancelled"]) { return "decisions" }
+        if m(["question.answered", "input.answered", "approval.granted", "approval.denied", "risk.", "run.merged", "run.paused", "run.resumed", "run.cancelled"]) { return "decisions" }
         if m(["question.", "approval.requested", "input.requested", "answer.", "user.message", "message.delivered", "control.", "session."]) { return "messages" }
         if type == "agent.message" { return "progress" }
         if type.hasPrefix("artifact.") || type == "context.handoff" { return "artifacts" }

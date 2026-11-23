@@ -4,6 +4,7 @@
 - 取代：[ADR：Git 仓库上的每个任务在自己的 worktree 中运行](20261119-run_worktrees.md) 的第 6 条（验收时提交到 `janus/<run-id>` 分支）和第 7 条中「从 `janus/<run-id>` 重建 worktree」；[ADR：worktree 写入用户仓库的边界](20261119-worktree_trust_boundary.md) 中验收和重建两行，以及「不改用户当前检出的分支和工作目录里的文件」。
 - 部分取代：第 4 条的「变基冲突」和取舍中的「冲突时失败，而不是交给负责人解决」被 [ADR：验收冲突交给负责人解决](20261123-lead_resolves_accept_conflicts.md) 取代：冲突交给负责人在 worktree 里解决，再次交付。
 - 修订：第 2 条「每次验收在源分支上是一个提交」被 [ADR：用户要求时 Agent 提交、推送和部署](20261123-commit_push_on_request.md) 修订：用户要求时 Run 自己的提交也一起带回。
+- 部分取代：合并的时机被 [ADR：交付时把结果合并回分支](20261123-merge_back_on_delivery.md) 取代（superseded，2026-11-23）：结果在每次交付时带回，验收只在交付没能带回时再合并；合并的做法不变。
 - 相关文档：[Run 生命周期](../domains/20261031-run_lifecycle.md#workspace_model)、[安全边界](../operations/20261031-security.md#workspace_access)、[数据模型](../architecture/20261031-data_model.md#migrations)。
 
 ## 背景

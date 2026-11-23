@@ -28,7 +28,7 @@ With a `mute` file in FAKE_DIR it never answers `initialize`, like an agent that
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
 A prompt that is not a task's and names "[write <file>]" appends to that file in the session's directory and ends
-the turn (a lead asked for more work after delivery).
+the turn (a lead asked for more work after delivery); with "[commit]" in it too, the agent commits everything there first.
 A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
 prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
 A workspace Loop's session (its system layer names "a Loop in the workspace") logs "loop wake <n>" for each wake
@@ -267,6 +267,11 @@ def prompt(msg):
         # A follow-up asking for a file: written in the session's directory, the turn ends.
         with open(w.group(1), "a") as f:
             f.write("follow-up\n")
+        if "[commit]" in text:
+            # Asked to commit: the agent commits in its own checkout (a worktree's detached HEAD).
+            import subprocess
+            subprocess.run(["git", "add", "-A"], check=True)
+            subprocess.run(["git", "-c", "user.name=fake", "-c", "user.email=fake@fake", "commit", "-q", "-m", "follow-up"], check=True)
         say(sid, f"已写 {w.group(1)}")
         return {"stopReason": "end_turn"}
     m = re.search(r"你的子任务 (\S+)：", text)

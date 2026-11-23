@@ -215,15 +215,14 @@ fn untracked_in_the_way(dir: &Path, tip: &str, head: &str) -> Vec<String> {
 
 /// Accepting stopped because the source branch moved on with commits that conflict with the
 /// run's: nothing changed on the person's side, and the run's result is committed in its worktree.
-/// The run's lead can replay its commits onto `onto` there and resolve the conflict.
+/// The run's lead can replay its commits onto `onto` there (`git rebase <onto>`) and resolve the
+/// conflict.
 #[derive(Debug)]
 pub struct Conflict {
     /// The branch, as the person knows it (`main`).
     pub branch: String,
     /// The branch's tip now.
     pub onto: String,
-    /// Where the run's own commits start: they are the ones after it.
-    pub since: String,
     /// The commit holding the run's result.
     pub head: String,
     /// The files the replay conflicted on.
@@ -236,13 +235,75 @@ impl std::fmt::Display for Conflict {
             f,
             "没有合并：分支 {} 在任务开始后有了新的提交，和任务的改动冲突{}。任务的结果在提交 {}。",
             self.branch,
-            if self.files.is_empty() { String::new() } else { format!("（{}）", self.files.join("、")) },
+            listed(&self.files),
             short(&self.head)
         )
     }
 }
 
 impl std::error::Error for Conflict {}
+
+/// Accepting found git in the middle of something in the worktree: a rebase, merge, cherry-pick
+/// or revert left unfinished, or files still in conflict (the lead resolving a conflict was cut
+/// off, or stopped halfway). Committing now would record half of it on a half-replayed history, so
+/// nothing is committed or merged; the lead finishes or aborts it there.
+#[derive(Debug)]
+pub struct Unfinished {
+    /// What is unfinished, as the person reads it (「变基」).
+    pub what: &'static str,
+    /// The files still in conflict.
+    pub files: Vec<String>,
+}
+
+impl std::fmt::Display for Unfinished {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "没有合并：任务的副本里还有没做完的{}{}，Janus 没有提交，也没有动用户的目录和分支。",
+            self.what,
+            listed(&self.files)
+        )
+    }
+}
+
+impl std::error::Error for Unfinished {}
+
+fn listed(files: &[String]) -> String {
+    if files.is_empty() { String::new() } else { format!("（{}）", files.join("、")) }
+}
+
+/// The files with unresolved conflicts in `dir`.
+fn conflicted(dir: &Path) -> Vec<String> {
+    read(dir, &["diff", "--name-only", "-z", "--diff-filter=U"])
+        .unwrap_or_default()
+        .split('\0')
+        .filter(|f| !f.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The operation git is in the middle of in the worktree at `path`, if any.
+fn unfinished(path: &Path) -> Option<Unfinished> {
+    let there = |name: &str| {
+        read(path, &["rev-parse", "--path-format=absolute", "--git-path", name])
+            .is_some_and(|p| Path::new(p.trim()).exists())
+    };
+    let files = conflicted(path);
+    let what = if there("rebase-merge") || there("rebase-apply") {
+        "变基"
+    } else if there("MERGE_HEAD") {
+        "合并"
+    } else if there("CHERRY_PICK_HEAD") {
+        "拣选（cherry-pick）"
+    } else if there("REVERT_HEAD") {
+        "还原（revert）"
+    } else if !files.is_empty() {
+        "冲突解决"
+    } else {
+        return None;
+    };
+    Some(Unfinished { what, files })
+}
 
 /// What accepting a run came to.
 #[derive(Debug, PartialEq)]
@@ -256,14 +317,17 @@ pub struct Accepted {
 
 /// Accept a run: commit everything it changed in its worktree, and bring the result back to
 /// `branch` (where the person's checkout was when the run started; `None` for a detached `HEAD`)
-/// as one fast-forward. `since` is where the run started, or the result its last acceptance left:
-/// the source must still be there or have moved on from it. When the branch moved on, the run's
-/// own commits (those after `since`) are replayed onto it in the worktree first, so history stays
-/// linear. A conflict there, a branch rewritten behind the run (reset, force-pushed, made again),
-/// a detached `HEAD` that moved, or files in the person's checkout the result would overwrite leave
-/// the person's side as it was and fail, with the result kept in the worktree's commit. A worktree
-/// that is gone is not "nothing new": it fails, and the run stays delivered. With `remove` (no
-/// session works there) the worktree goes afterwards; that failing is logged, the result is back.
+/// as one fast-forward. `since` is where the run started, or the result it last brought back: the
+/// source must still be there or have moved on from it, and so must the worktree. When the branch
+/// moved on, the commits of the worktree the branch does not have are replayed onto it first, so
+/// history stays linear; commits of the branch the worktree took in meanwhile (a conflict the lead
+/// resolved, the branch merged or rebased onto at the person's request) are not replayed again. A
+/// conflict there ([`Conflict`]), an operation left unfinished in the worktree ([`Unfinished`]), a
+/// branch rewritten behind the run (reset, force-pushed, made again), a detached `HEAD` that moved,
+/// or files in the person's checkout the result would overwrite leave the person's side as it was
+/// and fail, with the result kept in the worktree. A worktree that is gone is not "nothing new": it
+/// fails, and the run stays delivered. With `remove` (no session works there) the worktree goes
+/// afterwards; that failing is logged, the result is back.
 pub fn accept(
     repo: &Path,
     path: &Path,
@@ -277,6 +341,9 @@ pub fn accept(
             "没有合并：这个任务的独立副本不在了，无法核对它的结果。删除任务时没提交的改动存在 Janus 目录下的 data/deleted-runs/。"
         );
     }
+    if let Some(unfinished) = unfinished(path) {
+        return Err(unfinished.into());
+    }
     write(path, &["add", "-A"])?;
     let staged = !crate::git_probe::command(path)
         .args(["diff", "--cached", "--quiet"])
@@ -287,6 +354,13 @@ pub fn accept(
         write(path, &["commit", "-q", "-m", message]).context("提交失败：请确认 git 配置了 user.name 和 user.email")?;
     }
     let mut head = rev(path, "HEAD").context("读取任务副本的提交失败")?;
+    if !is_ancestor(path, since, &head) {
+        bail!(
+            "没有合并：任务副本里的历史被改写过（回退或重写了提交），不再包含任务开始时（或上次合并时）的提交 {}。任务的结果在提交 {}。",
+            short(since),
+            short(&head)
+        );
+    }
     let source = Source::of(repo, branch, since, &head)?;
     if !is_ancestor(path, since, &source.tip) {
         bail!(
@@ -310,21 +384,17 @@ pub fn accept(
         if branch.is_none() {
             bail!("没有合并：{} 在任务开始后移动过。任务的结果在提交 {}，可以自己合并。", source.name, short(&head));
         }
-        // Only the run's own commits: a commit of the branch the person rewrote since is not
-        // replayed again.
-        if let Err(err) = write(path, &["rebase", "-q", "--onto", &source.tip, since]) {
-            let conflicted = read(path, &["diff", "--name-only", "-z", "--diff-filter=U"]).unwrap_or_default();
-            let files = conflicted.split('\0').filter(|f| !f.is_empty()).map(str::to_owned).collect();
-            let _ = write(path, &["rebase", "--abort"]);
-            crate::config::log(format!("janus: replaying {} onto {} failed: {err:#}", short(&head), source.name));
-            return Err(Conflict {
-                branch: branch.unwrap_or_default().to_string(),
-                onto: source.tip,
-                since: since.to_string(),
-                head,
-                files,
+        // Only what the branch does not have: `since` is in both (checked above), so this is the
+        // run's own work, without the branch's commits the worktree took in meanwhile.
+        if let Err(err) = write(path, &["rebase", "-q", &source.tip]) {
+            let files = conflicted(path);
+            if let Err(abort) = write(path, &["rebase", "--abort"]) {
+                crate::config::log(format!("janus: could not abort the replay in {}: {abort:#}", path.display()));
             }
-            .into());
+            crate::config::log(format!("janus: replaying {} onto {} failed: {err:#}", short(&head), source.name));
+            return Err(
+                Conflict { branch: branch.unwrap_or_default().to_string(), onto: source.tip, head, files }.into()
+            );
         }
         head = rev(path, "HEAD").context("读取任务副本的提交失败")?;
     }
@@ -464,6 +534,25 @@ pub fn changed_since(dir: &Path, base: &str) -> Option<Vec<String>> {
     files.sort();
     files.dedup();
     Some(files)
+}
+
+/// Whether the worktree at `path` has work its last merge-back does not: changes not committed,
+/// or a `HEAD` other than `result`, the commit that merge-back left (or the run's start before
+/// any), so commits the lead made after it count too. A worktree git cannot read has none.
+pub fn moved_on(path: &Path, result: &str) -> bool {
+    !uncommitted(path).is_empty() || head_of(path).is_some_and(|h| h != result)
+}
+
+/// Where the run's own changes in the worktree at `path` start: the newest commit both it and
+/// `branch` have, when that is `since` (where the run started, or its last merge-back) or after
+/// it; otherwise `since`. Commits of the branch the worktree took in (resolving a conflict,
+/// rebasing onto it) are not the run's: what accepting would bring is the diff from here.
+pub fn fork_point(path: &Path, branch: Option<&str>, since: &str) -> String {
+    branch
+        .and_then(|b| read(path, &["merge-base", "HEAD", &format!("refs/heads/{b}")]))
+        .map(|m| m.trim().to_string())
+        .filter(|m| is_ancestor(path, since, m))
+        .unwrap_or_else(|| since.to_string())
 }
 
 /// The commit a worktree is on.
@@ -689,10 +778,7 @@ mod tests {
         assert!(err.to_string().contains("冲突"), "{err}");
         // What the run's lead needs to replay its commits there itself.
         let c = err.downcast_ref::<Conflict>().expect("a conflict");
-        assert_eq!(
-            (c.branch.as_str(), c.onto.as_str(), c.since.as_str()),
-            (branch.as_str(), a.as_str(), base.as_str())
-        );
+        assert_eq!((c.branch.as_str(), c.onto.as_str()), (branch.as_str(), a.as_str()));
         assert_eq!(c.files, ["a.txt"]);
         assert_eq!(c.head, head(&w2), "the run's result, committed in its worktree");
         assert_eq!(head(&r), a, "the branch did not move");
@@ -702,13 +788,7 @@ mod tests {
         assert_eq!(read(&w2, &["show", "HEAD:a.txt"]).unwrap(), "run b\n", "the result is committed there");
         // The lead replays the run's commits onto the branch and resolves the conflict.
         assert!(
-            Command::new("git")
-                .args(["rebase", "-q", "--onto", &c.onto, &c.since])
-                .current_dir(&w2)
-                .status()
-                .unwrap()
-                .code()
-                != Some(0)
+            Command::new("git").args(["rebase", "-q", &c.onto]).current_dir(&w2).status().unwrap().code() != Some(0)
         );
         std::fs::write(w2.join("a.txt"), "run a\nrun b\n").unwrap();
         git(&w2, &["add", "a.txt"]);
@@ -717,6 +797,63 @@ mod tests {
         assert!(b.brought);
         assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), a, "on top of run a");
         assert_eq!(file(&r, "a.txt").as_deref(), Some("run a\nrun b\n"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The lead resolved a conflict by replaying the run onto the branch, and the branch moved on
+    /// again before the person accepted: only the run's own commit is replayed, not the branch's
+    /// commit the worktree took in while resolving (replaying that one would conflict with the
+    /// branch's newer change to it). Accepting while the lead's replay is still halfway is refused
+    /// without committing anything.
+    #[test]
+    fn a_resolved_conflict_is_not_replayed_again_and_a_halfway_replay_is_refused() {
+        let dir = repo("resolved");
+        let (r, w) = (dir.join("repo"), dir.join("home/work/runs/e"));
+        std::fs::write(r.join("a.txt"), "a0\n").unwrap();
+        std::fs::write(r.join("c.txt"), "c0\n").unwrap();
+        git(&r, &["add", "-A"]);
+        git(&r, &["commit", "-q", "-m", "files"]);
+        let base = head(&r);
+        let branch = current_branch(&r).unwrap();
+        create(&r, &w, &base, "e").unwrap();
+        std::fs::write(w.join("a.txt"), "run\n").unwrap();
+        std::fs::write(r.join("a.txt"), "mine\n").unwrap();
+        std::fs::write(r.join("c.txt"), "c1\n").unwrap();
+        git(&r, &["commit", "-q", "-am", "x"]);
+        let x = head(&r);
+
+        let c = accept(&r, &w, Some(&branch), &base, "e", false).unwrap_err().downcast::<Conflict>().unwrap();
+        assert_eq!(c.onto, x);
+        // The lead starts the replay and stops halfway: accepting now commits nothing.
+        let halfway = head(&w);
+        assert!(!Command::new("git").args(["rebase", "-q", &c.onto]).current_dir(&w).status().unwrap().success());
+        let err = accept(&r, &w, Some(&branch), &base, "e", false).unwrap_err();
+        let u = err.downcast_ref::<Unfinished>().expect("unfinished");
+        assert_eq!((u.what, u.files.as_slice()), ("变基", ["a.txt".to_string()].as_slice()), "{err}");
+        assert_eq!(head(&r), x, "the branch did not move");
+        assert!(
+            read(&w, &["rev-parse", "--verify", "-q", "REBASE_HEAD"]).is_some(),
+            "the replay is still there to finish"
+        );
+        assert_ne!(head(&w), halfway, "on the branch's commit, nothing committed on top");
+        std::fs::write(w.join("a.txt"), "mine\nrun\n").unwrap();
+        git(&w, &["add", "a.txt"]);
+        git(&w, &["-c", "core.editor=true", "rebase", "--continue"]);
+        assert_eq!(fork_point(&w, Some(&branch), &base), x, "the run's own changes start at the branch's commit");
+
+        // The branch changes the file of its own commit again before the person accepts.
+        std::fs::write(r.join("c.txt"), "c2\n").unwrap();
+        git(&r, &["commit", "-q", "-am", "y"]);
+        let y = head(&r);
+        let done = accept(&r, &w, Some(&branch), &base, "e", false).unwrap();
+        assert!(done.brought);
+        assert_eq!(read(&r, &["rev-parse", "HEAD^"]).unwrap().trim(), y, "the run's commit alone, on top");
+        assert_eq!((file(&r, "a.txt").as_deref(), file(&r, "c.txt").as_deref()), (Some("mine\nrun\n"), Some("c2\n")));
+        assert!(!moved_on(&w, &done.result), "nothing since");
+        std::fs::write(w.join("later.txt"), "after\n").unwrap();
+        git(&w, &["add", "later.txt"]);
+        git(&w, &["commit", "-q", "-m", "later"]);
+        assert!(moved_on(&w, &done.result), "a commit made after it is new work");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

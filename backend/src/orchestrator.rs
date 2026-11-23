@@ -43,7 +43,9 @@ mod mcp_client;
 mod mcp_router;
 mod mcp_server;
 mod memory;
+mod merge;
 use memory::MemoryAccess;
+use merge::DeliveryMerge;
 mod messages;
 mod parking;
 mod prompts;
@@ -720,9 +722,14 @@ struct LeadState {
     /// Its session is closing to free its seat (`park`): the run leaves memory soon, and the next
     /// message opens it anew.
     parked: bool,
-    /// Accepting ran into the branch's new commits and Janus handed the conflict to the lead: the
-    /// turn that resolves it delivers the run again (`hand_conflict_to_lead`).
+    /// Bringing the result back stopped on something in the worktree (a conflict with the
+    /// branch's new commits, an operation left unfinished) and Janus handed it to the lead: the
+    /// turn that resolves it delivers the run again (`hand_merge_to_lead`).
     redeliver: bool,
+    /// The lead was handed such a stop and no delivery has merged since: a delivery that stops
+    /// again leaves it to the person instead of handing it over once more, so a lead that cannot
+    /// resolve it is not sent round in circles.
+    merge_handed_back: bool,
 }
 
 impl LeadState {

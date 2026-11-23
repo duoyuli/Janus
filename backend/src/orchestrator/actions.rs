@@ -32,10 +32,11 @@ impl App {
             }
         }
         let done = match self.dispatch_action(run_id, body).await {
-            // Accepting ran into the branch's new commits: the lead resolves that, not the person.
-            Err(Refused::Invalid(err)) => match err.downcast::<crate::worktrees::Conflict>() {
-                Ok(conflict) => self.hand_conflict_to_lead(run_id, conflict).await,
-                Err(err) => Err(Refused::Invalid(err)),
+            // Accepting stopped on something in the run's worktree (the branch's new commits
+            // conflict, an operation left unfinished there): the lead resolves that, not the person.
+            Err(Refused::Invalid(err)) => match merge_handback(&err, MergeAt::Acceptance) {
+                Some(prompt) => self.hand_back_to_lead(run_id, &prompt).await,
+                None => Err(Refused::Invalid(err)),
             },
             done => done,
         };
@@ -49,21 +50,29 @@ impl App {
         done.map(|()| ActionReply::Done)
     }
 
-    /// Accepting stopped because the branch the run goes back to moved on with commits that
-    /// conflict with the run's. Nothing changed on the person's side, so the run stays delivered:
-    /// its lead replays the run's commits onto the branch in the worktree, resolves the conflict
-    /// and tells the person how, and that turn delivers the run again for the person to accept.
+    /// Accepting stopped on something in the run's worktree: the branch the run goes back to moved
+    /// on with commits that conflict with the run's, or an operation is left unfinished there.
+    /// Nothing changed on the person's side, so the run stays delivered and its lead resolves it
+    /// (`hand_merge_to_lead`).
     // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
-    async fn hand_conflict_to_lead(
-        self: &Arc<Self>,
-        run_id: &str,
-        conflict: crate::worktrees::Conflict,
-    ) -> Result<(), Refused> {
+    async fn hand_back_to_lead(self: &Arc<Self>, run_id: &str, prompt: &str) -> Result<(), Refused> {
         let run = self.resume_run(run_id).await?;
-        run.st.lock().unwrap().lead.redeliver = true;
-        let m = self.post_message(&run, "janus", "lead", "", &conflict_prompt(&conflict), &[]);
-        self.send_steer(&run, "lead", "", Steer::Message(m))?;
+        self.hand_merge_to_lead(&run, prompt)?;
         Ok(())
+    }
+
+    /// Bringing the result back stopped on something in the worktree: the lead resolves it there
+    /// (`prompt` says how) and tells the person how, and that turn delivers the run again, which
+    /// merges. `lead.merge_handed_back` keeps one that did not resolve it from being handed the
+    /// same thing again by its own delivery.
+    pub(super) fn hand_merge_to_lead(&self, run: &Run, prompt: &str) -> Result<()> {
+        {
+            let mut st = run.st.lock().unwrap();
+            st.lead.redeliver = true;
+            st.lead.merge_handed_back = true;
+        }
+        let m = self.post_message(run, "janus", "lead", "", prompt, &[]);
+        self.send_steer(run, "lead", "", Steer::Message(m))
     }
 
     async fn dispatch_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<(), Refused> {
@@ -376,46 +385,6 @@ impl App {
         Ok(())
     }
 
-    /// The person accepts a run: a run in a worktree has its result committed and brought back to
-    /// where it started, and with `remove` (no session works there) the worktree goes (see
-    /// `crate::worktrees::accept`). The acceptance's text and data.
-    // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
-    pub(super) fn accept_worktree(
-        &self,
-        run_id: &str,
-        worktree: Option<&WorktreeOf>,
-        base_ref: &str,
-        goal: &str,
-        remove: bool,
-    ) -> Result<(String, Value)> {
-        let Some(w) = worktree else {
-            return Ok(("核对证据后验收通过".into(), json!({})));
-        };
-        let title: String = goal.lines().next().unwrap_or_default().chars().take(72).collect();
-        let message = format!("{title}\n\nJanus 任务 {run_id}");
-        // The source must still be where the run started, or where its last acceptance left it, or
-        // have moved on from there.
-        let since = last_accepted_commit(&self.db.events(run_id, 0)?).unwrap_or_else(|| base_ref.to_string());
-        let accepted = {
-            let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
-            crate::worktrees::accept(
-                &w.repo,
-                &self.worktree_root(run_id),
-                w.branch.as_deref(),
-                &since,
-                &message,
-                remove,
-            )?
-        };
-        let text = if accepted.brought {
-            format!("核对证据后验收通过，结果已合并到 {}（提交 {}）", w.source(), short_sha(&accepted.result))
-        } else {
-            "核对证据后验收通过，这个任务没有新的改动，没有提交".into()
-        };
-        let commit = accepted.brought.then_some(&accepted.result);
-        Ok((text, json!({ "repo": w.repo, "branch": w.branch, "commit": commit, "result": accepted.result })))
-    }
-
     pub async fn accept_archived(&self, run_id: &str) -> Result<Option<Arc<Run>>> {
         let _turn = self.revival.lock().await;
         if let Some(run) = self.run(run_id) {
@@ -501,15 +470,15 @@ impl App {
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
         let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
         // An accepted run's worktree was removed; working again brings it back where the last
-        // acceptance left the result (or where the run started).
+        // merge-back left the result (or where the run started).
         let worktree = WorktreeOf::of_config(config);
         if let Some(w) = &worktree {
-            let accepted = last_accepted_commit(&events);
+            let merged = self.last_merged(run_id)?;
             let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
             crate::worktrees::ensure(
                 &w.repo,
                 &self.worktree_root(run_id),
-                accepted.as_deref().unwrap_or(&base_ref),
+                merged.as_deref().unwrap_or(&base_ref),
                 run_id,
             )?;
         }
@@ -842,11 +811,20 @@ impl App {
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
         }
         // An accepted run kept its worktree while its conversation was open; nothing works there
-        // after a restart, and the result is back where the run started. Any other worktree git
-        // cannot read (Janus home moved and its repair failed then) is repaired.
+        // after a restart, and the result is back where the run started. One whose conversation
+        // worked on files after the acceptance keeps that work and is delivered again, which
+        // merges it. Any other worktree git cannot read (Janus home moved and its repair failed
+        // then) is repaired.
         for row in self.db.worktree_runs()? {
             let Some(repo) = row["config"]["worktree"]["repo"].as_str() else { continue };
             let id = row["id"].as_str().unwrap_or_default();
+            let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
+            if row["status"] == "accepted" && self.moved_on_since_merge(id, base_ref) {
+                if let Err(err) = self.redeliver_after_restart(id) {
+                    crate::config::log(format!("janus: could not deliver accepted run {id} again: {err:#}"));
+                }
+                continue;
+            }
             let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
             if row["status"] != "accepted" {
                 crate::worktrees::heal(Path::new(repo), &self.worktree_root(id));
@@ -859,15 +837,6 @@ impl App {
         }
         Ok(())
     }
-}
-
-/// The commit holding the result of the last acceptance (`risk.accepted` `data.result`; events
-/// from before it was recorded have only `data.commit`, what that acceptance brought back).
-fn last_accepted_commit(events: &[Event]) -> Option<String> {
-    events.iter().rev().filter(|e| e.kind == "risk.accepted").find_map(|e| {
-        let d = e.data.as_ref()?;
-        d["result"].as_str().or(d["commit"].as_str()).map(str::to_owned)
-    })
 }
 
 /// What a request to act on a run came to.

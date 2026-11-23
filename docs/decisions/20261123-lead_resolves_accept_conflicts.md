@@ -2,6 +2,7 @@
 
 - 状态：已采纳（accepted），记录于 2026-11-23。
 - 取代：[ADR：验收时把结果合并回任务开始时的分支](20261120-merge_back_on_accept.md) 第 4 条中的「变基冲突」一项，和取舍中的「冲突时失败，而不是交给负责人解决」。
+- 修订：[ADR：交付时把结果合并回分支](20261123-merge_back_on_delivery.md)：交付时的冲突同样交给负责人，同一个冲突只自动交一次；命令改为 `git rebase <分支现在的提交>`；没做完的变基、合并也交给负责人。
 - 相关文档：[Run 生命周期](../domains/20261031-run_lifecycle.md#workspace_model)、[交付条件](../domains/20261031-run_lifecycle.md#delivery_conditions)、[Run 操作](../interfaces/20261031-http_api.md#run_actions)、[安全边界](../operations/20261031-security.md#workspace_access)。
 
 ## 背景

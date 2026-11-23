@@ -145,7 +145,7 @@ struct TeamView: View {
     /// Where a run in a worktree merges its result back, and whether it has.
     private func mergeNote(_ r: RunInfo) -> String {
         let source = r.branch.isEmpty ? "detached HEAD" : r.branch
-        return r.merged ? L.text("已合并到 \(source)") : L.text("验收时合并回 \(source)")
+        return r.merged ? L.text("已合并到 \(source)") : L.text("交付时合并到 \(source)")
     }
 
     var body: some View {

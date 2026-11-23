@@ -966,16 +966,20 @@ impl App {
         Ok(())
     }
 
-    /// What the whole run changed so far against where it started (`base_ref`): the lead's own
-    /// edits, every task's, and commits made in the run, which is what accepting brings back. A
-    /// task's diff only covers that task, so a lead that did the work itself left none. Saved as a
-    /// `run_diff` artifact after each of the lead's turns when it differs from the last one.
+    /// What the run changed that is not back on its source yet (`run_changes_from`: since its
+    /// start or its last merge-back, without the branch's own commits the worktree took in): the
+    /// lead's own edits, every task's, and commits made in the run, which is what the next delivery
+    /// brings back. A task's diff only covers that task, so a lead that did the work itself left none.
+    /// Saved as a `run_diff` artifact after each of the lead's turns when it differs from the last
+    /// one; once everything is back, the delivery lists none.
     // @project-doc docs/domains/20261031-goal_mode.md#traces
     pub(super) fn record_run_changes(&self, run: &Run) -> Result<()> {
         if run.kind != RunKind::Goal || !run.git || run.base_ref.is_empty() {
             return Ok(());
         }
-        let diff = working_diff(&run.cwd, &run.base_ref, &[]);
+        // What the delivery brings: since the last merge-back, without the branch's own commits.
+        let from = self.run_changes_from(run);
+        let diff = working_diff(&run.cwd, &from, &[]);
         let hash: String = Sha256::digest(diff.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
         let name = format!("run-{}.diff", &hash[..12]);
         // After a restart nothing is remembered: the same diff saved before is already there.
@@ -983,17 +987,21 @@ impl App {
             Some((last, _)) => *last == hash,
             None => self.dirs(run).changes().join(&name).exists(),
         };
-        if diff.trim().is_empty() || saved {
+        if diff.trim().is_empty() {
+            run.st.lock().unwrap().run_diff = None;
             return Ok(());
         }
-        let stat = git_out(&run.cwd, &["diff-index", "--shortstat", &run.base_ref]);
+        if saved {
+            return Ok(());
+        }
+        let stat = git_out(&run.cwd, &["diff-index", "--shortstat", &from]);
         let new_files = git_out(&run.cwd, &["ls-files", "--others", "--exclude-standard"])
             .lines()
             .filter(|l| !l.is_empty())
             .count();
         let desc = [
             crate::traces::diff_summary(&stat, new_files),
-            "整个任务相对开始时的改动，验收时合并回去的就是这些".into(),
+            "这个任务上次合并之后的改动，交付时合并回分支的就是这些".into(),
         ]
         .into_iter()
         .filter(|s| !s.is_empty())

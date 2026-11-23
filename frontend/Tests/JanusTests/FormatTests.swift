@@ -106,7 +106,7 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
 @Test func eventCategoriesFollowTheirPrefixes() {
     let cases: [(String, String)] = [
         ("question.answered", "decisions"), ("input.answered", "decisions"), ("approval.granted", "decisions"), ("approval.denied", "decisions"),
-        ("risk.accepted", "decisions"), ("run.paused", "decisions"), ("run.resumed", "decisions"), ("run.cancelled", "decisions"),
+        ("risk.accepted", "decisions"), ("run.merged", "decisions"), ("run.paused", "decisions"), ("run.resumed", "decisions"), ("run.cancelled", "decisions"),
         ("question.asked", "messages"), ("question.escalated", "messages"), ("approval.requested", "messages"), ("input.requested", "messages"),
         ("answer.delivered", "messages"), ("user.message", "messages"), ("message.delivered", "messages"), ("control.taken", "messages"),
         ("session.prompt", "messages"), ("session.usage", "messages"),

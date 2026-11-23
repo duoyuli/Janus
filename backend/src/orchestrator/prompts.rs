@@ -97,7 +97,7 @@ pub(super) fn task_prompt(
 pub(super) fn workdir_brief(run: &Run) -> String {
     match &run.worktree {
         Some(w) => format!(
-            "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does (README, justfile, package.json and the like) before running anything, and reinstall when a change touches dependencies. Unless the user asks for commits, changes stay uncommitted: when the user accepts the run, Janus commits what is uncommitted and brings it back to {source} together with any commits made here, replaying them with new ids if that branch moved meanwhile. The worktree is on a detached HEAD, not a branch: to push, push HEAD to the branch the user means, for example git push origin HEAD:{target}.",
+            "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does (README, justfile, package.json and the like) before running anything, and reinstall when a change touches dependencies. The user works in {repo} on {source} and does not see this worktree. Each time the run is delivered, Janus brings its result to {source}: it commits what is uncommitted (or what your sandbox did not let you commit) and fast-forwards that branch to it together with the commits made here, replaying them onto it first if it moved meanwhile. So when the user asks you to commit or merge, finish the work and deliver: that is when it reaches their branch. If replaying conflicts, Janus leaves the user's side alone and tells you how to resolve it here. To push or release, first bring the work onto the latest branch here (git rebase {target}, resolving any conflict and running the checks again), then push HEAD, for example git push origin HEAD:{target}; the delivery then moves the user's branch to that same commit. Do not run git in {repo} itself and do not check out a branch here: the worktree stays on a detached HEAD.",
             repo = w.repo.display(),
             source = match &w.branch {
                 Some(b) => format!("the branch {b} the user was on"),
@@ -116,7 +116,7 @@ pub(super) fn workdir_brief(run: &Run) -> String {
 fn workdir_note(run: &Run) -> String {
     match &run.worktree {
         Some(w) => format!(
-            "（{} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里。运行测试或程序前，先按项目自己的方式准备环境（看 README、justfile、package.json 等）；你的改动涉及依赖时重新安装。子任务说明没有要求提交时，改动不要提交，用户验收时由 Janus 统一提交并合并回用户的分支；这里处于 detached HEAD，不在任何分支上，要推送时把 HEAD 推到说明指定的分支。）",
+            "（{} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里。运行测试或程序前，先按项目自己的方式准备环境（看 README、justfile、package.json 等）；你的改动涉及依赖时重新安装。子任务说明没有要求提交时，改动不要提交，任务交付时由 Janus 统一提交并合并回用户的分支；这里处于 detached HEAD，不在任何分支上，不要切换分支，也不要在用户的仓库目录里运行 git，要推送时把 HEAD 推到说明指定的分支。）",
             w.repo.display()
         ),
         None => String::new(),
@@ -389,22 +389,55 @@ pub(super) fn parse_result(text: &str) -> TaskResult {
     }
 }
 
-/// What the lead is told when accepting ran into the branch's new commits: replay the run's own
-/// commits onto the branch in the worktree, resolve the conflict, and tell the person how.
+/// When bringing the run's result back stopped on something the lead resolves. Either way the lead
+/// hears it as a message, and the turn that deals with it delivers the run again, which merges.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum MergeAt {
+    /// The run was being delivered.
+    Delivery,
+    /// The person accepted a delivery that had not brought its result back.
+    Acceptance,
+}
+
+/// What the lead is told when bringing the result back stopped on something in its worktree: the
+/// branch's new commits conflict with the run's (replay the run onto the branch and resolve it),
+/// or an operation is left unfinished there (finish or abort it). `None` for any other failure,
+/// which concerns the person's own directory or branch and goes back to them.
 // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
-pub(super) fn conflict_prompt(c: &crate::worktrees::Conflict) -> String {
-    let files = if c.files.is_empty() { String::new() } else { format!("（{}）", c.files.join("、")) };
-    format!(
-        "[Janus] 用户点了验收，但没能合并：分支 {branch} 在任务开始后有了新的提交，和这个任务的改动冲突{files}。用户的目录和分支都没有动；任务的结果已由 Janus 提交在这个 worktree 的 {head}。
+pub(super) fn merge_handback(err: &anyhow::Error, at: MergeAt) -> Option<String> {
+    let opening = match at {
+        MergeAt::Delivery => "[Janus] 交付时没能把结果合并到用户的分支",
+        MergeAt::Acceptance => "[Janus] 用户点了验收，但没能合并",
+    };
+    let then = "最后用几句话告诉用户发生了什么、怎么处理的、跑了什么检查。这一轮结束后 Janus 会再次交付，并把结果合并到用户的分支。";
+    let resolve = "逐个读冲突文件两边的改动，按两边的意图合在一起，不要直接丢掉任何一边；拿不准保留哪边时用 janus.ask_user 问用户。";
+    if let Some(c) = err.downcast_ref::<crate::worktrees::Conflict>() {
+        let files = if c.files.is_empty() { String::new() } else { format!("（{}）", c.files.join("、")) };
+        return Some(format!(
+            "{opening}：分支 {branch} 在任务开始后有了新的提交，和这个任务的改动冲突{files}。用户的目录和分支都没有动；任务的结果已由 Janus 提交在这个 worktree 的 {head}。
 
 请在这个 worktree 里把任务自己的提交重放到 {branch} 的最新提交上，并解决冲突：
-GIT_EDITOR=true git rebase --onto {onto} {since}
-逐个读冲突文件两边的改动，按两边的意图合在一起，不要直接丢掉任何一边；拿不准保留哪边时用 janus.ask_user 问用户。解决一个就 git add，再 GIT_EDITOR=true git rebase --continue，直到变基完成，然后跑和这些文件相关的检查。不要改 {branch} 本身，也不要把它 merge 进来。
+GIT_EDITOR=true git rebase {onto}
+{resolve}解决一个就 git add，再 GIT_EDITOR=true git rebase --continue，直到变基完成，然后跑和这些文件相关的检查。不要改 {branch} 本身，也不要把它 merge 进来。
 
-最后用几句话告诉用户哪些文件冲突、各自怎么合的、跑了什么检查。这一轮结束后 Janus 会再次交付，用户再点验收就能直接合并。",
-        branch = c.branch,
-        head = &c.head[..c.head.len().min(8)],
-        onto = c.onto,
-        since = c.since,
-    )
+{then}",
+            branch = c.branch,
+            head = &c.head[..c.head.len().min(8)],
+            onto = c.onto,
+        ));
+    }
+    let u = err.downcast_ref::<crate::worktrees::Unfinished>()?;
+    let files = if u.files.is_empty() {
+        String::new()
+    } else {
+        format!("（还有冲突的文件：{}）", u.files.join("、"))
+    };
+    Some(format!(
+        "{opening}：这个 worktree 里还有没做完的{what}{files}，Janus 没有提交，也没有动用户的目录和分支。
+
+请先在这里把它做完：{resolve}解决一个就 git add，再继续（GIT_EDITOR=true git rebase --continue，合并或拣选用 git commit --no-edit），直到 git status 不再显示进行中的操作；确实做不下去时中止它（git rebase --abort 或 git merge --abort），改动仍在提交里。然后跑和这些文件相关的检查。
+
+{then}",
+        what = u.what,
+    ))
 }

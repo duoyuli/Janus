@@ -121,9 +121,9 @@ enum SessionView {
     static func worktreeNote(_ r: RunInfo, accepted: Bool) -> String? {
         guard !r.repo.isEmpty else { return nil }
         let source = r.branch.isEmpty ? L.text("\(r.repo) 当前的提交（不在分支上）") : L.text("\(r.repo) 的分支 \(r.branch)")
-        if accepted && r.merged { return L.text("结果已合并到 \(source)。") }
+        if r.merged { return L.text("结果已合并到 \(source)。") }
         if accepted { return L.text("这个任务没有新的改动，没有提交。") }
-        return L.text("改动在这个任务单独的副本里，验收时合并回 \(source)。")
+        return L.text("改动在这个任务单独的副本里，交付时合并到 \(source)。")
     }
 
     /// The Git facts a session works with, in one line: the repository, the branch accepting

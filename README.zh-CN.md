@@ -26,7 +26,7 @@ Janus 把你的编码 Agent 组织成一支在你的 Mac 上工作的团队。�
 
 - **负责人 Agent 统筹，协作者 Agent 执行。** 负责人 Agent 用 `/goal` 推进你的目标。目标小，它在自己的会话里直接做完。目标大，它就提交子任务，写明由谁做、依赖和验收标准。派出子任务后，它只做调度：打回返工、改派，或者检查结果，不再自己接手。协作者 Agent 之间不直接通讯，一切都经过负责人 Agent 和共享看板。
 - **只有你的决定才找你。** 技术选型和取舍由负责人 Agent 自己定。审批、负责人 Agent 交给你的决定、等验收的交付，都从各个工作区汇总到收件箱。你随时可以进入任何一个 Agent 的会话插话或接管。
-- **不动你的环境。** Janus 从不改你自己的 Agent 配置。在 Git 仓库上，每个任务在自己的 worktree 里进行，从你的 `HEAD` 开始；验收时一个提交快进到你原来所在的分支。Janus 不会在你的目录里留下做了一半的合并，也不会覆盖你没提交的改动。Agent 看到的是你用户目录的镜像，`gh`、SSH 和其他工具照常能用；你挡住的路径（默认是其他 Agent 的配置和高危凭据）它们看不到。
+- **不动你的环境。** Janus 从不改你自己的 Agent 配置。在 Git 仓库上，每个任务在自己的 worktree 里进行，从你的 `HEAD` 开始；每次交付时把你原来所在的分支快进到结果。Janus 不会在你的目录里留下做了一半的合并，也不会覆盖你没提交的改动。Agent 看到的是你用户目录的镜像，`gh`、SSH 和其他工具照常能用；你挡住的路径（默认是其他 Agent 的配置和高危凭据）它们看不到。
 - **默认可回放。** 每一次会话、编排、审批、产物和交付都是事件，任务可以检查和从中断处继续，不用靠记忆重建。
 - **原生权限。** 每个 Agent 保留自己的权限模式，Janus 不再叠加一套开关。没有指定模式的数字员工，Codex 以 Full access、Claude Code 以 Bypass permissions 启动，目标执行中不会停下来等审批。
 
@@ -59,7 +59,7 @@ Janus 由 Agent 开发：仓库的改动由编码 Agent 按 [AGENTS.md](AGENTS.m
 
 ## 适用范围
 
-Janus 是单机、单用户的工具。任务修改你选择的目录（或者在 worktree 里修改，验收时合回来）；除了你挡住的路径，Agent 能读写你用户目录里的一切；服务没有鉴权，也没有操作系统级沙箱。投入真实项目前，请先阅读[安全边界](docs/operations/20261031-security.md)。
+Janus 是单机、单用户的工具。任务修改你选择的目录（或者在 worktree 里修改，交付时合回你的分支）；除了你挡住的路径，Agent 能读写你用户目录里的一切；服务没有鉴权，也没有操作系统级沙箱。投入真实项目前，请先阅读[安全边界](docs/operations/20261031-security.md)。
 
 ## 快速开始
 
@@ -107,7 +107,7 @@ just start     # 以服务方式启动：登录后自动运行（macOS）；也�
 
 仓库只放代码。Janus 的数据、适配器、配置和日志都在 `~/.janus`，详见[部署方案](docs/operations/20261031-deployment.md)。
 
-`examples/calc/` 是一个最小示例项目。用作工作区前先把它复制到仓库之外（例如 `cp -R examples/calc ~/calc`），并在复制出来的目录里建一个 Git 仓库、提交一次（`git init && git add -A && git commit -m init`）：这样每个任务都在自己的 worktree 里进行，留下 diff，验收时 Janus 把结果提交并快进到你所在的分支，直接出现在你的目录里。不是 Git 仓库也能用，只是负责人 Agent 和子任务直接修改这个目录，也没有 diff；同一个目录上已有进行中的任务时，Janus 只提醒、不阻止。可以用 `python3 -m unittest discover -s examples/calc` 验证。
+`examples/calc/` 是一个最小示例项目。用作工作区前先把它复制到仓库之外（例如 `cp -R examples/calc ~/calc`），并在复制出来的目录里建一个 Git 仓库、提交一次（`git init && git add -A && git commit -m init`）：这样每个任务都在自己的 worktree 里进行，留下 diff，交付时 Janus 把结果提交并快进到你所在的分支，直接出现在你的目录里。不是 Git 仓库也能用，只是负责人 Agent 和子任务直接修改这个目录，也没有 diff；同一个目录上已有进行中的任务时，Janus 只提醒、不阻止。可以用 `python3 -m unittest discover -s examples/calc` 验证。
 
 ## 文档
 

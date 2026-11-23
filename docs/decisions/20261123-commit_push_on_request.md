@@ -2,6 +2,7 @@
 
 - 状态：已采纳（accepted），记录于 2026-11-23。
 - 修订：[ADR：验收时把结果合并回任务开始时的分支](20261120-merge_back_on_accept.md) 的第 2 条「每次验收在源分支上是一个提交」：Run 自己的提交也一起带回。
+- 修订：第 4 条「从 worktree 推送」被 [ADR：交付时把结果合并回分支](20261123-merge_back_on_delivery.md) 修订：推送前先在 worktree 里变基到最新的分支，交付时用户的分支快进到同一个提交；Agent 的提交随交付带回。
 - 相关文档：[谁来做决定](../domains/20261031-goal_mode.md#decision_ownership)、[协作者的约定](../domains/20261031-goal_mode.md#collaborator_rules)、[Run 生命周期](../domains/20261031-run_lifecycle.md#workspace_model)、[安全边界](../operations/20261031-security.md#workspace_access)。
 
 ## 背景

@@ -479,6 +479,8 @@ func derive(_ events: [Event]) -> RunState {
         case "risk.accepted":
             s.run.status = .accepted; s.result?.accepted = e.ts
             if d["commit"].string != nil { s.run.merged = true }
+        // A delivery brought the result to the person's branch.
+        case "run.merged": if d["commit"].string != nil { s.run.merged = true }
         default: break
         }
     }
@@ -622,6 +624,8 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == "approval.granted" ? L.text("批准一次操作") : L.text("拒绝一次操作"), text: e.text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
         case "risk.accepted":
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("接受风险并验收"), text: e.text))
+        case "run.merged":
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("交付时合并到你的分支"), text: e.text))
         case "result.amended":
             if let task = e.task { gaps[task] = nil }
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人修订 \(e.task ?? "") 的结论"), text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))

@@ -568,6 +568,7 @@
 "接入一个 Agent" = "Connect an Agent";
 "接受 %@ 的结果：%@" = "Accept the result for %@: %@";
 "接受风险并验收" = "Accepted risks and approved delivery";
+"交付时合并到你的分支" = "Merged into your branch on delivery";
 "接管" = "Take Over";
 "推理判断" = "Reasoning";
 "推理强度" = "Reasoning Effort";
@@ -1137,10 +1138,10 @@
 "%@ 的分支 %@" = "branch %2$@ of %1$@";
 "结果已合并到 %@。" = "The result is merged into %@.";
 "这个任务没有新的改动，没有提交。" = "This task brought no new changes, so nothing was committed.";
-"改动在这个任务单独的副本里，验收时合并回 %@。" = "The changes are in this task's own copy; accepting merges them back into %@.";
+"改动在这个任务单独的副本里，交付时合并到 %@。" = "The changes are in this task's own copy; delivering merges them into %@.";
 "分支" = "Branch";
 "已合并到 %@" = "Merged into %@";
-"验收时合并回 %@" = "Merged back into %@ on acceptance";
+"交付时合并到 %@" = "Merged into %@ on delivery";
 "继续执行？" = "Continue anyway?";
 "%lld 个 GitHub 来源有更新" = "GitHub sources with updates: %lld";
 "从文件夹…" = "From Folder…";

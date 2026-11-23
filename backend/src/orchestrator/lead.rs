@@ -142,22 +142,23 @@ impl App {
         self.execute(run).await
     }
 
-    /// An accepted run in a worktree whose files changed since: a turn of the lead's conversation
-    /// did work the acceptance does not have, so it is delivered again for the person to accept.
-    /// Questions about the result leave the acceptance as it was.
+    /// A delivered or accepted run in a worktree that has work since its last merge-back: a turn of
+    /// the lead's conversation changed files or made commits (the person asked for more) that are
+    /// not on the branch, so it is delivered again, which merges them. Questions about the result
+    /// leave the delivery as it was.
     // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
-    fn changed_since_acceptance(&self, run: &Run) -> bool {
+    fn changed_since_delivery(&self, run: &Run) -> bool {
         run.worktree.is_some()
-            && run.st.lock().unwrap().status == RunStatus::Accepted
-            && !crate::worktrees::uncommitted(&run.cwd).is_empty()
+            && matches!(run.st.lock().unwrap().status, RunStatus::Delivered | RunStatus::Accepted)
+            && self.moved_on_since_merge(&run.id, &run.base_ref)
     }
 
-    /// A turn that is not a new goal delivers the run again when it worked on files after
-    /// acceptance, or resolved the conflict an acceptance ran into.
+    /// A turn that is not a new goal delivers the run again when it worked on files after a
+    /// delivery, or resolved what stopped bringing its result back.
     // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
     fn delivers_again(&self, run: &Run) -> bool {
         let resolved = std::mem::take(&mut run.st.lock().unwrap().lead.redeliver);
-        resolved || self.changed_since_acceptance(run)
+        resolved || self.changed_since_delivery(run)
     }
 
     /// A turn of the lead ended: keep what the whole run changed so far, before a delivery lists
@@ -409,7 +410,7 @@ impl App {
                     );
                 } else if self.delivers_again(run) || goal_turn {
                     // A new goal in the conversation is a new result, and so is work on files after
-                    // acceptance or a conflict resolved for one: deliver it like the first one.
+                    // a delivery or a conflict resolved for one: deliver it like the first one.
                     run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
                     if !run.driving.active() {
@@ -639,7 +640,7 @@ impl App {
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
                 } else if self.delivers_again(run) || goal_turn {
-                    // A new goal is a new result, and so is work on files after acceptance or a
+                    // A new goal is a new result, and so is work on files after a delivery or a
                     // conflict resolved for one.
                     run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
                     run.wake.notify_one();
@@ -954,7 +955,7 @@ Coordination:
 - After you delegate, never take over a subtask's work yourself, not even a one-line fix. Send it back with janus.retry (session=\"continue\" keeps its context), reassign it with janus.cancel and janus.orchestrate, use janus.ask_user when no collaborator can do it, or cancel it and report the gap in the delivery. Use janus.reply to change the work of a running subtask.
 - When a collaborator asks a question, it waits for your answer. Respond with janus.reply.
 - Check collaborators' results yourself, by reading changed files or running tests, and finish only when the goal is achieved.
-- Commit, push, deploy, or release only when the user asks for it, in the goal or in an answer, and only as far as asked: a request to commit is not one to push. That request is the user's decision, so carry it out without asking again; otherwise do none of them. When a subtask is to do one of them, say so in its instructions.
+- Commit, push, deploy, or release only when the user asks for it, in the goal, in an answer, or in a later message, and only as far as asked: a request to commit is not one to push. That request is the user's decision, so carry it out without asking again; otherwise do none of them. When a subtask is to do one of them, say so in its instructions.
 
 {teamwork}
 

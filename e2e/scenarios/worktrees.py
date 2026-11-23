@@ -15,7 +15,7 @@ def _git(repo, *args):
 
 @scenario("worktrees")
 def worktrees(ctx, c):
-    """worktree：同一个仓库上的两个任务各自在 worktree 里改同一个文件互不干扰、.worktreeinclude 带上被忽略的文件、未提交改动的提醒、验收后合并回任务开始时的分支、冲突时验收失败且不动用户目录；非 Git 目录上有任务在跑时提醒"""
+    """worktree：同一个仓库上的两个任务各自在 worktree 里改同一个文件互不干扰、.worktreeinclude 带上被忽略的文件、未提交改动的提醒、交付时合并回任务开始时的分支、验收后负责人按要求做的提交再次交付并合并、冲突时不动用户目录并交给负责人一次；非 Git 目录上有任务在跑时提醒"""
     t = ctx.team("worktrees", members=("m1", "m2"), script={"T1": ["write:a.txt"], "T2": ["write:a.txt"]},
                  files={"README.md": "wt\n", ".gitignore": ".env\n", ".worktreeinclude": ".env\n"})
     with open(os.path.join(t.repo, ".env"), "w") as f:
@@ -50,28 +50,53 @@ def worktrees(ctx, c):
            "子任务页显示 Git 仓库、分支和提交，不显示 Janus 放副本的路径", pages=("task:T1", "board"))
 
     delivered = first.finish("第一个任务完成")
-    c("worktree" in delivered["data"]["summary"] and branch in delivered["data"]["summary"],
-      f"交付摘要说明改动在任务的 worktree 里，验收时合并回分支 {branch}")
-    first.act("accept")
-    accepted = first.wait_event("risk.accepted")["data"]
-    c(accepted.get("branch") == branch and accepted.get("commit") == _git(t.repo, "rev-parse", "HEAD").strip()
-      and _git(t.repo, "rev-parse", "HEAD^").strip() == start,
-      f"验收后结果作为一个提交合并回 {branch}（快进，没有合并提交）")
+    first.wait_status("delivered")
+    head = _git(t.repo, "rev-parse", "HEAD").strip()
+    c("结果已合并到" in delivered["data"]["summary"] and branch in delivered["data"]["summary"],
+      f"交付摘要说明结果已合并到分支 {branch}")
+    merged = first.wait_event("run.merged", actor="janus")["data"]
+    c(merged.get("branch") == branch and merged.get("commit") == head and _git(t.repo, "rev-parse", "HEAD^").strip() == start,
+      f"交付时结果作为一个提交合并回 {branch}（快进，没有合并提交），记为 Janus 的 run.merged")
     c(read_file(f"{t.repo}/a.txt") == "T1\n" and read_file(f"{t.repo}/draft.md") == "half done\n"
       and _git(t.repo, "branch", "--show-current").strip() == branch,
       "工作区目录里有了结果，用户没提交的 draft.md 原样保留，还在原来的分支上")
     c(not _git(t.repo, "branch", "--list", "janus/*").strip(), "不新建 janus/ 分支")
-    ctx.ui(c, first.id, lambda r, s: r["status"] == "accepted" and r.get("branch") == branch and r.get("merged"),
+    ctx.ui(c, first.id, lambda r, s: r["status"] == "delivered" and r.get("branch") == branch and r.get("merged"),
            "应用显示结果已合并到哪个分支", pages=("board", "team"))
+    first.act("accept")
+    accepted = first.wait_event("risk.accepted")
+    c("结果已在" in accepted["text"] and accepted["data"].get("commit") is None
+      and _git(t.repo, "rev-parse", "HEAD").strip() == head,
+      "验收时结果已经在分支里，不再提交")
+
+    # After the acceptance the person asks the lead for more and for a commit: committed in the
+    # worktree, it is delivered again, and that delivery brings the lead's commit to the branch.
+    first.act("message", agent="lead", text="再补一份说明 [write more.md] 并提交 [commit]")
+    wait(lambda: len(first.has("run.delivered")) == 2, "验收后负责人提交的改动再次交付", 60)
+    first.wait_status("delivered")
+    c(not _git(a, "status", "--porcelain").strip() and read_file(f"{t.repo}/more.md") == "follow-up\n"
+      and _git(t.repo, "log", "-1", "--format=%s").strip() == "follow-up",
+      "验收后负责人按要求提交，再次交付时它的提交直接出现在用户的分支和目录里")
+    c(len(first.has("run.merged")) == 2, "第二次交付也记一条 run.merged")
 
     # The second run changed the same file: its result conflicts with what the first brought back.
     second.finish("第二个任务完成")
     second.wait_status("delivered")
-    code, text = second.act_error("accept")
-    c(code == 400 and "冲突" in text, f"第二个任务和已合并的结果冲突，验收失败（{code} {text[:60]}）")
-    c(second.status() == "delivered" and read_file(f"{t.repo}/a.txt") == "T1\n"
-      and not _git(t.repo, "status", "--porcelain", "--untracked-files=no").strip(),
-      "验收失败时任务保持已交付，用户的目录里没有半合并的状态")
+    told = [e for e in second.has("user.message", actor="janus") if "a.txt" in e["data"].get("text", "")]
+    c(told and "git rebase" in told[0]["data"]["text"] and "负责人正在任务的副本里解决" in second.has("run.delivered")[0]["data"]["summary"],
+      "交付时冲突：Janus 把冲突的文件和解决步骤交给负责人，交付摘要说明负责人在解决")
+    c(read_file(f"{t.repo}/a.txt") == "T1\n" and not _git(t.repo, "status", "--porcelain", "--untracked-files=no").strip()
+      and not second.has("run.merged"),
+      "冲突时用户的分支不动，目录里没有半合并的状态")
+    wait(lambda: len(second.has("run.delivered")) == 2, "负责人处理冲突的一轮结束后再次交付", 60)
+    c("仍然冲突" in second.has("run.delivered")[1]["data"]["summary"]
+      and len([e for e in second.has("user.message", actor="janus") if "a.txt" in e["data"].get("text", "")]) == 1,
+      "负责人没解决时再次交付说明仍然冲突，不再自动交给负责人")
+    second.wait_status("delivered")
+    second.act("accept")
+    c(not second.has("risk.accepted") and second.status() == "delivered"
+      and len([e for e in second.has("user.message", actor="janus") if "a.txt" in e["data"].get("text", "")]) == 2,
+      "用户点验收时仍然冲突：再交给负责人一次，不算验收")
 
     # Outside git there is no worktree: the person is reminded of a run still working there.
     plain = ctx.team("plain", members=("m1",), script={"P1": ["slow"]})

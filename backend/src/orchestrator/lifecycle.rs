@@ -366,7 +366,30 @@ impl App {
     /// The lead's goal ended and nothing can still run: hand over its summary, with every task's
     /// evidence, acceptance record, independent verification, trace gaps and risks, and unfinished
     /// tasks listed as risks.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
     pub(super) fn deliver(&self, run: &Run) {
+        // A run in a worktree brings its result to its branch now; what stops that in the
+        // worktree goes to the lead, once, and the rest to the person.
+        let merge = run.worktree.as_ref().map(|w| {
+            let merge = self.merge_at_delivery(&run.id, w, &run.base_ref, &run.goal);
+            let again = {
+                let mut st = run.st.lock().unwrap();
+                let again = st.lead.merge_handed_back;
+                if matches!(merge, DeliveryMerge::Merged { .. } | DeliveryMerge::Nothing) {
+                    st.lead.merge_handed_back = false;
+                }
+                again
+            };
+            if let DeliveryMerge::Merged { text, data } = &merge {
+                self.emit(run, ev("run.merged", "janus", text.clone()).data(data.clone()));
+            }
+            let note = self.delivery_note(&run.id, w, &merge, again);
+            let hand_back = match merge {
+                DeliveryMerge::HandBack(prompt) if !again => Some(prompt),
+                _ => None,
+            };
+            (note, hand_back)
+        });
         let result = {
             // Where a finished task's result disagreed with the workspace, from its own event.
             let events = self.db.events(&run.id, 0).unwrap_or_default();
@@ -493,12 +516,8 @@ impl App {
                 _ => (String::new(), vec![]),
             };
             json!({
-                "summary": match &run.worktree {
-                    Some(w) => format!(
-                        "{} 改动在这个任务单独的副本里，还没有提交；验收时 Janus 把它们提交并合并回 {}。",
-                        lead_summary(&text),
-                        w.source()
-                    ),
+                "summary": match &merge {
+                    Some((note, _)) => format!("{} {note}", lead_summary(&text)),
                     None => format!("{} 改动直接在工作目录 {} 中，Janus 没有提交。", lead_summary(&text), run.cwd.display()),
                 },
                 "briefSuggestions": suggestions,
@@ -511,6 +530,11 @@ impl App {
         };
         self.emit(run, ev("run.delivered", "janus", "负责人完成了目标，交付结果已准备好").data(result));
         self.set_status(run, RunStatus::Delivered);
+        if let Some((_, Some(prompt))) = merge
+            && let Err(err) = self.hand_merge_to_lead(run, &prompt)
+        {
+            crate::config::log(format!("janus: run {}: could not hand the merge to the lead: {err:#}", run.id));
+        }
     }
 
     /// Delete a run and everything Janus kept for it: its rows in SQLite, its places in Janus home

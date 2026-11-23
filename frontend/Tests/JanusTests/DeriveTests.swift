@@ -535,19 +535,28 @@ private func goalRun() -> Log {
     #expect(d?.tasks == ["T1", "T2"])
 }
 
-/// A run in its own worktree says where its changes are until accepted, then where they were
-/// merged back; a run working in place says nothing about it.
+/// A run in its own worktree says where its changes are until a delivery (or the acceptance)
+/// merges them, then where they were merged; a run working in place says nothing about it.
 @Test func aWorktreeRunSaysWhereItsResultIs() {
     var log = Log()
     log.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/h/work/runs/r1", "git": true,
                                                   "worktree": ["repo": "/code/app", "included": [".env"], "branch": "main"]])
     var st = derive(log.events)
     #expect(st.run.repo == "/code/app" && st.run.branch == "main" && !st.run.merged)
-    #expect(SessionView.worktreeNote(st.run, accepted: false) == expectedCopy("改动在这个任务单独的副本里，验收时合并回 /code/app 的分支 main。", "The changes are in this task's own copy; accepting merges them back into branch main of /code/app."))
+    #expect(SessionView.worktreeNote(st.run, accepted: false) == expectedCopy("改动在这个任务单独的副本里，交付时合并到 /code/app 的分支 main。", "The changes are in this task's own copy; delivering merges them into branch main of /code/app."))
     log.add("risk.accepted", actor: "user", data: ["branch": "main", "commit": "abc", "repo": "/code/app"])
     st = derive(log.events)
     #expect(st.run.merged)
     #expect(SessionView.worktreeNote(st.run, accepted: true) == expectedCopy("结果已合并到 /code/app 的分支 main。", "The result is merged into branch main of /code/app."))
+    // A delivery merged before the person accepted: the result is on the branch.
+    var delivered = Log()
+    delivered.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/h/work/runs/r3", "git": true,
+                                                        "worktree": ["repo": "/code/app", "branch": "main"]])
+    delivered.add("run.merged", actor: "janus", data: ["branch": "main", "commit": "def", "result": "def", "repo": "/code/app"])
+    let merged = derive(delivered.events)
+    #expect(merged.run.merged && merged.run.status != .accepted)
+    #expect(SessionView.worktreeNote(merged.run, accepted: false) == expectedCopy("结果已合并到 /code/app 的分支 main。", "The result is merged into branch main of /code/app."))
+    #expect(boardFacts(merged) { $0 }.decisions.map(\.title) == [expectedCopy("交付时合并到你的分支", "Merged into your branch on delivery")])
     // Started on a detached HEAD; an acceptance with nothing new merges nothing.
     var detached = Log()
     detached.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/h/work/runs/r2", "git": true,

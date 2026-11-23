@@ -65,10 +65,11 @@ def goal_codex(ctx, c):
     detail, err = lead.call("task_detail", {"task": "T1"})
     c(not err and "notes.md" in detail, "task_detail 列出 T1 改过的文件")
 
+    c(read_file(f"{run.cwd()}/notes.md") == "T1\n" and not os.path.exists(f"{t.repo}/notes.md"),
+      "T1 在这个任务单独的副本里写了文件，交付前工作区目录不受影响")
     delivered = run.finish("目标已完成：笔记写好了")
     c("笔记写好了" in delivered["data"]["summary"], "交付摘要来自负责人的最后回复")
-    c(read_file(f"{run.cwd()}/notes.md") == "T1\n" and not os.path.exists(f"{t.repo}/notes.md"),
-      "T1 在这个任务单独的副本里写了文件，工作区目录不受影响")
+    c(read_file(f"{t.repo}/notes.md") == "T1\n", "交付时结果合并回工作区目录所在的分支")
 
     # What the run left: artifacts, the readable diff, the export and the live stream.
     arts = run.has("artifact.created", task="T1")
