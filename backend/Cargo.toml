@@ -20,3 +20,5 @@ tokio-util = { version = "0.7", features = ["compat"] }
 base64 = "0.22"
 reqwest = { version = "0.13.5", default-features = false, features = ["native-tls", "http2", "system-proxy"] }
 jiff = "0.2.38"
+# Signalling a process group through the system call (`acp::signal_group`); already in the tree.
+rustix = { version = "1.1", features = ["process"] }

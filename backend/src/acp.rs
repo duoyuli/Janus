@@ -264,19 +264,14 @@ impl AcpConn {
         let mut child = self.child.lock().await;
         // The adapter runs in its own process group with the agent it started: both signals go to
         // the whole group, so the agent does not outlive its adapter (AT-02).
-        let group = child.id().map(|pid| format!("-{pid}"));
-        let signal = |sig: &'static str| {
-            let group = group.clone();
-            async move {
-                #[cfg(unix)]
-                if let Some(group) = group {
-                    let _ = tokio::process::Command::new("kill").args([sig, &group]).status().await;
-                }
-            }
-        };
-        signal("-TERM").await;
+        let group = child.id();
+        if let Some(pid) = group {
+            signal_group(pid, Signal::Term);
+        }
         if tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await.is_err() {
-            signal("-KILL").await;
+            if let Some(pid) = group {
+                signal_group(pid, Signal::Kill);
+            }
             let _ = child.start_kill();
             // A process stuck in the kernel may not go even now; closing the session goes on.
             let _ = tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await;
@@ -307,4 +302,32 @@ fn request_error(method: &str, err: AcpError) -> anyhow::Error {
         .or_else(|| (!err.message.is_empty()).then_some(err.message.as_str()))
         .unwrap_or("unknown error");
     anyhow!("{method}: {detail}")
+}
+
+/// How `signal_group` ends a group: asking first, then for good.
+#[derive(Clone, Copy)]
+pub(crate) enum Signal {
+    Term,
+    Kill,
+}
+
+/// Signal the process group `pid` leads (a process started with `process_group(0)`: an adapter
+/// and the agent it started, a command MCP server and what it spawned). Through the system call,
+/// not the `kill` command: procps-ng's `kill` (Debian, 4.0) reads `kill -TERM -<group>` as a
+/// signal to every process it may signal, which ended the whole test run on Linux; BSD `kill`
+/// reads it right. A group that is gone already is no error.
+pub(crate) fn signal_group(pid: u32, sig: Signal) {
+    #[cfg(unix)]
+    {
+        use rustix::process::{Pid, Signal as Sig, kill_process_group};
+        let sig = match sig {
+            Signal::Term => Sig::TERM,
+            Signal::Kill => Sig::KILL,
+        };
+        if let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) {
+            let _ = kill_process_group(pid, sig);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (pid, sig);
 }

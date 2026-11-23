@@ -281,15 +281,12 @@ impl Backend {
         }
         self.inbox.pending.lock().unwrap().clear();
         match &self.link {
-            Link::Stdio { group, .. } =>
-            {
-                #[cfg(unix)]
-                if let Some(pid) = group {
-                    let group = format!("-{pid}");
-                    let _ = std::process::Command::new("kill").args(["-TERM", &group]).status();
+            Link::Stdio { group, .. } => {
+                if let Some(pid) = *group {
+                    crate::acp::signal_group(pid, crate::acp::Signal::Term);
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_secs(3));
-                        let _ = std::process::Command::new("kill").args(["-KILL", &group]).status();
+                        crate::acp::signal_group(pid, crate::acp::Signal::Kill);
                     });
                 }
             }
