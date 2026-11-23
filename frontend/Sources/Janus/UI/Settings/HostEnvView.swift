@@ -47,7 +47,7 @@ struct HostEnvView: View {
                 IconButton(symbol: "plus", label: L.text("添加要挡住的路径"),
                            help: L.text("在用户目录里选要挡住的文件夹或文件，可以一次选多个；隐藏的文件和文件夹也显示")) { pick() }
             }
-            Text(L.text("默认挡住常见 Agent 的配置和敏感数据，可增可删。"))
+            Text(L.text("默认挡住常见 Agent 的配置和敏感数据，可增可删；文件夹和单个文件都能挡。"))
                 .font(.caption).foregroundStyle(.secondary)
             Card(padding: 4) {
                 VStack(alignment: .leading, spacing: 0) {

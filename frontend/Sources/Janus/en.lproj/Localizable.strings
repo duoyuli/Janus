@@ -1506,7 +1506,7 @@
 "挡住的路径" = "Hidden Paths";
 "恢复默认" = "Restore Defaults";
 "回到 Janus 默认挡住的路径：常见 Agent 的配置和敏感数据" = "Go back to the paths Janus hides by default: common Agents' settings and sensitive data";
-"默认挡住常见 Agent 的配置和敏感数据，可增可删。" = "Common Agents' settings and sensitive data are hidden by default. Add or remove as you like.";
+"默认挡住常见 Agent 的配置和敏感数据，可增可删；文件夹和单个文件都能挡。" = "Common Agents' settings and sensitive data are hidden by default. Add or remove as you like; a folder or a single file.";
 "Janus 的数据" = "Janus Data";
 "挡住" = "Hide";
 "不再挡住这个路径" = "Stop hiding this path";
