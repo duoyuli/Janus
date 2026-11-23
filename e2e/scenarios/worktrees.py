@@ -53,7 +53,7 @@ def worktrees(ctx, c):
     first.wait_status("delivered")
     head = _git(t.repo, "rev-parse", "HEAD").strip()
     c("结果已合并到" in delivered["data"]["summary"] and branch in delivered["data"]["summary"],
-      f"交付摘要说明结果已合并到分支 {branch}")
+      f"交付摘要说明结果已合并到分支 {branch}（{delivered['data']['summary'][-120:]}）")
     merged = first.wait_event("run.merged", actor="janus")["data"]
     c(merged.get("branch") == branch and merged.get("commit") == head and _git(t.repo, "rev-parse", "HEAD^").strip() == start,
       f"交付时结果作为一个提交合并回 {branch}（快进，没有合并提交），记为 Janus 的 run.merged")
