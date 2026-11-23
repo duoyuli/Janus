@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// A workspace, all of it on one page (the sidebar only lists workspaces): who it is and what every
-/// goal and Loop is given, a goal to start, what waits on the person, its Loops and its task records,
-/// in that order.
+/// A workspace, all of it on one page (the sidebar only lists workspaces): who it is and a goal to
+/// start, with what every goal and Loop is given beside them (shared material, team memory); then
+/// what waits on the person, its Loops and its task records, in that order.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct HomeView: View {
     let store: AppStore
@@ -27,35 +27,22 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // The workspace's own problems below say the same, more precisely.
                 if problems.isEmpty { OnboardingBar(store: store) }
-                // The shared material beside the name when there is room, under it when not.
+                // What every goal and Loop of the workspace is given, the person's shared material
+                // and the agents' team memory, beside the name and the goal when there is room,
+                // under the name when not.
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 24) {
-                        identity(members).frame(minWidth: 0, idealWidth: 380, maxWidth: .infinity, alignment: .leading)
-                        sharedMaterial.frame(width: 300)
+                        VStack(alignment: .leading, spacing: 20) {
+                            identity(members)
+                            composer(problems, runs: runs)
+                        }
+                        .frame(minWidth: 0, idealWidth: 380, maxWidth: .infinity, alignment: .leading)
+                        context.frame(width: 300)
                     }
                     VStack(alignment: .leading, spacing: 16) {
                         identity(members)
-                        sharedMaterial
-                    }
-                }
-
-                MemorySection(store: store, ws: ws)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("想要什么结果？⌘V 贴截图 · \(sendKey.symbol) 交给负责人"), minHeight: 96) { start(problems) }
-                    HStack {
-                        // Examples only help before the first run.
-                        if runs.isEmpty {
-                            ForEach(suggestions, id: \.0) { s in
-                                Button(s.0) { store.goalDraft = s.1 }.buttonStyle(.bordered).controlSize(.small).help(s.1)
-                            }
-                        }
-                        Spacer()
-                        let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
-                        Button(L.text("交给负责人")) { start(problems) }
-                            .buttonStyle(.primary)
-                            .disabled(!problems.isEmpty || empty)
-                            .help(!problems.isEmpty ? L.text("还有数字员工不能运行") : empty ? L.text("先写下你想要的结果") : sendKey.symbol)
+                        context
+                        composer(problems, runs: runs)
                     }
                 }
                 // One line per cause, with the place that fixes it.
@@ -84,6 +71,36 @@ struct HomeView: View {
             .padding(24)
             .frame(maxWidth: 820, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// The goal to start: what the page is for, right under the workspace's name.
+    private func composer(_ problems: [Problem], runs: [JSON]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("想要什么结果？⌘V 贴截图 · \(sendKey.symbol) 交给负责人"), minHeight: 96) { start(problems) }
+            HStack {
+                // Examples only help before the first run.
+                if runs.isEmpty {
+                    ForEach(suggestions, id: \.0) { s in
+                        Button(s.0) { store.goalDraft = s.1 }.buttonStyle(.bordered).controlSize(.small).help(s.1)
+                    }
+                }
+                Spacer()
+                let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
+                Button(L.text("交给负责人")) { start(problems) }
+                    .buttonStyle(.primary)
+                    .disabled(!problems.isEmpty || empty)
+                    .help(!problems.isEmpty ? L.text("还有数字员工不能运行") : empty ? L.text("先写下你想要的结果") : sendKey.symbol)
+            }
+        }
+    }
+
+    /// The shared material and the team memory, one card each: both go to every goal and Loop of
+    /// the workspace; the person writes the one, the agents the other.
+    private var context: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sharedMaterial
+            MemoryCard(store: store, ws: ws)
         }
     }
 
@@ -139,6 +156,12 @@ struct HomeView: View {
         Card(padding: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(L.text("共享资料")).font(.headline)
+                HowItWorks(title: L.text("共享资料"), lines: [
+                    L.text("你写的，只有你能改；Agent 不能直接写进来。"),
+                    L.text("每个任务开始时原样交给负责人和每个协作者，值班开工时也带上；和本次目标冲突时以目标为准。"),
+                    L.text("任务开始时就固定下来，之后的修改从下一个任务起生效。"),
+                    L.text("负责人交付时会建议值得长期保留的新事实，你点「加入共享资料…」、确认保存后才写入。"),
+                ])
                 Spacer()
                 IconButton(symbol: brief.isEmpty ? "plus" : "square.and.pencil",
                            label: brief.isEmpty ? L.text("添加共享资料") : L.text("编辑共享资料"),

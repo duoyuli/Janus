@@ -611,6 +611,32 @@ struct IconButton: View {
     }
 }
 
+/// A 「?」 beside a card's title: how that part works, shown only when asked for, so the card
+/// itself holds only its content.
+struct HowItWorks: View {
+    let title: String
+    let lines: [String]
+    @Local private var shown = false
+
+    var body: some View {
+        IconButton(symbol: "questionmark.circle", label: L.text("\(title)怎么工作"), size: 12, color: .secondary) { shown.toggle() }
+            .popover(isPresented: $shown, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L.text("\(title)怎么工作")).font(.headline)
+                    ForEach(lines, id: \.self) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(verbatim: "·").foregroundStyle(.secondary)
+                            Text(line).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .font(.callout)
+                .padding(14)
+                .frame(width: 360, alignment: .leading)
+            }
+    }
+}
+
 /// A transient confirmation at the bottom of the window. It uses the system material so it reads
 /// in both appearances, and VoiceOver announces it.
 struct Toast: View {
