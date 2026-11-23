@@ -4,6 +4,14 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.4
+
+- 工作区首页重新排了一下：团队记忆和共享资料一样，是每个任务都会带上的工作区上下文，现在做成一张卡片，放在右栏共享资料下面；目标输入框回到名称正下方，不再被一个空的团队记忆区块压在下面。团队记忆每条笔记一行（类型和标题），悬停看摘要和是谁写的，点开可以改；没有笔记时只有一行说明，不再挂着点不了的「现在整理」。
+- 共享资料和团队记忆的标题旁各加了一个「?」，点开说明它们怎么工作：谁来写、什么时候交给 Agent、冲突时以谁为准、怎样积累和整理。
+
+- The workspace home is rearranged: team memory, like the shared context, goes to every run of the workspace, so it is now a card in the right column under the shared context, and the goal composer is back right under the name instead of below an empty team memory section. Each note is one line (kind and title); hover for its summary and who wrote it, click to edit. With no notes the card has one line of text and no Consolidate Now button that cannot be clicked.
+- The shared context and team memory each have a "?" beside their title that explains how they work: who writes them, when agents get them, which one wins when they disagree, and how they grow and get consolidated.
+
 ## 2026.11.23.3
 
 - 修复目标里明确要求「提交并发布」时，负责人仍回复「规则禁止我直接 commit、push 或 deploy」，跑完验证就停下、改动留着没提交。原因是 Janus 写给负责人和协作者的固定约定里有一句无条件的「不要 commit、push、部署」。现在改为：你在目标或回答里要求时，Agent 照做，并且只做到你要求的程度（只说提交就不推送），不再反复问你；没有要求时和以前一样，改动保持未提交，验收时由 Janus 提交。任务在 worktree 里自己做的提交，验收时会和剩下的改动一起合并回你的分支；负责人也知道怎样从 worktree 推送到你指定的分支。Janus 自己仍然从不推送。
