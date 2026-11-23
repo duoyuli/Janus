@@ -4,6 +4,18 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.22.4
+
+- 值班派出的任务从头到尾自己闭环：自己做、自己验收、不合格自己返工。任务交付、失败或被你取消时立即叫醒值班，开工的提示里写着结束的任务和结果（交付摘要、失败原因，或者「是你取消的，不要再派」），值班不用再隔一会儿醒来查一次。值班的工作方式里写明，任务没结束时不查它的半成品，也不为同一件事再派一个任务（换个 key 也不行）。暂停的值班不被叫醒，下次开工时一并告诉它。已有的值班要删掉重建才会用上新的工作方式（叫醒是服务端的，升级后就生效）。
+- 新增值班工具 `note_dispatch`：值班知道、而它派出的任务不知道的事，可以转给那个任务的负责人，消息里写明来自哪个值班；只能转给它自己派出、还在进行中的任务。
+- 修复值班在两次开工之间闲置一会儿后，收件箱里出现「已中断，可以从中断处继续」，看起来像值班出了问题要你处理：那只是它的会话关掉省资源，下次开工会重新打开。对话也一样不会出现。
+- 「挡住的路径」写明文件夹和单个文件都能挡（点「+」在选择窗口里选文件即可）。
+
+- A run a Loop dispatches sees its goal through on its own: it does the work, checks it and redoes what falls short. When it is delivered, fails or you cancel it, the Loop wakes right away, and the wake's prompt names the run and how it ended (its summary, why it failed, or that you cancelled it and it should not be dispatched again), so the Loop no longer wakes every so often to look. The Loop's instructions say not to check a run's work in progress and not to dispatch another run about the same thing, under another key either. A paused Loop is not woken and hears of it at its next wake. Existing Loops pick up the new instructions once recreated; the wake on a run's end works as soon as you upgrade.
+- New Loop tool `note_dispatch`: what the Loop knows and a run it dispatched does not goes to that run's lead, marked as coming from the Loop; only for runs it dispatched that are still working.
+- Fixed the inbox showing a Loop as "interrupted, continue from where it stopped" after it sat idle between wakes, as if it needed you: its session had only closed to save resources and opens again at the next wake. The same holds for chats.
+- Hidden Paths says that both folders and single files can be hidden (pick a file in the panel behind +).
+
 ## 2026.11.22.3
 
 - 本机环境改为镜像你的用户目录：Agent 和 MCP 服务器的用户目录里，你本机的每一项都链接到原位置，登录、钥匙串、工具链和配置直接能用，以后装的新工具也一样，不用再一项项打开。只有「挡住的路径」里列出的看不到：默认是常见 Agent 自己的配置（`~/.claude`、`~/.codex`、`~/.pi`、`~/.agents` 等，数字员工的指令、Skill 和 MCP 仍只由 Janus 给）和一些高危数据（`~/.aws`、`~/.gnupg`、`~/.kube`、浏览器、邮件和信息等），清单只列你这台 Mac 上有的路径；你可以点 × 移除、恢复默认，或者点标题旁的「+」在系统的选择窗口里直接选；Janus 自己的数据目录一直挡着。升级时原来逐项打开的记录换成这份默认清单。
