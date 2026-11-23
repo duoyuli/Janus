@@ -6,11 +6,15 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 ## 2026.11.23.4
 
-- 工作区首页重新排了一下：团队记忆和共享资料一样，是每个任务都会带上的工作区上下文，现在做成一张卡片，放在右栏共享资料下面；目标输入框回到名称正下方，不再被一个空的团队记忆区块压在下面。团队记忆每条笔记一行（类型和标题），悬停看摘要和是谁写的，点开可以改；没有笔记时只有一行说明，不再挂着点不了的「现在整理」。
-- 共享资料和团队记忆的标题旁各加了一个「?」，点开说明它们怎么工作：谁来写、什么时候交给 Agent、冲突时以谁为准、怎样积累和整理。
+- 团队记忆改为按需检索：笔记不再塞进每个任务的说明里，Agent 只知道这个工作区有多少条，开始工作前和遇到不熟悉的事时自己检索。检索也改了：以前要每个词都出现才算找到，换个说法、中文不分词就搜不到；现在按标题、摘要、正文的命中程度排序，返回最相关的几条，中文换个说法也能搜到，不带关键词时列出全部笔记。被取消的任务写的笔记，以前按关键词还能搜到，现在搜不到了。
+- 工作区首页重新排了一下：团队记忆做成一张卡片，放在右栏共享资料下面，两者都是这个工作区的任务知道的东西：共享资料由你写、每个任务都带上，团队记忆由 Agent 写、需要时检索。目标输入框回到名称正下方，不再被一个空的团队记忆区块压在下面。团队记忆每条笔记一行（类型和标题），悬停看摘要和是谁写的，点开可以改；没有笔记时只有一行说明，不再挂着点不了的「现在整理」。
+- 共享资料和团队记忆的标题旁各加了一个「?」，点开说明它们怎么工作：谁来写、怎样交给 Agent、冲突时以谁为准、怎样积累和整理。
+- 修复一个时快时慢的后端测试（整理团队记忆的会话还没记下说明就去读），它让上一次打包失败。
 
-- The workspace home is rearranged: team memory, like the shared context, goes to every run of the workspace, so it is now a card in the right column under the shared context, and the goal composer is back right under the name instead of below an empty team memory section. Each note is one line (kind and title); hover for its summary and who wrote it, click to edit. With no notes the card has one line of text and no Consolidate Now button that cannot be clicked.
-- The shared context and team memory each have a "?" beside their title that explains how they work: who writes them, when agents get them, which one wins when they disagree, and how they grow and get consolidated.
+- Team memory is now searched when needed: notes are no longer put in every run's instructions; agents learn how many there are and search them before they start and whenever they meet something unfamiliar. The search is better too: it used to need every word to appear, so other wording or Chinese without spaces found nothing; it now ranks notes by matches in the title, the summary and the body and returns the best few, finds Chinese notes in other words, and lists every note when given no words. Notes from cancelled runs, which a search used to find, are no longer found.
+- The workspace home is rearranged: team memory is now a card in the right column under the shared context, both being what the workspace's runs know: you write the shared context and every run gets it; agents write team memory and search it when they need it. The goal composer is back right under the name instead of below an empty team memory section. Each note is one line (kind and title); hover for its summary and who wrote it, click to edit. With no notes the card has one line of text and no Consolidate Now button that cannot be clicked.
+- The shared context and team memory each have a "?" beside their title that explains how they work: who writes them, how agents get them, which one wins when they disagree, and how they grow and get consolidated.
+- Fixed a backend test that failed now and then (it read the consolidation session's instructions before they were recorded) and made the last packaging fail.
 
 ## 2026.11.23.3
 
