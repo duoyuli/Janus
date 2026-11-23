@@ -1,11 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// A workspace's team memory in the app: the section on the workspace's home, the sheet to read
-/// and change one note, and the page of a consolidation.
+/// A workspace's team memory section, the sheet to read and change one note, and the page of a
+/// consolidation.
 // @project-doc docs/architecture/20261031-frontend.md#team_memory
 
-/// The notes of one workspace, below its Loops: what its runs kept for the runs after them.
+/// The notes of one workspace: what its runs kept for the runs after them.
 struct MemorySection: View {
     let store: AppStore
     let ws: JSON

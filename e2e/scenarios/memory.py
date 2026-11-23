@@ -86,8 +86,11 @@ def memory(ctx, c):
           and rows[pitfall["id"]]["kind"] in ("坑", "Pitfall") and rows[pitfall["id"]]["source"].startswith(("你 · ", "You · "))
           and "memory 负责人" in rows[howto["id"]]["source"],
           "应用：工作区页的笔记（类型、标题、摘要、来源）与服务端一致")
-        ctx.app.do(f"open home:{ws}", "shot memory-home")
-        c(drawn(ctx.app.picture("memory-home")), "应用：工作区页的团队记忆一节画出来了（memory-home.png）")
+        st = ctx.app.do(f"open home:{ws}", "shot memory-home")
+        c(st.get("screen") == f'Optional(Janus.Screen.home("{ws}"))'
+          and [n["id"] for n in shown(st)] == [m["id"] for m in server]
+          and drawn(ctx.app.picture("memory-home")),
+          "应用：团队记忆位于工作区首页，笔记与服务端一致（memory-home.png）")
         # One batch: scenarios running beside this one move the app between batches.
         st = ctx.app.do(f"open home:{ws}", f"memory {howto['id']}", "shot memory-editor")
         c(st["editingMemory"] == howto["id"] and drawn(ctx.app.picture("memory-editor")), "应用：笔记的表单打开了这条笔记（memory-editor.png）")

@@ -39,6 +39,8 @@ struct HomeView: View {
                     }
                 }
 
+                MemorySection(store: store, ws: ws)
+
                 VStack(alignment: .leading, spacing: 10) {
                     Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("想要什么结果？⌘V 贴截图 · \(sendKey.symbol) 交给负责人"), minHeight: 96) { start(problems) }
                     HStack {
@@ -76,8 +78,6 @@ struct HomeView: View {
                 }
 
                 LoopSection(store: store, ws: ws)
-
-                MemorySection(store: store, ws: ws)
 
                 WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
             }
