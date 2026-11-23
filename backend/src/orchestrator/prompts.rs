@@ -20,16 +20,19 @@ pub(super) fn standing_instructions(m: &Member) -> String {
     format!("The following standing instructions from the user apply throughout the session.\n\n{}", parts.join("\n\n"))
 }
 
-/// Codex takes developer instructions only from its config: merge them into the one this adapter
-/// process starts with. Janus starts a process per session, so each role gets its own.
-pub(super) fn with_developer_instructions(mut spec: crate::acp::RuntimeSpec, text: &str) -> crate::acp::RuntimeSpec {
-    if text.is_empty() {
+/// Codex takes developer instructions, and its thread's approval and sandbox settings, only from
+/// its config: merge `settings` into the one this adapter process starts with. Janus starts a
+/// process per session, so each member gets its own.
+fn with_codex_config(mut spec: crate::acp::RuntimeSpec, settings: &[(&str, Value)]) -> crate::acp::RuntimeSpec {
+    if settings.is_empty() {
         return spec;
     }
     let i = spec.env.iter().position(|(k, _)| k == "CODEX_CONFIG");
     let mut cfg: Value =
         i.and_then(|i| serde_json::from_str(&spec.env[i].1).ok()).filter(Value::is_object).unwrap_or_else(|| json!({}));
-    cfg["developer_instructions"] = json!(text);
+    for (k, v) in settings {
+        cfg[*k] = v.clone();
+    }
     let v = cfg.to_string();
     match i {
         Some(i) => spec.env[i].1 = v,
@@ -261,14 +264,17 @@ pub(super) fn system_layer(parts: &[&str]) -> String {
     parts.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n")
 }
 
-/// Start the adapter with the system layer when its agent takes it from the environment (Codex's
-/// developer instructions). Claude Code takes it in `session/new` instead.
-pub(super) fn with_system(
-    spec: crate::acp::RuntimeSpec,
-    channel: &InstructionChannel,
-    text: &str,
-) -> crate::acp::RuntimeSpec {
-    if channel == &InstructionChannel::Developer { with_developer_instructions(spec, text) } else { spec }
+/// How the adapter starts for `member`'s session: with the system layer when its agent takes it
+/// from the environment (Codex's developer instructions; Claude Code takes it in `session/new`),
+/// and with the settings its permission mode needs from the start (`Runtime::mode_settings`).
+pub(super) fn member_spec(spec: crate::acp::RuntimeSpec, member: &Member, system: &str) -> crate::acp::RuntimeSpec {
+    let mut settings: Vec<(&str, Value)> = vec![];
+    if member.kind.instruction_channel() == InstructionChannel::Developer && !system.is_empty() {
+        settings.push(("developer_instructions", json!(system)));
+    }
+    let mode = member.session["mode"].as_str().unwrap_or_default();
+    settings.extend(member.kind.mode_settings(mode).iter().map(|(k, v)| (*k, json!(v))));
+    with_codex_config(spec, &settings)
 }
 
 pub(super) fn extract_json(text: &str) -> Option<Value> {

@@ -285,7 +285,7 @@ impl App {
         let rules = collaborator_rules(true);
         let skills = skills_note(self.skill_router_md(run, &member));
         let system_text = system_layer(&[&rules, &skills, &standing]);
-        let spec = with_system(self.spec_for(&member.runtime)?, &channel, &system_text);
+        let spec = member_spec(self.spec_for(&member.runtime)?, &member, &system_text);
         let system = (channel == InstructionChannel::System).then_some(system_text.as_str());
         self.db.start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
 

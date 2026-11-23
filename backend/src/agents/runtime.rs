@@ -43,6 +43,32 @@ impl Runtime {
         }
     }
 
+    /// The settings a session's agent starts with for permission mode `mode`, on top of the mode
+    /// the adapter is told (`session/set_config_option`). Codex's adapter applies a mode only to
+    /// the prompts it sends; `/goal`, and the turns Codex continues a goal with, run under the
+    /// thread's own approval and sandbox settings, which come from its config (`CODEX_CONFIG`)
+    /// and otherwise default to asking and to a workspace sandbox. So the thread starts with the
+    /// settings of the member's mode, one of the presets Codex's adapter declares. Claude Code
+    /// applies its mode to the whole session and needs none.
+    // @project-doc docs/domains/20261031-agents_and_roles.md#permission_modes
+    pub fn mode_settings(self, mode: &str) -> &'static [(&'static str, &'static str)] {
+        match (self, mode) {
+            (Runtime::Codex, "read-only") => &[("approval_policy", "on-request"), ("sandbox_mode", "read-only")],
+            (Runtime::Codex, "workspace-write") => {
+                &[("approval_policy", "on-request"), ("sandbox_mode", "workspace-write")]
+            }
+            (Runtime::Codex, "agent") => &[
+                ("approval_policy", "on-request"),
+                ("approvals_reviewer", "auto_review"),
+                ("sandbox_mode", "workspace-write"),
+            ],
+            (Runtime::Codex, "agent-full-access") => {
+                &[("approval_policy", "never"), ("sandbox_mode", "danger-full-access")]
+            }
+            _ => &[],
+        }
+    }
+
     /// The variable that points the agent at its isolated config directory instead of the
     /// person's own `~/.codex` or `~/.claude`.
     // @project-doc docs/operations/20261031-security.md#agent_isolation

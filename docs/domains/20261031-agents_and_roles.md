@@ -82,6 +82,8 @@ Janus 不定义自己的权限模型，而是使用每个 Agent 在 ACP 会话�
 
 角色没有选择权限模式时，Codex 默认用 Full access（`agent-full-access`），Claude Code 默认用 Bypass permissions（`bypassPermissions`），由 `Runtime::default_mode` 指定；Agent 不提供这个选项时，沿用 Agent 自己的当前模式（`control_default`）。默认值不写进角色：创建 Run 时 `member_session` 把它补进成员的 `session`，设置接口返回的连接给每个控制项带上 `default`，角色编辑器按它选中并标注「默认」，选回默认值时去掉角色中的这一项。设计取舍见 [ADR：Codex 和 Claude Code 默认不受限运行](../decisions/20261118-unrestricted_default_mode.md)。
 
+模式还要在 Agent 启动时给一次（`Runtime::mode_settings`，`member_spec` 合并进适配器进程的 `CODEX_CONFIG`）：Codex 的适配器只把会话模式带进它自己发出的每一轮提示，`/goal` 和 Codex 接着推进目标的各轮用的是线程自己的审批和沙箱设置，这些设置在线程创建时取自配置，没有时是「需要时询问」加「只能写工作目录」的沙箱。所以负责人显示 Full access，`/goal` 里却会弹审批、访问钥匙串和工作目录外的文件失败。Janus 按成员的模式把线程的设置一起给上：Read-only 是 `on-request` 加 `read-only`，Workspace access 是 `on-request` 加 `workspace-write`，Auto review 再加 `approvals_reviewer = auto_review`，Full access 是 `never` 加 `danger-full-access`；Janus 不认识的模式（例如 Codex 的权限配置文件）不给，由 Agent 自己的配置决定。会话中途切换模式时，之后的普通提示照新模式，已经在跑的目标仍按启动时的设置，要整个目标换模式就在下一个会话生效。Claude Code 的适配器把模式设在整个会话上（`setPermissionMode`），`/goal` 也照它执行，不需要这一步。
+
 <a id="no_plan_mode"></a>
 ### 不使用 Plan 模式
 

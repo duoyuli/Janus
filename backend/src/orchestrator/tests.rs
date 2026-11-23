@@ -100,25 +100,59 @@ fn standing_instructions_go_in_the_system_layer() {
     assert!(standing_instructions(&member_with(Runtime::Codex, " ", "")).is_empty());
 }
 
+/// Codex starts with its system layer and its permission mode's thread settings in the adapter's
+/// config, next to the gateway's; Claude Code takes neither from there. A goal runs under the
+/// thread's settings, so Full access starts as never asking and no sandbox.
 #[test]
-fn developer_instructions_merge_into_codex_config() {
-    let spec = |env: Vec<(String, String)>| crate::acp::RuntimeSpec {
+fn a_codex_session_starts_with_its_instructions_and_its_modes_settings() {
+    let spec = |kind: Runtime, env: Vec<(String, String)>| crate::acp::RuntimeSpec {
         id: "c".into(),
-        kind: Runtime::Codex,
+        kind,
         name: "Codex".into(),
         program: "node".into(),
         args: vec![],
         env,
         pin: None,
     };
+    let with_mode = |kind: Runtime, mode: &str| {
+        let mut m = member_with(kind, "", "");
+        m.session = json!({ "mode": mode });
+        m
+    };
     let gw = r#"{"model_provider":"janus"}"#.to_string();
-    let out = with_developer_instructions(spec(vec![("CODEX_CONFIG".into(), gw)]), "规则");
+    let codex = with_mode(Runtime::Codex, "agent-full-access");
+    let out = member_spec(spec(Runtime::Codex, vec![("CODEX_CONFIG".into(), gw)]), &codex, "规则");
     let cfg: Value = serde_json::from_str(&out.env[0].1).unwrap();
     assert_eq!(cfg["model_provider"], "janus", "the gateway config stays");
     assert_eq!(cfg["developer_instructions"], "规则");
-    let out = with_developer_instructions(spec(vec![]), "规则");
-    assert_eq!(out.env, vec![("CODEX_CONFIG".to_string(), r#"{"developer_instructions":"规则"}"#.to_string())]);
-    assert!(with_developer_instructions(spec(vec![]), "").env.is_empty());
+    assert_eq!(
+        (cfg["approval_policy"].as_str(), cfg["sandbox_mode"].as_str()),
+        (Some("never"), Some("danger-full-access"))
+    );
+    let cfg: Value = serde_json::from_str(
+        &member_spec(spec(Runtime::Codex, vec![]), &with_mode(Runtime::Codex, "read-only"), "").env[0].1,
+    )
+    .unwrap();
+    assert_eq!(
+        cfg,
+        json!({ "approval_policy": "on-request", "sandbox_mode": "read-only" }),
+        "no instructions, still the mode"
+    );
+    let cfg: Value = serde_json::from_str(
+        &member_spec(spec(Runtime::Codex, vec![]), &with_mode(Runtime::Codex, "agent"), "").env[0].1,
+    )
+    .unwrap();
+    assert_eq!(cfg["approvals_reviewer"], "auto_review");
+    // A mode Janus does not know (a permission profile), or none: the agent's own config decides.
+    assert!(
+        member_spec(spec(Runtime::Codex, vec![]), &with_mode(Runtime::Codex, "permission-profile:x"), "")
+            .env
+            .is_empty()
+    );
+    assert!(member_spec(spec(Runtime::Codex, vec![]), &member_with(Runtime::Codex, "", ""), "").env.is_empty());
+    // Claude Code applies its mode to the whole session and takes its system layer in session/new.
+    let claude = with_mode(Runtime::Claude, "bypassPermissions");
+    assert!(member_spec(spec(Runtime::Claude, vec![]), &claude, "规则").env.is_empty());
 }
 
 /// Janus's rules for a collaborator lead its system layer, the person's standing rules follow,
@@ -149,11 +183,11 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
         env: vec![],
         pin: None,
     };
-    let codex = with_system(spec(), &InstructionChannel::Developer, &text);
+    let codex = member_spec(spec(), &member_with(Runtime::Codex, "", ""), &text);
     let cfg: Value = serde_json::from_str(&codex.env[0].1).unwrap();
     assert_eq!(cfg["developer_instructions"], text);
     assert!(
-        with_system(spec(), &InstructionChannel::System, &text).env.is_empty(),
+        member_spec(spec(), &member_with(Runtime::Claude, "", ""), &text).env.is_empty(),
         "Claude Code takes it in session/new"
     );
 

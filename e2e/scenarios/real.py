@@ -24,7 +24,8 @@ ADDR = free_addr()
 GOAL = ("给 calc.py 增加 mod(a, b)：返回 a 除以 b 的余数，b 为 0 时抛出 ZeroDivisionError；"
         "在 test_calc.py 补上对应测试，并运行 python3 -m unittest 确认全部通过。"
         "这是一次团队协作演练：请把实现交给研发协作者，再请质量协作者独立验证，你自己不要改文件。"
-        "质量协作者开始验证前，先调用 janus-tools 里的 probe__echo 工具，text 写「开始验证」。")
+        "质量协作者开始验证前，先调用 janus-tools 里的 probe__echo 工具，text 写「开始验证」。"
+        "派出子任务之前，你（负责人）先运行一次 `touch {mark}`（项目目录之外的一个标记文件，不算改项目文件）。")
 # Several skills, all of which reach the agents through the janus-skills router.
 ROUTED_SKILLS = [f"e2e-skill-{i}" for i in range(11)]
 # A skill the goal needs without naming it or echoing its description: the agents have to find it
@@ -41,7 +42,7 @@ CONVENTIONS = {
 
 @scenario("real", serial=True, real=True)
 def real(ctx, c):
-    """真实 Agent 冒烟：Codex 负责人带 Claude Code 协作者，在 examples/calc 的副本上完成一个小目标并通过测试"""
+    """真实 Agent 冒烟：Codex 负责人带 Claude Code 协作者，在 examples/calc 的副本上完成一个小目标并通过测试；默认的 Full access 在 /goal 里真的生效（不进沙箱、不弹审批）"""
     home = ctx.path("real", "home")
     src = os.path.join(ROOT, "examples", "calc")
     files = {n: open(os.path.join(src, n)).read() for n in ("calc.py", "test_calc.py", "README.md", ".gitignore")}
@@ -73,7 +74,9 @@ def real(ctx, c):
         api("POST", "/api/setup/roles", dict(roles["qa"], connection=ids["claude"]))
         api("POST", "/api/setup/workspaces", {"id": "calc", "name": "calc", "path": repo, "lead": "pmo",
                                               "members": [{"role": "pmo"}, {"role": "developer"}, {"role": "qa"}]})
-        run = api("POST", "/api/runs", {"goal": GOAL, "workspace": "calc"})["id"]
+        # Outside the workspace and the agent's own temp dir: a sandboxed lead would have to ask.
+        mark = os.path.join(ctx.path("real", "outside"), "lead-ran")
+        run = api("POST", "/api/runs", {"goal": GOAL.format(mark=mark), "workspace": "calc"})["id"]
         c(True, f"提交目标（Run {run}）")
         status = _drive(api, run, c, timeout=30 * 60)
         c.must(status == "delivered", f"Run 交付（状态 {status}）")
@@ -81,6 +84,11 @@ def real(ctx, c):
         done = {e.get("task") for e in events if e["type"] == "task.succeeded"}
         c(done, f"协作者完成了任务：{sorted(done)}")
         c(not any(e["type"] == "lead.edited" for e in events), "负责人派出子任务后没有自己改文件")
+        # The lead runs its goal through Codex's /goal, whose turns take the thread's approval and
+        # sandbox settings: in the default Full access it writes outside the workspace unasked.
+        asked = [e["data"].get("command", "")[:60] for e in events if e["type"] == "approval.requested" and e["actor"] == "lead"]
+        c(os.path.exists(mark) and not asked,
+          f"Codex 负责人在默认的 Full access 下跑 /goal：项目目录外的标记写成了（{os.path.exists(mark)}），没有弹审批（{asked}）")
         # A real lead may still try a library tool after delegating (the goal names one): Janus
         # does not block it, it puts it in front of the lead and lists it as a delivery risk.
         lead_tools = [e["data"]["tool"] for e in events if e["type"] == "lead.routed"]

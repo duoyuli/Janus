@@ -288,7 +288,7 @@ impl App {
         let brief = format!("{}{notes}", self.goal_brief(run, resumed));
         let skills = skills_note(self.skill_router_md(run, &lead));
         let system = system_layer(&[&brief, &skills, &standing]);
-        let spec = with_system(self.spec_for(&lead.runtime)?, &channel, &system);
+        let spec = member_spec(self.spec_for(&lead.runtime)?, &lead, &system);
         let workspace = run.cwd.clone();
         if lead.kind.trusts_workspaces() {
             // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
@@ -665,7 +665,7 @@ impl App {
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
         let mut started = None;
         if let Some((sid, kept)) = old {
-            let (conn, mut rx, ctl) = self.start_conversation_agent(run, lead, channel, kept).await?;
+            let (conn, mut rx, ctl) = self.start_conversation_agent(run, lead, kept).await?;
             if conn.capabilities["loadSession"] == true {
                 let opening = self.conversation_opening(run, lead, &conn, channel, kept);
                 let params = opening.load_params(sid, &run.cwd);
@@ -685,7 +685,7 @@ impl App {
         }
         let (conn, rx, ctl) = match started {
             Some(started) => started,
-            None => self.start_conversation_agent(run, lead, channel, fresh).await?,
+            None => self.start_conversation_agent(run, lead, fresh).await?,
         };
         let opening = self.conversation_opening(run, lead, &conn, channel, fresh);
         let session = tokio::time::timeout(STARTUP_TIMEOUT, new_session(&conn, &run.cwd, &opening))
@@ -702,15 +702,14 @@ impl App {
     }
 
     /// Start the adapter of a conversation's main session, with `system` as its system layer where
-    /// the agent reads it from its environment (Codex).
+    /// the agent reads it from its environment (Codex) and the settings of its permission mode.
     async fn start_conversation_agent(
         &self,
         run: &Run,
         lead: &Member,
-        channel: &InstructionChannel,
         system: &str,
     ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
-        let spec = with_system(self.spec_for(&lead.runtime)?, channel, system);
+        let spec = member_spec(self.spec_for(&lead.runtime)?, lead, system);
         if lead.kind.trusts_workspaces() {
             // Claude Code only runs /goal in a workspace it trusts, in a chat too.
             self.trust_claude_workspace(&lead.runtime, &run.cwd)?;
