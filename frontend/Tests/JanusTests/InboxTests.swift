@@ -39,6 +39,14 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(Inbox.entries(row: ["id": "r5", "status": "cancelled"], workspace: "").isEmpty)
 }
 
+/// A Loop's session closes between wakes (the run reads `interrupted`), and a chat's between
+/// messages: that is how they rest, not a stopped run to continue.
+@Test func restingLoopsAndChatsAskNothing() {
+    #expect(Inbox.entries(row: ["id": "l1", "kind": "loop", "status": "interrupted", "goal": "昨日精选"], workspace: "W").isEmpty)
+    #expect(Inbox.entries(row: ["id": "c1", "kind": "chat", "status": "interrupted", "goal": "g"], workspace: "").isEmpty)
+    #expect(Inbox.entries(row: ["id": "r6", "kind": "goal", "status": "interrupted", "goal": "g"], workspace: "").count == 1)
+}
+
 @Test func snoozedItemsComeBackOnTimeAndBlockingOnesCannotBeSnoozed() {
     func e(_ key: String, wait: Bool, settle: Bool = false, ts: Double) -> InboxEntry {
         InboxEntry(key: key, run: "r", goal: "", workspace: "", title: key, text: "", sub: "", ts: ts, canWait: wait, canSettle: settle)

@@ -49,8 +49,10 @@ enum Inbox {
     }
 
     /// What a finished run asks of the person, from its row alone: accept a delivery, or decide
-    /// about a run that stopped.
+    /// about a run that stopped. A chat or a Loop asks none of this: its session closing between
+    /// messages or wakes (`interrupted`) is how it rests, and the next message or wake reopens it.
     static func entries(row: JSON, workspace: String) -> [InboxEntry] {
+        guard row["kind"].str != "chat" && row["kind"].str != "loop" else { return [] }
         let id = row["id"].str
         let at = row["createdAt"].double ?? 0
         func entry(_ what: String, _ title: String, _ sub: String, wait: Bool, settle: Bool) -> InboxEntry {
@@ -128,7 +130,6 @@ final class InboxModel {
         let read = { (row: JSON) in RunStatus(row["status"].str).isActive || RunStatus(row["status"].str) == .delivered || row["kind"].str == "loop" }
         let live = store.attention.filter(read) + chats
         for row in store.attention + chats {
-            let chat = row["kind"].str == "chat" || row["kind"].str == "loop"
             let ws = row["kind"].str == "chat" ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? row["config"]["workspace"]["name"].str
             guard read(row) else {
                 out += Inbox.entries(row: row, workspace: ws)
@@ -149,7 +150,7 @@ final class InboxModel {
             let new = data["events"].array
             guard read(row) else {
                 cache[id] = nil
-                if !chat { out += Inbox.entries(row: row, workspace: ws) }
+                out += Inbox.entries(row: row, workspace: ws)
                 continue
             }
             if let unchanged = known?.unchangedEntries(newEvents: new, row: row, workspace: ws, locale: locale) {
