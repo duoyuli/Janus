@@ -251,7 +251,7 @@ enum Snapshots {
             if let r = store.run {
                 let s = r.state
                 j["run"] = [
-                    "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "page": JSON(String(describing: r.page)),
+                    "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "readOnly": .bool(r.readOnly), "page": JSON(String(describing: r.page)),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
                     // A consolidation's outcome as its page shows it.
                     "consolidated": s.events.last { $0.type == .memoryConsolidated }.map { $0.data } ?? .null,
@@ -271,7 +271,8 @@ enum Snapshots {
                     "review": s.result.map { res -> JSON in
                         let d = Delivery(res)
                         let strings = { (xs: [String]) in JSON.array(xs.map { JSON($0) }) }
-                        return ["stage": JSON(reviewStage(s, live: r.live && !r.isReplaying).map { String(describing: $0) }), "n": JSON(d.n),
+                        let stage = reviewStage(s, live: r.live && !r.isReplaying)
+                        return ["stage": JSON(stage.map { String(describing: $0) }), "actions": .bool(stage.map(r.offersReview) ?? false), "n": JSON(d.n),
                                 "headline": JSON(d.headline), "decisions": strings(d.decisions), "merge": JSON(d.merge?.rawValue),
                                 "changed": strings(d.changed), "requests": strings(roundRequests(s, res).map(\.text)),
                                 "signals": JSON.array(reviewSignals(d).map { ["source": JSON(String(describing: $0.source)), "text": JSON($0.text)] }),

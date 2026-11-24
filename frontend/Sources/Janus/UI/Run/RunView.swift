@@ -37,7 +37,7 @@ struct RunView: View {
             }
         }
         .navigationTitle(run.isChat ? run.chatTitle : run.isDream ? L.text("整理团队记忆") : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
-        .navigationSubtitle(run.isChat || run.isLoop || run.isDream ? "" : run.live ? "" : L.text("只读 · 这个任务不在当前运行的 Janus 服务里"))
+        .navigationSubtitle(run.isChat || run.isLoop || run.isDream || !run.readOnly ? "" : L.text("只读 · 这个任务已停止"))
         .toolbar {
             if run.isLoop || run.isDream {
                 ToolbarItem { DocumentsMenu(run: run) }

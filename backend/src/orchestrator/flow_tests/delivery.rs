@@ -109,6 +109,33 @@ async fn a_lead_that_exited_after_delivery_is_reopened_by_the_next_message() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// A run delivered before the service restarted is accepted from its stored record: acceptance
+/// needs no agent, so no session is reopened, and the app offers it as it does for a live run.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_delivered_before_a_restart_is_accepted() {
+    let h = harness("deliver-restart", &[("lead", false), ("m1", true)], json!({ "T1": ["ok"] }));
+    let run = delivered(&h).await;
+    // Only the stored run is left, as after a restart.
+    let old = h.app.runs.lock().unwrap().remove(&run).unwrap();
+    let conns: Vec<Arc<AcpConn>> = old.st.lock().unwrap().conns.drain().map(|(_, c)| c).collect();
+    for c in conns {
+        c.kill().await;
+    }
+    let loads = || {
+        std::fs::read_to_string(h.dir.join("fake/calls.log"))
+            .unwrap()
+            .lines()
+            .filter(|l| l.starts_with("load "))
+            .count()
+    };
+    let before = loads();
+    assert!(matches!(h.app.request_action(&run, &req(json!({ "type": "accept" }))).await, Ok(ActionReply::Done)));
+    assert_eq!(status(&h.app, &run), "accepted");
+    assert!(has(&events(&h.app, &run), "risk.accepted"));
+    assert!(h.app.run(&run).is_none() && loads() == before, "accepting opened no session");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
 /// A new session's history leaves out the message still waiting for the agent: that message is
 /// the session's first prompt, and history plus prompt would hand it over twice.
 #[test]

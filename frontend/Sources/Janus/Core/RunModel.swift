@@ -45,6 +45,14 @@ final class RunModel {
     var isReplaying: Bool { replay != nil }
     /// Actions are possible: a live run, not replaying.
     var canAct: Bool { live && replay == nil }
+    /// The delivery card offers its buttons ("验收", "让负责人改…") at a stage that waits for the
+    /// person's review. Not only while the run is live: a run delivered before the service
+    /// restarted is accepted from its record, and a message to its lead reopens the session.
+    func offersReview(_ stage: ReviewStage) -> Bool { stage.reviews && !isReplaying }
+    /// Nothing can be done in it any more: a stopped run the service no longer holds. Any other run
+    /// takes an action without being live (a delivered one is accepted or messaged, an interrupted
+    /// one resumed, a queued one started).
+    var readOnly: Bool { !live && state.run.status == .cancelled }
 
     /// Whether the run card's wall-clock time must advance every second: the server says this run
     /// is live, it is not a replayed position, and the run is still going. A finished, replayed or

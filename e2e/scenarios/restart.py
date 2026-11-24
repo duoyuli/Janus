@@ -59,8 +59,15 @@ def restart(ctx, c):
         run.finish("重启后也完成了")
         c(run.status() == "delivered", "恢复的 Run 交付")
 
-        # Replaying it shows the lead's session read-only: a draft typed there stays and is not sent.
-        if ctx.ui(c, done.id, lambda r, s: r["status"] == "delivered", "重启前交付的 Run 在应用中已交付"):
+        # Delivered before the restart, it is no longer in the service's memory and still waits for
+        # the person: the card offers acceptance and the page is not marked read-only.
+        st = ctx.ui(c, done.id, lambda r, s: r["status"] == "delivered" and r["review"], "重启前交付的 Run 在应用中已交付")
+        if st:
+            rv = st["run"]["review"]
+            c(not st["run"]["live"] and rv["stage"] == "awaiting" and rv["actions"] and not st["run"]["readOnly"],
+              f"应用：重启前交付、不在服务内存里的 Run 仍等你验收，给出「验收」和「让负责人改…」，不标只读"
+              f"（live {st['run']['live']}，阶段 {rv['stage']}，按钮 {rv['actions']}，只读 {st['run']['readOnly']}）")
+            # Replaying it shows the lead's session read-only: a draft typed there stays and is not sent.
             shot = f"{done.id}-replay-draft"
             ctx.app.do(f"open run:{done.id}", "page replay:3", "draft lead 回放时写的草稿", f"shot {shot}")
             c(drawn(ctx.app.picture(shot)), f"应用：回放中负责人会话显示「回放中」、输入框只读、草稿保留（{shot}.png）")

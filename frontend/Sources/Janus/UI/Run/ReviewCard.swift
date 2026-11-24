@@ -103,7 +103,7 @@ struct ReviewBody: View {
             facts(acceptance)
             attention(signals)
             changes
-            if stage.reviews && run.canAct { actions(signals) }
+            if run.offersReview(stage) { actions(signals) }
             if !acceptance.isEmpty { tasks(acceptance) }
             folds
             if !d.d["briefSuggestions"].strings.isEmpty { BriefSuggestions(run: run, lines: d.d["briefSuggestions"].strings) }

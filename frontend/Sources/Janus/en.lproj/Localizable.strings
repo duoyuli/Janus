@@ -330,7 +330,7 @@
 "另一个 Janus 占着 %@ 但连不上（%@）。先退出它（服务方式运行的执行 just stop），再点重试。" = "Another Janus holds %@ but can't be reached (%@). Quit it (run just stop if it runs as a service), then retry.";
 "绑定 Agent 后才能担任负责人" = "Bind an Agent before this employee can lead";
 "只读 · 当时的状态" = "Read-only · As it was then";
-"只读 · 这个任务不在当前运行的 Janus 服务里" = "Read-only · This run isn't in the running Janus service";
+"只读 · 这个任务已停止" = "Read-only · This run was stopped";
 "只读查看" = "Read-only";
 "可以从失败处继续。" = "You can resume from the failure.";
 "可以在负责人的会话里发消息、打断并接管，或者继续等" = "Send a message in the lead’s session, interrupt and take over, or keep waiting";
