@@ -4,7 +4,7 @@ A Janus home of its own on a free port of 127.0.0.1. The agents are a copy of th
 the Codex and Claude Code connections of their Janus home (`--real-from`, ~/.janus) with the same
 settings, so 「复制本机配置」 copies from the same source directories again, and secrets the API never
 returns are copied file to file. Nothing in that home is changed. Janus installs the real ACP
-adapters from npm, a Codex lead and Claude Code collaborators take a small goal on a copy of
+adapters from npm, a lead on the agent the person's own lead uses and Claude Code collaborators take a small goal on a copy of
 examples/calc, and the result is checked by running its tests.
 """
 
@@ -42,7 +42,7 @@ CONVENTIONS = {
 
 @scenario("real", serial=True, real=True)
 def real(ctx, c):
-    """真实 Agent 冒烟：Codex 负责人带 Claude Code 协作者，在 examples/calc 的副本上完成一个小目标并通过测试；默认的 Full access 在 /goal 里真的生效（不进沙箱、不弹审批）"""
+    """真实 Agent 冒烟：负责人用你本机负责人的 Agent（Codex 或 Claude Code），带 Claude Code 协作者，在 examples/calc 的副本上完成一个小目标并通过测试；默认的最高权限在 /goal 里真的生效（不进沙箱、不弹审批）"""
     home = ctx.path("real", "home")
     src = os.path.join(ROOT, "examples", "calc")
     files = {n: open(os.path.join(src, n)).read() for n in ("calc.py", "test_calc.py", "README.md", ".gitignore")}
@@ -51,7 +51,11 @@ def real(ctx, c):
     server.start()
     api = lambda method, path, body=None: http(ADDR, method, path, body, timeout=60)  # noqa: E731
     try:
-        ids = _copy_connections(ctx.real_from, home, api, c)
+        lead = _lead_kind(ctx.real_from)
+        label = {"codex": "Codex", "claude": "Claude Code"}[lead]
+        c(True, f"负责人用你本机负责人的 Agent：{label}")
+        # Only the agents this run uses are copied and checked: Codex only when it leads.
+        ids = _copy_connections(ctx.real_from, home, api, c, kinds=sorted({lead, "claude"}))
         def checked():
             cs = {x["id"]: x for x in api("GET", "/api/setup")["connections"]}
             return cs if all(cs[i].get("phase") in ("ok", "error") for i in ids.values()) else None
@@ -59,7 +63,7 @@ def real(ctx, c):
         for i in ids.values():
             c.must(cs[i]["phase"] == "ok", f"{i} 配置检查通过（{cs[i].get('error') or 'ok'}）")
         adapters = {a["id"]: a for a in api("GET", "/api/adapters")["adapters"]}
-        c(all(adapters[i]["current"] for i in ("codex", "claude")), f"Janus 从 npm 安装了适配器：codex {adapters['codex']['current']}，claude {adapters['claude']['current']}")
+        c(all(adapters[k]["current"] for k in ids), "Janus 从 npm 安装了适配器：" + "，".join(f"{k} {adapters[k]['current']}" for k in ids))
 
         # The library as a person would fill it: a command server and eleven skills.
         probe = api("POST", "/api/library/mcp", {"name": "probe", "description": "端到端测试用", "transport": "stdio",
@@ -69,7 +73,7 @@ def real(ctx, c):
         conventions = api("POST", "/api/library/skills", CONVENTIONS)
 
         roles = {r["id"]: r for r in api("GET", "/api/setup")["roles"]}
-        api("POST", "/api/setup/roles", dict(roles["pmo"], connection=ids["codex"], lead=True))
+        api("POST", "/api/setup/roles", dict(roles["pmo"], connection=ids[lead], lead=True))
         api("POST", "/api/setup/roles", dict(roles["developer"], connection=ids["claude"]))
         api("POST", "/api/setup/roles", dict(roles["qa"], connection=ids["claude"]))
         api("POST", "/api/setup/workspaces", {"id": "calc", "name": "calc", "path": repo, "lead": "pmo",
@@ -84,11 +88,12 @@ def real(ctx, c):
         done = {e.get("task") for e in events if e["type"] == "task.succeeded"}
         c(done, f"协作者完成了任务：{sorted(done)}")
         c(not any(e["type"] == "lead.edited" for e in events), "负责人派出子任务后没有自己改文件")
-        # The lead runs its goal through Codex's /goal, whose turns take the thread's approval and
-        # sandbox settings: in the default Full access it writes outside the workspace unasked.
+        # The lead runs its goal through its agent's /goal in the default highest mode (Codex's Full
+        # access, whose /goal turns take the thread's settings; Claude Code's Bypass permissions):
+        # it writes outside the workspace unasked.
         asked = [e["data"].get("command", "")[:60] for e in events if e["type"] == "approval.requested" and e["actor"] == "lead"]
         c(os.path.exists(mark) and not asked,
-          f"Codex 负责人在默认的 Full access 下跑 /goal：项目目录外的标记写成了（{os.path.exists(mark)}），没有弹审批（{asked}）")
+          f"{label} 负责人在默认的最高权限下跑 /goal：项目目录外的标记写成了（{os.path.exists(mark)}），没有弹审批（{asked}）")
         # A real lead may still try a library tool after delegating (the goal names one): Janus
         # does not block it, it puts it in front of the lead and lists it as a delivery risk.
         lead_tools = [e["data"]["tool"] for e in events if e["type"] == "lead.routed"]
@@ -105,9 +110,12 @@ def real(ctx, c):
         for e in events:
             if e["type"] == "session.commands":
                 names = [x.get("name", "") for x in (e.get("data") or {}).get("commands", [])]
-                by_agent.setdefault("codex" if e.get("actor") == "lead" else "claude", set()).update(names)
+                by_agent.setdefault(lead if e.get("actor") == "lead" else "claude", set()).update(names)
+        # Only the agents that ran a session here are checked: with a Claude Code lead, Codex runs none.
         for agent, router in (("codex", "$janus-skills"), ("claude", "janus:janus-skills")):
-            names = by_agent.get(agent, set())
+            if agent not in by_agent:
+                continue
+            names = by_agent[agent]
             leaked = sorted(n for n in names if any(n.endswith(s) for s in ROUTED_SKILLS))
             c(router in names and not leaked,
               f"{agent} 只加载了 Skill 路由，没有单独加载被收起的 Skill（有 {router}：{router in names}，单独出现的：{leaked}，共 {len(names)} 个命令）")
@@ -136,8 +144,23 @@ DERIVED = {"agentInfo", "base", "check", "checkedAt", "createdAt", "elapsedMs", 
            "importedEnv", "options", "reply", "status", "testStartedAt"}
 
 
-def _copy_connections(src_home, home, api, c):
-    """Copy the person's Codex and Claude Code connections (a checked one of each kind) into the
+def _lead_kind(src_home):
+    """The kind of agent (codex or claude) the person's own lead runs on: the connection of the
+    lead role in their Janus home."""
+    db = sqlite3.connect(f"file:{home_db(src_home)}?mode=ro", uri=True)
+    try:
+        configs = {(k, i): json.loads(d) for k, i, d in db.execute("SELECT kind, id, data FROM configs WHERE kind IN ('role', 'connection')")}
+    finally:
+        db.close()
+    lead = next((r for (k, _), r in configs.items() if k == "role" and r.get("lead")), None)
+    conn = configs.get(("connection", (lead or {}).get("connection", "")), {})
+    if conn.get("kind") not in ("codex", "claude"):
+        raise Failure(f"{src_home} 中找不到负责人用的 Codex 或 Claude Code 连接，先在 Janus 中设好负责人")
+    return conn["kind"]
+
+
+def _copy_connections(src_home, home, api, c, kinds):
+    """Copy the person's connections of `kinds` (codex, claude: a checked one of each) into the
     test home and start their checks. Returns {kind: connection id}."""
     db_path = home_db(src_home)
     if not os.path.exists(db_path):
@@ -149,6 +172,8 @@ def _copy_connections(src_home, home, api, c):
         db.close()
     ids = {}
     for kind, label in (("codex", "Codex"), ("claude", "Claude Code")):
+        if kind not in kinds:
+            continue
         mine = sorted((x for x in conns if x.get("kind") == kind), key=lambda x: x.get("status") != "ok")
         if not mine:
             raise Failure(f"{src_home} 中没有 {label} 的 Agent，先在 Janus 中添加并通过配置检查")
