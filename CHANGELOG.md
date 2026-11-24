@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.24.4
+
+- 修复服务重启后「从中断处继续」时负责人像失忆一样从头再来：负责人现在接回自己原来的会话，之前做过的、读过的、你中途补充的都还在，不再重发一遍目标；它会收到一条说明，列出重启那一刻每个子任务的状况（哪些已完成、哪些是它发回返工的以及它当时的说明、哪些正在执行并接回自己的会话继续），以及这期间你留给它的消息。负责人会话页把这条显示为「恢复会话 · 编排器重启后接着推进目标」。Agent 不能加载原会话时才新开，新会话的说明写明这是新会话，并带上同样的看板状况和最近的对话。
+
+- 修复负责人让子任务「回到原会话返工」时，原会话上下文已经超过 75%，Janus 悄悄换成新会话、却回复「在原会话中重新执行」，执行者从零重读：现在这种情况当场告诉负责人，请它改用新会话并写清这一轮要知道的上下文。其他原因没能回到原会话时，看板上这次「开始」会写明原因。
+
+- 自动更新只在没有任务在跑时重开换上：应用每次都直接问服务现在有没有 Run 在干活，不再看可能滞后的列表，交付后负责人正在做的一轮也算在内；修复一个 Run 自己发布了新版本、随即被自动更新打断、停在交付前的问题。有任务在跑时手动点「现在更新」「更新到…」「重试更新」会先确认。
+
+- Fixed the lead starting over as if it remembered nothing after Continue from Interruption: it now goes back into its own session, keeping what it did, what it read and what you added along the way, and is not given the goal again. It gets a note listing where each subtask stood when Janus stopped (done, sent back for rework with its note, or at work and continuing in its own session) and the messages you left meanwhile; the lead's session page shows it as Session Restored · Continuing the Goal After a Restart. Only when the agent cannot load the old session does a new one start, told that it is new, with the same board and the recent conversation.
+
+- Fixed a rework the lead sent back "in the original session" silently starting in a new one when that session was over 75% full, while Janus answered that it would continue there: the lead is now told on the spot and asked to use a new session and write down the context it needs. When a session cannot be continued for another reason, the board says so where the attempt starts.
+
+- Automatic updates reopen Janus only when no run is at work: the app asks the server each time instead of reading lists that may lag, and a lead working on a turn after delivery counts too. This fixes a run that published a release being interrupted by the automatic update before it delivered. Updating by hand (Update Now, Update to…, Retry Update) while runs are at work asks first.
+
 ## 2026.11.24.3
 
 - Agent 的运行组件（Claude Code 和 Codex 的 ACP 适配器）改为由 Janus 自动检查并升级：服务启动后和之后每 6 小时查询一次，发现新版本就在后台安装并切换，不再需要「检查更新」和「升级」按钮；旧版本保留，正在运行的会话不受影响。
