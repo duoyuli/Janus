@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.10
+
+- 折叠行更好认、更好点：以前只有标题前那个小三角能点，很难点中，也不像按钮。现在箭头放在一个浅灰小底板上，展开时转向下；整行标题都能点，鼠标移上去整行高亮。收件箱的「稍后处理」「进行中」、对话里的思考和工具调用、执行轨迹、系统规则、高级设置，以及计划、资源库、用量明细、逐条验收的展开都统一成这样。
+
+- Fold rows are easier to spot and to click: only the small triangle before the title used to respond, which was hard to hit and did not look like a button. The chevron now sits on a small gray plate and turns down when open; the whole title row toggles and lights up under the pointer. The inbox's Later and Working sections, thoughts and tool calls in conversations, the execution trace, system rules and advanced settings, as well as the plan, the library, usage details and per-task acceptance, all work this way now.
+
 ## 2026.11.23.9
 
 - 修复任务交付后收件箱出现两条：负责人交付时它的这一轮也结束了，以前除了「已交付，等你验收」还会多一条「这一轮结束，等你回话」，指向同一个任务。现在只剩「等你验收」一条，任务页的「待处理」也一样。
