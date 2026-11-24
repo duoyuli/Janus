@@ -169,7 +169,7 @@ def goal_claude(ctx, c):
     ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and {x["id"] for x in r["tasks"]} == {"T1", "T2"},
            "两个目标的任务都在，Run 已交付", pages=("board", "agent:lead"))
     if ctx.app:
-        key = f"{run.id}/delivered"
+        key = f"{run.id}/delivered-{len(run.has('run.delivered'))}"
         st = ctx.app.until(lambda s: any(e["key"] == key for e in s.get("open", [])), "收件箱出现等你验收", "reload", "open inbox")
         mine = [e["kind"] for e in st["open"] if e["run"] == run.id]
         c(mine == ["delivered"], f"应用：交付后这个 Run 在收件箱只有「等你验收」一条，负责人这一轮结束不再另算一条（{mine}）")

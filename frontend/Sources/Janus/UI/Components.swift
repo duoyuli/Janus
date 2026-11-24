@@ -260,6 +260,8 @@ struct Composer: View {
     var placeholder: String
     var disabled = false
     var minHeight: CGFloat = 60
+    /// Each change puts the cursor here (and scrolls to it).
+    var focus = 0
     var onSubmit: () -> Void
     @Local private var height: CGFloat = 0
     private var sendKey: SendKey { SendKeySetting.shared.value }
@@ -272,7 +274,7 @@ struct Composer: View {
                     if text.isEmpty {
                         Text(placeholder).foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
                     }
-                    ComposerField(text: $text, height: $height, disabled: disabled, sendKey: sendKey, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
+                    ComposerField(text: $text, height: $height, disabled: disabled, sendKey: sendKey, focus: focus, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
                         .frame(height: max(minHeight, min(max(height, 18), 240)))
                         .accessibilityLabel(placeholder)
                 }
@@ -369,6 +371,7 @@ struct ComposerField: NSViewRepresentable {
     @Binding var height: CGFloat
     var disabled: Bool
     var sendKey: SendKey
+    var focus = 0
     var onImages: (([PastedImage]) -> Void)?
     var onSubmit: () -> Void
 
@@ -451,7 +454,9 @@ struct ComposerField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ComposerField
-        init(_ parent: ComposerField) { self.parent = parent }
+        /// The `focus` already acted on.
+        var focused: Int
+        init(_ parent: ComposerField) { self.parent = parent; focused = parent.focus }
         func textDidChange(_ n: Notification) {
             guard let tv = n.object as? NSTextView else { return }
             // Only committed text goes into the draft; a composition belongs to the input method.
@@ -505,6 +510,13 @@ struct ComposerField: NSViewRepresentable {
         tv.onSubmit = onSubmit
         tv.sendKey = sendKey
         context.coordinator.measure(tv)
+        if focus != context.coordinator.focused {
+            context.coordinator.focused = focus
+            DispatchQueue.main.async {
+                tv.window?.makeFirstResponder(tv)
+                scroll.scrollToVisible(scroll.bounds)
+            }
+        }
     }
 }
 

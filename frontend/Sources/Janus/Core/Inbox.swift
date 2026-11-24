@@ -28,8 +28,8 @@ struct InboxEntry: Identifiable, Equatable {
 /// derivation the run page uses (`derive`, `boardFacts`), so the two never disagree.
 // @project-doc docs/architecture/20261031-frontend.md#inbox
 enum Inbox {
-    /// The person's open items of one live run.
-    static func entries(run: JSON, state: RunState, workspace: String) -> [InboxEntry] {
+    /// The person's open items of one live run, and what its latest delivery asks of them.
+    static func entries(run: JSON, state: RunState, workspace: String, live: Bool) -> [InboxEntry] {
         let id = run["id"].str
         let names = Dictionary(run["config"]["team"].array.map { ($0["id"].str, $0["name"].str) }, uniquingKeysWith: { a, _ in a })
         let facts = boardFacts(state, name: { names[$0] ?? $0 })
@@ -42,11 +42,39 @@ enum Inbox {
                 actions: f.actions,
                 kind: f.kind
             )
+        } + review(run: run, state: state, workspace: workspace, live: live)
+    }
+
+    /// What a delivery asks of the person, by its stage (`reviewStage`): to review it, to decide
+    /// about a result that did not reach their branch, or to let the lead they interrupted go on.
+    /// Nothing while the lead or the team works on it. Each delivery is its own entry, so one
+    /// ignored does not hide the next.
+    // @project-doc docs/architecture/20261031-frontend.md#inbox
+    static func review(run: JSON, state: RunState, workspace: String, live: Bool) -> [InboxEntry] {
+        guard let r = state.result, let stage = reviewStage(state, live: live) else { return [] }
+        let d = Delivery(r)
+        let id = run["id"].str
+        func entry(_ kind: String, _ title: String, _ text: String, _ sub: String) -> InboxEntry {
+            InboxEntry(key: "\(id)/\(kind)-\(r.n)", run: id, goal: run["goal"].str, workspace: workspace, title: title, text: text, sub: sub,
+                       ts: state.event(r.seq)?.ts ?? run["createdAt"].double ?? 0, canWait: true, kind: kind)
+        }
+        switch stage {
+        case .awaiting:
+            let signals = reviewSignals(d)
+            return [entry("delivered", r.n > 1 ? L.text("第 \(r.n) 次交付，等你验收") : L.text("已交付，等你验收"), ReviewBody.firstLine(d),
+                          signals.isEmpty ? L.text("没有需要你看的，核对后验收") : L.text("需要你看的 \(signals.count) 件"))]
+        case .blocked(let conflict):
+            return [entry("merge_blocked", L.text("结果没进你的分支"), d.mergeNote,
+                          conflict ? L.text("让负责人再解决冲突；忽略的话这一版不会进你的分支") : L.text("处理好挡路的东西再合并；忽略的话这一版不会进你的分支"))]
+        case .held:
+            return [entry("held", L.text("你打断了负责人"), L.text("这一轮改的东西还没有交付"), L.text("让它接着做，或按现在的样子交付"))]
+        default:
+            return []
         }
     }
 
-    /// What a finished run asks of the person, from its row alone: accept a delivery, or decide
-    /// about a run that stopped. A chat or a Loop asks none of this: its session closing between
+    /// What a finished run asks of the person, from its row alone: decide about a run that
+    /// stopped. A delivered run is read like a live one, and its delivery speaks (`review`). A chat or a Loop asks none of this: its session closing between
     /// messages or wakes (`interrupted`) is how it rests, and the next message or wake reopens it.
     static func entries(row: JSON, workspace: String) -> [InboxEntry] {
         guard row["kind"].str != "chat" && row["kind"].str != "loop" else { return [] }
@@ -65,7 +93,6 @@ enum Inbox {
             }
         }
         switch RunStatus(row["status"].str) {
-        case .delivered: return [entry("delivered", L.text("已交付，等你验收"), L.text("核对证据和风险后验收"))]
         case .interrupted: return [entry("interrupted", L.text("已中断，可以从中断处继续"), L.text("继续，或者忽略"))]
         case .failed: return [entry("failed", L.text("失败了，可以从中断处继续"), L.text("查看原因后继续，或者忽略"))]
         default: return []
@@ -166,9 +193,10 @@ final class InboxModel {
                 out += unchanged
                 continue
             }
+            let live = data["live"].bool ?? false
             let updated = await Task.detached(priority: .utility) {
                 let events = (known?.events ?? []) + new.map(Event.init)
-                let entries = Inbox.entries(run: row, state: derive(events), workspace: ws) + Inbox.entries(row: row, workspace: ws)
+                let entries = Inbox.entries(run: row, state: derive(events), workspace: ws, live: live) + Inbox.entries(row: row, workspace: ws)
                 return CachedRun(events: events, row: row, workspace: ws, locale: locale, entries: entries)
             }.value
             guard generation == refreshGeneration, locale == L.locale else { return }
@@ -230,6 +258,8 @@ struct WaitingRow: Identifiable, Equatable {
         guard entries.count == 1, let e = entries.first else { return L.text("\(entries.count) 件事") }
         switch e.kind {
         case "delivered": return L.text("等你验收")
+        case "merge_blocked": return L.text("结果没进分支")
+        case "held": return L.text("等你决定")
         case "interrupted": return L.text("已中断")
         case "failed": return L.text("失败了")
         case "dream": return L.text("整理好了")
@@ -244,6 +274,8 @@ struct WaitingRow: Identifiable, Equatable {
         guard entries.count == 1, let e = entries.first else { return "tray.full.fill" }
         switch e.kind {
         case "delivered": return "checkmark.seal.fill"
+        case "merge_blocked": return "arrow.triangle.merge"
+        case "held": return "hand.raised.fill"
         case "interrupted": return "pause.circle.fill"
         case "failed": return "xmark.octagon.fill"
         case "dream": return "brain.head.profile"

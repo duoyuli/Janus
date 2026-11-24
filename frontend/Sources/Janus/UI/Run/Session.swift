@@ -138,7 +138,7 @@ struct ChatCard: View {
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
                 if enabled { Suggestions(run: run, draft: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), commands: SessionView.commands(info.evs)) }
-                Composer(text: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44) { send("message") }
+                Composer(text: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: target == .agent("lead") ? run.leadFocus : 0) { send("message") }
                 HStack {
                     if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
                     Spacer()
@@ -555,7 +555,7 @@ struct ChatItem: View {
         // Goal mode: a collaborator asks the lead, which answers on the board.
         case "question.asked": note(L.text("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : L.text("（\(d["options"].strings.joined(separator: " / "))）")) · 负责人会回答，不需要你处理"), .amber)
         // The lead edited files after handing out subtasks: it only manages from then on.
-        case "lead.edited": note(L.text("⚠ 派出子任务后改了文件：\(e.data["paths"].strings.joined(separator: L.text("、"))) · 会写进交付风险"), .amber)
+        case "lead.edited": note(L.text("⚠ 派出子任务后改了文件：\(e.data["paths"].strings.joined(separator: L.text("、"))) · 交付时会单独列出"), .amber)
         // The lead called a library tool after handing out subtasks: noted like an edit.
         case "lead.routed": note(L.text("⚠ 派出子任务后调用了资源库工具 \(e.data["tool"].str) · 会写进交付风险"), .amber)
         // A handoff with a verdict is a verification's findings (for a rework), not an upstream result.

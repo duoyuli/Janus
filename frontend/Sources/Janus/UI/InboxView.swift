@@ -90,6 +90,8 @@ struct InboxView: View {
     static func badge(_ e: InboxEntry) -> (String, Tone) {
         switch e.kind {
         case "delivered": return ("checkmark.seal.fill", .green)
+        case "merge_blocked": return ("arrow.triangle.merge", .amber)
+        case "held": return ("hand.raised.fill", .amber)
         case "interrupted": return ("pause.circle.fill", .gray)
         case "failed": return ("xmark.octagon.fill", .red)
         default: return (TimelineMark.openKinds[e.kind]?.0 ?? "exclamationmark.circle.fill", e.canWait ? .amber : .red)

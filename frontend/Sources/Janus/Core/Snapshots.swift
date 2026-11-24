@@ -73,7 +73,7 @@ enum Snapshots {
             case "replay": r.replay = Int(kv.last ?? "") ?? 1; r.page = .board
             default: r.page = .board; r.replay = nil
             }
-        // Open or close the board's folded parts (`fold usage|progress|risks|tasks|all|T3 open|closed`),
+        // Open or close the board's folded parts (`fold usage|progress|review|tasks|all|T3 open|closed`),
         // which a picture alone cannot reach.
         case "fold":
             guard let r = store.run else { return }
@@ -82,10 +82,10 @@ enum Snapshots {
             switch p.first {
             case "usage": r.usageOpen = open
             case "progress": r.progressOpen = open
-            case "risks": r.risksOpen = open
+            case "review": r.reviewOpen = open
             case "tasks": for t in r.shown.orderedTasks { r.taskOpen[t.id] = open }
             case "all":
-                r.usageOpen = open; r.progressOpen = open; r.risksOpen = open
+                r.usageOpen = open; r.progressOpen = open; r.reviewOpen = open
                 for t in r.shown.orderedTasks { r.taskOpen[t.id] = open }
             case let id? where !id.isEmpty: r.taskOpen[id] = open
             default: break
@@ -240,6 +240,16 @@ enum Snapshots {
                     "status": JSON(s.run.status.rawValue), "paused": JSON(s.run.paused), "delivered": JSON(s.result != nil),
                     "goal": JSON(s.run.goal), "queuePosition": r.queuePosition.map { JSON($0) } ?? .null,
                     "accepted": JSON(s.result?.accepted != nil), "events": JSON(s.events.count),
+                    // The delivery under review as its card shows it (docs/architecture/20261031-frontend.md#review).
+                    "review": s.result.map { res -> JSON in
+                        let d = Delivery(res)
+                        let strings = { (xs: [String]) in JSON.array(xs.map { JSON($0) }) }
+                        return ["stage": JSON(reviewStage(s, live: r.live && !r.isReplaying).map { String(describing: $0) }), "n": JSON(d.n),
+                                "headline": JSON(d.headline), "decisions": strings(d.decisions), "merge": JSON(d.merge?.rawValue),
+                                "changed": strings(d.changed), "requests": strings(roundRequests(s, res).map(\.text)),
+                                "signals": JSON.array(reviewSignals(d).map { ["source": JSON(String(describing: $0.source)), "text": JSON($0.text)] }),
+                                "tasks": strings(d.acceptance.map(\.task)), "facts": JSON(ReviewBody.factsLine(d.acceptance, changed: d.changed.count))]
+                    } ?? .null,
                     "tasks": JSON.array(s.orderedTasks.map { t in
                         ["id": JSON(t.id), "status": JSON(t.status.rawValue), "agent": JSON(t.agent), "attempts": JSON(t.attempts.count),
                          "verdict": JSON(t.verdict?.rawValue), "question": JSON(t.question?.question),

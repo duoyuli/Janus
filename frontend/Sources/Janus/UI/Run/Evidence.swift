@@ -54,6 +54,8 @@ struct CheckLine: View {
     let criterion: String
     let check: Check?
     var dense = false
+    /// The whole evidence is shown; folded, it shows its first two lines.
+    @Local private var whole = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -73,11 +75,18 @@ struct CheckLine: View {
                     if check.evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(L.text("没有给出证据")).font(.caption).foregroundStyle(Tone.red.color)
                     } else {
-                        // The whole evidence, never shortened: this is what the person checks.
+                        // Two lines by default, the whole of it a click away: the text is never
+                        // shortened or rewritten, only folded.
                         Text(MD.inline(check.evidence))
                             .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(whole ? nil : 2)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
+                        if CheckLine.folds(check.evidence) {
+                            Button(whole ? L.text("收起") : L.text("全文")) { whole.toggle() }
+                                .buttonStyle(.link).font(.caption)
+                                .accessibilityLabel(whole ? L.text("收起证据") : L.text("展开证据全文"))
+                        }
                     }
                 }
             }
@@ -86,6 +95,9 @@ struct CheckLine: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(voice)
     }
+
+    /// Evidence long enough that two lines may not hold it.
+    static func folds(_ evidence: String) -> Bool { evidence.count > 120 || evidence.contains("\n") }
 
     /// What VoiceOver reads: whether it passed, the method as words, the criterion and evidence.
     private var voice: String {
@@ -195,12 +207,14 @@ struct DeliveryTaskView: View {
     /// narrow one the numbers sit below. One VoiceOver element with the row's full reading.
     @ViewBuilder private func header(_ row: DeliveryTaskRow, open: Bool, titleLimit: Int) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            TaskTag(id: record.task)
+            // The id stays whole; the title gives way first.
+            TaskTag(id: record.task).fixedSize()
             Text(record.title).font(.callout.weight(.semibold)).textSelection(.enabled)
                 .lineLimit(titleLimit).truncationMode(.tail)
             if !BoardLayout.deliveryRowStacks(width) {
                 Text(verbatim: row.metrics).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                StrengthBar(strength: EvidenceStrength(record.summary))
                 if !row.markers.isEmpty {
                     Text(verbatim: row.markers.joined(separator: " · "))
                         .font(.caption).foregroundStyle(Tone.amber.color)
@@ -213,8 +227,11 @@ struct DeliveryTaskView: View {
     }
 
     @ViewBuilder private func numbers(_ row: DeliveryTaskRow) -> some View {
-        Text(verbatim: row.metrics).font(.caption).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 6) {
+            Text(verbatim: row.metrics).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            StrengthBar(strength: EvidenceStrength(record.summary))
+        }
         if !row.markers.isEmpty {
             Text(verbatim: row.markers.joined(separator: " · "))
                 .font(.caption).foregroundStyle(Tone.amber.color)
@@ -259,11 +276,34 @@ struct DeliveryTaskView: View {
             }
             if !record.risks.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(L.text("风险")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(L.text("执行者自述的风险")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     RiskList(risks: record.risks, font: .caption)
                 }
             }
         }
         .padding(.leading, 2)
+    }
+}
+
+/// How a task's checks were verified, as one bar: run (tests, commands), read (inspection), only
+/// said (reasoning, unverified, none). It repeats the method counts beside it; the help and
+/// VoiceOver read them as words.
+struct StrengthBar: View {
+    let strength: EvidenceStrength
+
+    var body: some View {
+        if strength.total > 0 {
+            let w: CGFloat = 64
+            HStack(spacing: 0) {
+                Rectangle().fill(Tone.green.color).frame(width: w * CGFloat(strength.ran) / CGFloat(strength.total))
+                Rectangle().fill(Tone.blue.color).frame(width: w * CGFloat(strength.read) / CGFloat(strength.total))
+                Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: w * CGFloat(strength.said) / CGFloat(strength.total))
+            }
+            .frame(width: w, height: 6)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .help(L.text("证据：\(strength.text)"))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(L.text("证据：\(strength.text)"))
+        }
     }
 }

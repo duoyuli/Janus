@@ -66,10 +66,12 @@ final class RunModel {
     /// the conversation until opened here (W1 F3, F8). They last for this opening of the run.
     var usageOpen = false
     var progressOpen = false
-    /// The run-level risk list past its preview, opened in place (W1 A14).
-    var risksOpen = false
     /// Each acceptance row's own switch; a task without an entry uses its default.
     var taskOpen: [String: Bool] = [:]
+    /// The delivery folded to one line (the lead at work, the team at work…) is opened to read.
+    var reviewOpen = false
+    /// Bumped to put the cursor in the lead's composer (「让负责人改…」).
+    var leadFocus = 0
     /// The inspector tab chosen for this opening; nil until the board first appears.
     var inspectorTab: String?
     // Audit view state

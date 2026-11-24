@@ -21,7 +21,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
         // The lead's own blocker: the lead settles it, it is not the person's.
         event(6, "board.posted", actor: "m1", task: "T1", data: ["kind": "blocker", "text": "缺少测试账号"]),
     ]
-    let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城")
+    let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城", live: true)
     #expect(entries.count == 2)
     let approval = entries.first { $0.kind == "approval" }
     let decision = entries.first { $0.kind == "question" }
@@ -30,9 +30,9 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(entries.allSatisfy { $0.key.hasPrefix("r1/") && $0.goal == "上线支付页" })
 }
 
-@Test func finishedRunsAskForAcceptanceOrAFinalWord() {
-    let delivered = Inbox.entries(row: ["id": "r2", "status": "delivered", "goal": "g"], workspace: "")
-    #expect(delivered.count == 1 && delivered[0].canWait)
+@Test func finishedRunsAskForAFinalWord() {
+    // A delivered run is read like a live one: its delivery speaks for it (`Inbox.review`).
+    #expect(Inbox.entries(row: ["id": "r2", "status": "delivered", "goal": "g"], workspace: "").isEmpty)
     let stopped = Inbox.entries(row: ["id": "r3", "status": "interrupted", "goal": "g"], workspace: "")
     #expect(stopped.count == 1 && stopped[0].canWait)
     #expect(Inbox.entries(row: ["id": "r4", "status": "accepted"], workspace: "").isEmpty)
@@ -66,11 +66,11 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
 @Test func aDeliveredRunAsksOnceNotAlsoForAReply() {
     let idle: JSON = ["phase": "waiting_for_input", "turn": "idle"]
     let start = [event(1, "run.created", actor: "user", data: ["mode": "goal", "goal": "上线支付页"])]
-    let asking = Inbox.entries(run: run, state: derive(start + [event(2, "agent.status", actor: "lead", data: idle)]), workspace: "W")
+    let asking = Inbox.entries(run: run, state: derive(start + [event(2, "agent.status", actor: "lead", data: idle)]), workspace: "W", live: true)
     #expect(asking.map(\.kind) == ["session"])
     for tail in [[event(2, "agent.status", actor: "lead", data: idle), event(3, "run.delivered", actor: "lead", data: ["summary": "好了"])],
                  [event(2, "run.delivered", actor: "lead", data: ["summary": "好了"]), event(3, "agent.status", actor: "lead", data: idle)]] {
-        #expect(Inbox.entries(run: run, state: derive(start + tail), workspace: "W").isEmpty)
+        #expect(Inbox.entries(run: run, state: derive(start + tail), workspace: "W", live: true).map(\.kind) == ["delivered"])
     }
 }
 
@@ -98,7 +98,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
         event(5, "question.escalated", actor: "lead", data: ["key": "q-lead-1", "question": "先上哪个地区？", "options": ["国内", "海外"], "recommend": "海外"]),
         event(6, "input.requested", actor: "m1", task: "T1", data: ["key": "i-1", "message": "账号", "schema": ["type": "object"]]),
     ]
-    let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城")
+    let entries = Inbox.entries(run: run, state: derive(events), workspace: "商城", live: true)
     let approval = try #require(entries.first { $0.kind == "approval" })
     #expect(approval.title == expectedCopy("「实现者」等你拍板", "实现者 needs your call") && approval.sub == "T1 · 清理旧构建", "named like the request card")
     #expect(approval.actions.map(\.label) == [expectedCopy("允许一次", "Allow Once"), expectedCopy("始终允许", "Always Allow"), expectedCopy("拒绝", "Deny")])

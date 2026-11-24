@@ -128,7 +128,8 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     #expect(!needs(record("T1", accept: ["一"], checks: passed)))
     #expect(needs(record("T1", accept: ["一"], checks: [check("一", "test", passed: false)])))
     #expect(needs(record("T1", accept: ["一"], checks: passed, traceGaps: ["T1 改了没有的文件"])))
-    #expect(needs(record("T1", accept: ["一"], checks: passed, risks: ["没有测试覆盖"])))
+    // The executor's own risks mark the row and leave it folded.
+    #expect(!needs(record("T1", accept: ["一"], checks: passed, risks: ["没有测试覆盖"])))
     #expect(needs(record("T1", accept: ["一"], checks: passed, verifications: [verification("V1", passed: false)])))
     #expect(!needs(record("T1", accept: ["一"], checks: passed, verifications: [verification("V1", passed: true)])))
 
@@ -147,43 +148,6 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     let failed = record("T2", status: .verificationFailed, accept: ["一"], checks: passed)
     #expect(failed.row.markers == [expectedCopy("验收没通过", "Acceptance failed")])
     #expect(!failed.row.needsAttention, "the default expansion rules do not include the status alone")
-}
-
-@Test func deliveryOverviewAddsTheTasksAndTheRunRisks() {
-    let checks = [check("一", "test"), check("二", "command"), check("三", "command", passed: false),
-                  check("四", "reasoning"), check("五", "inspection")]
-    let first = record("T1", accept: ["一", "二", "三", "四", "五"], checks: checks,
-                       verifications: [verification("V2", passed: false)], traceGaps: ["改了别的任务的文件"], risks: ["旧数据不迁移"])
-    let second = record("T2", accept: ["一", "二", "三"],
-                        checks: [check("一", "test"), check("二", "test"), check("三", "test")])
-    let o = deliveryOverview([first, second], runRisks: ["上线前要跑一次全量"])
-    #expect(o.criteria == 8 && o.passed == 7 && o.failed == 1)
-    #expect(o.runRisks == 1 && o.taskRisks == 1 && o.risks == 2)
-    #expect(o.text == expectedCopy("通过 7 / 8 条 · 测试 4 条、命令 2 条、检查 1 条、推理判断 1 条 · 任务级风险 1 条 · 子任务风险 1 条 · 对不上 1 处", "Passed 7 of 8 · Test: 4, Command: 2, Inspection: 1, Reasoning: 1 · Run-level risks: 1 · Subtask risks: 1 · Mismatches: 1"))
-    #expect(o.issuesText == expectedCopy("1 条标准没通过、任务级风险 1 条、子任务风险 1 条、1 处对不上、1 项独立验证未确认", "Failed criteria: 1, Run-level risks: 1, Subtask risks: 1, Mismatches: 1, Unconfirmed independent reviews: 1"))
-    #expect(deliveryOverview([], runRisks: []).issuesText == nil)
-    let unchecked = deliveryOverview([record("T3", accept: ["一"], checks: [check("一", "test")], unverified: true)], runRisks: [])
-    #expect(unchecked.unverifiedTasks == 1)
-    #expect(unchecked.text == expectedCopy("通过 1 / 1 条 · 测试 1 条 · 1 个子任务没有独立验证", "Passed 1 of 1 · Test: 1 · Without independent verification: 1"))
-    #expect(unchecked.issuesText == nil, "not having one is not a problem by itself")
-}
-
-@Test func runRiskListFoldsLongListsAndNamesWhatIsHidden() {
-    let few = runRiskList(["a", "b"], open: false)
-    #expect(few.shown == ["a", "b"] && !few.isFoldable && few.toggleLabel(open: false) == nil)
-    #expect(runRiskList([], open: false).shown.isEmpty)
-    #expect(runRiskList([], open: true).toggleLabel(open: true) == nil)
-
-    let many = (1...50).map { "r\($0)" }
-    let folded = runRiskList(many, open: false)
-    #expect(folded.shown.count == RunRiskList.previewLimit && folded.hiddenNow == 45)
-    #expect(folded.toggleLabel(open: false) == expectedCopy("展开全部 50 条（余下 45 条）", "Show all 50 (45 more)"))
-    let open = runRiskList(many, open: true)
-    #expect(open.shown == many && open.hiddenNow == 0)
-    #expect(open.toggleLabel(open: true) == expectedCopy("收起，只看前 5 条", "Collapse to the first 5"))
-    // At or under the preview there is no control, and opening changes nothing.
-    let exact = runRiskList(Array(many.prefix(RunRiskList.previewLimit)), open: false)
-    #expect(!exact.isFoldable && exact.toggleLabel(open: false) == nil && exact.shown.count == 5)
 }
 
 // MARK: Layout rules
@@ -281,8 +245,13 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
         data: ["inputTokens": 12000, "outputTokens": 3400, "totalTokens": 15400, "used": 52000, "size": 200000, "cost": ["amount": 0.25, "currency": "USD"]])
     add("task.succeeded", actor: "researcher", task: "T1", attempt: 1, ts: 1_100_000, data: ["summary": "三处调用方"])
     add("run.delivered", actor: "lead", ts: 1_200_000, data: [
-        "summary": "工作台按新密度拆好了：运行卡片一行摘要，账本和逐条验收页内展开。",
-        "risks": ["旧截图里的数字要按新折叠位置复核"],
+        "headline": "工作台按新密度拆好了，两个子任务都核对过。",
+        "summary": "运行卡片一行摘要，账本和逐条验收页内展开。",
+        "decisions": ["旧截图要不要按新折叠位置重拍？"],
+        "risks": ["T2：独立验证 V2 判定为「需要修改」，结论没有得到确认"],
+        "changed": ["frontend/Sources/Janus/UI/Run/RunView.swift", "docs/architecture/20261031-frontend.md"],
+        "leadEdits": ["docs/architecture/20261031-frontend.md"],
+        "merge": ["state": "merged", "note": "结果已合并到 /tmp/repo 的分支 main（提交 3f2a91c）。"],
         "deliverables": [["name": "工作台报告", "path": "/tmp/report.md", "seq": 6, "desc": "改动和证据"]],
         "evidence": [["text": "T1：三处调用方", "seq": 5]],
         "acceptance": [accept1, accept2],
@@ -291,7 +260,7 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     run.events = events
     run.replay = events.count
     let st = run.shown
-    #expect(deliveryAcceptance(st).count == 2)
+    #expect(st.result.map { Delivery($0).acceptance.count } == 2)
     try render("result-card-light", dark: false, width: 1100, ResultCard(run: run, st: st, width: 1100))
     try render("result-card-dark", dark: true, width: 1100, ResultCard(run: run, st: st, width: 1100))
     // Every row closed: what the delivery looks like before anything is opened.

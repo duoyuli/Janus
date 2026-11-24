@@ -222,10 +222,15 @@ struct RunInfo {
     var singleSession: Bool { chat || loop }
 }
 
+/// One delivery (`run.delivered`): what the lead handed over at the end of a round.
 struct RunResult {
     let d: JSON
     let seq: Int
     var accepted: Double?
+    /// Which delivery of the run it is, from 1.
+    var n = 1
+    /// The seq of the delivery before it (0 for the first): its round is what happened after that.
+    var since = 0
 }
 
 struct RunState {
@@ -237,7 +242,13 @@ struct RunState {
     var artifacts: [Artifact] = []
     var answers: [String: JSON] = [:]
     var msgs: [String: Msg] = [:]
+    /// The latest delivery, the one under review.
     var result: RunResult?
+    /// Every delivery, oldest first; the last is `result`.
+    var deliveries: [RunResult] = []
+    /// The lead's own turn in its conversation (`SessionTurn` over its events outside any task):
+    /// after a delivery it tells whether it works on what the person asked, or the person holds it.
+    var leadTurn = SessionTurn.opened
     var events: [Event] = []
     /// The read-only usage ledger for exactly these events, so a replayed prefix gets its own
     /// numbers (docs/architecture/20261031-frontend.md#usage_ledger).
@@ -273,6 +284,7 @@ func derive(_ events: [Event]) -> RunState {
 
     for e in events {
         s.run.now = e.ts
+        if e.task == nil && (e.actor == "lead" || e.to == "lead") { s.leadTurn = s.leadTurn.after(e) }
         if !e.actor.isEmpty && e.actor != "user" && e.actor != "janus" { ag(e.actor).beat = e.ts }
         let t = e.task.flatMap { s.tasks[$0] }
         let d = e.data
@@ -359,9 +371,10 @@ func derive(_ events: [Event]) -> RunState {
                 if let t {
                     t.session = t.session?.after(e)
                     if !s.inbox.contains(where: { $0.key == "sess-" + t.id }) { s.inbox.append(InboxItem(kind: "session", key: "sess-" + t.id, seq: e.seq, task: t.id)) }
-                } else if !(e.actor == "lead" && s.run.status == .delivered), !s.inbox.contains(where: { $0.key == "sess-" + e.actor }) {
-                    // A delivered run waits for acceptance: that entry already says the lead is done
-                    // and sends the person to it, so its turn ending is not a second one.
+                } else if !(e.actor == "lead" && s.result != nil), !s.inbox.contains(where: { $0.key == "sess-" + e.actor }) {
+                    // After a delivery the review says where the lead is (`reviewStage`): waiting
+                    // for acceptance, or done with what the person asked, so its turn ending is not
+                    // a second entry.
                     s.inbox.append(InboxItem(kind: "session", key: "sess-" + e.actor, seq: e.seq, agent: e.actor))
                 }
             }
@@ -476,11 +489,14 @@ func derive(_ events: [Event]) -> RunState {
             if let at = t.attempts.last, at.status == .running { at.status = .succeeded }
             let a = ag(t.agent); a.phase = t.agent == "lead" ? "coordinating" : "idle"; a.note = ""; a.progress = nil
         case "run.delivered":
-            s.run.status = .delivered; s.result = RunResult(d: d, seq: e.seq)
+            let r = RunResult(d: d, seq: e.seq, n: s.deliveries.count + 1, since: s.deliveries.last?.seq ?? 0)
+            s.run.status = .delivered; s.result = r; s.deliveries.append(r)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
+            s.leadTurn = .agent(idle: true)
             dropSess("lead")
         case "risk.accepted":
             s.run.status = .accepted; s.result?.accepted = e.ts
+            if !s.deliveries.isEmpty { s.deliveries[s.deliveries.count - 1].accepted = e.ts }
             if d["commit"].string != nil { s.run.merged = true }
         // A delivery brought the result to the person's branch.
         case "run.merged": if d["commit"].string != nil { s.run.merged = true }
