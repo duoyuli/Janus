@@ -22,7 +22,7 @@ struct TaskView: View {
     private func content(_ st: RunState, _ t: TaskState) -> some View {
         let (label, tone) = t.status.label
         let evs = st.events.filter { e in e.task == t.id || e.data["target"].str == t.id || e.data["tasks"].strings.contains(t.id) || e.data["unlocked"].strings.contains(t.id) }
-        let lastStart = evs.last { $0.type == "attempt.started" }?.data ?? .null
+        let lastStart = evs.last { $0.type == .attemptStarted }?.data ?? .null
         let w = run.who(t.agent)
         // The evidence summary is a display grouping of what the events recorded; whether the task
         // passed stays with `task.succeeded` / `verification.*`.
@@ -191,7 +191,7 @@ struct TimelineRow: View {
 
     var body: some View {
         let d = e.data
-        if e.type == "attempt.started" {
+        if e.type == .attemptStarted {
             HStack(spacing: 10) {
                 Text(verbatim: L.text("尝试 \(e.attempt ?? 0)")).fontWeight(.semibold)
                 Text(verbatim: "\(d["runtime"].str)\(SessionView.attemptNote(d, task: e.task))").foregroundStyle(.secondary)
@@ -221,19 +221,19 @@ struct TimelineRow: View {
 
     @ViewBuilder private func detail(_ d: JSON) -> some View {
         switch e.type {
-        case "tool.call", "tool.started", "tool.completed":
-            Text(verbatim: "\(d["tool"].str) \(L.short(d["input"].str, 200))\n\(e.type == "tool.started" ? L.text("等待返回…") : "→ " + L.short(d["output"].str, 200))").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-        case "question.asked": Note(text: L.text("\(d["question"].str)\n选项：\(d["options"].strings.joined(separator: " / "))"))
-        case "question.answered": if d["note"].truthy { Note(text: L.text("补充说明：\(d["note"].str)")) }
-        case "attempt.failed": Note(text: d["error"].str, tone: .red)
-        case "task.retry_scheduled": Note(text: L.text("重试策略：\(d["strategy"].str)"))
-        case "artifact.created": Note(text: "\(d["desc"].str)\n\(L.tilde(d["path"].str)) · sha256 \(d["hash"].str)…")
-        case "result.submitted":
+        case .toolCall, .toolStarted, .toolCompleted:
+            Text(verbatim: "\(d["tool"].str) \(L.short(d["input"].str, 200))\n\(e.type == .toolStarted ? L.text("等待返回…") : "→ " + L.short(d["output"].str, 200))").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+        case .questionAsked: Note(text: L.text("\(d["question"].str)\n选项：\(d["options"].strings.joined(separator: " / "))"))
+        case .questionAnswered: if d["note"].truthy { Note(text: L.text("补充说明：\(d["note"].str)")) }
+        case .attemptFailed: Note(text: d["error"].str, tone: .red)
+        case .taskRetryScheduled: Note(text: L.text("重试策略：\(d["strategy"].str)"))
+        case .artifactCreated: Note(text: "\(d["desc"].str)\n\(L.tilde(d["path"].str)) · sha256 \(d["hash"].str)…")
+        case .resultSubmitted:
             ForEach(CriterionCheck.rows(accept: [], checks: Check.list(d["checks"]))) { row in
                 CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
             }
             if !d["risks"].array.isEmpty { Note(text: L.text("风险：\(d["risks"].strings.joined(separator: L.text("；")))"), tone: .amber) }
-        case "approval.requested": CodeBlock(text: "$ \(d["command"].str)")
+        case .approvalRequested: CodeBlock(text: "$ \(d["command"].str)")
         default: EmptyView()
         }
     }

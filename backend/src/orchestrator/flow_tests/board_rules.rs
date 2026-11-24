@@ -95,8 +95,11 @@ async fn a_failed_attempt_is_retried_after_a_pause() {
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
     let evs = events(&h.app, &run);
-    let started: Vec<i64> =
-        evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).map(|e| e.ts).collect();
+    let started: Vec<i64> = evs
+        .iter()
+        .filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1"))
+        .map(|e| e.ts)
+        .collect();
     assert!(started.len() == 2 && started[1] - started[0] >= 1400, "attempts started at {started:?}");
     finish_lead(&h);
     let _ = std::fs::remove_dir_all(&h.dir);

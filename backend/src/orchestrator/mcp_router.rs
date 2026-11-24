@@ -547,7 +547,7 @@ impl App {
                 .await;
                 // Who called which server's tool, how long it took and how it ended; never the
                 // arguments, which may carry what the person typed or a credential.
-                let e = ev("mcp.routed", who, format!("经 MCP 路由调用 {name}")).data(json!({
+                let e = ev(EventKind::McpRouted, who, format!("经 MCP 路由调用 {name}")).data(json!({
                     "server": found.as_ref().map(|(i, _)| i.name.clone()),
                     "tool": name,
                     "ms": now_ms() - started,
@@ -564,7 +564,7 @@ impl App {
                 if after_plan {
                     self.emit(
                         &run,
-                        ev("lead.routed", "janus", format!("负责人派出子任务后调用了 {name}"))
+                        ev(EventKind::LeadRouted, "janus", format!("负责人派出子任务后调用了 {name}"))
                             .to("lead")
                             .data(json!({ "tool": name, "server": found.as_ref().map(|(i, _)| i.name.clone()) })),
                     );

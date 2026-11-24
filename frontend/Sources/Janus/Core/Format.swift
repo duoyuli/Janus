@@ -36,40 +36,38 @@ enum L {
         return (catalogText(key), tone)
     }
 
-    static let icon: [String: String] = [
-        "run.created": "✦", "run.cancelled": "■", "run.paused": "Ⅱ", "run.resumed": "▶",
-        "task.ready": "▸", "task.assigned": "↗", "attempt.started": "▶", "attempt.failed": "✕", "task.retry_scheduled": "↻", "task.reopened": "↺",
-        "result.submitted": "⇪", "task.succeeded": "✓", "artifact.created": "▤", "context.handoff": "⇄",
-        "question.asked": "?", "question.escalated": "⇡", "question.answered": "✎", "answer.delivered": "↩",
-        "approval.requested": "⚑", "input.requested": "✎", "input.answered": "↩", "approval.granted": "✓", "approval.denied": "✕",
-        "run.delivered": "★", "risk.accepted": "✓", "run.merged": "✓", "task.failed": "✕",
-        "task.blocked": "⊘", "task.skipped_by_decision": "→", "verification.started": "◌", "verification.failed": "✕",
-        "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓",
-        "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
-        "agent.message": "❝", "user.message": "✎",
-        "message.delivered": "↪", "session.parked": "◌", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
-        "task.conflict": "⚠", "lead.stalled": "⏳", "task.stalled": "⏳", "task.claimed": "⚐", "task.split_requested": "✂",
+    static let icon: [EventKind: String] = [
+        .runCreated: "✦", .runCancelled: "■", .runPaused: "Ⅱ", .runResumed: "▶",
+        .taskReady: "▸", .taskAssigned: "↗", .attemptStarted: "▶", .attemptFailed: "✕", .taskRetryScheduled: "↻", .taskReopened: "↺",
+        .resultSubmitted: "⇪", .taskSucceeded: "✓", .artifactCreated: "▤", .contextHandoff: "⇄",
+        .questionAsked: "?", .questionEscalated: "⇡", .questionAnswered: "✎", .answerDelivered: "↩",
+        .approvalRequested: "⚑", .inputRequested: "✎", .inputAnswered: "↩", .approvalGranted: "✓", .approvalDenied: "✕",
+        .runDelivered: "★", .riskAccepted: "✓", .runMerged: "✓", .taskFailed: "✕",
+        .taskBlocked: "⊘", .taskSkippedByDecision: "→", .verificationStarted: "◌", .verificationFailed: "✕",
+        .verificationPassed: "✓", .runFailed: "✕", .runInterrupted: "■", .agentStatus: "·", .toolCall: "⌘", .toolStarted: "⌘", .toolCompleted: "✓",
+        .sessionPrompt: "→", .resultAmended: "✎", .runRecovered: "↻", .messageRouted: "↪", .decisionWithdrawn: "↩",
+        .agentMessage: "❝", .userMessage: "✎",
+        .messageDelivered: "↪", .sessionParked: "◌", .controlTaken: "✋", .controlReleased: "↻", .sessionInterrupted: "‖",
+        .taskConflict: "⚠", .leadStalled: "⏳", .taskStalled: "⏳", .taskClaimed: "⚐", .taskSplitRequested: "✂",
     ]
 
-    private static let toneTable: [Tone: [String]] = [
-        .green: ["task.succeeded", "approval.granted", "input.answered", "run.delivered", "risk.accepted", "run.merged"],
-        .amber: ["question.asked", "question.escalated", "approval.requested", "input.requested", "run.paused", "control.taken", "session.interrupted", "user.message", "task.conflict", "lead.stalled", "task.stalled", "task.split_requested"],
-        .red: ["attempt.failed", "approval.denied", "run.cancelled", "task.failed", "run.failed", "run.interrupted"],
-        .gray: ["agent.status", "tool.call", "tool.completed", "task.ready", "session.parked"],
-        .blue: ["tool.started", "session.prompt"],
+    private static let toneTable: [Tone: [EventKind]] = [
+        .green: [.taskSucceeded, .approvalGranted, .inputAnswered, .runDelivered, .riskAccepted, .runMerged],
+        .amber: [.questionAsked, .questionEscalated, .approvalRequested, .inputRequested, .runPaused, .controlTaken, .sessionInterrupted, .userMessage, .taskConflict, .leadStalled, .taskStalled, .taskSplitRequested],
+        .red: [.attemptFailed, .approvalDenied, .runCancelled, .taskFailed, .runFailed, .runInterrupted],
+        .gray: [.agentStatus, .toolCall, .toolCompleted, .taskReady, .sessionParked],
+        .blue: [.toolStarted, .sessionPrompt],
     ]
-    static func tone(of type: String) -> Tone? { toneTable.first { $0.value.contains(type) }?.key }
+    static func tone(of type: EventKind) -> Tone? { toneTable.first { $0.value.contains(type) }?.key }
 
     /// Event categories for the feed and the audit filter.
-    /// The audit filter asks this for every event on each draw, so it compares prefixes instead of
-    /// matching patterns.
-    static func category(_ type: String) -> String {
-        func m(_ prefixes: [String]) -> Bool { prefixes.contains { type.hasPrefix($0) } }
-        if m(["question.answered", "input.answered", "approval.granted", "approval.denied", "risk.", "run.merged", "run.paused", "run.resumed", "run.cancelled"]) { return "decisions" }
-        if m(["question.", "approval.requested", "input.requested", "answer.", "user.message", "message.delivered", "control.", "session."]) { return "messages" }
-        if type == "agent.message" { return "progress" }
-        if type.hasPrefix("artifact.") || type == "context.handoff" { return "artifacts" }
-        if m(["agent.status", "tool.", "session.prompt"]) { return "progress" }
+    static func category(_ type: EventKind) -> String {
+        let family = type.family
+        if [.questionAnswered, .inputAnswered, .approvalGranted, .approvalDenied, .riskAccepted, .runMerged, .runPaused, .runResumed, .runCancelled].contains(type) { return "decisions" }
+        if ["question", "answer", "control", "session"].contains(family) || [.approvalRequested, .inputRequested, .userMessage, .messageDelivered].contains(type) { return "messages" }
+        if type == .agentMessage { return "progress" }
+        if family == "artifact" || type == .contextHandoff { return "artifacts" }
+        if family == "tool" || type == .agentStatus { return "progress" }
         return "tasks"
     }
     static var categoryLabel: [(String, String)] { [("all", L.text("全部")), ("tasks", L.text("子任务")), ("messages", L.text("消息")), ("artifacts", L.text("产物")), ("decisions", L.text("决策")), ("progress", L.text("进度与工具"))] }

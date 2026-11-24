@@ -7,6 +7,7 @@ mod bill;
 mod config;
 mod data_shape;
 mod db;
+mod events;
 mod evidence;
 mod git;
 mod goal_settle;

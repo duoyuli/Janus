@@ -85,7 +85,7 @@ impl App {
         if token_limit > 0 {
             config["tokenLimit"] = json!(token_limit);
         }
-        let first = ev("run.queued", origin.actor(), format!("排队：{goal}"))
+        let first = ev(EventKind::RunQueued, origin.actor(), format!("排队：{goal}"))
             .data(json!({
                 "goal": goal, "workspace": { "id": ws["id"], "name": ws["name"] }, "images": goal_images,
                 "origin": origin.view(),
@@ -169,7 +169,8 @@ impl App {
             if fresh.contains(&id) && own != Some(id.as_str()) {
                 continue;
             }
-            match self.claim(&id, RunStatus::Planning, ev("run.starting", "janus", "有了空位，开始准备")) {
+            match self.claim(&id, RunStatus::Planning, ev(EventKind::RunStarting, "janus", "有了空位，开始准备"))
+            {
                 Ok(true) => {
                     free -= 1;
                     starting.push(id);
@@ -201,7 +202,7 @@ impl App {
     /// Start queued run `id` now, past the slots: the person decided it should not wait.
     pub(super) fn start_now(&self, id: &str) -> Result<(), Refused> {
         let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
-        if !self.claim(id, RunStatus::Planning, ev("run.starting", "user", "立即开始，不等空位"))? {
+        if !self.claim(id, RunStatus::Planning, ev(EventKind::RunStarting, "user", "立即开始，不等空位"))? {
             return Err(Refused::Conflict("这个任务已经不在排队了".into()));
         }
         self.spawn_start(id.to_string());
@@ -211,7 +212,8 @@ impl App {
     /// Cancel queued run `id`: it never starts.
     pub(super) fn cancel_queued(&self, id: &str) -> Result<(), Refused> {
         let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
-        if !self.claim(id, RunStatus::Cancelled, ev("run.cancelled", "user", "取消这个排队中的任务"))? {
+        if !self.claim(id, RunStatus::Cancelled, ev(EventKind::RunCancelled, "user", "取消这个排队中的任务"))?
+        {
             return Err(Refused::Conflict("这个任务已经不在排队了".into()));
         }
         Ok(())
@@ -221,14 +223,14 @@ impl App {
     /// `false` when it just started.
     pub(super) fn leave_queue_for_delete(&self, id: &str) -> Result<bool> {
         let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
-        self.claim(id, RunStatus::Cancelled, ev("run.cancelled", "user", "删除这个排队中的任务"))
+        self.claim(id, RunStatus::Cancelled, ev(EventKind::RunCancelled, "user", "删除这个排队中的任务"))
     }
 
     /// Put a goal run that never got its snapshot back on the queue, in its old place: the service
     /// stopped while it was being set up, or it could not start and the person continues it. Slots
     /// are handed out by whoever asked, when it is ready to (not during recovery).
     pub(super) fn requeue(&self, id: &str, why: &str) -> Result<()> {
-        self.record(id, ev("run.requeued", "janus", why))?;
+        self.record(id, ev(EventKind::RunRequeued, "janus", why))?;
         self.db.set_run_status(id, RunStatus::Queued)?;
         let _ = self.changes.send(RunChange { run: id.into(), status: RunStatus::Queued });
         Ok(())
@@ -239,7 +241,7 @@ impl App {
         if let Err(err) = self.start_run(id).await {
             let _ = self.record(
                 id,
-                ev("run.failed", "janus", format!("任务没能开始：{err:#}"))
+                ev(EventKind::RunFailed, "janus", format!("任务没能开始：{err:#}"))
                     .data(json!({ "error": format!("{err:#}") })),
             );
             if let Err(err) = self.set_stored_status(id, RunStatus::Failed) {

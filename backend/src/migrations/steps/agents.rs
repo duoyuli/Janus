@@ -1,9 +1,8 @@
 //! Agent connections' data versions: the presets over Claude Code (7), agents started by a custom
 //! command (9), and Claude's API key and private variables leaving the database (13).
 
-use crate::agents::{
-    CONNECTION, ROLE, check_id, private_env_value, protect_claude_env, read_secrets, str_of, write_secrets,
-};
+use crate::agents::{check_id, private_env_value, protect_claude_env, read_secrets, str_of, write_secrets};
+use crate::db::ConfigKind;
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::path::Path;
@@ -17,7 +16,8 @@ use std::path::Path;
 pub(crate) fn drop_preset_kinds(tx: &rusqlite::Transaction) -> Result<usize> {
     let rows: Vec<(String, String)> = {
         let mut stmt = tx.prepare("SELECT id, data FROM configs WHERE kind = ?1")?;
-        stmt.query_map([CONNECTION], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+        stmt.query_map([ConfigKind::Connection.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?
     };
     let mut changed = 0;
     for (id, data) in rows {
@@ -46,7 +46,7 @@ pub(crate) fn drop_preset_kinds(tx: &rusqlite::Transaction) -> Result<usize> {
         o.insert("status".into(), json!("untested"));
         tx.execute(
             "UPDATE configs SET data = ?1 WHERE kind = ?2 AND id = ?3",
-            rusqlite::params![c.to_string(), CONNECTION, id],
+            rusqlite::params![c.to_string(), ConfigKind::Connection.as_str(), id],
         )?;
         changed += 1;
     }
@@ -61,8 +61,9 @@ pub(crate) fn drop_preset_kinds(tx: &rusqlite::Transaction) -> Result<usize> {
 pub(crate) fn drop_custom_agents(tx: &rusqlite::Transaction) -> Result<usize> {
     let custom: Vec<String> = {
         let mut stmt = tx.prepare("SELECT id, data FROM configs WHERE kind = ?1")?;
-        let rows: Vec<(String, String)> =
-            stmt.query_map([CONNECTION], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let rows: Vec<(String, String)> = stmt
+            .query_map([ConfigKind::Connection.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         rows.into_iter()
             .filter(|(_, data)| serde_json::from_str::<Value>(data).is_ok_and(|c| c["base"] == "custom"))
             .map(|(id, _)| id)
@@ -70,9 +71,12 @@ pub(crate) fn drop_custom_agents(tx: &rusqlite::Transaction) -> Result<usize> {
     };
     let mut changed = 0;
     for id in &custom {
-        changed += tx.execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![CONNECTION, id])?;
+        changed += tx.execute(
+            "DELETE FROM configs WHERE kind = ?1 AND id = ?2",
+            rusqlite::params![ConfigKind::Connection.as_str(), id],
+        )?;
     }
-    changed += super::super::edit_configs(tx, ROLE, |_, role| {
+    changed += super::super::edit_configs(tx, ConfigKind::Role, |_, role| {
         if !role.get("connection").and_then(Value::as_str).is_some_and(|c| custom.iter().any(|id| id == c)) {
             return false;
         }
@@ -97,7 +101,7 @@ pub(crate) fn drop_custom_agents(tx: &rusqlite::Transaction) -> Result<usize> {
 /// first; if the transaction rolls back, running it again finds the values already there.
 // @project-doc docs/architecture/20261031-data_model.md#migrations
 pub(crate) fn migrate_claude_env(tx: &rusqlite::Transaction, home: Option<&Path>) -> Result<usize> {
-    super::super::try_edit_configs(tx, CONNECTION, |id, c| {
+    super::super::try_edit_configs(tx, ConfigKind::Connection, |id, c| {
         if c["kind"] != "claude" {
             return Ok(false);
         }

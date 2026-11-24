@@ -37,14 +37,14 @@ async fn goal_mode_orchestrates_through_the_board() {
     let evs = events(&h.app, &run);
     assert!(
         evs.iter().any(|e| {
-            e.kind == "session.prompt"
+            e.kind.as_str() == "session.prompt"
                 && e.to.as_deref() == Some("lead")
                 && e.data.as_ref().is_some_and(|d| d["channel"] == "system" && d["via"] == "system")
         }),
         "the brief goes in the system layer"
     );
     assert!(evs.iter().any(|e| {
-        e.kind == "session.prompt"
+        e.kind.as_str() == "session.prompt"
             && e.to.as_deref() == Some("lead")
             && e.data.as_ref().is_some_and(|d| d["channel"] == "goal")
     }));
@@ -120,12 +120,11 @@ async fn goal_mode_orchestrates_through_the_board() {
         { "id": "T2", "title": "定名", "instructions": "给笔记定个名字", "assignee": "m2", "deps": ["T1"], "accept": ["给出一个名字"] }] })).await;
     assert!(!err, "{text}");
     let evs = events(&h.app, &run);
-    assert!(
-        evs.iter()
-            .any(|e| { e.kind == "tool.started" && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.orchestrate") })
-    );
     assert!(evs.iter().any(|e| {
-        e.kind == "tool.completed"
+        e.kind.as_str() == "tool.started" && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.orchestrate")
+    }));
+    assert!(evs.iter().any(|e| {
+        e.kind.as_str() == "tool.completed"
             && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.orchestrate" && d["status"] == "completed")
     }));
     let (text, err) = tool(
@@ -144,12 +143,12 @@ async fn goal_mode_orchestrates_through_the_board() {
     assert!(!err, "{text}");
     let evs = events(&h.app, &run);
     assert!(evs.iter().any(|e| {
-        e.kind == "tool.started"
+        e.kind.as_str() == "tool.started"
             && e.task.as_deref() == Some("T1")
             && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.board_post")
     }));
     assert!(evs.iter().any(|e| {
-        e.kind == "tool.completed"
+        e.kind.as_str() == "tool.completed"
             && e.task.as_deref() == Some("T1")
             && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.board_post" && d["status"] == "completed")
     }));
@@ -176,10 +175,12 @@ async fn goal_mode_orchestrates_through_the_board() {
     assert!(board.contains("按回答 alpha 完成"), "the answer went back into T2's session: {board}");
     let evs = events(&h.app, &run);
     assert!(
-        evs.iter().any(|e| { e.kind == "tool.started" && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.wait") })
+        evs.iter().any(|e| {
+            e.kind.as_str() == "tool.started" && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.wait")
+        })
     );
     assert!(evs.iter().any(|e| {
-        e.kind == "tool.completed"
+        e.kind.as_str() == "tool.completed"
             && e.data.as_ref().is_some_and(|d| d["tool"] == "janus.wait" && d["status"] == "completed")
     }));
     assert!(!has(&evs, "question.escalated"), "questions go to the lead, not the person");
@@ -190,7 +191,7 @@ async fn goal_mode_orchestrates_through_the_board() {
     std::fs::write(h.dir.join("fake/lead-go"), "目标已完成：笔记写好了").unwrap();
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let evs = events(&h.app, &run);
-    let delivered = evs.iter().find(|e| e.kind == "run.delivered").unwrap();
+    let delivered = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap();
     assert!(delivered.data.as_ref().unwrap()["summary"].as_str().unwrap().contains("笔记写好了"));
     let cwd = PathBuf::from(h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap());
     assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n");
@@ -222,12 +223,15 @@ async fn questions_left_by_the_lead_go_to_the_person() {
     wait_until(&h.app, &run, "escalation", |e| has(e, "question.escalated")).await;
     let evs = events(&h.app, &run);
     assert!(!has(&evs, "run.delivered"), "the run waits for the answer");
-    let key = evs.iter().find(|e| e.kind == "question.asked").unwrap().data.as_ref().unwrap()["key"].clone();
+    let key = evs.iter().find(|e| e.kind.as_str() == "question.asked").unwrap().data.as_ref().unwrap()["key"].clone();
     act(&h, &run, json!({ "type": "answer", "key": key, "task": "T1", "answer": "beta" }));
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let evs = events(&h.app, &run);
-    assert_eq!(evs.iter().filter(|e| e.kind == "question.escalated").count(), 1);
-    assert!(evs.iter().any(|e| e.kind == "result.submitted" && e.text.contains("beta")), "the answer reached T1");
+    assert_eq!(evs.iter().filter(|e| e.kind.as_str() == "question.escalated").count(), 1);
+    assert!(
+        evs.iter().any(|e| e.kind.as_str() == "result.submitted" && e.text.contains("beta")),
+        "the answer reached T1"
+    );
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -259,10 +263,12 @@ async fn goal_mode_resumes_with_the_board() {
     lead_started(1).await;
     let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "第一步", "instructions": "做第一步", "assignee": "m1", "accept": ["第一步完成"] }] })).await;
     assert!(!err, "{text}");
-    wait_until(&h.app, &run, "T1", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1")))
-        .await;
+    wait_until(&h.app, &run, "T1", |e| {
+        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1"))
+    })
+    .await;
     assert!(
-        !events(&h.app, &run).iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")),
+        !events(&h.app, &run).iter().any(|e| e.kind.as_str() == "artifact.created" && e.text.contains("T1-a1.diff")),
         "T1 changed nothing"
     );
 
@@ -273,7 +279,7 @@ async fn goal_mode_resumes_with_the_board() {
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
     let evs = events(&app2, &run);
-    let recovered = evs.iter().rev().find(|e| e.kind == "run.recovered").unwrap();
+    let recovered = evs.iter().rev().find(|e| e.kind.as_str() == "run.recovered").unwrap();
     assert_eq!(recovered.data.as_ref().unwrap()["tasks"][0]["status"], "succeeded");
     lead_started(2).await;
     assert!(std::fs::read_to_string(&calls).unwrap().contains("brief ok resumed"), "the lead is told it continues");
@@ -281,8 +287,10 @@ async fn goal_mode_resumes_with_the_board() {
     // It builds on the board it found.
     let (text, err) = tool(&app2, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T2", "title": "第二步", "instructions": "做第二步", "assignee": "m1", "deps": ["T1"], "accept": ["第二步完成"] }] })).await;
     assert!(!err, "{text}");
-    wait_until(&app2, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2")))
-        .await;
+    wait_until(&app2, &run, "T2", |e| {
+        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T2"))
+    })
+    .await;
     let (board, _) = tool(&app2, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[完成] T2") && !board.contains("[完成] T1"), "only what is new: {board}");
     std::fs::write(h.dir.join("fake/lead-go"), "两步都完成了").unwrap();
@@ -310,7 +318,7 @@ async fn board_events_are_pushed_into_a_steerable_lead() {
     let log = std::fs::read_to_string(&calls).unwrap_or_default();
     assert!(log.contains("steer [Janus 看板推送]") && log.contains("[提问] T1"), "{log}");
     let evs = events(&h.app, &run);
-    assert!(evs.iter().any(|e| e.kind == "session.prompt"
+    assert!(evs.iter().any(|e| e.kind.as_str() == "session.prompt"
         && e.to.as_deref() == Some("lead")
         && e.data.as_ref().is_some_and(|d| d["channel"] == "board")));
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
@@ -318,7 +326,8 @@ async fn board_events_are_pushed_into_a_steerable_lead() {
 
     // The person steers into the lead's turn: routed at once, delivered when applied.
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "先处理 T1 的提问" }));
-    let id = events(&h.app, &run).into_iter().rev().find(|e| e.kind == "user.message").unwrap().data.unwrap()["id"]
+    let id = events(&h.app, &run).into_iter().rev().find(|e| e.kind.as_str() == "user.message").unwrap().data.unwrap()
+        ["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -354,7 +363,7 @@ async fn a_goal_that_never_settles_is_confirmed_with_the_lead() {
     let run =
         h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
     wait_until(&h.app, &run, "goal active", |e| {
-        e.iter().any(|e| e.kind == "goal.status" && e.data.as_ref().unwrap()["status"] == "active")
+        e.iter().any(|e| e.kind.as_str() == "goal.status" && e.data.as_ref().unwrap()["status"] == "active")
     })
     .await;
     finish_lead(&h);
@@ -362,8 +371,10 @@ async fn a_goal_that_never_settles_is_confirmed_with_the_lead() {
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     assert!(calls.contains("goal check") && calls.contains("goal clear"), "{calls}");
     let evs = events(&h.app, &run);
-    assert!(evs.iter().any(|e| e.kind == "session.prompt" && e.data.as_ref().unwrap()["channel"] == "goal_check"));
-    let delivered = evs.iter().find(|e| e.kind == "run.delivered").unwrap();
+    assert!(
+        evs.iter().any(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().unwrap()["channel"] == "goal_check")
+    );
+    let delivered = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap();
     assert!(
         !delivered.data.as_ref().unwrap().to_string().contains("GOAL_DONE"),
         "the marker is not part of the summary: {}",
@@ -385,7 +396,7 @@ async fn a_silent_lead_is_reported_to_the_person() {
     let stalls = |e: &[Event], resolved: bool| {
         e.iter()
             .filter(|e| {
-                e.kind == "lead.stalled"
+                e.kind.as_str() == "lead.stalled"
                     && e.to.as_deref() == Some("user")
                     && (e.data.as_ref().unwrap()["resolved"] == true) == resolved
             })

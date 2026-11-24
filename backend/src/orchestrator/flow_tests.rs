@@ -74,7 +74,7 @@ fn harness_with(name: &str, members: &[(&str, bool)], script: Value, set: impl F
     let modes: Vec<Value> =
         ["read-only", "ask", "agent", "full"].iter().map(|v| json!({ "value": v, "name": v })).collect();
     // The scripted agent, through the stand-in Claude Code adapter (`stand_in_adapters`).
-    app.db.put_config("connection", "fake", &crate::agents::test_connection("fake", "claude", "claude", json!({
+    app.db.put_config(ConfigKind::Connection, "fake", &crate::agents::test_connection("fake", "claude", "claude", json!({
         "name": "Fake",
         "env": { "FAKE_DIR": fake.to_string_lossy() },
         "options": { "controls": [{ "id": "mode", "name": "Mode", "category": "mode", "type": "select", "via": "config", "current": "ask", "permission": true, "options": modes }] }
@@ -82,7 +82,7 @@ fn harness_with(name: &str, members: &[(&str, bool)], script: Value, set: impl F
     for (i, (id, writable)) in members.iter().enumerate() {
         app.db
             .put_config(
-                "role",
+                ConfigKind::Role,
                 id,
                 &crate::agents::test_role(
                     id,
@@ -99,7 +99,7 @@ fn harness_with(name: &str, members: &[(&str, bool)], script: Value, set: impl F
     let ms: Vec<Value> = members.iter().map(|(id, _)| json!({ "role": id })).collect();
     app.db
         .put_config(
-            "workspace",
+            ConfigKind::Workspace,
             "ws",
             &json!({
                 "id": "ws", "name": "ws", "path": repo.canonicalize().unwrap(), "lead": members[0].0, "members": ms, "brief": ""
@@ -178,18 +178,18 @@ fn task(id: &str, assignee: &str, extra: Value) -> Value {
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_requests_reach_the_person() {
     let h = harness("requests", &[("lead", false), ("m1", false)], json!({ "T1": ["permission"], "T2": ["elicit"] }));
-    let mut conn = h.app.db.get_config("connection", "fake").unwrap().unwrap();
+    let mut conn = h.app.db.get_config(ConfigKind::Connection, "fake").unwrap().unwrap();
     conn["options"]["controls"].as_array_mut().unwrap().push(json!({ "id": "plan_mode", "name": "Plan", "type": "boolean", "via": "config", "current": false, "permission": true, "options": [] }));
-    h.app.db.put_config("connection", "fake", &conn, now_ms()).unwrap();
+    h.app.db.put_config(ConfigKind::Connection, "fake", &conn, now_ms()).unwrap();
     // The agent starts in Plan mode and the role asks for it: Janus switches it off.
     std::fs::write(h.dir.join("fake/plan-on"), "").unwrap();
-    let mut role = h.app.db.get_config("role", "m1").unwrap().unwrap();
+    let mut role = h.app.db.get_config(ConfigKind::Role, "m1").unwrap().unwrap();
     role["session"] = json!({ "mode": "full", "plan_mode": true });
-    h.app.db.put_config("role", "m1", &role, now_ms()).unwrap();
+    h.app.db.put_config(ConfigKind::Role, "m1", &role, now_ms()).unwrap();
     let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m1", json!({ "deps": ["T1"] }))])).await;
 
     wait_until(&h.app, &run, "permission request", |e| has(e, "approval.requested")).await;
-    let req = events(&h.app, &run).into_iter().find(|e| e.kind == "approval.requested").unwrap();
+    let req = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "approval.requested").unwrap();
     assert_eq!(
         req.data.as_ref().unwrap()["options"].as_array().unwrap().len(),
         3,
@@ -202,7 +202,7 @@ async fn agent_requests_reach_the_person() {
     );
 
     wait_until(&h.app, &run, "form request", |e| has(e, "input.requested")).await;
-    let form = events(&h.app, &run).into_iter().find(|e| e.kind == "input.requested").unwrap();
+    let form = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "input.requested").unwrap();
     assert_eq!(form.data.as_ref().unwrap()["schema"]["required"], json!(["name"]));
     act(
         &h,
@@ -210,20 +210,22 @@ async fn agent_requests_reach_the_person() {
         json!({ "type": "input", "key": form.data.as_ref().unwrap()["key"], "task": "T2", "action": "accept", "content": { "name": "janus" } }),
     );
 
-    wait_until(&h.app, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2")))
-        .await;
+    wait_until(&h.app, &run, "T2", |e| {
+        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T2"))
+    })
+    .await;
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let evs = events(&h.app, &run);
     let summary = |t: &str| {
         evs.iter()
-            .find(|e| e.kind == "result.submitted" && e.task.as_deref() == Some(t))
+            .find(|e| e.kind.as_str() == "result.submitted" && e.task.as_deref() == Some(t))
             .map(|e| e.data.as_ref().unwrap()["summary"].as_str().unwrap_or_default().to_string())
             .unwrap_or_default()
     };
     assert_eq!(summary("T1"), "picked a2", "the chosen option, not a generic allow");
     assert_eq!(summary("T2"), "accept janus");
-    let started = evs.iter().find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).unwrap();
+    let started = evs.iter().find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1")).unwrap();
     assert_eq!(started.data.as_ref().unwrap()["config"]["controls"]["mode"], "full");
     assert!(
         started.data.as_ref().unwrap()["config"]["controls"].get("plan_mode").is_none(),
@@ -257,7 +259,9 @@ async fn watchdog_reports_stalled_tasks() {
     let stalled = |e: &[Event], t: &str, reason: &str| {
         e.iter()
             .filter(|e| {
-                e.kind == "task.stalled" && e.task.as_deref() == Some(t) && e.data.as_ref().unwrap()["reason"] == reason
+                e.kind.as_str() == "task.stalled"
+                    && e.task.as_deref() == Some(t)
+                    && e.data.as_ref().unwrap()["reason"] == reason
             })
             .count()
     };
@@ -272,7 +276,7 @@ async fn watchdog_reports_stalled_tasks() {
     let evs = events(&h.app, &run);
     assert_eq!(stalled(&evs, "T1", "idle"), 1, "one report per quiet spell");
     assert_eq!(stalled(&evs, "T3", "idle"), 0, "waiting on the person is not a stall");
-    let req = evs.iter().find(|e| e.kind == "approval.requested").unwrap();
+    let req = evs.iter().find(|e| e.kind.as_str() == "approval.requested").unwrap();
     act(&h, &run, json!({ "type": "approve", "key": req.data.as_ref().unwrap()["key"], "task": "T3", "allow": true }));
 
     // The person interrupts T1 and holds its session (no `control.taken`): the silence is theirs.
@@ -330,7 +334,7 @@ async fn lead_resolves_failed_tasks() {
     wait_until(&h.app, &run, "T1 failed", |e| task_event(e, "task.failed", "T1")).await;
     let evs = events(&h.app, &run);
     assert_eq!(
-        evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).count(),
+        evs.iter().filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1")).count(),
         1,
         "no fresh retry for a failed verification"
     );
@@ -382,7 +386,7 @@ async fn lead_resolves_failed_tasks() {
     .await;
     let reopened = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "task.reopened" && e.task.as_deref() == Some("T3"))
+        .find(|e| e.kind.as_str() == "task.reopened" && e.task.as_deref() == Some("T3"))
         .unwrap();
     assert_eq!(reopened.data.as_ref().unwrap()["instructions"], "换个做法再做一次");
     assert_eq!(reopened.data.as_ref().unwrap()["accept"], json!(["换了做法"]));
@@ -390,7 +394,7 @@ async fn lead_resolves_failed_tasks() {
     // A decision only the person can make: the answer reaches the lead through wait.
     let (text, err) = tool(&h.app, &run, "lead", "ask_user", json!({ "question": "部署到哪个环境？", "why": "需要用户的账号", "options": ["测试", "生产"], "recommend": "测试" })).await;
     assert!(!err, "{text}");
-    let asked = events(&h.app, &run).into_iter().find(|e| e.kind == "question.escalated").unwrap();
+    let asked = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "question.escalated").unwrap();
     let key = asked.data.as_ref().unwrap()["key"].as_str().unwrap().to_string();
     act(&h, &run, json!({ "type": "answer", "key": key, "task": "", "answer": "测试" }));
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
@@ -425,7 +429,7 @@ async fn verification_failure_is_fixed_in_the_same_session() {
     assert_eq!(count("attempt.started", "T1"), 1, "fixed in the same session, no new attempt");
     assert_eq!(count("verification.failed", "T1"), 1);
     assert!(evs.iter().any(|e| {
-        e.kind == "session.prompt"
+        e.kind.as_str() == "session.prompt"
             && e.task.as_deref() == Some("T1")
             && e.data.as_ref().is_some_and(|d| {
                 d["channel"] == "fix" && d["prompt"].as_str().unwrap_or("").contains("自认没有达到「做好 done 功能」")
@@ -433,7 +437,7 @@ async fn verification_failure_is_fixed_in_the_same_session() {
     }));
     assert_eq!(count("attempt.started", "T2"), 1);
     assert_eq!(count("verification.failed", "T2"), 2, "one fix round, then the lead decides");
-    let failed = evs.iter().find(|e| e.kind == "task.failed" && e.task.as_deref() == Some("T2")).unwrap();
+    let failed = evs.iter().find(|e| e.kind.as_str() == "task.failed" && e.task.as_deref() == Some("T2")).unwrap();
     assert_eq!(failed.data.as_ref().unwrap()["reason"], "verification");
 
     // The numbers per role: T1 succeeded but not on first pass, T2 failed.
@@ -475,7 +479,9 @@ async fn sessions_show_what_the_agent_shows_and_take_its_controls() {
     act(&h, &run, json!({ "type": "takeover", "task": "T1", "agent": "" }));
     wait_until(&h.app, &run, "T1 waits for the person", |e| {
         e.iter().any(|e| {
-            e.kind == "agent.status" && e.task.as_deref() == Some("T1") && e.data.as_ref().unwrap()["turn"] == "idle"
+            e.kind.as_str() == "agent.status"
+                && e.task.as_deref() == Some("T1")
+                && e.data.as_ref().unwrap()["turn"] == "idle"
         })
     })
     .await;
@@ -500,10 +506,11 @@ async fn sessions_show_what_the_agent_shows_and_take_its_controls() {
     assert_eq!((&started["callId"], &started["live"]), (&json!("rich-1"), &json!(true)));
     let call = evs
         .iter()
-        .find(|e| e.kind == "tool.call" && e.data.as_ref().unwrap()["callId"] == "rich-1")
+        .find(|e| e.kind.as_str() == "tool.call" && e.data.as_ref().unwrap()["callId"] == "rich-1")
         .expect("the finished call replaces the running one");
     assert_eq!(call.data.as_ref().unwrap()["diffs"][0]["new"], "a\nsdk()\n");
-    let usage: Vec<Value> = evs.iter().filter(|e| e.kind == "session.usage").map(|e| e.data.clone().unwrap()).collect();
+    let usage: Vec<Value> =
+        evs.iter().filter(|e| e.kind.as_str() == "session.usage").map(|e| e.data.clone().unwrap()).collect();
     assert!(usage.iter().any(|u| u["used"] == 52000) && usage.iter().any(|u| u["totalTokens"] == 1500), "{usage:?}");
     assert_eq!(one("session.control")["value"], "agent", "the agent switched its own mode");
 
@@ -522,7 +529,7 @@ async fn sessions_show_what_the_agent_shows_and_take_its_controls() {
     }
     assert!(std::fs::read_to_string(&calls).unwrap().contains("set mode \"full\""));
     wait_until(&h.app, &run, "control recorded", |e| {
-        e.iter().any(|e| e.kind == "session.control" && e.data.as_ref().unwrap()["by"] == "user")
+        e.iter().any(|e| e.kind.as_str() == "session.control" && e.data.as_ref().unwrap()["by"] == "user")
     })
     .await;
     // An empty control, or an empty value, is refused.
@@ -557,7 +564,7 @@ async fn retry_revives_a_failed_task_and_its_dependent() {
     wait_until(&h.app, &run, "blocked", |e| has(e, "task.blocked")).await;
     let evs = events(&h.app, &run);
     assert_eq!(
-        evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).count(),
+        evs.iter().filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1")).count(),
         2,
         "two attempts per task"
     );
@@ -566,8 +573,10 @@ async fn retry_revives_a_failed_task_and_its_dependent() {
     assert!(board.contains("[失败] T1") && board.contains("[无法开始] T2"), "{board}");
     let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "new" })).await;
     assert!(!err, "{text}");
-    wait_until(&h.app, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2")))
-        .await;
+    wait_until(&h.app, &run, "T2", |e| {
+        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T2"))
+    })
+    .await;
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     assert_eq!(status(&h.app, &run), "delivered");
@@ -626,7 +635,7 @@ async fn run_state_follows_the_board() {
     // A is accepted; C still waits on B and says so.
     let blocked_on = |dep: &str| {
         events(&h.app, &run).iter().any(|e| {
-            e.kind == "task.blocked"
+            e.kind.as_str() == "task.blocked"
                 && e.task.as_deref() == Some("C")
                 && e.data.as_ref().is_some_and(|d| d["dependency"] == dep)
         })
@@ -659,7 +668,7 @@ async fn run_state_follows_the_board() {
     act(&h, &run, json!({ "type": "resume" }));
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     assert!(task_event(&events(&h.app, &run), "task.succeeded", "E"));
-    let delivered = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap();
+    let delivered = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap();
     let risks = delivered.data.unwrap()["risks"].to_string();
     assert!(risks.contains(&format!("{other}：被负责人取消")), "{risks}");
 
@@ -685,13 +694,16 @@ async fn restart_restores_failed_and_blocked() {
     tokio::time::sleep(Duration::from_secs(3)).await;
     // Reported usage survives the restart.
     let old = h.app.run(&run).unwrap();
-    h.app.emit(&old, ev("session.usage", "m1", "用量").task("T1").attempt(1).data(json!({ "totalTokens": 2_000 })));
+    h.app.emit(
+        &old,
+        ev(EventKind::SessionUsage, "m1", "用量").task("T1").attempt(1).data(json!({ "totalTokens": 2_000 })),
+    );
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
     assert_eq!(status(&app2, &run), "interrupted");
     let r = app2.resume_run(&run).await.unwrap();
     let evs = events(&app2, &run);
-    let recovered = evs.iter().rev().find(|e| e.kind == "run.recovered").unwrap();
+    let recovered = evs.iter().rev().find(|e| e.kind.as_str() == "run.recovered").unwrap();
     let tasks = recovered.data.as_ref().unwrap()["tasks"].clone();
     assert_eq!(tasks[0]["status"], "failed", "{tasks}");
     assert_eq!(tasks[1]["status"], "blocked", "{tasks}");
@@ -700,8 +712,10 @@ async fn restart_restores_failed_and_blocked() {
     }
     let (text, err) = tool(&app2, &run, "lead", "retry", json!({ "task": "T1", "session": "new" })).await;
     assert!(!err, "{text}");
-    wait_until(&app2, &run, "T2", |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T2")))
-        .await;
+    wait_until(&app2, &run, "T2", |e| {
+        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T2"))
+    })
+    .await;
     finish_lead(&h);
     wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);

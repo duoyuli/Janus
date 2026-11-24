@@ -21,7 +21,8 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     .await;
     wait_until(&h.app, &run, "V1", |e| task_event(e, "task.succeeded", "V1")).await;
     let evs = events(&h.app, &run);
-    let submitted = evs.iter().find(|e| e.kind == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
+    let submitted =
+        evs.iter().find(|e| e.kind.as_str() == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
     let names: Vec<&str> = submitted.data.as_ref().unwrap()["checks"]
         .as_array()
         .unwrap()
@@ -70,7 +71,7 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
 
     finish_lead(&h);
     wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;
-    let d = events(&app2, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let d = events(&app2, &run).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.unwrap();
     let t1 = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T1").unwrap().clone();
     assert_eq!((t1["criteria"].as_u64(), t1["passed"].as_u64()), (Some(5), Some(5)), "{t1}");
     assert_eq!(t1["methods"].as_array().unwrap().len(), 5, "{t1}");
@@ -97,20 +98,22 @@ async fn an_illegal_evidence_method_fails_the_result_check() {
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "verification failed", |e| task_event(e, "verification.failed", "T1")).await;
     let evs = events(&h.app, &run);
-    let failed = evs.iter().find(|e| e.kind == "verification.failed" && e.task.as_deref() == Some("T1")).unwrap();
+    let failed =
+        evs.iter().find(|e| e.kind.as_str() == "verification.failed" && e.task.as_deref() == Some("T1")).unwrap();
     let failures = failed.data.as_ref().unwrap()["failures"].as_array().unwrap().clone();
     assert!(
         failures.iter().any(|f| f.as_str().is_some_and(|f| f.contains("证据方法「vibes」不是允许值"))),
         "{failures:?}"
     );
     // The recorded check keeps exactly the value it was given.
-    let submitted = evs.iter().find(|e| e.kind == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
+    let submitted =
+        evs.iter().find(|e| e.kind.as_str() == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
     assert_eq!(submitted.data.as_ref().unwrap()["checks"][0]["method"], "vibes");
     wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
     let done = events(&h.app, &run)
         .into_iter()
         .rev()
-        .find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1"))
+        .find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1"))
         .unwrap();
     assert_eq!(
         done.data.as_ref().unwrap()["acceptance"]["unspecified"],

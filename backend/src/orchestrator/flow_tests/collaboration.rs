@@ -55,7 +55,7 @@ async fn wait_wakes_immediately_on_board_event_and_reports_live_pulse_on_timeout
     let h = harness("collab-wait", &[("lead", false), ("m1", true)], json!({ "T1": ["busy-tool"] }));
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 running tool", |e| {
-        e.iter().any(|e| e.kind == "tool.started" && e.task.as_deref() == Some("T1"))
+        e.iter().any(|e| e.kind.as_str() == "tool.started" && e.task.as_deref() == Some("T1"))
     })
     .await;
     // A start alone does not end the wait: it comes back at the timeout, with the live pulse.
@@ -119,8 +119,8 @@ async fn steady_edits_of_one_file_are_not_reported_as_a_loop() {
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 finished", |e| task_event(e, "task.succeeded", "T1")).await;
     let evs = events(&h.app, &run);
-    assert!(evs.iter().filter(|e| e.kind == "tool.call" && e.task.as_deref() == Some("T1")).count() >= 15);
-    assert!(!evs.iter().any(|e| e.kind == "task.stalled"), "no stall for steady work");
+    assert!(evs.iter().filter(|e| e.kind.as_str() == "tool.call" && e.task.as_deref() == Some("T1")).count() >= 15);
+    assert!(!evs.iter().any(|e| e.kind.as_str() == "task.stalled"), "no stall for steady work");
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -169,7 +169,7 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     let evs = events(&h.app, &run);
     let prompt_of = |id: &str| -> String {
         evs.iter()
-            .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(id))
+            .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some(id))
             .and_then(|e| e.data.as_ref()?["prompt"].as_str().map(str::to_owned))
             .unwrap_or_default()
     };
@@ -178,15 +178,16 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     assert!(td_prompt.contains("交接说明：接口签名：parse(input: &str)"), "{td_prompt}");
     assert!(td_prompt.contains("上游风险：空字符串边界尚未压测"), "{td_prompt}");
 
-    let v1_done = evs.iter().find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("V1")).unwrap();
+    let v1_done = evs.iter().find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("V1")).unwrap();
     let live = h.app.run(&run).unwrap();
     let guidance = board_entry(&live, v1_done).unwrap();
     assert!(guidance.contains("下游任务 SHIP") && guidance.contains("janus.cancel"), "{guidance}");
     let (note, invalid) = tool(&h.app, &run, "lead", "cancel", json!({"tasks":["V1"],"reason":"过时"})).await;
     assert!(invalid && note.contains("原判定保留"), "{note}");
-    let planned = evs.iter().find(|e| e.kind == "orchestration.accepted").unwrap().data.as_ref().unwrap()["plannedSeq"]
-        .as_i64()
-        .unwrap();
+    let planned =
+        evs.iter().find(|e| e.kind.as_str() == "orchestration.accepted").unwrap().data.as_ref().unwrap()["plannedSeq"]
+            .as_i64()
+            .unwrap();
     assert_eq!(live.st.lock().unwrap().tasks.iter().find(|t| t.def.id == "SHIP").unwrap().planned_seq, planned);
     let (cancelled, err) = tool(&h.app, &run, "lead", "cancel", json!({"tasks":["SHIP"],"reason":"先修复"})).await;
     assert!(!err && cancelled.contains("已取消：SHIP"), "{cancelled}");
@@ -236,12 +237,12 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     let evs = events(&h.app, &run);
     let t1_sid = evs
         .iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1"))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1"))
         .and_then(|e| e.data.as_ref()?["session"].as_str().map(str::to_owned))
         .unwrap();
     let t2_started = evs
         .iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2"))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T2"))
         .and_then(|e| e.data.clone())
         .unwrap();
     assert_eq!(t2_started["session"].as_str(), Some(t1_sid.as_str()), "T2 reused T1's sessionId");
@@ -255,7 +256,7 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     let handoff = evs
         .iter()
         .find(|e| {
-            e.kind == "context.handoff"
+            e.kind.as_str() == "context.handoff"
                 && e.task.as_deref() == Some("T2")
                 && e.data.as_ref().is_some_and(|d| d["from"] == "V1")
         })
@@ -272,7 +273,7 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.unwrap();
     let t2_acc = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T2").unwrap();
     assert_eq!(t2_acc["verifications"][0]["verdict"], "approved");
     assert_eq!(t2_acc["verifications"][0]["passed"], true);
@@ -347,12 +348,12 @@ async fn session_continuation_falls_back_cleanly_on_high_context_or_no_load() {
     let evs = events(&h.app, &run);
     let t1_sid = evs
         .iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1"))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1"))
         .and_then(|e| e.data.as_ref()?["session"].as_str().map(str::to_owned))
         .unwrap();
     let t2_a1 = evs
         .iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2") && e.attempt == Some(1))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T2") && e.attempt == Some(1))
         .and_then(|e| e.data.clone())
         .unwrap();
     assert_ne!(t2_a1["session"].as_str(), Some(t1_sid.as_str()), "80% context skips session/load");
@@ -367,7 +368,7 @@ async fn session_continuation_falls_back_cleanly_on_high_context_or_no_load() {
     wait_until(&h.app, &run, "T2 succeeded on retry", |e| task_event(e, "task.succeeded", "T2")).await;
     let t2_a2 = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2") && e.attempt == Some(2))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T2") && e.attempt == Some(2))
         .and_then(|e| e.data)
         .unwrap();
     assert_eq!(t2_a2["continuation"]["fallback"], "unsupported", "{t2_a2}");
@@ -397,7 +398,7 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
     // C-05: `T2` ran `Edit a.rs` / `cargo test` 4 times in alternation -> `period: 2` loop stall.
     let stalled = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "task.stalled" && e.task.as_deref() == Some("T2"))
+        .find(|e| e.kind.as_str() == "task.stalled" && e.task.as_deref() == Some("T2"))
         .and_then(|e| e.data)
         .unwrap();
     assert_eq!((stalled["reason"].as_str(), stalled["period"].as_u64()), (Some("loop"), Some(2)), "{stalled}");
@@ -421,12 +422,12 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
     let r = h.app.run(&run).unwrap();
     let seq = h.app.emit(
         &r,
-        ev("tool.call", "lead", "Edit owned.rs & api.rs")
+        ev(EventKind::ToolCall, "lead", "Edit owned.rs & api.rs")
             .data(json!({ "tool": "edit", "status": "completed", "paths": ["owned.rs", "api.rs", "later.rs"] })),
     );
     h.app.record_lead_edits(&r, &["owned.rs".into(), "api.rs".into(), "later.rs".into()], seq);
     assert!(
-        !events(&h.app, &run).iter().any(|e| e.kind == "task.conflict" && e.task.as_deref() == Some("T5")),
+        !events(&h.app, &run).iter().any(|e| e.kind.as_str() == "task.conflict" && e.task.as_deref() == Some("T5")),
         "a task that has not started is not in conflict with the lead's edit"
     );
 
@@ -451,7 +452,7 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
     wait_until(&h.app, &run, "T4 done", |e| task_event(e, "task.succeeded", "T4")).await;
     let t4_prompt = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T4"))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T4"))
         .and_then(|e| e.data?["prompt"].as_str().map(str::to_owned))
         .unwrap();
     assert!(t4_prompt.contains("api.rs（负责人 改）"), "{t4_prompt}");
@@ -655,7 +656,7 @@ async fn a_crashed_attempt_recovers_its_isolated_native_usage() {
     // Janus recovers usage as the attempt ends, while its session is the agent's current one: the last attempt's.
     let crash_sid = events(&h.app, &run)
         .into_iter()
-        .rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T_CRASH"))
+        .rfind(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T_CRASH"))
         .and_then(|e| e.data?["session"].as_str().map(str::to_owned))
         .unwrap();
     let proj_dir = h.app.cfg.layout.agent_config("fake").join("projects/demo");
@@ -666,7 +667,7 @@ async fn a_crashed_attempt_recovers_its_isolated_native_usage() {
     let path = proj_dir.join(format!("{crash_sid}.jsonl"));
     let prior = json!({"message":{"id":"prior","usage":{"input_tokens":80}}}).to_string();
     std::fs::write(&path, format!("{prior}\n")).unwrap();
-    h.app.show(&r, ("session.usage", "上一轮".into(), json!({"totalTokens":80, "session":crash_sid})), &ctx);
+    h.app.show(&r, (EventKind::SessionUsage, "上一轮".into(), json!({"totalTokens":80, "session":crash_sid})), &ctx);
     let turn = h.app.native_turn(&r, &member, &crash_sid, None).unwrap();
     std::fs::write(
         &path,
@@ -711,8 +712,9 @@ async fn rework_goes_back_into_the_original_session_and_is_rechecked() {
         task_event(e, "task.succeeded", "V1") && task_event(e, "task.blocked", "D1")
     })
     .await;
-    let v1_done =
-        events(&h.app, &run).into_iter().find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("V1"));
+    let v1_done = events(&h.app, &run)
+        .into_iter()
+        .find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("V1"));
     let guidance = board_entry(&h.app.run(&run).unwrap(), &v1_done.unwrap()).unwrap();
     assert!(guidance.contains("janus.retry") && guidance.contains("from=\"V1\""), "{guidance}");
 
@@ -743,7 +745,7 @@ async fn rework_goes_back_into_the_original_session_and_is_rechecked() {
     let evs = events(&h.app, &run);
     let started = |id: &str, n: i64| -> Value {
         evs.iter()
-            .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(id) && e.attempt == Some(n))
+            .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some(id) && e.attempt == Some(n))
             .and_then(|e| e.data.clone())
             .unwrap_or_else(|| panic!("{id} attempt {n} did not start"))
     };
@@ -759,7 +761,7 @@ async fn rework_goes_back_into_the_original_session_and_is_rechecked() {
     );
     assert!(!prompt.contains("你是 Janus 团队中的"), "the session already has the task: {prompt}");
     assert!(
-        evs.iter().any(|e| e.kind == "context.handoff"
+        evs.iter().any(|e| e.kind.as_str() == "context.handoff"
             && e.task.as_deref() == Some("T1")
             && e.attempt == Some(2)
             && e.data.as_ref().is_some_and(|d| d["from"] == "V1" && d["verdict"] == "rejected")),
@@ -775,7 +777,10 @@ async fn rework_goes_back_into_the_original_session_and_is_rechecked() {
             && recheck.contains("运行 cargo test 复现空输入崩溃"),
         "{recheck}"
     );
-    assert!(evs.iter().filter(|e| e.kind == "orchestration.accepted").count() == 1, "no new subtasks for the rework");
+    assert!(
+        evs.iter().filter(|e| e.kind.as_str() == "orchestration.accepted").count() == 1,
+        "no new subtasks for the rework"
+    );
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     for sid in [&t1a["session"], &v1a["session"]] {
         assert!(calls.contains(&format!("load {}", sid.as_str().unwrap())), "{calls}");
@@ -783,7 +788,7 @@ async fn rework_goes_back_into_the_original_session_and_is_rechecked() {
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.unwrap();
     let t1 = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T1").unwrap();
     assert_eq!(t1["verifications"][0]["verdict"], "approved", "{t1}");
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -835,15 +840,15 @@ async fn a_rework_survives_a_restart() {
     h.app.recover().unwrap();
     h.app.resume_run(id).await.unwrap();
     wait_until(&h.app, id, "V1 checked again", |e| {
-        e.iter().filter(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("V1")).count() == 2
+        e.iter().filter(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("V1")).count() == 2
     })
     .await;
     let log = events(&h.app, id);
     let at = |kind: &str, task: &str| log.iter().rposition(|e| e.kind == kind && e.task.as_deref() == Some(task));
-    let t0 = log.iter().rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T0")).unwrap();
+    let t0 = log.iter().rfind(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T0")).unwrap();
     assert_eq!(t0.data.as_ref().unwrap()["reopen"]["from"], "V1", "{t0:?}");
     assert_eq!(t0.data.as_ref().unwrap()["continuation"]["session"], "s-t0", "{t0:?}");
-    let v1 = log.iter().rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("V1")).unwrap();
+    let v1 = log.iter().rfind(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("V1")).unwrap();
     assert_eq!(v1.data.as_ref().unwrap()["reopen"]["reason"], "target.reworked");
     assert!(at("attempt.started", "V1") > at("task.succeeded", "T0"), "V1 waited for the reworked T0");
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -880,18 +885,18 @@ async fn a_rework_names_the_tasks_built_on_the_old_result() {
     assert!(text.contains("T2 已经基于 T1 的旧结果完成"), "{text}");
     wait_until(&h.app, &run, "T1 reworked and T3 done", |e| {
         task_event(e, "task.succeeded", "T3")
-            && e.iter().filter(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1")).count() == 2
+            && e.iter().filter(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1")).count() == 2
     })
     .await;
     let evs = events(&h.app, &run);
     assert!(
-        evs.iter().any(|e| e.kind == "user.message"
+        evs.iter().any(|e| e.kind.as_str() == "user.message"
             && e.task.as_deref() == Some("T3")
             && e.data.as_ref().is_some_and(|d| d["text"].as_str().unwrap_or("").contains("上游子任务 T1 正在返工"))),
         "the running downstream task is told"
     );
     assert!(
-        !evs.iter().any(|e| e.kind == "task.reopened" && e.task.as_deref() == Some("T2")),
+        !evs.iter().any(|e| e.kind.as_str() == "task.reopened" && e.task.as_deref() == Some("T2")),
         "the finished downstream task is not redone without the lead"
     );
     finish_lead(&h);
@@ -915,7 +920,7 @@ async fn continuing_a_task_that_never_had_a_session_says_so() {
     wait_until(&h.app, &run, "T2 done", |e| task_event(e, "task.succeeded", "T2")).await;
     let started = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2"))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T2"))
         .and_then(|e| e.data)
         .unwrap();
     assert_eq!(
@@ -947,7 +952,8 @@ async fn the_lead_only_manages_once_it_delegates() {
     let r = h.app.run(&run).unwrap();
     let edit = |paths: &[&str]| {
         let paths: Vec<String> = paths.iter().map(|p| p.to_string()).collect();
-        let seq = h.app.emit(&r, ev("tool.call", "lead", "Edit").data(json!({ "tool": "edit", "paths": paths })));
+        let seq =
+            h.app.emit(&r, ev(EventKind::ToolCall, "lead", "Edit").data(json!({ "tool": "edit", "paths": paths })));
         h.app.record_lead_edits(&r, &paths, seq);
     };
     edit(&["small.rs"]);
@@ -959,7 +965,7 @@ async fn the_lead_only_manages_once_it_delegates() {
     edit(&["small.rs", "api.rs"]);
     edit(&["api.rs"]);
     let edited: Vec<Value> =
-        events(&h.app, &run).into_iter().filter(|e| e.kind == "lead.edited").filter_map(|e| e.data).collect();
+        events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "lead.edited").filter_map(|e| e.data).collect();
     assert_eq!(edited, vec![json!({ "paths": ["small.rs", "api.rs"] })], "each file once, after delegating");
 
     wait_until(&h.app, &run, "T1 failed", |e| task_event(e, "task.failed", "T1")).await;
@@ -969,7 +975,7 @@ async fn the_lead_only_manages_once_it_delegates() {
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.unwrap();
     assert_eq!(d["leadEdits"], json!(["api.rs", "small.rs"]), "what the lead changed itself goes on the delivery");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -999,7 +1005,7 @@ async fn the_delivery_marks_changes_without_an_independent_verification() {
     .await;
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
-    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.unwrap();
     let unverified = |id: &str| {
         d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == id).unwrap()["unverified"].as_bool().unwrap()
     };
@@ -1048,7 +1054,9 @@ async fn ending_a_held_session_is_on_record_for_the_lead() {
     wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
     act(&h, &run, json!({ "type": "interrupt", "task": "T1" }));
     wait_until(&h.app, &run, "held by the person", |e| {
-        e.iter().any(|e| e.kind == "agent.status" && e.task.as_deref() == Some("T1") && e.text.contains("人工接管"))
+        e.iter().any(|e| {
+            e.kind.as_str() == "agent.status" && e.task.as_deref() == Some("T1") && e.text.contains("人工接管")
+        })
     })
     .await;
     act(&h, &run, json!({ "type": "finish", "task": "T1" }));
@@ -1058,7 +1066,7 @@ async fn ending_a_held_session_is_on_record_for_the_lead() {
     .await;
     let finished = events(&h.app, &run)
         .into_iter()
-        .filter(|e| e.kind == "session.interrupted" && e.data.as_ref().is_some_and(|d| d["finish"] == true))
+        .filter(|e| e.kind.as_str() == "session.interrupted" && e.data.as_ref().is_some_and(|d| d["finish"] == true))
         .count();
     assert_eq!(finished, 1, "the person's finish is recorded once");
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
@@ -1093,17 +1101,23 @@ async fn a_verification_of_an_old_result_checks_again_after_the_rework() {
     // V1 approves what it saw, the first result, while T1 is being reworked.
     std::fs::write(h.dir.join("fake/v1-go"), "").unwrap();
     wait_until(&h.app, &run, "V1 checks again after T1's rework", |evs| {
-        let started = evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("V1")).count();
+        let started =
+            evs.iter().filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("V1")).count();
         started == 2 && task_event(evs, "task.succeeded", "V1")
     })
     .await;
     let evs = events(&h.app, &run);
-    let t1_done = evs.iter().rfind(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1")).unwrap().seq;
-    let v1_second =
-        evs.iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("V1")).nth(1).unwrap().seq;
+    let t1_done =
+        evs.iter().rfind(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1")).unwrap().seq;
+    let v1_second = evs
+        .iter()
+        .filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("V1"))
+        .nth(1)
+        .unwrap()
+        .seq;
     assert!(v1_second > t1_done, "the second check starts after the reworked result exists");
     assert!(
-        evs.iter().any(|e| e.kind == "task.reopened"
+        evs.iter().any(|e| e.kind.as_str() == "task.reopened"
             && e.task.as_deref() == Some("V1")
             && e.data.as_ref().is_some_and(|d| d["reason"] == "target.reworked")),
         "the reopen is on record, so a restart rebuilds it"

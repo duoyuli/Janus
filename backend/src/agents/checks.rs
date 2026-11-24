@@ -18,7 +18,7 @@ impl App {
         let started = now_ms();
         set_check(&mut c, ConnCheck::Testing { started });
         c["check"] = json!([]);
-        self.db.put_config(CONNECTION, id, &c, now_ms())?;
+        self.db.put_config(ConfigKind::Connection, id, &c, now_ms())?;
         running.insert(id.to_string(), started);
         drop(running);
         let app = self.clone();
@@ -36,7 +36,7 @@ impl App {
     /// went with the old process (and `kill_on_drop` took the login command with it). The check
     /// reads as "not tested" again and the login as failed, so the next login starts a new one.
     pub fn reset_stale_checks(&self) -> Result<()> {
-        for mut c in self.db.list_config(CONNECTION)? {
+        for mut c in self.db.list_config(ConfigKind::Connection)? {
             let testing = matches!(check_state(&c), ConnCheck::Testing { .. });
             let logging_in = login_state(&c) == LoginState::Running;
             if !testing && !logging_in {
@@ -48,7 +48,7 @@ impl App {
             if logging_in {
                 set_login(&mut c, LoginState::Failed);
             }
-            self.db.put_config(CONNECTION, str_of(&c, "id"), &c, now_ms())?;
+            self.db.put_config(ConfigKind::Connection, str_of(&c, "id"), &c, now_ms())?;
         }
         Ok(())
     }
@@ -61,7 +61,7 @@ impl App {
             && check.owns(&c)
         {
             c["check"] = json!(check.steps);
-            let _ = self.db.put_config(CONNECTION, id, &c, now_ms());
+            let _ = self.db.put_config(ConfigKind::Connection, id, &c, now_ms());
         }
     }
 
@@ -298,7 +298,7 @@ impl App {
                 );
             }
         }
-        self.db.put_config(CONNECTION, id, &c, now_ms())?;
+        self.db.put_config(ConfigKind::Connection, id, &c, now_ms())?;
         Ok(())
     }
 
@@ -331,7 +331,7 @@ impl App {
             .spawn()
             .context("启动登录命令失败")?;
         set_login(&mut c, LoginState::Running);
-        self.db.put_config(CONNECTION, id, &c, now_ms())?;
+        self.db.put_config(ConfigKind::Connection, id, &c, now_ms())?;
         let app = self.clone();
         let id = id.to_string();
         tokio::spawn(async move {
@@ -347,7 +347,7 @@ impl App {
             if let Ok(mut c) = app.connection(&id) {
                 set_login(&mut c, state);
                 set_check(&mut c, ConnCheck::Untested);
-                let _ = app.db.put_config(CONNECTION, &id, &c, now_ms());
+                let _ = app.db.put_config(ConfigKind::Connection, &id, &c, now_ms());
             }
         });
         Ok(())
@@ -409,7 +409,7 @@ mod tests {
         let settled = json!({ "status": "ok", "login": { "state": "done", "at": 1 } });
         for (id, extra) in [("logging-in", login), ("testing", check), ("settled", settled)] {
             let c = crate::agents::test_connection(id, "codex", "codex", extra);
-            app.db.put_config(CONNECTION, id, &c, 1).unwrap();
+            app.db.put_config(ConfigKind::Connection, id, &c, 1).unwrap();
         }
 
         app.reset_stale_checks().unwrap();
@@ -443,7 +443,7 @@ mod tests {
             "claude",
             json!({ "env": { "FAKE_DIR": fake.to_string_lossy() } }),
         );
-        app.db.put_config(CONNECTION, "slow", &slow, 1).unwrap();
+        app.db.put_config(ConfigKind::Connection, "slow", &slow, 1).unwrap();
         let first = app.start_check("slow").unwrap();
         let again = app.start_check("slow").unwrap();
         assert_eq!(again["testStartedAt"], first["testStartedAt"], "the running check is returned");
@@ -460,7 +460,7 @@ mod tests {
             "claude",
             json!({ "status": "testing", "testStartedAt": 2, "check": [] }),
         );
-        app.db.put_config(CONNECTION, "gone", &gone, 1).unwrap();
+        app.db.put_config(ConfigKind::Connection, "gone", &gone, 1).unwrap();
         app.test_connection("gone", 1).await.unwrap();
         let after = app.connection("gone").unwrap();
         assert_eq!((after["status"].as_str(), after["check"].clone()), (Some("testing"), json!([])), "untouched");

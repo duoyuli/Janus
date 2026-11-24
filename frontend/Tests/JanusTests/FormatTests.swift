@@ -114,7 +114,7 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
         ("artifact.created", "artifacts"), ("context.handoff", "artifacts"),
         ("task.succeeded", "tasks"), ("attempt.started", "tasks"), ("run.created", "tasks"), ("message.routed", "tasks"), ("run.delivered", "tasks"),
     ]
-    for (type, category) in cases { #expect(L.category(type) == category, "\(type)") }
+    for (type, category) in cases { #expect(L.category(EventKind(wire: type)) == category, "\(type)") }
 }
 
 /// Patterns compiled once behave like the string methods they replace.

@@ -53,7 +53,7 @@ impl App {
             {
                 app.emit(
                     &run,
-                    ev("run.failed", "janus", format!("任务失败：{err:#}"))
+                    ev(EventKind::RunFailed, "janus", format!("任务失败：{err:#}"))
                         .data(json!({ "error": format!("{err:#}") })),
                 );
                 app.set_status(&run, RunStatus::Failed);
@@ -125,7 +125,7 @@ impl App {
         if let Some(w) = &run.worktree {
             data["worktree"] = json!({ "repo": w.repo, "included": w.included, "branch": w.branch });
         }
-        self.emit(run, ev("run.created", "user", format!("创建目标：{}", run.goal)).data(data));
+        self.emit(run, ev(EventKind::RunCreated, "user", format!("创建目标：{}", run.goal)).data(data));
         self.goal(run, false).await
     }
 
@@ -225,20 +225,20 @@ impl App {
                     }
                     None => format!("{id} 被失败的硬依赖 {dep} 阻塞"),
                 };
-                self.emit(run, ev("task.blocked", "janus", text).task(&id).data(data));
+                self.emit(run, ev(EventKind::TaskBlocked, "janus", text).task(&id).data(data));
             }
             for (id, n, agent, attempt_id) in starts {
                 if n == 1 {
                     self.emit(
                         run,
-                        ev("task.ready", "janus", format!("{id} 的依赖已满足，进入 ready"))
+                        ev(EventKind::TaskReady, "janus", format!("{id} 的依赖已满足，进入 ready"))
                             .task(&id)
                             .data(json!({ "tasks": [id] })),
                     );
                     self.emit(
                         run,
                         ev(
-                            "task.assigned",
+                            EventKind::TaskAssigned,
                             "janus",
                             format!("{id} 分配给 {}", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent)),
                         )
@@ -249,7 +249,7 @@ impl App {
                 }
                 self.emit(
                     run,
-                    ev("attempt.launch_requested", "janus", format!("准备启动 {id} 第 {n} 次尝试"))
+                    ev(EventKind::AttemptLaunchRequested, "janus", format!("准备启动 {id} 第 {n} 次尝试"))
                         .task(&id)
                         .attempt(n)
                         .data(json!({ "attemptId": attempt_id })),
@@ -309,7 +309,7 @@ impl App {
             let SessionKey::Task(task) = session else {
                 self.emit(
                     run,
-                    ev("lead.stalled", "janus", format!("负责人已有 {} 没有任何动静", span(idle)))
+                    ev(EventKind::LeadStalled, "janus", format!("负责人已有 {} 没有任何动静", span(idle)))
                         .to("user")
                         .data(json!({ "reason": "idle", "idleMs": idle })),
                 );
@@ -317,7 +317,7 @@ impl App {
             };
             self.emit(
                 run,
-                ev("task.stalled", "janus", format!("{task} 已有 {} 没有任何动静", span(idle)))
+                ev(EventKind::TaskStalled, "janus", format!("{task} 已有 {} 没有任何动静", span(idle)))
                     .task(&task)
                     .attempt(n)
                     .to("lead")
@@ -347,7 +347,7 @@ impl App {
         let SessionKey::Task(task) = session else {
             self.emit(
                 run,
-                ev("lead.stalled", "janus", format!("负责人{text_body}"))
+                ev(EventKind::LeadStalled, "janus", format!("负责人{text_body}"))
                     .to("user")
                     .data(json!({ "reason": "loop", "tool": pattern, "repeats": repeats, "period": period })),
             );
@@ -355,7 +355,7 @@ impl App {
         };
         self.emit(
             run,
-            ev("task.stalled", "janus", format!("{task} {text_body}"))
+            ev(EventKind::TaskStalled, "janus", format!("{task} {text_body}"))
                 .task(task)
                 .attempt(n)
                 .to("lead")
@@ -386,7 +386,7 @@ impl App {
                 again
             };
             if let DeliveryMerge::Merged { text, data } = &merge {
-                self.emit(run, ev("run.merged", "janus", text.clone()).data(data.clone()));
+                self.emit(run, ev(EventKind::RunMerged, "janus", text.clone()).data(data.clone()));
             }
             let note = self.delivery_note(&run.id, w, &merge, again);
             let state = merge.state(again);
@@ -405,7 +405,7 @@ impl App {
                 events
                     .iter()
                     .rev()
-                    .find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some(id))
+                    .find(|e| e.kind() == EventKind::TaskSucceeded && e.task.as_deref() == Some(id))
                     .and_then(|e| e.data.as_ref()?["traceGaps"].as_array().cloned())
                     .into_iter()
                     .flatten()
@@ -532,7 +532,7 @@ impl App {
             let merge = match &merge {
                 Some((merge, _)) => merge.clone(),
                 None => {
-                    json!({ "state": "inPlace", "note": format!("改动直接在工作目录 {} 中，Janus 没有提交。", run.cwd.display()) })
+                    json!({ "state": MergeState::InPlace, "note": format!("改动直接在工作目录 {} 中，Janus 没有提交。", run.cwd.display()) })
                 }
             };
             json!({
@@ -550,7 +550,7 @@ impl App {
                 "merge": merge,
             })
         };
-        self.emit(run, ev("run.delivered", "janus", "负责人完成了目标，交付结果已准备好").data(result));
+        self.emit(run, ev(EventKind::RunDelivered, "janus", "负责人完成了目标，交付结果已准备好").data(result));
         self.set_status(run, RunStatus::Delivered);
         if let Some((_, Some(prompt))) = merge
             && let Err(err) = self.hand_merge_to_lead(run, &prompt)

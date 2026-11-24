@@ -2,6 +2,7 @@
 //! the person's home that the mirrored HOME replaced (21).
 
 use super::super::edit_configs;
+use crate::db::ConfigKind;
 use anyhow::Result;
 use rusqlite::Transaction;
 use serde_json::Value;
@@ -11,7 +12,7 @@ use serde_json::Value;
 /// Loop wakes every 30 minutes and can still ask for another time; a manual one has none.
 pub(crate) fn rhythm_to_schedule(tx: &Transaction) -> Result<usize> {
     let tz = crate::schedule::local_zone();
-    edit_configs(tx, "loop", |_, o| {
+    edit_configs(tx, ConfigKind::Loop, |_, o| {
         let Some(rhythm) = o.remove("rhythm") else { return false };
         let cron = match rhythm["kind"].as_str() {
             Some("interval") => match rhythm["minutes"].as_u64().unwrap_or(30).max(1) {

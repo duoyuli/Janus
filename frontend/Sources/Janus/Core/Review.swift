@@ -105,7 +105,7 @@ func reviewStage(_ s: RunState, live: Bool) -> ReviewStage? {
 func roundRequests(_ s: RunState, _ r: RunResult) -> [(seq: Int, text: String)] {
     guard r.n > 1 else { return [] }
     return s.events.filter { e in
-        e.type == "user.message" && e.actor == "user" && e.to == "lead" && e.task == nil
+        e.type == .userMessage && e.actor == "user" && e.to == "lead" && e.task == nil
             && e.seq > r.since && e.seq < r.seq && e.data["id"].exists
     }.map { (seq: $0.seq, text: Attach.visibleText($0.data["text"].str)) }
 }

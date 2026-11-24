@@ -1,7 +1,9 @@
 //! SQLite fact store. Events are the source of truth; `runs`, `attempts` and `artifacts`
 //! are indexes kept alongside them so the scheduler and UI can query without replaying.
 
+use crate::events::EventKind;
 use crate::status::{AttemptStatus, CommandState, RunKind, RunStatus};
+use crate::wire::wire_enum;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
@@ -28,6 +30,29 @@ pub struct Event {
     pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
+}
+
+impl Event {
+    /// What happened; `Unknown` for a kind an earlier Janus wrote and this one no longer does.
+    pub fn kind(&self) -> EventKind {
+        EventKind::parse(&self.kind).unwrap_or(EventKind::Unknown)
+    }
+}
+
+wire_enum! {
+    /// What a row of `configs` is (`configs.kind`): the setup objects, the library's items and
+    /// sources, workspace Loops, the hidden paths of the person's home, and Janus's own marks.
+    pub enum ConfigKind {
+        Connection = "connection",
+        Role = "role",
+        Workspace = "workspace",
+        Loop = "loop",
+        LibraryItem = "library_item",
+        LibrarySource = "library_source",
+        HostEnv = "host_env",
+        /// Janus's own marks, such as `seeded` once the default roles were written.
+        Meta = "meta",
+    }
 }
 
 pub struct Db(Mutex<Connection>);
@@ -347,18 +372,18 @@ impl Db {
     }
 
     /// The events of type `kind` in a run after `after` (a sequence number), oldest first.
-    pub fn events_of(&self, run_id: &str, kind: &str, after: i64) -> Result<Vec<Event>> {
+    pub fn events_of(&self, run_id: &str, kind: EventKind, after: i64) -> Result<Vec<Event>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT run_id, seq, ts, type, actor, to_agent, task, attempt, text, data
              FROM events WHERE run_id = ?1 AND type = ?2 AND seq > ?3 ORDER BY seq",
         )?;
-        let rows = stmt.query_map(params![run_id, kind, after], event_row)?;
+        let rows = stmt.query_map(params![run_id, kind.as_str(), after], event_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The latest event of type `kind` in a run, without reading the rest of its log.
-    pub fn latest_event(&self, run_id: &str, kind: &str) -> Result<Option<Event>> {
+    pub fn latest_event(&self, run_id: &str, kind: EventKind) -> Result<Option<Event>> {
         Ok(self
             .0
             .lock()
@@ -366,7 +391,7 @@ impl Db {
             .query_row(
                 "SELECT run_id, seq, ts, type, actor, to_agent, task, attempt, text, data
                  FROM events WHERE run_id = ?1 AND type = ?2 ORDER BY seq DESC LIMIT 1",
-                params![run_id, kind],
+                params![run_id, kind.as_str()],
                 event_row,
             )
             .optional()?)
@@ -629,7 +654,7 @@ impl Db {
         Ok(())
     }
 
-    pub fn put_config(&self, kind: &str, id: &str, data: &Value, now: i64) -> Result<()> {
+    pub fn put_config(&self, kind: ConfigKind, id: &str, data: &Value, now: i64) -> Result<()> {
         // Every write in tests must have the shape the current migrations leave behind.
         #[cfg(test)]
         {
@@ -639,30 +664,33 @@ impl Db {
         self.0.lock().unwrap().execute(
             "INSERT INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (kind, id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
-            params![kind, id, data.to_string(), now],
+            params![kind.as_str(), id, data.to_string(), now],
         )?;
         Ok(())
     }
 
-    pub fn get_config(&self, kind: &str, id: &str) -> Result<Option<Value>> {
+    pub fn get_config(&self, kind: ConfigKind, id: &str) -> Result<Option<Value>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare("SELECT data FROM configs WHERE kind = ?1 AND id = ?2")?;
-        let mut rows = stmt.query(params![kind, id])?;
+        let mut rows = stmt.query(params![kind.as_str(), id])?;
         Ok(match rows.next()? {
             Some(row) => Some(serde_json::from_str(&row.get::<_, String>(0)?)?),
             None => None,
         })
     }
 
-    pub fn list_config(&self, kind: &str) -> Result<Vec<Value>> {
+    pub fn list_config(&self, kind: ConfigKind) -> Result<Vec<Value>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare("SELECT data FROM configs WHERE kind = ?1 ORDER BY rowid")?;
-        let rows = stmt.query_map(params![kind], |r| r.get::<_, String>(0))?;
+        let rows = stmt.query_map(params![kind.as_str()], |r| r.get::<_, String>(0))?;
         rows.map(|r| Ok(serde_json::from_str(&r?)?)).collect()
     }
 
-    pub fn delete_config(&self, kind: &str, id: &str) -> Result<()> {
-        self.0.lock().unwrap().execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", params![kind, id])?;
+    pub fn delete_config(&self, kind: ConfigKind, id: &str) -> Result<()> {
+        self.0
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", params![kind.as_str(), id])?;
         Ok(())
     }
 }

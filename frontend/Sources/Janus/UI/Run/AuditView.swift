@@ -65,7 +65,7 @@ struct AuditView: View {
                             HStack(spacing: 10) {
                                 Text(verbatim: "\(e.seq)").font(.system(.caption, design: .monospaced)).frame(width: 40, alignment: .trailing)
                                 Text(L.clock(e.ts)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                                Text(e.type).font(.system(.caption, design: .monospaced)).frame(width: 170, alignment: .leading).lineLimit(1)
+                                Text(e.raw["type"].str).font(.system(.caption, design: .monospaced)).frame(width: 170, alignment: .leading).lineLimit(1)
                                 Text(run.who(e.actor).name + (e.to.map { " → \(run.who($0).name)" } ?? "")).font(.callout).frame(width: 150, alignment: .leading).lineLimit(1)
                                 Text((e.task ?? "—") + (e.attempt.map { " #\($0)" } ?? "")).font(.system(.caption, design: .monospaced)).frame(width: 90, alignment: .leading).lineLimit(1)
                                 Text(e.text).font(.callout).lineLimit(1)
@@ -75,7 +75,7 @@ struct AuditView: View {
                             // A result event opened here shows each criterion with its evidence
                             // method and evidence, so the log does not have to be read as raw JSON.
                             if run.highlight == e.seq, !e.data["checks"].array.isEmpty,
-                               ["result.submitted", "verification.passed", "verification.failed", "task.succeeded"].contains(e.type) {
+                               [.resultSubmitted, .verificationPassed, .verificationFailed, .taskSucceeded].contains(e.type) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(L.text("逐条验收")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                     ForEach(CriterionCheck.rows(accept: [], checks: Check.list(e.data["checks"]))) { row in
@@ -102,7 +102,7 @@ struct AuditView: View {
     }
 
     /// Event types only the orchestrator writes: a task's state changes and its attempts.
-    private static let orchestratorOnly = ["task.ready", "task.assigned", "task.succeeded", "task.reopened", "task.retry_scheduled", "attempt."]
+    private static let orchestratorOnly: Set<EventKind> = [.taskReady, .taskAssigned, .taskSucceeded, .taskReopened, .taskRetryScheduled]
 
     private func invariants(_ events: [Event]) -> [(String, Bool, String)] {
         var active: [String: Int] = [:], numbers: [String: [Int]] = [:]
@@ -110,15 +110,15 @@ struct AuditView: View {
         var submitted = Set<String>()
         for e in events {
             let task = e.task ?? ""
-            if e.type == "attempt.started" { if active[task] != nil { overlap += 1 }; active[task] = e.attempt ?? 0; numbers[task, default: []].append(e.attempt ?? 0) }
-            if ["attempt.failed", "task.succeeded"].contains(e.type) { active[task] = nil }
-            if e.type == "result.submitted" { submitted.insert("\(task)#\(e.attempt ?? 0)") }
-            if e.type == "task.succeeded" {
+            if e.type == .attemptStarted { if active[task] != nil { overlap += 1 }; active[task] = e.attempt ?? 0; numbers[task, default: []].append(e.attempt ?? 0) }
+            if [.attemptFailed, .taskSucceeded].contains(e.type) { active[task] = nil }
+            if e.type == .resultSubmitted { submitted.insert("\(task)#\(e.attempt ?? 0)") }
+            if e.type == .taskSucceeded {
                 if !e.data["summary"].truthy || e.data["evidence"].array.isEmpty { noEvidence += 1 }
                 if !submitted.contains("\(task)#\(e.attempt ?? 0)") { unsubmitted += 1 }
             }
-            if e.type == "question.asked" && !(e.data["question"].truthy && !e.data["options"].array.isEmpty) { badQuestion += 1 }
-            if Self.orchestratorOnly.contains(where: { e.type.hasPrefix($0) }) && e.actor != "janus" { badActor += 1 }
+            if e.type == .questionAsked && !(e.data["question"].truthy && !e.data["options"].array.isEmpty) { badQuestion += 1 }
+            if (Self.orchestratorOnly.contains(e.type) || e.type.family == "attempt") && e.actor != "janus" { badActor += 1 }
         }
         for ns in numbers.values { for (i, n) in ns.enumerated() where n != i + 1 { gaps += 1 } }
         let attempts = numbers.values.reduce(0) { $0 + $1.count }
@@ -126,8 +126,8 @@ struct AuditView: View {
             (L.text("每个子任务同一时间最多一个进行中的尝试"), overlap == 0, L.text("\(attempts) 次尝试")),
             (L.text("重试会新建尝试，旧记录保留"), gaps == 0, L.text("\(numbers.count) 个子任务")),
             (L.text("子任务状态只由 Janus 改变"), badActor == 0, L.text("Agent 只提交进度与结果")),
-            (L.text("标记完成前已提交结构化结果和证据"), noEvidence == 0 && unsubmitted == 0, L.text("\(events.filter { $0.type == "task.succeeded" }.count) 次完成")),
-            (L.text("等待输入时附带可回答的问题"), badQuestion == 0, L.text("\(events.filter { $0.type == "question.asked" }.count) 个问题")),
+            (L.text("标记完成前已提交结构化结果和证据"), noEvidence == 0 && unsubmitted == 0, L.text("\(events.filter { $0.type == .taskSucceeded }.count) 次完成")),
+            (L.text("等待输入时附带可回答的问题"), badQuestion == 0, L.text("\(events.filter { $0.type == .questionAsked }.count) 个问题")),
         ]
     }
 }

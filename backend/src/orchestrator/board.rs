@@ -62,7 +62,7 @@ impl App {
         let tool_input = req["params"]["arguments"].clone();
         let call_id = id.to_string();
         if tool_call {
-            let e = ev("tool.started", who, format!("调用 janus.{tool_name}，等待返回")).data(json!({
+            let e = ev(EventKind::ToolStarted, who, format!("调用 janus.{tool_name}，等待返回")).data(json!({
                 "callId": call_id,
                 "tool": format!("janus.{tool_name}"),
                 "input": summarize_input(&tool_input, &tool_name),
@@ -130,7 +130,7 @@ impl App {
             let failed = result["isError"] == true;
             let output = result["content"][0]["text"].as_str().unwrap_or("");
             let e = ev(
-                "tool.completed",
+                EventKind::ToolCompleted,
                 who,
                 if failed { format!("janus.{tool_name} 失败") } else { format!("janus.{tool_name} 返回结果") },
             )
@@ -198,7 +198,7 @@ impl App {
                 self.emit(
                     run,
                     ev(
-                        "orchestration.rejected",
+                        EventKind::OrchestrationRejected,
                         "lead",
                         format!("编排没有通过校验：{}", clip(&errors.join("；"), 120)),
                     )
@@ -231,8 +231,12 @@ impl App {
         let n = run.st.lock().unwrap().tasks.len() + defs.len();
         let kept = self.emit_kept(
             run,
-            ev("orchestration.accepted", "lead", format!("编排通过校验：{} 个子任务写入看板，开始执行", defs.len()))
-                .data(json!({ "tasks": tasks, "total": n, "plannedSeq": planned })),
+            ev(
+                EventKind::OrchestrationAccepted,
+                "lead",
+                format!("编排通过校验：{} 个子任务写入看板，开始执行", defs.len()),
+            )
+            .data(json!({ "tasks": tasks, "total": n, "plannedSeq": planned })),
         );
         if kept.is_none() {
             return Err(
@@ -346,7 +350,7 @@ impl App {
         if let Some(key) = question {
             self.emit(
                 run,
-                ev("question.answered", "lead", format!("负责人回答：{}", clip(text, 40)))
+                ev(EventKind::QuestionAnswered, "lead", format!("负责人回答：{}", clip(text, 40)))
                     .task(task)
                     .to(&agent)
                     .data(json!({ "key": key, "answer": text, "via": "lead" })),
@@ -510,11 +514,11 @@ impl App {
             Some(v) => format!("负责人要求 {task} 按 {v} 的意见{how}返工"),
             None => format!("负责人要求 {task} {how}重新执行"),
         };
-        self.emit(run, ev("task.reopened", "lead", title).task(task).data(data));
+        self.emit(run, ev(EventKind::TaskReopened, "lead", title).task(task).data(data));
         for id in &reverify {
             self.emit(
                 run,
-                ev("task.reopened", "janus", format!("{task} 返工，{id} 在它完成后重新验证"))
+                ev(EventKind::TaskReopened, "janus", format!("{task} 返工，{id} 在它完成后重新验证"))
                     .task(id)
                     .data(json!({ "reason": ReopenReason::TargetReworked.as_str(), "target": task })),
             );
@@ -522,7 +526,7 @@ impl App {
         for (id, up) in &revived {
             self.emit(
                 run,
-                ev("task.reopened", "janus", format!("{up} 重新执行，因它取消的 {id} 恢复等待"))
+                ev(EventKind::TaskReopened, "janus", format!("{up} 重新执行，因它取消的 {id} 恢复等待"))
                     .task(id)
                     .data(json!({ "reason": ReopenReason::UpstreamRetry.as_str(), "upstream": up })),
             );
@@ -585,9 +589,10 @@ impl App {
             return Err(why);
         }
         let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
-        let mine = |kind: &str| events.iter().rev().find(|e| e.kind == kind && e.task.as_deref() == Some(task));
-        let failed = mine("task.failed").filter(|e| e.data.as_ref().is_some_and(|d| d["reason"] == "verification"));
-        let submitted = mine("result.submitted").filter(|r| failed.is_some_and(|f| r.seq < f.seq));
+        let mine = |kind: EventKind| events.iter().rev().find(|e| e.kind() == kind && e.task.as_deref() == Some(task));
+        let failed =
+            mine(EventKind::TaskFailed).filter(|e| e.data.as_ref().is_some_and(|d| d["reason"] == "verification"));
+        let submitted = mine(EventKind::ResultSubmitted).filter(|r| failed.is_some_and(|f| r.seq < f.seq));
         let (Some(failed), Some(submitted)) = (failed, submitted) else {
             return Err(format!("{task} 不是因没通过验收核对而失败的子任务，没有可以接受的结果"));
         };
@@ -614,7 +619,7 @@ impl App {
         }
         let seq = self.emit(
             run,
-            ev("task.succeeded", "lead", format!("负责人接受 {task} 的结果：{}", clip(reason, 60)))
+            ev(EventKind::TaskSucceeded, "lead", format!("负责人接受 {task} 的结果：{}", clip(reason, 60)))
                 .task(task)
                 .attempt(submitted.attempt.unwrap_or(0))
                 .data(event_data),
@@ -692,7 +697,7 @@ impl App {
             .events(&run.id, 0)
             .unwrap_or_default()
             .iter()
-            .rfind(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(task) && e.attempt == Some(n))
+            .rfind(|e| e.kind() == EventKind::AttemptStarted && e.task.as_deref() == Some(task) && e.attempt == Some(n))
             .map_or(0, |e| e.seq);
         let reopened: Vec<(String, String)> = {
             let mut st = run.st.lock().unwrap();
@@ -727,7 +732,7 @@ impl App {
             self.emit(
                 run,
                 ev(
-                    "task.reopened",
+                    EventKind::TaskReopened,
                     "janus",
                     format!("{id} 的结论针对 {target} 之前的结果，在 {target} 的新结果上重新验证"),
                 )
@@ -775,7 +780,7 @@ impl App {
         let Takers { running, done } = takers;
         self.emit(
             run,
-            ev("result.amended", "lead", format!("负责人修订 {task} 的结论：{}", clip(text, 60)))
+            ev(EventKind::ResultAmended, "lead", format!("负责人修订 {task} 的结论：{}", clip(text, 60)))
                 .task(task)
                 .data(json!({ "text": text })),
         );
@@ -840,7 +845,7 @@ impl App {
             };
             self.emit(
                 run,
-                ev("task.skipped_by_decision", "lead", text)
+                ev(EventKind::TaskSkippedByDecision, "lead", text)
                     .task(id)
                     .data(json!({ "reason": reason, "dependency": because })),
             );
@@ -888,7 +893,7 @@ impl App {
         // Nobody awaits the answer here: it reaches the lead through `wait`.
         self.add_pending(run, &key, Owner { session: SessionKey::Lead, attempt: 0 }, Ask::Question)
             .map_err(|e| format!("{e:#}"))?;
-        self.emit(run, ev("question.escalated", "lead", format!("负责人请你决定：{}", clip(question, 60))).to("user").data(json!({
+        self.emit(run, ev(EventKind::QuestionEscalated, "lead", format!("负责人请你决定：{}", clip(question, 60))).to("user").data(json!({
             "key": key, "question": question, "options": options, "recommend": recommend, "reason": why, "from": "lead"
         })));
         Ok(())
@@ -1009,7 +1014,7 @@ impl App {
             .iter()
             .rev()
             .filter(mine)
-            .find(|e| e.kind == "attempt.failed")
+            .find(|e| e.kind() == EventKind::AttemptFailed)
             .filter(|_| t.status() != TaskStatus::Succeeded)
         {
             out.push(format!(
@@ -1031,7 +1036,7 @@ impl App {
             .iter()
             .rev()
             .filter(mine)
-            .find(|e| e.kind == "task.succeeded")
+            .find(|e| e.kind() == EventKind::TaskSucceeded)
             .filter(|_| t.status() == TaskStatus::Succeeded)
             .and_then(|e| e.data.as_ref()?["traceGaps"].as_array().cloned())
             .filter(|g| !g.is_empty())
@@ -1047,7 +1052,8 @@ impl App {
         }
         // A conflict is recorded on the task whose edit found it; both sides see it here.
         let theirs = |e: &&Event| {
-            e.kind == "task.conflict" && e.data.as_ref().is_some_and(|d| d["byLead"] != true && d["other"] == task)
+            e.kind() == EventKind::TaskConflict
+                && e.data.as_ref().is_some_and(|d| d["byLead"] != true && d["other"] == task)
         };
         let talk: Vec<String> = events
             .iter()
@@ -1057,8 +1063,8 @@ impl App {
                 if theirs(&e) {
                     d["other"] = json!(e.task.clone().unwrap_or_default());
                 }
-                match e.kind.as_str() {
-                    "board.posted" => Some(format!(
+                match e.kind() {
+                    EventKind::BoardPosted => Some(format!(
                         "- [{}] {}",
                         match d["kind"].as_str() {
                             Some("blocker") => "阻塞",
@@ -1067,9 +1073,11 @@ impl App {
                         },
                         d["text"].as_str().unwrap_or(&e.text)
                     )),
-                    "question.asked" => Some(format!("- [提问] {}", d["question"].as_str().unwrap_or(&e.text))),
-                    "question.answered" => Some(format!("- [回答] {}", d["answer"].as_str().unwrap_or(&e.text))),
-                    "task.conflict" if d["byLead"] == true => Some(format!(
+                    EventKind::QuestionAsked => Some(format!("- [提问] {}", d["question"].as_str().unwrap_or(&e.text))),
+                    EventKind::QuestionAnswered => {
+                        Some(format!("- [回答] {}", d["answer"].as_str().unwrap_or(&e.text)))
+                    }
+                    EventKind::TaskConflict if d["byLead"] == true => Some(format!(
                         "- [冲突] 负责人改了这个子任务的文件：{}",
                         d["paths"]
                             .as_array()
@@ -1079,7 +1087,7 @@ impl App {
                             .collect::<Vec<_>>()
                             .join("、")
                     )),
-                    "task.conflict" if d["owned"] == true && theirs(&e) => Some(format!(
+                    EventKind::TaskConflict if d["owned"] == true && theirs(&e) => Some(format!(
                         "- [越界] {} 改了这个子任务负责的 {}",
                         d["other"].as_str().unwrap_or("?"),
                         d["paths"]
@@ -1090,7 +1098,7 @@ impl App {
                             .collect::<Vec<_>>()
                             .join("、")
                     )),
-                    "task.conflict" if d["owned"] == true => Some(format!(
+                    EventKind::TaskConflict if d["owned"] == true => Some(format!(
                         "- [越界] 改了 {} 负责的 {}",
                         d["other"].as_str().unwrap_or("?"),
                         d["paths"]
@@ -1101,7 +1109,7 @@ impl App {
                             .collect::<Vec<_>>()
                             .join("、")
                     )),
-                    "task.conflict" => Some(format!(
+                    EventKind::TaskConflict => Some(format!(
                         "- [冲突] 和 {} 同时改了 {}",
                         d["other"].as_str().unwrap_or("?"),
                         d["paths"]
@@ -1112,7 +1120,7 @@ impl App {
                             .collect::<Vec<_>>()
                             .join("、")
                     )),
-                    "task.claimed" => Some(format!(
+                    EventKind::TaskClaimed => Some(format!(
                         "- [认领] {}",
                         d["paths"]
                             .as_array()
@@ -1122,7 +1130,7 @@ impl App {
                             .collect::<Vec<_>>()
                             .join("、")
                     )),
-                    "task.split_requested" => Some(format!(
+                    EventKind::TaskSplitRequested => Some(format!(
                         "- [请求拆分] {}（建议 {} 个子任务）",
                         d["reason"].as_str().unwrap_or(&e.text),
                         d["subtasks"].as_array().map(Vec::len).unwrap_or(0)
@@ -1193,7 +1201,7 @@ impl App {
             .collect();
         let posts: Vec<String> = events
             .iter()
-            .filter(|e| e.kind == "board.posted" && e.task.as_deref() != Some(me))
+            .filter(|e| e.kind() == EventKind::BoardPosted && e.task.as_deref() != Some(me))
             .rev()
             .take(5)
             .map(|e| {
@@ -1242,7 +1250,7 @@ impl App {
         };
         self.emit(
             run,
-            ev("board.posted", &agent, format!("{label}：{}", clip(text, 80)))
+            ev(EventKind::BoardPosted, &agent, format!("{label}：{}", clip(text, 80)))
                 .task(task)
                 .to("lead")
                 .data(json!({ "kind": kind, "text": text })),
@@ -1282,7 +1290,7 @@ impl App {
         }
         self.emit(
             run,
-            ev("task.claimed", &agent, format!("认领 {}", clip(&fresh.join("、"), 80)))
+            ev(EventKind::TaskClaimed, &agent, format!("认领 {}", clip(&fresh.join("、"), 80)))
                 .task(task)
                 .to("lead")
                 .data(json!({ "paths": fresh })),
@@ -1351,7 +1359,7 @@ impl App {
         }
         self.emit(
             run,
-            ev("task.split_requested", &agent, format!("请求拆分子任务：{}", clip(reason, 80)))
+            ev(EventKind::TaskSplitRequested, &agent, format!("请求拆分子任务：{}", clip(reason, 80)))
                 .task(task)
                 .to("lead")
                 .data(data),
@@ -1420,23 +1428,23 @@ pub(super) fn task_outcomes(events: &[Event]) -> HashMap<String, TaskOutcome> {
     for e in events {
         let Some(task) = e.task.as_deref() else { continue };
         let t = out.entry(task.to_string()).or_default();
-        match e.kind.as_str() {
-            "task.assigned" => t.agent = e.to.clone().or(t.agent.take()),
-            "attempt.started" => {
+        match e.kind() {
+            EventKind::TaskAssigned => t.agent = e.to.clone().or(t.agent.take()),
+            EventKind::AttemptStarted => {
                 t.attempts += 1;
                 t.started.get_or_insert(e.ts);
                 if t.agent.is_none() {
                     t.agent = e.to.clone();
                 }
             }
-            "verification.failed" => t.verification_failures += 1,
-            "task.succeeded" => {
+            EventKind::VerificationFailed => t.verification_failures += 1,
+            EventKind::TaskSucceeded => {
                 t.outcome = Some(true);
                 t.ended = Some(e.ts);
             }
-            "task.failed" => t.outcome = Some(false),
+            EventKind::TaskFailed => t.outcome = Some(false),
             // A retry starts the count again: what matters is how the task finally went.
-            "task.reopened" => t.outcome = None,
+            EventKind::TaskReopened => t.outcome = None,
             _ => {}
         }
     }

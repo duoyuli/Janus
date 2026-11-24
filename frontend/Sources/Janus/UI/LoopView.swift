@@ -487,7 +487,7 @@ struct LoopView: View {
                             }
                         }
                     }
-                    if let saved = st.events.last(where: { $0.type == "loop.state_saved" })?.data["text"].str, !saved.isEmpty {
+                    if let saved = st.events.last(where: { $0.type == .loopStateSaved })?.data["text"].str, !saved.isEmpty {
                         Text(L.text("它记下的状态")).font(.headline).padding(.top, 6)
                         Text(saved).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }

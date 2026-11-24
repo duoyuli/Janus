@@ -28,7 +28,7 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     let said = |text: &str| {
         events(&h.app, &run)
             .iter()
-            .filter(|e| e.kind == "user.message" && e.data.as_ref().is_some_and(|d| d["text"] == text))
+            .filter(|e| e.kind.as_str() == "user.message" && e.data.as_ref().is_some_and(|d| d["text"] == text))
             .count()
     };
     assert_eq!(said("只说一次"), 1);
@@ -114,7 +114,7 @@ async fn a_run_that_is_not_live_comes_back_once() {
     wait_until(&h.app, &run, "both messages said", |evs| {
         ["第一条", "第二条"].iter().all(|t| {
             evs.iter().any(|e| {
-                e.kind == "session.prompt"
+                e.kind.as_str() == "session.prompt"
                     && e.data.as_ref().is_some_and(|d| d["prompt"].as_str().is_some_and(|p| p.contains(t)))
             })
         })
@@ -192,8 +192,10 @@ async fn an_orchestration_that_could_not_be_stored_does_not_start() {
     let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": tasks })).await;
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
-    let started =
-        events(&h.app, &run).iter().filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T1")).count();
+    let started = events(&h.app, &run)
+        .iter()
+        .filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1"))
+        .count();
     assert_eq!(started, 1, "the task runs once");
     let r = h.app.run(&run).unwrap();
     h.app.action(&r, &json!({ "type": "cancel" })).unwrap();

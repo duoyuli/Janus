@@ -1,6 +1,7 @@
 //! The library's data versions: how the MCP router runs a command server (8), and items no
 //! longer saying who may use them (11).
 
+use crate::db::ConfigKind;
 use anyhow::Result;
 use serde_json::{Value, json};
 
@@ -29,7 +30,7 @@ pub(crate) fn edit_items(
     tx: &rusqlite::Transaction,
     fill: impl Fn(&mut serde_json::Map<String, Value>) -> bool,
 ) -> Result<usize> {
-    let mut changed = super::super::edit_configs(tx, "library_item", |_, o| fill(o))?;
+    let mut changed = super::super::edit_configs(tx, ConfigKind::LibraryItem, |_, o| fill(o))?;
     let rows: Vec<(String, String)> = tx
         .prepare("SELECT id, config FROM runs")?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?

@@ -320,7 +320,7 @@ pub(super) fn validate_orchestration(
 /// polls in a sleep loop: those that end it (`ends_board_wait`), and a task dropped by a cancel,
 /// which may leave nothing open on the board.
 pub(super) fn wakes_board_wait(e: &Event) -> bool {
-    ends_board_wait(e) || e.kind == "task.skipped_by_decision"
+    ends_board_wait(e) || e.kind() == EventKind::TaskSkippedByDecision
 }
 
 /// Board events that end an active `janus.wait` at once: what the lead has to act on
@@ -330,30 +330,30 @@ pub(super) fn wakes_board_wait(e: &Event) -> bool {
 /// the next of these, or when the wait times out, so they cost the lead no turn of their own.
 // @project-doc docs/interfaces/20261031-board_mcp.md#wait
 pub(super) fn ends_board_wait(e: &Event) -> bool {
-    needs_lead(e) || matches!(e.kind.as_str(), "task.succeeded" | "run.cancelled")
+    needs_lead(e) || matches!(e.kind(), EventKind::TaskSucceeded | EventKind::RunCancelled)
 }
 
 /// Board events the lead has to act on, pushed into its session as they come (`push_board`).
 pub(super) fn needs_lead(e: &Event) -> bool {
     let d = e.data.as_ref();
     let field = |k: &str| d.map(|d| d[k].clone()).unwrap_or_default();
-    match e.kind.as_str() {
-        "question.asked"
-        | "task.failed"
-        | "task.blocked"
-        | "task.conflict"
-        | "task.split_requested"
-        | "lead.edited"
-        | "lead.routed" => true,
-        "task.stalled" => field("resolved") != true,
-        "board.posted" => field("kind") == "blocker",
+    match e.kind() {
+        EventKind::QuestionAsked
+        | EventKind::TaskFailed
+        | EventKind::TaskBlocked
+        | EventKind::TaskConflict
+        | EventKind::TaskSplitRequested
+        | EventKind::LeadEdited
+        | EventKind::LeadRouted => true,
+        EventKind::TaskStalled => field("resolved") != true,
+        EventKind::BoardPosted => field("kind") == "blocker",
         // A result that disagrees with the workspace, or an independent verification that rejected/questioned the target.
-        "task.succeeded" => {
+        EventKind::TaskSucceeded => {
             field("traceGaps").as_array().is_some_and(|g| !g.is_empty())
                 || matches!(field("verdict").as_str(), Some("rejected" | "inconclusive"))
         }
         // The person's answer, to the lead's own question or to a collaborator's; not the lead's.
-        "question.answered" => field("via") != "lead",
+        EventKind::QuestionAnswered => field("via") != "lead",
         _ => false,
     }
 }
@@ -381,12 +381,14 @@ fn user_intervention(run: &Run, e: &Event, d: &Value) -> Option<String> {
         _ => return None,
     };
     let name = run.member(&agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.clone());
-    let what = match e.kind.as_str() {
-        "user.message" => format!("对 {name} 说：{}", clip(d["text"].as_str().unwrap_or(&e.text), INLINE_SUMMARY)),
-        "control.taken" => format!("接管了 {name} 的会话"),
-        "control.released" => format!("把会话交还给 {name}，它继续自主完成"),
-        "session.interrupted" if d["finish"] == true => format!("让 {name} 以当前结果结束这个子任务"),
-        "session.interrupted" => format!("打断了 {name} 这一轮，转为人工接管"),
+    let what = match e.kind() {
+        EventKind::UserMessage => {
+            format!("对 {name} 说：{}", clip(d["text"].as_str().unwrap_or(&e.text), INLINE_SUMMARY))
+        }
+        EventKind::ControlTaken => format!("接管了 {name} 的会话"),
+        EventKind::ControlReleased => format!("把会话交还给 {name}，它继续自主完成"),
+        EventKind::SessionInterrupted if d["finish"] == true => format!("让 {name} 以当前结果结束这个子任务"),
+        EventKind::SessionInterrupted => format!("打断了 {name} 这一轮，转为人工接管"),
         _ => return None,
     };
     let at = match task {
@@ -407,7 +409,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     let d = e.data.clone().unwrap_or_default();
     // The person's answer to a decision the lead handed them (`ask_user`): addressed to the lead,
     // about no task.
-    if e.kind == "question.answered" && e.task.is_none() && e.to.as_deref() == Some("lead") {
+    if e.kind() == EventKind::QuestionAnswered && e.task.is_none() && e.to.as_deref() == Some("lead") {
         let note = d["note"].as_str().filter(|n| !n.is_empty()).map(|n| format!("（补充：{n}）")).unwrap_or_default();
         return Some(format!(
             "- [用户决定] 你交给用户的问题，用户的回答：{}{note}",
@@ -423,7 +425,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         return Some(entry);
     }
     // The lead's own edit after it handed out subtasks: from then on it only manages.
-    if e.kind == "lead.edited" {
+    if e.kind() == EventKind::LeadEdited {
         let paths: Vec<&str> = d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect();
         return Some(format!(
             "- [负责人改了文件] 你已经派出了子任务，按约定只做管理、不再改工作目录，这次改了：{}。这些改动没有经过子任务的验收，交付时会单独列出，你的报告要写明怎么核对的。需要改代码时交给对应的子任务：janus.retry 让它返工，或 janus.orchestrate 派新的子任务。",
@@ -431,7 +433,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         ));
     }
     // The lead's own call to a library tool after it handed out subtasks: noted, never blocked.
-    if e.kind == "lead.routed" {
+    if e.kind() == EventKind::LeadRouted {
         return Some(format!(
             "- [负责人用了资源库工具] 你已经派出了子任务，按约定资源库的工具只用来查看；这次调用了 {}。如果它改了文件、数据或对外发了东西，这些没有经过子任务的验收，会写进交付风险。有副作用的操作交给对应的子任务。",
             d["tool"].as_str().unwrap_or_default()
@@ -445,11 +447,11 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         (t.agent.clone(), t.def.title.clone(), t.def.verifies.clone())
     };
     let name = who(&agent);
-    Some(match e.kind.as_str() {
-        "attempt.started" => format!("- [开始] {task}「{title}」· {name} 第 {} 次尝试", e.attempt.unwrap_or(1)),
+    Some(match e.kind() {
+        EventKind::AttemptStarted => format!("- [开始] {task}「{title}」· {name} 第 {} 次尝试", e.attempt.unwrap_or(1)),
         // Inlined up to a budget: enough to decide what to do next; the full result stays one
         // `task_detail` call away, so a long run does not fill the lead's context.
-        "task.succeeded" => {
+        EventKind::TaskSucceeded => {
             let st = run.st.lock().unwrap();
             let t = st.tasks.iter().find(|t| t.def.id == task)?;
             let r = t.result.clone().unwrap_or_default();
@@ -539,20 +541,20 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             }
             msg
         }
-        "task.conflict" if d["byLead"] == true => format!(
+        EventKind::TaskConflict if d["byLead"] == true => format!(
             "- [冲突] 你（负责人）修改了正在进行的子任务 {task}「{title}」（{name}）负责或正在修改的文件：{}。子任务派出去后请避免直接改它的文件；需要调整请用 janus.reply 或先 janus.cancel。",
             d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
         ),
-        "task.conflict" if d["owned"] == true => format!(
+        EventKind::TaskConflict if d["owned"] == true => format!(
             "- [越界] {task}「{title}」· {name} 改了 {} 负责的 {}，两个子任务可能同时在改。Janus 已提醒 {task} 不要再改：确认分工，用 janus.reply 告诉它怎样配合；确实要它改，就让负责的一方先完成，或者取消并重新编排。",
             d["other"].as_str().unwrap_or("?"),
             d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
         ),
-        "task.claimed" => format!(
+        EventKind::TaskClaimed => format!(
             "- [认领] {task} · {name} 开始改 {}，认领为它负责的文件，到子任务结束为止。",
             d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join("、")
         ),
-        "task.conflict" => {
+        EventKind::TaskConflict => {
             let files: Vec<String> =
                 d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
             format!(
@@ -561,26 +563,26 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 files.join("、")
             )
         }
-        "attempt.failed" => format!(
+        EventKind::AttemptFailed => format!(
             "- [尝试失败] {task}「{title}」· {name} 第 {} 次：{}",
             e.attempt.unwrap_or(1),
             d["error"].as_str().unwrap_or(&e.text)
         ),
-        "task.failed" if d["reason"] == "verification" && verifies.is_some() => format!(
+        EventKind::TaskFailed if d["reason"] == "verification" && verifies.is_some() => format!(
             "- [验证没通过] {task} · {name} 独立验证 {} 时发现问题：\n{}\n  不能用 janus.accept 放行：用 janus.retry 让 {task} 重新验证，或按它发现的问题用 janus.retry 让 {target} 返工，或者 janus.cancel 取消 {task} 并写明理由。",
             verifies.as_deref().unwrap_or_default(),
             verification_output(run, task),
             target = verifies.as_deref().unwrap_or_default(),
         ),
-        "task.failed" if d["reason"] == "verification" => format!(
+        EventKind::TaskFailed if d["reason"] == "verification" => format!(
             "- [没通过验收] {task}「{title}」· {name} 补过一次仍没有满足验收标准：\n{}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
             verification_output(run, task)
         ),
-        "task.failed" => format!(
+        EventKind::TaskFailed => format!(
             "- [失败] {task}「{title}」· {name} 用完了尝试次数：{}。请决定：janus.retry 重做（选原会话或新会话，可改说明）；交给别人做时 janus.cancel 后用 janus.orchestrate 重新派；团队里没人能做时 janus.ask_user；不做了就 janus.cancel 并在交付中说明。你已经派出了子任务，不要自己接手。",
             d["error"].as_str().unwrap_or(&e.text)
         ),
-        "task.blocked" => match d["verdict"].as_str() {
+        EventKind::TaskBlocked => match d["verdict"].as_str() {
             Some(vd) => format!(
                 "- [无法开始] {task}「{title}」：依赖的独立验证 {} 判定 {vd}，被验证的工作没有得到确认。按 {0} 的结论用 janus.retry 返工（from=\"{0}\"），{0} 复审通过后 {task} 自动开始；不再需要就用 janus.cancel 取消它。",
                 d["dependency"].as_str().unwrap_or("?")
@@ -591,11 +593,11 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             ),
         },
         // A collaborator's question the person answered in its session: the lead must not answer again.
-        "question.answered" if d["via"] != "lead" => format!(
+        EventKind::QuestionAnswered if d["via"] != "lead" => format!(
             "- [用户已回答] {task} 的提问由用户直接回答：{}。不要再回答这个问题，按用户的回答推进。",
             d["answer"].as_str().unwrap_or("")
         ),
-        "board.posted" => {
+        EventKind::BoardPosted => {
             let label = match d["kind"].as_str() {
                 Some("blocker") => "阻塞",
                 Some("note") => "备注",
@@ -603,7 +605,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             };
             format!("- [{label}] {task} · {name}：{}", d["text"].as_str().unwrap_or(&e.text))
         }
-        "task.split_requested" => {
+        EventKind::TaskSplitRequested => {
             let items: Vec<String> = d["subtasks"]
                 .as_array()
                 .into_iter()
@@ -630,7 +632,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 items.join("；")
             )
         }
-        "question.asked" => {
+        EventKind::QuestionAsked => {
             let options: Vec<String> = d["options"]
                 .as_array()
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
@@ -641,19 +643,21 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 if options.is_empty() { String::new() } else { format!("（选项：{}）", options.join(" / ")) }
             )
         }
-        "approval.requested" | "input.requested" => format!("- [等用户] {task} · {name} 在等用户处理：{}", e.text),
-        "task.stalled" if d["resolved"] == true => return None,
-        "task.stalled" if d["reason"] == "loop" && d["period"].as_u64().unwrap_or(1) > 1 => format!(
+        EventKind::ApprovalRequested | EventKind::InputRequested => {
+            format!("- [等用户] {task} · {name} 在等用户处理：{}", e.text)
+        }
+        EventKind::TaskStalled if d["resolved"] == true => return None,
+        EventKind::TaskStalled if d["reason"] == "loop" && d["period"].as_u64().unwrap_or(1) > 1 => format!(
             "- [停滞] {task}「{title}」· {name} 连续 {} 轮重复调用序列（{}），可能在交替死循环。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
             d["repeats"].as_i64().unwrap_or(4),
             clip(d["tool"].as_str().unwrap_or(""), 80)
         ),
-        "task.stalled" if d["reason"] == "loop" => format!(
+        EventKind::TaskStalled if d["reason"] == "loop" => format!(
             "- [停滞] {task}「{title}」· {name} 连续 {} 次做同样的调用（{}），可能在原地打转。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
             d["repeats"].as_i64().unwrap_or(LOOP_REPEAT as i64),
             clip(d["tool"].as_str().unwrap_or(""), 60)
         ),
-        "task.stalled" => format!(
+        EventKind::TaskStalled => format!(
             "- [停滞] {task}「{title}」· {name} 已有 {} 没有任何输出或工具调用。它可能在跑一条很久的命令，也可能卡住了。请判断：继续等；用 janus.reply 询问或补充指示；janus.retry 重做；janus.cancel 取消。",
             span(d["idleMs"].as_i64().unwrap_or(0))
         ),

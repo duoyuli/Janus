@@ -74,7 +74,7 @@ impl App {
                 );
                 self.emit(
                     run,
-                    ev("attempt.late_result", "janus", format!("忽略已过期 Attempt {attempt_id} 的结果"))
+                    ev(EventKind::AttemptLateResult, "janus", format!("忽略已过期 Attempt {attempt_id} 的结果"))
                         .task(id)
                         .attempt(n)
                         .data(json!({ "attemptId": attempt_id, "error": msg })),
@@ -94,7 +94,7 @@ impl App {
             if !cancelled {
                 self.emit(
                     run,
-                    ev("attempt.failed", "janus", format!("{id} 第 {n} 次尝试失败"))
+                    ev(EventKind::AttemptFailed, "janus", format!("{id} 第 {n} 次尝试失败"))
                         .task(id)
                         .attempt(n)
                         .data(json!({ "error": msg })),
@@ -102,17 +102,21 @@ impl App {
                 if matches!(next, Next::Retry) {
                     self.emit(
                         run,
-                        ev("task.retry_scheduled", "janus", format!("按重试策略为 {id} 创建第 {} 次尝试", n + 1))
-                            .task(id)
-                            .data(json!({
-                                "next": n + 1, "strategy": "新建 ACP 会话，注入子任务说明、上游结果和上次失败原因"
-                            })),
+                        ev(
+                            EventKind::TaskRetryScheduled,
+                            "janus",
+                            format!("按重试策略为 {id} 创建第 {} 次尝试", n + 1),
+                        )
+                        .task(id)
+                        .data(json!({
+                            "next": n + 1, "strategy": "新建 ACP 会话，注入子任务说明、上游结果和上次失败原因"
+                        })),
                     );
                 } else {
                     self.emit(
                         run,
                         ev(
-                            "task.failed",
+                            EventKind::TaskFailed,
                             "janus",
                             if verification { format!("{id} 验证没有通过，交给负责人决定") } else { format!("{id} 已用完尝试次数，交给负责人处理") },
                         )
@@ -435,7 +439,7 @@ impl App {
         }
         self.emit(
             run,
-            ev("attempt.started", "janus", format!("启动 {id} 第 {n} 次尝试 · {}", spec.name))
+            ev(EventKind::AttemptStarted, "janus", format!("启动 {id} 第 {n} 次尝试 · {}", spec.name))
                 .task(id)
                 .attempt(n)
                 .to(&agent)
@@ -448,7 +452,7 @@ impl App {
                 let actor = h["fromAgent"].as_str().unwrap_or("janus").to_string();
                 self.emit(
                     run,
-                    ev("context.handoff", &actor, format!("{from} 的结果交给 {id}"))
+                    ev(EventKind::ContextHandoff, &actor, format!("{from} 的结果交给 {id}"))
                         .task(id)
                         .attempt(n)
                         .to(&agent)
@@ -458,7 +462,7 @@ impl App {
         }
 
         let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
-        self.show(run, ("session.controls", "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
+        self.show(run, (EventKind::SessionControls, "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
         // A loaded session is the same member's, so its system layer is the same as when it opened:
         // nothing new went in, so nothing new is recorded.
         if !resumed && followup_from.is_none() {
@@ -539,7 +543,7 @@ impl App {
                     .unwrap_or_default();
                 last_question_seq = self.emit(
                     run,
-                    ev("question.asked", &agent, clip(&question, 60)).task(id).attempt(n).to("lead").data(json!({
+                    ev(EventKind::QuestionAsked, &agent, clip(&question, 60)).task(id).attempt(n).to("lead").data(json!({
                         "key": key, "question": question, "options": options, "blocking": true
                     })),
                 );
@@ -575,11 +579,11 @@ impl App {
                             }
                             Some(_) => {
                                 ctl.set_hold(run, Hold::Person);
-                                self.emit(run, ev("control.taken", "user", format!("接管 {} 的会话", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent))).task(id).attempt(n).to(&agent));
+                                self.emit(run, ev(EventKind::ControlTaken, "user", format!("接管 {} 的会话", run.member(&agent).map(|m| m.name.as_str()).unwrap_or(&agent))).task(id).attempt(n).to(&agent));
                                 "（转为人工接管，在会话中继续）".into()
                             }
                         };
-                        self.emit(run, ev("question.answered", "user", format!("在会话中回答：{}", clip(&reply, 40))).task(id).to(&agent).data(json!({ "key": key, "answer": reply, "via": "session" })));
+                        self.emit(run, ev(EventKind::QuestionAnswered, "user", format!("在会话中回答：{}", clip(&reply, 40))).task(id).to(&agent).data(json!({ "key": key, "answer": reply, "via": "session" })));
                     }
                 }
             };
@@ -601,7 +605,7 @@ impl App {
             self.emit(
                 run,
                 ev(
-                    "result.submitted",
+                    EventKind::ResultSubmitted,
                     &agent,
                     format!("提交结构化结果：{}", clip(&result.summary, 60)),
                 )
@@ -677,7 +681,7 @@ impl App {
             );
             self.emit(
                 run,
-                ev("attempt.late_result", "janus", format!("忽略已过期 Attempt {attempt_id} 的成功结果"))
+                ev(EventKind::AttemptLateResult, "janus", format!("忽略已过期 Attempt {attempt_id} 的成功结果"))
                     .task(id)
                     .attempt(n),
             );
@@ -699,7 +703,7 @@ impl App {
         }
         let seq = self.emit(
             run,
-            ev("task.succeeded", "janus", format!("校验结构化结果与证据后，将 {id} 标记为完成"))
+            ev(EventKind::TaskSucceeded, "janus", format!("校验结构化结果与证据后，将 {id} 标记为完成"))
                 .task(id)
                 .attempt(n)
                 .data(succeeded_data),
@@ -765,7 +769,7 @@ impl App {
     ) -> Result<()> {
         self.emit(
             run,
-            ev("verification.started", "janus", format!("核对 {id} 第 {n} 次尝试的结果"))
+            ev(EventKind::VerificationStarted, "janus", format!("核对 {id} 第 {n} 次尝试的结果"))
                 .task(id)
                 .attempt(n)
                 .data(json!({ "attemptId": attempt_id, "accept": def.accept })),
@@ -799,7 +803,7 @@ impl App {
             })?;
             self.emit(
                 run,
-                ev("verification.failed", "janus", format!("{id} 没有通过验收核对：{}", clip(&message, 120)))
+                ev(EventKind::VerificationFailed, "janus", format!("{id} 没有通过验收核对：{}", clip(&message, 120)))
                     .task(id)
                     .attempt(n)
                     .data(json!({ "attemptId": attempt_id, "failures": failures, "checks": result.checks, "acceptance": summary })),
@@ -817,7 +821,7 @@ impl App {
         })?;
         self.emit(
             run,
-            ev("verification.passed", "janus", format!("{id} 通过验收核对"))
+            ev(EventKind::VerificationPassed, "janus", format!("{id} 通过验收核对"))
                 .task(id)
                 .attempt(n)
                 .data(json!({ "attemptId": attempt_id, "checks": result.checks, "acceptance": summary })),
@@ -833,8 +837,11 @@ impl App {
             .ok()?
             .into_iter()
             .rev()
-            .find(|e| matches!(e.kind.as_str(), "attempt.failed" | "task.succeeded") && e.task.as_deref() == Some(task))
-            .filter(|e| e.kind == "attempt.failed")
+            .find(|e| {
+                matches!(e.kind(), EventKind::AttemptFailed | EventKind::TaskSucceeded)
+                    && e.task.as_deref() == Some(task)
+            })
+            .filter(|e| e.kind() == EventKind::AttemptFailed)
             .and_then(|e| e.data?["error"].as_str().map(str::to_owned))
     }
 
@@ -845,7 +852,7 @@ impl App {
             .ok()?
             .into_iter()
             .rev()
-            .filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(task))
+            .filter(|e| e.kind() == EventKind::AttemptStarted && e.task.as_deref() == Some(task))
             .find_map(|e| e.data?["session"].as_str().filter(|s| !s.is_empty()).map(str::to_owned))
     }
 
@@ -856,9 +863,9 @@ impl App {
 
     /// Whether `task` submitted a `task.split_requested` event after `since_seq`.
     pub(super) fn has_split_request_since(&self, run_id: &str, task: &str, since_seq: i64) -> bool {
-        self.db
-            .events(run_id, since_seq)
-            .is_ok_and(|evts| evts.iter().any(|e| e.kind == "task.split_requested" && e.task.as_deref() == Some(task)))
+        self.db.events(run_id, since_seq).is_ok_and(|evts| {
+            evts.iter().any(|e| e.kind() == EventKind::TaskSplitRequested && e.task.as_deref() == Some(task))
+        })
     }
 
     /// Mark the transcript and event stream immediately before sending this prompt. A follow-up
@@ -897,7 +904,7 @@ impl App {
         // turn is also a report. Context-only snapshots do not count.
         let Ok(events) = self.db.events(&run.id, turn.after_seq) else { return };
         if events.iter().any(|e| {
-            e.kind == "session.usage"
+            e.kind() == EventKind::SessionUsage
                 && e.actor == ctx.agent
                 && e.task.as_deref() == ctx.task
                 && e.attempt == ctx.attempt
@@ -910,7 +917,7 @@ impl App {
             && let Some(mut data) = parse_claude_session_jsonl(&content)
         {
             data["session"] = json!(turn.sid);
-            self.show(run, ("session.usage", "从隔离会话日志补齐本轮用量".into(), data), ctx);
+            self.show(run, (EventKind::SessionUsage, "从隔离会话日志补齐本轮用量".into(), data), ctx);
         }
     }
 
@@ -1046,7 +1053,7 @@ impl App {
             bytes: bytes.len() as i64,
             created_at: now_ms(),
         })?;
-        let mut e = ev("artifact.created", agent, format!("提交产物 {name}")).data(json!({
+        let mut e = ev(EventKind::ArtifactCreated, agent, format!("提交产物 {name}")).data(json!({
             "name": name, "kind": kind, "desc": desc, "path": path, "hash": &sha[..12], "bytes": bytes.len()
         }));
         if let Some(t) = task {

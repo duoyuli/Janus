@@ -4,11 +4,11 @@
 use super::*;
 
 fn asked(task: &'static str) -> impl Fn(&[Event]) -> bool {
-    move |e| e.iter().any(|e| e.kind == "question.asked" && e.task.as_deref() == Some(task))
+    move |e| e.iter().any(|e| e.kind.as_str() == "question.asked" && e.task.as_deref() == Some(task))
 }
 
 fn succeeded(task: &'static str) -> impl Fn(&[Event]) -> bool {
-    move |e| e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some(task))
+    move |e| e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some(task))
 }
 
 /// `api` and `api-1` both ask. The lead's reply to `api` answers `api`, and `api` ending leaves
@@ -26,7 +26,7 @@ async fn a_task_never_touches_the_decisions_of_a_task_whose_id_extends_its_own()
     let key_of = |t: &str| {
         events(&h.app, &run)
             .into_iter()
-            .find(|e| e.kind == "question.asked" && e.task.as_deref() == Some(t))
+            .find(|e| e.kind.as_str() == "question.asked" && e.task.as_deref() == Some(t))
             .unwrap()
             .data
             .unwrap()["key"]
@@ -42,12 +42,13 @@ async fn a_task_never_touches_the_decisions_of_a_task_whose_id_extends_its_own()
     let evs = events(&h.app, &run);
     let answered: Vec<String> = evs
         .iter()
-        .filter(|e| e.kind == "question.answered")
+        .filter(|e| e.kind.as_str() == "question.answered")
         .map(|e| e.data.as_ref().unwrap()["key"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(answered, vec![mine], "the reply to api answers api's question");
     assert!(
-        !evs.iter().any(|e| e.kind == "decision.withdrawn" && e.data.as_ref().unwrap()["key"] == theirs.as_str()),
+        !evs.iter()
+            .any(|e| e.kind.as_str() == "decision.withdrawn" && e.data.as_ref().unwrap()["key"] == theirs.as_str()),
         "api ending leaves api-1's question"
     );
     assert!(h.app.run(&run).unwrap().st.lock().unwrap().pending.contains_key(&theirs));
@@ -75,7 +76,7 @@ async fn a_task_called_lead_is_not_the_lead() {
     }
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "负责人请看一下" }));
     wait_until(&h.app, &run, "the message reaches the lead's session", |e| {
-        e.iter().any(|e| e.kind == "message.routed" && e.to.as_deref() == Some("lead") && e.task.is_none())
+        e.iter().any(|e| e.kind.as_str() == "message.routed" && e.to.as_deref() == Some("lead") && e.task.is_none())
     })
     .await;
     finish_lead(&h);

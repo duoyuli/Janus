@@ -294,7 +294,7 @@ impl App {
         let verb = if created { "记下" } else { "更新了" };
         self.emit(
             run,
-            ev("memory.saved", &member, format!("{verb}团队记忆：{title}"))
+            ev(EventKind::MemorySaved, &member, format!("{verb}团队记忆：{title}"))
                 .data(json!({ "id": id, "title": title, "kind": kind, "created": created })),
         );
         let _ = self.memory_changes.send(workspace);
@@ -312,7 +312,7 @@ impl App {
         self.db.delete_memory(id).map_err(|e| format!("{e:#}"))?;
         self.emit(
             run,
-            ev("memory.forgotten", "lead", format!("删掉团队记忆：{}", note.title))
+            ev(EventKind::MemoryForgotten, "lead", format!("删掉团队记忆：{}", note.title))
                 .data(json!({ "id": id, "title": note.title, "reason": reason })),
         );
         let _ = self.memory_changes.send(workspace);
@@ -410,7 +410,7 @@ impl App {
         }
         let role = self
             .db
-            .get_config(crate::agents::ROLE, ws["lead"].as_str().unwrap_or(""))?
+            .get_config(ConfigKind::Role, ws["lead"].as_str().unwrap_or(""))?
             .ok_or_else(|| anyhow!("工作区的负责人已被删除"))?;
         let member = self.single_member(&role)?;
         let runs = self.delivered_runs_since(workspace, dreams.first())?;
@@ -424,7 +424,7 @@ impl App {
         let run = self.single_member_run(RunKind::Dream, &id, member, cwd.clone(), "整理团队记忆", config)?;
         self.emit(
             &run,
-            ev("run.created", "janus", "开始整理团队记忆").data(json!({
+            ev(EventKind::RunCreated, "janus", "开始整理团队记忆").data(json!({
                 "kind": RunKind::Dream, "cwd": cwd, "git": false,
                 "role": { "id": role["id"], "name": role["name"] }, "runs": runs.len(),
             })),
@@ -463,12 +463,12 @@ impl App {
     // @project-doc docs/domains/20261123-team_memory.md#dream
     pub(super) fn dream_turn_ended(&self, run: &Run, text: &str) {
         let events = self.db.events(&run.id, 0).unwrap_or_default();
-        let count = |kind: &str| events.iter().filter(|e| e.kind == kind).count();
-        let (saved, forgotten) = (count("memory.saved"), count("memory.forgotten"));
+        let count = |kind: EventKind| events.iter().filter(|e| e.kind() == kind).count();
+        let (saved, forgotten) = (count(EventKind::MemorySaved), count(EventKind::MemoryForgotten));
         let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").trim_start_matches('#').trim();
         self.emit(
             run,
-            ev("memory.consolidated", "lead", format!("整理完了：改了 {saved} 条，删了 {forgotten} 条"))
+            ev(EventKind::MemoryConsolidated, "lead", format!("整理完了：改了 {saved} 条，删了 {forgotten} 条"))
                 .data(json!({ "summary": clip(first, 200), "saved": saved, "forgotten": forgotten })),
         );
         self.set_status(run, RunStatus::Delivered);

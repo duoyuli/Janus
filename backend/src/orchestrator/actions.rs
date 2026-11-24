@@ -193,7 +193,7 @@ impl App {
                 let answer = a["answer"].as_str().unwrap_or("").to_string();
                 self.emit(
                     run,
-                    ev("question.answered", "user", format!("回答：{answer}"))
+                    ev(EventKind::QuestionAnswered, "user", format!("回答：{answer}"))
                         .task(task)
                         .to(&agent)
                         .data(json!({ "key": key, "answer": answer, "note": a["note"] })),
@@ -210,7 +210,7 @@ impl App {
                 }
                 self.emit(
                     run,
-                    ev("answer.delivered", "janus", format!("通过 ACP 将回答发回 {task} 的会话"))
+                    ev(EventKind::AnswerDelivered, "janus", format!("通过 ACP 将回答发回 {task} 的会话"))
                         .task(task)
                         .to(&agent)
                         .data(json!({ "key": key })),
@@ -231,7 +231,7 @@ impl App {
                     let allow = a["allow"].as_bool().unwrap_or(false);
                     let label = a["label"].as_str().filter(|l| !l.is_empty());
                     (
-                        if allow { "approval.granted" } else { "approval.denied" },
+                        if allow { EventKind::ApprovalGranted } else { EventKind::ApprovalDenied },
                         match (label, allow) {
                             (Some(l), _) => format!("选择：{l}"),
                             (None, true) => "批准执行这一次".into(),
@@ -244,7 +244,7 @@ impl App {
                     let action = a["action"].as_str().filter(|x| ["accept", "decline"].contains(x)).unwrap_or("cancel");
                     let content = if a["content"].is_object() { a["content"].clone() } else { json!({}) };
                     (
-                        "input.answered",
+                        EventKind::InputAnswered,
                         match action {
                             "accept" => "提交了填写的内容".into(),
                             "decline" => "拒绝填写".into(),
@@ -272,7 +272,7 @@ impl App {
                 self.emit(
                     run,
                     ev(
-                        if pause { "run.paused" } else { "run.resumed" },
+                        if pause { EventKind::RunPaused } else { EventKind::RunResumed },
                         "user",
                         if pause {
                             "暂停任务：进行中的尝试会继续完成，不再启动新子任务"
@@ -308,7 +308,7 @@ impl App {
                 for c in conns {
                     tokio::spawn(async move { c.kill().await });
                 }
-                self.emit(run, ev("run.cancelled", "user", "取消这个目标"));
+                self.emit(run, ev(EventKind::RunCancelled, "user", "取消这个目标"));
                 self.set_status(run, RunStatus::Cancelled);
                 run.board_wake.notify_waiters();
                 run.lead_nudge.notify_one();
@@ -385,7 +385,7 @@ impl App {
                 // next start removes it once nothing works there (`recover`).
                 let (text, data) =
                     self.accept_worktree(&run.id, run.worktree.as_ref(), &run.base_ref, &run.goal, false)?;
-                self.emit(run, ev("risk.accepted", "user", text).data(data));
+                self.emit(run, ev(EventKind::RiskAccepted, "user", text).data(data));
                 self.set_status(run, RunStatus::Accepted);
             }
             _ => bail!("未知操作：{kind}"),
@@ -407,7 +407,7 @@ impl App {
         let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
         let (text, data) =
             self.accept_worktree(run_id, worktree.as_ref(), base_ref, row["goal"].as_str().unwrap_or(""), true)?;
-        self.record(run_id, ev("risk.accepted", "user", text).data(data))?;
+        self.record(run_id, ev(EventKind::RiskAccepted, "user", text).data(data))?;
         self.set_stored_status(run_id, RunStatus::Accepted)?;
         Ok(None)
     }
@@ -510,7 +510,7 @@ impl App {
         // Each with the last event before its orchestration: what the lead knew when it planned it.
         let board: Vec<_> = events
             .iter()
-            .filter(|e| e.kind == "orchestration.accepted")
+            .filter(|e| e.kind() == EventKind::OrchestrationAccepted)
             .filter_map(|e| {
                 let d = e.data.as_ref()?;
                 Some((e.seq, d["plannedSeq"].as_i64(), d["tasks"].as_array()?))
@@ -527,7 +527,9 @@ impl App {
             // chosen session; a verification of reworked work checks it again after it.
             let mut last_reopen_seq = 0i64;
             let mut reopen = None;
-            for e in events.iter().filter(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str())) {
+            for e in
+                events.iter().filter(|e| e.kind() == EventKind::TaskReopened && e.task.as_deref() == Some(id.as_str()))
+            {
                 let d = e.data.clone().unwrap_or_default();
                 if let Some(i) = d["instructions"].as_str() {
                     def.desc = i.to_string();
@@ -544,22 +546,22 @@ impl App {
                 last_reopen_seq = e.seq;
             }
             let agent = def.assignee.clone();
-            let mine = |kind: &str| -> Vec<&Event> {
-                events.iter().filter(|e| e.kind == kind && e.task.as_deref() == Some(id.as_str())).collect()
+            let mine = |kind: EventKind| -> Vec<&Event> {
+                events.iter().filter(|e| e.kind() == kind && e.task.as_deref() == Some(id.as_str())).collect()
             };
             // An attempt started since took it.
-            if mine("attempt.started").iter().any(|e| e.seq > last_reopen_seq) {
+            if mine(EventKind::AttemptStarted).iter().any(|e| e.seq > last_reopen_seq) {
                 reopen = None;
             }
-            let attempts = mine("attempt.started").len() as i64;
+            let attempts = mine(EventKind::AttemptStarted).len() as i64;
             // The current retry budget starts at the last user retry.
             let retry_base = events
                 .iter()
-                .rposition(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str()))
+                .rposition(|e| e.kind() == EventKind::TaskReopened && e.task.as_deref() == Some(id.as_str()))
                 .map(|j| {
                     events[..j]
                         .iter()
-                        .filter(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(id.as_str()))
+                        .filter(|e| e.kind() == EventKind::AttemptStarted && e.task.as_deref() == Some(id.as_str()))
                         .count() as i64
                 })
                 .unwrap_or(0);
@@ -567,13 +569,16 @@ impl App {
             // a finished one (failed or succeeded) starts a fresh session.
             let interrupted_attempt = events
                 .iter()
-                .rposition(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(id.as_str()))
+                .rposition(|e| e.kind() == EventKind::AttemptStarted && e.task.as_deref() == Some(id.as_str()))
                 .is_some_and(|j| {
                     !events[j + 1..].iter().any(|e| {
                         e.task.as_deref() == Some(id.as_str())
                             && matches!(
-                                e.kind.as_str(),
-                                "attempt.failed" | "task.succeeded" | "task.reopened" | "attempt.late_result"
+                                e.kind(),
+                                EventKind::AttemptFailed
+                                    | EventKind::TaskSucceeded
+                                    | EventKind::TaskReopened
+                                    | EventKind::AttemptLateResult
                             )
                     })
                 });
@@ -581,23 +586,24 @@ impl App {
                 .iter()
                 .rfind(|e| {
                     e.task.as_deref() == Some(id.as_str())
-                        && matches!(e.kind.as_str(), "task.succeeded" | "task.reopened")
+                        && matches!(e.kind(), EventKind::TaskSucceeded | EventKind::TaskReopened)
                 })
-                .filter(|e| e.kind == "task.succeeded");
+                .filter(|e| e.kind() == EventKind::TaskSucceeded);
             // A finished task's conclusion carries its whole result; an unfinished one has the last
             // result it submitted.
             let concluded = succeeded.and_then(|e| e.data.clone());
             let result = concluded
                 .as_ref()
-                .or_else(|| mine("result.submitted").last().and_then(|e| e.data.as_ref()))
+                .or_else(|| mine(EventKind::ResultSubmitted).last().and_then(|e| e.data.as_ref()))
                 .map(result_from_event);
             let trace_gaps: Vec<String> = concluded
                 .as_ref()
                 .and_then(|d| d["traceGaps"].as_array())
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
                 .unwrap_or_default();
-            let artifacts: Vec<Value> = mine("artifact.created").iter().filter_map(|e| e.data.clone()).collect();
-            let last_session = mine("attempt.started")
+            let artifacts: Vec<Value> =
+                mine(EventKind::ArtifactCreated).iter().filter_map(|e| e.data.clone()).collect();
+            let last_session = mine(EventKind::AttemptStarted)
                 .last()
                 .and_then(|e| e.data.as_ref().and_then(|d| d["session"].as_str().map(str::to_owned)));
             let last_task_event = events
@@ -605,26 +611,27 @@ impl App {
                 .filter(|e| e.task.as_deref() == Some(id.as_str()))
                 .rfind(|e| {
                     matches!(
-                        e.kind.as_str(),
-                        "task.succeeded"
-                            | "task.failed"
-                            | "task.blocked"
-                            | "task.skipped_by_decision"
-                            | "task.reopened"
+                        e.kind(),
+                        EventKind::TaskSucceeded
+                            | EventKind::TaskFailed
+                            | EventKind::TaskBlocked
+                            | EventKind::TaskSkippedByDecision
+                            | EventKind::TaskReopened
                     )
                 })
-                .map(|e| e.kind.as_str());
+                .map(|e| e.kind());
             // Everything unfinished restarts from `pending`: the sessions and open requests of a
             // restart are gone, so a task that was waiting on a person cannot stay waiting.
             let status = match last_task_event {
-                Some("task.succeeded") => TaskStatus::Succeeded,
-                Some("task.failed") => TaskStatus::Failed,
-                Some("task.blocked") => TaskStatus::Blocked,
-                Some("task.skipped_by_decision") => TaskStatus::SkippedByDecision,
+                Some(EventKind::TaskSucceeded) => TaskStatus::Succeeded,
+                Some(EventKind::TaskFailed) => TaskStatus::Failed,
+                Some(EventKind::TaskBlocked) => TaskStatus::Blocked,
+                Some(EventKind::TaskSkippedByDecision) => TaskStatus::SkippedByDecision,
                 _ => TaskStatus::Pending,
             };
             // What a blocked task waits on: its failed dependency.
-            let blocked = events.iter().rfind(|e| e.task.as_deref() == Some(id.as_str()) && e.kind == "task.blocked");
+            let blocked =
+                events.iter().rfind(|e| e.task.as_deref() == Some(id.as_str()) && e.kind() == EventKind::TaskBlocked);
             let blocked_by = blocked.and_then(|e| e.data.as_ref()?["dependency"].as_str()).map(str::to_owned);
             if status == TaskStatus::Succeeded {
                 done += 1;
@@ -642,9 +649,9 @@ impl App {
                 let mut before = accepted_seq - 1;
                 if let (TaskStatus::Blocked, Some(block), Some(dep)) = (status, blocked, blocked_by.as_deref())
                     && block.data.as_ref().is_some_and(|d| d["verdict"].is_string())
-                    && let Some(result) = events
-                        .iter()
-                        .rfind(|e| e.seq < block.seq && e.kind == "task.succeeded" && e.task.as_deref() == Some(dep))
+                    && let Some(result) = events.iter().rfind(|e| {
+                        e.seq < block.seq && e.kind() == EventKind::TaskSucceeded && e.task.as_deref() == Some(dep)
+                    })
                 {
                     before = before.min(result.seq - 1);
                 }
@@ -657,7 +664,7 @@ impl App {
                 TaskStatus::Failed => TaskPhase::Failed,
                 TaskStatus::Blocked => TaskPhase::Blocked { by: blocked_by.unwrap_or_default() },
                 TaskStatus::SkippedByDecision => TaskPhase::SkippedByDecision {
-                    because: mine("task.skipped_by_decision")
+                    because: mine(EventKind::TaskSkippedByDecision)
                         .last()
                         .and_then(|e| e.data.as_ref()?["dependency"].as_str().map(str::to_owned)),
                 },
@@ -673,15 +680,15 @@ impl App {
             task.retry_base = retry_base;
             let since = events
                 .iter()
-                .rposition(|e| e.kind == "task.reopened" && e.task.as_deref() == Some(id.as_str()))
+                .rposition(|e| e.kind() == EventKind::TaskReopened && e.task.as_deref() == Some(id.as_str()))
                 .map(|j| events[j].seq)
                 .unwrap_or(0);
-            task.amendments = mine("result.amended")
+            task.amendments = mine(EventKind::ResultAmended)
                 .iter()
                 .filter(|e| e.seq > since)
                 .filter_map(|e| e.data.as_ref().and_then(|d| d["text"].as_str().map(str::to_owned)))
                 .collect();
-            for p in mine("task.claimed")
+            for p in mine(EventKind::TaskClaimed)
                 .iter()
                 .filter_map(|e| e.data.as_ref()?["paths"].as_array().cloned())
                 .flatten()
@@ -702,18 +709,18 @@ impl App {
                 let Some(d) = e.data.as_ref() else { continue };
                 let paths: Vec<String> =
                     d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
-                match (e.kind.as_str(), e.task.as_deref()) {
-                    ("tool.call", Some(task)) if !paths.is_empty() => st.traces.record(task, &paths, e.seq),
-                    ("tool.call", None) if e.actor == "lead" && !paths.is_empty() => {
+                match (e.kind(), e.task.as_deref()) {
+                    (EventKind::ToolCall, Some(task)) if !paths.is_empty() => st.traces.record(task, &paths, e.seq),
+                    (EventKind::ToolCall, None) if e.actor == "lead" && !paths.is_empty() => {
                         st.traces.record_lead(&paths, e.seq);
                     }
-                    ("lead.edited", None) => {
+                    (EventKind::LeadEdited, None) => {
                         st.traces.record_lead_after_plan(&paths);
                     }
-                    ("lead.routed", None) => {
+                    (EventKind::LeadRouted, None) => {
                         st.traces.record_lead_tool_after_plan(d["tool"].as_str().unwrap_or_default());
                     }
-                    ("task.conflict", Some(task)) => {
+                    (EventKind::TaskConflict, Some(task)) => {
                         let kind = if d["owned"] == true { Overlap::Owned } else { Overlap::Same };
                         if d["byLead"] == true {
                             for p in &paths {
@@ -744,7 +751,7 @@ impl App {
                     continue;
                 };
                 let d = e.data.clone().unwrap_or_default();
-                if e.kind != "user.message" {
+                if e.kind() != EventKind::UserMessage {
                     continue;
                 }
                 let Some(id) = d["id"].as_str() else { continue };
@@ -781,7 +788,7 @@ impl App {
         self.emit(
             &run,
             ev(
-                "run.recovered",
+                EventKind::RunRecovered,
                 "user",
                 format!("从中断处继续：看板上 {done} 个子任务已完成，{open} 个子任务重新开始，负责人重新推进目标"),
             )
@@ -811,7 +818,7 @@ impl App {
             self.record(
                 &run_id,
                 ev(
-                    "run.interrupted",
+                    EventKind::RunInterrupted,
                     "janus",
                     "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息",
                 ),
@@ -872,13 +879,15 @@ impl From<anyhow::Error> for Refused {
 /// Whether the person's message `id` reached its agent according to the events after it: joined
 /// into a turn (steer / prompt) or delivered with a session. One that did not is still waiting.
 pub(super) fn reached_agent(id: &str, later: &[Event]) -> bool {
-    let routed =
-        later.iter().rev().find(|x| x.kind == "message.routed" && x.data.as_ref().is_some_and(|x| x["id"] == id));
+    let routed = later
+        .iter()
+        .rev()
+        .find(|x| x.kind() == EventKind::MessageRouted && x.data.as_ref().is_some_and(|x| x["id"] == id));
     let joined =
         routed.is_some_and(|x| x.data.as_ref().unwrap()["delivery"].as_str().is_some_and(Delivery::reached_turn));
     joined
         || later.iter().any(|x| {
-            x.kind == "message.delivered"
+            x.kind() == EventKind::MessageDelivered
                 && x.data.as_ref().is_some_and(|x| x["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id)))
         })
 }

@@ -100,8 +100,12 @@ impl App {
                 Err(err) => {
                     app.emit(
                         &r,
-                        ev("lead.failed", "janus", format!("负责人的会话异常结束：{}", clip(&format!("{err:#}"), 120)))
-                            .data(json!({ "error": format!("{err:#}") })),
+                        ev(
+                            EventKind::LeadFailed,
+                            "janus",
+                            format!("负责人的会话异常结束：{}", clip(&format!("{err:#}"), 120)),
+                        )
+                        .data(json!({ "error": format!("{err:#}") })),
                     );
                     LeadGoal::Failed(format!("{err:#}"))
                 }
@@ -153,7 +157,7 @@ impl App {
 
     /// The seq of the run's last delivery; 0 before the first one.
     pub(super) fn last_delivery_seq(&self, run_id: &str) -> i64 {
-        self.db.latest_event(run_id, "run.delivered").ok().flatten().map_or(0, |e| e.seq)
+        self.db.latest_event(run_id, EventKind::RunDelivered).ok().flatten().map_or(0, |e| e.seq)
     }
 
     /// A turn that is not a new goal delivers the run again when it worked on files after a
@@ -262,7 +266,7 @@ impl App {
         let key_of = |e: &Event| e.data.as_ref().and_then(|d| d["key"].as_str().map(str::to_owned));
         let settled: HashSet<String> = events
             .iter()
-            .filter(|e| matches!(e.kind.as_str(), "question.answered" | "question.escalated"))
+            .filter(|e| matches!(e.kind(), EventKind::QuestionAnswered | EventKind::QuestionEscalated))
             .filter_map(key_of)
             .collect();
         let running: HashSet<String> = run
@@ -274,20 +278,21 @@ impl App {
             .filter(|t| t.status() == TaskStatus::Running)
             .map(|t| t.def.id.clone())
             .collect();
-        for e in events.iter().filter(|e| e.kind == "question.asked") {
+        for e in events.iter().filter(|e| e.kind() == EventKind::QuestionAsked) {
             let Some(key) = key_of(e).filter(|k| !settled.contains(k)) else { continue };
             // A question from an attempt that has since ended is no longer waiting for anyone.
             let live = e.task.as_ref().is_some_and(|t| {
                 running.contains(t)
                     && !events
                         .iter()
-                        .any(|x| x.seq > e.seq && x.kind == "attempt.started" && x.task.as_ref() == Some(t))
+                        .any(|x| x.seq > e.seq && x.kind() == EventKind::AttemptStarted && x.task.as_ref() == Some(t))
             });
             if !live {
                 continue;
             }
-            let esc =
-                ev("question.escalated", "janus", "负责人已经结束，协作者的提问转交给你").to("user").data(json!({
+            let esc = ev(EventKind::QuestionEscalated, "janus", "负责人已经结束，协作者的提问转交给你")
+                .to("user")
+                .data(json!({
                     "key": key, "reason": "负责人的会话已经结束，没有人在看板上回答这个问题。"
                 }));
             self.emit(run, esc.task(e.task.as_deref().unwrap_or_default()));
@@ -341,13 +346,13 @@ impl App {
             .map_err(|_| anyhow!("负责人打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
             self.emit(
                 run,
-                ev("agent.status", "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" })
+                ev(EventKind::AgentStatus, "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" })
                     .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied })),
             );
             run.st.lock().unwrap().lead.session = Some(sid.clone());
             self.watch_session(run, &owner.session, 0);
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
-            self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
+            self.show(run, (EventKind::SessionControls, "会话选项".into(), controls), &ctx);
             self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
             self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
@@ -410,7 +415,7 @@ impl App {
                     run.wake.notify_one();
                     self.emit(
                         run,
-                        ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标")
+                        ev(EventKind::AgentStatus, "lead", "目标已完成，可以继续对话或设置新的目标")
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
                 } else {
@@ -452,7 +457,7 @@ impl App {
                 app.runs.lock().unwrap().remove(&run.id);
                 app.emit(
                     &run,
-                    ev("run.failed", "janus", format!("对话的会话结束了：{err:#}。再发一条消息会重新打开会话"))
+                    ev(EventKind::RunFailed, "janus", format!("对话的会话结束了：{err:#}。再发一条消息会重新打开会话"))
                         .data(json!({ "error": format!("{err:#}") })),
                 );
                 app.set_status(&run, RunStatus::Failed);
@@ -520,7 +525,7 @@ impl App {
             };
             self.emit(
                 run,
-                ev("agent.status", "lead", opened)
+                ev(EventKind::AgentStatus, "lead", opened)
                     .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied, "mode": "chat" })),
             );
             {
@@ -544,7 +549,7 @@ impl App {
                 || controls["mode"].is_object()
                 || controls["controls"].as_array().is_some_and(|a| !a.is_empty());
             if has_controls {
-                self.show(run, ("session.controls", "会话选项".into(), controls), &ctx);
+                self.show(run, (EventKind::SessionControls, "会话选项".into(), controls), &ctx);
             }
             // A loaded session already has its system layer and got it again unchanged: nothing new
             // went in, so nothing new is recorded.
@@ -569,7 +574,7 @@ impl App {
                     // A new chat, or one reopened without a message waiting: the person writes first.
                     self.emit(
                         run,
-                        ev("agent.status", "lead", "会话已打开，等待你的消息")
+                        ev(EventKind::AgentStatus, "lead", "会话已打开，等待你的消息")
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
                 }
@@ -587,7 +592,7 @@ impl App {
                 self.emit(
                     run,
                     ev(
-                        "message.delivered",
+                        EventKind::MessageDelivered,
                         "janus",
                         format!("恢复会话，把你留给负责人的 {} 条消息发出去", prompt.len()),
                     )
@@ -624,7 +629,8 @@ impl App {
                 if let Some(reason) = goal_refused(&text) {
                     self.emit(
                         run,
-                        ev("session.prompt", "janus", format!("负责人没有把它当作新的目标：{reason}")).to("lead"),
+                        ev(EventKind::SessionPrompt, "janus", format!("负责人没有把它当作新的目标：{reason}"))
+                            .to("lead"),
                     );
                 }
                 if !ctl.held_by_person() && !ctl.queued.is_empty() {
@@ -863,7 +869,7 @@ impl App {
         };
         self.emit(
             run,
-            ev("session.prompt", "janus", label)
+            ev(EventKind::SessionPrompt, "janus", label)
                 .to(ctx.agent)
                 .scope(ctx)
                 .data(json!({ "channel": part.as_str(), "via": via, "session": sid, "prompt": text })),
@@ -885,7 +891,7 @@ impl App {
         }
         self.emit(
             run,
-            ev("session.prompt", "janus", "向 Agent 注入数字员工的指令")
+            ev(EventKind::SessionPrompt, "janus", "向 Agent 注入数字员工的指令")
                 .to(ctx.agent)
                 .scope(ctx)
                 .data(json!({ "channel": "instructions", "via": via, "session": sid, "prompt": text })),
@@ -902,7 +908,7 @@ impl App {
     ) {
         self.emit(
             run,
-            ev("session.prompt", "janus", channel.label())
+            ev(EventKind::SessionPrompt, "janus", channel.label())
                 .to(ctx.agent)
                 .scope(ctx)
                 .data(json!({ "channel": channel.as_str(), "session": sid, "prompt": prompt })),
@@ -1070,7 +1076,7 @@ impl App {
     fn lead_turn_idle(&self, run: &Run) {
         self.emit(
             run,
-            ev("agent.status", "lead", "这一轮已结束，等待你的消息")
+            ev(EventKind::AgentStatus, "lead", "这一轮已结束，等待你的消息")
                 .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
         );
     }
@@ -1103,14 +1109,17 @@ pub(super) fn last_reply(events: &[Event]) -> Option<String> {
     let lead = |e: &&Event| {
         e.task.is_none()
             && (e.actor == "lead" || e.to.as_deref() == Some("lead"))
-            && !matches!(e.kind.as_str(), "agent.status" | "session.usage" | "agent.thought" | "message.routed")
+            && !matches!(
+                e.kind(),
+                EventKind::AgentStatus | EventKind::SessionUsage | EventKind::AgentThought | EventKind::MessageRouted
+            )
     };
     let mine: Vec<&Event> = events.iter().filter(lead).collect();
     let tail: Vec<&str> = mine
         .iter()
         .rev()
-        .skip_while(|e| e.kind != "agent.message")
-        .take_while(|e| e.kind == "agent.message")
+        .skip_while(|e| e.kind() != EventKind::AgentMessage)
+        .take_while(|e| e.kind() == EventKind::AgentMessage)
         .filter_map(|e| e.data.as_ref()?["text"].as_str())
         .collect();
     (!tail.is_empty()).then(|| tail.into_iter().rev().collect::<String>().trim().to_string())
@@ -1210,7 +1219,7 @@ pub(super) fn last_lead_session(events: &[Event]) -> Option<String> {
 // @project-doc docs/interfaces/20261031-acp_integration.md#standing_instructions
 pub(super) fn recorded_system(events: &[Event], sid: &str) -> Option<String> {
     let mut parts: Vec<(&str, &str)> = vec![];
-    for d in events.iter().rev().filter(|e| e.kind == "session.prompt").filter_map(|e| e.data.as_ref()) {
+    for d in events.iter().rev().filter(|e| e.kind() == EventKind::SessionPrompt).filter_map(|e| e.data.as_ref()) {
         if d["session"].as_str() != Some(sid) || !d["via"].is_string() {
             continue;
         }
@@ -1232,7 +1241,7 @@ pub(super) fn delivery_summary(events: &[Event]) -> String {
     events
         .iter()
         .rev()
-        .find(|e| e.kind == "run.delivered")
+        .find(|e| e.kind() == EventKind::RunDelivered)
         .and_then(|e| e.data.as_ref())
         .map(delivery_text)
         .unwrap_or_default()
@@ -1258,7 +1267,12 @@ pub(super) fn delivery_text(d: &Value) -> String {
 impl App {
     /// The run's last delivery as one text (`delivery_text`); nothing before it was delivered.
     pub(super) fn last_delivery_text(&self, run_id: &str) -> Option<String> {
-        self.db.latest_event(run_id, "run.delivered").ok().flatten().and_then(|e| e.data).map(|d| delivery_text(&d))
+        self.db
+            .latest_event(run_id, EventKind::RunDelivered)
+            .ok()
+            .flatten()
+            .and_then(|e| e.data)
+            .map(|d| delivery_text(&d))
     }
 }
 
@@ -1280,7 +1294,7 @@ pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
 pub(super) fn recent_exchanges(events: &[Event], agent: &str) -> String {
     // A message still waiting for the agent is not history: it is the prompt the new session gets.
     let waiting = |i: usize, e: &Event| {
-        e.kind == "user.message"
+        e.kind() == EventKind::UserMessage
             && e.data.as_ref().and_then(|d| d["id"].as_str()).is_some_and(|id| !reached_agent(id, &events[i + 1..]))
     };
     let mut recent: Vec<String> = events
@@ -1288,9 +1302,11 @@ pub(super) fn recent_exchanges(events: &[Event], agent: &str) -> String {
         .enumerate()
         .rev()
         .filter(|&(i, e)| e.task.is_none() && e.attempt.is_none() && !waiting(i, e))
-        .filter_map(|(_, e)| match e.kind.as_str() {
-            "agent.message" if !e.text.trim().is_empty() => Some(format!("{agent}: {}", clip(e.text.trim(), 500))),
-            "user.message" if !e.text.trim().is_empty() => Some(format!("User: {}", clip(e.text.trim(), 500))),
+        .filter_map(|(_, e)| match e.kind() {
+            EventKind::AgentMessage if !e.text.trim().is_empty() => {
+                Some(format!("{agent}: {}", clip(e.text.trim(), 500)))
+            }
+            EventKind::UserMessage if !e.text.trim().is_empty() => Some(format!("User: {}", clip(e.text.trim(), 500))),
             _ => None,
         })
         .take(12)

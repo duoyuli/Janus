@@ -27,7 +27,7 @@ async fn a_skill_found_in_the_catalog_is_read_recorded_and_counted() {
     let pointer = |to: &str| {
         evs.iter()
             .find(|e| {
-                e.kind == "session.prompt"
+                e.kind.as_str() == "session.prompt"
                     && e.to.as_deref() == Some(to)
                     && e.data.as_ref().unwrap()["channel"] == "skills"
             })
@@ -41,7 +41,7 @@ async fn a_skill_found_in_the_catalog_is_read_recorded_and_counted() {
     assert!(calls.contains("skill notes read"), "the agent found notes in the catalog: {calls}");
 
     // Reading the router is not using a skill; reading notes' SKILL.md is, once.
-    let used: Vec<&Event> = evs.iter().filter(|e| e.kind == "skill.used").collect();
+    let used: Vec<&Event> = evs.iter().filter(|e| e.kind.as_str() == "skill.used").collect();
     assert_eq!(used.len(), 1, "{used:?}");
     assert_eq!((used[0].actor.as_str(), used[0].task.as_deref()), ("m1", Some("T1")));
     assert_eq!(used[0].data.as_ref().unwrap()["item"], json!(notes.id));

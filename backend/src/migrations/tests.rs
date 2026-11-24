@@ -387,10 +387,10 @@ fn field_steps_apply_once() {
     .unwrap();
     let tx = conn.transaction().unwrap();
     let steps = [
-        Step::Add { at: Target::Config("workspace"), field: "limit", default: || json!(4) },
-        Step::Add { at: Target::Config("workspace"), field: "keep", default: || json!(false) },
-        Step::Drop { at: Target::Config("workspace"), field: "old" },
-        Step::Drop { at: Target::Config("workspace"), field: "gone" },
+        Step::Add { at: Target::Config(ConfigKind::Workspace), field: "limit", default: || json!(4) },
+        Step::Add { at: Target::Config(ConfigKind::Workspace), field: "keep", default: || json!(false) },
+        Step::Drop { at: Target::Config(ConfigKind::Workspace), field: "old" },
+        Step::Drop { at: Target::Config(ConfigKind::Workspace), field: "gone" },
         Step::Sql("CREATE TABLE extra (id TEXT)"),
     ];
     let changed: Vec<usize> = steps.iter().map(|s| apply(&tx, s, None).unwrap()).collect();
@@ -573,9 +573,9 @@ fn loop_rhythms_become_schedules() {
         assert_eq!(def["schedule"], json!({ "cron": cron, "tz": tz }), "{id}");
         assert!(def.get("rhythm").is_none());
         assert!(
-            crate::data_shape::check("loop", &def).is_empty(),
+            crate::data_shape::check(ConfigKind::Loop, &def).is_empty(),
             "{id}: {:?}",
-            crate::data_shape::check("loop", &def)
+            crate::data_shape::check(ConfigKind::Loop, &def)
         );
     }
     assert_eq!(config(&conn, "loop", "manual")["schedule"], Value::Null);

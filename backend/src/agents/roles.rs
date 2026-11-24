@@ -7,7 +7,7 @@ impl App {
     /// Roles as the app sees them: a default role the person edited also carries `seedUpdates`,
     /// the newer default text of the edited fields.
     pub fn roles(&self) -> Result<Vec<Value>> {
-        let mut roles = self.db.list_config(ROLE)?;
+        let mut roles = self.db.list_config(ConfigKind::Role)?;
         for r in roles.iter_mut() {
             let updates = seed_updates(r);
             if updates.as_object().is_some_and(|u| !u.is_empty()) {
@@ -48,27 +48,27 @@ impl App {
         let mut role = role;
         // Where a default role came from and its picture are Janus's records, not something the
         // editor sends: the picture changes through `set_role_avatar`.
-        if let Some(prev) = self.db.get_config(ROLE, &id)? {
+        if let Some(prev) = self.db.get_config(ConfigKind::Role, &id)? {
             if !prev["seed"].is_null() {
                 role["seed"] = prev["seed"].clone();
             }
             role["avatar"] = json!(str_of(&prev, "avatar"));
         }
-        self.db.put_config(ROLE, &id, &role, now_ms())?;
+        self.db.put_config(ConfigKind::Role, &id, &role, now_ms())?;
         Ok(role)
     }
 
     pub fn delete_role(&self, id: &str) -> Result<()> {
         if let Some(ws) = self
             .db
-            .list_config(WORKSPACE)?
+            .list_config(ConfigKind::Workspace)?
             .iter()
             .find(|w| w["members"].as_array().is_some_and(|m| m.iter().any(|m| m["role"] == id)))
         {
             bail!("工作区「{}」正在使用这个角色，请先移除", str_of(ws, "name"));
         }
         check_id(id)?;
-        self.db.delete_config(ROLE, id)?;
+        self.db.delete_config(ConfigKind::Role, id)?;
         for path in self.cfg.layout.role_paths(id) {
             crate::layout::remove(&path);
         }
@@ -82,7 +82,7 @@ impl App {
     pub fn set_role_avatar(&self, id: &str, png: Option<&str>) -> Result<Value> {
         use base64::Engine;
         check_id(id)?;
-        let mut role = self.db.get_config(ROLE, id)?.ok_or_else(|| anyhow!("数字员工 {id} 不存在"))?;
+        let mut role = self.db.get_config(ConfigKind::Role, id)?.ok_or_else(|| anyhow!("数字员工 {id} 不存在"))?;
         let file = self.cfg.layout.role_avatar(id);
         role["avatar"] = match png {
             Some(data) => {
@@ -102,7 +102,7 @@ impl App {
                 json!("")
             }
         };
-        self.db.put_config(ROLE, id, &role, now_ms())?;
+        self.db.put_config(ConfigKind::Role, id, &role, now_ms())?;
         Ok(role)
     }
 
@@ -150,14 +150,14 @@ impl App {
     /// stays deleted.
     // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
     pub fn sync_seeds(&self) -> Result<()> {
-        if self.db.get_config("meta", "seeded")?.is_none() {
+        if self.db.get_config(ConfigKind::Meta, "seeded")?.is_none() {
             for r in SEEDS.iter() {
                 let mut role = self.save_role(&json!({ "id": r.id, "name": r.name, "desc": r.desc, "color": r.color, "init": r.init, "lead": r.lead, "prompt": r.prompt }))?;
                 role["seed"] = json!({ "id": r.id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
                 self.ship_avatar(r, &mut role)?;
-                self.db.put_config(ROLE, r.id, &role, now_ms())?;
+                self.db.put_config(ConfigKind::Role, r.id, &role, now_ms())?;
             }
-            return self.db.put_config("meta", "seeded", &json!(true), now_ms());
+            return self.db.put_config(ConfigKind::Meta, "seeded", &json!(true), now_ms());
         }
         for (r, mut role) in self.seeded_roles()? {
             let mut changed = false;
@@ -184,7 +184,7 @@ impl App {
                 changed = true;
             }
             if changed {
-                self.db.put_config(ROLE, r.id, &role, now_ms())?;
+                self.db.put_config(ConfigKind::Role, r.id, &role, now_ms())?;
             }
         }
         Ok(())
@@ -204,7 +204,7 @@ impl App {
         Ok(SEEDS
             .iter()
             .filter_map(|r| {
-                let role = self.db.get_config(ROLE, r.id).ok().flatten()?;
+                let role = self.db.get_config(ConfigKind::Role, r.id).ok().flatten()?;
                 (role["seed"]["id"] == r.id).then_some((r, role))
             })
             .collect())
@@ -227,7 +227,7 @@ impl App {
             role[field] = json!(text);
         }
         role["seed"][field] = json!(text_hash(text));
-        self.db.put_config(ROLE, id, &role, now_ms())?;
+        self.db.put_config(ConfigKind::Role, id, &role, now_ms())?;
         Ok(role)
     }
 }
@@ -355,7 +355,7 @@ mod seed_tests {
     }
 
     fn role(app: &App, id: &str) -> Option<Value> {
-        app.db.get_config(ROLE, id).unwrap()
+        app.db.get_config(ConfigKind::Role, id).unwrap()
     }
 
     /// A digital employee's picture: only a PNG of a sane size is taken; it survives editing the
@@ -405,7 +405,7 @@ mod seed_tests {
         let mut old = role(&app, "developer").unwrap();
         old["avatar"] = json!("");
         old["seed"].as_object_mut().unwrap().remove("avatar");
-        app.db.put_config(ROLE, "developer", &old, 1).unwrap();
+        app.db.put_config(ConfigKind::Role, "developer", &old, 1).unwrap();
         std::fs::remove_file(app.cfg.layout.role_avatar("developer")).unwrap();
         // One the person took back to initials, one they gave their own picture.
         app.set_role_avatar("qa", None).unwrap();
@@ -464,7 +464,7 @@ mod seed_tests {
             );
         }
         // A deleted default role stays deleted on the next start.
-        app.db.delete_config(ROLE, "qa").unwrap();
+        app.db.delete_config(ConfigKind::Role, "qa").unwrap();
         app.sync_seeds().unwrap();
         assert!(role(&app, "qa").is_none());
         let _ = std::fs::remove_dir_all(&dir);
@@ -477,7 +477,7 @@ mod seed_tests {
         r["prompt"] = json!(prompt);
         r["seed"]["desc"] = json!(text_hash("旧职责"));
         r["seed"]["prompt"] = json!(text_hash("旧指令"));
-        app.db.put_config(ROLE, id, &r, 1).unwrap();
+        app.db.put_config(ConfigKind::Role, id, &r, 1).unwrap();
     }
 
     /// A newer build moves untouched default text forward and leaves edited text alone, offering
@@ -565,12 +565,17 @@ mod id_tests {
             "bound",
             json!({ "connection": "gone", "model": "m", "effort": "high", "session": { "mode": "full" } }),
         );
-        app.db.put_config(ROLE, "bound", &bound, 1).unwrap();
+        app.db.put_config(ConfigKind::Role, "bound", &bound, 1).unwrap();
         app.db
-            .put_config(CONNECTION, "gone", &crate::agents::test_connection("gone", "claude", "claude", json!({})), 1)
+            .put_config(
+                ConfigKind::Connection,
+                "gone",
+                &crate::agents::test_connection("gone", "claude", "claude", json!({})),
+                1,
+            )
             .unwrap();
         app.delete_connection("gone").unwrap();
-        let role = app.db.get_config(ROLE, "bound").unwrap().unwrap();
+        let role = app.db.get_config(ConfigKind::Role, "bound").unwrap().unwrap();
         assert_eq!(
             [&role["connection"], &role["model"], &role["effort"], &role["session"]],
             [&json!(""), &json!(""), &json!(""), &json!({})]

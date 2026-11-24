@@ -195,7 +195,7 @@ extension RunModel {
     /// A chat's title: its first message as soon as it is sent (the list's copy follows on the next
     /// refresh), otherwise who it is with.
     var chatTitle: String {
-        if let first = state.events.first(where: { $0.type == "user.message" }) { return L.goalTitle(first.data["text"].str) }
+        if let first = state.events.first(where: { $0.type == .userMessage }) { return L.goalTitle(first.data["text"].str) }
         return ChatRowStatus.title(runJSON)
     }
 }

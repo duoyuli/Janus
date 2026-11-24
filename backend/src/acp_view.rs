@@ -5,6 +5,7 @@
 //! `orchestrator::on_update` only calls in here.
 // @project-doc docs/interfaces/20261031-acp_integration.md#session_view
 
+use crate::events::EventKind;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -23,7 +24,7 @@ pub struct Turn {
 }
 
 /// An event to record: kind, one-line text, data.
-pub type Shown = (&'static str, String, Value);
+pub type Shown = (EventKind, String, Value);
 
 /// The updates that are neither the agent's text nor a tool call.
 pub fn event_for(u: &Value, turn: &mut Turn) -> Option<Shown> {
@@ -46,7 +47,7 @@ pub fn event_for(u: &Value, turn: &mut Turn) -> Option<Shown> {
             }
             turn.plan = key;
             let done = entries.iter().filter(|e| e["status"] == "completed").count();
-            Some(("agent.plan", format!("计划：{done}/{} 完成", entries.len()), json!({ "entries": entries })))
+            Some((EventKind::AgentPlan, format!("计划：{done}/{} 完成", entries.len()), json!({ "entries": entries })))
         }
         "available_commands_update" => {
             let commands: Vec<Value> = u["availableCommands"]
@@ -62,23 +63,29 @@ pub fn event_for(u: &Value, turn: &mut Turn) -> Option<Shown> {
                 return None;
             }
             turn.commands = key;
-            Some(("session.commands", format!("可用命令 {} 个", commands.len()), json!({ "commands": commands })))
+            Some((
+                EventKind::SessionCommands,
+                format!("可用命令 {} 个", commands.len()),
+                json!({ "commands": commands }),
+            ))
         }
         "current_mode_update" => {
             let mode = u["currentModeId"].as_str()?;
             Some((
-                "session.control",
+                EventKind::SessionControl,
                 format!("模式切换为 {mode}"),
                 json!({ "id": "mode", "value": mode, "via": "mode" }),
             ))
         }
         "config_option_update" => {
             let controls = crate::agents::session_options(&json!({ "configOptions": u["configOptions"] }));
-            Some(("session.controls", "会话选项已更新".into(), controls))
+            Some((EventKind::SessionControls, "会话选项已更新".into(), controls))
         }
-        "usage_update" => {
-            Some(("session.usage", String::new(), json!({ "used": u["used"], "size": u["size"], "cost": u["cost"] })))
-        }
+        "usage_update" => Some((
+            EventKind::SessionUsage,
+            String::new(),
+            json!({ "used": u["used"], "size": u["size"], "cost": u["cost"] }),
+        )),
         _ => None,
     }
 }
@@ -110,7 +117,7 @@ pub fn prompt_usage(res: &Value) -> Option<Shown> {
     if !models.is_empty() {
         data["models"] = json!(models);
     }
-    Some(("session.usage", String::new(), data))
+    Some((EventKind::SessionUsage, String::new(), data))
 }
 
 /// One block of token counts under the ACP names; a count the agent did not report stays `null`.
@@ -220,12 +227,12 @@ mod tests {
         let mut t = Turn::default();
         let plan = json!({ "sessionUpdate": "plan", "entries": [{ "content": "读代码", "status": "completed", "priority": "high" }, { "content": "改代码", "status": "in_progress" }] });
         let (kind, text, data) = event_for(&plan, &mut t).unwrap();
-        assert_eq!((kind, text.as_str()), ("agent.plan", "计划：1/2 完成"));
+        assert_eq!((kind.as_str(), text.as_str()), ("agent.plan", "计划：1/2 完成"));
         assert_eq!(data["entries"][1]["status"], "in_progress");
         assert!(event_for(&plan, &mut t).is_none(), "an unchanged plan is not recorded again");
         let cmds = json!({ "sessionUpdate": "available_commands_update", "availableCommands": [{ "name": "/compact", "description": "压缩上下文" }, { "name": "review", "description": "审查", "input": { "hint": "目标" } }] });
         let (kind, _, data) = event_for(&cmds, &mut t).unwrap();
-        assert_eq!(kind, "session.commands");
+        assert_eq!(kind.as_str(), "session.commands");
         assert_eq!(data["commands"][0]["name"], "compact");
         assert_eq!(data["commands"][1]["hint"], "目标");
         assert!(event_for(&cmds, &mut t).is_none());
@@ -239,7 +246,7 @@ mod tests {
         assert_eq!(t.thought, "想一想");
         let (kind, _, data) =
             event_for(&json!({ "sessionUpdate": "current_mode_update", "currentModeId": "plan" }), &mut t).unwrap();
-        assert_eq!((kind, &data["value"]), ("session.control", &json!("plan")));
+        assert_eq!((kind.as_str(), &data["value"]), ("session.control", &json!("plan")));
     }
 
     #[test]
@@ -251,7 +258,7 @@ mod tests {
         );
         let (kind, _, data) =
             prompt_usage(&json!({ "usage": { "inputTokens": 10, "outputTokens": 2, "totalTokens": 12 } })).unwrap();
-        assert_eq!(kind, "session.usage");
+        assert_eq!(kind.as_str(), "session.usage");
         assert_eq!(
             (data["totalTokens"].as_i64(), data["cachedWriteTokens"].is_null()),
             (Some(12), true),

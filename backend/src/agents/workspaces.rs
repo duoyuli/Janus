@@ -4,11 +4,11 @@ use super::*;
 
 impl App {
     pub fn workspaces(&self) -> Result<Vec<Value>> {
-        self.db.list_config(WORKSPACE)
+        self.db.list_config(ConfigKind::Workspace)
     }
 
     pub fn workspace(&self, id: &str) -> Result<Value> {
-        self.db.get_config(WORKSPACE, id)?.ok_or_else(|| anyhow!("执行环境 {id} 不存在"))
+        self.db.get_config(ConfigKind::Workspace, id)?.ok_or_else(|| anyhow!("执行环境 {id} 不存在"))
     }
 
     // @project-doc docs/domains/20261031-agents_and_roles.md#workspaces
@@ -30,7 +30,7 @@ impl App {
         for m in body["members"].as_array().cloned().unwrap_or_default() {
             let role = self
                 .db
-                .get_config(ROLE, str_of(&m, "role"))?
+                .get_config(ConfigKind::Role, str_of(&m, "role"))?
                 .ok_or_else(|| anyhow!("数字员工 {} 不存在", str_of(&m, "role")))?;
             let slots = if role["id"] == lead { 1 } else { m["slots"].as_i64().unwrap_or(1).clamp(1, MAX_SLOTS) };
             let mut entry = json!({ "role": role["id"] });
@@ -42,7 +42,7 @@ impl App {
         if !members.iter().any(|m| m["role"] == lead) {
             bail!("请从成员中选择一个负责人");
         }
-        let lead_role = self.db.get_config(ROLE, lead)?.unwrap_or_default();
+        let lead_role = self.db.get_config(ConfigKind::Role, lead)?.unwrap_or_default();
         if lead_role["lead"] != true {
             bail!("数字员工「{}」没有开启「可以担任负责人」", str_of(&lead_role, "name"));
         }
@@ -63,12 +63,12 @@ impl App {
             bail!("共享资料最多 {BRIEF_LIMIT} 个字符，现在有 {} 个，请精简", brief.chars().count());
         }
         let ws = json!({ "id": id, "name": name, "path": path, "lead": lead, "members": members, "brief": brief });
-        self.db.put_config(WORKSPACE, &id, &ws, now_ms())?;
+        self.db.put_config(ConfigKind::Workspace, &id, &ws, now_ms())?;
         Ok(ws)
     }
 
     pub fn delete_workspace(&self, id: &str) -> Result<()> {
-        self.db.delete_config(WORKSPACE, id)
+        self.db.delete_config(ConfigKind::Workspace, id)
     }
 
     /// Snapshot the environment into the run's team. The lead keeps the fixed member id "lead";
@@ -92,7 +92,7 @@ impl App {
         for m in raw_members {
             let role = self
                 .db
-                .get_config(ROLE, str_of(&m, "role"))?
+                .get_config(ConfigKind::Role, str_of(&m, "role"))?
                 .ok_or_else(|| anyhow!("数字员工 {} 已被删除", str_of(&m, "role")))?;
             let lead = m["role"] == ws["lead"];
             if lead && role["lead"] != true {
@@ -160,7 +160,6 @@ impl App {
     }
 }
 
-pub(crate) const WORKSPACE: &str = "workspace";
 pub(super) const MAX_SLOTS: i64 = 8;
 
 /// The most a workspace's shared material may hold: it goes into every session's prompt.
@@ -181,7 +180,7 @@ mod workspace_tests {
         // A connection written directly: copying the user's own agent config is not the subject.
         app.db
             .put_config(
-                "connection",
+                ConfigKind::Connection,
                 "codex-1",
                 &test_connection(
                     "codex-1",
@@ -227,7 +226,7 @@ mod workspace_tests {
         let app = test_app(&dir);
         app.db
             .put_config(
-                "connection",
+                ConfigKind::Connection,
                 "codex-1",
                 &test_connection(
                     "codex-1",

@@ -2,7 +2,8 @@
 //! person's data was seeded (6, 15), and the defaults' new ids (17). Defaults are named as they
 //! were at each version and get today's text (`seed_once_named`).
 
-use crate::agents::{ROLE, RoleSeed, SEEDS, WORKSPACE, text_hash};
+use crate::agents::{RoleSeed, SEEDS, text_hash};
+use crate::db::ConfigKind;
 use anyhow::Result;
 use rusqlite::OptionalExtension;
 use serde_json::{Value, json};
@@ -33,7 +34,7 @@ const SEED_HISTORY: &[(&str, &str, &[&str])] = &[
 /// current one instead of replacing it. Only the default roles of that time count (those in
 /// `SEED_HISTORY`): a role of the person's under the id of a later default is theirs.
 pub(crate) fn record_seed_origins(tx: &rusqlite::Transaction) -> Result<usize> {
-    super::super::edit_configs(tx, ROLE, |id, role| {
+    super::super::edit_configs(tx, ConfigKind::Role, |id, role| {
         if !SEED_HISTORY.iter().any(|h| h.0 == id) {
             return false;
         }
@@ -96,9 +97,11 @@ pub(crate) fn rename_default_roles(tx: &rusqlite::Transaction, home: Option<&Pat
     for &(then, now) in RENAMED {
         let row = |id: &str| -> Result<Option<Value>> {
             let data: Option<String> = tx
-                .query_row("SELECT data FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, id], |r| {
-                    r.get(0)
-                })
+                .query_row(
+                    "SELECT data FROM configs WHERE kind = ?1 AND id = ?2",
+                    rusqlite::params![ConfigKind::Role.as_str(), id],
+                    |r| r.get(0),
+                )
                 .optional()?;
             Ok(data.map(|d| serde_json::from_str(&d)).transpose()?)
         };
@@ -108,10 +111,13 @@ pub(crate) fn rename_default_roles(tx: &rusqlite::Transaction, home: Option<&Pat
         }
         role["id"] = json!(now);
         role["seed"]["id"] = json!(now);
-        tx.execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, then])?;
+        tx.execute(
+            "DELETE FROM configs WHERE kind = ?1 AND id = ?2",
+            rusqlite::params![ConfigKind::Role.as_str(), then],
+        )?;
         tx.execute(
             "INSERT INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![ROLE, now, role.to_string(), crate::util::now_ms()],
+            rusqlite::params![ConfigKind::Role.as_str(), now, role.to_string(), crate::util::now_ms()],
         )?;
         if let Some(home) = home {
             // Where version 16 kept pictures (`Layout::role`).
@@ -127,7 +133,7 @@ pub(crate) fn rename_default_roles(tx: &rusqlite::Transaction, home: Option<&Pat
     }
     let renamed = |id: &str| moved.iter().find(|(then, _)| *then == id).map(|(_, now)| *now);
     let mut changed = moved.len();
-    changed += super::super::edit_configs(tx, WORKSPACE, |_, w| {
+    changed += super::super::edit_configs(tx, ConfigKind::Workspace, |_, w| {
         let mut any = false;
         if let Some(now) = w.get("lead").and_then(Value::as_str).and_then(renamed) {
             w.insert("lead".into(), json!(now));
@@ -168,9 +174,11 @@ pub(crate) fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     let r = seed_once_named(id).expect("a default role");
     let origin = json!({ "id": id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
     let existing: Option<String> = tx
-        .query_row("SELECT data FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, id], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT data FROM configs WHERE kind = ?1 AND id = ?2",
+            rusqlite::params![ConfigKind::Role.as_str(), id],
+            |row| row.get(0),
+        )
         .optional()?;
     let role = match existing {
         Some(data) => {
@@ -188,7 +196,7 @@ pub(crate) fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     };
     tx.execute(
         "INSERT OR REPLACE INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![ROLE, id, role.to_string(), crate::util::now_ms()],
+        rusqlite::params![ConfigKind::Role.as_str(), id, role.to_string(), crate::util::now_ms()],
     )?;
     Ok(1)
 }

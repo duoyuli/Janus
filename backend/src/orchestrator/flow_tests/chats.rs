@@ -8,7 +8,7 @@ fn calls(h: &Harness) -> String {
 }
 
 fn replied(evs: &[Event], text: &str) -> bool {
-    evs.iter().any(|e| e.kind == "agent.message" && e.text.contains(&format!("回复：{text}")))
+    evs.iter().any(|e| e.kind.as_str() == "agent.message" && e.text.contains(&format!("回复：{text}")))
 }
 
 /// A command server in the library, so sessions get the library router (`janus-tools`).
@@ -35,7 +35,7 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     with_library_server(&h).await;
     let id = h.app.create_chat(NewChat { role: "m1".into() }).await.unwrap();
     wait_until(&h.app, &id, "the session waiting for the person", |evs| {
-        evs.iter().any(|e| e.kind == "agent.status" && e.data.as_ref().is_some_and(|d| d["turn"] == "idle"))
+        evs.iter().any(|e| e.kind.as_str() == "agent.status" && e.data.as_ref().is_some_and(|d| d["turn"] == "idle"))
     })
     .await;
     assert!(calls(&h).contains("chat session"), "the session opens before anything is said");
@@ -47,7 +47,7 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     assert!(
         events(&h.app, &id)
             .iter()
-            .any(|e| e.kind == "message.routed" && e.data.as_ref().is_some_and(|d| d["delivery"] == "prompt")),
+            .any(|e| e.kind.as_str() == "message.routed" && e.data.as_ref().is_some_and(|d| d["delivery"] == "prompt")),
         "the first message is a turn of the open session"
     );
     let row = h.app.db.run(&id).unwrap().unwrap();
@@ -69,7 +69,7 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     assert!(
         !events(&h.app, &id)
             .iter()
-            .any(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system")),
+            .any(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system")),
         "only the employee's own instructions go into the system layer"
     );
     let mcp = log.lines().find(|l| l.starts_with("mcp ")).unwrap();
@@ -83,7 +83,7 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     assert!(
         events(&h.app, &id)
             .iter()
-            .any(|e| e.kind == "agent.status" && e.data.as_ref().is_some_and(|d| d["turn"] == "idle")),
+            .any(|e| e.kind.as_str() == "agent.status" && e.data.as_ref().is_some_and(|d| d["turn"] == "idle")),
         "after each turn the session waits for the person"
     );
 
@@ -122,7 +122,7 @@ async fn a_chat_agent_cannot_reach_a_board() {
 /// Give `role` standing instructions, so its sessions have a system layer of the person's own.
 fn with_instructions(h: &Harness, role: &str) {
     let r = crate::agents::test_role(role, json!({ "connection": "fake", "prompt": "像朋友一样聊" }));
-    h.app.db.put_config("role", role, &r, now_ms()).unwrap();
+    h.app.db.put_config(ConfigKind::Role, role, &r, now_ms()).unwrap();
 }
 
 /// Lose the chat's live session the way a restart does: only the event log survives.
@@ -151,7 +151,7 @@ fn layers(h: &Harness) -> Vec<(String, String, String)> {
 /// What Janus recorded as going into the system layer (`session.prompt` with a `via`), by channel.
 fn recorded_layer(evs: &[Event]) -> Vec<String> {
     evs.iter()
-        .filter(|e| e.kind == "session.prompt")
+        .filter(|e| e.kind.as_str() == "session.prompt")
         .filter_map(|e| e.data.as_ref().filter(|d| d["via"].is_string()))
         .map(|d| d["channel"].as_str().unwrap_or_default().to_string())
         .collect()
@@ -168,7 +168,9 @@ async fn a_chat_reopens_with_the_next_message() {
     wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
     let sid = events(&h.app, &id)
         .iter()
-        .find_map(|e| e.data.as_ref()?["session"].as_str().filter(|_| e.kind == "agent.status").map(str::to_owned))
+        .find_map(|e| {
+            e.data.as_ref()?["session"].as_str().filter(|_| e.kind.as_str() == "agent.status").map(str::to_owned)
+        })
         .unwrap();
     let before = recorded_layer(&events(&h.app, &id));
     assert_eq!(before, vec!["instructions".to_string()], "a new chat records only the employee's instructions");
@@ -195,10 +197,10 @@ async fn a_chat_reopens_with_the_next_message() {
 async fn a_chat_that_cannot_load_its_session_starts_one_with_its_history() {
     for kind in ["claude", "codex"] {
         let h = harness(&format!("chat-fresh-{kind}"), &[("lead", false), ("m1", true)], json!({}));
-        let mut c = h.app.db.get_config("connection", "fake").unwrap().unwrap();
+        let mut c = h.app.db.get_config(ConfigKind::Connection, "fake").unwrap().unwrap();
         c["kind"] = json!(kind);
         c["base"] = json!(kind);
-        h.app.db.put_config("connection", "fake", &c, now_ms()).unwrap();
+        h.app.db.put_config(ConfigKind::Connection, "fake", &c, now_ms()).unwrap();
         with_instructions(&h, "m1");
         let id = chat(&h, "m1", "你好").await;
         wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
@@ -231,7 +233,9 @@ async fn a_chat_is_deleted_with_its_directory() {
     // What the agent itself kept of the chat's session, beside another session's.
     let sid = events(&h.app, &id)
         .into_iter()
-        .find_map(|e| (e.kind == "agent.status").then(|| e.data?["session"].as_str().map(str::to_owned)).flatten())
+        .find_map(|e| {
+            (e.kind.as_str() == "agent.status").then(|| e.data?["session"].as_str().map(str::to_owned)).flatten()
+        })
         .unwrap();
     let runtime = h.app.run(&id).unwrap().team[0].runtime.clone();
     let config = h.app.cfg.layout.agent_config(&runtime);
@@ -256,7 +260,7 @@ async fn a_chat_is_deleted_with_its_directory() {
 
     let mut unbound = crate::agents::test_role("m2", json!({ "connection": "" }));
     unbound["connection"] = json!("");
-    h.app.db.put_config("role", "m2", &unbound, now_ms()).unwrap();
+    h.app.db.put_config(ConfigKind::Role, "m2", &unbound, now_ms()).unwrap();
     let refused = h.app.create_chat(NewChat { role: "m2".into() }).await;
     assert!(format!("{:#}", refused.unwrap_err()).contains("还没有绑定 Agent"));
     let missing = h.app.create_chat(NewChat { role: "nobody".into() }).await;
@@ -336,12 +340,13 @@ async fn stopping_a_chat_turn_waits_for_the_next_message() {
     let h = harness("chat-stop", &[("lead", false), ("m1", true)], json!({}));
     let id = chat(&h, "m1", "[slow] 想一想").await;
     wait_until(&h.app, &id, "the turn at work", |e| {
-        e.iter().any(|x| x.kind == "session.prompt" && x.data.as_ref().is_some_and(|d| d["channel"] == "followup"))
+        e.iter()
+            .any(|x| x.kind.as_str() == "session.prompt" && x.data.as_ref().is_some_and(|d| d["channel"] == "followup"))
     })
     .await;
     act(&h, &id, json!({ "type": "interrupt", "agent": "lead" }));
     wait_until(&h.app, &id, "the stop", |e| has(e, "session.interrupted")).await;
-    let stop = events(&h.app, &id).into_iter().find(|e| e.kind == "session.interrupted").unwrap();
+    let stop = events(&h.app, &id).into_iter().find(|e| e.kind.as_str() == "session.interrupted").unwrap();
     assert!(stop.text.contains("停止") && !stop.text.contains("接管"), "{}", stop.text);
     assert!(!has(&events(&h.app, &id), "control.taken"));
     act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "下一条" }));

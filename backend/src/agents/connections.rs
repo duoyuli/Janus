@@ -85,12 +85,12 @@ impl App {
     }
 
     pub fn connection(&self, id: &str) -> Result<Value> {
-        self.db.get_config(CONNECTION, id)?.ok_or_else(|| anyhow!("Provider {id} 不存在"))
+        self.db.get_config(ConfigKind::Connection, id)?.ok_or_else(|| anyhow!("Provider {id} 不存在"))
     }
 
     /// Connections as the UI sees them: config plus derived state, never secret values.
     pub fn connections(&self) -> Result<Vec<Value>> {
-        let mut out = self.db.list_config(CONNECTION)?;
+        let mut out = self.db.list_config(ConfigKind::Connection)?;
         for c in out.iter_mut() {
             let id = str_of(c, "id").to_string();
             let secrets = read_secrets(&self.cfg.layout.agent_secrets(&id))?;
@@ -130,7 +130,8 @@ impl App {
                 "" => self.suggest_agent_id(kind, str_of(body, "name"))?,
                 wanted => {
                     check_id(wanted)?;
-                    if self.db.get_config(CONNECTION, wanted)?.is_some() || self.agent_dir(wanted).exists() {
+                    if self.db.get_config(ConfigKind::Connection, wanted)?.is_some() || self.agent_dir(wanted).exists()
+                    {
                         bail!("ID「{wanted}」已被占用，换一个");
                     }
                     wanted.to_string()
@@ -141,7 +142,7 @@ impl App {
                 id.to_string()
             }
         };
-        let prev = self.db.get_config(CONNECTION, &id)?;
+        let prev = self.db.get_config(ConfigKind::Connection, &id)?;
         if let Some(p) = &prev
             && p["kind"] != kind
         {
@@ -205,7 +206,7 @@ impl App {
             secrets["importedEnv"] = Value::Object(env);
         }
         write_secrets(&secrets_file, &secrets)?;
-        self.db.put_config(CONNECTION, &id, &config, now_ms())?;
+        self.db.put_config(ConfigKind::Connection, &id, &config, now_ms())?;
         Ok(config)
     }
 
@@ -228,7 +229,7 @@ impl App {
     /// `codex`, then `codex-magpie` (from the name) or `codex-2`: short, readable, unique.
     pub fn suggest_agent_id(&self, kind: &str, name: &str) -> Result<String> {
         let taken = |id: &str| -> Result<bool> {
-            Ok(self.db.get_config(CONNECTION, id)?.is_some() || self.agent_dir(id).exists())
+            Ok(self.db.get_config(ConfigKind::Connection, id)?.is_some() || self.agent_dir(id).exists())
         };
         let base = slug(kind).unwrap_or_else(|| "agent".into());
         if !taken(&base)? {
@@ -254,14 +255,14 @@ impl App {
             bail!("有正在运行的子任务在使用这个 Provider，请等它结束或取消后再删除");
         }
         // The roles bound to it come out as a role saved without an agent: nothing chosen for one.
-        for mut role in self.db.list_config(ROLE)?.into_iter().filter(|r| r["connection"] == id) {
+        for mut role in self.db.list_config(ConfigKind::Role)?.into_iter().filter(|r| r["connection"] == id) {
             role["connection"] = json!("");
             role["model"] = json!("");
             role["effort"] = json!("");
             role["session"] = json!({});
-            self.db.put_config(ROLE, str_of(&role, "id"), &role, now_ms())?;
+            self.db.put_config(ConfigKind::Role, str_of(&role, "id"), &role, now_ms())?;
         }
-        self.db.delete_config(CONNECTION, id)?;
+        self.db.delete_config(ConfigKind::Connection, id)?;
         for path in self.cfg.layout.agent_paths(id) {
             crate::layout::remove(&path);
         }

@@ -20,10 +20,11 @@ async fn usage_ledger_covers_a_run_and_survives_a_restart() {
     wait_until(&h.app, &run, "T3 asks", |e| task_event(e, "question.asked", "T3")).await;
     let asked = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "question.asked" && e.task.as_deref() == Some("T3"))
+        .find(|e| e.kind.as_str() == "question.asked" && e.task.as_deref() == Some("T3"))
         .unwrap();
     act(&h, &run, json!({ "type": "answer", "key": asked.data.unwrap()["key"], "task": "T3", "answer": "alpha" }));
-    wait_until(&h.app, &run, "all done", |e| e.iter().filter(|e| e.kind == "task.succeeded").count() == 3).await;
+    wait_until(&h.app, &run, "all done", |e| e.iter().filter(|e| e.kind.as_str() == "task.succeeded").count() == 3)
+        .await;
 
     use crate::usage::Completeness;
     let l = crate::usage::ledger(&events(&h.app, &run));
@@ -70,7 +71,7 @@ async fn usage_ledger_covers_a_run_and_survives_a_restart() {
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let evs = events(&h.app, &run);
-    let delivered = evs.iter().find(|e| e.kind == "run.delivered").unwrap();
+    let delivered = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap();
     let usage = delivered.data.as_ref().unwrap()["usage"].as_str().unwrap_or_default();
     assert!(usage.starts_with("用量 5,500 tokens（部分上报） · 费用：0.25 USD"), "{usage}");
 
@@ -98,11 +99,11 @@ async fn a_cancelled_run_marks_the_running_attempt_and_keeps_reported_usage() {
     let h = harness("usage-cancel", &[("lead", false), ("m1", true)], json!({ "T1": ["usage"], "T2": ["slow"] }));
     let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 done", |e| {
-        e.iter().any(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some("T1"))
+        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1"))
     })
     .await;
     wait_until(&h.app, &run, "T2 running", |e| {
-        e.iter().any(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("T2"))
+        e.iter().any(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T2"))
     })
     .await;
     act(&h, &run, json!({ "type": "cancel" }));

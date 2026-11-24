@@ -290,7 +290,7 @@ struct BoardView: View {
             let contentWidth = max(0, geo.size.width - 40)
             let lead = agentSession(st, "lead")
             // A run with nothing to say yet: no tasks, and the lead has only been created.
-            let empty = st.order.isEmpty && !lead.evs.contains { $0.type != "run.created" }
+            let empty = st.order.isEmpty && !lead.evs.contains { $0.type != .runCreated }
             let heights = BoardLayout.cardHeights(
                 contentHeight: geo.size.height, twoColumn: BoardLayout.isTwoColumn(contentWidth), empty: empty)
             ScrollView {
@@ -577,7 +577,7 @@ struct AgentsPanel: View {
     private func runStats(_ id: String, _ mine: [TaskState]) -> String? {
         let ended = mine.filter { $0.status == .succeeded || $0.status == .failed }
         guard !ended.isEmpty else { return nil }
-        func vf(_ t: String) -> Int { st.events.filter { $0.type == "verification.failed" && $0.task == t }.count }
+        func vf(_ t: String) -> Int { st.events.filter { $0.type == .verificationFailed && $0.task == t }.count }
         let first = ended.filter { $0.status == .succeeded && $0.attempts.count == 1 && vf($0.id) == 0 }.count
         let vfail = ended.filter { vf($0.id) > 0 }.count
         return L.text("本次 \(first)/\(ended.count) 首次通过\(vfail > 0 ? L.text(" · 验证没通过 \(vfail)") : "")")

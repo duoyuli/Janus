@@ -22,6 +22,7 @@ pub use skill_router::skills_read;
 pub use sources::{CHECK_EVERY, Source};
 
 use crate::agents::{new_id, str_of, write_private};
+use crate::db::ConfigKind;
 use crate::orchestrator::App;
 use crate::util::{expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
@@ -29,8 +30,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-
-const ITEM: &str = "library_item";
 
 /// Library edits happen one at a time, from any page or the background check.
 #[derive(Default)]
@@ -158,16 +157,20 @@ impl App {
     }
 
     pub fn items(&self) -> Result<Vec<Item>> {
-        self.db.list_config(ITEM)?.into_iter().map(|v| serde_json::from_value(v).context("资源记录无法读取")).collect()
+        self.db
+            .list_config(ConfigKind::LibraryItem)?
+            .into_iter()
+            .map(|v| serde_json::from_value(v).context("资源记录无法读取"))
+            .collect()
     }
 
     pub fn item(&self, id: &str) -> Result<Item> {
-        let v = self.db.get_config(ITEM, id)?.ok_or_else(|| anyhow!("资源 {id} 不存在"))?;
+        let v = self.db.get_config(ConfigKind::LibraryItem, id)?.ok_or_else(|| anyhow!("资源 {id} 不存在"))?;
         serde_json::from_value(v).context("资源记录无法读取")
     }
 
     fn put_item(&self, item: &Item) -> Result<()> {
-        self.db.put_config(ITEM, &item.id, &serde_json::to_value(item)?, now_ms())
+        self.db.put_config(ConfigKind::LibraryItem, &item.id, &serde_json::to_value(item)?, now_ms())
     }
 
     /// A server's values; none when it has no file (or the id is not one).
@@ -505,7 +508,7 @@ impl App {
     pub async fn delete_item(&self, id: &str) -> Result<()> {
         let _guard = self.library.lock.lock().await;
         self.item(id)?;
-        self.db.delete_config(ITEM, id)?;
+        self.db.delete_config(ConfigKind::LibraryItem, id)?;
         crate::agents::check_id(id)?;
         // Its servers stop before the sandbox they run in goes; then everything it owns goes.
         self.stop_item_servers(id);

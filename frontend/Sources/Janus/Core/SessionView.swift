@@ -50,13 +50,13 @@ enum SessionView {
 
     /// The latest plan, if the agent published one.
     static func plan(_ evs: [Event]) -> [Step] {
-        guard let e = evs.last(where: { $0.type == "agent.plan" }) else { return [] }
+        guard let e = evs.last(where: { $0.type == .agentPlan }) else { return [] }
         return e.data["entries"].array.map { Step(content: $0["content"].str, status: $0["status"].str) }
     }
 
     /// The session's controls as they stand: the last full list, then each switch since.
     static func controls(_ evs: [Event]) -> [Control] {
-        guard let i = evs.lastIndex(where: { $0.type == "session.controls" }) else { return [] }
+        guard let i = evs.lastIndex(where: { $0.type == .sessionControls }) else { return [] }
         let d = evs[i].data
         var out: [Control] = []
         func add(_ id: String, _ name: String, _ via: String, _ c: JSON) {
@@ -69,7 +69,7 @@ enum SessionView {
         for c in d["controls"].array where c["type"].str == "select" || c["options"].array.count > 1 {
             add(c["id"].str, c["category"].str == "mode" ? L.text("模式") : c["name"].str, c["via"].str == "mode" ? "mode" : "config", c)
         }
-        for e in evs[(i + 1)...] where e.type == "session.control" && !e.data["failed"].truthy {
+        for e in evs[(i + 1)...] where e.type == .sessionControl && !e.data["failed"].truthy {
             if let k = out.firstIndex(where: { $0.id == e.data["id"].str || ($0.via == "mode" && e.data["via"].str == "mode") }) {
                 out[k].current = e.data["value"].str
             }
@@ -79,13 +79,13 @@ enum SessionView {
 
     /// The slash commands the agent offers now.
     static func commands(_ evs: [Event]) -> [Command] {
-        guard let e = evs.last(where: { $0.type == "session.commands" }) else { return [] }
+        guard let e = evs.last(where: { $0.type == .sessionCommands }) else { return [] }
         return e.data["commands"].array.map { Command(name: $0["name"].str, description: $0["description"].str, hint: $0["hint"].str) }
     }
 
     static func usage(_ evs: [Event]) -> Usage? {
         var u = Usage()
-        for e in evs where e.type == "session.usage" {
+        for e in evs where e.type == .sessionUsage {
             // An agent that reports 0 before it has read anything says nothing yet.
             if let used = e.data["used"].int, used > 0 { u.used = used }
             if let size = e.data["size"].int { u.size = size }
@@ -138,7 +138,7 @@ enum SessionView {
 
     /// `gitNote` of a task's latest attempt.
     static func taskGitNote(_ st: RunState, _ task: String) -> String? {
-        gitNote(st.events.last { $0.type == "attempt.started" && $0.task == task }?.data["git"] ?? .null)
+        gitNote(st.events.last { $0.type == .attemptStarted && $0.task == task }?.data["git"] ?? .null)
     }
 
     /// What an attempt's header adds about how it started (`attempt.started`): which session it

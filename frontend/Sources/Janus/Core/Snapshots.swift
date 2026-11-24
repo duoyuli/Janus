@@ -254,7 +254,7 @@ enum Snapshots {
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "page": JSON(String(describing: r.page)),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
                     // A consolidation's outcome as its page shows it.
-                    "consolidated": s.events.last { $0.type == "memory.consolidated" }.map { $0.data } ?? .null,
+                    "consolidated": s.events.last { $0.type == .memoryConsolidated }.map { $0.data } ?? .null,
                     // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.
                     "loop": r.isLoop ? {
                         let l = store.loop(ofRun: r.id) ?? .null
@@ -292,7 +292,7 @@ enum Snapshots {
                     // Where the run works and where its accepted result went, as the delivery shows it.
                     "worktree": JSON(s.run.repo.isEmpty ? nil : s.run.cwd), "branch": JSON(s.run.branch.isEmpty ? nil : s.run.branch), "merged": .bool(s.run.merged),
                     // The blocks the last agent message is drawn as (`MarkdownText`).
-                    "lastReply": JSON.array(MD.blocks(s.events.last { $0.type == "agent.message" }?.data["text"].str ?? "").map { JSON(block($0)) }),
+                    "lastReply": JSON.array(MD.blocks(s.events.last { $0.type == .agentMessage }?.data["text"].str ?? "").map { JSON(block($0)) }),
                     "conversation": ChatProbe.json,
                 ]
             }

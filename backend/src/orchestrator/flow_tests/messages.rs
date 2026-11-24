@@ -13,18 +13,18 @@ async fn messages_are_shown_then_routed_and_delivered() {
     wait_until(&h.app, &run, "permission request", |e| has(e, "approval.requested")).await;
     act(&h, &run, json!({ "type": "message", "agent": "m1", "text": "顺便看看 README" }));
     let evs = events(&h.app, &run);
-    let sent = evs.iter().find(|e| e.kind == "user.message").expect("recorded at once");
+    let sent = evs.iter().find(|e| e.kind.as_str() == "user.message").expect("recorded at once");
     let d = sent.data.as_ref().unwrap();
     assert_eq!((d["delivery"].as_str(), sent.to.as_deref(), sent.task.as_deref()), (Some("pending"), Some("m1"), None));
     let id = d["id"].as_str().unwrap().to_string();
     let routed = |evs: &[Event], how: &str| {
         evs.iter().any(|e| {
-            e.kind == "message.routed"
+            e.kind.as_str() == "message.routed"
                 && e.data.as_ref().is_some_and(|d| d["id"] == id.as_str() && d["delivery"] == how)
         })
     };
     wait_until(&h.app, &run, "queued", |e| routed(e, "queued")).await;
-    let req = events(&h.app, &run).into_iter().find(|e| e.kind == "approval.requested").unwrap();
+    let req = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "approval.requested").unwrap();
     act(
         &h,
         &run,
@@ -32,7 +32,7 @@ async fn messages_are_shown_then_routed_and_delivered() {
     );
     wait_until(&h.app, &run, "delivered", |e| {
         e.iter().any(|e| {
-            e.kind == "message.delivered"
+            e.kind.as_str() == "message.delivered"
                 && e.data
                     .as_ref()
                     .is_some_and(|d| d["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == id.as_str())))
@@ -43,16 +43,16 @@ async fn messages_are_shown_then_routed_and_delivered() {
 
     // No session now: a note, carried into m1's next session.
     act(&h, &run, json!({ "type": "message", "agent": "m1", "text": "下一个子任务注意测试" }));
-    let note = events(&h.app, &run).into_iter().rev().find(|e| e.kind == "user.message").unwrap();
+    let note = events(&h.app, &run).into_iter().rev().find(|e| e.kind.as_str() == "user.message").unwrap();
     let note_id = note.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
-    assert!(events(&h.app, &run).iter().any(|e| e.kind == "message.routed"
+    assert!(events(&h.app, &run).iter().any(|e| e.kind.as_str() == "message.routed"
         && e.data.as_ref().is_some_and(|d| d["id"] == note_id.as_str() && d["delivery"] == "next")));
     let (text, err) =
         tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [task("T2", "m1", json!({}))] })).await;
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "note delivered", |e| {
         e.iter().any(|e| {
-            e.kind == "message.delivered"
+            e.kind.as_str() == "message.delivered"
                 && e.data
                     .as_ref()
                     .is_some_and(|d| d["ids"].as_array().is_some_and(|ids| ids.iter().any(|v| v == note_id.as_str())))
@@ -61,7 +61,7 @@ async fn messages_are_shown_then_routed_and_delivered() {
     .await;
     // The note is taken (and reported delivered) while T2's prompt is written, a moment before
     // the attempt is recorded as started.
-    let started = |e: &Event| e.kind == "attempt.started" && e.task.as_deref() == Some("T2");
+    let started = |e: &Event| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T2");
     wait_until(&h.app, &run, "T2 started", |e| e.iter().any(started)).await;
     let t2 = events(&h.app, &run).into_iter().find(started).unwrap();
     assert!(
@@ -86,7 +86,7 @@ async fn a_delivered_goal_stays_open_for_the_next_instruction() {
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "再看看 README" }));
     wait_until(&h.app, &run, "follow-up prompt", |evs| {
         evs.iter().any(|e| {
-            e.kind == "session.prompt"
+            e.kind.as_str() == "session.prompt"
                 && e.data.as_ref().is_some_and(|d| {
                     d["channel"] == "followup" && d["prompt"].as_str().is_some_and(|t| t.contains("再看看 README"))
                 })
@@ -95,11 +95,11 @@ async fn a_delivered_goal_stays_open_for_the_next_instruction() {
     .await;
     let evs = events(&h.app, &run);
     assert!(
-        evs.iter().any(|e| e.kind == "user.message"
+        evs.iter().any(|e| e.kind.as_str() == "user.message"
             && e.data.as_ref().is_some_and(|d| d["text"].as_str().is_some_and(|t| t.contains("再看看 README")))),
         "the message is shown in the same session"
     );
-    assert_eq!(evs.iter().filter(|e| e.kind == "run.created").count(), 1, "no new run");
+    assert_eq!(evs.iter().filter(|e| e.kind.as_str() == "run.created").count(), 1, "no new run");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -117,7 +117,7 @@ async fn an_accepted_goal_still_takes_instructions() {
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "再补一份说明" }));
     wait_until(&h.app, &run, "follow-up prompt", |evs| {
         evs.iter().any(|e| {
-            e.kind == "session.prompt"
+            e.kind.as_str() == "session.prompt"
                 && e.data.as_ref().is_some_and(|d| {
                     d["channel"] == "followup" && d["prompt"].as_str().is_some_and(|t| t.contains("再补一份说明"))
                 })
@@ -143,7 +143,7 @@ async fn a_historical_delivered_run_reopens_for_chat() {
     h.app.action(&reopened, &json!({ "type": "message", "agent": "lead", "text": "历史子任务继续" })).unwrap();
     wait_until(&h.app, &run, "reopened prompt", |evs| {
         evs.iter().any(|e| {
-            e.kind == "session.prompt"
+            e.kind.as_str() == "session.prompt"
                 && e.data.as_ref().is_some_and(|d| {
                     d["channel"] == "followup" && d["prompt"].as_str().is_some_and(|t| t.contains("历史子任务继续"))
                 })
@@ -151,7 +151,7 @@ async fn a_historical_delivered_run_reopens_for_chat() {
     })
     .await;
     assert!(
-        events(&h.app, &run).iter().filter(|e| e.kind == "session.controls").count() >= 2,
+        events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "session.controls").count() >= 2,
         "the reopened session offers its model and controls"
     );
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -169,14 +169,14 @@ async fn a_delivered_goal_takes_a_new_slash_command() {
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "/goal 新目标" }));
     wait_until(&h.app, &run, "new goal prompt", |evs| {
         evs.iter().any(|e| {
-            e.kind == "session.prompt"
+            e.kind.as_str() == "session.prompt"
                 && e.data.as_ref().is_some_and(|d| {
                     d["channel"] == "goal" && d["prompt"].as_str().is_some_and(|t| t.contains("新目标"))
                 })
         })
     })
     .await;
-    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind == "run.created").count(), 1, "no new run");
+    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "run.created").count(), 1, "no new run");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -242,7 +242,7 @@ async fn lead_reply_does_not_wait_for_a_long_turn() {
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "T1 after the reply", |e| task_event(e, "task.succeeded", "T1")).await;
     let evs = events(&h.app, &run);
-    assert!(evs.iter().any(|e| e.kind == "message.routed"
+    assert!(evs.iter().any(|e| e.kind.as_str() == "message.routed"
         && e.task.as_deref() == Some("T1")
         && e.data.as_ref().is_some_and(|d| d["delivery"] == "interrupt")));
     assert!(task_event(&evs, "message.delivered", "T1"));
@@ -250,14 +250,16 @@ async fn lead_reply_does_not_wait_for_a_long_turn() {
     // The person takes T2 over: the lead's message waits until the session is handed back.
     act(&h, &run, json!({ "type": "interrupt", "task": "T2" }));
     wait_until(&h.app, &run, "T2 waiting for the person", |e| {
-        e.iter().any(|e| e.kind == "agent.status" && e.task.as_deref() == Some("T2") && e.text.contains("人工接管"))
+        e.iter().any(|e| {
+            e.kind.as_str() == "agent.status" && e.task.as_deref() == Some("T2") && e.text.contains("人工接管")
+        })
     })
     .await;
     let (_, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T2", "text": "先停一下" })).await;
     assert!(!err);
     tokio::time::sleep(Duration::from_millis(800)).await;
     let evs = events(&h.app, &run);
-    assert!(evs.iter().any(|e| e.kind == "message.routed"
+    assert!(evs.iter().any(|e| e.kind.as_str() == "message.routed"
         && e.task.as_deref() == Some("T2")
         && e.data.as_ref().is_some_and(|d| d["delivery"] == "queued")));
     assert!(!task_event(&evs, "message.delivered", "T2"), "nothing goes in while the person holds the session");
@@ -306,13 +308,13 @@ async fn pasted_images_reach_the_agent() {
     };
     logged("goal 照着图改", 1).await;
     let evs = events(&h.app, &run);
-    let created = evs.iter().find(|e| e.kind == "run.created").unwrap().data.clone().unwrap();
+    let created = evs.iter().find(|e| e.kind.as_str() == "run.created").unwrap().data.clone().unwrap();
     let goal_image = created["images"][0]["path"].as_str().unwrap().to_string();
     assert!(goal_image.contains(&format!("/runs/{run}/attachments/")), "{goal_image}");
     assert_eq!(std::fs::read(&goal_image).unwrap(), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR-goal");
     let brief = evs
         .iter()
-        .find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
+        .find(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
         .unwrap();
     assert!(
         brief.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains(&format!("[Image 1] {goal_image}")),
@@ -326,7 +328,7 @@ async fn pasted_images_reach_the_agent() {
         json!({ "type": "message", "agent": "lead", "text": "", "images": [{ "data": shot, "name": "报错.png" }] }),
     );
     let evs = events(&h.app, &run);
-    let sent = evs.iter().find(|e| e.kind == "user.message").unwrap();
+    let sent = evs.iter().find(|e| e.kind.as_str() == "user.message").unwrap();
     let d = sent.data.as_ref().unwrap();
     let path = d["images"][0]["path"].as_str().unwrap();
     assert!(d["text"].as_str().unwrap().contains(&format!("[Image 1] {path}")), "{d}");

@@ -7,6 +7,7 @@
 //! (`layout::Relocation`).
 // @project-doc docs/architecture/20261031-data_model.md#migrations
 
+use crate::db::ConfigKind;
 use crate::layout::Layout;
 use anyhow::{Context, Result, bail};
 pub(crate) use relocate::{adopt_db, current_db};
@@ -51,7 +52,7 @@ pub enum Step {
 #[derive(Clone, Copy)]
 pub enum Target {
     /// Setup objects of one kind in `configs` (`connection`, `role`, `workspace`, ...).
-    Config(&'static str),
+    Config(ConfigKind),
     /// Each member in a run's snapshot (`runs.config.team`), read back when a run resumes.
     RunMember,
 }
@@ -61,7 +62,7 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 1,
         name: "数字员工去掉「定位」，Run 快照的成员去掉定位和模型标签",
         steps: &[
-            Step::Drop { at: Target::Config("role"), field: "role" },
+            Step::Drop { at: Target::Config(ConfigKind::Role), field: "role" },
             Step::Drop { at: Target::RunMember, field: "role" },
             Step::Drop { at: Target::RunMember, field: "model_label" },
         ],
@@ -116,7 +117,7 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "资源库的每项资源都给所有数字员工：资源和 Run 快照中的资源去掉「给谁用」，数字员工去掉选中的资源",
         steps: &[
             Step::Custom(steps::library::drop_reach),
-            Step::Drop { at: Target::Config("role"), field: "resources" },
+            Step::Drop { at: Target::Config(ConfigKind::Role), field: "resources" },
         ],
     },
     Migration {
@@ -142,7 +143,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 16,
         name: "数字员工可以有自己的头像：已有的数字员工没有头像，显示文字",
-        steps: &[Step::Add { at: Target::Config("role"), field: "avatar", default: || serde_json::json!("") }],
+        steps: &[Step::Add { at: Target::Config(ConfigKind::Role), field: "avatar", default: || serde_json::json!("") }],
     },
     Migration {
         version: 17,
@@ -417,7 +418,7 @@ pub(crate) fn edit(tx: &Transaction, at: Target, mut f: impl FnMut(&mut Map<Stri
 /// Apply `f` (given the id) to every setup object of `kind`, writing back the ones it changed.
 pub fn edit_configs(
     tx: &Transaction,
-    kind: &str,
+    kind: ConfigKind,
     mut f: impl FnMut(&str, &mut Map<String, Value>) -> bool,
 ) -> Result<usize> {
     try_edit_configs(tx, kind, |id, config| Ok(f(id, config)))
@@ -425,12 +426,12 @@ pub fn edit_configs(
 
 pub(crate) fn try_edit_configs(
     tx: &Transaction,
-    kind: &str,
+    kind: ConfigKind,
     mut f: impl FnMut(&str, &mut Map<String, Value>) -> Result<bool>,
 ) -> Result<usize> {
     let rows: Vec<(String, String)> = tx
         .prepare("SELECT id, data FROM configs WHERE kind = ?1")?
-        .query_map(params![kind], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .query_map(params![kind.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let mut changed = 0;
     for (id, data) in rows {
@@ -439,7 +440,7 @@ pub(crate) fn try_edit_configs(
         if f(&id, o)? {
             tx.execute(
                 "UPDATE configs SET data = ?1 WHERE kind = ?2 AND id = ?3",
-                params![data.to_string(), kind, id],
+                params![data.to_string(), kind.as_str(), id],
             )?;
             changed += 1;
         }
@@ -504,7 +505,11 @@ pub fn problems(conn: &Connection) -> Result<Vec<String>> {
         .collect::<rusqlite::Result<_>>()?;
     for (kind, id, data) in configs {
         let data: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
-        out.extend(crate::data_shape::check(&kind, &data).into_iter().map(|p| format!("{kind} {id}: {p}")));
+        let problems = match ConfigKind::parse(&kind) {
+            Some(k) => crate::data_shape::check(k, &data),
+            None => vec![format!("没有登记的设置类型 {kind}")],
+        };
+        out.extend(problems.into_iter().map(|p| format!("{kind} {id}: {p}")));
     }
     let runs: Vec<(String, String)> = conn
         .prepare("SELECT id, config FROM runs ORDER BY id")?

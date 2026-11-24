@@ -35,7 +35,7 @@ async fn runs_work_apart_and_delivering_brings_the_result_back_to_the_branch() {
     let (cwd, other_cwd) = (cwd_of(&h, &run), cwd_of(&h, &other));
     assert_ne!(cwd, other_cwd, "each run has its own worktree");
     assert_eq!(std::fs::read_to_string(cwd.join(".env")).unwrap(), "KEY=1\n", ".worktreeinclude brought it");
-    let created = events(&h.app, &run).into_iter().find(|e| e.kind == "run.created").unwrap().data.unwrap();
+    let created = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "run.created").unwrap().data.unwrap();
     assert_eq!(created["worktree"]["included"], json!([".env"]));
     wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
     assert!(cwd.join("notes.md").exists() && !other_cwd.join("notes.md").exists() && !h.repo.join("notes.md").exists());
@@ -44,7 +44,7 @@ async fn runs_work_apart_and_delivering_brings_the_result_back_to_the_branch() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     delivered(&h, &run).await;
     let evs = events(&h.app, &run);
-    let merged = evs.iter().find(|e| e.kind == "run.merged").unwrap();
+    let merged = evs.iter().find(|e| e.kind.as_str() == "run.merged").unwrap();
     assert_eq!(merged.actor, "janus");
     let d = merged.data.clone().unwrap();
     let branch = git_branch(&h.repo);
@@ -52,13 +52,13 @@ async fn runs_work_apart_and_delivering_brings_the_result_back_to_the_branch() {
     assert_eq!(d["branch"], json!(branch), "{d}");
     assert_eq!(d["commit"], json!(tip), "{d}");
     assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "T1\n", "back in the checkout");
-    let delivery = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap();
+    let delivery = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.clone().unwrap();
     assert_eq!(delivery["merge"]["state"], "merged", "{delivery}");
     assert!(delivery["merge"]["note"].as_str().unwrap().contains("结果已合并到"), "{delivery}");
     assert_eq!(delivery["changed"], json!(["notes.md"]), "this round's files, listed before the merge took them");
     assert!(git_out(&h.repo, &["branch", "--list", "janus/*"]).trim().is_empty(), "no branch of its own");
     act(&h, &run, json!({ "type": "accept" }));
-    let accepted = events(&h.app, &run).into_iter().find(|e| e.kind == "risk.accepted").unwrap();
+    let accepted = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "risk.accepted").unwrap();
     assert!(accepted.text.contains("结果已在"), "{}", accepted.text);
     assert_eq!(accepted.data.unwrap()["commit"], Value::Null, "nothing more to bring");
     assert_eq!(git_out(&h.repo, &["rev-parse", "HEAD"]).trim(), tip);
@@ -74,7 +74,8 @@ async fn runs_work_apart_and_delivering_brings_the_result_back_to_the_branch() {
         .ok()
         .unwrap();
     wait_until(&app2, &run, "follow-up prompt", |evs| {
-        evs.iter().any(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "followup"))
+        evs.iter()
+            .any(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "followup"))
     })
     .await;
     assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n", "back at the accepted commit");
@@ -104,7 +105,7 @@ async fn the_persons_uncommitted_work_in_the_way_waits_for_them() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     delivered(&h, &run).await;
     let evs = events(&h.app, &run);
-    let merge = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap()["merge"].clone();
+    let merge = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.clone().unwrap()["merge"].clone();
     assert_eq!(merge["state"], "blocked", "{merge}");
     assert!(merge["note"].as_str().unwrap().contains("先移走或改名"), "{merge}");
     assert!(!has(&evs, "run.merged"));
@@ -135,13 +136,15 @@ async fn the_runs_whole_diff_and_work_after_a_delivery_are_delivered() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     delivered(&h, &run).await;
     let evs = events(&h.app, &run);
-    let d = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap();
+    let d = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.clone().unwrap();
     let first = &d["deliverables"][0];
     assert_eq!(first["kind"], "run_diff", "{d}");
     let diff = std::fs::read_to_string(first["path"].as_str().unwrap()).unwrap();
     assert!(diff.contains("notes.md"), "{diff}");
-    let created =
-        evs.iter().find(|e| e.kind == "artifact.created" && e.data.as_ref().unwrap()["kind"] == "run_diff").unwrap();
+    let created = evs
+        .iter()
+        .find(|e| e.kind.as_str() == "artifact.created" && e.data.as_ref().unwrap()["kind"] == "run_diff")
+        .unwrap();
     assert!(created.task.is_none(), "the whole run's, not a task's");
 
     // The lead edits a file itself after delivery: the run's diff has it, and it is delivered
@@ -151,16 +154,18 @@ async fn the_runs_whole_diff_and_work_after_a_delivery_are_delivered() {
         .await
         .ok()
         .unwrap();
-    wait_until(&h.app, &run, "delivered again", |evs| evs.iter().filter(|e| e.kind == "run.delivered").count() == 2)
-        .await;
+    wait_until(&h.app, &run, "delivered again", |evs| {
+        evs.iter().filter(|e| e.kind.as_str() == "run.delivered").count() == 2
+    })
+    .await;
     let diff = events(&h.app, &run)
         .into_iter()
-        .rfind(|e| e.kind == "artifact.created" && e.data.as_ref().unwrap()["kind"] == "run_diff")
+        .rfind(|e| e.kind.as_str() == "artifact.created" && e.data.as_ref().unwrap()["kind"] == "run_diff")
         .unwrap();
     let diff = std::fs::read_to_string(diff.data.unwrap()["path"].as_str().unwrap()).unwrap();
     assert!(diff.contains("lead.md") && !diff.contains("notes.md"), "only what was not merged yet: {diff}");
     assert!(h.repo.join("lead.md").exists(), "merged with the second delivery");
-    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind == "run.merged").count(), 2);
+    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "run.merged").count(), 2);
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -182,7 +187,7 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     delivered(&h, &run).await;
     let merge = |n: usize| {
-        let d = events(&h.app, &run).into_iter().filter(|e| e.kind == "run.delivered").nth(n).unwrap();
+        let d = events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "run.delivered").nth(n).unwrap();
         let m = d.data.unwrap()["merge"].clone();
         (m["state"].as_str().unwrap().to_string(), m["note"].as_str().unwrap().to_string())
     };
@@ -193,7 +198,7 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     assert_eq!(git_out(&h.repo, &["rev-parse", "HEAD"]).trim(), tip);
     let told = |evs: &[Event]| {
         evs.iter()
-            .filter(|e| e.kind == "user.message" && e.actor == "janus")
+            .filter(|e| e.kind.as_str() == "user.message" && e.actor == "janus")
             .filter_map(|e| e.data.as_ref().unwrap()["text"].as_str().map(str::to_owned))
             .collect::<Vec<_>>()
     };
@@ -204,8 +209,10 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     );
 
     // The lead's turn did not resolve it: delivered again, left to the person this time.
-    wait_until(&h.app, &run, "delivered again", |evs| evs.iter().filter(|e| e.kind == "run.delivered").count() == 2)
-        .await;
+    wait_until(&h.app, &run, "delivered again", |evs| {
+        evs.iter().filter(|e| e.kind.as_str() == "run.delivered").count() == 2
+    })
+    .await;
     lead_idle(&h, &run).await;
     assert_eq!(merge(1).0, "conflict");
     assert!(merge(1).1.contains("仍然冲突"), "{}", merge(1).1);
@@ -214,7 +221,7 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     assert!(!has(&events(&h.app, &run), "risk.accepted"));
     assert_eq!(told(&events(&h.app, &run)).len(), 2, "the person's accept hands it over");
     wait_until(&h.app, &run, "delivered a third time", |evs| {
-        evs.iter().filter(|e| e.kind == "run.delivered").count() == 3
+        evs.iter().filter(|e| e.kind.as_str() == "run.delivered").count() == 3
     })
     .await;
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -304,7 +311,7 @@ async fn a_workspace_folder_inside_a_repository_is_where_sessions_start() {
     sh(&h.repo, &["commit", "-q", "-m", "client"]);
     let mut ws = h.app.workspace("ws").unwrap();
     ws["path"] = json!(sub.canonicalize().unwrap());
-    h.app.db.put_config("workspace", "ws", &ws, now_ms()).unwrap();
+    h.app.db.put_config(ConfigKind::Workspace, "ws", &ws, now_ms()).unwrap();
 
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     let cwd = cwd_of(&h, &run);
@@ -339,7 +346,7 @@ async fn tasks_work_in_the_runs_own_worktree() {
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let evs = events(&h.app, &run);
-    let created = evs.iter().find(|e| e.kind == "run.created").unwrap().data.clone().unwrap();
+    let created = evs.iter().find(|e| e.kind.as_str() == "run.created").unwrap().data.clone().unwrap();
     assert_eq!(created["worktree"]["repo"], json!(h.repo.canonicalize().unwrap()), "{created}");
     let branch = git_branch(&h.repo);
     assert_eq!(created["worktree"]["branch"], json!(branch), "the branch the run started on");
@@ -348,7 +355,7 @@ async fn tasks_work_in_the_runs_own_worktree() {
     // forbids what the user asked for.
     let brief = evs
         .iter()
-        .filter(|e| e.kind == "session.prompt")
+        .filter(|e| e.kind.as_str() == "session.prompt")
         .filter_map(|e| e.data.as_ref().unwrap()["prompt"].as_str())
         .find(|p| p.contains("You are the lead"))
         .unwrap();
@@ -356,7 +363,7 @@ async fn tasks_work_in_the_runs_own_worktree() {
     assert!(brief.contains(&format!("git push origin HEAD:{branch}")), "{brief}");
     assert!(brief.contains(&format!("git rebase {branch}")), "{brief}");
     assert!(!brief.contains("Do not commit"), "{brief}");
-    let started = evs.iter().find(|e| e.kind == "attempt.started").unwrap();
+    let started = evs.iter().find(|e| e.kind.as_str() == "attempt.started").unwrap();
     assert_eq!(started.data.as_ref().unwrap()["path"], json!(cwd));
     let git = &started.data.as_ref().unwrap()["git"];
     assert_eq!(
@@ -366,7 +373,7 @@ async fn tasks_work_in_the_runs_own_worktree() {
     );
     assert!(started.data.as_ref().unwrap()["prompt"].as_str().unwrap().contains("单独建的 Git worktree"));
     assert!(
-        evs.iter().any(|e| e.kind == "artifact.created" && e.text.contains("T1-a1.diff")),
+        evs.iter().any(|e| e.kind.as_str() == "artifact.created" && e.text.contains("T1-a1.diff")),
         "the change is kept as a diff"
     );
     assert!(!has(&evs, "verification.failed"));
@@ -406,8 +413,10 @@ async fn work_after_acceptance_committed_or_cut_off_is_delivered_again() {
         .await
         .ok()
         .unwrap();
-    wait_until(&h.app, &run, "delivered again", |evs| evs.iter().filter(|e| e.kind == "run.delivered").count() == 2)
-        .await;
+    wait_until(&h.app, &run, "delivered again", |evs| {
+        evs.iter().filter(|e| e.kind.as_str() == "run.delivered").count() == 2
+    })
+    .await;
     delivered(&h, &run).await;
     assert!(git_out(&cwd, &["status", "--porcelain"]).trim().is_empty(), "the lead committed everything");
     assert_eq!(std::fs::read_to_string(h.repo.join("more.md")).unwrap(), "follow-up\n", "on the branch");
@@ -421,7 +430,7 @@ async fn work_after_acceptance_committed_or_cut_off_is_delivered_again() {
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
     assert_eq!(status(&app2, &run), "delivered");
-    let again = events(&app2, &run).into_iter().rfind(|e| e.kind == "run.delivered").unwrap();
+    let again = events(&app2, &run).into_iter().rfind(|e| e.kind.as_str() == "run.delivered").unwrap();
     assert!(again.data.unwrap()["summary"].as_str().unwrap().contains("服务重启"), "{}", again.text);
     assert_eq!(std::fs::read_to_string(h.repo.join("cut.md")).unwrap(), "cut off\n", "brought back");
     app2.request_action(&run, &json!({ "type": "accept" })).await.ok().unwrap();

@@ -11,7 +11,9 @@
 
 use crate::acp::{AcpConn, Incoming};
 use crate::agents::{InstructionChannel, Runtime};
+use crate::db::ConfigKind;
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
+use crate::events::EventKind;
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
 use crate::seats::Asker;
 use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunOrigin, RunStatus, TaskStatus};
@@ -46,7 +48,7 @@ mod mcp_server;
 mod memory;
 mod merge;
 use memory::MemoryAccess;
-use merge::DeliveryMerge;
+use merge::{DeliveryMerge, MergeState};
 mod messages;
 mod parking;
 mod prompts;
@@ -1100,7 +1102,7 @@ pub struct RunChange {
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
 pub struct Ev {
-    kind: String,
+    kind: EventKind,
     actor: String,
     text: String,
     to: Option<String>,
@@ -1109,8 +1111,8 @@ pub struct Ev {
     data: Option<Value>,
 }
 
-pub fn ev(kind: &str, actor: &str, text: impl Into<String>) -> Ev {
-    Ev { kind: kind.into(), actor: actor.into(), text: text.into(), to: None, task: None, attempt: None, data: None }
+pub fn ev(kind: EventKind, actor: &str, text: impl Into<String>) -> Ev {
+    Ev { kind, actor: actor.into(), text: text.into(), to: None, task: None, attempt: None, data: None }
 }
 
 impl Ev {
@@ -1136,7 +1138,7 @@ impl Ev {
             run_id: run_id.into(),
             seq,
             ts: now_ms(),
-            kind: self.kind,
+            kind: self.kind.as_str().into(),
             actor: self.actor,
             to: self.to,
             task: self.task,
@@ -1391,7 +1393,10 @@ impl App {
         for key in keys {
             self.emit(
                 run,
-                ev("decision.withdrawn", "janus", text).task(task).attempt(owner.attempt).data(json!({ "key": key })),
+                ev(EventKind::DecisionWithdrawn, "janus", text)
+                    .task(task)
+                    .attempt(owner.attempt)
+                    .data(json!({ "key": key })),
             );
         }
     }

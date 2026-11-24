@@ -27,7 +27,7 @@ fn layer(h: &Harness, run: &str, task: Option<&str>) -> String {
     events(&h.app, run)
         .iter()
         .find(|e| {
-            e.kind == "session.prompt"
+            e.kind.as_str() == "session.prompt"
                 && e.task.as_deref() == task
                 && e.data.as_ref().is_some_and(|d| d["channel"] == "system")
         })
@@ -62,7 +62,7 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     let member_note = notes.iter().find(|m| m.title == "端口被占用").unwrap();
     assert_eq!((member_note.who.as_str(), member_note.kind), ("m1", MemoryKind::Pitfall));
     assert_eq!(member_note.author, h.app.run(&run).unwrap().member("m1").unwrap().name);
-    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind == "memory.saved").count(), 2);
+    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "memory.saved").count(), 2);
 
     // Updating by id changes that note instead of adding one.
     let (said, err) =
@@ -205,13 +205,14 @@ async fn a_consolidation_merges_and_prunes_notes_in_one_turn() {
     wait_until(&h.app, &dream, "the consolidation's layer", |_| !layer(&h, &dream, None).is_empty()).await;
     let layer = layer(&h, &dream, None);
     assert!(layer.contains("You are consolidating") && layer.contains("m-a") && layer.contains("m-c"), "{layer}");
-    let sent = events(&h.app, &dream).into_iter().find(|e| e.kind == "user.message").unwrap();
+    let sent = events(&h.app, &dream).into_iter().find(|e| e.kind.as_str() == "user.message").unwrap();
     assert!(sent.data.unwrap()["text"].as_str().unwrap().starts_with("Consolidate the team memory now."));
 
     // One turn: on record with what changed, delivered, its session closed.
     std::fs::write(h.dir.join("fake/dream-go"), "合并了 1 条，改正了 1 条\n- m-b 并入 m-a").unwrap();
     wait_until(&h.app, &dream, "the consolidation ends", |e| has(e, "memory.consolidated")).await;
-    let done = events(&h.app, &dream).into_iter().find(|e| e.kind == "memory.consolidated").unwrap().data.unwrap();
+    let done =
+        events(&h.app, &dream).into_iter().find(|e| e.kind.as_str() == "memory.consolidated").unwrap().data.unwrap();
     assert_eq!((done["saved"].as_u64(), done["forgotten"].as_u64()), (Some(1), Some(1)));
     assert_eq!(done["summary"], "合并了 1 条，改正了 1 条");
     wait_until(&h.app, &dream, "it is delivered", |_| status(&h.app, &dream) == "delivered").await;
@@ -254,7 +255,7 @@ async fn enough_delivered_runs_start_a_consolidation() {
     }
     let dream = dreams(&h)["running"].as_str().expect("the fifth starts one").to_string();
     let sent = loop {
-        if let Some(e) = events(&h.app, &dream).into_iter().find(|e| e.kind == "user.message") {
+        if let Some(e) = events(&h.app, &dream).into_iter().find(|e| e.kind.as_str() == "user.message") {
             break e;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;

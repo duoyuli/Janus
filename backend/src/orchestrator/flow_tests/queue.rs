@@ -127,20 +127,20 @@ async fn a_run_that_never_got_set_up_queues_again() {
     assert!(has(&events(&restarted, &second), "run.requeued"));
 
     // Its workspace's agent cannot run now: it fails to start, and stays failed.
-    let mut conn = restarted.db.get_config("connection", "fake").unwrap().unwrap();
+    let mut conn = restarted.db.get_config(ConfigKind::Connection, "fake").unwrap().unwrap();
     conn["bin"] = json!("/nonexistent/claude-acp");
-    restarted.db.put_config("connection", "fake", &conn, now_ms()).unwrap();
-    let mut ws = restarted.db.get_config("workspace", "ws").unwrap().unwrap();
+    restarted.db.put_config(ConfigKind::Connection, "fake", &conn, now_ms()).unwrap();
+    let mut ws = restarted.db.get_config(ConfigKind::Workspace, "ws").unwrap().unwrap();
     ws["path"] = json!(h.dir.join("gone").to_string_lossy());
-    restarted.db.put_config("workspace", "ws", &ws, now_ms()).unwrap();
+    restarted.db.put_config(ConfigKind::Workspace, "ws", &ws, now_ms()).unwrap();
     restarted.pump();
     wait_status(&restarted, &second, "failed").await;
     let talk = restarted.request_action(&second, &json!({ "type": "message", "agent": "lead", "text": "继续" })).await;
     assert!(matches!(talk, Err(Refused::Conflict(_))), "nothing to talk to");
     // Continuing it puts it back on the queue.
-    let mut ws = restarted.db.get_config("workspace", "ws").unwrap().unwrap();
+    let mut ws = restarted.db.get_config(ConfigKind::Workspace, "ws").unwrap().unwrap();
     ws["path"] = json!(h.repo.canonicalize().unwrap().to_string_lossy());
-    restarted.db.put_config("workspace", "ws", &ws, now_ms()).unwrap();
+    restarted.db.put_config(ConfigKind::Workspace, "ws", &ws, now_ms()).unwrap();
     restarted.request_action(&second, &json!({ "type": "resumeRun" })).await.map_err(|e| format!("{e:?}")).unwrap();
     wait_live(&restarted, &second).await;
     let _ = std::fs::remove_dir_all(&h.dir);

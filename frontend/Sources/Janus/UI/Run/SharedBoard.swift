@@ -96,7 +96,7 @@ struct ProgressBoard: View {
 }
 
 struct EventIcon: View {
-    let type: String
+    let type: EventKind
     var body: some View {
         let tone = L.tone(of: type)
         Text(L.icon[type] ?? "·")

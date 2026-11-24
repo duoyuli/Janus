@@ -480,7 +480,7 @@ private extension Int? {
 /// Who owns the session an event speaks about: `attempt.started` is written by Janus for the agent
 /// in `to`; every other event's actor owns its session (`session_actor` in the backend).
 private func usageOwner(_ e: Event) -> String {
-    guard e.type == "attempt.started", let to = e.to, !to.isEmpty else { return e.actor }
+    guard e.type == .attemptStarted, let to = e.to, !to.isEmpty else { return e.actor }
     return to
 }
 
@@ -567,21 +567,21 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
         }
         let d = e.data
         switch e.type {
-        case "run.created":
+        case .runCreated:
             created = ts
-        case "attempt.started", "agent.status":
+        case .attemptStarted, .agentStatus:
             let owner = usageOwner(e)
             if let sid = d["session"].string, !sid.isEmpty {
                 current[UsageOwner(owner, e)] = sid
-            } else if e.type == "agent.status" {
+            } else if e.type == .agentStatus {
                 break
             } else {
                 current.removeValue(forKey: UsageOwner(owner, e))
             }
             // An opened session can be one whose usage never arrives: it counts as unreported.
             touch(e, owner)
-            if e.type == "attempt.started", let task = e.task, let n = e.attempt { attempt(task, n, owner, ts) }
-        case "session.usage":
+            if e.type == .attemptStarted, let task = e.task, let n = e.attempt { attempt(task, n, owner, ts) }
+        case .sessionUsage:
             let rows = UsageTokens.ofTurn(d)
             let used = d["used"].int, size = d["size"].int
             let cost = d["cost"]["amount"].double.map { (currency: d["cost"]["currency"].str, amount: $0) }
@@ -606,31 +606,31 @@ func usageLedger(_ events: [Event]) -> UsageLedger {
                 s.cost[currency, default: 0] += delta
             }
             builds[key] = s
-        case "attempt.failed":
+        case .attemptFailed:
             ended(e, .failed, d["error"].string)
-        case "attempt.late_result":
+        case .attemptLateResult:
             ended(e, .expired, L.text("过期尝试的结果被忽略，用量照常计入"))
-        case "verification.failed":
+        case .verificationFailed:
             let failures = d["failures"].strings
             ended(e, .verificationFailed, failures.isEmpty ? nil : failures.joined(separator: L.text("；")))
-        case "task.succeeded":
+        case .taskSucceeded:
             ended(e, .succeeded, nil)
-        case "task.failed":
+        case .taskFailed:
             ended(e, .failed, ["verification": L.text("验收没通过"), "attempts": L.text("用完尝试次数")][d["reason"].str])
-        case "task.skipped_by_decision":
+        case .taskSkippedByDecision:
             // The lead cancelled one task; Janus writes no attempt event for it (see below).
             if let task = e.task { taskCancelled[task] = min(taskCancelled[task] ?? ts, ts) }
-        case "run.cancelled":
+        case .runCancelled:
             runCancelled = min(runCancelled ?? ts, ts)
-        case "orchestration.accepted":
+        case .orchestrationAccepted:
             for x in d["tasks"].array {
                 if let id = x["id"].string { noteTask(id) }
                 if let agent = x["agent"].string { declared.insert(agent) }
             }
         // Requests that hold a session until a person or the lead answers.
-        case "question.asked", "approval.requested", "input.requested":
+        case .questionAsked, .approvalRequested, .inputRequested:
             if let key = d["key"].string, !key.isEmpty { open[key] = (ts, e.task, e.actor) }
-        case "question.answered", "approval.granted", "approval.denied", "input.answered", "decision.withdrawn":
+        case .questionAnswered, .approvalGranted, .approvalDenied, .inputAnswered, .decisionWithdrawn:
             if let key = d["key"].string, let w = open.removeValue(forKey: key) {
                 waits.append((ms: max(0, ts - w.start), task: w.task, actor: w.actor))
             }

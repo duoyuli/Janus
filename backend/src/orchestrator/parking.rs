@@ -48,7 +48,7 @@ impl App {
                 format!("同时开着的 Agent 满了（{} 个），先关掉闲得最久的这个会话；发消息时重新打开", self.seats.cap())
             }
         };
-        self.emit(run, ev("session.parked", "janus", text).to("lead").data(json!({ "reason": why })));
+        self.emit(run, ev(EventKind::SessionParked, "janus", text).to("lead").data(json!({ "reason": why })));
         if run.kind.single_session() {
             self.set_status(run, RunStatus::Interrupted);
         }
@@ -75,9 +75,10 @@ impl App {
             SessionKey::Task(t) => t.as_str(),
             SessionKey::Lead => "",
         };
-        let mut e = ev("agent.status", agent, format!("同时开着的 Agent 已满（{} 个），等空位", self.seats.cap()))
-            .task(task)
-            .data(json!({ "phase": AgentPhase::WaitingForSeat }));
+        let mut e =
+            ev(EventKind::AgentStatus, agent, format!("同时开着的 Agent 已满（{} 个），等空位", self.seats.cap()))
+                .task(task)
+                .data(json!({ "phase": AgentPhase::WaitingForSeat }));
         e.attempt = (owner.attempt > 0).then_some(owner.attempt);
         self.emit(run, e);
         self.park_idlest();

@@ -180,7 +180,7 @@ struct DreamView: View {
         let st = run.shown
         let me = run.who("lead")
         let info = chatSession(st, live: run.live)
-        let done = st.events.last { $0.type == "memory.consolidated" }
+        let done = st.events.last { $0.type == .memoryConsolidated }
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 Avatar(initials: me.initials, color: me.color, size: 34, role: me.role)

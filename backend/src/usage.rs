@@ -21,6 +21,7 @@
 //!   and its reminders are text only.
 
 use crate::db::Event;
+use crate::events::EventKind;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -257,17 +258,17 @@ impl SessionCosts {
         let actor = session_actor(e);
         let d = e.data.as_ref().unwrap_or(&Value::Null);
         let sid = d["session"].as_str().filter(|s| !s.is_empty());
-        match e.kind.as_str() {
-            "attempt.started" | "agent.status" => {
+        match e.kind() {
+            EventKind::AttemptStarted | EventKind::AgentStatus => {
                 let owner = (actor.into(), e.task.clone(), e.attempt);
                 if let Some(sid) = sid {
                     self.current.insert(owner, sid.into());
-                } else if e.kind == "attempt.started" {
+                } else if e.kind() == EventKind::AttemptStarted {
                     self.current.remove(&owner);
                 }
                 None
             }
-            "session.usage" => {
+            EventKind::SessionUsage => {
                 let amount = d["cost"]["amount"].as_f64()?;
                 let name = d["cost"]["currency"].as_str().unwrap_or("");
                 let currency = if name.eq_ignore_ascii_case("USD") { "USD" } else { name };
@@ -745,8 +746,8 @@ fn who(actor: &str, names: &Names) -> String {
 /// Who owns the session an event speaks about: `attempt.started` is written by Janus for the agent
 /// in `to`; every other event's actor owns its session.
 fn session_actor(e: &Event) -> &str {
-    match e.kind.as_str() {
-        "attempt.started" => e.to.as_deref().unwrap_or(&e.actor),
+    match e.kind() {
+        EventKind::AttemptStarted => e.to.as_deref().unwrap_or(&e.actor),
         _ => &e.actor,
     }
 }
@@ -815,38 +816,40 @@ impl Scan {
         let empty = Value::Null;
         let data = e.data.as_ref().unwrap_or(&empty);
         let cost = self.costs.observe(e);
-        match e.kind.as_str() {
-            "run.created" => self.created_ms = Some(e.ts),
-            "attempt.started" | "agent.status" => {
+        match e.kind() {
+            EventKind::RunCreated => self.created_ms = Some(e.ts),
+            EventKind::AttemptStarted | EventKind::AgentStatus => {
                 let actor = session_actor(e).to_string();
-                if e.kind == "agent.status" && data["session"].as_str().is_none_or(str::is_empty) {
+                if e.kind() == EventKind::AgentStatus && data["session"].as_str().is_none_or(str::is_empty) {
                     return;
                 }
                 // An opened session can be one whose usage never arrives: it counts as unreported.
                 self.touch(e, &actor);
-                if e.kind == "attempt.started"
+                if e.kind() == EventKind::AttemptStarted
                     && let (Some(task), Some(n)) = (&e.task, e.attempt)
                 {
                     self.attempt(task, n, &actor, e.ts);
                 }
             }
-            "session.usage" => self.usage(e, data, cost),
+            EventKind::SessionUsage => self.usage(e, data, cost),
             // The model a session runs on: as it opened, and when someone switched it.
-            "session.controls" => {
+            EventKind::SessionControls => {
                 if let Some(model) = data["model"]["current"].as_str().filter(|m| !m.is_empty()) {
                     self.current_model.insert(e.actor.clone(), model.to_string());
                 }
             }
-            "session.control" if data["id"] == "model" && data["failed"] != true => {
+            EventKind::SessionControl if data["id"] == "model" && data["failed"] != true => {
                 if let Some(model) = data["value"].as_str().filter(|m| !m.is_empty()) {
                     self.current_model.insert(e.actor.clone(), model.to_string());
                 }
             }
-            "attempt.failed" => self.attempt_ended(e, AttemptState::Failed, data["error"].as_str().map(str::to_owned)),
-            "attempt.late_result" => {
+            EventKind::AttemptFailed => {
+                self.attempt_ended(e, AttemptState::Failed, data["error"].as_str().map(str::to_owned))
+            }
+            EventKind::AttemptLateResult => {
                 self.attempt_ended(e, AttemptState::Expired, Some("过期尝试的结果被忽略，用量照常计入".into()))
             }
-            "verification.failed" => {
+            EventKind::VerificationFailed => {
                 let failures: Vec<&str> =
                     data["failures"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
                 self.attempt_ended(
@@ -855,8 +858,8 @@ impl Scan {
                     (!failures.is_empty()).then(|| failures.join("；")),
                 );
             }
-            "task.succeeded" => self.attempt_ended(e, AttemptState::Succeeded, None),
-            "task.failed" => {
+            EventKind::TaskSucceeded => self.attempt_ended(e, AttemptState::Succeeded, None),
+            EventKind::TaskFailed => {
                 let note = match data["reason"].as_str() {
                     Some("verification") => Some("验收没通过".into()),
                     Some("attempts") => Some("用完尝试次数".into()),
@@ -865,14 +868,14 @@ impl Scan {
                 self.attempt_ended(e, AttemptState::Failed, note);
             }
             // The lead cancelled one task; Janus writes no attempt event for it (see `finish`).
-            "task.skipped_by_decision" => {
+            EventKind::TaskSkippedByDecision => {
                 if let Some(task) = &e.task {
                     let at = self.task_cancelled.entry(task.clone()).or_insert(e.ts);
                     *at = (*at).min(e.ts);
                 }
             }
-            "run.cancelled" => self.run_cancelled = Some(self.run_cancelled.map_or(e.ts, |at| at.min(e.ts))),
-            "orchestration.accepted" => {
+            EventKind::RunCancelled => self.run_cancelled = Some(self.run_cancelled.map_or(e.ts, |at| at.min(e.ts))),
+            EventKind::OrchestrationAccepted => {
                 for t in data["tasks"].as_array().into_iter().flatten() {
                     if let Some(id) = t["id"].as_str() {
                         self.note_task(id);
@@ -883,12 +886,16 @@ impl Scan {
                 }
             }
             // Requests that hold a session until a person or the lead answers.
-            "question.asked" | "approval.requested" | "input.requested" => {
+            EventKind::QuestionAsked | EventKind::ApprovalRequested | EventKind::InputRequested => {
                 if let Some(key) = data["key"].as_str().filter(|k| !k.is_empty()) {
                     self.open_waits.insert(key.to_string(), (e.ts, e.task.clone(), e.actor.clone()));
                 }
             }
-            "question.answered" | "approval.granted" | "approval.denied" | "input.answered" | "decision.withdrawn" => {
+            EventKind::QuestionAnswered
+            | EventKind::ApprovalGranted
+            | EventKind::ApprovalDenied
+            | EventKind::InputAnswered
+            | EventKind::DecisionWithdrawn => {
                 if let Some((start, task, actor)) = data["key"].as_str().and_then(|k| self.open_waits.remove(k)) {
                     self.waits.push(Wait { ms: e.ts.saturating_sub(start), task, actor });
                 }

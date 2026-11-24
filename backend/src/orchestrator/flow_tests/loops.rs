@@ -30,14 +30,14 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     // schedule comes round.
     wait_until(&h.app, &run, "the first wake ends", |e| has(e, "loop.slept")).await;
     let evs = events(&h.app, &run);
-    let woke = evs.iter().find(|e| e.kind == "loop.woke").unwrap();
+    let woke = evs.iter().find(|e| e.kind.as_str() == "loop.woke").unwrap();
     assert_eq!(woke.data.as_ref().unwrap()["reason"], "manual");
     assert_eq!(woke.data.as_ref().unwrap()["n"], 1);
-    let sent = evs.iter().find(|e| e.kind == "user.message").unwrap();
+    let sent = evs.iter().find(|e| e.kind.as_str() == "user.message").unwrap();
     assert_eq!(sent.actor, "janus", "a wake is Janus's prompt, not the person's");
     let text = sent.data.as_ref().unwrap()["text"].as_str().unwrap();
     assert_eq!(text, "看看有什么新 issue", "a wake sends the person's prompt and nothing else");
-    let slept = evs.iter().find(|e| e.kind == "loop.slept").unwrap().data.clone().unwrap();
+    let slept = evs.iter().find(|e| e.kind.as_str() == "loop.slept").unwrap().data.clone().unwrap();
     let until = slept["until"].as_i64().unwrap();
     assert_eq!(until % 3_600_000, 0, "on the hour, not counted from the end of the wake");
     assert!(until > now_ms() - 60_000 && until <= now_ms() + 3_600_000);
@@ -46,7 +46,7 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     // Its system layer says how a Loop works; the person's prompt comes only in the wake's prompt.
     let layer = evs
         .iter()
-        .find(|e| e.kind == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
+        .find(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
         .and_then(|e| e.data.as_ref().unwrap()["prompt"].as_str().map(str::to_owned))
         .unwrap();
     assert!(layer.starts_with("You are a Loop in the workspace") && !layer.contains("看看有什么新 issue"), "{layer}");
@@ -83,7 +83,7 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     assert_eq!(made[0]["origin"], "loop");
     assert_eq!(made[0]["dispatchKey"], "github:o/r#1");
     assert_eq!(made[0]["sourceUrl"], "https://example.com/1");
-    let queued = events(&h.app, &goal_run).into_iter().find(|e| e.kind == "run.queued").unwrap();
+    let queued = events(&h.app, &goal_run).into_iter().find(|e| e.kind.as_str() == "run.queued").unwrap();
     assert_eq!(queued.data.unwrap()["origin"]["loop"], id.as_str());
     // The same key again: nothing new, and the Loop is told which run has it.
     let (text, err) =
@@ -98,12 +98,12 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let (text, err) =
         tool(&h.app, &run, "lead", "ask_user", json!({ "question": "先修哪个？", "why": "只有你知道优先级" })).await;
     assert!(!err, "{text}");
-    let asked = events(&h.app, &run).into_iter().find(|e| e.kind == "question.escalated").unwrap();
+    let asked = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "question.escalated").unwrap();
     let key = asked.data.unwrap()["key"].as_str().unwrap().to_string();
     let live = h.app.run(&run).unwrap();
     h.app.action(&live, &json!({ "type": "answer", "key": key, "answer": "先修导出" })).unwrap();
     wait_until(&h.app, &run, "the answer wakes it", |e| count(e, "loop.slept") == 2).await;
-    let second = events(&h.app, &run).into_iter().filter(|e| e.kind == "loop.woke").nth(1).unwrap();
+    let second = events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "loop.woke").nth(1).unwrap();
     assert_eq!(second.data.unwrap()["reason"], "answer");
 
     // What the Loop saves comes back in its system layer.
@@ -115,7 +115,7 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let before = h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap()["status"]["nextWakeAt"].clone();
     h.app.action(&live, &json!({ "type": "message", "agent": "lead", "text": "[me] 你好" })).unwrap();
     wait_until(&h.app, &run, "its reply", |e| {
-        e.iter().any(|e| e.kind == "agent.message" && e.text.contains("回复：你好"))
+        e.iter().any(|e| e.kind.as_str() == "agent.message" && e.text.contains("回复：你好"))
     })
     .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -158,7 +158,7 @@ async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
     // It works in its own copy of the repository: the file it wrote is noticed there, and the
     // person's workspace never had it.
     let copy = h.app.cfg.layout.run(RunKind::Loop, &run).work;
-    let touched = events(&h.app, &run).into_iter().find(|e| e.kind == "loop.touched").unwrap();
+    let touched = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "loop.touched").unwrap();
     assert_eq!(touched.data.unwrap()["files"], json!(["loop-notes.md"]));
     assert!(!h.repo.join("loop-notes.md").exists(), "the workspace is untouched");
     // Each wake starts from a clean copy: the second one wrote the file again, it did not add to it.
@@ -171,7 +171,7 @@ async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
         assert!(std::process::Command::new("git").args(args).current_dir(&h.repo).status().unwrap().success());
     }
     // The time it asked for outlived the merged wake; the person sees when and why.
-    let slept = events(&h.app, &run).into_iter().rfind(|e| e.kind == "loop.slept").unwrap().data.unwrap();
+    let slept = events(&h.app, &run).into_iter().rfind(|e| e.kind.as_str() == "loop.slept").unwrap().data.unwrap();
     assert_eq!(slept["reason"], "self");
     assert!((slept["until"].as_i64().unwrap() - now_ms() - 600_000).abs() < 60_000, "{slept}");
     let status = h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap()["status"].clone();
@@ -208,14 +208,14 @@ async fn a_loop_that_missed_its_time_wakes_once_after_a_restart() {
     let live = h.app.run(&run).unwrap();
     h.app.emit(
         &live,
-        ev("loop.scheduled", "janus", "排好下次开工").data(json!({ "until": now_ms() - 1, "reason": "timer" })),
+        ev(EventKind::LoopScheduled, "janus", "排好下次开工").data(json!({ "until": now_ms() - 1, "reason": "timer" })),
     );
     let restarted = test_app(&h.dir);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &run), "interrupted");
     restarted.start_loops().unwrap();
     wait_until(&restarted, &run, "it wakes once after the restart", |e| count(e, "loop.woke") == 2).await;
-    let second = events(&restarted, &run).into_iter().filter(|e| e.kind == "loop.woke").nth(1).unwrap();
+    let second = events(&restarted, &run).into_iter().filter(|e| e.kind.as_str() == "loop.woke").nth(1).unwrap();
     assert_eq!(second.data.unwrap()["reason"], "timer");
     wait_until(&restarted, &run, "and sleeps again", |e| count(e, "loop.slept") == 2).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -269,7 +269,7 @@ async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
             assert!(!err, "{text}");
             events(&app, &run)
                 .into_iter()
-                .rfind(|e| e.kind == "question.escalated")
+                .rfind(|e| e.kind.as_str() == "question.escalated")
                 .and_then(|e| e.data.unwrap()["key"].as_str().map(str::to_owned))
                 .unwrap()
         }
@@ -382,7 +382,7 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     };
     let (a, b) = (dispatch("a").await, dispatch("b").await);
     wait_until(&h.app, &a, "a's lead works", |e| {
-        e.iter().any(|e| e.kind == "session.prompt" && e.text.contains("目标提示"))
+        e.iter().any(|e| e.kind.as_str() == "session.prompt" && e.text.contains("目标提示"))
     })
     .await;
 
@@ -390,7 +390,7 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     let (text, err) =
         tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": a, "text": "导出要支持 UTF-8 BOM" })).await;
     assert!(!err, "{text}");
-    let note = events(&h.app, &a).into_iter().rfind(|e| e.kind == "user.message").unwrap();
+    let note = events(&h.app, &a).into_iter().rfind(|e| e.kind.as_str() == "user.message").unwrap();
     assert_eq!((note.actor.as_str(), note.to.as_deref()), ("janus", Some("lead")));
     assert!(note.data.unwrap()["text"].as_str().unwrap().contains("来自工作区的值班"), "says who it is from");
     // Only to its own runs: another Loop's run, its own session, or nothing at all are refused.
@@ -406,7 +406,7 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     // Cancelled by the person: the Loop wakes, told it was their decision.
     h.app.request_action(&b, &json!({ "type": "cancel" })).await.unwrap();
     wait_until(&h.app, &run, "the cancel's wake", |e| count(e, "loop.slept") == 2).await;
-    let woke = events(&h.app, &run).into_iter().rfind(|e| e.kind == "loop.woke").unwrap();
+    let woke = events(&h.app, &run).into_iter().rfind(|e| e.kind.as_str() == "loop.woke").unwrap();
     assert_eq!(woke.data.unwrap()["reason"], "dispatch");
     let prompt = wake_prompts(&h).pop().unwrap();
     assert!(prompt.starts_with("盯着导出\n\nRuns you dispatched that ended"), "{prompt}");
@@ -416,7 +416,7 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     finish_lead(&h);
     wait_until(&h.app, &run, "the delivery's wake", |e| count(e, "loop.slept") == 3).await;
     let prompt = wake_prompts(&h).pop().unwrap();
-    let delivered = events(&h.app, &a).into_iter().find(|e| e.kind == "run.delivered").unwrap();
+    let delivered = events(&h.app, &a).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap();
     let summary = delivered.data.unwrap()["summary"].as_str().unwrap().to_string();
     assert!(
         prompt.contains(&format!(

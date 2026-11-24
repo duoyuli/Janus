@@ -61,7 +61,7 @@ impl App {
         } else {
             format!("{}（附 {} 张图片）", clip(text.lines().next().unwrap_or(""), 60), images.len())
         };
-        let mut e = ev("user.message", actor, label).to(to).data(data);
+        let mut e = ev(EventKind::UserMessage, actor, label).to(to).data(data);
         if !task.is_empty() {
             e = e.task(task);
         }
@@ -71,7 +71,7 @@ impl App {
 
     /// How a sent message went in.
     pub(super) fn route_message(&self, run: &Run, agent: &str, task: &str, n: i64, id: &str, delivery: Delivery) {
-        let mut e = ev("message.routed", "janus", delivery.label())
+        let mut e = ev(EventKind::MessageRouted, "janus", delivery.label())
             .to(agent)
             .data(json!({ "id": id, "delivery": delivery.as_str() }));
         if !task.is_empty() {
@@ -96,7 +96,10 @@ impl App {
         let ids: Vec<&str> = msgs.iter().map(|m| m.id.as_str()).collect();
         self.emit(
             run,
-            ev("message.delivered", "janus", why(msgs.len())).to(ctx.agent).scope(ctx).data(json!({ "ids": ids })),
+            ev(EventKind::MessageDelivered, "janus", why(msgs.len()))
+                .to(ctx.agent)
+                .scope(ctx)
+                .data(json!({ "ids": ids })),
         );
         msgs.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n")
     }
@@ -108,7 +111,7 @@ impl App {
         let name = run.member(ctx.agent).map(|m| m.name.as_str()).unwrap_or(ctx.agent);
         self.emit(
             run,
-            ev("session.interrupted", "user", format!("以当前结果完成 {name} 的子任务"))
+            ev(EventKind::SessionInterrupted, "user", format!("以当前结果完成 {name} 的子任务"))
                 .scope(ctx)
                 .to(ctx.agent)
                 .data(json!({ "finish": true })),
@@ -129,7 +132,7 @@ impl App {
         let (agent, task, n) = (ctx.agent, ctx.task.unwrap_or_default(), ctx.attempt.unwrap_or(0));
         self.emit(
             run,
-            ev("agent.status", agent, "这一轮已结束，等待你的消息（人工接管中）")
+            ev(EventKind::AgentStatus, agent, "这一轮已结束，等待你的消息（人工接管中）")
                 .scope(ctx)
                 .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
         );
@@ -153,7 +156,7 @@ impl App {
                     } else {
                         "交还托管：负责人继续推进目标".to_string()
                     };
-                    self.emit(run, ev("control.released", "user", text).scope(ctx).to(agent));
+                    self.emit(run, ev(EventKind::ControlReleased, "user", text).scope(ctx).to(agent));
                     if ctl.queued.is_empty() {
                         return Ok(Some(resume.to_string()));
                     }
@@ -221,7 +224,7 @@ impl App {
         let ids: Vec<&str> = notes.iter().map(|m| m.id.as_str()).collect();
         self.emit(
             run,
-            ev("message.delivered", "janus", format!("把你留给 {agent} 的 {} 条消息带进这次会话", notes.len()))
+            ev(EventKind::MessageDelivered, "janus", format!("把你留给 {agent} 的 {} 条消息带进这次会话", notes.len()))
                 .to(agent)
                 .data(json!({ "ids": ids })),
         );

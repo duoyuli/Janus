@@ -7,7 +7,7 @@ import Foundation
 struct Event: Identifiable, Hashable {
     let seq: Int
     let ts: Double
-    let type: String
+    let type: EventKind
     let actor: String
     let to: String?
     let task: String?
@@ -21,7 +21,7 @@ struct Event: Identifiable, Hashable {
         raw = j
         seq = j["seq"].int ?? 0
         ts = j["ts"].double ?? 0
-        type = j["type"].str
+        type = EventKind(wire: j["type"].str)
         actor = j["actor"].str
         to = j["to"].string
         task = j["task"].string
@@ -93,12 +93,12 @@ enum SessionTurn: Equatable {
     func after(_ e: Event) -> SessionTurn {
         let d = e.data
         switch e.type {
-        case "attempt.started", "run.created", "control.released": return .opened
-        case "control.taken": return .person(idle: idle)
-        case "session.interrupted": return d["finish"].truthy ? self : .person(idle: idle)
-        case "agent.status" where d["turn"].str == "idle": return with(idle: true)
-        case "user.message", "message.routed": return d["delivery"].str == "prompt" ? with(idle: false) : self
-        case "message.delivered": return with(idle: false)
+        case .attemptStarted, .runCreated, .controlReleased: return .opened
+        case .controlTaken: return .person(idle: idle)
+        case .sessionInterrupted: return d["finish"].truthy ? self : .person(idle: idle)
+        case .agentStatus where d["turn"].str == "idle": return with(idle: true)
+        case .userMessage, .messageRouted: return d["delivery"].str == "prompt" ? with(idle: false) : self
+        case .messageDelivered: return with(idle: false)
         default: return self
         }
     }
@@ -289,15 +289,15 @@ func derive(_ events: [Event]) -> RunState {
         let t = e.task.flatMap { s.tasks[$0] }
         let d = e.data
         switch e.type {
-        case "run.queued":
+        case .runQueued:
             // Waiting for a slot: what it will do is known, nothing of it has started.
             s.run.status = .queued
             s.run.goal = d["goal"].str
             s.run.images = Attach.paths(d)
             s.run.start = e.ts
-        case "run.starting": s.run.status = .planning
-        case "run.requeued": s.run.status = .queued
-        case "run.created":
+        case .runStarting: s.run.status = .planning
+        case .runRequeued: s.run.status = .queued
+        case .runCreated:
             s.run.status = .running
             s.run.goal = d["goal"].str
             s.run.images = Attach.paths(d)
@@ -311,7 +311,7 @@ func derive(_ events: [Event]) -> RunState {
             s.run.chat = d["kind"].str == "chat"
             s.run.loop = d["kind"].str == "loop"
             ag("lead").phase = "thinking"
-        case "orchestration.accepted":
+        case .orchestrationAccepted:
             for x in d["tasks"].array {
                 let nt = TaskState(x)
                 if s.tasks[nt.id] == nil { s.order.append(nt.id) }
@@ -321,45 +321,45 @@ func derive(_ events: [Event]) -> RunState {
             // New work after a delivery: the run is running again until it is delivered anew, so
             // the earlier delivery is not offered for acceptance meanwhile (FL-10).
             if s.run.status == .delivered || s.run.status == .accepted { s.run.status = .running }
-        case "goal.status": ag("lead").note = e.text
-        case "decision.withdrawn":
+        case .goalStatus: ag("lead").note = e.text
+        case .decisionWithdrawn:
             dropKey(d["key"].str)
             if let t, t.status.waitsOnPerson { t.status = .running }
-        case "run.cancelled":
+        case .runCancelled:
             s.run.status = .cancelled; s.inbox = []
             for x in s.orderedTasks {
                 x.session = nil; if x.status != .succeeded { x.status = .cancelled }
                 if let at = x.attempts.last, at.end == nil { at.end = e.ts }
             }
-        case "run.paused": s.run.paused = true
-        case "run.resumed": s.run.paused = false
-        case "result.submitted":
+        case .runPaused: s.run.paused = true
+        case .runResumed: s.run.paused = false
+        case .resultSubmitted:
             t?.checks = Check.list(d["checks"])
             t?.risks = d["risks"].strings
             t?.handoff = d["handoff"].str
             if let vd = d["verdict"].string.flatMap(Verdict.init(rawValue:)) { t?.verdict = vd }
-        case "verification.started": t?.status = .verifying
+        case .verificationStarted: t?.status = .verifying
         // The checks and their methods the backend checked; `task.succeeded` repeats them with the
         // conclusion, so a replayed or resumed run still shows them from one place.
-        case "verification.passed", "verification.failed":
+        case .verificationPassed, .verificationFailed:
             guard let t else { break }
             if !d["checks"].array.isEmpty { t.checks = Check.list(d["checks"]) }
-            if e.type == "verification.failed" {
+            if e.type == .verificationFailed {
                 t.status = .verificationFailed; t.verificationFailures = d["failures"].strings
             }
-        case "task.ready":
+        case .taskReady:
             let ids = d["tasks"].exists ? d["tasks"].strings : [e.task].compactMap { $0 }
             for id in ids { s.tasks[id]?.status = .ready }
-        case "task.assigned": t?.status = .assigned
-        case "task.blocked": t?.status = .blocked; t?.blockedBy = d["dependency"].str
-        case "task.skipped_by_decision": t?.status = .skippedByDecision; endLive(t)
-        case "attempt.started":
+        case .taskAssigned: t?.status = .assigned
+        case .taskBlocked: t?.status = .blocked; t?.blockedBy = d["dependency"].str
+        case .taskSkippedByDecision: t?.status = .skippedByDecision; endLive(t)
+        case .attemptStarted:
             guard let t else { break }
             if let prev = t.attempts.last, prev.end == nil { prev.end = e.ts }
             t.attempts.append(Attempt(n: e.attempt ?? t.attempts.count + 1, session: d["session"].str, workspace: d["workspace"].str, start: e.ts, status: .running, seq: e.seq))
             t.session = .opened; t.status = .running; t.progress = 5
             let a = ag(t.agent); a.session = d["session"].string; a.phase = "thinking"; a.note = ""; a.progress = 5
-        case "agent.status":
+        case .agentStatus:
             let a = ag(e.actor)
             a.phase = d["phase"].str; a.note = e.text; a.progress = d["progress"].double
             if d["session"].exists { a.session = d["session"].string }
@@ -378,76 +378,76 @@ func derive(_ events: [Event]) -> RunState {
                     s.inbox.append(InboxItem(kind: "session", key: "sess-" + e.actor, seq: e.seq, agent: e.actor))
                 }
             }
-        case "tool.started":
+        case .toolStarted:
             let a = ag(e.actor); a.phase = d["tool"].str == "janus.wait" ? "waiting_for_agent" : "running_tool"; a.note = e.text
-        case "tool.completed":
+        case .toolCompleted:
             if ["janus.wait", "janus.reply", "janus.orchestrate"].contains(d["tool"].str) { let a = ag(e.actor); a.phase = e.actor == "lead" ? "coordinating" : "thinking"; a.note = e.text }
-        case "control.taken", "session.interrupted": t?.session = t?.session?.after(e)
-        case "control.released":
+        case .controlTaken, .sessionInterrupted: t?.session = t?.session?.after(e)
+        case .controlReleased:
             if let t { t.session = t.session?.after(e); dropSess(t.id) } else if let to = e.to { dropSess(to) }
-        case "user.message":
+        case .userMessage:
             if let id = d["id"].string {
                 s.msgs[id] = Msg(id: id, text: d["text"].str, by: e.actor, to: e.to ?? "", task: e.task, seq: e.seq, images: Attach.paths(d))
                 break
             }
             if let t, d["delivery"].str == "prompt" { t.session = t.session?.after(e); dropSess(t.id); ag(t.agent).phase = "thinking" }
             else if t == nil, d["delivery"].str == "prompt", let to = e.to { dropSess(to) }
-        case "message.routed":
+        case .messageRouted:
             if let m = s.msgs[d["id"].str] { m.delivery = d["delivery"].str; m.routedTask = e.task; m.routedSeq = e.seq }
             if d["delivery"].str == "prompt" {
                 if let t { t.session = t.session?.after(e); dropSess(t.id); ag(t.agent).phase = "thinking" } else if let to = e.to { dropSess(to) }
             }
-        case "message.delivered":
+        case .messageDelivered:
             t?.session = t?.session?.after(e)
             for id in d["ids"].strings { s.msgs[id]?.deliveredSeq = e.seq }
-        case "question.asked":
+        case .questionAsked:
             guard let t else { break }
             t.status = .waitingInput
             t.question = Question(key: d["key"].str, question: d["question"].str, options: d["options"].strings, blocking: d["blocking"].truthy, seq: e.seq, from: e.actor)
             let a = ag(e.actor); a.phase = "waiting_for_input"; a.note = e.text
         // A collaborator's question passed on to the person, or a decision the lead hands over itself (no task).
-        case "question.escalated":
+        case .questionEscalated:
             dropKey(d["key"].str)
             var item = InboxItem(kind: "question", key: d["key"].str, seq: e.seq, task: e.task, d: ["reason": d["reason"], "recommend": d["recommend"]])
             if e.task == nil { item.d["question"] = d["question"]; item.d["options"] = d["options"].or([]); item.d["from"] = JSON(e.actor) }
             s.inbox.append(item)
-        case "question.answered":
+        case .questionAnswered:
             s.answers[d["key"].str] = d["answer"]; dropKey(d["key"].str)
             guard let t else { break }
             if t.status == .waitingInput { t.status = .running }
             t.question?.answer = d["answer"].str
             ag(t.agent).phase = "thinking"
-        case "approval.requested":
+        case .approvalRequested:
             t?.status = .waitingApproval
             s.inbox.append(InboxItem(kind: "approval", key: d["key"].str, seq: e.seq, task: e.task, agent: e.actor, d: d))
             let a = ag(e.actor); a.phase = "waiting_approval"; a.note = e.text
-        case "input.requested":
+        case .inputRequested:
             t?.status = .waitingInput
             s.inbox.append(InboxItem(kind: "input", key: d["key"].str, seq: e.seq, task: e.task, agent: e.actor, d: d))
             let a = ag(e.actor); a.phase = "waiting_for_input"; a.note = e.text
-        case "input.answered":
+        case .inputAnswered:
             s.answers[d["key"].str] = d["action"]; dropKey(d["key"].str)
             if let t, t.status == .waitingInput { t.status = .running }
             if let to = e.to { ag(to).phase = "thinking" }
-        case "approval.granted", "approval.denied":
-            s.answers[d["key"].str] = JSON(e.type == "approval.granted" ? "granted" : "denied"); dropKey(d["key"].str)
+        case .approvalGranted, .approvalDenied:
+            s.answers[d["key"].str] = JSON(e.type == .approvalGranted ? "granted" : "denied"); dropKey(d["key"].str)
             if let t, t.status == .waitingApproval { t.status = .running; ag(t.agent).phase = "running_tool" }
-        case "task.failed":
+        case .taskFailed:
             guard let t else { break }
             // The lead deals with a failure (it reads it on the board), so nothing waits for the person.
             t.status = .failed; t.error = d["error"].str
-        case "run.failed": s.run.status = .failed; s.run.error = d["error"].string ?? e.text
-        case "run.interrupted":
+        case .runFailed: s.run.status = .failed; s.run.error = d["error"].string ?? e.text
+        case .runInterrupted:
             // A Loop's questions outlive its session: the answer wakes it whenever it comes.
             s.run.status = .interrupted; s.inbox = s.run.loop ? s.inbox.filter { $0.kind == "question" } : []
             for x in s.orderedTasks { x.session = nil; if let at = x.attempts.last, at.end == nil { at.end = e.ts } }
             for a in s.agents.values { a.phase = "idle" }
-        case "session.parked":
+        case .sessionParked:
             // The lead's agent closed while idle to give its seat back: a chat or a Loop's session
             // reads as closed, as after a restart; a goal keeps its status. The next message opens it.
             if s.run.chat || s.run.loop { s.run.status = .interrupted }
             let a = ag("lead"); a.phase = "idle"; a.note = e.text
-        case "run.recovered":
+        case .runRecovered:
             s.run.status = RunStatus(d["phase"].str)
             // A resumed run schedules again: whatever pause came before the restart is over (FL-12).
             s.run.paused = false
@@ -455,19 +455,19 @@ func derive(_ events: [Event]) -> RunState {
                 guard let rt = s.tasks[x["id"].str] else { continue }
                 rt.status = TaskStatus(x["status"].str); rt.blockedBy = x["blockedBy"].str; rt.session = nil
             }
-        case "artifact.created":
+        case .artifactCreated:
             let a = Artifact(name: d["name"].str, kind: d["kind"].str, path: d["path"].str, desc: d["desc"].str, hash: d["hash"].str, bytes: d["bytes"].int, task: e.task ?? "", attempt: e.attempt ?? 0, seq: e.seq, by: e.actor)
             s.artifacts.append(a); t?.artifacts.append(a)
-        case "attempt.failed":
+        case .attemptFailed:
             guard let t else { break }
             endLive(t)
             if let at = t.attempts.last { at.status = .failed; at.error = d["error"].str }
             t.status = .ready
             let a = ag(t.agent); a.phase = "error"; a.note = d["error"].str; a.progress = nil
-        case "result.amended": t?.amendments.append(d["text"].str)
-        case "task.claimed": if let t { t.owns += d["paths"].strings.filter { !t.owns.contains($0) } }
-        case "session.prompt": if let t, d["channel"].str == "fix" { t.status = .running }
-        case "task.reopened":
+        case .resultAmended: t?.amendments.append(d["text"].str)
+        case .taskClaimed: if let t { t.owns += d["paths"].strings.filter { !t.owns.contains($0) } }
+        case .sessionPrompt: if let t, d["channel"].str == "fix" { t.status = .running }
+        case .taskReopened:
             guard let t else { break }
             t.amendments = []; t.traceGaps = []; t.verdict = nil; t.handoff = ""
             if let ins = d["instructions"].string, !ins.isEmpty { t.desc = ins }
@@ -477,7 +477,7 @@ func derive(_ events: [Event]) -> RunState {
             for x in s.orderedTasks where x.status == .blocked && x.blockedBy == t.id { x.status = .pending }
             t.status = .ready
             if s.run.status.isDone { s.run.status = .running }
-        case "task.succeeded":
+        case .taskSucceeded:
             guard let t else { break }
             t.status = .succeeded; t.progress = 100; t.summary = d["summary"].str; t.evidence = d["evidence"].strings
             t.handoff = d["handoff"].str
@@ -488,18 +488,18 @@ func derive(_ events: [Event]) -> RunState {
             endLive(t)
             if let at = t.attempts.last, at.status == .running { at.status = .succeeded }
             let a = ag(t.agent); a.phase = t.agent == "lead" ? "coordinating" : "idle"; a.note = ""; a.progress = nil
-        case "run.delivered":
+        case .runDelivered:
             let r = RunResult(d: d, seq: e.seq, n: s.deliveries.count + 1, since: s.deliveries.last?.seq ?? 0)
             s.run.status = .delivered; s.result = r; s.deliveries.append(r)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
             s.leadTurn = .agent(idle: true)
             dropSess("lead")
-        case "risk.accepted":
+        case .riskAccepted:
             s.run.status = .accepted; s.result?.accepted = e.ts
             if !s.deliveries.isEmpty { s.deliveries[s.deliveries.count - 1].accepted = e.ts }
             if d["commit"].string != nil { s.run.merged = true }
         // A delivery brought the result to the person's branch.
-        case "run.merged": if d["commit"].string != nil { s.run.merged = true }
+        case .runMerged: if d["commit"].string != nil { s.run.merged = true }
         default: break
         }
     }
@@ -602,56 +602,56 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     var gaps: [String: (seq: Int, gaps: [String])] = [:]
     for e in st.events {
         let d = e.data
-        if let task = e.task, stalls[task] != nil, e.actor == st.tasks[task]?.agent || e.type == "attempt.started" { stalls[task] = nil }
+        if let task = e.task, stalls[task] != nil, e.actor == st.tasks[task]?.agent || e.type == .attemptStarted { stalls[task] = nil }
         // A loop report has no backend "resolved" event; the lead moving again is the resolution.
         if leadStall != nil, e.actor == "lead" { leadStall = nil }
         switch e.type {
-        case "task.stalled": if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
-        case "lead.stalled": leadStall = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text)
-        case "loop.woke": loopNotice = nil
-        case "loop.touched": loopNotice = (seq: e.seq, kind: "loop_touched", text: e.text, files: d["files"].strings)
-        case "loop.failed": loopNotice = (seq: e.seq, kind: "loop_failed", text: e.text, files: [])
-        case "task.conflict":
+        case .taskStalled: if let task = e.task { stalls[task] = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text) }
+        case .leadStalled: leadStall = d["resolved"].truthy ? nil : (seq: e.seq, text: e.text)
+        case .loopWoke: loopNotice = nil
+        case .loopTouched: loopNotice = (seq: e.seq, kind: "loop_touched", text: e.text, files: d["files"].strings)
+        case .loopFailed: loopNotice = (seq: e.seq, kind: "loop_failed", text: e.text, files: [])
+        case .taskConflict:
             if let task = e.task {
                 conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy, byLead: d["byLead"].truthy))
             }
-        case "task.claimed":
+        case .taskClaimed:
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("认领了：\(d["paths"].strings.joined(separator: L.text("、")))"), artifacts: []))
-        case "task.split_requested":
+        case .taskSplitRequested:
             let reason = d["reason"].string ?? e.text
             let count = d["subtasks"].array.count
             if let task = e.task { splits[task] = (seq: e.seq, text: reason) }
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("请求拆分（建议 \(count) 个子任务）：\(reason)"), artifacts: []))
-        case "result.submitted":
+        case .resultSubmitted:
             f.results.append(ResultFact(key: "r\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, task: e.task ?? "", summary: d["summary"].string ?? e.text, evidence: d["evidence"].strings, risks: d["risks"].strings, checks: Check.list(d["checks"])))
-        case "context.handoff":
+        case .contextHandoff:
             f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: d["from"].str, to: e.task ?? "", agent: e.to ?? "", summary: d["summary"].str, artifacts: d["artifacts"].strings))
-        case "orchestration.accepted":
+        case .orchestrationAccepted:
             let ts = d["tasks"].array
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人派出子任务"), text: ts.map { x in "\(x["id"].str) \(x["title"].str) → \(name(x["agent"].str))\(x["deps"].array.isEmpty ? "" : L.text("（依赖 \(x["deps"].strings.joined(separator: L.text("、")))）"))" }.joined(separator: "\n"), tasks: ts.map { $0["id"].str }, agents: ["lead"]))
-        case "orchestration.rejected":
+        case .orchestrationRejected:
             let errs = d["errors"].strings
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("派工方案没通过校验"), text: errs.isEmpty ? e.text : errs.joined(separator: "\n"), agents: ["lead"]))
-        case "board.posted":
+        case .boardPosted:
             let text = d["text"].string ?? e.text
             if d["kind"].str == "blocker" { blockers.append((key: "ob\(e.seq)", seq: e.seq, task: e.task ?? "", text: text, actor: e.actor)) }
             else { f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("\(d["kind"].str == "note" ? L.text("备注") : L.text("进展"))：\(text)"), artifacts: [])) }
-        case "question.answered":
+        case .questionAnswered:
             if let task = e.task { splits[task] = nil }
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("回答 \(e.task ?? "") 的提问"), text: d["answer"].str + (d["note"].truthy ? L.text("；\(d["note"].str)") : ""), tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
-        case "approval.granted", "approval.denied":
-            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == "approval.granted" ? L.text("批准一次操作") : L.text("拒绝一次操作"), text: e.text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
-        case "risk.accepted":
+        case .approvalGranted, .approvalDenied:
+            f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: e.type == .approvalGranted ? L.text("批准一次操作") : L.text("拒绝一次操作"), text: e.text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }))
+        case .riskAccepted:
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("接受风险并验收"), text: e.text))
-        case "run.merged":
+        case .runMerged:
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("交付时合并到你的分支"), text: e.text))
-        case "result.amended":
+        case .resultAmended:
             if let task = e.task { gaps[task] = nil }
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人修订 \(e.task ?? "") 的结论"), text: d["text"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"]))
-        case "task.skipped_by_decision":
+        case .taskSkippedByDecision:
             if let task = e.task { splits[task] = nil }
             if e.actor == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人取消 \(e.task ?? "")"), text: e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
-        case "task.reopened":
+        case .taskReopened:
             if let task = e.task { gaps[task] = nil; splits[task] = nil }
             if e.actor == "lead" {
                 let session: String? = switch d["session"].str {
@@ -667,10 +667,10 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
                 let title = d["from"].truthy ? L.text("负责人让 \(e.task ?? "") 返工") : L.text("负责人重做 \(e.task ?? "")")
                 f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: title, text: parts.isEmpty ? e.text : parts.joined(separator: "\n"), tasks: [e.task, d["from"].string].compactMap { $0 }, agents: ["lead"]))
             }
-        case "task.succeeded":
+        case .taskSucceeded:
             if let task = e.task { splits[task] = nil; gaps[task] = d["traceGaps"].strings.isEmpty ? nil : (seq: e.seq, gaps: d["traceGaps"].strings) }
             if d["acceptedBy"].str == "lead" { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("负责人接受 \(e.task ?? "") 的结果"), text: d["reason"].string ?? e.text, tasks: [e.task].compactMap { $0 }, agents: ["lead"])) }
-        case "user.message":
+        case .userMessage:
             if e.actor == "lead", let task = e.task { splits[task] = nil }
             let images = Attach.paths(d).count
             let raw = d["text"].string ?? e.text
@@ -679,7 +679,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             let dup = d["delivery"].str == "prompt" && f.decisions.contains { $0.msg && $0.to == e.to && $0.text == text }
             if !dup { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("给 \(name(e.to ?? "")) 的补充"), text: text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }, msg: true, to: e.to)) }
             if !d["id"].exists, ["next", "queued"].contains(d["delivery"].str) { notes[e.to ?? "", default: []].append((seq: e.seq, text: text)) }
-        case "message.delivered": if !d["ids"].exists { notes[e.to ?? ""] = nil }
+        case .messageDelivered: if !d["ids"].exists { notes[e.to ?? ""] = nil }
         default: break
         }
     }

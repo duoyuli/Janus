@@ -368,7 +368,7 @@ fn concurrent_events_are_broadcast_in_seq_order() {
             let (app, run) = (app.clone(), run.clone());
             std::thread::spawn(move || {
                 for _ in 0..50 {
-                    app.emit(&run, ev("board.posted", "m1", "进展"));
+                    app.emit(&run, ev(EventKind::BoardPosted, "m1", "进展"));
                 }
             })
         })

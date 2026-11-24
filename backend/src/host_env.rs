@@ -7,6 +7,7 @@
 //! one list they edit in the settings; Janus home is always hidden.
 // @project-doc docs/operations/20261031-security.md#host_env
 
+use crate::db::ConfigKind;
 use crate::layout::Sandbox;
 use crate::orchestrator::App;
 use crate::util::now_ms;
@@ -18,7 +19,6 @@ use std::time::Duration;
 
 /// The stored list of hidden paths: one row (`KIND`, `ID`) holding `paths`. Without it the
 /// defaults apply, so new defaults reach everyone who never changed the list.
-pub const KIND: &str = "host_env";
 const ID: &str = "hidden";
 
 /// Why a path is hidden by default.
@@ -273,7 +273,7 @@ impl App {
     /// The paths hidden from every sandbox: the person's list (the defaults until they change it),
     /// and Janus home when it is in the home folder.
     pub fn host_hidden(&self) -> Result<Vec<String>> {
-        let mut hidden: Vec<String> = match self.db.get_config(KIND, ID)? {
+        let mut hidden: Vec<String> = match self.db.get_config(ConfigKind::HostEnv, ID)? {
             Some(v) => {
                 v["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect()
             }
@@ -322,7 +322,7 @@ impl App {
     /// (`agent`, `sensitive`, or `custom` for one the person added) and whether it is on this Mac;
     /// Janus home, hidden always; whether the list is still the defaults.
     pub fn host_env(&self) -> Result<Value> {
-        let stored = self.db.get_config(KIND, ID)?;
+        let stored = self.db.get_config(ConfigKind::HostEnv, ID)?;
         let defaults: Vec<(String, Why)> = DEFAULT_HIDDEN.iter().map(|(p, w)| (p.to_string(), *w)).collect();
         let listed: Vec<String> = match &stored {
             Some(v) => {
@@ -346,7 +346,7 @@ impl App {
     // @project-doc docs/operations/20261031-security.md#host_env
     pub fn save_host_env(&self, body: &Value) -> Result<Value> {
         if body["paths"].is_null() {
-            self.db.delete_config(KIND, ID)?;
+            self.db.delete_config(ConfigKind::HostEnv, ID)?;
         } else {
             let mut wanted: Vec<String> = vec![];
             for p in body["paths"].as_array().into_iter().flatten() {
@@ -363,7 +363,7 @@ impl App {
                     bail!("~/{b} 在 ~/{a} 里面，挡住 ~/{a} 就够了");
                 }
             }
-            self.db.put_config(KIND, ID, &json!({ "paths": wanted }), now_ms())?;
+            self.db.put_config(ConfigKind::HostEnv, ID, &json!({ "paths": wanted }), now_ms())?;
         }
         for home in self.cfg.layout.sandbox_homes() {
             let sandbox = Sandbox { home: home.clone(), tmp: PathBuf::new() };

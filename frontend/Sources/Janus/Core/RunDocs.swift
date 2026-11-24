@@ -35,13 +35,13 @@ enum RunDocs {
         }
         for e in events {
             switch e.type {
-            case "run.delivered":
+            case .runDelivered:
                 for a in e.data["deliverables"].array { add(a["path"].str, .deliverable, e.seq) }
-            case "artifact.created":
+            case .artifactCreated:
                 add(e.data["path"].str, .artifact, e.seq)
                 continue
             // Janus's own prompts quote instructions, not files the team produced; status lines repeat tool calls.
-            case "session.prompt", "agent.status":
+            case .sessionPrompt, .agentStatus:
                 continue
             default:
                 break

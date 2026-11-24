@@ -259,7 +259,7 @@ final class AppStore {
                         case .named("loop", let c): await self.loadLoop(c["loop"].str)
                         // A workspace's team memory changed: read it again if its page has shown.
                         case .named("memory", let c): if self.memories[c["workspace"].str] != nil { await self.loadMemories(c["workspace"].str) }
-                        case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(n["type"].str, run: n["run"].str, store: self))
+                        case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(EventKind(wire: n["type"].str), run: n["run"].str, store: self))
                         default: break
                         }
                     }
@@ -280,9 +280,9 @@ final class AppStore {
 
     /// Whether an event changes what the lists show: a run they do not have yet, or a chat's first
     /// message (its title). Status changes come as their own notices.
-    static func listChanges(_ type: String, run: String, store: AppStore) -> Bool {
-        if type == "run.created" { return true }
-        if type == "user.message", let chat = store.chats.first(where: { $0["id"].str == run }) { return chat["goal"].str.isEmpty }
+    static func listChanges(_ type: EventKind, run: String, store: AppStore) -> Bool {
+        if type == .runCreated { return true }
+        if type == .userMessage, let chat = store.chats.first(where: { $0["id"].str == run }) { return chat["goal"].str.isEmpty }
         return !store.attention.contains { $0["id"].str == run } && !store.chats.contains { $0["id"].str == run } && !store.runs.contains { $0["id"].str == run }
             && !store.loops.contains { $0["run"].str == run }
     }

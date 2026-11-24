@@ -12,10 +12,8 @@ impl App {
     /// open its session, which waits for the person's first message.
     // @project-doc docs/domains/20261120-chats.md#chat_model
     pub async fn create_chat(self: &Arc<Self>, req: NewChat) -> Result<String> {
-        let role = self
-            .db
-            .get_config(crate::agents::ROLE, &req.role)?
-            .ok_or_else(|| anyhow!("数字员工 {} 不存在", req.role))?;
+        let role =
+            self.db.get_config(ConfigKind::Role, &req.role)?.ok_or_else(|| anyhow!("数字员工 {} 不存在", req.role))?;
         let member = self.single_member(&role)?;
         let id = crate::agents::new_id("r");
         let dir = self.cfg.layout.run(RunKind::Chat, &id).work;
@@ -27,7 +25,7 @@ impl App {
         let name = run.team[0].name.clone();
         self.emit(
             &run,
-            ev("run.created", "user", format!("和 {name} 开始对话")).data(json!({
+            ev(EventKind::RunCreated, "user", format!("和 {name} 开始对话")).data(json!({
                 "kind": RunKind::Chat, "cwd": run.cwd, "git": false, "role": { "id": role["id"], "name": name },
             })),
         );

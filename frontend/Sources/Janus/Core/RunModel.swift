@@ -217,7 +217,7 @@ final class RunModel {
             if derived.run.status != before { await self.store.loadRuns() }
             // A run that left the queue is read again: being set up, then live once it started. So
             // is a chat or a Loop whose session opened (a Loop's first wake), whose status may not change.
-            let opened = derived.run.singleSession && events[min(self.derivedUpTo, events.count)...].contains { $0.type == "agent.status" && $0.data["session"].exists }
+            let opened = derived.run.singleSession && events[min(self.derivedUpTo, events.count)...].contains { $0.type == .agentStatus && $0.data["session"].exists }
             self.derivedUpTo = events.count
             if !self.live, (derived.run.status != before && derived.run.status.isActive) || opened { await self.read() }
         }

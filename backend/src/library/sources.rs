@@ -7,6 +7,7 @@
 
 use super::offers::{self, Offer};
 use super::{Item, ItemKind, Origin, imported_offer, skill, store};
+use crate::db::ConfigKind;
 use crate::orchestrator::App;
 use crate::util::now_ms;
 use anyhow::{Context, Result, anyhow, bail};
@@ -15,7 +16,6 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-const SOURCE: &str = "library_source";
 const CLONE_TIMEOUT: Duration = Duration::from_secs(180);
 /// How often the server asks each source's remote whether it moved on.
 pub const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -163,19 +163,19 @@ impl App {
 
     pub(super) fn sources(&self) -> Result<Vec<Source>> {
         self.db
-            .list_config(SOURCE)?
+            .list_config(ConfigKind::LibrarySource)?
             .into_iter()
             .map(|v| serde_json::from_value(v).context("来源记录无法读取"))
             .collect()
     }
 
     fn source(&self, id: &str) -> Result<Source> {
-        let v = self.db.get_config(SOURCE, id)?.ok_or_else(|| anyhow!("来源 {id} 不存在"))?;
+        let v = self.db.get_config(ConfigKind::LibrarySource, id)?.ok_or_else(|| anyhow!("来源 {id} 不存在"))?;
         serde_json::from_value(v).context("来源记录无法读取")
     }
 
     fn put_source(&self, s: &Source) -> Result<()> {
-        self.db.put_config(SOURCE, &s.id, &serde_json::to_value(s)?, now_ms())
+        self.db.put_config(ConfigKind::LibrarySource, &s.id, &serde_json::to_value(s)?, now_ms())
     }
 
     /// A source as the app shows it: whether the remote moved on, and which offers are imported.
@@ -340,7 +340,7 @@ impl App {
         if from > 0 {
             bail!("资源库中还有 {from} 项资源来自 {}，请先删除它们", s.url);
         }
-        self.db.delete_config(SOURCE, id)?;
+        self.db.delete_config(ConfigKind::LibrarySource, id)?;
         let _ = std::fs::remove_dir_all(self.source_dir(id)?);
         Ok(())
     }

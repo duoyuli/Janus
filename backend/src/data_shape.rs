@@ -4,19 +4,20 @@
 //! the upgrade tests check every object a migrated database holds.
 // @project-doc docs/architecture/20261031-data_model.md#migrations
 
+use crate::db::ConfigKind;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
 /// A setup object stored as plain JSON: the fields it always has and the ones it may have.
 pub struct Shape {
-    pub kind: &'static str,
+    pub kind: ConfigKind,
     pub required: &'static [&'static str],
     pub optional: &'static [&'static str],
 }
 
 pub const SHAPES: &[Shape] = &[
     Shape {
-        kind: "role",
+        kind: ConfigKind::Role,
         required: &[
             "id",
             "name",
@@ -35,11 +36,11 @@ pub const SHAPES: &[Shape] = &[
         // Default roles remember which default they came from (see `agents::sync_seeds`).
         optional: &["seed"],
     },
-    Shape { kind: "workspace", required: &["id", "name", "path", "lead", "members", "brief"], optional: &[] },
+    Shape { kind: ConfigKind::Workspace, required: &["id", "name", "path", "lead", "members", "brief"], optional: &[] },
     // The paths of the person's home hidden from agents (`host_env`), one row; none means the defaults.
-    Shape { kind: "host_env", required: &["paths"], optional: &[] },
+    Shape { kind: ConfigKind::HostEnv, required: &["paths"], optional: &[] },
     Shape {
-        kind: "connection",
+        kind: ConfigKind::Connection,
         required: &["id", "kind", "base", "name", "auth", "bin", "prompt", "env", "status", "createdAt"],
         // Plus the plain (non-secret) fields of the kind's sign-in methods; see `connection_fields`.
         optional: &[
@@ -78,36 +79,33 @@ fn connection_fields() -> Vec<String> {
 }
 
 /// What is wrong with a stored object of `kind`, in words; empty when it has the latest shape.
-pub fn check(kind: &str, data: &Value) -> Vec<String> {
+pub fn check(kind: ConfigKind, data: &Value) -> Vec<String> {
     match kind {
-        "library_item" => round_trip::<crate::library::Item>(data),
-        "library_source" => round_trip::<crate::library::Source>(data),
+        ConfigKind::LibraryItem => round_trip::<crate::library::Item>(data),
+        ConfigKind::LibrarySource => round_trip::<crate::library::Source>(data),
         // A workspace Loop (`orchestrator/loops.rs`).
-        "loop" => round_trip::<crate::orchestrator::LoopDef>(data),
-        "meta" => vec![],
-        _ => match SHAPES.iter().find(|s| s.kind == kind) {
-            Some(shape) => {
-                let extra = if kind == "connection" { connection_fields() } else { vec![] };
-                let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
-                let mut problems = fields(data, shape.required, &[shape.optional, &extra].concat());
-                if kind == "connection"
-                    && !data["env"].as_object().is_some_and(|env| {
-                        env.values().all(|v| v.is_string() || (data["kind"] == "claude" && v.is_null()))
-                    })
-                {
-                    problems.push("env 的值必须是字符串，Claude 的私有变量用 null 记录变量名".into());
-                }
-                if kind == "workspace" {
-                    for m in data["members"].as_array().into_iter().flatten() {
-                        problems.extend(
-                            fields(m, MEMBER_ENTRY.0, MEMBER_ENTRY.1).into_iter().map(|p| format!("members: {p}")),
-                        );
-                    }
-                }
-                problems
+        ConfigKind::Loop => round_trip::<crate::orchestrator::LoopDef>(data),
+        ConfigKind::Meta => vec![],
+        ConfigKind::Role | ConfigKind::Workspace | ConfigKind::HostEnv | ConfigKind::Connection => {
+            let shape = SHAPES.iter().find(|s| s.kind == kind).expect("every plain JSON kind has a shape");
+            let extra = if kind == ConfigKind::Connection { connection_fields() } else { vec![] };
+            let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+            let mut problems = fields(data, shape.required, &[shape.optional, &extra].concat());
+            if kind == ConfigKind::Connection
+                && !data["env"]
+                    .as_object()
+                    .is_some_and(|env| env.values().all(|v| v.is_string() || (data["kind"] == "claude" && v.is_null())))
+            {
+                problems.push("env 的值必须是字符串，Claude 的私有变量用 null 记录变量名".into());
             }
-            None => vec![format!("没有登记的设置类型 {kind}：在 data_shape::SHAPES 中登记它的字段")],
-        },
+            if kind == ConfigKind::Workspace {
+                for m in data["members"].as_array().into_iter().flatten() {
+                    problems
+                        .extend(fields(m, MEMBER_ENTRY.0, MEMBER_ENTRY.1).into_iter().map(|p| format!("members: {p}")));
+                }
+            }
+            problems
+        }
     }
 }
 

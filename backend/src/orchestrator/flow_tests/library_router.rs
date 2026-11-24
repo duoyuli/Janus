@@ -204,7 +204,7 @@ async fn command_servers_are_served_by_the_runs_router() {
 
     // Every call is recorded without its arguments; a collaborator's token can't act as the lead.
     let routed: Vec<Value> =
-        events(&h.app, &run).into_iter().filter(|e| e.kind == "mcp.routed").filter_map(|e| e.data).collect();
+        events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "mcp.routed").filter_map(|e| e.data).collect();
     assert_eq!(routed[0]["server"], "probe");
     assert!(routed.iter().all(|d| d.get("arguments").is_none() && d.get("args").is_none()), "never the arguments");
     let (r, token, _) = &at;
@@ -217,7 +217,7 @@ async fn command_servers_are_served_by_the_runs_router() {
     tool(&h, &lead, "probe__echo", json!({ "text": "hi" })).await;
     tool(&h, &lead, "probe__echo", json!({ "text": "again" })).await;
     let noted: Vec<Value> =
-        events(&h.app, &run).into_iter().filter(|e| e.kind == "lead.routed").filter_map(|e| e.data).collect();
+        events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "lead.routed").filter_map(|e| e.data).collect();
     assert_eq!(noted.iter().filter(|d| d["tool"] == "probe__echo").count(), 1, "once per tool: {noted:?}");
     let live = h.app.run(&run).unwrap();
     assert!(live.st.lock().unwrap().traces.lead_tools_after_plan().contains("probe__echo"));
@@ -501,7 +501,7 @@ async fn library_resources_reach_the_session_only_through_the_routers() {
 
     wait_until(&h.app, &run, "the lead's session record", |e| has(e, "agent.status")).await;
     let evs = events(&h.app, &run);
-    let status = evs.iter().find(|e| e.kind == "agent.status").unwrap().data.clone().unwrap();
+    let status = evs.iter().find(|e| e.kind.as_str() == "agent.status").unwrap().data.clone().unwrap();
     let via: Vec<(String, String)> = status["config"]["resources"]
         .as_array()
         .unwrap()

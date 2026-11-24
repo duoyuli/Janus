@@ -10,7 +10,6 @@ use super::queue::Origin;
 use super::*;
 use crate::schedule::Schedule;
 
-pub(crate) const LOOP: &str = "loop";
 /// What `next_wake` may ask for, in seconds.
 const NEXT_WAKE_RANGE: std::ops::RangeInclusive<i64> = 60..=24 * 60 * 60;
 /// The Loop's own notes (`save_state`), in characters.
@@ -136,12 +135,12 @@ impl LoopDef {
 
 impl App {
     pub(crate) fn loop_def(&self, id: &str) -> Result<LoopDef> {
-        let stored = self.db.get_config(LOOP, id)?.with_context(|| format!("值班 {id} 不存在"))?;
+        let stored = self.db.get_config(ConfigKind::Loop, id)?.with_context(|| format!("值班 {id} 不存在"))?;
         Ok(serde_json::from_value(stored)?)
     }
 
     fn save_loop(&self, def: &LoopDef) -> Result<()> {
-        self.db.put_config(LOOP, &def.id, &serde_json::to_value(def)?, now_ms())?;
+        self.db.put_config(ConfigKind::Loop, &def.id, &serde_json::to_value(def)?, now_ms())?;
         let _ = self.loop_changes.send(def.id.clone());
         Ok(())
     }
@@ -156,7 +155,7 @@ impl App {
     // @project-doc docs/interfaces/20261031-http_api.md#loops
     pub fn loops(&self, workspace: Option<&str>) -> Result<Vec<Value>> {
         let mut out = vec![];
-        for stored in self.db.list_config(LOOP)? {
+        for stored in self.db.list_config(ConfigKind::Loop)? {
             let def: LoopDef = serde_json::from_value(stored)?;
             if workspace.is_none_or(|w| w == def.workspace) {
                 out.push(self.loop_view(&def)?);
@@ -176,13 +175,13 @@ impl App {
         let asked = match next {
             Some((_, WakeReason::Chosen)) => self
                 .db
-                .latest_event(&def.run, "loop.next_wake")?
+                .latest_event(&def.run, EventKind::LoopNextWake)?
                 .and_then(|e| e.data?["reason"].as_str().map(str::to_owned)),
             _ => None,
         };
-        let woke = self.db.latest_event(&def.run, "loop.woke")?;
-        let slept = self.db.latest_event(&def.run, "loop.slept")?;
-        let failed = self.db.latest_event(&def.run, "loop.failed")?;
+        let woke = self.db.latest_event(&def.run, EventKind::LoopWoke)?;
+        let slept = self.db.latest_event(&def.run, EventKind::LoopSlept)?;
+        let failed = self.db.latest_event(&def.run, EventKind::LoopFailed)?;
         let last_wake = woke.as_ref().map_or(0, |e| e.seq).max(slept.as_ref().map_or(0, |e| e.seq));
         let phase = match (def.state, awake, failed.as_ref().is_some_and(|f| f.seq > last_wake)) {
             (LoopState::Paused, _, _) => "paused",
@@ -216,7 +215,7 @@ impl App {
         let ws = self.workspace(workspace)?;
         let role = self
             .db
-            .get_config(crate::agents::ROLE, ws["lead"].as_str().unwrap_or(""))?
+            .get_config(ConfigKind::Role, ws["lead"].as_str().unwrap_or(""))?
             .context("工作区没有负责人，先在工作区设置里选一名负责人")?;
         let member = self.single_member(&role)?;
         let cwd = PathBuf::from(ws["path"].as_str().unwrap_or(""));
@@ -241,7 +240,7 @@ impl App {
         self.db.set_run_loop(&run_id, &id)?;
         self.record(
             &run_id,
-            ev("run.created", "user", format!("新建值班：{title}")).data(json!({
+            ev(EventKind::RunCreated, "user", format!("新建值班：{title}")).data(json!({
                 "kind": RunKind::Loop, "cwd": cwd, "git": false, "loop": { "id": id, "name": title },
                 "role": { "id": role["id"], "name": role["name"] },
             })),
@@ -279,7 +278,10 @@ impl App {
         def.name = clip(name, 40);
         self.save_loop(&def)?;
         self.db.set_run_goal(&def.run, &def.name)?;
-        self.emit(run, ev("loop.named", "lead", format!("值班的名字：{}", def.name)).data(json!({ "name": def.name })));
+        self.emit(
+            run,
+            ev(EventKind::LoopNamed, "lead", format!("值班的名字：{}", def.name)).data(json!({ "name": def.name })),
+        );
         Ok(format!("好，你叫「{}」。", def.name))
     }
 
@@ -308,7 +310,11 @@ impl App {
         self.save_loop(&def)?;
         let _ = self.note(
             &def.run,
-            ev(if pause { "loop.paused" } else { "loop.resumed" }, "user", if pause { "暂停值班" } else { "继续值班" }),
+            ev(
+                if pause { EventKind::LoopPaused } else { EventKind::LoopResumed },
+                "user",
+                if pause { "暂停值班" } else { "继续值班" },
+            ),
         );
         self.set_timer(&def, def.next_wake(now_ms(), None));
         self.loop_view(&def)
@@ -327,7 +333,7 @@ impl App {
             Err(Refused::Invalid(e)) => return Err(e),
         }
         let _edits = self.loops.edits.lock().unwrap_or_else(|p| p.into_inner());
-        self.db.delete_config(LOOP, id)?;
+        self.db.delete_config(ConfigKind::Loop, id)?;
         let _ = self.loop_changes.send(id.to_string());
         Ok(())
     }
@@ -351,7 +357,7 @@ impl App {
         self.loops.timers.lock().unwrap().entry(def.id.clone()).or_default().next = next;
         let _ = self.note(
             &def.run,
-            ev("loop.scheduled", "janus", "排好下次开工")
+            ev(EventKind::LoopScheduled, "janus", "排好下次开工")
                 .data(json!({ "until": next.map(|n| n.0), "reason": next.map(|n| n.1) })),
         );
         self.loops.bell.notify_one();
@@ -407,9 +413,9 @@ impl App {
                 .as_ref()
                 .and_then(|b| crate::worktrees::changed_since(&seen_at, b))
                 .map(|f| f.into_iter().collect());
-            let woke = self.db.latest_event(&def.run, "loop.woke")?;
+            let woke = self.db.latest_event(&def.run, EventKind::LoopWoke)?;
             let n = woke.as_ref().and_then(|e| e.data.as_ref()?["n"].as_i64()).unwrap_or(0) + 1;
-            let since = self.db.latest_event(&def.run, "loop.slept")?.map(|e| e.ts);
+            let since = self.db.latest_event(&def.run, EventKind::LoopSlept)?.map(|e| e.ts);
             // Its session opens again when it is closed (a restart, the first wake, parked while
             // it slept): like a chat, from its log. A timer's wake waits for a seat as a schedule.
             let asker = match reason {
@@ -424,7 +430,7 @@ impl App {
             }
             let seq = self.emit(
                 &run,
-                ev("loop.woke", "janus", format!("第 {n} 次开工")).data(json!({
+                ev(EventKind::LoopWoke, "janus", format!("第 {n} 次开工")).data(json!({
                     "reason": reason, "n": n, "since": since, "watchesFiles": dirty.is_some(),
                 })),
             );
@@ -528,7 +534,7 @@ impl App {
         self.db.set_run_cwd(&def.run, &cwd.to_string_lossy())?;
         let _ = self.record(
             &def.run,
-            ev("loop.moved", "janus", format!("工作区目录改为 {}，值班的会话随之移过去", cwd.display()))
+            ev(EventKind::LoopMoved, "janus", format!("工作区目录改为 {}，值班的会话随之移过去", cwd.display()))
                 .data(json!({ "from": was, "to": cwd })),
         );
         Ok(())
@@ -552,12 +558,12 @@ impl App {
     /// The person's answers to the Loop's questions between two of its wakes (sequence numbers),
     /// with the questions.
     fn loop_answers(&self, run_id: &str, after: i64, until: i64) -> Result<Vec<(String, String, String)>> {
-        let mut answered = self.db.events_of(run_id, "question.answered", after)?;
+        let mut answered = self.db.events_of(run_id, EventKind::QuestionAnswered, after)?;
         answered.retain(|e| e.seq < until);
         if answered.is_empty() {
             return Ok(vec![]);
         }
-        let asked = self.db.events_of(run_id, "question.escalated", 0)?;
+        let asked = self.db.events_of(run_id, EventKind::QuestionEscalated, 0)?;
         Ok(answered
             .iter()
             .filter_map(|a| {
@@ -575,7 +581,7 @@ impl App {
     /// The runs the Loop dispatched that ended between two of its wakes (sequence numbers), each
     /// with what it came to: the delivery's summary, why it failed, or that it was cancelled.
     fn ended_dispatches(&self, run_id: &str, after: i64, until: i64) -> Result<Vec<Ended>> {
-        let mut ended = self.db.events_of(run_id, "loop.dispatch_ended", after)?;
+        let mut ended = self.db.events_of(run_id, EventKind::LoopDispatchEnded, after)?;
         ended.retain(|e| e.seq < until);
         Ok(ended
             .iter()
@@ -585,7 +591,9 @@ impl App {
                 let status = RunStatus::parse(d["status"].as_str()?)?;
                 let outcome = match status {
                     RunStatus::Delivered => self.last_delivery_text(&run),
-                    RunStatus::Failed => self.db.latest_event(&run, "run.failed").ok().flatten().map(|e| e.text),
+                    RunStatus::Failed => {
+                        self.db.latest_event(&run, EventKind::RunFailed).ok().flatten().map(|e| e.text)
+                    }
                     _ => None,
                 };
                 Some(Ended { run, key: d["key"].as_str().unwrap_or("").to_string(), status, outcome })
@@ -611,7 +619,7 @@ impl App {
             let key = row["dispatchKey"].as_str().unwrap_or("");
             let _ = app.note(
                 &def.run,
-                ev("loop.dispatch_ended", "janus", format!("派出的任务 {run_id}（{key}）{status}"))
+                ev(EventKind::LoopDispatchEnded, "janus", format!("派出的任务 {run_id}（{key}）{status}"))
                     .data(json!({ "run": run_id, "key": key, "status": status })),
             );
             let _ = app.loop_changes.send(def.id.clone());
@@ -633,7 +641,7 @@ impl App {
         }
         let _ = self.note(
             &def.run,
-            ev("loop.failed", "janus", format!("值班没能开工：{error}")).data(json!({ "error": error })),
+            ev(EventKind::LoopFailed, "janus", format!("值班没能开工：{error}")).data(json!({ "error": error })),
         );
         self.set_timer(def, def.next_wake(now_ms(), kept));
         if let Some(reason) = pending {
@@ -680,7 +688,7 @@ impl App {
                 self.emit(
                     run,
                     ev(
-                        "loop.touched",
+                        EventKind::LoopTouched,
                         "janus",
                         format!("值班在自己的副本里改了 {} 个文件，下次开工前清掉", touched.len()),
                     )
@@ -694,10 +702,10 @@ impl App {
         let chosen = wake.chosen_secs.map(|s| now + s * 1000).into_iter().chain(kept).min();
         let next = def.next_wake(now, chosen);
         // What the wake did: the first line of its last message (the ones before it are progress).
-        let woke = self.db.latest_event(&run.id, "loop.woke").ok().flatten().map_or(0, |e| e.seq);
+        let woke = self.db.latest_event(&run.id, EventKind::LoopWoke).ok().flatten().map_or(0, |e| e.seq);
         let summary = self
             .db
-            .events_of(&run.id, "agent.message", woke)
+            .events_of(&run.id, EventKind::AgentMessage, woke)
             .unwrap_or_default()
             .last()
             .and_then(|e| {
@@ -708,7 +716,7 @@ impl App {
             .unwrap_or_default();
         self.emit(
             run,
-            ev("loop.slept", "janus", "这次干完了，摸会儿鱼").data(json!({
+            ev(EventKind::LoopSlept, "janus", "这次干完了，摸会儿鱼").data(json!({
                 "until": next.map(|n| n.0), "reason": next.map(|n| n.1), "summary": summary,
             })),
         );
@@ -728,12 +736,12 @@ impl App {
     /// should have woken while the service was down wakes once now, however many times it missed.
     // @project-doc docs/domains/20261121-loops.md#waking
     pub fn start_loops(self: &Arc<Self>) -> Result<()> {
-        for stored in self.db.list_config(LOOP)? {
+        for stored in self.db.list_config(ConfigKind::Loop)? {
             let def: LoopDef = serde_json::from_value(stored)?;
             if def.state == LoopState::Paused {
                 continue;
             }
-            let next = match self.db.latest_event(&def.run, "loop.scheduled")?.and_then(|e| e.data) {
+            let next = match self.db.latest_event(&def.run, EventKind::LoopScheduled)?.and_then(|e| e.data) {
                 Some(d) => d["until"]
                     .as_i64()
                     .map(|t| (t, WakeReason::parse(d["reason"].as_str().unwrap_or("")).unwrap_or(WakeReason::Timer))),
@@ -782,11 +790,11 @@ impl App {
     /// The questions a Loop asked that the person has not answered yet, waiting again for an
     /// answer after its session was rebuilt (a restart): they outlive the session that asked.
     pub(super) fn restore_loop_questions(&self, run: &Arc<Run>, events: &[Event]) {
-        for asked in events.iter().filter(|e| e.kind == "question.escalated") {
+        for asked in events.iter().filter(|e| e.kind() == EventKind::QuestionEscalated) {
             let Some(key) = asked.data.as_ref().and_then(|d| d["key"].as_str()) else { continue };
             let settled = events.iter().any(|e| {
                 e.seq > asked.seq
-                    && matches!(e.kind.as_str(), "question.answered" | "decision.withdrawn")
+                    && matches!(e.kind(), EventKind::QuestionAnswered | EventKind::DecisionWithdrawn)
                     && e.data.as_ref().is_some_and(|d| d["key"] == key)
             });
             if !settled {
@@ -803,7 +811,7 @@ impl App {
         let ws = self.workspace(&def.workspace).unwrap_or_default();
         let state = self
             .db
-            .latest_event(&run.id, "loop.state_saved")
+            .latest_event(&run.id, EventKind::LoopStateSaved)
             .ok()
             .flatten()
             .and_then(|e| e.data?["text"].as_str().map(str::to_owned))
@@ -858,7 +866,10 @@ impl App {
                 if text.chars().count() > STATE_LIMIT {
                     return Err(format!("state 最多 {STATE_LIMIT} 个字符，现在是 {}", text.chars().count()));
                 }
-                self.emit(run, ev("loop.state_saved", "lead", "值班记下了自己的状态").data(json!({ "text": text })));
+                self.emit(
+                    run,
+                    ev(EventKind::LoopStateSaved, "lead", "值班记下了自己的状态").data(json!({ "text": text })),
+                );
                 Ok("已保存，下次醒来时在系统层里给你。".into())
             }
             "next_wake" => {
@@ -882,7 +893,7 @@ impl App {
                 }
                 self.emit(
                     run,
-                    ev("loop.next_wake", "lead", format!("约了这次干完后 {secs} 秒再来看一眼：{reason}"))
+                    ev(EventKind::LoopNextWake, "lead", format!("约了这次干完后 {secs} 秒再来看一眼：{reason}"))
                         .data(json!({ "seconds": secs, "reason": reason })),
                 );
                 Ok(format!("好，这一轮结束后 {secs} 秒再醒来一次；时间表照旧。"))

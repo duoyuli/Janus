@@ -13,6 +13,7 @@
 //! role uses are the library's (`crate::library`).
 
 use crate::acp::{AcpConn, Incoming, RuntimeSpec};
+use crate::db::ConfigKind;
 use crate::orchestrator::{App, Member};
 use crate::util::{expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
@@ -43,11 +44,6 @@ pub(crate) use roles::{RoleSeed, SEEDS, text_hash};
 pub use runtime::{InstructionChannel, Runtime};
 use session_options::*;
 pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
-
-pub(crate) const CONNECTION: &str = "connection";
-pub(crate) use workspaces::WORKSPACE;
-
-pub(crate) const ROLE: &str = "role";
 
 /// Split a launch command like a shell would for the simple cases: whitespace, single and double quotes.
 pub(crate) fn split_command(cmd: &str) -> Result<Vec<String>> {

@@ -4,11 +4,11 @@
 use super::*;
 
 fn replied(evs: &[Event], text: &str) -> bool {
-    evs.iter().any(|e| e.kind == "agent.message" && e.text.contains(&format!("回复：{text}")))
+    evs.iter().any(|e| e.kind.as_str() == "agent.message" && e.text.contains(&format!("回复：{text}")))
 }
 
 fn parked(evs: &[Event], why: &str) -> bool {
-    evs.iter().any(|e| e.kind == "session.parked" && e.data.as_ref().is_some_and(|d| d["reason"] == why))
+    evs.iter().any(|e| e.kind.as_str() == "session.parked" && e.data.as_ref().is_some_and(|d| d["reason"] == why))
 }
 
 async fn chat(h: &Harness, text: &str) -> String {
@@ -68,7 +68,8 @@ async fn a_full_house_parks_the_idlest_session() {
     assert!(
         events(&h.app, &third)
             .iter()
-            .any(|e| e.kind == "agent.status" && e.data.as_ref().is_some_and(|d| d["phase"] == "waiting_for_seat")),
+            .any(|e| e.kind.as_str() == "agent.status"
+                && e.data.as_ref().is_some_and(|d| d["phase"] == "waiting_for_seat")),
         "the waiting session says it waits for a seat"
     );
     gone(&h, &first).await;
@@ -106,7 +107,9 @@ async fn a_goal_lead_is_parked_only_after_delivery() {
 
     let message = json!({ "type": "message", "agent": "lead", "text": "结果是什么？" });
     assert!(h.app.request_action(&run, &message).await.is_ok());
-    wait_until(&h.app, &run, "the lead answers again", |e| e.iter().filter(|x| x.kind == "agent.message").count() >= 2)
-        .await;
+    wait_until(&h.app, &run, "the lead answers again", |e| {
+        e.iter().filter(|x| x.kind.as_str() == "agent.message").count() >= 2
+    })
+    .await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

@@ -9,9 +9,9 @@ use super::*;
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_material_reaches_everyone_and_suggestions_come_back() {
     let h = harness("brief", &[("lead", false), ("m1", false)], json!({}));
-    let mut ws = h.app.db.get_config("workspace", "ws").unwrap().unwrap();
+    let mut ws = h.app.db.get_config(ConfigKind::Workspace, "ws").unwrap().unwrap();
     ws["brief"] = json!("目标用户是独立开发者");
-    h.app.db.put_config("workspace", "ws", &ws, now_ms()).unwrap();
+    h.app.db.put_config(ConfigKind::Workspace, "ws", &ws, now_ms()).unwrap();
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
     std::fs::write(
@@ -23,14 +23,14 @@ async fn shared_material_reaches_everyone_and_suggestions_come_back() {
     let evs = events(&h.app, &run);
     let prompts: Vec<String> = evs
         .iter()
-        .filter(|e| e.kind == "session.prompt")
+        .filter(|e| e.kind.as_str() == "session.prompt")
         .map(|e| e.data.as_ref().unwrap()["prompt"].as_str().unwrap_or("").to_string())
         .collect();
     assert!(
         prompts.iter().any(|p| p.contains("Shared workspace context") && p.contains("目标用户是独立开发者")),
         "the lead sees it: {prompts:?}"
     );
-    let d = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap();
+    let d = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.clone().unwrap();
     assert_eq!(d["briefSuggestions"], json!(["定价页在 docs/pricing.md", "免费版限 3 个项目"]));
     assert!(
         d["summary"].as_str().unwrap().starts_with("做完了。")
@@ -59,7 +59,7 @@ async fn amended_conclusions_reach_downstream_tasks() {
     wait_until(&h.app, &run, "B after the amendment", |e| task_event(e, "task.succeeded", "B")).await;
     let evs = events(&h.app, &run);
     assert!(task_event(&evs, "result.amended", "A"));
-    assert!(evs.iter().any(|e| e.kind == "user.message"
+    assert!(evs.iter().any(|e| e.kind.as_str() == "user.message"
         && e.task.as_deref() == Some("B")
         && e.data.as_ref().is_some_and(|d| d["text"].as_str().unwrap_or("").contains("改用经典 8 邻域规则"))));
 
@@ -70,7 +70,7 @@ async fn amended_conclusions_reach_downstream_tasks() {
     wait_until(&h.app, &run, "C started", |e| task_event(e, "attempt.started", "C")).await;
     let started = events(&h.app, &run)
         .into_iter()
-        .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("C"))
+        .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("C"))
         .unwrap();
     assert!(
         started.data.as_ref().unwrap()["prompt"]
@@ -123,14 +123,14 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
         |kind: &str, task: &str| evs.iter().position(|e| e.kind == kind && e.task.as_deref() == Some(task)).unwrap();
     assert!(at("task.succeeded", "T1") < at("attempt.started", "V1"), "the verifier waits for the work");
     assert!(
-        !evs.iter().any(|e| e.kind == "session.prompt"
+        !evs.iter().any(|e| e.kind.as_str() == "session.prompt"
             && e.task.as_deref() == Some("V1")
             && e.data.as_ref().is_some_and(|d| d["channel"] == "fix")),
         "a verifier reporting a defect with evidence never gets a pointless fix round"
     );
     let prompt = |task: &str| -> String {
         evs.iter()
-            .find(|e| e.kind == "attempt.started" && e.task.as_deref() == Some(task))
+            .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some(task))
             .and_then(|e| e.data.as_ref()?["prompt"].as_str().map(str::to_owned))
             .unwrap_or_default()
     };
@@ -140,7 +140,7 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[验证未通过] V1") && board.contains("独立验证") && board.contains("rejected"), "{board}");
     assert!(board.contains("[无法开始] D1") && board.contains("V1 判定 rejected"), "{board}");
-    let blocked = evs.iter().find(|e| e.kind == "task.blocked" && e.task.as_deref() == Some("D1")).unwrap();
+    let blocked = evs.iter().find(|e| e.kind.as_str() == "task.blocked" && e.task.as_deref() == Some("D1")).unwrap();
     assert_eq!(blocked.data.as_ref().unwrap()["verdict"], "rejected", "{blocked:?}");
     let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "V1", "reason": "我看过了" })).await;
     assert!(err && text.contains("不能直接接受"), "{text}");
@@ -148,7 +148,7 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     // The delivery says a verifier whose verdict rejected the work did not confirm the task.
-    let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
+    let d = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.unwrap();
     let t1 = d["acceptance"].as_array().unwrap().iter().find(|a| a["task"] == "T1").unwrap().clone();
     assert_eq!(t1["verifications"][0]["task"], "V1", "{t1}");
     assert_eq!(t1["verifications"][0]["verdict"], "rejected", "{t1}");
@@ -158,7 +158,7 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
         "{d}"
     );
     assert!(
-        !events(&h.app, &run).iter().any(|e| e.kind == "attempt.started" && e.task.as_deref() == Some("D1")),
+        !events(&h.app, &run).iter().any(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("D1")),
         "D1 never ran on rejected work"
     );
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -185,7 +185,7 @@ async fn conflicting_edits_reach_the_lead_and_both_sides() {
     let notices = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap().matches("steer [Janus 提醒]").count();
     assert_eq!(notices, 2, "each side hears about the other");
     assert_eq!(
-        events(&h.app, &run).iter().filter(|e| e.kind == "task.conflict").count(),
+        events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "task.conflict").count(),
         1,
         "one report per file and pair"
     );
@@ -226,7 +226,7 @@ async fn traces_check_results_and_mark_stale_conclusions() {
     let evs = events(&h.app, &run);
     let trespass = evs
         .iter()
-        .find(|e| e.kind == "task.conflict" && e.data.as_ref().unwrap()["owned"] == true)
+        .find(|e| e.kind.as_str() == "task.conflict" && e.data.as_ref().unwrap()["owned"] == true)
         .expect("T2 stepped on T1's file");
     assert_eq!(
         (
@@ -237,8 +237,12 @@ async fn traces_check_results_and_mark_stale_conclusions() {
         (Some("T2"), &json!("T1"), &json!(["a.txt"]))
     );
     let gaps = |t: &str| {
-        evs.iter().find(|e| e.kind == "task.succeeded" && e.task.as_deref() == Some(t)).unwrap().data.as_ref().unwrap()
-            ["traceGaps"]
+        evs.iter()
+            .find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some(t))
+            .unwrap()
+            .data
+            .as_ref()
+            .unwrap()["traceGaps"]
             .clone()
     };
     assert_eq!(gaps("T1"), json!([]), "did what it owns");
@@ -247,7 +251,8 @@ async fn traces_check_results_and_mark_stale_conclusions() {
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[越界] T2") && board.contains("痕迹核对"), "{board}");
     // Each diff covers the task's own files; T4 changed nothing, so it has none.
-    let diffs: Vec<&Event> = evs.iter().filter(|e| e.kind == "artifact.created" && e.text.contains(".diff")).collect();
+    let diffs: Vec<&Event> =
+        evs.iter().filter(|e| e.kind.as_str() == "artifact.created" && e.text.contains(".diff")).collect();
     assert!(
         diffs.iter().any(|e| e.task.as_deref() == Some("T1")) && !diffs.iter().any(|e| e.task.as_deref() == Some("T4")),
         "{diffs:?}"
@@ -256,7 +261,9 @@ async fn traces_check_results_and_mark_stale_conclusions() {
     let handoff = evs
         .iter()
         .find(|e| {
-            e.kind == "context.handoff" && e.task.as_deref() == Some("T4") && e.data.as_ref().unwrap()["from"] == "T1"
+            e.kind.as_str() == "context.handoff"
+                && e.task.as_deref() == Some("T4")
+                && e.data.as_ref().unwrap()["from"] == "T1"
         })
         .unwrap();
     assert_eq!(handoff.data.as_ref().unwrap()["stale"], json!([{ "path": "a.txt", "by": "T3" }]));
@@ -323,7 +330,7 @@ async fn collaborators_claim_files_before_changing_them() {
     assert!(err && text.contains("归 T2 负责"), "{text}");
     let (text, err) = tool(&h.app, &run, "V1", "claim", json!({ "paths": ["x"] })).await;
     assert!(err && text.contains("验证子任务"), "{text}");
-    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind == "task.claimed").count(), 1);
+    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "task.claimed").count(), 1);
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[认领] T2") && board.contains("docs"), "{board}");
     let (peers, _) = tool(&h.app, &run, "T1", "peers", json!({})).await;

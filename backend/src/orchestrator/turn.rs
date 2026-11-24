@@ -105,7 +105,7 @@ impl App {
                     {
                         let _ = conn.request_timeout("_session/goal", json!({ "sessionId": sid, "action": "clear" }), Some(STEER_TIMEOUT)).await;
                         run.st.lock().unwrap().lead.goal_active = false;
-                        self.emit(run, ev("goal.status", "janus", "负责人确认目标已完成，Janus 结束了目标").data(json!({ "status": null, "by": "janus" })));
+                        self.emit(run, ev(EventKind::GoalStatus, "janus", "负责人确认目标已完成，Janus 结束了目标").data(json!({ "status": null, "by": "janus" })));
                         return Ok(if summary.is_empty() { out[..from].to_string() } else { summary });
                     }
                     if res["stopReason"] == "cancelled" && !interrupted {
@@ -182,7 +182,7 @@ impl App {
     pub(super) fn delivered_steer(&self, run: &Run, ctx: &Ctx<'_>, id: &str) {
         self.emit(
             run,
-            ev("message.delivered", "janus", format!("{} 已经读到插入的消息", ctx.agent))
+            ev(EventKind::MessageDelivered, "janus", format!("{} 已经读到插入的消息", ctx.agent))
                 .to(ctx.agent)
                 .scope(ctx)
                 .data(json!({ "ids": [id], "applied": true })),
@@ -267,7 +267,7 @@ impl App {
                 };
                 self.emit(
                     run,
-                    ev("session.interrupted", "user", text)
+                    ev(EventKind::SessionInterrupted, "user", text)
                         .task(task)
                         .attempt(n)
                         .to(agent)
@@ -282,7 +282,7 @@ impl App {
                     self.emit(
                         run,
                         ev(
-                            "control.taken",
+                            EventKind::ControlTaken,
                             "user",
                             format!(
                                 "接管 {} 的会话：这一轮结束后等你的消息",
@@ -302,7 +302,7 @@ impl App {
                     self.emit(
                         run,
                         ev(
-                            "control.released",
+                            EventKind::ControlReleased,
                             "user",
                             format!(
                                 "交还托管：{} 继续自主完成子任务",
@@ -329,8 +329,9 @@ impl App {
         if raw.trim().is_empty() {
             return;
         }
-        let e =
-            ev("agent.message", ctx.agent, clip(raw.trim(), 80)).data(json!({ "text": clip(raw, 8000) })).scope(ctx);
+        let e = ev(EventKind::AgentMessage, ctx.agent, clip(raw.trim(), 80))
+            .data(json!({ "text": clip(raw, 8000) }))
+            .scope(ctx);
         self.emit(run, e);
     }
 
@@ -397,7 +398,7 @@ impl App {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("{task} 和 {other} 都改了 {}", clip(&list, 80)))
+                ev(EventKind::TaskConflict, "janus", format!("{task} 和 {other} 都改了 {}", clip(&list, 80)))
                     .task(task)
                     .to("lead")
                     .data(json!({ "other": other, "paths": files })),
@@ -410,7 +411,7 @@ impl App {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("{task} 改了 {other} 负责的 {}", clip(&list, 80)))
+                ev(EventKind::TaskConflict, "janus", format!("{task} 改了 {other} 负责的 {}", clip(&list, 80)))
                     .task(task)
                     .to("lead")
                     .data(json!({ "other": other, "paths": files, "owned": true })),
@@ -478,16 +479,20 @@ impl App {
         if !after_plan.is_empty() {
             self.emit(
                 run,
-                ev("lead.edited", "janus", format!("负责人派出子任务后改了 {}", clip(&after_plan.join("、"), 80)))
-                    .to("lead")
-                    .data(json!({ "paths": after_plan })),
+                ev(
+                    EventKind::LeadEdited,
+                    "janus",
+                    format!("负责人派出子任务后改了 {}", clip(&after_plan.join("、"), 80)),
+                )
+                .to("lead")
+                .data(json!({ "paths": after_plan })),
             );
         }
         for (other, files) in owned {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("负责人改了 {other} 负责的 {}", clip(&list, 80)))
+                ev(EventKind::TaskConflict, "janus", format!("负责人改了 {other} 负责的 {}", clip(&list, 80)))
                     .task(&other)
                     .to("lead")
                     .data(json!({ "other": "lead", "byLead": true, "owned": true, "paths": files })),
@@ -504,7 +509,7 @@ impl App {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("负责人和 {other} 都改了 {}", clip(&list, 80)))
+                ev(EventKind::TaskConflict, "janus", format!("负责人和 {other} 都改了 {}", clip(&list, 80)))
                     .task(&other)
                     .to("lead")
                     .data(json!({ "other": "lead", "byLead": true, "paths": files })),
@@ -554,7 +559,7 @@ impl App {
             match ctx.task {
                 Some(task) => self.emit(
                     run,
-                    ev("task.stalled", "janus", format!("{task} 又有动静了"))
+                    ev(EventKind::TaskStalled, "janus", format!("{task} 又有动静了"))
                         .task(task)
                         .attempt(n)
                         .to("lead")
@@ -562,7 +567,7 @@ impl App {
                 ),
                 None => self.emit(
                     run,
-                    ev("lead.stalled", "janus", "负责人又有动静了")
+                    ev(EventKind::LeadStalled, "janus", "负责人又有动静了")
                         .to("user")
                         .data(json!({ "reason": "idle", "resolved": true })),
                 ),
@@ -579,7 +584,7 @@ impl App {
                 self.emit(
                     run,
                     ev(
-                        "goal.status",
+                        EventKind::GoalStatus,
                         ctx.agent,
                         match status.as_deref() {
                             Some("active") => "目标进行中".to_string(),
@@ -619,7 +624,7 @@ impl App {
                 // finished record (`tool.call`, same `callId`) replaces it.
                 if first && !matches!(status.as_str(), "completed" | "failed") {
                     let data = crate::acp_view::tool_started(&id, entry, &summarize_input(&entry["rawInput"], &title));
-                    let e = ev("tool.started", ctx.agent, clip(&title, 80)).data(data).scope(ctx);
+                    let e = ev(EventKind::ToolStarted, ctx.agent, clip(&title, 80)).data(data).scope(ctx);
                     self.emit(run, e);
                 }
                 if matches!(status.as_str(), "completed" | "failed") {
@@ -647,7 +652,7 @@ impl App {
                     if !diffs.is_empty() {
                         data["diffs"] = json!(diffs);
                     }
-                    let e = ev("tool.call", ctx.agent, clip(&title, 80)).data(data).scope(ctx);
+                    let e = ev(EventKind::ToolCall, ctx.agent, clip(&title, 80)).data(data).scope(ctx);
                     let seq = self.emit(run, e);
                     if status == "completed" {
                         self.record_skill_reads(run, &entry, &mut turn.skills_read, ctx);
@@ -672,7 +677,9 @@ impl App {
                         turn.last_status = now_ms();
                         self.emit(
                             run,
-                            ev("agent.status", ctx.agent, clip(&title, 80)).scope(ctx).data(json!({ "phase": phase })),
+                            ev(EventKind::AgentStatus, ctx.agent, clip(&title, 80))
+                                .scope(ctx)
+                                .data(json!({ "phase": phase })),
                         );
                     }
                 }
@@ -701,7 +708,7 @@ impl App {
                 continue;
             };
             if seen.insert(name.clone()) {
-                let e = ev("skill.used", ctx.agent, format!("读了资源库的 Skill {name}"))
+                let e = ev(EventKind::SkillUsed, ctx.agent, format!("读了资源库的 Skill {name}"))
                     .data(json!({ "skill": name, "item": item.id, "revision": item.revision }))
                     .scope(ctx);
                 self.emit(run, e);
@@ -720,7 +727,7 @@ impl App {
         let text = std::mem::take(thought);
         let text = text.trim();
         if !text.is_empty() {
-            self.show(run, ("agent.thought", clip(text, 80), json!({ "text": clip(text, 8000) })), ctx);
+            self.show(run, (EventKind::AgentThought, clip(text, 80), json!({ "text": clip(text, 8000) })), ctx);
         }
     }
 
@@ -748,7 +755,7 @@ impl App {
             self.show(
                 run,
                 (
-                    "session.control",
+                    EventKind::SessionControl,
                     format!("切换 {id} 没有成功：{}", clip(&format!("{err:#}"), 120)),
                     json!({ "id": id, "failed": true }),
                 ),
@@ -771,7 +778,7 @@ impl App {
             self.show(
                 run,
                 (
-                    "session.control",
+                    EventKind::SessionControl,
                     format!("你把模式切换为 {}", value.as_str().unwrap_or_default()),
                     json!({ "id": id, "value": value, "via": via.as_str(), "by": "user" }),
                 ),
@@ -784,7 +791,7 @@ impl App {
             self.show(
                 run,
                 (
-                    "session.control",
+                    EventKind::SessionControl,
                     format!(
                         "你把 {id} 切换为 {}",
                         value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string())
@@ -794,7 +801,11 @@ impl App {
                 ctx,
             );
             if r["configOptions"].is_array() {
-                self.show(run, ("session.controls", "会话选项已更新".into(), crate::agents::session_options(&r)), ctx);
+                self.show(
+                    run,
+                    (EventKind::SessionControls, "会话选项已更新".into(), crate::agents::session_options(&r)),
+                    ctx,
+                );
             }
         }
         Ok(())
@@ -845,13 +856,13 @@ impl App {
         let key = format!("req-{}-{}-{}", if task.is_empty() { ctx.agent } else { task }, n, now_ms());
         let mode = params["mode"].as_str().unwrap_or("form");
         let mut e = if elicit {
-            ev("input.requested", ctx.agent, format!("请你填写：{}", clip(&title, 50))).data(json!({
+            ev(EventKind::InputRequested, ctx.agent, format!("请你填写：{}", clip(&title, 50))).data(json!({
                 "key": key, "agent": ctx.agent, "mode": mode, "message": title,
                 "schema": params["requestedSchema"], "url": params["url"],
                 "toolCallId": params["toolCallId"], "meta": params["_meta"],
             }))
         } else {
-            ev("approval.requested", ctx.agent, format!("请求批准：{}", clip(&title, 50))).data(json!({
+            ev(EventKind::ApprovalRequested, ctx.agent, format!("请求批准：{}", clip(&title, 50))).data(json!({
                 "key": key, "agent": ctx.agent, "command": command, "title": title,
                 "toolKind": tool["kind"], "content": tool["content"], "rawInput": tool["rawInput"],
                 "policy": "这个数字员工的权限模式要求这一步由你决定",
@@ -919,7 +930,7 @@ impl App {
     /// Drop a pending decision nobody can act on any more, and tell the app to remove its card.
     pub(super) fn withdraw(&self, run: &Run, key: &str, task: &str, n: i64, text: &str) {
         run.st.lock().unwrap().pending.remove(key);
-        let mut e = ev("decision.withdrawn", "janus", text).data(json!({ "key": key }));
+        let mut e = ev(EventKind::DecisionWithdrawn, "janus", text).data(json!({ "key": key }));
         if !task.is_empty() {
             e = e.task(task).attempt(n);
         }

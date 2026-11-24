@@ -27,19 +27,36 @@ pub(super) enum DeliveryMerge {
     Failed(String),
 }
 
-impl DeliveryMerge {
-    /// How the delivery reached the person's branch, for the app (`run.delivered` `merge.state`):
-    /// `merged`; `nothing` new; `resolving`, a conflict the lead is resolving now; `conflict`, one
-    /// still there after it tried (`again`), which the person hands back to it by accepting;
-    /// `blocked`, the person's side in the way.
+wire_enum! {
+    /// How a delivery's result reached the person's branch, for the app (`run.delivered`
+    /// `merge.state`).
     // @project-doc docs/interfaces/20261031-events.md#event_types
-    pub(super) fn state(&self, again: bool) -> &'static str {
+    pub(super) enum MergeState {
+        /// On the branch now.
+        Merged = "merged",
+        /// Nothing new since the last merge-back.
+        Nothing = "nothing",
+        /// A conflict with the branch's new commits that the lead is resolving now.
+        Resolving = "resolving",
+        /// One still there after the lead tried, which the person hands back to it by accepting.
+        Conflict = "conflict",
+        /// Something on the person's side is in the way (their uncommitted work, a rewritten branch).
+        Blocked = "blocked",
+        /// Not a Git repository: the run changed the person's folder directly.
+        InPlace = "inPlace",
+    }
+}
+
+impl DeliveryMerge {
+    /// How the delivery reached the person's branch; `again` when the lead already tried to
+    /// resolve the same stop.
+    pub(super) fn state(&self, again: bool) -> MergeState {
         match self {
-            DeliveryMerge::Merged { .. } => "merged",
-            DeliveryMerge::Nothing => "nothing",
-            DeliveryMerge::HandBack(_) if again => "conflict",
-            DeliveryMerge::HandBack(_) => "resolving",
-            DeliveryMerge::Failed(_) => "blocked",
+            DeliveryMerge::Merged { .. } => MergeState::Merged,
+            DeliveryMerge::Nothing => MergeState::Nothing,
+            DeliveryMerge::HandBack(_) if again => MergeState::Conflict,
+            DeliveryMerge::HandBack(_) => MergeState::Resolving,
+            DeliveryMerge::Failed(_) => MergeState::Blocked,
         }
     }
 }
@@ -155,10 +172,13 @@ impl App {
     /// The commit holding the run's result as last brought back, by a delivery (`run.merged`) or
     /// the person accepting (`risk.accepted`): its `data.result`.
     pub(super) fn last_merged(&self, run_id: &str) -> Result<Option<String>> {
-        let latest = [self.db.latest_event(run_id, "risk.accepted")?, self.db.latest_event(run_id, "run.merged")?]
-            .into_iter()
-            .flatten()
-            .max_by_key(|e| e.seq);
+        let latest = [
+            self.db.latest_event(run_id, EventKind::RiskAccepted)?,
+            self.db.latest_event(run_id, EventKind::RunMerged)?,
+        ]
+        .into_iter()
+        .flatten()
+        .max_by_key(|e| e.seq);
         Ok(latest.and_then(|e| {
             let d = e.data?;
             d["result"].as_str().map(str::to_owned)
@@ -205,12 +225,12 @@ impl App {
         let changed = self.unmerged_files(run_id, &w, base_ref);
         let merge = self.merge_at_delivery(run_id, &w, base_ref, row["goal"].as_str().unwrap_or(""));
         if let DeliveryMerge::Merged { text, data } = &merge {
-            self.record(run_id, ev("run.merged", "janus", text.clone()).data(data.clone()))?;
+            self.record(run_id, ev(EventKind::RunMerged, "janus", text.clone()).data(data.clone()))?;
         }
         let (state, note) = match &merge {
             // The lead is not there to resolve it now: accepting hands it over.
             DeliveryMerge::HandBack(_) => (
-                "conflict",
+                MergeState::Conflict,
                 format!(
                     "合并到 {} 时和分支上的新提交冲突，你的目录和分支都没有动：让负责人解决，它会在任务的副本里处理。",
                     w.source()
@@ -234,7 +254,10 @@ impl App {
             "merge": { "state": state, "note": note },
             "usage": crate::usage::ledger(&self.db.events(run_id, 0)?).delivery_line(),
         });
-        self.record(run_id, ev("run.delivered", "janus", "验收之后负责人又做了改动，重启后再次交付").data(data))?;
+        self.record(
+            run_id,
+            ev(EventKind::RunDelivered, "janus", "验收之后负责人又做了改动，重启后再次交付").data(data),
+        )?;
         self.set_stored_status(run_id, RunStatus::Delivered)
     }
 }
