@@ -100,7 +100,7 @@ GitHub 托管的 macOS arm64 运行器容量不足时，任务排约 15 分钟�
 
 **结论看「CI result」**：`hosted` 一直排不到时，GitHub 最后会取消它，整次运行显示失败，即使 `local` 已经通过。任务「CI result」是唯一的判定：Orchestrator 通过，并且某条腿的「Test」步骤成功；某条腿失败，或者所有腿都结束了却没有一条测过，就失败。Release 的「Wait for CI on this commit」读的是这个任务。Release 自己的运行在同样的情况下也会显示失败，安装包是否发出以 Release 页面和 `local` 那条腿为准。
 
-**本机这条腿和托管的差别**：不装 Rust 工具链（`dtolnay/rust-toolchain` 会改掉维护者的默认工具链），用机器上已有的 Rust、Swift、Node.js 和 `gh`；签名步骤改过的钥匙串搜索列表在最后一步恢复。打出的安装包用的是本机的 SDK 和编译器，和 `macos-15` 上打出的不完全一样，最低系统版本和签名相同。
+**本机这条腿和托管的差别**：不装 Rust 工具链（`dtolnay/rust-toolchain` 会改掉维护者的默认工具链），用机器上已有的 Rust、Swift、Node.js 和 `gh`；机器上只有命令行工具、没有 Xcode 时，Swift Testing 的宏插件要显式指定路径，构建和测试两步的额外参数由 `frontend/scripts/swift-test-flags.sh` 给出（`just test-mac` 用的是同一个脚本，GitHub 的机器装了 Xcode，参数为空）；签名步骤改过的钥匙串搜索列表在最后一步恢复。打出的安装包用的是本机的 SDK 和编译器，和 `macos-15` 上打出的不完全一样，最低系统版本和签名相同。
 
 **安装**（已在维护者的机器上做过，换机器或重装时照做）：
 

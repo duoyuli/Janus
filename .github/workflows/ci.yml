@@ -65,14 +65,16 @@ jobs:
         run: swift --version
       # One build for both: `swift test` builds with testing enabled, which a plain `swift build`
       # does not share, so building first would compile everything twice.
+      # The flags name Swift Testing's macro plugin where only the Command Line Tools are installed
+      # (the local runner); on GitHub's machine, which has Xcode, there are none.
       - name: Build
         if: steps.claim.outputs.work == 'true'
         working-directory: frontend
-        run: swift build --build-tests
+        run: swift build --build-tests $(scripts/swift-test-flags.sh)
       - name: Test
         if: steps.claim.outputs.work == 'true'
         working-directory: frontend
-        run: swift test --skip-build
+        run: swift test --skip-build $(scripts/swift-test-flags.sh)
 
   # The one answer to "did CI pass for this commit": the orchestrator's checks, and the app's tests
   # on whichever leg did them. A hosted leg that never got a machine is cancelled by GitHub long

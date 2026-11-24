@@ -56,18 +56,10 @@ lint:
 mac:
     cd frontend && swift run Janus
 
-# macOS 应用的测试（Swift Testing，需要安装 Xcode）
-# 只装了命令行工具时，Swift Testing 的宏插件在 plugins/testing 下，需要显式加载
+# macOS 应用的测试（Swift Testing）
+# 只装了命令行工具、没有 Xcode 时，Swift Testing 的宏插件要显式加载：参数由 swift-test-flags.sh 给出，CI 也用它
 test-mac:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd frontend
-    clt=/Library/Developer/CommandLineTools
-    if [ "$(xcode-select -p)" = "$clt" ] && [ -d "$clt/usr/lib/swift/host/plugins/testing" ]; then
-        swift test -Xswiftc -plugin-path -Xswiftc "$clt/usr/lib/swift/host/plugins/testing"
-    else
-        swift test
-    fi
+    cd frontend && swift test $(scripts/swift-test-flags.sh)
 
 # 构建 dist/Janus.app（原生界面 + 内置服务和 Node.js，不打 DMG）
 app:
