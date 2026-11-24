@@ -9,7 +9,7 @@
 use super::*;
 
 fn cwd_of(h: &Harness, run: &str) -> PathBuf {
-    PathBuf::from(h.app.db.run(run).unwrap().unwrap()["cwd"].as_str().unwrap())
+    PathBuf::from(serde_json::to_value(h.app.db.run(run).unwrap().unwrap()).unwrap()["cwd"].as_str().unwrap())
 }
 
 fn git_out(dir: &Path, args: &[&str]) -> String {
@@ -313,8 +313,8 @@ async fn a_workspace_folder_inside_a_repository_is_where_sessions_start() {
     sh(&h.repo, &["add", "-A"]);
     sh(&h.repo, &["commit", "-q", "-m", "client"]);
     let mut ws = h.app.workspace("ws").unwrap();
-    ws["path"] = json!(sub.canonicalize().unwrap());
-    h.app.db.put_config(ConfigKind::Workspace, "ws", &ws, now_ms()).unwrap();
+    ws.path = sub.canonicalize().unwrap().to_string_lossy().into();
+    h.app.db.put(&ws, now_ms()).unwrap();
 
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     let cwd = cwd_of(&h, &run);
@@ -341,7 +341,8 @@ async fn tasks_work_in_the_runs_own_worktree() {
     let h = harness("inplace", &[("lead", false), ("m1", false)], json!({ "T1": ["write:notes.md"] }));
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
-    let cwd = PathBuf::from(h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap());
+    let cwd =
+        PathBuf::from(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["cwd"].as_str().unwrap());
     assert_ne!(cwd, h.repo.canonicalize().unwrap());
     assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n", "written in the worktree");
     assert!(!h.repo.join("notes.md").exists(), "the person's checkout is untouched while it works");

@@ -132,7 +132,7 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert_eq!(listed(&h, &lead).await, names, "the lead sees the same tools");
     assert_eq!((count(), browsers()), (1, 1), "listing again starts nothing: the running one, or the list kept");
 
-    let cwd = h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap().to_string();
+    let cwd = serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["cwd"].as_str().unwrap().to_string();
     assert_eq!(text(&tool(&h, &at, "probe__cwd", json!({})).await), cwd, "it runs in the run's working directory");
     assert_eq!(
         text(&tool(&h, &at, "probe__roots", json!({})).await),
@@ -515,8 +515,8 @@ async fn library_resources_reach_the_session_only_through_the_routers() {
     let bundle = h.app.cfg.layout.run(RunKind::Goal, &run).bundle("lead");
     assert!(bundle.join("skills/janus-skills/.skills/notes/SKILL.md").is_file());
     assert!(!bundle.join("skills/notes").exists(), "the skill is not loaded on its own");
-    let record =
-        serde_json::to_string(&h.app.db.run(&run).unwrap().unwrap()).unwrap() + &serde_json::to_string(&evs).unwrap();
+    let record = serde_json::to_string(&serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()).unwrap()
+        + &serde_json::to_string(&evs).unwrap();
     for secret in ["own-env-secret", "lib-env-secret", "lib-header-secret"] {
         assert!(!record.contains(secret), "the run record and its events hold no values: {secret}");
     }

@@ -255,12 +255,15 @@ impl App {
             bail!("有正在运行的子任务在使用这个 Provider，请等它结束或取消后再删除");
         }
         // The roles bound to it come out as a role saved without an agent: nothing chosen for one.
-        for mut role in self.db.list_config(ConfigKind::Role)?.into_iter().filter(|r| r["connection"] == id) {
-            role["connection"] = json!("");
-            role["model"] = json!("");
-            role["effort"] = json!("");
-            role["session"] = json!({});
-            self.db.put_config(ConfigKind::Role, str_of(&role, "id"), &role, now_ms())?;
+        for role in self.db.list::<Role>()?.into_iter().filter(|r| r.connection == id) {
+            let unbound = Role {
+                connection: String::new(),
+                model: String::new(),
+                effort: String::new(),
+                session: json!({}),
+                ..role
+            };
+            self.db.put(&unbound, now_ms())?;
         }
         self.db.delete_config(ConfigKind::Connection, id)?;
         for path in self.cfg.layout.agent_paths(id) {

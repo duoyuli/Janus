@@ -120,14 +120,14 @@ impl RunKind {
     }
 
     /// Whether a run that is not live can be brought back after it ended `previous`, or why not.
-    pub fn resumable(self, previous: Option<RunStatus>) -> Result<bool, &'static str> {
+    pub fn resumable(self, previous: RunStatus) -> Result<bool, &'static str> {
         match self {
-            RunKind::Chat | RunKind::Loop => Ok(previous.is_some_and(|s| s != RunStatus::Cancelled)),
+            RunKind::Chat | RunKind::Loop => Ok(previous != RunStatus::Cancelled),
             // A consolidation is one turn; a new one starts from the workspace's page.
             RunKind::Dream => Err("整理团队记忆只有一轮，结束后不能继续；可以在工作区页重新整理"),
             RunKind::Goal => Ok(matches!(
                 previous,
-                Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
+                RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted
             )),
         }
     }

@@ -226,8 +226,8 @@ impl App {
             Some(run) => run,
             None => {
                 let row = self.db.run(run_id)?;
-                let stored = row.as_ref().and_then(|r| RunStatus::parse(r["status"].as_str()?));
-                let run_kind = row.as_ref().and_then(|r| RunKind::parse(r["kind"].as_str()?)).unwrap_or_default();
+                let stored = row.as_ref().map(|r| r.status);
+                let run_kind = row.as_ref().map(|r| r.kind).unwrap_or_default();
                 match stored {
                     // A queued run has nothing live yet: it can only start now or be cancelled.
                     Some(RunStatus::Queued) => {
@@ -407,7 +407,7 @@ impl App {
         if task.is_empty() {
             // A Loop does not wait for the answer to its question: the answer wakes it.
             if run.kind == RunKind::Loop
-                && let Some(id) = self.db.run(&run.id)?.and_then(|r| r["loopId"].as_str().map(str::to_owned))
+                && let Some(id) = self.db.run(&run.id)?.and_then(|r| r.loop_id.clone())
             {
                 self.wake_loop_later(&id, WakeReason::Answer);
             }
@@ -517,15 +517,14 @@ impl App {
         if let Some(run) = self.run(run_id) {
             return Ok(Some(run));
         }
-        let status = self.db.run(run_id)?.map(|r| r["status"].clone()).context("run not found")?;
-        if status.as_str() != Some("delivered") {
+        let status = self.db.run(run_id)?.map(|r| r.status).context("run not found")?;
+        if status != RunStatus::Delivered {
             bail!("只有已交付的任务 可以验收");
         }
         let row = self.db.run(run_id)?.context("run not found")?;
-        let worktree = WorktreeOf::of_config(&row["config"]);
-        let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
-        let (text, data) =
-            self.accept_worktree(run_id, worktree.as_ref(), base_ref, row["goal"].as_str().unwrap_or(""), true)?;
+        let worktree = WorktreeOf::of_config(&row.config);
+        let base_ref = row.config["baseRef"].as_str().unwrap_or_default();
+        let (text, data) = self.accept_worktree(run_id, worktree.as_ref(), base_ref, row.goal.as_str(), true)?;
         self.record(run_id, ev(EventKind::RiskAccepted, "user", text).data(data))?;
         self.set_stored_status(run_id, RunStatus::Accepted)?;
         Ok(None)
@@ -533,7 +532,7 @@ impl App {
 
     /// A goal run that left the queue but never got its snapshot (`config.team`).
     fn never_started(&self, run_id: &str) -> Result<bool> {
-        Ok(self.db.run(run_id)?.is_some_and(|r| r["kind"] == RunKind::Goal.as_str() && r["config"]["team"].is_null()))
+        Ok(self.db.run(run_id)?.is_some_and(|r| r.kind == RunKind::Goal && r.config["team"].is_null()))
     }
 
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
@@ -561,20 +560,19 @@ impl App {
             return Ok(run);
         }
         let row = self.db.run(run_id)?.context("run not found")?;
-        let previous = row["status"].as_str().and_then(RunStatus::parse);
-        let kind = row["kind"].as_str().and_then(RunKind::parse).context("这个任务的类型无法读取")?;
+        let previous = row.status;
+        let kind = Some(row.kind).context("这个任务的类型无法读取")?;
         // Delivered and accepted runs reopen as a conversation; interrupted and failed runs
         // rebuild the board and continue the goal. A chat (and a Loop's session) is always a
         // conversation: whatever ended its session (a restart, the agent exiting), the next
         // message (or wake) reopens it.
         // @project-doc docs/domains/20261120-chats.md#chat_session
-        let conversation =
-            kind.single_session() || matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
+        let conversation = kind.single_session() || matches!(previous, RunStatus::Delivered | RunStatus::Accepted);
         if !kind.resumable(previous).map_err(|why| anyhow!(why))? {
             bail!("只有中断、失败、已交付或已验收的子任务可以继续");
         }
         let events = self.db.events(run_id, 0)?;
-        let config = &row["config"];
+        let config = &row.config;
         let mut team: Vec<Member> =
             serde_json::from_value(config["team"].clone()).context("这个子任务的团队记录无法读取")?;
         for m in team.iter_mut() {
@@ -586,7 +584,7 @@ impl App {
             self.spec_for(&m.runtime)?;
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
-        let cwd = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
+        let cwd = PathBuf::from(row.cwd.as_str());
         // An accepted run's worktree was removed; working again brings it back where the last
         // merge-back left the result (or where the run started).
         let worktree = WorktreeOf::of_config(config);
@@ -603,7 +601,7 @@ impl App {
         let run = Arc::new(Run::new(RunRecord {
             id: run_id.to_string(),
             kind,
-            goal: row["goal"].as_str().unwrap_or("").to_string(),
+            goal: row.goal.as_str().to_string(),
             cwd,
             worktree,
             team,
@@ -612,7 +610,7 @@ impl App {
             brief: config["workspace"]["brief"].as_str().unwrap_or("").trim().to_string(),
             goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
             last_seq: self.db.max_seq(run_id)?,
-            status: if conversation { previous.unwrap_or(RunStatus::Delivered) } else { RunStatus::Running },
+            status: if conversation { previous } else { RunStatus::Running },
             asker,
         }));
 
@@ -941,17 +939,17 @@ impl App {
         // merges it. Any other worktree git cannot read (Janus home moved and its repair failed
         // then) is repaired.
         for row in self.db.worktree_runs()? {
-            let Some(repo) = row["config"]["worktree"]["repo"].as_str() else { continue };
-            let id = row["id"].as_str().unwrap_or_default();
-            let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
-            if row["status"] == "accepted" && self.moved_on_since_merge(id, base_ref) {
+            let Some(repo) = row.config["worktree"]["repo"].as_str() else { continue };
+            let id = row.id.as_str();
+            let base_ref = row.config["baseRef"].as_str().unwrap_or_default();
+            if row.status == RunStatus::Accepted && self.moved_on_since_merge(id, base_ref) {
                 if let Err(err) = self.redeliver_after_restart(id) {
                     crate::config::log(format!("janus: could not deliver accepted run {id} again: {err:#}"));
                 }
                 continue;
             }
             let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
-            if row["status"] != "accepted" {
+            if row.status != RunStatus::Accepted {
                 crate::worktrees::heal(Path::new(repo), &self.worktree_root(id));
                 continue;
             }

@@ -181,7 +181,7 @@ async fn a_consolidation_merges_and_prunes_notes_in_one_turn() {
     note(&h, "ws", "m-c", "上周换了数据库");
 
     let dream = h.app.consolidate("ws").await.unwrap();
-    let row = h.app.db.run(&dream).unwrap().unwrap();
+    let row = serde_json::to_value(h.app.db.run(&dream).unwrap().unwrap()).unwrap();
     assert_eq!((row["kind"].as_str(), row["config"]["workspace"]["id"].as_str()), (Some("dream"), Some("ws")));
     let again = h.app.consolidate("ws").await.unwrap_err();
     assert!(matches!(again, Refused::Conflict(_)), "one consolidation at a time");

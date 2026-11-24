@@ -2,7 +2,7 @@
 //! are indexes kept alongside them so the scheduler and UI can query without replaying.
 
 use crate::events::EventKind;
-use crate::status::{AttemptStatus, CommandState, RunKind, RunStatus};
+use crate::status::{AttemptStatus, CommandState, RunKind, RunOrigin, RunStatus};
 use crate::wire::wire_enum;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -37,6 +37,12 @@ impl Event {
     pub fn kind(&self) -> EventKind {
         EventKind::parse(&self.kind).unwrap_or(EventKind::Unknown)
     }
+}
+
+/// A setting stored as one row of `configs`: its kind and its id.
+pub trait Setting: Serialize + serde::de::DeserializeOwned {
+    const KIND: ConfigKind;
+    fn id(&self) -> &str;
 }
 
 wire_enum! {
@@ -143,21 +149,49 @@ macro_rules! select_runs {
 }
 
 /// A `runs` row as the API and the orchestrator read it.
-fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
-    Ok(serde_json::json!({
-        "id": r.get::<_, String>(0)?,
-        "goal": r.get::<_, String>(1)?,
-        "cwd": r.get::<_, String>(2)?,
-        "config": serde_json::from_str::<Value>(&r.get::<_, String>(3)?).unwrap_or(Value::Null),
-        "status": r.get::<_, String>(4)?,
-        "createdAt": r.get::<_, i64>(5)?,
-        "kind": r.get::<_, String>(6)?,
-        "origin": r.get::<_, String>(7)?,
-        "loopId": r.get::<_, Option<String>>(8)?,
-        "dispatchKey": r.get::<_, Option<String>>(9)?,
-        "sourceUrl": r.get::<_, Option<String>>(10)?,
-        "queuePosition": r.get::<_, Option<i64>>(11)?,
-    }))
+fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
+    fn wire<T>(r: &rusqlite::Row<'_>, i: usize, parse: fn(&str) -> Option<T>) -> rusqlite::Result<T> {
+        let s = r.get::<_, String>(i)?;
+        parse(&s).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(i, rusqlite::types::Type::Text, format!("不认识的值 {s}").into())
+        })
+    }
+    Ok(RunRow {
+        id: r.get(0)?,
+        goal: r.get(1)?,
+        cwd: r.get(2)?,
+        config: serde_json::from_str::<Value>(&r.get::<_, String>(3)?).unwrap_or(Value::Null),
+        status: wire(r, 4, RunStatus::parse)?,
+        created_at: r.get(5)?,
+        kind: wire(r, 6, RunKind::parse)?,
+        origin: wire(r, 7, RunOrigin::parse)?,
+        loop_id: r.get(8)?,
+        dispatch_key: r.get(9)?,
+        source_url: r.get(10)?,
+        queue_position: r.get(11)?,
+    })
+}
+
+/// A `runs` row, as the API sends it.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RunRow {
+    pub id: String,
+    /// The goal; a chat's first message.
+    pub goal: String,
+    pub cwd: String,
+    /// The snapshot the run started with (`runs.config`): its team, the workspace, its worktree.
+    pub config: Value,
+    pub status: RunStatus,
+    pub created_at: i64,
+    pub kind: RunKind,
+    pub origin: RunOrigin,
+    /// The Loop that dispatched it (`origin` `loop`), or whose session it is.
+    pub loop_id: Option<String>,
+    pub dispatch_key: Option<String>,
+    pub source_url: Option<String>,
+    /// Its place in the dispatch queue, while it waits there.
+    pub queue_position: Option<i64>,
 }
 
 /// An `events` row.
@@ -285,7 +319,7 @@ impl Db {
     }
 
     /// The goal runs a Loop dispatched (in one status), newest first.
-    pub fn dispatched_runs(&self, loop_id: &str, status: Option<RunStatus>, limit: usize) -> Result<Vec<Value>> {
+    pub fn dispatched_runs(&self, loop_id: &str, status: Option<RunStatus>, limit: usize) -> Result<Vec<RunRow>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(select_runs!(
             "WHERE loop_id = ?1 AND kind = 'goal' AND (?2 IS NULL OR status = ?2) ORDER BY created_at DESC, id DESC LIMIT ?3"
@@ -438,7 +472,7 @@ impl Db {
     }
 
     /// The newest 50 runs of one kind, for the role statistics. Goals and chats are counted apart.
-    pub fn runs(&self, kind: RunKind) -> Result<Vec<Value>> {
+    pub fn runs(&self, kind: RunKind) -> Result<Vec<RunRow>> {
         Ok(self
             .runs_page(&RunsPage { kind, workspace: None, statuses: None, loop_id: None, before: None, limit: 50 })?
             .0)
@@ -449,7 +483,7 @@ impl Db {
     /// the second value. The order is total (creation time, then id), so paging never skips or
     /// repeats a run, however many were created in the same millisecond.
     // @project-doc docs/interfaces/20261031-http_api.md#run_list
-    pub fn runs_page(&self, page: &RunsPage) -> Result<(Vec<Value>, bool)> {
+    pub fn runs_page(&self, page: &RunsPage) -> Result<(Vec<RunRow>, bool)> {
         let conn = self.0.lock().unwrap();
         let (time, id) = page.before.clone().unwrap_or((i64::MAX, String::new()));
         let mut stmt = conn.prepare(select_runs!(
@@ -468,7 +502,7 @@ impl Db {
             params![page.kind.as_str(), page.workspace, time, id, page.limit as i64 + 1, statuses, page.loop_id],
             run_row,
         )?;
-        let mut runs: Vec<Value> = rows.collect::<rusqlite::Result<_>>()?;
+        let mut runs: Vec<RunRow> = rows.collect::<rusqlite::Result<_>>()?;
         let more = runs.len() > page.limit;
         runs.truncate(page.limit);
         Ok((runs, more))
@@ -494,7 +528,7 @@ impl Db {
     }
 
     /// The runs still working (planning or running) in directory `cwd`.
-    pub fn active_runs_in(&self, cwd: &str) -> Result<Vec<Value>> {
+    pub fn active_runs_in(&self, cwd: &str) -> Result<Vec<RunRow>> {
         let conn = self.0.lock().unwrap();
         let mut stmt =
             conn.prepare(select_runs!("WHERE cwd = ?1 AND status IN ('planning', 'running') ORDER BY created_at"))?;
@@ -503,7 +537,7 @@ impl Db {
     }
 
     /// Runs that work in a worktree (`config.worktree`).
-    pub fn worktree_runs(&self) -> Result<Vec<Value>> {
+    pub fn worktree_runs(&self) -> Result<Vec<RunRow>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(select_runs!("WHERE json_extract(config, '$.worktree.repo') IS NOT NULL"))?;
         let rows = stmt.query_map([], run_row)?;
@@ -511,7 +545,7 @@ impl Db {
     }
 
     /// One run by id, however old it is.
-    pub fn run(&self, id: &str) -> Result<Option<Value>> {
+    pub fn run(&self, id: &str) -> Result<Option<RunRow>> {
         Ok(self.0.lock().unwrap().query_row(select_runs!("WHERE id = ?1"), params![id], run_row).optional()?)
     }
 
@@ -654,6 +688,24 @@ impl Db {
         Ok(())
     }
 
+    /// A typed setting by id (`Setting`), or `None` when there is none.
+    pub fn get<T: Setting>(&self, id: &str) -> Result<Option<T>> {
+        self.get_config(T::KIND, id)?
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| anyhow::anyhow!("{} {id} 读不出来：{e}", T::KIND))
+    }
+
+    /// Every setting of a type, oldest first.
+    pub fn list<T: Setting>(&self) -> Result<Vec<T>> {
+        self.list_config(T::KIND)?.into_iter().map(|v| Ok(serde_json::from_value(v)?)).collect()
+    }
+
+    /// Store a typed setting under its own id.
+    pub fn put<T: Setting>(&self, setting: &T, now: i64) -> Result<()> {
+        self.put_config(T::KIND, setting.id(), &serde_json::to_value(setting)?, now)
+    }
+
     pub fn put_config(&self, kind: ConfigKind, id: &str, data: &Value, now: i64) -> Result<()> {
         // Every write in tests must have the shape the current migrations leave behind.
         #[cfg(test)]
@@ -737,9 +789,9 @@ mod tests {
                     limit,
                 };
                 let (runs, more) = db.runs_page(&page).unwrap();
-                seen.extend(runs.iter().map(|r| r["id"].as_str().unwrap().to_string()));
+                seen.extend(runs.iter().map(|r| r.id.clone()));
                 let last = runs.last().unwrap();
-                before = Some((last["createdAt"].as_i64().unwrap(), last["id"].as_str().unwrap().to_string()));
+                before = Some((last.created_at, last.id.clone()));
                 if !more {
                     return seen;
                 }
@@ -764,7 +816,7 @@ mod tests {
             limit: 50,
         };
         let (runs, _) = db.runs_page(&waiting).unwrap();
-        assert_eq!(runs.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>(), ["r000"]);
+        assert_eq!(runs.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["r000"]);
         let _ = std::fs::remove_dir_all(path);
     }
 
@@ -795,8 +847,8 @@ mod tests {
             db.insert_run(&format!("r{i}"), RunKind::Goal, "test", "/tmp", &json!({}), i).unwrap();
         }
         assert_eq!(db.runs(RunKind::Goal).unwrap().len(), 50);
-        assert!(!db.runs(RunKind::Goal).unwrap().iter().any(|r| r["id"] == "r0"), "the oldest is not on the list");
-        assert_eq!(db.run("r0").unwrap().unwrap()["createdAt"], 0);
+        assert!(!db.runs(RunKind::Goal).unwrap().iter().any(|r| r.id == "r0"), "the oldest is not on the list");
+        assert_eq!(serde_json::to_value(db.run("r0").unwrap().unwrap()).unwrap()["createdAt"], 0);
         assert!(db.run("nope").unwrap().is_none());
         let _ = std::fs::remove_dir_all(path);
     }
@@ -866,7 +918,7 @@ mod tests {
         db.delete_run("r1").unwrap();
         assert!(db.run("r1").unwrap().is_none());
         assert!(db.events("r1", 0).unwrap().is_empty());
-        assert_eq!(db.run("r2").unwrap().unwrap()["goal"], "g");
+        assert_eq!(serde_json::to_value(db.run("r2").unwrap().unwrap()).unwrap()["goal"], "g");
         assert_eq!(db.events("r2", 0).unwrap().len(), 1);
         // Deleting it again changes nothing else.
         db.delete_run("r1").unwrap();

@@ -40,10 +40,12 @@ pub(crate) use connections::{is_sandbox_var, sandbox_vars};
 pub(crate) use environment::{private_env_value, protect_claude_env, read_secrets, write_secrets};
 pub use local_config::local_preview;
 use local_config::*;
+pub use roles::Role;
 pub(crate) use roles::{RoleSeed, SEEDS, text_hash};
 pub use runtime::{InstructionChannel, Runtime};
 use session_options::*;
 pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
+pub use workspaces::Workspace;
 
 /// Split a launch command like a shell would for the simple cases: whitespace, single and double quotes.
 pub(crate) fn split_command(cmd: &str) -> Result<Vec<String>> {
@@ -259,6 +261,12 @@ pub(crate) fn test_role(id: &str, extra: Value) -> Value {
         r[k] = v;
     }
     r
+}
+
+/// A setting as the editor would send it, for tests.
+#[cfg(test)]
+pub(crate) fn input<T: serde::de::DeserializeOwned>(body: Value) -> T {
+    serde_json::from_value(body).expect("a valid setting")
 }
 
 #[cfg(test)]

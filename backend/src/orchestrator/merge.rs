@@ -220,10 +220,10 @@ impl App {
     // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
     pub(super) fn redeliver_after_restart(&self, run_id: &str) -> Result<()> {
         let row = self.db.run(run_id)?.context("run not found")?;
-        let w = WorktreeOf::of_config(&row["config"]).context("the run has no worktree")?;
-        let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
+        let w = WorktreeOf::of_config(&row.config).context("the run has no worktree")?;
+        let base_ref = row.config["baseRef"].as_str().unwrap_or_default();
         let changed = self.unmerged_files(run_id, &w, base_ref);
-        let merge = self.merge_at_delivery(run_id, &w, base_ref, row["goal"].as_str().unwrap_or(""));
+        let merge = self.merge_at_delivery(run_id, &w, base_ref, row.goal.as_str());
         if let DeliveryMerge::Merged { text, data } = &merge {
             self.record(run_id, ev(EventKind::RunMerged, "janus", text.clone()).data(data.clone()))?;
         }

@@ -56,10 +56,7 @@ pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>
         limit: q.limit.unwrap_or(50).clamp(1, 500),
     };
     let (runs, more) = app.db.runs_page(&page)?;
-    let next = runs
-        .last()
-        .filter(|_| more)
-        .map(|r| format!("{}:{}", r["createdAt"].as_i64().unwrap_or(0), r["id"].as_str().unwrap_or("")));
+    let next = runs.last().filter(|_| more).map(|r| format!("{}:{}", r.created_at, r.id.as_str()));
     reply(json!({ "runs": runs, "next": next }))
 }
 
@@ -104,7 +101,7 @@ pub(super) struct After {
 }
 
 /// The stored record of run `id`, or 404.
-fn stored_run(app: &App, id: &str) -> Result<Value, ApiError> {
+fn stored_run(app: &App, id: &str) -> Result<db::RunRow, ApiError> {
     app.db.run(id)?.ok_or_else(|| ApiError::not_found("任务不存在"))
 }
 
@@ -191,7 +188,7 @@ pub(super) async fn files(
     Query(q): Query<FileQuery>,
 ) -> ApiResult {
     let run = stored_run(&app, &id)?;
-    let cwd = PathBuf::from(run["cwd"].as_str().unwrap_or_default());
+    let cwd = PathBuf::from(&run.cwd);
     reply(json!({ "files": acp_view::workspace_files(&cwd, q.q.as_deref().unwrap_or(""), 20) }))
 }
 

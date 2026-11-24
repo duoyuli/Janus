@@ -193,7 +193,8 @@ async fn goal_mode_orchestrates_through_the_board() {
     let evs = events(&h.app, &run);
     let delivered = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap();
     assert!(delivered.data.as_ref().unwrap()["summary"].as_str().unwrap().contains("笔记写好了"));
-    let cwd = PathBuf::from(h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap());
+    let cwd =
+        PathBuf::from(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["cwd"].as_str().unwrap());
     assert_eq!(std::fs::read_to_string(cwd.join("notes.md")).unwrap(), "T1\n");
     let _ = std::fs::remove_dir_all(&h.dir);
 }

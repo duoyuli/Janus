@@ -46,7 +46,10 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     let queued = events(&app, &second);
     assert_eq!(queued.iter().map(|e| e.kind.as_str()).collect::<Vec<_>>(), ["run.queued"]);
     assert_eq!(queued[0].data.as_ref().unwrap()["goal"], "第二个");
-    assert!(app.db.run(&second).unwrap().unwrap()["config"]["team"].is_null(), "no team snapshot while queued");
+    assert!(
+        serde_json::to_value(app.db.run(&second).unwrap().unwrap()).unwrap()["config"]["team"].is_null(),
+        "no team snapshot while queued"
+    );
     assert_eq!(app.db.queued_runs().unwrap(), [second.clone(), third.clone()], "oldest first");
 
     // A queued run can only start now or be cancelled.
@@ -61,7 +64,7 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     // Pausing the working run frees its slot: the second one starts, with its team taken now.
     act_on(&app, &first, json!({ "type": "pause" }));
     wait_live(&app, &second).await;
-    let started = app.db.run(&second).unwrap().unwrap();
+    let started = serde_json::to_value(app.db.run(&second).unwrap().unwrap()).unwrap();
     assert!(started["config"]["team"].is_array(), "the team is taken when the run starts");
     let log: Vec<String> = events(&app, &second).into_iter().map(|e| e.kind).collect();
     assert_eq!(log[..2], ["run.queued", "run.starting"], "leaving the queue is on record before the setup");

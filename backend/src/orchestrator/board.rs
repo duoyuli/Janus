@@ -700,8 +700,8 @@ impl App {
         let mut out: HashMap<String, RoleStat> = HashMap::new();
         let runs = self.db.runs(RunKind::Goal)?;
         for r in &runs {
-            let run_id = r["id"].as_str().unwrap_or_default();
-            let role_of: HashMap<String, String> = r["config"]["team"]
+            let run_id = r.id.as_str();
+            let role_of: HashMap<String, String> = r.config["team"]
                 .as_array()
                 .into_iter()
                 .flatten()

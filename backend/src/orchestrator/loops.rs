@@ -147,7 +147,7 @@ impl App {
 
     /// The Loop a run belongs to: its own session's run, or one it dispatched.
     pub(super) fn loop_of(&self, run_id: &str) -> Option<LoopDef> {
-        let id = self.db.run(run_id).ok()??["loopId"].as_str()?.to_string();
+        let id = self.db.run(run_id).ok()??.loop_id?;
         self.loop_def(&id).ok()
     }
 
@@ -213,12 +213,9 @@ impl App {
     pub async fn create_loop(self: &Arc<Self>, workspace: &str, body: &Value) -> Result<Value> {
         let (prompt, schedule) = loop_fields(body)?;
         let ws = self.workspace(workspace)?;
-        let role = self
-            .db
-            .get_config(ConfigKind::Role, ws["lead"].as_str().unwrap_or(""))?
-            .context("工作区没有负责人，先在工作区设置里选一名负责人")?;
+        let role = self.db.get::<Role>(&ws.lead)?.context("工作区没有负责人，先在工作区设置里选一名负责人")?;
         let member = self.single_member(&role)?;
-        let cwd = PathBuf::from(ws["path"].as_str().unwrap_or(""));
+        let cwd = PathBuf::from(&ws.path);
         if !cwd.is_dir() {
             bail!("工作目录不存在：{}", cwd.display());
         }
@@ -234,7 +231,7 @@ impl App {
             run: run_id.clone(),
         };
         let title = def.title();
-        let config = json!({ "workspace": { "id": ws["id"], "name": ws["name"] } });
+        let config = json!({ "workspace": { "id": ws.id, "name": ws.name } });
         // Its session lives in the workspace's directory; it opens the first time the Loop wakes.
         self.single_member_run(RunKind::Loop, &run_id, member, cwd.clone(), &title, config)?;
         self.db.set_run_loop(&run_id, &id)?;
@@ -242,7 +239,7 @@ impl App {
             &run_id,
             ev(EventKind::RunCreated, "user", format!("新建值班：{title}")).data(json!({
                 "kind": RunKind::Loop, "cwd": cwd, "git": false, "loop": { "id": id, "name": title },
-                "role": { "id": role["id"], "name": role["name"] },
+                "role": { "id": role.id, "name": role.name },
             })),
         )?;
         {
@@ -408,7 +405,7 @@ impl App {
         let _ = self.changes.send(Change::Loop(id.to_string()));
         let woke = async {
             let ws = self.workspace(&def.workspace)?;
-            let place = self.loop_place(&def, Path::new(ws["path"].as_str().unwrap_or(""))).await?;
+            let place = self.loop_place(&def, Path::new(&ws.path)).await?;
             self.follow_workspace(&def, &place.cwd).await?;
             let (seen_at, base) = match &place.copy {
                 Some((root, _, commit, _)) => (root.clone(), Some(commit.clone())),
@@ -499,7 +496,7 @@ impl App {
     /// worktree still names), keeping what it left there as a patch like a deleted run's.
     async fn drop_loop_worktree(&self, def: &LoopDef) -> Result<()> {
         let path = self.cfg.layout.run(RunKind::Loop, &def.run).work;
-        let workspace = self.workspace(&def.workspace).ok().and_then(|w| w["path"].as_str().map(PathBuf::from));
+        let workspace = self.workspace(&def.workspace).ok().map(|w| PathBuf::from(w.path));
         let top = match &workspace {
             Some(w) => {
                 crate::git::query(w, &["rev-parse", "--show-toplevel"]).await.ok().map(|t| PathBuf::from(t.trim()))
@@ -520,7 +517,7 @@ impl App {
     /// one opens in the new directory.
     async fn follow_workspace(&self, def: &LoopDef, cwd: &Path) -> Result<()> {
         let Some(row) = self.db.run(&def.run)? else { bail!("值班的会话不存在") };
-        let was = PathBuf::from(row["cwd"].as_str().unwrap_or(""));
+        let was = PathBuf::from(row.cwd.as_str());
         if was == cwd {
             return Ok(());
         }
@@ -619,9 +616,9 @@ impl App {
         let run_id = run_id.to_string();
         tokio::spawn(async move {
             let Ok(Some(row)) = app.db.run(&run_id) else { return };
-            let Some(loop_id) = row["loopId"].as_str().filter(|_| row["kind"] == "goal") else { return };
+            let Some(loop_id) = row.loop_id.as_deref().filter(|_| row.kind == RunKind::Goal) else { return };
             let Ok(def) = app.loop_def(loop_id) else { return };
-            let key = row["dispatchKey"].as_str().unwrap_or("");
+            let key = row.dispatch_key.as_deref().unwrap_or("");
             let _ = app.note(
                 &def.run,
                 ev(EventKind::LoopDispatchEnded, "janus", format!("派出的任务 {run_id}（{key}）{status}"))
@@ -832,13 +829,12 @@ impl App {
              - Keep what you need to remember between wakes (where you got to, what you are watching) with `janus.save_state`; it is given back to you here.\n\
              - You wake on the person's schedule (or only when they call you), when they answer you, and when a run you dispatched ends. To look again at another time (for example at something outside Janus), call `janus.next_wake` before you stop; it tells you when your schedule comes round sooner anyway, and the schedule goes on as before. Do not use it to wait for a run you dispatched: its end wakes you.\n\
              - End the wake with a message whose first line says what this wake did.",
-            ws["name"].as_str().unwrap_or(""),
-            ws["path"].as_str().unwrap_or("")
+            ws.name, ws.path
         );
         if def.name.is_empty() {
             out.push_str("\n- You have no name yet: give yourself a short one with `janus.set_name` in this wake.");
         }
-        let brief = brief_section(ws["brief"].as_str().unwrap_or("").trim(), "this Loop's prompt");
+        let brief = brief_section(ws.brief.trim(), "this Loop's prompt");
         out.push_str(&brief);
         if !state.is_empty() {
             out.push_str("\n\nYour saved state:\n");
@@ -930,7 +926,7 @@ impl App {
                 None => return Err(err),
             },
         };
-        let status = self.db.run(&id)?.map(|r| r["status"].as_str().unwrap_or("").to_string()).unwrap_or_default();
+        let status = self.db.run(&id)?.map(|r| r.status.as_str()).unwrap_or_default();
         let _ = self.changes.send(Change::Loop(def.id.clone()));
         Ok(format!("已派出任务 {id}（{status}）。结果会进用户的收件箱；之后用 janus.dispatches 查它的状态。"))
     }
@@ -945,10 +941,10 @@ impl App {
             bail!("run 和 text 都不能为空");
         }
         let row = self.db.run(id)?.with_context(|| format!("没有任务 {id}"))?;
-        if row["kind"] != "goal" || row["loopId"].as_str() != Some(def.id.as_str()) {
+        if row.kind != RunKind::Goal || row.loop_id.as_deref() != Some(def.id.as_str()) {
             bail!("任务 {id} 不是这个值班派出的");
         }
-        let status = RunStatus::parse(row["status"].as_str().unwrap_or("")).unwrap_or(RunStatus::Queued);
+        let status = row.status;
         let run = match status {
             RunStatus::Planning | RunStatus::Running => self.run(id),
             _ => None,
@@ -981,12 +977,12 @@ impl App {
         Ok(runs
             .iter()
             .map(|r| {
-                let id = r["id"].as_str().unwrap_or("");
+                let id = r.id.as_str();
                 let mut line = format!(
                     "- {id} [{}] key={} · {}",
-                    r["status"].as_str().unwrap_or(""),
-                    r["dispatchKey"].as_str().unwrap_or(""),
-                    r["goal"].as_str().unwrap_or("").lines().next().unwrap_or("")
+                    r.status,
+                    r.dispatch_key.as_deref().unwrap_or(""),
+                    r.goal.as_str().lines().next().unwrap_or("")
                 );
                 if let Some(summary) = self.last_delivery_text(id) {
                     line.push_str(&format!("\n  交付摘要：{}", clip(&summary, 300)));

@@ -62,7 +62,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
-| `configs` | `(kind, id)` | 设置对象，种类是 `db.rs` 的枚举 `ConfigKind`：`connection`、`role`、`workspace`、`loop`（[工作区值班](../domains/20261121-loops.md#loop_model)，按 `LoopDef` 读写），资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
+| `configs` | `(kind, id)` | 设置对象，种类是 `db.rs` 的枚举 `ConfigKind`；数字员工（`Role`）、工作区（`Workspace`）、值班（`LoopDef`）、资源库的资源和来源按结构体读写（`Setting`：`Db::get`、`list`、`put`），Agent 连接的字段由 Agent 目录（`kinds`）和配置检查决定，仍按 JSON 读写：`connection`、`role`、`workspace`、`loop`（[工作区值班](../domains/20261121-loops.md#loop_model)，按 `LoopDef` 读写），资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
 | `memories` | `id` | 工作区的[团队记忆](../domains/20261123-team_memory.md#memory_model)：`workspace`、`kind`（`fact`、`decision`、`pitfall`、`howto`）、`title`、`hook`、`body`，最后写它的 `run_id`、`who`（成员 id，用户是 `user`）和 `author`，`created_at`、`updated_at`；删除工作区时一并删除 |
 | `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入（`state` 为 `running`），生效后改为 `done`，失败时删除；服务启动时把还是 `running` 的改为 `interrupted`（`CommandState`）。用于按 `commandId` 只执行一次 |

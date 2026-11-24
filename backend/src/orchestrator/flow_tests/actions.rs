@@ -75,7 +75,7 @@ async fn runs_created_together_get_distinct_ids() {
     assert_eq!(ids.len(), 8);
     for id in &ids {
         // With free slots every request's own run is set up before it is answered.
-        let row = h.app.db.run(id).unwrap().unwrap();
+        let row = serde_json::to_value(h.app.db.run(id).unwrap().unwrap()).unwrap();
         assert!(row["config"]["team"].is_array(), "{id} has its team when its request returns");
         h.app.action(&h.app.run(id).unwrap(), &action_of(json!({ "type": "cancel" }))).unwrap();
     }

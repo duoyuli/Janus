@@ -40,7 +40,11 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     .await;
     assert!(calls(&h).contains("chat session"), "the session opens before anything is said");
     assert!(!has(&events(&h.app, &id), "agent.message"), "the agent says nothing before the person writes");
-    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "", "untitled until the first message");
+    assert_eq!(
+        serde_json::to_value(h.app.db.run(&id).unwrap().unwrap()).unwrap()["goal"],
+        "",
+        "untitled until the first message"
+    );
 
     act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "你好\n第二行" }));
     wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
@@ -50,7 +54,7 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
             .any(|e| e.kind.as_str() == "message.routed" && e.data.as_ref().is_some_and(|d| d["delivery"] == "prompt")),
         "the first message is a turn of the open session"
     );
-    let row = h.app.db.run(&id).unwrap().unwrap();
+    let row = serde_json::to_value(h.app.db.run(&id).unwrap().unwrap()).unwrap();
     assert_eq!(row["goal"], "你好\n第二行", "the first message titles the chat");
     assert_eq!(row["kind"], "chat");
     assert_eq!(row["status"], "running", "the session is open");
@@ -79,7 +83,11 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
     act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "第二条" }));
     wait_until(&h.app, &id, "the second reply", |e| replied(e, "第二条")).await;
     assert_eq!(log.matches("chat session").count(), calls(&h).matches("chat session").count(), "the same session");
-    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "你好\n第二行", "later messages keep the title");
+    assert_eq!(
+        serde_json::to_value(h.app.db.run(&id).unwrap().unwrap()).unwrap()["goal"],
+        "你好\n第二行",
+        "later messages keep the title"
+    );
     assert!(
         events(&h.app, &id)
             .iter()
@@ -89,8 +97,8 @@ async fn a_chat_talks_with_one_employee_in_its_own_directory() {
 
     let goals = h.app.db.runs(RunKind::Goal).unwrap();
     let chats = h.app.db.runs(RunKind::Chat).unwrap();
-    assert!(!goals.iter().any(|r| r["id"] == json!(id)), "a chat is not on a workspace's list");
-    assert!(chats.iter().any(|r| r["id"] == json!(id)));
+    assert!(!goals.iter().any(|r| r.id == id), "a chat is not on a workspace's list");
+    assert!(chats.iter().any(|r| r.id == id));
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -313,9 +321,9 @@ async fn a_refused_message_does_not_title_a_chat() {
     let r = h.app.run(&id).unwrap();
     let bad = json!({ "type": "message", "agent": "lead", "text": "草稿", "images": [{ "data": "not base64!", "name": "x.png" }] });
     assert!(h.app.action(&r, &action_of(bad)).is_err());
-    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "");
+    assert_eq!(serde_json::to_value(h.app.db.run(&id).unwrap().unwrap()).unwrap()["goal"], "");
     act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "正式的问题" }));
-    assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "正式的问题");
+    assert_eq!(serde_json::to_value(h.app.db.run(&id).unwrap().unwrap()).unwrap()["goal"], "正式的问题");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

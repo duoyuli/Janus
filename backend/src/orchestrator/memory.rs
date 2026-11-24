@@ -25,8 +25,8 @@ const DREAM_AFTER_RUNS: usize = 5;
 const DREAM_EVERY_MS: i64 = 24 * 3600 * 1000;
 
 /// Whether a consolidation run is still at work.
-fn working(run: &Value) -> bool {
-    run["status"].as_str().and_then(RunStatus::parse).is_some_and(RunStatus::is_active)
+fn working(run: &crate::db::RunRow) -> bool {
+    run.status.is_active()
 }
 
 /// What a session may do with the workspace's notes: read and write them (every member of a goal
@@ -53,7 +53,7 @@ impl App {
     /// snapshot; a chat has none.
     pub(super) fn run_workspace(&self, run_id: &str) -> Option<String> {
         let row = self.db.run(run_id).ok()??;
-        row["config"]["workspace"]["id"].as_str().filter(|s| !s.is_empty()).map(str::to_owned)
+        row.config["workspace"]["id"].as_str().filter(|s| !s.is_empty()).map(str::to_owned)
     }
 
     /// A workspace's notes and its consolidation, as the app shows them: the notes (with the run
@@ -68,15 +68,15 @@ impl App {
         Ok(json!({
             "memories": self.db.memories(workspace)?,
             "consolidation": {
-                "running": running.map(|d| d["id"].clone()),
-                "last": last.map(|d| json!({ "run": d["id"], "at": d["createdAt"], "status": d["status"] })),
+                "running": running.map(|d| d.id.clone()),
+                "last": last.map(|d| json!({ "run": d.id, "at": d.created_at, "status": d.status })),
                 "deliveredSince": self.delivered_since(workspace, dreams.first())?,
             },
         }))
     }
 
     /// A workspace's consolidation runs, newest first.
-    fn dreams(&self, workspace: &str) -> Result<Vec<Value>> {
+    fn dreams(&self, workspace: &str) -> Result<Vec<crate::db::RunRow>> {
         Ok(self
             .db
             .runs_page(&crate::db::RunsPage {
@@ -91,8 +91,12 @@ impl App {
     }
 
     /// The goal runs of a workspace delivered (or accepted) since consolidation `last` began.
-    fn delivered_runs_since(&self, workspace: &str, last: Option<&Value>) -> Result<Vec<Value>> {
-        let since = last.and_then(|d| d["createdAt"].as_i64()).unwrap_or(0);
+    fn delivered_runs_since(
+        &self,
+        workspace: &str,
+        last: Option<&crate::db::RunRow>,
+    ) -> Result<Vec<crate::db::RunRow>> {
+        let since = last.map_or(0, |d| d.created_at);
         let (runs, _) = self.db.runs_page(&crate::db::RunsPage {
             kind: RunKind::Goal,
             workspace: Some(workspace.to_string()),
@@ -101,10 +105,10 @@ impl App {
             before: None,
             limit: 50,
         })?;
-        Ok(runs.into_iter().filter(|r| r["createdAt"].as_i64().unwrap_or(0) > since).collect())
+        Ok(runs.into_iter().filter(|r| r.created_at > since).collect())
     }
 
-    fn delivered_since(&self, workspace: &str, last: Option<&Value>) -> Result<usize> {
+    fn delivered_since(&self, workspace: &str, last: Option<&crate::db::RunRow>) -> Result<usize> {
         Ok(self.delivered_runs_since(workspace, last)?.len())
     }
 
@@ -366,7 +370,7 @@ impl App {
                 .run(&run_id)
                 .ok()
                 .flatten()
-                .filter(|r| r["kind"] == "goal")
+                .filter(|r| r.kind == RunKind::Goal)
                 .and_then(|_| app.run_workspace(&run_id))
             else {
                 return;
@@ -377,7 +381,7 @@ impl App {
                     return Ok(false);
                 }
                 let last = dreams.first();
-                let old_enough = last.is_none_or(|d| now_ms() - d["createdAt"].as_i64().unwrap_or(0) >= DREAM_EVERY_MS);
+                let old_enough = last.is_none_or(|d| now_ms() - d.created_at >= DREAM_EVERY_MS);
                 Ok(old_enough
                     && app.delivered_since(&workspace, last)? >= DREAM_AFTER_RUNS
                     && !app.db.memories(&workspace)?.is_empty())
@@ -401,15 +405,12 @@ impl App {
         let ws = self.workspace(workspace)?;
         let dreams = self.dreams(workspace)?;
         if let Some(d) = dreams.iter().find(|d| working(d)) {
-            return Err(Refused::Conflict(format!("团队记忆正在整理（{}）", d["id"].as_str().unwrap_or(""))));
+            return Err(Refused::Conflict(format!("团队记忆正在整理（{}）", d.id)));
         }
         if self.db.memories(workspace)?.is_empty() {
             return Err(anyhow!("这个工作区还没有团队记忆，没有可整理的").into());
         }
-        let role = self
-            .db
-            .get_config(ConfigKind::Role, ws["lead"].as_str().unwrap_or(""))?
-            .ok_or_else(|| anyhow!("工作区的负责人已被删除"))?;
+        let role = self.db.get::<Role>(&ws.lead)?.ok_or_else(|| anyhow!("工作区的负责人已被删除"))?;
         let member = self.single_member(&role)?;
         let runs = self.delivered_runs_since(workspace, dreams.first())?;
         let id = crate::agents::new_id("r");
@@ -418,13 +419,13 @@ impl App {
             .with_context(|| format!("创建整理目录 {} 失败", dir.display()))
             .map_err(Refused::from)?;
         let cwd = dir.canonicalize().unwrap_or(dir);
-        let config = json!({ "workspace": { "id": ws["id"], "name": ws["name"] } });
+        let config = json!({ "workspace": { "id": ws.id, "name": ws.name } });
         let run = self.single_member_run(RunKind::Dream, &id, member, cwd.clone(), "整理团队记忆", config)?;
         self.emit(
             &run,
             ev(EventKind::RunCreated, "janus", "开始整理团队记忆").data(json!({
                 "kind": RunKind::Dream, "cwd": cwd, "git": false,
-                "role": { "id": role["id"], "name": role["name"] }, "runs": runs.len(),
+                "role": { "id": role.id, "name": role.name }, "runs": runs.len(),
             })),
         );
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
@@ -477,18 +478,18 @@ impl App {
 }
 
 /// The prompt that starts a consolidation: the runs delivered since the last one.
-fn dream_prompt(runs: &[Value], delivery: impl Fn(&str) -> String) -> String {
+fn dream_prompt(runs: &[crate::db::RunRow], delivery: impl Fn(&str) -> String) -> String {
     let mut p = String::from("Consolidate the team memory now.");
     if runs.is_empty() {
         p.push_str("\n\nNo runs were delivered since the last consolidation.");
     } else {
         p.push_str("\n\nRuns delivered since the last consolidation:");
         for r in runs {
-            let id = r["id"].as_str().unwrap_or("");
+            let id = r.id.as_str();
             p.push_str(&format!(
                 "\n- {id} ({}): {}\n  Delivered: {}",
-                date(r["createdAt"].as_i64().unwrap_or(0)),
-                clip(r["goal"].as_str().unwrap_or(""), 200),
+                date(r.created_at),
+                clip(r.goal.as_str(), 200),
                 clip(&delivery(id), 600)
             ));
         }
@@ -614,7 +615,20 @@ mod tests {
 
     #[test]
     fn a_consolidation_is_told_the_runs_since_the_last() {
-        let runs = vec![json!({ "id": "r1", "goal": "Add a mod function", "createdAt": 0 })];
+        let runs = vec![crate::db::RunRow {
+            id: "r1".into(),
+            goal: "Add a mod function".into(),
+            cwd: String::new(),
+            config: json!({}),
+            status: RunStatus::Delivered,
+            created_at: 0,
+            kind: RunKind::Goal,
+            origin: RunOrigin::User,
+            loop_id: None,
+            dispatch_key: None,
+            source_url: None,
+            queue_position: None,
+        }];
         let p = dream_prompt(&runs, |_| "Added mod with tests".into());
         assert!(p.contains("r1") && p.contains("Add a mod function") && p.contains("Added mod with tests"), "{p}");
         assert!(dream_prompt(&[], |_| String::new()).contains("No runs were delivered"));

@@ -10,7 +10,7 @@
 //! applies what the person does and recovers runs after a restart.
 
 use crate::acp::{AcpConn, Incoming};
-use crate::agents::{InstructionChannel, Runtime};
+use crate::agents::{InstructionChannel, Role, Runtime, Workspace};
 use crate::db::ConfigKind;
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::events::EventKind;
@@ -1293,13 +1293,8 @@ impl App {
 
     /// Tell the global stream a run's status changed, with the Loop that dispatched it.
     fn run_changed(&self, run_id: &str, status: RunStatus) {
-        let loop_id = self
-            .db
-            .run(run_id)
-            .ok()
-            .flatten()
-            .filter(|r| r["kind"] == RunKind::Goal.as_str())
-            .and_then(|r| r["loopId"].as_str().map(str::to_owned));
+        let loop_id =
+            self.db.run(run_id).ok().flatten().filter(|r| r.kind == RunKind::Goal).and_then(|r| r.loop_id.clone());
         let _ = self.changes.send(Change::Run { run: run_id.into(), status, loop_id });
     }
 

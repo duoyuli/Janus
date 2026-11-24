@@ -114,10 +114,10 @@ pub(super) fn session_control(o: &Value, via: &str) -> Option<Value> {
 
 /// What a session should be opened with for a role: its chosen control values, keeping only the
 /// ones that still match a control the agent declares.
-pub fn role_session(role: &Value, conn: &Value) -> Value {
+pub fn role_session(chosen: &Value, conn: &Value) -> Value {
     let controls = conn["options"]["controls"].as_array().cloned().unwrap_or_default();
     let mut out = serde_json::Map::new();
-    for (k, v) in role["session"].as_object().cloned().unwrap_or_default() {
+    for (k, v) in chosen.as_object().cloned().unwrap_or_default() {
         // Plan modes are never chosen, whatever a role or a probe asks for.
         if k.to_ascii_lowercase().contains("plan") || is_plan_value(&v) {
             continue;
@@ -158,8 +158,8 @@ pub fn mark_defaults(conn: &mut Value) {
 
 /// The control values a member's sessions open with: the role's choices, plus the default for any
 /// control the role left open whose default differs from the agent's current value.
-pub fn member_session(role: &Value, conn: &Value) -> Value {
-    let mut session = role_session(role, conn);
+pub fn member_session(chosen: &Value, conn: &Value) -> Value {
+    let mut session = role_session(chosen, conn);
     let kind = Runtime::of(str_of(conn, "base")).ok();
     for c in conn["options"]["controls"].as_array().into_iter().flatten() {
         let id = str_of(c, "id");
@@ -233,15 +233,15 @@ mod session_option_tests {
         assert_eq!(toggles["model"]["current"], "m-4");
         let role = json!({ "session": { "permission_mode": "always-approve", "plan_mode": "yes", "gone": "x" } });
         let conn = json!({ "options": toggles });
-        assert_eq!(role_session(&role, &conn), json!({ "permission_mode": "always-approve" }));
-        assert_eq!(session_label(&role_session(&role, &conn), &conn), "Always Approve");
+        assert_eq!(role_session(&role["session"], &conn), json!({ "permission_mode": "always-approve" }));
+        assert_eq!(session_label(&role_session(&role["session"], &conn), &conn), "Always Approve");
         // Claude Code's Plan permission mode is not offered, and a role that chose it loses it.
         let claude = session_options(
             &json!({ "configOptions": [{ "id": "mode", "category": "mode", "type": "select", "currentValue": "default",
             "options": [{ "value": "default" }, { "value": "acceptEdits" }, { "value": "plan" }] }] }),
         );
         assert_eq!(claude["controls"][0]["options"].as_array().unwrap().len(), 2);
-        assert_eq!(role_session(&json!({ "session": { "mode": "plan" } }), &json!({ "options": claude })), json!({}));
+        assert_eq!(role_session(&json!({ "mode": "plan" }), &json!({ "options": claude })), json!({}));
         // Codex: Plan mode is an on/off select; it is switched off, never offered.
         let codex_plan = session_options(
             &json!({ "configOptions": [{ "id": "plan-mode", "name": "Plan mode", "type": "select", "currentValue": "on",
@@ -293,7 +293,7 @@ mod session_option_tests {
         assert_eq!(session_label(&member_session(&json!({}), &codex), &codex), "agent-full-access");
         // A role's own choice wins, and is what it keeps when saved.
         let manual = json!({ "session": { "mode": "default" } });
-        assert_eq!(member_session(&manual, &claude), json!({ "mode": "default" }));
+        assert_eq!(member_session(&manual["session"], &claude), json!({ "mode": "default" }));
         assert_eq!(role_session(&json!({}), &claude), json!({}), "an open mode stays open on the role");
         // An agent that does not offer the default keeps its own current value.
         let older = json!({ "base": "codex", "options": mode("agent", &["read-only", "agent"]) });

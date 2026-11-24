@@ -23,8 +23,8 @@ async fn new_loop(h: &Harness, prompt: &str, schedule: Value, wake_now: bool) ->
 async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let h = harness("loops", &[("lead", false), ("m1", false)], json!({}));
     let (id, run) = new_loop(&h, "看看有什么新 issue", cron("0 * * * *"), true).await;
-    assert_eq!(h.app.db.run(&run).unwrap().unwrap()["kind"], "loop");
-    assert_eq!(h.app.db.run(&run).unwrap().unwrap()["loopId"], id.as_str());
+    assert_eq!(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["kind"], "loop");
+    assert_eq!(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["loopId"], id.as_str());
 
     // One wake: the prompt goes in as a turn from Janus, the turn ends, the Loop sleeps until its
     // schedule comes round.
@@ -58,7 +58,7 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "  issue 分拣\n多余的行" })).await;
     assert!(!err, "{said}");
     assert_eq!(h.app.loop_def(&id).unwrap().name, "issue 分拣");
-    assert_eq!(h.app.db.run(&run).unwrap().unwrap()["goal"], "issue 分拣");
+    assert_eq!(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["goal"], "issue 分拣");
     assert!(has(&events(&h.app, &run), "loop.named"));
     let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "别的名字" })).await;
     assert!(err && said.contains("只起一次"), "{said}");
@@ -79,10 +79,10 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     assert!(!err, "{text}");
     let made = h.app.db.dispatched_runs(&id, None, 10).unwrap();
     assert_eq!(made.len(), 1);
-    let goal_run = made[0]["id"].as_str().unwrap().to_string();
-    assert_eq!(made[0]["origin"], "loop");
-    assert_eq!(made[0]["dispatchKey"], "github:o/r#1");
-    assert_eq!(made[0]["sourceUrl"], "https://example.com/1");
+    let goal_run = made[0].id.clone();
+    assert_eq!(made[0].origin, RunOrigin::Loop);
+    assert_eq!(made[0].dispatch_key.as_deref(), Some("github:o/r#1"));
+    assert_eq!(made[0].source_url.as_deref(), Some("https://example.com/1"));
     let queued = events(&h.app, &goal_run).into_iter().find(|e| e.kind.as_str() == "run.queued").unwrap();
     assert_eq!(queued.data.unwrap()["origin"]["loop"], id.as_str());
     // The same key again: nothing new, and the Loop is told which run has it.
@@ -163,7 +163,8 @@ async fn wakes_while_awake_merge_and_a_paused_loop_only_wakes_by_hand() {
     assert!(!h.repo.join("loop-notes.md").exists(), "the workspace is untouched");
     // Each wake starts from a clean copy: the second one wrote the file again, it did not add to it.
     assert_eq!(std::fs::read_to_string(copy.join("loop-notes.md")).unwrap(), "loop\n");
-    let session_cwd = h.app.db.run(&run).unwrap().unwrap()["cwd"].as_str().unwrap().to_string();
+    let session_cwd =
+        serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["cwd"].as_str().unwrap().to_string();
     assert_eq!(PathBuf::from(&session_cwd), copy.canonicalize().unwrap(), "its session works in the copy");
     // The person commits meanwhile: the next wake starts from that commit, without its old file.
     std::fs::write(h.repo.join("new.md"), "new\n").unwrap();
@@ -239,7 +240,10 @@ async fn a_loop_goes_by_its_prompt_until_its_agent_names_it() {
     let id = view["id"].as_str().unwrap();
     let changed = h.app.update_loop(id, &json!({ "prompt": "看 CI", "schedule": null })).unwrap();
     assert_eq!(changed["title"], "看 CI");
-    assert_eq!(h.app.db.run(view["run"].as_str().unwrap()).unwrap().unwrap()["goal"], "看 CI");
+    assert_eq!(
+        serde_json::to_value(h.app.db.run(view["run"].as_str().unwrap()).unwrap().unwrap()).unwrap()["goal"],
+        "看 CI"
+    );
     let refused = h.app.create_loop("ws", &json!({ "prompt": "  ", "schedule": null })).await;
     assert!(refused.is_err(), "a Loop needs something to do");
     let _ = std::fs::remove_dir_all(&h.dir);

@@ -146,7 +146,7 @@ fn has(evs: &[Event], kind: &str) -> bool {
 }
 
 fn status(app: &App, run: &str) -> String {
-    app.db.run(run).unwrap().unwrap()["status"].as_str().unwrap().to_string()
+    serde_json::to_value(app.db.run(run).unwrap().unwrap()).unwrap()["status"].as_str().unwrap().to_string()
 }
 
 /// Start a run and play its lead: submit `tasks` as one orchestration through the board.

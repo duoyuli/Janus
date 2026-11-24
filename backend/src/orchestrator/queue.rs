@@ -87,7 +87,7 @@ impl App {
         }
         let first = ev(EventKind::RunQueued, origin.actor(), format!("排队：{goal}"))
             .data(json!({
-                "goal": goal, "workspace": { "id": ws["id"], "name": ws["name"] }, "images": goal_images,
+                "goal": goal, "workspace": { "id": ws.id, "name": ws.name }, "images": goal_images,
                 "origin": origin.view(),
             }))
             .into_event(&id, 1);
@@ -121,7 +121,7 @@ impl App {
 
     /// The workspace's directory and team, when a run could start there now: the directory exists
     /// and every member's agent can run.
-    fn startable_team(&self, ws: &Value) -> Result<(PathBuf, Vec<Member>)> {
+    fn startable_team(&self, ws: &Workspace) -> Result<(PathBuf, Vec<Member>)> {
         let (cwd, team) = self.team_for(ws)?;
         if !cwd.is_dir() {
             bail!("工作目录不存在：{}", cwd.display());
@@ -255,7 +255,7 @@ impl App {
     // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
     async fn start_run(self: &Arc<Self>, id: &str) -> Result<()> {
         let row = self.db.run(id)?.context("任务不存在")?;
-        let queued = &row["config"];
+        let queued = &row.config;
         let ws = self.workspace(queued["workspace"]["id"].as_str().unwrap_or(""))?;
         let (cwd, team) = self.startable_team(&ws)?;
         let checkout = crate::worktrees::Checkout::of(&cwd).await?;
@@ -310,13 +310,13 @@ impl App {
         let run = Arc::new(Run::new(RunRecord {
             id: id.to_string(),
             kind: RunKind::Goal,
-            goal: row["goal"].as_str().unwrap_or("").to_string(),
+            goal: row.goal.as_str().to_string(),
             cwd,
             worktree,
             team,
             git: is_git && !base_ref.is_empty(),
             base_ref,
-            brief: ws["brief"].as_str().unwrap_or("").trim().to_string(),
+            brief: ws.brief.trim().to_string(),
             goal_images,
             last_seq: self.db.max_seq(id)?,
             status: RunStatus::Planning,

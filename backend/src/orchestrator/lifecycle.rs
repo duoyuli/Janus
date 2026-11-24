@@ -31,7 +31,7 @@ impl App {
             .map(|r| {
                 format!(
                     "这个目录上有一个正在运行的任务「{}」。这个目录不是 Git 仓库，两个任务会直接改同一批文件。",
-                    r["goal"].as_str().unwrap_or("").lines().next().unwrap_or("")
+                    r.goal.as_str().lines().next().unwrap_or("")
                 )
             })
             .collect())
@@ -569,13 +569,11 @@ impl App {
         let _turn = self.gates.revival.lock().await;
         let row = self.db.run(run_id)?;
         let Some(row) = row else { return Err(Refused::NotFound) };
-        let status = RunStatus::parse(row["status"].as_str().unwrap_or(""));
-        let kind = RunKind::parse(row["kind"].as_str().unwrap_or("")).unwrap_or_default();
-        if kind == RunKind::Goal && status.is_some_and(RunStatus::is_active) {
+        if row.kind == RunKind::Goal && row.status.is_active() {
             return Err(Refused::Conflict("任务还在进行，先停止任务再删除".into()));
         }
         // A queued run is taken off the queue first, so it cannot start while it is deleted.
-        if status == Some(RunStatus::Queued) && !self.leave_queue_for_delete(run_id)? {
+        if row.status == RunStatus::Queued && !self.leave_queue_for_delete(run_id)? {
             return Err(Refused::Conflict("任务刚刚开始，先停止任务再删除".into()));
         }
         // A delivered run keeps its lead conversation open for more work; take the run out of the
@@ -599,7 +597,7 @@ impl App {
             drop(run.files.write().unwrap_or_else(|p| p.into_inner()));
         }
         // The run's worktree goes too; changes never committed are kept as a patch first.
-        if let Some(repo) = row["config"]["worktree"]["repo"].as_str() {
+        if let Some(repo) = row.config["worktree"]["repo"].as_str() {
             let kept = self.cfg.layout.deleted_runs();
             let removed = {
                 let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
@@ -617,12 +615,12 @@ impl App {
         // The files go before the rows: the row is what lets a second request find the run, so a
         // file that could not be removed is removed by trying again.
         let agents: HashSet<&str> =
-            row["config"]["team"].as_array().into_iter().flatten().filter_map(|m| m["runtime"].as_str()).collect();
+            row.config["team"].as_array().into_iter().flatten().filter_map(|m| m["runtime"].as_str()).collect();
         let sessions = self.db.run_sessions(run_id)?;
         for agent in agents {
             self.forget_sessions(agent, &sessions)?;
         }
-        let dirs = self.cfg.layout.run(kind, run_id);
+        let dirs = self.cfg.layout.run(row.kind, run_id);
         for path in [&dirs.data, &dirs.work, &dirs.logs] {
             if let Err(err) = std::fs::remove_dir_all(path)
                 && err.kind() != std::io::ErrorKind::NotFound
@@ -632,9 +630,7 @@ impl App {
         }
         self.db.delete_run(run_id)?;
         // Other clients drop it from their lists (and the runs queued behind it move up).
-        if let Some(status) = status {
-            self.run_changed(run_id, status);
-        }
+        self.run_changed(run_id, row.status);
         Ok(())
     }
 }

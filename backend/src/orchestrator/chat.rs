@@ -12,8 +12,7 @@ impl App {
     /// open its session, which waits for the person's first message.
     // @project-doc docs/domains/20261120-chats.md#chat_model
     pub async fn create_chat(self: &Arc<Self>, req: NewChat) -> Result<String> {
-        let role =
-            self.db.get_config(ConfigKind::Role, &req.role)?.ok_or_else(|| anyhow!("数字员工 {} 不存在", req.role))?;
+        let role = self.role(&req.role)?;
         let member = self.single_member(&role)?;
         let id = crate::agents::new_id("r");
         let dir = self.cfg.layout.run(RunKind::Chat, &id).work;
@@ -26,7 +25,7 @@ impl App {
         self.emit(
             &run,
             ev(EventKind::RunCreated, "user", format!("和 {name} 开始对话")).data(json!({
-                "kind": RunKind::Chat, "cwd": run.cwd, "git": false, "role": { "id": role["id"], "name": name },
+                "kind": RunKind::Chat, "cwd": run.cwd, "git": false, "role": { "id": role.id, "name": name },
             })),
         );
         self.runs.lock().unwrap().insert(id.clone(), run.clone());
@@ -37,7 +36,7 @@ impl App {
     /// A digital employee as the one member of a run's main session (a chat, a Loop's session),
     /// with the library as it is now, pinned like for a run's team; its agent must be able to run.
     // @project-doc docs/domains/20261116-resource_library.md#delivery
-    pub(super) fn single_member(&self, role: &Value) -> Result<Member> {
+    pub(super) fn single_member(&self, role: &Role) -> Result<Member> {
         let member = self.role_member(role, &self.items()?, true)?;
         self.spec_for(&member.runtime)?;
         Ok(member)
@@ -80,7 +79,7 @@ impl App {
 
     /// A chat is listed by its first message: the first one the person sends titles it.
     pub(super) fn title_chat(&self, run: &Run, text: &str) -> Result<()> {
-        if run.kind != RunKind::Chat || self.db.run(&run.id)?.is_some_and(|r| r["goal"] != "") {
+        if run.kind != RunKind::Chat || self.db.run(&run.id)?.is_some_and(|r| !r.goal.is_empty()) {
             return Ok(());
         }
         let title = match text.trim() {

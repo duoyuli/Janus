@@ -108,10 +108,15 @@ pub(super) async fn save(
     Json(body): Json<Value>,
 ) -> ApiResult {
     reply(match SetupKind::of(&kind)? {
-        SetupKind::Connections => app.save_connection(&body),
-        SetupKind::Roles => app.save_role(&body),
-        SetupKind::Workspaces => app.save_workspace(&body),
-    }?)
+        SetupKind::Connections => app.save_connection(&body)?,
+        SetupKind::Roles => json!(app.save_role(&input(body)?)?),
+        SetupKind::Workspaces => json!(app.save_workspace(&input(body)?)?),
+    })
+}
+
+/// A setting as the editor sends it, or a 400 that says what does not fit.
+fn input<T: serde::de::DeserializeOwned>(body: Value) -> Result<T, ApiError> {
+    serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("设置的内容不对：{e}")))
 }
 
 pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath((kind, id)): UrlPath<(String, String)>) -> ApiResult {

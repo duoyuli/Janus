@@ -288,7 +288,7 @@ async fn recovery_uses_the_recorded_plan_boundary_and_preserves_legacy_holds() {
     let original = start(&h, json!([task("SEED", "m1", json!({}))])).await;
     finish_lead(&h);
     wait_until(&h.app, &original, "seed delivered", |e| has(e, "run.delivered")).await;
-    let row = h.app.db.run(&original).unwrap().unwrap();
+    let row = serde_json::to_value(h.app.db.run(&original).unwrap().unwrap()).unwrap();
     let id = "replay-order";
     let mut config = row["config"].clone();
     config["costLimitUsd"] = json!(4.0);
@@ -473,7 +473,7 @@ async fn role_slots_and_concurrency_cap_schedule_parallel_work_safely() {
     );
     let ws = h
         .app
-        .save_workspace(&json!({
+        .save_workspace(&crate::agents::input(json!({
             "id": "ws",
             "name": "ws",
             "path": h.repo.canonicalize().unwrap(),
@@ -483,9 +483,9 @@ async fn role_slots_and_concurrency_cap_schedule_parallel_work_safely() {
                 { "role": "dev", "slots": 2 },
                 { "role": "qa", "slots": 1 }
             ]
-        }))
+        })))
         .unwrap();
-    assert_eq!(ws["members"][1]["slots"], 2);
+    assert_eq!(ws.members[1].slots, Some(2));
 
     let run = start(
         &h,
@@ -558,7 +558,7 @@ async fn token_reference_keeps_usage_visible_and_downstream_work_running() {
     wait_until(&h.app, &run, "T2 finishes past the token reference", |e| task_event(e, "task.succeeded", "T2")).await;
     let live = h.app.run(&run).unwrap();
     assert!(h.app.usage(&live).run.tokens.total.unwrap() >= 1_200);
-    assert_eq!(h.app.db.run(&run).unwrap().unwrap()["config"]["tokenLimit"], 1_000);
+    assert_eq!(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["config"]["tokenLimit"], 1_000);
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -803,7 +803,7 @@ async fn a_rework_survives_a_restart() {
     let original = start(&h, json!([task("SEED", "m1", json!({}))])).await;
     finish_lead(&h);
     wait_until(&h.app, &original, "seed delivered", |e| has(e, "run.delivered")).await;
-    let row = h.app.db.run(&original).unwrap().unwrap();
+    let row = serde_json::to_value(h.app.db.run(&original).unwrap().unwrap()).unwrap();
     let id = "replay-rework";
     h.app
         .db
