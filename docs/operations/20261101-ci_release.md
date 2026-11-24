@@ -116,8 +116,13 @@ shasum -a 256 runner.tar.gz   # 和 https://github.com/actions/runner/releases/t
 tar xzf runner.tar.gz && rm runner.tar.gz
 ./config.sh --url https://github.com/duoyuli/Janus --name janus-local-mac --labels janus-local --unattended --replace \
   --token "$(gh api -X POST repos/duoyuli/Janus/actions/runners/registration-token --jq .token)"
-./svc.sh install && ./svc.sh start   # 登录后自动启动（LaunchAgent）
+./svc.sh install                      # 登录后自动启动（LaunchAgent）
+# 让任务跑在登录的图形会话里，见下文
+plutil -replace SessionCreate -bool false ~/Library/LaunchAgents/actions.runner.duoyuli-Janus.janus-local-mac.plist
+./svc.sh start
 ```
+
+`svc.sh` 生成的 LaunchAgent 默认带 `SessionCreate`，任务跑在脱离图形登录会话的新会话里。应用测试里有靠合成输入事件验证的用例（`ChatScrollTests` 合成触控板滚动），在那样的会话里合成的手势不算人的操作，`aConversationKeepsThePlaceThePersonScrolledTo` 会失败，所以要关掉它。重装服务（`svc.sh uninstall` 再 `install`）后要重新改一次。机器要保持登录：没有图形会话时这些用例同样过不了。
 
 运行器启动时的 `PATH` 在 `config.sh` 运行时记进 `.path`，要包含 `cargo`、`swift`、`node`、`gh` 和 `python3`。查看状态用 `./svc.sh status` 或 `gh api repos/duoyuli/Janus/actions/runners`。
 
