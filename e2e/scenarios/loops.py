@@ -2,7 +2,7 @@
 
 import json
 
-from lib import Mcp, drawn, wait
+from lib import Failure, Mcp, drawn, wait
 from scenarios import scenario
 
 
@@ -28,6 +28,27 @@ def loops(ctx, c):
 
     def view():
         return next(l for l in ctx.api("GET", f"/api/loops?workspace={ws}")["loops"] if l["id"] == loop_id)
+
+    def last_seq():
+        ev = events()
+        return ev[-1]["seq"] if ev else 0
+
+    def wake_for(reason, after, what):
+        """The wake for `reason` after event `after`, once the sleep after it is recorded. Wakes are
+        picked by reason, not counted: the Loop sleeps to the next full hour, and a test that
+        crosses the hour gets a timer wake in between."""
+        def found():
+            return next((e for e in kinds("loop.woke") if e["seq"] > after and e["data"].get("reason") == reason), None)
+        try:
+            w = wait(found, what, 60)
+        except Failure as e:
+            seen = [(x["data"].get("reason"), x["seq"]) for x in kinds("loop.woke")]
+            raise Failure(f"{e}：{after} 之后没有 {reason} 的开工，开工记录 {seen}") from None
+        wait(lambda: any(x["seq"] > w["seq"] for x in kinds("loop.slept")), f"{what}之后睡下", 60)
+        return w
+
+    def prompts():
+        return [json.loads(l[len("loop prompt "):]) for l in t.fake.calls().splitlines() if l.startswith("loop prompt ")]
 
     wait(lambda: kinds("loop.slept"), "第一次醒来结束", 60)
     woke = kinds("loop.woke")[0]["data"]
@@ -77,7 +98,7 @@ def loops(ctx, c):
         def row(s):
             return next((r for r in (s.get("histories") or {}).get(ws, []) if r["id"] == dispatched), None)
         ctx.app.until(lambda s: (row(s) or {}).get("origin") == "loop", "工作区的任务记录标出来自值班", "reload", f"open home:{ws}")
-        st = ctx.app.until(lambda s: any(l["id"] == loop_id and l["wakes"] == 1 and l["schedule"] in ("每小时", "Every hour")
+        st = ctx.app.until(lambda s: any(l["id"] == loop_id and l["wakes"] == view()["status"]["wakes"] and l["schedule"] in ("每小时", "Every hour")
                                          for l in s.get("loops", [])), "工作区页列出值班和它的时间表", f"open home:{ws}")
         c(loop_id in ((st.get("home") or {}).get("loops") or []), "应用：值班列在工作区页右边的值班一栏")
         ctx.app.do("shot loops-home")
@@ -119,11 +140,11 @@ def loops(ctx, c):
         ctx.app.do(f"inbox-act {key}:0")
     else:
         ctx.api("POST", f"/api/runs/{run}/actions", {"type": "answer", "key": asked["data"]["key"], "answer": "导出"})
-    wait(lambda: len(kinds("loop.woke")) == 2, "回答唤醒值班", 60)
-    c(kinds("loop.woke")[1]["data"]["reason"] == "answer", "回答之后值班以 answer 醒来")
-    wait(lambda: len(kinds("loop.slept")) == 2, "第二次醒来结束", 60)
-    prompts = [json.loads(l[len("loop prompt "):]) for l in t.fake.calls().splitlines() if l.startswith("loop prompt ")]
-    c("Q: 先修哪个？\n  A: 导出" in prompts[-1], "值班醒来的提示里带着问题和回答")
+    # Two steps, so a timeout says which one failed: the answer reaching the server, or it waking the Loop.
+    answered = wait(lambda: kinds("question.answered"), "回答到达服务", 30)[0]
+    wake_for("answer", answered["seq"], "回答唤醒值班")
+    c(True, "回答之后值班以 answer 醒来")
+    c(any("Q: 先修哪个？\n  A: 导出" in p for p in prompts()), "值班醒来的提示里带着问题和回答")
 
     # Paused: no clock, still wakes by hand.
     paused = ctx.api("POST", f"/api/loops/{loop_id}/pause", {})
@@ -131,22 +152,21 @@ def loops(ctx, c):
     if ctx.app:
         ctx.ui(c, run, lambda r, s: any(l["id"] == loop_id and l["phase"] == "paused" for l in s.get("loops", [])),
                "值班页显示已暂停", pages=("board",))
+    mark = last_seq()
     ctx.api("POST", f"/api/loops/{loop_id}/wake", {})
-    wait(lambda: len(kinds("loop.woke")) == 3, "暂停时手动唤醒", 60)
-    c(kinds("loop.woke")[2]["data"]["reason"] == "manual", "暂停的值班仍可以手动唤醒")
-    wait(lambda: len(kinds("loop.slept")) == 3, "手动醒来结束", 60)
+    wake_for("manual", mark, "暂停时手动唤醒")
+    c(True, "暂停的值班仍可以手动唤醒")
     resumed = ctx.api("POST", f"/api/loops/{loop_id}/resume", {})
     c(resumed["state"] == "active" and resumed["status"]["nextWakeAt"] is not None, "继续后按时间表排下次醒来")
 
     # The run it dispatched ends: the Loop wakes to judge it, told how it ended.
+    mark = last_seq()
     ctx.api("POST", f"/api/runs/{dispatched}/actions", {"type": "cancel"})
-    wait(lambda: len(kinds("loop.woke")) == 4, "派出的任务结束唤醒值班", 60)
+    wake_for("dispatch", mark, "派出的任务结束唤醒值班")
     ended = kinds("loop.dispatch_ended")
-    c(kinds("loop.woke")[3]["data"]["reason"] == "dispatch" and ended and ended[-1]["data"]["run"] == dispatched
-      and ended[-1]["data"]["status"] == "cancelled", "派出的任务被取消后，值班以 dispatch 醒来，记下是哪个任务、怎么结束的")
-    wait(lambda: len(kinds("loop.slept")) == 4, "这次醒来结束", 60)
-    prompts = [json.loads(l[len("loop prompt "):]) for l in t.fake.calls().splitlines() if l.startswith("loop prompt ")]
-    c(f"- {dispatched} (key github:o/r#7): cancelled by the person" in prompts[-1], "醒来的提示写着结束的任务和它是被你取消的")
+    c(ended and ended[-1]["data"]["run"] == dispatched and ended[-1]["data"]["status"] == "cancelled",
+      "派出的任务被取消后，值班以 dispatch 醒来，记下是哪个任务、怎么结束的")
+    c(any(f"- {dispatched} (key github:o/r#7): cancelled by the person" in p for p in prompts()), "醒来的提示写着结束的任务和它是被你取消的")
 
     # Deleting it removes its session; the run it dispatched stays.
     ctx.api("DELETE", f"/api/loops/{loop_id}")
