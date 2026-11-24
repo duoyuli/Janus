@@ -65,6 +65,7 @@ def restart(ctx, c):
         c(not [e for e in run.events() if e["seq"] > run.has("run.recovered")[-1]["seq"] and e["type"] == "session.prompt"
                and e["actor"] == "janus" and e.get("to") == "lead" and e["data"].get("via")],
           "恢复的负责人会话没有再注入负责人说明和指令")
+        c(run.id in ctx.api("GET", "/api/meta")["atWork"], "服务报告这个 Run 在干活（/api/meta 的 atWork），应用自动更新会等它")
         ctx.ui(c, run.id, lambda r, s: r["status"] == "running", "恢复后的负责人会话显示恢复提示", pages=("agent:lead",))
         board = run.read_board(lambda b: "[完成] T3" in b, timeout=90)
         c("[完成] T2" in board, "中断的 T2 重新执行并完成，下游 T3 随后完成")
@@ -74,6 +75,8 @@ def restart(ctx, c):
         c("a.txt" in detail, "重启后 T1 改过的文件（痕迹）仍在")
         run.finish("重启后也完成了")
         c(run.status() == "delivered", "恢复的 Run 交付")
+        wait(lambda: run.id not in ctx.api("GET", "/api/meta")["atWork"], "交付后负责人在等人，不再算在干活")
+        c(True, "交付后负责人等你的消息，atWork 里不再有它，应用可以自动更新")
 
         # Delivered before the restart, it is no longer in the service's memory and still waits for
         # the person: the card offers acceptance and the page is not marked read-only.

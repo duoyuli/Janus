@@ -1672,3 +1672,5 @@
 "负责人在处理你的消息" = "Lead working on your message";
 "%@ 改了文件，没有独立验证" = "%@ changed files with no independent verification";
 "恢复会话 · 编排器重启后接着推进目标" = "Session Restored · Continuing the Goal After a Restart";
+"现在更新 Janus？" = "Update Janus now?";
+"还有任务或对话在跑。更新会重开 Janus 并中断它们，之后可以从中断处继续。" = "Tasks or chats are still running. Updating reopens Janus and interrupts them; you can continue them where they stopped afterwards.";

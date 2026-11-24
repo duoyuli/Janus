@@ -270,9 +270,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         Task { await model.start() }
         Updater.shared.onQuit = { [weak model] in model?.backend.stop() }
-        // An automatic update waits for what quitting would interrupt: the same list the quit
-        // confirmation reads. Not connected yet counts as busy.
-        Updater.shared.isBusy = { [weak model] in model?.store.map { !$0.working.isEmpty } ?? true }
+        // An automatic update waits until the server has no run at work. Not connected yet counts as busy.
+        Updater.shared.isBusy = { [weak model] in await model?.store?.runsAtWork() ?? true }
         // A test drives the app through snapshot commands; it does not ask GitHub for releases.
         if !Snapshots.active { Updater.shared.start() }
         Snapshots.start(model)

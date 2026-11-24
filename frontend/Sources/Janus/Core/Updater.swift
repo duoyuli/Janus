@@ -18,7 +18,7 @@ import Security
 /// the new version the way it stops a DMG downloaded in a browser.
 ///
 /// With automatic updates on (the default, Settings › 通用), a new version found by a check is
-/// downloaded and checked at once, then swapped in once nothing the app runs is at work.
+/// downloaded and checked at once, then swapped in once the server has no run at work.
 // @project-doc docs/architecture/20261031-frontend.md#updates
 @Observable @MainActor
 final class Updater {
@@ -76,9 +76,9 @@ final class Updater {
     private(set) var quitting = false
     /// Stops the server the app started before it exits to install a new version.
     var onQuit: (() -> Void)?
-    /// Whether a task or chat is at work that reopening the app would cut off; until the app knows
-    /// (not connected yet), it counts as busy.
-    var isBusy: () -> Bool = { true }
+    /// Whether a run is at work that reopening the app would cut off, as the server says now
+    /// (`atWork` of `GET /api/meta`); until the app can ask (not connected, no answer), it counts as busy.
+    var isBusy: () async -> Bool = { true }
     /// The new version downloaded and checked, waiting to be swapped in (`State.ready`).
     private(set) var staged: URL?
     /// Install new versions without asking: download one as soon as it is found and swap it in
@@ -241,6 +241,13 @@ final class Updater {
         }
     }
 
+    /// The person asked to update now. Reopening the app cuts off the runs at work, so with any
+    /// at work it asks first; `false` when the person keeps them going.
+    func mayInterrupt() async -> Bool {
+        guard await isBusy() else { return true }
+        return confirm(L.text("现在更新 Janus？"), L.text("还有任务或对话在跑。更新会重开 Janus 并中断它们，之后可以从中断处继续。"), ok: L.text("现在更新"))
+    }
+
     /// The staged version, swapped in now: the person asked for it.
     func installStaged() {
         guard let app = staged else { return }
@@ -257,7 +264,9 @@ final class Updater {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.quietCheck * 1_000_000_000)
                 guard let self, self.automatic, self.state == .ready, let app = self.staged, !Task.isCancelled else { return }
-                quiet = Self.quiet(after: quiet, busy: self.isBusy())
+                let busy = await self.isBusy()
+                guard self.automatic, self.state == .ready, !Task.isCancelled else { return }
+                quiet = Self.quiet(after: quiet, busy: busy)
                 if quiet >= Self.quietRounds {
                     self.swapIn(app)
                     return

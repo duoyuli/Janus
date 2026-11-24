@@ -338,7 +338,13 @@ struct UpdateBadge: View {
         case .failed(let text) where updater.latest != nil:
             VStack(alignment: .leading, spacing: 2) {
                 Text(text).font(.caption2).foregroundStyle(Tone.red.color).fixedSize(horizontal: false, vertical: true)
-                Button(L.text("重试更新")) { Task { await updater.install() } }.buttonStyle(.link).font(.caption)
+                // With automatic updates on, a retry waits like any automatic update; otherwise it asks
+                // first when runs are at work.
+                Button(L.text("重试更新")) {
+                    Task {
+                        if updater.automatic { await updater.install(now: false) } else if await updater.mayInterrupt() { await updater.install() }
+                    }
+                }.buttonStyle(.link).font(.caption)
             }
         default:
             EmptyView()

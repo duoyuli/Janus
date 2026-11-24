@@ -150,6 +150,14 @@ final class AppStore {
 
     func isChat(_ id: String) -> Bool { chats.contains { $0["id"].str == id } }
 
+    /// Whether the server has a run at work now (`atWork` of `GET /api/meta`), asked afresh rather
+    /// than read from the lists, which may lag; no answer counts as at work.
+    // @project-doc docs/architecture/20261031-frontend.md#auto_update
+    func runsAtWork() async -> Bool {
+        guard let m = try? await api.get("/api/meta") else { return true }
+        return !m["atWork"].array.isEmpty
+    }
+
     /// Goals and chats still at work: quitting the server Janus started would interrupt them.
     var working: [JSON] { (attention + chatAttention + loopAttention).filter { RunStatus($0["status"].str).isActive } }
 

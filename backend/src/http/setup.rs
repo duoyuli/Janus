@@ -52,6 +52,8 @@ pub(super) async fn meta(State(app): State<Arc<App>>) -> ApiResult {
         "dataVersion": app.db.data_version().unwrap_or_default(),
         "home": app.cfg.layout.home(),
         "db": app.cfg.layout.db(),
+        // An app update waits until this is empty: restarting the server would cut these runs off.
+        "atWork": app.at_work(),
     }))
 }
 

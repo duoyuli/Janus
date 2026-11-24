@@ -393,9 +393,20 @@ async fn goal_mode_resumes_in_a_new_session_when_the_lead_cannot_load() {
     assert!(brief.contains("- T1 (m1): 第一步 · done: T1 完成"), "{brief}");
     assert!(brief.contains("Your recent conversation with the user"), "{brief}");
     assert!(evs[restart..].iter().any(|e| e.kind.as_str() == "agent.status" && e.text.contains("新开会话")));
+    // An app update waits for it: its lead is at work.
+    assert_eq!(app2.at_work(), vec![run.clone()]);
 
     std::fs::write(h.dir.join("fake/lead-go"), "两步都完成了").unwrap();
     wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;
+    // Delivered, its lead waiting for the person: nothing an update would cut off.
+    for _ in 0..50 {
+        if app2.at_work().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(app2.at_work().is_empty(), "{:?}", app2.at_work());
+    assert!(app2.run(&run).is_some(), "its session is still open");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

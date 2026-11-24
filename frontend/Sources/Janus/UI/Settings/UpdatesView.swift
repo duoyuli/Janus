@@ -32,11 +32,11 @@ struct UpdatesView: View {
                     Spacer(minLength: 12)
                     HStack(spacing: 8) {
                         if case .available = updater.state, let rel = updater.latest {
-                            Button(L.text("更新到 \(rel.version)")) { Task { await updater.install() } }
+                            Button(L.text("更新到 \(rel.version)")) { Task { if await updater.mayInterrupt() { await updater.install() } } }
                                 .buttonStyle(.primary)
                         }
                         if updater.state == .ready {
-                            Button(L.text("现在更新")) { updater.installStaged() }
+                            Button(L.text("现在更新")) { Task { if await updater.mayInterrupt() { updater.installStaged() } } }
                                 .buttonStyle(.primary)
                         }
                         Button(checking ? L.text("正在检查…") : L.text("检查更新")) { Task { await updater.check() } }

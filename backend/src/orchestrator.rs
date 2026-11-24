@@ -1236,6 +1236,27 @@ impl App {
         self.runs.lock().unwrap().get(id).cloned()
     }
 
+    /// The runs whose agents are at work now, which restarting the server (an app update) would
+    /// cut off: a goal not delivered yet (starting, or running, paused too), a subtask running,
+    /// or a session in a turn (the lead after delivery, a chat, a Loop, a consolidation). A
+    /// session open but waiting for the person is not at work.
+    // @project-doc docs/architecture/20261031-frontend.md#auto_update
+    pub fn at_work(&self) -> Vec<String> {
+        let runs: Vec<Arc<Run>> = self.runs.lock().unwrap().values().cloned().collect();
+        let mut ids: Vec<String> = runs
+            .iter()
+            .filter(|r| {
+                let st = r.st.lock().unwrap();
+                st.lead.in_turn
+                    || st.tasks.iter().any(|t| t.status() == TaskStatus::Running)
+                    || (!r.kind.single_session() && matches!(st.status, RunStatus::Planning | RunStatus::Running))
+            })
+            .map(|r| r.id.clone())
+            .collect();
+        ids.sort();
+        ids
+    }
+
     // @project-doc docs/interfaces/20261031-events.md#event_shape
     fn emit(&self, run: &Run, e: Ev) -> i64 {
         self.emit_kept(run, e).unwrap_or(0)
