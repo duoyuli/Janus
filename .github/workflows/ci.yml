@@ -1,4 +1,5 @@
 # Every push to main and every pull request: orchestrator lints and tests, and the macOS app's build and tests.
+# Run by hand with leg=local to try the app's tests on the local runner alone.
 # See docs/operations/20261101-ci_release.md.
 name: CI
 
@@ -6,6 +7,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      leg:
+        description: "both: GitHub's Mac, the local runner after five minutes. local: the local runner alone, to try it"
+        type: choice
+        options: [both, local]
+        default: both
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -41,13 +49,13 @@ jobs:
         run: cargo test --locked
 
   # Two legs of one job: GitHub's Mac, and the maintainer's own Mac when GitHub has none for five
-  # minutes (.github/scripts/claim-runner.sh). Only a push to main gets the local leg: a pull
-  # request never runs on the maintainer's machine.
+  # minutes (.github/scripts/claim-runner.sh). A pull request gets the hosted leg only: it never
+  # runs on the maintainer's machine.
   macos-app:
     name: macOS app (${{ matrix.where }})
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(github.event_name == 'push' && '{"include":[{"where":"hosted","runner":["macos-15"],"other":"macOS app (local)"},{"where":"local","runner":["self-hosted","macOS","ARM64","janus-local"],"other":"macOS app (hosted)"}]}' || '{"include":[{"where":"hosted","runner":["macos-15"],"other":"macOS app (local)"}]}') }}
+      matrix: ${{ fromJSON(inputs.leg == 'local' && '{"include":[{"where":"local","runner":["self-hosted","macOS","ARM64","janus-local"],"other":"macOS app (hosted)"}]}' || github.event_name != 'pull_request' && '{"include":[{"where":"hosted","runner":["macos-15"],"other":"macOS app (local)"},{"where":"local","runner":["self-hosted","macOS","ARM64","janus-local"],"other":"macOS app (hosted)"}]}' || '{"include":[{"where":"hosted","runner":["macos-15"],"other":"macOS app (local)"}]}') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7

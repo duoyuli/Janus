@@ -96,7 +96,7 @@ GitHub 托管的 macOS arm64 运行器容量不足时，任务排约 15 分钟�
 - `local` 立刻开始，每 10 秒看一次 `hosted`：5 分钟内它开始执行（或已经结束）就让出；否则接手，执行名为「Take over」的步骤。
 - `hosted` 的机器到了以后，看 `local` 有没有成功的「Take over」步骤：有就让出，没有就干活。
 - 托管机器恰好在本机接手的那一刻到达时，两条腿都会干活：测试跑两遍，安装包发布两次（后一次覆盖前一次），结果相同。
-- CI 里只有推送到 `main` 的运行有 `local`；Pull Request 的运行只有 `hosted`，排不到就和原来一样失败。
+- CI 里推送到 `main` 的运行和手动运行有 `local`；Pull Request 的运行只有 `hosted`，排不到就和原来一样失败。手动运行时 `leg` 选 `local` 只跑本机这条腿，用来单独试本机运行器上的应用测试（`gh workflow run ci.yml -f leg=local`）。
 
 **结论看「CI result」**：`hosted` 一直排不到时，GitHub 最后会取消它，整次运行显示失败，即使 `local` 已经通过。任务「CI result」是唯一的判定：Orchestrator 通过，并且某条腿的「Test」步骤成功；某条腿失败，或者所有腿都结束了却没有一条测过，就失败。Release 的「Wait for CI on this commit」读的是这个任务。Release 自己的运行在同样的情况下也会显示失败，安装包是否发出以 Release 页面和 `local` 那条腿为准。
 
