@@ -27,20 +27,39 @@ enum Snapshots {
         let cmd = URL(fileURLWithPath: dir).appendingPathComponent("cmd")
         Task { @MainActor in
             while true {
-                try? await Task.sleep(nanoseconds: 700_000_000)
+                try? await Task.sleep(nanoseconds: 100_000_000)
                 guard let text = try? String(contentsOf: cmd, encoding: .utf8), !text.isEmpty else { continue }
                 try? "".write(to: cmd, atomically: true, encoding: .utf8)
-                for line in text.split(separator: "\n") {
-                    await run(String(line), model: model, dir: dir)
-                    try? await Task.sleep(nanoseconds: 900_000_000)
+                let lines = text.split(separator: "\n").map(String.init)
+                for (i, line) in lines.enumerated() {
+                    await run(line, model: model, dir: dir)
+                    try? await Task.sleep(nanoseconds: settle(after: line, before: i + 1 < lines.count ? lines[i + 1] : nil))
                 }
             }
         }
     }
 
+    /// How long the app settles between two commands of a batch: a picture waits for the page to
+    /// draw what the commands before it opened; anything else only lets the views update. Writing
+    /// the state ends a batch, so nothing waits after it.
+    static func settle(after line: String, before next: String?) -> UInt64 {
+        guard let next, !line.hasPrefix("state") else { return 0 }
+        return next.hasPrefix("shot") ? 900_000_000 : 200_000_000
+    }
+
     private static func run(_ line: String, model: AppModel, dir: String) async {
         let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
-        guard let store = model.store, parts.count >= 1 else { return }
+        guard parts.count >= 1 else { return }
+        guard let store = model.store else {
+            // Not connected to a server yet (an app still starting its own): only `state` answers,
+            // so a test waiting for the connection keeps asking instead of waiting on a batch that
+            // nothing answers.
+            if parts[0] == "state" {
+                let j: JSON = ["connections": .null]
+                try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(parts.count > 1 ? parts[1] : "state").json"))
+            }
+            return
+        }
         let arg = parts.count > 1 ? parts[1] : ""
         let kv = arg.split(separator: ":", maxSplits: 1).map(String.init)
         switch parts[0] {

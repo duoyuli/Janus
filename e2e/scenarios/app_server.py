@@ -20,6 +20,8 @@ def app_server(ctx, c):
     app = App(ctx.app_bin, home, ADDR, os.path.join(ctx.report, "app-server"), os.path.join(ctx.report, "app-server.log"), env)
     try:
         st = app.until(lambda s: s.get("connections") is not None, "应用连上自己启动的服务", timeout=90)
+        # The roles load apart from the connections: wait for them, without taking their arrival for a check.
+        st = app.until(lambda s: {"pmo", "developer"} <= {r["id"] for r in s.get("roles") or []}, "应用读到新 home 的数字员工", timeout=30)
         meta = http(ADDR, "GET", "/api/meta")
         c(os.path.realpath(meta["home"]) == os.path.realpath(home), f"应用在 {ADDR} 上为这个 Janus home 启动了服务")
         c({"pmo", "developer"} <= {r["id"] for r in st["roles"]}, "应用读到新 home 的默认数字员工")

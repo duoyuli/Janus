@@ -356,7 +356,7 @@ class App:
         """Repeat the commands until the state satisfies `pred`; the last state is returned."""
         end, st = time.time() + timeout, None
         while time.time() < end:
-            st = self.do(*lines)
+            st = self.do(*lines, timeout=max(5, end - time.time()))
             if pred(st):
                 return st
             time.sleep(0.5)
