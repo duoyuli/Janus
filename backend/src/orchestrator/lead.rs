@@ -618,13 +618,14 @@ impl App {
                     )
                     .await?;
                 self.run_changes_after_turn(run);
-                if run.kind == RunKind::Loop {
-                    self.loop_turn_ended(run);
-                }
-                // A consolidation is one turn: on record, delivered, and its session closes.
-                if run.kind == RunKind::Dream {
-                    self.dream_turn_ended(run, &text);
-                    return Ok(());
+                match run.kind {
+                    RunKind::Loop => self.loop_turn_ended(run),
+                    // A consolidation is one turn: on record, delivered, and its session closes.
+                    RunKind::Dream => {
+                        self.dream_turn_ended(run, &text);
+                        return Ok(());
+                    }
+                    RunKind::Goal | RunKind::Chat => {}
                 }
                 if let Some(reason) = goal_refused(&text) {
                     self.emit(
@@ -757,12 +758,7 @@ impl App {
                 st.mcp_token = token;
             }
         }
-        let log = self.dirs(run).log(match run.kind {
-            RunKind::Goal => "lead-chat.log",
-            RunKind::Chat => "chat.log",
-            RunKind::Loop => "loop.log",
-            RunKind::Dream => "dream.log",
-        });
+        let log = self.dirs(run).log(run.kind.conversation_log());
         let who = if run.kind.single_session() { lead.name.as_str() } else { "负责人" };
         self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
     }
@@ -778,7 +774,7 @@ impl App {
         channel: &InstructionChannel,
         system: &str,
     ) -> Opening {
-        let board = if run.kind != RunKind::Chat && conn.capabilities["mcpCapabilities"]["http"] == true {
+        let board = if run.kind.has_janus_server() && conn.capabilities["mcpCapabilities"]["http"] == true {
             vec![self.mcp_server(run, "lead")]
         } else {
             vec![]
@@ -860,8 +856,7 @@ impl App {
         }
         let via = channel.as_str();
         let label = match part {
-            SystemPart::Collaboration if run.kind == RunKind::Loop => "向值班注入值班的工作方式",
-            SystemPart::Collaboration if run.kind == RunKind::Dream => "向负责人注入整理团队记忆的做法",
+            SystemPart::Collaboration if let Some(label) = run.kind.collaboration_label() => label,
             SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
             SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
             SystemPart::History => "向 Agent 注入之前的对话",

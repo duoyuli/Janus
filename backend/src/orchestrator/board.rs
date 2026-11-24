@@ -30,6 +30,69 @@ impl Takers {
     }
 }
 
+/// Who reaches the `janus` MCP server, from the run's kind and the session's `who`: what it is
+/// told the server is for, and the tools it has. A chat has none.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Caller {
+    /// A goal run's lead: the board.
+    Lead,
+    /// A collaborator in one of a goal run's tasks.
+    Member,
+    /// A workspace Loop's session.
+    // @project-doc docs/interfaces/20261031-board_mcp.md#loop_tools
+    Loop,
+    /// The lead consolidating the workspace's team memory: the memory tools alone.
+    // @project-doc docs/interfaces/20261031-board_mcp.md#memory_tools
+    Consolidation,
+}
+
+impl Caller {
+    pub(super) fn of(kind: RunKind, who: &str) -> Option<Caller> {
+        match kind {
+            RunKind::Chat => None,
+            RunKind::Loop => Some(Caller::Loop),
+            RunKind::Dream => Some(Caller::Consolidation),
+            RunKind::Goal if who == "lead" => Some(Caller::Lead),
+            RunKind::Goal => Some(Caller::Member),
+        }
+    }
+
+    /// What `initialize` says the server is for.
+    fn instructions(self) -> &'static str {
+        match self {
+            Caller::Lead => {
+                "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。"
+            }
+            Caller::Member => {
+                "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；子任务过大需要拆分时用 request_split 提议；用 peers 查看其他子任务的状态、改过的文件和完整结果。"
+            }
+            Caller::Loop => {
+                "Janus 工作区值班（Loop）的工具。要改东西的事用 dispatch 派成任务（目标要能独立看懂，给稳定的 key；任务结束前由它自己闭环，结束时会唤醒你），dispatches 查派出的任务，note_dispatch 把任务不知道的信息转给进行中的任务，ask_user 把只有用户能决定的事交给用户（不等回答，回答会唤醒你），save_state 记下醒来之间要记住的事，set_name 给自己起名（只一次），next_wake 约一次时间表之外的醒来。"
+            }
+            Caller::Consolidation => {
+                "Janus 工作区的团队记忆。用 recall 读笔记，remember 合并或改正，forget 删掉重复、被推翻或过时的笔记。"
+            }
+        }
+    }
+
+    /// What the caller may do with the workspace's notes.
+    fn memory(self) -> MemoryAccess {
+        if self == Caller::Consolidation { MemoryAccess::Consolidate } else { MemoryAccess::Write }
+    }
+
+    /// Every tool the caller has (`tools/list`): its own, then the memory tools it may use.
+    pub(super) fn tools(self) -> Vec<Value> {
+        let own: Vec<Value> = match self {
+            Caller::Lead => LeadTool::ALL.iter().map(|t| t.definition()).collect(),
+            Caller::Member => MemberTool::ALL.iter().map(|t| t.definition()).collect(),
+            Caller::Loop => LoopTool::ALL.iter().map(|t| t.definition()).collect(),
+            Caller::Consolidation => vec![],
+        };
+        let memory = MemoryTool::ALL.iter().filter(|t| t.allowed(self.memory())).map(|t| t.definition());
+        own.into_iter().chain(memory).collect()
+    }
+}
+
 impl App {
     /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
     pub(super) fn mcp_server(&self, run: &Run, who: &str) -> Value {
@@ -37,114 +100,107 @@ impl App {
     }
 
     /// One MCP request (streamable HTTP, JSON responses) from a session of this run. `who` is
-    /// "lead" or the task id of the collaborator's session. Notifications get no response.
+    /// "lead" or the task id of the collaborator's session; with the run's kind it says which
+    /// tools the session has (`Caller`). Notifications get no response.
     // @project-doc docs/interfaces/20261031-board_mcp.md#transport
     pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, who: &str, req: Value) -> Result<Option<Value>> {
         let run = self.session_run(run_id, token, who)?;
         // A chat's agent holds a valid token for its library router; the same token must not
         // reach a board, which a chat does not have.
         // @project-doc docs/domains/20261120-chats.md#chat_model
-        if run.kind == RunKind::Chat {
-            bail!("对话没有共享看板");
-        }
+        let caller = Caller::of(run.kind, who).ok_or_else(|| anyhow!("对话没有共享看板"))?;
         let Some(id) = req.get("id").cloned() else {
             return Ok(None);
         };
-        let lead = who == "lead";
-        // A Loop's session reaches the same server, with the Loop's tools instead of the board's.
-        // @project-doc docs/interfaces/20261031-board_mcp.md#loop_tools
-        let looping = run.kind == RunKind::Loop;
-        // A consolidation reaches it too, with only the memory tools (and `forget`).
-        // @project-doc docs/interfaces/20261031-board_mcp.md#memory_tools
-        let access = if run.kind == RunKind::Dream { MemoryAccess::Consolidate } else { MemoryAccess::Write };
-        let tool_call = req["method"].as_str() == Some("tools/call");
-        let tool_name = req["params"]["name"].as_str().unwrap_or("工具").to_string();
-        let tool_input = req["params"]["arguments"].clone();
-        let call_id = id.to_string();
-        if tool_call {
-            let e = ev(EventKind::ToolStarted, who, format!("调用 janus.{tool_name}，等待返回")).data(json!({
-                "callId": call_id,
-                "tool": format!("janus.{tool_name}"),
-                "input": summarize_input(&tool_input, &tool_name),
-                "args": tool_input,
-                "status": "pending"
-            }));
-            self.emit(&run, e.in_session(who));
-        }
         let result = match req["method"].as_str().unwrap_or("") {
-            "initialize" => initialize(
-                &req,
-                "janus",
-                if access == MemoryAccess::Consolidate {
-                    "Janus 工作区的团队记忆。用 recall 读笔记，remember 合并或改正，forget 删掉重复、被推翻或过时的笔记。"
-                } else if looping {
-                    super::loops::LOOP_INSTRUCTIONS
-                } else if lead {
-                    "Janus 团队的共享看板。用 orchestrate 提交编排，wait 取回进展和提问，reply 回答协作者或补充指示，retry / accept / cancel 处理失败或不再需要的子任务，ask_user 把只有用户能做的决定交给用户，team 查看团队和子任务状态，task_detail 查看某个子任务的完整说明和结果。"
-                } else {
-                    "Janus 团队的共享看板。执行中有进展、阻塞或需要负责人注意的事，用 board_post 写回看板；改负责范围以外的文件前用 claim 认领；子任务过大需要拆分时用 request_split 提议；用 peers 查看其他子任务的状态、改过的文件和完整结果。"
-                },
-            ),
+            "initialize" => initialize(&req, "janus", caller.instructions()),
             "ping" => json!({}),
-            "tools/list" => {
-                let mut tools = match (access, looping, lead) {
-                    (MemoryAccess::Consolidate, ..) => vec![],
-                    (_, true, _) => loops::loop_tools(),
-                    (_, false, true) => lead_tools().as_array().cloned().unwrap_or_default(),
-                    (_, false, false) => member_tools().as_array().cloned().unwrap_or_default(),
-                };
-                tools.extend(memory::memory_tools(access));
-                json!({ "tools": tools })
-            }
+            "tools/list" => json!({ "tools": caller.tools() }),
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
-                let args = &req["params"]["arguments"];
-                let out = match (lead, name) {
-                    _ if let Some(out) = self.memory_tool(&run, who, access, name, args) => out,
-                    _ if access == MemoryAccess::Consolidate => Err(format!("没有这个工具：{name}")),
-                    _ if looping => self.loop_tool(&run, name, args).await,
-                    (true, "team") => Ok(self.board_team(&run)),
-                    (true, "orchestrate") => self.board_orchestrate(&run, args),
-                    (true, "wait") => Ok(self.board_wait(&run, args).await),
-                    (true, "reply") => self.board_reply(&run, args),
-                    (true, "retry") => self.board_retry(&run, args),
-                    (true, "accept") => self.board_accept(&run, args),
-                    (true, "amend") => self.board_amend(&run, args),
-                    (true, "cancel") => self.board_cancel(&run, args),
-                    (true, "ask_user") => self.board_ask_user(&run, args),
-                    (true, "task_detail") => self.task_detail(&run, args["task"].as_str().unwrap_or("").trim()),
-                    (false, "board_post") => self.board_post(&run, who, args),
-                    (false, "peers") => self.board_peers(&run, who, args),
-                    (false, "claim") => self.board_claim(&run, who, args),
-                    (false, "request_split") => self.board_request_split(&run, who, args),
-                    _ => Err(format!("没有这个工具：{name}")),
-                };
-                match out {
-                    Ok(text) => tool_text(&text, false),
-                    Err(text) => tool_text(&text, true),
-                }
+                self.janus_tool_call(&run, who, caller, name, &req["params"]["arguments"], &id.to_string()).await
             }
             m => return Ok(Some(rpc_error(id, METHOD_NOT_FOUND, format!("不支持 {m}")))),
         };
-        if tool_call {
-            let failed = result["isError"] == true;
-            let output = result["content"][0]["text"].as_str().unwrap_or("");
-            let e = ev(
-                EventKind::ToolCompleted,
-                who,
-                if failed { format!("janus.{tool_name} 失败") } else { format!("janus.{tool_name} 返回结果") },
-            )
-            .data(json!({
-                "callId": call_id,
-                "tool": format!("janus.{tool_name}"),
-                "input": summarize_input(&tool_input, &tool_name),
-                "args": tool_input,
-                "output": clip(output, 8000),
-                "status": if failed { "failed" } else { "completed" }
-            }));
-            self.emit(&run, e.in_session(who));
-        }
         Ok(Some(rpc_result(id, result)))
+    }
+
+    /// A call of one of the `janus` server's tools, recorded in the caller's session as it starts
+    /// and ends (`tool.started`, `tool.completed`).
+    async fn janus_tool_call(
+        self: &Arc<Self>,
+        run: &Arc<Run>,
+        who: &str,
+        caller: Caller,
+        name: &str,
+        args: &Value,
+        call_id: &str,
+    ) -> Value {
+        let tool = format!("janus.{}", if name.is_empty() { "工具" } else { name });
+        let input = summarize_input(args, name);
+        let started = ev(EventKind::ToolStarted, who, format!("调用 {tool}，等待返回")).data(json!({
+            "callId": call_id, "tool": tool, "input": input, "args": args, "status": "pending"
+        }));
+        self.emit(run, started.in_session(who));
+        let result = match self.janus_tool(run, who, caller, name, args).await {
+            Ok(text) => tool_text(&text, false),
+            Err(text) => tool_text(&text, true),
+        };
+        let failed = result["isError"] == true;
+        let output = result["content"][0]["text"].as_str().unwrap_or("");
+        let text = if failed { format!("{tool} 失败") } else { format!("{tool} 返回结果") };
+        let completed = ev(EventKind::ToolCompleted, who, text).data(json!({
+            "callId": call_id, "tool": tool, "input": input, "args": args, "output": clip(output, 8000),
+            "status": if failed { "failed" } else { "completed" }
+        }));
+        self.emit(run, completed.in_session(who));
+        result
+    }
+
+    /// Run one of the caller's tools; its error is the text the agent reads.
+    async fn janus_tool(
+        self: &Arc<Self>,
+        run: &Arc<Run>,
+        who: &str,
+        caller: Caller,
+        name: &str,
+        args: &Value,
+    ) -> std::result::Result<String, String> {
+        let missing = || Err(format!("没有这个工具：{name}"));
+        if let Some(tool) = MemoryTool::parse(name) {
+            return if tool.allowed(caller.memory()) {
+                self.memory_tool(run, who, caller.memory(), tool, args)
+            } else {
+                missing()
+            };
+        }
+        match caller {
+            Caller::Consolidation => missing(),
+            Caller::Loop => match LoopTool::parse(name) {
+                Some(tool) => self.loop_tool(run, tool, args).await,
+                None => missing(),
+            },
+            Caller::Lead => match LeadTool::parse(name) {
+                Some(LeadTool::Team) => Ok(self.board_team(run)),
+                Some(LeadTool::Orchestrate) => self.board_orchestrate(run, args),
+                Some(LeadTool::Wait) => Ok(self.board_wait(run, args).await),
+                Some(LeadTool::Reply) => self.board_reply(run, args),
+                Some(LeadTool::Retry) => self.board_retry(run, args),
+                Some(LeadTool::Accept) => self.board_accept(run, args),
+                Some(LeadTool::Amend) => self.board_amend(run, args),
+                Some(LeadTool::Cancel) => self.board_cancel(run, args),
+                Some(LeadTool::AskUser) => self.board_ask_user(run, args),
+                Some(LeadTool::TaskDetail) => self.task_detail(run, args["task"].as_str().unwrap_or("").trim()),
+                None => missing(),
+            },
+            Caller::Member => match MemberTool::parse(name) {
+                Some(MemberTool::BoardPost) => self.board_post(run, who, args),
+                Some(MemberTool::Peers) => self.board_peers(run, who, args),
+                Some(MemberTool::Claim) => self.board_claim(run, who, args),
+                Some(MemberTool::RequestSplit) => self.board_request_split(run, who, args),
+                None => missing(),
+            },
+        }
     }
 
     /// The run's usage ledger, from its events (rules live in `usage`). Read-only: a failure to

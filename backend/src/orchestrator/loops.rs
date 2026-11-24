@@ -847,21 +847,21 @@ impl App {
     pub(super) async fn loop_tool(
         &self,
         run: &Arc<Run>,
-        name: &str,
+        tool: LoopTool,
         args: &Value,
     ) -> std::result::Result<String, String> {
         let def = self.loop_of(&run.id).ok_or("这个值班已经被删除")?;
         let failed = |e: anyhow::Error| format!("{e:#}");
-        match name {
-            "dispatch" => self.loop_dispatch(&def, args).await.map_err(failed),
-            "dispatches" => self.loop_dispatches(&def, args).map_err(failed),
-            "note_dispatch" => self.loop_note(&def, args).map_err(failed),
-            "ask_user" => {
+        match tool {
+            LoopTool::Dispatch => self.loop_dispatch(&def, args).await.map_err(failed),
+            LoopTool::Dispatches => self.loop_dispatches(&def, args).map_err(failed),
+            LoopTool::NoteDispatch => self.loop_note(&def, args).map_err(failed),
+            LoopTool::AskUser => {
                 self.escalate(run, args)?;
                 Ok("已交给用户决定。不要等回答：用户回答后会唤醒你，问题和回答写在那次醒来的提示里。".into())
             }
-            "set_name" => self.loop_named(run, args["name"].as_str().unwrap_or("")).map_err(failed),
-            "save_state" => {
+            LoopTool::SetName => self.loop_named(run, args["name"].as_str().unwrap_or("")).map_err(failed),
+            LoopTool::SaveState => {
                 let text = args["text"].as_str().unwrap_or("").trim();
                 if text.chars().count() > STATE_LIMIT {
                     return Err(format!("state 最多 {STATE_LIMIT} 个字符，现在是 {}", text.chars().count()));
@@ -872,7 +872,7 @@ impl App {
                 );
                 Ok("已保存，下次醒来时在系统层里给你。".into())
             }
-            "next_wake" => {
+            LoopTool::NextWake => {
                 if def.state == LoopState::Paused {
                     return Err("值班暂停着：暂停时只在用户叫你或回答你时醒来，约不了时间".into());
                 }
@@ -898,7 +898,6 @@ impl App {
                 );
                 Ok(format!("好，这一轮结束后 {secs} 秒再醒来一次；时间表照旧。"))
             }
-            _ => Err(format!("没有这个工具：{name}")),
         }
     }
 
@@ -1052,72 +1051,79 @@ fn tick_prompt(def: &LoopDef, answers: &[(String, String, String)], ended: &[End
     out
 }
 
-/// What the `janus` server says it is, to a Loop's session.
-pub(super) const LOOP_INSTRUCTIONS: &str = "Janus 工作区值班（Loop）的工具。要改东西的事用 dispatch 派成任务（目标要能独立看懂，给稳定的 key；任务结束前由它自己闭环，结束时会唤醒你），dispatches 查派出的任务，note_dispatch 把任务不知道的信息转给进行中的任务，ask_user 把只有用户能决定的事交给用户（不等回答，回答会唤醒你），save_state 记下醒来之间要记住的事，set_name 给自己起名（只一次），next_wake 约一次时间表之外的醒来。";
+wire_enum! {
+    /// A tool a Loop's session has, in place of the board's.
+    pub(super) enum LoopTool {
+        Dispatch = "dispatch",
+        Dispatches = "dispatches",
+        NoteDispatch = "note_dispatch",
+        AskUser = "ask_user",
+        SaveState = "save_state",
+        SetName = "set_name",
+        NextWake = "next_wake",
+    }
+}
 
-/// The tools a Loop's session has (`tools/list`).
-pub(super) fn loop_tools() -> Vec<Value> {
-    vec![
-        json!({
-            "name": "dispatch",
-            "description": "Start a goal run in this workspace for anything that changes things. It goes through Janus's dispatch queue, runs with the workspace's team and ends in the person's inbox. The goal must stand on its own. The run owns its goal until it ends (its team checks and redoes its own work); its end wakes you with what it came to.",
-            "inputSchema": { "type": "object", "properties": {
-                "goal": { "type": "string", "description": "What to achieve, why, where the source is and how to tell it is done." },
-                "key": { "type": "string", "description": "A stable key for what this is about, e.g. github:owner/repo#123. A key already dispatched in this workspace is not dispatched again." },
-                "source_url": { "type": "string", "description": "Link to where the request came from, if any." }
-            }, "required": ["goal", "key"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": false }
-        }),
-        json!({
-            "name": "dispatches",
-            "description": "The runs this Loop dispatched, newest first: status, key, goal, and the delivery summary once delivered.",
-            "inputSchema": { "type": "object", "properties": {
-                "status": { "type": "string", "description": "Only runs in this status (queued, planning, running, delivered, accepted, cancelled, failed, interrupted)." }
-            } },
-            "annotations": { "readOnlyHint": true }
-        }),
-        json!({
-            "name": "note_dispatch",
-            "description": "Pass something a run you dispatched does not know (new information, a changed requirement) to its lead while it works, instead of dispatching another run about the same thing. Only for a run that is planning or running.",
-            "inputSchema": { "type": "object", "properties": {
-                "run": { "type": "string", "description": "The run's id, as dispatch or dispatches gave it." },
-                "text": { "type": "string", "description": "What it should know, standing on its own." }
-            }, "required": ["run", "text"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": false }
-        }),
-        json!({
-            "name": "ask_user",
-            "description": "Hand a decision only the person can make to their inbox. Do not wait: their answer wakes you.",
-            "inputSchema": { "type": "object", "properties": {
-                "question": { "type": "string" },
-                "why": { "type": "string", "description": "Why only the person can decide, and how the answers change what happens." },
-                "options": { "type": "array", "items": { "type": "string" } },
-                "recommend": { "type": "string" }
-            }, "required": ["question", "why"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": false }
-        }),
-        json!({
-            "name": "save_state",
-            "description": "Replace the notes you keep between wakes (at most 4000 characters): where you got to, what you are watching. They come back in your system layer.",
-            "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": false }
-        }),
-        json!({
-            "name": "set_name",
-            "description": "Name yourself, once: a few words for what you look after, in the language of your prompt. Your first wake asks for it.",
-            "inputSchema": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": false }
-        }),
-        json!({
-            "name": "next_wake",
-            "description": "Wake once more at a time outside your schedule, 60 seconds to 24 hours after this turn ends (for example to look at something outside Janus again). Not needed when your schedule wakes you sooner, nor to wait for a run you dispatched: its end wakes you. Your schedule goes on as before. The person sees when and why.",
-            "inputSchema": { "type": "object", "properties": {
-                "after_seconds": { "type": "integer" },
-                "reason": { "type": "string", "description": "One short sentence on why then; the person sees it." }
-            }, "required": ["after_seconds", "reason"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": false }
-        }),
-    ]
+impl LoopTool {
+    /// What `tools/list` says about the tool; its name is the enum's.
+    pub(super) fn definition(self) -> Value {
+        let mut d = match self {
+            LoopTool::Dispatch => json!({
+                "description": "Start a goal run in this workspace for anything that changes things. It goes through Janus's dispatch queue, runs with the workspace's team and ends in the person's inbox. The goal must stand on its own. The run owns its goal until it ends (its team checks and redoes its own work); its end wakes you with what it came to.",
+                "inputSchema": { "type": "object", "properties": {
+                    "goal": { "type": "string", "description": "What to achieve, why, where the source is and how to tell it is done." },
+                    "key": { "type": "string", "description": "A stable key for what this is about, e.g. github:owner/repo#123. A key already dispatched in this workspace is not dispatched again." },
+                    "source_url": { "type": "string", "description": "Link to where the request came from, if any." }
+                }, "required": ["goal", "key"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+            LoopTool::Dispatches => json!({
+                "description": "The runs this Loop dispatched, newest first: status, key, goal, and the delivery summary once delivered.",
+                "inputSchema": { "type": "object", "properties": {
+                    "status": { "type": "string", "description": "Only runs in this status (queued, planning, running, delivered, accepted, cancelled, failed, interrupted)." }
+                } },
+                "annotations": { "readOnlyHint": true }
+            }),
+            LoopTool::NoteDispatch => json!({
+                "description": "Pass something a run you dispatched does not know (new information, a changed requirement) to its lead while it works, instead of dispatching another run about the same thing. Only for a run that is planning or running.",
+                "inputSchema": { "type": "object", "properties": {
+                    "run": { "type": "string", "description": "The run's id, as dispatch or dispatches gave it." },
+                    "text": { "type": "string", "description": "What it should know, standing on its own." }
+                }, "required": ["run", "text"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+            LoopTool::AskUser => json!({
+                "description": "Hand a decision only the person can make to their inbox. Do not wait: their answer wakes you.",
+                "inputSchema": { "type": "object", "properties": {
+                    "question": { "type": "string" },
+                    "why": { "type": "string", "description": "Why only the person can decide, and how the answers change what happens." },
+                    "options": { "type": "array", "items": { "type": "string" } },
+                    "recommend": { "type": "string" }
+                }, "required": ["question", "why"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+            LoopTool::SaveState => json!({
+                "description": "Replace the notes you keep between wakes (at most 4000 characters): where you got to, what you are watching. They come back in your system layer.",
+                "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+            LoopTool::SetName => json!({
+                "description": "Name yourself, once: a few words for what you look after, in the language of your prompt. Your first wake asks for it.",
+                "inputSchema": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+            LoopTool::NextWake => json!({
+                "description": "Wake once more at a time outside your schedule, 60 seconds to 24 hours after this turn ends (for example to look at something outside Janus again). Not needed when your schedule wakes you sooner, nor to wait for a run you dispatched: its end wakes you. Your schedule goes on as before. The person sees when and why.",
+                "inputSchema": { "type": "object", "properties": {
+                    "after_seconds": { "type": "integer" },
+                    "reason": { "type": "string", "description": "One short sentence on why then; the person sees it." }
+                }, "required": ["after_seconds", "reason"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+        };
+        d["name"] = json!(self.as_str());
+        d
+    }
 }
 
 /// Whether two paths name the same directory (`/var` and `/private/var` on macOS).

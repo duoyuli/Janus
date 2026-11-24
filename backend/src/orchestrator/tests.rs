@@ -516,3 +516,28 @@ fn a_goal_with_an_unknown_field_is_refused() {
     assert!(serde_json::from_value::<NewRun>(json!({ "goal": "g", "workspace": "w" })).is_ok());
     assert!(serde_json::from_value::<NewRun>(json!({ "goal": "g", "workspace": "w", "maxCostUsd": 1 })).is_err());
 }
+
+/// Each caller of the `janus` server lists its own tools and the memory tools it may use, every
+/// name once, and a chat reaches none.
+#[test]
+fn each_caller_lists_its_own_tools_once() {
+    let names = |c: Caller| -> Vec<String> {
+        c.tools().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+    };
+    for (kind, who) in
+        [(RunKind::Goal, "lead"), (RunKind::Goal, "T1"), (RunKind::Loop, "lead"), (RunKind::Dream, "lead")]
+    {
+        let c = Caller::of(kind, who).unwrap();
+        let listed = names(c);
+        let unique: HashSet<&String> = listed.iter().collect();
+        assert_eq!(unique.len(), listed.len(), "{c:?} lists a tool twice: {listed:?}");
+        assert!(listed.iter().all(|n| !n.is_empty()), "{c:?}");
+        assert_eq!(listed.contains(&"forget".to_string()), c == Caller::Consolidation, "{c:?}");
+        assert!(listed.contains(&"recall".to_string()), "{c:?}");
+    }
+    assert_eq!(names(Caller::of(RunKind::Dream, "lead").unwrap()), ["recall", "remember", "forget"]);
+    assert!(names(Caller::of(RunKind::Goal, "lead").unwrap()).contains(&"orchestrate".to_string()));
+    assert!(names(Caller::of(RunKind::Goal, "T1").unwrap()).contains(&"board_post".to_string()));
+    assert!(names(Caller::of(RunKind::Loop, "lead").unwrap()).contains(&"dispatch".to_string()));
+    assert!(Caller::of(RunKind::Chat, "lead").is_none());
+}

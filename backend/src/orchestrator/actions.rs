@@ -263,7 +263,9 @@ impl App {
                         // Talking to an agent brings an interrupted run back first, and so does
                         // answering a Loop's question: they outlive its session.
                         RunAction::Message { .. } => self.resume_run(run_id).await?,
-                        RunAction::Answer { .. } if run_kind == RunKind::Loop => self.resume_run(run_id).await?,
+                        RunAction::Answer { .. } if run_kind.questions_outlive_session() => {
+                            self.resume_run(run_id).await?
+                        }
                         _ => {
                             return Err(Refused::Conflict(
                                 "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
@@ -344,7 +346,7 @@ impl App {
                 )
             }
             // A Loop's clock is paused on the Loop, and its session is stopped by deleting the Loop.
-            RunAction::Pause | RunAction::Resume | RunAction::Cancel if run.kind == RunKind::Loop => {
+            RunAction::Pause | RunAction::Resume | RunAction::Cancel if !run.kind.stopped_on_run_page() => {
                 bail!("值班在值班页暂停或删除，不能当作任务暂停或停止");
             }
             RunAction::Pause | RunAction::Resume => self.pause(run, matches!(action, RunAction::Pause)),
@@ -568,16 +570,7 @@ impl App {
         // @project-doc docs/domains/20261120-chats.md#chat_session
         let conversation =
             kind.single_session() || matches!(previous, Some(RunStatus::Delivered | RunStatus::Accepted));
-        let resumable = match kind {
-            RunKind::Chat | RunKind::Loop => previous.is_some_and(|s| s != RunStatus::Cancelled),
-            // A consolidation is one turn; a new one starts from the workspace's page.
-            RunKind::Dream => bail!("整理团队记忆只有一轮，结束后不能继续；可以在工作区页重新整理"),
-            RunKind::Goal => matches!(
-                previous,
-                Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
-            ),
-        };
-        if !resumable {
+        if !kind.resumable(previous).map_err(|why| anyhow!(why))? {
             bail!("只有中断、失败、已交付或已验收的子任务可以继续");
         }
         let events = self.db.events(run_id, 0)?;

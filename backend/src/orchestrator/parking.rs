@@ -26,10 +26,7 @@ impl App {
         if st.lead.in_turn || st.lead.parked || st.cancelled() || st.lead.session.is_none() {
             return false;
         }
-        match run.kind {
-            RunKind::Chat | RunKind::Loop | RunKind::Dream => true,
-            RunKind::Goal => st.lead.goal.ended() && !run.driving.active(),
-        }
+        run.kind.parks_when_idle(!st.lead.goal.ended() || run.driving.active())
     }
 
     /// Record that the session closes for `why`; the caller closes it. A chat's or a Loop's run is

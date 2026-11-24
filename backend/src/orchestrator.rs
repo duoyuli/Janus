@@ -47,7 +47,8 @@ mod mcp_router;
 mod mcp_server;
 mod memory;
 mod merge;
-use memory::MemoryAccess;
+use loops::LoopTool;
+use memory::{MemoryAccess, MemoryTool};
 use merge::{DeliveryMerge, MergeState};
 mod messages;
 mod parking;
@@ -1370,7 +1371,7 @@ impl App {
     /// them any more, and the app removes their cards.
     fn withdraw_owned(&self, run: &Run, owner: &Owner, text: &str) {
         // A Loop's questions are not about its session: the answer wakes it, whenever it comes.
-        let outlives = |p: &Pending| run.kind == RunKind::Loop && p.ask == Ask::Question;
+        let outlives = |p: &Pending| run.kind.questions_outlive_session() && p.ask == Ask::Question;
         let keys: Vec<String> = {
             let mut st = run.st.lock().unwrap();
             let keys: Vec<String> =

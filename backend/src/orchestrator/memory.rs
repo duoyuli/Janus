@@ -148,7 +148,7 @@ impl App {
         out
     }
 
-    /// The memory tools of a session, answered here; `None` for any other tool. `who` is the
+    /// One of the memory tools, called by a session with `access` to the notes. `who` is the
     /// session ("lead" or a collaborator's task).
     // @project-doc docs/interfaces/20261031-board_mcp.md#memory_tools
     pub(super) fn memory_tool(
@@ -156,16 +156,14 @@ impl App {
         run: &Run,
         who: &str,
         access: MemoryAccess,
-        name: &str,
+        tool: MemoryTool,
         args: &Value,
-    ) -> Option<std::result::Result<String, String>> {
-        let out = match name {
-            "recall" => self.recall(run, access, args),
-            "remember" => self.remember(run, who, args),
-            "forget" if access == MemoryAccess::Consolidate => self.forget(run, args),
-            _ => return None,
-        };
-        Some(out)
+    ) -> std::result::Result<String, String> {
+        match tool {
+            MemoryTool::Recall => self.recall(run, access, args),
+            MemoryTool::Remember => self.remember(run, who, args),
+            MemoryTool::Forget => self.forget(run, args),
+        }
     }
 
     /// The workspace of a session's run, or why it has no team memory.
@@ -540,44 +538,57 @@ fn date(ms: i64) -> String {
         .unwrap_or_default()
 }
 
-/// The memory tools: reading and writing notes, and for a consolidation removing them.
 // @project-doc docs/interfaces/20261031-board_mcp.md#memory_tools
-pub(super) fn memory_tools(access: MemoryAccess) -> Vec<Value> {
-    let mut tools = vec![
-        json!({
-            "name": "recall",
-            "description": "Search the workspace's team memory, the notes earlier runs kept for the runs after them: with a query, the best matching notes in full; with an id, that note; with neither, the list of notes (id, kind, title, hook). Search before you work out something a teammate may have found out already.",
-            "inputSchema": { "type": "object", "properties": {
-                "id": { "type": "string", "description": "A note's id, from a list or an earlier search." },
-                "query": { "type": "string", "description": "What you want to know, in a few words; titles count most, then hooks, then bodies." }
-            } },
-            "annotations": { "readOnlyHint": true }
-        }),
-        json!({
-            "name": "remember",
-            "description": "Keep a note for later runs in this workspace, or update one (pass its id). One topic per note; update the note on a topic instead of adding a near-copy. Only what a later run would otherwise have to find out again and cannot see from the code: no credentials, no text from outside beyond a link.",
-            "inputSchema": { "type": "object", "properties": {
-                "id": { "type": "string", "description": "The note to update; leave out to add a new one." },
-                "kind": { "type": "string", "enum": ["fact", "decision", "pitfall", "howto"], "description": "fact: how something is; decision: what was chosen and why; pitfall: a trap and how to avoid it; howto: how to do something." },
-                "title": { "type": "string", "maxLength": TITLE_MAX },
-                "hook": { "type": "string", "maxLength": HOOK_MAX, "description": "One line that tells someone who found the note whether it matters to them." },
-                "body": { "type": "string", "maxLength": BODY_MAX, "description": "The note, standing on its own; dates absolute." }
-            }, "required": ["kind", "title", "hook", "body"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": false }
-        }),
-    ];
-    if access == MemoryAccess::Consolidate {
-        tools.push(json!({
-            "name": "forget",
-            "description": "Remove a note: merged into another, proved wrong, out of date, or of no use to later runs.",
-            "inputSchema": { "type": "object", "properties": {
-                "id": { "type": "string" },
-                "reason": { "type": "string", "description": "Why it goes." }
-            }, "required": ["id", "reason"] },
-            "annotations": { "readOnlyHint": false, "destructiveHint": true }
-        }));
+wire_enum! {
+    /// A tool on the workspace's team memory: reading and writing notes, and for a consolidation
+    /// removing them.
+    pub(super) enum MemoryTool {
+        Recall = "recall",
+        Remember = "remember",
+        Forget = "forget",
     }
-    tools
+}
+
+impl MemoryTool {
+    /// What `tools/list` says about the tool; its name is the enum's.
+    pub(super) fn definition(self) -> Value {
+        let mut d = match self {
+            MemoryTool::Recall => json!({
+                "description": "Search the workspace's team memory, the notes earlier runs kept for the runs after them: with a query, the best matching notes in full; with an id, that note; with neither, the list of notes (id, kind, title, hook). Search before you work out something a teammate may have found out already.",
+                "inputSchema": { "type": "object", "properties": {
+                    "id": { "type": "string", "description": "A note's id, from a list or an earlier search." },
+                    "query": { "type": "string", "description": "What you want to know, in a few words; titles count most, then hooks, then bodies." }
+                } },
+                "annotations": { "readOnlyHint": true }
+            }),
+            MemoryTool::Remember => json!({
+                "description": "Keep a note for later runs in this workspace, or update one (pass its id). One topic per note; update the note on a topic instead of adding a near-copy. Only what a later run would otherwise have to find out again and cannot see from the code: no credentials, no text from outside beyond a link.",
+                "inputSchema": { "type": "object", "properties": {
+                    "id": { "type": "string", "description": "The note to update; leave out to add a new one." },
+                    "kind": { "type": "string", "enum": ["fact", "decision", "pitfall", "howto"], "description": "fact: how something is; decision: what was chosen and why; pitfall: a trap and how to avoid it; howto: how to do something." },
+                    "title": { "type": "string", "maxLength": TITLE_MAX },
+                    "hook": { "type": "string", "maxLength": HOOK_MAX, "description": "One line that tells someone who found the note whether it matters to them." },
+                    "body": { "type": "string", "maxLength": BODY_MAX, "description": "The note, standing on its own; dates absolute." }
+                }, "required": ["kind", "title", "hook", "body"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+            MemoryTool::Forget => json!({
+                "description": "Remove a note: merged into another, proved wrong, out of date, or of no use to later runs.",
+                "inputSchema": { "type": "object", "properties": {
+                    "id": { "type": "string" },
+                    "reason": { "type": "string", "description": "Why it goes." }
+                }, "required": ["id", "reason"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": true }
+            }),
+        };
+        d["name"] = json!(self.as_str());
+        d
+    }
+
+    /// Whether a session with `access` has the tool: only a consolidation removes notes.
+    pub(super) fn allowed(self, access: MemoryAccess) -> bool {
+        self != MemoryTool::Forget || access == MemoryAccess::Consolidate
+    }
 }
 
 #[cfg(test)]

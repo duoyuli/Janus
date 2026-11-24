@@ -14,129 +14,140 @@ pub(super) fn board_act() -> Value {
     json!({ "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false })
 }
 
-pub(super) fn lead_tools() -> Value {
-    json!([
-        {
-            "name": "team",
-            "description": "查看协作者（名字和职责）和共享看板上所有子任务的当前状态。",
-            "inputSchema": { "type": "object", "properties": {} },
-            "annotations": board_read()
-        },
-        {
-            "name": "orchestrate",
-            "description": "提交一份编排：一组交给协作者的子任务。Janus 先校验（执行者是协作者、id 不重复、依赖存在且无环、可能同时执行的子任务负责的文件不重叠、验证者不是被验证子任务的执行者），不通过时返回全部错误且不执行任何子任务；通过后写入共享看板并按依赖执行。可以多次提交，后提交的子任务可以依赖之前提交的子任务。",
-            "inputSchema": {
-                "type": "object",
-                "required": ["tasks"],
-                "properties": {
-                    "tasks": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                            "type": "object",
-                            "required": ["id", "title", "instructions", "assignee", "accept"],
-                            "properties": {
-                                "id": { "type": "string", "description": "子任务 id，字母数字和 - _，在整个看板里唯一，例如 T1" },
-                                "title": { "type": "string" },
-                                "instructions": { "type": "string", "description": "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。" },
-                                "assignee": { "type": "string", "description": "协作者 id" },
-                                "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的子任务 id" },
-                                "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）" },
-                                "owns": { "type": "array", "items": { "type": "string" }, "description": "这个子任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的子任务不能重叠" },
-                                "verifies": { "type": "string", "description": "独立验证：被验证子任务的 id。交给另一个协作者，自动在被验证的子任务完成后开始，只检查不改文件" },
-                                "continues": { "type": "string", "description": "续接原会话：同一个协作者之前子任务的 id，适合要用到那个子任务上下文的新工作（自动加入依赖；上下文超过 75% 或不支持时自动回退新建会话）。验证没通过的返工不用新建子任务，用 janus.retry" }
+wire_enum! {
+    /// A tool on the lead's board.
+    pub(super) enum LeadTool {
+        Team = "team",
+        Orchestrate = "orchestrate",
+        Wait = "wait",
+        Reply = "reply",
+        Retry = "retry",
+        Accept = "accept",
+        Amend = "amend",
+        Cancel = "cancel",
+        TaskDetail = "task_detail",
+        AskUser = "ask_user",
+    }
+}
+
+impl LeadTool {
+    /// What `tools/list` says about the tool; its name is the enum's.
+    pub(super) fn definition(self) -> Value {
+        let mut d = match self {
+            LeadTool::Team => json!({
+                "description": "查看协作者（名字和职责）和共享看板上所有子任务的当前状态。",
+                "inputSchema": { "type": "object", "properties": {} },
+                "annotations": board_read()
+            }),
+            LeadTool::Orchestrate => json!({
+                "description": "提交一份编排：一组交给协作者的子任务。Janus 先校验（执行者是协作者、id 不重复、依赖存在且无环、可能同时执行的子任务负责的文件不重叠、验证者不是被验证子任务的执行者），不通过时返回全部错误且不执行任何子任务；通过后写入共享看板并按依赖执行。可以多次提交，后提交的子任务可以依赖之前提交的子任务。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["tasks"],
+                    "properties": {
+                        "tasks": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": {
+                                "type": "object",
+                                "required": ["id", "title", "instructions", "assignee", "accept"],
+                                "properties": {
+                                    "id": { "type": "string", "description": "子任务 id，字母数字和 - _，在整个看板里唯一，例如 T1" },
+                                    "title": { "type": "string" },
+                                    "instructions": { "type": "string", "description": "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。" },
+                                    "assignee": { "type": "string", "description": "协作者 id" },
+                                    "deps": { "type": "array", "items": { "type": "string" }, "description": "必须先成功完成的子任务 id" },
+                                    "accept": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "可核对的验收标准：做到什么、怎样算做到。执行者自己决定怎么验证，逐条给出是否达到、证据和可选的证据方法（test、command、inspection、reasoning、unverified）" },
+                                    "owns": { "type": "array", "items": { "type": "string" }, "description": "这个子任务负责修改的文件或目录（相对工作目录，目录包含其下所有文件）。可能同时执行的子任务不能重叠" },
+                                    "verifies": { "type": "string", "description": "独立验证：被验证子任务的 id。交给另一个协作者，自动在被验证的子任务完成后开始，只检查不改文件" },
+                                    "continues": { "type": "string", "description": "续接原会话：同一个协作者之前子任务的 id，适合要用到那个子任务上下文的新工作（自动加入依赖；上下文超过 75% 或不支持时自动回退新建会话）。验证没通过的返工不用新建子任务，用 janus.retry" }
+                                }
                             }
                         }
                     }
-                }
-            },
-            "annotations": board_act()
-        },
-        {
-            "name": "wait",
-            "description": "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，以及协作者的提问。有子任务完成或需要你处理的消息时立即返回，连同之前攒下的开始、进展等消息一起；否则最多等 timeout_sec 秒（默认 120，最大 180），超时返回攒下的消息和运行中子任务的实时进展。",
-            "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 180 } } },
-            "annotations": board_read()
-        },
-        {
-            "name": "reply",
-            "description": "回答协作者在某个子任务里的提问，或给正在执行的协作者补充指示。消息立即送达：能插话时插入当前这一轮，否则打断它当前这一轮后发送。子任务已经结束时会返回错误。",
-            "inputSchema": {
-                "type": "object",
-                "required": ["task", "text"],
-                "properties": { "task": { "type": "string" }, "text": { "type": "string" } }
-            },
-            "annotations": board_act()
-        },
-        {
-            "name": "retry",
-            "description": "让一个已经结束的子任务再做一次，重新给满尝试次数：失败或已取消的，或者已完成但需要返工的（例如独立验证判定没通过）。每次都要选会话：continue 回到这个子任务原来的会话，上下文都在；new 新开一个会话。from 指向一个独立验证子任务时，它的意见原样交给执行者，返工完成后它重新验证；这个子任务的其他独立验证也会重新验证。被它阻塞的子任务会在它成功后自动继续。",
-            "inputSchema": {
-                "type": "object",
-                "required": ["task", "session"],
-                "properties": {
-                    "task": { "type": "string" },
-                    "session": { "type": "string", "enum": ["continue", "new"], "description": "continue：接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的）；new：新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）。上下文超过 75% 或 Agent 不支持加载时，continue 自动改为新开会话" },
-                    "from": { "type": "string", "description": "依据哪个独立验证子任务的意见返工；它的判定、没通过的标准和证据、建议会原样交给执行者，不需要你转述" },
-                    "note": { "type": "string", "description": "你对这一轮的补充：判断、取舍、范围上的决定" },
-                    "instructions": { "type": "string", "description": "新的完整说明；不填则沿用原说明" },
-                    "accept": { "type": "array", "items": { "type": "string" }, "description": "新的验收标准；不填则沿用" }
-                }
-            },
-            "annotations": board_act()
-        },
-        {
-            "name": "accept",
-            "description": "接受一个没有通过验收核对的子任务的结果：执行者自认没有完全达到某条标准，但你核对后认为可以接受。子任务算作完成，没达到的部分作为风险记录，依赖它的子任务继续执行。",
-            "inputSchema": {
-                "type": "object",
-                "required": ["task", "reason"],
-                "properties": { "task": { "type": "string" }, "reason": { "type": "string", "description": "你核对了什么，为什么没达到的部分不影响目标" } }
-            },
-            "annotations": board_act()
-        },
-        {
-            "name": "amend",
-            "description": "修订一个已完成子任务的结论（例如推翻它的选型）。正在执行的下游子任务立即收到修订，还没开始的在交接时拿到；已经基于旧结论完成的下游子任务会列出来，由你决定是否重做。",
-            "inputSchema": {
-                "type": "object",
-                "required": ["task", "text"],
-                "properties": { "task": { "type": "string" }, "text": { "type": "string", "description": "修订后的结论，以及和原结论的区别" } }
-            },
-            "annotations": board_act()
-        },
-        {
-            "name": "cancel",
-            "description": "取消不再需要的子任务：还没开始的不再开始，执行中的被停止，依赖它们的子任务一并取消。",
-            "inputSchema": {
-                "type": "object",
-                "required": ["tasks"],
-                "properties": { "tasks": { "type": "array", "items": { "type": "string" } }, "reason": { "type": "string" } }
-            },
-            "annotations": board_act()
-        },
-        {
-            "name": "task_detail",
-            "description": "查看看板上一个子任务的全部信息：说明、验收标准、完整结果（逐条验收及其证据方法、全部证据、风险、证据汇总）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游子任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
-            "inputSchema": { "type": "object", "required": ["task"], "properties": { "task": { "type": "string" } } },
-            "annotations": board_read()
-        },
-        {
-            "name": "ask_user",
-            "description": "把只有用户能做的决定交给用户：需求有多种理解且结果明显不同、需要用户的账号或付费资源、不可逆的操作。技术选型和实现方式由你自己决定，不要用这个工具。不会等待：用户的回答出现在 janus.wait 里。",
-            "inputSchema": {
-                "type": "object",
-                "required": ["question", "why"],
-                "properties": {
-                    "question": { "type": "string" },
-                    "why": { "type": "string", "description": "为什么必须由用户决定，不同答案会怎样影响结果" },
-                    "options": { "type": "array", "items": { "type": "string" } },
-                    "recommend": { "type": "string", "description": "你建议的选项" }
-                }
-            },
-            "annotations": board_act()
-        }
-    ])
+                },
+                "annotations": board_act()
+            }),
+            LeadTool::Wait => json!({
+                "description": "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，以及协作者的提问。有子任务完成或需要你处理的消息时立即返回，连同之前攒下的开始、进展等消息一起；否则最多等 timeout_sec 秒（默认 120，最大 180），超时返回攒下的消息和运行中子任务的实时进展。",
+                "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 180 } } },
+                "annotations": board_read()
+            }),
+            LeadTool::Reply => json!({
+                "description": "回答协作者在某个子任务里的提问，或给正在执行的协作者补充指示。消息立即送达：能插话时插入当前这一轮，否则打断它当前这一轮后发送。子任务已经结束时会返回错误。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["task", "text"],
+                    "properties": { "task": { "type": "string" }, "text": { "type": "string" } }
+                },
+                "annotations": board_act()
+            }),
+            LeadTool::Retry => json!({
+                "description": "让一个已经结束的子任务再做一次，重新给满尝试次数：失败或已取消的，或者已完成但需要返工的（例如独立验证判定没通过）。每次都要选会话：continue 回到这个子任务原来的会话，上下文都在；new 新开一个会话。from 指向一个独立验证子任务时，它的意见原样交给执行者，返工完成后它重新验证；这个子任务的其他独立验证也会重新验证。被它阻塞的子任务会在它成功后自动继续。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["task", "session"],
+                    "properties": {
+                        "task": { "type": "string" },
+                        "session": { "type": "string", "enum": ["continue", "new"], "description": "continue：接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的）；new：新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）。上下文超过 75% 或 Agent 不支持加载时，continue 自动改为新开会话" },
+                        "from": { "type": "string", "description": "依据哪个独立验证子任务的意见返工；它的判定、没通过的标准和证据、建议会原样交给执行者，不需要你转述" },
+                        "note": { "type": "string", "description": "你对这一轮的补充：判断、取舍、范围上的决定" },
+                        "instructions": { "type": "string", "description": "新的完整说明；不填则沿用原说明" },
+                        "accept": { "type": "array", "items": { "type": "string" }, "description": "新的验收标准；不填则沿用" }
+                    }
+                },
+                "annotations": board_act()
+            }),
+            LeadTool::Accept => json!({
+                "description": "接受一个没有通过验收核对的子任务的结果：执行者自认没有完全达到某条标准，但你核对后认为可以接受。子任务算作完成，没达到的部分作为风险记录，依赖它的子任务继续执行。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["task", "reason"],
+                    "properties": { "task": { "type": "string" }, "reason": { "type": "string", "description": "你核对了什么，为什么没达到的部分不影响目标" } }
+                },
+                "annotations": board_act()
+            }),
+            LeadTool::Amend => json!({
+                "description": "修订一个已完成子任务的结论（例如推翻它的选型）。正在执行的下游子任务立即收到修订，还没开始的在交接时拿到；已经基于旧结论完成的下游子任务会列出来，由你决定是否重做。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["task", "text"],
+                    "properties": { "task": { "type": "string" }, "text": { "type": "string", "description": "修订后的结论，以及和原结论的区别" } }
+                },
+                "annotations": board_act()
+            }),
+            LeadTool::Cancel => json!({
+                "description": "取消不再需要的子任务：还没开始的不再开始，执行中的被停止，依赖它们的子任务一并取消。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["tasks"],
+                    "properties": { "tasks": { "type": "array", "items": { "type": "string" } }, "reason": { "type": "string" } }
+                },
+                "annotations": board_act()
+            }),
+            LeadTool::TaskDetail => json!({
+                "description": "查看看板上一个子任务的全部信息：说明、验收标准、完整结果（逐条验收及其证据方法、全部证据、风险、证据汇总）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游子任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
+                "inputSchema": { "type": "object", "required": ["task"], "properties": { "task": { "type": "string" } } },
+                "annotations": board_read()
+            }),
+            LeadTool::AskUser => json!({
+                "description": "把只有用户能做的决定交给用户：需求有多种理解且结果明显不同、需要用户的账号或付费资源、不可逆的操作。技术选型和实现方式由你自己决定，不要用这个工具。不会等待：用户的回答出现在 janus.wait 里。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["question", "why"],
+                    "properties": {
+                        "question": { "type": "string" },
+                        "why": { "type": "string", "description": "为什么必须由用户决定，不同答案会怎样影响结果" },
+                        "options": { "type": "array", "items": { "type": "string" } },
+                        "recommend": { "type": "string", "description": "你建议的选项" }
+                    }
+                },
+                "annotations": board_act()
+            }),
+        };
+        d["name"] = json!(self.as_str());
+        d
+    }
 }
 
 /// What one collaborator call may put on the board: enough for any real report, not enough to
@@ -145,62 +156,78 @@ pub(super) const POST_MAX_CHARS: usize = 8000;
 pub(super) const CLAIM_MAX_PATHS: usize = 100;
 pub(super) const SPLIT_MAX_SUBTASKS: usize = 8;
 
-pub(super) fn member_tools() -> Value {
-    json!([{
-        "name": "board_post",
-        "description": "执行子任务期间，把进展、阻塞或需要负责人注意的事写到共享看板，负责人会看到。需要负责人做决定才能继续时，不要在这里等：在结果 JSON 的 question 字段提问并结束本轮。",
-        "inputSchema": {
-            "type": "object",
-            "required": ["text"],
-            "properties": {
-                "kind": { "type": "string", "enum": ["progress", "blocker", "note"] },
-                "text": { "type": "string", "maxLength": POST_MAX_CHARS }
-            }
-        },
-        "annotations": board_read()
-    }, {
-        "name": "claim",
-        "description": "开始改一批不在你负责范围内的文件前先认领：认领后它们归你的子任务负责，同时进行的其他子任务改它们时 Janus 会提醒对方和负责人；子任务结束后认领自动失效。已经归另一个可能同时进行的子任务负责的文件不能认领，会返回负责它的子任务。验证子任务不改文件，不能认领。",
-        "inputSchema": {
-            "type": "object",
-            "required": ["paths"],
-            "properties": {
-                "paths": { "type": "array", "items": { "type": "string" }, "maxItems": CLAIM_MAX_PATHS, "description": "相对工作目录的文件或目录，目录包含其下所有文件；文件多时认领所在的目录" }
-            }
-        },
-        "annotations": board_read()
-    }, {
-        "name": "peers",
-        "description": "查看看板上其他子任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的子任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个子任务的完整说明、结果和负责人的修订，例如上游子任务的证据。",
-        "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
-        "annotations": board_read()
-    }, {
-        "name": "request_split",
-        "description": "发现子任务规模远超预期、需要拆成多个子任务或调整负责边界时，向负责人提交拆分提议。负责人会立即收到推送并用 orchestrate / amend / reply 处理。验证子任务不能请求拆分。",
-        "inputSchema": {
-            "type": "object",
-            "required": ["reason", "subtasks"],
-            "properties": {
-                "reason": { "type": "string", "description": "为什么需要拆分或调整边界" },
-                "completed": { "type": "string", "description": "当前已经完成、可保留的前置部分（可选）" },
-                "subtasks": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": SPLIT_MAX_SUBTASKS,
-                    "items": {
-                        "type": "object",
-                        "required": ["title"],
-                        "properties": {
-                            "title": { "type": "string" },
-                            "owns": { "type": "array", "items": { "type": "string" } },
-                            "accept": { "type": "array", "items": { "type": "string" } }
+wire_enum! {
+    /// A tool a collaborator has on the board.
+    pub(super) enum MemberTool {
+        BoardPost = "board_post",
+        Claim = "claim",
+        Peers = "peers",
+        RequestSplit = "request_split",
+    }
+}
+
+impl MemberTool {
+    /// What `tools/list` says about the tool; its name is the enum's.
+    pub(super) fn definition(self) -> Value {
+        let mut d = match self {
+            MemberTool::BoardPost => json!({
+                "description": "执行子任务期间，把进展、阻塞或需要负责人注意的事写到共享看板，负责人会看到。需要负责人做决定才能继续时，不要在这里等：在结果 JSON 的 question 字段提问并结束本轮。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {
+                        "kind": { "type": "string", "enum": ["progress", "blocker", "note"] },
+                        "text": { "type": "string", "maxLength": POST_MAX_CHARS }
+                    }
+                },
+                "annotations": board_read()
+            }),
+            MemberTool::Claim => json!({
+                "description": "开始改一批不在你负责范围内的文件前先认领：认领后它们归你的子任务负责，同时进行的其他子任务改它们时 Janus 会提醒对方和负责人；子任务结束后认领自动失效。已经归另一个可能同时进行的子任务负责的文件不能认领，会返回负责它的子任务。验证子任务不改文件，不能认领。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["paths"],
+                    "properties": {
+                        "paths": { "type": "array", "items": { "type": "string" }, "maxItems": CLAIM_MAX_PATHS, "description": "相对工作目录的文件或目录，目录包含其下所有文件；文件多时认领所在的目录" }
+                    }
+                },
+                "annotations": board_read()
+            }),
+            MemberTool::Peers => json!({
+                "description": "查看看板上其他子任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的子任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个子任务的完整说明、结果和负责人的修订，例如上游子任务的证据。",
+                "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
+                "annotations": board_read()
+            }),
+            MemberTool::RequestSplit => json!({
+                "description": "发现子任务规模远超预期、需要拆成多个子任务或调整负责边界时，向负责人提交拆分提议。负责人会立即收到推送并用 orchestrate / amend / reply 处理。验证子任务不能请求拆分。",
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["reason", "subtasks"],
+                    "properties": {
+                        "reason": { "type": "string", "description": "为什么需要拆分或调整边界" },
+                        "completed": { "type": "string", "description": "当前已经完成、可保留的前置部分（可选）" },
+                        "subtasks": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": SPLIT_MAX_SUBTASKS,
+                            "items": {
+                                "type": "object",
+                                "required": ["title"],
+                                "properties": {
+                                    "title": { "type": "string" },
+                                    "owns": { "type": "array", "items": { "type": "string" } },
+                                    "accept": { "type": "array", "items": { "type": "string" } }
+                                }
+                            }
                         }
                     }
-                }
-            }
-        },
-        "annotations": board_read()
-    }])
+                },
+                "annotations": board_read()
+            }),
+        };
+        d["name"] = json!(self.as_str());
+        d
+    }
 }
 
 /// Check an orchestration the lead submitted, against the team and the tasks already on the

@@ -218,7 +218,7 @@ impl Layout {
     // ---- Runs and chats
 
     pub fn run(&self, kind: RunKind, id: &str) -> RunDirs {
-        let group = group(kind);
+        let group = kind.dir();
         RunDirs {
             data: self.data().join(group).join(id),
             work: self.home.join("work").join(group).join(id),
@@ -274,7 +274,8 @@ impl Layout {
 
     /// Whether `path` is an image pasted into a run, a chat or a Loop, `data/<runs|chats|loops>/<id>/attachments/<file>`.
     pub fn is_attachment(&self, path: &Path) -> bool {
-        self.stored(path, &[RunKind::Goal, RunKind::Chat, RunKind::Loop], "attachments", 2)
+        let kinds: Vec<RunKind> = RunKind::ALL.iter().copied().filter(|k| k.takes_images()).collect();
+        self.stored(path, &kinds, "attachments", 2)
     }
 
     /// A file at `data/<group>/<id>/<part>/…`, `depth` names below the id; both sides resolved,
@@ -282,7 +283,7 @@ impl Layout {
     fn stored(&self, path: &Path, kinds: &[RunKind], part: &str, depth: usize) -> bool {
         let Ok(path) = path.canonicalize() else { return false };
         kinds.iter().any(|&k| {
-            let Ok(group) = self.data().join(group(k)).canonicalize() else { return false };
+            let Ok(group) = self.data().join(k.dir()).canonicalize() else { return false };
             let Ok(rest) = path.strip_prefix(&group) else { return false };
             let parts: Vec<_> = rest.components().collect();
             parts.len() == depth + 1 && parts[1].as_os_str() == part && path.is_file()
@@ -293,16 +294,6 @@ impl Layout {
 /// Remove a file or a whole directory; one already gone is fine.
 pub fn remove(path: &Path) {
     let _ = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
-}
-
-/// Runs, chats and Loop sessions sit apart in every category: `runs/<id>`, `chats/<id>`, `loops/<id>`.
-fn group(kind: RunKind) -> &'static str {
-    match kind {
-        RunKind::Goal => "runs",
-        RunKind::Chat => "chats",
-        RunKind::Loop => "loops",
-        RunKind::Dream => "dreams",
-    }
 }
 
 /// The two places a sandboxed process (an agent's, or an MCP server's) gets: `HOME` with the XDG

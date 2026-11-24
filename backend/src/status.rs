@@ -61,10 +61,85 @@ wire_enum! {
     }
 }
 
+/// What differs between the kinds of run. Code that would branch on a run's kind asks here, so a
+/// new kind is one more arm in each of these, not another check in every module.
 impl RunKind {
-    /// One member in the run's main session, no board and no delivery: a chat or a Loop.
+    /// One member in the run's main session, no board and no delivery: a chat, a Loop's session
+    /// or a consolidation.
     pub fn single_session(self) -> bool {
         self != RunKind::Goal
+    }
+
+    /// The folder its files sit in, in every category of Janus home (`data/<dir>/<id>`, ...).
+    pub fn dir(self) -> &'static str {
+        match self {
+            RunKind::Goal => "runs",
+            RunKind::Chat => "chats",
+            RunKind::Loop => "loops",
+            RunKind::Dream => "dreams",
+        }
+    }
+
+    /// The log of its main session's agent process.
+    pub fn conversation_log(self) -> &'static str {
+        match self {
+            RunKind::Goal => "lead-chat.log",
+            RunKind::Chat => "chat.log",
+            RunKind::Loop => "loop.log",
+            RunKind::Dream => "dream.log",
+        }
+    }
+
+    /// Whether its sessions reach the `janus` MCP server (the board, a Loop's tools, the memory
+    /// tools). A chat is one person and one digital employee: nothing to coordinate.
+    pub fn has_janus_server(self) -> bool {
+        self != RunKind::Chat
+    }
+
+    /// Whether a question its session asked stays open after the session ends: a Loop does not
+    /// wait for the answer, which wakes it whenever it comes.
+    pub fn questions_outlive_session(self) -> bool {
+        self == RunKind::Loop
+    }
+
+    /// Whether the person stops and pauses it on the run page. A Loop's session is paused on its
+    /// Loop and goes when the Loop is deleted.
+    pub fn stopped_on_run_page(self) -> bool {
+        self != RunKind::Loop
+    }
+
+    /// Whether images can be pasted into it (a consolidation takes no messages).
+    pub fn takes_images(self) -> bool {
+        self != RunKind::Dream
+    }
+
+    /// Whether its main session's agent may close while nothing happens in it, given whether a
+    /// goal run still needs its lead (its goal not ended, or its team at work).
+    pub fn parks_when_idle(self, lead_needed: bool) -> bool {
+        self.single_session() || !lead_needed
+    }
+
+    /// Whether a run that is not live can be brought back after it ended `previous`, or why not.
+    pub fn resumable(self, previous: Option<RunStatus>) -> Result<bool, &'static str> {
+        match self {
+            RunKind::Chat | RunKind::Loop => Ok(previous.is_some_and(|s| s != RunStatus::Cancelled)),
+            // A consolidation is one turn; a new one starts from the workspace's page.
+            RunKind::Dream => Err("整理团队记忆只有一轮，结束后不能继续；可以在工作区页重新整理"),
+            RunKind::Goal => Ok(matches!(
+                previous,
+                Some(RunStatus::Interrupted | RunStatus::Failed | RunStatus::Delivered | RunStatus::Accepted)
+            )),
+        }
+    }
+
+    /// How the record names what Janus tells its main session about working with it, when that
+    /// differs from a goal run's (`None`: the Agent Team's rules).
+    pub fn collaboration_label(self) -> Option<&'static str> {
+        match self {
+            RunKind::Loop => Some("向值班注入值班的工作方式"),
+            RunKind::Dream => Some("向负责人注入整理团队记忆的做法"),
+            RunKind::Goal | RunKind::Chat => None,
+        }
     }
 }
 
