@@ -122,7 +122,7 @@ plutil -replace SessionCreate -bool false ~/Library/LaunchAgents/actions.runner.
 ./svc.sh start
 ```
 
-`svc.sh` 生成的 LaunchAgent 默认带 `SessionCreate`，任务跑在脱离图形登录会话的新会话里。应用测试里有靠合成输入事件验证的用例（`ChatScrollTests` 合成触控板滚动），在那样的会话里合成的手势不算人的操作，`aConversationKeepsThePlaceThePersonScrolledTo` 会失败，所以要关掉它。重装服务（`svc.sh uninstall` 再 `install`）后要重新改一次。机器要保持登录：没有图形会话时这些用例同样过不了。
+`svc.sh` 生成的 LaunchAgent 默认带 `SessionCreate`，任务跑在脱离图形登录会话的新会话里，所以要关掉它。应用测试里检查真实窗口滚动的用例（`ChatScrollTests` 的 `aConversationKeepsThePlaceThePersonScrolledTo`）在锁屏时会自己跳过，因为锁屏后窗口没有显示周期；在脱离图形会话的会话里它查不到锁屏状态，照跑并失败。2026-11-24 本机运行器第一次接手应用测试时机器正锁着屏，就是这样误报了失败；关掉 `SessionCreate` 之后同一个用例在锁屏时跳过，在两种会话里各跑一次对照过。重装服务（`svc.sh uninstall` 再 `install`）后要重新改一次。锁屏时本机这条腿不检查这个用例，和锁屏时跑 `just test-mac` 一样。
 
 运行器启动时的 `PATH` 在 `config.sh` 运行时记进 `.path`，要包含 `cargo`、`swift`、`node`、`gh` 和 `python3`。查看状态用 `./svc.sh status` 或 `gh api repos/duoyuli/Janus/actions/runners`。
 
