@@ -4,6 +4,28 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.24.2
+
+- 修复服务重启或应用自动更新之后，已经交付的任务在应用里没有「验收」按钮，标题栏还写着只读：服务端一直能按记录验收，现在交付卡片照常给出「验收」和「让负责人改…」；只有已经停止、又不在服务里的任务才标「只读 · 这个任务已停止」。
+
+- 用量账本只在服务端算一份：应用改为读服务端算好的结果（回放时按回放的位置读），提醒和阈值不再两边各写一份。提醒按界面语言写成文字，英文界面不再出现中文的提醒。
+
+- 修复资源库从 GitHub 来源拉取时，会继承 Janus 启动环境里的 `GIT_DIR` 这类变量（例如从 git hook 或编辑器的终端启动 Janus 时），可能拉到别处：现在和其他 git 调用一样，先清掉这些变量。
+
+- 用户操作和设置的请求按固定的结构读取：不认识的操作、类型不对的字段（例如 `allow` 不是布尔值、`via` 不是 `mode` 或 `config`）在执行前就返回 400 并说明哪里不对，不再当作空值处理。
+
+- 内部整理（数据版本 23）：Run 快照里成员的字段按意思改名（Agent 连接是 `connection`，原来叫 `runtime`），升级时自动改写；事件类型、设置的种类、用户操作、交付的合并状态都改成枚举，Run 的各种类型（目标、对话、值班、整理团队记忆）的差异集中在一处，`janus` 服务的工具按调用者登记；删除读取旧数据的兜底分支和没有用到的代码。
+
+- Fixed delivered runs losing their "验收" button after the service restarted or the app updated itself, with the title saying read-only: the server could always accept them from their record, and the delivery card now offers "验收" and "让负责人改…" as usual. Only a stopped run the service no longer holds is marked "Read-only · This run was stopped".
+
+- The usage ledger is computed once, on the server: the app reads the server's result (at the replayed position when replaying), so the reminders and their thresholds are no longer kept on both sides. Reminders are worded in the app's language, so the English interface no longer shows them in Chinese.
+
+- Fixed fetching a library Git source inheriting variables such as `GIT_DIR` from where Janus was started (a git hook, an editor's terminal), which could fetch somewhere else: like every other git call, it now drops them first.
+
+- Actions on a run and settings are read as fixed structures: an unknown action or a field of the wrong type (`allow` not a boolean, `via` neither `mode` nor `config`) is refused with 400 saying what is wrong before anything happens, instead of being read as empty.
+
+- Internal cleanup (data version 23): run snapshot members name their fields by what they hold (the agent connection is `connection`, formerly `runtime`), rewritten on upgrade; event kinds, setting kinds, run actions and delivery merge states are enums; what differs between goal runs, chats, Loops and team memory consolidations is kept in one place, and the `janus` server's tools are registered by caller; fallbacks for data from earlier versions and code nothing used are gone.
+
 ## 2026.11.24
 
 - 修复 Agent 回复里列多、内容长的表格把消息撑坏：第一列占满整行，其余列被挤出窗口，行被撑得很高，下面的「这一轮已结束，等待你的消息」叠在回复最后一段上。现在表格总在消息宽度之内，放不下时各列按内容多少分宽度，格子里换行。
