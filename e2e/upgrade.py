@@ -14,8 +14,9 @@ same home. Then it checks what the upgrade promises:
 - a second start upgrades nothing and takes no new backup;
 - a database from a newer Janus is refused.
 
-Nothing in the checkout is touched: sources, builds and homes live in a temporary directory, and
-the servers listen on a free port of 127.0.0.1 (never the person's own 7878).
+Nothing in the checkout is touched: sources, builds and homes live in a temporary directory (each
+release's build is kept in the system's temporary directory by commit, for the next runs), and the
+servers listen on a free port of 127.0.0.1 (never the person's own 7878).
 
 Usage: e2e/upgrade.py [--from TAG ...] [--keep] [--dump-fixture PATH]
 `--dump-fixture` writes the oldest tag's data (configs and runs, before the upgrade) as SQL for
@@ -78,19 +79,35 @@ def api(method, path, body=None):
     return http(ADDR, method, path, body)
 
 
+# Released servers never change, so each is built once, by commit, and kept in the system's
+# temporary directory (not the checkout, not the person's home) for the next runs.
+BUILDS = os.path.join(tempfile.gettempdir(), "janus-e2e-builds")
+
+
 def build_old(tag, tmp):
-    """The tag's server binary, built from the tag's own source in `tmp`."""
+    """The tag's server binary, built from the tag's own source in `tmp` unless a build of the
+    same commit is kept from an earlier run."""
     src = os.path.join(tmp, "src-" + tag)
     os.makedirs(src)
     archive = subprocess.run(["git", "-C", ROOT, "archive", tag, "backend"], capture_output=True, check=True).stdout
     run(["tar", "-x", "-C", src], input=archive)
-    # One target directory per tag: a shared one can leave the previous tag's binary in place.
-    target = os.path.join(tmp, "target-" + tag)
-    say(f"构建 {tag} 的服务…")
-    run(["cargo", "build", "--locked", "-q", "--manifest-path", os.path.join(src, "backend", "Cargo.toml")],
-        env=dict(os.environ, CARGO_TARGET_DIR=target))
+    commit = subprocess.run(["git", "-C", ROOT, "rev-parse", tag + "^{commit}"], capture_output=True, text=True, check=True).stdout.strip()
+    kept = os.path.join(BUILDS, commit, "janus")
     binary = os.path.join(tmp, "janus-" + tag)
-    shutil.copy(os.path.join(target, "debug", "janus"), binary)
+    if os.path.exists(kept):
+        say(f"{tag} 的服务用已经构建过的（{commit[:8]}）")
+    else:
+        # One target directory per tag: a shared one can leave the previous tag's binary in place.
+        target = os.path.join(tmp, "target-" + tag)
+        say(f"构建 {tag} 的服务…")
+        run(["cargo", "build", "--locked", "-q", "--manifest-path", os.path.join(src, "backend", "Cargo.toml")],
+            env=dict(os.environ, CARGO_TARGET_DIR=target))
+        os.makedirs(os.path.dirname(kept), exist_ok=True)
+        # Written aside and renamed: a run beside this one never reads half a binary.
+        part = f"{kept}.{os.getpid()}"
+        shutil.copy(os.path.join(target, "debug", "janus"), part)
+        os.replace(part, kept)
+    shutil.copy(kept, binary)
     return binary, seeds_in(os.path.join(src, "backend"))
 
 
