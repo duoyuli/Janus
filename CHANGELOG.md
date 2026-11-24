@@ -28,7 +28,7 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 - 修复本地打包的 Janus.app 第一次在测试之外打开就把自己换成最新的发布：只有发布版本带更新来源；测试驱动的应用也不再检查、下载或替换自己，打包版的端到端测试不会再被自动更新打断。
 
-- 端到端测试按条目点收件箱里的就地回答，不再因为并行的场景改变收件箱的顺序而偶尔点错、超时；在对话输入框里按键前先等草稿进了输入框，不再偶尔丢掉换行或发出空消息；值班场景按原因找每一次开工，测试跑过整点、值班被时间表多叫醒一次时不再超时。
+- 端到端测试按条目点收件箱里的就地回答，不再因为并行的场景改变收件箱的顺序而偶尔点错、超时；别的场景开着表单时，按键仍按到对话的输入框里，不再偶尔丢掉换行或没发出消息；值班场景按原因找每一次开工，测试跑过整点、值班被时间表多叫醒一次时不再超时。
 
 - The delivery card now reads at a glance: the lead's one-line conclusion on top, one line of numbers (subtasks done, criteria met, whether the evidence was run, read or only said, files changed), then To Look At: the lead's questions for you first, then what Janus found (unmet criteria, results that differ from the folder, missing independent verification, files the lead changed itself), each marked with its source. What changed and the Accept button follow; subtasks, evidence and the lead's full report are folded below. Evidence shows two lines until you click Show All, and a subtask's self-reported risks are counted on its row instead of opening it. The lead now writes its report under a Conclusion heading and a Needs Your Decision heading.
 
@@ -52,7 +52,7 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 - Fixed a locally built Janus.app replacing itself with the latest release the first time it ran outside a test: only released builds carry the update source, and an app under test no longer checks, downloads or swaps itself, so automatic updates no longer cut the packaged end-to-end tests short.
 
-- End-to-end tests click an inbox entry's quick answer by the entry itself, so parallel scenarios reordering the inbox no longer make them click the wrong one and time out now and then; and they press a key in a conversation's box only once the draft is in it, so a new line is no longer lost, nor an empty message sent, now and then; and the Loop scenario finds each wake by its reason, so a test running across the hour, when the schedule wakes the Loop once more, no longer times out.
+- End-to-end tests click an inbox entry's quick answer by the entry itself, so parallel scenarios reordering the inbox no longer make them click the wrong one and time out now and then; a key pressed while another scenario has a sheet open still reaches the conversation's box, so a new line or a message is no longer lost now and then; and the Loop scenario finds each wake by its reason, so a test running across the hour, when the schedule wakes the Loop once more, no longer times out.
 
 ## 2026.11.23.10
 

@@ -286,10 +286,6 @@ enum Snapshots {
         case "auto-update": Updater.shared.automatic = arg != "off"
         // A key press in the first composer of the key window, through the same handler as typing.
         case "press":
-            // A `draft` (or `open`) in the same batch reaches the text view on SwiftUI's next
-            // update: let it land first, or the key goes into the old text and the draft then
-            // overwrites it (a new line lost, or an empty message sent).
-            try? await Task.sleep(nanoseconds: 300_000_000)
             let flags: NSEvent.ModifierFlags = arg == "shift-return" ? .shift : arg == "command-return" ? .command : []
             if let v = composer(), let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: v.window?.windowNumber ?? 0,
                                                              context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
@@ -355,10 +351,13 @@ enum Snapshots {
         }
     }
 
+    /// The first composer of the key window, or of another visible window when the key one has
+    /// none: scenarios share the app, and a sheet another one left open (a note, the shared
+    /// material) is the key window then.
     private static func composer() -> ComposerField.TextView? {
         let wins = NSApp.windows.filter { $0.isVisible && $0.contentView != nil }
         func find(_ v: NSView) -> ComposerField.TextView? { (v as? ComposerField.TextView) ?? v.subviews.lazy.compactMap(find).first }
-        return (wins.first(where: { $0.isKeyWindow }) ?? wins.first)?.contentView.flatMap(find)
+        return (wins.filter(\.isKeyWindow) + wins.filter { !$0.isKeyWindow }).lazy.compactMap { $0.contentView.flatMap(find) }.first
     }
 
     /// A picture of one flat colour: what the window server returns when it may not show the window.
