@@ -18,6 +18,7 @@ struct MainView: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: store.showingSettings)
         .tint(Color.accent)
+        .disclosureGroupStyle(.row)
     }
 
     private var split: some View {

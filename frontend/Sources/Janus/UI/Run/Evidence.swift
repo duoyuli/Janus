@@ -224,12 +224,14 @@ struct DeliveryTaskView: View {
 
     private func disclosure(_ open: Bool) -> some View {
         Button { run.taskOpen[record.task] = !open } label: {
-            HStack(spacing: 4) {
-                Image(systemName: open ? "chevron.down" : "chevron.right")
-                    .font(.caption2.weight(.semibold))
+            HStack(spacing: 6) {
+                DisclosureChevron(open: open)
                 Text(open ? L.text("收起") : L.text("展开")).font(.caption)
             }
             .foregroundStyle(Color.accent)
+            .padding(.vertical, 2).padding(.trailing, 6)
+            .contentShape(Rectangle())
+            .hoverable(6)
         }
         .buttonStyle(.plain)
         .help(open ? L.text("收起这个子任务的验收证据") : L.text("展开这个子任务的验收标准、证据、独立验证、痕迹和风险"))

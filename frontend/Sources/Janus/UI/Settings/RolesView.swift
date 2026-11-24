@@ -238,6 +238,8 @@ struct RoleEditor: View {
                     Text(text).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
                 }
+                // A sheet: the style set on the main window does not reach it.
+                .disclosureGroupStyle(.row)
                 HStack {
                     Button(L.text("采用新版")) { chooseSeed(field, adopt: true) }.buttonStyle(.primary)
                     Button(L.text("保留我的")) { chooseSeed(field, adopt: false) }

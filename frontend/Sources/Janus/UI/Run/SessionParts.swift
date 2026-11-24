@@ -13,15 +13,17 @@ struct PlanStrip: View {
             VStack(alignment: .leading, spacing: 4) {
                 Button { open.toggle() } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        DisclosureChevron(open: open)
                         Text(L.text("计划")).font(.caption.weight(.semibold))
                         Text(verbatim: "\(done)/\(steps.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         if !open, let now = steps.first(where: { $0.status == "in_progress" }) { Text(now.content).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         Spacer()
                     }
                     .contentShape(Rectangle())
+                    .hoverable(6)
                 }
                 .buttonStyle(.plain)
+                .accessibilityValue(open ? L.text("已展开") : L.text("已收起"))
                 if open {
                     ForEach(Array(steps.enumerated()), id: \.offset) { _, s in
                         HStack(alignment: .firstTextBaseline, spacing: 7) {

@@ -42,12 +42,14 @@ struct UsageSection: View {
                 Spacer()
                 // A disclosure, not a link: it opens the task and member list at this level.
                 Button { detail.toggle() } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: detail ? "chevron.down" : "chevron.right")
-                            .font(.caption2.weight(.semibold))
+                    HStack(spacing: 6) {
+                        DisclosureChevron(open: detail)
                         Text(detail ? L.text("收起明细") : L.text("子任务与成员明细")).font(.callout)
                     }
                     .foregroundStyle(Color.accent)
+                    .padding(.vertical, 2).padding(.trailing, 6)
+                    .contentShape(Rectangle())
+                    .hoverable(6)
                 }
                 .buttonStyle(.plain)
                 .help(L.text("按子任务和成员拆开看用量"))

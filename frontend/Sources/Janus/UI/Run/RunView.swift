@@ -425,12 +425,14 @@ struct RunCard: View {
     /// A disclosure, not a link: it opens the ledger inside this card.
     private var usageToggle: some View {
         Button { run.usageOpen.toggle() } label: {
-            HStack(spacing: 4) {
-                Image(systemName: run.usageOpen ? "chevron.down" : "chevron.right")
-                    .font(.caption2.weight(.semibold))
+            HStack(spacing: 6) {
+                DisclosureChevron(open: run.usageOpen)
                 Text(L.text("用量明细")).font(.callout)
             }
             .foregroundStyle(Color.accent)
+            .padding(.vertical, 2).padding(.trailing, 6)
+            .contentShape(Rectangle())
+            .hoverable(6)
         }
         .buttonStyle(.plain)
         .help(L.text("展开用量：Token、费用、耗时、上下文"))

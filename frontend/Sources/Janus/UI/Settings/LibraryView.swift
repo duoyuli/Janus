@@ -344,8 +344,7 @@ struct LibraryView: View {
                     groupsOpen[key] = !open
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(open ? 90 : 0))
+                        DisclosureChevron(open: open)
                         Image(systemName: icon).foregroundStyle(Color.accent).frame(width: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(title).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
@@ -354,9 +353,11 @@ struct LibraryView: View {
                         Spacer(minLength: 8)
                     }
                     .contentShape(Rectangle())
+                    .hoverable(6)
                 }
                 .buttonStyle(.plain)
                 .help(open ? L.text("收起") : L.text("展开"))
+                .accessibilityValue(open ? L.text("已展开") : L.text("已收起"))
                 trailing()
                 Pill(summary)
             }
@@ -385,7 +386,7 @@ struct LibraryView: View {
                     if open { expanded.remove(id) } else { expanded.insert(id) }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).rotationEffect(.degrees(open ? 90 : 0))
+                        DisclosureChevron(open: open)
                         Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium)).lineLimit(1)
                         Text(i["description"].truthy ? i["description"].str : mcp ? Library.endpoint(i) : "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer(minLength: 8)
@@ -397,9 +398,11 @@ struct LibraryView: View {
                         }
                     }
                     .contentShape(Rectangle())
+                    .hoverable(6)
                 }
                 .buttonStyle(.plain)
                 .help(open ? L.text("收起") : L.text("展开详情"))
+                .accessibilityValue(open ? L.text("已展开") : L.text("已收起"))
             }
             if open { details(i) }
         }

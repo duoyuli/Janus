@@ -413,6 +413,8 @@ struct ConnectionEditor: View {
                 }
                 .padding(.top, 8)
             }
+            // A sheet: the style set on the main window does not reach it.
+            .disclosureGroupStyle(.row)
         }
     }
 
