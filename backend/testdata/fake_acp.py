@@ -41,6 +41,14 @@ The person's own messages to a Loop are answered "回复：<prompt>".
 A consolidation of a workspace's team memory (its system layer says "consolidating this workspace's team memory")
 logs "dream prompt <json>" and keeps its one turn going until FAKE_DIR/dream-go exists, then ends it with that file's
 text (and removes it), so a test can call the memory tools meanwhile.
+With a `content.json` in FAKE_DIR the agent says and writes what the file gives it (e2e/screenshots.py stages
+demonstration data this way): the outcome "content" works on its task as `tasks.<task id>` describes (`thought`, `plan`,
+`files` it writes and reports as edits with diffs, `commands` of which the last stays in progress while it works,
+`context` and `cost` for a usage snapshot, `permission` to ask for first, `hold` naming a file in FAKE_DIR to wait for,
+`seconds` at work, then a structured result from `summary`, `handoff`, `checks` (evidence, method and passed for each
+criterion in turn), `evidence`, `risks` and `verdict`, with `tokens` as the turn's usage); a lead whose goal starts with a
+key of `goals` works until FAKE_DIR/go-<key> exists and ends with that goal's `report`, `tokens` and `cost`; a Loop titles
+its session `loop_title` and answers a wake with `loops.<first line of its prompt>`, else `loop_default`.
 A session's task and criteria are kept in FAKE_DIR (`session-<id>.json`), so a session loaded after a restart
 continues its task. Session setup (session/new `mcpServers`, set_config_option) and the image blocks of each
 prompt are appended to calls.log; it declares HTTP MCP support and image input. Counters live in FAKE_DIR so the
@@ -56,6 +64,15 @@ import sys
 
 # @project-doc docs/operations/20261031-testing.md#fake_agent
 DIR = os.environ["FAKE_DIR"]
+
+
+def content():
+    """FAKE_DIR/content.json: what to say and write instead of the scripted strings; empty without the file."""
+    try:
+        with open(os.path.join(DIR, "content.json")) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
 
 
 def send(msg):
@@ -201,6 +218,74 @@ def wait_cancel(seconds):
     return False
 
 
+def content_turn(sid, task, d):
+    """One turn on `task` as its entry `d` of content.json describes (see the module comment)."""
+    def upd(u):
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}})
+
+    plan = d.get("plan") or []
+
+    def show_plan(done):
+        if plan:
+            upd({"sessionUpdate": "plan", "entries": [
+                {"content": p, "priority": "high", "status": "completed" if i < done else "in_progress" if i == done else "pending"}
+                for i, p in enumerate(plan)]})
+
+    if d.get("thought"):
+        upd({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": d["thought"]}})
+    show_plan(0)
+    if wait_cancel(d.get("seconds", 0) / 2):
+        return {"stopReason": "cancelled"}
+    for i, (name, body) in enumerate((d.get("files") or {}).items()):
+        path = os.path.join(os.getcwd(), name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        old = open(path).read() if os.path.exists(path) else ""
+        with open(path, "w") as f:
+            f.write(body)
+        upd({"sessionUpdate": "tool_call", "toolCallId": f"edit-{task}-{i}", "title": f"Edit {name}", "kind": "edit",
+             "status": "completed", "locations": [{"path": path}], "rawInput": {"file_path": name},
+             "content": [{"type": "diff", "path": path, "oldText": old, "newText": body}]})
+    show_plan(max(0, len(plan) - 1))
+    if d.get("context"):
+        snapshot(sid, d["context"], 200000, {"amount": d["cost"], "currency": "USD"} if d.get("cost") else None)
+    commands = d.get("commands") or []
+    for i, c in enumerate(commands):
+        last = i == len(commands) - 1
+        upd({"sessionUpdate": "tool_call", "toolCallId": f"run-{task}-{i}", "title": c["title"], "kind": "execute",
+             "status": "in_progress" if last else "completed", "rawInput": {"command": c["title"].split()},
+             **({} if last else {"rawOutput": c.get("output", "")})})
+    if d.get("permission"):
+        ask_client("session/request_permission", {"sessionId": sid, "toolCall": {
+            "toolCallId": f"perm-{task}", "title": d["permission"], "rawInput": {"command": d["permission"].split()}},
+            "options": [{"optionId": "a1", "name": "Allow once", "kind": "allow_once"},
+                        {"optionId": "a2", "name": "Always allow", "kind": "allow_always"},
+                        {"optionId": "r1", "name": "Reject", "kind": "reject_once"}]})
+    if d.get("hold"):
+        gate = os.path.join(DIR, d["hold"])
+        while not os.path.exists(gate):
+            if wait_cancel(0.2):
+                return {"stopReason": "cancelled"}
+    if wait_cancel(d.get("seconds", 0) / 2):
+        return {"stopReason": "cancelled"}
+    if commands:
+        upd({"sessionUpdate": "tool_call_update", "toolCallId": f"run-{task}-{len(commands) - 1}", "status": "completed",
+             "rawOutput": commands[-1].get("output", "")})
+    show_plan(len(plan))
+    given = d.get("checks") or []
+    checks = []
+    for i, criterion in enumerate(CRITERIA.get(sid, [])):
+        g = given[i] if i < len(given) else {}
+        checks.append({"criterion": criterion, "passed": g.get("passed", True), "method": g.get("method", "test"),
+                       "evidence": g.get("evidence", "")})
+    body = {"summary": d.get("summary", ""), "checks": checks, "evidence": d.get("evidence", []),
+            "risks": d.get("risks", []), "question": None}
+    for k in ("handoff", "verdict"):
+        if d.get(k):
+            body[k] = d[k]
+    say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
+    return {"stopReason": "end_turn", "usage": tokens(d.get("tokens", 1500))}
+
+
 def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
@@ -217,7 +302,7 @@ def prompt(msg):
         if sid not in TITLED:
             TITLED.add(sid)
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
-                "sessionUpdate": "session_info_update", "title": "标题：" + text.strip().splitlines()[-1][:20]}}})
+                "sessionUpdate": "session_info_update", "title": content().get("loop_title") or "标题：" + text.strip().splitlines()[-1][:20]}}})
         w = re.search(r"\[write (\S+)\]", text)
         if w:
             with open(w.group(1), "a") as f:
@@ -228,7 +313,8 @@ def prompt(msg):
                 if wait_cancel(0.2):
                     return {"stopReason": "cancelled"}
             os.remove(go)
-        say(sid, "看过了：" + text.splitlines()[0])
+        given = content()
+        say(sid, (given.get("loops") or {}).get(text.strip().splitlines()[0]) or given.get("loop_default") or "看过了：" + text.splitlines()[0])
         return {"stopReason": "end_turn"}
     if "consolidating this workspace's team memory" in SYSTEM.get(sid, ""):
         log("dream prompt " + json.dumps(text, ensure_ascii=False))
@@ -269,12 +355,20 @@ def prompt(msg):
             send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                 "sessionUpdate": "session_info_update", "_meta": {"jetbrains": {"air": {"goal": {"objective": text[6:], "status": "active"}}}}}}})
         import time
-        go = os.path.join(DIR, "lead-go")
+        # A goal `content.json` knows ends on its own file with its own report, so several leads share one FAKE_DIR.
+        goal = text[len("/goal "):].strip()
+        given = next((v for k, v in (content().get("goals") or {}).items() if goal.startswith(k)), None)
+        go = os.path.join(DIR, "go-" + given["key"] if given else "lead-go")
         while not os.path.exists(go):
             if wait_cancel(0.2):
                 return {"stopReason": "cancelled"}
-        say(sid, open(go).read())
-        return {"stopReason": "end_turn"}
+        if not given:
+            say(sid, open(go).read())
+            return {"stopReason": "end_turn"}
+        if given.get("cost"):
+            snapshot(sid, given.get("context", 30000), 200000, {"amount": given["cost"], "currency": "USD"})
+        say(sid, given["report"])
+        return {"stopReason": "end_turn", "usage": tokens(given.get("tokens", 1500))}
     w = re.search(r"\[write (\S+)\]", text)
     if w and not re.search(r"你的子任务 (\S+)：", text):
         # A follow-up asking for a file: written in the session's directory, the turn ends.
@@ -329,6 +423,8 @@ def prompt(msg):
             return {"stopReason": "end_turn", "usage": tokens(2500)}
         say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
         return {"stopReason": "end_turn", "usage": tokens(1000)}
+    if outcome == "content":
+        return content_turn(sid, task, content()["tasks"][task])
     if outcome == "fail":
         raise RuntimeError("scripted failure")
     if outcome == "cancelled":

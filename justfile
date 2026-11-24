@@ -34,6 +34,11 @@ e2e-product *args:
 e2e-upgrade *args:
     python3 -I e2e/upgrade.py {{args}}
 
+# @project-doc docs/operations/20261031-testing.md#screenshots
+# 重拍 docs/assets/screenshots 里的界面截图：演示数据，中英文、浅色和深色各一套（--lang en|zh、--out <目录>、--keep）；需要 ImageMagick
+screenshots *args:
+    python3 -I e2e/screenshots.py {{args}}
+
 # 改了存储的数据结构并加了迁移后，更新 backend/testdata/data_shape.json
 data-shape:
     cd backend && cargo run -q -- migrate --shape > testdata/data_shape.json
