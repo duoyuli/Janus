@@ -9,6 +9,7 @@
 
 use crate::layout::Layout;
 use anyhow::{Context, Result, bail};
+pub(crate) use relocate::{adopt_db, current_db};
 use rusqlite::{Connection, Transaction, params};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
@@ -68,7 +69,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 2,
         name: "默认数字员工记录来源，之后可以更新没改过的职责和指令",
-        steps: &[Step::Custom(crate::agents::record_seed_origins)],
+        steps: &[Step::Custom(steps::roles::record_seed_origins)],
     },
     Migration {
         version: 3,
@@ -88,33 +89,33 @@ pub const MIGRATIONS: &[Migration] = &[
         steps: &[Step::UndoneBy(11)],
     },
     Migration {
-        version: 6, name: "新增默认的通用数字员工", steps: &[Step::Custom(crate::agents::add_generalist)]
+        version: 6, name: "新增默认的通用数字员工", steps: &[Step::Custom(steps::roles::add_generalist)]
     },
     Migration {
         version: 7,
         name: "去掉预设的 Agent 类型：DeepSeek、MiniMax、GLM over Claude Code 改为用 API Key 登录的 Claude Code，原来的变量写进它自己的环境变量",
-        steps: &[Step::Custom(crate::agents::drop_preset_kinds)],
+        steps: &[Step::Custom(steps::agents::drop_preset_kinds)],
     },
     Migration {
         version: 8,
         name: "命令启动的 MCP 服务器记录 MCP 路由怎样运行它：默认同一个任务共用一个进程",
-        steps: &[Step::Custom(crate::library::record_mcp_process)],
+        steps: &[Step::Custom(steps::library::record_mcp_process)],
     },
     Migration {
         version: 9,
         name: "去掉「自定义命令」的 Agent：删除这类 Agent，绑定它的数字员工改为没有绑定 Agent，旧 Run 里用它的成员记为 Claude Code（只能查看，不能继续）",
-        steps: &[Step::Custom(crate::agents::drop_custom_agents)],
+        steps: &[Step::Custom(steps::agents::drop_custom_agents)],
     },
     Migration {
         version: 10,
         name: "worktree 中的 Run 记录验收时合并回哪个分支：旧 Run 取升级时工作目录检出、并且包含 Run 起点的分支",
-        steps: &[Step::Custom(crate::worktrees::record_source_branch)],
+        steps: &[Step::Custom(steps::runs::record_source_branch)],
     },
     Migration {
         version: 11,
         name: "资源库的每项资源都给所有数字员工：资源和 Run 快照中的资源去掉「给谁用」，数字员工去掉选中的资源",
         steps: &[
-            Step::Custom(crate::library::drop_reach),
+            Step::Custom(steps::library::drop_reach),
             Step::Drop { at: Target::Config("role"), field: "resources" },
         ],
     },
@@ -126,17 +127,17 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 13,
         name: "Claude 的自定义 API 改用环境变量：单独保存的 API Key 成为 ANTHROPIC_API_KEY，私有变量移出数据库",
-        steps: &[Step::Home(crate::agents::migrate_claude_env)],
+        steps: &[Step::Home(steps::agents::migrate_claude_env)],
     },
     Migration {
         version: 14,
         name: "Janus home 按类别整理：data、work、cache、tmp、logs，任务和对话分开存放",
-        steps: &[Step::Home(crate::layout::move_to_categories)],
+        steps: &[Step::Home(relocate::move_to_categories)],
     },
     Migration {
         version: 15,
         name: "新增默认的数字员工「老友」",
-        steps: &[Step::Custom(crate::agents::add_old_friend)],
+        steps: &[Step::Custom(steps::roles::add_old_friend)],
     },
     Migration {
         version: 16,
@@ -146,7 +147,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 17,
         name: "默认数字员工的 id 改为它的职能：pmo、marketing、developer、qa、friend",
-        steps: &[Step::Home(crate::agents::rename_default_roles)],
+        steps: &[Step::Home(steps::roles::rename_default_roles)],
     },
     Migration {
         version: 18,
@@ -165,17 +166,17 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 19,
         name: "工作区 Loop：Run 记录是谁派出的（用户或哪个 Loop）、派发的 key 和来源链接，同一工作区的 key 不重复",
         // Every run so far was the person's own.
-        steps: &[Step::Custom(add_run_origin)],
+        steps: &[Step::Custom(steps::runs::add_run_origin)],
     },
     Migration {
         version: 20,
         name: "值班的节奏改为时间表（cron）：固定间隔换成对应的 cron，自己决定换成每 30 分钟，只手动换成不按时间",
-        steps: &[Step::Custom(rhythm_to_schedule)],
+        steps: &[Step::Custom(steps::settings::rhythm_to_schedule)],
     },
     Migration {
         version: 21,
         name: "本机环境改为默认镜像用户目录、只挡列出的路径：去掉原来逐项共享的记录",
-        steps: &[Step::Custom(drop_host_links)],
+        steps: &[Step::Custom(steps::settings::drop_host_links)],
     },
     Migration {
         version: 22,
@@ -198,61 +199,6 @@ pub const MIGRATIONS: &[Migration] = &[
         )],
     },
 ];
-
-/// Data version 21: agents' HOME mirrors the person's home folder but a hidden list (`host_env`),
-/// which starts as the defaults; the paths shared one by one before (`host_link`) mean nothing now.
-fn drop_host_links(tx: &Transaction) -> Result<usize> {
-    Ok(tx.execute("DELETE FROM configs WHERE kind = 'host_link'", [])?)
-}
-
-/// Data version 20: a Loop's `rhythm` becomes a `schedule` in the service's time zone. An interval
-/// comes round on the clock now (every 30 minutes: on the hour and the half hour); a self-paced
-/// Loop wakes every 30 minutes and can still ask for another time; a manual one has none.
-fn rhythm_to_schedule(tx: &Transaction) -> Result<usize> {
-    let tz = crate::schedule::local_zone();
-    edit_configs(tx, "loop", |_, o| {
-        let Some(rhythm) = o.remove("rhythm") else { return false };
-        let cron = match rhythm["kind"].as_str() {
-            Some("interval") => match rhythm["minutes"].as_u64().unwrap_or(30).max(1) {
-                m if m < 60 => Some(format!("*/{m} * * * *")),
-                m if m < 24 * 60 => Some(format!("0 */{} * * *", m / 60)),
-                _ => Some("0 0 * * *".to_string()),
-            },
-            Some("manual") => None,
-            _ => Some("*/30 * * * *".to_string()),
-        };
-        o.insert("schedule".into(), cron.map_or(Value::Null, |c| serde_json::json!({ "cron": c, "tz": tz })));
-        true
-    })
-}
-
-/// Data version 19: `runs` records who a goal run is for (`origin`, `loop_id`) and a Loop's
-/// dispatch key and source, the key unique in its workspace. Columns already there are left alone,
-/// so it can run again.
-fn add_run_origin(tx: &Transaction) -> Result<usize> {
-    let has: Vec<String> = tx
-        .prepare("SELECT name FROM pragma_table_info('runs')")?
-        .query_map([], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut added = 0;
-    for (column, ty) in [
-        ("origin", "TEXT NOT NULL DEFAULT 'user'"),
-        ("loop_id", "TEXT"),
-        ("dispatch_key", "TEXT"),
-        ("source_url", "TEXT"),
-    ] {
-        if !has.iter().any(|c| c == column) {
-            tx.execute_batch(&format!("ALTER TABLE runs ADD COLUMN {column} {ty};"))?;
-            added += 1;
-        }
-    }
-    tx.execute_batch(
-        "CREATE UNIQUE INDEX IF NOT EXISTS runs_dispatch_key ON runs (json_extract(config, '$.workspace.id'), dispatch_key)
-           WHERE dispatch_key IS NOT NULL;
-         CREATE INDEX IF NOT EXISTS runs_loop ON runs (loop_id) WHERE loop_id IS NOT NULL;",
-    )?;
-    Ok(added)
-}
 
 /// The data version this build reads and writes.
 pub fn latest() -> u32 {
@@ -577,5 +523,7 @@ pub fn problems(conn: &Connection) -> Result<Vec<String>> {
     Ok(out)
 }
 
+mod relocate;
+mod steps;
 #[cfg(test)]
 mod tests;

@@ -269,7 +269,7 @@ fn claude_custom_api_keys_become_private_environment() {
         (Some("sk-ant-old"), Some("typed-in"))
     );
     let tx = conn.transaction().unwrap();
-    let step = Step::Home(crate::agents::migrate_claude_env);
+    let step = Step::Home(steps::agents::migrate_claude_env);
     assert_eq!(apply(&tx, &step, Some(home_of(&path))).unwrap(), 0, "a second run changes nothing");
 }
 

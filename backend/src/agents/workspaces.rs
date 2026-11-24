@@ -160,7 +160,7 @@ impl App {
     }
 }
 
-pub(super) const WORKSPACE: &str = "workspace";
+pub(crate) const WORKSPACE: &str = "workspace";
 pub(super) const MAX_SLOTS: i64 = 8;
 
 /// The most a workspace's shared material may hold: it goes into every session's prompt.

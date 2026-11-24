@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
         Some("migrate") => {
             match args.next().as_deref() {
                 Some("--dry-run") => {
-                    print!("{}", migrations::dry_run(&layout::current_db(&layout::Layout::new(janus_home()?)))?)
+                    print!("{}", migrations::dry_run(&migrations::current_db(&layout::Layout::new(janus_home()?)))?)
                 }
                 Some("--shape") => println!("{}", serde_json::to_string_pretty(&data_shape::snapshot()?)?),
                 _ => anyhow::bail!(
@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
     let _home_lock = lock_home(&layout)?;
     // Nothing runs yet that could be using the scratch of the last run.
     let _ = std::fs::remove_dir_all(layout.tmp());
-    layout::adopt_db(&layout)?;
+    migrations::adopt_db(&layout)?;
     let (db, upgrade) = db::Db::open(&layout)?;
     if !upgrade.applied.is_empty() {
         let backup = upgrade.backup.as_ref().map(|b| format!("，升级前的备份：{}", b.display())).unwrap_or_default();

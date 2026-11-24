@@ -16,10 +16,8 @@
 use crate::status::RunKind;
 use std::path::{Path, PathBuf};
 
-mod relocate;
 #[cfg(test)]
 mod tests;
-pub(crate) use relocate::{adopt_db, current_db, move_to_categories};
 
 #[derive(Clone, Debug)]
 pub struct Layout {

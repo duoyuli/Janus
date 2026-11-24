@@ -35,17 +35,17 @@ mod workspaces;
 pub use catalog::kinds;
 use catalog::*;
 pub use checks::CheckState;
-pub(crate) use connections::{drop_custom_agents, drop_preset_kinds, is_sandbox_var, sandbox_vars};
-pub(crate) use environment::migrate_claude_env;
+pub(crate) use connections::{is_sandbox_var, sandbox_vars};
+pub(crate) use environment::{private_env_value, protect_claude_env, read_secrets, write_secrets};
 pub use local_config::local_preview;
 use local_config::*;
-pub(crate) use roles::{add_generalist, add_old_friend, record_seed_origins, rename_default_roles};
+pub(crate) use roles::{RoleSeed, SEEDS, text_hash};
 pub use runtime::{InstructionChannel, Runtime};
 use session_options::*;
 pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
-use workspaces::*;
 
-const CONNECTION: &str = "connection";
+pub(crate) const CONNECTION: &str = "connection";
+pub(crate) use workspaces::WORKSPACE;
 
 pub(crate) const ROLE: &str = "role";
 

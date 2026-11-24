@@ -415,35 +415,6 @@ pub fn accept(
     Ok(done(head, true))
 }
 
-/// Data version 10: a run in a worktree records the branch accepting brings its result back to
-/// (`runs.config.worktree.branch`, `null` for a detached `HEAD`). Runs from before take the branch
-/// the checkout is on now when the run's start is in its history, so replaying the run's commits
-/// there replays only them; otherwise `null`, and accepting such a run leaves merging its commit
-/// to the person unless the checkout is detached where the run can fast-forward it.
-// @project-doc docs/architecture/20261031-data_model.md#migrations
-pub(crate) fn record_source_branch(tx: &rusqlite::Transaction) -> Result<usize> {
-    let rows: Vec<(String, String)> = tx
-        .prepare("SELECT id, config FROM runs WHERE json_extract(config, '$.worktree.repo') IS NOT NULL")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut changed = 0;
-    for (id, config) in rows {
-        let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&config) else { continue };
-        if config["worktree"].get("branch").is_some() {
-            continue;
-        }
-        let repo = PathBuf::from(config["worktree"]["repo"].as_str().unwrap_or_default());
-        let base = config["baseRef"].as_str().unwrap_or_default();
-        let branch = current_branch(&repo).filter(|b| {
-            rev(&repo, &format!("refs/heads/{b}")).is_some_and(|tip| !base.is_empty() && is_ancestor(&repo, base, &tip))
-        });
-        config["worktree"]["branch"] = serde_json::json!(branch);
-        tx.execute("UPDATE runs SET config = ?1 WHERE id = ?2", rusqlite::params![config.to_string(), id])?;
-        changed += 1;
-    }
-    Ok(changed)
-}
-
 /// Remove a run's worktree because the run is deleted. Changes not committed yet are kept as a
 /// patch under `kept` first (ignored files, such as a copied `.env`, are not: a patch would carry
 /// credentials); returns its path. When the repository is gone (moved or deleted), git cannot

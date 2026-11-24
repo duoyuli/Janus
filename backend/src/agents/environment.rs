@@ -7,7 +7,7 @@ use std::io::{ErrorKind, Write};
 use std::os::unix::fs::DirBuilderExt;
 
 /// An agent's secrets file (`Layout::agent_secrets`); none yet reads as empty.
-pub(super) fn read_secrets(file: &Path) -> Result<Value> {
+pub(crate) fn read_secrets(file: &Path) -> Result<Value> {
     match std::fs::read(file) {
         Ok(bytes) => Ok(Value::Object(serde_json::from_slice(&bytes).context("无法读取 Agent 凭据文件")?)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(json!({})),
@@ -15,7 +15,7 @@ pub(super) fn read_secrets(file: &Path) -> Result<Value> {
     }
 }
 
-pub(super) fn write_secrets(file: &Path, secrets: &Value) -> Result<()> {
+pub(crate) fn write_secrets(file: &Path, secrets: &Value) -> Result<()> {
     // Rename a complete 0600 file in an owner-only folder. A failed write must never truncate
     // the previous credentials.
     let dir = file.parent().context("凭据文件没有所在目录")?;
@@ -29,7 +29,7 @@ pub(super) fn write_secrets(file: &Path, secrets: &Value) -> Result<()> {
 
 /// Keep the API key in its original private slot, including after restoring an older database
 /// backup. A null entry in the current connection decides whether the variable is actually set.
-pub(super) fn private_env_value<'a>(secrets: &'a Value, name: &str) -> Option<&'a str> {
+pub(crate) fn private_env_value<'a>(secrets: &'a Value, name: &str) -> Option<&'a str> {
     if name == "ANTHROPIC_API_KEY" { &secrets["apiKey"] } else { &secrets["env"][name] }.as_str()
 }
 
@@ -63,7 +63,7 @@ fn is_public(name: &str, value: &str) -> bool {
 }
 
 // @project-doc docs/operations/20261031-security.md#secrets
-pub(super) fn protect_claude_env(env: &mut Map<String, Value>, secrets: &mut Value) {
+pub(crate) fn protect_claude_env(env: &mut Map<String, Value>, secrets: &mut Value) {
     let mut private = Map::new();
     for (name, value) in env {
         if let Some(s) = value.as_str()
@@ -80,40 +80,6 @@ pub(super) fn protect_claude_env(env: &mut Map<String, Value>, secrets: &mut Val
     if !private.is_empty() {
         secrets["env"] = Value::Object(private);
     }
-}
-
-/// Version 13. The API key saved apart from the environment becomes its `ANTHROPIC_API_KEY`, and
-/// private values typed into the environment move out of SQLite. The private file is written
-/// first; if the transaction rolls back, running it again finds the values already there.
-// @project-doc docs/architecture/20261031-data_model.md#migrations
-pub(crate) fn migrate_claude_env(tx: &rusqlite::Transaction, home: Option<&Path>) -> Result<usize> {
-    crate::migrations::try_edit_configs(tx, CONNECTION, |id, c| {
-        if c["kind"] != "claude" {
-            return Ok(false);
-        }
-        check_id(id)?;
-        // Where version 13 kept them; version 14 moves them (`layout::move_to_categories`).
-        let file = home.map(|h| h.join("agents").join(id).join("secrets.json"));
-        let mut secrets = match &file {
-            Some(file) => read_secrets(file)?,
-            None => json!({}), // The dry run projects the database shape without touching credential files.
-        };
-        let before = secrets.clone();
-        let api_auth = c["auth"] == "apikey";
-        let env = c.get_mut("env").and_then(Value::as_object_mut).context("Claude Agent 环境变量格式无效")?;
-        let original = env.clone();
-        if api_auth && let Some(key) = private_env_value(&secrets, "ANTHROPIC_API_KEY").filter(|s| !s.is_empty()) {
-            env.insert("ANTHROPIC_API_KEY".into(), json!(key));
-        }
-        protect_claude_env(env, &mut secrets);
-        let changed = *env != original;
-        if secrets != before
-            && let Some(file) = &file
-        {
-            write_secrets(file, &secrets)?;
-        }
-        Ok(changed)
-    })
 }
 
 #[cfg(test)]

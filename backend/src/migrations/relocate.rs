@@ -8,7 +8,7 @@
 //! only knows `Layout`.
 
 // @project-doc docs/architecture/20261031-data_model.md#migrations
-use super::Layout;
+use crate::layout::Layout;
 use crate::status::RunKind;
 use anyhow::{Context, Result};
 use rusqlite::{Transaction, params};
@@ -377,3 +377,6 @@ fn rewrite_files(dir: &Path, map: &[(String, String)]) -> Result<usize> {
     }
     Ok(changed)
 }
+
+#[cfg(test)]
+mod tests;
