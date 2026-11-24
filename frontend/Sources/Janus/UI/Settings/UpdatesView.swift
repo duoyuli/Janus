@@ -56,7 +56,7 @@ struct UpdatesView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text(L.text("启动 20 秒后查一次，之后每 6 小时一次。"))
+            Text(L.text("启动 20 秒后查一次，之后每 5 分钟一次。"))
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

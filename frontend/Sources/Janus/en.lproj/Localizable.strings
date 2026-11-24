@@ -129,7 +129,7 @@
 "GitHub 返回 %lld" = "GitHub returned %lld";
 "Janus %@ 可以更新" = "Janus %@ Available";
 "Janus 发给 Agent" = "Sent by Janus";
-"启动 20 秒后查一次，之后每 6 小时一次。" = "Checks 20 seconds after launch, then every 6 hours.";
+"启动 20 秒后查一次，之后每 5 分钟一次。" = "Checks 20 seconds after launch, then every 5 minutes.";
 "Janus 提示" = "Janus Prompt";
 "Janus 服务 30 秒内没有响应。\n\n%@" = "The Janus service did not respond within 30 seconds.\n\n%@";
 "Janus 服务地址：%@:%@" = "Janus service address: %@:%@";

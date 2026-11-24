@@ -98,7 +98,9 @@ final class Updater {
     @ObservationIgnored private var waiting: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
 
-    static let checkEvery: UInt64 = 6 * 3600
+    /// Every five minutes: with automatic updates on, a release reaches people within minutes,
+    /// and twelve checks an hour stay well inside GitHub's 60 unauthenticated requests per hour.
+    static let checkEvery: UInt64 = 5 * 60
     static let automaticKey = "janus.autoUpdate"
     /// How often a staged version looks whether nothing is at work.
     static let quietCheck: UInt64 = 30
@@ -140,7 +142,7 @@ final class Updater {
 
     // MARK: Checking
 
-    /// Check shortly after launch, then every few hours.
+    /// Check shortly after launch, then every few minutes.
     func start() {
         guard enabled, timer == nil else { return }
         timer = Task { [weak self] in
