@@ -2,8 +2,8 @@ import SwiftUI
 
 /// The global inbox: what every run is waiting on the person for. For each item there are three
 /// choices: deal with it now (open the run), later (put it off, only when nothing waits on it),
-/// or leave it (a run that stopped). Runs that are just working are folded away by default, so
-/// the window is not a place to watch them work.
+/// or ignore it (stop showing it; the run stays as it is). Runs that are just working are folded
+/// away by default, so the window is not a place to watch them work.
 // @project-doc docs/architecture/20261031-frontend.md#inbox
 struct InboxView: View {
     let store: AppStore
@@ -117,10 +117,9 @@ struct InboxView: View {
                 .fixedSize()
                 .help(L.text("先放一放，到点再提醒。没人在等，推迟不会卡住任务"))
             }
-            if e.canSettle {
-                Button(L.text("标记已处理")) { store.inbox.settle(e.key) }
-                    .help(L.text("不再提醒；任务保持原样，在任务记录里还能找到"))
-            }
+            Button(L.text("忽略")) { store.inbox.ignore(e.key) }
+                .buttonStyle(.borderless)
+                .help(e.canWait ? L.text("不再提醒；任务保持原样，在任务记录里还能找到") : L.text("不再提醒；对方会一直等着，在任务页还能处理"))
             if e.actions.isEmpty {
                 Button(L.text("去处理")) { store.open(.run(e.run)) }.buttonStyle(.primary)
             } else {

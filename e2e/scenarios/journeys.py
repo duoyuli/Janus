@@ -130,7 +130,7 @@ def _sse(ctx, run):
 
 @scenario("goal-claude")
 def goal_claude(ctx, c):
-    """Claude Code 负责人：看板消息推送进会话、交付后新的 /goal（期间提问仍归负责人）、随目标和消息粘贴的图片"""
+    """Claude Code 负责人：看板消息推送进会话、交付后新的 /goal（期间提问仍归负责人）、随目标和消息粘贴的图片、在收件箱忽略验收项"""
     t = ctx.team("goal-claude", lead="claude", members=("m1",), script={"T1": ["ask", "ok"], "T2": ["ask", "ok"]}, fake_files=("steer",))
     m1 = t.member("m1")
     run = t.run("按截图修好页面", images=[{"data": PNG, "name": "截图.png", "mimeType": "image/png"}])
@@ -168,6 +168,12 @@ def goal_claude(ctx, c):
     c(code == 400, f"不是图片的附件被拒绝（{text.strip()[:60]}）")
     ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and {x["id"] for x in r["tasks"]} == {"T1", "T2"},
            "两个目标的任务都在，Run 已交付", pages=("board", "agent:lead"))
+    if ctx.app:
+        key = f"{run.id}/delivered"
+        ctx.app.until(lambda s: any(e["key"] == key for e in s.get("open", [])), "收件箱出现等你验收", "reload", "open inbox")
+        st = ctx.app.do(f"ignore {key}", "shot inbox-ignored")
+        c(all(e["key"] != key for e in st.get("open", []) + st.get("later", [])), "应用：忽略后，等你验收的这一项离开收件箱（inbox-ignored.png）")
+        c(run.status() == "delivered", "忽略只是不再提醒，Run 仍是已交付、等你验收")
 
 
 @scenario("usage")

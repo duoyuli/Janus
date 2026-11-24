@@ -15,10 +15,8 @@ struct InboxEntry: Identifiable, Equatable {
     let ts: Double
     /// Nothing is held up while it waits (the lead's own decision, a delivered run to accept, a
     /// lead that may be stuck), so it may be put off. An approval, a form or a collaborator's
-    /// question keeps an agent waiting, and cannot.
+    /// question keeps an agent waiting, and cannot. Any entry can still be ignored.
     let canWait: Bool
-    /// A run that stopped (interrupted or failed): the person may decide to leave it.
-    let canSettle: Bool
     /// Answers in one click, right in the inbox (`OpenFact.actions`).
     var actions: [QuickAction] = []
     /// What it is (`OpenFact.kind`, or `delivered` / `interrupted` / `failed` for a run's own row).
@@ -41,7 +39,6 @@ enum Inbox {
                 title: f.title, text: f.text, sub: f.sub,
                 ts: f.seq.flatMap { state.event($0)?.ts } ?? run["createdAt"].double ?? 0,
                 canWait: ["lead_stall", "loop_touched", "loop_failed"].contains(f.kind) || (f.kind == "question" && f.tasks.isEmpty),
-                canSettle: false,
                 actions: f.actions,
                 kind: f.kind
             )
@@ -55,29 +52,29 @@ enum Inbox {
         guard row["kind"].str != "chat" && row["kind"].str != "loop" else { return [] }
         let id = row["id"].str
         let at = row["createdAt"].double ?? 0
-        func entry(_ what: String, _ title: String, _ sub: String, wait: Bool, settle: Bool) -> InboxEntry {
-            InboxEntry(key: "\(id)/\(what)", run: id, goal: row["goal"].str, workspace: workspace, title: title, text: "", sub: sub, ts: at, canWait: wait, canSettle: settle, kind: what)
+        func entry(_ what: String, _ title: String, _ sub: String) -> InboxEntry {
+            InboxEntry(key: "\(id)/\(what)", run: id, goal: row["goal"].str, workspace: workspace, title: title, text: "", sub: sub, ts: at, canWait: true, kind: what)
         }
-        // A consolidation of the team memory asks only to be looked at, and is settled once seen.
+        // A consolidation of the team memory asks only to be looked at, and is ignored once seen.
         // @project-doc docs/domains/20261123-team_memory.md#memory_review
         if row["kind"].str == "dream" {
             switch RunStatus(row["status"].str) {
-            case .delivered: return [entry("dream", L.text("团队记忆整理好了"), L.text("看看改了什么，再标记为已处理"), wait: true, settle: true)]
-            case .interrupted, .failed: return [entry("dream_failed", L.text("团队记忆没整理完"), L.text("已经改的保留；可以在工作区页重新整理"), wait: true, settle: true)]
+            case .delivered: return [entry("dream", L.text("团队记忆整理好了"), L.text("看看改了什么，看过就忽略"))]
+            case .interrupted, .failed: return [entry("dream_failed", L.text("团队记忆没整理完"), L.text("已经改的保留；可以在工作区页重新整理"))]
             default: return []
             }
         }
         switch RunStatus(row["status"].str) {
-        case .delivered: return [entry("delivered", L.text("已交付，等你验收"), L.text("核对证据和风险后验收"), wait: true, settle: false)]
-        case .interrupted: return [entry("interrupted", L.text("已中断，可以从中断处继续"), L.text("继续，或者标记为已处理"), wait: true, settle: true)]
-        case .failed: return [entry("failed", L.text("失败了，可以从中断处继续"), L.text("查看原因后继续，或者标记为已处理"), wait: true, settle: true)]
+        case .delivered: return [entry("delivered", L.text("已交付，等你验收"), L.text("核对证据和风险后验收"))]
+        case .interrupted: return [entry("interrupted", L.text("已中断，可以从中断处继续"), L.text("继续，或者忽略"))]
+        case .failed: return [entry("failed", L.text("失败了，可以从中断处继续"), L.text("查看原因后继续，或者忽略"))]
         default: return []
         }
     }
 
-    /// Split into what to do now and what was put off, dropping what the person settled.
-    static func split(_ all: [InboxEntry], snoozed: [String: Double], settled: Set<String>, now: Double) -> (open: [InboxEntry], later: [InboxEntry]) {
-        let kept = all.filter { !settled.contains($0.key) }
+    /// Split into what to do now and what was put off, dropping what the person ignored.
+    static func split(_ all: [InboxEntry], snoozed: [String: Double], ignored: Set<String>, now: Double) -> (open: [InboxEntry], later: [InboxEntry]) {
+        let kept = all.filter { !ignored.contains($0.key) }
         let later = kept.filter { e in e.canWait && (snoozed[e.key] ?? 0) > now }
         let open = kept.filter { e in !later.contains(e) }
         return (open.sorted { $0.ts > $1.ts }, later.sorted { (snoozed[$0.key] ?? 0) < (snoozed[$1.key] ?? 0) })
@@ -85,7 +82,7 @@ enum Inbox {
 }
 
 /// Keeps the inbox current: each live run's new events are read (`GET /api/runs/{id}?after=`)
-/// and derived again; finished runs come from the run list. Snoozes and settled runs are this
+/// and derived again; finished runs come from the run list. Snoozed and ignored entries are this
 /// person's own view and live in `UserDefaults`.
 @Observable @MainActor
 final class InboxModel {
@@ -93,8 +90,8 @@ final class InboxModel {
     private(set) var snoozed: [String: Double] = InboxModel.load("janus.inbox.snoozed") {
         didSet { UserDefaults.janus.set(snoozed, forKey: "janus.inbox.snoozed") }
     }
-    private(set) var settled: Set<String> = Set(UserDefaults.janus.stringArray(forKey: "janus.inbox.settled") ?? []) {
-        didSet { UserDefaults.janus.set(Array(settled), forKey: "janus.inbox.settled") }
+    private(set) var ignored: Set<String> = Set(UserDefaults.janus.stringArray(forKey: "janus.inbox.ignored") ?? []) {
+        didSet { UserDefaults.janus.set(Array(ignored), forKey: "janus.inbox.ignored") }
     }
     private(set) var now = Date().timeIntervalSince1970 * 1000
     struct CachedRun {
@@ -115,8 +112,8 @@ final class InboxModel {
     var showLater = false
     var showWorking = false
 
-    var open: [InboxEntry] { Inbox.split(all, snoozed: snoozed, settled: settled, now: now).open }
-    var later: [InboxEntry] { Inbox.split(all, snoozed: snoozed, settled: settled, now: now).later }
+    var open: [InboxEntry] { Inbox.split(all, snoozed: snoozed, ignored: ignored, now: now).open }
+    var later: [InboxEntry] { Inbox.split(all, snoozed: snoozed, ignored: ignored, now: now).later }
 
     /// Bring the inbox up to date. `changed` names the runs with news on the global stream: only
     /// they are read; the others keep their entries unless their status, workspace or the language
@@ -184,10 +181,10 @@ final class InboxModel {
         // Unchanged entries leave the views that show them alone.
         if out != all { all = out }
         now = Date().timeIntervalSince1970 * 1000
-        // A request that was answered elsewhere, or a run that moved on, is settled by itself.
+        // A request that was answered elsewhere, or a run that moved on, is gone by itself.
         let keys = Set(out.map(\.key))
         if snoozed.keys.contains(where: { !keys.contains($0) }) { snoozed = snoozed.filter { keys.contains($0.key) } }
-        if settled.contains(where: { !keys.contains($0) }) { settled = settled.filter { keys.contains($0) } }
+        if ignored.contains(where: { !keys.contains($0) }) { ignored = ignored.filter { keys.contains($0) } }
         Notifier.shared.update(open)
     }
 
@@ -210,7 +207,8 @@ final class InboxModel {
 
     func snooze(_ key: String, until: Date) { snoozed[key] = until.timeIntervalSince1970 * 1000 }
     func wake(_ key: String) { snoozed[key] = nil }
-    func settle(_ key: String) { settled.insert(key) }
+    /// Stop showing it: nothing is answered and the run stays as it is.
+    func ignore(_ key: String) { ignored.insert(key) }
 
     private static func load(_ key: String) -> [String: Double] {
         (UserDefaults.janus.dictionary(forKey: key) as? [String: Double]) ?? [:]

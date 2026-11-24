@@ -192,6 +192,7 @@
 "下载 update.json 失败" = "Could not download update.json";
 "不再提醒" = "Don’t ask again";
 "不再提醒；任务保持原样，在任务记录里还能找到" = "Stop reminding me. The run stays as it is and remains in history";
+"不再提醒；对方会一直等着，在任务页还能处理" = "Stop reminding me. The agent keeps waiting, and you can still answer on the run page";
 "不到 1 秒" = "Under 1 sec";
 "跳过，让 Agent 接着干" = "Skip it and let the Agent carry on";
 "不是 Git 仓库：直接改这个目录，没有 diff" = "Not a Git repository: work happens right in this folder, with no diff";
@@ -684,12 +685,12 @@
 "查找 Skill" = "Find Skills";
 "查看" = "View";
 "查看内容" = "Show Contents";
-"查看原因后继续，或者标记为已处理" = "Review the cause, then resume the run or mark it as handled";
+"查看原因后继续，或者忽略" = "Review the cause, then resume the run or ignore it";
 "查看团队和子任务状态" = "View team and subtask status";
 "查看完整目标" = "Show Full Goal";
 "查看这个任务交付、保存或提到的 Markdown 文档" = "View Markdown documents delivered, saved, or mentioned in this run";
 "标记完成前已提交结构化结果和证据" = "Structured results and evidence precede completion";
-"标记已处理" = "Mark as Handled";
+"忽略" = "Ignore";
 "核对中" = "Verifying";
 "核对后接受风险并验收" = "Accept Delivery and Risks";
 "核对证据后验收。" = "Review the evidence before accepting delivery.";
@@ -852,7 +853,7 @@
 "继续" = "Continue";
 "继续提示" = "Resume Prompt";
 "继续调度子任务（⇧⌘P）" = "Resume scheduling subtasks (⇧⌘P)";
-"继续，或者标记为已处理" = "Resume the run or mark it as handled";
+"继续，或者忽略" = "Resume the run or ignore it";
 "缓存写入" = "Cache Write";
 "缓存命中率" = "Cache Hit Rate";
 "缓存读取" = "Cache Read";
@@ -1578,7 +1579,7 @@
 "这次整理没有完成：%@。已经改的笔记保留，可以在工作区页重新整理。" = "This consolidation did not finish: %@. The notes already changed stay; you can consolidate again from the workspace page.";
 "会话中断了" = "the session broke off";
 "团队记忆整理好了" = "Team memory consolidated";
-"看看改了什么，再标记为已处理" = "See what changed, then mark it handled";
+"看看改了什么，看过就忽略" = "See what changed, then ignore it";
 "团队记忆没整理完" = "Team memory not fully consolidated";
 "已经改的保留；可以在工作区页重新整理" = "Changes so far stay; consolidate again from the workspace page";
 "整理好了" = "Consolidated";

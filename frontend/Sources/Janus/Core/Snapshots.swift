@@ -8,7 +8,7 @@ import SwiftUI
 ///     open inbox | open run:<id> | open home:<ws> | open settings:<tab> (library:skill|library:mcp for the library's tabs; permissions|updates|host-env for a section of 通用) | page board|audit|team|task:<id>|agent:<id>
 ///     workspace <id> | brief <id> (its settings, or its shared material) | loop-new <id> | host-hide <path> on|off | host-defaults | host-try <command>
 ///     role <id> | agent-edit <id>|new | mcp-edit new|<name>|catalog:<pick> [json] | close-sheet | doc <path> | size <w>x<h> | shot <name>
-///     snooze-first | wake-all | close-window | state <name> (writes <name>.json: inbox and Dock state)
+///     snooze-first | wake-all | ignore <entry key> | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
 ///     inbox-act <entry>:<action> (clicks a quick answer in the inbox, by position from 0) | density detail|summary | draft <task or agent> <text>
@@ -141,6 +141,7 @@ enum Snapshots {
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
         case "wake-all": for e in store.inbox.later { store.inbox.wake(e.key) }
+        case "ignore": store.inbox.ignore(arg)
         case "close-window": NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.close()
         // Look at both appearances without changing the system's.
         case "appearance": NSApp.appearance = arg == "light" ? NSAppearance(named: .aqua) : arg == "dark" ? NSAppearance(named: .darkAqua) : nil
@@ -150,7 +151,7 @@ enum Snapshots {
             // compares these with the server, docs/operations/20261031-testing.md#product_e2e).
             let entries = { (xs: [InboxEntry]) in
                 JSON.array(xs.map { ["key": JSON($0.key), "run": JSON($0.run), "kind": JSON($0.kind), "title": JSON($0.title),
-                                     "canWait": JSON($0.canWait), "canSettle": JSON($0.canSettle), "actions": JSON($0.actions.map(\.label))] })
+                                     "canWait": JSON($0.canWait), "actions": JSON($0.actions.map(\.label))] })
             }
             let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"], "label": JSON(runLabel($0).0), "origin": $0["origin"], "loopId": $0["loopId"]] }) }
             var j: JSON = [

@@ -103,7 +103,7 @@ notes.md
 
 /// Only what is new since the last look is announced, and nothing on the first look.
 @Test func notificationsAreForWhatIsNew() {
-    func e(_ k: String) -> InboxEntry { InboxEntry(key: k, run: "r", goal: "", workspace: "", title: k, text: "", sub: "", ts: 0, canWait: true, canSettle: false) }
+    func e(_ k: String) -> InboxEntry { InboxEntry(key: k, run: "r", goal: "", workspace: "", title: k, text: "", sub: "", ts: 0, canWait: true) }
     #expect(Notifier.fresh([e("a"), e("b")], seen: nil).isEmpty)
     #expect(Notifier.fresh([e("a"), e("b")], seen: ["a"]).map(\.key) == ["b"])
 }

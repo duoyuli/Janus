@@ -126,7 +126,7 @@ def memory(ctx, c):
         st = ctx.app.until(lambda s: any(e["run"] == dream and e["kind"] == "dream" for e in s.get("open", [])),
                            "收件箱出现整理好了", "reload", "open inbox")
         entry = next(e for e in st["open"] if e["run"] == dream)
-        c(entry["canSettle"] and entry["title"] in ("团队记忆整理好了", "Team memory consolidated"), "应用：收件箱里是「团队记忆整理好了」，看过可以标记为已处理")
+        c(entry["canWait"] and entry["title"] in ("团队记忆整理好了", "Team memory consolidated"), "应用：收件箱里是「团队记忆整理好了」，可以推迟，看过可以忽略")
         st = ctx.ui(c, dream, lambda run, s: run["dream"] and (run.get("consolidated") or {}).get("forgotten") == 1, "整理页显示整理的结果")
         ctx.app.do(f"open run:{dream}", "shot memory-dream")
         c(drawn(ctx.app.picture("memory-dream")), "应用：整理页画出来了（memory-dream.png）")

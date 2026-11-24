@@ -55,7 +55,7 @@ Janus is developed by agents. Its own changes are written, reviewed and merged b
 | Subtasks and board | The work the lead agent delegates, each with an assignee, dependencies and acceptance criteria. Janus validates them before they run. Progress, blockers and questions go on the shared board. |
 | Loop | A workspace's lead agent on a schedule: presets or any standard five-field cron expression, in your time zone. It dispatches runs and asks you questions, and both land in the inbox. |
 | Chat | A one-to-one conversation with a single employee, outside any workspace, in a fresh directory that is deleted with the chat. It uses the same session view as a run: steer, take over, approve, paste images, switch model and mode. |
-| Inbox | Everything waiting on you across all workspaces. Choices are answered in place, and what nobody is blocked on can wait until later. |
+| Inbox | Everything waiting on you across all workspaces. Choices are answered in place, what nobody is blocked on can wait until later, and anything can be ignored. |
 
 ## Scope
 

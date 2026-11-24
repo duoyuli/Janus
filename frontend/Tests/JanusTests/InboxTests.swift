@@ -27,14 +27,14 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     let decision = entries.first { $0.kind == "question" }
     #expect(approval?.canWait == false && approval?.text == "npm publish" && approval?.workspace == "商城")
     #expect(decision?.canWait == true && decision?.ts == 1_005_000)
-    #expect(entries.allSatisfy { $0.key.hasPrefix("r1/") && $0.goal == "上线支付页" && !$0.canSettle })
+    #expect(entries.allSatisfy { $0.key.hasPrefix("r1/") && $0.goal == "上线支付页" })
 }
 
 @Test func finishedRunsAskForAcceptanceOrAFinalWord() {
     let delivered = Inbox.entries(row: ["id": "r2", "status": "delivered", "goal": "g"], workspace: "")
-    #expect(delivered.count == 1 && delivered[0].canWait && !delivered[0].canSettle)
+    #expect(delivered.count == 1 && delivered[0].canWait)
     let stopped = Inbox.entries(row: ["id": "r3", "status": "interrupted", "goal": "g"], workspace: "")
-    #expect(stopped.count == 1 && stopped[0].canSettle)
+    #expect(stopped.count == 1 && stopped[0].canWait)
     #expect(Inbox.entries(row: ["id": "r4", "status": "accepted"], workspace: "").isEmpty)
     #expect(Inbox.entries(row: ["id": "r5", "status": "cancelled"], workspace: "").isEmpty)
 }
@@ -48,17 +48,29 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
 }
 
 @Test func snoozedItemsComeBackOnTimeAndBlockingOnesCannotBeSnoozed() {
-    func e(_ key: String, wait: Bool, settle: Bool = false, ts: Double) -> InboxEntry {
-        InboxEntry(key: key, run: "r", goal: "", workspace: "", title: key, text: "", sub: "", ts: ts, canWait: wait, canSettle: settle)
+    func e(_ key: String, wait: Bool, ts: Double) -> InboxEntry {
+        InboxEntry(key: key, run: "r", goal: "", workspace: "", title: key, text: "", sub: "", ts: ts, canWait: wait)
     }
-    let all = [e("a", wait: true, ts: 1), e("b", wait: false, ts: 2), e("c", wait: true, settle: true, ts: 3)]
-    // b keeps an agent waiting: a snooze on it is ignored. c was settled.
-    let (open, later) = Inbox.split(all, snoozed: ["a": 100, "b": 100], settled: ["c"], now: 50)
+    let all = [e("a", wait: true, ts: 1), e("b", wait: false, ts: 2), e("c", wait: true, ts: 3)]
+    // b keeps an agent waiting: a snooze on it has no effect. c was ignored.
+    let (open, later) = Inbox.split(all, snoozed: ["a": 100, "b": 100], ignored: ["c"], now: 50)
     #expect(open.map(\.key) == ["b"])
     #expect(later.map(\.key) == ["a"])
-    let (open2, later2) = Inbox.split(all, snoozed: ["a": 100], settled: [], now: 150)
+    let (open2, later2) = Inbox.split(all, snoozed: ["a": 100], ignored: [], now: 150)
     #expect(open2.map(\.key) == ["c", "b", "a"], "newest first; a is back once its time came")
     #expect(later2.isEmpty)
+}
+
+/// Any entry can be ignored, one that holds an agent up too: it leaves both 「待处理」 and
+/// 「稍后处理」, and the rest stay as they were.
+@Test func anyEntryCanBeIgnored() {
+    func e(_ key: String, wait: Bool) -> InboxEntry {
+        InboxEntry(key: key, run: "r", goal: "", workspace: "", title: key, text: "", sub: "", ts: 0, canWait: wait)
+    }
+    let all = [e("delivered", wait: true), e("session", wait: false), e("snoozed", wait: true)]
+    let (open, later) = Inbox.split(all, snoozed: ["snoozed": 100], ignored: ["session", "snoozed"], now: 50)
+    #expect(open.map(\.key) == ["delivered"])
+    #expect(later.isEmpty)
 }
 
 /// A plain choice is answered in the inbox: an approval's options in the app's words, and a
@@ -113,7 +125,7 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
 /// it waits on; other workspaces' entries are left out.
 @Test func aWorkspaceGroupsWhatWaitsByGoalAndLoop() {
     func e(_ key: String, _ run: String, _ kind: String, wait: Bool = true) -> InboxEntry {
-        InboxEntry(key: "\(run)/\(key)", run: run, goal: "", workspace: "", title: key, text: "", sub: "", ts: 0, canWait: wait, canSettle: false, kind: kind)
+        InboxEntry(key: "\(run)/\(key)", run: run, goal: "", workspace: "", title: key, text: "", sub: "", ts: 0, canWait: wait, kind: kind)
     }
     let open = [e("q", "loop-run", "question"), e("d", "g1", "delivered"), e("a", "g2", "approval", wait: false),
                 e("q2", "g2", "question"), e("x", "elsewhere", "question")]
@@ -128,14 +140,14 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(Inbox.waiting([e("i", "g1", "interrupted")], goals: [["id": "g1"]], loops: []).first?.symbol == "pause.circle.fill")
 }
 
-/// A consolidation of the team memory asks only to be looked at: once it ends, settled once seen;
+/// A consolidation of the team memory asks only to be looked at: once it ends, ignored once seen;
 /// one that did not finish says so; while it works its row asks nothing.
 @Test func aConsolidationAsksToBeLookedAt() {
     let done = Inbox.entries(row: ["id": "d1", "kind": "dream", "status": "delivered", "goal": "整理团队记忆"], workspace: "W")
-    #expect(done.count == 1 && done[0].kind == "dream" && done[0].canWait && done[0].canSettle)
+    #expect(done.count == 1 && done[0].kind == "dream" && done[0].canWait)
     #expect(done[0].title == expectedCopy("团队记忆整理好了", "Team memory consolidated"))
     let broke = Inbox.entries(row: ["id": "d2", "kind": "dream", "status": "failed"], workspace: "W")
-    #expect(broke.count == 1 && broke[0].kind == "dream_failed" && broke[0].canSettle)
+    #expect(broke.count == 1 && broke[0].kind == "dream_failed" && broke[0].canWait)
     #expect(Inbox.entries(row: ["id": "d3", "kind": "dream", "status": "running"], workspace: "W").isEmpty)
 }
 
