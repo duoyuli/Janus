@@ -13,6 +13,11 @@ on:
         description: "Version for the build (for example 0.2.0-rc1)"
         required: true
         default: "0.0.0-dev"
+      leg:
+        description: "both: GitHub's Mac, the local runner after five minutes. local: the local runner alone, to try it"
+        type: choice
+        options: [both, local]
+        default: both
 
 permissions:
   contents: write
@@ -26,14 +31,7 @@ jobs:
     name: Build Janus.dmg (${{ matrix.where }})
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - where: hosted
-            runner: [macos-15]
-            other: Build Janus.dmg (local)
-          - where: local
-            runner: [self-hosted, macOS, ARM64, janus-local]
-            other: Build Janus.dmg (hosted)
+      matrix: ${{ fromJSON(inputs.leg == 'local' && '{"include":[{"where":"local","runner":["self-hosted","macOS","ARM64","janus-local"],"other":"Build Janus.dmg (hosted)"}]}' || '{"include":[{"where":"hosted","runner":["macos-15"],"other":"Build Janus.dmg (local)"},{"where":"local","runner":["self-hosted","macOS","ARM64","janus-local"],"other":"Build Janus.dmg (hosted)"}]}') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7

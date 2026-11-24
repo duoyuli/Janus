@@ -26,6 +26,8 @@ if [ "$me" = hosted ]; then
 else
   for _ in $(seq 1 30); do
     state="$(jobs ".jobs[] | select(.name == \"${other}\") | \"\(.status) \(.conclusion)\"")"
+    # No hosted leg in this run (the release tried on the local runner alone): nothing to wait for.
+    [ -n "$state" ] || break
     case "$state" in
       in_progress*|"completed success"|"completed failure")
         echo "A hosted machine took the job (${state}): the local runner stands down."
@@ -35,6 +37,6 @@ else
     esac
     sleep 10
   done
-  [ "$work" = true ] && echo "No hosted machine within five minutes (${state:-no such job}): the local runner takes over."
+  [ "$work" = true ] && echo "No hosted machine (${state:-this run has no hosted leg}): the local runner takes over."
 fi
 echo "work=${work}" >>"$GITHUB_OUTPUT"
