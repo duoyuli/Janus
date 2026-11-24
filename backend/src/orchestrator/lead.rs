@@ -313,7 +313,7 @@ impl App {
     pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<String> {
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
-        let channel = lead.kind.instruction_channel();
+        let channel = lead.runtime.instruction_channel();
         // The brief, with the messages left for the lead, goes in the system layer before the
         // standing rules. Codex reads it from its environment, so it is known before the adapter
         // starts; the notes are taken only once the session is open.
@@ -323,11 +323,11 @@ impl App {
             format!("{}{}{notes}", self.goal_brief(run, resumed), self.memory_section(run, MemoryAccess::Write));
         let skills = skills_note(self.skill_router_md(run, &lead));
         let system = system_layer(&[&brief, &skills, &standing]);
-        let spec = member_spec(self.spec_for(&lead.runtime)?, &lead, &system);
+        let spec = member_spec(self.spec_for(&lead.connection)?, &lead, &system);
         let workspace = run.cwd.clone();
-        if lead.kind.trusts_workspaces() {
+        if lead.runtime.trusts_workspaces() {
             // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
-            self.trust_claude_workspace(&lead.runtime, &workspace)?;
+            self.trust_claude_workspace(&lead.connection, &workspace)?;
         }
         let log = self.dirs(run).log("lead-goal.log");
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
@@ -387,7 +387,7 @@ impl App {
                     .await?;
                 self.run_changes_after_turn(run);
                 if let Some(reason) = goal_refused(&text) {
-                    bail!("{} 拒绝了 /goal：{reason}", lead.runtime_name);
+                    bail!("{} 拒绝了 /goal：{reason}", lead.connection_name);
                 }
                 if !ctl.held_by_person() && !ctl.queued.is_empty() {
                     let next =
@@ -487,7 +487,7 @@ impl App {
         let chat = run.kind.single_session();
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
-        let channel = lead.kind.instruction_channel();
+        let channel = lead.runtime.instruction_channel();
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
         // How to work with Janus (the lead's brief after delivery, a Loop's rules), and for a chat
@@ -754,10 +754,10 @@ impl App {
         lead: &Member,
         system: &str,
     ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
-        let spec = member_spec(self.spec_for(&lead.runtime)?, lead, system);
-        if lead.kind.trusts_workspaces() {
+        let spec = member_spec(self.spec_for(&lead.connection)?, lead, system);
+        if lead.runtime.trusts_workspaces() {
             // Claude Code only runs /goal in a workspace it trusts, in a chat too.
-            self.trust_claude_workspace(&lead.runtime, &run.cwd)?;
+            self.trust_claude_workspace(&lead.connection, &run.cwd)?;
         }
         // The library router's URL carries this secret; a run reopened after a restart has none yet.
         let token = random_token()?;

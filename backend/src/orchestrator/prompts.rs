@@ -8,7 +8,7 @@ use super::*;
 pub(super) fn standing_instructions(m: &Member) -> String {
     let mut parts = vec![];
     if !m.prompt.trim().is_empty() {
-        let from = if m.runtime_name.is_empty() { m.kind.as_str() } else { &m.runtime_name };
+        let from = if m.connection_name.is_empty() { m.runtime.as_str() } else { &m.connection_name };
         parts.push(format!("Agent settings ({from}):\n{}", m.prompt.trim()));
     }
     if !m.role_prompt.trim().is_empty() {
@@ -266,11 +266,11 @@ pub(super) fn system_layer(parts: &[&str]) -> String {
 /// and with the settings its permission mode needs from the start (`Runtime::mode_settings`).
 pub(super) fn member_spec(spec: crate::acp::RuntimeSpec, member: &Member, system: &str) -> crate::acp::RuntimeSpec {
     let mut settings: Vec<(&str, Value)> = vec![];
-    if member.kind.instruction_channel() == InstructionChannel::Developer && !system.is_empty() {
+    if member.runtime.instruction_channel() == InstructionChannel::Developer && !system.is_empty() {
         settings.push(("developer_instructions", json!(system)));
     }
     let mode = member.session["mode"].as_str().unwrap_or_default();
-    settings.extend(member.kind.mode_settings(mode).iter().map(|(k, v)| (*k, json!(v))));
+    settings.extend(member.runtime.mode_settings(mode).iter().map(|(k, v)| (*k, json!(v))));
     with_codex_config(spec, &settings)
 }
 

@@ -282,14 +282,14 @@ impl App {
         };
         let member = run.member(&agent).context("member missing")?.clone();
         let standing = standing_instructions(&member);
-        let channel = member.kind.instruction_channel();
+        let channel = member.runtime.instruction_channel();
         // The collaborator rules, then the person's standing rules, in the system layer. Codex and
         // Claude Code both take HTTP MCP servers, so their sessions always have the board.
         // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
         let rules = format!("{}{}", collaborator_rules(true), self.memory_section(run, MemoryAccess::Write));
         let skills = skills_note(self.skill_router_md(run, &member));
         let system_text = system_layer(&[&rules, &skills, &standing]);
-        let spec = member_spec(self.spec_for(&member.runtime)?, &member, &system_text);
+        let spec = member_spec(self.spec_for(&member.connection)?, &member, &system_text);
         let system = (channel == InstructionChannel::System).then_some(system_text.as_str());
         self.db.start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
 
@@ -879,10 +879,10 @@ impl App {
         sid: &str,
         known_path: Option<PathBuf>,
     ) -> Option<NativeTurn> {
-        if !member.kind.native_transcript() || sid.is_empty() || Path::new(sid).file_name()?.to_str()? != sid {
+        if !member.runtime.native_transcript() || sid.is_empty() || Path::new(sid).file_name()?.to_str()? != sid {
             return None;
         }
-        let projects = self.cfg.layout.agent_config(&member.runtime).join("projects");
+        let projects = self.cfg.layout.agent_config(&member.connection).join("projects");
         let path = known_path.or_else(|| find_session_jsonl(&projects, &format!("{sid}.jsonl"), 3));
         let offset = match &path {
             Some(p) => p.metadata().ok()?.len(),

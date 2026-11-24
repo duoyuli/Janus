@@ -581,7 +581,7 @@ impl App {
             if conversation && !m.lead {
                 continue;
             }
-            self.spec_for(&m.runtime)?;
+            self.spec_for(&m.connection)?;
         }
         let base_ref = config["baseRef"].as_str().unwrap_or("").to_string();
         let cwd = PathBuf::from(row.cwd.as_str());

@@ -176,9 +176,9 @@ impl App {
         system: Option<&str>,
     ) -> Opening {
         let bundle = self.dirs(run).bundle(&m.id);
-        let launch = crate::library::launch(m.kind, &m.resources, caps, &bundle, self.tools_server(run, who));
+        let launch = crate::library::launch(m.runtime, &m.resources, caps, &bundle, self.tools_server(run, who));
         let mut meta = launch.meta;
-        m.kind.open_meta(&mut meta, system);
+        m.runtime.open_meta(&mut meta, system);
         let mut mcp_servers = launch.mcp_servers;
         mcp_servers.extend(extra);
         Opening { mcp_servers, meta, resources: launch.delivered }
@@ -213,7 +213,7 @@ pub(super) async fn configure_session(conn: &AcpConn, session: &Value, m: &Membe
         }
         if !opt["options"].as_array().is_some_and(|o| o.iter().any(|x| x["value"] == want)) {
             if required {
-                bail!("{} 不提供模型 {want}，请在数字员工设置中重新选择", m.runtime_name);
+                bail!("{} 不提供模型 {want}，请在数字员工设置中重新选择", m.connection_name);
             }
             applied[cat] = json!(current);
             continue;
@@ -268,7 +268,7 @@ pub(super) async fn configure_session(conn: &AcpConn, session: &Value, m: &Membe
                 .request("session/set_config_option", json!({ "sessionId": sid, "configId": id, "value": off }))
                 .await
             {
-                bail!("关闭 {} 的 {} 失败：{err}", m.runtime_name, str_of_value(&t["name"], id));
+                bail!("关闭 {} 的 {} 失败：{err}", m.connection_name, str_of_value(&t["name"], id));
             }
         }
     }

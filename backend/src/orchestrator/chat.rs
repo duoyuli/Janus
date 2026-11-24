@@ -38,7 +38,7 @@ impl App {
     // @project-doc docs/domains/20261116-resource_library.md#delivery
     pub(super) fn single_member(&self, role: &Role) -> Result<Member> {
         let member = self.role_member(role, &self.items()?, true)?;
-        self.spec_for(&member.runtime)?;
+        self.spec_for(&member.connection)?;
         Ok(member)
     }
 

@@ -94,7 +94,7 @@ impl App {
 
     /// The SKILL.md of the member's skill router in its bundle, when the member has skills.
     pub(super) fn skill_router_md(&self, run: &Run, m: &Member) -> Option<PathBuf> {
-        crate::library::skill_router_md(m.kind, &m.resources, &self.dirs(run).bundle(&m.id))
+        crate::library::skill_router_md(m.runtime, &m.resources, &self.dirs(run).bundle(&m.id))
     }
 
     /// Copy each member's skills into its bundle, so later edits to the library do not change
@@ -103,7 +103,7 @@ impl App {
     pub(super) fn bundle_team(&self, dirs: &crate::layout::RunDirs, team: &[Member]) -> Result<()> {
         let uses = self.db.skill_uses()?.into_iter().map(|(id, (n, _))| (id, n)).collect();
         for m in team {
-            crate::library::bundle(&self.store_dir(), m.kind, &m.resources, &uses, &dirs.bundle(&m.id))?;
+            crate::library::bundle(&self.store_dir(), m.runtime, &m.resources, &uses, &dirs.bundle(&m.id))?;
         }
         Ok(())
     }
@@ -615,7 +615,7 @@ impl App {
         // The files go before the rows: the row is what lets a second request find the run, so a
         // file that could not be removed is removed by trying again.
         let agents: HashSet<&str> =
-            row.config["team"].as_array().into_iter().flatten().filter_map(|m| m["runtime"].as_str()).collect();
+            row.config["team"].as_array().into_iter().flatten().filter_map(|m| m["connection"].as_str()).collect();
         let sessions = self.db.run_sessions(run_id)?;
         for agent in agents {
             self.forget_sessions(agent, &sessions)?;

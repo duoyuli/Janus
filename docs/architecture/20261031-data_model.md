@@ -113,6 +113,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 20 | 值班的 `rhythm` 改为 `schedule`（cron 加服务所在机器的时区）：固定间隔换成对应的 cron，自己决定的换成每 30 分钟，只手动的为 `null`，见[时间表](../domains/20261121-loops.md#schedule) |
 | 21 | 本机环境改为默认镜像用户目录、只挡列出的路径：删除原来逐项共享的 `host_link` 记录，见 [ADR：Agent 的用户目录镜像用户自己的](../decisions/20261122-mirror_host_home.md) |
 | 22 | 新增 `memories` 表（工作区的团队记忆：类型、标题、摘要、正文，最后写它的 Run、成员和名字，创建和修改时间）和索引 `memories_workspace`，见[团队记忆](../domains/20261123-team_memory.md) |
+| 23 | Run 快照的成员按意思命名字段：`runtime`（存的是 Agent 连接的 id）改名 `connection`，`runtime_name` 改名 `connection_name`，`kind`（Codex 或 Claude Code）改名 `runtime` |
 
 <a id="snapshots"></a>
 ## Run 快照

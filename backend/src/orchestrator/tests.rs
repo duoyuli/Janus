@@ -5,8 +5,8 @@ use super::*;
 fn member_with(kind: Runtime, provider: &str, role: &str) -> Member {
     let mut m = test_run(1).team.remove(0);
     m.name = "Reviewer".into();
-    m.kind = kind;
-    m.runtime_name = "Codex".into();
+    m.runtime = kind;
+    m.connection_name = "Codex".into();
     m.prompt = provider.into();
     m.role_prompt = role.into();
     m
@@ -41,7 +41,7 @@ async fn sessions_open_with_the_members_resources() {
     let opened = serde_json::to_string(&o.resources).unwrap() + &serde_json::to_string(&o.mcp_servers).unwrap();
     assert!(!opened.contains("Bearer t"), "values reach neither the session nor the record");
 
-    m.kind = Runtime::Codex;
+    m.runtime = Runtime::Codex;
     let o = app.opening(&run, "lead", &m, &caps, vec![], Some("规则"));
     assert_eq!(o.meta, json!({ "additionalRoots": [bundle] }), "Codex has its system layer in its environment");
     let _ = std::fs::remove_dir_all(&dir);
@@ -315,7 +315,8 @@ fn test_run(team_size: usize) -> Run {
                 id: format!("m{i}"),
                 name: format!("成员{i}"),
                 desc: String::new(),
-                runtime: String::new(),
+                connection: String::new(),
+                connection_name: String::new(),
                 lead: i == 0,
                 color: String::new(),
                 init: String::new(),
@@ -323,8 +324,7 @@ fn test_run(team_size: usize) -> Run {
                 effort: String::new(),
                 session: json!({}),
                 permission: String::new(),
-                kind: Runtime::Claude,
-                runtime_name: String::new(),
+                runtime: Runtime::Claude,
                 prompt: String::new(),
                 role_prompt: String::new(),
                 resources: vec![],
@@ -345,7 +345,7 @@ fn test_run(team_size: usize) -> Run {
 fn the_lead_is_told_each_collaborator() {
     let mut run = test_run(2);
     run.team[1].desc = "独立检查变更，寻找风险与反例".into();
-    run.team[1].runtime_name = "Codex".into();
+    run.team[1].connection_name = "Codex".into();
     run.team[1].permission = "Full access".into();
     let lines = team_lines(&run);
     assert_eq!(lines, "- m1: 成员1 · Responsibilities: 独立检查变更，寻找风险与反例", "only who and what for");

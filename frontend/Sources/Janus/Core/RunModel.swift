@@ -275,7 +275,7 @@ final class RunModel {
         // A role without a color of its own is slate; the lead's is the one colored tile.
         let own = m["color"].str
         let color = Avatar.neutral.contains(own.lowercased()) ? (lead ? Avatar.lead : Avatar.slate) : own
-        let rt = m["runtime_name"].str
+        let rt = m["connection_name"].str
         return Who(id: id, name: name, initials: initials, color: color, runtime: rt, model: m["model"].str, lead: lead, m: m, role: m["role_id"].str)
     }
 

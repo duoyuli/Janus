@@ -127,7 +127,7 @@ impl App {
             bail!("工作目录不存在：{}", cwd.display());
         }
         for m in &team {
-            self.spec_for(&m.runtime)?;
+            self.spec_for(&m.connection)?;
         }
         Ok((cwd, team))
     }

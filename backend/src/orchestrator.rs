@@ -125,7 +125,9 @@ pub struct Member {
     pub id: String,
     pub name: String,
     pub desc: String,
-    pub runtime: String,
+    /// The agent connection it runs on (`configs` kind `connection`), and its name then.
+    pub connection: String,
+    pub connection_name: String,
     pub lead: bool,
     pub color: String,
     pub init: String,
@@ -138,8 +140,8 @@ pub struct Member {
     /// The permission mode in the agent's own words, e.g. "Full access", shown in the run's audit
     /// view; Janus itself does not check it.
     pub permission: String,
-    pub kind: Runtime,
-    pub runtime_name: String,
+    /// Codex or Claude Code: what its connection runs.
+    pub runtime: Runtime,
     /// The provider's custom prompt, appended to every prompt this member receives.
     pub prompt: String,
     /// The role's instructions.

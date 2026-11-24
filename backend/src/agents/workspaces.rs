@@ -193,7 +193,7 @@ impl App {
             id: if lead { "lead".into() } else { role.id.clone() },
             name: role.name.clone(),
             desc: role.desc.clone(),
-            runtime: conn_id.into(),
+            connection: conn_id.into(),
             lead,
             color: role.color.clone(),
             init: role.init.clone(),
@@ -201,12 +201,12 @@ impl App {
             effort: role.effort.clone(),
             session,
             permission,
-            kind: Runtime::of(str_of(&conn, "base"))?,
+            runtime: Runtime::of(str_of(&conn, "base"))?,
             prompt: str_of(&conn, "prompt").into(),
             role_prompt: role.prompt.clone(),
             resources: library.to_vec(),
             role_id: role.id.clone(),
-            runtime_name: str_of(&conn, "name").into(),
+            connection_name: str_of(&conn, "name").into(),
         })
     }
 }

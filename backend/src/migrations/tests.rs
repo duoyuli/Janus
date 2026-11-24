@@ -119,7 +119,7 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     .unwrap();
     for m in team["team"].as_array().unwrap() {
         assert!(m.get("role").is_none() && m.get("model_label").is_none() && m["role_id"].is_string(), "{m}");
-        assert_eq!(m["kind"], "claude", "a member that ran on a custom command reads as Claude Code: {m}");
+        assert_eq!(m["runtime"], "claude", "a member that ran on a custom command reads as Claude Code: {m}");
     }
     let members: Vec<crate::orchestrator::Member> =
         serde_json::from_value(team["team"].clone()).unwrap_or_else(|e| panic!("the past run's team reads: {e}"));

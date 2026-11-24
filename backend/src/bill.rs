@@ -88,9 +88,10 @@ pub fn period(db: &Db, from: i64, to: i64, offset_minutes: i64, prices: Option<&
 fn agent_of(config: &Value, actor: &str) -> (String, String) {
     let member = config["team"].as_array().into_iter().flatten().find(|m| m["id"] == actor);
     match member {
-        Some(m) => {
-            (m["runtime"].as_str().unwrap_or_default().into(), m["runtime_name"].as_str().unwrap_or_default().into())
-        }
+        Some(m) => (
+            m["connection"].as_str().unwrap_or_default().into(),
+            m["connection_name"].as_str().unwrap_or_default().into(),
+        ),
         None => (actor.to_string(), actor.to_string()),
     }
 }
@@ -119,9 +120,9 @@ mod tests {
 
     fn team() -> Value {
         json!({ "team": [
-            { "id": "lead", "runtime": "codex", "runtime_name": "Codex" },
-            { "id": "m1", "runtime": "claude", "runtime_name": "Claude Code" },
-            { "id": "m2", "runtime": "codex", "runtime_name": "Codex" }
+            { "id": "lead", "connection": "codex", "connection_name": "Codex" },
+            { "id": "m1", "connection": "claude", "connection_name": "Claude Code" },
+            { "id": "m2", "connection": "codex", "connection_name": "Codex" }
         ] })
     }
 

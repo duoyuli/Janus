@@ -245,8 +245,8 @@ async fn a_chat_is_deleted_with_its_directory() {
             (e.kind.as_str() == "agent.status").then(|| e.data?["session"].as_str().map(str::to_owned)).flatten()
         })
         .unwrap();
-    let runtime = h.app.run(&id).unwrap().team[0].runtime.clone();
-    let config = h.app.cfg.layout.agent_config(&runtime);
+    let connection = h.app.run(&id).unwrap().team[0].connection.clone();
+    let config = h.app.cfg.layout.agent_config(&connection);
     let transcript = config.join("projects/-chat").join(format!("{sid}.jsonl"));
     let other = config.join("projects/-chat/00000000-0000-4000-8000-000000000000.jsonl");
     std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();

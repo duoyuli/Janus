@@ -65,3 +65,21 @@ pub(crate) fn add_run_origin(tx: &Transaction) -> Result<usize> {
     )?;
     Ok(added)
 }
+
+/// Data version 23: a run member names its agent connection `connection` (it said `runtime`) and
+/// its name `connection_name` (`runtime_name`); `runtime` is what the connection runs, Codex or
+/// Claude Code (it said `kind`).
+pub(crate) fn rename_member_connection(tx: &Transaction) -> Result<usize> {
+    super::super::edit(tx, super::super::Target::RunMember, |m| {
+        if m.contains_key("connection") {
+            return false;
+        }
+        let connection = m.remove("runtime").unwrap_or_default();
+        let name = m.remove("runtime_name").unwrap_or_default();
+        let runtime = m.remove("kind").unwrap_or_default();
+        m.insert("connection".into(), connection);
+        m.insert("connection_name".into(), name);
+        m.insert("runtime".into(), runtime);
+        true
+    })
+}

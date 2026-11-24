@@ -219,6 +219,6 @@ Janus 不从权限模式推导成员「会修改文件 / 只读」：应用只�
 <a id="member_snapshot"></a>
 ## 成员快照
 
-`team_for` 把工作区展开成 Run 的成员（`Member`），每个角色先经 `role_member` 转成成员，[对话](20261120-chats.md)的唯一成员也由它生成。成员包括：角色字段、Agent 类型与名称、会话控制项（角色的选择加上没有选择的权限模式的默认值）、权限模式标签（`permission`，例如「Full access」，显示在 Run 的审计页）、角色指令和 Provider 的自定义提示词、固定下来的资源（`resources`，见 [Run 和会话怎样拿到资源](20261116-resource_library.md#delivery)）。
+`team_for` 把工作区展开成 Run 的成员（`Member`），每个角色先经 `role_member` 转成成员，[对话](20261120-chats.md)的唯一成员也由它生成。成员包括：角色字段、Agent 连接（`connection`，连接的 id，和它当时的名字 `connection_name`）、连接跑的是 Codex 还是 Claude Code（`runtime`）、会话控制项（角色的选择加上没有选择的权限模式的默认值）、权限模式标签（`permission`，例如「Full access」，显示在 Run 的审计页）、角色指令和 Provider 的自定义提示词、固定下来的资源（`resources`，见 [Run 和会话怎样拿到资源](20261116-resource_library.md#delivery)）。
 
 这些字段同时用于：打开会话时设置控制项、负责人说明中的协作者名单、应用的「团队与权限」页。

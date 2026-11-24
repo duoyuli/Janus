@@ -199,6 +199,11 @@ pub const MIGRATIONS: &[Migration] = &[
              CREATE INDEX IF NOT EXISTS memories_workspace ON memories (workspace, updated_at);",
         )],
     },
+    Migration {
+        version: 23,
+        name: "Run 快照的成员按它的意思命名字段：Agent 连接是 connection（原来叫 runtime），连接的名字是 connection_name，Codex 或 Claude Code 是 runtime（原来叫 kind）",
+        steps: &[Step::Custom(steps::runs::rename_member_connection)],
+    },
 ];
 
 /// The data version this build reads and writes.
