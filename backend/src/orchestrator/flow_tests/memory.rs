@@ -142,7 +142,10 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
 
-    // A note from a cancelled run is not handed to later runs.
+    // A note from a cancelled run is not handed to later runs. The fake lead works on a goal until
+    // `lead-go` appears: left in place, the next run would deliver at once and could no longer be
+    // stopped.
+    std::fs::remove_file(h.dir.join("fake/lead-go")).unwrap();
     let cancelled = h
         .app
         .create_run(NewRun { goal: "试试另一条路".into(), workspace: "ws".into(), ..Default::default() })
