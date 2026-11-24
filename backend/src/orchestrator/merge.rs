@@ -186,8 +186,8 @@ impl App {
         let dir = self.worktree_root(run_id);
         let from = self.changes_from(run_id, w, base_ref);
         crate::traces::changed_files(
-            &super::attempts::git_out(&dir, &["diff-index", "--name-only", &from]),
-            &super::attempts::git_out(&dir, &["ls-files", "--others", "--exclude-standard"]),
+            &crate::git::output(&dir, &["diff-index", "--name-only", &from]),
+            &crate::git::output(&dir, &["ls-files", "--others", "--exclude-standard"]),
         )
         .into_iter()
         .collect()

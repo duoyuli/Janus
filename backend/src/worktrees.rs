@@ -9,29 +9,41 @@
 // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
 // @project-doc docs/operations/20261031-security.md#workspace_access
 
+use crate::git::{read, write};
+use crate::text::short_sha;
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
-/// `git` writing in `dir`, with the repository's hooks switched off: they are code in the
-/// repository (an agent may have written them) and would run on checkouts, commits, rebases and
-/// merges. The identity is the repository's or the person's own. See `git_probe::command` for
-/// the rest of its environment.
-fn write(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = crate::git_probe::command(dir)
-        .args(["-c", "core.hooksPath=/dev/null"])
-        .args(args)
-        .output()
-        .context("运行 git 失败")?;
-    if !out.status.success() {
-        bail!("git {}：{}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+/// Where a workspace directory stands in git, read before a worktree is made of it.
+pub struct Checkout {
+    /// The repository's top folder.
+    pub top: PathBuf,
+    /// The commit checked out; empty before the first commit, when there is nothing to make a
+    /// worktree from.
+    pub head: String,
+    /// The workspace's folder inside the repository (`apps/client`), empty at its top.
+    prefix: String,
 }
 
-/// A read-only `git` query (it takes no lock, see `git_probe`); `None` when git fails.
-fn read(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = crate::git_probe::read_only(dir, args).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+impl Checkout {
+    /// `dir` in a git repository, or `None` outside one. A bare repository counts as outside: it
+    /// has no files to work on.
+    pub async fn of(dir: &Path) -> Result<Option<Checkout>> {
+        let inside = crate::git::query(dir, &["rev-parse", "--is-inside-work-tree"]).await;
+        if !inside.is_ok_and(|o| o.trim() == "true") {
+            return Ok(None);
+        }
+        let head = crate::git::query(dir, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string();
+        let top = PathBuf::from(crate::git::query(dir, &["rev-parse", "--show-toplevel"]).await?.trim());
+        let prefix = crate::git::query(dir, &["rev-parse", "--show-prefix"]).await.unwrap_or_default();
+        Ok(Some(Checkout { top, head, prefix: prefix.trim().trim_end_matches('/').to_string() }))
+    }
+
+    /// Where a session starts in a worktree (at `root`) of the whole repository: the same folder
+    /// the workspace is in the repository (FL-09).
+    pub fn start_in(&self, root: PathBuf) -> PathBuf {
+        if self.prefix.is_empty() { root } else { root.join(&self.prefix) }
+    }
 }
 
 /// The branch checked out in `repo` (`main` for `refs/heads/main`); `None` on a detached `HEAD`.
@@ -95,10 +107,6 @@ fn is_ancestor(dir: &Path, older: &str, newer: &str) -> bool {
     read(dir, &["merge-base", "--is-ancestor", older, newer]).is_some()
 }
 
-fn short(commit: &str) -> &str {
-    commit.get(..8).unwrap_or(commit)
-}
-
 /// Where an accepted result goes: the tip it builds on, and what moves to bring it there.
 struct Source {
     /// How the person knows it, in messages.
@@ -125,7 +133,7 @@ impl Source {
                 bail!(
                     "没有合并：这个任务要合并回 {} 的 detached HEAD，但那里现在检出的是分支 {now}。任务的结果在提交 {}，可以自己合并。",
                     repo.display(),
-                    short(head)
+                    short_sha(head)
                 );
             }
             let tip = rev(repo, "HEAD").context("读取工作目录的 HEAD 失败")?;
@@ -133,15 +141,15 @@ impl Source {
                 bail!(
                     "没有合并：{} 的 detached HEAD 在任务开始后移动过（从 {} 到 {}）。任务的结果在提交 {}，可以自己合并。",
                     repo.display(),
-                    short(since),
-                    short(&tip),
-                    short(head)
+                    short_sha(since),
+                    short_sha(&tip),
+                    short_sha(head)
                 );
             }
             return Ok(Source { name: format!("{} 的 HEAD", repo.display()), tip, at: Place::Checkout(repo.into()) });
         };
         let Some(tip) = rev(repo, &format!("refs/heads/{b}")) else {
-            bail!("没有合并：分支 {b} 已经不存在。任务的结果在提交 {}，可以自己合并。", short(head));
+            bail!("没有合并：分支 {b} 已经不存在。任务的结果在提交 {}，可以自己合并。", short_sha(head));
         };
         let at = match checked_out_at(repo, b) {
             Some(dir) => Place::Checkout(dir),
@@ -169,7 +177,7 @@ impl Source {
                 self.name,
                 dir.display(),
                 in_the_way.join("、"),
-                short(head)
+                short_sha(head)
             );
         }
         if let Err(err) = write(dir, &["merge", "--ff-only", "-q", head]) {
@@ -177,7 +185,7 @@ impl Source {
             let overlap: Vec<String> =
                 uncommitted(dir).into_iter().filter(|f| touched.lines().any(|t| t == f)).collect();
             if overlap.is_empty() {
-                bail!("没有合并到{}：{err:#}。任务的结果在提交 {}。", self.name, short(head));
+                bail!("没有合并到{}：{err:#}。任务的结果在提交 {}。", self.name, short_sha(head));
             }
             bail!(
                 "没有合并到{}：{} 里这些文件有还没提交的改动，任务也改了它们：{}。先提交或暂存这些改动，再验收。",
@@ -236,7 +244,7 @@ impl std::fmt::Display for Conflict {
             "没有合并：分支 {} 在任务开始后有了新的提交，和任务的改动冲突{}。任务的结果在提交 {}。",
             self.branch,
             listed(&self.files),
-            short(&self.head)
+            short_sha(&self.head)
         )
     }
 }
@@ -345,11 +353,8 @@ pub fn accept(
         return Err(unfinished.into());
     }
     write(path, &["add", "-A"])?;
-    let staged = !crate::git_probe::command(path)
-        .args(["diff", "--cached", "--quiet"])
-        .status()
-        .context("运行 git 失败")?
-        .success();
+    let staged =
+        !crate::git::command(path).args(["diff", "--cached", "--quiet"]).status().context("运行 git 失败")?.success();
     if staged {
         write(path, &["commit", "-q", "-m", message]).context("提交失败：请确认 git 配置了 user.name 和 user.email")?;
     }
@@ -357,8 +362,8 @@ pub fn accept(
     if !is_ancestor(path, since, &head) {
         bail!(
             "没有合并：任务副本里的历史被改写过（回退或重写了提交），不再包含任务开始时（或上次合并时）的提交 {}。任务的结果在提交 {}。",
-            short(since),
-            short(&head)
+            short_sha(since),
+            short_sha(&head)
         );
     }
     let source = Source::of(repo, branch, since, &head)?;
@@ -366,8 +371,8 @@ pub fn accept(
         bail!(
             "没有合并：{} 在任务开始后被改写过（回退、强推或重新建过），不再包含任务开始时的提交 {}。任务的结果在提交 {}，可以自己合并。",
             source.name,
-            short(since),
-            short(&head)
+            short_sha(since),
+            short_sha(&head)
         );
     }
     let done = |result: String, brought: bool| {
@@ -382,7 +387,11 @@ pub fn accept(
     }
     if !is_ancestor(path, &source.tip, &head) {
         if branch.is_none() {
-            bail!("没有合并：{} 在任务开始后移动过。任务的结果在提交 {}，可以自己合并。", source.name, short(&head));
+            bail!(
+                "没有合并：{} 在任务开始后移动过。任务的结果在提交 {}，可以自己合并。",
+                source.name,
+                short_sha(&head)
+            );
         }
         // Only what the branch does not have: `since` is in both (checked above), so this is the
         // run's own work, without the branch's commits the worktree took in meanwhile.
@@ -391,7 +400,7 @@ pub fn accept(
             if let Err(abort) = write(path, &["rebase", "--abort"]) {
                 crate::config::log(format!("janus: could not abort the replay in {}: {abort:#}", path.display()));
             }
-            crate::config::log(format!("janus: replaying {} onto {} failed: {err:#}", short(&head), source.name));
+            crate::config::log(format!("janus: replaying {} onto {} failed: {err:#}", short_sha(&head), source.name));
             return Err(
                 Conflict { branch: branch.unwrap_or_default().to_string(), onto: source.tip, head, files }.into()
             );
@@ -628,7 +637,7 @@ fn copy_included(repo: &Path, path: &Path) -> Result<Vec<String>> {
 /// Which of `paths` the repository's own ignore rules ignore (`git check-ignore`).
 fn ignored_of(repo: &Path, paths: &[&str]) -> Vec<String> {
     use std::io::Write;
-    let Ok(mut child) = crate::git_probe::read_only(repo, &["check-ignore", "-z", "--stdin"])
+    let Ok(mut child) = crate::git::read_only(repo, &["check-ignore", "-z", "--stdin"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()

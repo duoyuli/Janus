@@ -194,7 +194,7 @@ impl App {
                 m.hook,
                 m.body,
                 m.author,
-                m.run_goal.as_deref().map(|g| format!(" in run \"{}\"", short(g, 60))).unwrap_or_default(),
+                m.run_goal.as_deref().map(|g| format!(" in run \"{}\"", clip(g, 60))).unwrap_or_default(),
                 date(m.updated_at),
             )
         };
@@ -469,7 +469,7 @@ impl App {
         self.emit(
             run,
             ev("memory.consolidated", "lead", format!("整理完了：改了 {saved} 条，删了 {forgotten} 条"))
-                .data(json!({ "summary": short(first, 200), "saved": saved, "forgotten": forgotten })),
+                .data(json!({ "summary": clip(first, 200), "saved": saved, "forgotten": forgotten })),
         );
         self.set_status(run, RunStatus::Delivered);
         if let Some(workspace) = self.run_workspace(&run.id) {
@@ -490,8 +490,8 @@ fn dream_prompt(runs: &[Value], delivery: impl Fn(&str) -> String) -> String {
             p.push_str(&format!(
                 "\n- {id} ({}): {}\n  Delivered: {}",
                 date(r["createdAt"].as_i64().unwrap_or(0)),
-                short(r["goal"].as_str().unwrap_or(""), 200),
-                short(&delivery(id), 600)
+                clip(r["goal"].as_str().unwrap_or(""), 200),
+                clip(&delivery(id), 600)
             ));
         }
     }

@@ -421,7 +421,7 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     assert!(
         prompt.contains(&format!(
             "- {a} (key a): delivered; the person accepts it from their inbox\n  {}",
-            short(summary.trim(), 600)
+            clip(summary.trim(), 600)
         )),
         "{prompt}"
     );

@@ -116,7 +116,7 @@ impl LoopDef {
         if !self.name.is_empty() {
             return self.name.clone();
         }
-        short(self.prompt.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), 30)
+        clip(self.prompt.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""), 30)
     }
 
     /// When it wakes by itself next after `now`: its schedule, or `chosen` (a time it asked for)
@@ -276,7 +276,7 @@ impl App {
         if !def.name.is_empty() {
             bail!("你已经有名字了：{}。名字只起一次", def.name);
         }
-        def.name = short(name, 40);
+        def.name = clip(name, 40);
         self.save_loop(&def)?;
         self.db.set_run_goal(&def.run, &def.name)?;
         self.emit(run, ev("loop.named", "lead", format!("值班的名字：{}", def.name)).data(json!({ "name": def.name })));
@@ -460,16 +460,10 @@ impl App {
     /// in that folder of the worktree. Outside git: the workspace's directory itself.
     // @project-doc docs/domains/20261121-loops.md#loop_worktree
     async fn loop_place(&self, def: &LoopDef, workspace: &Path) -> Result<LoopPlace> {
-        let in_git = git(workspace, &["rev-parse", "--is-inside-work-tree"]).await.is_ok_and(|o| o.trim() == "true");
-        let head = match in_git {
-            true => git(workspace, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string(),
-            false => String::new(),
-        };
-        if head.is_empty() {
+        let Some(checkout) = crate::worktrees::Checkout::of(workspace).await?.filter(|c| !c.head.is_empty()) else {
             return Ok(LoopPlace { cwd: workspace.to_path_buf(), copy: None });
-        }
-        let top = PathBuf::from(git(workspace, &["rev-parse", "--show-toplevel"]).await?.trim());
-        let prefix = git(workspace, &["rev-parse", "--show-prefix"]).await.unwrap_or_default();
+        };
+        let (top, head) = (checkout.top.clone(), checkout.head.clone());
         let path = self.cfg.layout.run(RunKind::Loop, &def.run).work;
         let talking = self.run(&def.run).is_some_and(|r| r.st.lock().unwrap().lead.in_turn);
         {
@@ -486,10 +480,7 @@ impl App {
         let root = path.canonicalize().unwrap_or(path);
         // Where it is now: `head`, or where it stayed while the person talks to it.
         let at = crate::worktrees::head_of(&root).unwrap_or(head);
-        let cwd = match prefix.trim().trim_end_matches('/') {
-            "" => root.clone(),
-            p => root.join(p),
-        };
+        let cwd = checkout.start_in(root.clone());
         Ok(LoopPlace { cwd, copy: Some((root, top.clone(), at, crate::worktrees::current_branch(&top))) })
     }
 
@@ -499,7 +490,9 @@ impl App {
         let path = self.cfg.layout.run(RunKind::Loop, &def.run).work;
         let workspace = self.workspace(&def.workspace).ok().and_then(|w| w["path"].as_str().map(PathBuf::from));
         let top = match &workspace {
-            Some(w) => git(w, &["rev-parse", "--show-toplevel"]).await.ok().map(|t| PathBuf::from(t.trim())),
+            Some(w) => {
+                crate::git::query(w, &["rev-parse", "--show-toplevel"]).await.ok().map(|t| PathBuf::from(t.trim()))
+            }
             None => None,
         };
         let Some(repo) = crate::worktrees::repo_of(&path).or(top) else {
@@ -710,7 +703,7 @@ impl App {
             .and_then(|e| {
                 let text =
                     e.data.as_ref().and_then(|d| d["text"].as_str().map(str::to_owned)).unwrap_or(e.text.clone());
-                text.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| short(l, 120))
+                text.lines().map(str::trim).find(|l| !l.is_empty()).map(|l| clip(l, 120))
             })
             .unwrap_or_default();
         self.emit(
@@ -981,7 +974,7 @@ impl App {
                     r["goal"].as_str().unwrap_or("").lines().next().unwrap_or("")
                 );
                 if let Some(summary) = self.last_delivery_text(id) {
-                    line.push_str(&format!("\n  交付摘要：{}", short(&summary, 300)));
+                    line.push_str(&format!("\n  交付摘要：{}", clip(&summary, 300)));
                 }
                 line
             })
@@ -1032,7 +1025,7 @@ fn tick_prompt(def: &LoopDef, answers: &[(String, String, String)], ended: &[End
             };
             out.push_str(&format!("\n- {} (key {}): {what}", e.run, e.key));
             if let Some(o) = e.outcome.as_deref().map(str::trim).filter(|o| !o.is_empty()) {
-                out.push_str(&format!("\n  {}", short(o, 600)));
+                out.push_str(&format!("\n  {}", clip(o, 600)));
             }
         }
     }

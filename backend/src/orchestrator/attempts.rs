@@ -171,7 +171,7 @@ impl App {
                 } else {
                     format!(
                         "\n  上游风险：{}",
-                        r.risks.iter().take(5).map(|x| short(x, INLINE_ITEM)).collect::<Vec<_>>().join("；")
+                        r.risks.iter().take(5).map(|x| clip(x, INLINE_ITEM)).collect::<Vec<_>>().join("；")
                     )
                 };
                 // Where to look, not only what it said: the files it changed, and which of them
@@ -195,8 +195,8 @@ impl App {
                             note.push_str(&format!(
                                 "\n  未通过：[{}] {}：{}",
                                 c.method_label(),
-                                short(&c.criterion, INLINE_ITEM),
-                                short(&c.evidence, INLINE_SUMMARY)
+                                clip(&c.criterion, INLINE_ITEM),
+                                clip(&c.evidence, INLINE_SUMMARY)
                             ));
                         }
                         note
@@ -208,7 +208,7 @@ impl App {
                     u.def.title,
                     u.agent,
                     u.status(),
-                    short(&r.summary, INLINE_SUMMARY),
+                    clip(&r.summary, INLINE_SUMMARY),
                     if files.is_empty() { "无".into() } else { files.join("，") }
                 );
                 let mut handoff = json!({
@@ -539,7 +539,7 @@ impl App {
                     .unwrap_or_default();
                 last_question_seq = self.emit(
                     run,
-                    ev("question.asked", &agent, short(&question, 60)).task(id).attempt(n).to("lead").data(json!({
+                    ev("question.asked", &agent, clip(&question, 60)).task(id).attempt(n).to("lead").data(json!({
                         "key": key, "question": question, "options": options, "blocking": true
                     })),
                 );
@@ -579,7 +579,7 @@ impl App {
                                 "（转为人工接管，在会话中继续）".into()
                             }
                         };
-                        self.emit(run, ev("question.answered", "user", format!("在会话中回答：{}", short(&reply, 40))).task(id).to(&agent).data(json!({ "key": key, "answer": reply, "via": "session" })));
+                        self.emit(run, ev("question.answered", "user", format!("在会话中回答：{}", clip(&reply, 40))).task(id).to(&agent).data(json!({ "key": key, "answer": reply, "via": "session" })));
                     }
                 }
             };
@@ -603,7 +603,7 @@ impl App {
                 ev(
                     "result.submitted",
                     &agent,
-                    format!("提交结构化结果：{}", short(&result.summary, 60)),
+                    format!("提交结构化结果：{}", clip(&result.summary, 60)),
                 )
                 .task(id)
                 .attempt(n)
@@ -641,8 +641,8 @@ impl App {
         let gaps = {
             let changed = run.git.then(|| {
                 crate::traces::changed_files(
-                    &git_out(&workspace, &["diff-index", "--name-only", "HEAD"]),
-                    &git_out(&workspace, &["ls-files", "--others", "--exclude-standard"]),
+                    &crate::git::output(&workspace, &["diff-index", "--name-only", "HEAD"]),
+                    &crate::git::output(&workspace, &["ls-files", "--others", "--exclude-standard"]),
                 )
             });
             let st = run.st.lock().unwrap();
@@ -799,7 +799,7 @@ impl App {
             })?;
             self.emit(
                 run,
-                ev("verification.failed", "janus", format!("{id} 没有通过验收核对：{}", short(&message, 120)))
+                ev("verification.failed", "janus", format!("{id} 没有通过验收核对：{}", clip(&message, 120)))
                     .task(id)
                     .attempt(n)
                     .data(json!({ "attemptId": attempt_id, "failures": failures, "checks": result.checks, "acceptance": summary })),
@@ -937,8 +937,10 @@ impl App {
         if diff.trim().is_empty() || (scope.is_empty() && unchanged) {
             return Ok(());
         }
-        let stat = git_scoped(workspace, &["diff-index", "--shortstat", "HEAD"], &scope);
-        let new_files = git_scoped(workspace, &["ls-files", "--others", "--exclude-standard"], &scope).lines().count();
+        let stat = crate::git::scoped_output(workspace, &["diff-index", "--shortstat", "HEAD"], &scope);
+        let new_files = crate::git::scoped_output(workspace, &["ls-files", "--others", "--exclude-standard"], &scope)
+            .lines()
+            .count();
         let desc = [
             Some(crate::traces::diff_summary(&stat, new_files)).filter(|s| !s.is_empty()),
             Some(if scope.is_empty() {
@@ -994,8 +996,8 @@ impl App {
         if saved {
             return Ok(());
         }
-        let stat = git_out(&run.cwd, &["diff-index", "--shortstat", &from]);
-        let new_files = git_out(&run.cwd, &["ls-files", "--others", "--exclude-standard"])
+        let stat = crate::git::output(&run.cwd, &["diff-index", "--shortstat", &from]);
+        let new_files = crate::git::output(&run.cwd, &["ls-files", "--others", "--exclude-standard"])
             .lines()
             .filter(|l| !l.is_empty())
             .count();
@@ -1061,36 +1063,17 @@ impl App {
     }
 }
 
-pub(super) fn git_out(cwd: &Path, args: &[&str]) -> String {
-    git_probe::read_only(cwd, args)
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default()
-}
-
-/// A git query limited to `scope` (paths taken literally, not as patterns); all of the working
-/// tree when `scope` is empty.
-pub(super) fn git_scoped(cwd: &Path, args: &[&str], scope: &[String]) -> String {
-    let mut all: Vec<&str> = vec!["--literal-pathspecs"];
-    all.extend(args);
-    if !scope.is_empty() {
-        all.push("--");
-        all.extend(scope.iter().map(String::as_str));
-    }
-    git_out(cwd, &all)
-}
-
 /// What the working tree differs from the commit `against` by within `scope` (everything when
 /// empty), untracked files included as diffs against an empty file.
 pub(super) fn working_diff(cwd: &Path, against: &str, scope: &[String]) -> String {
     // `diff-index`, not `diff`: porcelain `git diff` refreshes the index even with optional locks
     // off (see `git_probe`).
-    let mut diff = git_scoped(cwd, &["diff-index", "-p", against], scope);
+    let mut diff = crate::git::scoped_output(cwd, &["diff-index", "-p", against], scope);
     // Untracked files have no `diff-index` entry. Diff each against /dev/null so the artifact
     // carries their content, then list them so a review can mark them as new files.
-    let untracked = git_scoped(cwd, &["ls-files", "--others", "--exclude-standard", "-z"], scope);
+    let untracked = crate::git::scoped_output(cwd, &["ls-files", "--others", "--exclude-standard", "-z"], scope);
     for path in untracked.split('\0').filter(|p| !p.is_empty()) {
-        diff.push_str(&git_out(
+        diff.push_str(&crate::git::output(
             cwd,
             &[
                 "-c",

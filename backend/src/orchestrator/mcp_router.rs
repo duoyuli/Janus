@@ -208,7 +208,7 @@ fn router_instructions(servers: &BTreeMap<String, Item>) -> String {
             if i.description.is_empty() {
                 i.name.clone()
             } else {
-                format!("{}（{}）", i.name, short(&i.description, 80))
+                format!("{}（{}）", i.name, clip(&i.description, 80))
             }
         })
         .collect();

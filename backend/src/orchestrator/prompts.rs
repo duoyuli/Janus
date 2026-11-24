@@ -161,13 +161,9 @@ pub(super) fn previous_verdict(def: &TaskDef, result: Option<&TaskResult>) -> St
         return "没有记录".into();
     };
     let vd = effective_verdict(r.verdict, def.accept.len(), &r.checks);
-    let mut p = format!("{}（{}）：{}", vd.label(), vd.as_str(), short(&r.summary, INLINE_SUMMARY));
+    let mut p = format!("{}（{}）：{}", vd.label(), vd.as_str(), clip(&r.summary, INLINE_SUMMARY));
     for c in r.checks.iter().filter(|c| !c.passed) {
-        p.push_str(&format!(
-            "\n  未通过：{}：{}",
-            short(&c.criterion, INLINE_ITEM),
-            short(&c.evidence, INLINE_SUMMARY)
-        ));
+        p.push_str(&format!("\n  未通过：{}：{}", clip(&c.criterion, INLINE_ITEM), clip(&c.evidence, INLINE_SUMMARY)));
     }
     p
 }
@@ -336,7 +332,7 @@ fn parse_verdict(raw: &Value) -> (Option<Verdict>, Option<String>) {
 }
 
 fn parse_handoff(v: &Value) -> Option<String> {
-    v["handoff"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(|s| short(s, HANDOFF_LIMIT))
+    v["handoff"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(|s| clip(s, HANDOFF_LIMIT))
 }
 
 /// Rebuild a `TaskResult` recorded in an event (`result.submitted` or `task.succeeded`).

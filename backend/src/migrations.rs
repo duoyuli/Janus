@@ -402,7 +402,7 @@ pub fn upgrade(conn: &mut Connection, layout: Option<&Layout>) -> Result<Report>
 fn backup(conn: &Connection, layout: &Layout, version: u32) -> Result<PathBuf> {
     let dir = layout.backups();
     std::fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("janus-v{version}-{}.db", crate::orchestrator::now_ms()));
+    let path = dir.join(format!("janus-v{version}-{}.db", crate::util::now_ms()));
     conn.execute("VACUUM INTO ?1", params![path.to_string_lossy()]).context("升级前备份数据库失败")?;
     let mut old: Vec<PathBuf> = std::fs::read_dir(&dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))

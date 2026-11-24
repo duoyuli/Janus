@@ -330,7 +330,7 @@ impl App {
             return;
         }
         let e =
-            ev("agent.message", ctx.agent, short(raw.trim(), 80)).data(json!({ "text": short(raw, 8000) })).scope(ctx);
+            ev("agent.message", ctx.agent, clip(raw.trim(), 80)).data(json!({ "text": clip(raw, 8000) })).scope(ctx);
         self.emit(run, e);
     }
 
@@ -397,7 +397,7 @@ impl App {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("{task} 和 {other} 都改了 {}", short(&list, 80)))
+                ev("task.conflict", "janus", format!("{task} 和 {other} 都改了 {}", clip(&list, 80)))
                     .task(task)
                     .to("lead")
                     .data(json!({ "other": other, "paths": files })),
@@ -410,7 +410,7 @@ impl App {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("{task} 改了 {other} 负责的 {}", short(&list, 80)))
+                ev("task.conflict", "janus", format!("{task} 改了 {other} 负责的 {}", clip(&list, 80)))
                     .task(task)
                     .to("lead")
                     .data(json!({ "other": other, "paths": files, "owned": true })),
@@ -478,7 +478,7 @@ impl App {
         if !after_plan.is_empty() {
             self.emit(
                 run,
-                ev("lead.edited", "janus", format!("负责人派出子任务后改了 {}", short(&after_plan.join("、"), 80)))
+                ev("lead.edited", "janus", format!("负责人派出子任务后改了 {}", clip(&after_plan.join("、"), 80)))
                     .to("lead")
                     .data(json!({ "paths": after_plan })),
             );
@@ -487,7 +487,7 @@ impl App {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("负责人改了 {other} 负责的 {}", short(&list, 80)))
+                ev("task.conflict", "janus", format!("负责人改了 {other} 负责的 {}", clip(&list, 80)))
                     .task(&other)
                     .to("lead")
                     .data(json!({ "other": "lead", "byLead": true, "owned": true, "paths": files })),
@@ -504,7 +504,7 @@ impl App {
             let list = files.join("、");
             self.emit(
                 run,
-                ev("task.conflict", "janus", format!("负责人和 {other} 都改了 {}", short(&list, 80)))
+                ev("task.conflict", "janus", format!("负责人和 {other} 都改了 {}", clip(&list, 80)))
                     .task(&other)
                     .to("lead")
                     .data(json!({ "other": "lead", "byLead": true, "paths": files })),
@@ -619,7 +619,7 @@ impl App {
                 // finished record (`tool.call`, same `callId`) replaces it.
                 if first && !matches!(status.as_str(), "completed" | "failed") {
                     let data = crate::acp_view::tool_started(&id, entry, &summarize_input(&entry["rawInput"], &title));
-                    let e = ev("tool.started", ctx.agent, short(&title, 80)).data(data).scope(ctx);
+                    let e = ev("tool.started", ctx.agent, clip(&title, 80)).data(data).scope(ctx);
                     self.emit(run, e);
                 }
                 if matches!(status.as_str(), "completed" | "failed") {
@@ -627,7 +627,7 @@ impl App {
                     if turn.tools.is_empty() {
                         run.with_watch(&key, n, |w| {
                             w.phase = AgentPhase::Thinking;
-                            w.last_tool = short(&title, 60);
+                            w.last_tool = clip(&title, 60);
                         });
                     }
                     let kind = entry["kind"].as_str().unwrap_or("tool").to_string();
@@ -647,7 +647,7 @@ impl App {
                     if !diffs.is_empty() {
                         data["diffs"] = json!(diffs);
                     }
-                    let e = ev("tool.call", ctx.agent, short(&title, 80)).data(data).scope(ctx);
+                    let e = ev("tool.call", ctx.agent, clip(&title, 80)).data(data).scope(ctx);
                     let seq = self.emit(run, e);
                     if status == "completed" {
                         self.record_skill_reads(run, &entry, &mut turn.skills_read, ctx);
@@ -666,13 +666,13 @@ impl App {
                 } else {
                     run.with_watch(&key, n, |w| {
                         w.phase = phase;
-                        w.last_tool = short(&title, 60);
+                        w.last_tool = clip(&title, 60);
                     });
                     if now_ms() - turn.last_status > 1500 {
                         turn.last_status = now_ms();
                         self.emit(
                             run,
-                            ev("agent.status", ctx.agent, short(&title, 80)).scope(ctx).data(json!({ "phase": phase })),
+                            ev("agent.status", ctx.agent, clip(&title, 80)).scope(ctx).data(json!({ "phase": phase })),
                         );
                     }
                 }
@@ -720,7 +720,7 @@ impl App {
         let text = std::mem::take(thought);
         let text = text.trim();
         if !text.is_empty() {
-            self.show(run, ("agent.thought", short(text, 80), json!({ "text": short(text, 8000) })), ctx);
+            self.show(run, ("agent.thought", clip(text, 80), json!({ "text": clip(text, 8000) })), ctx);
         }
     }
 
@@ -749,7 +749,7 @@ impl App {
                 run,
                 (
                     "session.control",
-                    format!("切换 {id} 没有成功：{}", short(&format!("{err:#}"), 120)),
+                    format!("切换 {id} 没有成功：{}", clip(&format!("{err:#}"), 120)),
                     json!({ "id": id, "failed": true }),
                 ),
                 ctx,
@@ -845,13 +845,13 @@ impl App {
         let key = format!("req-{}-{}-{}", if task.is_empty() { ctx.agent } else { task }, n, now_ms());
         let mode = params["mode"].as_str().unwrap_or("form");
         let mut e = if elicit {
-            ev("input.requested", ctx.agent, format!("请你填写：{}", short(&title, 50))).data(json!({
+            ev("input.requested", ctx.agent, format!("请你填写：{}", clip(&title, 50))).data(json!({
                 "key": key, "agent": ctx.agent, "mode": mode, "message": title,
                 "schema": params["requestedSchema"], "url": params["url"],
                 "toolCallId": params["toolCallId"], "meta": params["_meta"],
             }))
         } else {
-            ev("approval.requested", ctx.agent, format!("请求批准：{}", short(&title, 50))).data(json!({
+            ev("approval.requested", ctx.agent, format!("请求批准：{}", clip(&title, 50))).data(json!({
                 "key": key, "agent": ctx.agent, "command": command, "title": title,
                 "toolKind": tool["kind"], "content": tool["content"], "rawInput": tool["rawInput"],
                 "policy": "这个数字员工的权限模式要求这一步由你决定",
@@ -995,7 +995,7 @@ pub(super) fn summarize_input(raw: &Value, title: &str) -> String {
                 .unwrap_or_else(|| v.to_string()),
         },
     };
-    short(&s, 240)
+    clip(&s, 240)
 }
 
 /// Codex reports command output as a JSON envelope; show the text a person would read.
@@ -1030,14 +1030,14 @@ pub(super) fn summarize_output(entry: &Value) -> String {
             })
             .collect();
         if !parts.is_empty() {
-            return short(&parts.join(" · "), 300);
+            return clip(&parts.join(" · "), 300);
         }
     }
     // No output: nothing to show (the call's status is recorded on its own).
     match &entry["rawOutput"] {
         Value::Null => String::new(),
-        Value::String(s) => short(&unwrap_output(s), 300),
-        v => short(&unwrap_output(&v.to_string()), 300),
+        Value::String(s) => clip(&unwrap_output(s), 300),
+        v => clip(&unwrap_output(&v.to_string()), 300),
     }
 }
 

@@ -26,7 +26,7 @@ pub(super) struct ScheduleQuery {
 /// round, so the app shows them without reading cron itself; 400 with the reason when it is wrong.
 pub(super) async fn schedule(Query(q): Query<ScheduleQuery>) -> ApiResult {
     let s = Schedule::new(&q.cron, q.tz.as_deref())?;
-    let next = s.upcoming(crate::orchestrator::now_ms(), 3);
+    let next = s.upcoming(crate::util::now_ms(), 3);
     reply(json!({ "cron": s.cron, "tz": s.tz, "next": next }))
 }
 

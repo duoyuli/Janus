@@ -87,9 +87,7 @@ pub(super) fn with_identity(text: &str, name: &str, description: &str) -> String
 
 /// A short form of a description for lists.
 pub(super) fn short(s: &str) -> String {
-    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    let cut: String = s.chars().take(240).collect();
-    if cut.chars().count() < s.chars().count() { format!("{cut}…") } else { cut }
+    crate::text::one_line(s, 240)
 }
 
 #[cfg(test)]

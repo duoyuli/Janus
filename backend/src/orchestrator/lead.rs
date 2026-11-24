@@ -100,12 +100,8 @@ impl App {
                 Err(err) => {
                     app.emit(
                         &r,
-                        ev(
-                            "lead.failed",
-                            "janus",
-                            format!("负责人的会话异常结束：{}", short(&format!("{err:#}"), 120)),
-                        )
-                        .data(json!({ "error": format!("{err:#}") })),
+                        ev("lead.failed", "janus", format!("负责人的会话异常结束：{}", clip(&format!("{err:#}"), 120)))
+                            .data(json!({ "error": format!("{err:#}") })),
                     );
                     LeadGoal::Failed(format!("{err:#}"))
                 }
@@ -994,7 +990,7 @@ Shared workspace context:
                         t.agent,
                         t.def.title,
                         t.status(),
-                        t.result.as_ref().map(|r| format!(" · {}", short(&r.summary, 80))).unwrap_or_default()
+                        t.result.as_ref().map(|r| format!(" · {}", clip(&r.summary, 80))).unwrap_or_default()
                     )
                 })
                 .collect();
@@ -1049,7 +1045,7 @@ pub(super) fn goal_refused(text: &str) -> Option<String> {
     ]
     .iter()
     .find(|m| text.contains(**m))
-    .map(|_| short(text.trim(), 200))
+    .map(|_| clip(text.trim(), 200))
 }
 
 impl App {
@@ -1293,8 +1289,8 @@ pub(super) fn recent_exchanges(events: &[Event], agent: &str) -> String {
         .rev()
         .filter(|&(i, e)| e.task.is_none() && e.attempt.is_none() && !waiting(i, e))
         .filter_map(|(_, e)| match e.kind.as_str() {
-            "agent.message" if !e.text.trim().is_empty() => Some(format!("{agent}: {}", short(e.text.trim(), 500))),
-            "user.message" if !e.text.trim().is_empty() => Some(format!("User: {}", short(e.text.trim(), 500))),
+            "agent.message" if !e.text.trim().is_empty() => Some(format!("{agent}: {}", clip(e.text.trim(), 500))),
+            "user.message" if !e.text.trim().is_empty() => Some(format!("User: {}", clip(e.text.trim(), 500))),
             _ => None,
         })
         .take(12)

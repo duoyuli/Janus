@@ -139,7 +139,7 @@ impl App {
                 "tool": format!("janus.{tool_name}"),
                 "input": summarize_input(&tool_input, &tool_name),
                 "args": tool_input,
-                "output": short(output, 8000),
+                "output": clip(output, 8000),
                 "status": if failed { "failed" } else { "completed" }
             }));
             self.emit(&run, e.in_session(who));
@@ -200,7 +200,7 @@ impl App {
                     ev(
                         "orchestration.rejected",
                         "lead",
-                        format!("编排没有通过校验：{}", short(&errors.join("；"), 120)),
+                        format!("编排没有通过校验：{}", clip(&errors.join("；"), 120)),
                     )
                     .data(json!({ "errors": errors, "submitted": args })),
                 );
@@ -346,7 +346,7 @@ impl App {
         if let Some(key) = question {
             self.emit(
                 run,
-                ev("question.answered", "lead", format!("负责人回答：{}", short(text, 40)))
+                ev("question.answered", "lead", format!("负责人回答：{}", clip(text, 40)))
                     .task(task)
                     .to(&agent)
                     .data(json!({ "key": key, "answer": text, "via": "lead" })),
@@ -614,7 +614,7 @@ impl App {
         }
         let seq = self.emit(
             run,
-            ev("task.succeeded", "lead", format!("负责人接受 {task} 的结果：{}", short(reason, 60)))
+            ev("task.succeeded", "lead", format!("负责人接受 {task} 的结果：{}", clip(reason, 60)))
                 .task(task)
                 .attempt(submitted.attempt.unwrap_or(0))
                 .data(event_data),
@@ -775,7 +775,7 @@ impl App {
         let Takers { running, done } = takers;
         self.emit(
             run,
-            ev("result.amended", "lead", format!("负责人修订 {task} 的结论：{}", short(text, 60)))
+            ev("result.amended", "lead", format!("负责人修订 {task} 的结论：{}", clip(text, 60)))
                 .task(task)
                 .data(json!({ "text": text })),
         );
@@ -888,7 +888,7 @@ impl App {
         // Nobody awaits the answer here: it reaches the lead through `wait`.
         self.add_pending(run, &key, Owner { session: SessionKey::Lead, attempt: 0 }, Ask::Question)
             .map_err(|e| format!("{e:#}"))?;
-        self.emit(run, ev("question.escalated", "lead", format!("负责人请你决定：{}", short(question, 60))).to("user").data(json!({
+        self.emit(run, ev("question.escalated", "lead", format!("负责人请你决定：{}", clip(question, 60))).to("user").data(json!({
             "key": key, "question": question, "options": options, "recommend": recommend, "reason": why, "from": "lead"
         })));
         Ok(())
@@ -1200,7 +1200,7 @@ impl App {
                 format!(
                     "- {}：{}",
                     e.task.as_deref().unwrap_or("?"),
-                    short(e.data.as_ref().and_then(|d| d["text"].as_str()).unwrap_or(&e.text), INLINE_ITEM)
+                    clip(e.data.as_ref().and_then(|d| d["text"].as_str()).unwrap_or(&e.text), INLINE_ITEM)
                 )
             })
             .collect();
@@ -1242,7 +1242,7 @@ impl App {
         };
         self.emit(
             run,
-            ev("board.posted", &agent, format!("{label}：{}", short(text, 80)))
+            ev("board.posted", &agent, format!("{label}：{}", clip(text, 80)))
                 .task(task)
                 .to("lead")
                 .data(json!({ "kind": kind, "text": text })),
@@ -1282,7 +1282,7 @@ impl App {
         }
         self.emit(
             run,
-            ev("task.claimed", &agent, format!("认领 {}", short(&fresh.join("、"), 80)))
+            ev("task.claimed", &agent, format!("认领 {}", clip(&fresh.join("、"), 80)))
                 .task(task)
                 .to("lead")
                 .data(json!({ "paths": fresh })),
@@ -1351,7 +1351,7 @@ impl App {
         }
         self.emit(
             run,
-            ev("task.split_requested", &agent, format!("请求拆分子任务：{}", short(reason, 80)))
+            ev("task.split_requested", &agent, format!("请求拆分子任务：{}", clip(reason, 80)))
                 .task(task)
                 .to("lead")
                 .data(data),
@@ -1379,7 +1379,7 @@ fn running_pulse(run: &Run) -> String {
         let detail = match watches.get(&SessionKey::task(&t.def.id)) {
             Some((started, phase, tool)) => {
                 let elapsed = span((now - *started).max(0));
-                let tool_part = if tool.is_empty() { String::new() } else { format!("（{}）", short(tool, 40)) };
+                let tool_part = if tool.is_empty() { String::new() } else { format!("（{}）", clip(tool, 40)) };
                 format!("{}{tool_part}，已运行 {elapsed}", phase.label())
             }
             None => "正在启动会话".to_string(),

@@ -3,7 +3,8 @@
 
 use super::{ApiError, ApiResult, local_app_only, ok, reply};
 use crate::agents;
-use crate::orchestrator::{App, expand_home, git};
+use crate::orchestrator::App;
+use crate::util::expand_home;
 use crate::wire::wire_enum;
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -230,9 +231,10 @@ pub(super) async fn inspect(Query(q): Query<PathQuery>) -> ApiResult {
     if !path.is_dir() {
         return reply(json!({ "exists": false, "path": path }));
     }
-    let branch = git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).await.ok().map(|s| s.trim().to_string());
+    let branch =
+        crate::git::query(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).await.ok().map(|s| s.trim().to_string());
     let dirty = match branch {
-        Some(_) => git(&path, &["status", "--porcelain"]).await.map(|s| s.lines().count()).unwrap_or(0),
+        Some(_) => crate::git::query(&path, &["status", "--porcelain"]).await.map(|s| s.lines().count()).unwrap_or(0),
         None => 0,
     };
     reply(json!({ "exists": true, "path": path, "git": branch.is_some(), "branch": branch, "dirty": dirty }))

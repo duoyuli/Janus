@@ -230,7 +230,7 @@ impl crate::orchestrator::App {
     /// Download the list and replace the table when `force`, or when it is missing or a day old.
     /// The table in use stays when anything fails.
     pub async fn sync_prices(&self, force: bool) -> Result<Arc<Table>> {
-        let now = crate::orchestrator::now_ms();
+        let now = crate::util::now_ms();
         if !force && let Some(t) = self.prices().filter(|t| now - t.fetched_at < SYNC_AFTER_MS) {
             return Ok(t);
         }

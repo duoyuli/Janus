@@ -8,7 +8,8 @@
 // @project-doc docs/operations/20261031-security.md#host_env
 
 use crate::layout::Sandbox;
-use crate::orchestrator::{App, now_ms};
+use crate::orchestrator::App;
+use crate::util::now_ms;
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;

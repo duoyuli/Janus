@@ -57,9 +57,9 @@ impl App {
             data["images"] = json!(images);
         }
         let label = if images.is_empty() {
-            short(text, 80)
+            clip(text, 80)
         } else {
-            format!("{}（附 {} 张图片）", short(text.lines().next().unwrap_or(""), 60), images.len())
+            format!("{}（附 {} 张图片）", clip(text.lines().next().unwrap_or(""), 60), images.len())
         };
         let mut e = ev("user.message", actor, label).to(to).data(data);
         if !task.is_empty() {

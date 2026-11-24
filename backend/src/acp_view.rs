@@ -201,7 +201,7 @@ pub fn resource_links(text: &str, cwd: &Path) -> Vec<Value> {
 /// Files in the workspace whose path contains `q`, for the `@` menu: Git's tracked and
 /// untracked (not ignored) files, through the read-only probe.
 pub fn workspace_files(cwd: &Path, q: &str, limit: usize) -> Vec<String> {
-    let out = crate::git_probe::read_only(cwd, &["ls-files", "--cached", "--others", "--exclude-standard"]).output();
+    let out = crate::git::read_only(cwd, &["ls-files", "--cached", "--others", "--exclude-standard"]).output();
     let text = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
     let q = q.to_lowercase();
     let mut hits: Vec<&str> = text.lines().filter(|l| l.to_lowercase().contains(&q)).collect();

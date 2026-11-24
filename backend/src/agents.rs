@@ -13,7 +13,8 @@
 //! role uses are the library's (`crate::library`).
 
 use crate::acp::{AcpConn, Incoming, RuntimeSpec};
-use crate::orchestrator::{App, Member, expand_home, now_ms};
+use crate::orchestrator::{App, Member};
+use crate::util::{expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -218,7 +219,7 @@ pub(crate) fn new_id(prefix: &str) -> String {
     loop {
         let next = now.max(last + 1);
         match LAST.compare_exchange(last, next, Ordering::SeqCst, Ordering::SeqCst) {
-            Ok(_) => return format!("{prefix}{}", crate::orchestrator::to_base36(next)),
+            Ok(_) => return format!("{prefix}{}", crate::util::to_base36(next)),
             Err(seen) => last = seen,
         }
     }

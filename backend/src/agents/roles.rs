@@ -387,7 +387,7 @@ pub(crate) fn rename_default_roles(tx: &rusqlite::Transaction, home: Option<&Pat
         tx.execute("DELETE FROM configs WHERE kind = ?1 AND id = ?2", rusqlite::params![ROLE, then])?;
         tx.execute(
             "INSERT INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![ROLE, now, role.to_string(), crate::orchestrator::now_ms()],
+            rusqlite::params![ROLE, now, role.to_string(), crate::util::now_ms()],
         )?;
         if let Some(home) = home {
             // Where version 16 kept pictures (`Layout::role`).
@@ -464,7 +464,7 @@ fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     };
     tx.execute(
         "INSERT OR REPLACE INTO configs (kind, id, data, updated_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![ROLE, id, role.to_string(), crate::orchestrator::now_ms()],
+        rusqlite::params![ROLE, id, role.to_string(), crate::util::now_ms()],
     )?;
     Ok(1)
 }

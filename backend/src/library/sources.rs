@@ -7,7 +7,8 @@
 
 use super::offers::{self, Offer};
 use super::{Item, ItemKind, Origin, imported_offer, skill, store};
-use crate::orchestrator::{App, now_ms};
+use crate::orchestrator::App;
+use crate::util::now_ms;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -132,23 +133,6 @@ pub fn remote_head(out: &str, git_ref: &str) -> Option<String> {
         .or_else(|| find(&format!("refs/tags/{git_ref}")))
 }
 
-async fn git_in(cwd: &Path, args: &[&str]) -> Result<String> {
-    let mut cmd = tokio::process::Command::new("git");
-    cmd.args(args)
-        .current_dir(cwd)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_LFS_SKIP_SMUDGE", "1")
-        .stdin(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let out = tokio::time::timeout(CLONE_TIMEOUT, cmd.output()).await.context("拉取仓库超时")??;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let line = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
-        bail!("git {}：{line}", args.first().unwrap_or(&""));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
 /// Shallow-clone into `<dir>/repo` and return the commit. The previous checkout stays until the
 /// clone has succeeded.
 async fn fetch(dir: &Path, clone_url: &str, git_ref: &str) -> Result<String> {
@@ -160,11 +144,11 @@ async fn fetch(dir: &Path, clone_url: &str, git_ref: &str) -> Result<String> {
         args.extend(["--branch", git_ref]);
     }
     args.extend(["--", clone_url, fresh_s.as_str()]);
-    if let Err(e) = git_in(dir, &args).await.context("拉取仓库失败") {
+    if let Err(e) = crate::git::fetch(dir, &args, CLONE_TIMEOUT).await.context("拉取仓库失败") {
         let _ = std::fs::remove_dir_all(&fresh);
         return Err(e);
     }
-    let commit = git_in(&fresh, &["rev-parse", "HEAD"]).await.unwrap_or_default();
+    let commit = crate::git::fetch(&fresh, &["rev-parse", "HEAD"], CLONE_TIMEOUT).await.unwrap_or_default();
     let repo = dir.join("repo");
     let _ = std::fs::remove_dir_all(&repo);
     std::fs::rename(&fresh, &repo)?;
@@ -326,7 +310,7 @@ impl App {
             let target = if s.git_ref.is_empty() { "HEAD".to_string() } else { s.git_ref.clone() };
             let dir = self.source_dir(&s.id)?;
             std::fs::create_dir_all(&dir)?;
-            let out = git_in(&dir, &["ls-remote", "--", &s.clone_url, &target]).await;
+            let out = crate::git::fetch(&dir, &["ls-remote", "--", &s.clone_url, &target], CLONE_TIMEOUT).await;
             answers.push((s.id, target, out.map(|o| remote_head(&o, &s.git_ref))));
         }
         let _guard = self.library.lock.lock().await;

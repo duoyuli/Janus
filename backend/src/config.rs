@@ -123,7 +123,7 @@ pub fn log(line: impl AsRef<str>) {
         let _ = std::fs::create_dir_all(dir);
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&file) {
-        let _ = writeln!(f, "{} {line}", utc(crate::orchestrator::now_ms()));
+        let _ = writeln!(f, "{} {line}", utc(crate::util::now_ms()));
     }
 }
 

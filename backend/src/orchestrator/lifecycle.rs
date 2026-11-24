@@ -11,7 +11,7 @@ impl App {
     pub async fn preflight(&self, workspace: &str) -> Result<Vec<String>> {
         let ws = self.workspace(workspace)?;
         let (cwd, _) = self.team_for(&ws)?;
-        if git(&cwd, &["rev-parse", "--verify", "HEAD"]).await.is_ok() {
+        if crate::git::query(&cwd, &["rev-parse", "--verify", "HEAD"]).await.is_ok() {
             let changed = crate::worktrees::uncommitted(&cwd);
             if changed.is_empty() {
                 return Ok(vec![]);
@@ -734,14 +734,14 @@ impl CallLoop {
     pub(super) fn record(&mut self, call: u64, title: &str) -> Option<(u32, u32, String)> {
         let recent = &mut self.recent;
         self.streak = if recent.back().is_some_and(|(h, _)| *h == call) { self.streak + 1 } else { 1 };
-        recent.push_back((call, short(title, 36)));
+        recent.push_back((call, clip(title, 36)));
         if recent.len() > Self::WINDOW {
             recent.pop_front();
         }
         let same = self.streak;
         if same >= LOOP_REPEAT && same.is_multiple_of(LOOP_REPEAT) {
             self.cooldown = 0;
-            return Some((1, same, short(title, 60)));
+            return Some((1, same, clip(title, 60)));
         }
         if self.cooldown > 0 {
             self.cooldown -= 1;

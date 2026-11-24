@@ -55,7 +55,7 @@ impl Entry {
         Entry {
             name: item.name.clone(),
             full_len: about.chars().count(),
-            about: clip(&about, ABOUT_MAX),
+            about: crate::text::clip(&about, ABOUT_MAX - 1),
             when: when.is_some(),
             manual,
         }
@@ -130,7 +130,7 @@ fn description(entries: &[Entry]) -> String {
                 if n == 0 || e.about.is_empty() {
                     e.name.clone()
                 } else {
-                    format!("{}（{}）", e.name, clip(&e.about, n))
+                    format!("{}（{}）", e.name, crate::text::clip(&e.about, n.saturating_sub(1)))
                 }
             })
             .collect::<Vec<_>>()
@@ -171,15 +171,6 @@ pub fn skills_read(call: &str) -> Vec<String> {
 
 pub(super) fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// At most `n` characters of `s`, marked with `…` when cut.
-fn clip(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        return s.to_string();
-    }
-    let cut: String = s.chars().take(n.saturating_sub(1)).collect();
-    format!("{}…", cut.trim_end())
 }
 
 #[cfg(test)]

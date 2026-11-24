@@ -18,7 +18,8 @@
 //! every few hours (`check_adapter_updates`); the app reminds the person to upgrade. Nothing is
 //! installed without them.
 
-use crate::orchestrator::{App, now_ms};
+use crate::orchestrator::App;
+use crate::util::now_ms;
 use crate::wire::wire_enum;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};

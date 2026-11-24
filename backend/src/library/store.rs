@@ -99,7 +99,7 @@ pub(super) fn put(store: &Path, src: &Path) -> Result<String> {
 /// Store a skill that exists only as text (written in the editor).
 pub(super) fn put_text(store: &Path, files: &[(&str, &str)]) -> Result<String> {
     std::fs::create_dir_all(store)?;
-    let tmp = store.join(format!(".new-{}-{}", std::process::id(), crate::orchestrator::now_ms()));
+    let tmp = store.join(format!(".new-{}-{}", std::process::id(), crate::util::now_ms()));
     let _ = std::fs::remove_dir_all(&tmp);
     for (rel, text) in files {
         let to = tmp.join(rel);

@@ -262,7 +262,7 @@ impl App {
                     self.check_step(id, &mut check, "试运行", Some(false), "Agent 没有返回任何内容，可能是模型或凭据有误".into());
                     bail!("Agent 没有返回任何内容");
                 }
-                self.check_step(id, &mut check, "试运行", Some(true), format!("回复：{}", crate::orchestrator::short(reply.trim(), 40)));
+                self.check_step(id, &mut check, "试运行", Some(true), format!("回复：{}", crate::text::clip(reply.trim(), 40)));
                 Ok(json!({ "agentInfo": conn.agent_info, "options": options, "reply": reply.trim() }))
             }
             .await;
@@ -283,8 +283,7 @@ impl App {
                 set_check(&mut c, ConnCheck::Ok);
                 c["agentInfo"] = found["agentInfo"].clone();
                 c["options"] = found["options"].clone();
-                c["reply"] =
-                    json!(crate::orchestrator::short(&self.redact(id, found["reply"].as_str().unwrap_or("")), 80));
+                c["reply"] = json!(crate::text::clip(&self.redact(id, found["reply"].as_str().unwrap_or("")), 80));
             }
             Err(err) => {
                 let failed = check

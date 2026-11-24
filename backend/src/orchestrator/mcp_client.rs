@@ -458,7 +458,7 @@ async fn refused(resp: reqwest::Response) -> Result<reqwest::Response> {
         return Ok(resp);
     }
     let body = resp.text().await.unwrap_or_default();
-    bail!("服务器返回 HTTP {status}：{}", short(body.trim(), 200))
+    bail!("服务器返回 HTTP {status}：{}", clip(body.trim(), 200))
 }
 
 /// Open the SSE transport's stream and wait for the endpoint it names for messages. The endpoint

@@ -13,10 +13,11 @@ use crate::acp::{AcpConn, Incoming};
 use crate::agents::{InstructionChannel, Runtime};
 use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
-use crate::git_probe;
 use crate::seats::Asker;
 use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunOrigin, RunStatus, TaskStatus};
+use crate::text::{clip, first_line, short_sha, span};
 use crate::traces::Overlap;
+use crate::util::now_ms;
 use crate::wire::wire_enum;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 
 mod actions;
@@ -92,10 +93,6 @@ const PUSH_SETTLE: Duration = Duration::from_secs(2);
 const INLINE_SUMMARY: usize = 300;
 const INLINE_ITEM: usize = 160;
 const INLINE_ITEMS: usize = 3;
-
-pub fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
-}
 
 /// Where a run's driver starts: from scratch, back into the lead's goal (`resumed` when
 /// continuing an interrupted run), or executing the board's tasks after the lead is done.
@@ -952,7 +949,7 @@ impl Run {
     // @project-doc docs/interfaces/20261031-events.md#event_types
     async fn git_facts(&self) -> Option<Value> {
         let w = self.worktree.as_ref()?;
-        let head = git(&self.cwd, &["rev-parse", "HEAD"]).await.ok().map(|s| s.trim().to_string());
+        let head = crate::git::query(&self.cwd, &["rev-parse", "HEAD"]).await.ok().map(|s| s.trim().to_string());
         Some(json!({ "repo": w.repo, "branch": w.branch, "worktree": self.cwd, "head": head }))
     }
 
@@ -1411,53 +1408,6 @@ const HEADLINE_HEADING: &str = "Conclusion";
 
 /// The heading of the questions the lead's final reply leaves for the person (see `goal_brief`).
 const DECISIONS_HEADING: &str = "Needs Your Decision";
-
-/// Read-only git query (see `git_probe::read_only`); not for commands that write the repository.
-pub async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
-    let out = tokio::process::Command::from(git_probe::read_only(cwd, args)).output().await?;
-    if !out.status.success() {
-        bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-/// A duration in words: seconds under a minute, minutes after that.
-fn span(ms: i64) -> String {
-    if ms < 60_000 { format!("{} 秒", ms / 1000) } else { format!("{} 分钟", ms / 60_000) }
-}
-
-pub fn short(s: &str, n: usize) -> String {
-    let s = s.trim();
-    if s.chars().count() > n { format!("{}…", s.chars().take(n).collect::<String>()) } else { s.to_string() }
-}
-
-fn first_line(text: &str) -> String {
-    short(text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("（空回复）"), 120)
-}
-
-fn short_sha(s: &str) -> &str {
-    &s[..s.len().min(8)]
-}
-
-/// A path with a leading `~` resolved against `HOME`.
-pub fn expand_home(p: &str) -> String {
-    match (p.strip_prefix("~"), std::env::var("HOME")) {
-        (Some(rest), Ok(home)) => format!("{home}{rest}"),
-        _ => p.to_string(),
-    }
-}
-
-/// `n` in base 36, lowercase: run ids are `r` plus the time in it.
-pub fn to_base36(mut n: u64) -> String {
-    let digits = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let mut out = vec![];
-    while n > 0 {
-        out.push(digits[(n % 36) as usize]);
-        n /= 36;
-    }
-    out.reverse();
-    String::from_utf8(out).unwrap()
-}
 
 /// Codex and Claude Code adapters that run the scripted agent (`testdata/fake_acp.py`, driven by
 /// the `FAKE_DIR` its connection sets) instead of the real one. Janus starts a runtime as

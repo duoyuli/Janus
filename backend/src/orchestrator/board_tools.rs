@@ -360,7 +360,7 @@ pub(super) fn needs_lead(e: &Event) -> bool {
 
 /// The first few items of a list, each clipped, and whether anything was left out.
 pub(super) fn inline_list(items: &[String]) -> (String, bool) {
-    let shown: Vec<String> = items.iter().take(INLINE_ITEMS).map(|x| short(x, INLINE_ITEM)).collect();
+    let shown: Vec<String> = items.iter().take(INLINE_ITEMS).map(|x| clip(x, INLINE_ITEM)).collect();
     let clipped =
         items.len() > INLINE_ITEMS || items.iter().take(INLINE_ITEMS).any(|x| x.chars().count() > INLINE_ITEM);
     let mut text = shown.join("；");
@@ -382,7 +382,7 @@ fn user_intervention(run: &Run, e: &Event, d: &Value) -> Option<String> {
     };
     let name = run.member(&agent).map(|m| m.name.clone()).unwrap_or_else(|| agent.clone());
     let what = match e.kind.as_str() {
-        "user.message" => format!("对 {name} 说：{}", short(d["text"].as_str().unwrap_or(&e.text), INLINE_SUMMARY)),
+        "user.message" => format!("对 {name} 说：{}", clip(d["text"].as_str().unwrap_or(&e.text), INLINE_SUMMARY)),
         "control.taken" => format!("接管了 {name} 的会话"),
         "control.released" => format!("把会话交还给 {name}，它继续自主完成"),
         "session.interrupted" if d["finish"] == true => format!("让 {name} 以当前结果结束这个子任务"),
@@ -454,7 +454,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let t = st.tasks.iter().find(|t| t.def.id == task)?;
             let r = t.result.clone().unwrap_or_default();
             let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
-            let checks: Vec<String> = r.checks.iter().map(|c| short(&c.line(), 60 + INLINE_ITEM)).collect();
+            let checks: Vec<String> = r.checks.iter().map(|c| clip(&c.line(), 60 + INLINE_ITEM)).collect();
             let (evidence, more_evidence) = inline_list(&r.evidence);
             let (risks, more_risks) = inline_list(&r.risks);
             let totals = Summary::of(&t.def.accept, &r.checks);
@@ -482,13 +482,13 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                     "- [验证未通过] {task}「{title}」· {name} 完成对 {target} 的独立验证，判定「{}」（{}）：{}",
                     vd.label(),
                     vd.as_str(),
-                    short(&r.summary, INLINE_SUMMARY)
+                    clip(&r.summary, INLINE_SUMMARY)
                 ),
                 (Some(target), Some(Verdict::Approved)) => format!(
                     "- [完成] {task}「{title}」· {name}（独立验证 {target}：通过）：{}",
-                    short(&r.summary, INLINE_SUMMARY)
+                    clip(&r.summary, INLINE_SUMMARY)
                 ),
-                _ => format!("- [完成] {task}「{title}」· {name}：{}", short(&r.summary, INLINE_SUMMARY)),
+                _ => format!("- [完成] {task}「{title}」· {name}：{}", clip(&r.summary, INLINE_SUMMARY)),
             };
             msg.push_str(&format!("\n  验收标准：{} 条，通过 {} 条", totals.criteria, totals.passed));
             msg.push_str(&format!("\n  证据：{}", totals.counts()));
@@ -622,11 +622,11 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let completed = d["completed"]
                 .as_str()
                 .filter(|s| !s.is_empty())
-                .map(|s| format!("\n  已完成部分：{}", short(s, INLINE_ITEM)))
+                .map(|s| format!("\n  已完成部分：{}", clip(s, INLINE_ITEM)))
                 .unwrap_or_default();
             format!(
                 "- [请求拆分] {task}「{title}」· {name} 请求拆分：{}{completed}\n  建议拆出：{}\n  请决定：采纳时用 janus.orchestrate 提交新子任务并用 janus.cancel / janus.amend 处理 {task}；不需要拆分时用 janus.reply 指示它继续完成。",
-                short(d["reason"].as_str().unwrap_or(&e.text), INLINE_ITEM),
+                clip(d["reason"].as_str().unwrap_or(&e.text), INLINE_ITEM),
                 items.join("；")
             )
         }
@@ -646,12 +646,12 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         "task.stalled" if d["reason"] == "loop" && d["period"].as_u64().unwrap_or(1) > 1 => format!(
             "- [停滞] {task}「{title}」· {name} 连续 {} 轮重复调用序列（{}），可能在交替死循环。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
             d["repeats"].as_i64().unwrap_or(4),
-            short(d["tool"].as_str().unwrap_or(""), 80)
+            clip(d["tool"].as_str().unwrap_or(""), 80)
         ),
         "task.stalled" if d["reason"] == "loop" => format!(
             "- [停滞] {task}「{title}」· {name} 连续 {} 次做同样的调用（{}），可能在原地打转。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
             d["repeats"].as_i64().unwrap_or(LOOP_REPEAT as i64),
-            short(d["tool"].as_str().unwrap_or(""), 60)
+            clip(d["tool"].as_str().unwrap_or(""), 60)
         ),
         "task.stalled" => format!(
             "- [停滞] {task}「{title}」· {name} 已有 {} 没有任何输出或工具调用。它可能在跑一条很久的命令，也可能卡住了。请判断：继续等；用 janus.reply 询问或补充指示；janus.retry 重做；janus.cancel 取消。",

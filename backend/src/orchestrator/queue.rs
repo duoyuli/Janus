@@ -256,20 +256,15 @@ impl App {
         let queued = &row["config"];
         let ws = self.workspace(queued["workspace"]["id"].as_str().unwrap_or(""))?;
         let (cwd, team) = self.startable_team(&ws)?;
-        // A bare repository answers `false`: it has no files to work on.
-        let is_git = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await.is_ok_and(|o| o.trim() == "true");
-        let base_ref = if is_git {
-            git(&cwd, &["rev-parse", "HEAD"]).await.unwrap_or_default().trim().to_string()
-        } else {
-            String::new()
-        };
+        let checkout = crate::worktrees::Checkout::of(&cwd).await?;
+        let is_git = checkout.is_some();
+        let base_ref = checkout.as_ref().map(|c| c.head.clone()).unwrap_or_default();
         // A run on a git repository works in its own worktree, so runs on one repository do not
-        // write over each other; one without commits yet, or outside git, works in place.
-        let (cwd, worktree) = if is_git && !base_ref.is_empty() {
-            // The worktree is of the whole repository; a workspace that is a folder inside it
-            // (`apps/client`) has its sessions start in that folder of the worktree (FL-09).
-            let top = PathBuf::from(git(&cwd, &["rev-parse", "--show-toplevel"]).await?.trim());
-            let prefix = git(&cwd, &["rev-parse", "--show-prefix"]).await.unwrap_or_default().trim().to_string();
+        // write over each other; one without commits yet, or outside git, works in place. The
+        // worktree is of the whole repository; a workspace that is a folder inside it
+        // (`apps/client`) has its sessions start in that folder of the worktree.
+        let (cwd, worktree) = if let Some(checkout) = checkout.filter(|c| !c.head.is_empty()) {
+            let top = checkout.top.clone();
             let path = self.worktree_dir(id);
             let branch = crate::worktrees::current_branch(&top);
             let included = {
@@ -283,11 +278,7 @@ impl App {
             };
             // The path the agents' own tools report (`/private/var/…` for `/var/…` on macOS), so
             // the files they edit resolve against it.
-            let root = path.canonicalize().unwrap_or(path);
-            let start = match prefix.trim_end_matches('/') {
-                "" => root,
-                p => root.join(p),
-            };
+            let start = checkout.start_in(path.canonicalize().unwrap_or(path));
             (start, Some(WorktreeOf { repo: top, branch, included }))
         } else {
             (cwd, None)
