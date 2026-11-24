@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.8
+
+- 收件箱的每一项都可以「忽略」：不再提醒，从收件箱和侧栏的数量里去掉，不回答任何请求，任务本身不变（等验收的仍是已交付，在任务记录和任务页还能处理）。以前只能点进任务去处理或验收，只有已中断和失败的任务能「标记已处理」，现在统一叫「忽略」。审批、表单这类让 Agent 停着的事项也能忽略，悬停提示会写明对方会一直等着。升级后，以前标记过已处理、仍在等你的条目会重新出现一次。
+
+- Every inbox item can now be ignored: it stops reminding you and leaves the inbox and the sidebar counts, without answering anything or changing the run (a delivery waiting for acceptance stays delivered and can still be handled from history or the run page). Before, you had to open the run to handle or accept it, and only stopped runs could be marked as handled; that is now Ignore too. Approvals, forms and other items that keep an agent waiting can be ignored as well, and their tooltip says the agent keeps waiting. After the update, items you had marked as handled that still wait on you show up once more.
+
 ## 2026.11.23.7
 
 - 自动更新：「设置 › 通用 › 更新」新增「自动更新」开关，默认打开。打开时，Janus 一发现新版本就在后台下载并校验（和手动更新一样只下载有变化的部分、核对 SHA-256、要求和当前版本同一个签名者），然后等没有任务、对话和值班在进行时（每 30 秒看一次，连续两次都空闲）自动重开换上新版本。等待期间侧栏显示「Janus X 已下载，空闲时更新」，更新一节可以点「现在更新」立即换上。关掉开关后和以前一样，只提醒有新版本，由你点更新。
