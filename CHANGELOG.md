@@ -4,6 +4,36 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.11
+
+- 交付卡片一眼能看完：最上面是负责人的一句话结论，下面一行数字（子任务完成数、验收标准达到数、证据是运行得到的、看出来的还是只是说法、改了几个文件），然后是「需要你看的」：先是负责人留给你的问题，再是 Janus 查出来的事（没通过的标准、结果和目录对不上、没有独立验证、负责人自己改的文件），每条标明来源。接着是改了什么和验收按钮，子任务、证据和负责人的完整报告折叠在下面。证据默认显示两行，点「全文」展开；子任务自己报告的风险只在它那一行标出条数，不再把行撑开。负责人交付时按「结论」和「需要你决定」两个标题写报告。
+
+- 交付之后接着让负责人改，现在是新的一轮：负责人在处理时，交付卡片收成一行写明它在做什么，不再给验收按钮；改完再次交付时，卡片引用你的要求，只列这一轮的子任务和改的文件，之前的交付折叠起来。只是问一句、没改东西时，原来的交付原样恢复。收件箱每次交付一条，忽略上一次不会挡住下一次；合并没成时显示「结果没进你的分支」，按钮写它真正做的事（「让负责人再解决」或「处理好了，合并并验收」）。
+
+- 修复交付总结开头混着负责人边做边说的话，以及在 2000 字处截断、把结论切掉：现在只取负责人最后一条回复，整篇保留，长文在应用里折叠。
+
+- 修复同一批风险在交付里出现两次：运行级的风险只放 Janus 查出来的，子任务自己报告的风险只留在它自己的记录里。
+
+- 修复服务重启后重新打开的对话里打断负责人，改了一半的文件会被直接交付并合并进你的分支：现在和原会话一样，等你选「让它接着做」或「按现在的样子交付」。
+
+- 修复不是 Git 目录的任务交付后，负责人按你的要求改了文件却不会再次交付，卡片一直停在旧的那一版。
+
+- 交付过的任务不能再「停止」：结果已经在你的分支或目录里，停止撤不回它，以前只会把任务记成已取消。要停下负责人这一轮就打断它，不想要这个结果就让负责人回退。
+
+- The delivery card now reads at a glance: the lead's one-line conclusion on top, one line of numbers (subtasks done, criteria met, whether the evidence was run, read or only said, files changed), then To Look At: the lead's questions for you first, then what Janus found (unmet criteria, results that differ from the folder, missing independent verification, files the lead changed itself), each marked with its source. What changed and the Accept button follow; subtasks, evidence and the lead's full report are folded below. Evidence shows two lines until you click Show All, and a subtask's self-reported risks are counted on its row instead of opening it. The lead now writes its report under a Conclusion heading and a Needs Your Decision heading.
+
+- Asking the lead for more after a delivery is now a new round: while the lead works, the delivery folds to one line saying what it is doing and offers no Accept; when it delivers again, the card quotes what you asked and lists only this round's subtasks and files, with earlier deliveries folded. A question that changes nothing brings the same delivery back. The inbox has one entry per delivery, so ignoring one does not hide the next; when the merge did not happen it says the result is not on your branch, and the button says what it really does (Let the Lead Resolve It Again, or Cleared, Merge and Accept).
+
+- Fixed the delivery summary starting with the lead's running commentary and being cut at 2,000 characters, which could drop the conclusion: it now takes the lead's last reply, whole, and the app folds long ones.
+
+- Fixed the same risks appearing twice in a delivery: run-level risks are only what Janus found, and each subtask's own risks stay with that subtask.
+
+- Fixed interrupting the lead in a conversation reopened after a restart delivering, and merging into your branch, files it had half changed: as in the original session, it now waits for you to let it go on or deliver it as it is.
+
+- Fixed a run outside Git not being delivered again when the lead changed files at your request after a delivery, which left the card on the old version.
+
+- A run that has delivered can no longer be stopped: its result is already on your branch or in your folder, and stopping only marked the run cancelled. Interrupt the lead's turn to stop it, or ask the lead to revert what you do not want.
+
 ## 2026.11.23.10
 
 - 折叠行更好认、更好点：以前只有标题前那个小三角能点，很难点中，也不像按钮。现在箭头放在一个浅灰小底板上，展开时转向下；整行标题都能点，鼠标移上去整行高亮。收件箱的「稍后处理」「进行中」、对话里的思考和工具调用、执行轨迹、系统规则、高级设置，以及计划、资源库、用量明细、逐条验收的展开都统一成这样。
