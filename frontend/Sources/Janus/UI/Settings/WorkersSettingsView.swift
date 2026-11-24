@@ -105,7 +105,7 @@ struct ConnectionRow: View {
     var body: some View {
         let k = store.kind(c["kind"].str)
         let (label, tone) = status
-        let roles = store.roles.filter { $0["connection"].str == c["id"].str }
+        let roles = store.roles.filter { $0.connection == c["id"].str }
         let login = loginAuth
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
@@ -128,7 +128,7 @@ struct ConnectionRow: View {
                 Spacer()
                 if roles.isEmpty { Button(L.text("新建数字员工"), action: newRole).buttonStyle(.link) }
                 else {
-                    HStack(spacing: -4) { ForEach(roles.prefix(4), id: \.self) { r in Avatar(initials: r["init"].str, color: r["color"].str, size: 20, role: r["id"].str) } }
+                    HStack(spacing: -4) { ForEach(roles.prefix(4), id: \.self) { r in Avatar(initials: r.initials, color: r.color, size: 20, role: r.id) } }
                     Text(verbatim: L.text("\(roles.count) 个数字员工")).font(.caption).foregroundStyle(.secondary)
                 }
                 Dot(tone: tone, text: label).frame(width: 90, alignment: .leading).accessibilityElement(children: .combine)
@@ -205,7 +205,7 @@ struct ConnectionRow: View {
     }
 
     private func remove() {
-        let used = store.roles.filter { $0["connection"].str == c["id"].str }.map { $0["name"].str }
+        let used = store.roles.filter { $0.connection == c["id"].str }.map(\.name)
         let msg = used.isEmpty ? "" : L.text("这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：\(used.joined(separator: L.text("、")))")
         guard confirm(L.text("删除「\(c["name"].str)」和它的独立目录（包括登录凭据）？"), msg, ok: L.text("删除")) else { return }
         Task {

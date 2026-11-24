@@ -64,17 +64,17 @@ enum LoopText {
 // @project-doc docs/architecture/20261031-frontend.md#loops
 struct LoopSection: View {
     let store: AppStore
-    let ws: JSON
+    let ws: Workspace
     @Local private var all = false
     static let shown = 4
 
     var body: some View {
-        let loops = LoopText.byAttention(store.loops(of: ws["id"].str))
+        let loops = LoopText.byAttention(store.loops(of: ws.id))
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(L.text("值班")).font(.headline)
                 Spacer()
-                IconButton(symbol: "plus", label: L.text("新建值班")) { store.editingLoop = AppStore.blankLoop(ws["id"].str) }
+                IconButton(symbol: "plus", label: L.text("新建值班")) { store.editingLoop = AppStore.blankLoop(ws.id) }
             }
             // What a Loop is, until there is one to show it.
             if loops.isEmpty {
@@ -162,13 +162,13 @@ struct LoopEditor: View {
     var body: some View {
         let isNew = original["id"].str.isEmpty
         let ws = store.workspace(original["workspace"].str)
-        let lead = ws.flatMap { store.role($0["lead"].str) }
+        let lead = ws.flatMap { store.role($0.lead) }
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(isNew ? L.text("新建值班") : L.text("编辑值班")).font(.display(.title2))
                 if let ws {
-                    let place = ws["name"].str
-                    let who = lead?["name"].str ?? ""
+                    let place = ws.name
+                    let who = lead?.name ?? ""
                     Text(who.isEmpty ? L.text("在「\(place)」值班") : L.text("在「\(place)」值班，由负责人「\(who)」来跑"))
                         .font(.callout).foregroundStyle(.secondary)
                 }

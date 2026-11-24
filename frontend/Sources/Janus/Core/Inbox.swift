@@ -166,7 +166,7 @@ final class InboxModel {
         }
         let live = store.attention.filter(read) + chats
         for row in store.attention + chats {
-            let ws = row["kind"].str == "chat" ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?["name"].string ?? row["config"]["workspace"]["name"].str
+            let ws = row["kind"].str == "chat" ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?.name ?? row["config"]["workspace"]["name"].str
             guard read(row) else {
                 out += Inbox.entries(row: row, workspace: ws)
                 continue
@@ -293,8 +293,8 @@ extension AppStore {
     /// entries as the inbox, so the workspace's count in the sidebar, its page and the inbox agree.
     /// Goals come from the attention list, so an old run that waits is never left out by newer ones.
     // @project-doc docs/architecture/20261031-frontend.md#screens
-    func waiting(in ws: JSON) -> [WaitingRow] {
-        Inbox.waiting(inbox.open, goals: attention.filter { Self.belongs($0, to: ws) }, loops: loops(of: ws["id"].str))
+    func waiting(in ws: Workspace) -> [WaitingRow] {
+        Inbox.waiting(inbox.open, goals: attention.filter { Self.belongs($0, id: ws.id, path: ws.path) }, loops: loops(of: ws.id))
     }
 }
 

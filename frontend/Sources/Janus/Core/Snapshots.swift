@@ -114,8 +114,8 @@ enum Snapshots {
         case "reload":
             await store.loadSetup(); await store.loadLibrary(); await store.loadLoops(); await store.loadRuns(); await store.loadAdapters(quiet: true)
         // The editor is a sheet of the settings panel, as when a person opens it from there.
-        case "role": if let r = store.role(arg) { store.editRole(r) }
-        case "workspace": store.editingWorkspace = store.workspace(arg)
+        case "role": if let r = store.role(arg) { store.editRole(r.json) }
+        case "workspace": store.editingWorkspace = store.workspace(arg)?.json
         // 本机环境 as the person changes it: `host-hide <path> on|off`, `host-defaults`, `host-try <command>`.
         case "host-hide":
             let p = arg.split(separator: " ").map(String.init)
@@ -124,7 +124,7 @@ enum Snapshots {
         case "host-defaults": await store.hideFromAgents(nil)
         case "host-try": _ = await store.tryOnHost(arg)
         // Workspace `arg`'s shared material, in its own sheet.
-        case "brief": store.editingBrief = store.workspace(arg)
+        case "brief": store.editingBrief = store.workspace(arg)?.json
         // The form for a new Loop in workspace `arg`.
         case "loop-new": store.editingLoop = AppStore.blankLoop(arg)
         // A note of a workspace's team memory, in its sheet: `memory <id>` (its page must have shown).
@@ -184,7 +184,7 @@ enum Snapshots {
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
-                "connections": ids(store.connections), "roles": ids(store.roles), "workspaces": ids(store.workspaces), "runs": ids(store.runs),
+                "connections": ids(store.connections), "roles": .array(store.roles.map { JSON($0.id) }), "workspaces": .array(store.workspaces.map { JSON($0.id) }), "runs": ids(store.runs),
                 "claudeEnvironments": .object(Dictionary(uniqueKeysWithValues: store.connections.filter {
                     store.envAuth($0["kind"].str, $0["auth"].str)
                 }.map { ($0["id"].str, JSON(Setup.envText($0["env"]))) })),
@@ -219,7 +219,7 @@ enum Snapshots {
                 "histories": .object(store.histories.mapValues { ids($0.runs) }),
                 // Each workspace's count in the sidebar (its goals' and its Loops' open items).
                 "sidebar": .object(Dictionary(uniqueKeysWithValues: store.workspaces.map { w in
-                    (w["id"].str, JSON(store.waiting(in: w).reduce(0) { $0 + $1.entries.count }))
+                    (w.id, JSON(store.waiting(in: w).reduce(0) { $0 + $1.entries.count }))
                 })),
                 // The open workspace page as shown: what waits on the person, one row per goal or
                 // Loop, and the task records listed below it (those waiting are not listed again).

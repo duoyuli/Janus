@@ -189,7 +189,7 @@ struct InboxView: View {
     }
 
     private func workspaceName(_ r: JSON) -> String {
-        store.workspace(r["config"]["workspace"]["id"].str)?["name"].string ?? r["cwd"].str
+        store.workspace(r["config"]["workspace"]["id"].str)?.name ?? r["cwd"].str
     }
 
     private static func tomorrowMorning() -> Date {

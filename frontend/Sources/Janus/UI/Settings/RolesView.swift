@@ -34,16 +34,16 @@ struct RolesSection: View {
         }
     }
 
-    private func row(_ r: JSON) -> some View {
-        let c = store.connection(r["connection"].str)
+    private func row(_ r: Role) -> some View {
+        let c = store.connection(r.connection)
         let k = c.flatMap { store.kind($0["kind"].str) }
-        let facts = [Setup.permLabel(r["session"], c), r["prompt"].truthy ? L.text("提示词") : ""].filter { !$0.isEmpty }
-        return Button { store.editRole(r) } label: {
+        let facts = [Setup.permLabel(r.session, c), r.prompt.isEmpty ? "" : L.text("提示词")].filter { !$0.isEmpty }
+        return Button { store.editRole(r.json) } label: {
             HStack(spacing: 12) {
-                Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.prefix(2)).uppercased(), color: r["color"].str, size: 30, role: r["id"].str)
+                Avatar(initials: r.initials.isEmpty ? String(r.name.prefix(2)).uppercased() : r.initials, color: r.color, size: 30, role: r.id)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) { Text(r["name"].str).fontWeight(.semibold); if r["lead"].truthy { Pill(L.text("负责人"), .violet) } }
-                    Text(([r["desc"].truthy ? r["desc"].str : L.text("还没有填写职责")] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 6) { Text(r.name).fontWeight(.semibold); if r.lead { Pill(L.text("负责人"), .violet) } }
+                    Text(([r.desc.isEmpty ? L.text("还没有填写职责") : r.desc] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if let c {
@@ -51,7 +51,7 @@ struct RolesSection: View {
                         Avatar(initials: k?["init"].str ?? "?", color: k?["color"].str ?? "#64748b", size: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(c["name"].str).font(.callout.weight(.medium))
-                            Text(verbatim: "\(r["model"].truthy ? r["model"].str : c["options"]["model"]["current"].truthy ? c["options"]["model"]["current"].str : L.text("默认模型"))\(r["effort"].truthy ? L.text("，\(r["effort"].str)") : "")").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: "\(!r.model.isEmpty ? r.model : c["options"]["model"]["current"].truthy ? c["options"]["model"]["current"].str : L.text("默认模型"))\(r.effort.isEmpty ? "" : L.text("，\(r.effort)"))").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 200, alignment: .leading)
@@ -65,7 +65,7 @@ struct RolesSection: View {
             .hoverable(0)
         }
         .buttonStyle(.plain)
-        .help(L.text("编辑 \(r["name"].str)"))
+        .help(L.text("编辑 \(r.name)"))
     }
 
     /// "最近 27 个任务：10 个子任务 · 首次通过 70% · 验证失败 2 · 成功平均 5.2 分钟"
@@ -375,7 +375,7 @@ struct RoleEditor: View {
         switch picture {
         case .set: true
         case .remove: false
-        case .unchanged: store.roles.first { $0["id"].str == r["id"].str }?["avatar"].truthy == true
+        case .unchanged: store.role(r["id"].str).map { !$0.avatar.isEmpty } == true
         }
     }
 

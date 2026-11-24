@@ -28,8 +28,8 @@ final class AppStore {
     let permissions: MacPermissions
     var meta: JSON = .null
     var connections: [JSON] = []
-    var roles: [JSON] = []
-    var workspaces: [JSON] = []
+    var roles: [Role] = []
+    var workspaces: [Workspace] = []
     var runs: [JSON] = []
     /// Chats with one digital employee, newest first, read a page at a time (`GET /api/runs?kind=chat`);
     /// not part of any workspace.
@@ -117,7 +117,7 @@ final class AppStore {
         if screen == nil {
             // Start from what needs the person, not from watching a run work.
             if !inbox.open.isEmpty || attention.contains(where: { RunStatus($0["status"].str).isActive }) { open(.inbox) }
-            else if let ws = currentWorkspace { open(.home(ws["id"].str)) }
+            else if let ws = currentWorkspace { open(.home(ws.id)) }
             else { open(.newWorkspace) }
         }
     }
@@ -158,8 +158,8 @@ final class AppStore {
         do {
             let s = try await api.get("/api/setup")
             connections = s["connections"].array
-            roles = s["roles"].array
-            workspaces = s["workspaces"].array
+            roles = s["roles"].array.map(Role.init)
+            workspaces = s["workspaces"].array.map(Workspace.init)
         } catch { show(L.text("读取设置失败：\(error.localizedDescription)")) }
         await AvatarImages.shared.sync(roles, api: api)
         // How each role's tasks went in recent runs; the list works without it.
@@ -427,7 +427,7 @@ final class AppStore {
         generalSection = section
         openSettings(.general)
     }
-    var currentWorkspace: JSON? { workspace(currentWorkspaceId) ?? workspaces.first }
+    var currentWorkspace: Workspace? { workspace(currentWorkspaceId) ?? workspaces.first }
 
     // MARK: Lookups
 
@@ -437,16 +437,16 @@ final class AppStore {
     /// Whether the agent is set up by its environment lines (Claude's custom API).
     func envAuth(_ kind: String, _ auth: String) -> Bool { self.auth(kind, auth)?["env"].truthy == true }
     func connection(_ id: String) -> JSON? { connections.first { $0["id"].str == id } }
-    func role(_ id: String) -> JSON? { roles.first { $0["id"].str == id } }
-    func workspace(_ id: String) -> JSON? { workspaces.first { $0["id"].str == id } }
+    func role(_ id: String) -> Role? { roles.first { $0.id == id } }
+    func workspace(_ id: String) -> Workspace? { workspaces.first { $0.id == id } }
     var okConnections: [JSON] { connections.filter { $0["phase"].str == "ok" } }
-    var boundRoles: [JSON] { roles.filter { $0["connection"].truthy && connection($0["connection"].str) != nil } }
-    func runs(of ws: JSON) -> [JSON] { runs.filter { Self.belongs($0, to: ws) } }
+    var boundRoles: [Role] { roles.filter { $0.bound(in: self) } }
+    func runs(of ws: Workspace) -> [JSON] { runs.filter { Self.belongs($0, id: ws.id, path: ws.path) } }
 
-    /// Whether a run row is one of the workspace's: by the workspace it recorded, or by its folder.
-    static func belongs(_ r: JSON, to ws: JSON) -> Bool {
+    /// Whether a run row is one of workspace `id`'s: by the workspace it recorded, or by its folder.
+    static func belongs(_ r: JSON, id: String, path: String) -> Bool {
         let wid = r["config"]["workspace"]["id"]
-        return wid.truthy ? wid.str == ws["id"].str : r["cwd"].str == ws["path"].str
+        return wid.truthy ? wid.str == id : r["cwd"].str == path
     }
 
     /// What is still missing before a first task can run, in order.
@@ -459,7 +459,7 @@ final class AppStore {
 
     var onboarding: [(String, Bool, Destination)] {
         [(L.text("接入一个 Agent"), !okConnections.isEmpty, .settings(.agents)),
-         (L.text("定义数字员工（含一个负责人）"), boundRoles.contains { $0["lead"].truthy } && boundRoles.count >= 2, .settings(.agents)),
+         (L.text("定义数字员工（含一个负责人）"), boundRoles.contains { $0.lead } && boundRoles.count >= 2, .settings(.agents)),
          (L.text("新建工作区"), !workspaces.isEmpty, .newWorkspace)]
     }
 
@@ -558,7 +558,7 @@ final class AppStore {
         await loadRuns()
         await inbox.refresh(self)
         if case .run(let shown) = screen, shown == id {
-            if let ws = currentWorkspace { open(.home(ws["id"].str)) } else { open(.inbox) }
+            if let ws = currentWorkspace { open(.home(ws.id)) } else { open(.inbox) }
         }
         show(L.text("已删除任务"))
     }

@@ -11,13 +11,13 @@ import SwiftUI
 /// a page opens.
 struct MemoryPanel: View {
     let store: AppStore
-    let ws: JSON
+    let ws: Workspace
     var leave: () -> Void = {}
     @Local private var all = false
     private static let shown = 5
 
     var body: some View {
-        let id = ws["id"].str
+        let id = ws.id
         let notes = store.notes(of: id)
         let c = store.memories[id]?["consolidation"] ?? .null
         VStack(alignment: .leading, spacing: 10) {
@@ -167,7 +167,7 @@ struct MemoryEditor: View {
         dismiss()
         Task {
             try? await Task.sleep(nanoseconds: 400_000_000)
-            store.editingBrief = BriefSuggestions.adding([line], to: ws)
+            store.editingBrief = BriefSuggestions.adding([line], to: ws.json)
         }
     }
 }

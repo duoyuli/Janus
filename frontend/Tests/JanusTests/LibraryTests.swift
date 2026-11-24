@@ -63,10 +63,10 @@ private let docs: JSON = [
         ["id": "reviewer", "connection": "claude-1"],
         ["id": "researcher", "connection": ""],
     ]
-    #expect(WorkspaceEditor.preset(roles, lead: "coordinator") == ["coordinator", "generalist"])
+    #expect(WorkspaceEditor.preset(roles.map(Role.init), lead: "coordinator") == ["coordinator", "generalist"])
     var unbound = roles
     unbound[1]["connection"] = ""
-    #expect(WorkspaceEditor.preset(unbound, lead: "coordinator") == ["coordinator", "reviewer"])
+    #expect(WorkspaceEditor.preset(unbound.map(Role.init), lead: "coordinator") == ["coordinator", "reviewer"])
 }
 
 /// The MCP editor's form and JSON are one server, values included: written out as Claude Code's

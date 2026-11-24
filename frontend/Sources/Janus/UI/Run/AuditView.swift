@@ -158,7 +158,7 @@ struct TeamView: View {
                         Text(L.text("这个任务创建时的团队快照。")).font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if let ws = run.store.workspace(run.workspaceId) { Button(L.text("工作区设置…")) { run.store.editingWorkspace = ws } }
+                    if let ws = run.store.workspace(run.workspaceId) { Button(L.text("工作区设置…")) { run.store.editingWorkspace = ws.json } }
                 }
                 Card {
                     KV(rows: [(L.text("负责人"), run.agentName("lead")), (L.text("工作区"), wsNote(full.run))]

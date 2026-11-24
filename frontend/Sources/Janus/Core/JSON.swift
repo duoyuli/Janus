@@ -1,7 +1,8 @@
 import Foundation
 
-/// A JSON value. Events, setup objects and API replies are open-ended (each event type has its own
-/// `data`), so the app keeps them as values and reads fields by name.
+/// A JSON value. Event data and some API replies are open-ended (each event type has its own
+/// `data`, an agent connection's fields come from the agent catalog), so the app keeps them as
+/// values and reads fields by name. Setup objects with a fixed shape are read into `Models.swift`.
 enum JSON: Hashable {
     case null
     case bool(Bool)

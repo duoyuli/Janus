@@ -15,8 +15,8 @@ final class AvatarImages {
     func image(_ role: String) -> NSImage? { role.isEmpty ? nil : images[role] }
 
     /// Follow the roles as read: load new and changed pictures, forget removed ones.
-    func sync(_ roles: [JSON], api: API) async {
-        let want = Dictionary(roles.map { ($0["id"].str, $0["avatar"].str) }, uniquingKeysWith: { a, _ in a })
+    func sync(_ roles: [Role], api: API) async {
+        let want = Dictionary(roles.map { ($0.id, $0.avatar) }, uniquingKeysWith: { a, _ in a })
         for (id, _) in loaded where (want[id] ?? "").isEmpty {
             loaded[id] = nil
             images[id] = nil

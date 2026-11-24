@@ -599,7 +599,7 @@ struct BriefSuggestions: View {
                 Text(L.text("采纳后，这个工作区之后的任务都能看到。")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if let ws = run.store.workspace(run.workspaceId) {
-                    Button(L.text("加入共享资料…")) { run.store.editingBrief = Self.adding(lines, to: ws) }
+                    Button(L.text("加入共享资料…")) { run.store.editingBrief = Self.adding(lines, to: ws.json) }
                         .disabled(run.isReplaying)
                         .help(L.text("打开共享资料，把这些内容加到末尾，确认后保存"))
                 } else {

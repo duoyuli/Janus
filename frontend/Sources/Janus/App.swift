@@ -249,7 +249,7 @@ final class AppModel {
 
     func newGoal() {
         guard let s = store else { return }
-        if let ws = s.currentWorkspace { s.open(.home(ws["id"].str)) } else { s.open(.newWorkspace) }
+        if let ws = s.currentWorkspace { s.open(.home(ws.id)) } else { s.open(.newWorkspace) }
     }
 
     func openLogs() {

@@ -9,7 +9,7 @@ import SwiftUI
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct HomeView: View {
     let store: AppStore
-    let ws: JSON
+    let ws: Workspace
     private var sendKey: SendKey { SendKeySetting.shared.value }
 
     private let suggestions = [
@@ -19,7 +19,7 @@ struct HomeView: View {
     ]
 
     var body: some View {
-        let members = ws["members"].array.map { m in (m, store.role(m["role"].str)) }
+        let members = ws.members.map { m in (m, store.role(m.role)) }
         let problems = Self.problems(members.map(\.1), connection: store.connection)
         let runs = store.runs(of: ws)
         // What waits on the person, the same as the inbox and the count in the sidebar; those runs
@@ -54,7 +54,7 @@ struct HomeView: View {
                     HStack(alignment: .top, spacing: 24) {
                         VStack(alignment: .leading, spacing: 20) {
                             waitingBlock(waiting)
-                            WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
+                            WorkspaceHistory(store: store, workspace: ws.id, hiding: Set(waiting.map(\.id)))
                         }
                         .frame(minWidth: 0, idealWidth: 480, maxWidth: .infinity, alignment: .leading)
                         LoopSection(store: store, ws: ws).frame(width: 270)
@@ -62,7 +62,7 @@ struct HomeView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         waitingBlock(waiting)
                         LoopSection(store: store, ws: ws)
-                        WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
+                        WorkspaceHistory(store: store, workspace: ws.id, hiding: Set(waiting.map(\.id)))
                     }
                 }
             }
@@ -118,11 +118,11 @@ struct HomeView: View {
     /// when they need it. Each says whether there is anything and how it reaches the agents; a
     /// click shows it.
     private var knowledge: some View {
-        let id = ws["id"].str
+        let id = ws.id
         let status = Self.knowledge(ws, store: store)
         return HStack(spacing: 10) {
             KnowledgeTile(symbol: "doc.text", tint: .accent, title: L.text("共享资料"), status: status.brief, way: L.text("每个任务都带上")) { leave in
-                sharedMaterial(ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines), leave: leave)
+                sharedMaterial(ws.brief.trimmingCharacters(in: .whitespacesAndNewlines), leave: leave)
             }
             KnowledgeTile(symbol: "brain", tint: .memory, title: L.text("团队记忆"), status: status.memory, way: L.text("需要时检索")) { leave in
                 MemoryPanel(store: store, ws: ws, leave: leave)
@@ -134,10 +134,10 @@ struct HomeView: View {
 
     /// What the two tiles say there is: how long the shared material is, how many notes the team
     /// memory holds (or that it is being consolidated).
-    static func knowledge(_ ws: JSON, store: AppStore) -> (brief: String, memory: String) {
-        let brief = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notes = store.notes(of: ws["id"].str).count
-        let consolidating = store.memories[ws["id"].str]?["consolidation"]["running"].string != nil
+    static func knowledge(_ ws: Workspace, store: AppStore) -> (brief: String, memory: String) {
+        let brief = ws.brief.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = store.notes(of: ws.id).count
+        let consolidating = store.memories[ws.id]?["consolidation"]["running"].string != nil
         return (brief.isEmpty ? L.text("还没写") : L.text("\(brief.count) 字"),
                 consolidating ? L.text("整理中") : notes == 0 ? L.text("还没有笔记") : L.text("\(notes) 条笔记"))
     }
@@ -158,7 +158,7 @@ struct HomeView: View {
                 Spacer()
                 IconButton(symbol: brief.isEmpty ? "plus" : "square.and.pencil",
                            label: brief.isEmpty ? L.text("添加共享资料") : L.text("编辑共享资料"),
-                           help: L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")) { leave(); store.editingBrief = ws }
+                           help: L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")) { leave(); store.editingBrief = ws.json }
             }
             if brief.isEmpty {
                 Text(L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")).font(.callout).foregroundStyle(.secondary)
@@ -174,27 +174,27 @@ struct HomeView: View {
 
     /// The name, the folder and the team, one under the other; models, permissions and tools are in the
     /// workspace settings, reached from the 「工作区操作」 menu beside the name (one way in, not two).
-    private func identity(_ members: [(JSON, JSON?)]) -> some View {
+    private func identity(_ members: [(Workspace.Member, Role?)]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(ws["name"].str).font(.display(.largeTitle))
+                    Text(ws.name).font(.display(.largeTitle))
                     Menu {
-                        Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
-                        Button(L.text("工作区设置…")) { store.editingWorkspace = ws }
+                        Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws.path)) }
+                        Button(L.text("工作区设置…")) { store.editingWorkspace = ws.json }
                     } label: { Label(L.text("工作区操作"), systemImage: "ellipsis.circle") }
                     .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help(L.text("工作区操作"))
                 }
-                Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(ws["path"].str).textSelection(.enabled)
+                Text(L.tilde(ws.path)).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(ws.path).textSelection(.enabled)
             }
             team(members)
         }
     }
 
-    private func team(_ members: [(JSON, JSON?)]) -> some View {
-        let lead = store.role(ws["lead"].str)
+    private func team(_ members: [(Workspace.Member, Role?)]) -> some View {
+        let lead = store.role(ws.lead)
         let totalSlots = members.reduce(0) { acc, pair in
-            acc + (pair.0["role"].str == ws["lead"].str ? 1 : max(1, pair.0["slots"].int ?? 1))
+            acc + (pair.0.role == ws.lead ? 1 : max(1, pair.0.slots))
         }
         let countLabel = totalSlots > members.count
             ? L.text("\(members.count) 个数字员工（共 \(totalSlots) 个分身）")
@@ -203,14 +203,14 @@ struct HomeView: View {
             HStack(spacing: -4) {
                 ForEach(members.indices, id: \.self) { i in
                     let r = members[i].1
-                    Avatar(initials: r?["init"].str ?? "?", color: r?["color"].str ?? "#64748b", size: 22, role: r?["id"].str ?? "")
+                    Avatar(initials: r?.initials ?? "?", color: r?.color ?? "#64748b", size: 22, role: r?.id ?? "")
                         .overlay(RoundedRectangle(cornerRadius: 22 * 0.28).strokeBorder(Color.page, lineWidth: 1.5))
-                        .help(r?["name"].str ?? L.text("已删除的数字员工"))
+                        .help(r?.name ?? L.text("已删除的数字员工"))
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(members.compactMap { $0.1?["name"].str }.joined(separator: L.text("、")))
-            Text(verbatim: "\(countLabel)\(lead.map { $0["name"].str == L.text("负责人") ? L.text(" · 有负责人") : L.text(" · 负责人：\($0["name"].str)") } ?? "")")
+            .accessibilityLabel(members.compactMap { $0.1?.name }.joined(separator: L.text("、")))
+            Text(verbatim: "\(countLabel)\(lead.map { $0.name == L.text("负责人") ? L.text(" · 有负责人") : L.text(" · 负责人：\($0.name)") } ?? "")")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -220,20 +220,20 @@ struct HomeView: View {
 
     /// Why the workspace's roles cannot run, grouped by cause: an Agent that has not passed its
     /// test is one problem however many roles use it.
-    static func problems(_ roles: [JSON?], connection: (String) -> JSON?) -> [Problem] {
+    static func problems(_ roles: [Role?], connection: (String) -> JSON?) -> [Problem] {
         var out: [Problem] = []
         let deleted = roles.filter { $0 == nil }.count
         if deleted > 0 { out.append(Problem(text: L.text("有 \(deleted) 个数字员工已被删除，去工作区设置里移除或换人。"), action: L.text("打开数字员工设置"), tab: .agents)) }
-        let unbound = roles.compactMap { $0 }.filter { connection($0["connection"].str) == nil }.map { $0["name"].str }
+        let unbound = roles.compactMap { $0 }.filter { connection($0.connection) == nil }.map(\.name)
         if !unbound.isEmpty {
             let names = unbound.joined(separator: L.text("、"))
             out.append(Problem(text: L.text("还没绑 Agent：\(names)"), action: L.text("打开数字员工设置"), tab: .agents))
         }
         var untested: [(String, [String])] = []
         for r in roles.compactMap({ $0 }) {
-            guard let c = connection(r["connection"].str), c["phase"].str != "ok" else { continue }
+            guard let c = connection(r.connection), c["phase"].str != "ok" else { continue }
             let name = c["name"].str
-            if let i = untested.firstIndex(where: { $0.0 == name }) { untested[i].1.append(r["name"].str) } else { untested.append((name, [r["name"].str])) }
+            if let i = untested.firstIndex(where: { $0.0 == name }) { untested[i].1.append(r.name) } else { untested.append((name, [r.name])) }
         }
         for (agent, names) in untested {
             let affected = names.joined(separator: L.text("、"))
@@ -246,7 +246,7 @@ struct HomeView: View {
         let goal = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = store.goalImages
         guard !goal.isEmpty || !images.isEmpty, problems.isEmpty else { return }
-        Task { await store.createRun(goal: goal, workspace: ws["id"].str, images: images) }
+        Task { await store.createRun(goal: goal, workspace: ws.id, images: images) }
     }
 }
 
@@ -506,18 +506,18 @@ struct WorkspaceEditor: View {
                     if store.roles.isEmpty { Note(text: L.text("还没有数字员工，先去「设置 › 数字员工」建一个。")) }
                     VStack(spacing: 0) {
                         ForEach(store.roles, id: \.self) { r in
-                            let id = r["id"].str
-                            let c = store.connection(r["connection"].str)
+                            let id = r.id
+                            let c = store.connection(r.connection)
                             HStack(spacing: 10) {
-                                Toggle(L.text("启用 \(r["name"].str)"), isOn: Binding(get: { on.contains(id) }, set: { v in if v { on.insert(id) } else { on.remove(id); if lead == id { lead = "" } } }))
+                                Toggle(L.text("启用 \(r.name)"), isOn: Binding(get: { on.contains(id) }, set: { v in if v { on.insert(id) } else { on.remove(id); if lead == id { lead = "" } } }))
                                     .labelsHidden().disabled(c == nil)
-                                Avatar(initials: r["init"].str.isEmpty ? String(r["name"].str.prefix(2)).uppercased() : r["init"].str, color: r["color"].str, size: 24, role: r["id"].str)
+                                Avatar(initials: r.initials.isEmpty ? String(r.name.prefix(2)).uppercased() : r.initials, color: r.color, size: 24, role: r.id)
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(r["name"].str).font(.body.weight(.medium))
-                                    Text(c.map { "\($0["name"].str) · \(r["model"].truthy ? r["model"].str : L.text("默认模型"))" } ?? L.text("未绑定 Agent")).font(.caption).foregroundStyle(.secondary)
+                                    Text(r.name).font(.body.weight(.medium))
+                                    Text(c.map { "\($0["name"].str) · \(r.model.isEmpty ? L.text("默认模型") : r.model)" } ?? L.text("未绑定 Agent")).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text(Setup.permLabel(r["session"], c).isEmpty ? "—" : Setup.permLabel(r["session"], c)).font(.caption).foregroundStyle(.secondary)
+                                Text(Setup.permLabel(r.session, c).isEmpty ? "—" : Setup.permLabel(r.session, c)).font(.caption).foregroundStyle(.secondary)
                                 if on.contains(id) && lead != id {
                                     let count = min(8, max(1, slots[id] ?? 1))
                                     Stepper(value: Binding(get: { count }, set: { slots[id] = min(8, max(1, $0)) }), in: 1...8) {
@@ -526,14 +526,14 @@ struct WorkspaceEditor: View {
                                     .controlSize(.small)
                                     .help(L.text("分身数：大于 1 时可以同时接多个子任务"))
                                 }
-                                if r["lead"].truthy && Setup.leadCapable(c) {
+                                if r.lead && Setup.leadCapable(c) {
                                     Button { lead = id } label: {
                                         Label(L.text("负责人"), systemImage: lead == id ? "largecircle.fill.circle" : "circle")
                                     }
                                     .buttonStyle(.borderless)
                                     .disabled(!on.contains(id))
                                     .help(!on.contains(id) ? L.text("先启用这个数字员工") : L.text("设为负责人"))
-                                    .accessibilityLabel(L.text("\(r["name"].str) 担任负责人"))
+                                    .accessibilityLabel(L.text("\(r.name) 担任负责人"))
                                     .accessibilityAddTraits(lead == id ? .isSelected : [])
                                 }
                             }
@@ -594,7 +594,7 @@ struct WorkspaceEditor: View {
             loadedSlots[m["role"].str] = min(8, max(1, m["slots"].int ?? 1))
         }
         slots = loadedSlots
-        lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0["lead"].truthy && Setup.leadCapable(store.connection($0["connection"].str)) }?["id"].str ?? ""
+        lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0.lead && Setup.leadCapable(store.connection($0.connection)) }?.id ?? ""
         on = Set(isNew ? Self.preset(store.roles, lead: lead) : members)
         if isNew && on.contains(Self.generalist) { slots[Self.generalist] = 3 }
     }
@@ -606,8 +606,8 @@ struct WorkspaceEditor: View {
     /// What a new workspace starts with: the lead and three general workers when the general
     /// worker has an Agent; otherwise every role that has one.
     // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
-    static func preset(_ roles: [JSON], lead: String) -> [String] {
-        let bound = roles.filter { $0["connection"].truthy }.map { $0["id"].str }
+    static func preset(_ roles: [Role], lead: String) -> [String] {
+        let bound = roles.filter { !$0.connection.isEmpty }.map(\.id)
         guard bound.contains(generalist) else { return bound }
         return [lead, generalist].filter { !$0.isEmpty }
     }
@@ -624,12 +624,12 @@ struct WorkspaceEditor: View {
 
     private func save() {
         saving = true
-        let members = store.roles.map { $0["id"].str }.filter { on.contains($0) }.map { id -> JSON in
+        let members = store.roles.map(\.id).filter { on.contains($0) }.map { id -> JSON in
             let n = lead == id ? 1 : min(8, max(1, slots[id] ?? 1))
             return n > 1 ? JSON.object(["role": JSON(id), "slots": JSON(n)]) : JSON.object(["role": JSON(id)])
         }
         // The workspace is saved whole: keep its shared material as saved now.
-        let brief = store.workspace(original["id"].str)?["brief"] ?? original["brief"]
+        let brief = store.workspace(original["id"].str).map { JSON($0.brief) } ?? original["brief"]
         let body: JSON = ["id": original["id"], "name": JSON(name), "path": JSON(path), "lead": JSON(lead), "members": .array(members), "brief": brief]
         Task {
             do {
@@ -648,7 +648,7 @@ struct WorkspaceEditor: View {
             do {
                 try await store.delete(.workspaces, original["id"].str)
                 dismiss()
-                if let w = store.workspaces.first { store.open(.home(w["id"].str)) } else { store.open(.newWorkspace) }
+                if let w = store.workspaces.first { store.open(.home(w.id)) } else { store.open(.newWorkspace) }
             } catch { store.show(error.localizedDescription) }
         }
     }
@@ -669,7 +669,7 @@ struct BriefEditor: View {
     static let limit = 8000
 
     /// What is saved now; the sheet may have opened with lines added to it.
-    private var saved: String { store.workspace(original["id"].str)?["brief"].str ?? original["brief"].str }
+    private var saved: String { store.workspace(original["id"].str)?.brief ?? original["brief"].str }
     private var dirty: Bool { brief != saved }
 
     var body: some View {
@@ -711,7 +711,7 @@ struct BriefEditor: View {
 
     private func save() {
         saving = true
-        let body = Self.body(store.workspace(original["id"].str) ?? original, brief: brief)
+        let body = Self.body(store.workspace(original["id"].str)?.json ?? original, brief: brief)
         Task {
             do {
                 _ = try await store.save(.workspaces, body)

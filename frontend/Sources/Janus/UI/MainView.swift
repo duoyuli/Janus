@@ -96,7 +96,7 @@ struct Sidebar: View {
                         store.editingWorkspace = AppStore.blankWorkspace
                     }
                     ForEach(store.workspaces, id: \.self) { w in
-                        WorkspaceRow(store: store, ws: w, current: w["id"].str == ws?["id"].str)
+                        WorkspaceRow(store: store, ws: w, current: w.id == ws?.id)
                     }
                     // Deleted workspaces whose runs stay, so those runs are still found.
                     ForEach(store.pastWorkspaces, id: \.self) { w in
@@ -392,15 +392,15 @@ struct AdapterUpdatesBadge: View {
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct WorkspaceRow: View {
     let store: AppStore
-    let ws: JSON
+    let ws: Workspace
     let current: Bool
 
     private var shown: Bool {
         guard current else { return false }
         switch store.screen {
-        case .home(let id): return id == ws["id"].str
+        case .home(let id): return id == ws.id
         case .run(let id):
-            return store.runs(of: ws).contains { $0["id"].str == id } || store.loops(of: ws["id"].str).contains { $0["run"].str == id }
+            return store.runs(of: ws).contains { $0["id"].str == id } || store.loops(of: ws.id).contains { $0["run"].str == id }
         default: return false
         }
     }
@@ -409,15 +409,15 @@ struct WorkspaceRow: View {
     var body: some View {
         let waiting = store.waiting(in: ws).reduce(0) { $0 + $1.entries.count }
         let working = store.runs(of: ws).contains { RunStatus($0["status"].str).isActive }
-            || store.loops(of: ws["id"].str).contains { $0["status"]["phase"].str == "awake" }
-        SidebarItem(title: ws["name"].str, selected: shown, waiting: waiting, live: working, help: L.tilde(ws["path"].str),
+            || store.loops(of: ws.id).contains { $0["status"]["phase"].str == "awake" }
+        SidebarItem(title: ws.name, selected: shown, waiting: waiting, live: working, help: L.tilde(ws.path),
                     accessibility: waiting == 0 ? "" : L.text("\(waiting) 件待处理"),
-                    action: { store.open(.home(ws["id"].str)) }) {
-            InitialMark(text: ws["name"].str, selected: shown)
+                    action: { store.open(.home(ws.id)) }) {
+            InitialMark(text: ws.name, selected: shown)
         }
         .contextMenu {
-            Button(L.text("工作区设置…")) { store.editingWorkspace = ws }
-            Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws["path"].str)) }
+            Button(L.text("工作区设置…")) { store.editingWorkspace = ws.json }
+            Button(L.text("在 Finder 中显示")) { NSWorkspace.shared.open(URL(fileURLWithPath: ws.path)) }
         }
     }
 }
