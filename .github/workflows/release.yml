@@ -20,19 +20,44 @@ permissions:
   actions: read
 
 jobs:
+  # Two legs of one job: GitHub's Mac, and the maintainer's own Mac when GitHub has none for five
+  # minutes (.github/scripts/claim-runner.sh). Only one of them builds and publishes.
   dmg:
-    name: Build Janus.dmg
-    runs-on: macos-15
+    name: Build Janus.dmg (${{ matrix.where }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - where: hosted
+            runner: [macos-15]
+            other: Build Janus.dmg (local)
+          - where: local
+            runner: [self-hosted, macOS, ARM64, janus-local]
+            other: Build Janus.dmg (hosted)
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Which runner works
+        id: claim
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/claim-runner.sh "${{ matrix.where }}" "${{ matrix.other }}"
+      # The hosted leg reads this step to know the job was taken over.
+      - name: Take over
+        if: matrix.where == 'local' && steps.claim.outputs.work == 'true'
+        run: echo "Packaging on the local runner"
       # No Rust cache: caches saved on a tag are visible to that tag only, so the next release could
       # never use one, and main's (debug) cache does not help a release build.
+      # The local runner builds with the toolchain the machine has: installing one would change the
+      # maintainer's own default.
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.claim.outputs.work == 'true' && runner.environment == 'github-hosted'
 
       - name: Version
         id: v
+        if: steps.claim.outputs.work == 'true'
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ inputs.version }}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
@@ -40,6 +65,7 @@ jobs:
       # The self-signed certificate (frontend/scripts/make-signing-cert.sh) gives every release the
       # same identity; without the secrets the app is signed ad hoc.
       - name: Signing certificate
+        if: steps.claim.outputs.work == 'true'
         env:
           P12: ${{ secrets.MACOS_SIGNING_P12 }}
           PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
@@ -48,6 +74,8 @@ jobs:
           kc="$RUNNER_TEMP/signing.keychain-db"
           kp="$(openssl rand -hex 16)"
           echo "$P12" | base64 --decode >"$RUNNER_TEMP/signing.p12"
+          # The local runner is the maintainer's own account: the last step puts its keychain list back.
+          security list-keychains -d user | tr -d '"' >"$RUNNER_TEMP/keychains.before"
           security create-keychain -p "$kp" "$kc"
           security set-keychain-settings -lut 3600 "$kc"
           security unlock-keychain -p "$kp" "$kc"
@@ -62,9 +90,11 @@ jobs:
           echo "JANUS_SIGN_KEYCHAIN=$kc" >>"$GITHUB_ENV"
 
       - name: Package
+        if: steps.claim.outputs.work == 'true'
         run: frontend/scripts/package.sh --version "${{ steps.v.outputs.version }}"
 
       - name: Check the app
+        if: steps.claim.outputs.work == 'true'
         run: |
           app=dist/Janus.app
           for f in Contents/MacOS/Janus Contents/MacOS/janus-server Contents/Resources/node/bin/node; do
@@ -80,8 +110,11 @@ jobs:
           (cd dist && shasum -a 256 Janus-*.dmg Janus-*.tar.gz update.json | tee SHA256SUMS.txt)
 
       - uses: actions/upload-artifact@v7
+        if: steps.claim.outputs.work == 'true'
         with:
           name: Janus-${{ steps.v.outputs.version }}
+          # Both legs work only when a hosted machine arrives in the moment the local one takes over.
+          overwrite: true
           path: |
             dist/Janus-*.dmg
             dist/Janus-*.tar.gz
@@ -89,21 +122,25 @@ jobs:
             dist/SHA256SUMS.txt
 
       # The tests are CI's, for the same commit (pushed to main with the tag), running while this
-      # packages: publish only once they passed there.
+      # packages: publish only once they passed there. CI's answer is its job "CI result", not the
+      # run's conclusion: a hosted leg that never got a machine fails the run after the tests passed.
       - name: Wait for CI on this commit
-        if: github.ref_type == 'tag'
+        if: steps.claim.outputs.work == 'true' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           for i in $(seq 1 120); do
-            r="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --commit "$GITHUB_SHA" --event push --limit 1 \
-                  --json status,conclusion,url --jq '.[0] // empty | "\(.status) \(.conclusion) \(.url)"')"
-            set -- $r
-            if [ "${1:-}" = completed ]; then
-              [ "$2" = success ] && { echo "CI passed: $3"; exit 0; }
-              echo "CI for ${GITHUB_SHA} ended with $2: $3. Fix it (or rerun it) and run this workflow again."; exit 1
-            fi
-            if [ -z "$r" ] && [ "$i" -ge 30 ]; then
+            run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --commit "$GITHUB_SHA" --event push --limit 1 \
+                    --json databaseId,url --jq '.[0] // empty | "\(.databaseId) \(.url)"')"
+            set -- $run
+            if [ -n "${1:-}" ]; then
+              r="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/$1/jobs?per_page=100" \
+                    --jq '.jobs[] | select(.name == "CI result") | "\(.status) \(.conclusion)"')"
+              case "$r" in
+                "completed success") echo "CI passed: $2"; exit 0 ;;
+                completed*) echo "CI for ${GITHUB_SHA} ended with ${r#completed }: $2. Fix it (or rerun it) and run this workflow again."; exit 1 ;;
+              esac
+            elif [ "$i" -ge 30 ]; then
               echo "No CI run for ${GITHUB_SHA}: push the commit to main before tagging it."; exit 1
             fi
             sleep 20
@@ -111,7 +148,7 @@ jobs:
           echo "CI for ${GITHUB_SHA} did not finish within 40 minutes."; exit 1
 
       - name: Publish release
-        if: github.ref_type == 'tag'
+        if: steps.claim.outputs.work == 'true' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -136,3 +173,12 @@ jobs:
           else
             gh release create "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --title "Janus ${version}" --notes "$body"
           fi
+
+      # GitHub's machine is thrown away after the job; the maintainer's is not.
+      - name: Put the keychain list back
+        if: always() && runner.environment == 'self-hosted'
+        run: |
+          [ -f "$RUNNER_TEMP/keychains.before" ] || exit 0
+          security list-keychains -d user -s $(cat "$RUNNER_TEMP/keychains.before")
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/keychains.before"

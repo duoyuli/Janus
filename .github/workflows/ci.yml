@@ -11,6 +11,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  # The macOS legs and the result read this run's jobs.
+  actions: read
+
 jobs:
   # Linux: the orchestrator's code and tests do not depend on macOS, and Linux runners start at once
   # and have more cores, while macOS runners can queue for minutes. The macOS app needs macOS.
@@ -35,18 +40,66 @@ jobs:
         working-directory: backend
         run: cargo test --locked
 
+  # Two legs of one job: GitHub's Mac, and the maintainer's own Mac when GitHub has none for five
+  # minutes (.github/scripts/claim-runner.sh). Only a push to main gets the local leg: a pull
+  # request never runs on the maintainer's machine.
   macos-app:
-    name: macOS app (swift build + test)
-    runs-on: macos-15
+    name: macOS app (${{ matrix.where }})
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(github.event_name == 'push' && '{"include":[{"where":"hosted","runner":["macos-15"],"other":"macOS app (local)"},{"where":"local","runner":["self-hosted","macOS","ARM64","janus-local"],"other":"macOS app (hosted)"}]}' || '{"include":[{"where":"hosted","runner":["macos-15"],"other":"macOS app (local)"}]}') }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+      - name: Which runner works
+        id: claim
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/claim-runner.sh "${{ matrix.where }}" "${{ matrix.other }}"
+      # The hosted leg reads this step to know the job was taken over.
+      - name: Take over
+        if: matrix.where == 'local' && steps.claim.outputs.work == 'true'
+        run: echo "Building and testing on the local runner"
       - name: Swift version
+        if: steps.claim.outputs.work == 'true'
         run: swift --version
       # One build for both: `swift test` builds with testing enabled, which a plain `swift build`
       # does not share, so building first would compile everything twice.
       - name: Build
+        if: steps.claim.outputs.work == 'true'
         working-directory: frontend
         run: swift build --build-tests
       - name: Test
+        if: steps.claim.outputs.work == 'true'
         working-directory: frontend
         run: swift test --skip-build
+
+  # The one answer to "did CI pass for this commit": the orchestrator's checks, and the app's tests
+  # on whichever leg did them. A hosted leg that never got a machine is cancelled by GitHub long
+  # after the local leg passed and marks the run failed; this job is what the release waits for.
+  result:
+    name: CI result
+    needs: backend
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Orchestrator
+        run: |
+          [ "${{ needs.backend.result }}" = success ] || { echo "The orchestrator's checks ended with ${{ needs.backend.result }}"; exit 1; }
+      - name: macOS app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Every 10 seconds for 45 minutes: one leg passed its tests, one leg failed, or no leg is left.
+          for _ in $(seq 1 270); do
+            legs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.name | startswith("macOS app (")) | {name, status, conclusion, tested: ([.steps[]? | select(.name == "Test" and .conclusion == "success")] | length > 0)}]')"
+            passed="$(jq -r '[.[] | select(.tested)] | .[0].name // empty' <<<"$legs")"
+            failed="$(jq -r '[.[] | select(.conclusion == "failure")] | .[0].name // empty' <<<"$legs")"
+            waiting="$(jq -r '[.[] | select(.status != "completed")] | length' <<<"$legs")"
+            if [ -n "$failed" ]; then echo "${failed} failed"; exit 1; fi
+            if [ -n "$passed" ]; then echo "The app's tests passed on ${passed}"; exit 0; fi
+            if [ "$waiting" = 0 ]; then echo "No leg built and tested the app: $(jq -c . <<<"$legs")"; exit 1; fi
+            sleep 10
+          done
+          echo "The app's tests did not finish within 45 minutes"; exit 1
