@@ -286,6 +286,10 @@ enum Snapshots {
         case "auto-update": Updater.shared.automatic = arg != "off"
         // A key press in the first composer of the key window, through the same handler as typing.
         case "press":
+            // A `draft` (or `open`) in the same batch reaches the text view on SwiftUI's next
+            // update: let it land first, or the key goes into the old text and the draft then
+            // overwrites it (a new line lost, or an empty message sent).
+            try? await Task.sleep(nanoseconds: 300_000_000)
             let flags: NSEvent.ModifierFlags = arg == "shift-return" ? .shift : arg == "command-return" ? .command : []
             if let v = composer(), let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: v.window?.windowNumber ?? 0,
                                                              context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) {
