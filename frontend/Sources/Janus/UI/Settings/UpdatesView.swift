@@ -78,7 +78,7 @@ struct UpdatesView: View {
     /// What the pane says above the buttons, and how it should read.
     private var status: (text: String, tone: Color) {
         guard updater.enabled else {
-            return (L.text("从源码运行，不检查更新。安装包里的 Janus.app 才会在应用内更新。"), .secondary)
+            return (L.text("这个 Janus 不在应用内更新：从源码运行、本地打包和测试中的都不检查。装上发布的 Janus.app 才会更新。"), .secondary)
         }
         switch updater.state {
         case .idle:

@@ -31,6 +31,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$(uname -m)" = arm64 ] || { echo "Janus.app 只支持 Apple 芯片，请在 Apple 芯片的 Mac 上打包" >&2; exit 1; }
+# Only a release (given its version) updates itself from GitHub: a local build would otherwise
+# replace itself with the latest release the first time it runs outside a test.
+update_repo=""
+[ -n "$version" ] && update_repo="duoyuli/Janus"
 [ -n "$version" ] || version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/backend/Cargo.toml" | head -1)"
 build="$(git -C "$root" rev-list --count HEAD 2>/dev/null || echo 1)"
 
@@ -105,7 +109,7 @@ cp "$work/janus-server" "$app/Contents/MacOS/janus-server"
 cp "$work/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 cp -R "$root/frontend/Sources/Janus/"*.lproj "$app/Contents/Resources/"
 cp -R "$node_dir" "$app/Contents/Resources/node"
-sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" "$root/frontend/Info.plist" >"$app/Contents/Info.plist"
+sed -e "s/__VERSION__/$version/" -e "s/__BUILD__/$build/" -e "s#__UPDATE_REPO__#$update_repo#" "$root/frontend/Info.plist" >"$app/Contents/Info.plist"
 printf 'APPL????' >"$app/Contents/PkgInfo"
 printf '{"version":"%s","node":"%s"}\n' "$version" "$node_hash" >"$app/Contents/Resources/update-parts.json"
 # Signatures, inner code first.

@@ -185,6 +185,8 @@ def setup(ctx, c):
         # Settings › 通用 › 更新: automatic updates are on until turned off, and the switch keeps it.
         state = ctx.app.do("open settings:updates")
         c(state["autoUpdate"] is True, f"应用：自动更新默认开着（{state['autoUpdate']}）")
+        # A tested app never replaces itself with the latest release, the switch on or not.
+        c(state["updateEnabled"] is False, "应用：测试中的应用不检查、不下载更新，也不替换自己")
         state = ctx.app.do("auto-update off", "open settings:updates", "shot settings-auto-update-off")
         c(state["autoUpdate"] is False and _drawn(ctx, "settings-auto-update-off"), "应用：关掉自动更新后状态跟着变，更新一节画出来了")
         state = ctx.app.do("auto-update on")

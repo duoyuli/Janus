@@ -181,6 +181,8 @@ enum Snapshots {
                 "sendKey": JSON(SendKeySetting.shared.value.rawValue),
                 // Settings › 通用 › 更新: whether updates install themselves.
                 "autoUpdate": JSON(Updater.shared.automatic),
+                // Whether this app would update itself: never while a test drives it.
+                "updateEnabled": JSON(Updater.shared.enabled),
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
                     JSON(img.representations.first.map { $0.pixelsWide } ?? 0)

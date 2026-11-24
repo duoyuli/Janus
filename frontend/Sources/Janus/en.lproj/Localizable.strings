@@ -221,7 +221,7 @@
 "从 %@ 复制" = "Copy from %@";
 "从中断处继续" = "Resume Interrupted Run";
 "从原文件夹重新复制" = "Copy Again from Original Folder";
-"从源码运行，不检查更新。安装包里的 Janus.app 才会在应用内更新。" = "In-app updates are available in the installed Janus.app.";
+"这个 Janus 不在应用内更新：从源码运行、本地打包和测试中的都不检查。装上发布的 Janus.app 才会更新。" = "This Janus doesn't update itself: runs from source, local builds and apps under test never check. Install a released Janus.app to get updates.";
 "以当前结果完成" = "Finish with Current Result";
 "价格更新于 %@。" = " Prices updated %@.";
 "任务" = "Runs";

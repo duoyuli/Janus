@@ -128,8 +128,10 @@ final class Updater {
         }
     }
 
-    /// Only a packaged Janus.app updates itself; `swift run` and `just mac` do not.
-    var enabled: Bool { repo != nil && bundle.pathExtension == "app" }
+    /// Only a released Janus.app updates itself: `swift run` and `just mac` do not, a local build
+    /// has no update source (`package.sh` without `--version`), and an app a test drives
+    /// (`JANUS_SNAPSHOT_DIR`) never asks GitHub, nor swaps itself out from under the test.
+    var enabled: Bool { repo != nil && bundle.pathExtension == "app" && !Snapshots.active }
 
     /// How much an update downloads, given what is installed.
     var downloadSize: Int { latest.map { Self.plan($0, installedNode: installedNode).reduce(0) { $0 + $1.size } } ?? 0 }
