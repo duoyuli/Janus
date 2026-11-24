@@ -359,7 +359,9 @@ func derive(_ events: [Event]) -> RunState {
                 if let t {
                     t.session = t.session?.after(e)
                     if !s.inbox.contains(where: { $0.key == "sess-" + t.id }) { s.inbox.append(InboxItem(kind: "session", key: "sess-" + t.id, seq: e.seq, task: t.id)) }
-                } else if !s.inbox.contains(where: { $0.key == "sess-" + e.actor }) {
+                } else if !(e.actor == "lead" && s.run.status == .delivered), !s.inbox.contains(where: { $0.key == "sess-" + e.actor }) {
+                    // A delivered run waits for acceptance: that entry already says the lead is done
+                    // and sends the person to it, so its turn ending is not a second one.
                     s.inbox.append(InboxItem(kind: "session", key: "sess-" + e.actor, seq: e.seq, agent: e.actor))
                 }
             }
@@ -476,6 +478,7 @@ func derive(_ events: [Event]) -> RunState {
         case "run.delivered":
             s.run.status = .delivered; s.result = RunResult(d: d, seq: e.seq)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
+            dropSess("lead")
         case "risk.accepted":
             s.run.status = .accepted; s.result?.accepted = e.ts
             if d["commit"].string != nil { s.run.merged = true }

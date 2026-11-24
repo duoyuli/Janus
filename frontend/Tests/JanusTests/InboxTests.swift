@@ -61,6 +61,19 @@ private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_0
     #expect(later2.isEmpty)
 }
 
+/// A delivery is the lead's turn ending: the run asks for acceptance once, not also for a reply,
+/// whichever of the two events comes first. Before the delivery, a turn that ends still asks.
+@Test func aDeliveredRunAsksOnceNotAlsoForAReply() {
+    let idle: JSON = ["phase": "waiting_for_input", "turn": "idle"]
+    let start = [event(1, "run.created", actor: "user", data: ["mode": "goal", "goal": "上线支付页"])]
+    let asking = Inbox.entries(run: run, state: derive(start + [event(2, "agent.status", actor: "lead", data: idle)]), workspace: "W")
+    #expect(asking.map(\.kind) == ["session"])
+    for tail in [[event(2, "agent.status", actor: "lead", data: idle), event(3, "run.delivered", actor: "lead", data: ["summary": "好了"])],
+                 [event(2, "run.delivered", actor: "lead", data: ["summary": "好了"]), event(3, "agent.status", actor: "lead", data: idle)]] {
+        #expect(Inbox.entries(run: run, state: derive(start + tail), workspace: "W").isEmpty)
+    }
+}
+
 /// Any entry can be ignored, one that holds an agent up too: it leaves both 「待处理」 and
 /// 「稍后处理」, and the rest stay as they were.
 @Test func anyEntryCanBeIgnored() {
