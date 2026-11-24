@@ -92,7 +92,9 @@ def chats(ctx, c):
                            f"open run:{chat}", f"shot {chat}-long-reply")
         cv = st["run"]["conversation"]
         rows = cv["rows"]
-        c(all(b["top"] >= a["bottom"] - 0.5 for a, b in zip(rows, rows[1:])), f"应用：会话里的行互不重叠（{rows}）")
+        # The reply and the status line under it: the rows in view. A row the lazy list keeps aside
+        # after it scrolled away may still report where it last was, so older rows are not compared.
+        c(len(rows) >= 2 and rows[-1]["top"] >= rows[-2]["bottom"] - 0.5, f"应用：最后的回复和它下面的状态行不重叠（{rows[-2:]}）")
         c(cv["following"] and _settled(cv),
           f"应用：长回复之后停在最新一行，仍在跟随（{cv['following']}，最后一行底边 {rows[-1]['bottom'] if rows else None} / 可见高度 {cv['height']}）")
         c(drawn(ctx.app.picture(f"{chat}-long-reply")), f"应用：带宽表格的长回复画出来了（{chat}-long-reply.png）")

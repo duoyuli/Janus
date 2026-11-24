@@ -415,8 +415,11 @@ enum ChatProbe {
     static var content: CGFloat = 0
     static var following = true
 
+    /// Rows in the conversation's order (a row's id is its first event's sequence number, negative
+    /// for a group of tool calls). A row the lazy list keeps aside after it scrolled away may
+    /// report where it last was, so only the rows in view are sure to be where they are drawn.
     static var json: JSON {
-        let built = rows.sorted { $0.value.minY < $1.value.minY }
+        let built = rows.sorted { abs($0.key) < abs($1.key) }
         return ["following": .bool(following), "content": JSON(Int(content.rounded())),
                 "offset": JSON(Int(visible.minY.rounded())), "height": JSON(Int(visible.height.rounded())),
                 "rows": JSON.array(built.map { ["id": JSON($0.key), "top": JSON(Int($0.value.minY.rounded())), "bottom": JSON(Int($0.value.maxY.rounded()))] })]
