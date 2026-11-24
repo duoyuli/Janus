@@ -117,13 +117,26 @@ pub(super) async fn get(
     reply(json!({ "run": run, "events": events, "live": app.run(&id).is_some() }))
 }
 
-/// The run's read-only usage ledger over its whole event log (`backend/src/usage.rs`). A run always
-/// has its `run.created` event, so no events means no such run.
+#[derive(Deserialize)]
+pub(super) struct Until {
+    until: Option<i64>,
+}
+
+/// The run's read-only usage ledger over its event log up to and including seq `until` (all of it
+/// without), from `backend/src/usage.rs`: the app reads it for the live run and for each replayed
+/// position. A run always has its `run.created` event, so no events means no such run.
 // @project-doc docs/interfaces/20261031-http_api.md#run_usage
-pub(super) async fn usage(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    let events = app.db.events(&id, 0)?;
+pub(super) async fn usage(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<Until>,
+) -> ApiResult {
+    let mut events = app.db.events(&id, 0)?;
     if events.is_empty() {
         return Err(ApiError::not_found("任务不存在"));
+    }
+    if let Some(until) = q.until {
+        events.retain(|e| e.seq <= until);
     }
     reply(usage::ledger(&events))
 }

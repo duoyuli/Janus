@@ -31,11 +31,17 @@ final class RunModel {
     var loadError: String? { if case .failed(let why) = load { return why } else { return nil } }
     private(set) var state = RunState()
     /// Replay position (number of events shown), nil while live.
-    var replay: Int? { didSet { replayState = replay.map { n in derive(Array(events.prefix(n))) } } }
+    var replay: Int? {
+        didSet {
+            replayState = replay.map { n in derive(Array(events.prefix(n))) }
+            loadUsage()
+        }
+    }
     private(set) var replayState: RunState?
     var shown: RunState { replayState ?? state }
-    /// The usage ledger at the shown position: the live run, or the replayed prefix.
-    var usage: UsageLedger { shown.usage }
+    /// The usage ledger at the shown position, the live run's or the replayed prefix's, as the
+    /// server computes it (`loadUsage`).
+    var usage = UsageLedger.empty
     var isReplaying: Bool { replay != nil }
     /// Actions are possible: a live run, not replaying.
     var canAct: Bool { live && replay == nil }
@@ -49,7 +55,24 @@ final class RunModel {
     /// (docs/architecture/20261031-frontend.md#usage_ledger): the card and the snapshot's
     /// `elapsedMs` ask here, so the number they show and the live judgement cannot drift apart.
     /// The expanded usage detail keeps the recorded ledger and does not follow the clock.
-    func usageDisplayed(at now: Double) -> UsageLedger { shown.usageForDisplay(now: now, live: canAct) }
+    // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
+    func usageDisplayed(at now: Double) -> UsageLedger {
+        usage.displayed(at: now, since: shown.run.start, ticking: canAct && shown.run.status.isActive)
+    }
+
+    /// Read the ledger at the shown position. Asked when the run is read, after each burst of new
+    /// events and when the replay position moves; an answer for a position no longer shown is
+    /// dropped.
+    func loadUsage() {
+        let until = replay.map { n in events.prefix(n).last?.seq ?? 0 } ?? events.last?.seq ?? 0
+        usageTask?.cancel()
+        usageTask = Task { [weak self] in
+            guard let self, until > 0 else { return }
+            guard let j = try? await self.api.get("/api/runs/\(self.id)/usage?until=\(until)"), !Task.isCancelled else { return }
+            let now = self.replay.map { n in self.events.prefix(n).last?.seq ?? 0 } ?? self.events.last?.seq ?? 0
+            if now == until { self.usage = UsageLedger.server(j) }
+        }
+    }
 
     var page: RunPage = .board
     // Drafts: answers chosen per request key, notes, form fields, session messages.
@@ -90,6 +113,7 @@ final class RunModel {
     @ObservationIgnored private var docScan: [String: RunDocs.Doc] = [:]
     @ObservationIgnored private var docScanned = 0
     @ObservationIgnored private var deriveTask: Task<Void, Never>?
+    @ObservationIgnored private var usageTask: Task<Void, Never>?
 
     init(id: String, store: AppStore) {
         self.id = id
@@ -125,6 +149,7 @@ final class RunModel {
             deriveTask = nil
             state = derive(events)
             findDocuments()
+            loadUsage()
             if let r = replay, r > events.count { replay = nil }
             load = .loaded(live: data["live"].bool ?? false)
             if !workspaceId.isEmpty, store.workspace(workspaceId) != nil { store.rememberWorkspace(workspaceId) }
@@ -144,6 +169,7 @@ final class RunModel {
     func close() {
         streamTask?.cancel()
         deriveTask?.cancel()
+        usageTask?.cancel()
     }
 
     private func subscribe() {
@@ -210,6 +236,7 @@ final class RunModel {
             let before = self.state.run.status
             self.state = derived
             self.findDocuments()
+            self.loadUsage()
             self.deriveTask = nil
             // Events that came in while deriving get a round of their own.
             if self.events.count > events.count { self.scheduleDerive() }

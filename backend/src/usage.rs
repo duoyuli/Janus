@@ -18,7 +18,7 @@
 //! - **Time** is wall-clock; waiting for a person is kept apart as `wait_ms`.
 //! - The ledger is a pure function of the events, so a full read, a replay prefix, a restart and a
 //!   historic run give the same numbers. It never changes scheduling, budgets, states or delivery,
-//!   and its reminders are text only.
+//!   and its reminders change nothing.
 
 use crate::db::Event;
 use crate::events::EventKind;
@@ -520,8 +520,9 @@ pub struct Ledger {
     pub members: Vec<Scope>,
     pub attempts: Vec<Attempt>,
     pub sessions: Vec<Session>,
-    /// Read-only reminders; prefixed 「按已上报数据」 when the numbers are not complete.
-    pub reminders: Vec<String>,
+    /// Read-only reminders. The app words them in its own language (`Reminder::text` is the
+    /// orchestrator's wording).
+    pub reminders: Vec<Reminder>,
 }
 
 impl Ledger {
@@ -1134,38 +1135,44 @@ impl Scan {
     }
 }
 
-/// The read-only reminders, with the default thresholds above. Text only: nothing here changes
-/// the run, its budget, its attempts or the inbox.
-fn reminders(ledger: &Ledger, declared_collaborators: usize) -> Vec<String> {
+/// A read-only reminder about a run's usage, with the numbers behind it. Nothing changes because
+/// of one: not the run, its attempts or the inbox.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Reminder {
+    /// The run reported `total` tokens, past the default `threshold`.
+    Tokens { total: i64, threshold: i64 },
+    /// One task used `share` of the run's `total`.
+    OneTask { task: String, total: i64, share: f64 },
+    /// `collaborators` worked `minutes` without a task succeeding.
+    IdleTeam { collaborators: usize, minutes: i64 },
+    /// Tokens were reported, cost by no session.
+    CostUnknown,
+}
+
+/// The read-only reminders, with the default thresholds above.
+fn reminders(ledger: &Ledger, declared_collaborators: usize) -> Vec<Reminder> {
     let mut out = vec![];
     let total = ledger.run.tokens.total;
     if let Some(n) = total.filter(|n| *n >= TOKEN_REMINDER) {
-        out.push(format!("Token 用量偏高：已上报 {} tokens，达到默认提醒阈值 {}", num(n), num(TOKEN_REMINDER)));
+        out.push(Reminder::Tokens { total: n, threshold: TOKEN_REMINDER });
     }
     if let Some(n) = total.filter(|n| *n >= TASK_SHARE_FLOOR)
         && let Some((task, used)) =
             ledger.tasks.iter().filter_map(|t| t.tokens.total.map(|v| (t, v))).max_by_key(|(_, v)| *v)
         && used as f64 >= n as f64 * TASK_SHARE
     {
-        out.push(format!(
-            "大部分用量集中在一个子任务：{} 占 {} 的 {}",
-            task.id,
-            num(n),
-            percent(used as f64 / n as f64)
-        ));
+        out.push(Reminder::OneTask { task: task.id.clone(), total: n, share: used as f64 / n as f64 });
     }
     let collaborators = declared_collaborators.max(ledger.members.iter().filter(|m| m.id != LEAD).count());
     if collaborators >= MANY_COLLABORATORS
         && !ledger.attempts.iter().any(|a| a.state == AttemptState::Succeeded)
         && ledger.run.duration_ms.is_some_and(|ms| ms >= IDLE_WITHOUT_SUCCESS)
     {
-        out.push(format!(
-            "协作者多但没有有效产出：{collaborators} 个协作者，{} 内没有任何子任务成功",
-            duration(IDLE_WITHOUT_SUCCESS)
-        ));
+        out.push(Reminder::IdleTeam { collaborators, minutes: IDLE_WITHOUT_SUCCESS / 60_000 });
     }
     if total.is_some_and(|n| n >= COST_BLIND_TOKENS) && !ledger.run.cost.reported() {
-        out.push("费用无法判断：有 token 用量，但没有任何会话上报费用".into());
+        out.push(Reminder::CostUnknown);
     }
     out
 }

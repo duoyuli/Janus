@@ -383,7 +383,7 @@ fn a_replay_prefix_gives_the_numbers_of_that_point() {
 }
 
 #[test]
-fn reminders_are_text_and_say_they_use_reported_data_when_incomplete() {
+fn reminders_carry_their_numbers() {
     let mut e = vec![];
     created(&mut e);
     e.push(ev(2, 2_000, "agent.status", "lead", None, None, json!({ "session": "lead-1" })));
@@ -392,7 +392,18 @@ fn reminders_are_text_and_say_they_use_reported_data_when_incomplete() {
     usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 520_000 }));
     let l = ledger(&e);
     assert_eq!(l.run.completeness, Completeness::Partial, "the lead reported context but no tokens");
-    assert_eq!(l.reminders.len(), 3, "{:?}", l.reminders);
+    assert_eq!(
+        l.reminders,
+        [
+            Reminder::Tokens { total: 520_000, threshold: TOKEN_REMINDER },
+            Reminder::OneTask { task: "T1".into(), total: 520_000, share: 1.0 },
+            Reminder::CostUnknown,
+        ]
+    );
+    assert_eq!(
+        serde_json::to_value(&l.reminders[1]).unwrap(),
+        json!({ "kind": "oneTask", "task": "T1", "total": 520000, "share": 1.0 })
+    );
 }
 
 #[test]

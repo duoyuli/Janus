@@ -355,7 +355,7 @@ struct RunCard: View {
             // Reminders stay directly under the summary whether or not the ledger is open; the
             // ledger never repeats them (W1 F4). Text only: nothing here pauses, stops or budgets
             // the run.
-            if let line = st.usage.remindersLine { Note(text: line, tone: .amber) }
+            if let line = run.usage.remindersLine { Note(text: line, tone: .amber) }
             if run.usageOpen { UsageSection(run: run, st: st) }
         }
     }
@@ -413,7 +413,7 @@ struct RunCard: View {
                 summaryText(now: L.nowMs())
             }
             Spacer(minLength: 4)
-            if st.usage.showsLedgerControl(open: run.usageOpen) { usageToggle }
+            if run.usage.showsLedgerControl(open: run.usageOpen) { usageToggle }
         }
     }
 

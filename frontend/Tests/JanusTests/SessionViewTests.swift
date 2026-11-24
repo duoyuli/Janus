@@ -160,10 +160,12 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     ]]]
     run.events = events
     run.replay = events.count
+    // The ledger the server would compute for these events (`serverLedger`, a partial run).
+    run.usage = UsageLedger.server(serverLedger)
 
     let st = run.shown
-    #expect(st.usage.run.completeness == .partial, "the rendered card says partial")
-    #expect(st.usage.run.summaryRows.first?.value.contains(expectedCopy("部分上报", "Partially reported")) == true)
+    #expect(run.usage.run.completeness == .partial, "the rendered card says partial")
+    #expect(run.usage.run.summaryRows.first?.value.contains(expectedCopy("部分上报", "Partially reported")) == true)
 
     let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("janus-usage", isDirectory: true)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

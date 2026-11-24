@@ -142,7 +142,7 @@
 "Token 总量" = "Total Tokens";
 "Token 总量含缓存读取。" = "Total tokens include cache reads.";
 "Token 总量：%@（%@）" = "Total tokens: %@ (%@)";
-"Token 用量偏高：已上报 %@ tokens，达到默认提醒阈值 500,000" = "High token usage: %@ tokens reported, reaching the default threshold of 500,000";
+"Token 用量偏高：已上报 %@ tokens，达到默认提醒阈值 %@" = "High token usage: %1$@ tokens reported, reaching the default threshold of %2$@";
 "macOS 权限" = "macOS Permissions";
 "shell 环境变量" = "Shell Environment Variables";
 "update.json 不完整" = "update.json is incomplete";
@@ -310,7 +310,7 @@
 "加入共享资料…" = "Add to Shared Context…";
 "区间" = "Period";
 "升级到 %@" = "Upgrade to %@";
-"协作者多但没有有效产出：%lld 个协作者，30 分钟内没有任何子任务成功" = "No subtasks completed in 30 minutes with %lld collaborators";
+"协作者多但没有有效产出：%lld 个协作者，%lld 分钟内没有任何子任务成功" = "No subtasks completed in %2$lld minutes with %1$lld collaborators";
 "协调中" = "Coordinating";
 "原因" = "Reason";
 "去处理" = "Open Request";

@@ -1,12 +1,10 @@
 import Foundation
 
-// The run's read-only usage ledger, derived from the event log like the rest of the run page
-// (`derive` stores it in `RunState.usage`, so a replayed prefix gets its own numbers). The rules are
-// the backend's (`backend/src/usage.rs`, docs/architecture/20261031-frontend.md#usage_ledger): every
-// `session/prompt` report is one turn and turns add up, the quota rows by model replace the
-// main-loop usage, context snapshots are never tokens, cost is a running total per session, and
-// missing numbers are words, never 0. `UsageLedgerTests` reads `backend/testdata/usage_cases.json`,
-// the cases the backend is tested on too.
+// The run's read-only usage ledger, as the server computes it from the event log
+// (`GET /api/runs/{id}/usage`, `backend/src/usage.rs`, docs/architecture/20261031-frontend.md#usage_ledger).
+// The app reads it for the live run and for each replayed position and words it: the numbers,
+// the reminders and their thresholds have one source, the server's. Missing numbers are words,
+// never 0.
 
 /// Whether a range's token numbers are all there.
 enum UsageCompleteness: String {
@@ -43,23 +41,10 @@ struct UsageTokens: Equatable {
     var cachedWrite: Int?
     var thought: Int?
 
-    /// One count block; without `totalTokens` but with input or output, the sum of its parts.
-    static func read(_ j: JSON) -> UsageTokens {
-        var t = UsageTokens(total: j["totalTokens"].int, input: j["inputTokens"].int, output: j["outputTokens"].int,
-                            cachedRead: j["cachedReadTokens"].int, cachedWrite: j["cachedWriteTokens"].int, thought: j["thoughtTokens"].int)
-        if t.total == nil, t.input != nil || t.output != nil {
-            t.total = [t.input, t.output, t.cachedRead, t.cachedWrite].compactMap { $0 }.reduce(0, +)
-        }
-        return t
-    }
-
-    /// One turn's token rows: the quota rows by model when the agent sent them, else `usage`;
-    /// empty for a context snapshot.
-    static func ofTurn(_ d: JSON) -> [UsageTokens] {
-        let rows = d["models"].array.map(read).filter { $0.total != nil }
-        if !rows.isEmpty { return rows }
-        let usage = read(d)
-        return usage.total == nil ? [] : [usage]
+    /// Token counts as the server writes them, in a ledger or a bill.
+    static func server(_ j: JSON) -> UsageTokens {
+        UsageTokens(total: j["total"].int, input: j["input"].int, output: j["output"].int,
+                    cachedRead: j["cachedRead"].int, cachedWrite: j["cachedWrite"].int, thought: j["thought"].int)
     }
 
     /// Cache reads over input plus cache reads and writes; nil unless input and cache reads were reported.
@@ -67,16 +52,6 @@ struct UsageTokens: Equatable {
         guard let input, let cachedRead else { return nil }
         let prompt = input + cachedRead + (cachedWrite ?? 0)
         return prompt > 0 ? Double(cachedRead) / Double(prompt) : nil
-    }
-
-    /// Add another range's counts; a count neither side reported stays unreported.
-    mutating func add(_ o: UsageTokens) {
-        total = total.plus(o.total)
-        input = input.plus(o.input)
-        output = output.plus(o.output)
-        cachedRead = cachedRead.plus(o.cachedRead)
-        cachedWrite = cachedWrite.plus(o.cachedWrite)
-        thought = thought.plus(o.thought)
     }
 }
 
@@ -92,22 +67,8 @@ struct UsageContext: Equatable {
         return Double(used) / Double(size)
     }
 
-    /// One snapshot. A `used` of 0 or less says nothing yet, as in the session card.
-    mutating func snapshot(used u: Int?, size s: Int?) {
-        reports += 1
-        if let u, u > 0 {
-            used = u
-            peak = max(peak ?? u, u)
-        }
-        if let s, s > 0 { size = s }
-    }
-
-    /// Merge a newer range: the peak is the larger one, the latest value the newer one.
-    mutating func merge(_ newer: UsageContext) {
-        reports += newer.reports
-        peak = [peak, newer.peak].compactMap { $0 }.max()
-        used = newer.used ?? used
-        size = newer.size ?? size
+    static func server(_ j: JSON) -> UsageContext {
+        UsageContext(used: j["used"].int, peak: j["peak"].int, size: j["size"].int, reports: j["reports"].int ?? 0)
     }
 }
 
@@ -126,44 +87,17 @@ struct UsageCost: Equatable {
 
     var reported: Bool { reportedSessions > 0 }
 
-    /// One session's lines. Amounts without a currency may be in different units and stay apart;
-    /// named currencies come first, in order.
-    mutating func add(_ session: [UsageCostLine]) {
-        guard !session.isEmpty else { missingSessions += 1; return }
-        reportedSessions += 1
-        for l in session {
-            if !l.currency.isEmpty, let i = lines.firstIndex(where: { $0.currency == l.currency }) {
-                lines[i].amount += l.amount
-                lines[i].sessions += l.sessions
-            } else if l.currency.isEmpty {
-                lines.append(l)
-            } else {
-                lines.insert(l, at: lines.firstIndex { $0.currency.isEmpty || $0.currency > l.currency } ?? lines.endIndex)
-            }
-        }
+    /// A cost as the server writes it, in a ledger or a bill.
+    static func server(_ j: JSON) -> UsageCost {
+        UsageCost(lines: j["lines"].array.map(UsageCostLine.server),
+                  reportedSessions: j["reportedSessions"].int ?? 0, missingSessions: j["missingSessions"].int ?? 0)
     }
 }
 
-private enum CostSession: Hashable {
-    case native(String)
-    case attempt(String?, Int?)
-}
-
-private struct UsageOwner: Hashable {
-    let actor: String
-    let task: String?
-    let attempt: Int?
-    init(_ actor: String, _ event: Event) {
-        self.actor = actor
-        task = event.task
-        attempt = event.attempt
+extension UsageCostLine {
+    static func server(_ j: JSON) -> UsageCostLine {
+        UsageCostLine(currency: j["currency"].str, amount: j["amount"].double ?? 0, sessions: j["sessions"].int ?? 1)
     }
-}
-
-private struct CostKey: Hashable {
-    var owner: String
-    var session: CostSession
-    var currency: String
 }
 
 /// Tokens and turns on one model, in a bill.
@@ -220,19 +154,11 @@ struct UsageScope: Equatable {
     var missingSessions = 0
     var completeness: UsageCompleteness = .missing
 
-    /// The range over `sessions`, oldest first, so the latest context snapshot wins.
-    static func over(_ id: String, _ sessions: [UsageSession], durationMs: Int? = nil, waitMs: Int? = nil) -> UsageScope {
-        var s = UsageScope(id: id, durationMs: durationMs, waitMs: waitMs)
-        for session in sessions {
-            s.sessions += 1
-            if session.turns > 0 { s.reportedSessions += 1 } else { s.missingSessions += 1 }
-            s.tokens.add(session.tokens)
-            s.turns += session.turns
-            s.context.merge(session.context)
-            s.cost.add(session.cost)
-        }
-        s.completeness = .of(reported: s.reportedSessions, missing: s.missingSessions)
-        return s
+    static func server(_ j: JSON) -> UsageScope {
+        UsageScope(id: j["id"].str, tokens: .server(j["tokens"]), turns: j["turns"].int ?? 0, context: .server(j["context"]),
+                   cost: .server(j["cost"]), durationMs: j["durationMs"].int, waitMs: j["waitMs"].int, sessions: j["sessions"].int ?? 0,
+                   reportedSessions: j["reportedSessions"].int ?? 0, missingSessions: j["missingSessions"].int ?? 0,
+                   completeness: UsageCompleteness(rawValue: j["completeness"].str) ?? .missing)
     }
 }
 
@@ -262,9 +188,49 @@ struct UsageAttempt: Identifiable, Equatable {
     var endedMs: Int?
     var durationMs: Int?
     var id: String { "\(task)#\(n)" }
+
+    static func server(_ j: JSON) -> UsageAttempt {
+        UsageAttempt(task: j["task"].str, n: j["n"].int ?? 0, actor: j["actor"].str, state: State(rawValue: j["state"].str) ?? .unfinished,
+                     note: j["note"].string, startedMs: j["startedMs"].int ?? 0, endedMs: j["endedMs"].int, durationMs: j["durationMs"].int)
+    }
 }
 
-/// The run's ledger: every range over the same events, plus reminders that are only text.
+extension UsageSession {
+    static func server(_ j: JSON) -> UsageSession {
+        UsageSession(key: j["key"].str, actor: j["actor"].str, task: j["task"].string, attempt: j["attempt"].int, tokens: .server(j["tokens"]),
+                     turns: j["turns"].int ?? 0, context: .server(j["context"]), cost: j["cost"].array.map(UsageCostLine.server),
+                     firstMs: j["firstMs"].int ?? 0, lastMs: j["lastMs"].int ?? 0)
+    }
+}
+
+/// A read-only reminder about the run's usage, with the numbers behind it (`Reminder` in the server).
+enum UsageReminder: Equatable {
+    case tokens(total: Int, threshold: Int)
+    case oneTask(task: String, total: Int, share: Double)
+    case idleTeam(collaborators: Int, minutes: Int)
+    case costUnknown
+
+    static func server(_ j: JSON) -> UsageReminder? {
+        switch j["kind"].str {
+        case "tokens": return .tokens(total: j["total"].int ?? 0, threshold: j["threshold"].int ?? 0)
+        case "oneTask": return .oneTask(task: j["task"].str, total: j["total"].int ?? 0, share: j["share"].double ?? 0)
+        case "idleTeam": return .idleTeam(collaborators: j["collaborators"].int ?? 0, minutes: j["minutes"].int ?? 0)
+        case "costUnknown": return .costUnknown
+        default: return nil
+        }
+    }
+
+    var text: String {
+        switch self {
+        case .tokens(let total, let threshold): return L.text("Token 用量偏高：已上报 \(usageNum(total)) tokens，达到默认提醒阈值 \(usageNum(threshold))")
+        case .oneTask(let task, let total, let share): return L.text("大部分用量集中在一个子任务：\(task) 占 \(usageNum(total)) 的 \(usagePercent(share))")
+        case .idleTeam(let collaborators, let minutes): return L.text("协作者多但没有有效产出：\(collaborators) 个协作者，\(minutes) 分钟内没有任何子任务成功")
+        case .costUnknown: return L.text("费用算不出来：有 Token 用量，但没有会话上报费用")
+        }
+    }
+}
+
+/// The run's ledger: every range over the same events, plus reminders that change nothing.
 struct UsageLedger: Equatable {
     var run = UsageScope(id: "run")
     var lead = UsageScope(id: "lead")
@@ -273,14 +239,21 @@ struct UsageLedger: Equatable {
     var members: [UsageScope] = []
     var attempts: [UsageAttempt] = []
     var sessions: [UsageSession] = []
-    var reminders: [String] = []
+    var reminders: [UsageReminder] = []
 
     static let empty = UsageLedger()
 
+    /// The ledger as `GET /api/runs/{id}/usage` returns it.
+    static func server(_ j: JSON) -> UsageLedger {
+        UsageLedger(run: .server(j["run"]), lead: .server(j["lead"]), collaborators: .server(j["collaborators"]),
+                    tasks: j["tasks"].array.map(UsageScope.server), members: j["members"].array.map(UsageScope.server),
+                    attempts: j["attempts"].array.map(UsageAttempt.server), sessions: j["sessions"].array.map(UsageSession.server),
+                    reminders: j["reminders"].array.compactMap(UsageReminder.server))
+    }
+
     func task(_ id: String) -> UsageScope? { tasks.first { $0.id == id } }
 
-    /// The run's tokens, cost and wall-clock time in one line: the backend's ledger line after
-    /// 「用量：」 (`Ledger::summary_line`), which the shared cases compare.
+    /// The run's tokens, cost and wall-clock time in one line.
     var runLine: String { L.text("\(run.tokensText) · \(run.costText) · 耗时 \(run.durationText)") }
 
     /// Whether any session reported usage (tokens, a context snapshot or a cost): only then is
@@ -328,7 +301,7 @@ struct UsageLedger: Equatable {
     /// The reminders in one line, prefixed when the numbers are not complete.
     var remindersLine: String? {
         guard !reminders.isEmpty else { return nil }
-        return (run.completeness == .complete ? L.text("提醒") : L.text("提醒（按已上报数据）")) + L.text("：") + reminders.joined(separator: L.text("；"))
+        return (run.completeness == .complete ? L.text("提醒") : L.text("提醒（按已上报数据）")) + L.text("：") + reminders.map(\.text).joined(separator: L.text("；"))
     }
 }
 
@@ -400,6 +373,20 @@ extension UsageScope {
     }
 }
 
+extension UsageLedger {
+    /// The ledger the run card's summary line shows at `now`. While the run is `ticking` (live,
+    /// not a replayed position, still going) and has a start, the run's wall-clock time counts
+    /// from `start` to `now`, never below the recorded value, so a clock that moves back does not
+    /// make it shrink. Otherwise, and for everything but the run's own time, the recorded values.
+    // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
+    func displayed(at now: Double, since start: Double, ticking: Bool) -> UsageLedger {
+        guard ticking, start > 0 else { return self }
+        var shown = self
+        shown.run.durationMs = max(run.durationMs ?? 0, Int(max(0, now - start).rounded()))
+        return shown
+    }
+}
+
 /// One line a usage card renders: a label and the value beside it. The views build their rows from
 /// these, so a test reads exactly what the card shows.
 struct UsageLine: Equatable, Identifiable {
@@ -420,26 +407,6 @@ extension UsageLedger {
 
     /// One member in the expanded detail: its tokens, or 「没有会话」, and how many sessions it used.
     func memberDetail(_ scope: UsageScope) -> String { L.text("\(scope.notStarted ? L.text("没有会话") : scope.tokensText) · \(scope.sessions) 个会话") }
-}
-
-// MARK: Run page display
-
-extension RunState {
-    /// The ledger the run card's summary line shows at `now`. While the server says the run is
-    /// live (`live`, and not at a replayed position), the run is still going and it recorded a
-    /// creation time, the run's wall-clock time counts from `run.created` to `now`; the displayed
-    /// value never drops below the recorded one, so a clock that moves back does not make it
-    /// shrink. A finished run, a replayed prefix and a read-only run keep what the events recorded.
-    /// Only `run.durationMs` changes: the tasks' and attempts' times, the waits, the numbers and
-    /// the reminders stay. The expanded usage detail does not use this copy; its ledger is the
-    /// recorded one.
-    // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
-    func usageForDisplay(now: Double, live: Bool) -> UsageLedger {
-        guard live, run.status.isActive, run.start > 0 else { return usage }
-        var shown = usage
-        shown.run.durationMs = max(shown.run.durationMs ?? 0, Int(max(0, now - run.start).rounded()))
-        return shown
-    }
 }
 
 /// Thousands separators for token counts, the same on every page.
@@ -463,254 +430,4 @@ func usageMoney(_ v: Double) -> String {
     var s = String(format: "%.4f", rounded)
     while s.hasSuffix("0") { s.removeLast() }
     return s
-}
-
-private extension Int? {
-    /// Two optional counts added: no data on both sides stays no data.
-    func plus(_ other: Int?) -> Int? {
-        switch (self, other) {
-        case let (a?, b?): return a + b
-        case let (a, b): return a ?? b
-        }
-    }
-}
-
-// MARK: Derivation
-
-/// Who owns the session an event speaks about: `attempt.started` is written by Janus for the agent
-/// in `to`; every other event's actor owns its session (`session_actor` in the backend).
-private func usageOwner(_ e: Event) -> String {
-    guard e.type == .attemptStarted, let to = e.to, !to.isEmpty else { return e.actor }
-    return to
-}
-
-/// The ledger of one slice of the event log. Pure: the same events always give the same numbers.
-// @project-doc docs/architecture/20261031-frontend.md#usage_ledger
-func usageLedger(_ events: [Event]) -> UsageLedger {
-    struct SessionBuild {
-        var actor: String, task: String?, attempt: Int?
-        var tokens = UsageTokens(), turns = 0, context = UsageContext()
-        var cost: [String: Double] = [:]
-        var firstMs: Int, lastMs: Int
-    }
-    struct AttemptBuild {
-        var task: String, n: Int, actor: String
-        var state = UsageAttempt.State.unfinished, note: String?
-        var startedMs: Int, endedMs: Int?, lastMs: Int
-    }
-    var created: Int?
-    var last: Int?
-    var current: [UsageOwner: String] = [:]
-    var previousCosts: [CostKey: Double] = [:]
-    var builds: [String: SessionBuild] = [:]
-    var order: [String] = []
-    var attempts: [String: AttemptBuild] = [:]
-    var attemptOrder: [String] = []
-    var tasks: [String] = []
-    var spans: [String: (Int, Int)] = [:]
-    var waits: [(ms: Int, task: String?, actor: String)] = []
-    var open: [String: (start: Int, task: String?, actor: String)] = [:]
-    var declared: Set<String> = []
-    var runCancelled: Int?
-    var taskCancelled: [String: Int] = [:]
-
-    func noteTask(_ id: String) { if !tasks.contains(id) { tasks.append(id) } }
-
-    /// The actor is in its current session, even if it never reports usage; returns the key.
-    @discardableResult func touch(_ e: Event, _ owner: String) -> String {
-        let ts = Int(e.ts)
-        let taskPart = e.task ?? "-"
-        let sid = e.data["session"].string.flatMap { $0.isEmpty ? nil : $0 } ?? current[UsageOwner(owner, e)]
-        let key = sid.map { "\(owner):\(taskPart)/\(e.attempt ?? 0):\($0)" } ?? "\(owner):\(taskPart)/\(e.attempt.map(String.init) ?? "-")"
-        if var s = builds[key] {
-            s.firstMs = min(s.firstMs, ts)
-            s.lastMs = max(s.lastMs, ts)
-            builds[key] = s
-        } else {
-            order.append(key)
-            builds[key] = SessionBuild(actor: owner, task: e.task, attempt: e.attempt, firstMs: ts, lastMs: ts)
-        }
-        if owner != "lead" { declared.insert(owner) }
-        return key
-    }
-
-    func attempt(_ task: String, _ n: Int, _ actor: String, _ ts: Int) {
-        let key = "\(task)#\(n)"
-        var a = attempts[key] ?? {
-            attemptOrder.append(key)
-            return AttemptBuild(task: task, n: n, actor: actor, startedMs: ts, endedMs: nil, lastMs: ts)
-        }()
-        a.lastMs = max(a.lastMs, ts)
-        attempts[key] = a
-        if actor != "lead" { declared.insert(actor) }
-    }
-
-    func ended(_ e: Event, _ state: UsageAttempt.State, _ note: String?) {
-        guard let task = e.task, let n = e.attempt else { return }
-        let ts = Int(e.ts)
-        attempt(task, n, e.actor, ts)
-        let key = "\(task)#\(n)"
-        guard var a = attempts[key] else { return }
-        a.state = state
-        if let note { a.note = note }
-        a.endedMs = max(a.endedMs ?? ts, ts)
-        attempts[key] = a
-    }
-
-    for e in events {
-        let ts = Int(e.ts)
-        last = max(last ?? ts, ts)
-        if let task = e.task {
-            noteTask(task)
-            let span = spans[task] ?? (ts, ts)
-            spans[task] = (min(span.0, ts), max(span.1, ts))
-        }
-        let d = e.data
-        switch e.type {
-        case .runCreated:
-            created = ts
-        case .attemptStarted, .agentStatus:
-            let owner = usageOwner(e)
-            if let sid = d["session"].string, !sid.isEmpty {
-                current[UsageOwner(owner, e)] = sid
-            } else if e.type == .agentStatus {
-                break
-            } else {
-                current.removeValue(forKey: UsageOwner(owner, e))
-            }
-            // An opened session can be one whose usage never arrives: it counts as unreported.
-            touch(e, owner)
-            if e.type == .attemptStarted, let task = e.task, let n = e.attempt { attempt(task, n, owner, ts) }
-        case .sessionUsage:
-            let rows = UsageTokens.ofTurn(d)
-            let used = d["used"].int, size = d["size"].int
-            let cost = d["cost"]["amount"].double.map { (currency: d["cost"]["currency"].str, amount: $0) }
-            if rows.isEmpty, used == nil, size == nil, cost == nil { break }
-            let owner = usageOwner(e)
-            let key = touch(e, owner)
-            guard var s = builds[key] else { break }
-            if !rows.isEmpty { s.turns += 1 }
-            for row in rows { s.tokens.add(row) }
-            if used != nil || size != nil { s.context.snapshot(used: used, size: size) }
-            if let cost {
-                let currency = cost.currency.uppercased() == "USD" ? "USD" : cost.currency
-                let sid = d["session"].string.flatMap { $0.isEmpty ? nil : $0 } ?? current[UsageOwner(owner, e)]
-                let session = sid.map(CostSession.native) ?? .attempt(e.task, e.attempt)
-                let key = CostKey(owner: owner, session: session, currency: currency)
-                let previous = previousCosts[key] ?? 0
-                var delta = 0.0
-                if cost.amount > 0 || previous <= 0 {
-                    delta = cost.amount < previous ? cost.amount : cost.amount - previous
-                    previousCosts[key] = cost.amount
-                }
-                s.cost[currency, default: 0] += delta
-            }
-            builds[key] = s
-        case .attemptFailed:
-            ended(e, .failed, d["error"].string)
-        case .attemptLateResult:
-            ended(e, .expired, L.text("过期尝试的结果被忽略，用量照常计入"))
-        case .verificationFailed:
-            let failures = d["failures"].strings
-            ended(e, .verificationFailed, failures.isEmpty ? nil : failures.joined(separator: L.text("；")))
-        case .taskSucceeded:
-            ended(e, .succeeded, nil)
-        case .taskFailed:
-            ended(e, .failed, ["verification": L.text("验收没通过"), "attempts": L.text("用完尝试次数")][d["reason"].str])
-        case .taskSkippedByDecision:
-            // The lead cancelled one task; Janus writes no attempt event for it (see below).
-            if let task = e.task { taskCancelled[task] = min(taskCancelled[task] ?? ts, ts) }
-        case .runCancelled:
-            runCancelled = min(runCancelled ?? ts, ts)
-        case .orchestrationAccepted:
-            for x in d["tasks"].array {
-                if let id = x["id"].string { noteTask(id) }
-                if let agent = x["agent"].string { declared.insert(agent) }
-            }
-        // Requests that hold a session until a person or the lead answers.
-        case .questionAsked, .approvalRequested, .inputRequested:
-            if let key = d["key"].string, !key.isEmpty { open[key] = (ts, e.task, e.actor) }
-        case .questionAnswered, .approvalGranted, .approvalDenied, .inputAnswered, .decisionWithdrawn:
-            if let key = d["key"].string, let w = open.removeValue(forKey: key) {
-                waits.append((ms: max(0, ts - w.start), task: w.task, actor: w.actor))
-            }
-        default:
-            break
-        }
-    }
-
-    let end = last ?? 0
-    // A request nobody answered yet waits until the last event.
-    for w in open.values { waits.append((ms: max(0, end - w.start), task: w.task, actor: w.actor)) }
-    func wait(_ match: (String?, String) -> Bool) -> Int? {
-        let matched = waits.filter { match($0.task, $0.actor) }.map(\.ms)
-        return matched.isEmpty ? nil : matched.reduce(0, +)
-    }
-
-    // Oldest first, so a range's latest context snapshot is the one that shows.
-    let sessions: [UsageSession] = order.enumerated().compactMap { i, key in
-        builds[key].map { b in
-            (i, UsageSession(key: key, actor: b.actor, task: b.task, attempt: b.attempt, tokens: b.tokens, turns: b.turns, context: b.context,
-                             cost: b.cost.keys.sorted().map { UsageCostLine(currency: $0, amount: b.cost[$0] ?? 0) },
-                             firstMs: b.firstMs, lastMs: b.lastMs))
-        }
-    }
-    .sorted { ($0.1.lastMs, $0.0) < ($1.1.lastMs, $1.0) }
-    .map(\.1)
-
-    var ledger = UsageLedger()
-    ledger.sessions = sessions
-    ledger.run = .over("run", sessions, durationMs: created.map { max(0, end - $0) }, waitMs: wait { _, _ in true })
-    ledger.lead = .over("lead", sessions.filter { $0.actor == "lead" }, waitMs: wait { _, a in a == "lead" })
-    ledger.collaborators = .over("collaborators", sessions.filter { $0.actor != "lead" }, waitMs: wait { _, a in a != "lead" })
-    ledger.tasks = tasks.map { task in
-        .over(task, sessions.filter { $0.task == task }, durationMs: spans[task].map { max(0, $0.1 - $0.0) }, waitMs: wait { t, _ in t == task })
-    }
-    ledger.members = Set(sessions.map(\.actor)).sorted().map { actor in
-        .over(actor, sessions.filter { $0.actor == actor }, waitMs: wait { _, a in a == actor })
-    }
-    ledger.attempts = attemptOrder.compactMap { key in
-        guard var b = attempts[key] else { return nil }
-        // Janus kills the sessions of a cancelled run (or of a task the lead cancels) just before it
-        // records the cancel, so a failure event can still follow it. An attempt still running when
-        // its cancel arrived was cancelled; what it reported stays counted.
-        let cancel: (at: Int, note: String)? = switch (runCancelled, taskCancelled[b.task]) {
-        case let (run?, task?) where task <= run: (task, L.text("负责人取消了这个子任务"))
-        case let (run?, _): (run, L.text("任务被取消"))
-        case let (nil, task?): (task, L.text("负责人取消了这个子任务"))
-        case (nil, nil): nil
-        }
-        if let cancel, b.state != .succeeded, !(b.endedMs.map { $0 < cancel.at } ?? false) {
-            b.state = .cancelled
-            b.note = cancel.note
-            b.endedMs = max(b.endedMs ?? cancel.at, cancel.at)
-        }
-        let duration = b.endedMs.map { max(0, $0 - b.startedMs) } ?? (b.lastMs > b.startedMs ? b.lastMs - b.startedMs : nil)
-        return UsageAttempt(task: b.task, n: b.n, actor: b.actor, state: b.state, note: b.note, startedMs: b.startedMs,
-                            endedMs: b.endedMs, durationMs: duration)
-    }
-    ledger.reminders = usageReminders(ledger, declared: declared.count)
-    return ledger
-}
-
-/// The read-only reminders, with the backend's default thresholds. Text only: nothing here changes
-/// the run, its budget, its attempts or the inbox.
-func usageReminders(_ ledger: UsageLedger, declared: Int) -> [String] {
-    var out: [String] = []
-    let total = ledger.run.tokens.total
-    if let n = total, n >= 500_000 {
-        out.append(L.text("Token 用量偏高：已上报 \(usageNum(n)) tokens，达到默认提醒阈值 500,000"))
-    }
-    if let n = total, n >= 50_000, let (task, used) = ledger.tasks.compactMap({ t in t.tokens.total.map { (t, $0) } }).max(by: { $0.1 < $1.1 }),
-       Double(used) >= Double(n) * 0.6 {
-        out.append(L.text("大部分用量集中在一个子任务：\(task.id) 占 \(usageNum(n)) 的 \(usagePercent(Double(used) / Double(n)))"))
-    }
-    let collaborators = max(declared, ledger.members.filter { $0.id != "lead" }.count)
-    if collaborators >= 5, !ledger.attempts.contains(where: { $0.state == .succeeded }), (ledger.run.durationMs ?? 0) >= 30 * 60 * 1000 {
-        out.append(L.text("协作者多但没有有效产出：\(collaborators) 个协作者，30 分钟内没有任何子任务成功"))
-    }
-    if let n = total, n >= 100_000, !ledger.run.cost.reported {
-        out.append(L.text("费用算不出来：有 Token 用量，但没有会话上报费用"))
-    }
-    return out
 }

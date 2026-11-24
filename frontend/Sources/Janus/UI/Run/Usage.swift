@@ -28,7 +28,7 @@ struct UsageSection: View {
     ] }
 
     var body: some View {
-        let u = st.usage
+        let u = run.usage
         let subtotal = u.subtotalLine
         let rowHelp = help
         VStack(alignment: .leading, spacing: 9) {
