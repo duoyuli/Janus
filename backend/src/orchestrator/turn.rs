@@ -886,22 +886,20 @@ impl App {
             };
             tokio::select! {
                 decision = &mut wait => {
-                    let decision = decision?;
-                    if elicit {
-                        return Ok(match decision["action"].as_str().unwrap_or("cancel") {
-                            "accept" => json!({ "action": "accept", "content": decision["content"].clone() }),
-                            "decline" => json!({ "action": "decline" }),
-                            _ => json!({ "action": "cancel" }),
-                        });
-                    }
-                    if let Some(o) = decision["option"].as_str().filter(|o| options.iter().any(|x| x["optionId"] == *o)) {
-                        return Ok(selected(o));
-                    }
-                    return Ok(selected(if decision["allow"].as_bool().unwrap_or(false) {
-                        &allow
-                    } else {
-                        &reject
-                    }));
+                    return Ok(match (decision?, elicit) {
+                        (Decision::Input { action: InputAction::Accept, content }, true) => {
+                            json!({ "action": "accept", "content": content })
+                        }
+                        (Decision::Input { action: InputAction::Decline, .. }, true) => json!({ "action": "decline" }),
+                        (_, true) => json!({ "action": "cancel" }),
+                        (Decision::Approval { option: Some(o), .. }, false)
+                            if options.iter().any(|x| x["optionId"] == o.as_str()) =>
+                        {
+                            selected(&o)
+                        }
+                        (Decision::Approval { allow: true, .. }, false) => selected(&allow),
+                        (_, false) => selected(&reject),
+                    });
                 }
                 cmd = steer => {
                     let Some(c) = ctl.as_mut() else { continue };

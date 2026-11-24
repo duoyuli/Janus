@@ -241,12 +241,12 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert_eq!(browsers(), b, "listed from what it gave last time");
 
     // Stopping the run stops the rest at once, shared ones too, and starts nothing more.
-    h.app.action(&live, &json!({ "type": "cancel" })).unwrap();
+    h.app.action(&live, &action_of(json!({ "type": "cancel" }))).unwrap();
     eventually("the shared server and its child stop with the run", || !process_alive(&shared_child)).await;
     let after = tool(&h, &lead, "probe__cwd", json!({})).await;
     assert!(after["isError"] == true, "a stopped run starts nothing: {after}");
     let second_run = h.app.run(&second).unwrap();
-    h.app.action(&second_run, &json!({ "type": "cancel" })).unwrap();
+    h.app.action(&second_run, &action_of(json!({ "type": "cancel" }))).unwrap();
 
     // Deleting the item takes its sandbox and remembered lists along.
     let owned = h.app.cfg.layout.item_paths(&probe.id);
@@ -337,7 +337,7 @@ async fn url_servers_are_reached_by_the_router_with_their_values() {
     assert_eq!(lines().iter().filter(|l| *l == "init").count(), 2);
 
     let live = h.app.run(&run).unwrap();
-    h.app.action(&live, &json!({ "type": "cancel" })).unwrap();
+    h.app.action(&live, &action_of(json!({ "type": "cancel" }))).unwrap();
     eventually("stopping the run ends the server's session", || lines().contains(&"delete".to_string())).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -453,7 +453,7 @@ async fn a_server_deleted_from_the_library_is_gone_from_running_runs() {
     assert!(!listed(&h, &lead).await.iter().any(|t| t.starts_with("probe__")), "no longer listed");
     unknown(&h, &lead, "probe__echo").await;
     let r = h.app.run(&run).unwrap();
-    h.app.action(&r, &json!({ "type": "cancel" })).unwrap();
+    h.app.action(&r, &action_of(json!({ "type": "cancel" }))).unwrap();
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

@@ -16,7 +16,7 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     let body = json!({ "type": "message", "agent": "lead", "text": "只说一次", "commandId": "c-1" });
     let spawn = |body: Value| {
         let (app, run) = (h.app.clone(), run.clone());
-        tokio::spawn(async move { app.request_action(&run, &body).await })
+        tokio::spawn(async move { app.request_action(&run, &req(body)).await })
     };
     let (a, b) = (spawn(body.clone()), spawn(body.clone()));
     let replies = [a.await.unwrap(), b.await.unwrap()];
@@ -24,7 +24,7 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     // The other one finds the action running (refused) or finished (a duplicate), and does nothing.
     let other = replies.iter().filter(|r| matches!(r, Ok(ActionReply::Duplicate) | Err(Refused::Conflict(_)))).count();
     assert_eq!((done, other), (1, 1), "the second request with the id does nothing");
-    assert!(matches!(h.app.request_action(&run, &body).await, Ok(ActionReply::Duplicate)));
+    assert!(matches!(h.app.request_action(&run, &req(body.clone())).await, Ok(ActionReply::Duplicate)));
     let said = |text: &str| {
         events(&h.app, &run)
             .iter()
@@ -34,10 +34,10 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     assert_eq!(said("只说一次"), 1);
 
     // An action that fails releases its id: the same id then acts.
-    let failing = json!({ "type": "nonsense", "commandId": "c-2" });
-    assert!(matches!(h.app.request_action(&run, &failing).await, Err(Refused::Invalid(_))));
+    let failing = json!({ "type": "answer", "key": "nobody-asked", "commandId": "c-2" });
+    assert!(matches!(h.app.request_action(&run, &req(failing)).await, Err(Refused::Invalid(_))));
     let retry = json!({ "type": "message", "agent": "lead", "text": "第二次", "commandId": "c-2" });
-    assert!(matches!(h.app.request_action(&run, &retry).await, Ok(ActionReply::Done)));
+    assert!(matches!(h.app.request_action(&run, &req(retry)).await, Ok(ActionReply::Done)));
     assert_eq!(said("第二次"), 1);
 
     // A restart between claiming an id and the action taking effect: the outcome is unknown, so
@@ -45,10 +45,12 @@ async fn a_command_id_acts_once_and_a_failed_action_can_be_retried() {
     h.app.db.claim_command(&run, "c-3", &json!({ "type": "message" }), now_ms()).unwrap();
     h.app.db.interrupt_commands().unwrap();
     let cut_off = json!({ "type": "message", "agent": "lead", "text": "第三次", "commandId": "c-3" });
-    assert!(matches!(h.app.request_action(&run, &cut_off).await, Err(Refused::Conflict(_))));
+    assert!(matches!(h.app.request_action(&run, &req(cut_off)).await, Err(Refused::Conflict(_))));
     assert_eq!(said("第三次"), 0);
 
-    assert!(matches!(h.app.request_action("no-such-run", &body).await, Err(Refused::NotFound)));
+    assert!(matches!(h.app.request_action("no-such-run", &req(body)).await, Err(Refused::NotFound)));
+    // An action Janus does not have is refused before anything is claimed.
+    assert!(serde_json::from_value::<ActionRequest>(json!({ "type": "nonsense", "commandId": "c-4" })).is_err());
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -75,7 +77,7 @@ async fn runs_created_together_get_distinct_ids() {
         // With free slots every request's own run is set up before it is answered.
         let row = h.app.db.run(id).unwrap().unwrap();
         assert!(row["config"]["team"].is_array(), "{id} has its team when its request returns");
-        h.app.action(&h.app.run(id).unwrap(), &json!({ "type": "cancel" })).unwrap();
+        h.app.action(&h.app.run(id).unwrap(), &action_of(json!({ "type": "cancel" }))).unwrap();
     }
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -105,7 +107,7 @@ async fn a_run_that_is_not_live_comes_back_once() {
     let send = |text: &'static str| {
         let (app, run) = (h.app.clone(), run.clone());
         tokio::spawn(async move {
-            app.request_action(&run, &json!({ "type": "message", "agent": "lead", "text": text })).await
+            app.request_action(&run, &req(json!({ "type": "message", "agent": "lead", "text": text }))).await
         })
     };
     let (a, b) = (send("第一条"), send("第二条"));
@@ -198,6 +200,6 @@ async fn an_orchestration_that_could_not_be_stored_does_not_start() {
         .count();
     assert_eq!(started, 1, "the task runs once");
     let r = h.app.run(&run).unwrap();
-    h.app.action(&r, &json!({ "type": "cancel" })).unwrap();
+    h.app.action(&r, &action_of(json!({ "type": "cancel" }))).unwrap();
     let _ = std::fs::remove_dir_all(&h.dir);
 }

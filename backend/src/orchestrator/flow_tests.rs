@@ -32,6 +32,16 @@ struct Harness {
 }
 
 /// The branch checked out in `repo`.
+/// A request to act on a run, as the HTTP API reads it from its JSON body.
+fn req(body: Value) -> ActionRequest {
+    serde_json::from_value(body).expect("a valid action request")
+}
+
+/// An action on a live run, as `req` reads it.
+fn action_of(body: Value) -> super::actions::RunAction {
+    serde_json::from_value(body).expect("a valid action")
+}
+
 fn git_branch(repo: &Path) -> String {
     let out = std::process::Command::new("git").args(["branch", "--show-current"]).current_dir(repo).output().unwrap();
     String::from_utf8_lossy(&out.stdout).trim().to_string()
@@ -161,7 +171,7 @@ fn finish_lead(h: &Harness) {
 
 fn act(h: &Harness, run: &str, a: Value) {
     let r = h.app.run(run).unwrap();
-    h.app.action(&r, &a).unwrap();
+    h.app.action(&r, &action_of(a)).unwrap();
 }
 
 fn task(id: &str, assignee: &str, extra: Value) -> Value {
@@ -537,7 +547,7 @@ async fn sessions_show_what_the_agent_shows_and_take_its_controls() {
         let mut a = json!({ "type": "control", "task": "T1", "agent": "" });
         a["id"] = bad["id"].clone();
         a["value"] = bad["value"].clone();
-        assert!(h.app.action(&h.app.run(&run).unwrap(), &a).is_err(), "{a}");
+        assert!(h.app.action(&h.app.run(&run).unwrap(), &action_of(a.clone())).is_err(), "{a}");
     }
     act(&h, &run, json!({ "type": "message", "task": "T1", "agent": "", "text": "看看 @pay.js 还有 @nope.js" }));
     for _ in 0..50 {
@@ -630,7 +640,7 @@ async fn run_state_follows_the_board() {
     .await;
     wait_until(&h.app, &run, "C blocked", |e| task_event(e, "task.blocked", "C")).await;
     let r = h.app.run(&run).unwrap();
-    assert!(h.app.action(&r, &json!({ "type": "accept" })).is_err(), "nothing delivered yet");
+    assert!(h.app.action(&r, &action_of(json!({ "type": "accept" }))).is_err(), "nothing delivered yet");
 
     // A is accepted; C still waits on B and says so.
     let blocked_on = |dep: &str| {
@@ -676,8 +686,8 @@ async fn run_state_follows_the_board() {
     act(&h, &run, json!({ "type": "accept" }));
     assert_eq!(status(&h.app, &run), "accepted");
     let r = h.app.run(&run).unwrap();
-    assert!(h.app.action(&r, &json!({ "type": "pause" })).is_err());
-    assert!(h.app.action(&r, &json!({ "type": "cancel" })).is_err());
+    assert!(h.app.action(&r, &action_of(json!({ "type": "pause" }))).is_err());
+    assert!(h.app.action(&r, &action_of(json!({ "type": "cancel" }))).is_err());
     assert_eq!(status(&h.app, &run), "accepted");
     let _ = std::fs::remove_dir_all(&h.dir);
 }

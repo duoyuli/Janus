@@ -58,7 +58,8 @@ mod session;
 mod tests;
 mod turn;
 
-pub use actions::{ActionReply, Refused};
+pub use actions::{ActionReply, ActionRequest, Refused};
+use actions::{Decision, InputAction};
 use attempts::*;
 use board::*;
 use board_tools::*;
@@ -229,13 +230,6 @@ wire_enum! {
     pub enum ControlVia {
         Mode = "mode",
         Config = "config",
-    }
-}
-
-impl ControlVia {
-    /// The `via` an action or a control declaration names; anything but `mode` is a config option.
-    pub fn of(s: &str) -> ControlVia {
-        ControlVia::parse(s).unwrap_or(ControlVia::Config)
     }
 }
 
@@ -904,7 +898,7 @@ enum Ask {
 struct Pending {
     owner: Owner,
     ask: Ask,
-    tx: oneshot::Sender<Value>,
+    tx: oneshot::Sender<Decision>,
 }
 
 /// What the watchdog knows about a running attempt: when its session last showed any sign of
@@ -1340,13 +1334,13 @@ impl App {
     }
 
     /// Wait for the decision `key`, which `owner` asked for.
-    async fn wait_for(&self, run: &Run, key: &str, owner: Owner, ask: Ask) -> Result<Value> {
+    async fn wait_for(&self, run: &Run, key: &str, owner: Owner, ask: Ask) -> Result<Decision> {
         let rx = self.add_pending(run, key, owner, ask)?;
         rx.await.map_err(|_| anyhow::Error::new(Cancelled))
     }
 
     /// Register a pending decision; its answer arrives on the returned receiver.
-    fn add_pending(&self, run: &Run, key: &str, owner: Owner, ask: Ask) -> Result<oneshot::Receiver<Value>> {
+    fn add_pending(&self, run: &Run, key: &str, owner: Owner, ask: Ask) -> Result<oneshot::Receiver<Decision>> {
         let (tx, rx) = oneshot::channel();
         let mut st = run.st.lock().unwrap();
         // Cancelling clears the pending decisions; one added afterwards would never be resolved.
@@ -1366,9 +1360,9 @@ impl App {
         }
     }
 
-    fn resolve(&self, run: &Run, key: &str, value: Value) -> Result<()> {
+    fn resolve(&self, run: &Run, key: &str, decision: Decision) -> Result<()> {
         let pending = run.st.lock().unwrap().pending.remove(key).ok_or_else(|| anyhow!("没有等待中的决定：{key}"))?;
-        let _ = pending.tx.send(value);
+        let _ = pending.tx.send(decision);
         Ok(())
     }
 

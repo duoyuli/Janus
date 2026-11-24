@@ -43,7 +43,7 @@ async fn an_idle_session_closes_and_the_next_message_opens_it() {
 
     // As the app sends it: the closed run opens again first.
     let message = json!({ "type": "message", "agent": "lead", "text": "还在吗" });
-    assert!(h.app.request_action(&id, &message).await.is_ok());
+    assert!(h.app.request_action(&id, &req(message)).await.is_ok());
     wait_until(&h.app, &id, "the reply after reopening", |e| replied(e, "还在吗")).await;
     assert_eq!(status(&h.app, &id), "running");
     assert_eq!(h.app.seats.open(), 1);
@@ -106,7 +106,7 @@ async fn a_goal_lead_is_parked_only_after_delivery() {
     assert_eq!(status(&h.app, &run), "delivered", "parking keeps a goal's status");
 
     let message = json!({ "type": "message", "agent": "lead", "text": "结果是什么？" });
-    assert!(h.app.request_action(&run, &message).await.is_ok());
+    assert!(h.app.request_action(&run, &req(message)).await.is_ok());
     wait_until(&h.app, &run, "the lead answers again", |e| {
         e.iter().filter(|x| x.kind.as_str() == "agent.message").count() >= 2
     })

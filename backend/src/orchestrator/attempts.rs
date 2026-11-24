@@ -556,11 +556,13 @@ impl App {
                 let _held = run.held(&owner.session, n);
                 tokio::select! {
                     answer = self.wait_for(run, &key, owner.clone(), Ask::Question) => {
-                        let answer = answer?;
+                        let (answer, note) = match answer? {
+                            Decision::Answer { answer, note } => (answer, note),
+                            other => bail!("提问收到的不是回答：{other:?}"),
+                        };
                         next = Some(format!(
-                            "你的问题已得到回答：{}\n补充说明：{}\n请据此继续完成子任务。完成后同样以 ```json 结构化结果结束。",
-                            answer["answer"].as_str().unwrap_or(""),
-                            answer["note"].as_str().filter(|s| !s.is_empty()).unwrap_or("无")
+                            "你的问题已得到回答：{answer}\n补充说明：{}\n请据此继续完成子任务。完成后同样以 ```json 结构化结果结束。",
+                            if note.is_empty() { "无" } else { &note }
                         ));
                     }
                     cmd = ctl.rx.recv() => {

@@ -3,7 +3,7 @@
 
 use super::setup::PathQuery;
 use super::{ApiError, ApiResult, ok, reply};
-use crate::orchestrator::{ActionReply, App, NewChat, NewRun};
+use crate::orchestrator::{ActionReply, ActionRequest, App, NewChat, NewRun};
 use crate::status::{RunKind, RunStatus};
 use crate::{acp_view, bill, db, prices, usage};
 use axum::Json;
@@ -204,9 +204,11 @@ pub(super) async fn action(
     UrlPath(id): UrlPath<String>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    match app.request_action(&id, &body).await? {
+    let req: ActionRequest =
+        serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("操作的内容不对：{e}")))?;
+    match app.request_action(&id, &req).await? {
         ActionReply::Done => ok(),
-        ActionReply::Duplicate => reply(json!({ "ok": true, "duplicate": true, "commandId": body["commandId"] })),
+        ActionReply::Duplicate => reply(json!({ "ok": true, "duplicate": true, "commandId": req.command_id })),
     }
 }
 

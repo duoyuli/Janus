@@ -355,7 +355,8 @@ impl App {
                     .to(&agent)
                     .data(json!({ "key": key, "answer": text, "via": "lead" })),
             );
-            self.resolve(run, &key, json!({ "answer": text, "note": "" })).map_err(|e| format!("{e:#}"))?;
+            self.resolve(run, &key, Decision::Answer { answer: text.to_string(), note: String::new() })
+                .map_err(|e| format!("{e:#}"))?;
             return Ok(format!("已回答 {task} 的提问，{agent} 会接着做。"));
         }
         let status = run

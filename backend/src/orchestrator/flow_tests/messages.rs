@@ -140,7 +140,9 @@ async fn a_historical_delivered_run_reopens_for_chat() {
     // Only the event log survives: the live Run is gone.
     h.app.runs.lock().unwrap().remove(&run);
     let reopened = h.app.resume_run(&run).await.expect("a delivered run reopens");
-    h.app.action(&reopened, &json!({ "type": "message", "agent": "lead", "text": "历史子任务继续" })).unwrap();
+    h.app
+        .action(&reopened, &action_of(json!({ "type": "message", "agent": "lead", "text": "历史子任务继续" })))
+        .unwrap();
     wait_until(&h.app, &run, "reopened prompt", |evs| {
         evs.iter().any(|e| {
             e.kind.as_str() == "session.prompt"
@@ -341,7 +343,7 @@ async fn pasted_images_reach_the_agent() {
     // Not an image: refused, nothing recorded.
     let bad = h.app.action(
         &h.app.run(&run).unwrap(),
-        &json!({ "type": "message", "agent": "lead", "text": "x", "images": [{ "data": "aGVsbG8=" }] }),
+        &action_of(json!({ "type": "message", "agent": "lead", "text": "x", "images": [{ "data": "aGVsbG8=" }] })),
     );
     assert!(bad.is_err());
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;

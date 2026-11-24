@@ -3,6 +3,141 @@
 
 use super::*;
 
+/// A person's request to act on a run (`POST /api/runs/{id}/actions`): the action, and the
+/// optional `commandId` and `expectedSequence` that make it safe to send twice.
+#[derive(Deserialize, Debug, Clone)]
+pub struct ActionRequest {
+    #[serde(rename = "commandId", default)]
+    pub command_id: Option<String>,
+    #[serde(rename = "expectedSequence", default)]
+    pub expected_sequence: Option<i64>,
+    #[serde(flatten)]
+    pub action: RunAction,
+}
+
+/// What a person can do to a run, by `type`.
+// @project-doc docs/interfaces/20261031-http_api.md#run_actions
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum RunAction {
+    /// Answer a question a task's agent, or the lead (`ask_user`, no task), is waiting on.
+    Answer {
+        key: String,
+        #[serde(default)]
+        task: String,
+        #[serde(default)]
+        answer: String,
+        #[serde(default)]
+        note: String,
+    },
+    /// Decide an agent's approval request; `option` is the agent's own `optionId`.
+    Approve {
+        key: String,
+        #[serde(default)]
+        task: String,
+        #[serde(default)]
+        agent: String,
+        #[serde(default)]
+        allow: bool,
+        #[serde(default)]
+        option: Option<String>,
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// Answer an agent's form.
+    Input {
+        key: String,
+        #[serde(default)]
+        task: String,
+        #[serde(default)]
+        agent: String,
+        action: InputAction,
+        #[serde(default)]
+        content: Value,
+    },
+    /// A message for a session: an agent's (`agent`) or a task's (`task`).
+    Message {
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        images: Vec<Value>,
+        #[serde(flatten)]
+        to: SessionTarget,
+    },
+    /// Switch one of an open session's controls.
+    Control {
+        #[serde(default)]
+        id: String,
+        #[serde(default)]
+        value: Value,
+        #[serde(default)]
+        via: Option<ControlVia>,
+        #[serde(flatten)]
+        to: SessionTarget,
+    },
+    Interrupt(SessionTarget),
+    Takeover(SessionTarget),
+    Release(SessionTarget),
+    Finish(SessionTarget),
+    Pause,
+    Resume,
+    /// Start a queued run now, without waiting for a slot.
+    Start,
+    Cancel,
+    Accept,
+    /// Continue an interrupted, failed or finished run where it was.
+    ResumeRun,
+}
+
+/// The session an action is for: an agent's open session, or a task's.
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct SessionTarget {
+    #[serde(default)]
+    pub agent: String,
+    #[serde(default)]
+    pub task: String,
+}
+
+wire_enum! {
+    /// How the person answered an agent's form.
+    pub enum InputAction {
+        Accept = "accept",
+        Decline = "decline",
+        Cancel = "cancel",
+    }
+}
+
+/// What the person (or the lead) decided on a pending request, for the session waiting on it.
+#[derive(Debug, Clone)]
+pub(super) enum Decision {
+    Answer { answer: String, note: String },
+    Approval { allow: bool, option: Option<String> },
+    Input { action: InputAction, content: Value },
+}
+
+impl RunAction {
+    /// The action's name, as `type` spells it, for messages and the command record.
+    fn name(&self) -> &'static str {
+        match self {
+            RunAction::Answer { .. } => "answer",
+            RunAction::Approve { .. } => "approve",
+            RunAction::Input { .. } => "input",
+            RunAction::Message { .. } => "message",
+            RunAction::Control { .. } => "control",
+            RunAction::Interrupt(_) => "interrupt",
+            RunAction::Takeover(_) => "takeover",
+            RunAction::Release(_) => "release",
+            RunAction::Finish(_) => "finish",
+            RunAction::Pause => "pause",
+            RunAction::Resume => "resume",
+            RunAction::Start => "start",
+            RunAction::Cancel => "cancel",
+            RunAction::Accept => "accept",
+            RunAction::ResumeRun => "resumeRun",
+        }
+    }
+}
+
 impl App {
     /// A person's action on a run, as the HTTP API receives it. With a `commandId` it acts at most
     /// once: the id is claimed before anything happens and marked done once the action took
@@ -12,13 +147,13 @@ impl App {
     /// `expectedSequence`, when given, must still be the run's last event. A run that is not live
     /// can be accepted, resumed, or talked to (which resumes it).
     // @project-doc docs/interfaces/20261031-http_api.md#run_actions
-    pub async fn request_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<ActionReply, Refused> {
+    pub async fn request_action(self: &Arc<Self>, run_id: &str, req: &ActionRequest) -> Result<ActionReply, Refused> {
         if self.db.run(run_id)?.is_none() {
             return Err(Refused::NotFound);
         }
-        let command = body["commandId"].as_str().filter(|s| !s.trim().is_empty());
+        let command = req.command_id.as_deref().filter(|s| !s.trim().is_empty());
         if let Some(id) = command {
-            match self.db.claim_command(run_id, id, &json!({ "type": body["type"] }), now_ms())? {
+            match self.db.claim_command(run_id, id, &json!({ "type": req.action.name() }), now_ms())? {
                 None => {}
                 Some(CommandState::Done) => return Ok(ActionReply::Duplicate),
                 Some(CommandState::Running) => {
@@ -31,7 +166,7 @@ impl App {
                 }
             }
         }
-        let done = match self.dispatch_action(run_id, body).await {
+        let done = match self.dispatch_action(run_id, req).await {
             // Accepting stopped on something in the run's worktree (the branch's new commits
             // conflict, an operation left unfinished there): the lead resolves that, not the person.
             Err(Refused::Invalid(err)) => match merge_handback(&err, MergeAt::Acceptance) {
@@ -75,17 +210,17 @@ impl App {
         self.send_steer(run, "lead", "", Steer::Message(m))
     }
 
-    async fn dispatch_action(self: &Arc<Self>, run_id: &str, body: &Value) -> Result<(), Refused> {
-        if let Some(expected) = body["expectedSequence"].as_i64() {
+    async fn dispatch_action(self: &Arc<Self>, run_id: &str, req: &ActionRequest) -> Result<(), Refused> {
+        if let Some(expected) = req.expected_sequence {
             let actual = self.db.max_seq(run_id)?;
             if expected != actual {
                 return Err(Refused::Conflict(format!("状态已变化：expectedSequence={expected}，当前为 {actual}")));
             }
         }
-        let kind = body["type"].as_str().unwrap_or("");
+        let action = &req.action;
         let run = match self.run(run_id) {
             // The run is live (a failed driver removes its run, see `launch`): nothing to resume.
-            Some(_) if kind == "resumeRun" => {
+            Some(_) if matches!(action, RunAction::ResumeRun) => {
                 return Err(Refused::Conflict("这个任务正在进行，不需要从中断处继续".into()));
             }
             Some(run) => run,
@@ -96,16 +231,16 @@ impl App {
                 match stored {
                     // A queued run has nothing live yet: it can only start now or be cancelled.
                     Some(RunStatus::Queued) => {
-                        return match kind {
-                            "start" => self.start_now(run_id),
-                            "cancel" => self.cancel_queued(run_id),
+                        return match action {
+                            RunAction::Start => self.start_now(run_id),
+                            RunAction::Cancel => self.cancel_queued(run_id),
                             _ => Err(Refused::Conflict("这个任务还在排队：可以立即开始，或者取消".into())),
                         };
                     }
                     // One that could not start has no snapshot to continue from: it queues again.
                     Some(RunStatus::Failed) if self.never_started(run_id)? => {
-                        return match kind {
-                            "resumeRun" => {
+                        return match action {
+                            RunAction::ResumeRun => {
                                 self.requeue(run_id, "重新排队：上次没能开始")?;
                                 self.pump();
                                 Ok(())
@@ -117,18 +252,18 @@ impl App {
                     Some(RunStatus::Planning) if run_kind == RunKind::Goal => {
                         return Err(Refused::Conflict("这个任务正在开始，稍后再试".into()));
                     }
-                    _ => match kind {
+                    _ => match action {
                         // Acceptance needs no live agents, so it also works for runs delivered before a restart.
-                        "accept" => match self.accept_archived(run_id).await? {
+                        RunAction::Accept => match self.accept_archived(run_id).await? {
                             None => return Ok(()),
                             // A message brought it back meanwhile: it is accepted as a live run.
                             Some(run) => run,
                         },
-                        "resumeRun" => return Ok(self.resume_run(run_id).await.map(|_| ())?),
+                        RunAction::ResumeRun => return Ok(self.resume_run(run_id).await.map(|_| ())?),
                         // Talking to an agent brings an interrupted run back first, and so does
                         // answering a Loop's question: they outlive its session.
-                        "message" => self.resume_run(run_id).await?,
-                        "answer" if run_kind == RunKind::Loop => self.resume_run(run_id).await?,
+                        RunAction::Message { .. } => self.resume_run(run_id).await?,
+                        RunAction::Answer { .. } if run_kind == RunKind::Loop => self.resume_run(run_id).await?,
                         _ => {
                             return Err(Refused::Conflict(
                                 "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
@@ -138,7 +273,7 @@ impl App {
                 }
             }
         };
-        Ok(self.action(&run, body)?)
+        Ok(self.action(&run, action)?)
     }
 
     /// Hand `cmd` to the open session of `agent` (or of `task`); a message for an agent without an
@@ -171,225 +306,207 @@ impl App {
     }
 
     // @project-doc docs/interfaces/20261031-http_api.md#run_actions
-    pub fn action(self: &Arc<Self>, run: &Arc<Run>, a: &Value) -> Result<()> {
-        let kind = a["type"].as_str().unwrap_or("");
-        let key = a["key"].as_str().unwrap_or("");
-        let task = a["task"].as_str().unwrap_or("");
-        match kind {
-            "answer" => {
-                // The answer goes to whoever asked: a task's agent, or the lead (`ask_user`).
-                let agent = match self.pending_owner(run, key)?.session {
-                    SessionKey::Lead => "lead".to_string(),
-                    SessionKey::Task(t) => run
-                        .st
-                        .lock()
-                        .unwrap()
-                        .tasks
-                        .iter()
-                        .find(|x| x.def.id == t)
-                        .map(|x| x.agent.clone())
-                        .unwrap_or_default(),
+    pub fn action(self: &Arc<Self>, run: &Arc<Run>, action: &RunAction) -> Result<()> {
+        match action {
+            RunAction::Answer { key, task, answer, note } => self.answer(run, key, task, answer, note),
+            RunAction::Approve { key, task, agent, allow, option, label } => {
+                let text = match (label.as_deref().filter(|l| !l.is_empty()), allow) {
+                    (Some(l), _) => format!("选择：{l}"),
+                    (None, true) => "批准执行这一次".into(),
+                    (None, false) => "拒绝执行".into(),
                 };
-                let answer = a["answer"].as_str().unwrap_or("").to_string();
-                self.emit(
+                let kind = if *allow { EventKind::ApprovalGranted } else { EventKind::ApprovalDenied };
+                let data = json!({ "key": key, "option": option });
+                self.decide(
                     run,
-                    ev(EventKind::QuestionAnswered, "user", format!("回答：{answer}"))
-                        .task(task)
-                        .to(&agent)
-                        .data(json!({ "key": key, "answer": answer, "note": a["note"] })),
-                );
-                self.resolve(run, key, a.clone())?;
-                if task.is_empty() {
-                    // A Loop does not wait for the answer to its question: the answer wakes it.
-                    if run.kind == RunKind::Loop
-                        && let Some(id) = self.db.run(&run.id)?.and_then(|r| r["loopId"].as_str().map(str::to_owned))
-                    {
-                        self.wake_loop_later(&id, WakeReason::Answer);
-                    }
-                    return Ok(());
-                }
-                self.emit(
-                    run,
-                    ev(EventKind::AnswerDelivered, "janus", format!("通过 ACP 将回答发回 {task} 的会话"))
-                        .task(task)
-                        .to(&agent)
-                        .data(json!({ "key": key })),
-                );
+                    key,
+                    task,
+                    agent,
+                    ev(kind, "user", text).data(data),
+                    Decision::Approval { allow: *allow, option: option.clone() },
+                )
             }
-            "approve" | "input" => {
-                self.pending_owner(run, key)?;
-                let agent = run
-                    .st
-                    .lock()
-                    .unwrap()
-                    .tasks
-                    .iter()
-                    .find(|t| t.def.id == task)
-                    .map(|t| t.agent.clone())
-                    .unwrap_or_else(|| a["agent"].as_str().unwrap_or("lead").to_string());
-                let (ty, text, value) = if kind == "approve" {
-                    let allow = a["allow"].as_bool().unwrap_or(false);
-                    let label = a["label"].as_str().filter(|l| !l.is_empty());
-                    (
-                        if allow { EventKind::ApprovalGranted } else { EventKind::ApprovalDenied },
-                        match (label, allow) {
-                            (Some(l), _) => format!("选择：{l}"),
-                            (None, true) => "批准执行这一次".into(),
-                            (None, false) => "拒绝执行".into(),
-                        },
-                        json!({ "allow": allow, "option": a["option"] }),
-                    )
-                } else {
-                    // Anything but accept or decline is a cancel, for the agent and the record alike.
-                    let action = a["action"].as_str().filter(|x| ["accept", "decline"].contains(x)).unwrap_or("cancel");
-                    let content = if a["content"].is_object() { a["content"].clone() } else { json!({}) };
-                    (
-                        EventKind::InputAnswered,
-                        match action {
-                            "accept" => "提交了填写的内容".into(),
-                            "decline" => "拒绝填写".into(),
-                            _ => "取消了这个请求".into(),
-                        },
-                        json!({ "action": action, "content": content }),
-                    )
+            RunAction::Input { key, task, agent, action, content } => {
+                let text = match action {
+                    InputAction::Accept => "提交了填写的内容",
+                    InputAction::Decline => "拒绝填写",
+                    InputAction::Cancel => "取消了这个请求",
                 };
-                let mut e = ev(ty, "user", text).to(&agent).data(json!({ "key": key, "option": a["option"], "action": value["action"], "content": value["content"] }));
-                if !task.is_empty() {
-                    e = e.task(task);
-                }
-                self.emit(run, e);
-                self.resolve(run, key, value)?;
+                let content = if content.is_object() { content.clone() } else { json!({}) };
+                let data = json!({ "key": key, "action": action, "content": content });
+                self.decide(
+                    run,
+                    key,
+                    task,
+                    agent,
+                    ev(EventKind::InputAnswered, "user", text).data(data),
+                    Decision::Input { action: *action, content },
+                )
             }
             // A Loop's clock is paused on the Loop, and its session is stopped by deleting the Loop.
-            "pause" | "resume" | "cancel" if run.kind == RunKind::Loop => {
+            RunAction::Pause | RunAction::Resume | RunAction::Cancel if run.kind == RunKind::Loop => {
                 bail!("值班在值班页暂停或删除，不能当作任务暂停或停止");
             }
-            "pause" | "resume" => {
-                let pause = kind == "pause";
-                {
-                    run.st.lock().unwrap().set_paused(pause)?;
+            RunAction::Pause | RunAction::Resume => self.pause(run, matches!(action, RunAction::Pause)),
+            RunAction::Cancel => self.cancel(run),
+            RunAction::Message { text, images, to } => {
+                let text = text.trim();
+                if text.is_empty() && images.is_empty() {
+                    bail!("消息不能为空");
                 }
-                self.emit(
-                    run,
-                    ev(
-                        if pause { EventKind::RunPaused } else { EventKind::RunResumed },
-                        "user",
-                        if pause {
-                            "暂停任务：进行中的尝试会继续完成，不再启动新子任务"
-                        } else {
-                            "继续任务"
-                        },
-                    ),
-                );
-                self.ensure_driver(run);
-                run.wake.notify_one();
-                // A paused run gives its slot to the queue; resuming takes one again.
-                self.pump();
+                // Pasted images are stored with the run; the text names each one. A message
+                // refused here (an image that is not one) does not title a chat.
+                let images = crate::attachments::save(&self.dirs(run), images)?;
+                self.title_chat(run, text)?;
+                let text = crate::attachments::with_lines(text, &images);
+                // Shown the moment it is sent; its session routes it once it can.
+                let recipient = if to.agent.is_empty() { self.assignee(run, &to.task) } else { to.agent.clone() };
+                let m = self.post_message(run, "user", &recipient, &to.task, &text, &images);
+                self.send_steer(run, &to.agent, &to.task, Steer::Message(m))
             }
-            "cancel" => {
-                // A delivery already put its result on the person's branch (or in their folder):
-                // stopping would only end the lead's conversation and call the run cancelled.
-                // @project-doc docs/domains/20261031-run_lifecycle.md#user_actions
-                if self.last_delivery_seq(&run.id) > 0 {
-                    bail!(
-                        "这个任务已经交付过，结果已经在你的分支或目录里，停止撤不回它。要停下负责人这一轮，就打断它；不想要这个结果，让负责人回退。"
-                    );
+            RunAction::Control { id, value, via, to } => {
+                let id = id.trim();
+                if id.is_empty() || value.is_null() || value.as_str().is_some_and(|v| v.trim().is_empty()) {
+                    bail!("切换会话选项要给出 id 和 value");
                 }
-                let status = run.st.lock().unwrap().status;
-                if !matches!(status, RunStatus::Planning | RunStatus::Running) {
-                    bail!("任务现在是「{status}」，不能停止");
-                }
-                let conns: Vec<Arc<AcpConn>> = {
-                    let mut st = run.st.lock().unwrap();
-                    st.pending.clear();
-                    st.live.clear();
-                    st.conns.drain().map(|(_, c)| c).collect()
-                };
-                for c in conns {
-                    tokio::spawn(async move { c.kill().await });
-                }
-                self.emit(run, ev(EventKind::RunCancelled, "user", "取消这个目标"));
-                self.set_status(run, RunStatus::Cancelled);
-                run.board_wake.notify_waiters();
-                run.lead_nudge.notify_one();
-                run.wake.notify_one();
+                let control =
+                    SessionControl { id: id.to_string(), value: value.clone(), via: via.unwrap_or(ControlVia::Config) };
+                self.send_steer(run, &to.agent, &to.task, Steer::Control(control))
             }
-            "message" | "interrupt" | "takeover" | "release" | "finish" | "control" => {
-                let agent = a["agent"].as_str().unwrap_or("");
-                let cmd = match kind {
-                    "message" => {
-                        let text = a["text"].as_str().unwrap_or("").trim().to_string();
-                        let images = a["images"].as_array().cloned().unwrap_or_default();
-                        if text.is_empty() && images.is_empty() {
-                            bail!("消息不能为空");
-                        }
-                        // Pasted images are stored with the run; the text names each one. A message
-                        // refused here (an image that is not one) does not title a chat.
-                        let images = crate::attachments::save(&self.dirs(run), &images)?;
-                        self.title_chat(run, &text)?;
-                        let text = crate::attachments::with_lines(&text, &images);
-                        // Shown the moment it is sent; its session routes it once it can.
-                        let to = if agent.is_empty() {
-                            run.st
-                                .lock()
-                                .unwrap()
-                                .tasks
-                                .iter()
-                                .find(|t| t.def.id == task)
-                                .map(|t| t.agent.clone())
-                                .unwrap_or_default()
-                        } else {
-                            agent.to_string()
-                        };
-                        Steer::Message(self.post_message(run, "user", &to, task, &text, &images))
-                    }
-                    "interrupt" => Steer::Interrupt,
-                    "control" => {
-                        let id = a["id"].as_str().unwrap_or("").trim();
-                        let value = &a["value"];
-                        if id.is_empty() || value.is_null() || value.as_str().is_some_and(|v| v.trim().is_empty()) {
-                            bail!("切换会话选项要给出 id 和 value");
-                        }
-                        Steer::Control(SessionControl {
-                            id: id.to_string(),
-                            value: a["value"].clone(),
-                            via: ControlVia::of(a["via"].as_str().unwrap_or_default()),
-                        })
-                    }
-                    "takeover" => Steer::TakeOver,
-                    "release" => Steer::Release,
-                    _ => Steer::Finish,
-                };
-                self.send_steer(run, agent, task, cmd)?;
-            }
-            "accept" => {
-                // Only a delivered run has results to accept; accepting earlier would be undone
-                // by the scheduler the moment it next ran.
-                let (status, busy, asking) = {
-                    let st = run.st.lock().unwrap();
-                    (st.status, st.lead.in_turn, !st.pending.is_empty())
-                };
-                if status != RunStatus::Delivered {
-                    bail!("任务现在是「{status}」，只有已交付的任务 可以验收");
-                }
-                // A delivery the lead is still working on, or one that waits on the person's
-                // answer, is not the result to accept yet.
-                // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
-                if busy {
-                    bail!("负责人还在处理你交代的事，等它这一轮结束后再验收");
-                }
-                if asking {
-                    bail!("还有等你回答的请求，先处理它们再验收");
-                }
-                // The lead's conversation stays open and works in the worktree, so it stays; the
-                // next start removes it once nothing works there (`recover`).
-                let (text, data) =
-                    self.accept_worktree(&run.id, run.worktree.as_ref(), &run.base_ref, &run.goal, false)?;
-                self.emit(run, ev(EventKind::RiskAccepted, "user", text).data(data));
-                self.set_status(run, RunStatus::Accepted);
-            }
-            _ => bail!("未知操作：{kind}"),
+            RunAction::Interrupt(to) => self.send_steer(run, &to.agent, &to.task, Steer::Interrupt),
+            RunAction::Takeover(to) => self.send_steer(run, &to.agent, &to.task, Steer::TakeOver),
+            RunAction::Release(to) => self.send_steer(run, &to.agent, &to.task, Steer::Release),
+            RunAction::Finish(to) => self.send_steer(run, &to.agent, &to.task, Steer::Finish),
+            RunAction::Accept => self.accept_live(run),
+            RunAction::Start => bail!("只有排队中的任务可以立即开始"),
+            RunAction::ResumeRun => bail!("这个任务正在进行，不需要从中断处继续"),
         }
+    }
+
+    /// The agent that works on `task`; empty when the board has no such task.
+    fn assignee(&self, run: &Run, task: &str) -> String {
+        run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == task).map(|t| t.agent.clone()).unwrap_or_default()
+    }
+
+    /// The person answers a question: a task's agent's, or the lead's (`ask_user`, no task).
+    fn answer(&self, run: &Run, key: &str, task: &str, answer: &str, note: &str) -> Result<()> {
+        let agent = match self.pending_owner(run, key)?.session {
+            SessionKey::Lead => "lead".to_string(),
+            SessionKey::Task(t) => self.assignee(run, &t),
+        };
+        self.emit(
+            run,
+            ev(EventKind::QuestionAnswered, "user", format!("回答：{answer}"))
+                .task(task)
+                .to(&agent)
+                .data(json!({ "key": key, "answer": answer, "note": note })),
+        );
+        self.resolve(run, key, Decision::Answer { answer: answer.to_string(), note: note.to_string() })?;
+        if task.is_empty() {
+            // A Loop does not wait for the answer to its question: the answer wakes it.
+            if run.kind == RunKind::Loop
+                && let Some(id) = self.db.run(&run.id)?.and_then(|r| r["loopId"].as_str().map(str::to_owned))
+            {
+                self.wake_loop_later(&id, WakeReason::Answer);
+            }
+            return Ok(());
+        }
+        self.emit(
+            run,
+            ev(EventKind::AnswerDelivered, "janus", format!("通过 ACP 将回答发回 {task} 的会话"))
+                .task(task)
+                .to(&agent)
+                .data(json!({ "key": key })),
+        );
+        Ok(())
+    }
+
+    /// The person decides an agent's approval or form: recorded as `e`, then handed to the
+    /// session waiting on `key`.
+    fn decide(&self, run: &Run, key: &str, task: &str, agent: &str, e: Ev, decision: Decision) -> Result<()> {
+        self.pending_owner(run, key)?;
+        let assignee = self.assignee(run, task);
+        let to = if !assignee.is_empty() {
+            assignee
+        } else if agent.is_empty() {
+            "lead".to_string()
+        } else {
+            agent.to_string()
+        };
+        self.emit(run, e.to(&to).task(task));
+        self.resolve(run, key, decision)
+    }
+
+    fn pause(self: &Arc<Self>, run: &Arc<Run>, pause: bool) -> Result<()> {
+        run.st.lock().unwrap().set_paused(pause)?;
+        let (kind, text) = if pause {
+            (EventKind::RunPaused, "暂停任务：进行中的尝试会继续完成，不再启动新子任务")
+        } else {
+            (EventKind::RunResumed, "继续任务")
+        };
+        self.emit(run, ev(kind, "user", text));
+        self.ensure_driver(run);
+        run.wake.notify_one();
+        // A paused run gives its slot to the queue; resuming takes one again.
+        self.pump();
+        Ok(())
+    }
+
+    fn cancel(&self, run: &Run) -> Result<()> {
+        // A delivery already put its result on the person's branch (or in their folder):
+        // stopping would only end the lead's conversation and call the run cancelled.
+        // @project-doc docs/domains/20261031-run_lifecycle.md#user_actions
+        if self.last_delivery_seq(&run.id) > 0 {
+            bail!(
+                "这个任务已经交付过，结果已经在你的分支或目录里，停止撤不回它。要停下负责人这一轮，就打断它；不想要这个结果，让负责人回退。"
+            );
+        }
+        let status = run.st.lock().unwrap().status;
+        if !matches!(status, RunStatus::Planning | RunStatus::Running) {
+            bail!("任务现在是「{status}」，不能停止");
+        }
+        let conns: Vec<Arc<AcpConn>> = {
+            let mut st = run.st.lock().unwrap();
+            st.pending.clear();
+            st.live.clear();
+            st.conns.drain().map(|(_, c)| c).collect()
+        };
+        for c in conns {
+            tokio::spawn(async move { c.kill().await });
+        }
+        self.emit(run, ev(EventKind::RunCancelled, "user", "取消这个目标"));
+        self.set_status(run, RunStatus::Cancelled);
+        run.board_wake.notify_waiters();
+        run.lead_nudge.notify_one();
+        run.wake.notify_one();
+        Ok(())
+    }
+
+    /// The person accepts a run that is live (its lead's conversation open).
+    fn accept_live(&self, run: &Run) -> Result<()> {
+        // Only a delivered run has results to accept; accepting earlier would be undone by the
+        // scheduler the moment it next ran.
+        let (status, busy, asking) = {
+            let st = run.st.lock().unwrap();
+            (st.status, st.lead.in_turn, !st.pending.is_empty())
+        };
+        if status != RunStatus::Delivered {
+            bail!("任务现在是「{status}」，只有已交付的任务 可以验收");
+        }
+        // A delivery the lead is still working on, or one that waits on the person's answer, is
+        // not the result to accept yet.
+        // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
+        if busy {
+            bail!("负责人还在处理你交代的事，等它这一轮结束后再验收");
+        }
+        if asking {
+            bail!("还有等你回答的请求，先处理它们再验收");
+        }
+        // The lead's conversation stays open and works in the worktree, so it stays; the next
+        // start removes it once nothing works there (`recover`).
+        let (text, data) = self.accept_worktree(&run.id, run.worktree.as_ref(), &run.base_ref, &run.goal, false)?;
+        self.emit(run, ev(EventKind::RiskAccepted, "user", text).data(data));
+        self.set_status(run, RunStatus::Accepted);
         Ok(())
     }
 

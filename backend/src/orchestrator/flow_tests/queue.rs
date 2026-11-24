@@ -50,12 +50,12 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     assert_eq!(app.db.queued_runs().unwrap(), [second.clone(), third.clone()], "oldest first");
 
     // A queued run can only start now or be cancelled.
-    let talk = app.request_action(&second, &json!({ "type": "message", "text": "你好" })).await;
+    let talk = app.request_action(&second, &req(json!({ "type": "message", "text": "你好" }))).await;
     assert!(matches!(talk, Err(Refused::Conflict(_))), "a queued run has no one to talk to");
-    app.request_action(&third, &json!({ "type": "cancel" })).await.map_err(|e| format!("{e:?}")).unwrap();
+    app.request_action(&third, &req(json!({ "type": "cancel" }))).await.map_err(|e| format!("{e:?}")).unwrap();
     assert_eq!(status(&app, &third), "cancelled");
     assert!(has(&events(&app, &third), "run.cancelled"));
-    let again = app.request_action(&third, &json!({ "type": "start" })).await;
+    let again = app.request_action(&third, &req(json!({ "type": "start" }))).await;
     assert!(matches!(again, Err(Refused::Conflict(_))), "a cancelled run does not start: the state moved on");
 
     // Pausing the working run frees its slot: the second one starts, with its team taken now.
@@ -72,7 +72,7 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     let fourth = new_run(&app, "第四个").await;
     assert_eq!(status(&app, &fourth), "queued");
     // The person may start one past the slots.
-    app.request_action(&fourth, &json!({ "type": "start" })).await.map_err(|e| format!("{e:?}")).unwrap();
+    app.request_action(&fourth, &req(json!({ "type": "start" }))).await.map_err(|e| format!("{e:?}")).unwrap();
     wait_live(&app, &fourth).await;
 
     // A queued run can be deleted; it leaves nothing behind.
@@ -106,7 +106,7 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
 
 /// A person's action on a live run of `app`.
 fn act_on(app: &Arc<App>, run: &str, a: Value) {
-    app.action(&app.run(run).unwrap(), &a).unwrap();
+    app.action(&app.run(run).unwrap(), &action_of(a)).unwrap();
 }
 
 /// A run taken off the queue whose setup never finished (the service stopped, its agent could not
@@ -135,13 +135,18 @@ async fn a_run_that_never_got_set_up_queues_again() {
     restarted.db.put_config(ConfigKind::Workspace, "ws", &ws, now_ms()).unwrap();
     restarted.pump();
     wait_status(&restarted, &second, "failed").await;
-    let talk = restarted.request_action(&second, &json!({ "type": "message", "agent": "lead", "text": "继续" })).await;
+    let talk =
+        restarted.request_action(&second, &req(json!({ "type": "message", "agent": "lead", "text": "继续" }))).await;
     assert!(matches!(talk, Err(Refused::Conflict(_))), "nothing to talk to");
     // Continuing it puts it back on the queue.
     let mut ws = restarted.db.get_config(ConfigKind::Workspace, "ws").unwrap().unwrap();
     ws["path"] = json!(h.repo.canonicalize().unwrap().to_string_lossy());
     restarted.db.put_config(ConfigKind::Workspace, "ws", &ws, now_ms()).unwrap();
-    restarted.request_action(&second, &json!({ "type": "resumeRun" })).await.map_err(|e| format!("{e:?}")).unwrap();
+    restarted
+        .request_action(&second, &req(json!({ "type": "resumeRun" })))
+        .await
+        .map_err(|e| format!("{e:?}"))
+        .unwrap();
     wait_live(&restarted, &second).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

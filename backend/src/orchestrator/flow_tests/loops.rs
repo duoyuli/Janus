@@ -101,7 +101,7 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let asked = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "question.escalated").unwrap();
     let key = asked.data.unwrap()["key"].as_str().unwrap().to_string();
     let live = h.app.run(&run).unwrap();
-    h.app.action(&live, &json!({ "type": "answer", "key": key, "answer": "先修导出" })).unwrap();
+    h.app.action(&live, &action_of(json!({ "type": "answer", "key": key, "answer": "先修导出" }))).unwrap();
     wait_until(&h.app, &run, "the answer wakes it", |e| count(e, "loop.slept") == 2).await;
     let second = events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "loop.woke").nth(1).unwrap();
     assert_eq!(second.data.unwrap()["reason"], "answer");
@@ -113,7 +113,7 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
 
     // The person talking to it is a turn of its own, not a wake: the clock does not move.
     let before = h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap()["status"]["nextWakeAt"].clone();
-    h.app.action(&live, &json!({ "type": "message", "agent": "lead", "text": "[me] 你好" })).unwrap();
+    h.app.action(&live, &action_of(json!({ "type": "message", "agent": "lead", "text": "[me] 你好" }))).unwrap();
     wait_until(&h.app, &run, "its reply", |e| {
         e.iter().any(|e| e.kind.as_str() == "agent.message" && e.text.contains("回复：你好"))
     })
@@ -276,7 +276,9 @@ async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
     };
     let first = ask("先修哪个？").await;
     let live = h.app.run(&run).unwrap();
-    h.app.action(&live, &json!({ "type": "answer", "key": first, "answer": "先修导出", "note": "今天就要" })).unwrap();
+    h.app
+        .action(&live, &action_of(json!({ "type": "answer", "key": first, "answer": "先修导出", "note": "今天就要" })))
+        .unwrap();
     wait_until(&h.app, &run, "the answer's wake", |e| count(e, "loop.slept") == 2).await;
     let prompt = wake_prompts(&h).pop().unwrap();
     assert!(prompt.starts_with("看看队列\n\nThe person answered your questions:"), "{prompt}");
@@ -290,7 +292,7 @@ async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
     restarted.recover().unwrap();
     restarted.start_loops().unwrap();
     let body = json!({ "type": "answer", "key": second, "answer": "发" });
-    restarted.request_action(&run, &body).await.unwrap();
+    restarted.request_action(&run, &req(body)).await.unwrap();
     wait_until(&restarted, &run, "the wake after the restart", |e| count(e, "loop.slept") == 3).await;
     let prompt = wake_prompts(&h).pop().unwrap();
     assert!(prompt.contains("Q: 要不要发版？\n  A: 发") && !prompt.contains("先修哪个"), "{prompt}");
@@ -326,7 +328,7 @@ async fn a_loops_session_is_not_a_task_to_pause_stop_or_delete_alone() {
     let (id, run) = new_loop(&h, "巡检", Value::Null, true).await;
     wait_until(&h.app, &run, "the wake", |e| has(e, "loop.slept")).await;
     for kind in ["pause", "cancel"] {
-        let refused = h.app.request_action(&run, &json!({ "type": kind })).await;
+        let refused = h.app.request_action(&run, &req(json!({ "type": kind }))).await;
         assert!(refused.is_err(), "{kind}");
     }
     assert_eq!(h.app.loop_of_session(&run).as_deref(), Some(id.as_str()));
@@ -404,7 +406,7 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     assert!(err, "a note needs text");
 
     // Cancelled by the person: the Loop wakes, told it was their decision.
-    h.app.request_action(&b, &json!({ "type": "cancel" })).await.unwrap();
+    h.app.request_action(&b, &req(json!({ "type": "cancel" }))).await.unwrap();
     wait_until(&h.app, &run, "the cancel's wake", |e| count(e, "loop.slept") == 2).await;
     let woke = events(&h.app, &run).into_iter().rfind(|e| e.kind.as_str() == "loop.woke").unwrap();
     assert_eq!(woke.data.unwrap()["reason"], "dispatch");

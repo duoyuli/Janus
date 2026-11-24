@@ -64,11 +64,11 @@ async fn acceptance_waits_for_the_lead() {
     })
     .await;
     let r = h.app.run(&run).unwrap();
-    let refused = h.app.action(&r, &json!({ "type": "accept" })).unwrap_err();
+    let refused = h.app.action(&r, &action_of(json!({ "type": "accept" }))).unwrap_err();
     assert!(format!("{refused:#}").contains("负责人还在处理"), "{refused:#}");
     assert_eq!(status(&h.app, &run), "delivered");
     // The result is out already: stopping would only end the conversation, so it is refused.
-    let refused = h.app.action(&r, &json!({ "type": "cancel" })).unwrap_err();
+    let refused = h.app.action(&r, &action_of(json!({ "type": "cancel" }))).unwrap_err();
     assert!(format!("{refused:#}").contains("已经交付过"), "{refused:#}");
     assert_eq!(status(&h.app, &run), "delivered");
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -90,7 +90,7 @@ async fn a_lead_that_exited_after_delivery_is_reopened_by_the_next_message() {
     }
     assert!(h.app.run(&run).is_none(), "nothing listens in the run any more");
     let body = json!({ "type": "message", "agent": "lead", "text": "还在吗？" });
-    assert!(matches!(h.app.request_action(&run, &body).await, Ok(ActionReply::Done)));
+    assert!(matches!(h.app.request_action(&run, &req(body)).await, Ok(ActionReply::Done)));
     wait_until(&h.app, &run, "the message in a reopened session", |e| {
         e.iter().any(|x| {
             x.kind.as_str() == "session.prompt"
@@ -173,7 +173,7 @@ async fn an_interrupted_turn_after_delivery_waits_for_the_person() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let body = json!({ "type": "message", "agent": "lead", "text": "再检查一遍" });
-    assert!(matches!(h.app.request_action(&run, &body).await, Ok(ActionReply::Done)));
+    assert!(matches!(h.app.request_action(&run, &req(body)).await, Ok(ActionReply::Done)));
     wait_until(&h.app, &run, "the slow turn", |e| {
         e.iter().any(|x| {
             x.kind.as_str() == "session.prompt" && x.data.as_ref().is_some_and(|d| d["prompt"] == "再检查一遍")

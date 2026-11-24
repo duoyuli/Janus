@@ -177,7 +177,7 @@ async fn a_chat_reopens_with_the_next_message() {
 
     restart(&h, &id).await;
     let body = json!({ "type": "message", "agent": "lead", "text": "还在吗" });
-    assert!(matches!(h.app.request_action(&id, &body).await, Ok(ActionReply::Done)));
+    assert!(matches!(h.app.request_action(&id, &req(body)).await, Ok(ActionReply::Done)));
     wait_until(&h.app, &id, "the reply after reopening", |e| replied(e, "还在吗")).await;
     assert!(calls(&h).contains(&format!("load {sid}")), "the old session is loaded");
     assert_eq!(status(&h.app, &id), "running");
@@ -208,7 +208,7 @@ async fn a_chat_that_cannot_load_its_session_starts_one_with_its_history() {
         restart(&h, &id).await;
         std::fs::write(h.dir.join("fake").join("fail-load"), "").unwrap();
         let body = json!({ "type": "message", "agent": "lead", "text": "还在吗" });
-        assert!(matches!(h.app.request_action(&id, &body).await, Ok(ActionReply::Done)));
+        assert!(matches!(h.app.request_action(&id, &req(body)).await, Ok(ActionReply::Done)));
         wait_until(&h.app, &id, "the reply in a new session", |e| replied(e, "还在吗")).await;
         let seen = layers(&h);
         let (method, _, layer) = seen.last().unwrap();
@@ -312,7 +312,7 @@ async fn a_refused_message_does_not_title_a_chat() {
     let id = h.app.create_chat(NewChat { role: "m1".into() }).await.unwrap();
     let r = h.app.run(&id).unwrap();
     let bad = json!({ "type": "message", "agent": "lead", "text": "草稿", "images": [{ "data": "not base64!", "name": "x.png" }] });
-    assert!(h.app.action(&r, &bad).is_err());
+    assert!(h.app.action(&r, &action_of(bad)).is_err());
     assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "");
     act(&h, &id, json!({ "type": "message", "agent": "lead", "text": "正式的问题" }));
     assert_eq!(h.app.db.run(&id).unwrap().unwrap()["goal"], "正式的问题");

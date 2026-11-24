@@ -69,7 +69,7 @@ async fn runs_work_apart_and_delivering_brings_the_result_back_to_the_branch() {
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
     assert!(!cwd.exists(), "nothing works there after a restart");
-    app2.request_action(&run, &json!({ "type": "message", "agent": "lead", "text": "再补一份说明" }))
+    app2.request_action(&run, &req(json!({ "type": "message", "agent": "lead", "text": "再补一份说明" })))
         .await
         .ok()
         .unwrap();
@@ -112,7 +112,7 @@ async fn the_persons_uncommitted_work_in_the_way_waits_for_them() {
     assert!(!has(&evs, "user.message"), "nothing for the lead to resolve");
     assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "mine\n", "theirs stays");
     let live = h.app.run(&run).unwrap();
-    let err = format!("{:#}", h.app.action(&live, &json!({ "type": "accept" })).unwrap_err());
+    let err = format!("{:#}", h.app.action(&live, &action_of(json!({ "type": "accept" }))).unwrap_err());
     assert!(err.contains("notes.md") && err.contains("先移走或改名"), "{err}");
     assert_eq!(status(&h.app, &run), "delivered");
     assert!(!has(&events(&h.app, &run), "risk.accepted"));
@@ -150,7 +150,7 @@ async fn the_runs_whole_diff_and_work_after_a_delivery_are_delivered() {
     // The lead edits a file itself after delivery: the run's diff has it, and it is delivered
     // and merged again.
     h.app
-        .request_action(&run, &json!({ "type": "message", "agent": "lead", "text": "[write lead.md]" }))
+        .request_action(&run, &req(json!({ "type": "message", "agent": "lead", "text": "[write lead.md]" })))
         .await
         .ok()
         .unwrap();
@@ -217,7 +217,10 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     assert_eq!(merge(1).0, "conflict");
     assert!(merge(1).1.contains("仍然冲突"), "{}", merge(1).1);
     assert_eq!(told(&events(&h.app, &run)).len(), 1, "not handed over again by its own delivery");
-    assert!(h.app.request_action(&run, &json!({ "type": "accept" })).await.is_ok(), "handed to the lead, not refused");
+    assert!(
+        h.app.request_action(&run, &req(json!({ "type": "accept" }))).await.is_ok(),
+        "handed to the lead, not refused"
+    );
     assert!(!has(&events(&h.app, &run), "risk.accepted"));
     assert_eq!(told(&events(&h.app, &run)).len(), 2, "the person's accept hands it over");
     wait_until(&h.app, &run, "delivered a third time", |evs| {
@@ -408,7 +411,7 @@ async fn work_after_acceptance_committed_or_cut_off_is_delivered_again() {
     h.app
         .request_action(
             &run,
-            &json!({ "type": "message", "agent": "lead", "text": "再写一份 [write more.md] 并提交 [commit]" }),
+            &req(json!({ "type": "message", "agent": "lead", "text": "再写一份 [write more.md] 并提交 [commit]" })),
         )
         .await
         .ok()
@@ -433,7 +436,7 @@ async fn work_after_acceptance_committed_or_cut_off_is_delivered_again() {
     let again = events(&app2, &run).into_iter().rfind(|e| e.kind.as_str() == "run.delivered").unwrap();
     assert!(again.data.unwrap()["summary"].as_str().unwrap().contains("服务重启"), "{}", again.text);
     assert_eq!(std::fs::read_to_string(h.repo.join("cut.md")).unwrap(), "cut off\n", "brought back");
-    app2.request_action(&run, &json!({ "type": "accept" })).await.ok().unwrap();
+    app2.request_action(&run, &req(json!({ "type": "accept" }))).await.ok().unwrap();
     assert_eq!(status(&app2, &run), "accepted");
     assert!(!cwd.exists(), "nothing works there now");
     let _ = std::fs::remove_dir_all(&h.dir);
