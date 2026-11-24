@@ -9,7 +9,7 @@ from scenarios import scenario, task
 
 @scenario("restart", own=True)
 def restart(ctx, c):
-    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续；已交付的 Run 回放时会话只读，重启后还能继续对话，同时发来的两条消息只恢复一次会话；恢复的会话拿到和原来一样的系统层，不再注入历史和第二份指令；应用重新连上"""
+    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续，负责人恢复原来的会话并收到重启时的看板；已交付的 Run 回放时会话只读，重启后还能继续对话，同时发来的两条消息只恢复一次会话；恢复的会话拿到和原来一样的系统层，不再注入历史和第二份指令；应用重新连上"""
     # A server of its own: this scenario stops and starts it.
     with ctx.private("restart") as ctx:
         t = ctx.team("restart", members=("m1", "m2", "m3"), script={"T1": ["write:a.txt"], "T2": ["slow", "ok"], "T3": ["ok"]})
@@ -45,11 +45,27 @@ def restart(ctx, c):
         c(code == 409, "中断的 Run 不能执行要求它正在运行的操作（409）")
         ctx.ui(c, run.id, lambda r, s: r["status"] == "interrupted", "应用重新连上服务，显示 Run 已中断", pages=("board",))
 
+        lead_sid = next(e["data"]["session"] for e in run.events() if e["actor"] == "lead" and (e.get("data") or {}).get("session"))
         run.act("resumeRun")
         run.wait_event("run.recovered")
         c(True, "从中断处继续")
         wait(lambda: len([u for u in t.fake.urls(run.id) if u.endswith("/lead")]) >= 2, "负责人会话以新的看板地址重新打开")
         c(True, "恢复后的负责人会话拿到新的看板地址（旧令牌作废）")
+        # The lead's own session comes back with everything it did; it is told what the restart
+        # changed instead of being given the goal again.
+        t.fake.wait_call(f"lead resumed {lead_sid} ")
+        calls = t.fake.calls()
+        c(f"load {lead_sid}" in calls and calls.count("goal 跨越重启的目标") == 1,
+          "负责人恢复原来的会话（session/load），没有重发 /goal")
+        told = next(line for line in calls.splitlines() if line.startswith(f"lead resumed {lead_sid} "))
+        c("T1 (" in told and "· done" in told and "T2 (" in told and "it was at work when Janus stopped" in told,
+          "恢复提示列出重启时的看板：T1 已完成，T2 正在执行、接回自己的会话继续")
+        c(any(e["type"] == "session.prompt" and e["data"].get("channel") == "resume" and e["data"].get("session") == lead_sid
+              for e in run.events()), "恢复提示记在负责人原来的会话里（channel resume）")
+        c(not [e for e in run.events() if e["seq"] > run.has("run.recovered")[-1]["seq"] and e["type"] == "session.prompt"
+               and e["actor"] == "janus" and e.get("to") == "lead" and e["data"].get("via")],
+          "恢复的负责人会话没有再注入负责人说明和指令")
+        ctx.ui(c, run.id, lambda r, s: r["status"] == "running", "恢复后的负责人会话显示恢复提示", pages=("agent:lead",))
         board = run.read_board(lambda b: "[完成] T3" in b, timeout=90)
         c("[完成] T2" in board, "中断的 T2 重新执行并完成，下游 T3 随后完成")
         c(not [e for e in run.has("attempt.started") if e.get("task") == "T1"][1:], "已完成的 T1 不重跑")

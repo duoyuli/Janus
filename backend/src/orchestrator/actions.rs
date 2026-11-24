@@ -537,7 +537,8 @@ impl App {
 
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
     /// Bring an interrupted run back from its event log: finished tasks stay finished, unfinished
-    /// ones start again (reopening their old session when possible), and planning resumes where it was.
+    /// ones start again (reopening their old session when possible), and the lead goes on in its own
+    /// session when its agent can load it, or in a new one told where the board stands.
     // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
     /// Open run `run_id` again for the person (`resume_run_by`).
     pub async fn resume_run(self: &Arc<Self>, run_id: &str) -> Result<Arc<Run>> {
@@ -898,7 +899,7 @@ impl App {
             ev(
                 EventKind::RunRecovered,
                 "user",
-                format!("从中断处继续：看板上 {done} 个子任务已完成，{open} 个子任务重新开始，负责人重新推进目标"),
+                format!("从中断处继续：看板上 {done} 个子任务已完成，{open} 个子任务接着做，负责人接着推进目标"),
             )
             .data(json!({ "phase": "running", "done": done, "open": open, "tasks": restored })),
         );

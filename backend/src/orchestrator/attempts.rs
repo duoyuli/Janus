@@ -2,6 +2,37 @@
 
 use super::*;
 
+/// A session whose context is fuller than this is not continued: a follow-up task, a retry into
+/// the task's own session or a re-verification opens a new one instead.
+pub(super) const CONTINUE_CONTEXT_LIMIT: f64 = 0.75;
+
+wire_enum! {
+    /// Why an attempt asked to continue an earlier session opened a new one
+    /// (`attempt.started` `data.continuation.fallback`).
+    pub(super) enum Fallback {
+        /// The session's context is over `CONTINUE_CONTEXT_LIMIT`.
+        ContextOverLimit = "context_over_75pct",
+        /// The agent does not declare `loadSession`.
+        Unsupported = "unsupported",
+        /// `session/load` returned an error.
+        LoadFailed = "load_failed",
+        /// The task to continue never opened a session (for example cancelled before it started).
+        NoSession = "no_session",
+    }
+}
+
+impl Fallback {
+    /// The reason in the lead's words, on the board.
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Fallback::ContextOverLimit => "上下文已经超过 75%",
+            Fallback::Unsupported => "这个 Agent 不支持加载会话",
+            Fallback::LoadFailed => "加载失败",
+            Fallback::NoSession => "它从来没开过会话",
+        }
+    }
+}
+
 /// Why an attempt tries `session/load` instead of opening a fresh ACP session.
 enum SessionResume {
     /// Resuming an attempt that was still open when the orchestrator restarted.
@@ -350,15 +381,14 @@ impl App {
                     }
                 }
                 Some(SessionResume::Followup { from, session: old }) => {
-                    let over_budget = self.session_context_ratio(run, &old).is_some_and(|r| r > 0.75);
-                    if over_budget {
+                    if self.session_too_full(run, &old).is_some() {
                         continuation = Some(
-                            json!({ "from": from, "session": old, "loaded": false, "fallback": "context_over_75pct" }),
+                            json!({ "from": from, "session": old, "loaded": false, "fallback": Fallback::ContextOverLimit.as_str() }),
                         );
                         new_session(&conn, &workspace, &opening).await?
                     } else if conn.capabilities["loadSession"] != true {
                         continuation =
-                            Some(json!({ "from": from, "session": old, "loaded": false, "fallback": "unsupported" }));
+                            Some(json!({ "from": from, "session": old, "loaded": false, "fallback": Fallback::Unsupported.as_str() }));
                         new_session(&conn, &workspace, &opening).await?
                     } else {
                         match conn.request("session/load", opening.load_params(&old, &workspace)).await {
@@ -372,7 +402,7 @@ impl App {
                             }
                             Err(_) => {
                                 continuation = Some(
-                                    json!({ "from": from, "session": old, "loaded": false, "fallback": "load_failed" }),
+                                    json!({ "from": from, "session": old, "loaded": false, "fallback": Fallback::LoadFailed.as_str() }),
                                 );
                                 new_session(&conn, &workspace, &opening).await?
                             }
@@ -380,7 +410,7 @@ impl App {
                     }
                 }
                 Some(SessionResume::Missing { from }) => {
-                    continuation = Some(json!({ "from": from, "loaded": false, "fallback": "no_session" }));
+                    continuation = Some(json!({ "from": from, "loaded": false, "fallback": Fallback::NoSession.as_str() }));
                     new_session(&conn, &workspace, &opening).await?
                 }
                 _ => new_session(&conn, &workspace, &opening).await?,
@@ -861,6 +891,12 @@ impl App {
     /// Latest `used / size` context ratio reported for ACP session `sid` in the run, if any.
     pub(super) fn session_context_ratio(&self, run: &Run, sid: &str) -> Option<f64> {
         self.usage(run).sessions_of(sid).rev().find_map(|s| s.context.ratio())
+    }
+
+    /// The context ratio of session `sid` when it is too full to continue in (over
+    /// `CONTINUE_CONTEXT_LIMIT`): a follow-up there would start with little room left.
+    pub(super) fn session_too_full(&self, run: &Run, sid: &str) -> Option<f64> {
+        self.session_context_ratio(run, sid).filter(|r| *r > CONTINUE_CONTEXT_LIMIT)
     }
 
     /// Whether `task` submitted a `task.split_requested` event after `since_seq`.

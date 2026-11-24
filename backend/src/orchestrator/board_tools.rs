@@ -89,7 +89,7 @@ impl LeadTool {
                     "required": ["task", "session"],
                     "properties": {
                         "task": { "type": "string" },
-                        "session": { "type": "string", "enum": ["continue", "new"], "description": "continue：接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的）；new：新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）。上下文超过 75% 或 Agent 不支持加载时，continue 自动改为新开会话" },
+                        "session": { "type": "string", "enum": ["continue", "new"], "description": "continue：接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的）；new：新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）。原会话上下文超过 75% 时 continue 会被拒绝，改用 new 并在 note 里写清这一轮要知道的上下文；Agent 不支持加载或加载失败时 continue 改为新开会话，看板上这次「开始」会说明" },
                         "from": { "type": "string", "description": "依据哪个独立验证子任务的意见返工；它的判定、没通过的标准和证据、建议会原样交给执行者，不需要你转述" },
                         "note": { "type": "string", "description": "你对这一轮的补充：判断、取舍、范围上的决定" },
                         "instructions": { "type": "string", "description": "新的完整说明；不填则沿用原说明" },
@@ -475,7 +475,17 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     };
     let name = who(&agent);
     Some(match e.kind() {
-        EventKind::AttemptStarted => format!("- [开始] {task}「{title}」· {name} 第 {} 次尝试", e.attempt.unwrap_or(1)),
+        EventKind::AttemptStarted => {
+            let mut line = format!("- [开始] {task}「{title}」· {name} 第 {} 次尝试", e.attempt.unwrap_or(1));
+            // Asked to continue an earlier session, it could not: the lead learns it starts afresh.
+            if let Some(why) = d["continuation"]["fallback"].as_str().and_then(Fallback::parse).map(Fallback::reason) {
+                line.push_str(&format!(
+                    "。没能回到 {} 原来的会话（{why}），在新会话中开始，它不记得之前做过什么；需要补充上下文就用 janus.reply 告诉它",
+                    d["continuation"]["from"].as_str().unwrap_or(task)
+                ));
+            }
+            line
+        }
         // Inlined up to a budget: enough to decide what to do next; the full result stays one
         // `task_detail` call away, so a long run does not fill the lead's context.
         EventKind::TaskSucceeded => {

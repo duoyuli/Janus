@@ -49,6 +49,8 @@ wire_enum! {
         Board = "board",
         /// Janus asks a lead whose goal does not settle whether it is done.
         GoalCheck = "goal_check",
+        /// The lead's own session loaded again after a restart: what happened meanwhile.
+        Resume = "resume",
         /// A result that did not pass its check, sent back to be fixed.
         Fix = "fix",
     }
@@ -66,6 +68,7 @@ impl PromptChannel {
             PromptChannel::Followup => "向负责人发送继续提示",
             PromptChannel::Board => "把看板上需要处理的消息推给负责人",
             PromptChannel::GoalCheck => "问负责人目标是否已经完成",
+            PromptChannel::Resume => "告诉负责人编排器重启过，接着推进目标",
             PromptChannel::Fix => "验证没有通过，把结果发回 Agent 修复",
         }
     }
@@ -95,11 +98,13 @@ impl App {
             }
         }
         self.set_status(run, RunStatus::Running);
+        // Where the board stood when Janus stopped, taken before the scheduler starts tasks again.
+        let board = resumed.then(|| board_on_resume(run, &self.db.events(&run.id, 0).unwrap_or_default()));
         let (app, r) = (self.clone(), run.clone());
         tokio::spawn(async move { app.push_loop(&r).await });
         let (app, r) = (self.clone(), run.clone());
         tokio::spawn(async move {
-            let outcome = app.lead_goal(&r, resumed).await;
+            let outcome = app.lead_goal(&r, board).await;
             if r.st.lock().unwrap().cancelled() {
                 return;
             }
@@ -310,62 +315,87 @@ impl App {
 
     /// The lead's goal session: `/goal <goal>` in the workspace directory, with the team and the
     /// board tools in reach. Open to the person like any session: steering, takeover, messages.
-    pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, resumed: bool) -> Result<String> {
+    /// `board` is set when the run continues after a restart: where its subtasks stood
+    /// (`board_on_resume`).
+    pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, board: Option<String>) -> Result<String> {
+        let resumed = board.is_some();
+        let board = board.unwrap_or_default();
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
         let channel = lead.runtime.instruction_channel();
+        // Continuing after a restart: the lead's own session comes back when its agent can load it,
+        // with everything it did and was told; otherwise a new one is told where things stand.
+        // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
+        let events = if resumed { self.db.events(&run.id, 0).unwrap_or_default() } else { vec![] };
         // The brief, with the messages left for the lead, goes in the system layer before the
         // standing rules. Codex reads it from its environment, so it is known before the adapter
         // starts; the notes are taken only once the session is open.
         // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
         let (notes, note_ids) = self.peek_notes(run, "lead");
-        let brief =
-            format!("{}{}{notes}", self.goal_brief(run, resumed), self.memory_section(run, MemoryAccess::Write));
+        let resume = if resumed { resume_brief(&board, &events) } else { String::new() };
+        let brief = format!("{}{resume}{}{notes}", self.goal_brief(run), self.memory_section(run, MemoryAccess::Write));
         let skills = skills_note(self.skill_router_md(run, &lead));
         let system = system_layer(&[&brief, &skills, &standing]);
-        let spec = member_spec(self.spec_for(&lead.connection)?, &lead, &system);
-        let workspace = run.cwd.clone();
-        if lead.runtime.trusts_workspaces() {
-            // Claude Code only runs /goal in a workspace it trusts; its isolated config has no record yet.
-            self.trust_claude_workspace(&lead.connection, &workspace)?;
-        }
-        let log = self.dirs(run).log("lead-goal.log");
+        let old_session = if resumed { last_lead_session(&events) } else { None };
+        let old = old_session.as_deref().map(|sid| {
+            let kept = recorded_system(&events, sid).unwrap_or_else(|| system_layer(&[&skills, &standing]));
+            (sid, kept)
+        });
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let (conn, mut rx, mut ctl) = self.open_session(run, &owner, "lead", &spec, &log, "负责人").await?;
+        let Conversation { conn, mut rx, mut ctl, session, loaded, resources } = self
+            .open_conversation(
+                run,
+                &lead,
+                &channel,
+                old.as_ref().map(|(s, k)| (*s, k.as_str())),
+                &system,
+                "lead-goal.log",
+            )
+            .await?;
         let result = async {
             self.take_peeked_notes(run, "lead", &note_ids);
-            let (sid, applied, controls) = tokio::time::timeout(STARTUP_TIMEOUT, async {
-                let board = vec![self.mcp_server(run, "lead")];
-                let opening = self.opening(
-                    run,
-                    "lead",
-                    &lead,
-                    &conn.capabilities,
-                    board,
-                    (channel == InstructionChannel::System).then_some(system.as_str()),
-                );
-                let session = new_session(&conn, &workspace, &opening).await?;
-                let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
-                let mut applied = configure_session(&conn, &session, &lead).await?;
-                applied["resources"] = json!(opening.resources);
-                let controls = crate::acp_view::controls(&session, &applied);
-                Ok::<_, anyhow::Error>((sid, applied, controls))
-            })
-            .await
-            .map_err(|_| anyhow!("负责人打开会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
+            let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
+            if sid.is_empty() {
+                bail!("负责人的会话没有返回 sessionId");
+            }
+            let mut applied = configure_session(&conn, &session, &lead).await?;
+            applied["resources"] = json!(resources);
+            let controls = crate::acp_view::controls(&session, &applied);
+            let opened = match (resumed, loaded) {
+                (false, _) => "开始推进目标",
+                (true, true) => "恢复了原来的会话，从中断处继续推进目标",
+                (true, false) => "新开会话，从中断处继续推进目标",
+            };
             self.emit(
                 run,
-                ev(EventKind::AgentStatus, "lead", if resumed { "从中断处继续推进目标" } else { "开始推进目标" })
+                ev(EventKind::AgentStatus, "lead", opened)
                     .data(json!({ "phase": AgentPhase::Thinking, "session": sid, "config": applied })),
             );
-            run.st.lock().unwrap().lead.session = Some(sid.clone());
+            {
+                let mut st = run.st.lock().unwrap();
+                st.lead.session = Some(sid.clone());
+                // The goal was active when Janus stopped and the agent keeps it with the session
+                // (Claude Code restores it from the transcript): follow it as before.
+                if loaded {
+                    st.lead.goal_active = true;
+                }
+            }
             self.watch_session(run, &owner.session, 0);
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
-            self.show(run, (EventKind::SessionControls, "会话选项".into(), controls), &ctx);
-            self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
-            self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
-            self.record_instructions(run, &ctx, &sid, &channel, &standing);
-            let mut prompt = format!("/goal {}", goal_condition(&run.goal));
+            // A loaded session may not return its options: keep the ones on record then.
+            if !loaded || has_controls(&controls) {
+                self.show(run, (EventKind::SessionControls, "会话选项".into(), controls), &ctx);
+            }
+            // A loaded session has its system layer already and got it again unchanged: nothing new
+            // went in. It is told what happened instead of being given the goal again.
+            let (mut prompt, mut opening) = if loaded {
+                (resume_prompt(&board, &notes), Some(PromptChannel::Resume))
+            } else {
+                self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
+                self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
+                self.record_instructions(run, &ctx, &sid, &channel, &standing);
+                (format!("/goal {}", goal_condition(&run.goal)), None)
+            };
             let mut delivered = false;
             loop {
                 // A slash command starts a new goal; a message sent while one is active belongs
@@ -375,7 +405,8 @@ impl App {
                     st.lead.in_turn = true;
                     prompt.trim_start().starts_with("/goal ") || st.lead.goal_active
                 };
-                self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&prompt), &prompt);
+                let channel = opening.take().unwrap_or_else(|| PromptChannel::of_lead_prompt(&prompt));
+                self.record_session_prompt(run, &ctx, &sid, channel, &prompt);
                 let text = self
                     .stream_prompt(
                         run,
@@ -509,8 +540,16 @@ impl App {
             (sid, kept)
         });
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
-        let opened =
-            self.open_conversation(run, &lead, &channel, old.as_ref().map(|(s, k)| (*s, k.as_str())), &fresh).await;
+        let opened = self
+            .open_conversation(
+                run,
+                &lead,
+                &channel,
+                old.as_ref().map(|(s, k)| (*s, k.as_str())),
+                &fresh,
+                run.kind.conversation_log(),
+            )
+            .await;
         let Conversation { conn, mut rx, mut ctl, session, loaded, resources } = match opened {
             Ok(opened) => opened,
             Err(err) => {
@@ -554,10 +593,7 @@ impl App {
             let ctx = Ctx { agent: "lead", task: None, attempt: None, goal: true };
             // A loaded session may not return its options. Keep the controls already in the
             // event log instead of replacing them with an empty list.
-            let has_controls = controls["model"].is_object()
-                || controls["mode"].is_object()
-                || controls["controls"].as_array().is_some_and(|a| !a.is_empty());
-            if has_controls {
+            if has_controls(&controls) {
                 self.show(run, (EventKind::SessionControls, "会话选项".into(), controls), &ctx);
             }
             // A loaded session already has its system layer and got it again unchanged: nothing new
@@ -695,10 +731,12 @@ impl App {
         result
     }
 
-    /// Open a conversation's main session. `old` is the session to load and the system layer it
-    /// already has: it is loaded with exactly that layer. When it cannot be loaded, a new session
-    /// starts with `fresh`, which carries what was said so far. Codex reads its layer from the
+    /// Open a run's main session: a conversation's, or the lead's goal session (new, or continued
+    /// after a restart). `old` is the session to load and the system layer it already has: it is
+    /// loaded with exactly that layer. When it cannot be loaded, a new session starts with
+    /// `fresh`, which carries what the agent needs to know. Codex reads its layer from the
     /// environment its adapter starts with, so that new session needs a new adapter process.
+    /// The agent's output goes to `log` in the run's log directory.
     async fn open_conversation(
         &self,
         run: &Arc<Run>,
@@ -706,11 +744,12 @@ impl App {
         channel: &InstructionChannel,
         old: Option<(&str, &str)>,
         fresh: &str,
+        log: &str,
     ) -> Result<Conversation> {
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
         let mut started = None;
         if let Some((sid, kept)) = old {
-            let (conn, mut rx, ctl) = self.start_conversation_agent(run, lead, kept).await?;
+            let (conn, mut rx, ctl) = self.start_conversation_agent(run, lead, kept, log).await?;
             if conn.capabilities["loadSession"] == true {
                 let opening = self.conversation_opening(run, lead, &conn, channel, kept);
                 let params = opening.load_params(sid, &run.cwd);
@@ -730,7 +769,7 @@ impl App {
         }
         let (conn, rx, ctl) = match started {
             Some(started) => started,
-            None => self.start_conversation_agent(run, lead, fresh).await?,
+            None => self.start_conversation_agent(run, lead, fresh, log).await?,
         };
         let opening = self.conversation_opening(run, lead, &conn, channel, fresh);
         let session = tokio::time::timeout(STARTUP_TIMEOUT, new_session(&conn, &run.cwd, &opening))
@@ -753,6 +792,7 @@ impl App {
         run: &Run,
         lead: &Member,
         system: &str,
+        log: &str,
     ) -> Result<(Arc<AcpConn>, mpsc::UnboundedReceiver<Incoming>, Control)> {
         let spec = member_spec(self.spec_for(&lead.connection)?, lead, system);
         if lead.runtime.trusts_workspaces() {
@@ -767,7 +807,7 @@ impl App {
                 st.mcp_token = token;
             }
         }
-        let log = self.dirs(run).log(run.kind.conversation_log());
+        let log = self.dirs(run).log(log);
         let who = if run.kind.single_session() { lead.name.as_str() } else { "负责人" };
         self.open_session(run, &Owner { session: SessionKey::Lead, attempt: 0 }, "lead", &spec, &log, who).await
     }
@@ -922,7 +962,7 @@ impl App {
     /// What the lead knows about its team and how to work with it. Everything it learns about
     /// the collaborators comes from here (and the `team` tool, which repeats it).
     // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
-    pub(super) fn goal_brief(&self, run: &Run, resumed: bool) -> String {
+    pub(super) fn goal_brief(&self, run: &Run) -> String {
         let mut p = format!(
             "You are the lead of the Janus team and are responsible for achieving the user's goal. First decide whether the goal is small enough to finish yourself in this session; if it is, do it yourself without delegating. Otherwise delegate parts of it to the collaborators below, deciding whom to involve and how to divide the work.
 
@@ -988,31 +1028,6 @@ Shared workspace context:
             decisions = DECISIONS_HEADING,
             teamwork = crate::teamwork::lead_guide(),
         );
-        if resumed {
-            let st = run.st.lock().unwrap();
-            let tasks: Vec<String> = st
-                .tasks
-                .iter()
-                .map(|t| {
-                    format!(
-                        "- {} ({}): {} · {}{}",
-                        t.def.id,
-                        t.agent,
-                        t.def.title,
-                        t.status(),
-                        t.result.as_ref().map(|r| format!(" · {}", clip(&r.summary, 80))).unwrap_or_default()
-                    )
-                })
-                .collect();
-            p.push_str(&format!(
-                "\n\nResuming after an interruption. The previous session ended, and its changes remain in the working directory. {}",
-                if tasks.is_empty() {
-                    "No subtasks were assigned to collaborators.".to_string()
-                } else {
-                    format!("Previous subtasks on the board:\n{}\nUnfinished subtasks will restart.", tasks.join("\n"))
-                }
-            ));
-        }
         if !run.goal_images.is_empty() {
             let images = crate::attachments::lines(&run.goal_images);
             p.push_str(&format!(
@@ -1021,6 +1036,111 @@ Shared workspace context:
         }
         p
     }
+}
+
+/// Whether a session's options (`acp_view::controls`) name anything; a loaded session may return none.
+fn has_controls(controls: &Value) -> bool {
+    controls["model"].is_object()
+        || controls["mode"].is_object()
+        || controls["controls"].as_array().is_some_and(|a| !a.is_empty())
+}
+
+/// Where each subtask on the board stands as a run continues after a restart, as the lead reads
+/// it: what is done, what was at work and carries on in its own session, what the lead had sent
+/// back and with what note, and the last thing the lead told the ones still open. A result from an
+/// earlier attempt is marked as such, so it is not taken for the current state.
+// @project-doc docs/domains/20261031-run_lifecycle.md#recovery
+fn board_on_resume(run: &Run, events: &[Event]) -> String {
+    let st = run.st.lock().unwrap();
+    if st.tasks.is_empty() {
+        return "No subtasks were assigned to collaborators.".into();
+    }
+    let lines: Vec<String> = st
+        .tasks
+        .iter()
+        .map(|t| {
+            let id = t.def.id.as_str();
+            let mine = |e: &&Event| e.task.as_deref() == Some(id);
+            let mut parts: Vec<String> = vec![];
+            match t.status() {
+                TaskStatus::Succeeded => {
+                    let summary = t.result.as_ref().map(|r| clip(&r.summary, 200)).unwrap_or_default();
+                    parts.push(match t.verdict() {
+                        Some(vd) => format!("done, verdict {}: {summary}", vd.as_str()),
+                        None => format!("done: {summary}"),
+                    });
+                }
+                TaskStatus::Pending => {
+                    // Why it runs again: the lead's retry or a re-verification, unless it already
+                    // succeeded since.
+                    let reopened = events
+                        .iter()
+                        .filter(mine)
+                        .rfind(|e| matches!(e.kind(), EventKind::TaskReopened | EventKind::TaskSucceeded))
+                        .filter(|e| e.kind() == EventKind::TaskReopened)
+                        .and_then(|e| e.data.as_ref());
+                    match reopened.and_then(Reopen::of_event) {
+                        Some(Reopen::Retry { session, from, note, .. }) => {
+                            let mut why = format!("you sent it back with janus.retry (session={})", session.as_str());
+                            if let Some(v) = from {
+                                why.push_str(&format!(" on {v}'s findings"));
+                            }
+                            if let Some(n) = note {
+                                why.push_str(&format!("; your note: {}", clip(&n, 300)));
+                            }
+                            parts.push(why);
+                        }
+                        Some(Reopen::Reverify { target }) => parts.push(format!("checks {target} again after its rework")),
+                        None => {}
+                    }
+                    parts.push(if st.resume_session.contains_key(id) {
+                        "it was at work when Janus stopped and reopens its own session to carry on (a new session if its agent cannot load it)".into()
+                    } else if t.attempts == 0 {
+                        "not started yet".into()
+                    } else {
+                        "starts again".into()
+                    });
+                    if let Some(r) = &t.result {
+                        let verdict = t.last_verdict().map(|v| format!(" (verdict {})", v.as_str())).unwrap_or_default();
+                        parts.push(format!("result of an earlier attempt{verdict}: {}", clip(&r.summary, 160)));
+                    }
+                }
+                TaskStatus::Blocked => parts.push(format!("blocked by {}", t.blocked_by().unwrap_or("a dependency"))),
+                TaskStatus::Failed => parts.push("failed".into()),
+                TaskStatus::SkippedByDecision => parts.push("cancelled by you".into()),
+                other => parts.push(other.as_str().into()),
+            }
+            if !t.status().terminal()
+                && let Some(told) = events
+                    .iter()
+                    .filter(mine)
+                    .rfind(|e| e.kind() == EventKind::UserMessage && e.actor == "lead")
+            {
+                parts.push(format!("your last message to it: {}", clip(told.text.trim(), 200)));
+            }
+            format!("- {id} ({}): {} · {}", t.agent, t.def.title, parts.join(" · "))
+        })
+        .collect();
+    lines.join("\n")
+}
+
+/// What a lead in a new session after a restart is told, in its brief: its old session is gone,
+/// so where the board stands and what it and the person last said.
+fn resume_brief(board: &str, events: &[Event]) -> String {
+    let recent = recent_exchanges(events, "You");
+    format!(
+        "\n\nResuming after an interruption. Janus restarted while you were working on this goal, and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{}\n\nYour recent conversation with the user, oldest first:\n{}",
+        board,
+        if recent.is_empty() { "(none)" } else { recent.as_str() },
+    )
+}
+
+/// What a lead whose own session was loaded after a restart is told first: it remembers its work,
+/// so only what the restart changed and the messages left for it meanwhile.
+fn resume_prompt(board: &str, notes: &str) -> String {
+    format!(
+        "[Janus] Janus restarted while you were working on this goal. Your session was restored, so what you did and read before is still here; the collaborators' sessions were closed. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}{notes}\n\njanus.wait brings only what happens from here on.",
+    )
 }
 
 /// One line per collaborator, as the lead is told about them: who it is and what it is responsible

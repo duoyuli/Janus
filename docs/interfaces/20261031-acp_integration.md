@@ -125,7 +125,7 @@ Janus 把注入的内容记成 `session.prompt` 事件，都带 `via`（`system`
 
 `session/load` 恢复的会话已经有自己的系统层，Janus 原样交回它打开时的那一份，不重新拼：`recorded_system` 从事件日志中取这个会话最近一次记下的各段（带 `via` 的 `session.prompt`），按原顺序拼回。系统层一变，适配器就会把它当作新的指令再交给模型（codex-acp 在 `thread/resume` 时把不同的 `developer_instructions` 当作修改系统提示词），所以恢复时只要有一个字不同，Agent 就会收到第二份指令。恢复成功时 Janus 不记新的 `session.prompt`，会话页不会出现第二份注入。
 
-只有新开会话才用新拼的系统层：对话和交付后负责人的对话在这里带上之前的对话（`chat_brief`、`conversation_brief`）。Codex 的系统层在适配器启动时就定了，所以 `lead_conversation` 先用原会话的系统层启动适配器去加载；加载失败要新开、而新系统层和原来不同时，关掉这个适配器，用新的系统层重新启动（`open_conversation`）。Claude Code 的系统层随 `session/new` 传入，用同一个适配器新开即可。任务的尝试恢复会话（从中断处继续、`continues`、回到原会话返工）时，成员和协作约定都没变，系统层和原来相同，同样不再记录。
+负责人的目标会话在编排器重启后从中断处继续时同样这样加载（`lead_goal` 和对话共用 `open_conversation`）。只有新开会话才用新拼的系统层：对话和交付后负责人的对话在这里带上之前的对话（`chat_brief`、`conversation_brief`），重启后新开的负责人会话带上看板状况和最近的对话（`resume_brief`）。Codex 的系统层在适配器启动时就定了，所以 `lead_conversation` 先用原会话的系统层启动适配器去加载；加载失败要新开、而新系统层和原来不同时，关掉这个适配器，用新的系统层重新启动（`open_conversation`）。Claude Code 的系统层随 `session/new` 传入，用同一个适配器新开即可。任务的尝试恢复会话（从中断处继续、`continues`、回到原会话返工）时，成员和协作约定都没变，系统层和原来相同，同样不再记录。
 
 Skill、MCP 和权限模式本身不属于系统层，它们按各 Agent 自己的机制生效，系统层只指出 Skill 目录在哪里，见[资源库](../domains/20261116-resource_library.md#delivery)。
 

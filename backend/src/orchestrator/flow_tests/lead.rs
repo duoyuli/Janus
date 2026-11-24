@@ -236,13 +236,121 @@ async fn questions_left_by_the_lead_go_to_the_person() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// Goal mode survives a restart: the board's tasks come back as they were, the lead starts
-/// again knowing them, and can orchestrate on top of them.
+/// Goal mode survives a restart: the board's tasks come back as they were, and the lead's own
+/// session is loaded again, so it keeps everything it did. It is not given the goal again; it is
+/// told where the board stands now (a task it had sent back and that was at work when Janus
+/// stopped) and gets the message the person left meanwhile. Then it builds on the board it found.
 #[tokio::test(flavor = "multi_thread")]
-async fn goal_mode_resumes_with_the_board() {
-    let h = harness("goal-resume", &[("lead", false), ("m1", true)], json!({}));
+async fn goal_mode_resumes_the_leads_own_session() {
+    let h = harness("goal-resume", &[("lead", false), ("m1", true)], json!({ "T1": ["ok", "hold:t1-go"] }));
     // Left over from earlier work: not this run's change.
     std::fs::write(h.repo.join("leftover.txt"), "old\n").unwrap();
+    let run = h
+        .app
+        .create_run(NewRun { goal: "两步完成".into(), workspace: "ws".into(), ..Default::default() })
+        .await
+        .unwrap();
+    let calls = h.dir.join("fake/calls.log");
+    let logged = |needle: &'static str| {
+        let calls = calls.clone();
+        async move {
+            for _ in 0..100 {
+                let log = std::fs::read_to_string(&calls).unwrap_or_default();
+                if let Some(line) = log.lines().find(|l| l.contains(needle)) {
+                    return line.to_string();
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            panic!("not logged: {needle}");
+        }
+    };
+    logged("goal 两步完成").await;
+    let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "第一步", "instructions": "做第一步", "assignee": "m1", "accept": ["第一步完成"] }] })).await;
+    assert!(!err, "{text}");
+    wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
+    assert!(
+        !events(&h.app, &run).iter().any(|e| e.kind.as_str() == "artifact.created" && e.text.contains("T1-a1.diff")),
+        "T1 changed nothing"
+    );
+    let lead_sid = events(&h.app, &run)
+        .iter()
+        .find_map(|e| (e.actor == "lead").then(|| e.data.as_ref()?["session"].as_str().map(str::to_owned)).flatten())
+        .unwrap();
+    // The lead sends T1 back, and the person leaves it a message while it works.
+    let (text, err) =
+        tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "new", "note": "按新要求再做一遍" }))
+            .await;
+    assert!(!err, "{text}");
+    wait_until(&h.app, &run, "T1 again", |e| {
+        e.iter()
+            .any(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1") && e.attempt == Some(2))
+    })
+    .await;
+    act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "先别急着交付" }));
+
+    // The process goes away while the lead and T1 are still working.
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let app2 = test_app(&h.dir);
+    app2.recover().unwrap();
+    app2.resume_run(&run).await.unwrap();
+    let evs = events(&app2, &run);
+    let recovered = evs.iter().rev().find(|e| e.kind.as_str() == "run.recovered").unwrap();
+    assert_eq!(recovered.data.as_ref().unwrap()["tasks"][0]["status"], "pending");
+
+    // Its own session, loaded with the layer it had: no new brief, no second /goal.
+    let resumed = logged("lead resumed").await;
+    assert!(resumed.starts_with(&format!("lead resumed {lead_sid} ")), "{resumed}");
+    for told in [
+        "T1 (m1): 第一步",
+        "you sent it back with janus.retry (session=new); your note: 按新要求再做一遍",
+        "it was at work when Janus stopped and reopens its own session",
+        "result of an earlier attempt: T1 完成",
+        "Additional information from the user",
+        "先别急着交付",
+    ] {
+        assert!(resumed.contains(told), "{told}: {resumed}");
+    }
+    let log = std::fs::read_to_string(&calls).unwrap();
+    assert!(log.contains(&format!("load {lead_sid}")), "{log}");
+    // Loaded with the very layer it opened with: nothing new is put in.
+    let layer = |how: &str| {
+        let head = format!("layer {how} {lead_sid} ");
+        log.lines().find_map(|l| l.strip_prefix(head.as_str())).map(str::to_owned)
+    };
+    assert_eq!(layer("load"), layer("new"));
+    assert!(!log.contains("brief ok resumed"), "{log}");
+    assert_eq!(log.matches("goal 两步完成").count(), 1, "the goal is not set again: {log}");
+    let evs = events(&app2, &run);
+    let restart = evs.iter().rposition(|e| e.kind.as_str() == "run.recovered").unwrap();
+    let after = &evs[restart..];
+    assert!(after.iter().any(|e| e.kind.as_str() == "session.prompt"
+        && e.data.as_ref().is_some_and(|d| d["channel"] == "resume" && d["session"] == lead_sid.as_str())));
+    assert!(!after.iter().any(|e| e.kind.as_str() == "session.prompt"
+        && e.data.as_ref().is_some_and(|d| d["channel"] == "system" || d["channel"] == "goal")));
+    assert!(after.iter().any(|e| e.kind.as_str() == "agent.status" && e.text.contains("恢复了原来的会话")));
+
+    // It builds on the board it found.
+    std::fs::write(h.dir.join("fake/t1-go"), "").unwrap();
+    wait_until(&app2, &run, "T1 done again", |e| {
+        e.iter().filter(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1")).count() == 2
+    })
+    .await;
+    let (text, err) = tool(&app2, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T2", "title": "第二步", "instructions": "做第二步", "assignee": "m1", "deps": ["T1"], "accept": ["第二步完成"] }] })).await;
+    assert!(!err, "{text}");
+    wait_until(&app2, &run, "T2", |e| task_event(e, "task.succeeded", "T2")).await;
+    let (board, _) = tool(&app2, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+    assert!(board.contains("[完成] T2"), "only what is new: {board}");
+    std::fs::write(h.dir.join("fake/lead-go"), "两步都完成了").unwrap();
+    wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// When the lead's agent cannot load its old session, a new one starts with the goal again and a
+/// brief that says it is new: where each subtask stands, and the conversation so far.
+#[tokio::test(flavor = "multi_thread")]
+async fn goal_mode_resumes_in_a_new_session_when_the_lead_cannot_load() {
+    let h = harness("goal-resume-new", &[("lead", false), ("m1", true)], json!({}));
     let run = h
         .app
         .create_run(NewRun { goal: "两步完成".into(), workspace: "ws".into(), ..Default::default() })
@@ -264,36 +372,28 @@ async fn goal_mode_resumes_with_the_board() {
     lead_started(1).await;
     let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T1", "title": "第一步", "instructions": "做第一步", "assignee": "m1", "accept": ["第一步完成"] }] })).await;
     assert!(!err, "{text}");
-    wait_until(&h.app, &run, "T1", |e| {
-        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1"))
-    })
-    .await;
-    assert!(
-        !events(&h.app, &run).iter().any(|e| e.kind.as_str() == "artifact.created" && e.text.contains("T1-a1.diff")),
-        "T1 changed nothing"
-    );
+    wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
 
-    // The process goes away while the lead is still working.
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
+    std::fs::write(h.dir.join("fake/no-load"), "").unwrap();
     let app2 = test_app(&h.dir);
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
-    let evs = events(&app2, &run);
-    let recovered = evs.iter().rev().find(|e| e.kind.as_str() == "run.recovered").unwrap();
-    assert_eq!(recovered.data.as_ref().unwrap()["tasks"][0]["status"], "succeeded");
     lead_started(2).await;
     assert!(std::fs::read_to_string(&calls).unwrap().contains("brief ok resumed"), "the lead is told it continues");
+    let evs = events(&app2, &run);
+    let restart = evs.iter().rposition(|e| e.kind.as_str() == "run.recovered").unwrap();
+    let brief = evs[restart..]
+        .iter()
+        .find(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
+        .and_then(|e| e.data.as_ref()?["prompt"].as_str().map(str::to_owned))
+        .unwrap();
+    assert!(brief.contains("this is a new session"), "{brief}");
+    assert!(brief.contains("- T1 (m1): 第一步 · done: T1 完成"), "{brief}");
+    assert!(brief.contains("Your recent conversation with the user"), "{brief}");
+    assert!(evs[restart..].iter().any(|e| e.kind.as_str() == "agent.status" && e.text.contains("新开会话")));
 
-    // It builds on the board it found.
-    let (text, err) = tool(&app2, &run, "lead", "orchestrate", json!({ "tasks": [{ "id": "T2", "title": "第二步", "instructions": "做第二步", "assignee": "m1", "deps": ["T1"], "accept": ["第二步完成"] }] })).await;
-    assert!(!err, "{text}");
-    wait_until(&app2, &run, "T2", |e| {
-        e.iter().any(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T2"))
-    })
-    .await;
-    let (board, _) = tool(&app2, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(board.contains("[完成] T2") && !board.contains("[完成] T1"), "only what is new: {board}");
     std::fs::write(h.dir.join("fake/lead-go"), "两步都完成了").unwrap();
     wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);

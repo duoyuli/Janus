@@ -1671,3 +1671,4 @@
 "负责人在解决合并冲突" = "Lead resolving a merge conflict";
 "负责人在处理你的消息" = "Lead working on your message";
 "%@ 改了文件，没有独立验证" = "%@ changed files with no independent verification";
+"恢复会话 · 编排器重启后接着推进目标" = "Session Restored · Continuing the Goal After a Restart";

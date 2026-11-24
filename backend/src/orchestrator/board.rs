@@ -471,6 +471,14 @@ impl App {
         let Some(session) = text("session").and_then(SessionChoice::parse) else {
             return Err("session 必填：\"continue\" 接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的），\"new\" 新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）".into());
         };
+        // Its own session too full to go back into: refused here, so the lead knows the next attempt
+        // starts without that context and writes what it needs into the note.
+        let too_full = match session {
+            SessionChoice::Continue => {
+                self.last_task_session(&run.id, task).and_then(|sid| self.session_too_full(run, &sid))
+            }
+            SessionChoice::New => None,
+        };
         let reverify: Vec<String> = {
             let mut st = run.st.lock().unwrap();
             let Some(t) = st.tasks.iter().find(|t| t.def.id == task) else {
@@ -478,6 +486,13 @@ impl App {
             };
             if !t.status().terminal() {
                 return Err(format!("{task} 现在是「{}」，还没有结束；要补充指示请用 janus.reply", t.status().label()));
+            }
+            if let Some(ratio) = too_full {
+                return Err(format!(
+                    "{task} 原来的会话上下文已经用了 {:.0}%（超过 {:.0}%），回不到原会话：新开的会话不记得之前做过什么。改用 session=\"new\"，并在 note 里写清这一轮要知道的：之前做到哪一步、改过哪些文件、还差什么。",
+                    ratio * 100.0,
+                    CONTINUE_CONTEXT_LIMIT * 100.0
+                ));
             }
             if let Some(v) = from {
                 let Some(vt) = st.tasks.iter().find(|x| x.def.id == v) else {

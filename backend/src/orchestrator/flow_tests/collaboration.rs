@@ -358,6 +358,18 @@ async fn session_continuation_falls_back_cleanly_on_high_context_or_no_load() {
         .unwrap();
     assert_ne!(t2_a1["session"].as_str(), Some(t1_sid.as_str()), "80% context skips session/load");
     assert_eq!(t2_a1["continuation"]["fallback"], "context_over_75pct", "{t2_a1}");
+    // The lead learns T2 started without T1's context.
+    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+    assert!(board.contains("没能回到 T1 原来的会话（上下文已经超过 75%）"), "{board}");
+
+    // Back into T1's own session, 80% full: refused on the spot, so the lead writes what a new
+    // session needs to know instead of believing the old context is there.
+    let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "continue" })).await;
+    assert!(err && text.contains("上下文已经用了 80%") && text.contains("session=\"new\""), "{text}");
+    assert!(task_event(&events(&h.app, &run), "task.succeeded", "T1"));
+    assert!(
+        !events(&h.app, &run).iter().any(|e| e.kind.as_str() == "task.reopened" && e.task.as_deref() == Some("T1"))
+    );
 
     // Disable `loadSession` and ask `retry` for `session: "continue"`: falls back cleanly to `session/new`.
     std::fs::write(h.dir.join("fake/no-load"), "").unwrap();

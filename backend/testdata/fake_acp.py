@@ -23,7 +23,8 @@ With a `goal-sticky` file the lead reports its /goal active and never clears it;
 it is done is answered "GOAL_DONE" with the lead-go text, and `_session/goal` clear is logged ("goal clear").
 As a goal-mode lead it logs whether its brief arrived in the system layer (`_meta.systemPrompt.append`,
 as Janus gives Claude Code: "brief ok", "brief ok resumed"), then works on "/goal …" until FAKE_DIR/lead-go
-exists and ends with the text of that file.
+exists and ends with the text of that file. A lead whose session was loaded after a restart gets Janus's resume
+prompt instead: it logs "lead resumed <sid> <prompt as JSON>", works until lead-go, then reports its goal cleared.
 With a `mute` file in FAKE_DIR it never answers `initialize`, like an agent that hangs at startup.
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
@@ -247,6 +248,18 @@ def prompt(msg):
         # Janus asks whether a goal that never settled is done.
         log("goal check")
         say(sid, "GOAL_DONE\n" + open(os.path.join(DIR, "lead-go")).read())
+        return {"stopReason": "end_turn"}
+    if text.startswith("[Janus] Janus restarted while you were working on this goal."):
+        # A lead whose own session was loaded after a restart: told what happened, it carries on
+        # with its goal (kept with the session) until lead-go, then reports it met.
+        log("lead resumed " + sid + " " + json.dumps(text, ensure_ascii=False))
+        go = os.path.join(DIR, "lead-go")
+        while not os.path.exists(go):
+            if wait_cancel(0.2):
+                return {"stopReason": "cancelled"}
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "session_info_update", "_meta": {"jetbrains": {"air": {"goal": None}}}}}})
+        say(sid, open(go).read())
         return {"stopReason": "end_turn"}
     if text.startswith("/goal "):
         log("goal " + text[len("/goal "):])
