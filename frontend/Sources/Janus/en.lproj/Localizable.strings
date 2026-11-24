@@ -191,8 +191,8 @@
 "下载 %@ 失败" = "Could not download %@";
 "下载 update.json 失败" = "Could not download update.json";
 "不再提醒" = "Don’t ask again";
-"不再提醒；任务保持原样，在任务记录里还能找到" = "Stop reminding me. The run stays as it is and remains in history";
-"不再提醒；对方会一直等着，在任务页还能处理" = "Stop reminding me. The agent keeps waiting, and you can still answer on the run page";
+"忽略：不再提醒；对方会一直等着，在任务页还能处理" = "Ignore: stop reminding me. The agent keeps waiting, and you can still answer on the run page";
+"忽略：不再提醒；任务保持原样，在任务记录里还能找到" = "Ignore: stop reminding me. The run stays as it is and remains in history";
 "不到 1 秒" = "Under 1 sec";
 "跳过，让 Agent 接着干" = "Skip it and let the Agent carry on";
 "不是 Git 仓库：直接改这个目录，没有 diff" = "Not a Git repository: work happens right in this folder, with no diff";
@@ -599,7 +599,7 @@
 "收起，只看前 %lld 条" = "Collapse to the first %lld";
 "改了 %lld 个文件" = "Files changed: %lld";
 "改动 %lld" = "Changes %lld";
-"先放一放，到点再提醒。没人在等，推迟不会卡住任务" = "Set it aside until later. Nothing is waiting on it, so the run won't stall";
+"稍后：先放一放，到点再提醒。没人在等，推迟不会卡住任务" = "Later: set it aside until later. Nothing is waiting on it, so the run won't stall";
 "放弃更改" = "Discard Changes";
 "放弃未保存的更改？" = "Discard Unsaved Changes?";
 "数字员工" = "Employees";

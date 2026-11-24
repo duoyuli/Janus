@@ -98,9 +98,11 @@ struct InboxView: View {
         }
     }
 
+    /// One entry: what it is, then its actions. The one way forward is the only worded button; the
+    /// quieter choices, later and ignore, are glyphs in fixed places, so every row lines up.
     private func row(_ e: InboxEntry, now: Double) -> some View {
         let (symbol, tone) = Self.badge(e)
-        return HStack(alignment: .top, spacing: 12) {
+        return HStack(alignment: .center, spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(tone.color)
@@ -108,27 +110,57 @@ struct InboxView: View {
                 .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 .accessibilityHidden(true)
             summary(e, now: now)
-            Spacer()
-            if e.canWait {
-                Menu(L.text("稍后")) {
-                    Button(L.text("1 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
-                    Button(L.text("4 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(4 * 3600)) }
-                    Button(L.text("明天上午 9 点")) { store.inbox.snooze(e.key, until: Self.tomorrowMorning()) }
+            Spacer(minLength: 12)
+            HStack(spacing: 2) {
+                if e.canWait {
+                    later(e)
+                } else {
+                    // Nothing to put off: the place stays, so the glyphs below and above line up.
+                    Color.clear.frame(width: Self.glyph, height: Self.glyph).accessibilityHidden(true)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help(L.text("先放一放，到点再提醒。没人在等，推迟不会卡住任务"))
+                IconButton(symbol: "eye.slash", label: L.text("忽略"), size: 13, color: .secondary,
+                           help: e.canWait ? L.text("忽略：不再提醒；任务保持原样，在任务记录里还能找到") : L.text("忽略：不再提醒；对方会一直等着，在任务页还能处理")) {
+                    store.inbox.ignore(e.key)
+                }
             }
-            Button(L.text("忽略")) { store.inbox.ignore(e.key) }
-                .buttonStyle(.borderless)
-                .help(e.canWait ? L.text("不再提醒；任务保持原样，在任务记录里还能找到") : L.text("不再提醒；对方会一直等着，在任务页还能处理"))
-            if e.actions.isEmpty {
-                Button(L.text("去处理")) { store.open(.run(e.run)) }.buttonStyle(.primary)
-            } else {
-                Button(L.text("详情")) { store.open(.run(e.run)) }.help(L.text("打开这个任务，看完整的请求"))
+            // Both buttons take the place of 「去处理」, so the glyphs line up on every row.
+            ZStack(alignment: .trailing) {
+                Button(L.text("去处理")) {}.buttonStyle(.primary).hidden().accessibilityHidden(true)
+                if e.actions.isEmpty {
+                    Button(L.text("去处理")) { store.open(.run(e.run)) }.buttonStyle(.primary)
+                } else {
+                    // The quick answers below are the way forward; this only opens the run.
+                    Button(L.text("详情")) { store.open(.run(e.run)) }.help(L.text("打开这个任务，看完整的请求"))
+                }
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 12)
+    }
+
+    /// The side of an `IconButton` of size 13, which the later menu and the empty place match.
+    private static let glyph: CGFloat = 24
+
+    /// Put it off: a clock that opens the times to come back at.
+    private func later(_ e: InboxEntry) -> some View {
+        Menu {
+            Button(L.text("1 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
+            Button(L.text("4 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(4 * 3600)) }
+            Button(L.text("明天上午 9 点")) { store.inbox.snooze(e.key, until: Self.tomorrowMorning()) }
+        } label: {
+            Image(systemName: "clock")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: Self.glyph, height: Self.glyph)
+                .contentShape(Rectangle())
+        }
+        // A plain menu: the glyph keeps its gray, as the ignore glyph beside it.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .hoverable(5)
+        .help(L.text("稍后：先放一放，到点再提醒。没人在等，推迟不会卡住任务"))
+        .accessibilityLabel(L.text("稍后"))
     }
 
     /// A plain choice is answered right here: the agent waiting on it goes on at once.
