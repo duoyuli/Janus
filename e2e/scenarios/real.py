@@ -40,7 +40,7 @@ CONVENTIONS = {
 }
 
 
-@scenario("real", serial=True, real=True)
+@scenario("real", own=True, real=True)
 def real(ctx, c):
     """真实 Agent 冒烟：负责人用你本机负责人的 Agent（Codex 或 Claude Code），带 Claude Code 协作者，在 examples/calc 的副本上完成一个小目标并通过测试；默认的最高权限在 /goal 里真的生效（不进沙箱、不弹审批）"""
     home = ctx.path("real", "home")

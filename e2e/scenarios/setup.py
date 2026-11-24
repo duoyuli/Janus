@@ -173,85 +173,116 @@ def setup(ctx, c):
     run.finish("hello.py 写好了")
     c(run.status() == "delivered", "负责人结束后 Run 交付")
 
-    if ctx.app:
-        st = ctx.app.until(lambda s: {x["id"]: x["phase"] for x in s["connections"]}.get("setup-codex") == "ok"
-                           and "setup" in [w["id"] for w in s["workspaces"]], "应用读到 Agent、数字员工和工作区", "reload", "open home:setup")
-        c(True, "应用：设置里的 Agent 状态与服务一致（检查通过）")
-        c({"pmo", "developer"} <= {r["id"] for r in st["roles"]}, "应用：读到默认数字员工")
-        for tab in ("general", "agents", "library:skill", "library:mcp", "usage", "permissions", "updates"):
-            shot = "settings-" + tab.replace(":", "-")
-            ctx.app.do(f"open settings:{tab}", f"shot {shot}")
-            c(_drawn(ctx, shot), f"应用：设置 › {tab} 画出来了")
-        # Settings › 通用 › 更新: automatic updates are on until turned off, and the switch keeps it.
-        state = ctx.app.do("open settings:updates")
-        c(state["autoUpdate"] is True, f"应用：自动更新默认开着（{state['autoUpdate']}）")
-        # A tested app never replaces itself with the latest release, the switch on or not.
-        c(state["updateEnabled"] is False, "应用：测试中的应用不检查、不下载更新，也不替换自己")
-        state = ctx.app.do("auto-update off", "open settings:updates", "shot settings-auto-update-off")
-        c(state["autoUpdate"] is False and _drawn(ctx, "settings-auto-update-off"), "应用：关掉自动更新后状态跟着变，更新一节画出来了")
-        state = ctx.app.do("auto-update on")
-        c(state["autoUpdate"] is True, "应用：再打开自动更新")
-        # Adding an Agent offers only Codex and Claude Code.
-        state = ctx.app.do("agent-edit new claude apikey template", "shot agent-editor")
-        c(_drawn(ctx, "agent-editor") and state["agentEditorEnv"] == template,
-          "应用：新建 Claude 的自定义 API 时，「填入模板」带入的环境变量就是服务给的模板")
-        ctx.app.do("close-sheet")
-        state = ctx.app.do("agent-edit setup-claude")
-        lines = state["claudeEnvironments"]["setup-claude"].splitlines()
-        expected = cs["setup-claude"]["env"]
-        c(set(lines) == {k if v is None else f"{k}={v}" for k, v in expected.items()}
-          and "ANTHROPIC_AUTH_TOKEN" in lines and SECRET not in "\n".join(lines), "应用：设置列表里的 Agent 只有私有变量的名字")
-        shown = ctx.app.until(lambda s: SECRET in (s.get("agentEditorEnv") or ""), "编辑器读到保存的值", "shot claude-env-edit")
-        c(f"ANTHROPIC_AUTH_TOKEN={SECRET}" in shown["agentEditorEnv"].splitlines()
-          and "ANTHROPIC_MODEL=deepseek-v4.1-flash" in shown["agentEditorEnv"].splitlines(),
-          "应用：编辑 Agent 时环境变量全部显示值，令牌也在（本机优先）")
-        ctx.app.do("close-sheet")
-        # The MCP editor: a saved server as the form and as JSON, and a new one.
-        for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new"), ("mcp-edit catalog:github", "mcp-editor-catalog")):
-            ctx.app.do(cmd, f"shot {shot}", "close-sheet")
-            c(_drawn(ctx, shot), f"应用：MCP 编辑器 {cmd} 画出来了")
-        # Digital employees' pictures: the default ones come with theirs; one of your own, cropped
-        # and scaled by the app, replaces it; removing it shows the initials again.
-        defaults = {"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend"}
-        st = ctx.app.until(lambda s: defaults <= set(s.get("avatars") or {}), "应用读到默认数字员工的头像", "reload")
-        c(all(st["avatars"][r] == 256 for r in defaults), f"应用：7 位默认数字员工都带着 256 像素的头像（{st['avatars']}）")
-        code, _ = ctx.api_error("PUT", "/api/roles/developer/avatar", {"data": base64.b64encode(b"GIF89a not a png").decode()})
-        c(code == 400, f"不是 PNG 的头像被拒绝（{code}）")
-        before = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["developer"]["avatar"]
-        ctx.app.do(f"avatar developer {os.path.join(ROOT, 'backend', 'roles', 'friend.png')}")
-        after = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["developer"]["avatar"]
-        status, png, _ = ctx.api("GET", "/api/roles/developer/avatar", raw=True)
-        side = int.from_bytes(png[16:20], "big") if png.startswith(b"\x89PNG") else 0
-        c(after and after != before and status == 200 and side == 256, f"应用：换上自己的图后，数字员工的头像是裁好的 256 像素 PNG（{side}）")
-        ctx.app.do("close-sheet", "role developer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
-        # The shared material has a sheet of its own, apart from the team's.
-        st = ctx.app.do("brief setup", "shot brief-editor")
-        c(st.get("editingBrief") == "setup" and st.get("editingWorkspace") is None and _drawn(ctx, "brief-editor"),
-          "应用：共享资料在单独的表单里编辑，不打开工作区设置（brief-editor.png）")
-        ctx.app.do("close-sheet")
-        c(_drawn(ctx, "role-editor"), "应用：数字员工编辑器画出来了")
-        st = ctx.app.do("avatar developer none")
-        code, _ = ctx.api_error("GET", "/api/roles/developer/avatar")
-        c(code == 404 and "developer" not in (st.get("avatars") or {}), f"移除头像后回到文字头像（{code}）")
-        c(_drawn(ctx, "workspace-editor"), "应用：工作区编辑器画出来了")
-        ctx.ui(c, run.id, lambda r, s: r["status"] == "delivered" and {t["id"]: t["status"] for t in r["tasks"]} == {"T1": "succeeded", "V1": "succeeded"}
-               and next(t for t in r["tasks"] if t["id"] == "V1")["verdict"] == "approved",
-               "Run 已交付，T1、V1 已完成，V1 判定通过", pages=("board", "team", "audit", "task:T1", "task:V1", "agent:lead"))
-        listed = ctx.api("GET", "/api/runs?workspace=setup")["runs"]
-        c(listed and all(r["config"]["workspace"]["id"] == "setup" for r in listed), "按工作区读取它的任务记录")
-        # The workspace's page lists its task records, newest first; the sidebar lists the workspaces.
-        want = [r["id"] for r in listed]
-        st = ctx.app.until(lambda s: [r["id"] for r in s.get("histories", {}).get("setup", [])] == want,
-                           "工作区页读到它的任务记录", "open home:setup")
-        c([r["id"] for r in st["histories"]["setup"]] == want, f"应用：工作区页列出它的全部任务记录，从新到旧（{want}）")
-        ctx.app.do("shot workspace-home")
-        c(_drawn(ctx, "workspace-home"), "应用：工作区页画出来了（workspace-home.png）")
-        # Opened afresh, the page puts the keyboard in the goal box; the tiles beside the name say
-        # what the shared material and the team memory hold.
-        brief = len("共享资料：用 Python 3。")
-        st = ctx.app.until(lambda s: (s.get("home") or {}).get("goalFocused"), "工作区页的目标输入框拿到键盘", "open inbox", "open home:setup")
-        c(st["home"]["brief"] in (f"{brief} 字", f"{brief} characters") and st["home"]["memory"] in ("还没有笔记", "No notes yet"),
-          f"应用：名称旁的共享资料写着它的长度，团队记忆写着还没有笔记（{st['home']['brief']}，{st['home']['memory']}）")
+
+# The app's side of the first setup, in three parts that run side by side with everything else:
+# they only picture what setup made and check it against the server.
+
+
+@scenario("setup-settings", needs="setup")
+def setup_settings(ctx, c):
+    """首次配置在应用里：设置的各页和自动更新的开关"""
+    if not ctx.app:
+        c(True, "（--no-app：跳过）")
+        return
+    st = ctx.app.until(lambda s: {x["id"]: x["phase"] for x in s["connections"]}.get("setup-codex") == "ok"
+                       and "setup" in [w["id"] for w in s["workspaces"]], "应用读到 Agent、数字员工和工作区", "reload", "open home:setup")
+    c(True, "应用：设置里的 Agent 状态与服务一致（检查通过）")
+    c({"pmo", "developer"} <= {r["id"] for r in st["roles"]}, "应用：读到默认数字员工")
+    for tab in ("general", "agents", "library:skill", "library:mcp", "usage", "permissions", "updates"):
+        shot = "settings-" + tab.replace(":", "-")
+        ctx.app.do(f"open settings:{tab}", f"shot {shot}")
+        c(_drawn(ctx, shot), f"应用：设置 › {tab} 画出来了")
+    # Settings › 通用 › 更新: automatic updates are on until turned off, and the switch keeps it.
+    state = ctx.app.do("open settings:updates")
+    c(state["autoUpdate"] is True, f"应用：自动更新默认开着（{state['autoUpdate']}）")
+    # A tested app never replaces itself with the latest release, the switch on or not.
+    c(state["updateEnabled"] is False, "应用：测试中的应用不检查、不下载更新，也不替换自己")
+    state = ctx.app.do("auto-update off", "open settings:updates", "shot settings-auto-update-off")
+    c(state["autoUpdate"] is False and _drawn(ctx, "settings-auto-update-off"), "应用：关掉自动更新后状态跟着变，更新一节画出来了")
+    state = ctx.app.do("auto-update on")
+    c(state["autoUpdate"] is True, "应用：再打开自动更新")
+
+
+@scenario("setup-editors", needs="setup")
+def setup_editors(ctx, c):
+    """首次配置在应用里：Agent 和 MCP 的编辑器、数字员工的头像、数字员工、工作区和共享资料的表单"""
+    if not ctx.app:
+        c(True, "（--no-app：跳过）")
+        return
+    meta = ctx.api("GET", "/api/meta")
+    template = next(k["auths"] for k in meta["kinds"] if k["id"] == "claude")[-1].get("template", "")
+    cs = {x["id"]: x for x in ctx.api("GET", "/api/setup")["connections"]}
+    # Adding an Agent offers only Codex and Claude Code.
+    state = ctx.app.do("agent-edit new claude apikey template", "shot agent-editor")
+    c(_drawn(ctx, "agent-editor") and state["agentEditorEnv"] == template,
+      "应用：新建 Claude 的自定义 API 时，「填入模板」带入的环境变量就是服务给的模板")
+    ctx.app.do("close-sheet")
+    state = ctx.app.do("agent-edit setup-claude")
+    lines = state["claudeEnvironments"]["setup-claude"].splitlines()
+    expected = cs["setup-claude"]["env"]
+    c(set(lines) == {k if v is None else f"{k}={v}" for k, v in expected.items()}
+      and "ANTHROPIC_AUTH_TOKEN" in lines and SECRET not in "\n".join(lines), "应用：设置列表里的 Agent 只有私有变量的名字")
+    shown = ctx.app.until(lambda s: SECRET in (s.get("agentEditorEnv") or ""), "编辑器读到保存的值", "shot claude-env-edit")
+    c(f"ANTHROPIC_AUTH_TOKEN={SECRET}" in shown["agentEditorEnv"].splitlines()
+      and "ANTHROPIC_MODEL=deepseek-v4.1-flash" in shown["agentEditorEnv"].splitlines(),
+      "应用：编辑 Agent 时环境变量全部显示值，令牌也在（本机优先）")
+    ctx.app.do("close-sheet")
+    # The MCP editor: a saved server as the form and as JSON, and a new one.
+    for cmd, shot in (("mcp-edit e2e-mcp", "mcp-editor"), ("mcp-edit e2e-mcp json", "mcp-editor-json"), ("mcp-edit new", "mcp-editor-new"), ("mcp-edit catalog:github", "mcp-editor-catalog")):
+        ctx.app.do(cmd, f"shot {shot}", "close-sheet")
+        c(_drawn(ctx, shot), f"应用：MCP 编辑器 {cmd} 画出来了")
+    # Digital employees' pictures: the default ones come with theirs; one of your own, cropped
+    # and scaled by the app, replaces it; removing it shows the initials again.
+    defaults = {"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend"}
+    st = ctx.app.until(lambda s: defaults <= set(s.get("avatars") or {}), "应用读到默认数字员工的头像", "reload")
+    c(all(st["avatars"][r] == 256 for r in defaults), f"应用：7 位默认数字员工都带着 256 像素的头像（{st['avatars']}）")
+    code, _ = ctx.api_error("PUT", "/api/roles/developer/avatar", {"data": base64.b64encode(b"GIF89a not a png").decode()})
+    c(code == 400, f"不是 PNG 的头像被拒绝（{code}）")
+    before = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["developer"]["avatar"]
+    ctx.app.do(f"avatar developer {os.path.join(ROOT, 'backend', 'roles', 'friend.png')}")
+    after = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["developer"]["avatar"]
+    status, png, _ = ctx.api("GET", "/api/roles/developer/avatar", raw=True)
+    side = int.from_bytes(png[16:20], "big") if png.startswith(b"\x89PNG") else 0
+    c(after and after != before and status == 200 and side == 256, f"应用：换上自己的图后，数字员工的头像是裁好的 256 像素 PNG（{side}）")
+    ctx.app.do("close-sheet", "role developer", "shot role-editor", "close-sheet", "workspace setup", "shot workspace-editor", "close-sheet")
+    # The shared material has a sheet of its own, apart from the team's.
+    st = ctx.app.do("brief setup", "shot brief-editor")
+    c(st.get("editingBrief") == "setup" and st.get("editingWorkspace") is None and _drawn(ctx, "brief-editor"),
+      "应用：共享资料在单独的表单里编辑，不打开工作区设置（brief-editor.png）")
+    ctx.app.do("close-sheet")
+    c(_drawn(ctx, "role-editor"), "应用：数字员工编辑器画出来了")
+    st = ctx.app.do("avatar developer none")
+    code, _ = ctx.api_error("GET", "/api/roles/developer/avatar")
+    c(code == 404 and "developer" not in (st.get("avatars") or {}), f"移除头像后回到文字头像（{code}）")
+    c(_drawn(ctx, "workspace-editor"), "应用：工作区编辑器画出来了")
+
+
+@scenario("setup-run", needs="setup")
+def setup_run(ctx, c):
+    """首次配置在应用里：setup 跑通的那个目标的各页、工作区页的任务记录和目标输入框"""
+    if not ctx.app:
+        c(True, "（--no-app：跳过）")
+        return
+    run_id = next(r["id"] for r in ctx.api("GET", "/api/runs?workspace=setup")["runs"] if r["goal"] == "写一个 hello.py")
+    listed = ctx.api("GET", "/api/runs?workspace=setup")["runs"]
+    c(listed and all(r["config"]["workspace"]["id"] == "setup" for r in listed), "按工作区读取它的任务记录")
+    # The workspace's page lists its task records, newest first; the sidebar lists the workspaces.
+    want = [r["id"] for r in listed]
+    # The app started before setup made the workspace: it reads the settings again first.
+    st = ctx.app.until(lambda s: [r["id"] for r in s.get("histories", {}).get("setup", [])] == want,
+                       "工作区页读到它的任务记录", "reload", "open home:setup")
+    c([r["id"] for r in st["histories"]["setup"]] == want, f"应用：工作区页列出它的全部任务记录，从新到旧（{want}）")
+    ctx.app.do("shot workspace-home")
+    c(_drawn(ctx, "workspace-home"), "应用：工作区页画出来了（workspace-home.png）")
+    # Opened afresh, the page puts the keyboard in the goal box; the tiles beside the name say
+    # what the shared material and the team memory hold.
+    brief = len("共享资料：用 Python 3。")
+    st = ctx.app.until(lambda s: (s.get("home") or {}).get("goalFocused"), "工作区页的目标输入框拿到键盘", "open inbox", "open home:setup")
+    c(st["home"]["brief"] in (f"{brief} 字", f"{brief} characters") and st["home"]["memory"] in ("还没有笔记", "No notes yet"),
+      f"应用：名称旁的共享资料写着它的长度，团队记忆写着还没有笔记（{st['home']['brief']}，{st['home']['memory']}）")
+    ctx.ui(c, run_id, lambda r, s: r["status"] == "delivered" and {t["id"]: t["status"] for t in r["tasks"]} == {"T1": "succeeded", "V1": "succeeded"}
+           and next(t for t in r["tasks"] if t["id"] == "V1")["verdict"] == "approved",
+           "Run 已交付，T1、V1 已完成，V1 判定通过", pages=("board", "team", "audit", "task:T1", "task:V1", "agent:lead"))
 
 
 def _drawn(ctx, name):

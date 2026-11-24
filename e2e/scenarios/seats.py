@@ -5,14 +5,11 @@ from lib import wait
 from scenarios import scenario
 
 
-@scenario("seats", serial=True)
+@scenario("seats", own=True)
 def seats(ctx, c):
     """Agent 进程的上限：两个位置都被对话占着时，第三个对话等空位，闲得最久的对话让出位置、在应用里显示已关闭，给它发消息又会重新打开；值班的会话让出位置后记为已关闭，但不算等你处理，收件箱里没有它"""
-    # Two seats (one working goal run plus one), on a fresh start.
-    ctx.server.env.update({"JANUS_MAX_RUNNING_RUNS": "1", "JANUS_MAX_AGENT_SESSIONS": "2"})
-    ctx.server.stop()
-    ctx.server.start()
-    try:
+    # A server of its own with two seats (one working goal run plus one).
+    with ctx.private("seats", JANUS_MAX_RUNNING_RUNS="1", JANUS_MAX_AGENT_SESSIONS="2") as ctx:
         t = ctx.team("seats", members=("m1",))
         role = t.member("m1")
 
@@ -63,8 +60,3 @@ def seats(ctx, c):
         ctx.api("DELETE", f"/api/loops/{loop_id}")
         for run in (fourth, fifth):
             ctx.api("DELETE", f"/api/runs/{run}")
-    finally:
-        ctx.server.env["JANUS_MAX_RUNNING_RUNS"] = "32"
-        ctx.server.env.pop("JANUS_MAX_AGENT_SESSIONS", None)
-        ctx.server.stop()
-        ctx.server.start()

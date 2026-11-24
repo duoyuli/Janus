@@ -6,6 +6,7 @@ scripted ACP agent standing in for Codex and Claude Code, and the app driven thr
 snapshot command channel. Only the standard library: the scripts run with `python3 -I`.
 """
 
+import itertools
 import json
 import os
 import shutil
@@ -328,10 +329,13 @@ class App:
     Commands go one batch at a time; each batch ends with `state <name>`, and the app writing
     `<name>.json` is the acknowledgement that the whole batch ran."""
 
+    # Several apps run at once in one test: each keeps its local settings in a suite of its own.
+    count = itertools.count(1)
+
     def __init__(self, binary, home, addr, snap_dir, log, env=None):
         self.dir, self.n, self.lock = snap_dir, 0, threading.Lock()
         os.makedirs(snap_dir, exist_ok=True)
-        self.suite = f"janus-e2e-{os.getpid()}"
+        self.suite = f"janus-e2e-{os.getpid()}-{next(App.count)}"
         e = dict(os.environ, JANUS_HOME=home, JANUS_ADDR=addr, JANUS_SNAPSHOT_DIR=snap_dir,
                  JANUS_DEFAULTS_SUITE=self.suite, **(env or {}))
         self.proc = subprocess.Popen([binary], env=e, stdout=open(log, "a"), stderr=subprocess.STDOUT)

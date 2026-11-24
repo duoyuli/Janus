@@ -4,14 +4,11 @@ from lib import wait
 from scenarios import scenario, task
 
 
-@scenario("queue", serial=True)
+@scenario("queue", own=True)
 def queue(ctx, c):
     """派发队列：同时在做的任务满了时新目标排队，按先后开始；排队的任务只能马上开工或取消；暂停的任务让出位置；应用显示排位；队列跨工作区，服务重启后排队的目标自动开始"""
-    # One slot, on a fresh start: runs other scenarios left working are interrupted by the restart.
-    ctx.server.env["JANUS_MAX_RUNNING_RUNS"] = "1"
-    ctx.server.stop()
-    ctx.server.start()
-    try:
+    # A server of its own with one slot.
+    with ctx.private("queue", JANUS_MAX_RUNNING_RUNS="1") as ctx:
         t = ctx.team("queue", members=("m1",), script={"Q1": ["slow"]})
 
         def rows(s):
@@ -79,7 +76,3 @@ def queue(ctx, c):
         ctx.ui(c, waiting.id, lambda r, s: r["status"] == "running" and r["live"], "重启后开始的目标在应用里是进行中")
         waiting.act("cancel")
         waiting.wait_status("cancelled")
-    finally:
-        ctx.server.env["JANUS_MAX_RUNNING_RUNS"] = "32"
-        ctx.server.stop()
-        ctx.server.start()

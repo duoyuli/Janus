@@ -8,10 +8,10 @@ from scenarios import scenario
 ADDR = free_addr()
 
 
-@scenario("app-server", serial=True)
+@scenario("app-server", own=True)
 def app_server(ctx, c):
     """应用自己启动服务：没有服务在运行时，应用启动服务程序（打包版用内置的），退出时把它停掉"""
-    if not ctx.app:
+    if ctx.no_app:
         c(True, "（--no-app：跳过）")
         return
     home = ctx.path("app-server", "home")

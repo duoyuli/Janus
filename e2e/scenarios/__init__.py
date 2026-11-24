@@ -2,32 +2,38 @@
 
 A scenario is a function `(ctx, c)` registered with `@scenario`: `ctx` is the running server (and
 app), `c` records checks. Each one builds its own team (agents, digital employees, workspace and
-a scripted agent directory) so scenarios run side by side on one server; the ones that restart
-the server are `serial` and run after the rest.
+a scripted agent directory) so scenarios run side by side on one server, each driving an app of
+its own; the ones that restart a server or need other settings bring a server of their own
+(`ctx.private`) and run from the start beside the rest.
 """
 
+import contextlib
+import copy
 import json
 import os
+import shutil
 import threading
 import time
 
-from lib import ApiError, Failure, Fake, drawn, git_repo, http, wait
+from lib import App, ApiError, Failure, Fake, Server, drawn, free_addr, git_repo, http, stand_in_adapters, wait
 
 
 class Scenario:
-    def __init__(self, fn, name, serial, first, real):
-        self.fn, self.name, self.serial, self.first, self.real = fn, name, serial, first, real
+    def __init__(self, fn, name, first, real, own, needs):
+        self.fn, self.name, self.first, self.real, self.own, self.needs = fn, name, first, real, own, needs
         self.doc = (fn.__doc__ or "").strip().splitlines()[0]
 
 
 SCENARIOS = []
 
 
-def scenario(name, serial=False, first=False, real=False):
-    """Register a scenario. `first` runs before all others (setup that others may rely on),
-    `serial` after the parallel ones (it restarts or replaces the server), `real` only with --real."""
+def scenario(name, first=False, real=False, own=False, needs=None):
+    """Register a scenario. `first` runs before all others (setup that others may rely on); `own`
+    from the start, beside everything else (it brings its own server and app, `ctx.private`, and
+    uses neither of the shared ones); `real` only with --real; `needs` names a scenario whose data
+    it reads, chosen along with it."""
     def add(fn):
-        SCENARIOS.append(Scenario(fn, name, serial, first, real))
+        SCENARIOS.append(Scenario(fn, name, first, real, own, needs))
         return fn
     return add
 
@@ -44,6 +50,42 @@ class Ctx:
         self.__dict__.update(kw)
         self.app = None
         self.lock = threading.Lock()
+
+    @contextlib.contextmanager
+    def private(self, name, **env):
+        """A Janus home, server and app of this scenario's own, set up like the shared ones but
+        for `env`: for a scenario that restarts its server or needs other settings, so it runs
+        beside the others instead of after them. Its pictures join the others in report/app."""
+        home = self.path(name, "home")
+        stand_in_adapters(home, self.python)
+        addr = free_addr()
+        server = Server(self.server_bin, home, os.path.join(self.report, f"janus-{name}.log"), addr=addr, env=dict(self.server_env, **env))
+        app = None
+        try:
+            server.start()
+            if not self.no_app:
+                app = App(self.app_bin, home, addr, os.path.join(self.report, f"app-{name}"), os.path.join(self.report, f"app-{name}.log"))
+                app.until(lambda s: s.get("connections") is not None, "应用连上服务", timeout=90)
+            c = copy.copy(self)
+            c.home, c.addr, c.server, c.app = home, addr, server, app
+            yield c
+        finally:
+            if app:
+                app.quit()
+                shots = os.path.join(self.report, "app")
+                os.makedirs(shots, exist_ok=True)
+                for f in os.listdir(app.dir):
+                    if f.endswith(".png"):
+                        shutil.move(os.path.join(app.dir, f), os.path.join(shots, f))
+                shutil.rmtree(app.dir, ignore_errors=True)
+            server.stop()
+
+    def with_app(self, app):
+        """This context for one scenario, driving `app`: scenarios side by side each drive an app
+        of their own, so what one leaves open (a sheet, a page) never meets another."""
+        c = copy.copy(self)
+        c.app = app
+        return c
 
     def api(self, method, path, body=None, **kw):
         return http(self.addr, method, path, body, **kw)
