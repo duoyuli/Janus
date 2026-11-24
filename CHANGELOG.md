@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.24
+
+- 修复 Agent 回复里列多、内容长的表格把消息撑坏：第一列占满整行，其余列被挤出窗口，行被撑得很高，下面的「这一轮已结束，等待你的消息」叠在回复最后一段上。现在表格总在消息宽度之内，放不下时各列按内容多少分宽度，格子里换行。
+
+- 修复收到一条带表格的长回复后，会话一片空白，或停在底部却仍显示「回到最新」：回到最新现在直接滚到最后一条消息，而不是按估算的内容高度滚动。
+
+- Fixed wide tables in agent replies breaking the message: the first column took the whole width, the others were pushed out of the window, rows grew very tall, and "这一轮已结束，等待你的消息" below was drawn over the reply's last paragraph. Tables now stay within the message; when they do not fit, columns share the width by how much they hold and their cells wrap.
+
+- Fixed the conversation going blank after a long reply with a table, or showing "回到最新" while already at the bottom: going to the newest now scrolls to the last message itself instead of to an estimated content height.
+
 ## 2026.11.23.11
 
 - 交付卡片一眼能看完：最上面是负责人的一句话结论，下面一行数字（子任务完成数、验收标准达到数、证据是运行得到的、看出来的还是只是说法、改了几个文件），然后是「需要你看的」：先是负责人留给你的问题，再是 Janus 查出来的事（没通过的标准、结果和目录对不上、没有独立验证、负责人自己改的文件），每条标明来源。接着是改了什么和验收按钮，子任务、证据和负责人的完整报告折叠在下面。证据默认显示两行，点「全文」展开；子任务自己报告的风险只在它那一行标出条数，不再把行撑开。负责人交付时按「结论」和「需要你决定」两个标题写报告。
