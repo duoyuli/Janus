@@ -75,7 +75,7 @@ impl App {
         // The source must still be where the run started, or where its last merge-back left it,
         // or have moved on from there.
         let since = self.last_merged(run_id)?.unwrap_or_else(|| base_ref.to_string());
-        let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+        let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
         let accepted = crate::worktrees::accept(
             &w.repo,
             &self.worktree_root(run_id),

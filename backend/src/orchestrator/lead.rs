@@ -5,6 +5,15 @@ use super::actions::reached_agent;
 use super::chat::chat_brief;
 use super::*;
 
+/// The heading the lead puts its suggested additions to the shared material under (see `goal_brief`).
+pub(super) const BRIEF_HEADING: &str = "Suggested Updates to Shared Context";
+
+/// The heading of the lead's conclusion in its final reply, a sentence or two (see `goal_brief`).
+pub(super) const HEADLINE_HEADING: &str = "Conclusion";
+
+/// The heading of the questions the lead's final reply leaves for the person (see `goal_brief`).
+pub(super) const DECISIONS_HEADING: &str = "Needs Your Decision";
+
 wire_enum! {
     /// What Janus puts in a session's system layer before the person's standing instructions.
     pub(super) enum SystemPart {

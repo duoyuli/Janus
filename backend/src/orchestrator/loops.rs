@@ -141,7 +141,7 @@ impl App {
 
     fn save_loop(&self, def: &LoopDef) -> Result<()> {
         self.db.put_config(ConfigKind::Loop, &def.id, &serde_json::to_value(def)?, now_ms())?;
-        let _ = self.loop_changes.send(def.id.clone());
+        let _ = self.changes.send(Change::Loop(def.id.clone()));
         Ok(())
     }
 
@@ -334,17 +334,22 @@ impl App {
         }
         let _edits = self.loops.edits.lock().unwrap_or_else(|p| p.into_inner());
         self.db.delete_config(ConfigKind::Loop, id)?;
-        let _ = self.loop_changes.send(id.to_string());
+        let _ = self.changes.send(Change::Loop(id.to_string()));
         Ok(())
     }
 
-    /// The Loop whose session run `run_id` is, if it is one.
-    pub fn loop_of_session(&self, run_id: &str) -> Option<String> {
-        self.loop_of(run_id).filter(|d| d.run == run_id).map(|d| d.id)
+    /// Delete a run the person asked to delete. A Loop's session goes only with its Loop, so
+    /// deleting it deletes the Loop.
+    // @project-doc docs/interfaces/20261031-http_api.md#run_delete
+    pub async fn delete_run_or_loop(self: &Arc<Self>, run_id: &str) -> Result<(), Refused> {
+        match self.loop_of(run_id).filter(|d| d.run == run_id) {
+            Some(def) => Ok(self.delete_loop(&def.id).await?),
+            None => self.delete_run(run_id).await,
+        }
     }
 
     /// Delete every Loop of `workspace`.
-    pub async fn delete_loops_of(self: &Arc<Self>, workspace: &str) -> Result<()> {
+    pub(crate) async fn delete_loops_of(self: &Arc<Self>, workspace: &str) -> Result<()> {
         for l in self.loops(Some(workspace))? {
             self.delete_loop(l["id"].as_str().unwrap_or("")).await?;
         }
@@ -361,7 +366,7 @@ impl App {
                 .data(json!({ "until": next.map(|n| n.0), "reason": next.map(|n| n.1) })),
         );
         self.loops.bell.notify_one();
-        let _ = self.loop_changes.send(def.id.clone());
+        let _ = self.changes.send(Change::Loop(def.id.clone()));
     }
 
     /// Wake Loop `id` in the background.
@@ -400,7 +405,7 @@ impl App {
             t.next = def.next_wake(now_ms(), asked(t));
         }
         self.loops.bell.notify_one();
-        let _ = self.loop_changes.send(id.to_string());
+        let _ = self.changes.send(Change::Loop(id.to_string()));
         let woke = async {
             let ws = self.workspace(&def.workspace)?;
             let place = self.loop_place(&def, Path::new(ws["path"].as_str().unwrap_or(""))).await?;
@@ -473,7 +478,7 @@ impl App {
         let path = self.cfg.layout.run(RunKind::Loop, &def.run).work;
         let talking = self.run(&def.run).is_some_and(|r| r.st.lock().unwrap().lead.in_turn);
         {
-            let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+            let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
             // Its workspace may be another repository now: its old worktree goes first.
             if path.exists() && crate::worktrees::repo_of(&path).is_none_or(|r| !same_dir(&r, &top)) {
                 let old = crate::worktrees::repo_of(&path).unwrap_or_default();
@@ -505,7 +510,7 @@ impl App {
             // Neither names a repository: nothing of git to clean, the directory goes with the run.
             return Ok(());
         };
-        let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+        let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
         crate::worktrees::remove(&repo, &path, &self.cfg.layout.deleted_runs(), &def.run)?;
         Ok(())
     }
@@ -622,7 +627,7 @@ impl App {
                 ev(EventKind::LoopDispatchEnded, "janus", format!("派出的任务 {run_id}（{key}）{status}"))
                     .data(json!({ "run": run_id, "key": key, "status": status })),
             );
-            let _ = app.loop_changes.send(def.id.clone());
+            let _ = app.changes.send(Change::Loop(def.id.clone()));
             app.wake_loop_later(&def.id, WakeReason::Dispatch);
         });
     }
@@ -926,7 +931,7 @@ impl App {
             },
         };
         let status = self.db.run(&id)?.map(|r| r["status"].as_str().unwrap_or("").to_string()).unwrap_or_default();
-        let _ = self.loop_changes.send(def.id.clone());
+        let _ = self.changes.send(Change::Loop(def.id.clone()));
         Ok(format!("已派出任务 {id}（{status}）。结果会进用户的收件箱；之后用 janus.dispatches 查它的状态。"))
     }
 

@@ -94,11 +94,7 @@ pub(super) async fn create(State(app): State<Arc<App>>, Json(req): Json<NewRun>)
 /// go; the workspace's own files are not touched.
 // @project-doc docs/interfaces/20261031-http_api.md#run_delete
 pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    // A Loop's session goes only with its Loop.
-    match app.loop_of_session(&id) {
-        Some(loop_id) => app.delete_loop(&loop_id).await?,
-        None => app.delete_run(&id).await?,
-    }
+    app.delete_run_or_loop(&id).await?;
     ok()
 }
 

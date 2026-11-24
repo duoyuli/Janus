@@ -311,7 +311,7 @@ impl App {
     /// written to the log; the process starts without them.
     pub fn link_host(&self, sandbox: &Sandbox) -> Result<()> {
         let hidden = self.host_hidden()?;
-        let _one = self.host_mirror.lock().unwrap_or_else(|p| p.into_inner());
+        let _one = self.gates.host_mirror.lock().unwrap_or_else(|p| p.into_inner());
         for p in mirror(&sandbox.home, &self.cfg.host_home, hidden) {
             crate::config::log(format!("没能把 {p} 链接进 {}", sandbox.home.display()));
         }

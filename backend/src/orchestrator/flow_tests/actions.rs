@@ -143,8 +143,9 @@ async fn status_changes_reach_the_global_stream() {
     act(&h, &run, json!({ "type": "accept" }));
     let mut seen = vec![];
     while let Ok(c) = rx.try_recv() {
-        assert_eq!(c.run, run);
-        seen.push(c.status.as_str());
+        let Change::Run { run: changed, status, loop_id } = c else { continue };
+        assert_eq!((changed.as_str(), loop_id), (run.as_str(), None));
+        seen.push(status.as_str());
     }
     assert_eq!(seen, ["queued", "planning", "running", "delivered", "accepted"]);
     let _ = std::fs::remove_dir_all(&h.dir);

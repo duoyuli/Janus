@@ -513,7 +513,7 @@ impl App {
     }
 
     pub async fn accept_archived(&self, run_id: &str) -> Result<Option<Arc<Run>>> {
-        let _turn = self.revival.lock().await;
+        let _turn = self.gates.revival.lock().await;
         if let Some(run) = self.run(run_id) {
             return Ok(Some(run));
         }
@@ -556,7 +556,7 @@ impl App {
                 _ => break,
             }
         }
-        let _turn = self.revival.lock().await;
+        let _turn = self.gates.revival.lock().await;
         if let Some(run) = self.run(run_id) {
             return Ok(run);
         }
@@ -592,7 +592,7 @@ impl App {
         let worktree = WorktreeOf::of_config(config);
         if let Some(w) = &worktree {
             let merged = self.last_merged(run_id)?;
-            let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+            let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
             crate::worktrees::ensure(
                 &w.repo,
                 &self.worktree_root(run_id),
@@ -950,7 +950,7 @@ impl App {
                 }
                 continue;
             }
-            let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+            let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
             if row["status"] != "accepted" {
                 crate::worktrees::heal(Path::new(repo), &self.worktree_root(id));
                 continue;

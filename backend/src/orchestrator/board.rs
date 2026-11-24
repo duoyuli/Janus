@@ -3,6 +3,9 @@
 
 use super::*;
 
+/// Prefix of a message the lead sends a collaborator, so the session and the record both show who wrote it.
+const LEAD_REPLY: &str = "负责人回复：";
+
 /// The tasks that took a finished task's result (they depend on it): the ones running now, with
 /// their session channel, and the ones already finished on it. Changing that result, by
 /// `amend` or by sending the task back with `retry`, leaves them on the old one.

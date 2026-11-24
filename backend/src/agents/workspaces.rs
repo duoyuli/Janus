@@ -67,8 +67,15 @@ impl App {
         Ok(ws)
     }
 
-    pub fn delete_workspace(&self, id: &str) -> Result<()> {
-        self.db.delete_config(ConfigKind::Workspace, id)
+    /// Delete a workspace with its Loops and its team memory. Its runs stay, with the name and
+    /// folder they recorded, and so do its consolidations; the runs its Loops dispatched are the
+    /// person's work. A Loop made meanwhile is caught by the second pass, or deletes itself when it
+    /// finds its workspace gone (`create_loop`).
+    pub async fn delete_workspace(self: &Arc<Self>, id: &str) -> Result<()> {
+        self.delete_loops_of(id).await?;
+        self.db.delete_config(ConfigKind::Workspace, id)?;
+        self.db.delete_workspace_memories(id)?;
+        self.delete_loops_of(id).await
     }
 
     /// Snapshot the environment into the run's team. The lead keeps the fixed member id "lead";

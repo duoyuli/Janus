@@ -331,7 +331,7 @@ async fn a_loops_session_is_not_a_task_to_pause_stop_or_delete_alone() {
         let refused = h.app.request_action(&run, &req(json!({ "type": kind }))).await;
         assert!(refused.is_err(), "{kind}");
     }
-    assert_eq!(h.app.loop_of_session(&run).as_deref(), Some(id.as_str()));
+    assert_eq!(h.app.loop_of(&run).filter(|d| d.run == run).map(|d| d.id).as_deref(), Some(id.as_str()));
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -376,7 +376,7 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
                 tool(&app, &run, "lead", "dispatch", json!({ "goal": format!("处理 {key}"), "key": key })).await;
             assert!(!err, "{text}");
             app.db
-                .dispatched(&app.loop_def(&app.loop_of_session(&run).unwrap()).unwrap().workspace, &key)
+                .dispatched(&app.loop_def(&app.loop_of(&run).unwrap().id).unwrap().workspace, &key)
                 .unwrap()
                 .unwrap()
                 .0

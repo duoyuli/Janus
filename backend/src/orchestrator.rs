@@ -56,6 +56,8 @@ mod prompts;
 mod queue;
 mod session;
 #[cfg(test)]
+mod testkit;
+#[cfg(test)]
 mod tests;
 mod turn;
 
@@ -71,6 +73,8 @@ use messages::Delivery;
 use prompts::*;
 
 use session::*;
+#[cfg(test)]
+pub(crate) use testkit::{test_app, test_app_with};
 pub use turn::cancelled_reply;
 use turn::*;
 
@@ -768,7 +772,6 @@ impl Driving {
     }
 }
 
-/// What a run is made of, from its creation or its record. Everything else about it starts empty.
 /// Where a run on a git repository works: its own worktree of `repo` (see `crate::worktrees`).
 /// A run without one works in the workspace directory itself.
 #[derive(Clone, Debug)]
@@ -803,6 +806,7 @@ impl WorktreeOf {
     }
 }
 
+/// What a run is made of, from its creation or its record. Everything else about it starts empty.
 struct RunRecord {
     id: String,
     kind: RunKind,
@@ -1039,19 +1043,10 @@ pub struct Config {
     pub host_home: PathBuf,
 }
 
-pub struct App {
-    pub db: Db,
-    pub cfg: Config,
-    pub tx: broadcast::Sender<Event>,
-    /// A run's status changed (`set_status`, an archived acceptance): what the app's global stream
-    /// tells it besides each new event, so lists follow without polling.
-    pub changes: broadcast::Sender<RunChange>,
-    pub runs: StdMutex<HashMap<String, Arc<Run>>>,
-    pub adapter_state: crate::adapters::AdapterState,
-    /// Configuration checks running now, see `start_check`.
-    pub checks: crate::agents::CheckState,
-    pub prices: crate::prices::PriceBook,
-    pub library: crate::library::LibraryState,
+/// Locks that each let one kind of change happen at a time, held by `App`. Each says what it
+/// keeps apart.
+#[derive(Default)]
+pub struct Gates {
     /// Taken while a run that is not live is brought back, accepted from the archive or deleted,
     /// so two requests for it (two messages sent quickly, a message and a delete) take turns and
     /// the second finds what the first did.
@@ -1062,14 +1057,33 @@ pub struct App {
     /// is half written (two runs created together failed with `failed to read
     /// .git/worktrees/<run>/commondir`); two acceptances into one branch would race for its tip.
     pub worktree_writes: StdMutex<()>,
-    /// The places for agent processes (`seats`): every ACP session holds one while it is open.
-    pub seats: Arc<crate::seats::Seats>,
     /// Held while a sandbox mirrors the person's home folder (`host_env`), so a launch and a
     /// change of the hidden list do not move the same entries at once.
     pub host_mirror: StdMutex<()>,
     /// Held while the dispatch queue hands out slots or a queued run leaves it, so a run is started,
     /// cancelled or deleted once (`queue.rs`).
-    queue: StdMutex<()>,
+    pub queue: StdMutex<()>,
+    /// Held while a workspace's consolidation is checked for and started (`memory.rs`).
+    pub dream_starts: StdMutex<()>,
+}
+
+pub struct App {
+    pub db: Db,
+    pub cfg: Config,
+    pub tx: broadcast::Sender<Event>,
+    /// What the app's global stream tells it besides each new event (a run's status, a Loop, a
+    /// workspace's team memory), so its lists follow without polling.
+    pub changes: broadcast::Sender<Change>,
+    pub runs: StdMutex<HashMap<String, Arc<Run>>>,
+    /// One change of a kind at a time (`Gates`).
+    pub gates: Gates,
+    pub adapter_state: crate::adapters::AdapterState,
+    /// Configuration checks running now, see `start_check`.
+    pub checks: crate::agents::CheckState,
+    pub prices: crate::prices::PriceBook,
+    pub library: crate::library::LibraryState,
+    /// The places for agent processes (`seats`): every ACP session holds one while it is open.
+    pub seats: Arc<crate::seats::Seats>,
     /// Runs whose own create request has not yet had its turn at the slots; no other pump hands
     /// them out meanwhile, so that request can wait for its run to be set up.
     fresh: StdMutex<HashSet<String>>,
@@ -1078,21 +1092,19 @@ pub struct App {
     me: std::sync::Weak<App>,
     /// When each workspace Loop wakes next (`loops.rs`).
     loops: loops::LoopClock,
-    /// A Loop changed (its settings, its clock, what it dispatched): what the global stream tells
-    /// the app, so its Loop lists follow without polling.
-    pub loop_changes: broadcast::Sender<String>,
-    /// A workspace's team memory changed (a note, its consolidation): the workspace's id, for the
-    /// global stream, so the workspace page follows without polling.
-    pub memory_changes: broadcast::Sender<String>,
-    /// Held while a workspace's consolidation is checked for and started (`memory.rs`).
-    dream_starts: StdMutex<()>,
 }
 
-/// A run's new status, as the global stream carries it (`GET /api/stream`).
-#[derive(Clone, Debug, Serialize)]
-pub struct RunChange {
-    pub run: String,
-    pub status: RunStatus,
+/// Something the app lists changed, as the global stream tells it (`GET /api/stream`) besides each
+/// new event; the app then reads just that one.
+#[derive(Clone, Debug)]
+pub enum Change {
+    /// A run's new status; `loop_id` names the Loop that dispatched a goal run, whose page counts
+    /// and lists it.
+    Run { run: String, status: RunStatus, loop_id: Option<String> },
+    /// A Loop: its settings, its clock, what it dispatched.
+    Loop(String),
+    /// A workspace's team memory: a note, its consolidation.
+    Memory { workspace: String },
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
@@ -1195,31 +1207,23 @@ impl App {
     pub fn new(db: Db, cfg: Config) -> Arc<App> {
         let (tx, _) = broadcast::channel(4096);
         let (changes, _) = broadcast::channel(1024);
-        let (loop_changes, _) = broadcast::channel(256);
-        let (memory_changes, _) = broadcast::channel(256);
         // Working leads hold their seats while their collaborators need some: never all of them.
         let seats = crate::seats::Seats::new(cfg.max_agent_sessions.max(cfg.max_running_runs + 1));
         Arc::new_cyclic(|me| App {
             seats,
-            host_mirror: Default::default(),
             db,
             cfg,
             tx,
             changes,
             runs: Default::default(),
+            gates: Default::default(),
             adapter_state: Default::default(),
             checks: Default::default(),
             prices: Default::default(),
             library: Default::default(),
-            revival: Default::default(),
-            worktree_writes: Default::default(),
-            queue: Default::default(),
             fresh: Default::default(),
             me: me.clone(),
             loops: Default::default(),
-            loop_changes,
-            memory_changes,
-            dream_starts: StdMutex::new(()),
         })
     }
 
@@ -1287,10 +1291,22 @@ impl App {
         Ok(seq)
     }
 
+    /// Tell the global stream a run's status changed, with the Loop that dispatched it.
+    fn run_changed(&self, run_id: &str, status: RunStatus) {
+        let loop_id = self
+            .db
+            .run(run_id)
+            .ok()
+            .flatten()
+            .filter(|r| r["kind"] == RunKind::Goal.as_str())
+            .and_then(|r| r["loopId"].as_str().map(str::to_owned));
+        let _ = self.changes.send(Change::Run { run: run_id.into(), status, loop_id });
+    }
+
     /// The status of a run that is not live changes: stored, and told to the global stream.
     fn set_stored_status(&self, run_id: &str, status: RunStatus) -> Result<()> {
         self.db.set_run_status(run_id, status)?;
-        let _ = self.changes.send(RunChange { run: run_id.into(), status });
+        self.run_changed(run_id, status);
         self.dispatch_ended(run_id, status);
         self.run_delivered(run_id, status);
         self.pump();
@@ -1324,7 +1340,7 @@ impl App {
             run.router.close();
         }
         if changed {
-            let _ = self.changes.send(RunChange { run: run.id.clone(), status });
+            self.run_changed(&run.id, status);
             // A run a Loop dispatched that ended wakes the Loop.
             self.dispatch_ended(&run.id, status);
             // Enough delivered runs consolidate their workspace's team memory.
@@ -1395,67 +1411,4 @@ impl App {
             );
         }
     }
-}
-
-/// Prefix of a message the lead sends a collaborator, so the session and the record both show who wrote it.
-const LEAD_REPLY: &str = "负责人回复：";
-
-/// The heading the lead puts its suggested additions to the shared material under (see `goal_brief`).
-const BRIEF_HEADING: &str = "Suggested Updates to Shared Context";
-
-/// The heading of the lead's conclusion in its final reply, a sentence or two (see `goal_brief`).
-const HEADLINE_HEADING: &str = "Conclusion";
-
-/// The heading of the questions the lead's final reply leaves for the person (see `goal_brief`).
-const DECISIONS_HEADING: &str = "Needs Your Decision";
-
-/// Codex and Claude Code adapters that run the scripted agent (`testdata/fake_acp.py`, driven by
-/// the `FAKE_DIR` its connection sets) instead of the real one. Janus starts a runtime as
-/// `<node> <bin of the adapter package>` from `cache/adapters/<id>/current`; tests run Python in
-/// place of Node, so the bin is the script itself and the launch path is the real one.
-// @project-doc docs/operations/20261031-testing.md#fake_agent
-#[cfg(test)]
-pub(crate) fn stand_in_adapters(layout: &crate::layout::Layout) {
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_acp.py");
-    for a in crate::adapters::ADAPTERS {
-        let dir = layout.adapters().join(a.id);
-        let pkg = dir.join("9.9.9").join("node_modules").join(a.package);
-        std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::write(pkg.join("package.json"), json!({ "name": a.package, "bin": "fake_acp.py" }).to_string())
-            .unwrap();
-        let _ = std::os::unix::fs::symlink(&script, pkg.join("fake_acp.py"));
-        let _ = std::os::unix::fs::symlink("9.9.9", dir.join("current"));
-    }
-}
-
-/// An `App` over a fresh database in `dir`, for tests, with the stand-in adapters installed.
-#[cfg(test)]
-pub(crate) fn test_app(dir: &Path) -> Arc<App> {
-    test_app_with(dir, |_| {})
-}
-
-/// `test_app` with some of its settings changed by `set`.
-#[cfg(test)]
-pub(crate) fn test_app_with(dir: &Path, set: impl FnOnce(&mut Config)) -> Arc<App> {
-    std::fs::create_dir_all(dir).unwrap();
-    let layout = crate::layout::Layout::new(dir);
-    stand_in_adapters(&layout);
-    let mut cfg = Config {
-        layout,
-        addr: "127.0.0.1:7878".into(),
-        // The stand-in adapters are Python scripts: see `stand_in_adapters`.
-        node: "python3".into(),
-        stall_after: STALL_AFTER,
-        goal_settle: crate::goal_settle::SETTLE,
-        // Tests retry at once; the one about the pause sets it.
-        retry_after: Duration::ZERO,
-        max_concurrent_attempts: crate::config::DEFAULT_MAX_CONCURRENT_ATTEMPTS,
-        max_running_runs: crate::config::DEFAULT_MAX_RUNNING_RUNS,
-        max_agent_sessions: crate::config::DEFAULT_MAX_AGENT_SESSIONS,
-        idle_after: IDLE_AFTER,
-        run_token_budget: None,
-        host_home: dir.join("host-home"),
-    };
-    set(&mut cfg);
-    App::new(Db::open(&cfg.layout).unwrap().0, cfg)
 }

@@ -101,7 +101,7 @@ impl App {
             return Err(err);
         }
         let _ = self.tx.send(first);
-        let _ = self.changes.send(RunChange { run: id.clone(), status: RunStatus::Queued });
+        self.run_changed(&id, RunStatus::Queued);
         let mine = self.take_slots(Some(&id)).into_iter().fold(false, |mine, other| {
             if other == id {
                 return true;
@@ -146,7 +146,7 @@ impl App {
     /// request is left to that request (`own`). Nothing is handed out when the slots cannot be
     /// counted.
     fn take_slots(&self, own: Option<&str>) -> Vec<String> {
-        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        let _queue = self.gates.queue.lock().unwrap_or_else(|p| p.into_inner());
         let counted = self.db.queued_runs().and_then(|q| Ok((q, self.db.working_goal_runs()?)));
         let (queued, working) = match counted {
             Ok(c) => c,
@@ -187,7 +187,7 @@ impl App {
     fn claim(&self, id: &str, to: RunStatus, e: Ev) -> Result<bool> {
         let Some(event) = self.db.leave_queue(id, to, e.into_event(id, 0))? else { return Ok(false) };
         let _ = self.tx.send(event);
-        let _ = self.changes.send(RunChange { run: id.into(), status: to });
+        self.run_changed(id, to);
         // A queued run cancelled before it started also ends a Loop's dispatch.
         self.dispatch_ended(id, to);
         Ok(true)
@@ -201,7 +201,7 @@ impl App {
 
     /// Start queued run `id` now, past the slots: the person decided it should not wait.
     pub(super) fn start_now(&self, id: &str) -> Result<(), Refused> {
-        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        let _queue = self.gates.queue.lock().unwrap_or_else(|p| p.into_inner());
         if !self.claim(id, RunStatus::Planning, ev(EventKind::RunStarting, "user", "立即开始，不等空位"))? {
             return Err(Refused::Conflict("这个任务已经不在排队了".into()));
         }
@@ -211,7 +211,7 @@ impl App {
 
     /// Cancel queued run `id`: it never starts.
     pub(super) fn cancel_queued(&self, id: &str) -> Result<(), Refused> {
-        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        let _queue = self.gates.queue.lock().unwrap_or_else(|p| p.into_inner());
         if !self.claim(id, RunStatus::Cancelled, ev(EventKind::RunCancelled, "user", "取消这个排队中的任务"))?
         {
             return Err(Refused::Conflict("这个任务已经不在排队了".into()));
@@ -222,7 +222,7 @@ impl App {
     /// Take a queued run off the queue before it is deleted, so it cannot start meanwhile:
     /// `false` when it just started.
     pub(super) fn leave_queue_for_delete(&self, id: &str) -> Result<bool> {
-        let _queue = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        let _queue = self.gates.queue.lock().unwrap_or_else(|p| p.into_inner());
         self.claim(id, RunStatus::Cancelled, ev(EventKind::RunCancelled, "user", "删除这个排队中的任务"))
     }
 
@@ -232,7 +232,7 @@ impl App {
     pub(super) fn requeue(&self, id: &str, why: &str) -> Result<()> {
         self.record(id, ev(EventKind::RunRequeued, "janus", why))?;
         self.db.set_run_status(id, RunStatus::Queued)?;
-        let _ = self.changes.send(RunChange { run: id.into(), status: RunStatus::Queued });
+        self.run_changed(id, RunStatus::Queued);
         Ok(())
     }
 
@@ -270,7 +270,7 @@ impl App {
             let path = self.worktree_dir(id);
             let branch = crate::worktrees::current_branch(&top);
             let included = {
-                let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+                let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
                 // A start the service did not finish (it stopped) left its worktree: begin again
                 // from a clean one.
                 if path.exists() {
@@ -290,7 +290,7 @@ impl App {
         if let Err(err) = self.bundle_team(&dirs, &team) {
             if let Some(w) = &worktree {
                 let kept = self.cfg.layout.deleted_runs();
-                let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+                let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
                 if let Err(e) = crate::worktrees::remove(&w.repo, &self.worktree_root(id), &kept, id) {
                     crate::config::log(format!("janus: could not take back the worktree of {id}: {e:#}"));
                 }

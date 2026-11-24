@@ -566,7 +566,7 @@ impl App {
     /// files are not touched.
     // @project-doc docs/interfaces/20261031-http_api.md#run_delete
     pub async fn delete_run(self: &Arc<Self>, run_id: &str) -> Result<(), Refused> {
-        let _turn = self.revival.lock().await;
+        let _turn = self.gates.revival.lock().await;
         let row = self.db.run(run_id)?;
         let Some(row) = row else { return Err(Refused::NotFound) };
         let status = RunStatus::parse(row["status"].as_str().unwrap_or(""));
@@ -602,7 +602,7 @@ impl App {
         if let Some(repo) = row["config"]["worktree"]["repo"].as_str() {
             let kept = self.cfg.layout.deleted_runs();
             let removed = {
-                let _writing = self.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
+                let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
                 crate::worktrees::remove(Path::new(repo), &self.worktree_root(run_id), &kept, run_id)
             };
             match removed {
@@ -633,7 +633,7 @@ impl App {
         self.db.delete_run(run_id)?;
         // Other clients drop it from their lists (and the runs queued behind it move up).
         if let Some(status) = status {
-            let _ = self.changes.send(RunChange { run: run_id.into(), status });
+            self.run_changed(run_id, status);
         }
         Ok(())
     }

@@ -295,7 +295,7 @@ impl App {
             ev(EventKind::MemorySaved, &member, format!("{verb}团队记忆：{title}"))
                 .data(json!({ "id": id, "title": title, "kind": kind, "created": created })),
         );
-        let _ = self.memory_changes.send(workspace);
+        let _ = self.changes.send(Change::Memory { workspace });
         Ok(format!("{verb}笔记 {id}。"))
     }
 
@@ -313,7 +313,7 @@ impl App {
             ev(EventKind::MemoryForgotten, "lead", format!("删掉团队记忆：{}", note.title))
                 .data(json!({ "id": id, "title": note.title, "reason": reason })),
         );
-        let _ = self.memory_changes.send(workspace);
+        let _ = self.changes.send(Change::Memory { workspace });
         Ok(format!("删掉了笔记 {id}。"))
     }
 
@@ -339,7 +339,7 @@ impl App {
         let write =
             MemoryWrite { kind, title: &title, hook: &hook, body: &text, run: None, who: "user", author: "你" };
         self.db.update_memory(id, &write, now_ms())?;
-        let _ = self.memory_changes.send(note.workspace.clone());
+        let _ = self.changes.send(Change::Memory { workspace: note.workspace.clone() });
         self.db.memory(id)
     }
 
@@ -347,7 +347,7 @@ impl App {
     pub fn delete_memory(&self, id: &str) -> Result<bool> {
         let Some(note) = self.db.memory(id)? else { return Ok(false) };
         self.db.delete_memory(id)?;
-        let _ = self.memory_changes.send(note.workspace);
+        let _ = self.changes.send(Change::Memory { workspace: note.workspace });
         Ok(true)
     }
 
@@ -397,7 +397,7 @@ impl App {
     pub async fn consolidate(self: &Arc<Self>, workspace: &str) -> std::result::Result<String, Refused> {
         // Checking that none is running and starting one happen under one lock, so two delivered
         // runs (or two clicks) start one consolidation, not two.
-        let _one = self.dream_starts.lock().unwrap_or_else(|p| p.into_inner());
+        let _one = self.gates.dream_starts.lock().unwrap_or_else(|p| p.into_inner());
         let ws = self.workspace(workspace)?;
         let dreams = self.dreams(workspace)?;
         if let Some(d) = dreams.iter().find(|d| working(d)) {
@@ -431,7 +431,7 @@ impl App {
         self.spawn_conversation(run.clone());
         let m = self.post_message(&run, "janus", "lead", "", &dream_prompt(&runs, |r| self.delivery_of(r)), &[]);
         self.send_steer(&run, "lead", "", Steer::Message(m))?;
-        let _ = self.memory_changes.send(workspace.to_string());
+        let _ = self.changes.send(Change::Memory { workspace: workspace.to_string() });
         Ok(id)
     }
 
@@ -471,7 +471,7 @@ impl App {
         );
         self.set_status(run, RunStatus::Delivered);
         if let Some(workspace) = self.run_workspace(&run.id) {
-            let _ = self.memory_changes.send(workspace);
+            let _ = self.changes.send(Change::Memory { workspace });
         }
     }
 }
