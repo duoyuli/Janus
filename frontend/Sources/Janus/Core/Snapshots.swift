@@ -293,6 +293,7 @@ enum Snapshots {
                     "worktree": JSON(s.run.repo.isEmpty ? nil : s.run.cwd), "branch": JSON(s.run.branch.isEmpty ? nil : s.run.branch), "merged": .bool(s.run.merged),
                     // The blocks the last agent message is drawn as (`MarkdownText`).
                     "lastReply": JSON.array(MD.blocks(s.events.last { $0.type == "agent.message" }?.data["text"].str ?? "").map { JSON(block($0)) }),
+                    "conversation": ChatProbe.json,
                 ]
             }
             try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))
@@ -400,5 +401,53 @@ enum Snapshots {
         let capture = unsafeBitCast(sym, to: Capture.self)
         // .optionIncludingWindow = 1 << 3; .boundsIgnoreFraming = 1 << 0, .bestResolution = 1 << 3
         return capture(.null, 1 << 3, id, (1 << 0) | (1 << 3))?.takeRetainedValue()
+    }
+}
+
+/// Where a conversation's rows are within its visible area (0 to `height`), for `state`
+/// (`conversation`): a test checks
+/// that rows do not overlap and that the newest one is in view. Measured only while a test drives
+/// the app.
+@MainActor
+enum ChatProbe {
+    static var rows: [Int: CGRect] = [:]
+    static var visible: CGRect = .zero
+    static var content: CGFloat = 0
+    static var following = true
+
+    static var json: JSON {
+        let built = rows.sorted { $0.value.minY < $1.value.minY }
+        return ["following": .bool(following), "content": JSON(Int(content.rounded())),
+                "offset": JSON(Int(visible.minY.rounded())), "height": JSON(Int(visible.height.rounded())),
+                "rows": JSON.array(built.map { ["id": JSON($0.key), "top": JSON(Int($0.value.minY.rounded())), "bottom": JSON(Int($0.value.maxY.rounded()))] })]
+    }
+
+    struct Row: ViewModifier {
+        let id: Int
+        func body(content: Content) -> some View {
+            if Snapshots.active {
+                content
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .scrollView) } action: { ChatProbe.rows[id] = $0 }
+                    .onDisappear { ChatProbe.rows[id] = nil }
+            } else {
+                content
+            }
+        }
+    }
+
+    struct Scroll: ViewModifier {
+        let following: Bool
+        func body(content: Content) -> some View {
+            if Snapshots.active {
+                content
+                    .onScrollGeometryChange(for: CGRect.self) { g in CGRect(x: 0, y: g.contentOffset.y, width: g.contentSize.height, height: g.visibleRect.height) } action: { _, r in
+                        ChatProbe.visible = CGRect(x: 0, y: r.minY, width: 0, height: r.height)
+                        ChatProbe.content = r.width
+                    }
+                    .onChange(of: following, initial: true) { ChatProbe.following = following }
+            } else {
+                content
+            }
+        }
     }
 }

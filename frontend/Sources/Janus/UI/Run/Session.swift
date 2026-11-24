@@ -306,10 +306,14 @@ struct ChatScroll: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 if empty { Text(L.text("开跑后，对话和工具调用会实时出现在这里")).foregroundStyle(.secondary) }
-                ForEach(groups) { row($0) }
+                ForEach(groups) { g in row(g).modifier(ChatProbe.Row(id: g.id)) }
             }
-            .padding(12)
+            .scrollTargetLayout()
         }
+        // A margin of the scroll view, not padding around the rows, so that scrolling to the newest
+        // row leaves the margin below it in view.
+        .contentMargins(12, for: .scrollContent)
+        .modifier(ChatProbe.Scroll(following: follow.following))
         .scrollPosition($position)
         // Opens at the newest item; later changes of content leave the place to `follow`.
         .defaultScrollAnchor(.bottom, for: .initialOffset)
@@ -319,16 +323,13 @@ struct ChatScroll: View {
         }
         // How much content lies below the visible area, reported on every scroll and every change
         // of the content's size; the state changes only when the answer does.
-        .onScrollGeometryChange(for: ChatGeometry.self) { g in
-            let below = g.contentSize.height - g.visibleRect.maxY
-            return ChatGeometry(below: below, end: g.contentOffset.y + below)
-        } action: { _, g in
+        .onScrollGeometryChange(for: CGFloat.self) { g in
+            g.contentSize.height - g.visibleRect.maxY
+        } action: { _, below in
             var again = false
-            update { again = $0.measured(below: g.below, last: last, person: person) }
-            // To the offset that shows the end now, on the next turn of the main loop. Asking for
-            // the bottom edge again while the position already says "bottom edge" (as it does from
-            // opening) did not move the view on macOS 15.
-            if again { DispatchQueue.main.async { position.scrollTo(y: g.end) } }
+            update { again = $0.measured(below: below, last: last, person: person) }
+            // To the newest row again, on the next turn of the main loop.
+            if again { DispatchQueue.main.async { toNewest() } }
         }
         // A new reply while following: go to it at once; the measurements above finish the landing.
         .onChange(of: last) { if follow.following && !person { toEnd() } }
@@ -370,7 +371,15 @@ struct ChatScroll: View {
 
     private func toEnd() {
         update { $0.jumped() }
-        position.scrollTo(edge: .bottom)
+        toNewest()
+    }
+
+    /// The newest row, by its id: the lazy list builds and measures it and puts its bottom at the
+    /// bottom of the view. An offset (or the bottom edge) comes from the list's estimate of the rows
+    /// it has not built, which can be far off for long Markdown messages: it scrolled past every
+    /// row and the conversation showed nothing.
+    private func toNewest() {
+        if let id = groups.last?.id { position.scrollTo(id: id, anchor: .bottom) } else { position.scrollTo(edge: .bottom) }
     }
 
     private func update(_ change: (inout ChatFollow) -> Void) {
@@ -378,13 +387,6 @@ struct ChatScroll: View {
         change(&f)
         if f != follow { follow = f }
     }
-}
-
-/// What a conversation's scroll view reports: how much content lies below the visible area, and
-/// the offset at which the end would be in view.
-struct ChatGeometry: Equatable {
-    var below: CGFloat
-    var end: CGFloat
 }
 
 /// Whether a conversation follows what arrives: only while its end is in view. Only the person's

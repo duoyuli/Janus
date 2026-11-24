@@ -31,7 +31,8 @@ def chats(ctx, c):
 
     def replied(text):
         evs = ctx.api("GET", f"/api/runs/{chat}")["events"]
-        return [e for e in evs if e["type"] == "agent.message" and f"回复：{text}" in e["text"]]
+        # The event's own text is a summary of a long message; the whole of it is in data.text.
+        return [e for e in evs if e["type"] == "agent.message" and f"回复：{text}" in e["data"].get("text", e["text"])]
 
     wait(lambda: replied("你好"), "数字员工回复第一条消息", 60)
     detail = ctx.api("GET", f"/api/runs/{chat}")
@@ -78,6 +79,24 @@ def chats(ctx, c):
         c(st["run"]["lastReply"] == want, f"应用：回复里的表格和代码块按块显示（{st['run']['lastReply']}）")
         c(drawn(ctx.app.picture(f"{chat}-markdown")), f"应用：带表格的回复画出来了（{chat}-markdown.png）")
 
+    # A long reply with a wide table, taller than the window: the table stays inside the message,
+    # the rows do not overlap, and the view lands on the newest row instead of the list's estimate
+    # of where the end is (which left an empty view).
+    long = _long_reply()
+    ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": long})
+    wait(lambda: replied(long), "数字员工回复带宽表格的长消息", 60)
+    if ctx.app:
+        ctx.app.do("size 1000x800")
+        st = ctx.app.until(lambda s: (s.get("run") or {}).get("id") == chat and "table:编号,名称,地址,请求,结论" in s["run"]["lastReply"]
+                           and _settled(s["run"]["conversation"]), "长回复画完，停在最新一行",
+                           f"open run:{chat}", f"shot {chat}-long-reply")
+        cv = st["run"]["conversation"]
+        rows = cv["rows"]
+        c(all(b["top"] >= a["bottom"] - 0.5 for a, b in zip(rows, rows[1:])), f"应用：会话里的行互不重叠（{rows}）")
+        c(cv["following"] and _settled(cv),
+          f"应用：长回复之后停在最新一行，仍在跟随（{cv['following']}，最后一行底边 {rows[-1]['bottom'] if rows else None} / 可见高度 {cv['height']}）")
+        c(drawn(ctx.app.picture(f"{chat}-long-reply")), f"应用：带宽表格的长回复画出来了（{chat}-long-reply.png）")
+
     ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running" and any(x["id"] == chat for x in s["chats"]),
            "对话页打开，侧栏的对话列表里有它", pages=("draft lead 第三条", "open chats"))
 
@@ -105,6 +124,23 @@ def chats(ctx, c):
     c(not os.path.exists(cwd) and not left, f"删除对话时它的工作目录、资源包和日志都删除：{left}")
     code, _ = ctx.api_error("GET", f"/api/runs/{chat}")
     c(code == 404, f"删除后对话不存在（{code}）")
+
+
+def _long_reply():
+    """A reply like an agent's report: a five-column table whose cells are too long for one line,
+    then lists and paragraphs, taller than the window."""
+    rows = "\n".join(f"| {n} | 第 {n} 个服务（北区 0.{n}） | service-{n}.example.invalid | {n * 37} | "
+                     f"全部 `model-{n}-long-name`，另有 {n} 条 `relay/model-{n}-long-name`（mismatch=true） |" for n in range(1, 4))
+    items = "\n".join(f"- 第 {n} 项：`/api/v1/admin/ops/item-{n}?filter=all&page=1` 记录了这一项的请求和结论，按时间顺序列出。" for n in range(1, 9))
+    return (f"结论先说：**三个服务都正常返回，没有出现别的模型。**\n\n## 调用情况\n\n| 编号 | 名称 | 地址 | 请求 | 结论 |\n|---|---|---|---|---|\n{rows}\n\n"
+            f"## 依据\n\n{items}\n\n## 顺带发现\n\n1. **配置矛盾**：一项回退规则指向不允许的协议，触发时会被拒绝。\n2. **刷屏**：一个不支持的端点被反复调用。\n\n今天没有触发告警。")
+
+
+def _settled(cv):
+    """The newest row is wholly in view at the bottom of the conversation: no further from it than
+    the app's own idea of being at the end (`ChatFollow.slack`, 32 points)."""
+    rows = cv.get("rows") or []
+    return bool(rows) and 0 < rows[-1]["bottom"] <= cv["height"] and cv["height"] - rows[-1]["bottom"] <= 32
 
 
 def _new_line(st):
