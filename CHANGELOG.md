@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.23.9
+
+- 修复任务交付后收件箱出现两条：负责人交付时它的这一轮也结束了，以前除了「已交付，等你验收」还会多一条「这一轮结束，等你回话」，指向同一个任务。现在只剩「等你验收」一条，任务页的「待处理」也一样。
+
+- Fixed a delivered run showing up twice in the inbox: a delivery also ends the lead's turn, so besides "Delivery awaits your review" there was a "finished its turn and is waiting for you" item for the same run. Only the review item is left now, on the run page's pending list too.
+
 ## 2026.11.23.8
 
 - 收件箱的每一项都可以「忽略」：不再提醒，从收件箱和侧栏的数量里去掉，不回答任何请求，任务本身不变（等验收的仍是已交付，在任务记录和任务页还能处理）。以前只能点进任务去处理或验收，只有已中断和失败的任务能「标记已处理」，现在统一叫「忽略」。审批、表单这类让 Agent 停着的事项也能忽略，悬停提示会写明对方会一直等着。升级后，以前标记过已处理、仍在等你的条目会重新出现一次。
