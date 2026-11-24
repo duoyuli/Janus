@@ -112,10 +112,10 @@ def loops(ctx, c):
         ctx.app.until(lambda s: any(i["key"] == asked["data"]["key"] for i in (s.get("run") or {}).get("inbox", [])),
                       "值班页也能回答这个问题", f"open run:{run}")
         c(True, "应用：值班页列出待回答的问题")
-        # Answer with the inbox's first quick answer, as the person would, at its place in the inbox now.
+        # Answer with the inbox's first quick answer, as the person would.
         s = ctx.app.do("open inbox")
-        i = next(n for n, e in enumerate(s["open"]) if e["run"] == run and e["kind"] == "question")
-        ctx.app.do(f"inbox-act {i}:0")
+        key = next(e["key"] for e in s["open"] if e["run"] == run and e["kind"] == "question")
+        ctx.app.do(f"inbox-act {key}:0")
     else:
         ctx.api("POST", f"/api/runs/{run}/actions", {"type": "answer", "key": asked["data"]["key"], "answer": "导出"})
     wait(lambda: len(kinds("loop.woke")) == 2, "回答唤醒值班", 60)

@@ -11,7 +11,7 @@ import SwiftUI
 ///     snooze-first | wake-all | ignore <entry key> | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
-///     inbox-act <entry>:<action> (clicks a quick answer in the inbox, by position from 0) | density detail|summary | draft <task or agent> <text>
+///     inbox-act <entry key>:<action> (clicks a quick answer of that inbox entry, actions from 0) | density detail|summary | draft <task or agent> <text>
 ///     send-key commandReturn|return | press return|shift-return|command-return (into the first composer)
 @MainActor
 enum Snapshots {
@@ -288,10 +288,11 @@ enum Snapshots {
         case "draft":
             let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
             if let run = store.run, let who = p.first { run.sessionDrafts["sess-" + who] = p.count > 1 ? p[1] : "" }
+        // By the entry's key, not its place: other runs come and go in the inbox meanwhile.
         case "inbox-act":
-            let n = kv.compactMap { Int($0) }
-            let open = store.inbox.open
-            if n.count == 2, n[0] < open.count, n[1] < open[n[0]].actions.count { await store.inbox.act(open[n[0]], open[n[0]].actions[n[1]], store: store) }
+            if kv.count == 2, let n = Int(kv[1]), let e = store.inbox.open.first(where: { $0.key == kv[0] }), n < e.actions.count {
+                await store.inbox.act(e, e.actions[n], store: store)
+            }
         // The review window for a task's latest diff, in the open run.
         case "review":
             if let run = store.run, let a = run.state.artifacts.last(where: { $0.task == arg && $0.kind == "git_diff" }) { DiffWindow.open(run: run, artifact: a) }

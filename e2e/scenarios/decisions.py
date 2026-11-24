@@ -46,14 +46,13 @@ def decisions(ctx, c):
         blocking = [e for e in mine if not e["canWait"]]
         c(len(blocking) >= 2, "会卡住 Agent 的审批和表单不能推迟")
         # Approve in the app, through the same code as a click on the inbox's quick answer. The
-        # inbox lists every run's items newest first and the parallel scenarios deliver meanwhile,
-        # so the index is read again right before the click instead of reusing the earlier `st`.
+        # parallel scenarios deliver meanwhile and reorder the inbox, so the entry goes by its key.
         fresh = ctx.app.do("open inbox")
-        i = next((k for k, e in enumerate(fresh["open"]) if e["run"] == run.id and e["kind"] == "approval"), None)
-        if i is None:
+        e = next((e for e in fresh["open"] if e["run"] == run.id and e["kind"] == "approval"), None)
+        if e is None:
             raise Failure(f"收件箱里找不到这个 Run 的审批事项：{[e['kind'] for e in fresh['open'] if e['run'] == run.id]}")
-        c(True, f"应用：审批的就地按钮 {fresh['open'][i]['actions']}")
-        ctx.app.do(f"inbox-act {i}:0")
+        c(True, f"应用：审批的就地按钮 {e['actions']}")
+        ctx.app.do(f"inbox-act {e['key']}:0")
         granted = run.wait_event("approval.granted", task="T1", timeout=30)
         c(granted, "应用收件箱里点的审批到达服务")
     else:
