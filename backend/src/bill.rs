@@ -83,17 +83,15 @@ pub fn period(db: &Db, from: i64, to: i64, offset_minutes: i64, prices: Option<&
     Ok(bill)
 }
 
-/// The Agent a run's member runs on, from the run's team: its runtime id and name. A member the
-/// team does not list (a run recorded before the team was kept) is its own Agent.
+/// The Agent a run's member runs on, from the run's team snapshot: its connection id and name.
+/// Every session's actor is a member of its run's team.
 fn agent_of(config: &Value, actor: &str) -> (String, String) {
     let member = config["team"].as_array().into_iter().flatten().find(|m| m["id"] == actor);
-    let runtime = member.and_then(|m| m["runtime"].as_str()).filter(|r| !r.is_empty());
-    match runtime {
-        Some(r) => (
-            r.to_string(),
-            member.and_then(|m| m["runtime_name"].as_str()).filter(|n| !n.is_empty()).unwrap_or(r).to_string(),
-        ),
-        None => (format!("member:{actor}"), actor.to_string()),
+    match member {
+        Some(m) => {
+            (m["runtime"].as_str().unwrap_or_default().into(), m["runtime_name"].as_str().unwrap_or_default().into())
+        }
+        None => (actor.to_string(), actor.to_string()),
     }
 }
 

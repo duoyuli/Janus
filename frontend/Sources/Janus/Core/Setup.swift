@@ -2,21 +2,9 @@ import Foundation
 
 /// Rules for the setup screens, the same as the orchestrator's.
 enum Setup {
-    /// Janus never offers a plan mode (the backend's `is_plan_toggle` / `is_plan_value`); agents
-    /// checked before that rule still carry them in their saved options.
-    static func isPlanValue(_ v: JSON) -> Bool {
-        guard let s = v.string else { return false }
-        return s.lowercased().replacingOccurrences(of: #"[-_ ]"#, with: "", options: .regularExpression) == "plan"
-    }
-
-    /// Session controls the agent declared, without plan toggles and plan values.
-    static func controls(_ c: JSON?) -> [JSON] {
-        (c?["options"]["controls"].array ?? []).filter { $0["id"].str.range(of: "plan", options: .caseInsensitive) == nil }.map { x in
-            var x = x
-            if x["options"].array.contains(where: { isPlanValue($0["value"]) }) { x["options"] = .array(x["options"].array.filter { !isPlanValue($0["value"]) }) }
-            return x
-        }
-    }
+    /// Session controls the agent declared. The server leaves plan toggles and plan values out
+    /// when it reads them (`session_options`): Janus never runs an agent in a plan mode.
+    static func controls(_ c: JSON?) -> [JSON] { c?["options"]["controls"].array ?? [] }
 
     /// A role can lead once it is bound to an agent: Codex and Claude Code both pursue goals with /goal.
     static func leadCapable(_ c: JSON?) -> Bool { c != nil }

@@ -41,6 +41,9 @@ pub enum Step {
     /// A change that also reaches files in Janus home (credentials, a move of folders). It gets
     /// the home as that data version laid it out; the dry run passes none and changes no file.
     Home(fn(&Transaction, Option<&Path>) -> Result<usize>),
+    /// Nothing any more: what the version did was undone whole by the later version named here,
+    /// and nothing in between read it. The version keeps its number and name.
+    UndoneBy(u32),
 }
 
 /// Where a field step applies.
@@ -82,7 +85,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 5,
         name: "资源记录给谁用：Skill 给所有数字员工，MCP 只给选中它的数字员工",
-        steps: &[Step::Custom(crate::library::record_reach)],
+        steps: &[Step::UndoneBy(11)],
     },
     Migration {
         version: 6, name: "新增默认的通用数字员工", steps: &[Step::Custom(crate::agents::add_generalist)]
@@ -431,6 +434,7 @@ fn apply(tx: &Transaction, step: &Step, home: Option<&Path>) -> Result<usize> {
         Step::Drop { at, field } => edit(tx, *at, |o| o.remove(*field).is_some()),
         Step::Custom(f) => f(tx),
         Step::Home(f) => f(tx, home),
+        Step::UndoneBy(_) => Ok(0),
     }
 }
 
@@ -518,7 +522,10 @@ pub fn dry_run(db: &Path) -> Result<String> {
     } else {
         let mut out = format!("数据版本 {} → {}：\n", report.from, report.to);
         for (version, name, changed) in &report.applied {
-            out.push_str(&format!("  {version}「{name}」：改动 {changed} 处\n"));
+            match undone_by(*version) {
+                Some(later) => out.push_str(&format!("  {version}「{name}」：已被 {later} 撤销，不做改动\n")),
+                None => out.push_str(&format!("  {version}「{name}」：改动 {changed} 处\n")),
+            }
         }
         out
     };
@@ -531,6 +538,14 @@ pub fn dry_run(db: &Path) -> Result<String> {
         }
     }
     Ok(out)
+}
+
+/// The later version that undid `version` whole (`Step::UndoneBy`), if one did.
+fn undone_by(version: u32) -> Option<u32> {
+    MIGRATIONS.iter().find(|m| m.version == version)?.steps.iter().find_map(|s| match s {
+        Step::UndoneBy(later) => Some(*later),
+        _ => None,
+    })
 }
 
 /// Every stored setup object and run member that does not have the latest shape, as

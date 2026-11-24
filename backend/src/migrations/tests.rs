@@ -44,6 +44,12 @@ fn versions_count_up_from_one() {
     for (i, m) in MIGRATIONS.iter().enumerate() {
         assert_eq!(m.version as usize, i + 1, "{}", m.name);
         assert!(!m.name.is_empty() && !m.steps.is_empty());
+        for step in m.steps {
+            if let Step::UndoneBy(later) = step {
+                assert!(*later > m.version && MIGRATIONS.iter().any(|n| n.version == *later), "{}", m.name);
+                assert_eq!(undone_by(m.version), Some(*later));
+            }
+        }
     }
 }
 

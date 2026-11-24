@@ -119,43 +119,30 @@ impl std::error::Error for Cancelled {}
 pub struct Member {
     pub id: String,
     pub name: String,
-    #[serde(default)]
     pub desc: String,
     pub runtime: String,
-    #[serde(default)]
     pub lead: bool,
-    #[serde(default)]
     pub color: String,
-    #[serde(default)]
     pub init: String,
     /// Model and reasoning effort chosen on the role; applied with session/set_config_option.
-    #[serde(default)]
     pub model: String,
-    #[serde(default)]
     pub effort: String,
     /// Session controls the role chose from what its agent declares (permission mode, plan, ...),
     /// by control id. Applied to every session this member opens.
-    #[serde(default)]
     pub session: Value,
     /// The permission mode in the agent's own words, e.g. "Full access", shown in the run's audit
     /// view; Janus itself does not check it.
-    #[serde(default)]
     pub permission: String,
     pub kind: Runtime,
-    #[serde(default)]
     pub runtime_name: String,
     /// The provider's custom prompt, appended to every prompt this member receives.
-    #[serde(default)]
     pub prompt: String,
     /// The role's instructions.
-    #[serde(default)]
     pub role_prompt: String,
     /// The library items the role uses, as they were when the run started. Skills are copied into
     /// the member's bundle (`RunDirs::bundle`); MCP values are read when a session opens and never
     /// appear here.
-    #[serde(default)]
     pub resources: Vec<crate::library::Item>,
-    #[serde(default)]
     pub role_id: String,
 }
 

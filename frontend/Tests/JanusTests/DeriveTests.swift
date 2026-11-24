@@ -265,17 +265,6 @@ private func goalRun() -> Log {
     ])
 }
 
-@Test func planControlsAreHidden() {
-    let c: JSON = ["options": ["controls": [
-        ["id": "plan-mode", "type": "select", "options": []],
-        ["id": "mode", "type": "select", "permission": true, "current": "ask", "default": "ask", "options": [["value": "plan", "name": "Plan"], ["value": "ask", "name": "Ask"]]],
-    ]]]
-    let ctrls = Setup.controls(c)
-    #expect(ctrls.map { $0["id"].str } == ["mode"])
-    #expect(ctrls[0]["options"].array.map { $0["value"].str } == ["ask"])
-    #expect(Setup.permLabel([:], c) == "Ask")
-}
-
 /// A role that leaves the mode open shows the default the server marks (Codex: Full access), not the agent's current mode.
 @Test func anOpenModeShowsTheDefault() {
     let c: JSON = ["base": "codex", "options": ["controls": [

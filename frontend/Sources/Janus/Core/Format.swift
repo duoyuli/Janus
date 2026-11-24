@@ -11,11 +11,6 @@ func regex(_ pattern: String) -> NSRegularExpression {
 extension NSRegularExpression {
     private func whole(_ s: String) -> NSRange { NSRange(s.startIndex..., in: s) }
     func found(in s: String) -> Bool { firstMatch(in: s, range: whole(s)) != nil }
-    /// The text of the first match's first group.
-    func firstGroup(in s: String) -> String? {
-        guard let m = firstMatch(in: s, range: whole(s)), m.numberOfRanges > 1, let r = Range(m.range(at: 1), in: s) else { return nil }
-        return String(s[r])
-    }
     /// Every match, whole.
     func all(in s: String) -> [String] {
         matches(in: s, range: whole(s)).compactMap { Range($0.range, in: s).map { String(s[$0]) } }

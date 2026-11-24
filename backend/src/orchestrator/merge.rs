@@ -153,8 +153,7 @@ impl App {
     }
 
     /// The commit holding the run's result as last brought back, by a delivery (`run.merged`) or
-    /// the person accepting (`risk.accepted`): its `data.result` (acceptances from before it was
-    /// recorded have only `data.commit`, what they brought back).
+    /// the person accepting (`risk.accepted`): its `data.result`.
     pub(super) fn last_merged(&self, run_id: &str) -> Result<Option<String>> {
         let latest = [self.db.latest_event(run_id, "risk.accepted")?, self.db.latest_event(run_id, "run.merged")?]
             .into_iter()
@@ -162,7 +161,7 @@ impl App {
             .max_by_key(|e| e.seq);
         Ok(latest.and_then(|e| {
             let d = e.data?;
-            d["result"].as_str().or(d["commit"].as_str()).map(str::to_owned)
+            d["result"].as_str().map(str::to_owned)
         }))
     }
 

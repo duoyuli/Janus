@@ -87,20 +87,6 @@ pub enum Origin {
     Git { source: String, path: String },
 }
 
-/// Data version 5: every library item, and every item pinned in a run's member snapshot, says
-/// who may use it, as a new item then did: a skill everyone, an MCP server only the roles that
-/// picked it. Data version 11 drops the field again (`drop_reach`).
-pub(crate) fn record_reach(tx: &rusqlite::Transaction) -> Result<usize> {
-    edit_items(tx, |o| {
-        if o.contains_key("reach") {
-            return false;
-        }
-        let reach = if o.get("kind").and_then(Value::as_str) == Some("skill") { "everyone" } else { "picked" };
-        o.insert("reach".into(), json!(reach));
-        true
-    })
-}
-
 /// Data version 11: every item is for every digital worker, so items, and the items pinned in
 /// runs' member snapshots, no longer say who may use them.
 pub(crate) fn drop_reach(tx: &rusqlite::Transaction) -> Result<usize> {
