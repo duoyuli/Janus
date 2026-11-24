@@ -20,6 +20,7 @@
 - [2026-11-20 Vercel Board 模板源码研究](20261120-vercel_board_templates.md)：沿 factory 和 swarm 模板追踪从 issue 到 PR 的分流、执行、审查和跟进。阅读时机：核对凭据隔离、仓库权限、自动化预算和人工决策位置时。
 - [2026-11-21 Codex 怎样用 git worktree](20261121-codex_worktrees.md)：Codex 和 Antigravity 各自读 `openai/codex` 源码和官方文档的两份报告：Codex 的 worktree 是用户看得见、自己选的并行工作区，detached、不加锁（用 `codex-thread.json` 记归属）、不复制被忽略的文件、不自动合并回去、桌面版保留最近 15 个并在删除前存快照；git 调用关掉钩子、fsmonitor、过滤器和继承的 `GIT_*` 变量，macOS 上写 `.metadata_never_index` 不让 Spotlight 索引。结论是 Janus 在「不让用户感知」上已经走得更远，可借鉴的是这些加固和清理策略。阅读时机：改动 worktree 的创建、清理、git 调用环境或界面上怎样提到它时。
 - [2026-11-24 多 Agent 协作与 Agent Team 进展](20261124-multi_agent_collaboration.md)：2026-11-23 至 11-24 的时点观察：Claude Ship 把 PR 审查、修复和策略审批做成三个 Agent，最值得借鉴的是受保护文件和 observe 模式而不是自动批准；另有 Antigravity 2.35 的会话管理、DeepMind 的 Lean 验证门禁、Codex 0.172 的 Guardian 审批层、ACP 1.35 的 `mcp/message` 归因字段、Uber 的 Skill 规模数据和 REPA 等论文；给出 P0 交付摘要单列受保护路径、P1 编排时提醒独立验证和 P2 观察项，并核对窗口外线索。阅读时机：评估交付时的受保护路径提示、独立验证默认提醒、验收策略文件或 ACP 1.35 归因字段时。
+- [2026-11-24 MCP 扩展进展与 Janus MCP 路由对照](20261124-mcp_skills_tasks_elicitation.md)：Anthropic 宣布 Skills over MCP 在 Claude 和 Claude Code 公开测试、Tasks 与 Elicitation GA，MCP 两周年博客给出 Events beta（要求协议 2026-07-28 或更高）和下一次发布计划，SEP-2640 把服务器附带的 Skill 内容定为不可信输入；逐项对照 Janus 路由（只声明 `tools`、没有 `resources` / `tasks` / 服务器发起的 elicitation、协议最高 `2025-11-25`），给出 P1 资源库显示只能以任务方式调用的工具、Skills over MCP 先写 ADR 待用户决定等结论。阅读时机：评估是否引入 MCP Skills 扩展、Tasks、Elicitation、File Uploads 或无状态协议 `2026-07-28`，或需要核对 `janus-tools` 路由对外能力声明与资源库工具计数时。
 
 ## 约定
 
