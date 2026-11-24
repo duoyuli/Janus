@@ -184,7 +184,7 @@ enum Snapshots {
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),
                 "windows": JSON(NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }.count),
-                "connections": ids(store.connections), "roles": .array(store.roles.map { JSON($0.id) }), "workspaces": .array(store.workspaces.map { JSON($0.id) }), "runs": ids(store.runs),
+                "connections": ids(store.connections), "roles": ids(store.roles.map(\.json)), "workspaces": ids(store.workspaces.map(\.json)), "runs": ids(store.runs),
                 "claudeEnvironments": .object(Dictionary(uniqueKeysWithValues: store.connections.filter {
                     store.envAuth($0["kind"].str, $0["auth"].str)
                 }.map { ($0["id"].str, JSON(Setup.envText($0["env"]))) })),
