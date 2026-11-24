@@ -430,7 +430,7 @@ impl App {
             let st = &mut *guard;
             st.traces.record_lead(paths, seq);
             // Once a subtask is on the board the lead only manages: an edit of its own is
-            // reported to it and goes on the delivery as a risk. Janus does not stop it; what the
+            // reported to it, and the delivery lists it (`leadEdits`). Janus does not stop it; what the
             // lead may do is up to its agent's own permission mode.
             // @project-doc docs/domains/20261031-goal_mode.md#lead_role
             let after_plan = if st.tasks.is_empty() { vec![] } else { st.traces.record_lead_after_plan(paths) };

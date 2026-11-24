@@ -10,7 +10,7 @@
 
 use crate::orchestrator::TaskDef;
 use crate::teamwork::covers;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// What two tasks' edits overlap in, as reported to the lead (`task.conflict`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -46,14 +46,14 @@ impl Actor {
 pub struct Traces {
     /// Files each task edited (relative to the workspace), from its tool calls.
     touched: HashMap<String, BTreeSet<String>>,
-    /// Files the lead edited directly in its own session.
-    lead_touched: BTreeSet<String>,
+    /// Files the lead edited directly in its own session, each with the seq of its last edit.
+    lead_touched: BTreeMap<String, i64>,
     /// Who edited each file last, and the seq of that tool call.
     last_edit: HashMap<String, (Actor, i64)>,
     /// Reports already made: (kind, actor, other, file).
     reported: HashSet<(Overlap, Actor, Actor, String)>,
     /// Files the lead edited after it handed out its first subtask (`lead.edited`): from then on
-    /// it only manages, so each is reported once and goes on the delivery as a risk.
+    /// it only manages, so each is reported once (the delivery lists every file it edited itself).
     lead_after_plan: BTreeSet<String>,
     /// Library tools (routed names) the lead called after handing out subtasks (`lead.routed`):
     /// reported once each, like its edits, since a call may change things outside any subtask.
@@ -72,20 +72,21 @@ impl Traces {
 
     /// A tool call of the lead's own session, recorded at `seq`, edited `paths`.
     pub fn record_lead(&mut self, paths: &[String], seq: i64) {
-        self.lead_touched.extend(paths.iter().cloned());
         for p in paths {
+            self.lead_touched.insert(p.clone(), seq);
             self.last_edit.insert(p.clone(), (Actor::Lead, seq));
         }
+    }
+
+    /// Files the lead edited itself after `since`: what a round of the run that ends at a delivery
+    /// changed by the lead's own hand.
+    pub fn lead_edited_since(&self, since: i64) -> Vec<String> {
+        self.lead_touched.iter().filter(|(_, seq)| **seq > since).map(|(p, _)| p.clone()).collect()
     }
 
     /// The lead edited `paths` after handing out subtasks: the ones not reported before.
     pub fn record_lead_after_plan(&mut self, paths: &[String]) -> Vec<String> {
         paths.iter().filter(|p| self.lead_after_plan.insert((*p).clone())).cloned().collect()
-    }
-
-    /// Files the lead edited after handing out subtasks.
-    pub fn lead_after_plan(&self) -> &BTreeSet<String> {
-        &self.lead_after_plan
     }
 
     /// The lead called the library tool `tool` after handing out subtasks: true the first time.

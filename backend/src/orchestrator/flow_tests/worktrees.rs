@@ -52,8 +52,10 @@ async fn runs_work_apart_and_delivering_brings_the_result_back_to_the_branch() {
     assert_eq!(d["branch"], json!(branch), "{d}");
     assert_eq!(d["commit"], json!(tip), "{d}");
     assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "T1\n", "back in the checkout");
-    let summary = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap()["summary"].clone();
-    assert!(summary.as_str().unwrap().contains("结果已合并到"), "{summary}");
+    let delivery = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap();
+    assert_eq!(delivery["merge"]["state"], "merged", "{delivery}");
+    assert!(delivery["merge"]["note"].as_str().unwrap().contains("结果已合并到"), "{delivery}");
+    assert_eq!(delivery["changed"], json!(["notes.md"]), "this round's files, listed before the merge took them");
     assert!(git_out(&h.repo, &["branch", "--list", "janus/*"]).trim().is_empty(), "no branch of its own");
     act(&h, &run, json!({ "type": "accept" }));
     let accepted = events(&h.app, &run).into_iter().find(|e| e.kind == "risk.accepted").unwrap();
@@ -102,8 +104,9 @@ async fn the_persons_uncommitted_work_in_the_way_waits_for_them() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     delivered(&h, &run).await;
     let evs = events(&h.app, &run);
-    let summary = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap()["summary"].clone();
-    assert!(summary.as_str().unwrap().contains("先移走或改名"), "{summary}");
+    let merge = evs.iter().find(|e| e.kind == "run.delivered").unwrap().data.clone().unwrap()["merge"].clone();
+    assert_eq!(merge["state"], "blocked", "{merge}");
+    assert!(merge["note"].as_str().unwrap().contains("先移走或改名"), "{merge}");
     assert!(!has(&evs, "run.merged"));
     assert!(!has(&evs, "user.message"), "nothing for the lead to resolve");
     assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "mine\n", "theirs stays");
@@ -178,11 +181,13 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     delivered(&h, &run).await;
-    let summary = |n: usize| {
+    let merge = |n: usize| {
         let d = events(&h.app, &run).into_iter().filter(|e| e.kind == "run.delivered").nth(n).unwrap();
-        d.data.unwrap()["summary"].as_str().unwrap().to_string()
+        let m = d.data.unwrap()["merge"].clone();
+        (m["state"].as_str().unwrap().to_string(), m["note"].as_str().unwrap().to_string())
     };
-    assert!(summary(0).contains("负责人正在任务的副本里解决"), "{}", summary(0));
+    assert_eq!(merge(0).0, "resolving");
+    assert!(merge(0).1.contains("负责人正在任务的副本里解决"), "{}", merge(0).1);
     assert!(!has(&events(&h.app, &run), "run.merged"));
     assert_eq!(std::fs::read_to_string(h.repo.join("notes.md")).unwrap(), "mine\n", "the person's side is as it was");
     assert_eq!(git_out(&h.repo, &["rev-parse", "HEAD"]).trim(), tip);
@@ -202,7 +207,8 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     wait_until(&h.app, &run, "delivered again", |evs| evs.iter().filter(|e| e.kind == "run.delivered").count() == 2)
         .await;
     lead_idle(&h, &run).await;
-    assert!(summary(1).contains("仍然冲突"), "{}", summary(1));
+    assert_eq!(merge(1).0, "conflict");
+    assert!(merge(1).1.contains("仍然冲突"), "{}", merge(1).1);
     assert_eq!(told(&events(&h.app, &run)).len(), 1, "not handed over again by its own delivery");
     assert!(h.app.request_action(&run, &json!({ "type": "accept" })).await.is_ok(), "handed to the lead, not refused");
     assert!(!has(&events(&h.app, &run), "risk.accepted"));

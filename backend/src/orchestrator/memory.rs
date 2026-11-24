@@ -439,12 +439,7 @@ impl App {
 
     /// What a delivered run's lead summed up, from its delivery.
     fn delivery_of(&self, run_id: &str) -> String {
-        self.db
-            .latest_event(run_id, "run.delivered")
-            .ok()
-            .flatten()
-            .and_then(|e| e.data?["summary"].as_str().map(str::to_owned))
-            .unwrap_or_default()
+        self.last_delivery_text(run_id).unwrap_or_default()
     }
 
     /// What Janus adds to a consolidation's system layer: how to consolidate, and the notes.

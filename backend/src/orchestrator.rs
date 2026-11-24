@@ -1419,6 +1419,12 @@ const LEAD_REPLY: &str = "负责人回复：";
 /// The heading the lead puts its suggested additions to the shared material under (see `goal_brief`).
 const BRIEF_HEADING: &str = "Suggested Updates to Shared Context";
 
+/// The heading of the lead's conclusion in its final reply, a sentence or two (see `goal_brief`).
+const HEADLINE_HEADING: &str = "Conclusion";
+
+/// The heading of the questions the lead's final reply leaves for the person (see `goal_brief`).
+const DECISIONS_HEADING: &str = "Needs Your Decision";
+
 /// Read-only git query (see `git_probe::read_only`); not for commands that write the repository.
 pub async fn git(cwd: &Path, args: &[&str]) -> Result<String> {
     let out = tokio::process::Command::from(git_probe::read_only(cwd, args)).output().await?;

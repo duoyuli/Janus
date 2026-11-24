@@ -57,8 +57,9 @@ def worktrees(ctx, c):
     won_cwd, text = (a, "T1\n") if won is first else (b, "T2\n")
     won.wait_status("delivered")
     head = _git(t.repo, "rev-parse", "HEAD").strip()
-    summary = won.has("run.delivered")[0]["data"]["summary"]
-    c("结果已合并到" in summary and branch in summary, f"先交付的任务：交付摘要说明结果已合并到分支 {branch}（{summary[-120:]}）")
+    merge = won.has("run.delivered")[0]["data"]["merge"]
+    c(merge["state"] == "merged" and "结果已合并到" in merge["note"] and branch in merge["note"],
+      f"先交付的任务：交付说明结果已合并到分支 {branch}（{merge}）")
     merged = won.wait_event("run.merged", actor="janus")["data"]
     c(merged.get("branch") == branch and merged.get("commit") == head and _git(t.repo, "rev-parse", "HEAD^").strip() == start,
       f"交付时结果作为一个提交合并回 {branch}（快进，没有合并提交），记为 Janus 的 run.merged")
@@ -71,13 +72,14 @@ def worktrees(ctx, c):
 
     # The other run changed the same file: its result conflicts with what the first brought back.
     told = lambda: [e for e in lost.has("user.message", actor="janus") if "a.txt" in e["data"].get("text", "")]
-    c(told() and "git rebase" in told()[0]["data"]["text"] and "负责人正在任务的副本里解决" in lost.has("run.delivered")[0]["data"]["summary"],
-      "后交付的任务冲突：Janus 把冲突的文件和解决步骤交给负责人，交付摘要说明负责人在解决")
+    c(told() and "git rebase" in told()[0]["data"]["text"] and lost.has("run.delivered")[0]["data"]["merge"]["state"] == "resolving"
+      and "负责人正在任务的副本里解决" in lost.has("run.delivered")[0]["data"]["merge"]["note"],
+      "后交付的任务冲突：Janus 把冲突的文件和解决步骤交给负责人，交付说明负责人在解决")
     c(read_file(f"{t.repo}/a.txt") == text and not _git(t.repo, "status", "--porcelain", "--untracked-files=no").strip()
       and not lost.has("run.merged"),
       "冲突时用户的分支不动，目录里没有半合并的状态")
     wait(lambda: len(lost.has("run.delivered")) == 2, "负责人处理冲突的一轮结束后再次交付", 60)
-    c("仍然冲突" in lost.has("run.delivered")[1]["data"]["summary"] and len(told()) == 1,
+    c(lost.has("run.delivered")[1]["data"]["merge"]["state"] == "conflict" and "仍然冲突" in lost.has("run.delivered")[1]["data"]["merge"]["note"] and len(told()) == 1,
       "负责人没解决时再次交付说明仍然冲突，不再自动交给负责人")
     lost.wait_status("delivered")
     lost.act("accept")

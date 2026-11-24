@@ -75,15 +75,39 @@ fn task_prompts_carry_the_shared_material() {
 #[test]
 fn the_leads_suggestions_for_the_shared_material_are_split_off() {
     for heading in ["### **Suggested Updates to Shared Context:**", "### 建议更新共享资料："] {
-        let (rest, s) = split_brief_suggestions(&format!(
+        let r = LeadReport::of(&format!(
             "完成了。\n\n{heading}\n1. 定价页在 docs/pricing.md\n* 免费版限 3 个项目\n\n## 风险\n无"
         ));
-        assert_eq!(s, vec!["定价页在 docs/pricing.md", "免费版限 3 个项目"]);
-        assert_eq!(rest, "完成了。\n\n## 风险\n无");
+        assert_eq!(r.brief, vec!["定价页在 docs/pricing.md", "免费版限 3 个项目"]);
+        assert_eq!(r.summary, "完成了。\n\n## 风险\n无");
     }
-    let (rest, s) = split_brief_suggestions("完成了，没有新的事实。");
-    assert!(s.is_empty());
-    assert_eq!(rest, "完成了，没有新的事实。");
+    let r = LeadReport::of("完成了，没有新的事实。");
+    assert!(r.brief.is_empty() && r.headline.is_empty() && r.decisions.is_empty());
+    assert_eq!(r.summary, "完成了，没有新的事实。");
+}
+
+/// The conclusion and the questions for the person are their own sections; the report keeps the
+/// rest whole, however long, without a trailing JSON block.
+#[test]
+fn the_leads_report_splits_its_conclusion_and_decisions_off() {
+    let long = "细节。".repeat(1500);
+    for (headline, decisions) in [("## Conclusion", "## Needs Your Decision:"), ("## **结论**", "### 需要你决定：")]
+    {
+        let r = LeadReport::of(&format!(
+            "{headline}\n审计完成，确认 1 个高风险。\n\n{decisions}\n- 被忽略文件不带回算缺陷吗？\n2. 以哪条说明为准？\n\n## 改了什么\n{long}\n```json\n{{}}\n```"
+        ));
+        assert_eq!(r.headline, "审计完成，确认 1 个高风险。");
+        assert_eq!(r.decisions, vec!["被忽略文件不带回算缺陷吗？", "以哪条说明为准？"]);
+        assert_eq!(r.summary, format!("## 改了什么\n{long}"));
+    }
+}
+
+/// What an agent reads of a delivery later: the conclusion, the report and where the result is.
+#[test]
+fn a_delivery_reads_as_its_conclusion_report_and_merge() {
+    let d = json!({ "headline": "做完了。", "summary": "改了 a.rs。", "merge": { "state": "merged", "note": "结果已合并到 main。" } });
+    assert_eq!(delivery_text(&d), "做完了。\n\n改了 a.rs。\n\n结果已合并到 main。");
+    assert_eq!(delivery_text(&json!({ "headline": "重启后交付。", "summary": "重启后交付。" })), "重启后交付。");
 }
 
 #[test]

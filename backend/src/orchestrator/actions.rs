@@ -287,8 +287,16 @@ impl App {
                 self.pump();
             }
             "cancel" => {
+                // A delivery already put its result on the person's branch (or in their folder):
+                // stopping would only end the lead's conversation and call the run cancelled.
+                // @project-doc docs/domains/20261031-run_lifecycle.md#user_actions
+                if self.last_delivery_seq(&run.id) > 0 {
+                    bail!(
+                        "这个任务已经交付过，结果已经在你的分支或目录里，停止撤不回它。要停下负责人这一轮，就打断它；不想要这个结果，让负责人回退。"
+                    );
+                }
                 let status = run.st.lock().unwrap().status;
-                if !matches!(status, RunStatus::Planning | RunStatus::Running | RunStatus::Delivered) {
+                if !matches!(status, RunStatus::Planning | RunStatus::Running) {
                     bail!("任务现在是「{status}」，不能停止");
                 }
                 let conns: Vec<Arc<AcpConn>> = {

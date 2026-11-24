@@ -426,7 +426,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     if e.kind == "lead.edited" {
         let paths: Vec<&str> = d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect();
         return Some(format!(
-            "- [负责人改了文件] 你已经派出了子任务，按约定只做管理、不再改工作目录，这次改了：{}。这些改动没有经过子任务的验收，会写进交付风险。需要改代码时交给对应的子任务：janus.retry 让它返工，或 janus.orchestrate 派新的子任务。",
+            "- [负责人改了文件] 你已经派出了子任务，按约定只做管理、不再改工作目录，这次改了：{}。这些改动没有经过子任务的验收，交付时会单独列出，你的报告要写明怎么核对的。需要改代码时交给对应的子任务：janus.retry 让它返工，或 janus.orchestrate 派新的子任务。",
             paths.join("、")
         ));
     }

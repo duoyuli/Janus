@@ -970,15 +970,7 @@ async fn the_lead_only_manages_once_it_delegates() {
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let d = events(&h.app, &run).into_iter().find(|e| e.kind == "run.delivered").unwrap().data.unwrap();
-    assert!(
-        d["risks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|x| x.as_str().unwrap().contains("负责人在派出子任务后自己改了文件：api.rs、small.rs")),
-        "{}",
-        d["risks"]
-    );
+    assert_eq!(d["leadEdits"], json!(["api.rs", "small.rs"]), "what the lead changed itself goes on the delivery");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

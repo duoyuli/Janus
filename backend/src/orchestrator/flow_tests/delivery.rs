@@ -27,14 +27,23 @@ async fn work_after_acceptance_is_delivered_again() {
     assert_eq!(status(&h.app, &run), "accepted");
 
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "结果是什么？" }));
-    wait_until(&h.app, &run, "an answer", |e| e.iter().filter(|x| x.kind == "agent.message").count() >= 2).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The turn says it ended, so the app knows the delivery stands and the lead waits again.
+    wait_until(&h.app, &run, "the turn's end", |e| {
+        e.iter().any(|x| x.kind == "agent.status" && x.text == "这一轮已结束，等待你的消息")
+    })
+    .await;
     assert_eq!((status(&h.app, &run).as_str(), deliveries(&h, &run)), ("accepted", 1), "a question changes nothing");
 
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "补一份说明 [write extra.md]" }));
     wait_until(&h.app, &run, "a second delivery", |e| e.iter().filter(|x| x.kind == "run.delivered").count() == 2)
         .await;
     assert_eq!(status(&h.app, &run), "delivered", "the new work waits for acceptance");
+    // The second delivery is this round alone: no subtask worked in it, the lead wrote one file.
+    let second = events(&h.app, &run).into_iter().filter(|e| e.kind == "run.delivered").nth(1).unwrap().data.unwrap();
+    assert_eq!(second["acceptance"], json!([]), "{second}");
+    assert_eq!(second["evidence"], json!([]), "{second}");
+    assert_eq!(second["changed"], json!(["extra.md"]), "{second}");
+    assert_eq!(second["leadEdits"], json!(["extra.md"]), "{second}");
     act(&h, &run, json!({ "type": "accept" }));
     assert!(h.repo.join("extra.md").exists(), "accepting brings the follow-up's file back");
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -54,7 +63,10 @@ async fn acceptance_waits_for_the_lead() {
     let refused = h.app.action(&r, &json!({ "type": "accept" })).unwrap_err();
     assert!(format!("{refused:#}").contains("负责人还在处理"), "{refused:#}");
     assert_eq!(status(&h.app, &run), "delivered");
-    act(&h, &run, json!({ "type": "cancel" }));
+    // The result is out already: stopping would only end the conversation, so it is refused.
+    let refused = h.app.action(&r, &json!({ "type": "cancel" })).unwrap_err();
+    assert!(format!("{refused:#}").contains("已经交付过"), "{refused:#}");
+    assert_eq!(status(&h.app, &run), "delivered");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -118,4 +130,60 @@ fn history_leaves_out_the_message_still_waiting() {
     ];
     let history = crate::orchestrator::lead::recent_exchanges(&events, "Lead");
     assert_eq!(history, "User: 先做这个\nLead: 做好了");
+}
+
+/// Outside Git there is no branch to compare with: the lead's own edits after a delivery are what
+/// makes the run delivered again.
+#[tokio::test(flavor = "multi_thread")]
+async fn work_after_delivery_outside_git_is_delivered_again() {
+    let h = harness("deliver-plain", &[("lead", false), ("m1", true)], json!({ "T1": ["ok"] }));
+    std::fs::remove_dir_all(h.repo.join(".git")).unwrap();
+    let run = delivered(&h).await;
+    act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "补一份说明 [write extra.md]" }));
+    wait_until(&h.app, &run, "a second delivery", |e| e.iter().filter(|x| x.kind == "run.delivered").count() == 2)
+        .await;
+    let second = events(&h.app, &run).into_iter().filter(|e| e.kind == "run.delivered").nth(1).unwrap().data.unwrap();
+    assert_eq!(second["leadEdits"], json!(["extra.md"]), "{second}");
+    assert_eq!(second["changed"], json!(["extra.md"]), "{second}");
+    assert_eq!(second["merge"]["state"], "inPlace", "{second}");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Interrupting the lead after a delivery hands it to the person, in a reopened conversation as in
+/// the first session: what the cut-off turn changed is not delivered (and merged) until the person
+/// says the turn's work stands as it is.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_interrupted_turn_after_delivery_waits_for_the_person() {
+    let h = harness("deliver-held", &[("lead", false), ("m1", true)], json!({ "T1": ["ok"], "unknown": ["slow"] }));
+    let run = delivered(&h).await;
+    // The lead's agent exits: the next message reopens the run as a conversation.
+    let conn = h.app.run(&run).unwrap().st.lock().unwrap().conns.get(&SessionKey::Lead).cloned().unwrap();
+    conn.kill().await;
+    for _ in 0..100 {
+        if h.app.run(&run).is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let body = json!({ "type": "message", "agent": "lead", "text": "再检查一遍" });
+    assert!(matches!(h.app.request_action(&run, &body).await, Ok(ActionReply::Done)));
+    wait_until(&h.app, &run, "the slow turn", |e| {
+        e.iter().any(|x| x.kind == "session.prompt" && x.data.as_ref().is_some_and(|d| d["prompt"] == "再检查一遍"))
+    })
+    .await;
+    let cwd = h.app.run(&run).unwrap().cwd.clone();
+    std::fs::write(cwd.join("half.md"), "half\n").unwrap();
+    act(&h, &run, json!({ "type": "interrupt", "agent": "lead" }));
+    wait_until(&h.app, &run, "the person holds the lead", |e| {
+        e.iter().any(|x| x.kind == "agent.status" && x.text.contains("人工接管中"))
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(deliveries(&h, &run), 1, "nothing half done is delivered while the person holds it");
+    assert!(!h.repo.join("half.md").exists());
+    act(&h, &run, json!({ "type": "finish", "agent": "lead" }));
+    wait_until(&h.app, &run, "delivered as it is", |e| e.iter().filter(|x| x.kind == "run.delivered").count() == 2)
+        .await;
+    assert!(h.repo.join("half.md").exists(), "the person let the turn's work stand");
+    let _ = std::fs::remove_dir_all(&h.dir);
 }

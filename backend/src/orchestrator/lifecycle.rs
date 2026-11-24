@@ -363,11 +363,16 @@ impl App {
         );
     }
 
-    /// The lead's goal ended and nothing can still run: hand over its summary, with every task's
-    /// evidence, acceptance record, independent verification, trace gaps and risks, and unfinished
-    /// tasks listed as risks.
+    /// The lead's goal ended and nothing can still run: hand over its report, with this round's
+    /// tasks (their evidence, acceptance record, independent verification, trace gaps and risks),
+    /// the files the round changed and the lead's own edits, and unfinished tasks listed as risks.
+    /// A round is what happened since the last delivery: the person reviews only that.
     // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
+    // @project-doc docs/domains/20261031-goal_mode.md#delivery_in_goal_mode
     pub(super) fn deliver(&self, run: &Run) {
+        let since = self.last_delivery_seq(&run.id);
+        // Listed before the merge below takes them onto the branch.
+        let unmerged = run.worktree.as_ref().map(|w| self.unmerged_files(&run.id, w, &run.base_ref));
         // A run in a worktree brings its result to its branch now; what stops that in the
         // worktree goes to the lead, once, and the rest to the person.
         let merge = run.worktree.as_ref().map(|w| {
@@ -384,11 +389,12 @@ impl App {
                 self.emit(run, ev("run.merged", "janus", text.clone()).data(data.clone()));
             }
             let note = self.delivery_note(&run.id, w, &merge, again);
+            let state = merge.state(again);
             let hand_back = match merge {
                 DeliveryMerge::HandBack(prompt) if !again => Some(prompt),
                 _ => None,
             };
-            (note, hand_back)
+            (json!({ "state": state, "note": note }), hand_back)
         });
         let result = {
             // Where a finished task's result disagreed with the workspace, from its own event.
@@ -406,14 +412,18 @@ impl App {
                     .filter_map(|g| g.as_str().map(str::to_owned))
                     .collect()
             };
+            // This round's tasks: every one that worked since the last delivery, new or sent back.
+            let round: HashSet<&str> =
+                events.iter().filter(|e| e.seq > since).filter_map(|e| e.task.as_deref()).collect();
             let st = run.st.lock().unwrap();
-            // Everything the run changed comes first: with a lead that did the work itself, it is
-            // the only diff there is.
+            let tasks: Vec<&Task> = st.tasks.iter().filter(|t| round.contains(t.def.id.as_str())).collect();
+            // Everything the round changed comes first: with a lead that did the work itself, it
+            // is the only diff there is.
             let mut deliverables: Vec<Value> = st.run_diff.iter().map(|(_, a)| a.clone()).collect();
             let mut evidence = vec![];
             let mut risks = vec![];
             let mut acceptance = vec![];
-            for t in &st.tasks {
+            for t in &tasks {
                 let unfinished = match t.status() {
                     TaskStatus::Pending | TaskStatus::Running => Some("没有执行"),
                     TaskStatus::Blocked => Some("依赖失败，没有执行"),
@@ -435,7 +445,6 @@ impl App {
                 for e in &r.evidence {
                     evidence.push(json!({ "text": format!("{}：{}", t.def.id, e), "seq": t.last_success_seq }));
                 }
-                risks.extend(r.risks.iter().map(|x| format!("{}：{}", t.def.id, x)));
                 // Who checked this task independently, and how that went. Completing a review
                 // (`Succeeded`) and confirming the work (`Verdict::Approved`) are distinct: a
                 // verifier that rejects the work has `passed == false`. Every verifier that did not
@@ -471,13 +480,14 @@ impl App {
                 let gaps = if t.trace_gaps.is_empty() { trace_gaps(&t.def.id) } else { t.trace_gaps.clone() };
                 // A finished task that changed files and that no verification checks: the lead may
                 // have checked it itself, which its summary has to say.
-                // @project-doc docs/domains/20261031-goal_mode.md#delivery_in_goal_mode
                 let changed =
                     !st.traces.files(&t.def.id).is_empty() || t.artifacts.iter().any(|a| a["kind"] == "git_diff");
                 let unverified = t.def.verifies.is_none()
                     && t.status() == TaskStatus::Succeeded
                     && changed
                     && verifications.is_empty();
+                // The task's own risks stay with its record: the delivery's `risks` are what Janus
+                // found, so the two are never the same list twice.
                 acceptance.push(TaskAcceptance {
                     task: t.def.id.clone(),
                     title: t.def.title.clone(),
@@ -488,16 +498,12 @@ impl App {
                     verifications,
                     unverified,
                     trace_gaps: gaps,
-                    risks: r.risks.clone(),
+                    risks: r.risks,
                 });
             }
-            let lead_edits = st.traces.lead_after_plan();
-            if !lead_edits.is_empty() {
-                risks.push(format!(
-                    "负责人在派出子任务后自己改了文件：{}。这些改动没有经过子任务的验收和独立验证",
-                    lead_edits.iter().cloned().collect::<Vec<_>>().join("、")
-                ));
-            }
+            // What the lead changed itself this round: no subtask's acceptance or independent
+            // verification covers it, so its report has to say how it checked it.
+            let lead_edits = st.traces.lead_edited_since(since);
             let lead_tools = st.traces.lead_tools_after_plan();
             if !lead_tools.is_empty() {
                 risks.push(format!(
@@ -505,27 +511,43 @@ impl App {
                     lead_tools.iter().cloned().collect::<Vec<_>>().join("、")
                 ));
             }
-            if let Some(last) = st.tasks.last()
+            if let Some(last) = tasks.last()
                 && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report")
             {
                 deliverables.push(report.clone());
             }
+            // Without Git, the files come from the edits the lead and the round's tasks reported.
+            let changed: Vec<String> = unmerged.unwrap_or_else(|| {
+                let mut files: std::collections::BTreeSet<String> = lead_edits.iter().cloned().collect();
+                for t in &tasks {
+                    files.extend(st.traces.files(&t.def.id));
+                }
+                files.into_iter().collect()
+            });
             // The lead reports how the goal went, in its last message.
-            let (text, suggestions) = match &st.lead.goal {
-                LeadGoal::Done(text) => split_brief_suggestions(text),
-                _ => (String::new(), vec![]),
+            let report = match &st.lead.goal {
+                LeadGoal::Done(text) => LeadReport::of(text),
+                _ => LeadReport::default(),
+            };
+            let merge = match &merge {
+                Some((merge, _)) => merge.clone(),
+                None => {
+                    json!({ "state": "inPlace", "note": format!("改动直接在工作目录 {} 中，Janus 没有提交。", run.cwd.display()) })
+                }
             };
             json!({
-                "summary": match &merge {
-                    Some((note, _)) => format!("{} {note}", lead_summary(&text)),
-                    None => format!("{} 改动直接在工作目录 {} 中，Janus 没有提交。", lead_summary(&text), run.cwd.display()),
-                },
-                "briefSuggestions": suggestions,
+                "headline": report.headline,
+                "summary": report.summary,
+                "decisions": report.decisions,
+                "briefSuggestions": report.brief,
                 "deliverables": deliverables,
                 "evidence": evidence,
                 "acceptance": acceptance,
                 "usage": usage,
                 "risks": risks,
+                "changed": changed,
+                "leadEdits": lead_edits,
+                "merge": merge,
             })
         };
         self.emit(run, ev("run.delivered", "janus", "负责人完成了目标，交付结果已准备好").data(result));

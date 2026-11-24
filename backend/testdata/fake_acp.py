@@ -27,8 +27,8 @@ exists and ends with the text of that file.
 With a `mute` file in FAKE_DIR it never answers `initialize`, like an agent that hangs at startup.
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
-A prompt that is not a task's and names "[write <file>]" appends to that file in the session's directory and ends
-the turn (a lead asked for more work after delivery); with "[commit]" in it too, the agent commits everything there first.
+A prompt that is not a task's and names "[write <file>]" appends to that file in the session's directory, reports the
+edit as a tool call and ends the turn (a lead asked for more work after delivery); with "[commit]" in it too, the agent commits everything there first.
 A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
 prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
 A workspace Loop's session (its system layer names "a Loop in the workspace") logs "loop wake <n>" for each wake
@@ -267,6 +267,10 @@ def prompt(msg):
         # A follow-up asking for a file: written in the session's directory, the turn ends.
         with open(w.group(1), "a") as f:
             f.write("follow-up\n")
+        # Reported like any edit, so Janus knows of it without Git too.
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "tool_call", "toolCallId": f"follow-up-{w.group(1)}", "title": f"Edit {w.group(1)}", "kind": "edit",
+            "status": "completed", "locations": [{"path": os.path.join(os.getcwd(), w.group(1))}], "rawInput": {"file_path": w.group(1)}}}})
         if "[commit]" in text:
             # Asked to commit: the agent commits in its own checkout (a worktree's detached HEAD).
             import subprocess

@@ -233,7 +233,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 | 没有可执行任务，且负责人会话异常结束 | Run 失败（`run.failed`），可以从中断处继续 |
 | 没有可执行任务，且负责人目标已结束 | 交付（`run.delivered`），摘要取负责人最后一条回复；worktree 中的 Run 同时合并回源分支，见[工作目录](#workspace_model) |
 | 交付后的对话里，负责人通过看板提交了新任务 | 回到运行，任务完成后再次交付；应用在新任务开始时就不再提供上一次交付的验收 |
-| 已交付或已验收的 worktree Run，对话中的一轮改了文件或做了提交（`worktrees::moved_on`：有未提交的改动，或 `HEAD` 不再是上次合并带到的提交或任务开始的提交） | 再次交付，交付时把新改动合并回源分支，等用户再验收；只是问问结果、没有改文件的一轮不再次交付。上一次交付没能合并（用户那边挡住、仍然冲突）时，之后每一轮结束都会再次交付、再试一次 |
+| 已交付或已验收的 Run，对话中的一轮改了文件：worktree 中的 Run 有未提交的改动或做了提交（`worktrees::moved_on`：`HEAD` 不再是上次合并带到的提交或任务开始的提交），不是 Git 目录的 Run 负责人在上一次交付之后有编辑工具调用（`Traces::lead_edited_since`） | 再次交付，审的是这一轮；worktree 中的 Run 交付时把新改动合并回源分支，等用户再验收。只是问问结果、没有改文件的一轮不再次交付，这一轮结束时记一条 `agent.status`（`turn` 为 `idle`，「这一轮已结束，等待你的消息」），应用据此知道交付仍然有效。上一次交付没能合并（用户那边挡住、仍然冲突）时，之后每一轮结束都会再次交付、再试一次 |
 | 交付或验收时变基冲突，或 worktree 里有没做完的操作，Janus 交给了负责人 | 处理这条消息的一轮结束时再次交付（`LeadState.redeliver`），交付时合并 |
 | 用户暂停，且没有任务在执行 | 暂停 |
 | 其他 | 继续运行 |
@@ -245,6 +245,8 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 交付后负责人的会话不结束，而是保留为常规对话：用户可以直接写下一轮任务，或用 `/goal` 设置新的目标。负责人空闲等消息时不接收看板推送，协作者的提问转给用户；处理一条消息的这一轮里，看板推送和提问照第一个目标处理（见[提问的流转](20261031-goal_mode.md#question_routing)）。它在对话中通过看板提交的新任务会重新启动调度循环，完成后再次交付。
 
 验收要等交付真的定下来：负责人正在处理用户在交付后交代的一轮，或还有等用户回答的请求时，`accept` 返回错误，说明先等它结束或先回答。
+
+交付之后用户打断负责人这一轮（`interrupt`），负责人转为人工接管，等用户决定：目标的原会话和重新打开的对话都一样，这一轮改了一半的东西在用户交还（`release`，负责人接着做）或以当前结果完成（`finish`，按现在的样子交付）之前不会交付，所以也不会合并进用户的分支。
 
 服务重启或会话退出后（负责人的 Agent 进程退出时，这个 Run 在没有调度在跑后离开内存），第一次给负责人发消息会重新打开会话：能 `session/load` 就恢复原会话（系统层和原来相同，不再注入，见[恢复会话时的系统层](../interfaces/20261031-acp_integration.md#reload_system_layer)），否则新建会话，并带上目标、交付摘要和最近的对话（不含这条还没送到的消息，它作为第一条提示发出）。已验收的 Run 也按同样方式恢复，继续工作或再次交付时重新打开。
 
@@ -262,7 +264,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 | `failed` | Run 失败，例如负责人会话异常结束 |
 | `interrupted` | 编排器重启时 Run 还未结束 |
 
-状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning` 和 `running` 可以暂停和继续；只有 `delivered` 可以验收；已验收、已取消的 Run 不能再停止；已验收的 Run 在会话里继续工作或再次交付时重新打开；取消直接由 `status == RunStatus::Cancelled` 表示，不另存布尔标记。
+状态是 `RunStatus`（`backend/src/status.rs`），合法转移集中在 `RunStatus::can_transition_to`。`paused` 不是独立状态：暂停时状态保持 `running`，只有 `planning` 和 `running` 可以暂停和继续；只有 `delivered` 可以验收；交付过的（包括之后又回到运行中的）、已验收、已取消的 Run 不能再停止；已验收的 Run 在会话里继续工作或再次交付时重新打开；取消直接由 `status == RunStatus::Cancelled` 表示，不另存布尔标记。
 
 
 <a id="user_actions"></a>
@@ -272,7 +274,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 - **回答与审批**：`answer`、`approve`、`input`。
 - **介入会话**：`message`、`interrupt`、`takeover`、`release`、`finish`。会话正在运行时，消息通过 ACP 实时插入（支持 `_session/steering` 时，见[插话](../interfaces/20261031-acp_integration.md#steering)）或排队到这一轮结束；会话已结束时，消息保留到这个 Agent 下一次开始工作。每条消息发出时立即记录，之后再记录它的去向和送达时刻，见[消息的流转](../interfaces/20261031-events.md#message_flow)。
-- **控制 Run**：`pause`、`resume`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。
+- **控制 Run**：`pause`、`resume`、`cancel`（界面上叫「停止」）、`accept`、`resumeRun`。交付过一次之后 `cancel` 返回错误：结果已经在用户的分支或目录里，停止只会关掉负责人的对话、把 Run 记为已取消，撤不回结果；要停下负责人这一轮用 `interrupt`，不想要这个结果就让负责人回退（新的一轮）。
 - **删除 Run**：应用里删除一个已结束的 Run（`DELETE /api/runs/{id}`，见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)）。删除会移除它的事件、派生索引，以及 `~/.janus` 下的产物、日志、附件和成员资源包，不可恢复；工作目录中的文件不动。`planning`、`running` 的 Run 不能删除，要先停止；排队中的 Run 可以删除，先离开队列（记 `run.cancelled`），不会在删除期间开始。删除不是取消，也不影响其他 Run。
 
 取消 Run（`run.cancelled`）和取消任务（`task.skipped_by_decision`）在用量账本里的范围不同：前者把取消时刻仍在跑的所有尝试记「已取消」，备注「任务被取消」；后者只影响那个任务的尝试，备注「负责人取消了这个子任务」，同一个 Run 里其他任务的尝试保持「未完成」。两者都不改动取消前已经结束的尝试（失败、验证没通过、过期保持原状态），已经上报的用量照常计入。Janus 不为这两类取消写尝试级事件，杀连接后可能还有一条失败事件，也不算真的失败。见[用量口径](../interfaces/20261031-events.md#usage_accounting)。

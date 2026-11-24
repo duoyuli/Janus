@@ -591,12 +591,7 @@ impl App {
                 let run = d["run"].as_str()?.to_string();
                 let status = RunStatus::parse(d["status"].as_str()?)?;
                 let outcome = match status {
-                    RunStatus::Delivered => self
-                        .db
-                        .latest_event(&run, "run.delivered")
-                        .ok()
-                        .flatten()
-                        .and_then(|e| e.data?["summary"].as_str().map(str::to_owned)),
+                    RunStatus::Delivered => self.last_delivery_text(&run),
                     RunStatus::Failed => self.db.latest_event(&run, "run.failed").ok().flatten().map(|e| e.text),
                     _ => None,
                 };
@@ -985,13 +980,7 @@ impl App {
                     r["dispatchKey"].as_str().unwrap_or(""),
                     r["goal"].as_str().unwrap_or("").lines().next().unwrap_or("")
                 );
-                if let Some(summary) = self
-                    .db
-                    .latest_event(id, "run.delivered")
-                    .ok()
-                    .flatten()
-                    .and_then(|e| e.data?["summary"].as_str().map(str::to_owned))
-                {
+                if let Some(summary) = self.last_delivery_text(id) {
                     line.push_str(&format!("\n  交付摘要：{}", short(&summary, 300)));
                 }
                 line

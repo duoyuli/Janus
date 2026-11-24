@@ -27,6 +27,23 @@ pub(super) enum DeliveryMerge {
     Failed(String),
 }
 
+impl DeliveryMerge {
+    /// How the delivery reached the person's branch, for the app (`run.delivered` `merge.state`):
+    /// `merged`; `nothing` new; `resolving`, a conflict the lead is resolving now; `conflict`, one
+    /// still there after it tried (`again`), which the person hands back to it by accepting;
+    /// `blocked`, the person's side in the way.
+    // @project-doc docs/interfaces/20261031-events.md#event_types
+    pub(super) fn state(&self, again: bool) -> &'static str {
+        match self {
+            DeliveryMerge::Merged { .. } => "merged",
+            DeliveryMerge::Nothing => "nothing",
+            DeliveryMerge::HandBack(_) if again => "conflict",
+            DeliveryMerge::HandBack(_) => "resolving",
+            DeliveryMerge::Failed(_) => "blocked",
+        }
+    }
+}
+
 impl App {
     /// Bring the result of the run in worktree `w` back to its source, committing what is not
     /// committed yet as `message`; with `remove` the worktree goes afterwards.
@@ -153,9 +170,28 @@ impl App {
     /// last merge-back, and past the commits of the branch the worktree took in
     /// (`crate::worktrees::fork_point`). Outside a worktree, the run's start.
     pub(super) fn run_changes_from(&self, run: &Run) -> String {
-        let Some(w) = &run.worktree else { return run.base_ref.clone() };
-        let since = self.last_merged(&run.id).ok().flatten().unwrap_or_else(|| run.base_ref.clone());
-        crate::worktrees::fork_point(&self.worktree_root(&run.id), w.branch.as_deref(), &since)
+        match &run.worktree {
+            Some(w) => self.changes_from(&run.id, w, &run.base_ref),
+            None => run.base_ref.clone(),
+        }
+    }
+
+    fn changes_from(&self, run_id: &str, w: &WorktreeOf, base_ref: &str) -> String {
+        let since = self.last_merged(run_id).ok().flatten().unwrap_or_else(|| base_ref.to_string());
+        crate::worktrees::fork_point(&self.worktree_root(run_id), w.branch.as_deref(), &since)
+    }
+
+    /// The files the run in worktree `w` changed that are not back on its source yet, committed or
+    /// not: what the next delivery brings, listed with it as this round's changes.
+    pub(super) fn unmerged_files(&self, run_id: &str, w: &WorktreeOf, base_ref: &str) -> Vec<String> {
+        let dir = self.worktree_root(run_id);
+        let from = self.changes_from(run_id, w, base_ref);
+        crate::traces::changed_files(
+            &super::attempts::git_out(&dir, &["diff-index", "--name-only", &from]),
+            &super::attempts::git_out(&dir, &["ls-files", "--others", "--exclude-standard"]),
+        )
+        .into_iter()
+        .collect()
     }
 
     /// After a restart: the lead's conversation worked on files after the run was accepted and was
@@ -167,20 +203,38 @@ impl App {
         let row = self.db.run(run_id)?.context("run not found")?;
         let w = WorktreeOf::of_config(&row["config"]).context("the run has no worktree")?;
         let base_ref = row["config"]["baseRef"].as_str().unwrap_or_default();
+        let changed = self.unmerged_files(run_id, &w, base_ref);
         let merge = self.merge_at_delivery(run_id, &w, base_ref, row["goal"].as_str().unwrap_or(""));
         if let DeliveryMerge::Merged { text, data } = &merge {
             self.record(run_id, ev("run.merged", "janus", text.clone()).data(data.clone()))?;
         }
-        let note = match &merge {
+        let (state, note) = match &merge {
             // The lead is not there to resolve it now: accepting hands it over.
-            DeliveryMerge::HandBack(_) => format!(
-                "合并到 {} 时和分支上的新提交冲突，你的目录和分支都没有动：点验收，负责人会在任务的副本里解决。",
-                w.source()
+            DeliveryMerge::HandBack(_) => (
+                "conflict",
+                format!(
+                    "合并到 {} 时和分支上的新提交冲突，你的目录和分支都没有动：让负责人解决，它会在任务的副本里处理。",
+                    w.source()
+                ),
             ),
-            merge => self.delivery_note(run_id, &w, merge, false),
+            merge => (merge.state(false), self.delivery_note(run_id, &w, merge, false)),
         };
-        let mut data = self.db.latest_event(run_id, "run.delivered")?.and_then(|e| e.data).unwrap_or_else(|| json!({}));
-        data["summary"] = json!(format!("验收之后负责人又做了改动，服务重启时这一轮还没结束。{note}"));
+        // This round is the lead's unfinished turn alone: no subtasks, no report of its own.
+        let headline = "验收之后负责人又做了改动，服务重启时这一轮还没结束。";
+        let data = json!({
+            "headline": headline,
+            "summary": headline,
+            "decisions": [],
+            "briefSuggestions": [],
+            "deliverables": [],
+            "evidence": [],
+            "acceptance": [],
+            "risks": [],
+            "changed": changed,
+            "leadEdits": [],
+            "merge": { "state": state, "note": note },
+            "usage": crate::usage::ledger(&self.db.events(run_id, 0)?).delivery_line(),
+        });
         self.record(run_id, ev("run.delivered", "janus", "验收之后负责人又做了改动，重启后再次交付").data(data))?;
         self.set_stored_status(run_id, RunStatus::Delivered)
     }

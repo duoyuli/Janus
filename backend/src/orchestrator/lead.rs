@@ -95,13 +95,7 @@ impl App {
                 return;
             }
             let done = match outcome {
-                // The lead's last message is its report; earlier ones narrated the work.
-                Ok(text) => LeadGoal::Done(
-                    last_reply(&app.db.events(&r.id, 0).unwrap_or_default())
-                        // A lead that confirmed its goal to Janus starts with the marker; the summary does not.
-                        .map(|t| crate::goal_settle::confirmed(&t).filter(|s| !s.is_empty()).unwrap_or(t))
-                        .unwrap_or(text),
-                ),
+                Ok(text) => LeadGoal::Done(app.lead_report(&r, &text)),
                 Err(err) if err.downcast_ref::<Cancelled>().is_some() => return,
                 Err(err) => {
                     app.emit(
@@ -148,9 +142,22 @@ impl App {
     /// leave the delivery as it was.
     // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
     fn changed_since_delivery(&self, run: &Run) -> bool {
-        run.worktree.is_some()
-            && matches!(run.st.lock().unwrap().status, RunStatus::Delivered | RunStatus::Accepted)
-            && self.moved_on_since_merge(&run.id, &run.base_ref)
+        if !matches!(run.st.lock().unwrap().status, RunStatus::Delivered | RunStatus::Accepted) {
+            return false;
+        }
+        match &run.worktree {
+            Some(_) => self.moved_on_since_merge(&run.id, &run.base_ref),
+            // No Git to ask: the lead's own edits since the delivery, from its tool calls.
+            None => {
+                let since = self.last_delivery_seq(&run.id);
+                !run.st.lock().unwrap().traces.lead_edited_since(since).is_empty()
+            }
+        }
+    }
+
+    /// The seq of the run's last delivery; 0 before the first one.
+    pub(super) fn last_delivery_seq(&self, run_id: &str) -> i64 {
+        self.db.latest_event(run_id, "run.delivered").ok().flatten().map_or(0, |e| e.seq)
     }
 
     /// A turn that is not a new goal delivers the run again when it worked on files after a
@@ -384,8 +391,9 @@ impl App {
                 }
                 if ctl.held_by_person() {
                     let session = PromptSession { conn: &conn, rx: &mut rx, sid: &sid };
-                    let resume = format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal);
-                    if let Some(next) = self.wait_for_person(run, &session, &mut ctl, &ctx, &resume).await? {
+                    if let Some(next) =
+                        self.wait_for_person(run, &session, &mut ctl, &ctx, &resume_after_hold(run, delivered)).await?
+                    {
                         prompt = next;
                         continue;
                     }
@@ -395,11 +403,12 @@ impl App {
                     // the person may write the next task or set a new goal with a slash command.
                     delivered = true;
                     run.watch.lock().unwrap().remove(&owner.session);
+                    let report = self.lead_report(run, &text);
                     {
                         let mut st = run.st.lock().unwrap();
                         // A goal that was ended by hand must not make the next chat turn follow it.
                         st.lead.goal_active = false;
-                        st.lead.goal = LeadGoal::Done(text.clone());
+                        st.lead.goal = LeadGoal::Done(report);
                     }
                     run.lead_nudge.notify_one();
                     run.wake.notify_one();
@@ -408,14 +417,8 @@ impl App {
                         ev("agent.status", "lead", "目标已完成，可以继续对话或设置新的目标")
                             .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
                     );
-                } else if self.delivers_again(run) || goal_turn {
-                    // A new goal in the conversation is a new result, and so is work on files after
-                    // a delivery or a conflict resolved for one: deliver it like the first one.
-                    run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
-                    run.wake.notify_one();
-                    if !run.driving.active() {
-                        self.deliver(run);
-                    }
+                } else {
+                    self.turn_after_delivery(run, &text, goal_turn);
                 }
                 ctl.next_turn(run);
                 self.lead_goes_idle(run);
@@ -632,21 +635,22 @@ impl App {
                     next = self.take_queued(run, &mut ctl, &ctx, |n| format!("这一轮结束，把 {n} 条消息发给负责人"));
                     continue;
                 }
+                // Interrupted: the person holds the lead, and decides whether it goes on or the
+                // turn's work stands as it is. Nothing is delivered (and so merged) before that.
+                if !chat && ctl.held_by_person() {
+                    let session = PromptSession { conn: &conn, rx: &mut rx, sid: &sid };
+                    if let Some(text) =
+                        self.wait_for_person(run, &session, &mut ctl, &ctx, &resume_after_hold(run, true)).await?
+                    {
+                        next = text;
+                        continue;
+                    }
+                }
                 if chat {
                     // Nothing to deliver: the reply is the result. The session waits for the next message.
-                    self.emit(
-                        run,
-                        ev("agent.status", "lead", "这一轮已结束，等待你的消息")
-                            .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
-                    );
-                } else if self.delivers_again(run) || goal_turn {
-                    // A new goal is a new result, and so is work on files after a delivery or a
-                    // conflict resolved for one.
-                    run.st.lock().unwrap().lead.goal = LeadGoal::Done(text.clone());
-                    run.wake.notify_one();
-                    if !run.driving.active() {
-                        self.deliver(run);
-                    }
+                    self.lead_turn_idle(run);
+                } else {
+                    self.turn_after_delivery(run, &text, goal_turn);
                 }
                 ctl.next_turn(run);
                 self.lead_goes_idle(run);
@@ -949,6 +953,12 @@ Acceptance criteria (the subtask's accept field):
 - If the assignee reports an unmet criterion or omits one, Janus gives it one chance to address the gap in the original session. If it still falls short, use janus.accept when the result is acceptable, janus.retry when the work or criteria need revision, or janus.cancel when the subtask is no longer needed.
 - The assignee's evidence is its report. Before you finish, make sure every subtask that changed files was checked: by an independent verification you arranged, or by your own checks (inspecting code, running tests, observing behavior). The delivery marks each subtask that changed files without an independent verification; for each of them, your final summary must say how you checked it, what you ran or read and what you saw.
 
+Final reply (the user reviews the delivery from it):
+- Begin with the heading '## {headline}' and one or two sentences: whether the goal is achieved, and the result that matters most.
+- If the user has to decide something about the result, add the heading '## {decisions}' and list at most three questions they can answer, one per line. Include the collaborators' risks the user must act on; leave the rest in their reports. Omit the heading when there is nothing to decide.
+- Then report what changed, how it was checked, and what is not done. Report results, not the steps you took.
+- When the user writes to you after a delivery and you change anything, end that turn's reply the same way: the next delivery shows only that round of work.
+
 Coordination:
 - Collaborators cannot see your conversation. Include the context, exact work, and acceptance criteria in each subtask's instructions.
 - Each collaborator instance handles one subtask at a time. Extra subtasks assigned to the same collaborator queue. Use dependencies to serialize work that will edit the same files. When simultaneous subtasks edit the same file, the board reports a conflict for you to resolve.
@@ -968,6 +978,8 @@ Shared workspace context:
             team = team_lines(run),
             brief = brief_section(&run.brief, "the current goal"),
             heading = BRIEF_HEADING,
+            headline = HEADLINE_HEADING,
+            decisions = DECISIONS_HEADING,
             teamwork = crate::teamwork::lead_guide(),
         );
         if resumed {
@@ -1040,6 +1052,54 @@ pub(super) fn goal_refused(text: &str) -> Option<String> {
     .map(|_| short(text.trim(), 200))
 }
 
+impl App {
+    /// A turn of the lead's after a delivery ended. A new goal is a new result, and so is work on
+    /// files after a delivery or a conflict resolved for one: deliver it like the first one.
+    /// Otherwise the delivery stands, and the lead waits for the next message.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
+    fn turn_after_delivery(&self, run: &Run, text: &str, goal_turn: bool) {
+        if self.delivers_again(run) || goal_turn {
+            let report = self.lead_report(run, text);
+            run.st.lock().unwrap().lead.goal = LeadGoal::Done(report);
+            run.wake.notify_one();
+            if !run.driving.active() {
+                self.deliver(run);
+            }
+        } else if !run.driving.active() {
+            self.lead_turn_idle(run);
+        }
+    }
+
+    /// The lead's turn is over and it waits for the person's next message.
+    fn lead_turn_idle(&self, run: &Run) {
+        self.emit(
+            run,
+            ev("agent.status", "lead", "这一轮已结束，等待你的消息")
+                .data(json!({ "phase": AgentPhase::WaitingForInput, "turn": "idle" })),
+        );
+    }
+
+    /// What the lead reports when a turn of it delivers: its last reply, since the earlier ones
+    /// narrated the work, without the marker a lead that confirmed its goal to Janus starts with.
+    /// The whole turn's text only when no reply was recorded.
+    // @project-doc docs/domains/20261031-goal_mode.md#delivery_in_goal_mode
+    pub(super) fn lead_report(&self, run: &Run, text: &str) -> String {
+        last_reply(&self.db.events(&run.id, 0).unwrap_or_default())
+            .map(|t| crate::goal_settle::confirmed(&t).filter(|s| !s.is_empty()).unwrap_or(t))
+            .unwrap_or_else(|| text.to_string())
+    }
+}
+
+/// What the lead hears when the person who interrupted it hands the turn back: before the goal is
+/// delivered, to go on with it; after, to go on with what the person asked.
+fn resume_after_hold(run: &Run, delivered: bool) -> String {
+    if delivered {
+        "人工介入结束。请结合上面的对话，继续处理用户的要求。".to_string()
+    } else {
+        format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal)
+    }
+}
+
 /// The lead's last reply: its trailing run of `agent.message` pieces (nothing else of the lead's
 /// between them), joined back together.
 pub(super) fn last_reply(events: &[Event]) -> Option<String> {
@@ -1060,13 +1120,14 @@ pub(super) fn last_reply(events: &[Event]) -> Option<String> {
     (!tail.is_empty()).then(|| tail.into_iter().rev().collect::<String>().trim().to_string())
 }
 
-/// The lead's last message as the run's summary, without a trailing JSON block if it left one.
+/// The lead's last message without a trailing JSON block if it left one. Kept whole: the app folds
+/// a long one, and the conclusion the person reads first is its own section (`LeadReport`).
 pub(super) fn lead_summary(text: &str) -> String {
     let text = match text.rfind("```json") {
         Some(i) => &text[..i],
         None => text,
     };
-    short(text.trim(), 2000)
+    text.trim().to_string()
 }
 
 /// The workspace's shared material as a section of a prompt; nothing when the workspace has none.
@@ -1079,22 +1140,46 @@ pub(super) fn brief_section(brief: &str, wins: &str) -> String {
     format!("\n\nShared workspace context (maintained by the user). In a conflict, follow {wins}.\n{}\n", brief.trim())
 }
 
-/// Splits the lead's last message into its summary and the lines it suggests adding to the
-/// workspace's shared material: the list under a `BRIEF_HEADING` heading, up to the next heading.
-// @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
-pub(super) fn split_brief_suggestions(text: &str) -> (String, Vec<String>) {
+/// The lead's last message taken apart: the sections it ends with by the lead's brief
+/// (`goal_brief`), each under its own heading, and the rest.
+// @project-doc docs/domains/20261031-goal_mode.md#delivery_in_goal_mode
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct LeadReport {
+    /// The message without the sections below.
+    pub summary: String,
+    /// The conclusion in a sentence or two (`HEADLINE_HEADING`); empty when the lead left none.
+    pub headline: String,
+    /// Questions only the person can answer (`DECISIONS_HEADING`).
+    pub decisions: Vec<String>,
+    /// Lines to add to the workspace's shared material (`BRIEF_HEADING`).
+    pub brief: Vec<String>,
+}
+
+impl LeadReport {
+    pub(super) fn of(text: &str) -> LeadReport {
+        let (rest, headline) = take_section(text, &[HEADLINE_HEADING, "结论"]);
+        let (rest, decisions) = take_section(&rest, &[DECISIONS_HEADING, "需要你决定"]);
+        let (rest, brief) = take_section(&rest, &[BRIEF_HEADING, "建议更新共享资料"]);
+        LeadReport { summary: lead_summary(&rest), headline: headline.join("\n"), decisions, brief }
+    }
+}
+
+/// The first section of `text` under a heading spelled one of `names` (any level, bold or not, a
+/// trailing colon or not), up to the next heading: its lines without list markers, and `text`
+/// without it. No such heading leaves `text` as it is.
+pub(super) fn take_section(text: &str, names: &[&str]) -> (String, Vec<String>) {
     let lines: Vec<&str> = text.lines().collect();
     let is_heading = |l: &str| {
         let t = l.trim().trim_start_matches('#').replace("**", "");
         let heading = t.trim().trim_end_matches(['：', ':']).trim();
-        heading.eq_ignore_ascii_case(BRIEF_HEADING) || heading == "建议更新共享资料"
+        names.iter().any(|n| heading.eq_ignore_ascii_case(n))
     };
     let Some(start) = lines.iter().position(|l| is_heading(l)) else {
         return (text.to_string(), vec![]);
     };
     let end =
         lines[start + 1..].iter().position(|l| l.trim_start().starts_with('#')).map_or(lines.len(), |i| start + 1 + i);
-    let suggestions = lines[start + 1..end]
+    let items = lines[start + 1..end]
         .iter()
         .map(|l| {
             let t = l.trim();
@@ -1108,7 +1193,7 @@ pub(super) fn split_brief_suggestions(text: &str) -> (String, Vec<String>) {
         .filter(|l| !l.is_empty())
         .collect();
     let rest = [&lines[..start], &lines[end..]].concat().join("\n");
-    (rest, suggestions)
+    (rest.trim().to_string(), items)
 }
 
 /// The ACP session id of the lead's last session, from the event log.
@@ -1146,14 +1231,39 @@ pub(super) fn recorded_system(events: &[Event], sid: &str) -> Option<String> {
     Some(system_layer(&texts))
 }
 
-/// The summary of the last delivery in the event log.
+/// The last delivery in the event log as one text (`delivery_text`).
 pub(super) fn delivery_summary(events: &[Event]) -> String {
     events
         .iter()
         .rev()
         .find(|e| e.kind == "run.delivered")
-        .and_then(|e| e.data.as_ref()?.get("summary")?.as_str().map(str::to_owned))
+        .and_then(|e| e.data.as_ref())
+        .map(delivery_text)
         .unwrap_or_default()
+}
+
+/// A delivery (`run.delivered` `data`) as one text for an agent that reads it later (the lead
+/// reopened, a Loop, the team memory's consolidation): the conclusion, the report and where the
+/// result is.
+pub(super) fn delivery_text(d: &Value) -> String {
+    let mut parts: Vec<&str> = vec![];
+    for key in ["headline", "summary"] {
+        let t = d[key].as_str().unwrap_or("").trim();
+        if !t.is_empty() && !parts.contains(&t) {
+            parts.push(t);
+        }
+    }
+    if let Some(note) = d["merge"]["note"].as_str().filter(|n| !n.trim().is_empty()) {
+        parts.push(note.trim());
+    }
+    parts.join("\n\n")
+}
+
+impl App {
+    /// The run's last delivery as one text (`delivery_text`); nothing before it was delivered.
+    pub(super) fn last_delivery_text(&self, run_id: &str) -> Option<String> {
+        self.db.latest_event(run_id, "run.delivered").ok().flatten().and_then(|e| e.data).map(|d| delivery_text(&d))
+    }
 }
 
 /// Context for a conversation in a new lead session: the goal, the delivery, and the last things
