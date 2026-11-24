@@ -1,20 +1,35 @@
 <div align="center">
 
-# Janus (Joint Adversarial Network for Unified Software)
+<img src="docs/assets/icon.png" width="112" alt="The Janus app icon: a gate with two faces">
 
-*Creation challenged, Perfection forged.*
+# Janus
 
+**Creation challenged, Perfection forged.**
+
+<sub>Joint Adversarial Network for Unified Software</sub><br>
 <sub>Local-first · Multi-agent · Replayable</sub>
 
+[![Release](https://img.shields.io/github/v/release/duoyuli/Janus?label=release&color=b5553a)](https://github.com/duoyuli/Janus/releases/latest)
+[![CI](https://github.com/duoyuli/Janus/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/duoyuli/Janus/actions/workflows/ci.yml)
+![macOS 15 or later on Apple silicon](https://img.shields.io/badge/macOS%2015%2B-Apple%20silicon-555)
+
 [English](README.md) · [中文](README.zh-CN.md)
+
+**[Download](https://github.com/duoyuli/Janus/releases/latest)** · [Quick start](#quick-start) · [Documentation](docs/index.md) · [Changelog](CHANGELOG.md)
 
 </div>
 
 > A gate has two faces. One looks forward, to what can be built. The other looks back, at what must hold.
 
-Janus is the Roman god of gates, with one face turned toward what is being created and one toward what has been done. The name, Joint Adversarial Network for Unified Software, is also how Janus works: what one agent creates, another examines, and only what holds up is delivered.
+Janus turns your coding agents into a team that works on your Mac. You give a goal to a lead agent. It does the work itself or splits it among digital employees, checks what comes back, and delivers. Only the decisions that are yours to make reach you, and every session, subtask, approval and delivery is recorded as an event you can replay.
 
-Janus turns your coding agents into a team that runs on your Mac. You give a goal to a lead agent. It does the work itself or splits it among digital employees, checks what comes back, and delivers. You only step in for the decisions that are yours to make. Every session, subtask, approval and delivery is recorded as an event you can replay.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/inbox-en-dark.png">
+    <img src="docs/assets/screenshots/inbox-en-light.png" width="880" alt="The Janus inbox with four items from three workspaces: two deliveries waiting for review, a command an agent asks to run, and a question from the lead agent with two answers to choose from">
+  </picture>
+</p>
+<p align="center"><sub>The inbox: what is waiting on you, from every workspace. A delivery to accept, a command an agent wants to run, a question only you can answer.</sub></p>
 
 ## Why Janus
 
@@ -22,19 +37,81 @@ One coding agent is a tool. Run four at once and you become their manager. You c
 
 The models are good enough. What is missing is the organization around them: someone who owns the goal, a place where work and questions are visible, a rule for what reaches you, and a way to check the result before it lands. Janus is that organization.
 
+The name is the Roman god of gates, with one face turned toward what is being created and one toward what has been done. Joint Adversarial Network for Unified Software is also how Janus works: what one agent creates, another examines, and only what holds up is delivered.
+
 ## How it works
 
-- **A lead agent that coordinates.** The lead agent drives your goal with `/goal`. If the goal is small, it does the work in its own session. Otherwise it submits subtasks, with an assignee, dependencies and acceptance criteria for each. Once it has delegated, it only coordinates: it sends work back, reassigns it, or checks the results, and never takes the work over. Collaborator agents do not message each other; everything goes through the lead agent and the shared board.
-- **You decide only what is yours.** The lead agent settles technical choices and trade-offs itself. Approvals, decisions the lead agent hands to you, and deliveries waiting for acceptance reach your inbox, from every workspace. You can step into any agent's session at any time to steer it or take over.
-- **Your machine stays yours.** Janus never writes your own agent configuration. On a Git repository, each run works in its own worktree, started from your `HEAD`, and each delivery fast-forwards the branch you were on to its result. Janus never leaves a half-done merge in your checkout or overwrites your uncommitted changes. Agents see a mirror of your home directory, so `gh`, SSH and your other tools keep working, while the paths you hide (by default, other agents' configuration and high-risk credentials) stay out of reach.
-- **Replayable by default.** Every session, orchestration step, approval, artifact and delivery is an event, so a run can be inspected and resumed instead of reconstructed from memory.
-- **Native permissions.** Each agent keeps its own permission modes. Janus adds no second switchboard. An employee with no mode set starts in Codex's Full access or Claude Code's Bypass permissions, so goals run without stopping for approvals.
+```mermaid
+flowchart LR
+    you(["You"]) -->|goal| lead["Lead agent"]
+    lead -->|"subtasks with acceptance criteria"| board[("Shared board")]
+    board --> a["Collaborator agent"]
+    board --> b["Collaborator agent"]
+    board --> v["Independent verification"]
+    a -->|"result with evidence"| lead
+    b -->|"result with evidence"| lead
+    v -->|verdict| lead
+    lead -->|delivery| inbox[["Your inbox"]]
+    lead -.->|"decisions only you can make"| inbox
+    inbox -->|"accept, or ask for changes"| lead
+```
 
-## From a run to a Loop
+1. **You give a goal** in a workspace: a local directory and a team of digital employees, one of them the lead agent. Each employee is bound to Codex or Claude Code, and one team can mix the two.
+2. **The lead agent drives the goal** with `/goal`. If the goal is small, it does the work in its own session. Otherwise it submits subtasks, with an assignee, dependencies and acceptance criteria for each, and Janus validates them before they run.
+3. **Collaborator agents do the subtasks**, each in its own session. Progress, blockers and questions go on the shared board. They do not message each other; everything goes through the lead agent. Once it has delegated, the lead agent only coordinates: it sends work back, reassigns it, or checks the results, and never takes the work over.
+4. **The lead agent delivers.** You accept the result, or ask the lead agent for changes and get a new delivery.
+
+## Highlights
+
+### Checked before it lands
+
+Every subtask carries acceptance criteria. The agent that did it answers each one with evidence and says how it knows: a test it ran, a command it ran, code it read, or reasoning alone. Janus sends back a result that leaves a criterion unanswered. The lead agent can also assign an independent verification, done by another employee who is given the diff and returns a verdict.
+
+The delivery puts the lead agent's conclusion first, then counts what was run and what was only claimed, then lists what needs your eyes. Each item says where it comes from: a question the lead agent left for you, or something Janus found itself, such as a criterion that was not met, a result that does not match the directory, a subtask that changed files without independent verification, or a file the lead agent edited on its own.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/delivery-en-dark.png">
+    <img src="docs/assets/screenshots/delivery-en-light.png" width="880" alt="A delivered run in Janus: four of four subtasks done, eight of eight criteria met, six checked by running and two by reading, and two items to look at, one from the lead agent and one from Janus">
+  </picture>
+</p>
+<p align="center"><sub>A delivery: the conclusion, how the criteria were checked, and what to look at, labeled by who raised it.</sub></p>
+
+### You decide only what is yours
+
+The lead agent settles technical choices and trade-offs itself. Approvals, decisions the lead agent hands to you, and deliveries waiting for acceptance reach your inbox, from every workspace. Choices are answered in place, what nobody is blocked on can wait until later, and anything can be ignored.
+
+You can step into any agent's session at any time to steer it or take over. The session shows the agent's plan, its thinking, each tool call and how much of its context is used.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/session-en-dark.png">
+    <img src="docs/assets/screenshots/session-en-light.png" width="880" alt="The session of a subtask in Janus: an independent verification at work, with its plan two thirds done, a test run in progress, and buttons to steer or take over">
+  </picture>
+</p>
+<p align="center"><sub>A collaborator agent at work on an independent verification. Steer it, or take over.</sub></p>
+
+### From a run to a Loop
 
 A run is one goal, from start to delivery. A Loop wakes a workspace's lead agent on a schedule you set. It looks around, answers what a sentence can answer, and dispatches what needs changing as new runs. Each run sees its goal through on its own; when it ends, the Loop wakes to look at the result. It asks you only what only you can decide, and everything it does lands in your inbox.
 
-Runs never depend on each other, and there is no time or token budget. The only limit is the machine: by default up to 8 runs work at once and up to 12 agent processes stay open. The rest wait in a queue and start as slots free up.
+Runs never depend on each other, and there is no time or token budget. Tokens, cost and context are shown for every run and subtask, never capped. The only limit is the machine: by default up to 8 runs work at once and up to 12 agent processes stay open. The rest wait in a queue and start as slots free up.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/workspace-en-dark.png">
+    <img src="docs/assets/screenshots/workspace-en-light.png" width="880" alt="A Janus workspace: the team, shared context and team memory, the goal box, a delivery ready to accept, two Loops on schedules, and the run history">
+  </picture>
+</p>
+<p align="center"><sub>A workspace: its team, the goal box, what is pending, its Loops and the run history.</sub></p>
+
+### And the rest
+
+- **Your machine stays yours.** Janus never writes your own agent configuration. On a Git repository, each run works in its own worktree, started from your `HEAD`, and each delivery fast-forwards the branch you were on to its result. Janus never leaves a half-done merge in your checkout or overwrites your uncommitted changes. Agents see a mirror of your home directory, so `gh`, SSH and your other tools keep working, while the paths you hide (by default, other agents' configuration and high-risk credentials) stay out of reach.
+- **Replayable by default.** Every session, orchestration step, approval, artifact and delivery is an event, so a run can be inspected and resumed instead of reconstructed from memory. The audit log replays a run to any event.
+- **Native permissions.** Each agent keeps its own permission modes. Janus adds no second switchboard. An employee with no mode set starts in Codex's Full access or Claude Code's Bypass permissions, so goals run without stopping for approvals.
+- **A team that learns the project.** A workspace has shared context that every run starts from, and a team memory: notes agents keep in one run for the runs after them, each marked with who wrote it and where.
+- **One library for skills and MCP servers.** Skills and MCP servers are kept once and reach every employee through a single skill and a single MCP server per session. No agent configuration file is written.
 
 ## Built the same way
 
@@ -65,15 +142,17 @@ Janus is built for one machine and one person. Runs change the directory you cho
 
 ### The macOS app (recommended)
 
+Janus needs an Apple silicon Mac (M series) on macOS 15 or later; it supports the three latest major versions of macOS (15, 26 and 27). The app bundles the Janus service and Node.js, so neither Rust nor Node is required, and the Codex and Claude Code adapters bundle their CLIs.
+
 1. Download `Janus-<version>.dmg` from [GitHub Releases](https://github.com/duoyuli/Janus/releases) and drag Janus into Applications.
 2. On first launch, macOS may say the developer cannot be verified (the package is not signed with an Apple certificate). Open System Settings › Privacy & Security and choose Open Anyway.
-3. Requires an Apple silicon Mac (M series) and macOS 15 or later: Janus supports the three latest major versions of macOS (15, 26 and 27). The app bundles the Janus service and Node.js, so neither Rust nor Node is required. The Codex and Claude Code adapters bundle their CLIs.
+3. Follow the macOS permission checklist Janus shows. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; you still switch each one on in macOS, and Janus detects the status of all three.
 
 The app ships with its own Janus service and works out of the box. If you already run Janus with `just start`, the app connects to that service. See [Deployment](docs/operations/20261031-deployment.md#macos_app). Later releases install from Settings › General › Updates: only the changed parts download, and the app restarts into the new version.
 
 Press ⌘, to open Janus Settings. In General › Language, choose Follow System, 简体中文, or English. Changes take effect immediately and persist across launches.
 
-After the first installation, or when Janus’s signing identity changes (for example when upgrading from a release before 2026.11.18.5), Janus shows a macOS permission checklist; updates with the same signature keep the permissions you granted. The checklist is also available under Settings › General › macOS Permissions. One button starts sequential guidance for Full Disk Access, App Management and Screen Recording; you still switch each one on in macOS, and Janus detects the status of all three. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
+The permission checklist appears after the first installation, and again when Janus’s signing identity changes (for example when upgrading from a release before 2026.11.18.5); updates with the same signature keep the permissions you granted. It is also available under Settings › General › macOS Permissions. Agents started by a separate service may need their own authorization. See [macOS permissions](docs/architecture/20261031-frontend.md#macos_permissions).
 
 ### From source
 
@@ -121,4 +200,6 @@ Engineering documentation starts at [docs/index.md](docs/index.md) and is organi
 | [Research](docs/research/index.md) | Reports on external multi-agent and agent-team work, with takeaways for this project |
 | [Review](docs/review/index.md) | Code review and audit reports |
 
-Agents working in this repository should read [AGENTS.md](AGENTS.md) first (`CLAUDE.md` points to the same file).
+Every release and what it changed, fixes included, is in the [changelog](CHANGELOG.md). Agents working in this repository should read [AGENTS.md](AGENTS.md) first (`CLAUDE.md` points to the same file).
+
+The screenshots above show demonstration data in the real app.

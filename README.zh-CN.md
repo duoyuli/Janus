@@ -1,20 +1,34 @@
 <div align="center">
 
+<img src="docs/assets/icon.png" width="112" alt="Janus 应用图标：一道有两张面孔的门">
+
 # Janus
 
-*始于构想，淬于交锋*
+**始于构想，淬于交锋**
 
 <sub>本地优先 · 多智能体 · 可回放</sub>
 
+[![Release](https://img.shields.io/github/v/release/duoyuli/Janus?label=release&color=b5553a)](https://github.com/duoyuli/Janus/releases/latest)
+[![CI](https://github.com/duoyuli/Janus/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/duoyuli/Janus/actions/workflows/ci.yml)
+![macOS 15 以上，Apple 芯片](https://img.shields.io/badge/macOS%2015%2B-Apple%20silicon-555)
+
 [English](README.md) · [中文](README.zh-CN.md)
+
+**[下载](https://github.com/duoyuli/Janus/releases/latest)** · [快速开始](#快速开始) · [文档](docs/index.md) · [更新记录](CHANGELOG.md)
 
 </div>
 
 > 门有两面。一面向前，望向尚未建成之物；一面向后，审视必须成立之事。
 
-Janus 是罗马神话中的门神，一张面孔朝向未来的创造，一张回望做完的工作。这也是 Janus 的工作方式：一个 Agent 做出的成果，要经过另一方的检查，经得住的才交付。
+Janus 把你的编码 Agent 组织成一支在你的 Mac 上工作的团队。你把目标交给负责人 Agent，它自己动手，或者把工作分给数字员工，检查交回来的结果，然后交付。只有该你拍板的事才会找到你，每一次会话、子任务、审批和交付都记成事件，可以回放。
 
-Janus 把你的编码 Agent 组织成一支在你的 Mac 上工作的团队。你把目标交给负责人 Agent，它自己动手，或者把工作分给数字员工，检查交回来的结果，然后交付。只有该你拍板的事才需要你出面。每一次会话、子任务、审批和交付都会记成事件，可以回放。
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/inbox-zh-dark.png">
+    <img src="docs/assets/screenshots/inbox-zh-light.png" width="880" alt="Janus 的收件箱，列着三个工作区的四件事：两个等验收的交付，一条 Agent 请求执行的命令，一个负责人 Agent 提出、带两个选项的问题">
+  </picture>
+</p>
+<p align="center"><sub>收件箱：各个工作区里等你处理的事。一个等验收的交付，一条 Agent 想执行的命令，一个只有你能回答的问题。</sub></p>
 
 ## 为什么是 Janus
 
@@ -22,19 +36,81 @@ Janus 把你的编码 Agent 组织成一支在你的 Mac 上工作的团队。�
 
 模型已经够聪明了，缺的是围绕它们的组织。目标要有人负责，工作和问题要有地方摆出来，哪些事该找你要有规矩，结果落地前要有人检查。Janus 就是这个组织。
 
+Janus 是罗马神话中的门神，一张面孔朝向未来的创造，一张回望做完的工作。这也是 Janus 的工作方式：一个 Agent 做出的成果，要经过另一方的检查，经得住的才交付。
+
 ## 怎样工作
 
-- **负责人 Agent 统筹，协作者 Agent 执行。** 负责人 Agent 用 `/goal` 推进你的目标。目标小，它在自己的会话里直接做完。目标大，它就提交子任务，写明由谁做、依赖和验收标准。派出子任务后，它只做调度：打回返工、改派，或者检查结果，不再自己接手。协作者 Agent 之间不直接通讯，一切都经过负责人 Agent 和共享看板。
-- **只有你的决定才找你。** 技术选型和取舍由负责人 Agent 自己定。审批、负责人 Agent 交给你的决定、等验收的交付，都从各个工作区汇总到收件箱。你随时可以进入任何一个 Agent 的会话插话或接管。
-- **不动你的环境。** Janus 从不改你自己的 Agent 配置。在 Git 仓库上，每个任务在自己的 worktree 里进行，从你的 `HEAD` 开始；每次交付时把你原来所在的分支快进到结果。Janus 不会在你的目录里留下做了一半的合并，也不会覆盖你没提交的改动。Agent 看到的是你用户目录的镜像，`gh`、SSH 和其他工具照常能用；你挡住的路径（默认是其他 Agent 的配置和高危凭据）它们看不到。
-- **默认可回放。** 每一次会话、编排、审批、产物和交付都是事件，任务可以检查和从中断处继续，不用靠记忆重建。
-- **原生权限。** 每个 Agent 保留自己的权限模式，Janus 不再叠加一套开关。没有指定模式的数字员工，Codex 以 Full access、Claude Code 以 Bypass permissions 启动，目标执行中不会停下来等审批。
+```mermaid
+flowchart LR
+    you(["你"]) -->|目标| lead["负责人 Agent"]
+    lead -->|"子任务和验收标准"| board[("共享看板")]
+    board --> a["协作者 Agent"]
+    board --> b["协作者 Agent"]
+    board --> v["独立验证"]
+    a -->|"结果和证据"| lead
+    b -->|"结果和证据"| lead
+    v -->|结论| lead
+    lead -->|交付| inbox[["你的收件箱"]]
+    lead -.->|"只有你能做的决定"| inbox
+    inbox -->|"验收，或让它再改"| lead
+```
 
-## 从任务到值班
+1. **你提出目标**。目标提在工作区里：一个本机目录，加上一支数字员工团队，其中一名是负责人 Agent。每名数字员工绑定 Codex 或 Claude Code，同一支团队里可以两种都有。
+2. **负责人 Agent 推进目标**。它用 `/goal` 推进：目标小，在自己的会话里直接做完；目标大，就提交子任务，写明由谁做、依赖和验收标准，Janus 先校验再执行。
+3. **协作者 Agent 做子任务**，每个子任务一个会话。进展、阻塞和提问写在共享看板上。协作者 Agent 之间不直接通讯，一切都经过负责人 Agent。派出子任务后，负责人 Agent 只做调度：打回返工、改派，或者检查结果，不再自己接手。
+4. **负责人 Agent 交付**。你验收结果，或者让负责人 Agent 再改，改完再交付一次。
+
+## 亮点
+
+### 结果落地前有人检查
+
+每个子任务都带验收标准。做子任务的 Agent 逐条回答，给出证据，并说明证据是怎么来的：跑了测试、执行了命令、读了代码，还是只靠推断。漏答标准的结果，Janus 会发回去补。负责人 Agent 还可以安排独立验证：由另一名数字员工拿着 diff 核对，给出结论。
+
+交付卡片最上面是负责人 Agent 的结论，接着是一行数字，写明哪些标准是运行验证的、哪些只是说法，然后列出需要你看的事。每一条都标明来源：负责人 Agent 留给你的问题，或者 Janus 自己查出来的事，例如没通过的标准、结果和目录对不上、改了文件却没有独立验证、负责人 Agent 自己改的文件。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/delivery-zh-dark.png">
+    <img src="docs/assets/screenshots/delivery-zh-light.png" width="880" alt="Janus 里一个已交付的任务：4 个子任务全部完成，8 条验收标准全部达到，其中 6 条运行验证、2 条检查，需要你看的有 2 件，一件来自负责人 Agent，一件来自 Janus">
+  </picture>
+</p>
+<p align="center"><sub>一次交付：结论、验收标准是怎么核对的、需要你看的事（标明是谁提出的），以及改了什么。</sub></p>
+
+### 只有你的决定才找你
+
+技术选型和取舍由负责人 Agent 自己定。审批、负责人 Agent 交给你的决定、等验收的交付，都从各个工作区汇总到收件箱。选择题直接在收件箱里回答，没有人在等的可以稍后再看，不想管的可以忽略。
+
+你随时可以进入任何一个 Agent 的会话插话或接管。会话里能看到 Agent 的计划、思考、每一次工具调用和上下文用了多少。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/session-zh-dark.png">
+    <img src="docs/assets/screenshots/session-zh-light.png" width="880" alt="Janus 里一个子任务的会话：独立验证正在进行，计划完成了三分之二，测试正在运行，下方是插话和接管的按钮">
+  </picture>
+</p>
+<p align="center"><sub>一名协作者 Agent 正在做独立验证。可以插话，也可以接管。</sub></p>
+
+### 从任务到值班
 
 任务是一个目标，从开始到交付。值班让工作区的负责人 Agent 按你定的时间表醒来，看一眼，一两句话能答的直接答，要改东西的派成新任务。派出的任务自己做完、自己验收，结束时再叫醒值班来看结果；只有你能决定的才问你，结果都到收件箱。
 
-任务之间没有依赖，也没有时间和 token 预算。唯一的限制是机器本身：默认最多 8 个任务同时进行、最多 12 个 Agent 进程同时打开，其余的排队，空出位置后依次开始。
+任务之间没有依赖，也没有时间和 token 预算。每个任务和子任务的 token、费用和上下文用量都看得到，但不设上限。唯一的限制是机器本身：默认最多 8 个任务同时进行、最多 12 个 Agent 进程同时打开，其余的排队，空出位置后依次开始。
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/workspace-zh-dark.png">
+    <img src="docs/assets/screenshots/workspace-zh-light.png" width="880" alt="Janus 的一个工作区：团队、共享资料和团队记忆，目标输入框，一个等验收的交付，两个按时间表运行的值班，以及任务记录">
+  </picture>
+</p>
+<p align="center"><sub>一个工作区：团队、目标输入框、待处理的事、值班和任务记录。</sub></p>
+
+### 其他
+
+- **不动你的环境。** Janus 从不改你自己的 Agent 配置。在 Git 仓库上，每个任务在自己的 worktree 里进行，从你的 `HEAD` 开始；每次交付时把你原来所在的分支快进到结果。Janus 不会在你的目录里留下做了一半的合并，也不会覆盖你没提交的改动。Agent 看到的是你用户目录的镜像，`gh`、SSH 和其他工具照常能用；你挡住的路径（默认是其他 Agent 的配置和高危凭据）它们看不到。
+- **默认可回放。** 每一次会话、编排、审批、产物和交付都是事件，任务可以检查和从中断处继续，不用靠记忆重建。审计日志可以把任务回放到任意一条事件。
+- **原生权限。** 每个 Agent 保留自己的权限模式，Janus 不再叠加一套开关。没有指定模式的数字员工，Codex 以 Full access、Claude Code 以 Bypass permissions 启动，目标执行中不会停下来等审批。
+- **越用越懂项目的团队。** 工作区有共享资料，每个任务都从它开始；还有团队记忆：Agent 在一个任务中记下、之后的任务会读到的笔记，每条记着是谁在哪个任务里写的。
+- **Skill 和 MCP 只保存一份。** 资源库里的 Skill 和 MCP 服务器给所有数字员工，每个会话只经一个 Skill 和一个 MCP 服务器拿到它们，不写任何 Agent 的配置文件。
 
 ## Janus 也是这样造出来的
 
@@ -65,15 +141,17 @@ Janus 是单机、单用户的工具。任务修改你选择的目录（或者�
 
 ### 用 macOS 应用（推荐）
 
+需要 Apple 芯片（M 系列）的 Mac、macOS 15 以上：Janus 只支持最近三个 macOS 大版本（15、26、27）。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node；Codex 和 Claude Code 的适配器自带对应的 CLI。
+
 1. 在 [GitHub Releases](https://github.com/duoyuli/Janus/releases) 下载 `Janus-<版本>.dmg`，把 Janus 拖进「应用程序」。
 2. 第一次打开时，macOS 会提示无法验证开发者（安装包没有用 Apple 证书签名）：到「系统设置 › 隐私与安全性」点「仍要打开」。
-3. 需要 Apple 芯片（M 系列）的 Mac、macOS 15 以上：Janus 只支持最近三个 macOS 大版本（15、26、27）。安装包自带 Janus 服务和 Node.js，不需要 Rust 和 Node。Codex 和 Claude Code 的适配器自带对应的 CLI。
+3. 按应用显示的 macOS 权限引导授权。一键按顺序处理完整磁盘访问、应用程序管理和屏幕录制；授权仍需在系统界面开启，三项的状态都由 Janus 自动检测。
 
 应用自带 Janus 服务，打开即用；如果你已经用 `just start` 运行了 Janus，应用会直接连接它。详见[部署方案](docs/operations/20261031-deployment.md#macos_app)。之后的新版本在「设置 › 通用 › 更新」中安装：只下载变化的部分，应用重启后进入新版本。
 
 按 ⌘, 打开 Janus 设置，在「通用 › 语言」中选择「跟随系统」「简体中文」或「English」。切换立即生效，重新打开应用时保留选择。
 
-首次安装，或 Janus 的签名身份变化后（例如从 2026.11.18.5 之前的版本升级上来），应用自动显示 macOS 权限引导；授权之后，同一签名的更新会保留这些权限。引导也可以在「设置 › 通用 › macOS 权限」继续。一键按顺序处理完整磁盘访问、应用程序管理和屏幕录制；授权仍需在系统界面开启，三项的状态都由 Janus 自动检测。独立服务启动的 Agent 可能需要单独授权，见 [macOS 权限](docs/architecture/20261031-frontend.md#macos_permissions)。
+权限引导在首次安装后自动显示，Janus 的签名身份变化后（例如从 2026.11.18.5 之前的版本升级上来）会再次显示；授权之后，同一签名的更新会保留这些权限。引导也可以在「设置 › 通用 › macOS 权限」继续。独立服务启动的 Agent 可能需要单独授权，见 [macOS 权限](docs/architecture/20261031-frontend.md#macos_permissions)。
 
 ### 从源码运行
 
@@ -123,4 +201,6 @@ just start     # 以服务方式启动：登录后自动运行（macOS）；也�
 | [研究](docs/research/index.md) | 外部多 Agent 协作与 Agent Team 的观察报告，以及给本项目的借鉴建议 |
 | [审查](docs/review/index.md) | 代码审查和审计报告 |
 
-在本仓库工作的编码 Agent 先读 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 指向同一文件）。
+每个版本的变化（包括缺陷修复）都记在[更新记录](CHANGELOG.md)里。在本仓库工作的编码 Agent 先读 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 指向同一文件）。
+
+上面的截图是真实应用里的演示数据。
