@@ -181,15 +181,15 @@ private struct MDBlock: View {
                 .padding(.leading, 14)
                 .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 1.5).fill(Color.secondary.opacity(0.35)).frame(width: 3) }
         case .table(let header, let align, let rows):
-            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-                GridRow {
-                    ForEach(header.indices, id: \.self) { c in
+            let n = header.count
+            MDTableLayout(columns: n) {
+                ForEach(0..<(n * (rows.count + 1)), id: \.self) { i in
+                    let r = i / n, c = i % n
+                    if r == 0 {
                         cell(header[c], bold: true, align: align[c]).background(Color.secondary.opacity(0.1))
+                    } else {
+                        cell(rows[r - 1][c], bold: false, align: align[c]).overlay(alignment: .top) { Divider() }
                     }
-                }
-                ForEach(rows.indices, id: \.self) { r in
-                    Divider()
-                    GridRow { ForEach(rows[r].indices, id: \.self) { c in cell(rows[r][c], bold: false, align: align[c]) } }
                 }
             }
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.line))
@@ -217,6 +217,64 @@ private struct MDBlock: View {
         case .leading: return .leading
         case .center: return .center
         case .trailing: return .trailing
+        }
+    }
+}
+
+/// A Markdown table within the width it is offered: each column gets its content's width when
+/// they all fit; otherwise every column keeps a fair share (its content's width when narrower) and
+/// the rest of the width goes to the columns with more to say, whose cells wrap. A row is as high
+/// as its highest cell, and every cell fills its column and row, so shading and rules line up.
+/// (`Grid` with cells that fill their column gave the first column all the width: the others
+/// were pushed out of the view and the drawn table overflowed the height it was measured at.)
+struct MDTableLayout: Layout {
+    /// Cells come row by row, the header first.
+    let columns: Int
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = widths(subviews, proposal.width)
+        return CGSize(width: w.reduce(0, +), height: heights(subviews, w).reduce(0, +))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let w = widths(subviews, bounds.width)
+        let h = heights(subviews, w)
+        var y = bounds.minY
+        for (r, height) in h.enumerated() {
+            var x = bounds.minX
+            for c in 0..<columns {
+                subviews[r * columns + c].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: w[c], height: height))
+                x += w[c]
+            }
+            y += height
+        }
+    }
+
+    /// Column widths for the width offered (none or unbounded: each column's own width).
+    func widths(_ subviews: Subviews, _ offered: CGFloat?) -> [CGFloat] {
+        guard columns > 0 else { return [] }
+        let ideal = (0..<columns).map { c in
+            stride(from: c, to: subviews.count, by: columns).map { subviews[$0].sizeThatFits(.unspecified).width }.max() ?? 0
+        }
+        return Self.share(ideal, offered)
+    }
+
+    /// The widths for columns whose content wants `ideal`, within `offered`.
+    static func share(_ ideal: [CGFloat], _ offered: CGFloat?) -> [CGFloat] {
+        let total = ideal.reduce(0, +)
+        guard let offered, offered.isFinite, total > 0 else { return ideal }
+        if total <= offered { return ideal.map { $0 + (offered - total) * $0 / total } }
+        let floor = ideal.map { min($0, offered / CGFloat(ideal.count)) }
+        let rest = offered - floor.reduce(0, +)
+        let wants = zip(ideal, floor).map { $0 - $1 }
+        let more = wants.reduce(0, +)
+        return zip(floor, wants).map { $0 + (more > 0 ? rest * $1 / more : 0) }
+    }
+
+    private func heights(_ subviews: Subviews, _ widths: [CGFloat]) -> [CGFloat] {
+        guard columns > 0 else { return [] }
+        return stride(from: 0, to: subviews.count, by: columns).map { start in
+            (0..<columns).map { subviews[start + $0].sizeThatFits(ProposedViewSize(width: widths[$0], height: nil)).height }.max() ?? 0
         }
     }
 }
