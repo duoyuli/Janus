@@ -146,8 +146,4 @@ enum L {
     }
 
     static func short(_ t: String, _ n: Int = 26) -> String { t.count > n ? String(t.prefix(n)) + "…" : t }
-    static func kb(_ n: Int?) -> String {
-        guard let n else { return "" }
-        return n < 1024 ? "\(n) B" : String(format: n < 10240 ? "%.1f KB" : "%.0f KB", Double(n) / 1024)
-    }
 }

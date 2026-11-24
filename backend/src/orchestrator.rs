@@ -2,12 +2,15 @@
 //! *when* and *by whom*, coding agents decide *how*. Only the orchestrator changes task state,
 //! and every change is written to SQLite as an event before anything else happens.
 //!
-//! This file holds the run's state and the `App` core (events, waiters, status). Each child
-//! module adds one part of `App`: `lifecycle` creates and drives runs, `lead` runs the lead's
-//! session, `board` and `board_tools` serve the shared board, `messages` routes messages,
-//! `attempts` runs a task's attempts, `turn` streams one prompt turn, `session` opens ACP
-//! sessions, `prompts` writes what sessions are told and reads their results, and `actions`
-//! applies what the person does and recovers runs after a restart.
+//! This file holds the run's state and the `App` core (events, the changes the app follows,
+//! waiters, status). Each child module adds one part of `App`: `queue` hands goal runs their slots,
+//! `lifecycle` drives and deletes runs, `lead` runs the main session (a goal's lead, a chat, a
+//! Loop, a consolidation), `chat`, `loops` and `memory` are those kinds of run, `board` and
+//! `board_tools` serve the `janus` MCP server, `mcp_server`, `mcp_router` and `mcp_client` the
+//! library's servers, `messages` routes messages, `attempts` runs a task's attempts, `turn` streams
+//! one prompt turn, `session` opens ACP sessions and `parking` closes idle ones, `prompts` writes
+//! what sessions are told and reads their results, `merge` brings a worktree's result back, and
+//! `actions` applies what the person does and recovers runs after a restart.
 
 use crate::acp::{AcpConn, Incoming};
 use crate::agents::{InstructionChannel, Role, Runtime, Workspace};

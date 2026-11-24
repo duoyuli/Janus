@@ -1,4 +1,4 @@
-//! Setup objects: agent connections → roles → execution environments.
+//! Setup objects: agent connections → roles → workspaces.
 //!
 //! A connection is one coding agent: Codex or Claude Code, through its ACP adapter. Each
 //! connection owns an isolated home under

@@ -19,7 +19,7 @@ Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库�
 | 会话控制项 | Agent 在 ACP 会话中声明的可选项，例如 Codex 的沙箱预设、Claude Code 的权限模式 | `controls`、角色的 `session` |
 | 权限模式 | 会话控制项中决定 Agent 能做什么的那些，角色编辑器的「权限」只显示它们 | `permission: true` 的控制项 |
 | 工作区 | 一个本机目录加一组角色成员，其中一名是负责人 | `workspace` |
-| Run | `runs` 表中的一条记录，分两类（`kind`）：在工作区中提交的一个目标，从创建到验收的全过程，应用界面中叫「任务」；和一名数字员工的[对话](domains/20261120-chats.md)，没有工作区和验收 | `Run`、`runs` 表 |
+| Run | `runs` 表中的一条记录，按类型（`kind`）分四种：在工作区中提交的一个目标（`goal`），从创建到验收的全过程，应用界面中叫「任务」；和一名数字员工的[对话](domains/20261120-chats.md)（`chat`），没有工作区和验收；[工作区值班](domains/20261121-loops.md)的会话（`loop`）；[团队记忆](domains/20261123-team_memory.md)的整理（`dream`）。各类型的差异集中在 `RunKind` | `Run`、`runs` 表、`RunKind` |
 | 成员 | Run 创建时角色的快照；负责人的 id 固定为 `lead` | `Member` |
 | 负责人 | 用 `/goal` 推进目标的 Agent（Claude Code 或 Codex） | 成员的 `lead` |
 | 协作者 | 负责人以外的成员 | |

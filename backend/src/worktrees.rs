@@ -1,11 +1,12 @@
 //! Each run on a git repository works in its own worktree under `<Janus home>/work/runs`, so runs
 //! on one repository do not write over each other. The worktree starts from the person's `HEAD`,
-//! detached, and accepting the run brings its result back where it came from: one commit, after
-//! any the run made itself when the person asked for them, fast-forwarded onto the branch the
-//! person was on (or their detached `HEAD`). Janus never leaves
-//! a half-done merge in the person's checkout and never overwrites their uncommitted changes: when
-//! that would happen, accepting fails and the result stays in the run's commit. Nothing is pushed
-//! by Janus and the repository's hooks never run on Janus's writes.
+//! detached, and each delivery brings the run's result back where it came from (`accept`, called
+//! by `orchestrator/merge.rs`; accepting does it for a delivery that could not): one commit, after
+//! any the run made itself, fast-forwarded onto the branch the person was on (or their detached
+//! `HEAD`). Janus never leaves a half-done merge in the person's checkout and never overwrites
+//! their uncommitted changes: when that would happen, nothing is merged and the result stays in
+//! the run's commit. Nothing is pushed by Janus and the repository's hooks never run on Janus's
+//! writes.
 // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
 // @project-doc docs/operations/20261031-security.md#workspace_access
 
