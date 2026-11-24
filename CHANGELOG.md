@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.24.3
+
+- Agent 的运行组件（Claude Code 和 Codex 的 ACP 适配器）改为由 Janus 自动检查并升级：服务启动后和之后每 6 小时查询一次，发现新版本就在后台安装并切换，不再需要「检查更新」和「升级」按钮；旧版本保留，正在运行的会话不受影响。
+
+- Agent 卡片上的运行组件一行只保留当前版本和灰色的「切回历史版本」菜单，只有一个已装版本时不显示入口；去掉「最新版本」「检查时间」「有新版本」和侧栏的适配器更新提醒，自动更新完成不弹提示，设置页开着时最多显示 10 分钟「已自动更新」。
+
+- 切回历史版本即固定：固定后不再自动升级，服务重启后保持；菜单里的「恢复自动更新」解除固定，最新版已经装过时直接切回，不重新下载。升级失败只在行内轻量显示「更新没成功」，可以查看原因、最近步骤、重试或打开完整日志；界面不出现 npm、包名等内部词，原来的「ACP 适配器」改为「运行组件」。
+
+- Agent runtimes (the ACP adapters for Claude Code and Codex) now check for and install updates on their own: Janus asks for the newest version after it starts and every 6 hours, installs a newer one in the background and switches to it, so Check for Updates and Upgrade are gone; the previous version is kept and sessions already running are unaffected.
+
+- The runtime line on each Agent card keeps only the current version and a muted Older Versions menu, hidden when only one version is installed; the latest version, check time, "update available" and the sidebar adapter reminder are gone, a finished automatic update shows no toast and at most ten minutes of Auto-Updated while the settings page is open.
+
+- Switching to an older version pins it: it no longer auto-updates and survives a restart; Resume Auto-Updates in the menu clears the pin and goes back to the newest installed version without downloading it again. A failed update shows only a quiet "Update Didn't Finish" on the line, with the reason, recent steps, a retry and the full log; the interface no longer uses npm, package names or "ACP adapter", and the line says Runtime.
+
 ## 2026.11.24.2
 
 - 修复服务重启或应用自动更新之后，已经交付的任务在应用里没有「验收」按钮，标题栏还写着只读：服务端一直能按记录验收，现在交付卡片照常给出「验收」和「让负责人改…」；只有已经停止、又不在服务里的任务才标「只读 · 这个任务已停止」。
