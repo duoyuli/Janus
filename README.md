@@ -97,7 +97,7 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 ### First run
 
-1. Add an agent under Settings › Employees and run the configuration check. Its ACP adapter downloads at this step; later you can check for updates, upgrade, or roll back from the adapter line on the agent's card.
+1. Add an agent under Settings › Employees and run the configuration check. Its runtime downloads at this step and Janus keeps it up to date on its own; when you need an older version, switch back from the runtime line on the agent's card.
    To connect Claude through an API, select **Custom API** under authentication, then click **Insert Template** or paste your `export KEY=value` lines for the endpoint, token, and models.
 2. Bind employees to agents on the same page, choose a model and permission mode, and turn on **Can Be Lead** for the ones that should lead.
 3. Create a workspace: choose a directory, pick its team, and choose its lead agent.

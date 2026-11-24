@@ -110,7 +110,6 @@ final class AppStore {
         await loadSetup()
         await loadLibrary()
         watchLibrary()
-        watchAdapters()
         watchChecks()
         await inbox.refresh(self)
         followEvents()
@@ -635,28 +634,28 @@ final class AppStore {
         }
     }
 
-    // MARK: Adapters: installs and checks run in the background; poll until they end.
+    // MARK: Adapters: installs run in the background; the settings page polls until they end.
 
-    /// Installed adapters with a later version on npm and no install running: the sidebar reminds
-    /// the person to upgrade them (docs/architecture/20261031-adapters.md#update_check).
-    var adapterUpdates: [JSON] { Self.adapterUpdates(adapters) }
+    /// Automatic updates already shown: leaving the settings page and coming back does not show
+    /// "已自动更新" again (docs/architecture/20261031-adapters.md#update_check).
+    var autoUpdateSeen: Set<String> = []
 
-    nonisolated static func adapterUpdates(_ adapters: JSON) -> [JSON] {
-        adapters["adapters"].array.filter { $0["updateAvailable"].truthy && $0["job"]["state"].str != "running" }
+    /// Called when an Agent card's runtime line goes away: the person has seen this update's word.
+    func acknowledgeAutoUpdate(_ a: JSON) {
+        guard a["job"]["action"].str == "auto", a["job"]["state"].str == "ok", a["job"]["ended"].truthy else { return }
+        autoUpdateSeen.insert(AdapterText.autoUpdatedKey(a))
     }
 
-    /// The server checks for newer adapters shortly after it starts and every few hours; read
-    /// what it found now and then, so the reminder shows without opening the settings.
-    private func watchAdapters() {
-        polls["adapterUpdates"]?.cancel()
-        polls["adapterUpdates"] = Task { [weak self] in
-            await self?.loadAdapters(quiet: true)
-            // The first check runs shortly after the server starts; look again once it is done.
-            try? await Task.sleep(nanoseconds: 90_000_000_000)
-            while !Task.isCancelled {
-                await self?.loadAdapters(quiet: true)
-                try? await Task.sleep(nanoseconds: 600_000_000_000)
-            }
+    /// Keep the runtime lines current while 「设置 › 数字员工」 is open: the server checks and
+    /// updates adapters on its own, and nothing else wakes this page when it does. Runs only while
+    /// the page is on screen — the view's `.task` cancels it when the page or settings close — so
+    /// there is no app-wide polling and nothing grows with the number of Agents
+    /// (docs/architecture/20261031-adapters.md#update_check).
+    func watchAdapters() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            await loadAdapters(quiet: true)
         }
     }
 
@@ -669,7 +668,7 @@ final class AppStore {
         } catch {
             if quiet { return }
             adapters = ["adapters": [], "dir": ""]
-            show(L.text("读取适配器失败：\(error.localizedDescription)"))
+            show(L.text("读取运行组件失败：\(error.localizedDescription)"))
             return
         }
         let busy = adapters["adapters"].array.contains { $0["job"]["state"].str == "running" }
@@ -681,7 +680,11 @@ final class AppStore {
                     guard let a = try? await self.api.get("/api/adapters") else { continue }
                     self.adapters = a
                     if !a["adapters"].array.contains(where: { $0["job"]["state"].str == "running" }) {
-                        for x in a["adapters"].array where (x["job"]["ended"].double ?? 0) > L.nowMs() - 2500 { self.show(L.text("\(x["name"].str)：\(x["job"]["detail"].str)")) }
+                        // An automatic update finishes silently; only what the person asked for
+                        // confirms itself with a toast.
+                        for x in a["adapters"].array where x["job"]["action"].str != "auto" && (x["job"]["ended"].double ?? 0) > L.nowMs() - 2500 {
+                            self.show(L.text("\(x["name"].str)：\(x["job"]["detail"].str)"))
+                        }
                         self.polls["adapters"] = nil
                         return
                     }
@@ -690,12 +693,14 @@ final class AppStore {
         }
     }
 
-    /// What `/api/adapters/{id}/{action}` does with an adapter: install a version (the newest
-    /// unless one is named), ask npm for the newest, or switch to an installed one.
-    enum AdapterAction: String { case install, check, use }
+    /// What `/api/adapters/{id}/{action}` does with an adapter: install (the newest, or a named
+    /// version; on a pinned adapter this resumes automatic updates) or switch to an installed one
+    /// and pin it.
+    enum AdapterAction: String { case install, use }
 
     func adapterAction(_ id: String, _ action: AdapterAction, version: String? = nil) async {
         do { adapters = try await api.post("/api/adapters/\(API.q(id))/\(action.rawValue)", version.map { ["version": JSON($0)] } ?? [:]) } catch { show(error.localizedDescription); return }
+        if action == .use, let version { show(L.text("已切到 \(version)，下个会话开始用")) }
         await loadAdapters()
     }
 

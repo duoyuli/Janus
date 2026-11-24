@@ -36,4 +36,7 @@ struct JanusHome: Equatable, Sendable {
     var permissions: URL { at("data/app/permissions.json") }
     /// What Janus keeps for one agent.
     func agent(_ id: String) -> URL { at("data/agents/\(id)") }
+
+    /// The install and update record of one Agent runtime (`codex`, `claude`).
+    func adapterLog(_ id: String) -> URL { at("logs/adapters/\(id).log") }
 }

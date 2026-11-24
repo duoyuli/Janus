@@ -15,6 +15,12 @@ fn stand_in_adapters(layout: &crate::layout::Layout) {
         std::fs::create_dir_all(&pkg).unwrap();
         std::fs::write(pkg.join("package.json"), json!({ "name": a.package, "bin": "fake_acp.py" }).to_string())
             .unwrap();
+        std::fs::write(
+            dir.join("9.9.9").join(".janus-adapter.json"),
+            json!({ "id": a.id, "version": "9.9.9", "ref": "9.9.9", "package": a.package, "installedAt": 1 })
+                .to_string(),
+        )
+        .unwrap();
         let _ = std::os::unix::fs::symlink(&script, pkg.join("fake_acp.py"));
         let _ = std::os::unix::fs::symlink("9.9.9", dir.join("current"));
     }

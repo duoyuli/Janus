@@ -156,8 +156,8 @@ async fn main() -> Result<()> {
     periodic(&app, "library sources not checked", Duration::from_secs(30), library::CHECK_EVERY, |app| async move {
         app.check_sources().await.map(drop)
     });
-    // ACP adapters: ask npm for newer versions shortly after start, then every few hours; the app
-    // reminds the person to upgrade.
+    // ACP adapters: ask npm for newer versions shortly after start, then every few hours, and
+    // install what it finds without asking; a version the person pinned stays.
     // @project-doc docs/architecture/20261031-adapters.md#update_check
     periodic(
         &app,

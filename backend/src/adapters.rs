@@ -15,8 +15,9 @@
 //! version is kept for rolling back; older ones are removed.
 //!
 //! Installed adapters are checked for a newer version on npm shortly after Janus starts and then
-//! every few hours (`check_adapter_updates`); the app reminds the person to upgrade. Nothing is
-//! installed without them.
+//! every few hours (`check_adapter_updates`); a newer one is installed and made current without
+//! asking anyone. A version the person switched to by hand is pinned in
+//! `cache/adapters/<id>/pinned`: automatic updates leave it alone until they resume them.
 
 use crate::orchestrator::App;
 use crate::util::now_ms;
@@ -54,13 +55,13 @@ pub fn for_base(base: &str) -> Option<&'static AdapterDef> {
 }
 
 fn def(id: &str) -> Result<&'static AdapterDef> {
-    ADAPTERS.iter().find(|a| a.id == id).ok_or_else(|| anyhow!("没有这个 ACP 适配器：{id}"))
+    ADAPTERS.iter().find(|a| a.id == id).ok_or_else(|| anyhow!("没有这个运行组件：{id}"))
 }
 
 wire_enum! {
-    /// What is going on with one adapter right now: an install or update check in progress, or how
-    /// the last one ended. Kept in memory; the log file has the full output. A restart leaves no job
-    /// at all, so there is no stale "running" to clear.
+    /// What is going on with one adapter right now: an install in progress, or how the last one
+    /// ended. Kept in memory; the log file has the full output. A restart leaves no job at all, so
+    /// there is no stale "running" to clear.
     #[derive(Default)]
     enum JobState {
         #[default]
@@ -71,10 +72,19 @@ wire_enum! {
     }
 }
 
-#[derive(Clone, Default)]
+wire_enum! {
+    /// Who started the job: Janus checking for a newer version by itself, or a person installing a
+    /// version, retrying, or resuming automatic updates.
+    enum JobAction {
+        Install = "install",
+        Auto = "auto",
+    }
+}
+
+#[derive(Clone)]
 struct Job {
     state: JobState,
-    action: String,
+    action: JobAction,
     detail: String,
     started: i64,
     ended: i64,
@@ -83,27 +93,27 @@ struct Job {
 /// Version directories that sessions run from, and how many sessions each.
 type Pins = Arc<Mutex<HashMap<PathBuf, usize>>>;
 
-/// What this Janus is doing with its adapters: the install or check running for each, the newest
-/// versions npm offered, and the version directories sessions run from. `App` holds it, so two
-/// homes (or tests running in parallel) never share it.
+/// What this Janus is doing with its adapters: the install running for each, the newest versions
+/// npm offered, and the version directories sessions run from. `App` holds it, so two homes (or
+/// tests running in parallel) never share it.
 #[derive(Default)]
 pub struct AdapterState {
     jobs: Mutex<HashMap<String, Job>>,
     /// The newest version npm offers, from the last check: (version, checked at).
     latest: Mutex<HashMap<String, (String, i64)>>,
-    /// `prune` never removes a pinned version.
+    /// The version directories sessions run from; `prune` never removes them.
     pins: Pins,
 }
 
 impl AdapterState {
-    fn begin(&self, id: &str, action: &str) -> Result<()> {
+    fn begin(&self, id: &str, action: JobAction) -> Result<()> {
         let mut jobs = self.jobs.lock().unwrap();
         if jobs.get(id).is_some_and(|j| j.state == JobState::Running) {
-            bail!("{id} 的适配器已经在{}中", if action == "install" { "安装" } else { "处理" });
+            bail!("运行组件正在更新，等它结束后再试");
         }
         jobs.insert(
             id.to_string(),
-            Job { state: JobState::Running, action: action.into(), detail: String::new(), started: now_ms(), ended: 0 },
+            Job { state: JobState::Running, action, detail: String::new(), started: now_ms(), ended: 0 },
         );
         Ok(())
     }
@@ -116,6 +126,14 @@ impl AdapterState {
                 Ok(detail) => (j.state, j.detail) = (JobState::Ok, detail),
                 Err(err) => (j.state, j.detail) = (JobState::Error, format!("{err:#}")),
             }
+        }
+    }
+
+    /// Forget how the last job ended, so its failure mark goes away (the person picked a version).
+    fn clear_job(&self, id: &str) {
+        let mut jobs = self.jobs.lock().unwrap();
+        if jobs.get(id).is_some_and(|j| j.state != JobState::Running) {
+            jobs.remove(id);
         }
     }
 
@@ -173,10 +191,28 @@ impl App {
     /// while the session holds it.
     pub fn adapter_entry(&self, id: &str) -> Result<(PathBuf, Arc<VersionPin>)> {
         let d = def(id)?;
-        let dir = self.adapter_current(id).ok_or_else(|| {
-            anyhow!("{} 的 ACP 适配器还没有安装：在「设置 → 数字员工」中检查 Agent 会自动安装", d.name)
-        })?;
+        let dir = self
+            .adapter_current(id)
+            .ok_or_else(|| anyhow!("{} 的运行组件还没有安装：在「设置 › 数字员工」中检查 Agent 会自动安装", d.name))?;
         Ok((entry_in(d, &dir)?, self.adapter_state.pin(dir)))
+    }
+
+    /// The version the person switched to by hand, if they did: automatic updates leave it alone.
+    /// A pin naming a version that is gone (someone emptied `cache/`) is no pin: there is nothing
+    /// to stay on, and the next install starts following the newest version again.
+    fn adapter_pinned(&self, id: &str) -> Option<String> {
+        let v = std::fs::read_to_string(self.cfg.layout.adapter_pin(id)).ok()?.trim().to_string();
+        self.adapter_version_installed(id, &v).then_some(v)
+    }
+
+    fn pin_adapter(&self, id: &str, version: &str) -> Result<()> {
+        std::fs::create_dir_all(self.adapters_dir().join(id))?;
+        std::fs::write(self.cfg.layout.adapter_pin(id), version)?;
+        Ok(())
+    }
+
+    fn unpin_adapter(&self, id: &str) {
+        let _ = std::fs::remove_file(self.cfg.layout.adapter_pin(id));
     }
 
     /// The version `current` points to, if the adapter is installed.
@@ -194,6 +230,8 @@ impl App {
                 let current = self
                     .adapter_current(d.id)
                     .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+                let pinned = self.adapter_pinned(d.id);
+                let pinned_now = pinned.as_deref().is_some_and(|p| current.as_deref() == Some(p));
                 let mut versions: Vec<Value> = std::fs::read_dir(self.adapters_dir().join(d.id))
                     .into_iter()
                     .flatten()
@@ -210,12 +248,12 @@ impl App {
                     })
                     .collect();
                 versions.sort_by_key(|v| std::cmp::Reverse(v["installedAt"].as_i64().unwrap_or(0)));
-                let job = jobs.get(d.id).map(|j| json!({ "state": j.state.as_str(), "action": j.action, "detail": j.detail, "started": j.started, "ended": j.ended }));
+                let job = jobs.get(d.id).map(|j| json!({ "state": j.state.as_str(), "action": j.action.as_str(), "detail": j.detail, "started": j.started, "ended": j.ended }));
                 let (newest, checked) = latest.get(d.id).cloned().map(|(v, t)| (json!(v), json!(t))).unwrap_or((Value::Null, Value::Null));
                 json!({
                     "id": d.id, "name": d.name, "package": d.package,
                     "source": json!({ "kind": "npm", "package": d.package }),
-                    "current": current, "versions": versions,
+                    "current": current, "versions": versions, "pinned": pinned_now,
                     "latest": newest, "checkedAt": checked,
                     "updateAvailable": match (&current, newest.as_str()) {
                         (Some(c), Some(n)) => newer(n, c),
@@ -228,37 +266,83 @@ impl App {
         json!({ "adapters": list, "dir": self.adapters_dir() })
     }
 
-    /// Start installing (the newest version, or `version`) in the background.
+    /// Start installing in the background: a version (the body's, else the newest). When the person
+    /// had pinned an older version, this resumes automatic updates: the pin goes first, and the
+    /// newest version already on disk becomes current without downloading it again.
     pub fn start_adapter_install(self: &Arc<Self>, id: &str, version: Option<String>) -> Result<()> {
         def(id)?;
-        self.adapter_state.begin(id, "install")?;
+        self.adapter_state.begin(id, JobAction::Install)?;
         let app = self.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
-            let r = app.install_adapter(&id, version.as_deref());
+            let r = app.install_requested(&id, version.as_deref());
             app.adapter_state.finish(&id, r.map(|v| format!("已安装 {v}")));
         });
         Ok(())
     }
 
-    /// Look up the newest version npm offers, in the background.
-    pub fn start_adapter_check(self: &Arc<Self>, id: &str) -> Result<()> {
-        def(id)?;
-        self.adapter_state.begin(id, "check")?;
-        let app = self.clone();
-        let id = id.to_string();
-        std::thread::spawn(move || {
-            let r = app.latest_adapter_version(&id);
-            app.adapter_state.finish(&id, r.map(|v| format!("最新版本 {v}")));
-        });
-        Ok(())
+    /// An install the person asked for, blocking. Any install ends a pin: the person went back to
+    /// following the newest version (or picked one, which a later release still replaces).
+    fn install_requested(&self, id: &str, version: Option<&str>) -> Result<String> {
+        let resume = version.is_none() && self.adapter_pinned(id).is_some();
+        self.unpin_adapter(id);
+        if resume { self.resume_auto_updates(id) } else { self.install_adapter(id, version) }
     }
 
-    /// Make an installed version current again (roll back, or forward).
+    /// Make the newest version current again after the person resumes automatic updates, downloading
+    /// it only if it is not on disk (so an offline resume still works when it is); offline with no
+    /// known newest, the latest installed version is used.
+    fn resume_auto_updates(&self, id: &str) -> Result<String> {
+        let known = self.adapter_state.latest.lock().unwrap().get(id).map(|(v, _)| v.clone());
+        let newest = known.map(Ok).unwrap_or_else(|| self.latest_adapter_version(id));
+        match newest {
+            Ok(v) if self.adapter_version_installed(id, &v) => {
+                switch_current(&self.adapters_dir().join(id), &v)?;
+                self.adapter_note(id, &format!("切换到 {v}（恢复自动更新）"));
+                Ok(v)
+            }
+            Ok(v) => self.install_adapter(id, Some(&v)),
+            Err(err) => match self.newest_installed(id) {
+                Some(v) => {
+                    switch_current(&self.adapters_dir().join(id), &v)?;
+                    self.adapter_note(id, &format!("切换到 {v}（恢复自动更新，没能查询最新版本：{err:#}）"));
+                    Ok(v)
+                }
+                None => Err(err),
+            },
+        }
+    }
+
+    fn adapter_version_installed(&self, id: &str, version: &str) -> bool {
+        self.adapters_dir().join(id).join(version).join(".janus-adapter.json").is_file()
+    }
+
+    /// The highest installed version by number, for a resume that cannot ask npm.
+    fn newest_installed(&self, id: &str) -> Option<String> {
+        std::fs::read_dir(self.adapters_dir().join(id))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().is_dir() && !e.path().is_symlink())
+            .filter(|e| e.path().join(".janus-adapter.json").is_file())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .max_by(|a, b| {
+                if newer(a, b) {
+                    std::cmp::Ordering::Greater
+                } else if newer(b, a) {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+    }
+
+    /// Make an installed version current again (roll back, or forward) and pin it: the person chose
+    /// it, so automatic updates leave it alone until they resume them.
     pub fn use_adapter_version(&self, id: &str, version: &str) -> Result<()> {
         def(id)?;
         if self.adapter_state.running(id) {
-            bail!("{id} 的适配器正在安装，等它结束后再切换");
+            bail!("运行组件正在更新，等它结束后再切换");
         }
         let dir = self.adapters_dir().join(id);
         if version.contains('/') || version.starts_with('.') || !dir.join(version).join(".janus-adapter.json").is_file()
@@ -266,7 +350,9 @@ impl App {
             bail!("没有安装这个版本：{version}");
         }
         switch_current(&dir, version)?;
-        self.adapter_note(id, &format!("切换到 {version}"));
+        self.pin_adapter(id, version)?;
+        self.adapter_state.clear_job(id);
+        self.adapter_note(id, &format!("切换到 {version} 并固定，不再自动更新"));
         Ok(())
     }
 
@@ -278,7 +364,7 @@ impl App {
         if self.adapter_current(id).is_some() {
             return Ok(None);
         }
-        self.adapter_state.begin(id, "install")?;
+        self.adapter_state.begin(id, JobAction::Install)?;
         let r = self.install_adapter(id, None);
         self.adapter_state.finish(id, r.as_ref().map(|v| format!("已安装 {v}")).map_err(|e| anyhow!("{e:#}")));
         r.map(Some)
@@ -303,19 +389,34 @@ impl App {
     }
 
     /// Ask npm for the newest version of every installed adapter (blocking; run it off the async
-    /// threads). What it finds shows as `latest` and `updateAvailable`, and the app reminds the
-    /// person; nothing is installed. A lookup that fails (offline, npm missing) is logged and
-    /// left out, never shown as the adapter's job, since nobody asked for it.
+    /// threads). A later version is installed and made current right away, as the adapter's `auto`
+    /// job: nobody is asked and nothing pops up. A version the person pinned is left alone, and a
+    /// failed lookup (offline, npm missing) is logged only — never shown as the adapter's job,
+    /// since nobody asked for it. A failed install stays as the job's error and the next check
+    /// tries again.
     // @project-doc docs/architecture/20261031-adapters.md#update_check
     pub fn check_adapter_updates(&self) {
-        self.check_adapter_updates_with(npm_latest);
+        self.check_adapter_updates_with(npm_latest, |id, version| self.install_adapter(id, Some(version)));
     }
 
-    fn check_adapter_updates_with(&self, newest: impl Fn(&AdapterDef) -> Result<String>) {
+    fn check_adapter_updates_with(
+        &self,
+        newest: impl Fn(&AdapterDef) -> Result<String>,
+        install: impl Fn(&str, &str) -> Result<String>,
+    ) {
         for d in ADAPTERS.iter().filter(|d| self.adapter_current(d.id).is_some() && !self.adapter_state.running(d.id)) {
+            let current = self.adapter_version(d.id).unwrap_or_default();
             match newest(d) {
                 Ok(v) => {
-                    self.adapter_state.latest.lock().unwrap().insert(d.id.to_string(), (v, now_ms()));
+                    self.adapter_state.latest.lock().unwrap().insert(d.id.to_string(), (v.clone(), now_ms()));
+                    if self.adapter_pinned(d.id).is_some() || !newer(&v, &current) {
+                        continue;
+                    }
+                    if self.adapter_state.begin(d.id, JobAction::Auto).is_err() {
+                        continue;
+                    }
+                    let done = install(d.id, &v);
+                    self.adapter_state.finish(d.id, done.map(|v| format!("已自动更新到 {v}")));
                 }
                 Err(err) => crate::config::log(format!("janus: {} adapter not checked for updates: {err:#}", d.id)),
             }
@@ -331,10 +432,9 @@ impl App {
         let log_path = self.adapter_log(id);
         std::fs::create_dir_all(log_path.parent().unwrap())?;
         let staging = dir.join(format!(".staging-{}", now_ms()));
-        self.adapter_note(
-            id,
-            &format!("开始安装 {}{}", d.package, version.map(|v| format!("@{v}")).unwrap_or_default()),
-        );
+        // The log line names the version only: the app shows Janus's own lines in the failure
+        // popover, and package names never belong in the interface (docs/architecture/20261031-adapters.md#update_check).
+        self.adapter_note(id, &format!("开始安装 {}", version.unwrap_or("最新版本")));
         let built = (|| -> Result<String> {
             let node = &self.cfg.node;
             check_node(node, d)?;
@@ -352,7 +452,7 @@ impl App {
             let installed: Value = serde_json::from_str(&std::fs::read_to_string(
                 staging.join("node_modules").join(d.package).join("package.json"),
             )?)?;
-            installed["version"].as_str().context("package.json 没有 version").map(str::to_owned)
+            installed["version"].as_str().context("运行组件清单里没有版本号").map(str::to_owned)
         })();
         let v = match built {
             Ok(x) => x,
@@ -383,7 +483,7 @@ impl App {
         }
         let previous = std::fs::read_link(dir.join("current")).ok().map(|p| p.to_string_lossy().to_string());
         switch_current(&dir, &v)?;
-        prune(&dir, &v, previous.as_deref(), &self.adapter_state);
+        prune(&dir, &v, previous.as_deref(), &self.adapter_state, self.adapter_pinned(id).as_deref());
         self.adapter_note(id, &format!("已安装 {v} 并设为当前版本"));
         Ok(v)
     }
@@ -395,7 +495,7 @@ fn entry_in(d: &AdapterDef, dir: &Path) -> Result<PathBuf> {
     let pkg_dir = dir.join("node_modules").join(d.package);
     let pkg: Value = serde_json::from_str(
         &std::fs::read_to_string(pkg_dir.join("package.json"))
-            .with_context(|| format!("{} 的适配器缺少 package.json", d.name))?,
+            .with_context(|| format!("{} 的运行组件不完整（缺少清单文件）", d.name))?,
     )?;
     let rel = match &pkg["bin"] {
         Value::String(s) => s.clone(),
@@ -406,7 +506,7 @@ fn entry_in(d: &AdapterDef, dir: &Path) -> Result<PathBuf> {
     };
     let entry = pkg_dir.join(rel.trim_start_matches("./"));
     if rel.is_empty() || !entry.is_file() {
-        bail!("{} 的适配器入口文件不存在：{}", d.name, entry.display());
+        bail!("{} 的运行组件不完整（入口文件不存在）", d.name);
     }
     Ok(entry)
 }
@@ -438,11 +538,18 @@ fn switch_current(dir: &Path, version: &str) -> Result<()> {
     Ok(())
 }
 
-/// Keep the current and the previous version; remove older ones and leftover staging dirs.
-fn prune(dir: &Path, current: &str, previous: Option<&str>, state: &AdapterState) {
+/// Keep the current, the previous and the pinned version; remove older ones and leftover staging
+/// dirs. The pinned version stays even when it is neither current nor the one before it: the person
+/// chose it and can switch back to it.
+fn prune(dir: &Path, current: &str, previous: Option<&str>, state: &AdapterState, pinned: Option<&str>) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().to_string();
-        if name == "current" || name == current || Some(name.as_str()) == previous || state.pinned(&e.path()) {
+        if name == "current"
+            || name == current
+            || Some(name.as_str()) == previous
+            || Some(name.as_str()) == pinned
+            || state.pinned(&e.path())
+        {
             continue;
         }
         let stale_staging = name.starts_with(".staging-") || name.starts_with(".current-");
@@ -457,14 +564,14 @@ fn prune(dir: &Path, current: &str, previous: Option<&str>, state: &AdapterState
 /// and has not been lowered since Pi was dropped.
 fn check_node(node: &str, d: &AdapterDef) -> Result<()> {
     let out = run_text(Command::new(node).arg("--version"))
-        .with_context(|| format!("找不到 Node（{node}），安装 {} 的适配器需要它", d.name))?;
+        .with_context(|| format!("找不到 Node（{node}），安装 {} 的运行组件需要它", d.name))?;
     let v: Vec<u64> = out.trim().trim_start_matches('v').split('.').filter_map(|x| x.parse().ok()).collect();
     let old = match v.as_slice() {
         [major, minor, ..] => *major < 22 || (*major == 22 && *minor < 19),
         _ => true,
     };
     if old {
-        bail!("Node 版本 {} 太旧，ACP 适配器需要 Node 22.19 以上", out.trim());
+        bail!("Node 版本 {} 太旧，运行组件需要 Node 22.19 以上", out.trim());
     }
     Ok(())
 }
@@ -477,7 +584,9 @@ fn run_text(cmd: &mut Command) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-/// Run a step of an install with its output appended to the adapter's log.
+/// Run a step of an install with its output appended to the adapter's log. The command line and
+/// what it prints stay in the log (the person can open it from the failure popover); the error
+/// itself names no tool or package, because the app shows it in the interface.
 fn logged(cmd: &mut Command, log: &Path) -> Result<()> {
     let line = format!(
         "$ {:?} {}",
@@ -486,14 +595,10 @@ fn logged(cmd: &mut Command, log: &Path) -> Result<()> {
     );
     let mut f = std::fs::OpenOptions::new().create(true).append(true).open(log)?;
     writeln!(f, "{line}")?;
-    let status = cmd
-        .stdin(Stdio::null())
-        .stdout(f.try_clone()?)
-        .stderr(f)
-        .status()
-        .with_context(|| format!("无法运行 {:?}", cmd.get_program()))?;
+    let status =
+        cmd.stdin(Stdio::null()).stdout(f.try_clone()?).stderr(f).status().with_context(|| "无法运行安装工具")?;
     if !status.success() {
-        bail!("{line} 失败（exit {}），详见 {}", status.code().unwrap_or(-1), log.display());
+        bail!("安装命令失败（exit {}），详见 {}", status.code().unwrap_or(-1), log.display());
     }
     Ok(())
 }
@@ -520,11 +625,27 @@ mod tests {
         switch_current(&dir, "1.1.0").unwrap();
         switch_current(&dir, "1.2.0").unwrap();
         assert_eq!(std::fs::read_link(dir.join("current")).unwrap(), PathBuf::from("1.2.0"));
-        prune(&dir, "1.2.0", Some("1.1.0"), &AdapterState::default());
+        prune(&dir, "1.2.0", Some("1.1.0"), &AdapterState::default(), None);
         let mut left: Vec<String> =
             std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
         left.sort();
         assert_eq!(left, ["1.1.0", "1.2.0", "current"], "the previous version stays for rolling back");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The version the person pinned stays through a clean-up even when it is neither current nor
+    /// the version before it: it is the one the menu switches back to.
+    #[test]
+    fn a_pinned_version_is_not_pruned() {
+        let dir = std::env::temp_dir().join(format!("janus-adapters-keep-pinned-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for v in ["1.0.0", "1.1.0", "1.2.0"] {
+            std::fs::create_dir_all(dir.join(v)).unwrap();
+            std::fs::write(dir.join(v).join(".janus-adapter.json"), "{}").unwrap();
+        }
+        prune(&dir, "1.2.0", Some("1.1.0"), &AdapterState::default(), Some("1.0.0"));
+        assert!(dir.join("1.0.0").is_dir(), "the version the person picked is kept");
+        assert!(dir.join("1.1.0").is_dir() && dir.join("1.2.0").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -540,11 +661,11 @@ mod tests {
         }
         let state = AdapterState::default();
         let session = state.pin(dir.join("1.0.0").canonicalize().unwrap());
-        prune(&dir, "1.2.0", Some("1.1.0"), &state);
+        prune(&dir, "1.2.0", Some("1.1.0"), &state, None);
         assert!(!AdapterState::default().pinned(&dir.join("1.0.0")), "pins belong to one Janus, not to the process");
         assert!(dir.join("1.0.0").is_dir(), "a running session keeps its version");
         drop(session);
-        prune(&dir, "1.2.0", Some("1.1.0"), &state);
+        prune(&dir, "1.2.0", Some("1.1.0"), &state, None);
         assert!(!dir.join("1.0.0").exists(), "once the session ends the version goes");
         assert!(dir.join("1.1.0").is_dir() && dir.join("1.2.0").is_dir());
         let _ = std::fs::remove_dir_all(&dir);
@@ -560,32 +681,219 @@ mod tests {
         assert!(!newer("1.2.0-beta.1", "1.2.0"));
     }
 
-    /// The periodic check asks about installed adapters only, records what it finds for the app
-    /// (`updateAvailable` only for a later version), and leaves a failed lookup unshown.
+    /// One adapter as `GET /api/adapters` lists it.
+    fn listed(app: &Arc<App>, id: &str) -> Value {
+        app.adapters()["adapters"].as_array().unwrap().iter().find(|a| a["id"] == id).unwrap().clone()
+    }
+
+    /// An installed version on disk, as an earlier install would have left it.
+    fn add_version(app: &Arc<App>, id: &str, version: &str) {
+        let dir = app.adapters_dir().join(id).join(version);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(".janus-adapter.json"),
+            json!({ "id": id, "version": version, "ref": version, "installedAt": now_ms() }).to_string(),
+        )
+        .unwrap();
+    }
+
+    /// The periodic check asks about installed adapters with no job running, and a later version is
+    /// installed as the adapter's `auto` job. The same version starts nothing, a failed lookup only
+    /// logs, and a pinned adapter is left alone.
     #[test]
-    fn installed_adapters_are_checked_for_a_later_version() {
+    fn a_later_version_is_installed_automatically() {
         let dir = std::env::temp_dir().join(format!("janus-adapter-updates-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let app = crate::orchestrator::test_app(&dir);
         // The test app's stand-in adapters are installed as 9.9.9; remove one to see it skipped.
         std::fs::remove_file(app.adapters_dir().join("codex").join("current")).unwrap();
         let asked = Mutex::new(vec![]);
-        app.check_adapter_updates_with(|d| {
-            asked.lock().unwrap().push(d.id);
-            Ok("10.0.0".into())
-        });
+        let installed = Mutex::new(vec![]);
+        app.check_adapter_updates_with(
+            |d| {
+                asked.lock().unwrap().push(d.id);
+                Ok("10.0.0".into())
+            },
+            |id, v| {
+                installed.lock().unwrap().push((id.to_string(), v.to_string()));
+                Ok(v.to_string())
+            },
+        );
         assert_eq!(*asked.lock().unwrap(), ["claude"], "an adapter that is not installed is not checked");
-        let listed = app.adapters();
-        let claude = listed["adapters"].as_array().unwrap().iter().find(|a| a["id"] == "claude").unwrap().clone();
+        assert_eq!(*installed.lock().unwrap(), [("claude".to_string(), "10.0.0".to_string())]);
+        let claude = listed(&app, "claude");
         assert_eq!((claude["latest"].as_str(), claude["updateAvailable"].as_bool()), (Some("10.0.0"), Some(true)));
         assert!(claude["checkedAt"].is_i64());
-        assert!(claude["job"].is_null(), "a check nobody asked for is not shown as the adapter's job");
+        assert_eq!((claude["job"]["action"].as_str(), claude["job"]["state"].as_str()), (Some("auto"), Some("ok")));
+        assert!(claude["job"]["ended"].is_i64());
 
-        app.check_adapter_updates_with(|_| Ok("9.9.9".into()));
-        let claude = app.adapters()["adapters"][1].clone();
-        assert_eq!(claude["updateAvailable"], false, "the installed version is the newest");
-        app.check_adapter_updates_with(|_| bail!("offline"));
-        assert_eq!(app.adapters()["adapters"][1]["latest"], "9.9.9", "a failed lookup keeps what was known");
+        // The installed version is the newest: nothing starts.
+        app.check_adapter_updates_with(
+            |_| Ok("9.9.9".into()),
+            |id, v| {
+                installed.lock().unwrap().push((id.to_string(), v.to_string()));
+                Ok(v.to_string())
+            },
+        );
+        assert_eq!(installed.lock().unwrap().len(), 1, "the newest version starts nothing");
+        assert_eq!(listed(&app, "claude")["updateAvailable"], false);
+
+        // A lookup that fails keeps what was known and starts nothing.
+        app.check_adapter_updates_with(|_| bail!("offline"), |_, _| panic!("nothing to install"));
+        assert_eq!(listed(&app, "claude")["latest"], "9.9.9", "a failed lookup keeps what was known");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An automatic install that fails leaves the working version current and the failure on the
+    /// job, for the card to show; it is not retried until the next check.
+    #[test]
+    fn a_failed_automatic_install_keeps_the_version_and_records_the_failure() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-auto-failed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        app.check_adapter_updates_with(
+            |d| Ok(if d.id == "claude" { "10.0.0" } else { "9.9.9" }.into()),
+            |_, _| bail!("离线"),
+        );
+        let claude = listed(&app, "claude");
+        assert_eq!(claude["current"], "9.9.9", "the working version stays current");
+        assert_eq!(claude["job"]["state"], "error");
+        assert_eq!(claude["job"]["action"], "auto");
+        assert!(claude["job"]["detail"].as_str().unwrap().contains("离线"));
+        assert_eq!(claude["pinned"], false, "a failed update does not pin anything");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pin left naming a version no longer on disk (someone emptied `cache/`) is no pin: the
+    /// adapter is listed as not pinned and a newer version installs as usual.
+    #[test]
+    fn a_pin_naming_a_missing_version_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-stale-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        std::fs::write(app.cfg.layout.adapter_pin("claude"), "8.0.0").unwrap();
+        assert_eq!(listed(&app, "claude")["pinned"], false);
+        let installed = Mutex::new(vec![]);
+        app.check_adapter_updates_with(
+            |d| Ok(if d.id == "claude" { "10.0.0" } else { "9.9.9" }.into()),
+            |id, v| {
+                installed.lock().unwrap().push((id.to_string(), v.to_string()));
+                Ok(v.to_string())
+            },
+        );
+        assert_eq!(*installed.lock().unwrap(), [("claude".to_string(), "10.0.0".to_string())]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An adapter with a job running is not checked at all, so a manual install and an automatic
+    /// one never overlap.
+    #[test]
+    fn an_adapter_with_a_job_running_is_not_checked() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-busy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        app.adapter_state.begin("claude", JobAction::Install).unwrap();
+        let asked = Mutex::new(vec![]);
+        app.check_adapter_updates_with(
+            |d| {
+                asked.lock().unwrap().push(d.id);
+                Ok(if d.id == "claude" { "10.0.0" } else { "9.9.9" }.into())
+            },
+            |_, _| panic!("a running job is left alone"),
+        );
+        assert_eq!(*asked.lock().unwrap(), ["codex"], "the busy adapter is skipped");
+        app.adapter_state.finish("claude", Ok("完成".into()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `use` pins the version: the check records the newest but neither installs nor switches, and
+    /// a restart reads the pin back from disk.
+    #[test]
+    fn a_version_the_person_picked_is_pinned_and_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-pinned-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        add_version(&app, "claude", "10.0.0");
+        app.use_adapter_version("claude", "9.9.9").unwrap();
+        let claude = listed(&app, "claude");
+        assert_eq!((claude["current"].as_str(), claude["pinned"].as_bool()), (Some("9.9.9"), Some(true)));
+        assert_eq!(std::fs::read_to_string(app.cfg.layout.adapter_pin("claude")).unwrap().trim(), "9.9.9");
+        assert!(claude["job"].is_null(), "picking a version clears the last job's failure mark");
+
+        app.check_adapter_updates_with(
+            |d| Ok(if d.id == "claude" { "11.0.0" } else { "9.9.9" }.into()),
+            |_, _| panic!("a pinned adapter is left alone"),
+        );
+        let claude = listed(&app, "claude");
+        assert_eq!(
+            (claude["current"].as_str(), claude["latest"].as_str(), claude["updateAvailable"].as_bool()),
+            (Some("9.9.9"), Some("11.0.0"), Some(true)),
+            "the newest version is still recorded, for resuming later"
+        );
+        assert_eq!(claude["pinned"], true);
+
+        // A restart keeps the person's choice: the pin is on disk, not in the process.
+        drop(app);
+        let app = crate::orchestrator::test_app(&dir);
+        let claude = listed(&app, "claude");
+        assert_eq!((claude["current"].as_str(), claude["pinned"].as_bool()), (Some("9.9.9"), Some(true)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `install {}` on a pinned adapter resumes automatic updates: the pin goes and the newest
+    /// version already on disk is switched to, without downloading it again.
+    #[test]
+    fn install_resumes_automatic_updates_from_the_newest_installed_version() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-resume-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        add_version(&app, "claude", "10.0.0");
+        app.use_adapter_version("claude", "9.9.9").unwrap();
+        // The newest known version is the one on disk.
+        app.check_adapter_updates_with(
+            |d| Ok(if d.id == "claude" { "10.0.0" } else { "9.9.9" }.into()),
+            |_, _| panic!("pinned"),
+        );
+        app.install_requested("claude", None).unwrap();
+        assert_eq!(app.adapter_version("claude").as_deref(), Some("10.0.0"));
+        assert!(!app.cfg.layout.adapter_pin("claude").exists());
+        let claude = listed(&app, "claude");
+        assert_eq!((claude["current"].as_str(), claude["pinned"].as_bool()), (Some("10.0.0"), Some(false)));
+        assert!(
+            claude["versions"].as_array().unwrap().iter().any(|v| v["version"] == "9.9.9"),
+            "the older version stays for switching back"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What a failure shows is Janus's own wording: the job's reason and the log lines the popover
+    /// shows name neither the install tool, nor the package, nor `node_modules`. The raw log keeps
+    /// the command line for `查看日志`.
+    #[test]
+    fn a_failed_install_keeps_internal_names_out_of_the_reason() {
+        let dir = std::env::temp_dir().join(format!("janus-adapter-safe-reason-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = crate::orchestrator::test_app(&dir);
+        // The test app runs `python3` as the runtime, and its version check refuses it.
+        app.start_adapter_install("claude", Some("10.0.0".into())).unwrap();
+        let mut job = Value::Null;
+        for _ in 0..200 {
+            job = listed(&app, "claude")["job"].clone();
+            if job["state"] != "running" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(job["state"], "error");
+        let detail = job["detail"].as_str().unwrap();
+        for bad in ["npm", "@agentclientprotocol", "node_modules"] {
+            assert!(!detail.to_lowercase().contains(bad), "`{bad}` shown in the reason: {detail}");
+        }
+        let log = std::fs::read_to_string(app.cfg.layout.adapter_log("claude")).unwrap();
+        let notes: Vec<&str> = log.lines().filter(|l| l.starts_with("== ")).collect();
+        assert!(notes.iter().any(|l| l.contains("开始安装 10.0.0")), "the step is in the log: {notes:?}");
+        assert!(!notes.iter().any(|l| l.to_lowercase().contains("npm") || l.contains("@agentclientprotocol")));
+        assert_eq!(listed(&app, "claude")["current"], "9.9.9", "the working version stays current");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -33,11 +33,11 @@ impl SetupKind {
 wire_enum! {
     /// What `/api/adapters/{id}/{action}` does with an adapter.
     enum AdapterAction {
-        /// Install a version (the body's, else the newest).
+        /// Install a version (the body's, else the newest). On a pinned adapter, this resumes
+        /// automatic updates: the pin goes, and the newest version installed is switched to
+        /// without downloading it again.
         Install = "install",
-        /// Ask npm for the newest version.
-        Check = "check",
-        /// Switch to an installed version.
+        /// Switch to an installed version and pin it: automatic updates leave it alone.
         Use = "use",
     }
 }
@@ -187,8 +187,9 @@ pub(super) async fn adapters(State(app): State<Arc<App>>) -> ApiResult {
     reply(app.adapters())
 }
 
-/// `install` (body: optional `version`), `check` for the newest version, or `use` an installed
-/// `version`. Installs and checks run in the background; the app follows `GET /api/adapters`.
+/// `install` (body: optional `version`) or `use` an installed `version`. Installs run in the
+/// background; the app follows `GET /api/adapters`. `use` pins the version; `install` on a pinned
+/// adapter resumes automatic updates.
 pub(super) async fn adapter_action(
     State(app): State<Arc<App>>,
     UrlPath((id, action)): UrlPath<(String, String)>,
@@ -199,7 +200,6 @@ pub(super) async fn adapter_action(
     let version = body["version"].as_str().filter(|v| !v.is_empty()).map(str::to_owned);
     match action {
         AdapterAction::Install => app.start_adapter_install(&id, version),
-        AdapterAction::Check => app.start_adapter_check(&id),
         AdapterAction::Use => app.use_adapter_version(&id, version.as_deref().unwrap_or("")),
     }?;
     reply(app.adapters())

@@ -111,7 +111,6 @@
 "1 小时后" = "In 1 hour";
 "4 小时后" = "In 4 hours";
 "? 问负责人：%@%@ · 负责人会回答，不需要你处理" = "? Question for the lead: %@%@ · The lead will answer";
-"ACP 适配器" = "ACP Adapter";
 "Agent / 模型" = "Agent / Model";
 "Agent 上报的原值；没上报就写「未上报」，不按 Token 估算" = "As reported by the Agent; shows Not reported when missing, never estimated from tokens";
 "输入、缓存读取、缓存写入和输出；为 0 的不列" = "Input, cache reads, cache writes, and output; zeros are left out";
@@ -309,7 +308,6 @@
 "刷新" = "Refresh";
 "加入共享资料…" = "Add to Shared Context…";
 "区间" = "Period";
-"升级到 %@" = "Upgrade to %@";
 "协作者多但没有有效产出：%lld 个协作者，%lld 分钟内没有任何子任务成功" = "No subtasks completed in %2$lld minutes with %1$lld collaborators";
 "协调中" = "Coordinating";
 "原因" = "Reason";
@@ -412,7 +410,6 @@
 "子任务里已有的改动会照常记录成 diff。" = "Existing changes will still be recorded in the diff.";
 "子任务风险 %lld 条" = "Subtask risks: %lld";
 "安装" = "Install";
-"安装中" = "Installing";
 "下载新版、校验签名、替换并重开，一步完成。" = "Downloads, verifies the signature, replaces the app, and reopens, all in one go.";
 "完成" = "Done";
 "完整" = "Complete";
@@ -641,7 +638,6 @@
 "更新内容" = "What’s New";
 "更新到 %@" = "Update to %@";
 "更新失败：%@" = "Update failed: %@";
-"最新 %@%@" = "Latest: %@%@";
 "最新的发布 %@ 没有 update.json，只能下载 DMG 手动安装" = "The latest release, %@, has no update.json. Download the DMG to install it manually.";
 "最近 %lld 个任务：%@" = "Last %lld runs: %@";
 "最近一次核对没有通过：\n%@" = "The most recent verification failed:\n%@";
@@ -654,7 +650,6 @@
 "服务已连接" = "Service Connected";
 "服务每 6 小时检查一次" = "The service checks every 6 hours";
 "未上报" = "Not reported";
-"未安装" = "Not Installed";
 "未完成" = "Incomplete";
 "未开始" = "Not started";
 "未核实" = "Unverified";
@@ -700,7 +695,6 @@
 "检查 Agent" = "Check Agent";
 "检查 Agent 以读取模型" = "Check the Agent to load its models";
 "检查 Janus 的系统权限" = "Review Janus Permissions";
-"检查中" = "Checking";
 "检查中…" = "Checking…";
 "检查于 %@。" = "Checked %@.";
 "检查代码、文件、界面或实际状态得到的结果" = "Result from inspecting code, files, the interface, or the actual state";
@@ -720,7 +714,6 @@
 "模型" = "Model";
 "模式" = "Mode";
 "正在下载 %@（%lld/%lld，%@）…" = "Downloading %@ (%lld/%lld, %@)…";
-"正在下载和构建，完成后自动设为当前版本…" = "Downloading and building. The new version will become active when ready…";
 "正在保存…" = "Saving…";
 "正在同步价格…" = "Syncing prices…";
 "正在启动 Janus 服务…" = "Starting the Janus service…";
@@ -729,7 +722,6 @@
 "正在打断这一轮，马上送达" = "Interrupting this turn to deliver the message";
 "正在拉取…" = "Fetching…";
 "正在更新…" = "Updating…";
-"正在查询最新版本…" = "Looking up the latest version…";
 "正在校验新版本…" = "Verifying the update…";
 "正在检查 %@，读取它的权限模式…" = "Checking %@ to load permission modes…";
 "正在检查…" = "Checking…";
@@ -820,7 +812,6 @@
 "第 %lld 次" = "Attempt %lld";
 "第 %lld 次 · %@" = "Attempt %lld · %@";
 "第 %lld 次尝试" = "Attempt %lld";
-"第一次检查用到它的 Agent 时自动安装。升级或切回版本不影响正在运行的会话。" = "Adapters install the first time you check an Agent that uses them. Upgrading or switching versions leaves active sessions running.";
 "等你拍板" = "Your Call";
 "等你回答" = "Waiting for your answer";
 "等你填写" = "Form Required";
@@ -919,7 +910,6 @@
 "读取模型中…" = "Loading models…";
 "读取用量失败：%@" = "Could not load usage: %@";
 "读取设置失败：%@" = "Could not load settings: %@";
-"读取适配器失败：%@" = "Could not load adapters: %@";
 "调度" = "Scheduling";
 "用工具" = "Using tools";
 "调研这个产品的主要竞品和目标用户，整理定位差异和三个最值得做的机会，给出依据" = "Research this product’s main competitors and target users. Explain how its positioning differs and recommend three opportunities, with evidence.";
@@ -994,7 +984,6 @@
 "还没有数字员工，先去「设置 › 数字员工」建一个。" = "No digital employees yet. Create one in Settings › Digital Employees.";
 "还没有核对这条标准" = "This criterion has not been checked";
 "还没有检查。启动后会自己检查一次。" = "No checks yet. Janus will check after startup.";
-"还没有检查更新" = "Updates not checked yet";
 "还没有检查配置，读到模型后才能给数字员工使用。" = "Check the configuration to load the models available to digital employees.";
 "还没有登录 %@。" = "Not signed in to %@.";
 "还没有登录。" = "Not signed in.";
@@ -1041,7 +1030,6 @@
 "重新读取文件（Agent 可能还在修改它）" = "Reload the file to see changes the Agent may have made";
 "重试" = "Retry";
 "重试会新建尝试，旧记录保留" = "A retry starts a new attempt and retains previous records";
-"重试更新" = "Retry Update";
 "重试策略：%@" = "Retry policy: %@";
 "问负责人" = "Question for the Lead";
 "问题" = "Question";
@@ -1162,7 +1150,6 @@
 "新建" = "New";
 "来源中已删除" = "Removed upstream";
 "还没有通过检查的 Agent。可以先编辑数字员工，Agent 通过检查后才能运行。" = "No Agent has passed its check yet. You can edit digital employees now; they run once an Agent passes.";
-"切回 %@" = "Switch Back to %@";
 "找到 %lld 个 Skill，选择要导入的" = "Found %lld skills. Choose which to import.";
 
 "保存后自动检查：运行时、凭据、启动、会话、一次真实回复，进度看卡片。" = "After saving, it checks the runtime, credentials, startup, session, and one real reply. Progress shows on the card.";
@@ -1388,9 +1375,33 @@
 "停止这一轮" = "Stop This Turn";
 "补充或更正，会插入正在进行的这一轮" = "Add or correct something; it joins the turn in progress";
 
-/* ACP adapter updates */
-"%lld 个 ACP 适配器有新版本" = "ACP adapter updates: %lld";
-"：去「设置 › 数字员工」升级，正在跑的会话不受影响" = ": upgrade in Settings › Digital Employees; running sessions aren't affected";
+/* A runtime line under each Agent: Janus keeps it up to date; the person only ever picks an older version. */
+"运行组件" = "Runtime";
+"切回历史版本" = "Older Versions";
+"切回 %@" = "Switch to %@";
+"不会自动更新" = "Won't Auto-Update";
+"恢复自动更新" = "Resume Auto-Updates";
+"恢复自动更新（%@）" = "Resume Auto-Updates (%@)";
+"更新中…" = "Updating…";
+"已自动更新" = "Auto-Updated";
+"更新没成功" = "Update Didn't Finish";
+"更新没成功，查看原因" = "Update didn't finish. See why.";
+"查看原因" = "See Why";
+"重试更新" = "Try Again";
+"查看日志" = "View Log";
+"最近日志" = "Recent Log";
+"运行组件还没装" = "Runtime Not Installed";
+"安装中…" = "Installing…";
+"安装没成功" = "Installation Didn't Finish";
+"安装没成功，查看原因" = "Installation didn't finish. See why.";
+"运行组件日志" = "Runtime Log";
+"没有更多信息" = "Nothing more to show";
+"已切到 %@，下个会话开始用" = "Switched to %@; the next session uses it";
+"读取运行组件失败：%@" = "Could not load the runtime: %@";
+"Janus 用它启动 Agent。它会自动保持最新，正在跑的会话不受影响。" = "Janus uses it to start Agents. It keeps itself up to date; sessions already running keep their version.";
+"切到装过的版本。同一类 Agent 共用这个组件，切换后从下个会话开始用。" = "Switch to a version that's installed. Agents of the same kind share this runtime; the next session uses it.";
+"你选了这个版本，它不会被自动更新，直到你恢复自动更新。" = "You picked this version, so it won't auto-update until you resume auto-updates.";
+"第一次检查 Agent 时会自动装。装不上时可以在这里再来一次。" = "It installs the first time you check the Agent. If that doesn't work, try again here.";
 "数字员工的指令 · %@" = "Digital Employee Instructions · %@";
 "团队协作指令 · %@" = "Team Instructions · %@";
 "之前的对话 · %@" = "Earlier Conversation · %@";

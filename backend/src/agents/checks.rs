@@ -159,19 +159,19 @@ impl App {
         let c0 = self.connection(id)?;
 
         let outcome: Result<Value> = async {
-            // An agent's adapter is installed the first time it is needed: here, before the check uses it.
+            // An agent's runtime is installed the first time it is needed: here, before the check uses it.
             if let Some(adapter) = crate::adapters::for_base(str_of(&c0, "base")) {
-                self.check_step(id, &mut check, "ACP 适配器", None, format!("检查 {} 的适配器…", adapter.name));
+                self.check_step(id, &mut check, "运行组件", None, "检查运行组件…".into());
                 let app = self.clone();
                 let installed = tokio::task::spawn_blocking(move || app.ensure_adapter(adapter.id)).await?;
                 match installed {
-                    Ok(Some(v)) => self.check_step(id, &mut check, "ACP 适配器", Some(true), format!("已安装 {} {v}", adapter.package)),
+                    Ok(Some(v)) => self.check_step(id, &mut check, "运行组件", Some(true), format!("已安装 {v}")),
                     Ok(None) => {
                         let v = self.adapter_version(adapter.id).unwrap_or_default();
-                        self.check_step(id, &mut check, "ACP 适配器", Some(true), format!("{} {v}", adapter.package));
+                        self.check_step(id, &mut check, "运行组件", Some(true), format!("已安装 {v}"));
                     }
                     Err(err) => {
-                        self.check_step(id, &mut check, "ACP 适配器", Some(false), format!("安装失败：{err:#}"));
+                        self.check_step(id, &mut check, "运行组件", Some(false), format!("安装失败：{err:#}"));
                         return Err(err);
                     }
                 }
@@ -313,7 +313,7 @@ impl App {
             return Ok(());
         }
         let spec = self.spec_for(id)?;
-        let entry = spec.args.first().context("ACP 适配器没有入口文件")?;
+        let entry = spec.args.first().context("运行组件没有入口文件")?;
         let logs = self.cfg.layout.agent_logs(id);
         std::fs::create_dir_all(&logs)?;
         let log = std::fs::File::create(logs.join("login.log"))?;

@@ -14,7 +14,12 @@ struct WorkersSettingsView: View {
             }
             .padding(20)
         }
-        .task { await store.loadAdapters() }
+        // Read the runtime lines once when the page opens, then keep them current while it stays
+        // on screen: the server may check and update an adapter by itself, without the app asking.
+        .task {
+            await store.loadAdapters()
+            await store.watchAdapters()
+        }
     }
 }
 
@@ -216,7 +221,7 @@ struct ConnectionRow: View {
 
 struct CheckList: View {
     let c: JSON
-    static var steps: [String] { [L.text("ACP 适配器"), L.text("运行时"), L.text("凭据"), L.text("启动 Agent"), L.text("打开会话"), L.text("试运行")] }
+    static var steps: [String] { [L.text("运行组件"), L.text("运行时"), L.text("凭据"), L.text("启动 Agent"), L.text("打开会话"), L.text("试运行")] }
 
     var body: some View {
         let done = c["check"].array

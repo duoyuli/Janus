@@ -236,7 +236,24 @@ enum Snapshots {
                             "loops": JSON.array(LoopText.byAttention(store.loops(of: id)).map { $0["id"] }),
                             "goalFocused": JSON(NSApp.windows.contains { $0.firstResponder is ComposerField.TextView && $0.isVisible && $0.canBecomeMain })]
                 }(),
-                "adapterUpdates": JSON.array(store.adapterUpdates.map { $0["id"] }),
+                // Each Agent card's runtime line as the settings page shows it
+                // (docs/architecture/20261031-adapters.md#api_shape): what the server says, the
+                // state word the line derives, what its version menu holds, and — for a failed
+                // install — exactly the two texts the popover shows (the server-worded reason and
+                // Janus's own recent steps), so a test can check neither names the install tool.
+                "adapters": JSON.array(store.adapters["adapters"].array.map { a in
+                    ["id": a["id"], "current": a["current"], "versions": JSON.array(a["versions"].array.map { $0["version"] }),
+                     "pinned": a["pinned"], "latest": a["latest"], "job": a["job"],
+                     "state": JSON(String(describing: AdapterText.state(a, now: L.nowMs(), seen: store.autoUpdateSeen))),
+                     "menuShown": JSON(AdapterText.showsMenu(a)),
+                     "menu": JSON.array(AdapterText.menuItems(a).map { item -> JSON in
+                         switch item {
+                         case .resume(let v): return JSON("resume:\(v)")
+                         case .switchTo(let v): return JSON("switch:\(v)")
+                         }
+                     }),
+                     "reason": a["job"]["detail"], "recent": JSON.array(AdapterText.recentNotes(a).map(JSON.init))]
+                }),
                 // The library's skill tab as shown: the router guide's catalog mode and order, and
                 // each skill's usage line and hints.
                 "skills": [

@@ -12,6 +12,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -131,25 +132,79 @@ def http(addr, method, path, body=None, timeout=30, raw=False, headers=None):
         raise ApiError(e.code, e.read().decode(errors="replace")) from None
 
 
-class Registry:
-    """A stand-in npm registry on 127.0.0.1: what `npm view <package> version` reads when the server
-    runs with `npm_config_registry` pointing here, so its adapter update checks never reach npm.
-    Every package's latest version is the stand-in adapters' until a scenario sets another
-    (`latest[package]`); the packages asked about are recorded in `asked`."""
+def stand_in_shim(python):
+    """The Node script the stand-in adapter package's `bin` points at: it hands stdio to
+    fake_acp.py and exits with its status, so Janus's real Node launch path runs unchanged."""
+    return ("// Stand-in adapter for Janus's end-to-end test: the scripted agent speaks ACP on stdio.\n"
+            "const { spawnSync } = require('child_process');\n"
+            f"const r = spawnSync({json.dumps(python)}, [{json.dumps(FAKE_AGENT)}], {{ stdio: 'inherit' }});\n"
+            "process.exit(r.status === null ? 1 : r.status);\n")
 
-    def __init__(self):
+
+class Registry:
+    """A stand-in npm registry on 127.0.0.1: what the server's adapter checks read when it runs with
+    `npm_config_registry` pointing here, so they never reach npm. Every package's latest version is
+    the stand-in adapters' until a scenario sets another (`latest[package]`); the packages asked
+    about are recorded in `asked`.
+
+    It also serves a tarball for each version it names, built the way `stand_in_adapters` builds
+    the installed directory (a Node script handing stdio to fake_acp.py), with the `dist` hashes
+    npm checks. That lets the automatic update's real `npm install` run against it."""
+
+    def __init__(self, python=None):
+        import base64
+        import hashlib
         import http.server
+        import io
+        import tarfile
         from urllib.parse import unquote
         reg = self
-        self.latest, self.asked = {}, []
+        self.latest, self.asked, self.tarballs = {}, [], {}
+        self.python = python or sys.executable
+
+        def tarball(name, version):
+            """(file name, gzip tar bytes) of one installable package."""
+            key = f"{name.replace('/', '-')}-{version}.tgz"
+            if key not in reg.tarballs:
+                pkg = {"name": name, "version": version, "bin": {name.split("/")[-1]: "shim.js"}}
+                shim = stand_in_shim(reg.python)
+                buf = io.BytesIO()
+                with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+                    for path, text in (("package/package.json", json.dumps(pkg)), ("package/shim.js", shim)):
+                        data = text.encode()
+                        info = tarfile.TarInfo(path)
+                        info.size, info.mode, info.mtime = len(data), 0o644, 0
+                        tar.addfile(info, io.BytesIO(data))
+                reg.tarballs[key] = buf.getvalue()
+            return key, reg.tarballs[key]
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
-                name = unquote(self.path.lstrip("/").split("?", 1)[0])
+                path = unquote(self.path.split("?", 1)[0])
+                if path.startswith("/tarballs/"):
+                    data = reg.tarballs.get(path[len("/tarballs/"):])
+                    if data is None:
+                        self.send_error(404)
+                        return
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                name = path.lstrip("/")
                 reg.asked.append(name)
-                v = reg.latest.get(name, STAND_IN_VERSION)
-                body = json.dumps({"name": name, "dist-tags": {"latest": v}, "versions": {v: {"name": name, "version": v}},
-                                   "time": {v: "2026-11-20T00:00:00.000Z"}}).encode()
+                latest = reg.latest.get(name, STAND_IN_VERSION)
+                versions = {}
+                for v in dict.fromkeys([STAND_IN_VERSION, latest]):
+                    key, data = tarball(name, v)
+                    versions[v] = {"name": name, "version": v, "dist": {
+                        "tarball": f"{reg.url}tarballs/{key}",
+                        "shasum": hashlib.sha1(data).hexdigest(),
+                        "integrity": "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode(),
+                    }}
+                body = json.dumps({"name": name, "dist-tags": {"latest": latest}, "versions": versions,
+                                   "time": {v: "2026-11-20T00:00:00.000Z" for v in versions}}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -162,6 +217,11 @@ class Registry:
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}/"
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def close(self):
+        """Stop answering: a scenario uses this to make the next real `npm install` fail offline."""
+        self.httpd.shutdown()
+        self.httpd.server_close()
 
 
 class Server:
@@ -306,10 +366,12 @@ def stand_in_adapters(home, python):
         with open(os.path.join(pkg, "package.json"), "w") as f:
             json.dump({"name": package, "version": STAND_IN_VERSION, "bin": {package.split("/")[-1]: "shim.js"}}, f)
         with open(os.path.join(pkg, "shim.js"), "w") as f:
-            f.write("// Stand-in adapter for Janus's end-to-end test: the scripted agent speaks ACP on stdio.\n"
-                    "const { spawnSync } = require('child_process');\n"
-                    f"const r = spawnSync({json.dumps(python)}, [{json.dumps(FAKE_AGENT)}], {{ stdio: 'inherit' }});\n"
-                    "process.exit(r.status === null ? 1 : r.status);\n")
+            f.write(stand_in_shim(python))
+        # What Janus writes after a real install: a version without it is not listed and cannot be
+        # switched to.
+        with open(os.path.join(d, STAND_IN_VERSION, ".janus-adapter.json"), "w") as f:
+            json.dump({"id": id_, "version": STAND_IN_VERSION, "ref": STAND_IN_VERSION,
+                       "package": package, "installedAt": 1}, f)
         link = os.path.join(d, "current")
         if not os.path.islink(link):
             os.symlink(STAND_IN_VERSION, link)

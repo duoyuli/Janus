@@ -423,51 +423,175 @@ struct RoleEditor: View {
     }
 }
 
-/// ACP adapters: installed on demand into Janus home, one directory per version.
-/// A card's ACP adapter line: the version in use, upgrading, checking and switching back. Janus
-/// installs it the first time an Agent that needs it is checked; changing it leaves running
-/// sessions alone.
+/// A card's runtime line: the version Janus starts this kind of Agent with, and a quiet menu back
+/// to an installed version. Janus keeps it up to date in the background, so the line stays out of
+/// the way; only an update that did not finish asks for a look.
+// @project-doc docs/architecture/20261031-adapters.md#api_shape
 struct AdapterLine: View {
     let store: AppStore
     let a: JSON
+    @Local private var why = false
+    /// Ticks when "已自动更新" runs out, so the word goes without another change on the page.
+    @Local private var tick = false
+
+    private var id: String { a["id"].str }
+    private var running: Bool { AdapterText.running(a) }
+    private var state: AdapterText.State {
+        _ = tick
+        return AdapterText.state(a, now: L.nowMs(), seen: store.autoUpdateSeen)
+    }
 
     var body: some View {
-        let job = a["job"]
-        let running = job["state"].str == "running"
-        let src = a["source"]["kind"].str == "npm" ? "npm · \(a["source"]["package"].str)" : "GitHub · \(a["source"]["repo"].str.replacingOccurrences(of: "https://github.com/", with: ""))"
-        let prev = a["versions"].array.first { !$0["current"].truthy }
-        let id = a["id"].str
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "shippingbox").foregroundStyle(.secondary).help(src)
-                Text(L.text("ACP 适配器")).font(.caption).foregroundStyle(.secondary)
-                Text(a["current"].truthy ? a["current"].str : "—").font(.system(.caption, design: .monospaced))
-                if running { Pill(job["action"].str == "install" ? L.text("安装中") : L.text("检查中"), .blue) }
-                else if !a["current"].truthy { Pill(L.text("未安装")) }
-                else if a["updateAvailable"].truthy { Pill(L.text("有新版本"), .amber) }
-                Text(a["latest"].truthy ? L.text("最新 \(a["latest"].str)\(a["checkedAt"].truthy ? L.text(" · \(L.clock(a["checkedAt"].double ?? 0)) 检查") : "")") : L.text("还没有检查更新"))
-                    .font(.caption).foregroundStyle(.tertiary).lineLimit(1)
-                Spacer()
-                if let p = prev {
-                    Button(L.text("切回 \(p["version"].str)")) { Task { await store.adapterAction(id, .use, version: p["version"].str) } }
-                        .buttonStyle(.link).font(.caption).disabled(running)
-                }
-                if !a["current"].truthy {
-                    Button(L.text("安装")) { Task { await store.adapterAction(id, .install) } }.controlSize(.small).disabled(running)
-                } else {
-                    if a["updateAvailable"].truthy { Button(String(L.text("升级到 \(a["latest"].str)"))) { Task { await store.adapterAction(id, .install) } }.buttonStyle(.primary).controlSize(.small).disabled(running) }
-                    Button(L.text("检查更新")) { Task { await store.adapterAction(id, .check) } }.controlSize(.small).disabled(running)
-                }
+        HStack(spacing: 8) {
+            info
+            if state == .failed || state == .installFailed {
+                let failed = state == .installFailed
+                Text(failed ? L.text("安装没成功") : L.text("更新没成功"))
+                    .font(.caption).foregroundStyle(Tone.red.color)
+                    .accessibilityHidden(true)
+                Button(L.text("查看原因")) { why.toggle() }
+                    .buttonStyle(.link).font(.caption)
+                    // One element to reach and open the popover from the keyboard or VoiceOver.
+                    .accessibilityLabel(failed ? L.text("安装没成功，查看原因") : L.text("更新没成功，查看原因"))
+                    .popover(isPresented: $why) { reason }
             }
-            if running {
-                Text(job["action"].str == "install" ? L.text("正在下载和构建，完成后自动设为当前版本…") : L.text("正在查询最新版本…")).font(.caption).foregroundStyle(.secondary)
-                if a["log"].truthy { CodeBlock(text: a["log"].str, maxHeight: 140) }
-            } else if job["state"].str == "error" {
-                Note(text: job["detail"].str, tone: .red)
-                if a["log"].truthy { CodeBlock(text: a["log"].str, maxHeight: 140) }
+            Spacer(minLength: 8)
+            if AdapterText.showsMenu(a) {
+                menu
+            } else if state == .notInstalled || state == .installFailed {
+                Button(L.text("安装")) { Task { await store.adapterAction(id, .install) } }
+                    .buttonStyle(.link).font(.caption).disabled(running)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .help(L.text("第一次检查用到它的 Agent 时自动安装。升级或切回版本不影响正在运行的会话。"))
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .help(hover)
+        .task(id: AdapterText.autoUpdatedKey(a)) {
+            guard let until = AdapterText.autoUpdatedUntil(a) else { return }
+            let wait = until - L.nowMs()
+            guard wait > 0 else { return }
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000))
+            if !Task.isCancelled { tick.toggle() }
+        }
+        .onDisappear { store.acknowledgeAutoUpdate(a) }
+    }
+
+    /// The label, the version and the one short word that belongs with them. A failure is a button
+    /// of its own, so it stays outside this group.
+    private var info: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "shippingbox").font(.caption).foregroundStyle(.tertiary)
+            if a["current"].truthy {
+                Text(L.text("运行组件")).font(.caption).foregroundStyle(.secondary)
+                Text(a["current"].str).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                if let word {
+                    Text(word).font(.caption).foregroundStyle(.secondary)
+                }
+                if a["pinned"].truthy { Text(L.text("不会自动更新")).font(.caption).foregroundStyle(.secondary) }
+            } else if let word {
+                // "运行组件还没装" or "安装中…" says what the label would say, once.
+                Text(word).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLine)
+    }
+
+    /// The state word that belongs on the line itself, if this state has one.
+    private var word: String? {
+        switch state {
+        case .updating: return L.text("更新中…")
+        case .installing: return L.text("安装中…")
+        case .autoUpdated: return L.text("已自动更新")
+        case .notInstalled: return L.text("运行组件还没装")
+        default: return nil
+        }
+    }
+
+    /// What VoiceOver reads for the row as one element. The menu is an element of its own (its
+    /// action must stay reachable), so the row names it too: 「运行组件 <版本>，切回历史版本」,
+    /// with 「不会自动更新」 while the version is pinned (P1 AC-16).
+    private var accessibilityLine: String {
+        var parts: [String]
+        if a["current"].truthy {
+            parts = [L.text("运行组件"), a["current"].str]
+            if let word { parts.append(word) }
+            if a["pinned"].truthy { parts.append(L.text("不会自动更新")) }
+        } else {
+            parts = [word ?? L.text("运行组件")]
+        }
+        if AdapterText.showsMenu(a) { parts.append(L.text("切回历史版本")) }
+        return parts.joined(separator: L.text("，"))
+    }
+
+    /// The version menu: a native menu, so Tab reaches it, Space or Return opens it and Esc closes
+    /// it. A plain button style keeps it grey like the rest of the line instead of brand blue.
+    private var menu: some View {
+        Menu {
+            ForEach(AdapterText.menuItems(a), id: \.self) { item in
+                switch item {
+                case .resume(let latest):
+                    Button(latest.isEmpty ? L.text("恢复自动更新") : L.text("恢复自动更新（\(latest)）")) {
+                        Task { await store.adapterAction(id, .install) }
+                    }
+                    if !AdapterText.others(a).isEmpty { Divider() }
+                case .switchTo(let version):
+                    Button(L.text("切回 \(version)")) {
+                        Task { await store.adapterAction(id, .use, version: version) }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text(L.text("切回历史版本"))
+                Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).accessibilityHidden(true)
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, 4).padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .hoverable(4)
+        .disabled(running)
+        .help(L.text("切到装过的版本。同一类 Agent 共用这个组件，切换后从下个会话开始用。"))
+        .accessibilityLabel(L.text("切回历史版本"))
+    }
+
+    /// What a failed update or install shows when the person asks why: the server-worded reason,
+    /// Janus's own recent steps, a retry and the whole log. The popover never shows the install
+    /// tool's command line or output; 「查看日志」 opens the complete log instead (P1 AC-15).
+    private var reason: some View {
+        let recent = AdapterText.recentNotes(a)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(a["job"]["detail"].truthy ? a["job"]["detail"].str : L.text("没有更多信息"))
+                .font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            if !recent.isEmpty {
+                DisclosureGroup(L.text("最近日志")) {
+                    CodeBlock(text: recent.joined(separator: "\n"), maxHeight: 160)
+                }
+                .disclosureGroupStyle(.row)
+            }
+            HStack(spacing: 14) {
+                Button(state == .installFailed ? L.text("安装") : L.text("重试更新")) {
+                    why = false
+                    Task { await store.adapterAction(id, .install) }
+                }
+                .disabled(running)
+                Button(L.text("查看日志")) {
+                    ArtifactWindow.open(path: JanusHome.current().adapterLog(id).path, title: L.text("运行组件日志"))
+                }
+                .buttonStyle(.link)
+            }
+        }
+        .padding(12)
+        .frame(width: 420)
+    }
+
+    private var hover: String {
+        if !a["current"].truthy { return L.text("第一次检查 Agent 时会自动装。装不上时可以在这里再来一次。") }
+        if a["pinned"].truthy { return L.text("你选了这个版本，它不会被自动更新，直到你恢复自动更新。") }
+        return L.text("Janus 用它启动 Agent。它会自动保持最新，正在跑的会话不受影响。")
     }
 }

@@ -246,6 +246,12 @@ impl Layout {
         self.logs().join("adapters").join(format!("{id}.log"))
     }
 
+    /// The version the person switched to by hand: automatic updates leave it alone while this
+    /// file names it. No file means the adapter follows the newest version.
+    pub fn adapter_pin(&self, id: &str) -> PathBuf {
+        self.adapters().join(id).join("pinned")
+    }
+
     /// Model prices from models.dev.
     pub fn prices(&self) -> PathBuf {
         self.cache().join("prices.json")
