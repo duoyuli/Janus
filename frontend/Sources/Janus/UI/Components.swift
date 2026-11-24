@@ -39,6 +39,9 @@ extension Color {
     static let line = Color(light: "#e1e6ec", dark: "#3a3f4a")
     /// The sidebar: one step off the page, in the same family as the cards.
     static let sidebar = Color(light: "#e9edf2", dark: "#21252b")
+    /// Team memory's own mark (One Dark's cyan): apart from the shared material's blue and the
+    /// Loops' violet, which sit on the same page.
+    static let memory = Color(light: "#0b7285", dark: "#56b6c2")
 }
 
 extension Font {
@@ -253,38 +256,50 @@ struct Bar: View {
 /// A text field that grows with its content, sent with the key chosen in Settings › 通用
 /// (`SendKey`, ⌘↩ unless changed). Given `images`, it also takes
 /// images: ⌘V pastes a screenshot or image files copied in Finder, images can be dropped on it,
-/// and the paperclip picks files. They show as thumbnails above the text until sent.
-struct Composer: View {
+/// and the paperclip picks files. They show as thumbnails above the text until sent. Given a
+/// `footer` (the page's send button), the box ends in a bar: the paperclip at its start, the
+/// footer after it.
+struct Composer<Footer: View>: View {
     @Binding var text: String
-    var images: Binding<[PastedImage]>? = nil
+    var images: Binding<[PastedImage]>?
     var placeholder: String
-    var disabled = false
-    var minHeight: CGFloat = 60
+    var disabled: Bool
+    var minHeight: CGFloat
     /// Each change puts the cursor here (and scrolls to it).
-    var focus = 0
+    var focus: Int
+    /// Takes the keyboard as it first appears, so the person can type at once.
+    var focusOnAppear: Bool
     var onSubmit: () -> Void
+    var footer: Footer
     @Local private var height: CGFloat = 0
     private var sendKey: SendKey { SendKeySetting.shared.value }
+
+    init(text: Binding<String>, images: Binding<[PastedImage]>? = nil, placeholder: String, disabled: Bool = false, minHeight: CGFloat = 60,
+         focus: Int = 0, focusOnAppear: Bool = false, onSubmit: @escaping () -> Void, @ViewBuilder footer: () -> Footer) {
+        _text = text
+        self.images = images
+        self.placeholder = placeholder
+        self.disabled = disabled
+        self.minHeight = minHeight
+        self.focus = focus
+        self.focusOnAppear = focusOnAppear
+        self.onSubmit = onSubmit
+        self.footer = footer()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let images, !images.wrappedValue.isEmpty { AttachmentStrip(images: images) }
-            HStack(alignment: .bottom, spacing: 6) {
-                ZStack(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text(placeholder).foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
-                    }
-                    ComposerField(text: $text, height: $height, disabled: disabled, sendKey: sendKey, focus: focus, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
-                        .frame(height: max(minHeight, min(max(height, 18), 240)))
-                        .accessibilityLabel(placeholder)
+            if Footer.self == EmptyView.self {
+                HStack(alignment: .bottom, spacing: 6) {
+                    field
+                    clip
                 }
-                if let images {
-                    Button { pick(into: images) } label: { Image(systemName: "paperclip") }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .disabled(disabled || images.wrappedValue.count >= Attach.maxImages)
-                        .help(L.text("添加图片（也可以直接 ⌘V 粘贴截图，或把图片拖进来）"))
-                        .accessibilityLabel(L.text("添加图片"))
+            } else {
+                field
+                HStack(spacing: 8) {
+                    clip
+                    footer
                 }
             }
         }
@@ -293,6 +308,28 @@ struct Composer: View {
         .background(Color.soft, in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.line))
         .opacity(disabled ? 0.6 : 1)
+    }
+
+    private var field: some View {
+        ZStack(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(placeholder).foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
+            }
+            ComposerField(text: $text, height: $height, disabled: disabled, sendKey: sendKey, focus: focus, focusOnAppear: focusOnAppear, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
+                .frame(height: max(minHeight, min(max(height, 18), 240)))
+                .accessibilityLabel(placeholder)
+        }
+    }
+
+    @ViewBuilder private var clip: some View {
+        if let images {
+            Button { pick(into: images) } label: { Image(systemName: "paperclip") }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .disabled(disabled || images.wrappedValue.count >= Attach.maxImages)
+                .help(L.text("添加图片（也可以直接 ⌘V 粘贴截图，或把图片拖进来）"))
+                .accessibilityLabel(L.text("添加图片"))
+        }
     }
 
     private func add(_ new: [PastedImage], to images: Binding<[PastedImage]>) {
@@ -308,6 +345,13 @@ struct Composer: View {
         panel.message = L.text("选择要附上的图片")
         guard panel.runModal() == .OK else { return }
         add(panel.urls.compactMap { Attach.prepare(try? Data(contentsOf: $0), name: $0.lastPathComponent) }, to: images)
+    }
+}
+
+extension Composer where Footer == EmptyView {
+    init(text: Binding<String>, images: Binding<[PastedImage]>? = nil, placeholder: String, disabled: Bool = false, minHeight: CGFloat = 60,
+         focus: Int = 0, onSubmit: @escaping () -> Void) {
+        self.init(text: text, images: images, placeholder: placeholder, disabled: disabled, minHeight: minHeight, focus: focus, onSubmit: onSubmit) { EmptyView() }
     }
 }
 
@@ -372,6 +416,7 @@ struct ComposerField: NSViewRepresentable {
     var disabled: Bool
     var sendKey: SendKey
     var focus = 0
+    var focusOnAppear = false
     var onImages: (([PastedImage]) -> Void)?
     var onSubmit: () -> Void
 
@@ -379,6 +424,19 @@ struct ComposerField: NSViewRepresentable {
         var onImages: (([PastedImage]) -> Void)?
         var onSubmit: () -> Void = {}
         var sendKey = SendKey.standard
+        /// Take the keyboard once, when first shown in a window.
+        var focusWhenShown = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard focusWhenShown, let window else { return }
+            focusWhenShown = false
+            DispatchQueue.main.async { [weak self] in
+                // Not from under a sheet, nor from a field the person is already typing in.
+                guard let self, window.attachedSheet == nil, !(window.firstResponder is NSTextView) else { return }
+                window.makeFirstResponder(self)
+            }
+        }
         /// Where ⌘V and Edit > Paste read from; a test gives it a pasteboard of its own.
         var pasteboard: NSPasteboard = .general
 
@@ -496,6 +554,7 @@ struct ComposerField: NSViewRepresentable {
         tv.textContainer?.widthTracksTextView = true
         tv.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         tv.registerForDraggedTypes([.fileURL, .png, .tiff])
+        tv.focusWhenShown = focusOnAppear
         scroll.documentView = tv
         return scroll
     }

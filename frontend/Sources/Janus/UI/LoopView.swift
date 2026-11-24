@@ -25,64 +25,107 @@ enum LoopText {
     /// How many runs it dispatched, from the server's counts by status.
     static func dispatchedCount(_ l: JSON) -> Int { l["status"]["dispatched"].object.values.reduce(0) { $0 + ($1.int ?? 0) } }
 
-    /// The phase as a pill: sleeping (with when it wakes), awake, paused, failed.
-    static func phase(_ l: JSON) -> (String, Tone) {
+    /// The order of a workspace's Loops: one that failed first, then those at work, then the
+    /// sleeping ones by when they wake next (those without a time after them), the paused last.
+    static func byAttention(_ loops: [JSON]) -> [JSON] {
+        func rank(_ l: JSON) -> Int {
+            switch l["status"]["phase"].str {
+            case "failed": return 0
+            case "awake": return 1
+            case "paused": return 3
+            default: return 2
+            }
+        }
+        return loops.enumerated().sorted { a, b in
+            let (ra, rb) = (rank(a.element), rank(b.element))
+            if ra != rb { return ra < rb }
+            let (wa, wb) = (a.element["status"]["nextWakeAt"].double ?? .infinity, b.element["status"]["nextWakeAt"].double ?? .infinity)
+            return wa != wb ? wa < wb : a.offset < b.offset
+        }.map(\.element)
+    }
+
+    /// The phase as a pill: sleeping (with when it wakes, unless `short`), awake, paused, failed.
+    static func phase(_ l: JSON, short: Bool = false) -> (String, Tone) {
         let s = l["status"]
         switch s["phase"].str {
         case "awake": return (L.text("干活中"), .blue)
         case "paused": return (L.text("已暂停"), .gray)
         case "failed": return (L.text("出错了"), .red)
         default:
-            if let at = s["nextWakeAt"].double { return (L.text("摸鱼中 · \(when(at)) 开工"), .gray) }
+            if !short, let at = s["nextWakeAt"].double { return (L.text("摸鱼中 · \(when(at)) 开工"), .gray) }
             return (L.text("摸鱼中"), .gray)
         }
     }
 }
 
-/// The Loops of one workspace, between what waits on the person and the task records.
+/// The Loops of one workspace, the right-hand column of its page (under what waits on the person
+/// when the window is narrow). One compact row each, the ones to look at first on top; a few at a
+/// time, the rest a click away.
+// @project-doc docs/architecture/20261031-frontend.md#loops
 struct LoopSection: View {
     let store: AppStore
     let ws: JSON
+    @Local private var all = false
+    static let shown = 4
 
     var body: some View {
-        let loops = store.loops(of: ws["id"].str)
+        let loops = LoopText.byAttention(store.loops(of: ws["id"].str))
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(L.text("值班")).font(.headline)
-                // What a Loop is, until there is one to show it.
-                if loops.isEmpty {
-                    Text(L.text("按时间表开工：看一眼、做判断，要改的事派成任务")).font(.callout).foregroundStyle(.secondary)
-                }
                 Spacer()
                 IconButton(symbol: "plus", label: L.text("新建值班")) { store.editingLoop = AppStore.blankLoop(ws["id"].str) }
             }
-            if !loops.isEmpty {
+            // What a Loop is, until there is one to show it.
+            if loops.isEmpty {
+                Text(L.text("按时间表开工：看一眼、做判断，要改的事派成任务")).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
                 Card(padding: 4) {
-                    ForEach(loops, id: \.self) { l in
-                        let (label, tone) = LoopText.phase(l)
-                        Button { store.open(.run(l["run"].str)) } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 10) {
-                                    LoopBadge()
-                                    Text(l["title"].str).lineLimit(1)
-                                    Text(LoopText.schedule(l)).font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Pill(label, tone)
-                                }
-                                if let last = l["status"]["lastSummary"].string, !last.isEmpty {
-                                    Text(L.text("上次：\(last)")).font(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.leading, 34)
-                                }
-                            }
-                            .padding(.horizontal, 10).padding(.vertical, 8)
-                            .contentShape(Rectangle())
-                            .hoverable(6)
-                        }
-                        .buttonStyle(.plain)
-                        if l != loops.last { Divider() }
+                    let rows = all ? loops : Array(loops.prefix(Self.shown))
+                    ForEach(rows, id: \.self) { l in
+                        row(l)
+                        if l != rows.last { Divider() }
+                    }
+                    if loops.count > Self.shown {
+                        Divider()
+                        Button(all ? L.text("收起") : L.text("展开全部（\(loops.count)）")) { all.toggle() }
+                            .buttonStyle(.link).font(.caption)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
                     }
                 }
             }
         }
+    }
+
+    /// Name and state, then the schedule (with when it wakes next) and the first line of what it
+    /// said last; one line each. The column is narrow, so the pill keeps to the state alone.
+    private func row(_ l: JSON) -> some View {
+        let (label, tone) = LoopText.phase(l, short: true)
+        let wakes = l["status"]["phase"].str == "sleeping" ? l["status"]["nextWakeAt"].double.map { L.text("\(LoopText.when($0)) 开工") } : nil
+        let schedule = [LoopText.schedule(l), wakes].compactMap { $0 }.joined(separator: " · ")
+        let last = l["status"]["lastSummary"].str
+        return Button { store.open(.run(l["run"].str)) } label: {
+            HStack(alignment: .top, spacing: 8) {
+                LoopBadge(size: 20)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(l["title"].str).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Pill(label, tone)
+                    }
+                    Text(verbatim: schedule).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if !last.isEmpty {
+                        Text(L.text("上次：\(last)")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .hoverable(6)
+        }
+        .buttonStyle(.plain)
+        .help([l["title"].str, schedule, label, last.isEmpty ? "" : L.text("上次：\(last)")].filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 }
 

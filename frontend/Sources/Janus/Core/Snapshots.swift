@@ -206,8 +206,14 @@ enum Snapshots {
                     guard case .home(let id) = store.screen, let w = store.workspace(id) else { return .null }
                     let waiting = store.waiting(in: w)
                     let hidden = Set(waiting.map(\.id))
+                    let knowledge = HomeView.knowledge(w, store: store)
                     return ["waiting": JSON.array(waiting.map { ["run": JSON($0.id), "loop": $0.loop?["id"] ?? .null, "label": JSON($0.label), "items": JSON($0.entries.count)] }),
-                            "records": JSON.array((store.histories[id]?.runs ?? []).filter { !hidden.contains($0["id"].str) }.map { $0["id"] })]
+                            "records": JSON.array((store.histories[id]?.runs ?? []).filter { !hidden.contains($0["id"].str) }.map { $0["id"] }),
+                            // What the two tiles beside the name say, the Loops in the order of their
+                            // column, and whether the goal box has the keyboard.
+                            "brief": JSON(knowledge.brief), "memory": JSON(knowledge.memory),
+                            "loops": JSON.array(LoopText.byAttention(store.loops(of: id)).map { $0["id"] }),
+                            "goalFocused": JSON(NSApp.windows.contains { $0.firstResponder is ComposerField.TextView && $0.isVisible && $0.canBecomeMain })]
                 }(),
                 "adapterUpdates": JSON.array(store.adapterUpdates.map { $0["id"] }),
                 // The library's skill tab as shown: the router guide's catalog mode and order, and

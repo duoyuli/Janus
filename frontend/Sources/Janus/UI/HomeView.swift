@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// A workspace, all of it on one page (the sidebar only lists workspaces): who it is and a goal to
-/// start, with what the workspace's runs know beside them (the shared material every run is given,
-/// the team memory its agents search); then what waits on the person, its Loops and its task
-/// records, in that order.
+/// A workspace, all of it on one page (the sidebar only lists workspaces). The goal to start is
+/// what the page is for: a wide box right under who the workspace is, with the keyboard in it.
+/// Beside the name, what the workspace's runs know (the shared material every run is given, the
+/// team memory its agents search); under the box, what waits on the person and the task records,
+/// with the Loops in a column of their own.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct HomeView: View {
     let store: AppStore
@@ -28,23 +29,18 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // The workspace's own problems below say the same, more precisely.
                 if problems.isEmpty { OnboardingBar(store: store) }
-                // What the workspace's runs know, the person's shared material and the agents' team
-                // memory, beside the name and the goal when there is room, under the name when not.
+                // Who the workspace is, and what its runs know beside it; under it when there is no room.
                 ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 20) {
-                            identity(members)
-                            composer(problems, runs: runs)
-                        }
-                        .frame(minWidth: 0, idealWidth: 380, maxWidth: .infinity, alignment: .leading)
-                        context.frame(width: 300)
+                    HStack(alignment: .center, spacing: 24) {
+                        identity(members).frame(minWidth: 0, idealWidth: 320, maxWidth: .infinity, alignment: .leading)
+                        knowledge
                     }
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 14) {
                         identity(members)
-                        context
-                        composer(problems, runs: runs)
+                        knowledge
                     }
                 }
+                composer(problems, runs: runs)
                 // One line per cause, with the place that fixes it.
                 ForEach(problems, id: \.text) { p in
                     HStack {
@@ -52,60 +48,131 @@ struct HomeView: View {
                         Button(p.action) { store.openSettings(p.tab) }
                     }
                 }
-
-                if !waiting.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        let n = waiting.reduce(0) { $0 + $1.entries.count }
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(L.text("待处理")).font(.headline)
-                            Text(verbatim: "\(n)").font(.headline).foregroundStyle(Tone.amber.color).accessibilityLabel(L.text("\(n) 项"))
+                // The Loops in a column of their own beside what waits and the records; under what
+                // waits, above the records (which read on as they scroll), when there is no room.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 20) {
+                            waitingBlock(waiting)
+                            WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
                         }
-                        WaitingRows(store: store, rows: waiting)
+                        .frame(minWidth: 0, idealWidth: 480, maxWidth: .infinity, alignment: .leading)
+                        LoopSection(store: store, ws: ws).frame(width: 270)
+                    }
+                    VStack(alignment: .leading, spacing: 20) {
+                        waitingBlock(waiting)
+                        LoopSection(store: store, ws: ws)
+                        WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
                     }
                 }
-
-                LoopSection(store: store, ws: ws)
-
-                WorkspaceHistory(store: store, workspace: ws["id"].str, hiding: Set(waiting.map(\.id)))
             }
             .padding(24)
-            .frame(maxWidth: 820, alignment: .leading)
+            .frame(maxWidth: 960, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
     }
 
-    /// The goal to start: what the page is for, right under the workspace's name.
-    private func composer(_ problems: [Problem], runs: [JSON]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }), placeholder: L.text("想要什么结果？⌘V 贴截图 · \(sendKey.symbol) 交给负责人"), minHeight: 96) { start(problems) }
-            HStack {
-                // Examples only help before the first run.
-                if runs.isEmpty {
-                    ForEach(suggestions, id: \.0) { s in
-                        Button(s.0) { store.goalDraft = s.1 }.buttonStyle(.bordered).controlSize(.small).help(s.1)
-                    }
+    /// What waits on the person here, the same as the inbox and the count in the sidebar; those
+    /// runs are listed here only, not again in the task records.
+    @ViewBuilder private func waitingBlock(_ waiting: [WaitingRow]) -> some View {
+        if !waiting.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                let n = waiting.reduce(0) { $0 + $1.entries.count }
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(L.text("待处理")).font(.headline)
+                    Text(verbatim: "\(n)").font(.headline).foregroundStyle(Tone.amber.color).accessibilityLabel(L.text("\(n) 项"))
                 }
+                WaitingRows(store: store, rows: waiting)
+            }
+        }
+    }
+
+    /// The goal to start: what the page is for, wide, with the keyboard in it as the page opens.
+    /// The send button is in the box, at the end of its bar.
+    private func composer(_ problems: [Problem], runs: [JSON]) -> some View {
+        let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
+        return VStack(alignment: .leading, spacing: 10) {
+            Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }),
+                     placeholder: L.text("想要什么结果？"), minHeight: 110, focusOnAppear: true) { start(problems) } footer: {
+                Text(L.text("可以 ⌘V 贴截图")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
+                Text(verbatim: sendKey.symbol).font(.caption).foregroundStyle(.secondary)
                 Button(L.text("交给负责人")) { start(problems) }
                     .buttonStyle(.primary)
                     .disabled(!problems.isEmpty || empty)
                     .help(!problems.isEmpty ? L.text("还有数字员工不能运行") : empty ? L.text("先写下你想要的结果") : sendKey.symbol)
             }
+            // Examples only help before the first run.
+            if runs.isEmpty {
+                HStack {
+                    ForEach(suggestions, id: \.0) { s in
+                        Button(s.0) { store.goalDraft = s.1 }.buttonStyle(.bordered).controlSize(.small).help(s.1)
+                    }
+                }
+            }
         }
     }
 
-    /// The shared material and the team memory, one card each: what the workspace's runs know. The
+    /// The shared material and the team memory, a tile each: what the workspace's runs know. The
     /// person writes the one, which every run is given; the agents write the other and search it
-    /// when they need it.
-    private var context: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sharedMaterial
-            MemoryCard(store: store, ws: ws)
+    /// when they need it. Each says whether there is anything and how it reaches the agents; a
+    /// click shows it.
+    private var knowledge: some View {
+        let id = ws["id"].str
+        let status = Self.knowledge(ws, store: store)
+        return HStack(spacing: 10) {
+            KnowledgeTile(symbol: "doc.text", tint: .accent, title: L.text("共享资料"), status: status.brief, way: L.text("每个任务都带上")) { leave in
+                sharedMaterial(ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines), leave: leave)
+            }
+            KnowledgeTile(symbol: "brain", tint: .memory, title: L.text("团队记忆"), status: status.memory, way: L.text("需要时检索")) { leave in
+                MemoryPanel(store: store, ws: ws, leave: leave)
+            }
+        }
+        .fixedSize()
+        .task(id: id) { await store.loadMemories(id) }
+    }
+
+    /// What the two tiles say there is: how long the shared material is, how many notes the team
+    /// memory holds (or that it is being consolidated).
+    static func knowledge(_ ws: JSON, store: AppStore) -> (brief: String, memory: String) {
+        let brief = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = store.notes(of: ws["id"].str).count
+        let consolidating = store.memories[ws["id"].str]?["consolidation"]["running"].string != nil
+        return (brief.isEmpty ? L.text("还没写") : L.text("\(brief.count) 字"),
+                consolidating ? L.text("整理中") : notes == 0 ? L.text("还没有笔记") : L.text("\(notes) 条笔记"))
+    }
+
+    /// The workspace's shared material, in the popover of its tile. It is edited in its own sheet
+    /// (`BriefEditor`), apart from the team.
+    // @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
+    private func sharedMaterial(_ brief: String, leave: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(L.text("共享资料")).font(.headline)
+                HowItWorks(title: L.text("共享资料"), lines: [
+                    L.text("你写的，只有你能改；Agent 不能直接写进来。"),
+                    L.text("每个任务开始时原样交给负责人和每个协作者，值班开工时也带上；和本次目标冲突时以目标为准。"),
+                    L.text("任务开始时就固定下来，之后的修改从下一个任务起生效。"),
+                    L.text("负责人交付时会建议值得长期保留的新事实，你点「加入共享资料…」、确认保存后才写入。"),
+                ])
+                Spacer()
+                IconButton(symbol: brief.isEmpty ? "plus" : "square.and.pencil",
+                           label: brief.isEmpty ? L.text("添加共享资料") : L.text("编辑共享资料"),
+                           help: L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")) { leave(); store.editingBrief = ws }
+            }
+            if brief.isEmpty {
+                Text(L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView {
+                    Text(brief).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 360)
+            }
         }
     }
 
-    /// The name, the folder and the team in one line; models, permissions and tools are in the
+    /// The name, the folder and the team, one under the other; models, permissions and tools are in the
     /// workspace settings, reached from the 「工作区操作」 menu beside the name (one way in, not two).
     private func identity(_ members: [(JSON, JSON?)]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -118,7 +185,7 @@ struct HomeView: View {
                     } label: { Label(L.text("工作区操作"), systemImage: "ellipsis.circle") }
                     .labelStyle(.iconOnly).menuStyle(.borderlessButton).fixedSize().help(L.text("工作区操作"))
                 }
-                Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).help(ws["path"].str).textSelection(.enabled)
+                Text(L.tilde(ws["path"].str)).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(ws["path"].str).textSelection(.enabled)
             }
             team(members)
         }
@@ -148,41 +215,6 @@ struct HomeView: View {
         }
     }
 
-    /// The workspace's shared material, beside its name and above everything that is given it
-    /// (goals and Loops). It is edited in its own sheet (`BriefEditor`), apart from the team.
-    // @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
-    @ViewBuilder private var sharedMaterial: some View {
-        let brief = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
-        let long = brief.split(separator: "\n", omittingEmptySubsequences: false).count > Self.previewLines || brief.count > 160
-        Card(padding: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L.text("共享资料")).font(.headline)
-                HowItWorks(title: L.text("共享资料"), lines: [
-                    L.text("你写的，只有你能改；Agent 不能直接写进来。"),
-                    L.text("每个任务开始时原样交给负责人和每个协作者，值班开工时也带上；和本次目标冲突时以目标为准。"),
-                    L.text("任务开始时就固定下来，之后的修改从下一个任务起生效。"),
-                    L.text("负责人交付时会建议值得长期保留的新事实，你点「加入共享资料…」、确认保存后才写入。"),
-                ])
-                Spacer()
-                IconButton(symbol: brief.isEmpty ? "plus" : "square.and.pencil",
-                           label: brief.isEmpty ? L.text("添加共享资料") : L.text("编辑共享资料"),
-                           help: L.text("产品定位、目标用户、约定、重要文件位置……每次任务都交给团队，写过的不再重复调研或问你。")) { store.editingBrief = ws }
-            }
-            if !brief.isEmpty {
-                Text(brief)
-                    .font(.callout)
-                    .lineLimit(briefExpanded || !long ? nil : Self.previewLines)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if long {
-                    Button(briefExpanded ? L.text("收起") : L.text("展开全部")) { briefExpanded.toggle() }.buttonStyle(.link)
-                }
-            }
-        }
-    }
-
-    @Local private var briefExpanded = false
-    private static let previewLines = 4
 
     struct Problem { let text, action: String; let tab: AppStore.SettingsTab }
 
@@ -215,6 +247,52 @@ struct HomeView: View {
         let images = store.goalImages
         guard !goal.isEmpty || !images.isEmpty, problems.isEmpty else { return }
         Task { await store.createRun(goal: goal, workspace: ws["id"].str, images: images) }
+    }
+}
+
+/// One of the two things a workspace's runs know, beside its name: a tinted glyph that tells it
+/// from the other, its name, and a line saying whether there is anything and how it reaches the
+/// agents. A click shows it in a popover; `content` gets the way to close it before a sheet or a
+/// page opens.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+struct KnowledgeTile<Content: View>: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let status: String
+    let way: String
+    @ViewBuilder let content: (_ leave: @escaping () -> Void) -> Content
+    @Local private var shown = false
+    @Local private var hovered = false
+
+    var body: some View {
+        Button { shown.toggle() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 30, height: 30)
+                    .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.callout.weight(.semibold))
+                    Text(verbatim: "\(status) · \(way)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.leading, 9).padding(.trailing, 14).padding(.vertical, 8)
+            .background(tint.opacity(hovered || shown ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(tint.opacity(hovered || shown ? 0.45 : 0.28)))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title)，\(status)，\(way)")
+        .accessibilityAddTraits(.isButton)
+        .popover(isPresented: $shown, arrowEdge: .bottom) {
+            content { shown = false }
+                .padding(14)
+                .frame(width: 380, alignment: .leading)
+        }
     }
 }
 

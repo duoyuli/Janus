@@ -244,6 +244,12 @@ def setup(ctx, c):
         c([r["id"] for r in st["histories"]["setup"]] == want, f"应用：工作区页列出它的全部任务记录，从新到旧（{want}）")
         ctx.app.do("shot workspace-home")
         c(_drawn(ctx, "workspace-home"), "应用：工作区页画出来了（workspace-home.png）")
+        # Opened afresh, the page puts the keyboard in the goal box; the tiles beside the name say
+        # what the shared material and the team memory hold.
+        brief = len("共享资料：用 Python 3。")
+        st = ctx.app.until(lambda s: (s.get("home") or {}).get("goalFocused"), "工作区页的目标输入框拿到键盘", "open inbox", "open home:setup")
+        c(st["home"]["brief"] in (f"{brief} 字", f"{brief} characters") and st["home"]["memory"] in ("还没有笔记", "No notes yet"),
+          f"应用：名称旁的共享资料写着它的长度，团队记忆写着还没有笔记（{st['home']['brief']}，{st['home']['memory']}）")
 
 
 def _drawn(ctx, name):

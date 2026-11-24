@@ -627,7 +627,21 @@ private func goalRun() -> Log {
     let asked: JSON = ["status": ["phase": "sleeping", "nextWakeAt": JSON(floatLiteral: L.nowMs() + 600_000), "nextWakeReason": "self", "nextWakeWhy": "等 CI"]]
     #expect(LoopText.asked(asked)?.hasSuffix(expectedCopy("再看一次：等 CI", ": 等 CI")) == true)
     #expect(LoopText.asked(loop) == nil)
+    // The narrow column's pill keeps to the state; when it wakes goes on the line below.
+    #expect(LoopText.phase(asked).0.hasPrefix(expectedCopy("摸鱼中 · ", "Idle · ")))
+    #expect(LoopText.phase(asked, short: true).0 == expectedCopy("摸鱼中", "Idle"))
     #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("干活中", "Working"))
+}
+
+/// A workspace's Loops, the ones to look at first on top: failed, at work, sleeping by when they
+/// wake (one without a time after those with one), paused last; ties keep their order.
+@Test func loopsAreListedByWhatNeedsALook() {
+    func l(_ id: String, _ phase: String, wake: Double? = nil) -> JSON {
+        ["id": JSON(id), "status": ["phase": JSON(phase), "nextWakeAt": wake.map { JSON(floatLiteral: $0) } ?? .null]]
+    }
+    let loops = [l("paused", "paused"), l("late", "sleeping", wake: 2_000), l("never", "sleeping"), l("soon", "sleeping", wake: 1_000),
+                 l("working", "awake"), l("broken", "failed"), l("paused2", "paused")]
+    #expect(LoopText.byAttention(loops).map { $0["id"].str } == ["broken", "working", "soon", "late", "never", "paused", "paused2"])
 }
 
 /// The form's common schedules are cron expressions and read back as the same shape; anything else

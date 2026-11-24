@@ -897,7 +897,15 @@
 "详情" = "Details";
 "详细" = "Detailed";
 "详细：每次工具调用都显示；摘要：只看对话、请求和结果" = "Detailed: every tool call. Summary: only messages, requests and results.";
-"想要什么结果？⌘V 贴截图 · %@ 交给负责人" = "What do you want done? ⌘V to paste a screenshot · %@ to hand it to the lead";
+"想要什么结果？" = "What result do you want?";
+"可以 ⌘V 贴截图" = "Paste a screenshot with ⌘V";
+"%lld 字" = "%lld characters";
+"每个任务都带上" = "Given to every run";
+"需要时检索" = "Searched when needed";
+"还没写" = "Empty";
+"还没有笔记" = "No notes yet";
+"%@ 开工" = "wakes %@";
+"%lld 条笔记" = "%lld notes";
 "从已安装的 Janus.app 打开这页。源码运行时权限可能记在终端名下。" = "Open this page from the installed Janus.app. From source, permissions may belong to the terminal.";
 "等你拍板：%@" = "Your call: %@";
 "用安装包里的 Janus" = "Use the Installed App";

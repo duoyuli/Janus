@@ -77,8 +77,9 @@ def loops(ctx, c):
         def row(s):
             return next((r for r in (s.get("histories") or {}).get(ws, []) if r["id"] == dispatched), None)
         ctx.app.until(lambda s: (row(s) or {}).get("origin") == "loop", "工作区的任务记录标出来自值班", "reload", f"open home:{ws}")
-        ctx.app.until(lambda s: any(l["id"] == loop_id and l["wakes"] == 1 and l["schedule"] in ("每小时", "Every hour")
-                                    for l in s.get("loops", [])), "工作区页列出值班和它的时间表", f"open home:{ws}")
+        st = ctx.app.until(lambda s: any(l["id"] == loop_id and l["wakes"] == 1 and l["schedule"] in ("每小时", "Every hour")
+                                         for l in s.get("loops", [])), "工作区页列出值班和它的时间表", f"open home:{ws}")
+        c(loop_id in ((st.get("home") or {}).get("loops") or []), "应用：值班列在工作区页右边的值班一栏")
         ctx.app.do("shot loops-home")
         c(True, "应用：工作区页的值班一节和来自值班的任务记录（loops-home.png）")
         ctx.app.do(f"loop-new {ws}", "shot loop-editor", "close-sheet")

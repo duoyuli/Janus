@@ -1,16 +1,18 @@
 import AppKit
 import SwiftUI
 
-/// A workspace's team memory card, the sheet to read and change one note, and the page of a
-/// consolidation.
+/// A workspace's team memory (its tile on the workspace page, the popover the tile opens), the
+/// sheet to read and change one note, and the page of a consolidation.
 // @project-doc docs/architecture/20261031-frontend.md#team_memory
 
-/// The notes of one workspace, a card under its shared material: what its runs kept for the runs
-/// after them. A note is one line (kind and title); hovering shows the line the index gives and
-/// who wrote it, clicking opens it.
-struct MemoryCard: View {
+/// The notes of one workspace, in the popover of its tile on the workspace page: what its runs
+/// kept for the runs after them. A note is one line (kind and title); hovering shows the line the
+/// index gives and who wrote it, clicking opens it. `leave` closes the popover before a sheet or
+/// a page opens.
+struct MemoryPanel: View {
     let store: AppStore
     let ws: JSON
+    var leave: () -> Void = {}
     @Local private var all = false
     private static let shown = 5
 
@@ -18,7 +20,7 @@ struct MemoryCard: View {
         let id = ws["id"].str
         let notes = store.notes(of: id)
         let c = store.memories[id]?["consolidation"] ?? .null
-        Card(padding: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(L.text("团队记忆")).font(.headline)
                 if !notes.isEmpty {
@@ -32,7 +34,7 @@ struct MemoryCard: View {
                 ])
                 Spacer()
                 if let running = c["running"].string {
-                    Button { store.open(.run(running)) } label: { Pill(L.text("整理中"), .blue) }.buttonStyle(.plain).help(L.text("打开这次整理"))
+                    Button { leave(); store.open(.run(running)) } label: { Pill(L.text("整理中"), .blue) }.buttonStyle(.plain).help(L.text("打开这次整理"))
                 } else if !notes.isEmpty {
                     IconButton(symbol: "arrow.triangle.2.circlepath", label: L.text("现在整理"),
                                help: L.text("现在整理：由负责人合并重复的、改正过时的、删掉没用的笔记")) { Task { await store.consolidate(id) } }
@@ -41,37 +43,39 @@ struct MemoryCard: View {
             if notes.isEmpty {
                 Text(L.text("还没有笔记。Agent 在任务里记下的会出现在这里。")).font(.callout).foregroundStyle(.secondary)
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    let rows = all ? notes : Array(notes.prefix(Self.shown))
-                    ForEach(rows, id: \.self) { m in
-                        Button { store.editingMemory = m } label: {
-                            HStack(spacing: 6) {
-                                Pill(MemoryText.kind(m["kind"].str), m["kind"].str == "pitfall" ? .amber : .gray)
-                                Text(m["title"].str).font(.callout).lineLimit(1).truncationMode(.tail)
-                                Spacer(minLength: 0)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        let rows = all ? notes : Array(notes.prefix(Self.shown))
+                        ForEach(rows, id: \.self) { m in
+                            Button { leave(); store.editingMemory = m } label: {
+                                HStack(spacing: 6) {
+                                    Pill(MemoryText.kind(m["kind"].str), m["kind"].str == "pitfall" ? .amber : .gray)
+                                    Text(m["title"].str).font(.callout).lineLimit(1).truncationMode(.tail)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                                .hoverable(5)
                             }
-                            .padding(.vertical, 5)
-                            .contentShape(Rectangle())
-                            .hoverable(5)
+                            .buttonStyle(.plain)
+                            .help("\(m["hook"].str)\n\(MemoryText.source(m))")
+                            if m != rows.last { Divider() }
                         }
-                        .buttonStyle(.plain)
-                        .help("\(m["hook"].str)\n\(MemoryText.source(m))")
-                        if m != rows.last { Divider() }
                     }
                 }
+                .frame(maxHeight: 360)
                 HStack {
                     if notes.count > Self.shown {
                         Button(all ? L.text("收起") : L.text("展开全部（\(notes.count)）")) { all.toggle() }.buttonStyle(.link)
                     }
                     Spacer()
                     if c["running"].string == nil, let last = c["last"]["run"].string {
-                        Button(L.text("上次整理：\(L.dateTime(c["last"]["at"].double ?? 0))")) { store.open(.run(last)) }.buttonStyle(.link)
+                        Button(L.text("上次整理：\(L.dateTime(c["last"]["at"].double ?? 0))")) { leave(); store.open(.run(last)) }.buttonStyle(.link)
                     }
                 }
                 .font(.caption)
             }
         }
-        .task(id: id) { await store.loadMemories(id) }
     }
 }
 
