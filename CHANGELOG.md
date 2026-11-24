@@ -20,6 +20,16 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 - 交付过的任务不能再「停止」：结果已经在你的分支或目录里，停止撤不回它，以前只会把任务记成已取消。要停下负责人这一轮就打断它，不想要这个结果就让负责人回退。
 
+- 工作区页以提目标为主：目标输入框占满宽度、紧接在名称下面，打开页面时键盘就在里面，「交给负责人」放进了输入框的底栏。名称下面是目录和团队；右边是「共享资料」和「团队记忆」两块按钮，分别是蓝色和青色，写着有没有内容、怎样交给 Agent，点开看内容。待处理和任务记录在左，值班单独一栏在右：每个值班一行，出错的排最前，然后是干活中、按下次开工的时间，已暂停的在最后，多于 4 个时可以展开。
+
+- 收件箱每一行只有一个带字的按钮（「去处理」或「详情」）；「稍后」和「忽略」改成灰色的时钟和划掉的眼睛，悬停有说明，各行上下对齐。
+
+- 应用每 5 分钟检查一次新版本（原来是 6 小时），打开自动更新时，新版本发布几分钟内就能装上。
+
+- 修复本地打包的 Janus.app 第一次在测试之外打开就把自己换成最新的发布：只有发布版本带更新来源；测试驱动的应用也不再检查、下载或替换自己，打包版的端到端测试不会再被自动更新打断。
+
+- 端到端测试按条目点收件箱里的就地回答，不再因为并行的场景改变收件箱的顺序而偶尔点错、超时。
+
 - The delivery card now reads at a glance: the lead's one-line conclusion on top, one line of numbers (subtasks done, criteria met, whether the evidence was run, read or only said, files changed), then To Look At: the lead's questions for you first, then what Janus found (unmet criteria, results that differ from the folder, missing independent verification, files the lead changed itself), each marked with its source. What changed and the Accept button follow; subtasks, evidence and the lead's full report are folded below. Evidence shows two lines until you click Show All, and a subtask's self-reported risks are counted on its row instead of opening it. The lead now writes its report under a Conclusion heading and a Needs Your Decision heading.
 
 - Asking the lead for more after a delivery is now a new round: while the lead works, the delivery folds to one line saying what it is doing and offers no Accept; when it delivers again, the card quotes what you asked and lists only this round's subtasks and files, with earlier deliveries folded. A question that changes nothing brings the same delivery back. The inbox has one entry per delivery, so ignoring one does not hide the next; when the merge did not happen it says the result is not on your branch, and the button says what it really does (Let the Lead Resolve It Again, or Cleared, Merge and Accept).
@@ -33,6 +43,16 @@ Janus versions are named by date, newest first. Each section lists the changes o
 - Fixed a run outside Git not being delivered again when the lead changed files at your request after a delivery, which left the card on the old version.
 
 - A run that has delivered can no longer be stopped: its result is already on your branch or in your folder, and stopping only marked the run cancelled. Interrupt the lead's turn to stop it, or ask the lead to revert what you do not want.
+
+- The workspace page is now about the goal: the goal box spans the page right under the name, has the keyboard as the page opens, and holds Send to Lead in its own bar. The folder and the team are under the name; on the right, Shared Context and Team Memory are two tiles, blue and cyan, saying whether they hold anything and how agents get it, and open on a click. What waits and the task records are on the left, the Loops in a column of their own on the right: one row each, a failed one first, then those working, then by when they wake next, the paused last, with more than four behind Show All.
+
+- Each inbox row has one worded button (Open Request or Details); Later and Ignore are now a gray clock and a struck-through eye with their help, lined up on every row.
+
+- The app checks for a new version every five minutes instead of every six hours, so with automatic updates on, a release arrives within minutes.
+
+- Fixed a locally built Janus.app replacing itself with the latest release the first time it ran outside a test: only released builds carry the update source, and an app under test no longer checks, downloads or swaps itself, so automatic updates no longer cut the packaged end-to-end tests short.
+
+- End-to-end tests click an inbox entry's quick answer by the entry itself, so parallel scenarios reordering the inbox no longer make them click the wrong one and time out now and then.
 
 ## 2026.11.23.10
 
