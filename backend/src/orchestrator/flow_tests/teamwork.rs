@@ -135,7 +135,11 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
             .unwrap_or_default()
     };
     assert!(prompt("T1").contains("你负责的文件：src"), "{}", prompt("T1"));
-    assert!(prompt("V1").contains("独立验证者") && prompt("V1").contains("- src 里有新函数"), "{}", prompt("V1"));
+    assert!(
+        prompt("V1").contains("独立验证：你验证子任务 T1") && prompt("V1").contains("- src 里有新函数"),
+        "{}",
+        prompt("V1")
+    );
 
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[验证未通过] V1") && board.contains("独立验证") && board.contains("rejected"), "{board}");

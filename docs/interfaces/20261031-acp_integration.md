@@ -108,7 +108,7 @@ Codex：
 1. **Janus 的说明**：负责人会话是负责人说明（`goal_brief`，交付后的对话是 `conversation_brief`），协作者会话是协作约定（`collaborator_rules`），见[目标模式](../domains/20261031-goal_mode.md#collaborator_rules)。对话没有这一段，新开会话时换成最近的对话（`chat_brief`）。
 2. **用户的长期要求**：Provider 的「自定义提示词」和角色的「指令」，`standing_instructions` 把两者合成一段（Provider 在前，角色在后）。
 
-系统层不写 MCP 工具和 Skill 的用法：看板、值班、团队记忆和资源库的工具由 Agent 从 `mcpServers` 自己加载，用法只在各工具的说明里；资源库的 Skill 经 `janus-skills` 由 Agent 按自己的 Skill 机制加载，见 [ADR：Janus 只注入协作规则](../decisions/20261125-collaboration_only_injection.md)。
+系统层不写 MCP 工具和 Skill 的用法：看板、值班、团队记忆和资源库的工具由 Agent 从 `mcpServers` 自己加载，用法和限制只在各工具的说明里；负责人说明和协作者约定各有一节「协作工具」，一个工具一行，只说它是做什么的，让 Agent 知道有这个工具、用到时去看它的说明；资源库的 Skill 经 `janus-skills` 由 Agent 按自己的 Skill 机制加载，见 [ADR：Janus 只注入协作规则](../decisions/20261125-collaboration_only_injection.md)。
 
 Janus 编写的说明、段落标签、工具说明和看板消息按 Run 的语言（中文或英文）给出，见[注入的语言](../domains/20261031-goal_mode.md#prompt_language)。数字员工指令、Provider 自定义提示词、共享资料、用户留言和历史对话保留原文。
 

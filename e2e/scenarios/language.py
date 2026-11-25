@@ -22,8 +22,8 @@ def language(ctx, c):
         lead = run.lead()
         brief = next(e["data"]["prompt"] for e in run.events()
                      if e["type"] == "session.prompt" and e.get("to") == "lead" and e["data"].get("channel") == "system")
-        c(brief.startswith("You are the lead of the Janus team") and "janus.orchestrate:" not in brief,
-          "负责人说明是英文，不列看板工具")
+        c(brief.startswith("You are the lead of the Janus team") and "Collaboration tools" in brief and "- janus.orchestrate: " in brief,
+          "负责人说明是英文，「协作工具」一节一行一个工具")
         status, body = lead.post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         tools = {x["name"]: x["description"] for x in body["result"]["tools"]}
         c(status == 200 and tools and not any(HAN.search(d) for d in tools.values()),
@@ -35,7 +35,7 @@ def language(ctx, c):
         run.wait_event("task.succeeded", task="T1")
         rules = next(e["data"]["prompt"] for e in run.events()
                      if e["type"] == "session.prompt" and e.get("task") == "T1" and e["data"].get("channel") == "system")
-        c(rules.startswith("You are a collaborator on the Janus team") and "janus.board_post" not in rules,
-          "协作者约定是英文，不介绍看板工具")
+        c(rules.startswith("You are a collaborator on the Janus team") and "- janus.board_post: " in rules,
+          "协作者约定是英文，「协作工具」一节一行一个工具")
         first = run.has("attempt.started", task="T1")[0]["data"]["prompt"]
         c("Your subtask T1:" in first and "Acceptance criteria:" in first, "协作者的任务提示是英文")

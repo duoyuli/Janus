@@ -63,16 +63,16 @@ fn task_prompts_carry_the_shared_material() {
         verifies: None,
         continues: None,
     };
-    let m = run.team[1].clone();
-    assert!(!task_prompt(&run, &m, &def, &[], &[], None).contains("工作区共享资料"));
+    assert!(!task_prompt(&run, &def, "", &[], &[], None).contains("工作区共享资料"));
     run.brief = "目标用户是独立开发者".into();
-    let p = task_prompt(&run, &m, &def, &[], &[], None);
-    assert!(p.contains("工作区共享资料（由用户维护）。有冲突时以子任务说明为准。\n目标用户是独立开发者"), "{p}");
+    let p = task_prompt(&run, &def, "", &[], &[], None);
+    assert!(p.starts_with("你的子任务 T1：t\n说明：d\n\n验收标准：\n- a"), "the task comes first: {p}");
+    assert!(p.ends_with("工作区共享资料（用户维护；和子任务说明冲突时以说明为准）：\n目标用户是独立开发者"), "{p}");
     run.lang = Lang::En;
-    let p = task_prompt(&run, &m, &def, &[], &[], None);
+    let p = task_prompt(&run, &def, "", &[], &[], None);
     assert!(
-        p.contains("Your subtask ")
-            && p.contains("Shared workspace context (maintained by the user). In a conflict, follow the subtask instructions.\n目标用户是独立开发者"),
+        p.starts_with("Your subtask T1: t")
+            && p.ends_with("Shared workspace context (kept by the user; your subtask's instructions win where they conflict):\n目标用户是独立开发者"),
         "{p}"
     );
 }
@@ -194,18 +194,21 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
     // The board's tools explain themselves: the rules hold no tool list and no skills sentence.
     let rules = collaborator_rules(Lang::En);
     assert!(
-        rules.contains("```json") && !rules.contains("janus.board_post") && !rules.contains("janus-skills"),
+        rules.contains("```json")
+            && rules.contains("Collaboration tools")
+            && rules.contains("- janus.board_post: ")
+            && !rules.contains("janus-skills"),
         "{rules}"
     );
     assert!(rules.is_ascii(), "{rules}");
     let zh = collaborator_rules(Lang::Zh);
-    assert!(zh.starts_with("你是 Janus 团队的协作者。") && zh.contains("```json"), "{zh}");
+    assert!(zh.starts_with("你是 Janus 团队的协作者，") && zh.contains("协作工具") && zh.contains("```json"), "{zh}");
     // Committing, pushing and deploying follow the subtask's instructions, not a ban of Janus's own.
     assert!(rules.contains("Commit, push, or deploy only when your subtask's instructions ask for it"), "{rules}");
     assert!(!rules.contains("Do not commit"), "{rules}");
     let standing = standing_instructions(&member_with(Runtime::Codex, "", "先运行现有测试"), Lang::En);
     let text = system_layer(&[&rules, "", &standing]);
-    assert!(text.starts_with("You are a collaborator on the Janus team."));
+    assert!(text.starts_with("You are a collaborator on the Janus team:"));
     assert!(text.ends_with("Role instructions (Reviewer):\n先运行现有测试"));
     assert_eq!(system_layer(&[" ", ""]), "");
     let spec = || crate::acp::RuntimeSpec {
@@ -238,7 +241,7 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
         verifies: None,
         continues: None,
     };
-    let task = task_prompt(&run, &run.team[1], &def, &[], &[], None);
+    let task = task_prompt(&run, &def, "", &[], &[], None);
     assert!(
         task.contains("你的子任务 T1") && !task.contains("```json") && !task.contains("janus.board_post"),
         "{task}"

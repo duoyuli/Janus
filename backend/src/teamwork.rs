@@ -255,58 +255,67 @@ pub struct VerifiedContext<'a> {
     pub trace_gaps: &'a [String],
     pub weak_checks: &'a [String],
     pub risks: &'a [String],
+    /// Whether the files are still those it handed its result in on (`FilesSince::for_verifier`).
+    pub files_since: &'a str,
 }
 
 /// What a collaborator's task prompt adds for the team structure: the files it owns, or, for a
 /// verification task, what it checks, the targeted evidence package, and how to report `verdict`.
 pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>, lang: Lang) -> String {
-    let list = |items: &[String]| items.iter().map(|i| format!("- {i}")).collect::<Vec<_>>().join("\n");
+    let list =
+        |items: &[String], indent: &str| items.iter().map(|i| format!("{indent}- {i}")).collect::<Vec<_>>().join("\n");
+    let sep = lang.pick("、", ", ");
     let mut p = String::new();
     if !def.owns.is_empty() {
-        let owns = def.owns.join(lang.pick("、", ", "));
+        let owns = def.owns.join(sep);
         p.push_str(&tr!(
             lang,
-            "\n\n你负责的文件：{owns}。只改这些文件；其他文件归别的子任务或负责人，需要改时先认领，或在结果的 question 中请负责人决定。",
-            "\n\nThe files you own: {owns}. Change only these; other files belong to other subtasks or the lead. To change one, claim it first, or ask the lead in your result's question."
+            "\n\n你负责的文件：{owns}。只改这些；要改别的文件，先认领，或在结果的 question 里请负责人决定。",
+            "\n\nFiles you own: {owns}. Change only these; to change another file, claim it first or ask the lead in your result's question."
         ));
     }
     if let Some(vc) = verified {
-        let (id, title, accept) = (&vc.def.id, &vc.def.title, list(&vc.def.accept));
+        let (id, title, accept) = (&vc.def.id, &vc.def.title, list(&vc.def.accept, "  "));
         p.push_str(&tr!(
             lang,
-            "\n\n你是子任务 {id}「{title}」的独立验证者，它由别的协作者完成。不要修改任何文件，也不要替它修问题，逐条核对它的验收标准：\n{accept}",
-            "\n\nYou independently verify subtask {id} \"{title}\", which another collaborator did. Do not change any file and do not fix its problems; check its acceptance criteria one by one:\n{accept}"
+            "\n\n独立验证：你验证子任务 {id}「{title}」，它由别的协作者完成。\n- 不改任何文件，也不替它修问题；逐条核对它的验收标准：\n{accept}",
+            "\n\nIndependent verification: you verify subtask {id} \"{title}\", which another collaborator did.\n- Change no files and do not fix its problems; check its acceptance criteria one by one:\n{accept}"
         ));
         if let Some(diff) = vc.diff_path.filter(|s| !s.is_empty()) {
-            p.push_str(&tr!(lang, "\n它的改动（diff）：{diff}", "\nIts changes (diff): {diff}"));
+            p.push_str(&tr!(lang, "\n- 它的改动（diff）：{diff}", "\n- Its changes (diff): {diff}"));
         }
         if !vc.edited_files.is_empty() {
-            let files = vc.edited_files.join(lang.pick("、", ", "));
-            p.push_str(&tr!(lang, "\n执行者实际改动的文件：{files}", "\nFiles the assignee actually changed: {files}"));
-        }
-        if !vc.trace_gaps.is_empty() {
-            let gaps = list(vc.trace_gaps);
+            let files = vc.edited_files.join(sep);
             p.push_str(&tr!(
                 lang,
-                "\n结果和工作目录对不上的地方：\n{gaps}",
-                "\nWhere its result and the working directory disagree:\n{gaps}"
+                "\n- 执行者实际改动的文件：{files}",
+                "\n- Files the assignee actually changed: {files}"
+            ));
+        }
+        if !vc.trace_gaps.is_empty() {
+            let gaps = list(vc.trace_gaps, "  ");
+            p.push_str(&tr!(
+                lang,
+                "\n- 结果和工作目录对不上的地方：\n{gaps}",
+                "\n- Where its result and the working directory disagree:\n{gaps}"
             ));
         }
         if !vc.weak_checks.is_empty() {
-            let weak = list(vc.weak_checks);
+            let weak = list(vc.weak_checks, "  ");
             p.push_str(&tr!(
                 lang,
-                "\n执行者证据较弱的条目（只靠推理、未核实或没写方法）：\n{weak}",
-                "\nCriteria with weak evidence from the assignee (reasoning only, unverified, or no method):\n{weak}"
+                "\n- 执行者证据较弱的条目（只靠推理、未核实或没写方法）：\n{weak}",
+                "\n- Criteria with weak evidence from the assignee (reasoning only, unverified, or no method):\n{weak}"
             ));
         }
         if !vc.risks.is_empty() {
-            let risks = list(vc.risks);
-            p.push_str(&tr!(lang, "\n执行者上报的风险：\n{risks}", "\nRisks the assignee reported:\n{risks}"));
+            let risks = list(vc.risks, "  ");
+            p.push_str(&tr!(lang, "\n- 执行者上报的风险：\n{risks}", "\n- Risks the assignee reported:\n{risks}"));
         }
+        p.push_str(vc.files_since);
         p.push_str(lang.pick(
-            "\n结果的 checks 中每条都写明你做了什么、看到了什么；在结构化结果 JSON 中用 verdict 写明判定：\"approved\"（达标）、\"rejected\"（有阻断问题，需要原执行者修改）或 \"inconclusive\"（当前环境的证据不足以判定）。发现阻断问题时也写明依据、正常提交结果：你的工作是检查和报告，不是修复。",
-            "\nIn your result's checks, say for each criterion what you did and what you saw; give your verdict in the structured result JSON: \"approved\" (it meets them), \"rejected\" (a blocking problem the assignee must fix) or \"inconclusive\" (the evidence available here cannot settle it). When you find a blocking problem, still state your grounds and hand in your result as usual: your job is to check and report, not to fix.",
+            "\n- 在 checks 里逐条写明你做了什么、看到了什么，并在结果 JSON 里用 verdict 给出判定：approved（达标）、rejected（有阻断问题，要原执行者修改）或 inconclusive（这里的证据不足以判定）。发现阻断问题也照常提交结果：你的工作是检查和报告，不是修复。",
+            "\n- In checks, say for each criterion what you did and what you saw, and give your verdict in the result JSON: approved (it meets them), rejected (a blocking problem the assignee must fix) or inconclusive (the evidence here cannot settle it). When you find a blocking problem, still hand in your result as usual: your job is to check and report, not to fix.",
         ));
     }
     p
@@ -352,15 +361,15 @@ impl FilesSince {
         match self {
             FilesSince::Same => tr!(
                 lang,
-                "\n文件状态：和 {target} 提交结果时完全相同（同一个提交，改动过的文件内容一致），它的证据描述的就是现在的文件。checks 里写明哪些条目采信了它的证据、哪些是你自己核实的。",
-                "\nFiles: exactly as when {target} handed in its result (the same commit, the same content of the changed files), so its evidence describes the files as they are now. In checks, say which criteria rest on its evidence and which you verified yourself."
+                "\n- 文件状态：和 {target} 提交结果时完全相同（同一个提交，改动过的文件内容一致），它的证据描述的就是现在的文件。checks 里写明哪些条目采信了它的证据、哪些是你自己核实的。",
+                "\n- Files: exactly as when {target} handed in its result (the same commit, the same content of the changed files), so its evidence describes the files as they are now. In checks, say which criteria rest on its evidence and which you verified yourself."
             ),
             FilesSince::Changed { commit, paths } => {
                 let changes = Self::changes(*commit, paths, lang);
                 tr!(
                     lang,
-                    "\n文件状态：{target} 提交结果之后又有变化（{changes}）。它的证据描述的是变化之前的文件，只对没受这些变化影响的条目有效。",
-                    "\nFiles: changed since {target} handed in its result ({changes}). Its evidence describes the files before that, so it holds only for criteria these changes do not touch."
+                    "\n- 文件状态：{target} 提交结果之后又有变化（{changes}）。它的证据描述的是变化之前的文件，只对没受这些变化影响的条目有效。",
+                    "\n- Files: changed since {target} handed in its result ({changes}). Its evidence describes the files before that, so it holds only for criteria these changes do not touch."
                 )
             }
         }
@@ -399,21 +408,6 @@ pub fn accept_refused(def: &TaskDef, lang: Lang) -> Option<String> {
         "{id} 是 {target} 的独立验证，验证没通过不能直接接受。用 janus.task_detail 看 {id} 发现的问题，判断问题出在哪个子任务，用 janus.retry 返工（例如 task=\"{target}\"、from=\"{id}\"），返工完成后 {id} 自动重新验证；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
         "{id} independently verifies {target}; a failed verification cannot simply be accepted. Read what {id} found with janus.task_detail, decide which subtask the problem lies in and send it back with janus.retry (for example task=\"{target}\", from=\"{id}\"); once reworked, {id} verifies it again on its own. If the verification is no longer needed, cancel {id} with janus.cancel and give the reason."
     ))
-}
-
-/// The part of the lead's brief on how to organise the team. How each structure is declared is in
-/// the `orchestrate` tool's own description.
-pub fn lead_guide(lang: Lang) -> &'static str {
-    lang.pick(
-        "组织团队：
-- 派出子任务时，步骤紧密耦合的工作交给一个子任务，其余按文件、模块或问题干净地切开，并行的数量不超过可用的协作者实例。执行者不同、互不依赖的子任务同时进行；只有一个需要另一个的结果时才排成先后。
-- 并行的子任务依赖同一份定义（接口、格式、提纲、术语）时，先由前置子任务定下来，或者你自己写好。
-- 写清每个子任务负责什么、不能碰什么、做到什么算完成。",
-        "Organizing the team:
-- When you delegate, give tightly coupled steps to one subtask and divide the rest cleanly by file, module, or question, within the available collaborator instances. Subtasks with different assignees and no dependency between them run at the same time; chain subtasks only when one needs the other's result.
-- When parallel subtasks depend on the same definitions (an interface, a format, an outline, terms), settle them first in an upstream subtask or write them yourself.
-- State what each subtask owns, what it must leave untouched, and what counts as done.",
-    )
 }
 
 #[cfg(test)]
@@ -583,12 +577,13 @@ mod tests {
             trace_gaps: &gaps,
             weak_checks: &weak,
             risks: &risks,
+            files_since: "",
         };
         let p = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&vc), Lang::Zh);
         assert!(
-            p.contains("子任务 T1「T1」的独立验证者")
+            p.contains("独立验证：你验证子任务 T1「T1」")
                 && p.contains("- T1 做完")
-                && p.contains("不要修改任何文件")
+                && p.contains("不改任何文件")
                 && p.contains("/tmp/T1-a1.diff")
                 && p.contains("src/lib.rs")
                 && p.contains("负责 README.md")
@@ -598,7 +593,7 @@ mod tests {
         );
         assert!(task_section(&def("T2", "m1", &[], &[], None), None, Lang::Zh).is_empty());
         let en = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&vc), Lang::En);
-        assert!(en.contains("You independently verify subtask T1") && en.contains("verdict"), "{en}");
+        assert!(en.contains("Independent verification: you verify subtask T1") && en.contains("verdict"), "{en}");
     }
 
     #[test]

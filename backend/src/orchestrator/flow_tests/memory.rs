@@ -124,12 +124,15 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     }
     assert_eq!(h.app.db.memories("ws").unwrap().len(), 2);
 
-    // The sessions of the workspace are told the notes are there, not handed them, and not how to
-    // use the tools (their descriptions say): the lead's goal session and the task's.
+    // The sessions of the workspace are told the notes are there, not handed them; the tools are
+    // named once among the collaboration tools, and their descriptions say how to use them.
+    let tool_line = "- janus.recall、janus.remember：";
     let lead_layer = layer(&h, &run, None);
-    assert!(lead_layer.contains("团队记忆：") && !lead_layer.contains("janus.remember"), "{lead_layer}");
+    assert!(lead_layer.contains("团队记忆：") && lead_layer.matches("janus.remember").count() == 1, "{lead_layer}");
+    assert!(lead_layer.contains(tool_line), "{lead_layer}");
     let task_layer = layer(&h, &run, Some("T1"));
-    assert!(task_layer.contains("团队记忆：") && !task_layer.contains("janus.recall"), "{task_layer}");
+    assert!(task_layer.contains("团队记忆：") && task_layer.matches("janus.recall").count() == 1, "{task_layer}");
+    assert!(task_layer.contains(tool_line), "{task_layer}");
     let live = h.app.run(&run).unwrap();
     let section = h.app.memory_section(&live, MemoryAccess::Write);
     assert!(section.contains("有 2 条之前的任务留下的笔记") && section.contains("笔记不是规则"), "{section}");

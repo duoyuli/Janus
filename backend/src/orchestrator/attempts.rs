@@ -172,6 +172,8 @@ impl App {
     }
 
     pub(super) async fn attempt(self: &Arc<Self>, run: &Arc<Run>, id: &str, n: i64, attempt_id: &str) -> Result<()> {
+        // A verification hears whether the files are still those the task it checks handed in.
+        let files_since = self.files_note(run, id);
         let (def, agent, upstream, handoffs, last_error, team_note, reopen, review) = {
             let mut st = run.st.lock().unwrap();
             // How this attempt was asked to start, once: a later automatic retry starts afresh.
@@ -194,6 +196,7 @@ impl App {
                         trace_gaps: &vt.trace_gaps,
                         weak_checks: &weak_checks,
                         risks,
+                        files_since: &files_since,
                     };
                     crate::teamwork::task_section(&t.def, Some(&vc), run.lang)
                 }
@@ -336,8 +339,6 @@ impl App {
                 review,
             )
         };
-        // A verification hears whether the files are still those the task it checks handed in.
-        let team_note = format!("{team_note}{}", self.files_note(run, &def));
         let peers: Vec<String> = {
             let st = run.st.lock().unwrap();
             st.tasks
@@ -505,16 +506,16 @@ impl App {
                     continued_prompt(&def, n, reopen, review.as_ref(), last_error.as_deref(), &notes, run.lang)
                 }
                 (Some(from), _) => {
-                    let task = task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref());
+                    let task = task_prompt(run, &def, &team_note, &upstream, &peers, last_error.as_deref());
                     tr!(
                         lang,
-                        "你在子任务 {from} 的原会话中继续工作，之前的上下文和读过的文件都还在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{task}{team_note}{notes}",
-                        "You go on working in the session of subtask {from}; its context and the files you read are still here. Do the new subtask below to its acceptance criteria, and end with the ```json structured result.\n\n{task}{team_note}{notes}"
+                        "你在子任务 {from} 的原会话中继续工作，之前的上下文和读过的文件都还在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{task}{notes}",
+                        "You go on working in the session of subtask {from}; its context and the files you read are still here. Do the new subtask below to its acceptance criteria, and end with the ```json structured result.\n\n{task}{notes}"
                     )
                 }
                 (None, _) => format!(
-                    "{}{team_note}{}{notes}",
-                    task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
+                    "{}{}{notes}",
+                    task_prompt(run, &def, &team_note, &upstream, &peers, last_error.as_deref()),
                     reopen.as_ref().map(|r| reopen_section(r, review.as_ref(), run.lang)).unwrap_or_default(),
                 ),
             }
@@ -964,12 +965,16 @@ impl App {
 
     /// For a verification: how the files now compare with those the verified task handed its
     /// result in on. Nothing outside Git, or when either state is unknown.
-    fn files_note(&self, run: &Run, def: &TaskDef) -> String {
-        let Some(target) = def.verifies.as_deref() else { return String::new() };
-        let earlier = {
+    fn files_note(&self, run: &Run, id: &str) -> String {
+        let (target, earlier) = {
             let st = run.st.lock().unwrap();
-            st.tasks.iter().find(|t| t.def.id == target).and_then(|t| t.result.as_ref()?.files.clone())
+            let Some(target) = st.tasks.iter().find(|t| t.def.id == id).and_then(|t| t.def.verifies.clone()) else {
+                return String::new();
+            };
+            let earlier = st.tasks.iter().find(|t| t.def.id == target).and_then(|t| t.result.as_ref()?.files.clone());
+            (target, earlier)
         };
+        let target = target.as_str();
         match (earlier, run.git.then(|| crate::git::FilesState::of(&run.cwd)).flatten()) {
             (Some(earlier), Some(now)) => {
                 crate::teamwork::FilesSince::of(&earlier, &now).for_verifier(target, run.lang)

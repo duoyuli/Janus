@@ -49,48 +49,44 @@ fn with_codex_config(mut spec: crate::acp::RuntimeSpec, settings: &[(&str, Value
     spec
 }
 
-/// What a collaborator's session is told about its task: the goal, the task and its acceptance
-/// criteria, the workspace (the run's), upstream results, peers and the last failure. How to work
-/// with Janus is in the system layer (`collaborator_rules`).
+/// What a collaborator's session is told about its task: the task and its acceptance criteria
+/// first, then where it sits (the goal, the working directory, the shared material), upstream
+/// results, peers and the last failure. How to work with Janus is in the system layer
+/// (`collaborator_rules`).
 pub(super) fn task_prompt(
     run: &Run,
-    m: &Member,
     def: &TaskDef,
+    team_note: &str,
     upstream: &[String],
     peers: &[String],
     last_error: Option<&str>,
 ) -> String {
     let lang = run.lang;
-    let (name, goal, id, title, desc, max_attempts) =
-        (&m.name, &run.goal, &def.id, &def.title, &def.desc, def.max_attempts);
-    let brief = brief_section(&run.brief, Wins::Task, lang);
+    let (goal, id, title, desc, max_attempts) = (&run.goal, &def.id, &def.title, &def.desc, def.max_attempts);
     let accept = criteria(&def.accept);
     let ws = run.cwd.display();
-    let note = workdir_note(run);
+    let note = workdir_note(run, def.verifies.is_some());
+    let brief = brief_section(&run.brief, Wins::Task, lang);
     let mut p = tr!(
         lang,
-        "你是 Janus 团队中的 {name}，负责人把一个子任务交给了你。
-
-总目标：{goal}{brief}
-你的子任务 {id}：{title}
+        "你的子任务 {id}：{title}
 说明：{desc}
-最多尝试 {max_attempts} 次。
 
 验收标准：
-{accept}
+{accept}{team_note}
 
-工作目录：{ws}{note}",
-        "You are {name} on the Janus team. The lead has given you a subtask.
-
-Overall goal: {goal}{brief}
-Your subtask {id}: {title}
+总目标：{goal}
+工作目录：{ws}{note}
+最多尝试 {max_attempts} 次。{brief}",
+        "Your subtask {id}: {title}
 Instructions: {desc}
-Up to {max_attempts} attempts.
 
 Acceptance criteria:
-{accept}
+{accept}{team_note}
 
-Working directory: {ws}{note}"
+Overall goal: {goal}
+Working directory: {ws}{note}
+Up to {max_attempts} attempts.{brief}"
     );
     if !upstream.is_empty() {
         let lines = upstream.join("\n");
@@ -104,8 +100,8 @@ Working directory: {ws}{note}"
         let lines = peers.join("\n");
         p.push_str(&tr!(
             lang,
-            "\n\n现在同时在这个目录里工作的其他子任务：\n{lines}\n改它们可能也在改的文件前，先读最新内容。",
-            "\n\nOther subtasks working in this directory now:\n{lines}\nBefore you edit a file they may also be editing, read its latest content."
+            "\n\n现在同时在这个目录里工作的其他子任务（改它们可能也在改的文件前，先读最新内容）：\n{lines}",
+            "\n\nOther subtasks working in this directory now (read the latest content before you change a file they may also be changing):\n{lines}"
         ));
     }
     if let Some(err) = last_error {
@@ -129,51 +125,75 @@ fn last_failure(err: &str, lang: Lang) -> String {
     )
 }
 
-/// What the lead is told about the run's working directory. A worktree is fresh: only tracked
-/// files and what `.worktreeinclude` lists are there, and the run may be the one that changes
-/// the environment, so the agents prepare it there themselves.
+/// Where the run's result goes back to: the branch the user was on, or the commit they were at.
+fn result_home(w: &WorktreeOf, lang: Lang) -> String {
+    match (&w.branch, lang) {
+        (Some(b), Lang::Zh) => format!("用户的 {b} 分支"),
+        (Some(b), Lang::En) => format!("the user's branch {b}"),
+        (None, Lang::Zh) => "用户所在的提交（detached HEAD）".into(),
+        (None, Lang::En) => "the commit the user is on (a detached HEAD)".into(),
+    }
+}
+
+/// What the lead is told about the run's working directory, after its path: a worktree is the
+/// run's own checkout, which delivery brings back to the user's branch.
 // @project-doc docs/domains/20261031-run_lifecycle.md#workspace_model
 pub(super) fn workdir_brief(run: &Run) -> String {
     let lang = run.lang;
     match &run.worktree {
         Some(w) => {
-            let repo = w.repo.display();
-            let target = w.branch.as_deref().unwrap_or("<branch>");
-            let source = match (&w.branch, lang) {
-                (Some(b), Lang::Zh) => format!("用户所在的分支 {b}"),
-                (Some(b), Lang::En) => format!("the branch {b} the user was on"),
-                (None, Lang::Zh) => "用户的 detached HEAD".to_string(),
-                (None, Lang::En) => "the user's detached HEAD".to_string(),
-            };
+            let (repo, home) = (w.repo.display(), result_home(w, lang));
             tr!(
                 lang,
-                "这是 {repo} 为这个任务单独建的 Git worktree，同一仓库上的其他任务不会动它。里面有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件不在这里，协作者运行任何东西前先按项目自己的方式准备环境，改了依赖就重新安装。用户在 {repo} 的{source}上工作，看不到这个 worktree。每次交付时，Janus 把结果带回{source}：提交还没提交的改动（包括你的沙箱不让你提交的），连同这里的提交一起快进那个分支；分支在这期间动过时先重放到它上面。所以用户要求提交或合并时，把工作做完并交付，结果就在那时到达他们的分支。重放冲突时，Janus 不动用户那边，告诉你怎样在这里解决。要推送或发布，先在这里把工作放到最新的分支上（git rebase {target}，解决冲突后重新跑检查），再推送 HEAD，例如 git push origin HEAD:{target}；交付随后把用户的分支移到同一个提交。不要在 {repo} 里运行 git，也不要在这里切换分支：worktree 一直处于 detached HEAD。",
-                "It is a Git worktree of {repo} made for this run alone, so other runs on that repository do not touch it. It holds the tracked files as of the run's start plus the ignored files the repository's .worktreeinclude lists; dependencies, build outputs and other ignored files are not there. Collaborators prepare the environment in it the way the project does before running anything, and reinstall when a change touches dependencies. The user works in {repo} on {source} and does not see this worktree. Each time the run is delivered, Janus brings its result to {source}: it commits what is uncommitted (or what your sandbox did not let you commit) and fast-forwards that branch to it together with the commits made here, replaying them onto it first if it moved meanwhile. So when the user asks you to commit or merge, finish the work and deliver: that is when it reaches their branch. If replaying conflicts, Janus leaves the user's side alone and tells you how to resolve it here. To push or release, first bring the work onto the latest branch here (git rebase {target}, resolving any conflict and running the checks again), then push HEAD, for example git push origin HEAD:{target}; the delivery then moves the user's branch to that same commit. Do not run git in {repo} itself and do not check out a branch here: the worktree stays on a detached HEAD."
+                "这是为这个任务单独建的 Git worktree，处于 detached HEAD；依赖和构建产物不在这里，运行前按项目的方式准备。交付时 Janus 把结果提交并合并回{home}。不要切换分支，也不要在用户的仓库目录 {repo} 里运行 git。",
+                "It is a Git worktree made for this run alone, on a detached HEAD; dependencies and build outputs are not in it, so prepare them the way the project does before running anything. On delivery, Janus commits the result and merges it back into {home}. Do not check out a branch here, and do not run git in the user's repository at {repo}."
             )
         }
-        None if run.git => lang.pick("这是一个 Git 仓库。", "This is a Git repository.").into(),
-        None => lang
-            .pick(
-                "这个目录不在 Git 仓库中，用不了针对仓库的 Git 命令。",
-                "This directory is outside a Git repository. Repository-specific Git commands are unavailable here.",
-            )
-            .into(),
+        None if run.git => lang.pick("这是一个 Git 仓库。", "It is a Git repository.").into(),
+        None => lang.pick("这个目录不在 Git 仓库中。", "It is not in a Git repository.").into(),
     }
 }
 
-/// What a collaborator is told about the working directory, after its path in the task prompt.
-fn workdir_note(run: &Run) -> String {
-    match &run.worktree {
-        Some(w) => {
-            let repo = w.repo.display();
-            tr!(
-                run.lang,
-                "（{repo} 为这个任务单独建的 Git worktree：只有任务开始时仓库跟踪的文件，以及仓库 .worktreeinclude 列出的被忽略文件；依赖、构建产物和其他被忽略的文件都不在这里，需要时先按项目自己的方式准备环境，改动涉及依赖时重新安装。子任务说明没有要求提交时，改动不要提交，任务交付时由 Janus 统一提交并合并回用户的分支；这里处于 detached HEAD，不要切换分支，也不要在用户的仓库目录里运行 git，要推送时把 HEAD 推到说明指定的分支。）",
-                " (a Git worktree of {repo} made for this run: only the files the repository tracked when the run started, plus the ignored files its .worktreeinclude lists; dependencies, build outputs and other ignored files are not here, so prepare the environment the way the project does when you need it, and reinstall when your change touches dependencies. Unless your subtask's instructions ask you to commit, leave your changes uncommitted: Janus commits them and merges them back into the user's branch when the run is delivered. It is on a detached HEAD: do not check out a branch and do not run git in the user's repository; to push, push HEAD to the branch the instructions name.)"
-            )
-        }
-        None => String::new(),
+/// When the lead commits, pushes, deploys or releases: only as far as the user asked. In a
+/// worktree, a commit or merge the user asks for is what delivery does, and a push goes out from
+/// the latest branch.
+pub(super) fn commit_rule(run: &Run) -> String {
+    let lang = run.lang;
+    let rule = lang.pick(
+        "只有用户要求时（在目标里、回答里或之后的消息里）才 commit、push、部署或发布，并且只做到要求的程度：要求提交不等于要求推送。照做时不再询问；子任务要做其中一件时，写进它的说明。",
+        "Commit, push, deploy, or release only when the user asks (in the goal, an answer, or a later message), and only as far as asked: a request to commit is not one to push. Carry it out without asking again; when a subtask is to do one of them, say so in its instructions.",
+    );
+    let Some(w) = &run.worktree else { return rule.into() };
+    let (home, target) = (result_home(w, lang), w.branch.as_deref().unwrap_or("<branch>"));
+    match lang {
+        Lang::Zh => format!(
+            "{rule}要求提交或合并时，做完并交付即可，交付会把结果合并到{home}；要求推送时，先 git rebase {target}（有冲突就解决并重新检查），再 git push origin HEAD:{target}。"
+        ),
+        Lang::En => format!(
+            "{rule} When asked to commit or merge, finish and deliver: delivery merges the result into {home}. When asked to push, first git rebase {target} (resolving any conflict and checking again), then git push origin HEAD:{target}."
+        ),
     }
+}
+
+/// What a collaborator is told about the working directory, after its path in the task prompt. A
+/// verifier changes nothing, so it hears only what is and is not in the worktree.
+fn workdir_note(run: &Run, verifier: bool) -> String {
+    if run.worktree.is_none() {
+        return String::new();
+    }
+    let note = match (verifier, run.lang) {
+        (true, Lang::Zh) => "（为这个任务单独建的 Git worktree：依赖和构建产物不在这里，需要时按项目的方式准备。）",
+        (true, Lang::En) => {
+            " (a Git worktree made for this run: dependencies and build outputs are not here, so prepare them the way the project does when you need them.)"
+        }
+        (false, Lang::Zh) => {
+            "（为这个任务单独建的 Git worktree，处于 detached HEAD：依赖和构建产物不在这里，需要时按项目的方式准备，改了依赖就重新安装。说明没要求提交时不要提交，交付时由 Janus 统一提交；不要切换分支，也不要在用户的仓库目录里运行 git。）"
+        }
+        (false, Lang::En) => {
+            " (a Git worktree made for this run, on a detached HEAD: dependencies and build outputs are not here, so prepare them the way the project does when you need them, and reinstall when your change touches dependencies. Unless your instructions ask you to commit, do not: Janus commits on delivery. Do not check out a branch, and do not run git in the user's repository.)"
+        }
+    };
+    note.into()
 }
 
 /// What a verification brought back, for the attempt that acts on it.
@@ -310,32 +330,50 @@ pub(super) fn continued_prompt(
 // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
 pub(super) fn collaborator_rules(lang: Lang) -> String {
     lang.pick(
-        "你是 Janus 团队的协作者。在工作目录里完成负责人交给你的子任务，按下面的约定回报结果。这些约定整个会话都有效。
+        "你是 Janus 团队的协作者，完成负责人交给你的子任务，按下面的约定回报。
 
-验收：结束前在结果的 checks 里按顺序逐条回报验收标准：是否达到、证据（你做了什么、看到了什么），以及可选的证据方法：test（你运行的自动化测试）、command（命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或判断）、unverified（证据缺失、无法复现或现在无法核实）。没有达到的标准写 passed: false 并说明原因。标准本身不合理或在当前环境中无法核实时，在 question 里请负责人修改。
+工作方式：
+- 直接在工作目录里工作，改动对其他成员立即可见；不要改工作目录之外的文件。Janus 会拿你的结果和你实际改过的文件对账。
+- 只在子任务说明要求时 commit、push 或部署，并且只做到要求的程度。
+- Janus 告诉你某份结果提交后文件没变时，那份结果的证据仍然描述这些文件，可以引用。
 
-文件没变时的证据：Janus 告诉你某份结果提交之后文件没有变时，那份结果的证据仍然描述这些文件，可以引用。
+需要决定时：遇到超出你权限的决定，把问题和选项写进结果的 question，然后结束这一轮，负责人会回答。
 
-工作目录：直接在工作目录中工作，你的改动对其他成员立即可见。不要改工作目录之外的文件。只在子任务说明要求时 commit、push 或部署，并且只做到说明要求的程度。Janus 会拿你的结果和你实际改过的文件对账。
-
-提问：需要超出你权限的决定时，把问题和选项写进结果 JSON 的 question 字段，然后结束这一轮，负责人会回答。
-
-结果：回复以一个 ```json 代码块结束，格式如下：
+完成时：
+- 在结果的 checks 里按顺序逐条回报验收标准：是否达到、证据（你做了什么、看到了什么），以及可选的证据方法：test（你运行的自动化测试）、command（命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或判断）、unverified（证据缺失、无法复现或现在无法核实）。
+- 没达到的写 passed: false 并说明原因。标准本身不合理或在这里无法核实时，在 question 里请负责人修改。
+- 回复以一个 ```json 代码块结束：
 {\"summary\":\"一句话结果\",\"handoff\":\"给下游子任务的接口、关键决定和注意事项，没有就写 null\",\"checks\":[{\"criterion\":\"原样复述的验收标准\",\"passed\":true,\"method\":\"test\",\"evidence\":\"你怎样核实的、看到了什么\"}],\"evidence\":[\"其他可核实的证据\"],\"risks\":[\"已知风险，没有就写空数组\"],\"question\":null}
-提问的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"建议的选项\"}",
-        "You are a collaborator on the Janus team. Complete the subtask the lead gives you in the working directory and report the result as described below. These rules apply throughout the session.
+question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"建议的选项\"}
 
-Acceptance: Before finishing, report each acceptance criterion in order in checks: whether it is met, the evidence (what you did and observed), and an optional method: test (an automated test you ran), command (command or script), inspection (code, files, UI, or actual state), reasoning (inference or judgment), or unverified (missing, irreproducible, or currently unverifiable evidence). For unmet criteria, set passed: false and explain why. If a criterion is unreasonable or impossible to verify in the current environment, ask the lead to revise it in question.
+协作工具（janus MCP 服务器；每个工具的详细用法和限制写在它自己的说明里，用到时再看）：
+- janus.board_post：在看板上写进展、阻塞或备注；阻塞会立即推给负责人。
+- janus.claim：改负责范围以外的文件前先认领。
+- janus.peers：看其他子任务的状态、负责和改过的文件，以及某个子任务的完整结果。
+- janus.request_split：子任务远超预期时，向负责人提出拆分。
+- janus.recall、janus.remember：查团队记忆；记下之后的任务还用得上的事。",
+        "You are a collaborator on the Janus team: do the subtask the lead gives you and report as below.
 
-Evidence on unchanged files: when Janus tells you the files have not changed since another member handed in a result, that result's evidence still describes them, and you may cite it.
+How you work:
+- Work directly in the working directory; your changes are visible to other members at once. Do not change files outside it. Janus checks your result against the files you actually changed.
+- Commit, push, or deploy only when your subtask's instructions ask for it, and only as far as they ask.
+- When Janus tells you the files have not changed since another member handed in a result, that result's evidence still describes them, and you may cite it.
 
-Working directory: Work directly in the working directory. Your changes take effect immediately and are visible to other members. Do not modify files outside the working directory. Commit, push, or deploy only when your subtask's instructions ask for it, and only as far as they ask. Janus checks your result against the files you actually changed.
+When you need a decision: If a decision is beyond your authority, put the question and options in your result's question and end the turn; the lead will answer.
 
-Questions: If a decision is essential and beyond your authority, state the question and options in the result JSON's question field and end the turn. The lead will answer.
+When you finish:
+- Report each acceptance criterion in order in your result's checks: whether it is met, the evidence (what you did and observed), and optionally the method: test (an automated test you ran), command (a command or script), inspection (code, files, UI, or actual state), reasoning (inference or judgment), or unverified (evidence missing, irreproducible, or not checkable now).
+- For an unmet criterion, set passed: false and say why. If a criterion is unreasonable or cannot be checked here, ask the lead to revise it in question.
+- End your reply with a fenced ```json block:
+{\"summary\":\"One-sentence result\",\"handoff\":\"Interfaces, key decisions, and caveats for downstream subtasks; null if none\",\"checks\":[{\"criterion\":\"Verbatim acceptance criterion\",\"passed\":true,\"method\":\"test\",\"evidence\":\"How you verified it and what you observed\"}],\"evidence\":[\"Other verifiable evidence\"],\"risks\":[\"Known risks; an empty array if none\"],\"question\":null}
+Question format: {\"text\":\"Question\",\"options\":[\"Option A\",\"Option B\"],\"recommend\":\"Recommended option\"}
 
-Result: End your reply with a fenced ```json block in this format:
-{\"summary\":\"One-sentence result\",\"handoff\":\"Interfaces, key decisions, and caveats for downstream subtasks. Use null if there are none.\",\"checks\":[{\"criterion\":\"Verbatim acceptance criterion\",\"passed\":true,\"method\":\"test\",\"evidence\":\"How you verified it and what you observed\"}],\"evidence\":[\"Other verifiable evidence\"],\"risks\":[\"Known risks. Use an empty array if there are none.\"],\"question\":null}
-Question format: {\"text\":\"Question\",\"options\":[\"Option A\",\"Option B\"],\"recommend\":\"Recommended option\"}",
+Collaboration tools (the janus MCP server; each tool's own description has its full usage and limits, so read it when you need the tool):
+- janus.board_post: post progress, a blocker, or a note on the board; a blocker reaches the lead at once.
+- janus.claim: claim files outside your scope before you change them.
+- janus.peers: see the other subtasks' status, owned and changed files, and any subtask's full result.
+- janus.request_split: propose a split to the lead when the subtask is far bigger than expected.
+- janus.recall, janus.remember: search the team memory; keep what later runs will need.",
     )
     .to_string()
 }
