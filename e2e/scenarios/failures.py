@@ -29,7 +29,7 @@ def failures(ctx, c):
     failed = run.has("task.failed", task="T3")
     c(failed and failed[-1]["data"]["reason"] == "verification", "没达到验收标准：提交时提醒可以修好再交一次，没有再交就交给负责人")
     t3_submits = [e["data"] for e in run.has("tool.completed", task="T3") if e["data"].get("tool") == "janus.submit"]
-    c(len(t3_submits) == 1 and "再提交一次" in t3_submits[0]["output"], "janus.submit 收下没达到的结果，同时提醒可以再交一次")
+    c(len(t3_submits) == 1 and "再交一次" in t3_submits[0]["output"], "janus.submit 收下没达到的结果，同时提醒可以再交一次")
     c(run.has("verification.failed", task="T3"), "核对结果记为 verification.failed")
 
     # The lead's choices.
