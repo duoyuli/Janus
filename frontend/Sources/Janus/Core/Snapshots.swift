@@ -254,10 +254,13 @@ enum Snapshots {
                      }),
                      "reason": a["job"]["detail"], "recent": JSON.array(AdapterText.recentNotes(a).map(JSON.init))]
                 }),
-                // The library's skill tab as shown: the router guide's catalog mode and order, and
-                // each skill's usage line and hints.
+                // The library's skill tab as shown: the router guide's catalog mode and order, the
+                // groups by where the skills came from, and each skill's usage line and hints.
                 "skills": [
                     "searched": JSON(Library.searched(store.library)),
+                    "groups": JSON.array(Library.skillGroups(store.libraryItems.filter { $0["kind"].str == "skill" }, sources: store.librarySources).map {
+                        ["key": JSON(LibraryView.key($0.origin)), "items": JSON.array($0.items.map { $0["name"] })]
+                    }),
                     "items": JSON.array(Library.catalogOrder(store.libraryItems.filter { $0["kind"].str == "skill" }).map {
                         ["name": $0["name"], "sessions": $0["uses"]["sessions"], "usage": JSON(Library.usage($0, now: L.nowMs())),
                          "hints": JSON.array($0["hints"].array.map { $0["kind"] }), "hintText": JSON.array($0["hints"].array.map { JSON(Library.hint($0)) }),

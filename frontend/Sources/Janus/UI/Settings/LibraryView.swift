@@ -231,45 +231,56 @@ struct LibraryView: View {
                 if store.updatingSources.contains(id) { ProgressView().controlSize(.small) }
                 else if s["updateAvailable"].truthy { Pill(L.text("有更新"), .blue); Button(L.text("更新")) { Task { await store.updateSources([id]) } }.controlSize(.small) }
             } content: {
-                if s["checkError"].truthy { Note(text: L.text("检查更新失败：\(s["checkError"].str)"), tone: .amber).padding(10) }
-                ForEach(list, id: \.self) { i in Divider(); row(i) }
+                ForEach(list, id: \.self) { i in row(i).treeLeaf(last: rest.isEmpty && i == list.last) }
                 if !rest.isEmpty {
-                    Divider()
                     VStack(alignment: .leading, spacing: 6) {
-                        Button(choosing.contains(id) ? L.text("收起未导入的 Skill") : L.text("从这个仓库再导入（\(rest.count) 个未导入）")) {
+                        Button {
                             if choosing.contains(id) { choosing.remove(id) } else { choosing.insert(id) }
+                        } label: {
+                            Label(choosing.contains(id) ? L.text("收起未导入的 Skill") : L.text("从这个仓库再导入（\(rest.count) 个未导入）"),
+                                  systemImage: choosing.contains(id) ? "minus.circle" : "plus.circle")
                         }
-                        .buttonStyle(.link)
+                        .buttonStyle(.link).font(.callout)
                         if choosing.contains(id) {
-                            offerSelection(Self.offering(s, rest), imported: imported, selection: Binding(get: { picks[id] ?? [] }, set: { picks[id] = $0 })) {
-                                importOffers(id, $0)
+                            VStack(alignment: .leading, spacing: 6) {
+                                offerSelection(Self.offering(s, rest), imported: imported, selection: Binding(get: { picks[id] ?? [] }, set: { picks[id] = $0 })) {
+                                    importOffers(id, $0)
+                                }
                             }
+                            .padding(10)
+                            .background(Color.soft, in: RoundedRectangle(cornerRadius: 8))
                         }
                     }
-                    .padding(10)
+                    .padding(.horizontal, 8).padding(.vertical, 8)
+                    .treeLeaf(last: true)
                 }
-                Divider()
-                HStack(spacing: 12) {
-                    Text(s["url"].str).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(1)
+            } footer: {
+                if s["checkError"].truthy { Note(text: L.text("检查更新失败：\(s["checkError"].str)"), tone: .amber) }
+                HStack(spacing: 8) {
+                    Image(systemName: "link").font(.caption).foregroundStyle(.tertiary)
+                    Text(s["url"].str).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                     Spacer()
                     Button(L.text("删除来源…")) { removeSource(s) }.buttonStyle(.link).font(.caption)
                         .disabled(!g.items.isEmpty).help(g.items.isEmpty ? "" : L.text("还有从它导入的 Skill 时不能删除"))
                 }
-                .padding(.horizontal, 10).padding(.vertical, 8)
             }
         case .folder(let path):
             group(Self.key(g.origin), open: open, icon: "folder", title: (path as NSString).abbreviatingWithTildeInPath,
                   caption: L.text("本机文件夹 · 导入时的快照，展开可刷新"), summary: summary) {
                 EmptyView()
             } content: {
-                ForEach(list, id: \.self) { i in Divider(); row(i) }
+                ForEach(list, id: \.self) { i in row(i).treeLeaf(last: i == list.last) }
+            } footer: {
+                EmptyView()
             }
         case .created:
             group(Self.key(g.origin), open: open, icon: "square.and.pencil", title: L.text("在 Janus 中新建"),
                   caption: L.text("可以在 Janus 里编辑"), summary: summary) {
                 EmptyView()
             } content: {
-                ForEach(list, id: \.self) { i in Divider(); row(i) }
+                ForEach(list, id: \.self) { i in row(i).treeLeaf(last: i == list.last) }
+            } footer: {
+                EmptyView()
             }
         }
     }
@@ -305,28 +316,32 @@ struct LibraryView: View {
                     .help(L.text("填表单，或切到 JSON 贴 README 里的配置"))
             }
             Text(L.text("值只存在本机，不进数据库、任务记录和事件。")).font(.caption).foregroundStyle(.secondary)
-            mcpGroup("all", icon: "point.3.connected.trianglepath.dotted", title: L.text("所有服务器"),
-                     caption: L.text("用到才启动或连接"),
-                     list: servers, empty: L.text("还没有 MCP 服务器"))
+            let shown = servers.filter(matches)
+            if shown.isEmpty {
+                empty(query.isEmpty ? L.text("还没有 MCP 服务器") : L.text("没有匹配的 MCP 服务器"))
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(shown, id: \.self) { i in
+                        if i != shown.first { Divider().padding(.leading, Self.inset + Self.tile + 10) }
+                        HStack(alignment: .top, spacing: 10) {
+                            Self.iconTile(i["server"]["transport"].str == "stdio" ? "terminal" : "globe")
+                                .padding(.top, 3)
+                                .help(i["server"]["transport"].str == "stdio" ? L.text("命令启动") : L.text("由 Janus 连接"))
+                            row(i)
+                        }
+                        .padding(.horizontal, Self.inset).padding(.vertical, 4)
+                    }
+                }
+                .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.line.opacity(0.7)))
+            }
         }
         CatalogShelf(store: store, kind: .mcp, query: query)
     }
 
-    @ViewBuilder private func mcpGroup(_ id: String, icon: String, title: String, caption: String, list: [JSON], empty text: String) -> some View {
-        let shown = list.filter(matches)
-        if query.isEmpty || !shown.isEmpty {
-            group("mcp:\(id)", open: isOpen("mcp:\(id)", count: list.count), icon: icon, title: title, caption: caption, summary: L.text("\(list.count) 个")) {
-                EmptyView()
-            } content: {
-                if list.isEmpty { Divider(); empty(text).padding(.horizontal, 10) }
-                ForEach(shown, id: \.self) { i in Divider(); row(i) }
-            }
-        }
-    }
-
     // MARK: Pieces
 
-    /// Groups up to this size start open; bigger ones start folded.
+    /// Skill groups up to this size start open; bigger ones start folded.
     static let openByDefault = 6
 
     /// A group is open when opened by hand, when a search finds something in it, or when it is small.
@@ -335,25 +350,28 @@ struct LibraryView: View {
         return groupsOpen[key] ?? (count <= Self.openByDefault)
     }
 
-    /// A folding group: a header with what it is and how many, its rows under it when open.
+    /// A folding group: a card whose header says what it is and how many, with its rows hanging
+    /// from the header's icon on a tree line, and a footer bar for what belongs to the group itself.
     private func group(_ key: String, open: Bool, icon: String, title: String, caption: String, summary: String,
-                       @ViewBuilder trailing: () -> some View, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+                       @ViewBuilder trailing: () -> some View, @ViewBuilder content: () -> some View,
+                       @ViewBuilder footer: () -> some View) -> some View {
+        let footer = footer()
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Button {
                     groupsOpen[key] = !open
                 } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: Self.headerGap) {
                         DisclosureChevron(open: open)
-                        Image(systemName: icon).foregroundStyle(Color.accent).frame(width: 18)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(title).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                        Self.iconTile(icon)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title).font(.body.weight(.semibold)).lineLimit(1).truncationMode(.middle)
                             Text(caption).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
+                        .padding(.leading, 2)
                         Spacer(minLength: 8)
                     }
                     .contentShape(Rectangle())
-                    .hoverable(6)
                 }
                 .buttonStyle(.plain)
                 .help(open ? L.text("收起") : L.text("展开"))
@@ -361,20 +379,46 @@ struct LibraryView: View {
                 trailing()
                 Pill(summary)
             }
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            if open { content() }
+            .padding(.horizontal, Self.inset).padding(.top, 10).padding(.bottom, open ? 4 : 10)
+            if open {
+                VStack(alignment: .leading, spacing: 0) { content() }
+                    .padding(.leading, Self.inset + 18 + Self.headerGap + Self.tile / 2)
+                    .padding(.trailing, Self.inset).padding(.bottom, 8)
+                if !(footer is EmptyView) {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 8) { footer }
+                        .padding(.horizontal, Self.inset).padding(.vertical, 8)
+                        .background(Color.soft.opacity(0.6))
+                }
+            }
         }
-        .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.card)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.line.opacity(0.7)))
         .animation(.easeOut(duration: 0.18), value: open)
     }
+
+    /// What a group or a server is, as a glyph on a tinted tile.
+    private static func iconTile(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Color.accent)
+            .frame(width: tile, height: tile)
+            .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+            .accessibilityHidden(true)
+    }
+
+    /// A group header's measures; the tree line hangs from the middle of its icon tile.
+    private static let inset: CGFloat = 12
+    private static let headerGap: CGFloat = 8
+    private static let tile: CGFloat = 28
 
     private func empty(_ text: String) -> some View {
         Text(text).font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
     }
 
-    /// One line: name, a line of description, what keeps it from working (amber) and the switch;
-    /// the rest unfolds.
+    /// One resource: name, a line of description, what keeps it from working (amber), and
+    /// at the end of the line the fold for the rest, so it never looks like the group's own fold.
     private func row(_ i: JSON) -> some View {
         let id = i["id"].str
         let open = expanded.contains(id)
@@ -386,8 +430,7 @@ struct LibraryView: View {
                     if open { expanded.remove(id) } else { expanded.insert(id) }
                 } label: {
                     HStack(spacing: 8) {
-                        DisclosureChevron(open: open)
-                        Text(i["name"].str).font(.system(.body, design: .monospaced).weight(.medium)).lineLimit(1)
+                        Text(i["name"].str).font(.system(.callout, design: .monospaced).weight(.medium)).lineLimit(1)
                         Text(i["description"].truthy ? i["description"].str : mcp ? Library.endpoint(i) : "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer(minLength: 8)
                         if !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
@@ -396,7 +439,9 @@ struct LibraryView: View {
                         case "failed": Text(L.text("启动失败")).font(.caption).foregroundStyle(Tone.red.color)
                         default: EmptyView()
                         }
+                        DisclosureChevron(open: open)
                     }
+                    .padding(.horizontal, 8).padding(.vertical, 7)
                     .contentShape(Rectangle())
                     .hoverable(6)
                 }
@@ -404,9 +449,9 @@ struct LibraryView: View {
                 .help(open ? L.text("收起") : L.text("展开详情"))
                 .accessibilityValue(open ? L.text("已展开") : L.text("已收起"))
             }
-            if open { details(i) }
+            if open { details(i).padding(.horizontal, 8).padding(.bottom, 8) }
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
+        .padding(.vertical, 1)
     }
 
     private func details(_ i: JSON) -> some View {
@@ -427,7 +472,6 @@ struct LibraryView: View {
             }
             .padding(.top, 2)
         }
-        .padding(.leading, 22)
     }
 
     /// How preparing a server went: a command started once when added, so its packages are
@@ -629,6 +673,41 @@ struct LibraryView: View {
             do { try await store.api.delete("/api/library/sources/\(s["id"].str)"); await store.loadLibrary() }
             catch { store.show(error.localizedDescription) }
         }
+    }
+}
+
+/// The line a group's rows hang on: down from the header's icon, with a short branch to each row
+/// and a rounded end at the last one.
+private struct TreeGuide: Shape {
+    let last: Bool
+    /// Where the branch meets a row: the middle of its first line.
+    static let branch: CGFloat = 16
+    static let width: CGFloat = 22
+
+    func path(in r: CGRect) -> Path {
+        let x = r.minX + 0.5, y = r.minY + Self.branch, end = r.minX + 12
+        var p = Path()
+        p.move(to: CGPoint(x: x, y: r.minY))
+        if last {
+            p.addLine(to: CGPoint(x: x, y: y - 6))
+            p.addQuadCurve(to: CGPoint(x: x + 6, y: y), control: CGPoint(x: x, y: y))
+            p.addLine(to: CGPoint(x: end, y: y))
+        } else {
+            p.addLine(to: CGPoint(x: x, y: r.maxY))
+            p.move(to: CGPoint(x: x, y: y))
+            p.addLine(to: CGPoint(x: end, y: y))
+        }
+        return p
+    }
+}
+
+private extension View {
+    /// One row of a group, hung on the group's tree line.
+    func treeLeaf(last: Bool) -> some View {
+        padding(.leading, TreeGuide.width)
+            .background(alignment: .leading) {
+                TreeGuide(last: last).stroke(Color.line, lineWidth: 1).frame(width: TreeGuide.width)
+            }
     }
 }
 

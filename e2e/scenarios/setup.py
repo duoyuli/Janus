@@ -192,6 +192,9 @@ def setup_settings(ctx, c):
         shot = "settings-" + tab.replace(":", "-")
         ctx.app.do(f"open settings:{tab}", f"shot {shot}")
         c(_drawn(ctx, shot), f"应用：设置 › {tab} 画出来了")
+    # The servers added: one card, a server a line, with no group around them.
+    ctx.app.do("size 1280x1600", "open settings:library:mcp", "shot settings-library-mcp-servers")
+    c(_drawn(ctx, "settings-library-mcp-servers"), "应用：资源库 MCP 标签的服务器列表画出来了，一个服务器一行，不再套一层组")
     # Settings › 通用 › 更新: automatic updates are on until turned off, and the switch keeps it.
     state = ctx.app.do("open settings:updates")
     c(state["autoUpdate"] is True, f"应用：自动更新默认开着（{state['autoUpdate']}）")

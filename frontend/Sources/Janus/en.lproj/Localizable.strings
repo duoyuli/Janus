@@ -1307,8 +1307,9 @@
 "还没有 MCP 服务器。加进来就全员可用。" = "No MCP servers yet. Anything you add is available to everyone.";
 "%lld 个服务器全员可用，经 janus-tools 一个入口取用。" = "%lld servers, available to everyone through the single janus-tools entry.";
 "全员可用，经 janus-tools 取用" = "Available to everyone through janus-tools";
-"所有服务器" = "All Servers";
-"用到才启动或连接" = "Starts or connects on first use";
+"没有匹配的 MCP 服务器" = "No matching MCP servers";
+"命令启动" = "Started by a command";
+"由 Janus 连接" = "Connected by Janus";
 "还没有 MCP 服务器" = "No MCP servers yet";
 "正在连接，列出它的工具…" = "Connecting and listing its tools…";
 "还没有准备过：任务里第一次用到时再启动或连接" = "Not prepared yet: it starts or connects the first time a run uses it";

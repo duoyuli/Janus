@@ -61,3 +61,7 @@ def skills(ctx, c):
         c(st["skills"]["searched"] == (ctx.api("GET", "/api/library")["skillRouter"]["catalog"] == "search"), "应用：说明里的目录方式和服务端一致")
         ctx.app.do("shot library-skill-router")
         c(drawn(ctx.app.picture("library-skill-router")), "应用：资源库的 Skill 页和路由说明画出来了（library-skill-router.png）")
+        created = {g["key"]: g["items"] for g in st["skills"]["groups"]}.get("created", [])
+        c(set(names) <= set(created), f"应用：在 Janus 中新建的两个 Skill 挂在「在 Janus 中新建」一组下（{st['skills']['groups']}）")
+        ctx.app.do("size 1280x1600", "shot library-skill-groups")
+        c(drawn(ctx.app.picture("library-skill-groups")), "应用：已添加的 Skill 按来源分组，挂在组标题下画出来了（library-skill-groups.png）")
