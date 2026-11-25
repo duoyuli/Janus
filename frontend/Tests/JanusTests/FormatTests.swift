@@ -46,17 +46,30 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     let suite = "JanusTests.language." + UUID().uuidString
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
-    let settings = LanguageSettings(defaults: defaults)
-    #expect(settings.selection == .system)
+    // The app's language for macOS, kept apart from the test runner's own.
+    let appSuite = suite + ".app"
+    let app = try #require(UserDefaults(suiteName: appSuite))
+    defer { app.removePersistentDomain(forName: appSuite) }
+    let settings = LanguageSettings(defaults: defaults, appDomain: app)
+    #expect(settings.selection == .system && settings.atLaunch == .system)
     for (choice, label, pattern) in [(AppLanguage.english, "Settings", "MMM d, HH:mm"), (.chinese, "设置", "M月d日 HH:mm")] {
         settings.selection = choice
         let current = L.resources(for: settings.selection)
         #expect(L.text("设置", bundle: current.bundle) == label)
         #expect(current.day.dateFormat == pattern)
         #expect(LanguageSettings(defaults: defaults).selection == choice)
+        // What macOS draws for Janus follows from the next launch.
+        #expect(app.stringArray(forKey: "AppleLanguages") == [choice.rawValue])
+        #expect(LanguageSettings(defaults: defaults).atLaunch == choice && settings.atLaunch == .system)
     }
     settings.selection = .system
     #expect(LanguageSettings(defaults: defaults).selection == .system)
+    // Read the app's own layer: a missing value falls through to the system-wide one.
+    #expect(app.persistentDomain(forName: appSuite)?["AppleLanguages"] == nil, "following the system leaves macOS to choose")
+    // A choice kept before macOS knew it reaches macOS at the next launch.
+    defaults.set("en", forKey: "janus.language")
+    _ = LanguageSettings(defaults: defaults, appDomain: app)
+    #expect(app.stringArray(forKey: "AppleLanguages") == ["en"])
 }
 
 @Test func bothLocalizationResourcesPreserveInterpolatedValues() throws {

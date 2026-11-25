@@ -1690,3 +1690,4 @@
 "下次等你叫它" = "next when you call it";
 "%@ 收工 · %@" = "Ended %1$@ · %2$@";
 "%@ 收工（%@）· %@" = "Ended %1$@ (%2$@) · %3$@";
+"Janus 的界面语言。打开文件夹等系统对话框在重新打开 Janus 后换成这个语言" = "The language Janus uses. System dialogs, such as choosing a folder, switch to it after you reopen Janus";

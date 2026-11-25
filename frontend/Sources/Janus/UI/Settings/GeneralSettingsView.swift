@@ -33,7 +33,8 @@ struct GeneralSettingsView: View {
                 .accessibilityAddTraits(.isHeader)
                 .padding(.bottom, 6)
             HStack(spacing: 22) {
-                settingLabel(L.text("语言"), detail: L.text("Janus 的界面语言"))
+                settingLabel(L.text("语言"), detail: LanguageSettings.shared.selection == LanguageSettings.shared.atLaunch
+                             ? L.text("Janus 的界面语言") : L.text("Janus 的界面语言。打开文件夹等系统对话框在重新打开 Janus 后换成这个语言"))
                 Spacer(minLength: 0)
                 Picker(L.text("语言"), selection: Bindable(LanguageSettings.shared).selection) {
                     ForEach(AppLanguage.allCases, id: \.self) { item in

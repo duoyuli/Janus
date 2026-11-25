@@ -14,18 +14,34 @@ enum AppLanguage: String, CaseIterable {
         case .english: "English"
         }
     }
+
+    /// The app's own language as macOS keeps it (`AppleLanguages` in the app's domain, the one
+    /// System Settings › Language & Region › Applications sets): what macOS draws for Janus (the
+    /// open panel's buttons and sidebar, the standard menu items) follows it. None follows the system.
+    var appleLanguages: [String]? { self == .system ? nil : [rawValue] }
 }
 
 /// SwiftUI observes the selection through L.text. Background event derivation reads it too.
+/// A choice also becomes the app's language for macOS (`appDomain`), so the parts macOS draws
+/// match from the next launch; macOS reads it only when an app starts.
+// @project-doc docs/architecture/20261031-frontend.md#ui_language
 @Observable final class LanguageSettings {
-    static let shared = LanguageSettings(defaults: .janus)
+    /// The end-to-end test's app keeps its settings apart and leaves the app's language alone.
+    static let shared = LanguageSettings(defaults: .janus, appDomain: UserDefaults.janus === UserDefaults.standard ? .standard : nil)
     private let defaults: UserDefaults
+    private let appDomain: UserDefaults?
     private let stored: OSAllocatedUnfairLock<AppLanguage>
+    /// The choice macOS started the app with: what it draws stays in that language until a relaunch.
+    let atLaunch: AppLanguage
     private static let key = "janus.language"
 
-    init(defaults: UserDefaults) {
+    init(defaults: UserDefaults, appDomain: UserDefaults? = nil) {
         self.defaults = defaults
-        stored = OSAllocatedUnfairLock(initialState: defaults.string(forKey: Self.key).flatMap(AppLanguage.init(rawValue:)) ?? .system)
+        self.appDomain = appDomain
+        atLaunch = defaults.string(forKey: Self.key).flatMap(AppLanguage.init(rawValue:)) ?? .system
+        stored = OSAllocatedUnfairLock(initialState: atLaunch)
+        // A choice made before Janus kept it for macOS too, or changed in System Settings since.
+        if let codes = atLaunch.appleLanguages, appDomain?.stringArray(forKey: "AppleLanguages") != codes { appDomain?.set(codes, forKey: "AppleLanguages") }
     }
 
     var selection: AppLanguage {
@@ -39,6 +55,7 @@ enum AppLanguage: String, CaseIterable {
                     $0 = newValue
                     defaults.set(newValue.rawValue, forKey: Self.key)
                 }
+                if let codes = newValue.appleLanguages { appDomain?.set(codes, forKey: "AppleLanguages") } else { appDomain?.removeObject(forKey: "AppleLanguages") }
             }
         }
     }
@@ -47,8 +64,16 @@ enum AppLanguage: String, CaseIterable {
 extension L {
     private static let appBundle: Bundle? = Bundle.main.localizations.contains("zh-Hans") ? .main : nil
     private static let resources = appBundle ?? Bundle.module
-    private static let systemLanguage = appBundle?.preferredLocalizations.first
-        ?? Bundle.preferredLocalizations(from: resources.localizations, forPreferences: Locale.preferredLanguages + ["zh-Hans"]).first
+    /// The language「跟随系统」means. Janus writes its own choice as the app's language for macOS, so
+    /// the app's preferred localization is the system's only when the choice was to follow it;
+    /// otherwise it is read from the system-wide languages.
+    private static let systemLanguage = LanguageSettings.shared.atLaunch == .system
+        ? appBundle?.preferredLocalizations.first ?? preferred(Locale.preferredLanguages)
+        : preferred(UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleLanguages"] as? [String] ?? Locale.preferredLanguages)
+
+    private static func preferred(_ languages: [String]) -> String? {
+        Bundle.preferredLocalizations(from: resources.localizations, forPreferences: languages + ["zh-Hans"]).first
+    }
 
     struct LanguageResources {
         let bundle: Bundle
