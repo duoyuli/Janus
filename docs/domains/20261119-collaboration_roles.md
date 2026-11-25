@@ -62,8 +62,8 @@
 | 文件归属 | [`claim`](../interfaces/20261031-board_mcp.md#claim) | 改负责范围以外的文件前先认领；验证任务不能认领 |
 | 看别人 | [`peers`](../interfaces/20261031-board_mcp.md#peers) | 看其他子任务的状态、负责的文件和改过的文件；传 `task` 看某个子任务的完整结果和修订 |
 | 范围不对 | [`request_split`](../interfaces/20261031-board_mcp.md#request_split) | 子任务太大时向负责人提拆分建议；验证任务不能用 |
-| 交结果 | [`submit`](20261031-run_lifecycle.md#structured_result) | `summary`、`handoff`（给下游的交接说明）、逐条 `checks`（标准、是否通过、证据、方法）、`evidence`、`risks`；独立验证任务另填 `verdict`（`approved`、`rejected` 或 `inconclusive`）。格式不对当场退回；有标准没达到时提醒一次可以修好再交。交上后结束这一轮，子任务才算交了 |
-| 提问 | [`ask`](20261031-run_lifecycle.md#structured_result) | 需要负责人做决定才能继续时提问并结束这一轮；回答作为下一轮发回同一个会话 |
+| 交结果 | [`submit`](../interfaces/20261031-board_mcp.md#submit) | `summary`、`handoff`（给下游的交接说明）、逐条 `checks`（标准、是否通过、证据、方法）、`evidence`、`risks`；独立验证任务另填 `verdict`（`approved`、`rejected` 或 `inconclusive`）。格式不对当场退回；有标准没达到时提醒一次可以修好再交。交上后结束这一轮，子任务才算交了 |
+| 提问 | [`ask`](../interfaces/20261031-board_mcp.md#ask) | 需要负责人做决定才能继续时提问并结束这一轮；回答作为下一轮发回同一个会话 |
 
 `board_post` 的阻塞不会让协作者停下，`ask` 会；需要等负责人决定时用 `ask`。审批和表单请求是 Agent 自己发起的，由编排器交给用户，见下文。
 
