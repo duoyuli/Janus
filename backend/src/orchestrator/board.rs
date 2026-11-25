@@ -7,7 +7,7 @@ use crate::lang::{Lang, tr};
 /// A message the lead sends a collaborator, with a prefix so the session and the record both show
 /// who wrote it.
 fn lead_reply(lang: Lang, text: &str) -> String {
-    tr!(lang, "负责人回复：{text}", "The lead replies: {text}")
+    tr!(lang, "负责人：{text}", "The lead: {text}")
 }
 
 /// A tool named a subtask the board does not have.
@@ -226,7 +226,10 @@ impl App {
         let tasks: Vec<String> = st
             .tasks
             .iter()
-            .map(|t| format!("- {} · {} · {} · {}", t.def.id, t.agent, t.status(), t.def.title))
+            .map(|t| {
+                let (it, agent, status) = (titled(lang, &t.def.id, &t.def.title), &t.agent, t.status().label_in(lang));
+                tr!(lang, "- {it}· {agent} · {status}", "- {it} · {agent} · {status}")
+            })
             .collect();
         drop(st);
         let team = team_lines(run);
@@ -265,8 +268,8 @@ impl App {
                 let errors = errors.join("\n- ");
                 return Err(tr!(
                     run.lang,
-                    "编排没有通过校验，没有任何子任务开始。请修正后重新提交：\n- {errors}",
-                    "The orchestration failed its check and no subtask started. Fix it and submit again:\n- {errors}"
+                    "编排没有通过校验，没有子任务开始：\n- {errors}",
+                    "The orchestration failed its check and no subtask started:\n- {errors}"
                 ));
             }
         };
@@ -316,11 +319,7 @@ impl App {
         run.wake.notify_one();
         let started =
             defs.iter().map(|d| format!("{}→{}", d.id, d.assignee)).collect::<Vec<_>>().join(list_sep(run.lang));
-        Ok(tr!(
-            run.lang,
-            "编排已通过校验并开始执行：{started}。用 janus.wait 取回进展和结果。",
-            "The orchestration passed its check and is running: {started}. Use janus.wait to fetch progress and results."
-        ))
+        Ok(tr!(run.lang, "编排已写入看板：{started}。", "The orchestration is on the board: {started}."))
     }
 
     /// Board entries for the lead since it last looked, waiting up to the given time for some.
@@ -386,14 +385,14 @@ impl App {
                 return if pulse.is_empty() {
                     tr!(
                         lang,
-                        "{secs} 秒内看板上没有新消息，子任务仍在进行。继续等待前先判断是否需要干预。",
-                        "Nothing new on the board in {secs} s; subtasks are still going. Before waiting again, judge whether to step in."
+                        "{secs} 秒内看板上没有新消息，子任务仍在进行。",
+                        "Nothing new on the board in {secs} s; subtasks are still going."
                     )
                 } else {
                     tr!(
                         lang,
-                        "{secs} 秒内看板上没有新消息，子任务实时进展：\n{pulse}\n子任务正常推进时继续等待即可；只有发现方向偏离或阻塞时才需要介入。",
-                        "Nothing new on the board in {secs} s. Live progress of subtasks:\n{pulse}\nWhile subtasks progress normally, keep waiting; step in only when one goes off course or is blocked."
+                        "{secs} 秒内看板上没有新消息。子任务实时进展：\n{pulse}",
+                        "Nothing new on the board in {secs} s. Live progress of subtasks:\n{pulse}"
                     )
                 };
             }
@@ -452,8 +451,8 @@ impl App {
             let status = status.label_in(lang);
             return Err(tr!(
                 lang,
-                "{task} 已经结束（{status}），{agent} 没有在做这个子任务，消息不会送达。需要它接着做，请用 janus.retry 让 {task} 返工（session=\"continue\" 回到它原来的会话），或用 janus.orchestrate 新建子任务。",
-                "{task} has ended ({status}); {agent} is not working on it, so the message would not arrive. To have it go on, send {task} back with janus.retry (session=\"continue\" returns to its own session), or create a new subtask with janus.orchestrate."
+                "{task} 已经结束（{status}），消息不会送达。要它接着做，用 janus.retry。",
+                "{task} has ended ({status}), so the message would not arrive. To have it go on, use janus.retry."
             ));
         }
         let msg = self.post_message(run, "lead", &agent, task, &lead_reply(lang, text), &[]);
@@ -461,19 +460,15 @@ impl App {
             Some(tx) => {
                 tx.send(Steer::Redirect(msg))
                     .map_err(|_| tr!(lang, "{task} 的会话刚刚结束", "{task}'s session has just ended"))?;
-                Ok(tr!(
-                    lang,
-                    "已把消息发给正在执行 {task} 的 {agent}：能插话时插入当前这一轮，否则打断当前这一轮后立即发送。",
-                    "Sent to {agent}, working on {task}: steered into its current turn where possible, otherwise the turn is interrupted and the message sent at once."
-                ))
+                Ok(tr!(lang, "已发给正在执行 {task} 的 {agent}。", "Sent to {agent}, working on {task}."))
             }
             None => {
                 self.route_message(run, &agent, task, 0, &msg.id, Delivery::Next);
                 run.st.lock().unwrap().notes.entry(agent.clone()).or_default().push(Note::new(msg, task));
                 Ok(tr!(
                     lang,
-                    "{task} 现在没有在执行，消息会在 {agent} 下一次开始工作时带给它。",
-                    "{task} is not running now; {agent} gets the message the next time it starts work."
+                    "{task} 现在没有在执行，{agent} 下一次开始工作时收到。",
+                    "{task} is not running now; {agent} gets it the next time it starts work."
                 ))
             }
         }
@@ -498,16 +493,12 @@ impl App {
         if accept.as_ref().is_some_and(|a| a.is_empty()) {
             return Err(tr!(
                 lang,
-                "accept 不能是空的：写出可核对的验收标准，或不传以沿用原来的",
-                "accept cannot be empty: write checkable acceptance criteria, or leave it out to keep the current ones"
+                "accept 不能是空数组；不传则沿用原来的",
+                "accept cannot be an empty array; leave it out to keep the current criteria"
             ));
         }
         let Some(session) = text("session").and_then(SessionChoice::parse) else {
-            return Err(tr!(
-                lang,
-                "session 必填：\"continue\" 接着这个子任务原来的会话做（按意见修改、补漏、接着没做完的），\"new\" 新开一个会话做（方向要换、上下文已经乱了、原来的进程出错）",
-                "session is required: \"continue\" carries on in the subtask's own session (revise per findings, fill gaps, finish what was left), \"new\" opens a fresh one (a different direction, a muddled context, a broken process)"
-            ));
+            return Err(tr!(lang, "session 必填：continue 或 new", "session is required: continue or new"));
         };
         // Its own session too full to go back into: refused here, so the lead knows the next attempt
         // starts without that context and writes what it needs into the note.
@@ -535,8 +526,8 @@ impl App {
                     (format!("{:.0}%", ratio * 100.0), format!("{:.0}%", CONTINUE_CONTEXT_LIMIT * 100.0));
                 return Err(tr!(
                     lang,
-                    "{task} 原来的会话上下文已经用了 {used}（超过 {limit}），回不到原会话：新开的会话不记得之前做过什么。改用 session=\"new\"，并在 note 里写清这一轮要知道的：之前做到哪一步、改过哪些文件、还差什么。",
-                    "{task}'s own session has used {used} of its context (over {limit}), so it cannot be continued, and a new session remembers nothing of the earlier work. Use session=\"new\" and put in note what this round needs to know: how far it got, which files it changed, what is left."
+                    "{task} 原来的会话上下文已用了 {used}（超过 {limit}），不能续接，改用 session=\"new\"。",
+                    "{task}'s own session has used {used} of its context (over {limit}) and cannot be continued; use session=\"new\"."
                 ));
             }
             if let Some(v) = from {
@@ -664,32 +655,21 @@ impl App {
         self.ensure_driver(run);
         run.wake.notify_one();
         let sep = list_sep(lang);
+        let never_opened = session == SessionChoice::Continue && self.last_task_session(&run.id, task).is_none();
         let mut reply = match session {
-            SessionChoice::Continue => tr!(
+            SessionChoice::Continue if never_opened => tr!(
                 lang,
-                "{task} 会在原会话中重新执行，依赖它的子任务会在它成功后继续。",
-                "{task} runs again in its own session; subtasks that depend on it go on once it succeeds."
+                "{task} 之前没有开过会话，会在新会话中重新执行。",
+                "{task} never opened a session, so it runs again in a new one."
             ),
-            SessionChoice::New => tr!(
-                lang,
-                "{task} 会在新会话中重新执行，依赖它的子任务会在它成功后继续。",
-                "{task} runs again in a new session; subtasks that depend on it go on once it succeeds."
-            ),
+            SessionChoice::Continue => {
+                tr!(lang, "{task} 会在原会话中重新执行。", "{task} runs again in its own session.")
+            }
+            SessionChoice::New => tr!(lang, "{task} 会在新会话中重新执行。", "{task} runs again in a new session."),
         };
-        if session == SessionChoice::Continue && self.last_task_session(&run.id, task).is_none() {
-            reply.push_str(&tr!(
-                lang,
-                "{task} 之前没有开过会话，这次会新开一个。",
-                " {task} never opened a session, so this one is new."
-            ));
-        }
         if !reverify.is_empty() {
             let ids = reverify.join(sep);
-            reply.push_str(&tr!(
-                lang,
-                "它完成后，{ids} 重新验证新的结果。",
-                " Once it is done, {ids} verify the new result."
-            ));
+            reply.push_str(&tr!(lang, "它完成后 {ids} 重新验证。", " Once it is done, {ids} verify it again."));
         }
         if !revived.is_empty() {
             let ids = revived.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>().join(sep);
@@ -703,24 +683,24 @@ impl App {
             &running,
             &tr!(
                 lang,
-                "上游子任务 {task} 正在返工，它的结果和改过的文件可能会变。用到它的地方先读最新内容；需要等它返工完再继续时，用 janus.board_post 写一条 blocker 请负责人协调。",
-                "The upstream subtask {task} is being reworked; its result and the files it changed may change. Read the latest content wherever you use it; if you must wait for the rework to finish, post a blocker with janus.board_post for the lead to coordinate."
+                "上游子任务 {task} 正在返工，它的结果和改过的文件可能会变，用到时先读最新内容。必须等它返工完才能继续时，用 janus.board_post 写一条 blocker。",
+                "The upstream subtask {task} is being reworked; its result and the files it changed may change, so read the latest content where you use them. If you cannot go on until the rework is done, post a blocker with janus.board_post."
             ),
         );
         if !running.is_empty() {
             let ids = Takers::ids(&running, lang);
             reply.push_str(&tr!(
                 lang,
-                "{ids} 正在基于 {task} 的旧结果执行，已通知它上游在返工；它们可能和返工改同一批文件，不再需要时用 janus.cancel 停下。",
-                " {ids} are running on {task}'s old result and were told it is being reworked; they may change the same files as the rework, so stop them with janus.cancel if no longer needed."
+                "{ids} 正在基于 {task} 的旧结果执行，已告诉它们上游在返工，它们可能和返工改同一批文件。",
+                " {ids} are running on {task}'s old result and were told of the rework; they may change the same files as the rework."
             ));
         }
         if !done.is_empty() {
             let ids = done.join(sep);
             reply.push_str(&tr!(
                 lang,
-                "{ids} 已经基于 {task} 的旧结果完成，需要的话在 {task} 返工后用 janus.retry 让它们也返工。",
-                " {ids} already finished on {task}'s old result; if needed, rework them with janus.retry after {task}'s rework."
+                "{ids} 已经基于 {task} 的旧结果完成。",
+                " {ids} already finished on {task}'s old result."
             ));
         }
         Ok(reply)
@@ -733,11 +713,7 @@ impl App {
         let task = args["task"].as_str().unwrap_or("").trim();
         let reason = args["reason"].as_str().unwrap_or("").trim();
         if reason.is_empty() {
-            return Err(tr!(
-                lang,
-                "reason 不能为空：写明你核对了什么，为什么没达到的部分不影响目标",
-                "reason cannot be empty: say what you checked and why the shortfall does not affect the goal"
-            ));
+            return Err(tr!(lang, "reason 不能为空", "reason cannot be empty"));
         }
         let refused = run
             .st
@@ -758,7 +734,7 @@ impl App {
         let (Some(failed), Some(submitted)) = (failed, submitted) else {
             return Err(tr!(
                 lang,
-                "{task} 不是因没通过验收核对而失败的子任务，没有可以接受的结果",
+                "{task} 不是没通过验收的子任务，没有可以接受的结果",
                 "{task} did not fail its acceptance check, so there is no result to accept"
             ));
         };
@@ -795,11 +771,7 @@ impl App {
         }
         self.recheck_verifications(run, task, submitted.attempt.unwrap_or(0), seq);
         run.wake.notify_one();
-        Ok(tr!(
-            lang,
-            "已接受 {task} 的结果，依赖它的子任务会继续。",
-            "Accepted {task}'s result; subtasks that depend on it go on."
-        ))
+        Ok(tr!(lang, "已接受 {task} 的结果。", "Accepted {task}'s result."))
     }
 
     /// How each role's tasks went in recent runs (the ones `runs()` lists): how many finished,
@@ -915,11 +887,11 @@ impl App {
         }
     }
 
-    /// Tell the running tasks that took a result it changed, as a message from the lead into
-    /// their current turn.
+    /// Tell the running tasks that took a result it changed, as a notice from Janus into their
+    /// current turn.
     fn tell_takers(&self, run: &Arc<Run>, running: &[(String, String, mpsc::UnboundedSender<Steer>)], text: &str) {
         for (id, agent, tx) in running {
-            let msg = self.post_message(run, "lead", agent, id, &lead_reply(run.lang, text), &[]);
+            let msg = self.post_message(run, "janus", agent, id, &format!("[Janus] {text}"), &[]);
             let _ = tx.send(Steer::Redirect(msg));
         }
     }
@@ -932,11 +904,7 @@ impl App {
         let task = args["task"].as_str().unwrap_or("").trim();
         let text = args["text"].as_str().unwrap_or("").trim();
         if text.is_empty() {
-            return Err(tr!(
-                lang,
-                "text 不能为空：写明修订后的结论",
-                "text cannot be empty: write the revised conclusion"
-            ));
+            return Err(tr!(lang, "text 不能为空", "text cannot be empty"));
         }
         let takers = {
             let mut st = run.st.lock().unwrap();
@@ -947,7 +915,7 @@ impl App {
                 let status = t.status().label_in(lang);
                 return Err(tr!(
                     lang,
-                    "{task} 现在是「{status}」，只能修订已完成子任务的结论；还在执行的子任务用 janus.reply",
+                    "{task} 现在是「{status}」，只能修订已完成子任务的结论；还在执行的用 janus.reply",
                     "{task} is {status}; only a finished subtask's conclusion can be revised. For one still running, use janus.reply"
                 ));
             }
@@ -966,27 +934,19 @@ impl App {
             &running,
             &tr!(
                 lang,
-                "上游子任务 {task} 的结论被修订，以修订为准：{text}。请据此调整你的工作。",
-                "The conclusion of the upstream subtask {task} was revised, and the revision stands: {text}. Adjust your work to it."
+                "负责人修订了上游子任务 {task} 的结论，以修订为准：{text}",
+                "The lead revised the conclusion of the upstream subtask {task}, and the revision stands: {text}"
             ),
         );
         let mut out = tr!(lang, "已修订 {task} 的结论。", "Revised {task}'s conclusion.");
         if !running.is_empty() {
             let ids = Takers::ids(&running, lang);
-            out.push_str(&tr!(lang, "正在执行的 {ids} 已收到修订。", " The running {ids} got the revision."));
+            out.push_str(&tr!(lang, "正在执行的 {ids} 已收到。", " The running {ids} got it."));
         }
         if !done.is_empty() {
             let ids = done.join(list_sep(lang));
-            out.push_str(&tr!(
-                lang,
-                "{ids} 已经基于旧结论完成，需要的话用 janus.retry 重做。",
-                " {ids} already finished on the old conclusion; redo them with janus.retry if needed."
-            ));
+            out.push_str(&tr!(lang, "{ids} 已经基于旧结论完成。", " {ids} already finished on the old conclusion."));
         }
-        out.push_str(lang.pick(
-            "还没开始的下游子任务会在交接时拿到修订。",
-            " Downstream subtasks not yet started get the revision at handoff.",
-        ));
         Ok(out)
     }
 
@@ -1052,8 +1012,8 @@ impl App {
                 let id = &t.def.id;
                 return Err(tr!(
                     lang,
-                    "{id} 的独立验证已完成，原判定保留。请用 janus.retry 让有问题的子任务返工（from 指向这个验证，返工后它会重新验证），或取消不再需要的受阻下游任务。",
-                    "{id}'s independent verification is complete and its verdict stands. Rework the subtask at fault with janus.retry (from set to this verification, which then verifies again), or cancel the blocked downstream subtasks no longer needed."
+                    "{id} 的独立验证已完成，原判定保留，取消不能撤销它。",
+                    "{id}'s independent verification is complete and its verdict stands; cancelling cannot undo it."
                 ));
             }
             return Ok(tr!(
@@ -1070,11 +1030,7 @@ impl App {
     /// comes back through `wait`, and the lead keeps working on what does not depend on it.
     pub(super) fn board_ask_user(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
         self.escalate(run, args)?;
-        Ok(tr!(
-            run.lang,
-            "已交给用户决定。用户回答后会出现在 janus.wait 的结果里；在那之前继续做不依赖这个决定的工作。",
-            "Handed to the user. The answer will appear in janus.wait; until then, carry on with work that does not depend on it."
-        ))
+        Ok(tr!(run.lang, "已交给用户。", "Handed to the user."))
     }
 
     /// The lead's (or a Loop's) question for the person (`ask_user`): checked, put on record and
@@ -1083,11 +1039,7 @@ impl App {
         let question = args["question"].as_str().unwrap_or("").trim();
         let why = args["why"].as_str().unwrap_or("").trim();
         if question.is_empty() || why.is_empty() {
-            return Err(tr!(
-                run.lang,
-                "question 和 why 都不能为空：why 写明为什么只有用户能决定、不同答案会怎样影响结果",
-                "question and why cannot be empty: in why, say why only the user can decide and how the answers would change the result"
-            ));
+            return Err(tr!(run.lang, "question 和 why 都不能为空", "question and why cannot be empty"));
         }
         let options: Vec<String> = args["options"]
             .as_array()
@@ -1150,7 +1102,6 @@ impl App {
             ),
             tr!(lang, "说明：{desc}", "Instructions: {desc}"),
         ];
-        out.extend(usage.task_lines(task, &Self::usage_names(run), lang));
         let accept = bullets(&t.def.accept, "");
         out.push(tr!(lang, "验收标准：\n{accept}", "Acceptance criteria:\n{accept}"));
         if !t.def.owns.is_empty() {
@@ -1177,20 +1128,32 @@ impl App {
             let summary = &r.summary;
             out.push(tr!(lang, "结果：{summary}", "Result: {summary}"));
             if let Some(vd) = t.verdict() {
-                let (label, raw) = (vd.label_in(lang), vd.as_str());
-                out.push(tr!(lang, "验证判定：{label}（{raw}）", "Verdict: {label} ({raw})"));
+                let label = vd.label_in(lang);
+                out.push(tr!(lang, "验证判定：{label}", "Verdict: {label}"));
             }
             if let Some(h) = &r.handoff {
                 out.push(tr!(lang, "交接说明：{h}", "Handoff: {h}"));
             }
-            for c in &r.checks {
-                out.push(format!("  {}", c.line(lang)));
+            let totals = Summary::of_in(&t.def.accept, &r.checks, lang);
+            let (passed, criteria, counts) = (totals.passed, totals.criteria, totals.counts(lang));
+            let checks = r.checks.iter().map(|c| format!("\n  {}", c.line(lang))).collect::<String>();
+            out.push(tr!(
+                lang,
+                "逐条验收（{criteria} 条，通过 {passed} 条）：{checks}",
+                "Checks ({criteria} criteria, {passed} passed):{checks}"
+            ));
+            out.push(tr!(lang, "证据方法：{counts}", "Evidence methods: {counts}"));
+            if !totals.reminders.is_empty() {
+                let reminders = totals.reminders.join(item_sep(lang));
+                out.push(tr!(
+                    lang,
+                    "提醒（不影响是否通过）：{reminders}",
+                    "Reminders (they do not affect passing): {reminders}"
+                ));
             }
-            let totals = bullets(&Summary::of_in(&t.def.accept, &r.checks, lang).lines(lang), "");
-            out.push(tr!(lang, "证据汇总：\n{totals}", "Evidence totals:\n{totals}"));
             if !r.evidence.is_empty() {
                 let evidence = bullets(&r.evidence, "");
-                out.push(tr!(lang, "证据：\n{evidence}", "Evidence:\n{evidence}"));
+                out.push(tr!(lang, "其他证据：\n{evidence}", "Other evidence:\n{evidence}"));
             }
             if !r.risks.is_empty() {
                 let risks = bullets(&r.risks, "");
@@ -1203,8 +1166,8 @@ impl App {
             let verdict_tag = v
                 .verdict()
                 .map(|vd| {
-                    let (label, raw) = (vd.label_in(lang), vd.as_str());
-                    tr!(lang, " · 判定：{label}（{raw}）", " · verdict: {label} ({raw})")
+                    let label = vd.label_in(lang);
+                    tr!(lang, " · 判定「{label}」", " · verdict \"{label}\"")
                 })
                 .unwrap_or_default();
             let (id, status) = (&v.def.id, v.status().label_in(lang));
@@ -1353,6 +1316,7 @@ impl App {
             let talk = talk.join("\n");
             out.push(tr!(lang, "看板记录：\n{talk}", "On the board:\n{talk}"));
         }
+        out.extend(usage.task_lines(task, &Self::usage_names(run), lang));
         Ok(out.join("\n"))
     }
 
@@ -1424,14 +1388,14 @@ impl App {
                 tr!(lang, "- {task}：{text}", "- {task}: {text}")
             })
             .collect();
-        let none = lang.pick("（没有）", "(none)");
-        let lines = if lines.is_empty() { none.into() } else { lines.join("\n") };
-        let posts = if posts.is_empty() { none.into() } else { posts.join("\n") };
-        Ok(tr!(
-            lang,
-            "看板上的其他子任务：\n{lines}\n\n最近写回看板的内容：\n{posts}\n\n要看某个子任务的完整说明、结果和修订，传 task 再调用一次。",
-            "Other subtasks on the board:\n{lines}\n\nRecently written to the board:\n{posts}\n\nFor one subtask's full instructions, result and revisions, call again with task."
-        ))
+        let lines = if lines.is_empty() { lang.pick("（没有）", "(none)").into() } else { lines.join("\n") };
+        let posts = if posts.is_empty() {
+            String::new()
+        } else {
+            let posts = posts.join("\n");
+            tr!(lang, "\n\n最近写回看板的内容：\n{posts}", "\n\nRecently written to the board:\n{posts}")
+        };
+        Ok(tr!(lang, "看板上的其他子任务：\n{lines}{posts}", "Other subtasks on the board:\n{lines}{posts}"))
     }
 
     /// A collaborator writes progress, a blocker or a note to the board while it works.
@@ -1442,11 +1406,7 @@ impl App {
             return Err(tr!(lang, "text 不能为空", "text cannot be empty"));
         }
         if text.chars().count() > POST_MAX_CHARS {
-            return Err(tr!(
-                lang,
-                "text 超过 {POST_MAX_CHARS} 个字符。看板消息写结论和要负责人知道的事，长内容写进文件，在消息里给出路径",
-                "text is over {POST_MAX_CHARS} characters. A board message holds conclusions and what the lead needs to know; put long content in a file and give its path in the message"
-            ));
+            return Err(tr!(lang, "text 超过 {POST_MAX_CHARS} 个字符", "text is over {POST_MAX_CHARS} characters"));
         }
         let kind = match args["kind"].as_str().unwrap_or("progress") {
             k @ ("progress" | "blocker" | "note") => k,
@@ -1475,18 +1435,7 @@ impl App {
                 .to("lead")
                 .data(json!({ "kind": kind, "text": text })),
         );
-        Ok(match kind {
-            "blocker" => tr!(
-                lang,
-                "已写到共享看板，负责人会立即收到。",
-                "Written to the shared board; the lead gets it at once."
-            ),
-            _ => tr!(
-                lang,
-                "已写到共享看板，负责人下一次查看看板时会看到。",
-                "Written to the shared board; the lead sees it the next time it reads the board."
-            ),
-        })
+        Ok(lang.pick("已写到看板。", "Written to the board.").into())
     }
 
     /// A collaborator claims files it is about to change (`teamwork::claim`); the lead sees it on
@@ -1500,17 +1449,13 @@ impl App {
             return Err(errors.join("\n"));
         }
         if paths.is_empty() {
-            return Err(tr!(
-                lang,
-                "paths 不能为空：写相对工作目录的文件或目录",
-                "paths cannot be empty: give files or directories relative to the working directory"
-            ));
+            return Err(tr!(lang, "paths 不能为空", "paths cannot be empty"));
         }
         if paths.len() > CLAIM_MAX_PATHS {
             return Err(tr!(
                 lang,
-                "一次最多认领 {CLAIM_MAX_PATHS} 个路径；文件多时认领它们所在的目录",
-                "At most {CLAIM_MAX_PATHS} paths per claim; for many files, claim their directory"
+                "一次最多认领 {CLAIM_MAX_PATHS} 个路径",
+                "At most {CLAIM_MAX_PATHS} paths per claim"
             ));
         }
         let (agent, fresh) = {
@@ -1538,8 +1483,8 @@ impl App {
         let claimed = fresh.join(list_sep(lang));
         Ok(tr!(
             lang,
-            "已认领 {claimed}，到子任务结束为止归你负责。其他同时进行的子任务改它们时，Janus 会提醒对方和负责人。",
-            "Claimed {claimed}; they are yours until your subtask ends. If another running subtask changes them, Janus warns it and the lead."
+            "已认领 {claimed}，到子任务结束为止归你负责。",
+            "Claimed {claimed}; they are yours until your subtask ends."
         ))
     }
 
@@ -1555,11 +1500,7 @@ impl App {
         let lang = run.lang;
         let reason = args["reason"].as_str().unwrap_or("").trim();
         if reason.is_empty() {
-            return Err(tr!(
-                lang,
-                "reason 不能为空：请写明为什么要拆分这个子任务",
-                "reason cannot be empty: say why this subtask should be split"
-            ));
+            return Err(tr!(lang, "reason 不能为空", "reason cannot be empty"));
         }
         let completed = args["completed"].as_str().map(str::trim).filter(|s| !s.is_empty());
         let Some(items) = args["subtasks"].as_array().filter(|a| !a.is_empty()) else {
@@ -1578,8 +1519,8 @@ impl App {
             if me.def.verifies.is_some() {
                 return Err(tr!(
                     lang,
-                    "{task} 是验证子任务，只检查不改文件，不能请求拆分子任务",
-                    "{task} is a verification subtask: it only checks and changes no files, so it cannot request a split"
+                    "{task} 是验证子任务，不能请求拆分",
+                    "{task} is a verification subtask and cannot request a split"
                 ));
             }
             me.agent.clone()
@@ -1621,11 +1562,7 @@ impl App {
                 .to("lead")
                 .data(data),
         );
-        Ok(tr!(
-            lang,
-            "拆分提议已发给负责人。如果必须等负责人调整编排才能继续，用 janus.ask 说明，然后结束这一轮等回答。",
-            "The split proposal went to the lead. If you cannot go on until the lead changes the orchestration, say so with janus.ask and end your turn to wait for the answer."
-        ))
+        Ok(tr!(lang, "拆分提议已发给负责人。", "The split proposal went to the lead."))
     }
 }
 
@@ -1669,11 +1606,7 @@ fn running_pulse(run: &Run) -> String {
     }
     let pending = st.tasks.iter().filter(|t| t.status() == TaskStatus::Pending).count();
     if pending > 0 {
-        lines.push(tr!(
-            lang,
-            "- 另有 {pending} 个子任务等待启动或等待依赖完成",
-            "- {pending} more subtasks waiting to start or for their dependencies"
-        ));
+        lines.push(tr!(lang, "- 另有 {pending} 个子任务在等待开始", "- {pending} more subtasks waiting to start"));
     }
     lines.join("\n")
 }

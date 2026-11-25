@@ -200,8 +200,8 @@ impl LeadTool {
             }),
             LeadTool::TaskDetail => json!({
                 "description": t(
-                    "查看看板上一个子任务的全部信息：说明、验收标准、用量、完整结果（逐条验收及其证据方法、全部证据、风险、证据汇总）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游子任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
-                    "See everything the board holds on one subtask: instructions, acceptance criteria, usage, the full result (each check with its evidence method, all evidence, risks, evidence totals), independent verification results, your revisions, files changed, artifacts, progress and questions on the board, and its upstream and downstream subtasks. Completion messages in janus.wait carry only a summary; use this for the details."
+                    "查看看板上一个子任务的全部信息：说明、验收标准、用量、完整结果（逐条验收、证据方法、全部证据、风险）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游子任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
+                    "See everything the board holds on one subtask: instructions, acceptance criteria, usage, the full result (each check, the evidence methods, all evidence, risks), independent verification results, your revisions, files changed, artifacts, progress and questions on the board, and its upstream and downstream subtasks. Completion messages in janus.wait carry only a summary; use this for the details."
                 ),
                 "inputSchema": { "type": "object", "required": ["task"], "properties": { "task": { "type": "string" } } },
                 "annotations": board_read()
@@ -446,11 +446,7 @@ pub(super) fn validate_orchestration(
             errors.push(tr!(lang, "{label}：缺少 title", "{label}: title is missing"));
         }
         if instructions.is_empty() {
-            errors.push(tr!(
-                lang,
-                "{label}：缺少 instructions，执行者看不到你的对话，必须写清要做什么",
-                "{label}: instructions are missing; the assignee cannot see your conversation, so say what to do"
-            ));
+            errors.push(tr!(lang, "{label}：缺少 instructions", "{label}: instructions are missing"));
         }
         let assignee = t["assignee"].as_str().unwrap_or("").trim().to_string();
         if !members.contains(&assignee.as_str()) {
@@ -477,11 +473,7 @@ pub(super) fn validate_orchestration(
         };
         let accept = strings(&t["accept"]);
         if accept.is_empty() {
-            errors.push(tr!(
-                lang,
-                "{label}：缺少 accept：写出可核对的验收标准（做到什么、怎样算做到），执行者会逐条验证并给出证据",
-                "{label}: accept is missing: write checkable acceptance criteria (the outcome and how to tell it is reached); the assignee verifies each and gives evidence"
-            ));
+            errors.push(tr!(lang, "{label}：缺少 accept", "{label}: accept is missing"));
         }
         let owns = crate::teamwork::read_owns(&t["owns"], &label, &mut errors, lang);
         let verifies = t["verifies"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
@@ -680,12 +672,14 @@ fn user_intervention(run: &Run, e: &Event, d: &Value) -> Option<String> {
     };
     Some(tr!(
         lang,
-        "- [用户介入] {at}用户{what}。以用户的意思为准；需要调整计划时再处理，不要用 janus.reply 或 janus.retry 把它改回去。",
-        "- [User stepped in] {at}The user {what}. The user's intent stands; adjust the plan if needed, but do not undo it with janus.reply or janus.retry."
+        "- [用户介入] {at}用户{what}。以用户的意思为准，不要改回去。",
+        "- [User stepped in] {at}The user {what}. The user's intent stands; do not undo it."
     ))
 }
 
-/// One board event as the lead reads it in `wait`, or nothing if it is not for the lead.
+/// One board event as the lead reads it in `wait`, or nothing if it is not for the lead. Every
+/// entry has one shape: `- [tag] task · who: fact`, then indented detail lines. Entries state
+/// facts; what the lead does about them is in its brief and the tools' descriptions.
 // @project-doc docs/interfaces/20261031-board_mcp.md#wait
 pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     let lang = run.lang;
@@ -701,7 +695,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         let answer = d["answer"].as_str().unwrap_or("");
         return Some(tr!(
             lang,
-            "- [用户决定] 你交给用户的问题，用户的回答：{answer}{note}",
+            "- [用户决定] 用户回答了你交出的问题：{answer}{note}",
             "- [User decision] The user's answer to the question you handed them: {answer}{note}"
         ));
     }
@@ -718,8 +712,8 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         let paths = paths(&d, lang);
         return Some(tr!(
             lang,
-            "- [负责人改了文件] 你已经派出了子任务，按约定只做管理、不再改工作目录，这次改了：{paths}。这些改动没有经过子任务的验收，交付时会单独列出，你的报告要写明怎么核对的。需要改动时交给对应的子任务：janus.retry 让它返工，或 janus.orchestrate 派新的子任务。",
-            "- [Lead changed files] You have handed out subtasks, so by agreement you only manage and no longer change the working directory; this time you changed: {paths}. These changes went through no subtask's acceptance; the delivery lists them separately and your report must say how you checked them. Hand changes to the relevant subtask: janus.retry to rework it, or janus.orchestrate for a new one."
+            "- [负责人改了文件] 派出子任务后你改了 {paths}，这些改动没有经过任何子任务的验收。",
+            "- [Lead changed files] After handing out subtasks you changed {paths}; no subtask's acceptance covered these changes."
         ));
     }
     // The lead's own call to a library tool after it handed out subtasks: noted, never blocked.
@@ -727,8 +721,8 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
         let tool = d["tool"].as_str().unwrap_or_default();
         return Some(tr!(
             lang,
-            "- [负责人用了资源库工具] 你已经派出了子任务，按约定资源库的工具只用来查看；这次调用了 {tool}。如果它改了文件、数据或对外发了东西，这些没有经过子任务的验收，会写进交付风险。有副作用的操作交给对应的子任务。",
-            "- [Lead used a library tool] You have handed out subtasks, so by agreement you use library tools only to look; this time you called {tool}. If it changed files or data or sent anything out, that went through no subtask's acceptance and goes into the delivery's risks. Hand anything with side effects to the relevant subtask."
+            "- [负责人用了资源库工具] 派出子任务后你调用了 {tool}，这次调用会列为交付风险。",
+            "- [Lead used a library tool] After handing out subtasks you called {tool}; the call is listed as a delivery risk."
         ));
     }
     let task = e.task.as_deref()?;
@@ -744,15 +738,15 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
     Some(match e.kind() {
         EventKind::AttemptStarted => {
             let n = e.attempt.unwrap_or(1);
-            let mut line = tr!(lang, "- [开始] {it}· {name} 第 {n} 次尝试", "- [Started] {it} · {name}, attempt {n}");
+            let mut line = tr!(lang, "- [开始] {it}· {name}，第 {n} 次尝试", "- [Started] {it} · {name}, attempt {n}");
             // Asked to continue an earlier session, it could not: the lead learns it starts afresh.
             if let Some(why) = d["continuation"]["fallback"].as_str().and_then(Fallback::parse).map(|f| f.reason(lang))
             {
                 let from = d["continuation"]["from"].as_str().unwrap_or(task);
                 line.push_str(&tr!(
                     lang,
-                    "。没能回到 {from} 原来的会话（{why}），在新会话中开始，它不记得之前做过什么；需要补充上下文就用 janus.reply 告诉它",
-                    ". It could not go back into {from}'s session ({why}) and starts in a new one that remembers nothing of the earlier work; give it the context it needs with janus.reply"
+                    "\n  没能回到 {from} 原来的会话（{why}），新会话不记得之前的工作；它需要的上下文用 janus.reply 补给它。",
+                    "\n  It could not go back into {from}'s session ({why}); the new session remembers nothing of the earlier work. Give it the context it needs with janus.reply."
                 ));
             }
             line
@@ -779,8 +773,8 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                     let id = &v.def.id;
                     match v.verdict() {
                         Some(vd) => {
-                            let vd = vd.label_in(lang);
-                            tr!(lang, "{id} 判定{vd}", "{id}: {vd}")
+                            let label = vd.label_in(lang);
+                            tr!(lang, "{id} 判定「{label}」", "{id} verdict \"{label}\"")
                         }
                         None => format!("{id} {}", v.status().label_in(lang)),
                     }
@@ -795,19 +789,18 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let verdict = t.verdict();
             let summary = clip(&r.summary, INLINE_SUMMARY);
             let mut msg = match (&verifies, verdict) {
-                (Some(target), Some(vd @ (Verdict::Rejected | Verdict::Inconclusive))) => {
-                    let (label, raw) = (vd.label_in(lang), vd.as_str());
+                (Some(target), Some(vd)) => {
+                    let label = vd.label_in(lang);
+                    let tag = match vd {
+                        Verdict::Approved => lang.pick("完成", "Done"),
+                        Verdict::Rejected | Verdict::Inconclusive => lang.pick("验证未通过", "Verification not passed"),
+                    };
                     tr!(
                         lang,
-                        "- [验证未通过] {it}· {name} 完成对 {target} 的独立验证，判定「{label}」（{raw}）：{summary}",
-                        "- [Verification not passed] {it} · {name} finished verifying {target} independently, verdict {label} ({raw}): {summary}"
+                        "- [{tag}] {it}· {name} 验证 {target}，判定「{label}」：{summary}",
+                        "- [{tag}] {it} · {name} verified {target}, verdict \"{label}\": {summary}"
                     )
                 }
-                (Some(target), Some(Verdict::Approved)) => tr!(
-                    lang,
-                    "- [完成] {it}· {name}（独立验证 {target}：通过）：{summary}",
-                    "- [Done] {it} · {name} (independent verification of {target}: approved): {summary}"
-                ),
                 _ => tr!(lang, "- [完成] {it}· {name}：{summary}", "- [Done] {it} · {name}: {summary}"),
             };
             if let Some(ms) = d["durationMs"].as_i64() {
@@ -828,7 +821,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 "\n  Acceptance criteria: {criteria}, {passed} passed"
             ));
             let counts = totals.counts(lang);
-            msg.push_str(&tr!(lang, "\n  证据：{counts}", "\n  Evidence methods: {counts}"));
+            msg.push_str(&tr!(lang, "\n  证据方法：{counts}", "\n  Evidence methods: {counts}"));
             if !reminders.is_empty() {
                 msg.push_str(&tr!(
                     lang,
@@ -841,7 +834,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 msg.push_str(&tr!(lang, "\n  逐条验收：{checks}", "\n  Checks: {checks}"));
             }
             if !evidence.is_empty() {
-                msg.push_str(&tr!(lang, "\n  证据：{evidence}", "\n  Evidence: {evidence}"));
+                msg.push_str(&tr!(lang, "\n  其他证据：{evidence}", "\n  Other evidence: {evidence}"));
             }
             if !verifiers.is_empty() {
                 let verifiers = verifiers.join(sep);
@@ -862,11 +855,11 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 let arts = arts.join(sep);
                 msg.push_str(&tr!(lang, "\n  产物：{arts}", "\n  Artifacts: {arts}"));
             }
-            if let (Some(target), Some(Verdict::Rejected | Verdict::Inconclusive)) = (&verifies, verdict) {
+            if verifies.is_some() && matches!(verdict, Some(Verdict::Rejected | Verdict::Inconclusive)) {
                 msg.push_str(&tr!(
                     lang,
-                    "\n  请处理：不能用 janus.accept 放行。先判断问题出在哪个子任务，用 janus.retry 返工（例如 task=\"{target}\"、from=\"{task}\"，session 选 continue 回到原会话按这份意见修改，或选 new 重新开始），返工完成后 {task} 自动重新验证；需要换人或另开一项工作时用 janus.orchestrate。",
-                    "\n  To handle: janus.accept cannot pass it. Decide which subtask the problem lies in and rework it with janus.retry (for example task=\"{target}\", from=\"{task}\"; session continue goes back into the original session to fix per these findings, new starts over); {task} verifies again automatically once the rework is done. Use janus.orchestrate for a different assignee or separate work."
+                    "\n  返工用 janus.retry 发回有问题的子任务，from 填 {task}。",
+                    "\n  To rework, send the subtask at fault back with janus.retry, from set to {task}."
                 ));
                 let downstream: Vec<_> = st
                     .tasks
@@ -882,8 +875,8 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                     let downstream = downstream.join(sep);
                     msg.push_str(&tr!(
                         lang,
-                        " 已有下游任务 {downstream} 受此判定阻塞；可用 janus.cancel 取消其中不再需要的任务并写明理由。",
-                        " Downstream subtasks {downstream} are blocked by this verdict; cancel those no longer needed with janus.cancel, stating why."
+                        "\n  受这个判定阻塞的下游：{downstream}",
+                        "\n  Downstream blocked by this verdict: {downstream}"
                     ));
                 }
             }
@@ -891,15 +884,15 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 let gaps = gaps.join(item_sep(lang));
                 msg.push_str(&tr!(
                     lang,
-                    "\n  痕迹核对（结果和工作目录对不上）：{gaps}。以工作目录的现状为准核对；需要返工用 janus.retry，结论要更正用 janus.amend。",
-                    "\n  Trace check (the result and the working directory disagree): {gaps}. Check against the working directory as it is now; rework with janus.retry, correct the conclusion with janus.amend."
+                    "\n  痕迹核对（结果和工作目录对不上）：{gaps}",
+                    "\n  Trace check (the result and the working directory disagree): {gaps}"
                 ));
             }
             if clipped {
                 msg.push_str(&tr!(
                     lang,
-                    "\n  （有删节，完整结果用 janus.task_detail 查看 {task}）",
-                    "\n  (Clipped; janus.task_detail on {task} gives the full result)"
+                    "\n  （有删节，完整结果见 janus.task_detail {task}）",
+                    "\n  (Clipped; janus.task_detail {task} has the full result)"
                 ));
             }
             msg
@@ -908,70 +901,73 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let paths = paths(&d, lang);
             tr!(
                 lang,
-                "- [冲突] 你（负责人）修改了正在进行的子任务 {it}（{name}）负责或正在修改的文件：{paths}。子任务派出去后请避免直接改它的文件；需要调整请用 janus.reply 或先 janus.cancel。",
-                "- [Conflict] You (the lead) changed files that the running subtask {it} ({name}) owns or is changing: {paths}. Once a subtask is handed out, leave its files alone; to adjust, use janus.reply, or janus.cancel it first."
+                "- [冲突] {it}· {name}：你改了它负责或正在改的 {paths}。",
+                "- [Conflict] {it} · {name}: you changed {paths}, which it owns or is changing."
             )
         }
         EventKind::TaskConflict if d["owned"] == true => {
             let (other, paths) = (d["other"].as_str().unwrap_or("?"), paths(&d, lang));
             tr!(
                 lang,
-                "- [越界] {it}· {name} 改了 {other} 负责的 {paths}，两个子任务可能同时在改。Janus 已提醒 {task} 不要再改：确认分工，用 janus.reply 告诉它怎样配合；确实要它改，就让负责的一方先完成，或者取消并重新编排。",
-                "- [Out of scope] {it} · {name} changed {paths}, which {other} owns; both subtasks may be changing them at once. Janus has told {task} to stop: settle the split and tell it how to work alongside with janus.reply; if it really should change them, let the owner finish first, or cancel and orchestrate again."
+                "- [越界] {it}· {name} 改了 {other} 负责的 {paths}，两个子任务可能同时在改。确认分工后用 janus.reply 告诉它。",
+                "- [Out of scope] {it} · {name} changed {paths}, which {other} owns; both subtasks may be changing them at once. Settle the split and tell it with janus.reply."
             )
         }
         EventKind::TaskClaimed => {
             let paths = paths(&d, lang);
             tr!(
                 lang,
-                "- [认领] {task} · {name} 开始改 {paths}，认领为它负责的文件，到子任务结束为止。",
-                "- [Claimed] {task} · {name} is starting to change {paths} and claimed them until its subtask ends."
+                "- [认领] {it}· {name} 认领了 {paths}，到子任务结束为止归它负责。",
+                "- [Claimed] {it} · {name} claimed {paths} until its subtask ends."
             )
         }
         EventKind::TaskConflict => {
             let (other, files) = (d["other"].as_str().unwrap_or("?"), paths(&d, lang));
             tr!(
                 lang,
-                "- [冲突] {task} 和 {other} 同时在改 {files}。它们直接在同一个目录里工作，可能覆盖彼此的改动：确认分工，用 janus.reply 告诉其中一方先停下或怎样配合；之后会改同一批文件的子任务用依赖串行。",
-                "- [Conflict] {task} and {other} are changing {files} at the same time. They work in the same directory and may overwrite each other: settle the split and, with janus.reply, tell one of them to stop or how to coordinate; chain later subtasks that change the same files with dependencies."
+                "- [冲突] {it}· {name} 和 {other} 同时在改 {files}，可能覆盖彼此的改动。确认分工后用 janus.reply 告诉它们。",
+                "- [Conflict] {it} · {name} and {other} are changing {files} at the same time and may overwrite each other. Settle the split and tell them with janus.reply."
             )
         }
         EventKind::AttemptFailed => {
             let (n, error) = (e.attempt.unwrap_or(1), d["error"].as_str().unwrap_or(&e.text));
             tr!(
                 lang,
-                "- [尝试失败] {it}· {name} 第 {n} 次：{error}",
+                "- [尝试失败] {it}· {name}，第 {n} 次尝试：{error}",
                 "- [Attempt failed] {it} · {name}, attempt {n}: {error}"
             )
         }
         EventKind::TaskFailed if d["reason"] == "verification" => {
-            let output = verification_output(run, task);
+            let output = verification_output(run, task).lines().map(|l| format!("\n  {l}")).collect::<String>();
             tr!(
                 lang,
-                "- [没通过验收] {it}· {name} 交的结果有标准没达到（交的时候提醒过它可以修好再交一次）：\n{output}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
-                "- [Acceptance not met] {it} · {name} handed in a result with criteria unmet (it was told once, as it handed in, that it could fix them and hand in again):\n{output}\n  Check it and decide: the result is acceptable → janus.accept; rework or new criteria needed → janus.retry (instructions / accept can change); no longer needed → janus.cancel."
+                "- [没通过验收] {it}· {name} 交的结果有标准没达到：{output}",
+                "- [Acceptance not met] {it} · {name} handed in a result with criteria unmet:{output}"
             )
         }
         EventKind::TaskFailed => {
             let error = d["error"].as_str().unwrap_or(&e.text);
             tr!(
                 lang,
-                "- [失败] {it}· {name} 用完了尝试次数：{error}。请决定：janus.retry 重做（选原会话或新会话，可改说明）；交给别人做时 janus.cancel 后用 janus.orchestrate 重新派；团队里没人能做时 janus.ask_user；不做了就 janus.cancel 并在交付中说明。你已经派出了子任务，不要自己接手。",
-                "- [Failed] {it} · {name} used up its attempts: {error}. Decide: janus.retry to redo it (original or new session, instructions may change); to give it to someone else, janus.cancel then janus.orchestrate; if no one on the team can do it, janus.ask_user; to drop it, janus.cancel and say so in the delivery. You have handed out subtasks, so do not take it over yourself."
+                "- [失败] {it}· {name} 用完了尝试次数：{error}",
+                "- [Failed] {it} · {name} used up its attempts: {error}"
             )
         }
         EventKind::TaskBlocked => {
             let dep = d["dependency"].as_str().unwrap_or("?");
-            match d["verdict"].as_str() {
-                Some(vd) => tr!(
-                    lang,
-                    "- [无法开始] {it}：依赖的独立验证 {dep} 判定 {vd}，被验证的工作没有得到确认。按 {dep} 的结论用 janus.retry 返工（from=\"{dep}\"），{dep} 复审通过后 {task} 自动开始；不再需要就用 janus.cancel 取消它。",
-                    "- [Cannot start] {it}: the independent verification {dep} it depends on returned {vd}, so the verified work is not confirmed. Rework per {dep}'s findings with janus.retry (from=\"{dep}\"); {task} starts automatically once {dep} approves on review. If it is no longer needed, cancel it with janus.cancel."
-                ),
+            match d["verdict"].as_str().and_then(Verdict::parse) {
+                Some(vd) => {
+                    let label = vd.label_in(lang);
+                    tr!(
+                        lang,
+                        "- [无法开始] {it}· {name}：它依赖的验证 {dep} 判定「{label}」，{dep} 复审通过后自动开始。",
+                        "- [Cannot start] {it} · {name}: the verification {dep} it depends on returned \"{label}\"; it starts once {dep} approves on review."
+                    )
+                }
                 None => tr!(
                     lang,
-                    "- [无法开始] {it}：依赖 {dep} 失败。用 janus.retry 或 janus.accept 处理 {dep} 后会自动继续；不再需要就 janus.cancel。",
-                    "- [Cannot start] {it}: its dependency {dep} failed. It continues automatically once {dep} is settled with janus.retry or janus.accept; if no longer needed, janus.cancel."
+                    "- [无法开始] {it}· {name}：依赖 {dep} 失败，{dep} 处理好后自动继续。",
+                    "- [Cannot start] {it} · {name}: its dependency {dep} failed; it continues once {dep} is settled."
                 ),
             }
         }
@@ -980,14 +976,14 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let answer = d["answer"].as_str().unwrap_or("");
             tr!(
                 lang,
-                "- [用户已回答] {task} 的提问由用户直接回答：{answer}。不要再回答这个问题，按用户的回答推进。",
-                "- [User answered] The user answered {task}'s question directly: {answer}. Do not answer it again; go on from the user's answer."
+                "- [用户已回答] {it}· {name} 的提问由用户直接回答了：{answer}。你不用再回答。",
+                "- [User answered] {it} · The user answered {name}'s question directly: {answer}. You need not answer it."
             )
         }
         EventKind::BoardPosted => {
             let label = post_label(lang, d["kind"].as_str());
             let text = d["text"].as_str().unwrap_or(&e.text);
-            tr!(lang, "- [{label}] {task} · {name}：{text}", "- [{label}] {task} · {name}: {text}")
+            tr!(lang, "- [{label}] {it}· {name}：{text}", "- [{label}] {it} · {name}: {text}")
         }
         EventKind::TaskSplitRequested => {
             let items: Vec<String> = d["subtasks"]
@@ -1000,7 +996,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                         .as_array()
                         .map(|a| a.iter().filter_map(|p| p.as_str()).collect::<Vec<_>>().join(sep))
                         .filter(|o| !o.is_empty())
-                        .map(|o| tr!(lang, "（owns: {o}）", " (owns: {o})"))
+                        .map(|o| tr!(lang, "（负责 {o}）", " (owns {o})"))
                         .unwrap_or_default();
                     let title = s["title"].as_str().unwrap_or(lang.pick("子任务", "subtask"));
                     format!("{}. {title}{owns}", i + 1)
@@ -1018,8 +1014,8 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 (clip(d["reason"].as_str().unwrap_or(&e.text), INLINE_ITEM), items.join(item_sep(lang)));
             tr!(
                 lang,
-                "- [请求拆分] {it}· {name} 请求拆分：{reason}{completed}\n  建议拆出：{items}\n  请决定：采纳时用 janus.orchestrate 提交新子任务并用 janus.cancel / janus.amend 处理 {task}；不需要拆分时用 janus.reply 指示它继续完成。",
-                "- [Split requested] {it} · {name} asks to split it: {reason}{completed}\n  Proposed subtasks: {items}\n  Decide: to adopt it, submit the new subtasks with janus.orchestrate and settle {task} with janus.cancel / janus.amend; if no split is needed, tell it to carry on with janus.reply."
+                "- [请求拆分] {it}· {name}：{reason}{completed}\n  建议拆出：{items}",
+                "- [Split requested] {it} · {name}: {reason}{completed}\n  Proposed subtasks: {items}"
             )
         }
         EventKind::QuestionAsked => {
@@ -1036,16 +1032,16 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             };
             tr!(
                 lang,
-                "- [提问] {task} · {name} 停下来等你回答：{question}{options}\n  用 janus.reply 回答（task={task}）。",
-                "- [Question] {task} · {name} stopped to wait for your answer: {question}{options}\n  Answer with janus.reply (task={task})."
+                "- [提问] {it}· {name} 等你回答：{question}{options}",
+                "- [Question] {it} · {name} waits for your answer: {question}{options}"
             )
         }
         EventKind::ApprovalRequested | EventKind::InputRequested => {
             let text = &e.text;
             tr!(
                 lang,
-                "- [等用户] {task} · {name} 在等用户处理：{text}",
-                "- [Waiting for the user] {task} · {name} is waiting for the user: {text}"
+                "- [等用户] {it}· {name} 在等用户处理：{text}",
+                "- [Waiting for the user] {it} · {name} is waiting for the user: {text}"
             )
         }
         EventKind::TaskStalled if d["resolved"] == true => return None,
@@ -1053,8 +1049,8 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let (repeats, tool) = (d["repeats"].as_i64().unwrap_or(4), clip(d["tool"].as_str().unwrap_or(""), 80));
             tr!(
                 lang,
-                "- [停滞] {it}· {name} 连续 {repeats} 轮重复调用序列（{tool}），可能在交替死循环。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
-                "- [Stalled] {it} · {name} repeated the same sequence of calls {repeats} times in a row ({tool}); it may be looping. Decide: point out the problem or offer a new idea with janus.reply; redo it with new instructions via janus.retry; or janus.cancel it and hand it to someone else. You have handed out subtasks, so do not take it over yourself."
+                "- [停滞] {it}· {name} 连续 {repeats} 轮重复同一组调用（{tool}），可能在来回打转。",
+                "- [Stalled] {it} · {name} repeated the same sequence of calls {repeats} times in a row ({tool}); it may be going back and forth."
             )
         }
         EventKind::TaskStalled if d["reason"] == "loop" => {
@@ -1062,16 +1058,16 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 (d["repeats"].as_i64().unwrap_or(LOOP_REPEAT as i64), clip(d["tool"].as_str().unwrap_or(""), 60));
             tr!(
                 lang,
-                "- [停滞] {it}· {name} 连续 {repeats} 次做同样的调用（{tool}），可能在原地打转。请判断：用 janus.reply 指出问题或给个新思路；janus.retry 换个说明重做；janus.cancel 取消后交给别人。你已经派出了子任务，不要自己接手。",
-                "- [Stalled] {it} · {name} made the same call {repeats} times in a row ({tool}); it may be going in circles. Decide: point out the problem or offer a new idea with janus.reply; redo it with new instructions via janus.retry; or janus.cancel it and hand it to someone else. You have handed out subtasks, so do not take it over yourself."
+                "- [停滞] {it}· {name} 连续 {repeats} 次做同样的调用（{tool}），可能在原地打转。",
+                "- [Stalled] {it} · {name} made the same call {repeats} times in a row ({tool}); it may be going in circles."
             )
         }
         EventKind::TaskStalled => {
             let idle = span_in(d["idleMs"].as_i64().unwrap_or(0), lang);
             tr!(
                 lang,
-                "- [停滞] {it}· {name} 已有 {idle} 没有任何输出或工具调用。它可能在跑一条很久的命令，也可能卡住了。请判断：继续等；用 janus.reply 询问或补充指示；janus.retry 重做；janus.cancel 取消。",
-                "- [Stalled] {it} · {name} has shown no output or tool call for {idle}. It may be running a long command, or it may be stuck. Decide: keep waiting; ask or add instructions with janus.reply; redo it with janus.retry; or cancel it with janus.cancel."
+                "- [停滞] {it}· {name} 已有 {idle} 没有输出或工具调用，可能在做耗时的操作，也可能卡住了。",
+                "- [Stalled] {it} · {name} has shown no output or tool call for {idle}; it may be on a long operation, or stuck."
             )
         }
         _ => return None,

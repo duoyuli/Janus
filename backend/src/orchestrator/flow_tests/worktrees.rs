@@ -204,7 +204,7 @@ async fn a_conflict_at_delivery_goes_to_the_lead_once() {
     };
     let first = told(&events(&h.app, &run));
     assert!(
-        first.len() == 1 && first[0].contains(&format!("git rebase {tip}\n")) && first[0].contains("notes.md"),
+        first.len() == 1 && first[0].contains(&format!("git rebase {tip}`")) && first[0].contains("notes.md"),
         "{first:?}"
     );
 

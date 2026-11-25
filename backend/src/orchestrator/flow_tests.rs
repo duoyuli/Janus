@@ -296,7 +296,7 @@ async fn watchdog_reports_stalled_tasks() {
     };
     wait_until(&h.app, &run, "both stalls", |e| stalled(e, "T1", "idle") > 0 && stalled(e, "T2", "loop") > 0).await;
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(board.contains("[停滞] T1") && board.contains("没有任何输出或工具调用"), "{board}");
+    assert!(board.contains("[停滞] T1") && board.contains("没有输出或工具调用"), "{board}");
     assert!(board.contains("[停滞] T2") && board.contains("连续 5 次") && board.contains("cat missing.txt"), "{board}");
 
     // T3 waits on the person's approval: that silence is not the agent's.
@@ -369,12 +369,7 @@ async fn lead_resolves_failed_tasks() {
     );
     assert!(!task_event(&evs, "task.retry_scheduled", "T1"));
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(
-        board.contains("[没通过验收] T1")
-            && board.contains("自认没有达到「页面能打开」")
-            && board.contains("janus.accept"),
-        "{board}"
-    );
+    assert!(board.contains("[没通过验收] T1") && board.contains("\n  - 自认没有达到「页面能打开」"), "{board}");
     // A finished task does not take messages: they would land in some later session.
     let (text, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T1", "text": "继续" })).await;
     assert!(err && text.contains("已经结束"), "{text}");

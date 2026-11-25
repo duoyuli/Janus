@@ -82,11 +82,7 @@ impl App {
             .collect();
         if !malformed.is_empty() {
             let list = malformed.iter().map(|g| format!("- {g}")).collect::<Vec<_>>().join("\n");
-            return Err(tr!(
-                lang,
-                "结果没有收下，请改好再交：\n{list}",
-                "The result was not taken; fix these and hand it in again:\n{list}"
-            ));
+            return Err(tr!(lang, "结果没有收下：\n{list}", "The result was not taken:\n{list}"));
         }
         let mut st = run.st.lock().unwrap();
         let warned_before =
@@ -98,11 +94,11 @@ impl App {
             let list = unmet.iter().map(|u| format!("- {u}")).collect::<Vec<_>>().join("\n");
             return Ok(tr!(
                 lang,
-                "已收下，但这些标准你写了没达到：\n{list}\n能修好的话，修好后再提交一次；确实做不到就结束这一轮，交给负责人。",
-                "Taken, but you reported these criteria as not met:\n{list}\nIf you can fix them, do so and submit once more; if they really cannot be met, end your turn and the lead takes it from there."
+                "已收下，但这些标准你写了没达到：\n{list}\n能修好就修好再交一次，否则结束这一轮。",
+                "Taken, but you reported these criteria as not met:\n{list}\nFix them and hand in once more if you can; otherwise end your turn."
             ));
         }
-        Ok(lang.pick("已收下。结束这一轮即可。", "Taken. End your turn now.").into())
+        Ok(lang.pick("已收下。结束这一轮就交上了。", "Taken. End your turn to hand it in.").into())
     }
 
     /// `janus.ask`: a question for the lead. It goes to the lead when the turn ends; the answer
@@ -116,8 +112,8 @@ impl App {
         run.st.lock().unwrap().handed.insert(task.to_string(), Handed::Question { attempt, question: args.clone() });
         Ok(lang
             .pick(
-                "已记下，这一轮结束时转给负责人。现在结束这一轮，回答会作为下一条消息送来。",
-                "Noted; it goes to the lead when your turn ends. End your turn now; the answer comes as your next message.",
+                "已记下。结束这一轮后转给负责人，回答会作为下一条消息送来。",
+                "Noted. It goes to the lead when you end your turn, and the answer comes as your next message.",
             )
             .into())
     }

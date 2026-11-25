@@ -163,7 +163,7 @@ def hand_in(sid, body):
         return
     text, err = tool(sid, "submit", body)
     log(f"submit {task} {'refused' if err else 'taken'}")
-    if not err and ("再提交一次" in text or "submit once more" in text) and upcoming(task) == "ok":
+    if not err and ("再交一次" in text or "hand in once more" in text) and upcoming(task) == "ok":
         next_outcome(task)
         fixed = result(sid, summary=f"{task} 修好后完成")
         text, err = tool(sid, "submit", fixed)
@@ -714,7 +714,7 @@ def log_brief(params):
     session is logged with its working directory ("chat session <cwd>")."""
     system = ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
     if "你是 Janus 团队的负责人" in system or "You are the lead of the Janus team" in system:
-        log("brief ok" + (" resumed" if "从中断处继续。" in system or "Resuming after an interruption." in system else ""))
+        log("brief ok" + (" resumed" if "从中断处继续：" in system or "Resuming after an interruption:" in system else ""))
     if "/chats/" in params.get("cwd", ""):
         # A chat: Janus adds no instructions of its own; the role's, if any, follow.
         log("chat session " + params.get("cwd", "") + (" janus-brief" if "There is no team" in system else ""))

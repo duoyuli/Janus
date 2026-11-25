@@ -481,12 +481,12 @@ pub(super) fn merge_handback(err: &anyhow::Error, at: MergeAt, lang: Lang) -> Op
         ),
     };
     let then = lang.pick(
-        "最后用几句话告诉用户发生了什么、怎么处理的、跑了什么检查。这一轮结束后 Janus 会再次交付，并把结果合并到用户的分支。",
-        "Finally tell the user in a few sentences what happened, how you resolved it and what checks you ran. After this turn Janus delivers again and merges the result into the user's branch.",
+        "最后用几句话告诉用户发生了什么、怎么处理的。这一轮结束后 Janus 会再次交付，并把结果合并到用户的分支。",
+        "Then tell the user in a few sentences what happened and how you resolved it. After this turn Janus delivers again and merges the result into the user's branch.",
     );
     let resolve = lang.pick(
-        "逐个读冲突文件两边的改动，按两边的意图合在一起，不要直接丢掉任何一边；拿不准保留哪边时用 janus.ask_user 问用户。",
-        "Read both sides of each conflicting file and combine them by what each side meant to do; do not simply drop either side. When unsure which to keep, ask the user with janus.ask_user. ",
+        "- 逐个解决冲突：按两边的意图合在一起，不要丢掉任何一边；拿不准保留哪边时问用户。",
+        "- Resolve each conflict by combining what both sides meant to do; do not drop either side. When unsure which to keep, ask the user.",
     );
     if let Some(c) = err.downcast_ref::<crate::worktrees::Conflict>() {
         let files = match (c.files.is_empty(), lang) {
@@ -499,16 +499,18 @@ pub(super) fn merge_handback(err: &anyhow::Error, at: MergeAt, lang: Lang) -> Op
             lang,
             "{opening}：分支 {branch} 在任务开始后有了新的提交，和这个任务的改动冲突{files}。用户的目录和分支都没有动；任务的结果已由 Janus 提交在这个 worktree 的 {head}。
 
-请在这个 worktree 里把任务自己的提交重放到 {branch} 的最新提交上，并解决冲突：
-GIT_EDITOR=true git rebase {onto}
-{resolve}解决一个就 git add，再 GIT_EDITOR=true git rebase --continue，直到变基完成，然后跑和这些文件相关的检查。不要改 {branch} 本身，也不要把它 merge 进来。
+在这个 worktree 里：
+- 把任务自己的提交重放到 {branch} 的最新提交上：`GIT_EDITOR=true git rebase {onto}`
+{resolve}
+- 变基完成后，跑和这些文件相关的检查。不要改 {branch}，也不要把它 merge 进来。
 
 {then}",
             "{opening}: branch {branch} got new commits after the run started, and they conflict with this run's changes{files}. The user's directory and branch are untouched; Janus has committed the run's result in this worktree at {head}.
 
-In this worktree, replay the run's own commits onto the latest commit of {branch} and resolve the conflicts:
-GIT_EDITOR=true git rebase {onto}
-{resolve}After each one, git add it, then GIT_EDITOR=true git rebase --continue, until the rebase is done; then run the checks that concern these files. Do not change {branch} itself and do not merge it in.
+In this worktree:
+- Replay the run's own commits onto the latest commit of {branch}: `GIT_EDITOR=true git rebase {onto}`
+{resolve}
+- When the rebase is done, run the checks that concern these files. Do not change {branch} and do not merge it in.
 
 {then}"
         ));
@@ -524,12 +526,18 @@ GIT_EDITOR=true git rebase {onto}
         lang,
         "{opening}：这个 worktree 里还有没做完的{what}{files}，Janus 没有提交，也没有动用户的目录和分支。
 
-请先在这里把它做完：{resolve}解决一个就 git add，再继续（GIT_EDITOR=true git rebase --continue，合并或拣选用 git commit --no-edit），直到 git status 不再显示进行中的操作；确实做不下去时中止它（git rebase --abort 或 git merge --abort），改动仍在提交里。然后跑和这些文件相关的检查。
+在这个 worktree 里：
+- 先把它做完，直到 git status 不再显示进行中的操作；确实做不下去时中止它（git rebase --abort 或 git merge --abort），改动仍在提交里。
+{resolve}
+- 然后跑和这些文件相关的检查。
 
 {then}",
         "{opening}: this worktree has an unfinished {what}{files}. Janus committed nothing and left the user's directory and branch alone.
 
-Finish it here first: {resolve}After each one, git add it and continue (GIT_EDITOR=true git rebase --continue; for a merge or cherry-pick, git commit --no-edit) until git status shows no operation in progress; if it really cannot be done, abort it (git rebase --abort or git merge --abort), and the changes stay in the commits. Then run the checks that concern these files.
+In this worktree:
+- Finish it first, until git status shows no operation in progress; if it really cannot be done, abort it (git rebase --abort or git merge --abort), and the changes stay in the commits.
+{resolve}
+- Then run the checks that concern these files.
 
 {then}"
     ))

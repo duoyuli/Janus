@@ -176,7 +176,7 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     let v1_done = evs.iter().find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("V1")).unwrap();
     let live = h.app.run(&run).unwrap();
     let guidance = board_entry(&live, v1_done).unwrap();
-    assert!(guidance.contains("下游任务 SHIP") && guidance.contains("janus.cancel"), "{guidance}");
+    assert!(guidance.contains("受这个判定阻塞的下游：SHIP"), "{guidance}");
     let (note, invalid) = tool(&h.app, &run, "lead", "cancel", json!({"tasks":["V1"],"reason":"过时"})).await;
     assert!(invalid && note.contains("原判定保留"), "{note}");
     let planned =
@@ -360,7 +360,7 @@ async fn session_continuation_falls_back_cleanly_on_high_context_or_no_load() {
     // Back into T1's own session, 80% full: refused on the spot, so the lead writes what a new
     // session needs to know instead of believing the old context is there.
     let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "session": "continue" })).await;
-    assert!(err && text.contains("上下文已经用了 80%") && text.contains("session=\"new\""), "{text}");
+    assert!(err && text.contains("上下文已用了 80%") && text.contains("session=\"new\""), "{text}");
     assert!(task_event(&events(&h.app, &run), "task.succeeded", "T1"));
     assert!(
         !events(&h.app, &run).iter().any(|e| e.kind.as_str() == "task.reopened" && e.task.as_deref() == Some("T1"))
@@ -439,8 +439,8 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
     );
 
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(board.contains("连续 4 轮重复调用序列"), "{board}");
-    assert!(board.contains("你（负责人）修改了正在进行的子任务 T3"), "{board}");
+    assert!(board.contains("连续 4 轮重复同一组调用"), "{board}");
+    assert!(board.contains("[冲突] T3") && board.contains("你改了它负责或正在改的"), "{board}");
 
     let (detail, _) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T3" })).await;
     assert!(detail.contains("负责人改了这个子任务的文件：owned.rs"), "{detail}");
@@ -723,7 +723,7 @@ async fn rework_goes_back_into_the_original_session_and_is_rechecked() {
         .into_iter()
         .find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("V1"));
     let guidance = board_entry(&h.app.run(&run).unwrap(), &v1_done.unwrap()).unwrap();
-    assert!(guidance.contains("janus.retry") && guidance.contains("from=\"V1\""), "{guidance}");
+    assert!(guidance.contains("janus.retry") && guidance.contains("from 填 V1"), "{guidance}");
 
     // The lead has to choose the session, and `from` has to be a verification with a verdict.
     let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T1", "from": "V1" })).await;
@@ -923,7 +923,7 @@ async fn continuing_a_task_that_never_had_a_session_says_so() {
     wait_until(&h.app, &run, "T1 stopped", |e| task_event(e, "task.skipped_by_decision", "T1")).await;
     assert!(!task_event(&events(&h.app, &run), "attempt.started", "T2"), "T2 never started");
     let (text, err) = tool(&h.app, &run, "lead", "retry", json!({ "task": "T2", "session": "continue" })).await;
-    assert!(!err && text.contains("T2 之前没有开过会话，这次会新开一个"), "{text}");
+    assert!(!err && text.contains("T2 之前没有开过会话，会在新会话中重新执行"), "{text}");
     wait_until(&h.app, &run, "T2 done", |e| task_event(e, "task.succeeded", "T2")).await;
     let started = events(&h.app, &run)
         .into_iter()
@@ -978,7 +978,7 @@ async fn the_lead_only_manages_once_it_delegates() {
     wait_until(&h.app, &run, "T1 failed", |e| task_event(e, "task.failed", "T1")).await;
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[负责人改了文件]") && board.contains("small.rs、api.rs"), "{board}");
-    assert!(board.contains("[失败] T1") && board.contains("不要自己接手") && !board.contains("或自己做"), "{board}");
+    assert!(board.contains("[失败] T1") && !board.contains("自己做"), "{board}");
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -1040,7 +1040,7 @@ async fn the_lead_hears_when_the_person_steps_into_a_collaborators_session() {
     assert!(started.elapsed() >= Duration::from_millis(1500), "the person's steps alone do not wake the lead");
     assert!(board.contains("[用户介入] T1「T1」· 用户接管了 m1 的会话"), "{board}");
     assert!(board.contains("[用户介入] T1「T1」· 用户对 m1 说：先别动 README"), "{board}");
-    assert!(board.contains("不要用 janus.reply 或 janus.retry 把它改回去"), "{board}");
+    assert!(board.contains("以用户的意思为准，不要改回去"), "{board}");
 
     act(&h, &run, json!({ "type": "finish", "task": "T1" }));
     // Ended with an empty reply, the result fails its acceptance check: the lead decides next.

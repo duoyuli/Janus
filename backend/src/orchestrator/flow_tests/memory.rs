@@ -323,7 +323,7 @@ async fn a_run_in_english_hears_about_its_notes_in_english() {
     let dream = h.app.consolidate("ws").await.unwrap();
     wait_until(&h.app, &dream, "the consolidation's layer", |_| !layer(&h, &dream, None).is_empty()).await;
     let brief = layer(&h, &dream, None);
-    assert!(brief.contains("You are consolidating") && brief.contains("Notes (1):"), "{brief}");
+    assert!(brief.contains("You are consolidating") && brief.contains("Note index (1):"), "{brief}");
     let sent = events(&h.app, &dream).into_iter().find(|e| e.kind.as_str() == "user.message").unwrap();
     assert!(sent.data.unwrap()["text"].as_str().unwrap().starts_with("Consolidate the team memory now."));
     std::fs::write(h.dir.join("fake/dream-go"), "Nothing to change").unwrap();

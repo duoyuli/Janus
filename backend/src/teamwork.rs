@@ -95,8 +95,8 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
                 if !d.owns.is_empty() {
                     errors.push(tr!(
                         lang,
-                        "{label}：验证子任务只检查、不改文件，不要写 owns",
-                        "{label}: a verification only checks and changes no files; leave owns out"
+                        "{label}：验证子任务不能写 owns",
+                        "{label}: a verification subtask cannot have owns"
                     ));
                 }
             }
@@ -104,8 +104,8 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
                 if d.verifies.is_some() {
                     errors.push(tr!(
                         lang,
-                        "{label}：验证子任务需要独立核对，不能使用 continues",
-                        "{label}: a verification checks independently and cannot use continues"
+                        "{label}：验证子任务不能用 continues",
+                        "{label}: a verification subtask cannot use continues"
                     ));
                 }
                 match all.get(prev) {
@@ -226,8 +226,8 @@ pub fn claim(
     if me.verifies.is_some() {
         return Err(tr!(
             lang,
-            "{id} 是验证子任务，只检查不改文件，不能认领文件",
-            "{id} is a verification: it only checks, changes no files, and cannot claim any"
+            "{id} 是验证子任务，不能认领文件",
+            "{id} is a verification subtask and cannot claim files"
         ));
     }
     let taken: Vec<String> = paths
@@ -238,8 +238,8 @@ pub fn claim(
         let taken = taken.join(lang.pick("；", "; "));
         return Err(tr!(
             lang,
-            "不能认领：{taken}。需要改这些文件时，写一条 blocker 请负责人协调",
-            "Cannot claim: {taken}. If you need to change these files, post a blocker and let the lead coordinate"
+            "不能认领：{taken}。需要改它们时，用 janus.board_post 写一条 blocker",
+            "Cannot claim: {taken}. If you need to change them, post a blocker with janus.board_post"
         ));
     }
     Ok(paths.iter().filter(|p| !me.owns.iter().any(|o| covers(o, p))).cloned().collect())
@@ -399,14 +399,14 @@ impl FilesSince {
 }
 
 /// Why `accept` is refused for a task, if it verifies another one: a failed verification is
-/// settled by fixing and verifying again, or by cancelling obsolete downstream work on the record.
+/// settled by fixing and verifying again (the tool's description says how), or by cancelling.
 pub fn accept_refused(def: &TaskDef, lang: Lang) -> Option<String> {
     let target = def.verifies.as_deref()?;
     let id = &def.id;
     Some(tr!(
         lang,
-        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。用 janus.task_detail 看 {id} 发现的问题，判断问题出在哪个子任务，用 janus.retry 返工（例如 task=\"{target}\"、from=\"{id}\"），返工完成后 {id} 自动重新验证；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
-        "{id} independently verifies {target}; a failed verification cannot simply be accepted. Read what {id} found with janus.task_detail, decide which subtask the problem lies in and send it back with janus.retry (for example task=\"{target}\", from=\"{id}\"); once reworked, {id} verifies it again on its own. If the verification is no longer needed, cancel {id} with janus.cancel and give the reason."
+        "{id} 是 {target} 的独立验证，janus.accept 不能放行它的判定",
+        "{id} independently verifies {target}; janus.accept cannot pass its verdict"
     ))
 }
 
@@ -502,7 +502,7 @@ mod tests {
             &[],
         );
         assert!(e.iter().any(|x| x.contains("V1") && x.contains("另一个协作者")), "{e:?}");
-        assert!(e.iter().any(|x| x.contains("V1") && x.contains("不要写 owns")), "{e:?}");
+        assert!(e.iter().any(|x| x.contains("V1") && x.contains("不能写 owns")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("V2") && x.contains("T9 不存在")), "{e:?}");
         assert!(e.iter().any(|x| x.contains("V3") && x.contains("不能验证自己")), "{e:?}");
         let e = errors(&mut [def("T1", "m1", &["V1"], &[], None), def("V1", "m2", &[], &[], Some("T1"))], &[]);
@@ -512,7 +512,7 @@ mod tests {
         assert!(errors(&mut [def("V1", "m2", &[], &[], Some("T1"))], &board).is_empty());
         assert!(
             accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1")), Lang::Zh)
-                .is_some_and(|x| x.contains("janus.retry") && x.contains("from=\"V1\""))
+                .is_some_and(|x| x.contains("V1 是 T1 的独立验证"))
         );
         assert!(accept_refused(&def("T1", "m1", &[], &[], None), Lang::Zh).is_none());
     }

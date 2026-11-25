@@ -142,12 +142,12 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     );
 
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(board.contains("[验证未通过] V1") && board.contains("独立验证") && board.contains("rejected"), "{board}");
-    assert!(board.contains("[无法开始] D1") && board.contains("V1 判定 rejected"), "{board}");
+    assert!(board.contains("[验证未通过] V1") && board.contains("验证 T1，判定「需要修改」"), "{board}");
+    assert!(board.contains("[无法开始] D1") && board.contains("验证 V1 判定「需要修改」"), "{board}");
     let blocked = evs.iter().find(|e| e.kind.as_str() == "task.blocked" && e.task.as_deref() == Some("D1")).unwrap();
     assert_eq!(blocked.data.as_ref().unwrap()["verdict"], "rejected", "{blocked:?}");
     let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "V1", "reason": "我看过了" })).await;
-    assert!(err && text.contains("不能直接接受"), "{text}");
+    assert!(err && text.contains("janus.accept 不能放行"), "{text}");
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -186,7 +186,8 @@ async fn conflicting_edits_reach_the_lead_and_both_sides() {
         task_event(e, "task.succeeded", "T1") && task_event(e, "task.succeeded", "T2")
     })
     .await;
-    let notices = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap().matches("steer [Janus 提醒]").count();
+    let notices =
+        std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap().matches("steer [Janus] 子任务").count();
     assert_eq!(notices, 2, "each side hears about the other");
     assert_eq!(
         events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "task.conflict").count(),

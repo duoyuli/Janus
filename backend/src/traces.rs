@@ -150,8 +150,8 @@ pub fn stale_note(stale: &[(String, Actor)], lang: Lang) -> String {
     let list = list.join(lang.pick("、", ", "));
     tr!(
         lang,
-        "它完成后 {list} 又被改过：这些文件以工作目录里的现状为准，结论可能已过期",
-        "After it finished, {list} changed again: go by these files as they are in the working directory now; its conclusion may be out of date"
+        "它完成后 {list} 又被改过，结论可能已过期",
+        "After it finished, {list} changed again; its conclusion may be out of date"
     )
 }
 
@@ -203,8 +203,8 @@ pub fn gaps(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet
             let files = list(&touched.iter().collect::<Vec<_>>());
             out.push(tr!(
                 lang,
-                "验证子任务改了文件：{files}。验证者只检查不改文件，这些改动没有经过独立验证",
-                "The verification subtask changed files: {files}. A verifier only checks and changes nothing, so these changes went through no independent verification"
+                "验证子任务改了文件：{files}，这些改动没有经过独立验证",
+                "The verification subtask changed files: {files}; these changes went through no independent verification"
             ));
         }
         return out;

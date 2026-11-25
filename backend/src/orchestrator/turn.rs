@@ -408,8 +408,8 @@ impl App {
                 let (who, list) = (name(them), files.join(run.lang.pick("、", ", ")));
                 self.notify(run, me, &tr!(
                     run.lang,
-                    "[Janus 提醒] 子任务 {them}（{who}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时写一条 blocker 告诉负责人。",
-                    "[Janus notice] Subtask {them} ({who}) is also changing {list}. You both edit files directly in the same working directory: read the latest content before you change these files again, and do not overwrite its changes; if the split of work is unclear, post a blocker to tell the lead."
+                    "[Janus] 子任务 {them}（{who}）也在改 {list}。再改这些文件前先读最新内容，不要覆盖它的改动；分工不清时写一条 blocker。",
+                    "[Janus] Subtask {them} ({who}) is also changing {list}. Read the latest content before you change these files again, and do not overwrite its changes; if the split of work is unclear, post a blocker."
                 ));
             }
         }
@@ -425,8 +425,8 @@ impl App {
             let (who, list) = (name(&other), files.join(run.lang.pick("、", ", ")));
             self.notify(run, task, &tr!(
                 run.lang,
-                "[Janus 提醒] {list} 归子任务 {other}（{who}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，写一条 blocker 说明原因，由负责人协调。",
-                "[Janus notice] {list} belongs to subtask {other} ({who}), which may be changing it. Do not change these files again and do not overwrite its changes; if you really need to, post a blocker with the reason and let the lead coordinate."
+                "[Janus] {list} 归子任务 {other}（{who}）负责，它可能正在改。不要再改这些文件；确实需要改时写一条 blocker 说明原因。",
+                "[Janus] {list} belongs to subtask {other} ({who}), which may be changing it. Do not change these files again; if you really need to, post a blocker with the reason."
             ));
         }
     }
@@ -513,8 +513,8 @@ impl App {
                 &other,
                 &tr!(
                     run.lang,
-                    "[Janus 提醒] 负责人刚刚修改了归你负责的 {list}。继续修改前先重新读取最新内容，以负责人的改动为准。",
-                    "[Janus notice] The lead has just changed {list}, which you own. Read the latest content before you go on; the lead's changes hold."
+                    "[Janus] 负责人刚改了归你负责的 {list}，以负责人的改动为准。继续前先读最新内容。",
+                    "[Janus] The lead has just changed {list}, which you own, and the lead's changes hold. Read the latest content before you go on."
                 ),
             );
         }
@@ -532,8 +532,8 @@ impl App {
                 &other,
                 &tr!(
                     run.lang,
-                    "[Janus 提醒] 负责人刚刚也修改了 {list}。再改这些文件前先重新读取最新内容，不要覆盖负责人的改动。",
-                    "[Janus notice] The lead has just changed {list} too. Read the latest content before you change these files again, and do not overwrite the lead's changes."
+                    "[Janus] 负责人刚也改了 {list}。再改这些文件前先读最新内容，不要覆盖负责人的改动。",
+                    "[Janus] The lead has just changed {list} too. Read the latest content before you change these files again, and do not overwrite the lead's changes."
                 ),
             );
         }

@@ -211,26 +211,6 @@ impl Summary {
         s
     }
 
-    /// The lines shown after a task's checks: totals, method counts and what only warrants a
-    /// reminder.
-    pub fn lines(&self, lang: Lang) -> Vec<String> {
-        let (criteria, passed, counts) = (self.criteria, self.passed, self.counts(lang));
-        let mut out = vec![
-            tr!(lang, "验收标准：{criteria} 条", "Acceptance criteria: {criteria}"),
-            tr!(lang, "通过：{passed} 条", "Passed: {passed}"),
-            tr!(lang, "证据：{counts}", "Evidence methods: {counts}"),
-        ];
-        if !self.reminders.is_empty() {
-            let reminders = self.reminders.join(lang.pick("；", "; "));
-            out.push(tr!(
-                lang,
-                "提醒（不影响是否通过）：{reminders}",
-                "Reminders (they do not affect passing): {reminders}"
-            ));
-        }
-        out
-    }
-
     /// The method counts alone, as in 「测试 2 条、命令 1 条、未说明 1 条」.
     pub fn counts(&self, lang: Lang) -> String {
         let mut parts: Vec<String> = Method::ALL
@@ -533,11 +513,6 @@ mod tests {
         assert!(s.reminders.iter().any(|r| r.contains("推理判断") && r.contains("不是运行得到的结果")));
         assert!(s.reminders.iter().any(|r| r.contains("未核实") && r.contains("本机没有 Xcode")));
         assert!(s.reminders.iter().any(|r| r.contains("没有说明证据方法")));
-        let lines = s.lines(Lang::Zh);
-        assert_eq!(lines[0], "验收标准：6 条");
-        assert_eq!(lines[1], "通过：6 条");
-        assert!(lines[2].starts_with("证据：测试 1 条"), "{lines:?}");
-        assert!(lines[3].starts_with("提醒（不影响是否通过）："), "{lines:?}");
     }
 
     #[test]

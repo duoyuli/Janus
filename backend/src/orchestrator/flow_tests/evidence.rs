@@ -39,12 +39,12 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
     assert!(board.contains("[完成] T1"), "{board}");
     assert!(board.contains("验收标准：5 条，通过 5 条"), "{board}");
-    assert!(board.contains("证据：测试 1 条、命令 1 条、检查 1 条、推理判断 1 条、未核实 1 条"), "{board}");
+    assert!(board.contains("证据方法：测试 1 条、命令 1 条、检查 1 条、推理判断 1 条、未核实 1 条"), "{board}");
     assert!(
         board.contains("提醒（不影响是否通过）") && board.contains("推理判断") && board.contains("未核实"),
         "{board}"
     );
-    assert!(board.contains("独立验证：V1 判定通过"), "{board}");
+    assert!(board.contains("独立验证：V1 判定「通过」"), "{board}");
 
     // `task_detail`: each criterion with its method, and the verifier's own result apart.
     let (detail, _) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
@@ -67,7 +67,7 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     for method in ["[测试]", "[命令]", "[检查]", "[推理判断]", "[未核实]"] {
         assert!(detail.contains(method), "{method} survives a restart: {detail}");
     }
-    assert!(detail.contains("证据：测试 1 条、命令 1 条、检查 1 条、推理判断 1 条、未核实 1 条"), "{detail}");
+    assert!(detail.contains("证据方法：测试 1 条、命令 1 条、检查 1 条、推理判断 1 条、未核实 1 条"), "{detail}");
 
     finish_lead(&h);
     wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;

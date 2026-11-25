@@ -629,15 +629,12 @@ fn the_board_speaks_the_runs_language() {
         data: Some(json!({ "question": "Which name?", "options": ["a", "b"] })),
     };
     let entry = board_entry(&run, &asked).unwrap();
-    assert_eq!(
-        entry,
-        "- [Question] T1 · 成员1 stopped to wait for your answer: Which name? (options: a / b)\n  Answer with janus.reply (task=T1)."
-    );
+    assert_eq!(entry, "- [Question] T1 \"Parser\" · 成员1 waits for your answer: Which name? (options: a / b)");
     run.lang = Lang::Zh;
     assert!(
         board_entry(&run, &asked)
             .unwrap()
-            .starts_with("- [提问] T1 · 成员1 停下来等你回答：Which name?（选项：a / b）")
+            .starts_with("- [提问] T1「Parser」· 成员1 等你回答：Which name?（选项：a / b）")
     );
 }
 

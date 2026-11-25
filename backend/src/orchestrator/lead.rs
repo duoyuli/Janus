@@ -577,9 +577,12 @@ impl App {
         // or a Loop opened in a new session, what was said so far.
         // @project-doc docs/domains/20261121-loops.md#loop_session
         let guide = match run.kind {
-            RunKind::Goal => {
-                format!("{}{}", conversation_brief(run, &events), self.memory_section(run, MemoryAccess::Write))
-            }
+            RunKind::Goal => format!(
+                "{}{}{}",
+                goal_brief(run),
+                conversation_brief(run, &events),
+                self.memory_section(run, MemoryAccess::Write)
+            ),
             RunKind::Loop => format!("{}{}", self.loop_brief(run), self.memory_section(run, MemoryAccess::Write)),
             RunKind::Dream => self.dream_brief(run),
             RunKind::Chat => String::new(),
@@ -1264,43 +1267,74 @@ fn board_on_resume(run: &Run, events: &[Event]) -> String {
 fn resume_brief(board: &str, broke: &BrokeOff, events: &[Event], lang: Lang) -> String {
     let recent = recent_exchanges(events, Speakers::You, lang);
     let recent = if recent.is_empty() { lang.pick("（无）", "(none)").to_string() } else { recent };
-    match (broke, lang) {
-        (BrokeOff::Restart, Lang::Zh) => format!(
-            "\n\n从中断处继续。你推进这个目标时 Janus 重启了，这是一个新会话：之前做过、读过的都不在里面。已经做的改动还在工作目录里。从现状接着做，不要重做已经完成的工作。\n\nJanus 停下时看板上的子任务：\n{board}\n\n你和用户最近的对话，按时间先后：\n{recent}"
+    let (why, when) = broke_off(broke, lang);
+    tr!(
+        lang,
+        "
+
+从中断处继续：{why}。这是一个新会话，之前做过、读过的都不在里面；已经做的改动还在工作目录里。从现状接着推进，不要重做已经完成的工作。
+
+{when}看板上的子任务：
+{board}
+
+你和用户最近的对话（按时间先后）：
+{recent}",
+        "
+
+Resuming after an interruption: {why}. This is a new session without what you did and read before; the changes made so far are still in the working directory. Carry on from where things stand; do not redo finished work.
+
+Subtasks on the board {when}:
+{board}
+
+Your recent conversation with the user, oldest first:
+{recent}"
+    )
+}
+
+/// What broke the lead off, and when the board below was taken.
+fn broke_off(broke: &BrokeOff, lang: Lang) -> (String, &'static str) {
+    match broke {
+        BrokeOff::Restart => (
+            lang.pick("你推进这个目标时 Janus 重启了", "Janus restarted while you were working on this goal").into(),
+            lang.pick("Janus 停下时", "when Janus stopped"),
         ),
-        (BrokeOff::Restart, Lang::En) => format!(
-            "\n\nResuming after an interruption. Janus restarted while you were working on this goal, and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}\n\nYour recent conversation with the user, oldest first:\n{recent}"
-        ),
-        (BrokeOff::Failure(err), Lang::Zh) => format!(
-            "\n\n从中断处继续。你推进这个目标时会话中断了（{}），这是一个新会话：之前做过、读过的都不在里面。已经做的改动还在工作目录里。从现状接着做，不要重做已经完成的工作。\n\n现在看板上的子任务：\n{board}\n\n你和用户最近的对话，按时间先后：\n{recent}",
-            clip(err, 300)
-        ),
-        (BrokeOff::Failure(err), Lang::En) => format!(
-            "\n\nResuming after an interruption. Your session broke off while you were working on this goal ({}), and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board now:\n{board}\n\nYour recent conversation with the user, oldest first:\n{recent}",
-            clip(err, 300)
-        ),
+        BrokeOff::Failure(err) => {
+            let err = clip(err, 300);
+            (
+                tr!(
+                    lang,
+                    "你推进这个目标时会话中断了（{err}）",
+                    "Your session broke off while you were working on this goal ({err})"
+                ),
+                lang.pick("现在", "now"),
+            )
+        }
     }
 }
 
 /// What a lead whose own session was loaded again is told first: it remembers its work, so only
 /// what broke it off, where the board stands and the messages left for it meanwhile.
 fn resume_prompt(board: &str, broke: &BrokeOff, notes: &str, lang: Lang) -> String {
-    match (broke, lang) {
-        (BrokeOff::Restart, Lang::Zh) => format!(
-            "[Janus] 你推进这个目标时 Janus 重启了。你的会话已经恢复，之前做过、读过的都还在；协作者的会话都已关闭。从停下的地方接着推进目标，不要重做已经完成的工作。\n\nJanus 停下时看板上的子任务：\n{board}{notes}\n\n从现在起，janus.wait 只带来之后发生的事。"
-        ),
-        (BrokeOff::Restart, Lang::En) => format!(
-            "[Janus] Janus restarted while you were working on this goal. Your session was restored, so what you did and read before is still here; the collaborators' sessions were closed. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}{notes}\n\njanus.wait brings only what happens from here on."
-        ),
-        (BrokeOff::Failure(err), Lang::Zh) => format!(
-            "[Janus] 你推进这个目标时会话中断了（{}）。会话已经恢复，之前做过、读过的都还在；协作者一直在工作。从停下的地方接着推进目标，不要重做已经完成的工作。\n\n现在看板上的子任务：\n{board}{notes}\n\n从现在起，janus.wait 只带来之后发生的事。",
-            clip(err, 300)
-        ),
-        (BrokeOff::Failure(err), Lang::En) => format!(
-            "[Janus] Your session broke off while you were working on this goal ({}). It was restored, so what you did and read before is still here; the collaborators kept working. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board now:\n{board}{notes}\n\njanus.wait brings only what happens from here on.",
-            clip(err, 300)
-        ),
-    }
+    let (why, when) = broke_off(broke, lang);
+    let others = match broke {
+        BrokeOff::Restart => lang.pick("协作者的会话都已关闭", "the collaborators' sessions were closed"),
+        BrokeOff::Failure(_) => lang.pick("协作者一直在工作", "the collaborators kept working"),
+    };
+    tr!(
+        lang,
+        "[Janus] {why}。你的会话已经恢复，之前做过、读过的都还在；{others}。从停下的地方接着推进，不要重做已经完成的工作。
+
+{when}看板上的子任务：
+{board}{notes}
+
+看板从现在起只带来之后发生的事。",
+        "[Janus] {why}. Your session was restored, so what you did and read before is still here; {others}. Carry on from where you stopped; do not redo finished work.
+
+Subtasks on the board {when}:
+{board}{notes}
+
+From here on, the board brings only what happens next."
+    )
 }
 
 /// Where a lead goes back into its goal from: the board as it stands and what broke it off.
@@ -1607,8 +1641,9 @@ impl App {
     }
 }
 
-/// Context for a conversation in a new lead session: the goal, the delivery, and the last things
-/// said. Used when the adapter cannot load the original session.
+/// Where a delivered goal stands, for a lead whose conversation goes on in a new session: after its
+/// brief (the same as the goal's), the goal, the delivery and the last things said. Used when the
+/// adapter cannot load the original session.
 pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
     let lang = run.lang;
     let summary = delivery_summary(events);
@@ -1622,8 +1657,30 @@ pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
     let goal = &run.goal;
     tr!(
         lang,
-        "这个目标已经交付，用户在继续对话。用下面的记录接上之前的进度。\n\n目标：\n{goal}\n\n上次交付的摘要：\n{summary}\n\n最近的对话：\n{recent}",
-        "This goal has been delivered and the user is continuing the conversation. Use the history below to pick up where you left off.\n\nGoal:\n{goal}\n\nPrevious delivery summary:\n{summary}\n\nRecent conversation:\n{recent}"
+        "
+
+交付之后：这个目标已经交付，用户在继续和你对话。这是一个新会话，之前的上下文不在里面，按下面的记录接上。
+
+目标：
+{goal}
+
+上次交付：
+{summary}
+
+最近的对话：
+{recent}",
+        "
+
+After delivery: this goal has been delivered, and the user is continuing the conversation. This is a new session without the earlier context; pick up from the record below.
+
+Goal:
+{goal}
+
+Last delivery:
+{summary}
+
+Recent conversation:
+{recent}"
     )
 }
 
