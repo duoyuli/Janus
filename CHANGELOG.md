@@ -4,6 +4,40 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.25
+
+- 服务重启后，进行中的任务自动从中断处继续，不再停在「已中断」等你点继续：应用更新、退出后重开、意外退出都一样，值班派出的任务也不会因此停下。接着做的任务比排队的新任务先拿回位置。重启前你暂停的任务，以及上次自动继续后什么都没做又被打断的任务，会等你决定。退出和更新的确认框写明任务会自动接着做。
+
+- 子任务因为 Agent 进程退出、服务商报错或连接中断失败时，等 30 秒后回到原来的会话继续，告诉它上次为什么中断，不再新开会话、从头做一遍；原会话快满（超过 75%）或加载不了时才新开。原来只等 3 秒，常常撞上同一次故障。
+
+- 负责人的会话在目标完成前出错时，不再让整个任务失败：等同样的 30 秒后回到它自己的会话，告诉它会话为什么断了、协作者一直在继续、看板现在的状况，接着推进目标；重开后什么都没做又断开，才判定任务失败。负责人会话页的「恢复会话」改为「从中断处接着推进目标」。
+
+- 任务页的用量多了一行「子任务」：子任务花的时间按执行、验证、返工拆开，例如「42 分：执行 20 分 · 验证 15 分 · 返工 7 分」，交付的用量摘要里也有。负责人在看板上能看到每个完成的子任务用了多久、会话上下文占用多少。
+
+- 减少重复验证：执行者交结果时，Janus 记下结果所对应的文件状态（只读，不往仓库写东西）。独立验证开始时会告诉验证者，文件在执行者提交之后有没有变：没变就引用执行者的证据，只补跑缺的部分；变了会列出变了哪些文件。负责人在看板上能看到验证核对的是不是同一批文件。
+
+- 负责人和协作者的说明，以及默认的质量工程师、PMO、产品经理的指令，加上了按规模和风险选流程的要求：互不依赖的子任务同时做，小改动一个人做加至多一次检查，文档和研究只评审一轮，整套测试这类重的检查在做完时跑一次，复验只看上一轮的问题。你没改过的默认指令会自动换成新版。
+
+- 设置 › 资源库重新设计：每个来源是一张卡片，组的箭头在标题前，组里的 Skill 用树形线挂在下面、自己的箭头在行尾，两级一眼能分开；GitHub 来源的「再导入」放在组里最后一项，地址和删除来源放在卡片底部。MCP 标签不再套一层组，一张卡片里一个服务器一行，图标表示命令启动还是由 Janus 连接。
+
+- 用量账本中，被重启打断、没有结束记录的尝试，用时算到同一个子任务下一次尝试开始的时刻，不再记为 0。
+
+- Runs at work continue on their own after the service restarts, instead of stopping at Interrupted until you continue them: after an app update, quitting and reopening, or a crash alike, so the runs a Loop dispatched no longer stop there either. A continuing run takes its slot back before newer queued runs start. A run you paused before the restart, and one that was cut off again before doing anything after it last continued on its own, wait for you. The quit and update confirmations say runs pick up on their own.
+
+- When a subtask fails because its agent exited, the provider returned an error or the connection dropped, it goes back into its own session after 30 seconds and is told why it stopped, instead of starting over in a new session; only a session that is nearly full (over 75%) or cannot be loaded starts anew. The wait used to be 3 seconds and often ran into the same outage.
+
+- A lead whose session breaks off before the goal is done no longer fails the whole run: after the same 30 seconds it goes back into its own session, told why it broke off, that the collaborators kept working and where the board stands, and carries on. Only when it breaks off again without having done anything does the run fail. The lead's session page labels this Continuing the Goal Where It Stopped.
+
+- The run's usage card has a Subtasks row: the subtasks' time split into work, verification and rework, for example "42 min: work 20 min · verification 15 min · rework 7 min", which the delivery's usage line shows too. The lead sees on the board how long each finished subtask took and how full its session got.
+
+- Less repeated verification: when a subtask hands in its result, Janus records the files it was made on (read only, nothing is written to the repository). An independent verification is told whether those files changed since: if not, it cites the implementer's evidence and runs only what is missing; if so, it is told which files changed. The lead sees on the board whether a verification checked the same files.
+
+- The lead's and collaborators' instructions, and the default QA engineer, PMO and product manager, now match the process to the size and risk of the work: independent subtasks run side by side, a small change takes one person and at most one check, documents and research are reviewed once, heavy checks such as a whole test suite run once on the finished work, and a re-check looks only at the last round's findings. Default instructions you have not edited are updated automatically.
+
+- Redesigned Settings › Library: each source is a card with its arrow before the title and its skills hung under it on a tree line, each with its own arrow at the row's end, so the two levels read apart; a GitHub source's Import More is the group's last item, and its URL and Remove Source sit at the card's foot. The MCP tab drops the extra group: one card, a server a line, with an icon for whether it is started by a command or connected by Janus.
+
+- In the usage ledger, an attempt a restart cut off with no end of its own now runs until the next attempt at its subtask starts, instead of counting as 0.
+
 ## 2026.11.24.5
 
 这一版的应用和服务与 2026.11.24.4 相同，变化都在仓库和发布流程：
