@@ -4,6 +4,24 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.25.5
+
+- Agent 的协作工具从 23 个减到 15 个，每个都按实际使用逐个审过，重复或几乎不用的合并或删掉。负责人：`team` 和 `task_detail` 合成 `janus.board`（不传子任务看全队，传了看那一个的全部信息），`accept` 并进 `amend`（对没通过验收核对的子任务，修订就是接受它的结果）。协作者：`peers` 改叫 `janus.board`，`request_split` 成了 `janus.ask` 的可选拆分提议，`claim` 删掉，要改负责范围以外的文件就问负责人。
+
+- 值班的工具只剩 `dispatch`、`ask_user` 和 `next_wake`：用派出过的 key 再派一次，任务还在进行时就把新情况转告它的负责人，已经结束的告诉值班结果，不再需要 `note_dispatch`；每次醒来的提示列出它派出、还在进行的任务，不再需要 `dispatches`；`save_state` 删掉，值班一直在同一个会话里，重要的事记进团队记忆。
+
+- 值班的名字由你来起：新建和编辑值班的表单多了「名字」，不填就用提示的第一行，不再让值班第一次开工时自己起名。
+
+- 修复：负责人能用 `amend` 改写独立验证子任务的结论。现在验证子任务的判定和结论都不能修订，验证没通过只能返工后重新验证，或者取消。
+
+- Agents' collaboration tools go from 23 to 15: each was reviewed against how it is actually used, and the ones that repeated another or were hardly used are merged or removed. For the lead, `team` and `task_detail` become `janus.board` (the whole team without a subtask, everything about one with it), and `accept` goes into `amend` (amending a subtask that failed its acceptance check accepts its result). For collaborators, `peers` is now `janus.board`, `request_split` is an optional split proposal on `janus.ask`, and `claim` is gone: to change a file outside its scope, a collaborator asks the lead.
+
+- A Loop's tools are down to `dispatch`, `ask_user` and `next_wake`. Dispatching a key again passes the news to that run's lead while it works, and tells the Loop what it came to once it has ended, so `note_dispatch` is gone; each wake's prompt lists the runs it dispatched that are still at work, so `dispatches` is gone; and `save_state` is gone, since a Loop stays in one session and keeps what matters in the team memory.
+
+- You name your Loops: the form for making or editing a Loop has a "Name" field, and the first line of the prompt stands in when it is left empty. A Loop no longer names itself on its first wake.
+
+- Fixed: the lead could rewrite an independent verification's conclusion with `amend`. A verification's verdict and conclusion can no longer be amended; a failed verification is settled only by rework and verifying again, or by cancelling.
+
 ## 2026.11.25.4
 
 - 协作者用工具交结果和提问：做完用 `janus.submit` 交结果，需要负责人决定时用 `janus.ask` 提问，不再在回复末尾写一段 JSON。交结果时 Janus 当场核对：漏了标准、没有证据、证据方法或判定不合法，直接退回让它改，不用等一轮结束再发修复提示；写了没达到的标准，会提醒它可以修好再交一次。一轮结束还没交的，提醒一次。
