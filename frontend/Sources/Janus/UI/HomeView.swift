@@ -617,6 +617,8 @@ struct WorkspaceEditor: View {
         p.canChooseDirectories = true
         p.canChooseFiles = false
         p.allowsMultipleSelection = false
+        // A new project starts in a folder that does not exist yet.
+        p.canCreateDirectories = true
         p.prompt = L.text("使用这个文件夹")
         if !path.isEmpty { p.directoryURL = URL(fileURLWithPath: path) }
         if p.runModal() == .OK, let u = p.url { path = u.path }
