@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.25.2
+
+- 值班的会话标出每次开工的起止：开工处一条分隔线写第几次、几点、为什么开工（按时间表、它约的时间到了、你让它开工、你回答了它的问题、派出的任务结束了），收工处一行写几点收工、用了多久、下次几点开工（它自己约的标「它约的」）；没能开工时写时刻和原因。值班会话开头不再有一条空的「目标」分隔线。
+
+- 新建工作区选择文件夹时可以新建文件夹。
+
+- 打开文件夹面板、菜单里的标准项这些 macOS 画的部分，跟着 Janus 里选的语言，不再和 Janus 的文字一半中文一半英文。macOS 只在启动时读这一项，所以改了语言后要重新打开 Janus 才换，设置里会提示。
+
+- A Loop's session marks where each wake starts and ends: a divider says which wake, when and why (on schedule, at the time it asked for, you woke it, you answered its question, a run it dispatched ended), and a line says when it ended, how long it took and when it wakes next (marked when it asked for that time itself); a wake that could not start shows its time and reason. A Loop's session no longer opens with an empty Goal divider.
+
+- The folder picker for a new workspace can create a new folder.
+
+- What macOS draws for Janus, such as the folder picker and the standard menu items, follows the language chosen in Janus, instead of mixing Chinese and English with Janus's own words. macOS reads it only at launch, so it switches after you reopen Janus; Settings says so.
+
 ## 2026.11.25
 
 - 服务重启后，进行中的任务自动从中断处继续，不再停在「已中断」等你点继续：应用更新、退出后重开、意外退出都一样，值班派出的任务也不会因此停下。接着做的任务比排队的新任务先拿回位置。重启前你暂停的任务，以及上次自动继续后什么都没做又被打断的任务，会等你决定。退出和更新的确认框写明任务会自动接着做。
