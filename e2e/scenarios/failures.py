@@ -27,7 +27,9 @@ def failures(ctx, c):
       "自动重试回到断掉的会话，告诉它上次为什么中断，不重发任务")
     c("[无法开始] T2" in board, "依赖失败的下游标为无法开始")
     failed = run.has("task.failed", task="T3")
-    c(failed and failed[-1]["data"]["reason"] == "verification", "没达到验收标准：原会话补一次仍不行，交给负责人")
+    c(failed and failed[-1]["data"]["reason"] == "verification", "没达到验收标准：提交时提醒可以修好再交一次，没有再交就交给负责人")
+    t3_submits = [e["data"] for e in run.has("tool.completed", task="T3") if e["data"].get("tool") == "janus.submit"]
+    c(len(t3_submits) == 1 and "再提交一次" in t3_submits[0]["output"], "janus.submit 收下没达到的结果，同时提醒可以再交一次")
     c(run.has("verification.failed", task="T3"), "核对结果记为 verification.failed")
 
     # The lead's choices.
@@ -64,7 +66,9 @@ def failures(ctx, c):
       "返工完成后 V6 在自己的会话中复审")
     c(run.has("task.succeeded", task="V6")[-1]["data"].get("verdict") == "approved", "复审通过，V6 的判定变为 approved")
     run.wait_event("task.failed", task="T7", timeout=60)
-    c("vibes" in str(run.has("verification.failed", task="T7")), "不合法的证据方法（vibes）原样记录且核对失败")
+    t7_refused = [e["data"] for e in run.has("tool.completed", task="T7")
+                  if e["data"].get("tool") == "janus.submit" and e["data"].get("status") == "failed"]
+    c(t7_refused and "vibes" in t7_refused[0]["output"], "不合法的证据方法（vibes）在 janus.submit 时当场退回，写明哪里不对")
     delivered = run.finish("能做的都做了，T4 这部分没有做，见风险")
     c(delivered["data"].get("risks") or delivered["data"].get("evidence"), "交付带着风险和证据")
     acceptance = {a["task"]: a for a in delivered["data"]["acceptance"]}

@@ -205,9 +205,9 @@ fn callable(tool: &Value) -> bool {
 }
 
 impl App {
-    /// The router's entry for a session of `who`, beside the board's: same token rule.
-    pub(super) fn tools_server(&self, run: &Run, who: &str) -> Value {
-        self.session_server(run, who, crate::library::MCP_ROUTER, "/tools")
+    /// The router's entry for a session in `seat`, beside the board's: same token rule.
+    pub(super) fn tools_server(&self, run: &Run, seat: &Seat) -> Value {
+        self.session_server(run, seat, crate::library::MCP_ROUTER, "/tools")
     }
 
     /// Prepare a server ahead of its runs: start a command once in its own sandbox (or connect to a
@@ -448,10 +448,11 @@ impl App {
         self: &Arc<Self>,
         run_id: &str,
         token: &str,
-        who: &str,
+        seat: &Seat,
         req: Value,
     ) -> Result<Option<Value>> {
-        let run = self.session_run(run_id, token, who)?;
+        let run = self.session_run(run_id, token, seat)?;
+        let who = seat.who();
         let Some(id) = req.get("id").cloned() else {
             if req["method"] == "notifications/cancelled" {
                 run.router.cancel(who, &req["params"]["requestId"]);
@@ -524,7 +525,7 @@ impl App {
                     "ms": now_ms() - started,
                     "error": outcome.as_ref().err().map(|e| format!("{e:#}")),
                 }));
-                self.emit(&run, e.in_session(who));
+                self.emit(&run, e.in_session(seat));
                 // After handing out subtasks the lead only looks: a call it makes is put in front
                 // of it on the board, once per tool, and goes on the delivery as a risk.
                 // @project-doc docs/domains/20261031-goal_mode.md#lead_role

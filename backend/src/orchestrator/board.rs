@@ -60,13 +60,13 @@ pub(super) enum Caller {
 }
 
 impl Caller {
-    pub(super) fn of(kind: RunKind, who: &str) -> Option<Caller> {
-        match kind {
-            RunKind::Chat => None,
-            RunKind::Loop => Some(Caller::Loop),
-            RunKind::Dream => Some(Caller::Consolidation),
-            RunKind::Goal if who == "lead" => Some(Caller::Lead),
-            RunKind::Goal => Some(Caller::Member),
+    pub(super) fn of(kind: RunKind, seat: &Seat) -> Option<Caller> {
+        match (kind, seat) {
+            (RunKind::Chat, _) => None,
+            (RunKind::Loop, _) => Some(Caller::Loop),
+            (RunKind::Dream, _) => Some(Caller::Consolidation),
+            (RunKind::Goal, Seat::Lead) => Some(Caller::Lead),
+            (RunKind::Goal, Seat::Task(_)) => Some(Caller::Member),
         }
     }
 
@@ -91,20 +91,20 @@ impl Caller {
 
 impl App {
     /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
-    pub(super) fn mcp_server(&self, run: &Run, who: &str) -> Value {
-        self.session_server(run, who, "janus", "")
+    pub(super) fn mcp_server(&self, run: &Run, seat: &Seat) -> Value {
+        self.session_server(run, seat, "janus", "")
     }
 
-    /// One MCP request (streamable HTTP, JSON responses) from a session of this run. `who` is
-    /// "lead" or the task id of the collaborator's session; with the run's kind it says which
-    /// tools the session has (`Caller`). Notifications get no response.
+    /// One MCP request (streamable HTTP, JSON responses) from a session of this run. Its `seat`,
+    /// with the run's kind, says which tools the session has (`Caller`). Notifications get no
+    /// response.
     // @project-doc docs/interfaces/20261031-board_mcp.md#transport
-    pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, who: &str, req: Value) -> Result<Option<Value>> {
-        let run = self.session_run(run_id, token, who)?;
+    pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, seat: &Seat, req: Value) -> Result<Option<Value>> {
+        let run = self.session_run(run_id, token, seat)?;
         // A chat's agent holds a valid token for its library router; the same token must not
         // reach a board, which a chat does not have.
         // @project-doc docs/domains/20261120-chats.md#chat_model
-        let caller = Caller::of(run.kind, who).ok_or_else(|| anyhow!("对话没有共享看板"))?;
+        let caller = Caller::of(run.kind, seat).ok_or_else(|| anyhow!("对话没有共享看板"))?;
         let Some(id) = req.get("id").cloned() else {
             return Ok(None);
         };
@@ -114,7 +114,7 @@ impl App {
             "tools/list" => json!({ "tools": caller.tools(run.lang) }),
             "tools/call" => {
                 let name = req["params"]["name"].as_str().unwrap_or("");
-                self.janus_tool_call(&run, who, caller, name, &req["params"]["arguments"], &id.to_string()).await
+                self.janus_tool_call(&run, seat, caller, name, &req["params"]["arguments"], &id.to_string()).await
             }
             m => return Ok(Some(rpc_error(id, METHOD_NOT_FOUND, tr!(run.lang, "不支持 {m}", "{m} is not supported")))),
         };
@@ -126,18 +126,19 @@ impl App {
     async fn janus_tool_call(
         self: &Arc<Self>,
         run: &Arc<Run>,
-        who: &str,
+        seat: &Seat,
         caller: Caller,
         name: &str,
         args: &Value,
         call_id: &str,
     ) -> Value {
+        let who = seat.who();
         let tool = format!("janus.{}", if name.is_empty() { "工具" } else { name });
         let input = summarize_input(args, name);
         let started = ev(EventKind::ToolStarted, who, format!("调用 {tool}，等待返回")).data(json!({
             "callId": call_id, "tool": tool, "input": input, "args": args, "status": "pending"
         }));
-        self.emit(run, started.in_session(who));
+        self.emit(run, started.in_session(seat));
         let result = match self.janus_tool(run, who, caller, name, args).await {
             Ok(text) => tool_text(&text, false),
             Err(text) => tool_text(&text, true),
@@ -149,7 +150,7 @@ impl App {
             "callId": call_id, "tool": tool, "input": input, "args": args, "output": clip(output, 8000),
             "status": if failed { "failed" } else { "completed" }
         }));
-        self.emit(run, completed.in_session(who));
+        self.emit(run, completed.in_session(seat));
         result
     }
 
@@ -194,6 +195,8 @@ impl App {
                 Some(MemberTool::Peers) => self.board_peers(run, who, args),
                 Some(MemberTool::Claim) => self.board_claim(run, who, args),
                 Some(MemberTool::RequestSplit) => self.board_request_split(run, who, args),
+                Some(MemberTool::Submit) => self.board_submit(run, who, args),
+                Some(MemberTool::Ask) => self.board_ask(run, who, args),
                 None => missing(),
             },
         }
@@ -761,7 +764,7 @@ impl App {
         };
         let d = submitted.data.clone().unwrap_or_default();
         // The accepted result keeps the checks and handoff, so its evidence methods are still shown.
-        let mut result = result_from_event(&d);
+        let mut result = result_from_json(&d);
         let error = failed.data.as_ref().and_then(|d| d["error"].as_str()).unwrap_or("验证失败").to_string();
         result.risks.push(format!("{error}；负责人接受了结果：{reason}"));
         {
@@ -1620,8 +1623,8 @@ impl App {
         );
         Ok(tr!(
             lang,
-            "拆分提议已发给负责人。若必须等负责人调整编排才能继续，可在结果 JSON 的 question 中说明并暂停等待回复。",
-            "The split proposal went to the lead. If you cannot go on until the lead changes the orchestration, say so in the question field of your result JSON and stop to wait for the answer."
+            "拆分提议已发给负责人。如果必须等负责人调整编排才能继续，用 janus.ask 说明，然后结束这一轮等回答。",
+            "The split proposal went to the lead. If you cannot go on until the lead changes the orchestration, say so with janus.ask and end your turn to wait for the answer."
         ))
     }
 }

@@ -8,17 +8,17 @@ use super::*;
 
 /// The router's address as a session got it in `session/new` (`mcp [...]` in `calls.log`): the
 /// credential a real client holds, never read from the run's state (AGENTS.md rule 1).
-async fn router_url(h: &Harness, who: &str) -> (String, String, String) {
+async fn router_url(h: &Harness, who: &str) -> (String, String, Seat) {
     let calls = h.dir.join("fake/calls.log");
     for _ in 0..200 {
         let content = std::fs::read_to_string(&calls).unwrap_or_default();
         for line in content.lines().rev().filter_map(|l| l.strip_prefix("mcp ")) {
             let servers: Vec<Value> = serde_json::from_str(line).unwrap_or_default();
             for s in servers.iter().filter(|s| s["name"] == crate::library::MCP_ROUTER) {
-                let parts: Vec<&str> = s["url"].as_str().unwrap_or_default().split('/').collect();
-                let n = parts.len();
-                if n >= 5 && parts[n - 2] == who {
-                    return (parts[n - 4].to_string(), parts[n - 3].to_string(), parts[n - 2].to_string());
+                if let Some(at) =
+                    mcp_credential(s["url"].as_str().unwrap_or_default()).filter(|(_, _, seat)| seat.who() == who)
+                {
+                    return at;
                 }
             }
         }
@@ -27,33 +27,33 @@ async fn router_url(h: &Harness, who: &str) -> (String, String, String) {
     panic!("no router for {who} in {}", std::fs::read_to_string(&calls).unwrap_or_default());
 }
 
-async fn call(h: &Harness, at: &(String, String, String), method: &str, params: Value) -> Result<Value> {
+async fn call(h: &Harness, at: &(String, String, Seat), method: &str, params: Value) -> Result<Value> {
     Ok(reply(h, at, json!(1), method, params).await?["result"].clone())
 }
 
 /// The whole JSON-RPC reply to request `id`, error and all.
 async fn reply(
     h: &Harness,
-    (run, token, who): &(String, String, String),
+    (run, token, seat): &(String, String, Seat),
     id: Value,
     method: &str,
     params: Value,
 ) -> Result<Value> {
     let req = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-    Ok(h.app.mcp_tools(run, token, who, req).await?.unwrap())
+    Ok(h.app.mcp_tools(run, token, seat, req).await?.unwrap())
 }
 
 /// A name no server has is answered as MCP says for an unknown tool: a protocol error, -32602.
-async fn unknown(h: &Harness, at: &(String, String, String), name: &str) {
+async fn unknown(h: &Harness, at: &(String, String, Seat), name: &str) {
     let r = reply(h, at, json!(1), "tools/call", json!({ "name": name, "arguments": {} })).await.unwrap();
     assert!(r["error"]["code"] == -32602 && r["error"]["message"].as_str().unwrap().contains("没有这个工具"), "{r}");
 }
 
-async fn tool(h: &Harness, at: &(String, String, String), name: &str, args: Value) -> Value {
+async fn tool(h: &Harness, at: &(String, String, Seat), name: &str, args: Value) -> Value {
     call(h, at, "tools/call", json!({ "name": name, "arguments": args })).await.unwrap()
 }
 
-async fn listed(h: &Harness, at: &(String, String, String)) -> Vec<String> {
+async fn listed(h: &Harness, at: &(String, String, Seat)) -> Vec<String> {
     let r = call(h, at, "tools/list", json!({})).await.unwrap();
     r["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str().map(str::to_owned)).collect()
 }
@@ -209,7 +209,10 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert!(routed.iter().all(|d| d.get("arguments").is_none() && d.get("args").is_none()), "never the arguments");
     let (r, token, _) = &at;
     assert!(
-        h.app.mcp_tools(r, token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err()
+        h.app
+            .mcp_tools(r, token, &Seat::Lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+            .await
+            .is_err()
     );
 
     // After handing out subtasks the lead only looks: each tool it calls is noted once, for it on

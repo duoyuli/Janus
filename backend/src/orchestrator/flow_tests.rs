@@ -64,6 +64,25 @@ fn harness(name: &str, members: &[(&str, bool)], script: Value) -> Harness {
     harness_with(name, members, script, |_| {})
 }
 
+/// An app over `dir` as a real Janus runs one: its routes served on a free local port, which the
+/// MCP URLs it hands to agents point at, so the scripted agent calls the janus tools over HTTP as
+/// a real one does. `set` changes some of its settings. Restarts in the tests make a new one.
+pub(super) fn served_app(dir: &Path, set: impl FnOnce(&mut Config)) -> Arc<App> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let app = test_app_with(dir, |cfg| {
+        cfg.addr = addr;
+        set(cfg)
+    });
+    let served = app.clone();
+    tokio::spawn(async move {
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+        let _ = axum::serve(listener, crate::http::router(served)).await;
+    });
+    app
+}
+
 /// `harness` with some of the app's settings changed by `set`.
 fn harness_with(name: &str, members: &[(&str, bool)], script: Value, set: impl FnOnce(&mut Config)) -> Harness {
     let dir = std::env::temp_dir().join(format!("janus-flow-{name}-{}", std::process::id()));
@@ -79,7 +98,7 @@ fn harness_with(name: &str, members: &[(&str, bool)], script: Value, set: impl F
     std::fs::write(repo.join("README.md"), "test\n").unwrap();
     sh(&repo, &["add", "-A"]);
     sh(&repo, &["commit", "-q", "-m", "init"]);
-    let app = test_app_with(&dir, set);
+    let app = served_app(&dir, set);
     // What a check of the fake agent reads: whether a member writes follows from its mode.
     let modes: Vec<Value> =
         ["read-only", "ask", "agent", "full"].iter().map(|v| json!({ "value": v, "name": v })).collect();
@@ -415,11 +434,11 @@ async fn lead_resolves_failed_tasks() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// A result that does not meet its criteria goes back into the same session once; the agent
-/// fixes its work there.
-/// A second failure goes to the lead, still within one attempt.
+/// A result handed in with a criterion unmet is taken, and the agent hears once that it may fix it
+/// and hand in again in the same turn. One that does gets through; one that does not goes to the
+/// lead, still within one attempt and without another round.
 #[tokio::test(flavor = "multi_thread")]
-async fn verification_failure_is_fixed_in_the_same_session() {
+async fn an_unmet_criterion_may_be_handed_in_once_more() {
     let h = harness(
         "fix",
         &[("lead", false), ("m1", true), ("m2", true)],
@@ -436,17 +455,25 @@ async fn verification_failure_is_fixed_in_the_same_session() {
     .await;
     let evs = events(&h.app, &run);
     let count = |kind: &str, t: &str| evs.iter().filter(|e| e.kind == kind && e.task.as_deref() == Some(t)).count();
+    let submits = |t: &str| -> Vec<String> {
+        evs.iter()
+            .filter(|e| e.kind.as_str() == "tool.completed" && e.task.as_deref() == Some(t))
+            .filter_map(|e| e.data.as_ref())
+            .filter(|d| d["tool"] == "janus.submit")
+            .map(|d| d["output"].as_str().unwrap_or("").to_string())
+            .collect()
+    };
     assert_eq!(count("attempt.started", "T1"), 1, "fixed in the same session, no new attempt");
-    assert_eq!(count("verification.failed", "T1"), 1);
-    assert!(evs.iter().any(|e| {
-        e.kind.as_str() == "session.prompt"
-            && e.task.as_deref() == Some("T1")
-            && e.data.as_ref().is_some_and(|d| {
-                d["channel"] == "fix" && d["prompt"].as_str().unwrap_or("").contains("自认没有达到「做好 done 功能」")
-            })
-    }));
+    let t1 = submits("T1");
+    assert!(
+        t1.len() == 2 && t1[0].contains("已收下，但这些标准你写了没达到") && t1[0].contains("- 做好 done 功能"),
+        "{t1:?}"
+    );
+    assert!(t1[1].starts_with("已收下。"), "the second hand-in is simply taken: {t1:?}");
+    assert_eq!(count("verification.failed", "T1"), 0, "the result that counts met every criterion");
     assert_eq!(count("attempt.started", "T2"), 1);
-    assert_eq!(count("verification.failed", "T2"), 2, "one fix round, then the lead decides");
+    assert_eq!(submits("T2").len(), 1, "it did not hand in again");
+    assert_eq!(count("verification.failed", "T2"), 1, "then the lead decides");
     let failed = evs.iter().find(|e| e.kind.as_str() == "task.failed" && e.task.as_deref() == Some("T2")).unwrap();
     assert_eq!(failed.data.as_ref().unwrap()["reason"], "verification");
 
@@ -455,13 +482,27 @@ async fn verification_failure_is_fixed_in_the_same_session() {
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let stats = h.app.role_stats().unwrap();
     assert_eq!(stats["roles"]["m1"]["succeeded"], 1);
-    assert_eq!(stats["roles"]["m1"]["firstPass"], 0, "it needed the fix round");
-    assert_eq!(stats["roles"]["m1"]["verificationFailed"], 1);
+    assert_eq!(stats["roles"]["m1"]["firstPass"], 1, "its result passed the first check");
     assert_eq!(stats["roles"]["m2"]["failed"], 1);
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-async fn tool(app: &Arc<App>, run: &str, who: &str, name: &str, args: Value) -> (String, bool) {
+/// The run, token and seat in a session's MCP URL (`…/mcp/<run>/<token>/lead[/tools]` or
+/// `…/mcp/<run>/<token>/task/<id>[/tools]`): the credential a real client holds.
+pub(super) fn mcp_credential(url: &str) -> Option<(String, String, Seat)> {
+    let rest = url.split("/mcp/").nth(1)?;
+    let rest = rest.strip_suffix("/tools").unwrap_or(rest);
+    let mut parts = rest.splitn(3, '/');
+    let (run, token, seat) = (parts.next()?, parts.next()?, parts.next()?);
+    let seat = match seat {
+        "lead" => Seat::Lead,
+        task => Seat::Task(task.strip_prefix("task/")?.to_string()),
+    };
+    Some((run.to_string(), token.to_string(), seat))
+}
+
+/// Call a board tool from the session in `seat`.
+async fn tool_as(app: &Arc<App>, run: &str, seat: &Seat, name: &str, args: Value) -> (String, bool) {
     // A run that was just started or resumed gets its board token when its lead starts.
     let r = app.run(run).unwrap();
     for _ in 0..600 {
@@ -470,11 +511,17 @@ async fn tool(app: &Arc<App>, run: &str, who: &str, name: &str, args: Value) -> 
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let token = session_token(&r.st.lock().unwrap().mcp_token, who);
+    let token = session_token(&r.st.lock().unwrap().mcp_token, seat);
     let req =
         json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": args } });
-    let r = app.mcp(run, &token, who, req).await.unwrap().unwrap();
+    let r = app.mcp(run, &token, seat, req).await.unwrap().unwrap();
     (r["result"]["content"][0]["text"].as_str().unwrap_or("").to_string(), r["result"]["isError"] == true)
+}
+
+/// Call a board tool as the lead (`lead`) or as the session of subtask `who`.
+async fn tool(app: &Arc<App>, run: &str, who: &str, name: &str, args: Value) -> (String, bool) {
+    let seat = if who == "lead" { Seat::Lead } else { Seat::Task(who.to_string()) };
+    tool_as(app, run, &seat, name, args).await
 }
 
 /// A session in Janus shows what the coding agent itself shows: its thinking, its plan, its
@@ -708,7 +755,7 @@ async fn restart_restores_failed_and_blocked() {
         &old,
         ev(EventKind::SessionUsage, "m1", "用量").task("T1").attempt(1).data(json!({ "totalTokens": 2_000 })),
     );
-    let app2 = test_app(&h.dir);
+    let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     assert_eq!(status(&app2, &run), "interrupted");
     let r = app2.resume_run(&run).await.unwrap();

@@ -28,12 +28,12 @@ async fn sessions_open_with_the_members_resources() {
     m.resources = vec![skill, server];
     let caps = json!({ "mcpCapabilities": { "http": true } });
     let board = json!({ "type": "http", "name": "janus", "url": "http://board" });
-    let o = app.opening(&run, "lead", &m, &caps, vec![board.clone()], Some("规则"));
+    let o = app.opening(&run, &Seat::Lead, &m, &caps, vec![board.clone()], Some("规则"));
     let bundle = app.dirs(&run).bundle(&m.id);
     assert_eq!(o.meta["claudeCode"]["options"]["plugins"], json!([{ "type": "local", "path": bundle }]));
     assert_eq!(o.meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
     assert_eq!(o.meta["systemPrompt"]["append"], "规则");
-    assert_eq!(o.mcp_servers, vec![app.tools_server(&run, "lead"), board]);
+    assert_eq!(o.mcp_servers, vec![app.tools_server(&run, &Seat::Lead), board]);
     let load = o.load_params("s1", Path::new("/w"));
     assert_eq!(
         (load["sessionId"].as_str(), &load["_meta"], &load["mcpServers"]),
@@ -43,7 +43,7 @@ async fn sessions_open_with_the_members_resources() {
     assert!(!opened.contains("Bearer t"), "values reach neither the session nor the record");
 
     m.runtime = Runtime::Codex;
-    let o = app.opening(&run, "lead", &m, &caps, vec![], Some("规则"));
+    let o = app.opening(&run, &Seat::Lead, &m, &caps, vec![], Some("规则"));
     assert_eq!(o.meta, json!({ "additionalRoots": [bundle] }), "Codex has its system layer in its environment");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -92,14 +92,14 @@ fn the_leads_suggestions_for_the_shared_material_are_split_off() {
 }
 
 /// The conclusion and the questions for the person are their own sections; the report keeps the
-/// rest whole, however long, without a trailing JSON block.
+/// rest whole, however long.
 #[test]
 fn the_leads_report_splits_its_conclusion_and_decisions_off() {
     let long = "细节。".repeat(1500);
     for (headline, decisions) in [("## Conclusion", "## Needs Your Decision:"), ("## **结论**", "### 需要你决定：")]
     {
         let r = LeadReport::of(&format!(
-            "{headline}\n审计完成，确认 1 个高风险。\n\n{decisions}\n- 被忽略文件不带回算缺陷吗？\n2. 以哪条说明为准？\n\n## 改了什么\n{long}\n```json\n{{}}\n```"
+            "{headline}\n审计完成，确认 1 个高风险。\n\n{decisions}\n- 被忽略文件不带回算缺陷吗？\n2. 以哪条说明为准？\n\n## 改了什么\n{long}"
         ));
         assert_eq!(r.headline, "审计完成，确认 1 个高风险。");
         assert_eq!(r.decisions, vec!["被忽略文件不带回算缺陷吗？", "以哪条说明为准？"]);
@@ -194,7 +194,8 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
     // The board's tools explain themselves: the rules hold no tool list and no skills sentence.
     let rules = collaborator_rules(Lang::En);
     assert!(
-        rules.contains("```json")
+        !rules.contains("```json")
+            && rules.contains("- janus.submit: ")
             && rules.contains("Collaboration tools")
             && rules.contains("- janus.board_post: ")
             && !rules.contains("janus-skills"),
@@ -202,7 +203,10 @@ fn the_system_layer_holds_janus_rules_then_the_persons() {
     );
     assert!(rules.is_ascii(), "{rules}");
     let zh = collaborator_rules(Lang::Zh);
-    assert!(zh.starts_with("你是 Janus 团队的协作者，") && zh.contains("协作工具") && zh.contains("```json"), "{zh}");
+    assert!(
+        zh.starts_with("你是 Janus 团队的协作者，") && zh.contains("- janus.submit：") && !zh.contains("```json"),
+        "{zh}"
+    );
     // Committing, pushing and deploying follow the subtask's instructions, not a ban of Janus's own.
     assert!(rules.contains("Commit, push, or deploy only when your subtask's instructions ask for it"), "{rules}");
     assert!(!rules.contains("Do not commit"), "{rules}");
@@ -539,10 +543,10 @@ fn each_caller_lists_its_own_tools_once() {
     let names = |c: Caller| -> Vec<String> {
         c.tools(crate::lang::Lang::Zh).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
     };
-    for (kind, who) in
-        [(RunKind::Goal, "lead"), (RunKind::Goal, "T1"), (RunKind::Loop, "lead"), (RunKind::Dream, "lead")]
+    let (lead, t1) = (Seat::Lead, Seat::Task("T1".into()));
+    for (kind, seat) in [(RunKind::Goal, &lead), (RunKind::Goal, &t1), (RunKind::Loop, &lead), (RunKind::Dream, &lead)]
     {
-        let c = Caller::of(kind, who).unwrap();
+        let c = Caller::of(kind, seat).unwrap();
         let listed = names(c);
         let unique: HashSet<&String> = listed.iter().collect();
         assert_eq!(unique.len(), listed.len(), "{c:?} lists a tool twice: {listed:?}");
@@ -550,11 +554,15 @@ fn each_caller_lists_its_own_tools_once() {
         assert_eq!(listed.contains(&"forget".to_string()), c == Caller::Consolidation, "{c:?}");
         assert!(listed.contains(&"recall".to_string()), "{c:?}");
     }
-    assert_eq!(names(Caller::of(RunKind::Dream, "lead").unwrap()), ["recall", "remember", "forget"]);
-    assert!(names(Caller::of(RunKind::Goal, "lead").unwrap()).contains(&"orchestrate".to_string()));
-    assert!(names(Caller::of(RunKind::Goal, "T1").unwrap()).contains(&"board_post".to_string()));
-    assert!(names(Caller::of(RunKind::Loop, "lead").unwrap()).contains(&"dispatch".to_string()));
-    assert!(Caller::of(RunKind::Chat, "lead").is_none());
+    assert_eq!(names(Caller::of(RunKind::Dream, &lead).unwrap()), ["recall", "remember", "forget"]);
+    assert!(names(Caller::of(RunKind::Goal, &lead).unwrap()).contains(&"orchestrate".to_string()));
+    let member = names(Caller::of(RunKind::Goal, &t1).unwrap());
+    assert!(["board_post", "submit", "ask"].iter().all(|t| member.contains(&t.to_string())), "{member:?}");
+    // A subtask whose id is `lead` is still a subtask: its seat says so, not its id.
+    let named_lead = names(Caller::of(RunKind::Goal, &Seat::Task("lead".into())).unwrap());
+    assert!(named_lead.contains(&"submit".to_string()) && !named_lead.contains(&"orchestrate".to_string()));
+    assert!(names(Caller::of(RunKind::Loop, &lead).unwrap()).contains(&"dispatch".to_string()));
+    assert!(Caller::of(RunKind::Chat, &lead).is_none());
 }
 
 /// The board speaks the run's language: every tool description and parameter description, and
@@ -631,4 +639,16 @@ fn the_board_speaks_the_runs_language() {
             .unwrap()
             .starts_with("- [提问] T1 · 成员1 停下来等你回答：Which name?（选项：a / b）")
     );
+}
+
+/// The seat, not the id, says whose session a URL is: a subtask whose id is `lead` gets its own
+/// token, which does not open the lead's seat, and the lead's does not open the subtask's.
+#[test]
+fn a_subtask_named_lead_has_its_own_seat() {
+    let (lead, task) = (Seat::Lead, Seat::Task("lead".into()));
+    let (a, b) = (session_token("secret", &lead), session_token("secret", &task));
+    assert_ne!(a, b);
+    assert_eq!(task.who(), "lead", "inside the run it is still the subtask called lead");
+    assert_eq!(Caller::of(RunKind::Goal, &task), Some(Caller::Member));
+    assert_eq!(Caller::of(RunKind::Goal, &lead), Some(Caller::Lead));
 }

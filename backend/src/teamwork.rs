@@ -270,8 +270,8 @@ pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>, lang:
         let owns = def.owns.join(sep);
         p.push_str(&tr!(
             lang,
-            "\n\n你负责的文件：{owns}。只改这些；要改别的文件，先认领，或在结果的 question 里请负责人决定。",
-            "\n\nFiles you own: {owns}. Change only these; to change another file, claim it first or ask the lead in your result's question."
+            "\n\n你负责的文件：{owns}。只改这些；要改别的文件，先认领，或向负责人提问。",
+            "\n\nFiles you own: {owns}. Change only these; to change another file, claim it first or ask the lead."
         ));
     }
     if let Some(vc) = verified {
@@ -314,8 +314,8 @@ pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>, lang:
         }
         p.push_str(vc.files_since);
         p.push_str(lang.pick(
-            "\n- 在 checks 里逐条写明你做了什么、看到了什么，并在结果 JSON 里用 verdict 给出判定：approved（达标）、rejected（有阻断问题，要原执行者修改）或 inconclusive（这里的证据不足以判定）。发现阻断问题也照常提交结果：你的工作是检查和报告，不是修复。",
-            "\n- In checks, say for each criterion what you did and what you saw, and give your verdict in the result JSON: approved (it meets them), rejected (a blocking problem the assignee must fix) or inconclusive (the evidence here cannot settle it). When you find a blocking problem, still hand in your result as usual: your job is to check and report, not to fix.",
+            "\n- 交结果时，checks 里逐条写明你做了什么、看到了什么，并用 verdict 给出判定：approved（达标）、rejected（有阻断问题，要原执行者修改）或 inconclusive（这里的证据不足以判定）。发现阻断问题也照常提交结果：你的工作是检查和报告，不是修复。",
+            "\n- When you hand in your result, say in checks for each criterion what you did and what you saw, and give your verdict: approved (it meets them), rejected (a blocking problem the assignee must fix) or inconclusive (the evidence here cannot settle it). When you find a blocking problem, still hand in your result as usual: your job is to check and report, not to fix.",
         ));
     }
     p

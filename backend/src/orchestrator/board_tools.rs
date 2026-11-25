@@ -245,6 +245,8 @@ wire_enum! {
         Claim = "claim",
         Peers = "peers",
         RequestSplit = "request_split",
+        Submit = "submit",
+        Ask = "ask",
     }
 }
 
@@ -258,8 +260,8 @@ impl MemberTool {
         let mut d = match self {
             MemberTool::BoardPost => json!({
                 "description": t(
-                    "执行子任务期间，把进展、阻塞或需要负责人注意的事写到共享看板。kind=blocker 立即送到负责人那里；progress 和 note 随负责人下一次查看看板送达。需要负责人做决定才能继续时，不要在这里等：在结果 JSON 的 question 字段提问并结束本轮。",
-                    "While working on your subtask, write progress, a blocker or anything the lead should notice to the shared board. kind=blocker reaches the lead at once; progress and note reach it the next time it reads the board. When you need the lead's decision to go on, do not wait here: ask in the question field of your result JSON and end the turn."
+                    "执行子任务期间，把进展、阻塞或需要负责人注意的事写到共享看板。kind=blocker 立即送到负责人那里；progress 和 note 随负责人下一次查看看板送达。需要负责人做决定才能继续时，不要在这里等：用 janus.ask 提问并结束这一轮。",
+                    "While working on your subtask, write progress, a blocker or anything the lead should notice to the shared board. kind=blocker reaches the lead at once; progress and note reach it the next time it reads the board. When you need the lead's decision to go on, do not wait here: ask with janus.ask and end your turn."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -298,6 +300,66 @@ impl MemberTool {
                 ),
                 "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
                 "annotations": board_read()
+            }),
+            MemberTool::Submit => json!({
+                "description": t(
+                    "交子任务的结果。checks 按验收标准的顺序逐条回报：是否达到、证据（你做了什么、看到了什么），以及可选的证据方法。Janus 当场核对：漏了标准、没有证据、方法不合法、验证子任务没给 verdict 时不收下，返回全部问题，改好再交；收下的结果里有标准写了没达到时，第一次会提醒你可以修好后再交一次，确实做不到就结束这一轮，交给负责人。收下后结束这一轮，子任务才算交了；同一轮里再交会替换上一份。",
+                    "Hand in your subtask's result. In checks, report each acceptance criterion in order: whether it is met, the evidence (what you did and observed), and optionally the evidence method. Janus checks it at once: a result that leaves out a criterion, gives no evidence, names a method that does not exist, or (for a verification subtask) has no verdict is not taken, and every problem comes back for you to fix and hand in again. When a result it takes reports a criterion unmet, the first time you are told you may fix it and hand in once more; if it really cannot be met, end your turn and the lead takes it from there. Once a result is taken, end your turn to hand the subtask in; handing in again in the same turn replaces the earlier result."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["summary", "checks"],
+                    "properties": {
+                        "summary": { "type": "string", "description": t("一句话结果", "The result in one sentence") },
+                        "checks": {
+                            "type": "array",
+                            "description": t("每条验收标准一项，按顺序", "One item per acceptance criterion, in order"),
+                            "items": {
+                                "type": "object",
+                                "required": ["criterion", "passed", "evidence"],
+                                "properties": {
+                                    "criterion": { "type": "string", "description": t("原样复述的验收标准", "The acceptance criterion, verbatim") },
+                                    "passed": { "type": "boolean", "description": t("是否达到", "Whether it is met") },
+                                    "evidence": { "type": "string", "description": t(
+                                        "你怎样核实的、看到了什么；没达到时写原因",
+                                        "How you verified it and what you observed; for an unmet one, why"
+                                    ) },
+                                    "method": { "type": "string", "enum": ["test", "command", "inspection", "reasoning", "unverified"], "description": t(
+                                        "证据方法：test（你运行的自动化测试）、command（命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或判断）、unverified（证据缺失、无法复现或现在无法核实）",
+                                        "Evidence method: test (an automated test you ran), command (a command or script), inspection (code, files, UI, or actual state), reasoning (inference or judgment), unverified (evidence missing, irreproducible, or not checkable now)"
+                                    ) }
+                                }
+                            }
+                        },
+                        "handoff": { "type": "string", "description": t(
+                            "给下游子任务的接口、关键决定和注意事项",
+                            "Interfaces, key decisions, and caveats for downstream subtasks"
+                        ) },
+                        "evidence": { "type": "array", "items": { "type": "string" }, "description": t("其他可核实的证据", "Other verifiable evidence") },
+                        "risks": { "type": "array", "items": { "type": "string" }, "description": t("已知风险", "Known risks") },
+                        "verdict": { "type": "string", "enum": ["approved", "rejected", "inconclusive"], "description": t(
+                            "只有独立验证子任务填：approved（达标）、rejected（有阻断问题，要原执行者修改）或 inconclusive（这里的证据不足以判定）",
+                            "Only for a verification subtask: approved (it meets the criteria), rejected (a blocking problem the assignee must fix) or inconclusive (the evidence here cannot settle it)"
+                        ) }
+                    }
+                },
+                "annotations": board_act()
+            }),
+            MemberTool::Ask => json!({
+                "description": t(
+                    "向负责人提问：需要超出你权限的决定才能继续时用。问题在这一轮结束时转给负责人；调用后结束这一轮，回答会作为下一条消息送来。",
+                    "Ask the lead a question when you need a decision beyond your authority to go on. The question goes to the lead when your turn ends; end your turn after calling this, and the answer comes as your next message."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {
+                        "text": { "type": "string", "description": t("问题", "The question") },
+                        "options": { "type": "array", "items": { "type": "string" }, "description": t("可选的答案", "Possible answers") },
+                        "recommend": { "type": "string", "description": t("你建议的选项", "The option you recommend") }
+                    }
+                },
+                "annotations": board_act()
             }),
             MemberTool::RequestSplit => json!({
                 "description": t(
@@ -882,20 +944,12 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 "- [Attempt failed] {it} · {name}, attempt {n}: {error}"
             )
         }
-        EventKind::TaskFailed if d["reason"] == "verification" && verifies.is_some() => {
-            let (target, output) = (verifies.as_deref().unwrap_or_default(), verification_output(run, task));
-            tr!(
-                lang,
-                "- [验证没通过] {task} · {name} 独立验证 {target} 时发现问题：\n{output}\n  不能用 janus.accept 放行：用 janus.retry 让 {task} 重新验证，或按它发现的问题用 janus.retry 让 {target} 返工，或者 janus.cancel 取消 {task} 并写明理由。",
-                "- [Verification failed] {task} · {name} found problems verifying {target} independently:\n{output}\n  janus.accept cannot pass it: verify again with janus.retry on {task}, rework {target} with janus.retry on what it found, or cancel {task} with janus.cancel, stating why."
-            )
-        }
         EventKind::TaskFailed if d["reason"] == "verification" => {
             let output = verification_output(run, task);
             tr!(
                 lang,
-                "- [没通过验收] {it}· {name} 补过一次仍没有满足验收标准：\n{output}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
-                "- [Acceptance not met] {it} · {name} still falls short of the acceptance criteria after one fix:\n{output}\n  Check it and decide: the result is acceptable → janus.accept; rework or new criteria needed → janus.retry (instructions / accept can change); no longer needed → janus.cancel."
+                "- [没通过验收] {it}· {name} 交的结果有标准没达到（交的时候提醒过它可以修好再交一次）：\n{output}\n  请核对后判断：结果可以接受 → janus.accept；需要返工或标准要调整 → janus.retry（可改 instructions / accept）；不再需要 → janus.cancel。",
+                "- [Acceptance not met] {it} · {name} handed in a result with criteria unmet (it was told once, as it handed in, that it could fix them and hand in again):\n{output}\n  Check it and decide: the result is acceptable → janus.accept; rework or new criteria needed → janus.retry (instructions / accept can change); no longer needed → janus.cancel."
             )
         }
         EventKind::TaskFailed => {

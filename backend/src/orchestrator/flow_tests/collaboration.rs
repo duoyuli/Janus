@@ -8,22 +8,17 @@ use super::*;
 
 /// Extract the `(token, who)` credential handed to a session over ACP (`mcp [...]` in `calls.log`),
 /// never reading `RunState::mcp_token` directly (`AGENTS.md` Rule 1).
-async fn client_mcp_cred(h: &Harness, expected_who: &str) -> (String, String) {
+async fn client_mcp_cred(h: &Harness, expected_who: &str) -> (String, Seat) {
     let calls = h.dir.join("fake/calls.log");
     for _ in 0..200 {
         let content = std::fs::read_to_string(&calls).unwrap_or_default();
         for line in content.lines().rev() {
             let Some(rest) = line.strip_prefix("mcp ") else { continue };
             let Ok(servers) = serde_json::from_str::<Vec<Value>>(rest) else { continue };
-            for s in servers {
-                let Some(url) = s["url"].as_str() else { continue };
-                let parts: Vec<&str> = url.split('/').collect();
-                if parts.len() >= 3 {
-                    let who = parts[parts.len() - 1];
-                    let token = parts[parts.len() - 2];
-                    if who == expected_who {
-                        return (token.to_string(), who.to_string());
-                    }
+            for s in servers.iter().filter(|s| s["name"] == "janus") {
+                let Some((_, token, seat)) = mcp_credential(s["url"].as_str().unwrap_or_default()) else { continue };
+                if seat.who() == expected_who {
+                    return (token, seat);
                 }
             }
         }
@@ -36,7 +31,7 @@ async fn call_with_cred(
     app: &Arc<App>,
     run: &str,
     token: &str,
-    who: &str,
+    seat: &Seat,
     name: &str,
     args: Value,
 ) -> Result<(String, bool)> {
@@ -46,7 +41,7 @@ async fn call_with_cred(
         "method": "tools/call",
         "params": { "name": name, "arguments": args }
     });
-    let r = app.mcp(run, token, who, req).await?.unwrap();
+    let r = app.mcp(run, token, seat, req).await?.unwrap();
     Ok((r["result"]["content"][0]["text"].as_str().unwrap_or("").to_string(), r["result"]["isError"] == true))
 }
 
@@ -156,13 +151,13 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     .await;
 
     // Rule 1 negative auth check: collaborator's real MCP URL token cannot call lead tools or spoof `who="lead"`.
-    let (t1_token, t1_who) = client_mcp_cred(&h, "T1").await;
-    assert_eq!(t1_who, "T1");
+    let (t1_token, t1_seat) = client_mcp_cred(&h, "T1").await;
+    assert_eq!(t1_seat, Seat::Task("T1".into()));
     let (denied, is_err) =
-        call_with_cred(&h.app, &run, &t1_token, "T1", "orchestrate", json!({ "tasks": [] })).await.unwrap();
+        call_with_cred(&h.app, &run, &t1_token, &t1_seat, "orchestrate", json!({ "tasks": [] })).await.unwrap();
     assert!(is_err && denied.contains("没有这个工具"), "{denied}");
     assert!(
-        call_with_cred(&h.app, &run, &t1_token, "lead", "team", json!({})).await.is_err(),
+        call_with_cred(&h.app, &run, &t1_token, &Seat::Lead, "team", json!({})).await.is_err(),
         "forging who=lead with collaborator token must fail authentication"
     );
 
@@ -599,7 +594,7 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
         &h.app,
         &run,
         &t1_token,
-        "T1",
+        &Seat::Task("T1".into()),
         "request_split",
         json!({ "reason": "太大", "subtasks": [{ "title": "越界", "owns": ["../outside"] }] }),
     )
@@ -612,7 +607,7 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
         &h.app,
         &run,
         &t1_token,
-        "T1",
+        &Seat::Task("T1".into()),
         "request_split",
         json!({
             "reason": "涉及解析器与代码生成两个独立子系统",
@@ -640,7 +635,7 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
         &h.app,
         &run,
         &v1_token,
-        "V1",
+        &Seat::Task("V1".into()),
         "request_split",
         json!({ "reason": "想拆", "subtasks": [{ "title": "子项" }] }),
     )

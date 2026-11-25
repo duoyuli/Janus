@@ -12,10 +12,38 @@ pub(super) const METHOD_NOT_FOUND: i64 = -32601;
 /// JSON-RPC: the params are wrong; MCP uses it for a tool no server has.
 pub(super) const INVALID_PARAMS: i64 = -32602;
 
-/// The token in one session's MCP URL: derived from the run's secret and the session's `who`, so
+/// Whose session an MCP request comes from: the run's main session (its lead, a Loop's or a
+/// consolidation's agent) or one subtask's. The URL says which (`…/lead`, `…/task/<id>`), so a
+/// subtask whose id is `lead` is still a subtask, with a subtask's tools and its own token.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Seat {
+    Lead,
+    Task(String),
+}
+
+impl Seat {
+    /// The session's name inside the run: `lead`, or the subtask's id.
+    pub(super) fn who(&self) -> &str {
+        match self {
+            Seat::Lead => "lead",
+            Seat::Task(id) => id,
+        }
+    }
+
+    /// Its part of the URL, after the token.
+    fn path(&self) -> String {
+        match self {
+            Seat::Lead => "lead".into(),
+            Seat::Task(id) => format!("task/{id}"),
+        }
+    }
+}
+
+/// The token in one session's MCP URL: derived from the run's secret and the session's seat, so
 /// it only opens the board as that member.
-pub(super) fn session_token(run_token: &str, who: &str) -> String {
-    Sha256::digest(format!("{run_token}\0{who}").as_bytes())[..16].iter().map(|x| format!("{x:02x}")).collect()
+pub(super) fn session_token(run_token: &str, seat: &Seat) -> String {
+    let seat = seat.path();
+    Sha256::digest(format!("{run_token}\0{seat}").as_bytes())[..16].iter().map(|x| format!("{x:02x}")).collect()
 }
 
 /// The run's board secret, from the system's random source. Without one there is no secret
@@ -59,22 +87,21 @@ pub(super) fn tool_text(text: &str, failed: bool) -> Value {
 }
 
 impl App {
-    /// The entry a session of `who` is given for one of the run's servers: `name` as the agent
-    /// lists it, at `/mcp/<run>/<token>/<who><path>`.
-    pub(super) fn session_server(&self, run: &Run, who: &str, name: &str, path: &str) -> Value {
-        let token = session_token(&run.st.lock().unwrap().mcp_token, who);
-        let url = format!("http://{}/mcp/{}/{}/{}{path}", self.cfg.addr, run.id, token, who);
+    /// The entry a session in `seat` is given for one of the run's servers: `name` as the agent
+    /// lists it, at `/mcp/<run>/<token>/<seat><path>`.
+    pub(super) fn session_server(&self, run: &Run, seat: &Seat, name: &str, path: &str) -> Value {
+        let token = session_token(&run.st.lock().unwrap().mcp_token, seat);
+        let url = format!("http://{}/mcp/{}/{}/{}{path}", self.cfg.addr, run.id, token, seat.path());
         json!({ "type": "http", "name": name, "url": url, "headers": [] })
     }
 
     /// The live run a request to its MCP servers comes from, when the URL's token is the one Janus
-    /// gave the session of `who`. The token is bound to its `who`, so a collaborator cannot rename
-    /// itself to `lead` or to another task: only the session Janus started holds the token for that
-    /// name.
-    pub(super) fn session_run(&self, run_id: &str, token: &str, who: &str) -> Result<Arc<Run>> {
+    /// gave the session in `seat`. The token is bound to its seat, so a collaborator cannot make
+    /// itself the lead or another task: only the session Janus started holds the token for it.
+    pub(super) fn session_run(&self, run_id: &str, token: &str, seat: &Seat) -> Result<Arc<Run>> {
         let run = self.run(run_id).context("这个任务不在运行")?;
         let run_token = run.st.lock().unwrap().mcp_token.clone();
-        if run_token.is_empty() || token != session_token(&run_token, who) {
+        if run_token.is_empty() || token != session_token(&run_token, seat) {
             bail!("token 不对");
         }
         Ok(run)
@@ -82,9 +109,12 @@ impl App {
 }
 
 impl Ev {
-    /// The event happens in the session of `who` as the MCP URL names it: a collaborator's is its
-    /// task's, the lead's belongs to no task.
-    pub(super) fn in_session(self, who: &str) -> Ev {
-        if who == "lead" { self } else { self.task(who) }
+    /// The event happens in the session in `seat`: a collaborator's is its task's, the lead's
+    /// belongs to no task.
+    pub(super) fn in_session(self, seat: &Seat) -> Ev {
+        match seat {
+            Seat::Lead => self,
+            Seat::Task(id) => self.task(id),
+        }
     }
 }

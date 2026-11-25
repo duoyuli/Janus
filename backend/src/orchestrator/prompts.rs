@@ -1,5 +1,5 @@
 //! What sessions are told and what they answer: role instructions, the task prompt, and the
-//! structured result.
+//! result it hands in.
 
 use super::*;
 use crate::lang::{Lang, tr};
@@ -308,16 +308,16 @@ pub(super) fn continued_prompt(
     p.push_str(&tr!(lang, "\n\n验收标准：\n{accept}", "\n\nAcceptance criteria:\n{accept}"));
     p.push_str(match (reopen, review) {
         (Reopen::Reverify { .. }, _) => lang.pick(
-            "\n\n完成后以 ```json 结构化结果结束：checks 逐条写明你做了什么、看到了什么，并用 verdict 写明判定：approved、rejected 或 inconclusive。",
-            "\n\nWhen done, end with the ```json structured result: in checks, say for each criterion what you did and what you saw, and give your verdict: approved, rejected or inconclusive.",
+            "\n\n做完后用 janus.submit 交结果：checks 逐条写明你做了什么、看到了什么，并给出 verdict：approved、rejected 或 inconclusive。",
+            "\n\nWhen done, hand in your result with janus.submit: in checks, say for each criterion what you did and what you saw, and give your verdict: approved, rejected or inconclusive.",
         ),
         (Reopen::Retry { .. }, Some(_)) => lang.pick(
-            "\n\n同意的意见就修改并重新验证；不同意的、或和任务范围冲突的不要硬改：在对应的 check 写 passed: false 说明理由，或在 question 里请负责人决定。完成后以 ```json 结构化结果结束，checks 按验收标准逐条更新。",
+            "\n\n同意的意见就修改并重新验证；不同意的、或和任务范围冲突的不要硬改：在对应的 check 写 passed: false 说明理由，或用 janus.ask 请负责人决定。做完后用 janus.submit 交结果，checks 按验收标准逐条更新。",
             "\n\nFix what you agree with and check it again; do not force changes you disagree with or that conflict with the subtask's scope: set passed: false on that check with your reason, or ask the lead in question. When done, end with the ```json structured result, with checks updated for every criterion.",
         ),
         (Reopen::Retry { .. }, None) => lang.pick(
-            "\n\n完成后以 ```json 结构化结果结束，checks 按验收标准逐条更新。",
-            "\n\nWhen done, end with the ```json structured result, with checks updated for every criterion.",
+            "\n\n做完后用 janus.submit 交结果，checks 按验收标准逐条更新。",
+            "\n\nWhen done, hand in your result with janus.submit, with checks updated for every criterion.",
         ),
     });
     p.push_str(notes);
@@ -325,7 +325,7 @@ pub(super) fn continued_prompt(
 }
 
 /// How a collaborator works with Janus, for the whole session: reporting against the criteria,
-/// the working directory, questions and the structured result. It goes in the system layer; an
+/// the working directory, questions and handing in. It goes in the system layer; an
 /// agent without one gets it at the end of its first prompt. The board's tools explain themselves.
 // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
 pub(super) fn collaborator_rules(lang: Lang) -> String {
@@ -337,16 +337,13 @@ pub(super) fn collaborator_rules(lang: Lang) -> String {
 - 只在子任务说明要求时 commit、push 或部署，并且只做到要求的程度。
 - Janus 告诉你某份结果提交后文件没变时，那份结果的证据仍然描述这些文件，可以引用。
 
-需要决定时：遇到超出你权限的决定，把问题和选项写进结果的 question，然后结束这一轮，负责人会回答。
+需要决定时：遇到超出你权限的决定，向负责人提问，然后结束这一轮；回答会作为下一条消息送来。
 
-完成时：
-- 在结果的 checks 里按顺序逐条回报验收标准：是否达到、证据（你做了什么、看到了什么），以及可选的证据方法：test（你运行的自动化测试）、command（命令或脚本）、inspection（检查代码、文件、界面或实际状态）、reasoning（推理或判断）、unverified（证据缺失、无法复现或现在无法核实）。
-- 没达到的写 passed: false 并说明原因。标准本身不合理或在这里无法核实时，在 question 里请负责人修改。
-- 回复以一个 ```json 代码块结束：
-{\"summary\":\"一句话结果\",\"handoff\":\"给下游子任务的接口、关键决定和注意事项，没有就写 null\",\"checks\":[{\"criterion\":\"原样复述的验收标准\",\"passed\":true,\"method\":\"test\",\"evidence\":\"你怎样核实的、看到了什么\"}],\"evidence\":[\"其他可核实的证据\"],\"risks\":[\"已知风险，没有就写空数组\"],\"question\":null}
-question 的格式：{\"text\":\"问题\",\"options\":[\"选项 A\",\"选项 B\"],\"recommend\":\"建议的选项\"}
+完成时：交结果，按验收标准的顺序逐条回报是否达到和证据。没达到的写明原因；标准本身不合理或在这里无法核实时，向负责人提问请它修改。交上以后结束这一轮，子任务才算交了。
 
 协作工具（janus MCP 服务器；每个工具的详细用法和限制写在它自己的说明里，用到时再看）：
+- janus.submit：交子任务的结果。
+- janus.ask：向负责人提问。
 - janus.board_post：在看板上写进展、阻塞或备注；阻塞会立即推给负责人。
 - janus.claim：改负责范围以外的文件前先认领。
 - janus.peers：看其他子任务的状态、负责和改过的文件，以及某个子任务的完整结果。
@@ -359,16 +356,13 @@ How you work:
 - Commit, push, or deploy only when your subtask's instructions ask for it, and only as far as they ask.
 - When Janus tells you the files have not changed since another member handed in a result, that result's evidence still describes them, and you may cite it.
 
-When you need a decision: If a decision is beyond your authority, put the question and options in your result's question and end the turn; the lead will answer.
+When you need a decision: If a decision is beyond your authority, ask the lead and end your turn; the answer comes as your next message.
 
-When you finish:
-- Report each acceptance criterion in order in your result's checks: whether it is met, the evidence (what you did and observed), and optionally the method: test (an automated test you ran), command (a command or script), inspection (code, files, UI, or actual state), reasoning (inference or judgment), or unverified (evidence missing, irreproducible, or not checkable now).
-- For an unmet criterion, set passed: false and say why. If a criterion is unreasonable or cannot be checked here, ask the lead to revise it in question.
-- End your reply with a fenced ```json block:
-{\"summary\":\"One-sentence result\",\"handoff\":\"Interfaces, key decisions, and caveats for downstream subtasks; null if none\",\"checks\":[{\"criterion\":\"Verbatim acceptance criterion\",\"passed\":true,\"method\":\"test\",\"evidence\":\"How you verified it and what you observed\"}],\"evidence\":[\"Other verifiable evidence\"],\"risks\":[\"Known risks; an empty array if none\"],\"question\":null}
-Question format: {\"text\":\"Question\",\"options\":[\"Option A\",\"Option B\"],\"recommend\":\"Recommended option\"}
+When you finish: Hand in your result, reporting each acceptance criterion in order with whether it is met and the evidence. Say why an unmet one is not met; if a criterion is unreasonable or cannot be checked here, ask the lead to revise it. Once it is taken, end your turn: that hands the subtask in.
 
 Collaboration tools (the janus MCP server; each tool's own description has its full usage and limits, so read it when you need the tool):
+- janus.submit: hand in your subtask's result.
+- janus.ask: ask the lead a question.
 - janus.board_post: post progress, a blocker, or a note on the board; a blocker reaches the lead at once.
 - janus.claim: claim files outside your scope before you change them.
 - janus.peers: see the other subtasks' status, owned and changed files, and any subtask's full result.
@@ -397,39 +391,19 @@ pub(super) fn member_spec(spec: crate::acp::RuntimeSpec, member: &Member, system
     with_codex_config(spec, &settings)
 }
 
-pub(super) fn extract_json(text: &str) -> Option<Value> {
-    let mut rest = text;
-    let mut last = None;
-    while let Some(start) = rest.find("```json") {
-        let body = &rest[start + 7..];
-        let Some(end) = body.find("```") else { break };
-        if let Ok(v) = serde_json::from_str::<Value>(body[..end].trim()) {
-            last = Some(v);
-        }
-        rest = &body[end + 3..];
-    }
-    if last.is_some() {
-        return last;
-    }
-    let close = text.rfind('}')?;
-    text.match_indices('{')
-        .rev()
-        .find_map(|(i, _)| serde_json::from_str::<Value>(&text[i..=close]).ok().filter(Value::is_object))
-}
-
-/// Read the checks of a result recorded in an event, with their evidence methods; results written
-/// before the field existed keep their checks and report 「未说明」.
+/// Read the checks of a result, with their evidence methods; a check without one reports 「未说明」.
 pub(super) fn checks_from(d: &Value) -> Vec<Check> {
     d["checks"].as_array().map(|a| a.iter().map(Check::from_json).collect()).unwrap_or_default()
 }
 
-/// The person ended the attempt from the session: keep a structured result if the agent gave one.
-pub(super) fn finished_by_user(text: &str) -> TaskResult {
-    let mut r = parse_result(text);
-    r.question = None;
-    if extract_json(text).is_none() {
-        r.risks = vec!["由你在会话中直接结束，Agent 没有给出结构化结果".into()];
-    }
+/// The person ended the attempt from the session: the result the agent handed in, if it did;
+/// otherwise its last reply's first line, marked as such.
+pub(super) fn finished_by_user(text: &str, handed: Option<TaskResult>) -> TaskResult {
+    let mut r = handed.unwrap_or_else(|| TaskResult {
+        summary: first_line(text),
+        risks: vec!["由你在会话中直接结束，Agent 没有交结果".into()],
+        ..Default::default()
+    });
     if r.summary.trim().is_empty() {
         r.summary = "由你在会话中结束子任务".into();
     }
@@ -458,8 +432,10 @@ fn parse_handoff(v: &Value) -> Option<String> {
     v["handoff"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(|s| clip(s, HANDOFF_LIMIT))
 }
 
-/// Rebuild a `TaskResult` recorded in an event (`result.submitted` or `task.succeeded`).
-pub(super) fn result_from_event(d: &Value) -> TaskResult {
+/// A result as JSON: the arguments of `janus.submit`, or a result recorded in an event
+/// (`result.submitted`, `task.succeeded`, which also keep the files it was made on).
+// @project-doc docs/domains/20261031-run_lifecycle.md#structured_result
+pub(super) fn result_from_json(d: &Value) -> TaskResult {
     let strings = |v: &Value| -> Vec<String> {
         v.as_array()
             .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).filter(|s| !s.trim().is_empty()).collect())
@@ -467,46 +443,14 @@ pub(super) fn result_from_event(d: &Value) -> TaskResult {
     };
     let (verdict, verdict_error) = parse_verdict(&d["verdict"]);
     TaskResult {
-        summary: d["summary"].as_str().unwrap_or("").to_string(),
+        summary: d["summary"].as_str().unwrap_or("").trim().to_string(),
         handoff: parse_handoff(d),
         evidence: strings(&d["evidence"]),
         risks: strings(&d["risks"]),
         checks: checks_from(d),
         verdict,
         verdict_error,
-        question: None,
         files: serde_json::from_value(d["files"].clone()).ok(),
-    }
-}
-
-// @project-doc docs/domains/20261031-run_lifecycle.md#structured_result
-pub(super) fn parse_result(text: &str) -> TaskResult {
-    let strings = |v: &Value| {
-        v.as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).filter(|s| !s.trim().is_empty()).collect())
-            .unwrap_or_default()
-    };
-    match extract_json(text) {
-        Some(v) => {
-            let (verdict, verdict_error) = parse_verdict(&v["verdict"]);
-            TaskResult {
-                summary: v["summary"].as_str().map(str::to_owned).unwrap_or_else(|| first_line(text)),
-                handoff: parse_handoff(&v),
-                evidence: strings(&v["evidence"]),
-                risks: strings(&v["risks"]),
-                checks: v["checks"].as_array().map(|a| a.iter().map(Check::from_json).collect()).unwrap_or_default(),
-                verdict,
-                verdict_error,
-                question: Some(v["question"].clone())
-                    .filter(|q| q.is_object() || q.as_str().is_some_and(|s| !s.trim().is_empty())),
-                files: None,
-            }
-        }
-        None => TaskResult {
-            summary: first_line(text),
-            risks: vec!["Agent 没有按约定返回结构化结果，摘要取自回复第一行".into()],
-            ..Default::default()
-        },
     }
 }
 

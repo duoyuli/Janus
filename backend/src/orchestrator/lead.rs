@@ -63,7 +63,7 @@ wire_enum! {
         GoalCheck = "goal_check",
         /// The lead's own session loaded again after a restart: what happened meanwhile.
         Resume = "resume",
-        /// A result that did not pass its check, sent back to be fixed.
+        /// A collaborator whose turn ended without handing anything in, reminded to hand in.
         Fix = "fix",
     }
 }
@@ -81,7 +81,7 @@ impl PromptChannel {
             PromptChannel::Board => "把看板上需要处理的消息推给负责人",
             PromptChannel::GoalCheck => "问负责人目标是否已经完成",
             PromptChannel::Resume => "告诉负责人编排器重启过，接着推进目标",
-            PromptChannel::Fix => "验证没有通过，把结果发回 Agent 修复",
+            PromptChannel::Fix => "提醒 Agent 交结果",
         }
     }
 }
@@ -874,13 +874,13 @@ impl App {
         system: &str,
     ) -> Opening {
         let board = if run.kind.has_janus_server() && conn.capabilities["mcpCapabilities"]["http"] == true {
-            vec![self.mcp_server(run, "lead")]
+            vec![self.mcp_server(run, &Seat::Lead)]
         } else {
             vec![]
         };
         self.opening(
             run,
-            "lead",
+            &Seat::Lead,
             lead,
             &conn.capabilities,
             board,
@@ -1040,7 +1040,7 @@ pub(super) fn goal_brief(run: &Run) -> String {
 - 派出的工作绝不自己接手，哪怕只改一行：返工、换人、谁都做不了时问用户，或者取消并在交付里写明缺口。
 - 读看板跟进。需要你处理的消息（提问、失败、停滞、阻塞、冲突、用户的回答）Janus 也会直接推进你的会话，先处理会卡住别人的。
 - 协作者提问后会等你回答；要改正在执行的子任务，直接告诉它。
-- 执行者没达到或漏了验收标准时，Janus 先让它在原会话里补一次；仍然不够时，由你决定接受、返工还是取消。执行者的证据是它自己的说法。
+- 执行者交的结果有标准没达到时，Janus 会提醒它修好再交一次；仍然没达到的，由你决定接受、返工还是取消。执行者的证据是它自己的说法。
 
 交付（目标达成才结束）：
 - 最终回复以「## {headline}」开头，一两句话说目标是否达成、最重要的结果是什么。
@@ -1081,7 +1081,7 @@ Once work is handed out:
 - Never take over delegated work, not even a one-line fix: send it back for rework, reassign it, ask the user when no one can do it, or cancel it and report the gap in the delivery.
 - Follow the board. Janus also pushes the messages that need you (questions, failures, stalls, blockers, conflicts, user answers) straight into your session; deal first with what blocks others.
 - A collaborator who asks a question waits for your answer; to change the work of a running subtask, tell it.
-- When an assignee misses or skips an acceptance criterion, Janus has it make up for it once in its own session; if it still falls short, you decide whether to accept, rework, or cancel. An assignee's evidence is its own account.
+- When an assignee hands in a result with a criterion unmet, Janus tells it once that it may fix it and hand in again; if it still falls short, you decide whether to accept, rework, or cancel. An assignee's evidence is its own account.
 
 Delivery (finish only when the goal is achieved):
 - Begin your final reply with '## {headline}' and one or two sentences: whether the goal is achieved and the result that matters most.
@@ -1431,13 +1431,9 @@ pub(super) fn last_reply(events: &[Event]) -> Option<String> {
     (!tail.is_empty()).then(|| tail.into_iter().rev().collect::<String>().trim().to_string())
 }
 
-/// The lead's last message without a trailing JSON block if it left one. Kept whole: the app folds
-/// a long one, and the conclusion the person reads first is its own section (`LeadReport`).
+/// The lead's last message, kept whole: the app folds a long one, and the conclusion the person
+/// reads first is its own section (`LeadReport`).
 pub(super) fn lead_summary(text: &str) -> String {
-    let text = match text.rfind("```json") {
-        Some(i) => &text[..i],
-        None => text,
-    };
     text.trim().to_string()
 }
 

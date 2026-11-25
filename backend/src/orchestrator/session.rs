@@ -169,14 +169,14 @@ impl App {
     pub(super) fn opening(
         &self,
         run: &Run,
-        who: &str,
+        seat: &Seat,
         m: &Member,
         caps: &Value,
         extra: Vec<Value>,
         system: Option<&str>,
     ) -> Opening {
         let bundle = self.dirs(run).bundle(&m.id);
-        let launch = crate::library::launch(m.runtime, &m.resources, caps, &bundle, self.tools_server(run, who));
+        let launch = crate::library::launch(m.runtime, &m.resources, caps, &bundle, self.tools_server(run, seat));
         let mut meta = launch.meta;
         m.runtime.open_meta(&mut meta, system);
         let mut mcp_servers = launch.mcp_servers;

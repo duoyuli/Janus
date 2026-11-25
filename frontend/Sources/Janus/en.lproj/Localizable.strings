@@ -1051,7 +1051,7 @@
 "验收标准" = "Acceptance Criteria";
 "验收概览：%@" = "Acceptance Overview: %@";
 "验收通过" = "Accept Delivery";
-"验证没通过 · 打回修复" = "Verification failed · Sent back to fix";
+"提醒交结果 · 这一轮结束了还没交" = "Reminded to hand in · the turn ended without a result";
 "验证没通过" = "Verification failed";
 "验证没通过 %@" = "Verification failures: %@";
 "高级设置" = "Advanced Settings";

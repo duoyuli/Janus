@@ -42,6 +42,7 @@ mod board_tools;
 mod chat;
 #[cfg(test)]
 mod flow_tests;
+mod hand_in;
 mod lead;
 mod lifecycle;
 mod loops;
@@ -71,6 +72,7 @@ use board::*;
 use board_tools::*;
 use lead::*;
 pub use loops::{LoopDef, WakeReason};
+pub use mcp_server::Seat;
 use mcp_server::*;
 use messages::Delivery;
 use prompts::*;
@@ -344,8 +346,8 @@ const MESSAGE_QUIET: Duration = Duration::from_secs(1);
 
 fn release_prompt(lang: crate::lang::Lang) -> &'static str {
     lang.pick(
-        "人工介入结束。请结合上面的对话，自主完成原来的子任务。完成后按最初的要求，以 ```json 结构化结果结束。",
-        "The person has handed the session back. Taking the conversation above into account, finish the original subtask on your own, and end with the ```json structured result as first asked.",
+        "人工介入结束。请结合上面的对话，自主完成原来的子任务，做完后用 janus.submit 交结果。",
+        "The person has handed the session back. Taking the conversation above into account, finish the original subtask on your own, and hand in your result with janus.submit when you are done.",
     )
 }
 
@@ -376,7 +378,6 @@ struct TaskResult {
     verdict: Option<Verdict>,
     /// An unknown `verdict` string kept verbatim so `verify_result` reports it instead of coercing it.
     verdict_error: Option<String>,
-    question: Option<Value>,
     /// The files as they were when the result was handed in (Git working trees only).
     files: Option<crate::git::FilesState>,
 }
@@ -670,8 +671,11 @@ struct RunState {
     /// Messages for an agent that had no open session, by agent; delivered with its next session
     /// (one about a task, with that task's).
     notes: HashMap<String, Vec<Note>>,
-    /// Why each task's last result did not pass its acceptance check, for the fix round and the lead.
+    /// Why each task's last result did not pass its acceptance check, for the lead.
     last_verification: HashMap<String, String>,
+    /// What each running task's session handed in with `janus.submit` or `janus.ask`, until its
+    /// turn ends and the attempt takes it (`hand_in`).
+    handed: HashMap<String, hand_in::Handed>,
     /// Sessions a task's next attempt loads instead of starting over, by task id: the one a
     /// restart or a failure broke off.
     resume_session: HashMap<String, Reload>,

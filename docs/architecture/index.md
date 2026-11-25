@@ -35,7 +35,7 @@ macOS 应用（frontend/，SwiftUI）
 Rust 编排器（backend/，axum + tokio）
   ├── HTTP 服务：设置、Run、操作、事件流、产物读取
   ├── 编排器 App：Run 驱动、调度、尝试、验证、交付、恢复
-  ├── 共享看板 MCP 服务：/mcp/{run}/{token}/{who}
+  ├── 共享看板 MCP 服务：/mcp/{run}/{token}/lead 和 /mcp/{run}/{token}/task/{task}
   ├── ACP 客户端（官方 agent-client-protocol SDK）：JSON-RPC 2.0 over stdio
   └── SQLite：配置、Run、事件、尝试、产物
   │  stdio（每个会话一个子进程）

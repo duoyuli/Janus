@@ -115,8 +115,9 @@ METHOD_EVIDENCE = {
 
 
 def result(sid=None, unmet=False, methods=None, **fields):
-    """A structured result; every acceptance criterion of the session's task is checked (the first
-    one reported unmet when `unmet`). `methods` gives each check the next evidence method."""
+    """A result to hand in; every acceptance criterion of the session's task is checked (the first
+    one reported unmet when `unmet`). `methods` gives each check the next evidence method. A
+    `question` field makes it a question for the lead instead (`hand_in`)."""
     checks = []
     for i, c in enumerate(CRITERIA.get(sid, [])):
         failed = unmet and i == 0
@@ -126,9 +127,56 @@ def result(sid=None, unmet=False, methods=None, **fields):
         if method:
             check["method"] = method
         checks.append(check)
-    body = {"summary": "完成", "checks": checks, "evidence": ["fake evidence"], "risks": [], "question": None}
+    body = {"summary": "完成", "checks": checks, "evidence": ["fake evidence"], "risks": []}
     body.update(fields)
-    return "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```"
+    return body
+
+
+def tool(sid, name, args):
+    """Call one of the janus server's tools from this session, as an agent does: (text, is_error)."""
+    import urllib.request
+    server = JANUS.get(sid)
+    if not server:
+        return "no janus server", True
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    headers.update({h["name"]: h["value"] for h in server.get("headers", [])})
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}
+    req = urllib.request.Request(server["url"], data=json.dumps(payload).encode(), headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=60) as r:
+        out = json.loads(r.read() or b"{}")
+    res = out.get("result") or {}
+    return "".join(c.get("text", "") for c in res.get("content", [])), bool(res.get("isError"))
+
+
+def hand_in(sid, body):
+    """Hand in what the turn came to the way an agent does: a question with janus.ask, otherwise the
+    result with janus.submit (logged "submit <task> taken|refused"); the reply says it in a line.
+    Told it may fix an unmet criterion and hand in once more, it does when its script's next step
+    for the task is "ok"."""
+    body = dict(body)
+    question = body.pop("question", None)
+    task = TASKS.get(sid, "unknown")
+    if question:
+        tool(sid, "ask", question)
+        log(f"ask {task}")
+        say(sid, body.get("summary") or question.get("text", ""))
+        return
+    text, err = tool(sid, "submit", body)
+    log(f"submit {task} {'refused' if err else 'taken'}")
+    if not err and ("再提交一次" in text or "submit once more" in text) and upcoming(task) == "ok":
+        next_outcome(task)
+        fixed = result(sid, summary=f"{task} 修好后完成")
+        text, err = tool(sid, "submit", fixed)
+        log(f"submit {task} {'refused' if err else 'taken'} again")
+    say(sid, body.get("summary", ""))
+
+
+def upcoming(task):
+    """The next scripted outcome for `task`, without taking it."""
+    steps = json.load(open(os.path.join(DIR, "script.json"))).get(task, ["ok"])
+    counter = os.path.join(DIR, f"count-{task}")
+    n = int(open(counter).read()) if os.path.exists(counter) else 0
+    return steps[min(n, len(steps) - 1)]
 
 
 def next_outcome(task):
@@ -281,11 +329,11 @@ def content_turn(sid, task, d):
         checks.append({"criterion": criterion, "passed": g.get("passed", True), "method": g.get("method", "test"),
                        "evidence": g.get("evidence", "")})
     body = {"summary": d.get("summary", ""), "checks": checks, "evidence": d.get("evidence", []),
-            "risks": d.get("risks", []), "question": None}
+            "risks": d.get("risks", [])}
     for k in ("handoff", "verdict"):
         if d.get(k):
             body[k] = d[k]
-    say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
+    hand_in(sid, body)
     return {"stopReason": "end_turn", "usage": tokens(d.get("tokens", 1500))}
 
 
@@ -416,14 +464,14 @@ def prompt(msg):
         if outcome == "usage-quiet":
             # Context only: this session never reports tokens, so its usage stays 「未上报」.
             snapshot(sid, 18000, 200000)
-            say(sid, result(sid))
+            hand_in(sid, result(sid))
             return {"stopReason": "end_turn"}
         if outcome == "usage":
             # The same snapshot twice, then a bigger one: only the latest and the peak are shown.
             snapshot(sid, 52000, 200000)
             snapshot(sid, 52000, 200000)
             snapshot(sid, 61000, 200000, {"amount": 0.25, "currency": "USD"})
-            say(sid, result(sid))
+            hand_in(sid, result(sid))
             # `usage` is the main loop only; the quota rows by model also count a subagent.
             quota = {"model_usage": [
                 {"model": "main", "token_count": {"totalTokens": 1500, "inputTokens": 1000, "cachedInputTokens": 200,
@@ -434,9 +482,9 @@ def prompt(msg):
             return {"stopReason": "end_turn", "usage": tokens(1500), "_meta": {"quota": quota}}
         # Two turns in one session: the first asks a question, the answered turn reports its own, larger number.
         if answered(text) is not None:
-            say(sid, result(sid, summary=f"{task} 按回答完成"))
+            hand_in(sid, result(sid, summary=f"{task} 按回答完成"))
             return {"stopReason": "end_turn", "usage": tokens(2500)}
-        say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
+        hand_in(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
         return {"stopReason": "end_turn", "usage": tokens(1000)}
     if outcome == "content":
         return content_turn(sid, task, content()["tasks"][task])
@@ -484,12 +532,12 @@ def prompt(msg):
                        "options": [{"optionId": "a1", "name": "Allow once", "kind": "allow_once"},
                                    {"optionId": "a2", "name": "Always allow", "kind": "allow_always"},
                                    {"optionId": "r1", "name": "Reject", "kind": "reject_once"}]})
-        say(sid, result(sid, summary=f"picked {r['outcome'].get('optionId')}"))
+        hand_in(sid, result(sid, summary=f"picked {r['outcome'].get('optionId')}"))
         return {"stopReason": "end_turn"}
     if outcome == "elicit":
         r = ask_client("elicitation/create", {"sessionId": sid, "mode": "form", "message": "Which name?",
                        "requestedSchema": {"type": "object", "properties": {"name": {"type": "string", "title": "Name"}}, "required": ["name"]}})
-        say(sid, result(sid, summary=f"{r['action']} {r.get('content', {}).get('name')}"))
+        hand_in(sid, result(sid, summary=f"{r['action']} {r.get('content', {}).get('name')}"))
         return {"stopReason": "end_turn"}
     if outcome == "loop":
         for i in range(5):
@@ -536,7 +584,7 @@ def prompt(msg):
         raise RuntimeError("scripted failure")
     if outcome == "high-ctx":
         snapshot(sid, 160000, 200000)
-        say(sid, result(sid, summary=f"{task} 高上下文完成"))
+        hand_in(sid, result(sid, summary=f"{task} 高上下文完成"))
         return {"stopReason": "end_turn", "usage": tokens(1500)}
     if outcome == "handoff":
         with open("api.rs", "w") as f:
@@ -545,7 +593,7 @@ def prompt(msg):
             "sessionUpdate": "tool_call", "toolCallId": f"edit-{task}", "title": "Edit api.rs", "kind": "edit",
             "status": "completed", "locations": [{"path": os.path.join(os.getcwd(), "api.rs")}],
             "rawInput": {"file_path": "api.rs"}}}})
-        say(sid, result(sid, methods=["reasoning"], summary=f"{task} 完成核心接口",
+        hand_in(sid, result(sid, methods=["reasoning"], summary=f"{task} 完成核心接口",
                         handoff="接口签名：parse(input: &str) -> Result<Ast>，错误统一用 ParseError",
                         risks=["空字符串边界尚未压测"]))
         return {"stopReason": "end_turn", "usage": tokens(1200)}
@@ -553,8 +601,8 @@ def prompt(msg):
         checks = [{"criterion": c, "passed": False, "method": "test", "evidence": "运行 cargo test 复现空输入崩溃"}
                   for c in CRITERIA.get(sid, [])]
         body = {"summary": f"{task} 完成独立检查", "verdict": "rejected", "checks": checks,
-                "evidence": ["cargo test parse_empty panic"], "risks": ["空输入直接崩溃"], "question": None}
-        say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
+                "evidence": ["cargo test parse_empty panic"], "risks": ["空输入直接崩溃"]}
+        hand_in(sid, body)
         return {"stopReason": "end_turn", "usage": tokens(800)}
     if outcome.startswith("hold:"):
         # Stays at work until FAKE_DIR/<name> exists, then approves (a verification still running
@@ -568,8 +616,8 @@ def prompt(msg):
         checks = [{"criterion": c, "passed": True, "method": "test", "evidence": "运行 cargo test 全部通过"}
                   for c in CRITERIA.get(sid, [])]
         body = {"summary": f"{task} 独立验证通过", "verdict": "approved", "checks": checks,
-                "evidence": ["cargo test 0 failed"], "risks": [], "question": None}
-        say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
+                "evidence": ["cargo test 0 failed"], "risks": []}
+        hand_in(sid, body)
         return {"stopReason": "end_turn", "usage": tokens(600)}
     if outcome == "rich":
         def upd(u):
@@ -591,33 +639,34 @@ def prompt(msg):
              "content": [{"type": "diff", "path": os.path.join(os.getcwd(), "pay.js"), "oldText": "a\n", "newText": "a\nsdk()\n"}]})
         upd({"sessionUpdate": "usage_update", "used": 52000, "size": 200000})
         upd({"sessionUpdate": "current_mode_update", "currentModeId": "agent"})
-        say(sid, result(sid))
+        hand_in(sid, result(sid))
         return {"stopReason": "end_turn", "usage": {"inputTokens": 1200, "outputTokens": 300, "totalTokens": 1500}}
     if outcome == "unmet":
-        say(sid, result(sid, unmet=True, summary=f"{task} 没有全部做到"))
+        hand_in(sid, result(sid, unmet=True, summary=f"{task} 没有全部做到"))
         return {"stopReason": "end_turn"}
     if outcome == "methods":
-        say(sid, result(sid, methods=METHODS, summary=f"{task} 用不同方法核对",
+        hand_in(sid, result(sid, methods=METHODS, summary=f"{task} 用不同方法核对",
                       evidence=["运行 cargo test 通过", "运行 just status 正常", "手工核对界面输出"]))
         return {"stopReason": "end_turn"}
     if outcome == "badmethod":
         checks = [{"criterion": c, "passed": True, "evidence": "看着没问题", "method": "vibes"}
                   for c in CRITERIA.get(sid, [])]
-        body = {"summary": f"{task} 按感觉完成", "checks": checks, "evidence": ["看着没问题"], "risks": [], "question": None}
-        say(sid, "```json\n" + json.dumps(body, ensure_ascii=False) + "\n```")
+        body = {"summary": f"{task} 按感觉完成", "checks": checks, "evidence": ["看着没问题"], "risks": []}
+        hand_in(sid, body)
         return {"stopReason": "end_turn"}
     if outcome == "ask":
-        say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
+        hand_in(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
         return {"stopReason": "end_turn"}
     if outcome == "ok" and answered(text) is not None:
         answer = answered(text)
-        say(sid, result(sid, summary=f"{task} 按回答 {answer} 完成"))
+        hand_in(sid, result(sid, summary=f"{task} 按回答 {answer} 完成"))
         return {"stopReason": "end_turn"}
-    say(sid, result(sid, summary=f"{task} 完成"))
+    hand_in(sid, result(sid, summary=f"{task} 完成"))
     return {"stopReason": "end_turn"}
 
 
 SYSTEM = {}  # session id -> what Janus put in its system layer (`system_layer`)
+JANUS = {}  # session id -> the janus MCP server session/new or session/load gave it (url, headers)
 BUNDLE = {}  # session id -> the skill bundles session/new or session/load handed it (`bundles`)
 TITLED = set()  # sessions that titled themselves (a Loop's first wake)
 CHATS = set()  # session ids of chats with one digital employee: their prompts are answered "回复：<text>"
@@ -633,6 +682,13 @@ def answered(text):
     """The answer in a prompt telling the agent its question was answered, in either language; None otherwise."""
     m = re.search(r"你的问题已得到回答：(.*)|Your question has been answered: (.*)", text)
     return (m.group(1) if m.group(1) is not None else m.group(2)) if m else None
+
+
+def remember_janus(sid, params):
+    """The janus server among the session's `mcpServers`, for handing in through its tools."""
+    for server in params.get("mcpServers") or []:
+        if server.get("name") == "janus":
+            JANUS[sid] = server
 
 
 def system_layer(params):
@@ -688,6 +744,7 @@ for line in sys.stdin:
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
             SYSTEM[res["sessionId"]] = system_layer(msg["params"])
             BUNDLE[res["sessionId"]] = bundles(msg["params"])
+            remember_janus(res["sessionId"], msg["params"])
             log_layer("new", res["sessionId"], msg["params"])
             if chat:
                 CHATS.add(res["sessionId"])
@@ -698,6 +755,7 @@ for line in sys.stdin:
             log(f"load {sid}")
             SYSTEM[sid] = system_layer(msg["params"])
             BUNDLE[sid] = bundles(msg["params"])
+            remember_janus(sid, msg["params"])
             log_layer("load", sid, msg["params"])
             if log_brief(msg["params"]):
                 CHATS.add(sid)

@@ -213,7 +213,7 @@ async fn a_loop_that_missed_its_time_wakes_once_after_a_restart() {
         &live,
         ev(EventKind::LoopScheduled, "janus", "排好下次开工").data(json!({ "until": now_ms() - 1, "reason": "timer" })),
     );
-    let restarted = test_app(&h.dir);
+    let restarted = served_app(&h.dir, |_| {});
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &run), "interrupted");
     restarted.start_loops().unwrap();
@@ -294,7 +294,7 @@ async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
     // session and wakes the Loop with the answer.
     let second = ask("要不要发版？").await;
     h.app.runs.lock().unwrap().clear();
-    let restarted = test_app(&h.dir);
+    let restarted = served_app(&h.dir, |_| {});
     restarted.recover().unwrap();
     restarted.start_loops().unwrap();
     let body = json!({ "type": "answer", "key": second, "answer": "发" });
@@ -348,7 +348,7 @@ async fn a_restart_keeps_when_it_wakes_after_a_new_schedule_or_a_pause() {
     let h = harness("loops-schedule", &[("lead", false), ("m1", false)], json!({}));
     let (id, _) = new_loop(&h, "巡检", Value::Null, false).await;
     let next_after_restart = || {
-        let restarted = test_app(&h.dir);
+        let restarted = served_app(&h.dir, |_| {});
         restarted.start_loops().unwrap();
         restarted.loop_view(&restarted.loop_def(&id).unwrap()).unwrap()["status"]["nextWakeAt"].clone()
     };

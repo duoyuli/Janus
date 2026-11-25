@@ -276,7 +276,7 @@ async fn traces_check_results_and_mark_stale_conclusions() {
     // The traces outlive the process.
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let app2 = test_app(&h.dir);
+    let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     let r = app2.resume_run(&run).await.unwrap();
     while r.st.lock().unwrap().mcp_token.is_empty() {

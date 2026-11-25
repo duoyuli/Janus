@@ -114,8 +114,9 @@ async fn a_chat_agent_cannot_reach_a_board() {
     let log = calls(&h);
     let mcp: Value = serde_json::from_str(log.lines().find(|l| l.starts_with("mcp ")).unwrap()[4..].trim()).unwrap();
     let url = mcp.as_array().unwrap().iter().find_map(|s| s["url"].as_str()).unwrap().to_string();
-    let parts: Vec<&str> = url.split('/').collect();
-    let (token, who) = (parts[parts.len() - 3], parts[parts.len() - 2]);
+    let (_, token, seat) = mcp_credential(&url).unwrap();
+    let token = token.as_str();
+    let who = &seat;
     let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
     assert!(h.app.mcp_tools(&id, token, who, list.clone()).await.is_ok(), "the router takes its own token");
     let call = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "orchestrate", "arguments": { "tasks": [] } } });

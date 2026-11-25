@@ -470,9 +470,6 @@ struct ChatItem: View {
     /// Further pieces of the same agent message, streamed after `e`.
     var more: [Event] = []
 
-    /// The structured result at the end of an agent's reply.
-    private static let resultBlock = regex(#"\s*```json\s*[\s\S]*?```\s*$"#)
-
     /// Items that render nothing (messages shown where they were routed, unknown messages).
     static func visible(_ e: Event, st: RunState) -> Bool {
         switch e.type {
@@ -525,11 +522,8 @@ struct ChatItem: View {
             }
             StoredImages(paths: Attach.paths(d), size: 56)
         case .agentMessage:
-            // The structured result block is for the orchestrator; in the chat it collapses to a label.
-            // The result itself shows as its own line (`result.submitted`).
             // Pieces keep their own whitespace (code blocks may be cut anywhere): join them as they came.
-            let text = ([e] + more).map { $0.data["text"].str }.joined()
-            let words = Self.resultBlock.replacing(in: text, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let words = ([e] + more).map { $0.data["text"].str }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
             if !words.isEmpty { bubble(agent: e.actor) { MarkdownText(text: words) } }
         case .agentThought:
             DisclosureGroup {
@@ -545,7 +539,7 @@ struct ChatItem: View {
             let label = d["channel"].str == "instructions" ? L.text("数字员工的指令 · \(via)")
                 : d["channel"].str == "system" ? (run.isLoop ? L.text("值班的工作方式 · \(via)") : run.isDream ? L.text("怎么整理团队记忆 · \(via)") : L.text("团队协作指令 · \(via)"))
                 : d["channel"].str == "history" ? L.text("之前的对话 · \(via)")
-                : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("验证没通过 · 打回修复"), "board": L.text("看板推送 · 插入正在进行的这一轮"), "goal_check": L.text("目标确认 · 负责人停了，但目标还没完成"), "resume": L.text("恢复会话 · 从中断处接着推进目标")][d["channel"].str] ?? L.text("Janus 提示")
+                : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("提醒交结果 · 这一轮结束了还没交"), "board": L.text("看板推送 · 插入正在进行的这一轮"), "goal_check": L.text("目标确认 · 负责人停了，但目标还没完成"), "resume": L.text("恢复会话 · 从中断处接着推进目标")][d["channel"].str] ?? L.text("Janus 提示")
             let hint = [
                 "instructions": L.text("数字员工的指令 + Agent 的自定义提示词。一对一对话只带这一份。"),
                 "system": run.isLoop ? L.text("值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料和它记下的状态。")

@@ -173,8 +173,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/runs/{id}/export", get(runs::export))
         .route("/api/runs/{id}/usage", get(runs::usage))
         .route("/api/runs/{id}/files", get(runs::files))
-        .route("/mcp/{run}/{token}/{who}", post(streams::board).get(streams::no_stream))
-        .route("/mcp/{run}/{token}/{who}/tools", post(streams::tools).get(streams::no_stream))
+        .route("/mcp/{run}/{token}/lead", post(streams::lead_board).get(streams::no_stream))
+        .route("/mcp/{run}/{token}/task/{task}", post(streams::task_board).get(streams::no_stream))
+        .route("/mcp/{run}/{token}/lead/tools", post(streams::lead_tools).get(streams::no_stream))
+        .route("/mcp/{run}/{token}/task/{task}/tools", post(streams::task_tools).get(streams::no_stream))
         // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).
         .layer(axum::extract::DefaultBodyLimit::max(160 * 1024 * 1024))
         .with_state(app)

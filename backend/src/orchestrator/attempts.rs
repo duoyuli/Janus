@@ -1,5 +1,6 @@
 //! One attempt of a task: its session, its result check, the changes it made and its artifacts.
 
+use super::hand_in::{Handed, question_parts};
 use super::*;
 use crate::lang::{Lang, tr};
 
@@ -403,11 +404,11 @@ impl App {
             // MCP server; an agent that declares no HTTP MCP works without it and reports through
             // its result and questions.
             let board: Vec<Value> = if conn.capabilities["mcpCapabilities"]["http"] == true {
-                vec![self.mcp_server(run, id)]
+                vec![self.mcp_server(run, &Seat::Task(id.to_string()))]
             } else {
                 vec![]
             };
-            let opening = self.opening(run, id, &member, &conn.capabilities, board, system);
+            let opening = self.opening(run, &Seat::Task(id.to_string()), &member, &conn.capabilities, board, system);
             let session = match resume {
                 // A session a failure broke off is only worth going back to with room left in it;
                 // one a restart broke off was working fine and goes on whatever its size.
@@ -494,8 +495,8 @@ impl App {
             let notes = self.take_notes(run, &agent, Some(id));
             tr!(
                 lang,
-                "{why}请从中断的地方继续完成原来的子任务，不要重做已经完成的部分，完成后按最初的要求以 ```json 结构化结果结束。{notes}",
-                "{why}Carry on with your subtask from where it stopped; do not redo finished parts, and end with the ```json structured result as first asked.{notes}"
+                "{why}请从中断的地方继续完成原来的子任务，不要重做已经完成的部分，做完后用 janus.submit 交结果。{notes}",
+                "{why}Carry on with your subtask from where it stopped; do not redo finished parts, and hand in your result with janus.submit when you are done.{notes}"
             )
         } else {
             let notes = self.take_notes(run, &agent, Some(id));
@@ -509,8 +510,8 @@ impl App {
                     let task = task_prompt(run, &def, &team_note, &upstream, &peers, last_error.as_deref());
                     tr!(
                         lang,
-                        "你在子任务 {from} 的原会话中继续工作，之前的上下文和读过的文件都还在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{task}{notes}",
-                        "You go on working in the session of subtask {from}; its context and the files you read are still here. Do the new subtask below to its acceptance criteria, and end with the ```json structured result.\n\n{task}{notes}"
+                        "你在子任务 {from} 的原会话中继续工作，之前的上下文和读过的文件都还在。请按下面新的子任务要求和验收标准执行，做完后用 janus.submit 交结果。\n\n{task}{notes}",
+                        "You go on working in the session of subtask {from}; its context and the files you read are still here. Do the new subtask below to its acceptance criteria, and hand in your result with janus.submit when you are done.\n\n{task}{notes}"
                     )
                 }
                 (None, _) => format!(
@@ -585,10 +586,9 @@ impl App {
         let mut asked = 0;
         let mut total_pauses = 0;
         let mut last_question_seq = 0i64;
-        // A failed verification goes back to the same session once: the agent still has the context
-        // to fix its work, or to say why the command does not fit. A second failure goes to the lead.
-        let mut fixes = 0;
-        let result = 'session: loop {
+        // A turn that ends without handing anything in is reminded once.
+        let mut reminded = false;
+        let result = {
             let mut result = loop {
                 if let Some(p) = next.take() {
                     native_turn = self.native_turn(run, &member, &sid, native_turn.take().and_then(|t: NativeTurn| t.path));
@@ -620,7 +620,11 @@ impl App {
                     }
                 }
                 if ctl.finishing() {
-                    break finished_by_user(&text);
+                    let handed = match self.take_handed(run, id, attempt_id) {
+                        Some(Handed::Result { result, .. }) => Some(result),
+                        _ => None,
+                    };
+                    break finished_by_user(&text, handed);
                 }
                 // Under takeover the agent waits for the person; queued messages wait with it.
                 if !ctl.held_by_person() && !ctl.queued.is_empty() {
@@ -632,9 +636,24 @@ impl App {
                     next = self.wait_for_person(run, &session, &mut ctl, &ctx, release_prompt(run.lang)).await?;
                     continue;
                 }
-                let parsed = parse_result(&text);
-                let Some(q) = parsed.question.clone() else {
-                    break parsed;
+                // What the session handed in with its tools this turn: the result, a question for
+                // the lead, or nothing yet (reminded once).
+                let q = match self.take_handed(run, id, attempt_id) {
+                    Some(Handed::Result { result, .. }) => break result,
+                    Some(Handed::Question { question, .. }) => question,
+                    None if !reminded => {
+                        reminded = true;
+                        let prompt = lang
+                            .pick(
+                                "这一轮结束了，但你还没有交结果。做完了就用 janus.submit 交结果；需要负责人决定就用 janus.ask 提问。然后结束这一轮。",
+                                "Your turn ended, but you have not handed in a result. If you are done, hand it in with janus.submit; if you need the lead's decision, ask with janus.ask. Then end your turn.",
+                            )
+                            .to_string();
+                        self.record_session_prompt(run, &ctx, &sid, PromptChannel::Fix, &prompt);
+                        next = Some(prompt);
+                        continue;
+                    }
+                    None => bail!("{agent} 没有用 janus.submit 交结果"),
                 };
                 total_pauses += 1;
                 if !self.has_split_request_since(&run.id, id, last_question_seq) {
@@ -644,11 +663,7 @@ impl App {
                     bail!("连续 4 轮仍在提问，没有完成子任务");
                 }
                 let key = format!("q-{id}-{n}-{round}");
-                let question = q["text"].as_str().or(q.as_str()).unwrap_or("需要你的决定").to_string();
-                let options: Vec<String> = q["options"]
-                    .as_array()
-                    .map(|a| a.iter().filter_map(|o| o.as_str().map(str::to_owned)).collect())
-                    .unwrap_or_default();
+                let (question, options) = question_parts(&q, lang);
                 last_question_seq = self.emit(
                     run,
                     ev(EventKind::QuestionAsked, &agent, clip(&question, 60)).task(id).attempt(n).to("lead").data(json!({
@@ -673,8 +688,8 @@ impl App {
                         };
                         next = Some(tr!(
                             lang,
-                            "你的问题已得到回答：{answer}{note}\n请据此继续完成子任务。完成后同样以 ```json 结构化结果结束。",
-                            "Your question has been answered: {answer}{note}\nGo on with the subtask accordingly, and end with the ```json structured result as before."
+                            "你的问题已得到回答：{answer}{note}\n请据此继续完成子任务，做完后用 janus.submit 交结果。",
+                            "Your question has been answered: {answer}{note}\nGo on with the subtask accordingly, and hand in your result with janus.submit when you are done."
                         ));
                     }
                     cmd = ctl.rx.recv() => {
@@ -735,21 +750,10 @@ impl App {
                 .attempt(n)
                 .data(submitted_data),
             );
-            match self.verify_result(run, id, n, attempt_id, &def, &mut result).await {
-                Ok(()) => break 'session result,
-                Err(err) if fixes == 0 && !ctl.finishing() && err.is::<VerificationFailed>() => {
-                    fixes += 1;
-                    let gaps = verification_output(run, id);
-                    let prompt = tr!(
-                        lang,
-                        "你的结果还没有满足验收标准：\n{gaps}\n\n请继续：没有达到的标准，修复后重新核对；没有核对或缺少证据的，补上核对和证据。某条标准在当前条件下确实无法达到时，如实写 passed: false，说明原因和你能提供的证据。完成后同样以 ```json 结构化结果结束，checks 逐条更新。",
-                        "Your result does not meet the acceptance criteria yet:\n{gaps}\n\nGo on: fix what is not met and check it again; add the checks and evidence that are missing. If a criterion really cannot be met here, set passed: false honestly with the reason and whatever evidence you have. End with the ```json structured result as before, with checks updated for every criterion."
-                    );
-                    self.record_session_prompt(run, &ctx, &sid, PromptChannel::Fix, &prompt);
-                    next = Some(prompt);
-                }
-                Err(err) => return Err(err),
-            }
+            // A result is taken only in good form; one still short of a criterion it reported unmet
+            // was offered a second hand-in as it came in, so now it goes to the lead.
+            self.verify_result(run, id, n, attempt_id, &def, &mut result).await?;
+            result
         };
         Ok::<_, anyhow::Error>((result, sid))
         }

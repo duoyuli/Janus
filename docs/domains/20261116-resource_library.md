@@ -106,7 +106,7 @@ Janus 不把单个 Skill 或 MCP 服务器列进提示，也不列工作目录�
 <a id="mcp_router"></a>
 ## MCP 路由
 
-每个 Run 有一个 MCP 端点 `janus-tools`（`/mcp/{run}/{token}/{who}/tools`，令牌和 `who` 的规则与[看板](../interfaces/20261031-board_mcp.md#transport)相同，`orchestrator::mcp_router`），提供这个会话所属成员快照中的全部 MCP 服务器，命令启动的、HTTP 的和 SSE 的都在内。负责人的会话用负责人的快照，子任务的会话用它所派给的成员的快照：
+每个 Run 有一个 MCP 端点 `janus-tools`（`/mcp/{run}/{token}/lead/tools` 或 `/mcp/{run}/{token}/task/{task}/tools`，令牌和席位的规则与[看板](../interfaces/20261031-board_mcp.md#transport)相同，`orchestrator::mcp_router`），提供这个会话所属成员快照中的全部 MCP 服务器，命令启动的、HTTP 的和 SSE 的都在内。负责人的会话用负责人的快照，子任务的会话用它所派给的成员的快照：
 
 - **用到才启动，默认同一个 Run 共用**：会话打开时不启动任何服务器；第一次调用某个服务器的工具时才启动它。默认（`process` 为 `perRun`）同一个 Run 的负责人和各子任务共用这一个进程，MCP 的请求按 id 区分，可以同时处理；进程数最多是「Run 数 × 实际用到的服务器数」。浏览器、终端、数据库连接这类会记住状态的服务器，在资源上选「每个会话单独运行」（`perSession`），同一个 Run 里每个会话各一份，避免在会话之间串状态。同一个服务器的几个请求同时到达时只启动一次，不同服务器同时启动。
 - **预先准备**：在资源库里新建、修改或粘贴导入 MCP 服务器后，Janus 在后台准备一次（`warm_mcp`，最多等 10 分钟）：命令启动的服务器用它的隔离目录完整启动一次、列出工具、再停掉（日志在 `~/.janus/logs/library/<资源 id>.log`，工作目录是 `~/.janus/tmp/servers/<资源 id>/warm`）；HTTP、SSE 服务器连接一次、列出工具，地址写错、值不对（例如服务器回答 401）当场显示。`npx -y`、`uvx` 下载的包落在隔离目录里，之后各 Run 启动时直接用；启动不了的服务器（命令写错、缺少值）当场在资源库里显示原因。准备结果只在服务运行期间记着，按资源的 `revision` 对应（修改后旧结果作废）。资源库可以「重新准备」（`POST /api/library/mcp/{id}/warm`）。

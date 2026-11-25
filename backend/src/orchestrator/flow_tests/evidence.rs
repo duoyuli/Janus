@@ -60,7 +60,7 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     // The process goes away; the board is rebuilt from the event log.
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let app2 = test_app(&h.dir);
+    let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
     let (detail, _) = tool(&app2, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
@@ -93,28 +93,34 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
 /// An illegal evidence method is refused by name and never turned into an allowed one; the
 /// fix round reports no method at all, which is 「未说明」 and does not fail the task.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_illegal_evidence_method_fails_the_result_check() {
+async fn an_illegal_evidence_method_is_refused_when_handed_in() {
     let h = harness("badmethod", &[("lead", false), ("m1", true)], json!({ "T1": ["badmethod", "ok"] }));
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
-    wait_until(&h.app, &run, "verification failed", |e| task_event(e, "verification.failed", "T1")).await;
-    let evs = events(&h.app, &run);
-    let failed =
-        evs.iter().find(|e| e.kind.as_str() == "verification.failed" && e.task.as_deref() == Some("T1")).unwrap();
-    let failures = failed.data.as_ref().unwrap()["failures"].as_array().unwrap().clone();
-    assert!(
-        failures.iter().any(|f| f.as_str().is_some_and(|f| f.contains("证据方法「vibes」不是允许值"))),
-        "{failures:?}"
-    );
-    // The recorded check keeps exactly the value it was given.
-    let submitted =
-        evs.iter().find(|e| e.kind.as_str() == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
-    assert_eq!(submitted.data.as_ref().unwrap()["checks"][0]["method"], "vibes");
     wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
-    let done = events(&h.app, &run)
-        .into_iter()
-        .rev()
-        .find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1"))
+    let evs = events(&h.app, &run);
+    // The hand-in with a method that does not exist is refused at once, with what is wrong.
+    let refused = evs
+        .iter()
+        .filter(|e| e.kind.as_str() == "tool.completed" && e.task.as_deref() == Some("T1"))
+        .filter_map(|e| e.data.as_ref())
+        .find(|d| d["tool"] == "janus.submit" && d["status"] == "failed")
         .unwrap();
+    assert!(refused["output"].as_str().unwrap().contains("证据方法「vibes」不是允许值"), "{refused}");
+    assert!(
+        !evs.iter().any(|e| e.kind.as_str() == "result.submitted"
+            && e.data.as_ref().is_some_and(|d| d["checks"][0]["method"] == "vibes")),
+        "a refused result is not on record"
+    );
+    // Its turn ended without a result: it is reminded once, and hands in a good one.
+    assert!(evs.iter().any(|e| {
+        e.kind.as_str() == "session.prompt"
+            && e.task.as_deref() == Some("T1")
+            && e.data
+                .as_ref()
+                .is_some_and(|d| d["channel"] == "fix" && d["prompt"].as_str().unwrap_or("").contains("还没有交结果"))
+    }));
+    let done =
+        evs.iter().rev().find(|e| e.kind.as_str() == "task.succeeded" && e.task.as_deref() == Some("T1")).unwrap();
     assert_eq!(
         done.data.as_ref().unwrap()["acceptance"]["unspecified"],
         1,

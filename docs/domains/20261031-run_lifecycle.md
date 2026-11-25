@@ -135,49 +135,51 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
    接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
 2. 按角色设置模型、推理强度和权限模式等会话控制项，见 [ACP 集成](../interfaces/20261031-acp_integration.md#session_setup)。
-3. 发送任务提示（`task_prompt`）。回到这个任务自己的会话时（`retry` 的 `continue` 或复审），会话里已经有任务说明，只发新的内容（`continued_prompt`）：验证意见或上一轮的判定、负责人的说明、改过的说明、上次失败的原因和验收标准，见[重试、返工与失败](#retry)。其他情况发完整的任务提示：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含一句话摘要、专门给下游的 `handoff` 交接说明、前 5 条上游风险、负责人的修订、改过的文件及后续被他人或负责人修改的提醒）、同时进行的任务和上次失败原因；独立验证任务还会收到被验证任务的专属 diff 路径、实际改动文件、痕迹核对异常、弱证据条目提醒和风险（`teamwork::VerifiedContext`）。怎样验证、提问和返回结构化结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
+3. 发送任务提示（`task_prompt`）。回到这个任务自己的会话时（`retry` 的 `continue` 或复审），会话里已经有任务说明，只发新的内容（`continued_prompt`）：验证意见或上一轮的判定、负责人的说明、改过的说明、上次失败的原因和验收标准，见[重试、返工与失败](#retry)。其他情况发完整的任务提示：总目标、工作区共享资料（有时，与任务说明冲突时以任务说明为准）、任务说明、验收标准、工作目录、上游结果（含一句话摘要、专门给下游的 `handoff` 交接说明、前 5 条上游风险、负责人的修订、改过的文件及后续被他人或负责人修改的提醒）、同时进行的任务和上次失败原因；独立验证任务还会收到被验证任务的专属 diff 路径、实际改动文件、痕迹核对异常、弱证据条目提醒和风险（`teamwork::VerifiedContext`）。怎样提问和交结果的约定，以及角色指令和 Provider 的自定义提示词，都在会话的[系统层](../interfaces/20261031-acp_integration.md#standing_instructions)中，见[协作者的约定](20261031-goal_mode.md#collaborator_rules)；只有没有系统层入口的 Agent 才附在任务提示末尾。
 4. 收集流式输出、工具调用、审批请求和表单请求。单轮超时发送 `session/cancel` 后，仍等待最多 2 秒读取返回值中的 `prompt_usage`；每轮发送前记录事件序号和会话日志末尾位置。若尝试异常结束且本轮尚未上报 Token，则从 Janus 隔离目录（Claude Code 的 `CLAUDE_CONFIG_DIR`，即 `~/.janus/data/agents/<id>/config`）下的 `projects/**/<sid>.jsonl` 读取本轮新增记录，按 `message.id` 取最后一次读数补齐用量。同一会话前面几轮的读数照常保留。
-5. 解析回复中最后一个 ```` ```json ```` 代码块作为结构化结果。
+5. 这一轮结束时，取协作者这一轮用工具交上来的东西（`hand_in`）：结果（`janus.submit`）、给负责人的问题（`janus.ask`），或者什么也没交。Janus 不从回复正文里读结果。
 
 <a id="structured_result"></a>
-### 结构化结果
+### 交结果和提问
 
-```json
-{
-  "summary": "一句话结果",
-  "handoff": "给下游子任务的接口约定、关键决策与注意事项（没有下游依赖时可填 null）",
-  "verdict": "approved",
-  "checks": [{ "criterion": "验收标准原文", "passed": true, "method": "test", "evidence": "怎么验证的、看到了什么" }],
-  "evidence": ["其他可核对的证据"],
-  "risks": ["已知风险，没有就留空数组"],
-  "question": null
-}
-```
+协作者用看板的两个工具把子任务交回来，见 [ADR：协作者用工具交结果和提问](../decisions/20261125-hand_in_with_tools.md)：
 
-- `handoff` 可选（最长 1200 个字符），供上游执行者写给下游的接口签名、边界约定和注意事项，与给负责人扫读的一句话 `summary` 分离。
-- `verdict` 供独立验证任务（带 `verifies`）填写对被验证产物的判定：`approved`（达标）、`rejected`（存在阻断问题，需原执行者修改）或 `inconclusive`（当前环境证据不足）；未填时按 `checks` 是否全部通过推导（任一条 `passed: false` 推导为 `rejected`），填写了允许值以外的内容时核对报错。
-- `checks` 按验收标准的顺序逐条给出，验证方式由 Agent 自己决定。
-- `method` 可选，说明这条依据的类型：`test`、`command`、`inspection`、`reasoning`、`unverified`，含义见[证据方法](../interfaces/20261031-events.md#evidence_methods)。省略它的结果没有方法，解析、恢复、核对和展示都按「未说明」处理，不当作 `reasoning`，也不因此判失败；存在但不是允许值时，原样保留在结果里并由核对报错，不会静默换成合法方法。证据方法由 `backend/src/evidence.rs` 解析和汇总，结构化结果的读取（`parse_result`）、事件里结果的重建和恢复（`resume_run`）都用同一段逻辑。
-- 没有 JSON 块时，摘要取回复第一行，并记一条风险「Agent 没有按约定返回结构化结果」。
-- `question` 不为空表示 Agent 在提问：`{"text": "问题", "options": ["A", "B"], "recommend": "A"}`。回答作为下一轮提示发回同一个会话。同一次尝试最多连续普通提问 4 轮（伴有 `request_split` 拆分提议的暂停不计入这 4 轮，总暂停硬上限为 8 轮）。提问由谁回答见[提问的流转](20261031-goal_mode.md#question_routing)。
+- **`janus.submit`**：交结果，参数的结构由工具的 `inputSchema` 约束：
+
+  ```json
+  {
+    "summary": "一句话结果",
+    "checks": [{ "criterion": "验收标准原文", "passed": true, "method": "test", "evidence": "怎么验证的、看到了什么" }],
+    "handoff": "给下游子任务的接口约定、关键决策与注意事项",
+    "evidence": ["其他可核对的证据"],
+    "risks": ["已知风险"],
+    "verdict": "approved"
+  }
+  ```
+
+  - `handoff` 可选（最长 1200 个字符），供上游执行者写给下游的接口签名、边界约定和注意事项，与给负责人扫读的一句话 `summary` 分离。
+  - `verdict` 只由独立验证任务（带 `verifies`）填写：`approved`（达标）、`rejected`（存在阻断问题，需原执行者修改）或 `inconclusive`（当前环境证据不足）；未填时按 `checks` 是否全部通过推导（任一条 `passed: false` 推导为 `rejected`）。
+  - `checks` 按验收标准的顺序逐条给出，验证方式由 Agent 自己决定。`method` 可选，说明这条依据的类型：`test`、`command`、`inspection`、`reasoning`、`unverified`，含义见[证据方法](../interfaces/20261031-events.md#evidence_methods)；省略时按「未说明」处理，不当作 `reasoning`，也不因此判失败。证据方法由 `backend/src/evidence.rs` 解析和汇总，工具参数和事件里记录的结果用同一个读取函数（`result_from_json`）。
+  - **当场核对格式**：`summary` 为空、漏了某条标准、某条没有证据、`method` 不是允许值、`verdict` 不是允许值或和 `checks` 矛盾时，工具不收下，返回全部问题（`evidence::gaps_for`），Agent 在同一轮里改好再交。
+  - **没达到的标准多给一次机会**：收下的结果里有标准写了 `passed: false` 时，第一次交会提醒它可以修好后再交一次，做不到就结束这一轮；同一次尝试里再交就照收。
+  - 收下后，这一轮结束时这份结果才算交上；同一轮里再交会替换上一份。
+- **`janus.ask`**：向负责人提问，参数是 `text`、`options`、`recommend`。问题在这一轮结束时转给负责人（`question.asked`），回答作为下一轮提示发回同一个会话。同一次尝试最多连续普通提问 4 轮（伴有 `request_split` 拆分提议的暂停不计入这 4 轮，总暂停硬上限为 8 轮）。提问由谁回答见[提问的流转](20261031-goal_mode.md#question_routing)。
+- **什么也没交**：这一轮结束时既没交结果也没提问，提醒一次（`session.prompt`，`channel: "fix"`，「还没有交结果」）；下一轮仍然没交，这次尝试失败，按重试策略处理。
+- 用户在会话中直接以当前结果结束时，有交上来的结果就用它，没有就取回复第一行当摘要，并记一条风险「Agent 没有交结果」。
+
+工具属于协作者：负责人调用会得到「没有这个工具」。看板服务器按 URL 里的席位（`Seat`）分辨负责人和子任务，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md#transport)。
 
 <a id="verification"></a>
 ## 验证
 
-结果提交后，Janus 核对结果（`verify_result` / `evidence::gaps_for`，`verification.*` 事件）。Janus 不运行任何验证命令，验证由协作者按验收标准自己完成，见[验收标准](../interfaces/20261031-board_mcp.md#acceptance_criteria)。核对将「任务自身是否完成了核查工作」与「独立验证者对目标产物的审批结论」分开：
+这一轮交上的结果，Janus 再核对一次并记下（`verify_result` / `evidence::gaps_for`，`verification.*` 事件）。Janus 不运行任何验证命令，验证由协作者按验收标准自己完成，见[验收标准](../interfaces/20261031-board_mcp.md#acceptance_criteria)。核对将「任务自身是否完成了核查工作」与「独立验证者对目标产物的审批结论」分开：
 
 - `summary` 不能为空。
 - 普通执行任务：每条验收标准都有对应的 check（按顺序），check 有证据，且没有 `passed: false`。
-- 独立验证任务（带 `verifies`）：每条标准都必须核对并给出具体证据，`verdict` 若填写必须是 `approved`、`rejected` 或 `inconclusive`，且 `verdict: "approved"` 不能与 `passed: false` 矛盾。只读验证者发现真实缺陷并给出可复现证据、填 `passed: false` 或 `verdict: "rejected"` / `"inconclusive"` 时，它的核查工作已经完成，第一轮即通过结果结构核对并标记验证任务完成（`task.succeeded`），不会触发无意义的自我修复轮；同时在看板和交付中把目标产物标为未通过确认（`[验证未通过]`、`Verification.passed == false`），唤醒负责人派修复任务和复验任务。
-- check 给出 `method` 时必须是允许的值；其他值作为「不是允许值」的失败项报出，不会被改成合法方法。
+- 独立验证任务（带 `verifies`）：每条标准都必须核对并给出具体证据，`verdict` 若填写必须是允许值，且 `verdict: "approved"` 不能与 `passed: false` 矛盾。只读验证者发现真实缺陷并给出可复现证据、填 `passed: false` 或 `verdict: "rejected"` / `"inconclusive"` 时，它的核查工作已经完成，通过核对并标记验证任务完成（`task.succeeded`）；同时在看板和交付中把目标产物标为未通过确认（`[验证未通过]`、`Verification.passed == false`），唤醒负责人派修复任务和复验任务。
 - `reasoning`、`unverified` 和没有 `method` 只记提醒，不阻断：提醒随核对结果记录在 `verification.*` 和 `task.succeeded` 的 `data.acceptance` 中，看板的完成消息、`task_detail` 和交付都显示。
 
-验证没通过时，同一次尝试中按以下顺序处理：
-
-1. **在原会话里补一次**：把没核对、没证据或没达到的标准逐条发回同一个会话（`session.prompt`，`channel: "fix"`），请协作者修复后重新验证、补上证据；确实无法达到的如实写明原因。协作者保留着上下文，比开新会话从头做快，也更容易修对。补完后重新提交结果、重新核对。
-2. **仍然没通过**：任务失败（`task.failed`，`reason: "verification"`），不自动开新会话重试，由负责人决定接受结果、修改后重试（可以选回到这个会话）还是取消，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md#accept_tool)。
-
-用户在会话中直接以当前结果结束时，不走修复这一步。
+格式问题在 `janus.submit` 时已经当场退回，所以这里没通过的只会是自认没达到的标准，而交的时候已经提醒过一次可以修好再交。没通过时任务失败（`task.failed`，`reason: "verification"`），不再另开一轮修复，也不自动开新会话重试，由负责人决定接受结果、修改后重试（可以选回到这个会话）还是取消，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md#accept_tool)。
 
 <a id="retry"></a>
 ## 重试、返工与失败

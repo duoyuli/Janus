@@ -66,7 +66,7 @@ async fn runs_work_apart_and_delivering_brings_the_result_back_to_the_branch() {
     assert!(git_out(&cwd, &["symbolic-ref", "-q", "HEAD"]).is_empty(), "detached, so the branch stays free");
 
     // A restart removes it; working again brings it back on the branch.
-    let app2 = test_app(&h.dir);
+    let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     assert!(!cwd.exists(), "nothing works there after a restart");
     app2.request_action(&run, &req(json!({ "type": "message", "agent": "lead", "text": "再补一份说明" })))
@@ -431,7 +431,7 @@ async fn work_after_acceptance_committed_or_cut_off_is_delivered_again() {
 
     // A turn after acceptance changed a file when the service stopped.
     std::fs::write(cwd.join("cut.md"), "cut off\n").unwrap();
-    let app2 = test_app(&h.dir);
+    let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     assert_eq!(status(&app2, &run), "delivered");
     let again = events(&app2, &run).into_iter().rfind(|e| e.kind.as_str() == "run.delivered").unwrap();

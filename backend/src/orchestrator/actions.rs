@@ -705,7 +705,7 @@ impl App {
             let result = concluded
                 .as_ref()
                 .or_else(|| mine(EventKind::ResultSubmitted).last().and_then(|e| e.data.as_ref()))
-                .map(result_from_event);
+                .map(result_from_json);
             let trace_gaps: Vec<String> = concluded
                 .as_ref()
                 .and_then(|d| d["traceGaps"].as_array())

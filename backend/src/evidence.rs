@@ -351,14 +351,14 @@ pub fn gaps_for(
 ) -> Vec<String> {
     let mut gaps = vec![];
     if summary.trim().is_empty() {
-        gaps.push(tr!(lang, "结构化结果缺少 summary", "The structured result has no summary"));
+        gaps.push(tr!(lang, "结果缺少 summary", "The result has no summary"));
     }
     if let Some(raw) = verdict_error {
         let allowed = Verdict::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>().join(lang.pick("、", ", "));
         gaps.push(tr!(
             lang,
-            "结构化结果的 verdict「{raw}」不是允许值，只能是 {allowed}",
-            "The structured result's verdict \"{raw}\" is not allowed; it must be one of {allowed}"
+            "结果的 verdict「{raw}」不是允许值，只能是 {allowed}",
+            "The result's verdict \"{raw}\" is not allowed; it must be one of {allowed}"
         ));
     }
     for (i, criterion) in accept.iter().enumerate() {

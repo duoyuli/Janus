@@ -51,11 +51,12 @@ async fn goal_mode_orchestrates_through_the_board() {
 
     // The board's MCP surface, and its token.
     let secret = h.app.run(&run).unwrap().st.lock().unwrap().mcp_token.clone();
-    let token = session_token(&secret, "lead");
-    let member_token = session_token(&secret, "T1");
+    let (lead, t1) = (Seat::Lead, Seat::Task("T1".into()));
+    let token = session_token(&secret, &lead);
+    let member_token = session_token(&secret, &t1);
     let tools = h
         .app
-        .mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+        .mcp(&run, &token, &lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
         .await
         .unwrap()
         .unwrap();
@@ -64,45 +65,50 @@ async fn goal_mode_orchestrates_through_the_board() {
     // No server-level instructions: each tool's description says how it is used.
     let init = h
         .app
-        .mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {} }))
+        .mcp(&run, &token, &lead, json!({ "jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {} }))
         .await
         .unwrap()
         .unwrap();
     assert!(init["result"]["serverInfo"]["name"] == "janus" && init["result"].get("instructions").is_none(), "{init}");
     let member = h
         .app
-        .mcp(&run, &member_token, "T1", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+        .mcp(&run, &member_token, &t1, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
         .await
         .unwrap()
         .unwrap();
     let names: Vec<&str> =
         member["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["board_post", "claim", "peers", "request_split", "recall", "remember"]);
+    assert_eq!(names, ["board_post", "claim", "peers", "request_split", "submit", "ask", "recall", "remember"]);
     // Claims are a collaborator's: the lead assigns files through `owns` instead.
     let (text, err) = tool(&h.app, &run, "lead", "claim", json!({ "paths": ["x"] })).await;
     assert!(err && text.contains("没有这个工具"), "{text}");
     assert!(
-        h.app.mcp(&run, "wrong", "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err()
+        h.app.mcp(&run, "wrong", &lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err()
     );
     // A collaborator's URL renamed to the lead, or to another task, is refused.
     assert!(
         h.app
-            .mcp(&run, &member_token, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+            .mcp(&run, &member_token, &lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
             .await
             .is_err()
     );
     assert!(
         h.app
-            .mcp(&run, &member_token, "T2", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+            .mcp(
+                &run,
+                &member_token,
+                &Seat::Task("T2".into()),
+                json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })
+            )
             .await
             .is_err()
     );
     assert!(
-        h.app.mcp(&run, &secret, "lead", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err()
+        h.app.mcp(&run, &secret, &lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err()
     );
     assert!(
         h.app
-            .mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
+            .mcp(&run, &token, &lead, json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
             .await
             .unwrap()
             .is_none()
@@ -299,7 +305,7 @@ async fn goal_mode_resumes_the_leads_own_session() {
     // The process goes away while the lead and T1 are still working.
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let app2 = test_app(&h.dir);
+    let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
     let evs = events(&app2, &run);
@@ -385,7 +391,7 @@ async fn goal_mode_resumes_in_a_new_session_when_the_lead_cannot_load() {
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
     std::fs::write(h.dir.join("fake/no-load"), "").unwrap();
-    let app2 = test_app(&h.dir);
+    let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
     lead_started(2).await;

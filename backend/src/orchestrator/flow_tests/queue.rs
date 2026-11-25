@@ -30,7 +30,7 @@ async fn wait_live(app: &App, run: &str) {
 #[tokio::test(flavor = "multi_thread")]
 async fn goal_runs_wait_for_a_free_slot_in_order() {
     let h = harness("queue", &[("lead", false), ("m1", false)], json!({}));
-    let app = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    let app = served_app(&h.dir, |c| c.max_running_runs = 1);
 
     // The first run takes the one slot and is set up before create_run returns.
     let first = new_run(&app, "第一个").await;
@@ -97,7 +97,7 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     // to the same log (two writers would take the same seq).
     app.run(&sixth).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let restarted = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    let restarted = served_app(&h.dir, |c| c.max_running_runs = 1);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &sixth), "interrupted");
     assert_eq!(status(&restarted, &seventh), "queued");
@@ -123,13 +123,13 @@ fn act_on(app: &Arc<App>, run: &str, a: Value) {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_run_that_never_got_set_up_queues_again() {
     let h = harness("queue-requeue", &[("lead", false), ("m1", false)], json!({}));
-    let app = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    let app = served_app(&h.dir, |c| c.max_running_runs = 1);
     let first = new_run(&app, "占着位置").await;
     let second = new_run(&app, "被领走但没准备好").await;
     // As if a pump took it off the queue and the service stopped before its setup.
     app.db.set_run_status(&second, RunStatus::Planning).unwrap();
     // Two slots after the restart: the first run goes on in one, the second may take the other.
-    let restarted = test_app_with(&h.dir, |c| c.max_running_runs = 2);
+    let restarted = served_app(&h.dir, |c| c.max_running_runs = 2);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &first), "interrupted");
     assert_eq!(status(&restarted, &second), "queued", "back on the queue, not interrupted");
@@ -175,7 +175,7 @@ fn left_to(app: &App, run: &str) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn working_goals_go_on_by_themselves_after_a_restart() {
     let h = harness("queue-goes-on", &[("lead", false), ("m1", false)], json!({}));
-    let app = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    let app = served_app(&h.dir, |c| c.max_running_runs = 1);
     let working = new_run(&app, "在做").await;
     wait_live(&app, &working).await;
     // Started by hand past the one slot, then paused by the person.
@@ -191,7 +191,7 @@ async fn working_goals_go_on_by_themselves_after_a_restart() {
         app.run(run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     }
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let restarted = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    let restarted = served_app(&h.dir, |c| c.max_running_runs = 1);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &working), "interrupted");
     assert_eq!(left_to(&restarted, &working), "goes_on");
@@ -219,7 +219,7 @@ async fn working_goals_go_on_by_themselves_after_a_restart() {
             &json!({ "seq": last + 1, "ts": now_ms(), "type": "run.recovered", "actor": "janus", "data": { "auto": true } }),
         ))
         .unwrap();
-    let again = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    let again = served_app(&h.dir, |c| c.max_running_runs = 1);
     again.recover().unwrap();
     assert_eq!(left_to(&again, &working), "no_progress");
     again.continue_after_restart();

@@ -74,7 +74,7 @@ def loops(ctx, c):
     # With the URL its session was given: the board's tools are refused, and so is another session's name.
     text, err = janus.call("orchestrate", {"tasks": []})
     c(err and "没有这个工具" in text, f"值班的会话调用看板工具被拒绝（{text[:40]}）")
-    status, _ = Mcp(janus.url.rsplit("/", 1)[0] + "/m1").post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    status, _ = Mcp(janus.url.rsplit("/", 1)[0] + "/task/m1").post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     c(status == 403, f"用值班会话的凭据冒充别的会话被拒绝（HTTP {status}）")
     text, err = janus.call("next_wake", {"after_seconds": 120, "reason": "试试"})
     c(err and "不是一次醒来" in text, f"醒来之外不能约下次醒来（{text[:40]}）")

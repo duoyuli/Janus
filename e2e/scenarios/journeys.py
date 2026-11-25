@@ -42,7 +42,8 @@ def goal_codex(ctx, c):
 
     # Each session's board URL is bound to its owner.
     t1 = t.fake.board(run.id, "T1")
-    c(t1.tools() == ["board_post", "claim", "peers", "request_split", "recall", "remember"], "协作者只有自己的 4 个工具和团队记忆的读写")
+    c(t1.tools() == ["board_post", "claim", "peers", "request_split", "submit", "ask", "recall", "remember"],
+      "协作者只有自己的 6 个工具（含交结果的 submit 和提问的 ask）和团队记忆的读写")
     text, err = t1.call("board_post", {"kind": "progress", "text": "笔记写了一半"})
     c(not err, "协作者写回进展")
     c(Mcp(t1.url.rsplit("/", 1)[0] + "/lead").post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0] == 403,
