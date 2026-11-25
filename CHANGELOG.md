@@ -4,6 +4,32 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.25.4
+
+- 协作者用工具交结果和提问：做完用 `janus.submit` 交结果，需要负责人决定时用 `janus.ask` 提问，不再在回复末尾写一段 JSON。交结果时 Janus 当场核对：漏了标准、没有证据、证据方法或判定不合法，直接退回让它改，不用等一轮结束再发修复提示；写了没达到的标准，会提醒它可以修好再交一次。一轮结束还没交的，提醒一次。
+
+- 负责人、协作者和值班的说明按做事的顺序重写：负责人是派活、派出之后、交付、谁来做决定，协作者是工作方式、需要决定时、完成时，值班是每次醒来、派出之后、谁来做决定。每条规则只说一次，篇幅短了一半左右。各有一节「协作工具」，一个工具一行说明它做什么，Agent 开局就知道有哪些工具，用到时再看工具自己的说明。
+
+- 交付后负责人在新会话里继续对话时，拿到的是完整的负责人说明和协作工具，再加上目标、上次交付和最近的对话，不会因为说明缺了一半而不知道怎么派活。中断恢复、合并冲突的交还和团队记忆整理的说明也按同样的风格整理。
+
+- 看板消息统一成一种写法（标签、子任务和标题、谁、发生了什么），去掉每条都重复的「接受、返工、取消」菜单和「不要自己接手」，判定和状态按任务的语言显示，Janus 自己发的通知标成「[Janus]」，不再冒用负责人的口吻。`task_detail`、`peers` 和各工具的返回更短。
+
+- 修复：id 恰好叫 `lead` 的子任务会被看板当成负责人，拿到负责人的工具和令牌。看板现在按地址里的席位（负责人或子任务）分辨，不再看 id。
+
+- 修复：负责人说明里的 worktree 一段把分支写成「用户的用户所在的分支 main上」。
+
+- Collaborators hand in results and ask questions with tools: `janus.submit` hands in the result and `janus.ask` asks the lead, instead of a JSON block at the end of the reply. Janus checks a result as it is handed in: a missing criterion, missing evidence, or an evidence method or verdict that does not exist goes straight back to be fixed, instead of costing another round; a criterion reported unmet gets one reminder that it may be fixed and handed in again. A turn that ends with nothing handed in is reminded once.
+
+- The lead's, collaborators' and Loops' instructions are rewritten in the order the work goes: for the lead, handing out work, after handing out, delivery and decisions; for collaborators, how they work, when they need a decision and when they finish; for a Loop, each wake, after dispatching and decisions. Each rule is said once, and they are about half as long. Each has a "collaboration tools" section with one line per tool, so the agent knows its tools from the start and reads a tool's own description when it needs it.
+
+- A lead that goes on after delivery in a new session gets its full instructions and tools again, followed by the goal, the last delivery and the recent conversation, so it still knows how to hand out work. Resuming, the hand-back of a merge conflict and the team-memory consolidation follow the same style.
+
+- Board messages share one shape (tag, subtask and title, who, what happened); the accept/rework/cancel menu and "do not take over" repeated in every message are gone, verdicts and statuses read in the run's language, and Janus's own notices are marked "[Janus]" instead of speaking in the lead's voice. `task_detail`, `peers` and the tool returns are shorter.
+
+- Fixed: a subtask whose id was `lead` was taken for the lead by the board and got the lead's tools and token. The board now tells them apart by the seat in the address, not by the id.
+
+- Fixed: the worktree paragraph of the lead's instructions read 「用户的用户所在的分支 main上」 in Chinese.
+
 ## 2026.11.25.3
 
 - Janus 写给 Agent 的说明、提示、看板消息和工具说明跟着应用的语言：界面是中文就用中文，是英文就用英文，不再同一个会话里中英混着来。换语言后新建的任务、对话和值班用新语言，进行中的不变；以前的任务按中文继续。
