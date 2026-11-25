@@ -34,7 +34,7 @@ A prompt that is not a task's and names "[write <file>]" appends to that file in
 edit as a tool call and ends the turn (a lead asked for more work after delivery); with "[commit]" in it too, the agent commits everything there first.
 A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
 prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
-A workspace Loop's session (its system layer names "a Loop in the workspace", or 「的值班（Loop）」 in Chinese) logs "loop wake <n>" for each wake
+A workspace Loop's session (its system layer opens "You are the Loop of the workspace", or 「你是工作区…的值班」 in Chinese) logs "loop wake <n>" for each wake
 and answers "看过了：<first line>"; on its first wake it titles the session ("标题：<the prompt's last line>",
 as `session_info_update`, which must not name the Loop); "[write <file>]" in the Loop's prompt appends to that file in the workspace first,
 and "[hold]" keeps the turn going until FAKE_DIR/loop-go exists (then removes it). Each wake's prompt is logged
@@ -340,7 +340,7 @@ def content_turn(sid, task, d):
 def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
-    if re.search(r"a Loop in the workspace|的值班（Loop）", SYSTEM.get(sid, "")):
+    if re.search(r"^You are the Loop of the workspace|^你是工作区「[^」]*」（[^）]*）的值班", SYSTEM.get(sid, "")):
         # A wake sends the Loop's prompt as it is; the tests talk to a Loop as the person with "[me] ".
         if text.startswith("[me] "):
             say(sid, "回复：" + text[len("[me] "):])

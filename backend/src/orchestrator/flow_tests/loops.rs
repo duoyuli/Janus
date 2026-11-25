@@ -50,12 +50,15 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
         .and_then(|e| e.data.as_ref().unwrap()["prompt"].as_str().map(str::to_owned))
         .unwrap();
     assert!(layer.starts_with("你是工作区「") && !layer.contains("看看有什么新 issue"), "{layer}");
-    // How a tool is used is in its description, not in the system layer.
-    assert!(!layer.contains("janus.save_state") && !layer.contains("janus.next_wake"), "{layer}");
+    // Its tools are named once, one line each; how a tool is used is in its own description.
+    for tool in ["janus.dispatch：", "janus.save_state：", "janus.next_wake：", "janus.set_name："] {
+        assert_eq!(layer.matches(tool).count(), 1, "{tool}: {layer}");
+    }
+    assert!(!layer.contains("github:owner/repo"), "the key's example is in the tool's description: {layer}");
 
     // Its system layer asks it to name itself while it has no name; a session title (the fake agent
     // gives one) does not name it.
-    assert!(layer.contains("janus.set_name"), "{layer}");
+    assert!(layer.contains("你还没有名字"), "{layer}");
     assert_eq!(h.app.loop_def(&id).unwrap().name, "");
     let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "  issue 分拣\n多余的行" })).await;
     assert!(!err, "{said}");
@@ -464,7 +467,7 @@ async fn a_loop_in_english_is_told_everything_in_english() {
     let live = h.app.run(&run).unwrap();
     assert_eq!(live.lang, crate::lang::Lang::En);
     let layer = h.app.loop_brief(&live);
-    assert!(layer.starts_with("You are a Loop in the workspace") && layer.contains("janus.set_name"), "{layer}");
+    assert!(layer.starts_with("You are the Loop of the workspace") && layer.contains("- janus.set_name: "), "{layer}");
     assert!(!layer.contains("值班"), "{layer}");
     let tools = Caller::Loop.tools(live.lang);
     let about =
