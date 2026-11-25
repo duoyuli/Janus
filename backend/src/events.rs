@@ -112,3 +112,18 @@ wire_enum! {
         DecisionWithdrawn = "decision.withdrawn",
     }
 }
+
+impl EventKind {
+    /// An agent did something in the run: spoke, called a tool, handed in a result or put
+    /// tasks on the board. Opening a session, Janus's own notes and usage readings are not work.
+    pub fn is_agent_progress(self) -> bool {
+        matches!(
+            self,
+            EventKind::AgentMessage
+                | EventKind::ToolCall
+                | EventKind::ResultSubmitted
+                | EventKind::OrchestrationAccepted
+                | EventKind::TaskSucceeded
+        )
+    }
+}

@@ -101,8 +101,13 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &sixth), "interrupted");
     assert_eq!(status(&restarted, &seventh), "queued");
-    // With the interrupted run holding no slot, the restarted service starts it.
+    // The interrupted run goes on by itself and keeps its slot; the queued one waits behind it.
+    restarted.continue_after_restart();
     restarted.pump();
+    wait_live(&restarted, &sixth).await;
+    assert_eq!(status(&restarted, &seventh), "queued");
+    // Once it is stopped, the queued run gets the slot.
+    act_on(&restarted, &sixth, json!({ "type": "cancel" }));
     wait_status(&restarted, &seventh, "running").await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -123,10 +128,12 @@ async fn a_run_that_never_got_set_up_queues_again() {
     let second = new_run(&app, "被领走但没准备好").await;
     // As if a pump took it off the queue and the service stopped before its setup.
     app.db.set_run_status(&second, RunStatus::Planning).unwrap();
-    let restarted = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    // Two slots after the restart: the first run goes on in one, the second may take the other.
+    let restarted = test_app_with(&h.dir, |c| c.max_running_runs = 2);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &first), "interrupted");
     assert_eq!(status(&restarted, &second), "queued", "back on the queue, not interrupted");
+    restarted.continue_after_restart();
     assert!(has(&events(&restarted, &second), "run.requeued"));
 
     // Its workspace's agent cannot run now: it fails to start, and stays failed.
@@ -151,5 +158,74 @@ async fn a_run_that_never_got_set_up_queues_again() {
         .map_err(|e| format!("{e:?}"))
         .unwrap();
     wait_live(&restarted, &second).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// What `run.interrupted` said a restart leaves the run to (`data.after`).
+fn left_to(app: &App, run: &str) -> String {
+    let log = events(app, run);
+    let last = log.iter().rev().find(|e| e.kind == "run.interrupted").expect("interrupted");
+    last.data.as_ref().unwrap()["after"].as_str().unwrap().to_string()
+}
+
+/// A restart does not leave goals waiting for someone to continue them: a working one goes on
+/// by itself and takes its slot back before the queue hands it to a newer run; one the person
+/// paused waits for them; and one that went on by itself and was cut off again before any agent
+/// did anything waits too, so a run that brings the service down is not continued forever.
+#[tokio::test(flavor = "multi_thread")]
+async fn working_goals_go_on_by_themselves_after_a_restart() {
+    let h = harness("queue-goes-on", &[("lead", false), ("m1", false)], json!({}));
+    let app = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    let working = new_run(&app, "在做").await;
+    wait_live(&app, &working).await;
+    // Started by hand past the one slot, then paused by the person.
+    let paused = new_run(&app, "暂停了").await;
+    app.request_action(&paused, &req(json!({ "type": "start" }))).await.map_err(|e| format!("{e:?}")).unwrap();
+    wait_live(&app, &paused).await;
+    act_on(&app, &paused, json!({ "type": "pause" }));
+    let queued = new_run(&app, "排着").await;
+    assert_eq!(status(&app, &queued), "queued");
+
+    // The process goes away (its runs stop writing before the restarted service writes).
+    for run in [&working, &paused] {
+        app.run(run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let restarted = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    restarted.recover().unwrap();
+    assert_eq!(status(&restarted, &working), "interrupted");
+    assert_eq!(left_to(&restarted, &working), "goes_on");
+    assert_eq!(left_to(&restarted, &paused), "paused");
+
+    // The queue counts the continuing run as working while it is set up again.
+    restarted.continue_after_restart();
+    restarted.pump();
+    wait_live(&restarted, &working).await;
+    assert_eq!(status(&restarted, &queued), "queued", "the slot went back to the run that held it");
+    assert_eq!(status(&restarted, &paused), "interrupted", "a paused run waits for the person");
+    let log = events(&restarted, &working);
+    let recovered = log.iter().rev().find(|e| e.kind == "run.recovered").unwrap();
+    assert_eq!(recovered.actor, "janus");
+    assert_eq!(recovered.data.as_ref().unwrap()["auto"], true);
+
+    // Cut off again right after going on by itself, before any agent did anything.
+    restarted.run(&working).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let last = restarted.db.events(&working, 0).unwrap().last().unwrap().seq;
+    restarted
+        .db
+        .insert_event(&crate::usage::event_from_json(
+            &working,
+            &json!({ "seq": last + 1, "ts": now_ms(), "type": "run.recovered", "actor": "janus", "data": { "auto": true } }),
+        ))
+        .unwrap();
+    let again = test_app_with(&h.dir, |c| c.max_running_runs = 1);
+    again.recover().unwrap();
+    assert_eq!(left_to(&again, &working), "no_progress");
+    again.continue_after_restart();
+    again.pump();
+    // With nothing continuing, the queued run gets the slot.
+    wait_status(&again, &queued, "running").await;
+    assert_eq!(status(&again, &working), "interrupted");
     let _ = std::fs::remove_dir_all(&h.dir);
 }

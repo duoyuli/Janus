@@ -158,7 +158,13 @@ impl App {
         if queued.is_empty() {
             return vec![];
         }
-        let working = working.iter().filter(|id| !self.run(id).is_some_and(|r| r.st.lock().unwrap().paused())).count();
+        // Runs continuing after a restart hold their slots while they are set up again.
+        let continuing = self.continuing.lock().unwrap().clone();
+        let working = working
+            .iter()
+            .filter(|id| !continuing.contains(*id) && !self.run(id).is_some_and(|r| r.st.lock().unwrap().paused()))
+            .count()
+            + continuing.len();
         let mut free = self.cfg.max_running_runs.max(1).saturating_sub(working);
         let fresh = self.fresh.lock().unwrap().clone();
         let mut starting = vec![];

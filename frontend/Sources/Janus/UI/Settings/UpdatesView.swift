@@ -72,7 +72,7 @@ struct UpdatesView: View {
 
     private var installNote: String {
         let size = ByteCountFormatter.string(fromByteCount: Int64(updater.downloadSize), countStyle: .file)
-        return L.text("将下载 \(size) 并重开 Janus；进行中的任务会中断，重开后可以接着做。")
+        return L.text("将下载 \(size) 并重开 Janus；进行中的任务会中断，重开后自动接着做。")
     }
 
     /// What the pane says above the buttons, and how it should read.

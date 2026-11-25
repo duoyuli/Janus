@@ -894,17 +894,76 @@ impl App {
             .iter()
             .map(|t| json!({ "id": t.def.id, "status": t.status(), "blockedBy": t.blocked_by() }))
             .collect();
+        // Only a restart continues a goal on a schedule's behalf; the person continues it by hand.
+        let auto = asker == Asker::Schedule;
+        let (actor, who) = if auto { ("janus", "服务重启后自动") } else { ("user", "") };
         self.emit(
             &run,
             ev(
                 EventKind::RunRecovered,
-                "user",
-                format!("从中断处继续：看板上 {done} 个子任务已完成，{open} 个子任务接着做，负责人接着推进目标"),
+                actor,
+                format!("{who}从中断处继续：看板上 {done} 个子任务已完成，{open} 个子任务接着做，负责人接着推进目标"),
             )
-            .data(json!({ "phase": "running", "done": done, "open": open, "tasks": restored })),
+            .data(json!({ "phase": "running", "done": done, "open": open, "tasks": restored, "auto": auto })),
         );
         self.launch(run.clone(), Phase::Goal { resumed: true });
         Ok(run)
+    }
+
+    /// What happens to unfinished run `run_id` once the restarted service listens. A goal goes on
+    /// by itself: nobody may be watching (a Loop dispatched it, the person is away), and work left
+    /// interrupted would wait forever. A run the person paused waits for them. So does one that
+    /// went on by itself after the last restart and was cut off again before any agent did
+    /// anything: continuing it once more might only repeat whatever stopped the service.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
+    fn goes_on_after_restart(&self, run_id: &str) -> Result<AfterRestart> {
+        let Some(row) = self.db.run(run_id)? else { return Ok(AfterRestart::Person) };
+        if row.kind != RunKind::Goal {
+            return Ok(AfterRestart::Person);
+        }
+        let seq = |kind| self.db.latest_event(run_id, kind).map(|e| e.map(|e| e.seq).unwrap_or(0));
+        let recovered = self.db.latest_event(run_id, EventKind::RunRecovered)?;
+        let since = recovered.as_ref().map(|e| e.seq).unwrap_or(0);
+        // A pause does not outlive a continue: only one after the last continue still holds.
+        if seq(EventKind::RunPaused)? > seq(EventKind::RunResumed)?.max(since) {
+            return Ok(AfterRestart::Paused);
+        }
+        if recovered.is_some_and(|e| e.data.is_some_and(|d| d["auto"] == true)) {
+            let worked = self.db.events(run_id, since)?.iter().any(|e| e.kind().is_agent_progress());
+            if !worked {
+                return Ok(AfterRestart::NoProgress);
+            }
+        }
+        Ok(AfterRestart::GoesOn)
+    }
+
+    /// Continue the goal runs `recover` set aside (`continuing`), one after another, each as if a
+    /// schedule started it: they take their slots back before the queue hands out new ones.
+    // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
+    pub fn continue_after_restart(self: &Arc<Self>) {
+        let mut ids: Vec<String> = self.continuing.lock().unwrap().iter().cloned().collect();
+        ids.sort();
+        let app = self.clone();
+        tokio::spawn(async move {
+            for id in ids {
+                let resumed = app.resume_run_by(&id, Asker::Schedule).await;
+                // Working again (it holds its slot as a running run now), or waiting for the person.
+                app.continuing.lock().unwrap().remove(&id);
+                if let Err(err) = resumed {
+                    let _ = app.record(
+                        &id,
+                        ev(
+                            EventKind::RunInterrupted,
+                            "janus",
+                            format!("服务重启后没能自动继续：{err:#}。可以从中断处继续"),
+                        )
+                        .data(json!({ "after": AfterRestart::Person, "error": format!("{err:#}") })),
+                    );
+                    crate::config::log(format!("janus: could not continue run {id} after the restart: {err:#}"));
+                }
+                app.pump();
+            }
+        });
     }
 
     pub fn recover(&self) -> Result<()> {
@@ -924,15 +983,22 @@ impl App {
                 self.requeue(&run_id, "服务重启时这个任务还在准备，重新排队")?;
                 continue;
             }
-            self.record(
-                &run_id,
-                ev(
-                    EventKind::RunInterrupted,
-                    "janus",
-                    "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息",
-                ),
-            )?;
+            let goes_on = self.goes_on_after_restart(&run_id)?;
+            let text = match goes_on {
+                AfterRestart::GoesOn => "编排器重启，进行中的 Agent 会话已关闭。服务启动后自动从中断处继续",
+                AfterRestart::Paused => "编排器重启，进行中的 Agent 会话已关闭。重启前已暂停，等你从中断处继续",
+                AfterRestart::NoProgress => {
+                    "编排器重启，进行中的 Agent 会话已关闭。上次重启后自动继续，还没有任何进展又中断了，等你决定是否继续"
+                }
+                AfterRestart::Person => {
+                    "编排器重启，进行中的 Agent 会话已关闭。可以从中断处继续，或者直接给某个 Agent 发消息"
+                }
+            };
+            self.record(&run_id, ev(EventKind::RunInterrupted, "janus", text).data(json!({ "after": goes_on })))?;
             self.db.set_run_status(&run_id, RunStatus::Interrupted)?;
+            if goes_on == AfterRestart::GoesOn {
+                self.continuing.lock().unwrap().insert(run_id);
+            }
         }
         // An accepted run kept its worktree while its conversation was open; nothing works there
         // after a restart, and the result is back where the run started. One whose conversation
@@ -960,6 +1026,22 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+wire_enum! {
+    /// What a restart leaves an unfinished run to (`run.interrupted`'s `data.after`).
+    pub enum AfterRestart {
+        /// A goal: it continues by itself once the service listens.
+        GoesOn = "goes_on",
+        /// The person paused it before the restart: it waits for them.
+        Paused = "paused",
+        /// It continued by itself after the last restart and no agent did anything before this
+        /// one: it waits for the person.
+        NoProgress = "no_progress",
+        /// A chat, a Loop's session, a consolidation, or a run that could not be continued: the
+        /// next message or wake opens it, or the person continues it.
+        Person = "person",
     }
 }
 

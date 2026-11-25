@@ -6,7 +6,7 @@ from scenarios import scenario, task
 
 @scenario("queue", own=True)
 def queue(ctx, c):
-    """派发队列：同时在做的任务满了时新目标排队，按先后开始；排队的任务只能马上开工或取消；暂停的任务让出位置；应用显示排位；队列跨工作区，服务重启后排队的目标自动开始"""
+    """派发队列：同时在做的任务满了时新目标排队，按先后开始；排队的任务只能马上开工或取消；暂停的任务让出位置；应用显示排位；队列跨工作区，服务重启后在做的目标先自动继续、排队的目标等它让出位置"""
     # A server of its own with one slot.
     with ctx.private("queue", JANUS_MAX_RUNNING_RUNS="1") as ctx:
         t = ctx.team("queue", members=("m1",), script={"Q1": ["slow"]})
@@ -69,10 +69,15 @@ def queue(ctx, c):
         c(waiting.status() == "queued", "队列跨工作区：另一个工作区的目标占着唯一的位置，这个目标排队")
         ctx.server.stop()
         ctx.server.start()
-        blocker.wait_status("interrupted")
+        blocker.wait_event("run.recovered")
+        c(blocker.status() == "running" and blocker.has("run.interrupted")[-1]["data"].get("after") == "goes_on",
+          "服务重启后，在做的目标记为中断并自动继续，拿回自己的位置")
+        c(waiting.status() == "queued", "排队的目标仍在排队，没有抢走自动继续的目标的位置")
+        blocker.act("cancel")
+        blocker.wait_status("cancelled")
         waiting.wait_status("running")
         c([e["type"] for e in waiting.events()][:3] == ["run.queued", "run.starting", "run.created"],
-          "服务重启后，在做的目标记为中断，排队的目标自动开始（排队、开始准备、开始，各一次）")
+          "位置空出后，排队的目标自动开始（排队、开始准备、开始，各一次）")
         ctx.ui(c, waiting.id, lambda r, s: r["status"] == "running" and r["live"], "重启后开始的目标在应用里是进行中")
         waiting.act("cancel")
         waiting.wait_status("cancelled")

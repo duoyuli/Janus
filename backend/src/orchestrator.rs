@@ -1092,6 +1092,10 @@ pub struct App {
     /// Runs whose own create request has not yet had its turn at the slots; no other pump hands
     /// them out meanwhile, so that request can wait for its run to be set up.
     fresh: StdMutex<HashSet<String>>,
+    /// Goal runs a restart broke off that go on by themselves once the service listens
+    /// (`continue_after_restart`). Until each is working again it holds its slot, so the queue
+    /// does not hand that slot to a newer run first.
+    continuing: StdMutex<HashSet<String>>,
     /// The `Arc` this `App` lives in, for work a status change starts in the background (the next
     /// queued run, a Loop's wake).
     me: std::sync::Weak<App>,
@@ -1227,6 +1231,7 @@ impl App {
             prices: Default::default(),
             library: Default::default(),
             fresh: Default::default(),
+            continuing: Default::default(),
             me: me.clone(),
             loops: Default::default(),
         })

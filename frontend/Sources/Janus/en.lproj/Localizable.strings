@@ -634,7 +634,7 @@
 "更改" = "Change";
 "更改来源" = "Change Source";
 "更新" = "Updates";
-"将下载 %@ 并重开 Janus；进行中的任务会中断，重开后可以接着做。" = "Downloads %@ and reopens Janus. Runs in progress are interrupted and pick up after reopening.";
+"将下载 %@ 并重开 Janus；进行中的任务会中断，重开后自动接着做。" = "Downloads %@ and reopens Janus. Runs in progress are interrupted and pick up on their own after reopening.";
 "更新内容" = "What’s New";
 "更新到 %@" = "Update to %@";
 "更新失败：%@" = "Update failed: %@";
@@ -1362,7 +1362,7 @@
 
 "所有工作区，%lld 件待处理" = "All workspaces, %lld pending";
 
-"还有任务或对话在跑。退出会中断它们，回来后可以接着做。" = "Runs or chats are still going. Quitting interrupts them; you can pick them up when you're back.";
+"还有任务或对话在跑。退出会中断它们；下次打开 Janus 时，任务自动接着做。" = "Runs or chats are still going. Quitting interrupts them; runs pick up on their own the next time Janus opens.";
 
 "任务记录会保留，在侧栏的「团队」里还能找到。" = "Its runs are kept and can still be found under Team in the sidebar.";
 "已删除的工作区" = "Deleted workspace";
@@ -1673,4 +1673,4 @@
 "%@ 改了文件，没有独立验证" = "%@ changed files with no independent verification";
 "恢复会话 · 编排器重启后接着推进目标" = "Session Restored · Continuing the Goal After a Restart";
 "现在更新 Janus？" = "Update Janus now?";
-"还有任务或对话在跑。更新会重开 Janus 并中断它们，之后可以从中断处继续。" = "Tasks or chats are still running. Updating reopens Janus and interrupts them; you can continue them where they stopped afterwards.";
+"还有任务或对话在跑。更新会重开 Janus 并中断它们，重开后任务自动接着做。" = "Runs or chats are still going. Updating reopens Janus and interrupts them; runs pick up on their own after it reopens.";

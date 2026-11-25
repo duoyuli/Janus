@@ -321,7 +321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !Updater.shared.quitting, model.backend.owned, let s = model.store,
            !s.working.isEmpty {
             // Chats count too: a chat answering or waiting on an approval is cut off as well.
-            if !confirm(L.text("退出 Janus？"), L.text("还有任务或对话在跑。退出会中断它们，回来后可以接着做。"), ok: L.text("退出")) { return .terminateCancel }
+            if !confirm(L.text("退出 Janus？"), L.text("还有任务或对话在跑。退出会中断它们；下次打开 Janus 时，任务自动接着做。"), ok: L.text("退出")) { return .terminateCancel }
         }
         model.backend.stop()
         return .terminateNow

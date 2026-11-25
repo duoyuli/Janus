@@ -9,7 +9,7 @@ from scenarios import scenario, task
 
 @scenario("restart", own=True)
 def restart(ctx, c):
-    """服务重启：进行中的 Run 记为中断，看板和痕迹恢复，从中断处继续，负责人恢复原来的会话并收到重启时的看板；已交付的 Run 回放时会话只读，重启后还能继续对话，同时发来的两条消息只恢复一次会话；恢复的会话拿到和原来一样的系统层，不再注入历史和第二份指令；应用重新连上"""
+    """服务重启：进行中的 Run 记为中断后自动从中断处继续，暂停的 Run 等你继续，看板和痕迹恢复，负责人恢复原来的会话并收到重启时的看板；已交付的 Run 回放时会话只读，重启后还能继续对话，同时发来的两条消息只恢复一次会话；恢复的会话拿到和原来一样的系统层，不再注入历史和第二份指令；应用重新连上"""
     # A server of its own: this scenario stops and starts it.
     with ctx.private("restart") as ctx:
         t = ctx.team("restart", members=("m1", "m2", "m3"), script={"T1": ["write:a.txt"], "T2": ["slow", "ok"], "T3": ["ok"]})
@@ -22,6 +22,12 @@ def restart(ctx, c):
         done.orchestrate(task("D1", d.member("m1")))
         done.wait_event("task.succeeded", task="D1")
         done.finish("交付了")
+        # Paused by the person before the restart: it waits for them afterwards.
+        p = ctx.team("restart-paused", members=("m1",))
+        paused = p.run("暂停着跨过重启的目标")
+        paused.wait_status("running")
+        paused.act("pause")
+        paused.wait_event("run.paused")
         h = ctx.team("restart-chat", members=("m1",))
         chat = ctx.api("POST", "/api/chats", {"role": h.member("m1")})["id"]
         ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "重启前说的话"})
@@ -37,18 +43,26 @@ def restart(ctx, c):
         ctx.server.stop()
         meta = ctx.server.start()
         c(meta["home"] == ctx.home, "服务在同一个 Janus home 上重新启动")
-        run.wait_status("interrupted")
-        c(run.has("run.interrupted"), "重启时没结束的 Run 记为中断")
+        interrupted = run.wait_event("run.interrupted")
+        c(interrupted["data"].get("after") == "goes_on", "重启时没结束的 Run 记为中断，写明服务启动后自动继续")
         c(done.status() == "delivered", "已交付的 Run 不受影响")
-        c(not ctx.api("GET", f"/api/runs/{run.id}")["live"], "中断的 Run 不在内存中运行")
-        code, _ = run.act_error("pause")
-        c(code == 409, "中断的 Run 不能执行要求它正在运行的操作（409）")
-        ctx.ui(c, run.id, lambda r, s: r["status"] == "interrupted", "应用重新连上服务，显示 Run 已中断", pages=("board",))
 
+        # The person paused this one: it waits for them, and nothing that needs a running run works.
+        paused.wait_status("interrupted")
+        c(paused.has("run.interrupted")[-1]["data"].get("after") == "paused", "重启前暂停的 Run 不自动继续，等你决定")
+        c(not ctx.api("GET", f"/api/runs/{paused.id}")["live"], "等你继续的 Run 不在内存中运行")
+        code, _ = paused.act_error("pause")
+        c(code == 409, "中断的 Run 不能执行要求它正在运行的操作（409）")
+        ctx.ui(c, paused.id, lambda r, s: r["status"] == "interrupted", "应用重新连上服务，显示暂停的 Run 已中断", pages=("board",))
+        paused.act("resumeRun")
+        resumed = paused.wait_event("run.recovered")
+        c(resumed["actor"] == "user" and not resumed["data"].get("auto"), "你点「从中断处继续」后它接着做")
+        paused.finish("继续后完成")
+
+        # Nobody touched the working one: it went on by itself, with its lead's own session.
         lead_sid = next(e["data"]["session"] for e in run.events() if e["actor"] == "lead" and (e.get("data") or {}).get("session"))
-        run.act("resumeRun")
-        run.wait_event("run.recovered")
-        c(True, "从中断处继续")
+        recovered = run.wait_event("run.recovered")
+        c(recovered["actor"] == "janus" and recovered["data"].get("auto") is True, "没人操作，服务启动后自动从中断处继续")
         wait(lambda: len([u for u in t.fake.urls(run.id) if u.endswith("/lead")]) >= 2, "负责人会话以新的看板地址重新打开")
         c(True, "恢复后的负责人会话拿到新的看板地址（旧令牌作废）")
         # The lead's own session comes back with everything it did; it is told what the restart

@@ -245,7 +245,7 @@ final class Updater {
     /// at work it asks first; `false` when the person keeps them going.
     func mayInterrupt() async -> Bool {
         guard await isBusy() else { return true }
-        return confirm(L.text("现在更新 Janus？"), L.text("还有任务或对话在跑。更新会重开 Janus 并中断它们，之后可以从中断处继续。"), ok: L.text("现在更新"))
+        return confirm(L.text("现在更新 Janus？"), L.text("还有任务或对话在跑。更新会重开 Janus 并中断它们，重开后任务自动接着做。"), ok: L.text("现在更新"))
     }
 
     /// The staged version, swapped in now: the person asked for it.

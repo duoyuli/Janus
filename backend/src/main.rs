@@ -173,8 +173,9 @@ async fn main() -> Result<()> {
 
     let addr = app.cfg.addr.clone();
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    // Only once nothing can stop the start: runs queued before the restart start when slots are
-    // free, as they did before it.
+    // Only once nothing can stop the start: goals the restart broke off go on by themselves, and
+    // runs queued before the restart start when slots are free, as they did before it.
+    app.continue_after_restart();
     app.pump();
     // Each Loop wakes when it last said; one that missed its time while Janus was down wakes once now.
     app.start_loops()?;
