@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.25.3
+
+- Janus 写给 Agent 的说明、提示、看板消息和工具说明跟着应用的语言：界面是中文就用中文，是英文就用英文，不再同一个会话里中英混着来。换语言后新建的任务、对话和值班用新语言，进行中的不变；以前的任务按中文继续。
+
+- 数字员工不再只能写代码：Janus 只告诉 Agent 怎样协作（看板、派活、回报结果、提问、交付），怎样做事、怎样核对写在数字员工自己的指令里。写一个律师、编辑或分析师，它就按自己的指令做事，不会被要求「跑测试、读代码」。默认的 PMO、通用数字员工、研发工程师和质量工程师接过了原来的核对要求，你没改过的会自动更新。
+
+- 看板工具、值班和团队记忆的用法只写在工具自己的说明里，负责人和协作者的说明不再重复一遍，MCP 服务器也不再另附说明；资源库的 Skill 由 Agent 按自己的方式加载 `janus-skills`，会话说明里不再写它的位置。注入的说明更短，工具说明补上了原来只写在说明里的限制，例如没通过的独立验证不能直接接受。
+
+- What Janus tells agents (instructions, prompts, board messages, tool descriptions) follows the app's language: Chinese when the app is in Chinese, English when it is in English, instead of mixing both in one session. After you switch, new tasks, chats and Loops use the new language; running ones keep theirs, and earlier tasks continue in Chinese.
+
+- Digital employees are no longer coding-only: Janus tells agents only how to work together (the board, assigning work, reporting results, questions, delivery), and how to do and check the work lives in each digital employee's own instructions. A lawyer, editor or analyst you set up works by its instructions instead of being told to run tests and read code. The default PMO, generalist, developer and QA took over the checking rules; the ones you have not edited update on their own.
+
+- How to use the board, Loop and team-memory tools is written only in each tool's own description: the lead's and collaborators' instructions no longer repeat it, and the MCP servers add no instructions of their own. Library skills reach agents through `janus-skills`, which they load their own way; sessions are no longer told where it is. The injected instructions are shorter, and the tool descriptions now carry the limits that used to be only in them, such as a failed independent verification not being accepted as is.
+
 ## 2026.11.25.2
 
 - 值班的会话标出每次开工的起止：开工处一条分隔线写第几次、几点、为什么开工（按时间表、它约的时间到了、你让它开工、你回答了它的问题、派出的任务结束了），收工处一行写几点收工、用了多久、下次几点开工（它自己约的标「它约的」）；没能开工时写时刻和原因。值班会话开头不再有一条空的「目标」分隔线。
