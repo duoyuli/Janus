@@ -4,6 +4,28 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.24.5
+
+这一版的应用和服务与 2026.11.24.4 相同，变化都在仓库和发布流程：
+
+- 中英文 README 重写：开头说明 Janus 是什么、适合谁，配上真实应用的界面截图（收件箱、交付、会话、工作区，浅色和深色各一套），再讲亮点、概念和快速开始。
+
+- 新增 `just screenshots`：在真实应用里放好演示数据，重拍 `docs/assets/screenshots/` 里的中英文、浅色和深色截图。
+
+- GitHub 托管的 macOS 机器 5 分钟内没排到时，CI 和发布改由维护者本机的运行器接手，不再因为排不到机器而失败；本机运行器只接推送到 `main` 和打 tag 的任务，外部贡献者的工作流一律要先审批。
+
+- 新增研究快照：2026-11-24 的 MCP 扩展进展（Skills over MCP、Tasks、Elicitation）。
+
+The app and the server in this version are the same as in 2026.11.24.4; the changes are in the repository and the release process:
+
+- Rewrote the English and Chinese READMEs: they open with what Janus is and who it is for, show screenshots of the real app (inbox, delivery, session and workspace, in light and dark), then the highlights, concepts and quick start.
+
+- Added `just screenshots`, which stages demo data in the real app and retakes the English and Chinese, light and dark screenshots in `docs/assets/screenshots/`.
+
+- When no GitHub-hosted macOS machine is free within 5 minutes, CI and releases now run on the maintainer's own runner instead of failing for want of a machine; that runner only takes jobs from pushes to `main` and tags, and workflows from outside contributors always need approval first.
+
+- Added a research snapshot on the MCP extensions of 2026-11-24 (Skills over MCP, Tasks, Elicitation).
+
 ## 2026.11.24.4
 
 - 修复服务重启后「从中断处继续」时负责人像失忆一样从头再来：负责人现在接回自己原来的会话，之前做过的、读过的、你中途补充的都还在，不再重发一遍目标；它会收到一条说明，列出重启那一刻每个子任务的状况（哪些已完成、哪些是它发回返工的以及它当时的说明、哪些正在执行并接回自己的会话继续），以及这期间你留给它的消息。负责人会话页把这条显示为「恢复会话 · 编排器重启后接着推进目标」。Agent 不能加载原会话时才新开，新会话的说明写明这是新会话，并带上同样的看板状况和最近的对话。
