@@ -121,9 +121,9 @@ async fn a_cancelled_run_marks_the_running_attempt_and_keeps_reported_usage() {
     assert!(t2.duration_ms.is_some_and(|ms| ms >= 0), "{:?}", t2);
     assert_eq!(t2.tokens.total, None, "the cancelled attempt reported nothing: {:?}", t2);
     assert!(
-        l.task_lines("T2", &crate::usage::Names::new()).iter().any(|x| x.contains("已取消")),
+        l.task_lines("T2", &crate::usage::Names::new(), crate::lang::Lang::Zh).iter().any(|x| x.contains("已取消")),
         "{:?}",
-        l.task_lines("T2", &crate::usage::Names::new())
+        l.task_lines("T2", &crate::usage::Names::new(), crate::lang::Lang::Zh)
     );
     let _ = std::fs::remove_dir_all(&h.dir);
 }

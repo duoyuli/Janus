@@ -258,8 +258,8 @@ impl std::error::Error for Conflict {}
 /// nothing is committed or merged; the lead finishes or aborts it there.
 #[derive(Debug)]
 pub struct Unfinished {
-    /// What is unfinished, as the person reads it (「变基」).
-    pub what: &'static str,
+    /// What is unfinished.
+    pub what: GitOp,
     /// The files still in conflict.
     pub files: Vec<String>,
 }
@@ -269,13 +269,36 @@ impl std::fmt::Display for Unfinished {
         write!(
             f,
             "没有合并：任务的副本里还有没做完的{}{}，Janus 没有提交，也没有动用户的目录和分支。",
-            self.what,
+            self.what.label(crate::lang::Lang::Zh),
             listed(&self.files)
         )
     }
 }
 
 impl std::error::Error for Unfinished {}
+
+/// A git operation left halfway in a worktree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitOp {
+    Rebase,
+    Merge,
+    CherryPick,
+    Revert,
+    /// No operation, but files still in conflict.
+    Conflicts,
+}
+
+impl GitOp {
+    pub fn label(self, lang: crate::lang::Lang) -> &'static str {
+        match self {
+            GitOp::Rebase => lang.pick("变基", "rebase"),
+            GitOp::Merge => lang.pick("合并", "merge"),
+            GitOp::CherryPick => lang.pick("拣选（cherry-pick）", "cherry-pick"),
+            GitOp::Revert => lang.pick("还原（revert）", "revert"),
+            GitOp::Conflicts => lang.pick("冲突解决", "conflict resolution"),
+        }
+    }
+}
 
 fn listed(files: &[String]) -> String {
     if files.is_empty() { String::new() } else { format!("（{}）", files.join("、")) }
@@ -299,15 +322,15 @@ fn unfinished(path: &Path) -> Option<Unfinished> {
     };
     let files = conflicted(path);
     let what = if there("rebase-merge") || there("rebase-apply") {
-        "变基"
+        GitOp::Rebase
     } else if there("MERGE_HEAD") {
-        "合并"
+        GitOp::Merge
     } else if there("CHERRY_PICK_HEAD") {
-        "拣选（cherry-pick）"
+        GitOp::CherryPick
     } else if there("REVERT_HEAD") {
-        "还原（revert）"
+        GitOp::Revert
     } else if !files.is_empty() {
-        "冲突解决"
+        GitOp::Conflicts
     } else {
         return None;
     };
@@ -810,7 +833,7 @@ mod tests {
         assert!(!Command::new("git").args(["rebase", "-q", &c.onto]).current_dir(&w).status().unwrap().success());
         let err = accept(&r, &w, Some(&branch), &base, "e", false).unwrap_err();
         let u = err.downcast_ref::<Unfinished>().expect("unfinished");
-        assert_eq!((u.what, u.files.as_slice()), ("变基", ["a.txt".to_string()].as_slice()), "{err}");
+        assert_eq!((u.what, u.files.as_slice()), (GitOp::Rebase, ["a.txt".to_string()].as_slice()), "{err}");
         assert_eq!(head(&r), x, "the branch did not move");
         assert!(
             read(&w, &["rev-parse", "--verify", "-q", "REBASE_HEAD"]).is_some(),

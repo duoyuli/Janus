@@ -6,6 +6,7 @@
 //! allowed moves are stated once, in `can_transition_to`; a call that does not fit is a bug in the
 //! caller.
 
+use crate::lang::Lang;
 use crate::wire::wire_enum;
 
 wire_enum! {
@@ -196,16 +197,21 @@ wire_enum! {
 }
 
 impl TaskStatus {
-    /// What the lead and the person read.
+    /// What the person reads.
     pub fn label(self) -> &'static str {
+        self.label_in(Lang::Zh)
+    }
+
+    /// What an agent reads, in the run's language.
+    pub fn label_in(self, lang: Lang) -> &'static str {
         match self {
-            TaskStatus::Pending => "等待开始",
-            TaskStatus::Running => "执行中",
-            TaskStatus::Succeeded => "已完成",
-            TaskStatus::Failed => "失败",
-            TaskStatus::Blocked => "依赖失败",
-            TaskStatus::Cancelled => "已取消",
-            TaskStatus::SkippedByDecision => "负责人已取消",
+            TaskStatus::Pending => lang.pick("等待开始", "pending"),
+            TaskStatus::Running => lang.pick("执行中", "running"),
+            TaskStatus::Succeeded => lang.pick("已完成", "done"),
+            TaskStatus::Failed => lang.pick("失败", "failed"),
+            TaskStatus::Blocked => lang.pick("依赖失败", "blocked by a failed dependency"),
+            TaskStatus::Cancelled => lang.pick("已取消", "cancelled"),
+            TaskStatus::SkippedByDecision => lang.pick("负责人已取消", "cancelled by the lead"),
         }
     }
 
@@ -292,20 +298,21 @@ wire_enum! {
 }
 
 impl AgentPhase {
-    pub fn label(self) -> &'static str {
+    /// What an agent reads, in the run's language.
+    pub fn label_in(self, lang: Lang) -> &'static str {
         match self {
-            AgentPhase::Idle => "空闲",
-            AgentPhase::Thinking => "思考中",
-            AgentPhase::Coordinating => "协调中",
-            AgentPhase::ReadingFiles => "读取文件",
-            AgentPhase::Editing => "修改文件",
-            AgentPhase::RunningTool => "调用工具",
-            AgentPhase::RunningTest => "运行测试",
-            AgentPhase::WaitingForInput => "等待输入",
-            AgentPhase::WaitingForAgent => "等待协作者",
-            AgentPhase::WaitingApproval => "等待用户审批",
-            AgentPhase::WaitingForSeat => "等空位",
-            AgentPhase::Error => "出错",
+            AgentPhase::Idle => lang.pick("空闲", "idle"),
+            AgentPhase::Thinking => lang.pick("思考中", "thinking"),
+            AgentPhase::Coordinating => lang.pick("协调中", "coordinating"),
+            AgentPhase::ReadingFiles => lang.pick("读取文件", "reading files"),
+            AgentPhase::Editing => lang.pick("修改文件", "editing files"),
+            AgentPhase::RunningTool => lang.pick("调用工具", "calling a tool"),
+            AgentPhase::RunningTest => lang.pick("运行测试", "running tests"),
+            AgentPhase::WaitingForInput => lang.pick("等待输入", "waiting for input"),
+            AgentPhase::WaitingForAgent => lang.pick("等待协作者", "waiting for a collaborator"),
+            AgentPhase::WaitingApproval => lang.pick("等待用户审批", "waiting for the user's approval"),
+            AgentPhase::WaitingForSeat => lang.pick("等空位", "waiting for a free seat"),
+            AgentPhase::Error => lang.pick("出错", "error"),
         }
     }
 }

@@ -56,6 +56,8 @@ wire_enum! {
         LibraryItem = "library_item",
         LibrarySource = "library_source",
         HostEnv = "host_env",
+        /// The language the app is used in (`lang`), one row; none means Chinese.
+        Language = "language",
         /// Janus's own marks, such as `seeded` once the default roles were written.
         Meta = "meta",
     }

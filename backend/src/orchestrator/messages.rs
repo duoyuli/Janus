@@ -190,7 +190,7 @@ impl App {
             taken.into_iter().map(|n| n.msg).collect()
         };
         self.notes_delivered(run, agent, &notes);
-        notes_text(&notes)
+        notes_text(&notes, run.lang)
     }
 
     /// The notes left for an agent, without taking them: a session that has to know them before
@@ -198,7 +198,7 @@ impl App {
     pub(super) fn peek_notes(&self, run: &Run, agent: &str) -> (String, Vec<String>) {
         let st = run.st.lock().unwrap();
         let notes: Vec<Msg> = st.notes.get(agent).into_iter().flatten().map(|n| n.msg.clone()).collect();
-        (notes_text(&notes), notes.iter().map(|m| m.id.clone()).collect())
+        (notes_text(&notes, run.lang), notes.iter().map(|m| m.id.clone()).collect())
     }
 
     /// Take the notes `peek_notes` saw; any left since stay for the next prompt.
@@ -231,12 +231,14 @@ impl App {
     }
 }
 
-fn notes_text(notes: &[Msg]) -> String {
+fn notes_text(notes: &[Msg], lang: crate::lang::Lang) -> String {
     if notes.is_empty() {
         return String::new();
     }
-    format!(
-        "\n\nAdditional information from the user. Give it priority:\n{}",
-        notes.iter().map(|n| format!("- {}", n.text)).collect::<Vec<_>>().join("\n")
+    let lines = notes.iter().map(|n| format!("- {}", n.text)).collect::<Vec<_>>().join("\n");
+    crate::lang::tr!(
+        lang,
+        "\n\n用户补充的信息，优先考虑：\n{lines}",
+        "\n\nAdditional information from the user. Give it priority:\n{lines}"
     )
 }

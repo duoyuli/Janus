@@ -22,6 +22,7 @@
 
 use crate::db::Event;
 use crate::events::EventKind;
+use crate::lang::{Lang, tr};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -58,11 +59,11 @@ pub enum Completeness {
 }
 
 impl Completeness {
-    pub fn label(self) -> &'static str {
+    pub fn label_in(self, lang: Lang) -> &'static str {
         match self {
-            Completeness::Missing => "未上报",
-            Completeness::Complete => "完整",
-            Completeness::Partial => "部分上报",
+            Completeness::Missing => lang.pick("未上报", "not reported"),
+            Completeness::Complete => lang.pick("完整", "complete"),
+            Completeness::Partial => lang.pick("部分上报", "partly reported"),
         }
     }
 
@@ -417,14 +418,14 @@ pub enum AttemptState {
 }
 
 impl AttemptState {
-    pub fn label(self) -> &'static str {
+    pub fn label_in(self, lang: Lang) -> &'static str {
         match self {
-            AttemptState::Unfinished => "未完成",
-            AttemptState::Succeeded => "成功",
-            AttemptState::Failed => "失败",
-            AttemptState::VerificationFailed => "验证没通过",
-            AttemptState::Expired => "已过期但仍计入",
-            AttemptState::Cancelled => "已取消",
+            AttemptState::Unfinished => lang.pick("未完成", "unfinished"),
+            AttemptState::Succeeded => lang.pick("成功", "succeeded"),
+            AttemptState::Failed => lang.pick("失败", "failed"),
+            AttemptState::VerificationFailed => lang.pick("验证没通过", "failed its check"),
+            AttemptState::Expired => lang.pick("已过期但仍计入", "expired, still counted"),
+            AttemptState::Cancelled => lang.pick("已取消", "cancelled"),
         }
     }
 }
@@ -598,9 +599,9 @@ impl Ledger {
     fn run_line(&self) -> String {
         let mut line = format!(
             "{} · {} · 耗时 {}",
-            tokens_text(&self.run.tokens, self.run.completeness),
-            cost_text(&self.run.cost),
-            duration_text(self.run.duration_ms)
+            tokens_text(&self.run.tokens, self.run.completeness, Lang::Zh),
+            cost_text(&self.run.cost, Lang::Zh),
+            duration_text(self.run.duration_ms, Lang::Zh)
         );
         if let Some(time) = self.time.text() {
             line.push_str(&format!(" · {time}"));
@@ -610,56 +611,74 @@ impl Ledger {
 
     /// The usage part of `task_detail`: the task, its makeup and context, each attempt and the
     /// members that spent it.
-    pub fn task_lines(&self, task: &str, names: &Names) -> Vec<String> {
+    pub fn task_lines(&self, task: &str, names: &Names, lang: Lang) -> Vec<String> {
         let Some(scope) = self.task(task).filter(|s| s.sessions > 0) else {
-            return vec![format!("用量：未开始（子任务 {task} 还没有会话）")];
+            return vec![tr!(
+                lang,
+                "用量：未开始（子任务 {task} 还没有会话）",
+                "Usage: not started (subtask {task} has no session yet)"
+            )];
         };
-        let mut out = vec![format!(
-            "用量：{} · {} · 耗时 {}{}",
-            tokens_text(&scope.tokens, scope.completeness),
-            cost_text(&scope.cost),
-            duration_text(scope.duration_ms),
-            scope.wait_ms.map(|ms| format!("（其中等待用户 {}）", duration(ms))).unwrap_or_default(),
+        let (tokens, cost, took) = (
+            tokens_text(&scope.tokens, scope.completeness, lang),
+            cost_text(&scope.cost, lang),
+            duration_text(scope.duration_ms, lang),
+        );
+        let waited = scope
+            .wait_ms
+            .map(|ms| {
+                let ms = duration_in(ms, lang);
+                tr!(lang, "（其中等待用户 {ms}）", " (of which waiting for the user {ms})")
+            })
+            .unwrap_or_default();
+        let mut out = vec![tr!(
+            lang,
+            "用量：{tokens} · {cost} · 耗时 {took}{waited}",
+            "Usage: {tokens} · {cost} · time {took}{waited}"
         )];
-        out.extend(breakdown_text(&scope.tokens));
-        out.extend(context_text(&scope.context));
+        out.extend(breakdown_text(&scope.tokens, lang));
+        out.extend(context_text(&scope.context, lang));
         for a in self.attempts.iter().filter(|a| a.task == task) {
-            out.push(format!(
-                "尝试 {}：{} · {} · {}{} · {}{}",
-                a.n,
-                who(&a.actor, names),
-                a.state.label(),
-                tokens_text(&a.tokens, a.completeness),
-                a.note.as_ref().map(|n| format!("（{n}）")).unwrap_or_default(),
-                duration_text(a.duration_ms),
-                if a.cost.reported() { format!(" · {}", cost_text(&a.cost)) } else { String::new() },
+            let (n, actor, state) = (a.n, who(&a.actor, names, lang), a.state.label_in(lang));
+            let tokens = tokens_text(&a.tokens, a.completeness, lang);
+            let note = a.note.as_ref().map(|n| tr!(lang, "（{n}）", " ({n})")).unwrap_or_default();
+            let took = duration_text(a.duration_ms, lang);
+            let cost = if a.cost.reported() { format!(" · {}", cost_text(&a.cost, lang)) } else { String::new() };
+            out.push(tr!(
+                lang,
+                "尝试 {n}：{actor} · {state} · {tokens}{note} · {took}{cost}",
+                "Attempt {n}: {actor} · {state} · {tokens}{note} · {took}{cost}"
             ));
         }
-        for g in self.task_bill(task, names) {
+        let missing = lang.pick("未上报", "not reported");
+        for g in self.task_bill(task, names, lang) {
             let models: Vec<String> = g
                 .models
                 .iter()
-                .map(|m| format!("{} {}", m.model, m.tokens.total.map(num).unwrap_or_else(|| "未上报".into())))
+                .map(|m| format!("{} {}", m.model, m.tokens.total.map(num).unwrap_or_else(|| missing.into())))
                 .collect();
-            let tokens = g.tokens.total.map(|n| format!("{} tokens", num(n))).unwrap_or_else(|| "未上报".into());
-            out.push(format!(
-                "成员 {}：{tokens}{}",
-                g.name,
-                if models.is_empty() { String::new() } else { format!(" · 模型 {}", models.join("、")) }
-            ));
+            let tokens = g.tokens.total.map(|n| format!("{} tokens", num(n))).unwrap_or_else(|| missing.into());
+            let models = if models.is_empty() {
+                String::new()
+            } else {
+                let models = models.join(lang.pick("、", ", "));
+                tr!(lang, " · 模型 {models}", " · models {models}")
+            };
+            let name = &g.name;
+            out.push(tr!(lang, "成员 {name}：{tokens}{models}", "Member {name}: {tokens}{models}"));
         }
         out
     }
 
     /// A task's bill: each member that worked on it, with its tokens by model and its cost, most
     /// tokens first. A member whose sessions reported nothing is listed with no models.
-    pub fn task_bill(&self, task: &str, names: &Names) -> Vec<BillGroup> {
+    pub fn task_bill(&self, task: &str, names: &Names, lang: Lang) -> Vec<BillGroup> {
         let mut groups: Vec<BillGroup> = vec![];
         for s in self.sessions.iter().filter(|s| s.task.as_deref() == Some(task)) {
             let i = match groups.iter().position(|g| g.id == s.actor) {
                 Some(i) => i,
                 None => {
-                    groups.push(BillGroup::new(&s.actor, &who(&s.actor, names)));
+                    groups.push(BillGroup::new(&s.actor, &who(&s.actor, names, lang)));
                     groups.len() - 1
                 }
             };
@@ -683,21 +702,24 @@ pub fn ledger(events: &[Event]) -> Ledger {
 }
 
 /// A range's tokens in words: the number with its completeness, or 「未上报」.
-pub fn tokens_text(tokens: &Tokens, completeness: Completeness) -> String {
+pub fn tokens_text(tokens: &Tokens, completeness: Completeness, lang: Lang) -> String {
     match tokens.total {
-        Some(n) => format!("{} tokens（{}）", num(n), completeness.label()),
-        None => "未上报".into(),
+        Some(n) => {
+            let (n, how) = (num(n), completeness.label_in(lang));
+            tr!(lang, "{n} tokens（{how}）", "{n} tokens ({how})")
+        }
+        None => lang.pick("未上报", "not reported").into(),
     }
 }
 
 /// What the tokens are made of, as far as the agents said: `构成：输入 … · 缓存读取 … · 输出 …`.
 /// A part that is 0 or was never reported is left out.
-fn breakdown_text(tokens: &Tokens) -> Option<String> {
+fn breakdown_text(tokens: &Tokens, lang: Lang) -> Option<String> {
     let parts: Vec<String> = [
-        ("输入", tokens.input),
-        ("缓存读取", tokens.cached_read),
-        ("缓存写入", tokens.cached_write),
-        ("输出", tokens.output),
+        (lang.pick("输入", "input"), tokens.input),
+        (lang.pick("缓存读取", "cache read"), tokens.cached_read),
+        (lang.pick("缓存写入", "cache write"), tokens.cached_write),
+        (lang.pick("输出", "output"), tokens.output),
     ]
     .into_iter()
     .filter_map(|(label, n)| n.filter(|n| *n > 0).map(|n| format!("{label} {}", num(n))))
@@ -705,66 +727,96 @@ fn breakdown_text(tokens: &Tokens) -> Option<String> {
     if parts.is_empty() {
         return None;
     }
-    let thought = tokens.thought.filter(|t| *t > 0).map(|t| format!("（输出中推理 {}）", num(t))).unwrap_or_default();
-    Some(format!("构成：{}{thought}", parts.join(" · ")))
+    let thought = tokens
+        .thought
+        .filter(|t| *t > 0)
+        .map(|t| {
+            let t = num(t);
+            tr!(lang, "（输出中推理 {t}）", " (reasoning within output {t})")
+        })
+        .unwrap_or_default();
+    let parts = parts.join(" · ");
+    Some(tr!(lang, "构成：{parts}{thought}", "Makeup: {parts}{thought}"))
 }
 
-fn cost_text(cost: &Cost) -> String {
+fn cost_text(cost: &Cost, lang: Lang) -> String {
     let parts: Vec<String> = cost
         .lines
         .iter()
-        .map(|l| match (l.currency.as_str(), l.sessions) {
-            ("", _) => format!("{}（未标注币种）", money(l.amount)),
-            (c, 1) => format!("{} {c}", money(l.amount)),
-            (c, n) => format!("{} {c}（{n} 个会话）", money(l.amount)),
+        .map(|l| {
+            let amount = money(l.amount);
+            match (l.currency.as_str(), l.sessions) {
+                ("", _) => tr!(lang, "{amount}（未标注币种）", "{amount} (no currency given)"),
+                (c, 1) => format!("{amount} {c}"),
+                (c, n) => tr!(lang, "{amount} {c}（{n} 个会话）", "{amount} {c} ({n} sessions)"),
+            }
         })
         .collect();
     match parts.len() {
-        0 => "费用：未上报".into(),
-        1 if !cost.lines[0].currency.is_empty() => format!("费用：{}", parts[0]),
-        _ => format!("费用：{}（币种或口径不同，未合并）", parts.join(" + ")),
+        0 => lang.pick("费用：未上报", "cost: not reported").into(),
+        1 if !cost.lines[0].currency.is_empty() => {
+            let part = &parts[0];
+            tr!(lang, "费用：{part}", "cost: {part}")
+        }
+        _ => {
+            let parts = parts.join(" + ");
+            tr!(
+                lang,
+                "费用：{parts}（币种或口径不同，未合并）",
+                "cost: {parts} (different currencies or bases, not added up)"
+            )
+        }
     }
 }
 
-fn context_text(context: &Context) -> Option<String> {
+fn context_text(context: &Context, lang: Lang) -> Option<String> {
     if context.reports == 0 {
         return None;
     }
-    let used = context.used.map(num).unwrap_or_else(|| "未上报".into());
+    let used = context.used.map(num).unwrap_or_else(|| lang.pick("未上报", "not reported").into());
     let mut line = match context.size {
-        Some(size) => format!(
-            "上下文 {} / {}（{}）",
-            used,
-            num(size),
-            context.ratio().map(percent).unwrap_or_else(|| "没有比例".into())
-        ),
-        None => format!("上下文 {used}"),
+        Some(size) => {
+            let (size, ratio) =
+                (num(size), context.ratio().map(percent).unwrap_or_else(|| lang.pick("没有比例", "no ratio").into()));
+            tr!(lang, "上下文 {used} / {size}（{ratio}）", "Context {used} / {size} ({ratio})")
+        }
+        None => tr!(lang, "上下文 {used}", "Context {used}"),
     };
     if let (Some(peak), Some(used)) = (context.peak, context.used)
         && peak > used
     {
-        line.push_str(&format!(" · 峰值 {}", num(peak)));
+        let peak = num(peak);
+        line.push_str(&tr!(lang, " · 峰值 {peak}", " · peak {peak}"));
     }
     Some(line)
 }
 
-fn duration_text(ms: Option<i64>) -> String {
+fn duration_text(ms: Option<i64>, lang: Lang) -> String {
     match ms {
-        Some(ms) => format!("{}（总时长）", duration(ms)),
-        None => "没有时长记录".into(),
+        Some(ms) => {
+            let d = duration_in(ms, lang);
+            tr!(lang, "{d}（总时长）", "{d} (total)")
+        }
+        None => lang.pick("没有时长记录", "no time recorded").into(),
     }
 }
 
 /// A wall-clock duration, written as the app writes it (`L.dur`).
 pub fn duration(ms: i64) -> String {
+    duration_in(ms, Lang::Zh)
+}
+
+/// A wall-clock duration in `lang`.
+pub fn duration_in(ms: i64, lang: Lang) -> String {
     if ms < 1000 {
-        return "不到 1 秒".into();
+        return lang.pick("不到 1 秒", "under 1 s").into();
     }
     let s = (ms + 500) / 1000;
+    let (h, m, sec) = (s / 3600, s % 3600 / 60, s % 60);
     match s {
-        0..60 => format!("{s} 秒"),
-        60..3600 => format!("{} 分 {:02} 秒", s / 60, s % 60),
-        _ => format!("{} 小时 {} 分", s / 3600, s % 3600 / 60),
+        0..60 => tr!(lang, "{s} 秒", "{s} s"),
+        60..3600 => tr!(lang, "{m} 分 {sec:02} 秒", "{m} min {sec:02} s"),
+        _ => tr!(lang, "{h} 小时 {m} 分", "{h} h {m} min"),
     }
 }
 
@@ -790,9 +842,9 @@ fn percent(ratio: f64) -> String {
     format!("{:.0}%", ratio * 100.0)
 }
 
-fn who(actor: &str, names: &Names) -> String {
+fn who(actor: &str, names: &Names, lang: Lang) -> String {
     if actor == LEAD {
-        return "负责人".into();
+        return lang.pick("负责人", "the lead").into();
     }
     names.get(actor).cloned().unwrap_or_else(|| actor.to_string())
 }

@@ -193,7 +193,7 @@ async fn a_chat_reopens_with_the_next_message() {
     assert_eq!(seen.len(), 2, "{seen:?}");
     assert_eq!((seen[1].0.as_str(), seen[1].1.as_str()), ("load", sid.as_str()));
     assert_eq!(seen[1].2, seen[0].2, "the loaded session gets the system layer it opened with");
-    assert!(seen[1].2.contains("像朋友一样聊") && !seen[1].2.contains("Recent conversation"), "{}", seen[1].2);
+    assert!(seen[1].2.contains("像朋友一样聊") && !seen[1].2.contains("最近的对话"), "{}", seen[1].2);
     assert_eq!(recorded_layer(&events(&h.app, &id)), before, "nothing new went into the loaded session");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -221,10 +221,17 @@ async fn a_chat_that_cannot_load_its_session_starts_one_with_its_history() {
         let seen = layers(&h);
         let (method, _, layer) = seen.last().unwrap();
         assert_eq!(method, "new", "{kind}: {seen:?}");
-        assert!(layer.contains("Recent conversation") && layer.contains("你好"), "{kind}: {layer}");
+        assert!(layer.contains("最近的对话") && layer.contains("你好"), "{kind}: {layer}");
         assert!(layer.contains("像朋友一样聊") && !layer.contains("还在吗"), "{kind}: {layer}");
         let channels = recorded_layer(&events(&h.app, &id));
         assert_eq!(channels, vec!["instructions", "history", "instructions"], "{kind}");
+        // A chat in English gets its history in English.
+        let english = crate::orchestrator::chat::chat_brief(&events(&h.app, &id), crate::lang::Lang::En);
+        assert!(
+            english.starts_with("This conversation with the user continues")
+                && english.contains("Recent conversation:\n"),
+            "{english}"
+        );
         let _ = std::fs::remove_dir_all(&h.dir);
     }
 }

@@ -107,7 +107,7 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert_eq!((count(), browsers()), (0, 0), "opening a session starts nothing");
 
     let init = call(&h, &at, "initialize", json!({ "protocolVersion": "2025-06-18" })).await.unwrap();
-    assert!(init["instructions"].as_str().unwrap().contains("probe"), "{init}");
+    assert!(init.get("instructions").is_none(), "no instructions: each tool says what it is: {init}");
     assert_eq!(init["protocolVersion"], "2025-06-18", "a version Janus speaks is agreed to");
     let newer = call(&h, &at, "initialize", json!({ "protocolVersion": "2099-01-01" })).await.unwrap();
     assert_eq!(newer["protocolVersion"], "2025-11-25", "one it doesn't is answered with its newest");

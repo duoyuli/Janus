@@ -342,8 +342,12 @@ impl Control {
 /// How long an agent's text may sit unshown after its last chunk.
 const MESSAGE_QUIET: Duration = Duration::from_secs(1);
 
-const RELEASE_PROMPT: &str =
-    "人工介入结束。请结合上面的对话，自主完成原来的子任务。完成后按最初的要求，以 ```json 结构化结果结束。";
+fn release_prompt(lang: crate::lang::Lang) -> &'static str {
+    lang.pick(
+        "人工介入结束。请结合上面的对话，自主完成原来的子任务。完成后按最初的要求，以 ```json 结构化结果结束。",
+        "The person has handed the session back. Taking the conversation above into account, finish the original subtask on your own, and end with the ```json structured result as first asked.",
+    )
+}
 
 /// The agent finished but a verification command failed. Running the same command against a new
 /// session rarely changes the outcome (the command may not fit the workspace), so the lead decides.
@@ -842,6 +846,7 @@ struct RunRecord {
     base_ref: String,
     brief: String,
     goal_images: Vec<Value>,
+    lang: crate::lang::Lang,
     /// The last event already in the log; the next one gets the following seq.
     last_seq: i64,
     status: RunStatus,
@@ -867,6 +872,8 @@ pub struct Run {
     brief: String,
     /// Images pasted with the goal, as `attachments::save` stored them (kept in the run's config).
     goal_images: Vec<Value>,
+    /// What its sessions are told is in this language: the app's when the run was created.
+    pub lang: crate::lang::Lang,
     seq: AtomicI64,
     /// Held while an event takes its seq, is stored and broadcast, so the stream carries a
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
@@ -991,6 +998,7 @@ impl Run {
             base_ref: r.base_ref,
             brief: r.brief,
             goal_images: r.goal_images,
+            lang: r.lang,
             seq: AtomicI64::new(r.last_seq),
             emitting: StdMutex::new(false),
             files: std::sync::RwLock::new(()),

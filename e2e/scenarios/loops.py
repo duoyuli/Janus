@@ -162,7 +162,7 @@ def loops(ctx, c):
     answered = wait(lambda: kinds("question.answered"), "回答到达服务", 30)[0]
     wake_for("answer", answered["seq"], "回答唤醒值班")
     c(True, "回答之后值班以 answer 醒来")
-    c(any("Q: 先修哪个？\n  A: 导出" in p for p in prompts()), "值班醒来的提示里带着问题和回答")
+    c(any("问：先修哪个？\n  答：导出" in p for p in prompts()), "值班醒来的提示里带着问题和回答")
 
     # Paused: no clock, still wakes by hand.
     paused = ctx.api("POST", f"/api/loops/{loop_id}/pause", {})
@@ -184,7 +184,7 @@ def loops(ctx, c):
     ended = kinds("loop.dispatch_ended")
     c(ended and ended[-1]["data"]["run"] == dispatched and ended[-1]["data"]["status"] == "cancelled",
       "派出的任务被取消后，值班以 dispatch 醒来，记下是哪个任务、怎么结束的")
-    c(any(f"- {dispatched} (key github:o/r#7): cancelled by the person" in p for p in prompts()), "醒来的提示写着结束的任务和它是被你取消的")
+    c(any(f"- {dispatched}（key github:o/r#7）：被用户取消" in p for p in prompts()), "醒来的提示写着结束的任务和它是被你取消的")
 
     # Deleting it removes its session; the run it dispatched stays.
     ctx.api("DELETE", f"/api/loops/{loop_id}")

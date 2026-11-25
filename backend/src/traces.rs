@@ -8,6 +8,7 @@
 //! intent and decisions; facts the workspace already holds are read from it.
 // @project-doc docs/domains/20261031-goal_mode.md#traces
 
+use crate::lang::{Lang, tr};
 use crate::orchestrator::TaskDef;
 use crate::teamwork::covers;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -34,9 +35,10 @@ impl Actor {
         Actor::Task(id.to_string())
     }
 
-    pub fn label(&self) -> &str {
+    /// Who it is, as an agent reads it.
+    pub fn label(&self, lang: Lang) -> &str {
         match self {
-            Actor::Lead => "负责人",
+            Actor::Lead => lang.pick("负责人", "the lead"),
             Actor::Task(id) => id.as_str(),
         }
     }
@@ -119,14 +121,14 @@ impl Traces {
 
     /// Files `task` edited that another task (or the lead) edited after `since` (the seq it
     /// finished at), with who did: its result describes them as they were.
-    pub fn edited_after(&self, task: &str, since: i64) -> Vec<(String, String)> {
+    pub fn edited_after(&self, task: &str, since: i64) -> Vec<(String, Actor)> {
         let me = Actor::task(task);
         self.touched
             .get(task)
             .into_iter()
             .flatten()
             .filter_map(|p| match self.last_edit.get(p) {
-                Some((by, seq)) if by != &me && *seq > since => Some((p.clone(), by.label().to_string())),
+                Some((by, seq)) if by != &me && *seq > since => Some((p.clone(), by.clone())),
                 _ => None,
             })
             .collect()
@@ -134,12 +136,23 @@ impl Traces {
 }
 
 /// `edited_after` as a line for a prompt or the board; empty when nothing changed.
-pub fn stale_note(stale: &[(String, String)]) -> String {
+pub fn stale_note(stale: &[(String, Actor)], lang: Lang) -> String {
     if stale.is_empty() {
         return String::new();
     }
-    let list: Vec<String> = stale.iter().map(|(p, by)| format!("{p}（{by} 改）")).collect();
-    format!("它完成后 {} 又被改过：这些文件以工作目录里的现状为准，结论可能已过期", list.join("、"))
+    let list: Vec<String> = stale
+        .iter()
+        .map(|(p, by)| {
+            let by = by.label(lang);
+            tr!(lang, "{p}（{by} 改）", "{p} (by {by})")
+        })
+        .collect();
+    let list = list.join(lang.pick("、", ", "));
+    tr!(
+        lang,
+        "它完成后 {list} 又被改过：这些文件以工作目录里的现状为准，结论可能已过期",
+        "After it finished, {list} changed again: go by these files as they are in the working directory now; its conclusion may be out of date"
+    )
 }
 
 /// The paths a task's diff is limited to: what it edited and what it owns. Empty when there is
@@ -181,14 +194,17 @@ pub fn changed_files(name_only: &str, untracked: &str) -> BTreeSet<String> {
 /// that edited files outside what it owns, or owned files the working tree shows no change in.
 /// `changed` is the working tree against HEAD; None outside a Git repository, where only the
 /// tool calls are known.
-pub fn gaps(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet<String>>) -> Vec<String> {
-    let list = |v: &[&String]| v.iter().map(|x| x.as_str()).collect::<Vec<_>>().join("、");
+pub fn gaps(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet<String>>, lang: Lang) -> Vec<String> {
+    let sep = lang.pick("、", ", ");
+    let list = |v: &[&String]| v.iter().map(|x| x.as_str()).collect::<Vec<_>>().join(sep);
     let mut out = vec![];
     if def.verifies.is_some() {
         if !touched.is_empty() {
-            out.push(format!(
-                "验证子任务改了文件：{}。验证者只检查不改文件，这些改动没有经过独立验证",
-                list(&touched.iter().collect::<Vec<_>>())
+            let files = list(&touched.iter().collect::<Vec<_>>());
+            out.push(tr!(
+                lang,
+                "验证子任务改了文件：{files}。验证者只检查不改文件，这些改动没有经过独立验证",
+                "The verification subtask changed files: {files}. A verifier only checks and changes nothing, so these changes went through no independent verification"
             ));
         }
         return out;
@@ -196,19 +212,29 @@ pub fn gaps(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet
     if def.owns.is_empty() {
         return out;
     }
+    let owns = def.owns.join(sep);
     let outside: Vec<&String> = touched.iter().filter(|p| !def.owns.iter().any(|o| covers(o, p))).collect();
     if !outside.is_empty() {
-        out.push(format!("改了负责范围（{}）以外的文件：{}", def.owns.join("、"), list(&outside)));
+        let outside = list(&outside);
+        out.push(tr!(
+            lang,
+            "改了负责范围（{owns}）以外的文件：{outside}",
+            "Changed files outside its scope ({owns}): {outside}"
+        ));
     }
     let in_owns = |p: &String| def.owns.iter().any(|o| covers(o, p));
     let edited = touched.iter().any(in_owns);
     match changed {
-        Some(changed) if !edited && !changed.iter().any(in_owns) => {
-            out.push(format!("负责 {}，但工作目录里这些文件相对 HEAD 没有改动", def.owns.join("、")));
-        }
-        None if !edited => {
-            out.push(format!("负责 {}，但没有看到改动这些文件的工具调用（也可能是用命令改的）", def.owns.join("、")))
-        }
+        Some(changed) if !edited && !changed.iter().any(in_owns) => out.push(tr!(
+            lang,
+            "负责 {owns}，但工作目录里这些文件相对 HEAD 没有改动",
+            "Owns {owns}, but the working directory shows no change to them against HEAD"
+        )),
+        None if !edited => out.push(tr!(
+            lang,
+            "负责 {owns}，但没有看到改动这些文件的工具调用（也可能是用命令改的）",
+            "Owns {owns}, but no tool call changing them was seen (they may have been changed by a command)"
+        )),
         _ => {}
     }
     out
@@ -233,6 +259,10 @@ mod tests {
         }
     }
 
+    fn gaps_zh(def: &TaskDef, touched: &BTreeSet<String>, changed: Option<&BTreeSet<String>>) -> Vec<String> {
+        gaps(def, touched, changed, Lang::Zh)
+    }
+
     fn set(xs: &[&str]) -> BTreeSet<String> {
         xs.iter().map(|x| x.to_string()).collect()
     }
@@ -240,26 +270,29 @@ mod tests {
     #[test]
     fn a_result_is_checked_against_what_the_task_left() {
         // Did what it owns, nothing else: no gap.
-        assert!(gaps(&def(&["src"], None), &set(&["src/a.rs"]), Some(&set(&["src/a.rs"]))).is_empty());
+        assert!(gaps_zh(&def(&["src"], None), &set(&["src/a.rs"]), Some(&set(&["src/a.rs"]))).is_empty());
         // Changed its files by command (no tool call), the working tree shows it: no gap.
-        assert!(gaps(&def(&["src"], None), &set(&[]), Some(&set(&["src/b.rs"]))).is_empty());
+        assert!(gaps_zh(&def(&["src"], None), &set(&[]), Some(&set(&["src/b.rs"]))).is_empty());
         // Owned files untouched in the working tree.
-        let g = gaps(&def(&["src"], None), &set(&[]), Some(&set(&["docs/x.md"])));
+        let g = gaps_zh(&def(&["src"], None), &set(&[]), Some(&set(&["docs/x.md"])));
         assert!(g.len() == 1 && g[0].contains("负责 src") && g[0].contains("没有改动"), "{g:?}");
         // Outside what it owns.
-        let g = gaps(&def(&["src"], None), &set(&["src/a.rs", "README.md"]), Some(&set(&["src/a.rs", "README.md"])));
+        let g = gaps_zh(&def(&["src"], None), &set(&["src/a.rs", "README.md"]), Some(&set(&["src/a.rs", "README.md"])));
         assert!(g.len() == 1 && g[0].contains("以外的文件：README.md"), "{g:?}");
         // No Git: only the tool calls are known.
-        assert!(gaps(&def(&["src"], None), &set(&[]), None)[0].contains("工具调用"));
+        assert!(gaps_zh(&def(&["src"], None), &set(&[]), None)[0].contains("工具调用"));
         // A verifier changes nothing.
-        let g = gaps(&def(&[], Some("T0")), &set(&["src/a.rs"]), Some(&set(&["src/a.rs"])));
+        let g = gaps_zh(&def(&[], Some("T0")), &set(&["src/a.rs"]), Some(&set(&["src/a.rs"])));
         assert!(g.len() == 1 && g[0].contains("验证子任务改了文件"), "{g:?}");
         assert!(
-            gaps(&def(&[], Some("T0")), &set(&[]), Some(&set(&["src/a.rs"]))).is_empty(),
+            gaps_zh(&def(&[], Some("T0")), &set(&[]), Some(&set(&["src/a.rs"]))).is_empty(),
             "another task's change is not the verifier's"
         );
+        // In the run's language.
+        let g = gaps(&def(&["src"], None), &set(&[]), Some(&set(&["docs/x.md"])), Lang::En);
+        assert!(g[0].starts_with("Owns src, but"), "{g:?}");
         // Nothing declared: nothing to hold it to.
-        assert!(gaps(&def(&[], None), &set(&["x"]), Some(&set(&[]))).is_empty());
+        assert!(gaps_zh(&def(&[], None), &set(&["x"]), Some(&set(&[]))).is_empty());
     }
 
     #[test]
@@ -268,11 +301,12 @@ mod tests {
         t.record("T1", &["a.rs".into(), "b.rs".into()], 10);
         // T1 finished at 20; T2 changes a.rs afterwards, b.rs stays T1's.
         t.record("T2", &["a.rs".into()], 30);
-        assert_eq!(t.edited_after("T1", 20), vec![("a.rs".to_string(), "T2".to_string())]);
+        assert_eq!(t.edited_after("T1", 20), vec![("a.rs".to_string(), Actor::task("T2"))]);
         assert!(t.edited_after("T1", 40).is_empty(), "edits before the result do not count");
         assert!(t.edited_after("T2", 20).is_empty(), "its own edits");
-        assert!(stale_note(&t.edited_after("T1", 20)).contains("a.rs（T2 改）"));
-        assert!(stale_note(&[]).is_empty());
+        assert!(stale_note(&t.edited_after("T1", 20), Lang::Zh).contains("a.rs（T2 改）"));
+        assert!(stale_note(&t.edited_after("T1", 20), Lang::En).contains("a.rs (by T2)"));
+        assert!(stale_note(&[], Lang::Zh).is_empty());
         assert!(
             t.first_report(Overlap::Same, "T1", "T2", "a.rs") && !t.first_report(Overlap::Same, "T1", "T2", "a.rs")
         );
@@ -285,9 +319,10 @@ mod tests {
         t.record_lead(&["b.rs".into(), "c.rs".into()], 35);
         assert_eq!(
             t.edited_after("T1", 20),
-            vec![("a.rs".to_string(), "T2".to_string()), ("b.rs".to_string(), "负责人".to_string())]
+            vec![("a.rs".to_string(), Actor::task("T2")), ("b.rs".to_string(), Actor::Lead)]
         );
-        assert_eq!(t.edited_after("lead", 30), vec![("c.rs".to_string(), "负责人".to_string())]);
+        assert_eq!(t.edited_after("lead", 30), vec![("c.rs".to_string(), Actor::Lead)]);
+        assert!(stale_note(&t.edited_after("lead", 30), Lang::En).contains("c.rs (by the lead)"));
     }
 
     #[test]

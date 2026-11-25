@@ -13,6 +13,7 @@ mod git;
 mod goal_settle;
 mod host_env;
 mod http;
+mod lang;
 mod layout;
 mod library;
 mod migrations;

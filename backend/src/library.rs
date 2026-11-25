@@ -16,7 +16,7 @@ mod skill_router;
 mod sources;
 mod store;
 
-pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch, skill_router_md};
+pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch};
 pub use mcp::{McpProcess, McpServer, McpValues};
 pub use skill_router::skills_read;
 pub use sources::{CHECK_EVERY, Source};
@@ -551,7 +551,7 @@ impl App {
             let md = self.skill_text(item).unwrap_or_default();
             entries.push((item.id.clone(), skill_router::Entry::read(item, &md)));
         }
-        let listed = skill_router::listed(entries.iter().map(|(_, e)| e));
+        let listed = skill_router::listed(entries.iter().map(|(_, e)| e), self.language());
         Ok(SkillNotes { uses: self.db.skill_uses()?, hints: quality::skill_hints(&entries), listed })
     }
 

@@ -169,7 +169,7 @@ impl App {
         let done = match self.dispatch_action(run_id, req).await {
             // Accepting stopped on something in the run's worktree (the branch's new commits
             // conflict, an operation left unfinished there): the lead resolves that, not the person.
-            Err(Refused::Invalid(err)) => match merge_handback(&err, MergeAt::Acceptance) {
+            Err(Refused::Invalid(err)) => match merge_handback(&err, MergeAt::Acceptance, self.run_lang(run_id)) {
                 Some(prompt) => self.hand_back_to_lead(run_id, &prompt).await,
                 None => Err(Refused::Invalid(err)),
             },
@@ -610,6 +610,7 @@ impl App {
             base_ref,
             brief: config["workspace"]["brief"].as_str().unwrap_or("").trim().to_string(),
             goal_images: config["goalImages"].as_array().cloned().unwrap_or_default(),
+            lang: crate::lang::Lang::of_config(config),
             last_seq: self.db.max_seq(run_id)?,
             status: if conversation { previous } else { RunStatus::Running },
             asker,

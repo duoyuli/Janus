@@ -361,9 +361,9 @@ async fn tasks_work_in_the_runs_own_worktree() {
         .iter()
         .filter(|e| e.kind.as_str() == "session.prompt")
         .filter_map(|e| e.data.as_ref().unwrap()["prompt"].as_str())
-        .find(|p| p.contains("You are the lead"))
+        .find(|p| p.contains("你是 Janus 团队的负责人"))
         .unwrap();
-    assert!(brief.contains("Commit, push, deploy, or release only when the user asks for it"), "{brief}");
+    assert!(brief.contains("只有用户要求时（在目标里、回答里或之后的消息里）才 commit、push、部署或发布"), "{brief}");
     assert!(brief.contains(&format!("git push origin HEAD:{branch}")), "{brief}");
     assert!(brief.contains(&format!("git rebase {branch}")), "{brief}");
     assert!(!brief.contains("Do not commit"), "{brief}");

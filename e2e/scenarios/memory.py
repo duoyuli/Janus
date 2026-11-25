@@ -58,7 +58,7 @@ def memory(ctx, c):
 
     layer = next((e["data"]["prompt"] for e in r.events() if e["type"] == "session.prompt" and e.get("task") == "T1"
                   and (e.get("data") or {}).get("channel") == "system"), "")
-    c("Team memory:" in layer and "janus.recall" in layer and howto["id"] not in layer, "协作者的会话拿到团队记忆的用法，笔记本身不在里面")
+    c("团队记忆：" in layer and "janus.recall" not in layer and howto["id"] not in layer, "协作者的会话知道有团队记忆，用法在工具说明里，笔记本身不在里面")
     t.fake.touch("t1-go")
     r.finish()
 
@@ -68,7 +68,7 @@ def memory(ctx, c):
     lead2 = r2.lead()
     first = next((e["data"]["prompt"] for e in r2.events() if e["type"] == "session.prompt" and not e.get("task")
                   and (e.get("data") or {}).get("channel") == "system"), "")
-    c("has 2 notes" in first and howto["id"] not in first and "端口被占用" not in first, "之后任务的负责人只知道有几条笔记，笔记不在说明里")
+    c("有 2 条" in first and howto["id"] not in first and "端口被占用" not in first, "之后任务的负责人只知道有几条笔记，笔记不在说明里")
     text, _ = lead2.call("recall", {"query": "测试的端口被占用"})
     c("端口被占用" in text and foreign not in text, "之后任务的负责人按需检索到这个工作区的笔记，别的工作区的检索不到")
     r2.finish()

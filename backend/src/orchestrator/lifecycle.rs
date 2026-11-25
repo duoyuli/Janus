@@ -92,18 +92,18 @@ impl App {
         self.cfg.layout.run(run.kind, &run.id)
     }
 
-    /// The SKILL.md of the member's skill router in its bundle, when the member has skills.
-    pub(super) fn skill_router_md(&self, run: &Run, m: &Member) -> Option<PathBuf> {
-        crate::library::skill_router_md(m.runtime, &m.resources, &self.dirs(run).bundle(&m.id))
-    }
-
     /// Copy each member's skills into its bundle, so later edits to the library do not change
     /// the run and no agent reads the library itself.
     // @project-doc docs/domains/20261116-resource_library.md#delivery
-    pub(super) fn bundle_team(&self, dirs: &crate::layout::RunDirs, team: &[Member]) -> Result<()> {
+    pub(super) fn bundle_team(
+        &self,
+        dirs: &crate::layout::RunDirs,
+        team: &[Member],
+        lang: crate::lang::Lang,
+    ) -> Result<()> {
         let uses = self.db.skill_uses()?.into_iter().map(|(id, (n, _))| (id, n)).collect();
         for m in team {
-            crate::library::bundle(&self.store_dir(), m.runtime, &m.resources, &uses, &dirs.bundle(&m.id))?;
+            crate::library::bundle(&self.store_dir(), m.runtime, &m.resources, &uses, &dirs.bundle(&m.id), lang)?;
         }
         Ok(())
     }

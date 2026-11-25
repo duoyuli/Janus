@@ -81,7 +81,7 @@ impl App {
             crate::layout::remove(&dirs.data);
         })?;
         let token_limit = max_tokens.filter(|&n| n > 0).or(self.cfg.run_token_budget).unwrap_or(0);
-        let mut config = json!({ "workspace": ws, "goalImages": goal_images });
+        let mut config = json!({ "workspace": ws, "goalImages": goal_images, "lang": self.language() });
         if token_limit > 0 {
             config["tokenLimit"] = json!(token_limit);
         }
@@ -293,7 +293,7 @@ impl App {
         };
         // A run that cannot start leaves no worktree behind.
         let dirs = self.cfg.layout.run(RunKind::Goal, id);
-        if let Err(err) = self.bundle_team(&dirs, &team) {
+        if let Err(err) = self.bundle_team(&dirs, &team, crate::lang::Lang::of_config(queued)) {
             if let Some(w) = &worktree {
                 let kept = self.cfg.layout.deleted_runs();
                 let _writing = self.gates.worktree_writes.lock().unwrap_or_else(|p| p.into_inner());
@@ -304,8 +304,10 @@ impl App {
             return Err(err);
         }
         let goal_images = queued["goalImages"].as_array().cloned().unwrap_or_default();
-        let mut config =
-            json!({ "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images });
+        let lang = crate::lang::Lang::of_config(queued);
+        let mut config = json!({
+            "team": team, "git": is_git, "baseRef": base_ref, "workspace": ws, "goalImages": goal_images, "lang": lang,
+        });
         if let Some(limit) = queued.get("tokenLimit") {
             config["tokenLimit"] = limit.clone();
         }
@@ -324,6 +326,7 @@ impl App {
             base_ref,
             brief: ws.brief.trim().to_string(),
             goal_images,
+            lang,
             last_seq: self.db.max_seq(id)?,
             status: RunStatus::Planning,
             asker: Asker::Schedule,

@@ -39,6 +39,8 @@ pub const SHAPES: &[Shape] = &[
     Shape { kind: ConfigKind::Workspace, required: &["id", "name", "path", "lead", "members", "brief"], optional: &[] },
     // The paths of the person's home hidden from agents (`host_env`), one row; none means the defaults.
     Shape { kind: ConfigKind::HostEnv, required: &["paths"], optional: &[] },
+    // The language the app is used in (`lang`), one row; none means Chinese.
+    Shape { kind: ConfigKind::Language, required: &["language"], optional: &[] },
     Shape {
         kind: ConfigKind::Connection,
         required: &["id", "kind", "base", "name", "auth", "bin", "prompt", "env", "status", "createdAt"],
@@ -86,7 +88,11 @@ pub fn check(kind: ConfigKind, data: &Value) -> Vec<String> {
         // A workspace Loop (`orchestrator/loops.rs`).
         ConfigKind::Loop => round_trip::<crate::orchestrator::LoopDef>(data),
         ConfigKind::Meta => vec![],
-        ConfigKind::Role | ConfigKind::Workspace | ConfigKind::HostEnv | ConfigKind::Connection => {
+        ConfigKind::Role
+        | ConfigKind::Workspace
+        | ConfigKind::HostEnv
+        | ConfigKind::Language
+        | ConfigKind::Connection => {
             let shape = SHAPES.iter().find(|s| s.kind == kind).expect("every plain JSON kind has a shape");
             let extra = if kind == ConfigKind::Connection { connection_fields() } else { vec![] };
             let extra: Vec<&str> = extra.iter().map(String::as_str).collect();

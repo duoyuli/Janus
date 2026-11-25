@@ -27,14 +27,14 @@ async fn shared_material_reaches_everyone_and_suggestions_come_back() {
         .map(|e| e.data.as_ref().unwrap()["prompt"].as_str().unwrap_or("").to_string())
         .collect();
     assert!(
-        prompts.iter().any(|p| p.contains("Shared workspace context") && p.contains("目标用户是独立开发者")),
+        prompts.iter().any(|p| p.contains("工作区共享资料") && p.contains("目标用户是独立开发者")),
         "the lead sees it: {prompts:?}"
     );
     let d = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.clone().unwrap();
     assert_eq!(d["briefSuggestions"], json!(["定价页在 docs/pricing.md", "免费版限 3 个项目"]));
     assert!(
         d["summary"].as_str().unwrap().starts_with("做完了。")
-            && !d["summary"].as_str().unwrap().contains(BRIEF_HEADING),
+            && !d["summary"].as_str().unwrap().contains(BRIEF_HEADING.zh),
         "{d}"
     );
     let _ = std::fs::remove_dir_all(&h.dir);

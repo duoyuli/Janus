@@ -10,6 +10,7 @@
 //! event types; it is the orchestration's own data, checked when it is submitted.
 // @project-doc docs/domains/20261031-goal_mode.md#team_structure
 
+use crate::lang::{Lang, tr};
 use crate::orchestrator::TaskDef;
 use crate::status::TaskStatus;
 use serde_json::Value;
@@ -18,14 +19,18 @@ use std::collections::{HashMap, HashSet};
 /// The `owns` of one submitted task: paths relative to the workspace, a directory covering
 /// everything under it. Leading `./` and trailing `/` are dropped; `..` and absolute paths are
 /// reported, since a task may only change files inside the workspace.
-pub fn read_owns(v: &Value, label: &str, errors: &mut Vec<String>) -> Vec<String> {
+pub fn read_owns(v: &Value, label: &str, errors: &mut Vec<String>, lang: Lang) -> Vec<String> {
     let mut out: Vec<String> = vec![];
     for raw in v.as_array().into_iter().flatten().filter_map(|x| x.as_str()) {
         let raw_path = raw.trim();
         // One spelling per path: `src/./a.rs` and `src//a.rs` are `src/a.rs` (AT-09).
         let parts: Vec<&str> = raw_path.split('/').filter(|s| !s.is_empty() && *s != ".").collect();
         if raw_path.starts_with('/') || parts.contains(&"..") {
-            errors.push(format!("{label}：owns 里的 `{raw}` 不在工作目录内，写相对工作目录的路径"));
+            errors.push(tr!(
+                lang,
+                "{label}：owns 里的 `{raw}` 不在工作目录内，写相对工作目录的路径",
+                "{label}: `{raw}` in owns is outside the working directory; give paths relative to it"
+            ));
             continue;
         }
         let p = parts.join("/");
@@ -55,22 +60,31 @@ pub fn covers(owned: &str, path: &str) -> bool {
 /// already on the board, after the basic checks of `validate_orchestration`. A verification task
 /// gets the task it checks added to its dependencies; a continuation task gets the task whose
 /// session it reuses added to its dependencies.
-pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut Vec<String>) {
+pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut Vec<String>, lang: Lang) {
     let mut add_deps: Vec<(usize, String)> = vec![];
     {
         let all: HashMap<&str, &TaskDef> =
             board.iter().map(|(d, _)| (d.id.as_str(), d)).chain(new.iter().map(|d| (d.id.as_str(), d))).collect();
         for (i, d) in new.iter().enumerate() {
-            let label = format!("子任务 {}", d.id);
+            let id = &d.id;
+            let label = tr!(lang, "子任务 {id}", "Subtask {id}");
             if let Some(target) = d.verifies.as_deref() {
                 match all.get(target) {
-                    None => errors.push(format!("{label}：verifies 指向的子任务 {target} 不存在")),
-                    Some(_) if target == d.id => errors.push(format!("{label}：不能验证自己")),
+                    None => errors.push(tr!(
+                        lang,
+                        "{label}：verifies 指向的子任务 {target} 不存在",
+                        "{label}: verifies names subtask {target}, which does not exist"
+                    )),
+                    Some(_) if target == d.id => {
+                        errors.push(tr!(lang, "{label}：不能验证自己", "{label}: a subtask cannot verify itself"))
+                    }
                     Some(t) => {
                         if t.assignee == d.assignee {
-                            errors.push(format!(
-                                "{label}：验证 {target} 的必须是另一个协作者，不能是它的执行者 {}",
-                                d.assignee
+                            let who = &d.assignee;
+                            errors.push(tr!(
+                                lang,
+                                "{label}：验证 {target} 的必须是另一个协作者，不能是它的执行者 {who}",
+                                "{label}: {target} must be verified by another collaborator, not by its assignee {who}"
                             ));
                         }
                         if !d.deps.iter().any(|x| x == target) {
@@ -79,21 +93,37 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
                     }
                 }
                 if !d.owns.is_empty() {
-                    errors.push(format!("{label}：验证子任务只检查、不改文件，不要写 owns"));
+                    errors.push(tr!(
+                        lang,
+                        "{label}：验证子任务只检查、不改文件，不要写 owns",
+                        "{label}: a verification only checks and changes no files; leave owns out"
+                    ));
                 }
             }
             if let Some(prev) = d.continues.as_deref() {
                 if d.verifies.is_some() {
-                    errors.push(format!("{label}：验证子任务需要独立核对，不能使用 continues"));
+                    errors.push(tr!(
+                        lang,
+                        "{label}：验证子任务需要独立核对，不能使用 continues",
+                        "{label}: a verification checks independently and cannot use continues"
+                    ));
                 }
                 match all.get(prev) {
-                    None => errors.push(format!("{label}：continues 指向的子任务 {prev} 不存在")),
-                    Some(_) if prev == d.id => errors.push(format!("{label}：不能续接自己")),
+                    None => errors.push(tr!(
+                        lang,
+                        "{label}：continues 指向的子任务 {prev} 不存在",
+                        "{label}: continues names subtask {prev}, which does not exist"
+                    )),
+                    Some(_) if prev == d.id => {
+                        errors.push(tr!(lang, "{label}：不能续接自己", "{label}: a subtask cannot continue itself"))
+                    }
                     Some(t) => {
                         if t.assignee != d.assignee {
-                            errors.push(format!(
-                                "{label}：continues 指向的 {prev} 由 {} 执行，只有同一个协作者能续接原会话（当前是 {}）",
-                                t.assignee, d.assignee
+                            let (theirs, mine) = (&t.assignee, &d.assignee);
+                            errors.push(tr!(
+                                lang,
+                                "{label}：continues 指向的 {prev} 由 {theirs} 执行，只有同一个协作者能续接原会话（当前是 {mine}）",
+                                "{label}: {prev}, named in continues, was done by {theirs}; only the same collaborator can continue its session (this one goes to {mine})"
                             ));
                         }
                         if !d.deps.iter().any(|x| x == prev) {
@@ -122,7 +152,12 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
     for d in new.iter() {
         for target in [d.verifies.as_deref(), d.continues.as_deref()].into_iter().flatten() {
             if target != d.id && upstream(target).contains(&d.id) {
-                errors.push(format!("子任务 {}：它关联的 {target} 依赖它，依赖之间有环", d.id));
+                let id = &d.id;
+                errors.push(tr!(
+                    lang,
+                    "子任务 {id}：它关联的 {target} 依赖它，依赖之间有环",
+                    "Subtask {id}: {target}, which it refers to, depends on it, so the dependencies form a cycle"
+                ));
             }
         }
     }
@@ -138,11 +173,11 @@ pub fn check(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)], errors: &mut 
             let shared: Vec<&str> =
                 a.owns.iter().filter(|x| b.owns.iter().any(|y| overlaps(x, y))).map(String::as_str).collect();
             if !shared.is_empty() {
-                errors.push(format!(
-                    "子任务 {} 和 {} 可能同时执行，却都负责 {}：用 deps 让一个等另一个完成，或者重新划分 owns",
-                    a.id,
-                    b.id,
-                    shared.join("、")
+                let (x, y, files) = (&a.id, &b.id, shared.join(lang.pick("、", ", ")));
+                errors.push(tr!(
+                    lang,
+                    "子任务 {x} 和 {y} 可能同时执行，却都负责 {files}：用 deps 让一个等另一个完成，或者重新划分 owns",
+                    "Subtasks {x} and {y} may run at the same time but both own {files}: make one wait for the other with deps, or divide owns again"
                 ));
             }
         }
@@ -181,16 +216,30 @@ pub fn owner_of<'a>(path: &str, me: &str, board: &[(&'a TaskDef, TaskStatus)]) -
 /// shows what it needs, not only what the lead guessed up front. It lapses when the task ends,
 /// as all ownership does. Refused for a verifier, which changes no files, and for a path an
 /// open task that may run alongside owns. Returns the paths not already the task's own.
-pub fn claim(me: &TaskDef, paths: &[String], board: &[(&TaskDef, TaskStatus)]) -> Result<Vec<String>, String> {
+pub fn claim(
+    me: &TaskDef,
+    paths: &[String],
+    board: &[(&TaskDef, TaskStatus)],
+    lang: Lang,
+) -> Result<Vec<String>, String> {
+    let id = &me.id;
     if me.verifies.is_some() {
-        return Err(format!("{} 是验证子任务，只检查不改文件，不能认领文件", me.id));
+        return Err(tr!(
+            lang,
+            "{id} 是验证子任务，只检查不改文件，不能认领文件",
+            "{id} is a verification: it only checks, changes no files, and cannot claim any"
+        ));
     }
-    let taken: Vec<String> =
-        paths.iter().filter_map(|p| owner_of(p, &me.id, board).map(|o| format!("{p} 归 {o} 负责"))).collect();
+    let taken: Vec<String> = paths
+        .iter()
+        .filter_map(|p| owner_of(p, &me.id, board).map(|o| tr!(lang, "{p} 归 {o} 负责", "{p} belongs to {o}")))
+        .collect();
     if !taken.is_empty() {
-        return Err(format!(
-            "不能认领：{}。需要改这些文件时，用 janus.board_post 写一条 blocker 请负责人协调",
-            taken.join("；")
+        let taken = taken.join(lang.pick("；", "; "));
+        return Err(tr!(
+            lang,
+            "不能认领：{taken}。需要改这些文件时，写一条 blocker 请负责人协调",
+            "Cannot claim: {taken}. If you need to change these files, post a blocker and let the lead coordinate"
         ));
     }
     Ok(paths.iter().filter(|p| !me.owns.iter().any(|o| covers(o, p))).cloned().collect())
@@ -210,49 +259,55 @@ pub struct VerifiedContext<'a> {
 
 /// What a collaborator's task prompt adds for the team structure: the files it owns, or, for a
 /// verification task, what it checks, the targeted evidence package, and how to report `verdict`.
-pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>) -> String {
+pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>, lang: Lang) -> String {
+    let list = |items: &[String]| items.iter().map(|i| format!("- {i}")).collect::<Vec<_>>().join("\n");
     let mut p = String::new();
     if !def.owns.is_empty() {
-        p.push_str(&format!(
-            "\n\n你负责的文件：{}。只改这些文件；其他文件归别的子任务或负责人，需要改时先用 janus.board_post 写一条 blocker 说明原因，或在结果的 question 中请负责人决定。",
-            def.owns.join("、")
+        let owns = def.owns.join(lang.pick("、", ", "));
+        p.push_str(&tr!(
+            lang,
+            "\n\n你负责的文件：{owns}。只改这些文件；其他文件归别的子任务或负责人，需要改时先认领，或在结果的 question 中请负责人决定。",
+            "\n\nThe files you own: {owns}. Change only these; other files belong to other subtasks or the lead. To change one, claim it first, or ask the lead in your result's question."
         ));
     }
     if let Some(vc) = verified {
-        let v = vc.def;
-        p.push_str(&format!(
-            "\n\n你是子任务 {id}「{title}」的独立验证者，它由别的协作者完成。不要修改任何文件，也不要替它修问题：读它的改动（用 janus.peers 传 task={id} 可查看完整结果），运行测试、启动程序或复现它声称的行为，逐条核对它的验收标准：\n{accept}",
-            id = v.id,
-            title = v.title,
-            accept = v.accept.iter().map(|a| format!("- {a}")).collect::<Vec<_>>().join("\n"),
+        let (id, title, accept) = (&vc.def.id, &vc.def.title, list(&vc.def.accept));
+        p.push_str(&tr!(
+            lang,
+            "\n\n你是子任务 {id}「{title}」的独立验证者，它由别的协作者完成。不要修改任何文件，也不要替它修问题，逐条核对它的验收标准：\n{accept}",
+            "\n\nYou independently verify subtask {id} \"{title}\", which another collaborator did. Do not change any file and do not fix its problems; check its acceptance criteria one by one:\n{accept}"
         ));
         if let Some(diff) = vc.diff_path.filter(|s| !s.is_empty()) {
-            p.push_str(&format!("\n专属 diff 产物：{diff}（可直接读取核对改动范围）"));
+            p.push_str(&tr!(lang, "\n它的改动（diff）：{diff}", "\nIts changes (diff): {diff}"));
         }
         if !vc.edited_files.is_empty() {
-            p.push_str(&format!("\n执行者实际改动的文件：{}", vc.edited_files.join("、")));
+            let files = vc.edited_files.join(lang.pick("、", ", "));
+            p.push_str(&tr!(lang, "\n执行者实际改动的文件：{files}", "\nFiles the assignee actually changed: {files}"));
         }
         if !vc.trace_gaps.is_empty() {
-            p.push_str(&format!(
-                "\n痕迹核对异常（结果与工作目录不一致，请重点核查）：\n{}",
-                vc.trace_gaps.iter().map(|g| format!("- {g}")).collect::<Vec<_>>().join("\n")
+            let gaps = list(vc.trace_gaps);
+            p.push_str(&tr!(
+                lang,
+                "\n结果和工作目录对不上的地方：\n{gaps}",
+                "\nWhere its result and the working directory disagree:\n{gaps}"
             ));
         }
         if !vc.weak_checks.is_empty() {
-            p.push_str(&format!(
-                "\n执行者证据较弱的条目（仅靠推理、未核实或未说明方法，请优先用 test 或 command 实测）：\n{}",
-                vc.weak_checks.iter().map(|w| format!("- {w}")).collect::<Vec<_>>().join("\n")
+            let weak = list(vc.weak_checks);
+            p.push_str(&tr!(
+                lang,
+                "\n执行者证据较弱的条目（只靠推理、未核实或没写方法）：\n{weak}",
+                "\nCriteria with weak evidence from the assignee (reasoning only, unverified, or no method):\n{weak}"
             ));
         }
         if !vc.risks.is_empty() {
-            p.push_str(&format!(
-                "\n执行者上报的风险：\n{}",
-                vc.risks.iter().map(|r| format!("- {r}")).collect::<Vec<_>>().join("\n")
-            ));
+            let risks = list(vc.risks);
+            p.push_str(&tr!(lang, "\n执行者上报的风险：\n{risks}", "\nRisks the assignee reported:\n{risks}"));
         }
-        p.push_str(
-            "\n不要只复述执行者的结论：结果的 checks 中每条都写明你实际执行的命令或操作和看到的输出；完成检查后，在结构化结果 JSON 中用 verdict 写明对被验证产物的判定：\"approved\"（产物达标）、\"rejected\"（存在阻断问题，需要原执行者修改）或 \"inconclusive\"（当前环境证据不足以判定）。即使发现阻断问题填了 passed: false 或 verdict: \"rejected\"，也请给出具体可复现的证据并正常提交结果——你的工作是独立检查和报告，不是修复。",
-        );
+        p.push_str(lang.pick(
+            "\n结果的 checks 中每条都写明你做了什么、看到了什么；在结构化结果 JSON 中用 verdict 写明判定：\"approved\"（达标）、\"rejected\"（有阻断问题，需要原执行者修改）或 \"inconclusive\"（当前环境的证据不足以判定）。发现阻断问题时也写明依据、正常提交结果：你的工作是检查和报告，不是修复。",
+            "\nIn your result's checks, say for each criterion what you did and what you saw; give your verdict in the structured result JSON: \"approved\" (it meets them), \"rejected\" (a blocking problem the assignee must fix) or \"inconclusive\" (the evidence available here cannot settle it). When you find a blocking problem, still state your grounds and hand in your result as usual: your job is to check and report, not to fix.",
+        ));
     }
     p
 }
@@ -275,42 +330,60 @@ impl FilesSince {
         if !commit && paths.is_empty() { FilesSince::Same } else { FilesSince::Changed { commit, paths } }
     }
 
-    fn changes(commit: bool, paths: &[String]) -> String {
+    fn changes(commit: bool, paths: &[String], lang: Lang) -> String {
         let mut parts = vec![];
         if commit {
-            parts.push("提交变了".to_string());
+            parts.push(lang.pick("提交变了", "the commit moved").to_string());
         }
         if !paths.is_empty() {
-            let shown: Vec<&str> = paths.iter().take(12).map(String::as_str).collect();
+            let shown = paths.iter().take(12).map(String::as_str).collect::<Vec<_>>().join(lang.pick("、", ", "));
+            let n = paths.len();
             let more =
-                if paths.len() > shown.len() { format!(" 等 {} 个文件", paths.len()) } else { String::new() };
-            parts.push(format!("改了 {}{more}", shown.join("、")));
+                if n > 12 { tr!(lang, " 等 {n} 个文件", " and others, {n} files in all") } else { String::new() };
+            parts.push(tr!(lang, "改了 {shown}{more}", "changed {shown}{more}"));
         }
-        parts.join("，")
+        parts.join(lang.pick("，", "; "))
     }
 
     /// What a verifier is told about the files it checks, against those `target` handed its
     /// result in on: the same files give the same results to the same checks.
     // @project-doc docs/domains/20261031-goal_mode.md#evidence_reuse
-    pub fn for_verifier(&self, target: &str) -> String {
+    pub fn for_verifier(&self, target: &str, lang: Lang) -> String {
         match self {
-            FilesSince::Same => format!(
-                "\n文件状态：和 {target} 提交结果时完全相同（同一个提交，改动过的文件内容一致）。它在这些文件上跑过的命令，你再跑一遍会得到同样的输出：先读它的证据，只补跑你的判定依赖、而它的证据缺少、较弱或你有具体理由怀疑的部分；独立验证的价值在于它没覆盖的地方，例如复现它声称的行为、边界情况、它没跑的检查。checks 里写明哪些条目采信了它的证据（引用它的命令和输出）、哪些是你自己核实的。"
+            FilesSince::Same => tr!(
+                lang,
+                "\n文件状态：和 {target} 提交结果时完全相同（同一个提交，改动过的文件内容一致），它的证据描述的就是现在的文件。checks 里写明哪些条目采信了它的证据、哪些是你自己核实的。",
+                "\nFiles: exactly as when {target} handed in its result (the same commit, the same content of the changed files), so its evidence describes the files as they are now. In checks, say which criteria rest on its evidence and which you verified yourself."
             ),
-            FilesSince::Changed { commit, paths } => format!(
-                "\n文件状态：{target} 提交结果之后又有变化（{}）。和这些变化相关的检查要重新做；其余条目它的证据仍可参考。",
-                Self::changes(*commit, paths)
-            ),
+            FilesSince::Changed { commit, paths } => {
+                let changes = Self::changes(*commit, paths, lang);
+                tr!(
+                    lang,
+                    "\n文件状态：{target} 提交结果之后又有变化（{changes}）。它的证据描述的是变化之前的文件，只对没受这些变化影响的条目有效。",
+                    "\nFiles: changed since {target} handed in its result ({changes}). Its evidence describes the files before that, so it holds only for criteria these changes do not touch."
+                )
+            }
         }
     }
 
     /// The line on the board under a finished verification: whether it checked the files the
     /// verified task handed in.
-    pub fn for_lead(&self, target: &str) -> String {
+    pub fn for_lead(&self, target: &str, lang: Lang) -> String {
         match self {
-            FilesSince::Same => format!("核对时的文件和 {target} 提交结果时相同"),
+            FilesSince::Same => {
+                tr!(
+                    lang,
+                    "核对时的文件和 {target} 提交结果时相同",
+                    "checked the same files {target} handed its result in on"
+                )
+            }
             FilesSince::Changed { commit, paths } => {
-                format!("核对时的文件和 {target} 提交结果时不同（{}）", Self::changes(*commit, paths))
+                let changes = Self::changes(*commit, paths, lang);
+                tr!(
+                    lang,
+                    "核对时的文件和 {target} 提交结果时不同（{changes}）",
+                    "checked files that differ from those {target} handed its result in on ({changes})"
+                )
             }
         }
     }
@@ -318,26 +391,29 @@ impl FilesSince {
 
 /// Why `accept` is refused for a task, if it verifies another one: a failed verification is
 /// settled by fixing and verifying again, or by cancelling obsolete downstream work on the record.
-pub fn accept_refused(def: &TaskDef) -> Option<String> {
+pub fn accept_refused(def: &TaskDef, lang: Lang) -> Option<String> {
     let target = def.verifies.as_deref()?;
-    Some(format!(
-        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。请用 janus.task_detail 查看 {id} 发现的问题，判断问题出在哪个子任务，用 janus.retry 返工（例如 task=\"{target}\"、from=\"{id}\"，session 选 continue 或 new），返工完成后 {id} 自动重新验证；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
-        id = def.id
+    let id = &def.id;
+    Some(tr!(
+        lang,
+        "{id} 是 {target} 的独立验证，验证没通过不能直接接受。用 janus.task_detail 看 {id} 发现的问题，判断问题出在哪个子任务，用 janus.retry 返工（例如 task=\"{target}\"、from=\"{id}\"），返工完成后 {id} 自动重新验证；确认不需要验证时，用 janus.cancel 取消 {id} 并写明理由。",
+        "{id} independently verifies {target}; a failed verification cannot simply be accepted. Read what {id} found with janus.task_detail, decide which subtask the problem lies in and send it back with janus.retry (for example task=\"{target}\", from=\"{id}\"); once reworked, {id} verifies it again on its own. If the verification is no longer needed, cancel {id} with janus.cancel and give the reason."
     ))
 }
 
-/// The part of the lead's brief on how to organise the team.
-pub fn lead_guide() -> &'static str {
-    "Organizing the team:
-- Estimate the scope first. If the whole goal is something one person can finish in a turn, do it yourself without delegating. Otherwise delegate, keeping in mind that you no longer edit files once you do: give work with tightly coupled steps to one subtask instead of splitting it, and divide work cleanly by file, module, or question. Keep parallel work within the available collaborator instances and give each subtask an independently verifiable change.
-- Match the process to the size and risk of the work, and keep independent work running side by side. Subtasks with different assignees and no dependency between them run at the same time; chain subtasks only when one needs the other's result. A small, low-risk change needs one implementer and at most one check, not a product, development, QA and acceptance pipeline. Documents, research, and analysis are reviewed once against what the goal needs; add another round only when the review found real problems. A check after rework covers the findings and what the rework touched, not everything again.
-- Establish shared contracts first. When parallel modules share data structures, signatures, routes, or event protocols, define those contracts and types in an upstream subtask or implement them yourself before dispatching the parallel work.
-- State what each subtask owns, what it must leave untouched, and what counts as done. Use owns for files or directories relative to the working directory. A directory covers all files below it. Janus rejects overlaps between subtasks that could run at the same time.
-- Collaborators can call janus.claim before editing files outside owns. The board reports claims and out-of-scope edits to files another active subtask owns. If a subtask needs splitting, the collaborator can propose a split with janus.request_split, and you decide whether to revise the plan.
-- On completion, Janus checks each result against the subtask's edits. The completion entry flags missing changes to owned files, changes outside the assigned scope, and edits made by a verifier. Inspect the current working directory before relying on a summary.
-- Evidence is made on specific files. Janus records the files each result was handed in on, tells a verifier whether they are still the same, and states under a finished verification whether it checked those files. The same checks on the same files give the same output, so a verifier spends its effort on what the implementer did not cover, and reruns only what changed or what it has a concrete reason to doubt.
-- Arrange independent verification for important changes. Assign another collaborator a subtask with verifies set to the id being verified. The verification subtask starts after the target finishes. The verifier inspects the result without changing files and returns an approved, rejected, or inconclusive verdict. You cannot bypass an unsuccessful verification with janus.accept. Decide which subtask the problem lies in and send it back with janus.retry, from set to the verification: the assignee gets the findings verbatim, and the verification checks the reworked result again on its own. Use session=\"continue\" when the earlier context helps (fixing review findings in the same work) and session=\"new\" when it does not. Orchestrate a new subtask only for different work or a different assignee, or cancel the downstream tasks that no longer need to run and state why. A completed verification retains its verdict until it checks again.
-- Choose a session for every follow-up. One collaborator may hold several sessions, one per subtask, for example a backend one and a frontend one. A new subtask that builds on an earlier subtask's context can set continues to that subtask's id; work in a different area starts in a fresh session. If a second collaborator is unavailable, verify the result yourself."
+/// The part of the lead's brief on how to organise the team. How each structure is declared is in
+/// the `orchestrate` tool's own description.
+pub fn lead_guide(lang: Lang) -> &'static str {
+    lang.pick(
+        "组织团队：
+- 派出子任务时，步骤紧密耦合的工作交给一个子任务，其余按文件、模块或问题干净地切开，并行的数量不超过可用的协作者实例。执行者不同、互不依赖的子任务同时进行；只有一个需要另一个的结果时才排成先后。
+- 并行的子任务依赖同一份定义（接口、格式、提纲、术语）时，先由前置子任务定下来，或者你自己写好。
+- 写清每个子任务负责什么、不能碰什么、做到什么算完成。",
+        "Organizing the team:
+- When you delegate, give tightly coupled steps to one subtask and divide the rest cleanly by file, module, or question, within the available collaborator instances. Subtasks with different assignees and no dependency between them run at the same time; chain subtasks only when one needs the other's result.
+- When parallel subtasks depend on the same definitions (an interface, a format, an outline, terms), settle them first in an upstream subtask or write them yourself.
+- State what each subtask owns, what it must leave untouched, and what counts as done.",
+    )
 }
 
 #[cfg(test)]
@@ -362,7 +438,7 @@ mod tests {
 
     fn errors(new: &mut [TaskDef], board: &[(TaskDef, TaskStatus)]) -> Vec<String> {
         let mut e = vec![];
-        check(new, board, &mut e);
+        check(new, board, &mut e, Lang::Zh);
         e
     }
 
@@ -373,13 +449,14 @@ mod tests {
             &json!(["./src/", "src", "README.md", "/etc/passwd", "../x", "a/../../b", ""]),
             "子任务 T1",
             &mut e,
+            Lang::Zh,
         );
         assert_eq!(owns, vec!["src", "README.md"]);
         assert_eq!(e.len(), 3, "{e:?}");
         assert!(overlaps("src", "src/a.rs") && overlaps("src/a.rs", "src") && overlaps("a", "a"));
         assert!(!overlaps("src", "src2/a.rs") && !overlaps("src/a.rs", "src/b.rs"));
         // Other spellings of the same file (AT-09).
-        let owns = read_owns(&json!(["src/./parser.rs", "src//parser.rs", "lib/"]), "子任务 T2", &mut e);
+        let owns = read_owns(&json!(["src/./parser.rs", "src//parser.rs", "lib/"]), "子任务 T2", &mut e, Lang::Zh);
         assert_eq!(owns, vec!["src/parser.rs", "lib"]);
         assert!(overlaps("src/Utils.rs", "src/utils.rs") && overlaps("SRC", "src/a.rs"));
     }
@@ -440,10 +517,10 @@ mod tests {
         let board = [(def("T1", "m1", &[], &[], None), TaskStatus::Succeeded)];
         assert!(errors(&mut [def("V1", "m2", &[], &[], Some("T1"))], &board).is_empty());
         assert!(
-            accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1")))
+            accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1")), Lang::Zh)
                 .is_some_and(|x| x.contains("janus.retry") && x.contains("from=\"V1\""))
         );
-        assert!(accept_refused(&def("T1", "m1", &[], &[], None)).is_none());
+        assert!(accept_refused(&def("T1", "m1", &[], &[], None), Lang::Zh).is_none());
     }
 
     #[test]
@@ -478,22 +555,22 @@ mod tests {
         );
         let board = [(&a, TaskStatus::Running), (&b, TaskStatus::Running), (&v, TaskStatus::Pending)];
         assert_eq!(
-            claim(&b, &["README.md".into(), "docs/a.md".into()], &board).unwrap(),
+            claim(&b, &["README.md".into(), "docs/a.md".into()], &board, Lang::Zh).unwrap(),
             vec!["README.md"],
             "docs/a.md is already B's"
         );
-        let e = claim(&b, &["src/a.rs".into(), "x".into()], &board).unwrap_err();
+        let e = claim(&b, &["src/a.rs".into(), "x".into()], &board, Lang::Zh).unwrap_err();
         assert!(e.contains("src/a.rs 归 A 负责") && e.contains("blocker"), "{e}");
-        assert!(claim(&v, &["y".into()], &board).unwrap_err().contains("验证子任务"));
+        assert!(claim(&v, &["y".into()], &board, Lang::Zh).unwrap_err().contains("验证子任务"));
         b.owns.clear();
         let done = [(&a, TaskStatus::Succeeded)];
-        assert_eq!(claim(&b, &["src/a.rs".into()], &done).unwrap(), vec!["src/a.rs"], "A is done");
+        assert_eq!(claim(&b, &["src/a.rs".into()], &done, Lang::Zh).unwrap(), vec!["src/a.rs"], "A is done");
     }
 
     #[test]
     fn prompts_name_the_owned_files_and_the_checked_task() {
         let work = def("T1", "m1", &[], &["src", "README.md"], None);
-        let p = task_section(&work, None);
+        let p = task_section(&work, None, Lang::Zh);
         assert!(p.contains("你负责的文件：src、README.md") && !p.contains("独立验证者"), "{p}");
         let edited = vec!["src/lib.rs".to_string()];
         let gaps = vec!["负责 README.md，但没有改动".to_string()];
@@ -507,7 +584,7 @@ mod tests {
             weak_checks: &weak,
             risks: &risks,
         };
-        let p = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&vc));
+        let p = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&vc), Lang::Zh);
         assert!(
             p.contains("子任务 T1「T1」的独立验证者")
                 && p.contains("- T1 做完")
@@ -519,7 +596,9 @@ mod tests {
                 && p.contains("verdict"),
             "{p}"
         );
-        assert!(task_section(&def("T2", "m1", &[], &[], None), None).is_empty());
+        assert!(task_section(&def("T2", "m1", &[], &[], None), None, Lang::Zh).is_empty());
+        let en = task_section(&def("V1", "m2", &["T1"], &[], Some("T1")), Some(&vc), Lang::En);
+        assert!(en.contains("You independently verify subtask T1") && en.contains("verdict"), "{en}");
     }
 
     #[test]

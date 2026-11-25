@@ -6,6 +6,7 @@
 // @project-doc docs/domains/20261120-chats.md#chat_model
 
 use super::*;
+use crate::lang::{Lang, tr};
 
 impl App {
     /// Start a chat with `role`: snapshot it as the run's one member, make the chat's directory and
@@ -54,8 +55,9 @@ impl App {
         extra: Value,
     ) -> Result<Arc<Run>> {
         let team = vec![member];
-        self.bundle_team(&self.cfg.layout.run(kind, id), &team)?;
-        let mut config = json!({ "team": team, "git": false, "baseRef": "" });
+        let lang = self.language();
+        self.bundle_team(&self.cfg.layout.run(kind, id), &team, lang)?;
+        let mut config = json!({ "team": team, "git": false, "baseRef": "", "lang": lang });
         if let (Some(c), Some(more)) = (config.as_object_mut(), extra.as_object()) {
             c.extend(more.clone());
         }
@@ -71,6 +73,7 @@ impl App {
             base_ref: String::new(),
             brief: String::new(),
             goal_images: vec![],
+            lang,
             last_seq: 0,
             status: RunStatus::Planning,
             asker: Asker::Person,
@@ -95,12 +98,14 @@ impl App {
 /// rules, which are for an Agent Team. Only a chat that goes on in a new session (its old one could
 /// not be loaded) gets what was said so far, so it knows where it left off.
 // @project-doc docs/domains/20261120-chats.md#chat_session
-pub(super) fn chat_brief(events: &[Event]) -> String {
-    let recent = recent_exchanges(events, "You");
+pub(super) fn chat_brief(events: &[Event], lang: Lang) -> String {
+    let recent = recent_exchanges(events, Speakers::You, lang);
     if recent.is_empty() {
         return String::new();
     }
-    format!(
+    tr!(
+        lang,
+        "和用户的这段对话在新会话中继续。照下面的记录，从上次停下的地方接着说。\n\n最近的对话：\n{recent}",
         "This conversation with the user continues in a new session. Use the history below to pick up where you left off.\n\nRecent conversation:\n{recent}"
     )
 }

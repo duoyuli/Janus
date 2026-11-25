@@ -1,6 +1,7 @@
 //! Unit tests of the orchestrator's helpers.
 
 use super::*;
+use crate::lang::Lang;
 
 fn member_with(kind: Runtime, provider: &str, role: &str) -> Member {
     let mut m = test_run(1).team.remove(0);
@@ -63,11 +64,15 @@ fn task_prompts_carry_the_shared_material() {
         continues: None,
     };
     let m = run.team[1].clone();
-    assert!(!task_prompt(&run, &m, &def, &[], &[], None).contains("Shared workspace context"));
+    assert!(!task_prompt(&run, &m, &def, &[], &[], None).contains("工作区共享资料"));
     run.brief = "目标用户是独立开发者".into();
     let p = task_prompt(&run, &m, &def, &[], &[], None);
+    assert!(p.contains("工作区共享资料（由用户维护）。有冲突时以子任务说明为准。\n目标用户是独立开发者"), "{p}");
+    run.lang = Lang::En;
+    let p = task_prompt(&run, &m, &def, &[], &[], None);
     assert!(
-        p.contains("Shared workspace context (maintained by the user). In a conflict, follow the subtask instructions.\n目标用户是独立开发者"),
+        p.contains("Your subtask ")
+            && p.contains("Shared workspace context (maintained by the user). In a conflict, follow the subtask instructions.\n目标用户是独立开发者"),
         "{p}"
     );
 }
@@ -115,13 +120,16 @@ fn standing_instructions_go_in_the_system_layer() {
     assert_eq!(Runtime::Claude.instruction_channel(), InstructionChannel::System);
     assert_eq!(Runtime::Codex.instruction_channel(), InstructionChannel::Developer);
     let m = member_with(Runtime::Codex, "用中文回答", "只报有依据的问题");
-    let text = standing_instructions(&m);
     assert_eq!(
-        text,
+        standing_instructions(&m, Lang::En),
         "The following standing instructions from the user apply throughout the session.\n\n\
          Agent settings (Codex):\n用中文回答\n\nRole instructions (Reviewer):\n只报有依据的问题"
     );
-    assert!(standing_instructions(&member_with(Runtime::Codex, " ", "")).is_empty());
+    assert_eq!(
+        standing_instructions(&m, Lang::Zh),
+        "以下是用户的长期要求，整个会话都有效。\n\nAgent 设置（Codex）：\n用中文回答\n\n数字员工的指令（Reviewer）：\n只报有依据的问题"
+    );
+    assert!(standing_instructions(&member_with(Runtime::Codex, " ", ""), Lang::Zh).is_empty());
 }
 
 /// Codex starts with its system layer and its permission mode's thread settings in the adapter's
@@ -183,24 +191,23 @@ fn a_codex_session_starts_with_its_instructions_and_its_modes_settings() {
 /// and Codex gets both as developer instructions. The task prompt carries only the task.
 #[test]
 fn the_system_layer_holds_janus_rules_then_the_persons() {
-    let rules = collaborator_rules(true);
-    assert!(rules.contains("janus.board_post") && rules.contains("```json"), "{rules}");
+    // The board's tools explain themselves: the rules hold no tool list and no skills sentence.
+    let rules = collaborator_rules(Lang::En);
+    assert!(
+        rules.contains("```json") && !rules.contains("janus.board_post") && !rules.contains("janus-skills"),
+        "{rules}"
+    );
     assert!(rules.is_ascii(), "{rules}");
-    assert!(!collaborator_rules(false).contains("janus.board_post"), "no board, no board tools");
+    let zh = collaborator_rules(Lang::Zh);
+    assert!(zh.starts_with("你是 Janus 团队的协作者。") && zh.contains("```json"), "{zh}");
     // Committing, pushing and deploying follow the subtask's instructions, not a ban of Janus's own.
     assert!(rules.contains("Commit, push, or deploy only when your subtask's instructions ask for it"), "{rules}");
     assert!(!rules.contains("Do not commit"), "{rules}");
-    let standing = standing_instructions(&member_with(Runtime::Codex, "", "先运行现有测试"));
+    let standing = standing_instructions(&member_with(Runtime::Codex, "", "先运行现有测试"), Lang::En);
     let text = system_layer(&[&rules, "", &standing]);
     assert!(text.starts_with("You are a collaborator on the Janus team."));
     assert!(text.ends_with("Role instructions (Reviewer):\n先运行现有测试"));
     assert_eq!(system_layer(&[" ", ""]), "");
-    let skills = skills_note(Some("/j/runs/r/members/m1/bundle/.agents/skills/janus-skills/SKILL.md".into()));
-    assert!(skills.contains("read /j/runs/r/members/m1/bundle/.agents/skills/janus-skills/SKILL.md"), "{skills}");
-    let text = system_layer(&[&rules, &skills, &standing]);
-    assert!(text.find("Library skills:").unwrap() > text.find("Result:").unwrap(), "after Janus's rules");
-    assert!(text.find("Library skills:").unwrap() < text.find("Role instructions").unwrap(), "before the person's");
-    assert_eq!(skills_note(None), "", "no skill, no note");
     let spec = || crate::acp::RuntimeSpec {
         id: "c".into(),
         kind: Runtime::Codex,
@@ -290,10 +297,12 @@ fn goal_status_comes_from_the_air_metadata() {
 #[test]
 fn long_results_are_clipped_on_the_board() {
     let items: Vec<String> = (0..5).map(|i| format!("证据{i}")).collect();
-    let (text, clipped) = inline_list(&items);
+    let (text, clipped) = inline_list(&items, crate::lang::Lang::Zh);
     assert!(clipped && text.contains("证据2") && !text.contains("证据3") && text.ends_with("等共 5 条"), "{text}");
-    let (text, clipped) = inline_list(&items[..2]);
+    let (text, clipped) = inline_list(&items[..2], crate::lang::Lang::Zh);
     assert!(!clipped && text == "证据0；证据1");
+    let (text, _) = inline_list(&items, crate::lang::Lang::En);
+    assert!(text.ends_with("; 5 in all"), "{text}");
     let edit = json!({ "kind": "edit", "locations": [{ "path": "/w/src/a.rs" }, { "path": "/w/src/a.rs" }] });
     assert_eq!(edited_paths(&edit, Path::new("/w")), ["src/a.rs"]);
     assert!(edited_paths(&json!({ "kind": "read", "locations": [{ "path": "/w/a" }] }), Path::new("/w")).is_empty());
@@ -335,6 +344,7 @@ fn test_run(team_size: usize) -> Run {
         base_ref: String::new(),
         brief: String::new(),
         goal_images: vec![],
+        lang: crate::lang::Lang::Zh,
         last_seq: 0,
         status: RunStatus::Planning,
         asker: Asker::Person,
@@ -348,8 +358,10 @@ fn the_lead_is_told_each_collaborator() {
     run.team[1].connection_name = "Codex".into();
     run.team[1].permission = "Full access".into();
     let lines = team_lines(&run);
-    assert_eq!(lines, "- m1: 成员1 · Responsibilities: 独立检查变更，寻找风险与反例", "only who and what for");
+    assert_eq!(lines, "- m1：成员1 · 职责：独立检查变更，寻找风险与反例", "only who and what for");
     assert!(!lines.contains("m0"), "the lead is not its own collaborator: {lines}");
+    run.lang = Lang::En;
+    assert_eq!(team_lines(&run), "- m1: 成员1 · Responsibilities: 独立检查变更，寻找风险与反例");
 }
 
 /// Events written at the same time from several threads reach the stream in seq order;
@@ -522,7 +534,7 @@ fn a_goal_with_an_unknown_field_is_refused() {
 #[test]
 fn each_caller_lists_its_own_tools_once() {
     let names = |c: Caller| -> Vec<String> {
-        c.tools().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        c.tools(crate::lang::Lang::Zh).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
     };
     for (kind, who) in
         [(RunKind::Goal, "lead"), (RunKind::Goal, "T1"), (RunKind::Loop, "lead"), (RunKind::Dream, "lead")]
@@ -540,4 +552,80 @@ fn each_caller_lists_its_own_tools_once() {
     assert!(names(Caller::of(RunKind::Goal, "T1").unwrap()).contains(&"board_post".to_string()));
     assert!(names(Caller::of(RunKind::Loop, "lead").unwrap()).contains(&"dispatch".to_string()));
     assert!(Caller::of(RunKind::Chat, "lead").is_none());
+}
+
+/// The board speaks the run's language: every tool description and parameter description, and
+/// the board entries the lead reads, come in Chinese or English.
+#[test]
+fn the_board_speaks_the_runs_language() {
+    use crate::lang::Lang;
+    fn texts(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::Object(m) => {
+                for (k, x) in m {
+                    match x {
+                        Value::String(s) if k == "description" => out.push(s.clone()),
+                        _ => texts(x, out),
+                    }
+                }
+            }
+            Value::Array(a) => a.iter().for_each(|x| texts(x, out)),
+            _ => {}
+        }
+    }
+    let cjk = |s: &str| s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
+    for caller in [Caller::Lead, Caller::Member] {
+        for (lang, chinese) in [(Lang::Zh, true), (Lang::En, false)] {
+            let mut all = vec![];
+            texts(&json!(caller.tools(lang)), &mut all);
+            assert!(!all.is_empty());
+            for d in all.iter().filter(|d| !d.is_empty()) {
+                assert_eq!(cjk(d), chinese, "{caller:?} {lang:?}: {d}");
+            }
+        }
+    }
+    let wait = LeadTool::Wait.definition(Lang::En);
+    let about = wait["description"].as_str().unwrap();
+    assert!(about.contains("at most 180") && about.contains("pushed into your session"), "{about}");
+    let accept = LeadTool::Accept.definition(Lang::Zh);
+    assert!(accept["description"].as_str().unwrap().contains("独立验证没通过不能用它放行"), "{accept}");
+
+    let mut run = test_run(2);
+    run.lang = Lang::En;
+    let def = TaskDef {
+        id: "T1".into(),
+        title: "Parser".into(),
+        desc: "d".into(),
+        deps: vec![],
+        accept: vec!["a".into()],
+        assignee: "m1".into(),
+        max_attempts: 2,
+        owns: vec![],
+        verifies: None,
+        continues: None,
+    };
+    run.st.lock().unwrap().tasks.push(Task::new(def, "m1".into(), 0));
+    let asked = crate::db::Event {
+        run_id: run.id.clone(),
+        seq: 5,
+        ts: 0,
+        kind: EventKind::QuestionAsked.as_str().into(),
+        actor: "m1".into(),
+        to: Some("lead".into()),
+        task: Some("T1".into()),
+        attempt: Some(1),
+        text: String::new(),
+        data: Some(json!({ "question": "Which name?", "options": ["a", "b"] })),
+    };
+    let entry = board_entry(&run, &asked).unwrap();
+    assert_eq!(
+        entry,
+        "- [Question] T1 · 成员1 stopped to wait for your answer: Which name? (options: a / b)\n  Answer with janus.reply (task=T1)."
+    );
+    run.lang = Lang::Zh;
+    assert!(
+        board_entry(&run, &asked)
+            .unwrap()
+            .starts_with("- [提问] T1 · 成员1 停下来等你回答：Which name?（选项：a / b）")
+    );
 }

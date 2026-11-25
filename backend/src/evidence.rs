@@ -13,6 +13,7 @@
 //! `docs/domains/20261031-run_lifecycle.md#verification`; the wire format is in
 //! `docs/interfaces/20261031-events.md#evidence_methods`.
 
+use crate::lang::{Lang, tr};
 use crate::wire::wire_enum;
 use serde::Serialize;
 use serde_json::Value;
@@ -36,14 +37,19 @@ wire_enum! {
 }
 
 impl Method {
-    /// What the lead, the person and the app read.
+    /// What the app reads.
     pub fn label(self) -> &'static str {
+        self.label_in(Lang::Zh)
+    }
+
+    /// What an agent reads, in the run's language.
+    pub fn label_in(self, lang: Lang) -> &'static str {
         match self {
-            Method::Test => "测试",
-            Method::Command => "命令",
-            Method::Inspection => "检查",
-            Method::Reasoning => "推理判断",
-            Method::Unverified => "未核实",
+            Method::Test => lang.pick("测试", "test"),
+            Method::Command => lang.pick("命令", "command"),
+            Method::Inspection => lang.pick("检查", "inspection"),
+            Method::Reasoning => lang.pick("推理判断", "reasoning"),
+            Method::Unverified => lang.pick("未核实", "unverified"),
         }
     }
 }
@@ -105,23 +111,23 @@ impl Check {
 
     /// 「测试」/「推理判断」/「未核实」/「未说明」; an illegal value is shown as written, so it is
     /// never read as an allowed method.
-    pub fn method_label(&self) -> String {
+    pub fn method_label(&self, lang: Lang) -> String {
         match (self.method, &self.method_error) {
-            (Some(m), _) => m.label().to_string(),
-            (None, Some(raw)) => format!("方法「{raw}」不合法（未说明）"),
-            (None, None) => "未说明".to_string(),
+            (Some(m), _) => m.label_in(lang).to_string(),
+            (None, Some(raw)) => tr!(lang, "方法「{raw}」不合法（未说明）", "invalid method \"{raw}\" (none given)"),
+            (None, None) => lang.pick("未说明", "no method").to_string(),
         }
     }
 
-    /// One line as the lead reads it: `✓ [测试] 标准：证据`.
-    pub fn line(&self) -> String {
-        format!(
-            "{} [{}] {}：{}",
-            if self.passed { "✓" } else { "✗" },
-            self.method_label(),
-            self.criterion,
-            if self.evidence.trim().is_empty() { "（没有给出证据）" } else { self.evidence.trim() }
-        )
+    /// One line as an agent reads it: `✓ [测试] 标准：证据`.
+    pub fn line(&self, lang: Lang) -> String {
+        let mark = if self.passed { "✓" } else { "✗" };
+        let (method, criterion) = (self.method_label(lang), &self.criterion);
+        let evidence = match self.evidence.trim() {
+            "" => lang.pick("（没有给出证据）", "(no evidence given)"),
+            e => e,
+        };
+        tr!(lang, "{mark} [{method}] {criterion}：{evidence}", "{mark} [{method}] {criterion}: {evidence}")
     }
 }
 
@@ -151,8 +157,14 @@ pub struct Summary {
 }
 
 impl Summary {
-    /// Summarise `checks` for a task whose acceptance criteria are `accept`.
+    /// Summarise `checks` for a task whose acceptance criteria are `accept`, as the app and the
+    /// delivery record it.
     pub fn of(accept: &[String], checks: &[Check]) -> Summary {
+        Summary::of_in(accept, checks, Lang::Zh)
+    }
+
+    /// The same, with the reminders in `lang`, for an agent to read.
+    pub fn of_in(accept: &[String], checks: &[Check], lang: Lang) -> Summary {
         let criteria = accept.len();
         let mut s = Summary {
             criteria,
@@ -166,20 +178,33 @@ impl Summary {
             }
         }
         for (i, c) in checks.iter().enumerate() {
-            let (n, name) = (i + 1, criterion_name(&c.criterion));
+            let (n, name) = (i + 1, criterion_name(&c.criterion, lang));
             match (c.method, &c.method_error) {
-                (Some(Method::Reasoning), _) => {
-                    s.reminders.push(format!("第 {n} 条「{name}」是推理判断，不是运行得到的结果"))
-                }
-                (Some(Method::Unverified), _) => s.reminders.push(format!(
-                    "第 {n} 条「{name}」未核实：{}",
-                    if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() }
+                (Some(Method::Reasoning), _) => s.reminders.push(tr!(
+                    lang,
+                    "第 {n} 条「{name}」是推理判断，不是运行得到的结果",
+                    "#{n} \"{name}\" rests on reasoning, not on something run"
                 )),
+                (Some(Method::Unverified), _) => {
+                    let why = match c.evidence.trim() {
+                        "" => lang.pick("没有说明原因", "no reason given"),
+                        e => e,
+                    };
+                    s.reminders.push(tr!(
+                        lang,
+                        "第 {n} 条「{name}」未核实：{why}",
+                        "#{n} \"{name}\" is unverified: {why}"
+                    ))
+                }
                 (Some(_), _) => {}
-                (None, Some(raw)) => s.invalid.push(invalid_method(i, name, raw)),
+                (None, Some(raw)) => s.invalid.push(invalid_method(i, name, raw, lang)),
                 (None, None) => {
                     s.unspecified += 1;
-                    s.reminders.push(format!("第 {n} 条「{name}」没有说明证据方法"));
+                    s.reminders.push(tr!(
+                        lang,
+                        "第 {n} 条「{name}」没有说明证据方法",
+                        "#{n} \"{name}\" names no evidence method"
+                    ));
                 }
             }
         }
@@ -188,28 +213,46 @@ impl Summary {
 
     /// The lines shown after a task's checks: totals, method counts and what only warrants a
     /// reminder.
-    pub fn lines(&self) -> Vec<String> {
+    pub fn lines(&self, lang: Lang) -> Vec<String> {
+        let (criteria, passed, counts) = (self.criteria, self.passed, self.counts(lang));
         let mut out = vec![
-            format!("验收标准：{} 条", self.criteria),
-            format!("通过：{} 条", self.passed),
-            format!("证据：{}", self.counts()),
+            tr!(lang, "验收标准：{criteria} 条", "Acceptance criteria: {criteria}"),
+            tr!(lang, "通过：{passed} 条", "Passed: {passed}"),
+            tr!(lang, "证据：{counts}", "Evidence methods: {counts}"),
         ];
         if !self.reminders.is_empty() {
-            out.push(format!("提醒（不影响是否通过）：{}", self.reminders.join("；")));
+            let reminders = self.reminders.join(lang.pick("；", "; "));
+            out.push(tr!(
+                lang,
+                "提醒（不影响是否通过）：{reminders}",
+                "Reminders (they do not affect passing): {reminders}"
+            ));
         }
         out
     }
 
     /// The method counts alone, as in 「测试 2 条、命令 1 条、未说明 1 条」.
-    pub fn counts(&self) -> String {
-        let mut parts: Vec<String> = self.methods.iter().map(|m| format!("{} {} 条", m.label, m.count)).collect();
-        if self.unspecified > 0 {
-            parts.push(format!("未说明 {} 条", self.unspecified));
+    pub fn counts(&self, lang: Lang) -> String {
+        let mut parts: Vec<String> = Method::ALL
+            .iter()
+            .filter_map(|&m| {
+                let n = self.methods.iter().find(|c| c.method == m.as_str())?.count;
+                let label = m.label_in(lang);
+                Some(tr!(lang, "{label} {n} 条", "{label} {n}"))
+            })
+            .collect();
+        let (unspecified, invalid) = (self.unspecified, self.invalid.len());
+        if unspecified > 0 {
+            parts.push(tr!(lang, "未说明 {unspecified} 条", "no method {unspecified}"));
         }
-        if !self.invalid.is_empty() {
-            parts.push(format!("方法不合法 {} 条", self.invalid.len()));
+        if invalid > 0 {
+            parts.push(tr!(lang, "方法不合法 {invalid} 条", "invalid method {invalid}"));
         }
-        if parts.is_empty() { "没有记录".to_string() } else { parts.join("、") }
+        if parts.is_empty() {
+            lang.pick("没有记录", "none recorded").to_string()
+        } else {
+            parts.join(lang.pick("、", ", "))
+        }
     }
 }
 
@@ -229,11 +272,17 @@ wire_enum! {
 }
 
 impl Verdict {
+    /// What the app reads.
     pub fn label(self) -> &'static str {
+        self.label_in(Lang::Zh)
+    }
+
+    /// What an agent reads, in the run's language.
+    pub fn label_in(self, lang: Lang) -> &'static str {
         match self {
-            Verdict::Approved => "通过",
-            Verdict::Rejected => "需要修改",
-            Verdict::Inconclusive => "证据不足",
+            Verdict::Approved => lang.pick("通过", "approved"),
+            Verdict::Rejected => lang.pick("需要修改", "needs changes"),
+            Verdict::Inconclusive => lang.pick("证据不足", "not enough evidence"),
         }
     }
 }
@@ -298,46 +347,70 @@ pub fn gaps_for(
     is_verifier: bool,
     verdict: Option<Verdict>,
     verdict_error: Option<&str>,
+    lang: Lang,
 ) -> Vec<String> {
     let mut gaps = vec![];
     if summary.trim().is_empty() {
-        gaps.push("结构化结果缺少 summary".to_string());
+        gaps.push(tr!(lang, "结构化结果缺少 summary", "The structured result has no summary"));
     }
     if let Some(raw) = verdict_error {
-        let allowed = Verdict::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>().join("、");
-        gaps.push(format!("结构化结果的 verdict「{raw}」不是允许值，只能是 {allowed}"));
+        let allowed = Verdict::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>().join(lang.pick("、", ", "));
+        gaps.push(tr!(
+            lang,
+            "结构化结果的 verdict「{raw}」不是允许值，只能是 {allowed}",
+            "The structured result's verdict \"{raw}\" is not allowed; it must be one of {allowed}"
+        ));
     }
     for (i, criterion) in accept.iter().enumerate() {
+        let n = i + 1;
         let Some(c) = checks.get(i) else {
-            gaps.push(format!("没有核对第 {} 条验收标准「{criterion}」", i + 1));
+            gaps.push(tr!(
+                lang,
+                "没有核对第 {n} 条验收标准「{criterion}」",
+                "Acceptance criterion #{n} \"{criterion}\" was not checked"
+            ));
             continue;
         };
         if !is_verifier && !c.passed {
-            gaps.push(format!(
-                "自认没有达到「{criterion}」：{}",
-                if c.evidence.trim().is_empty() { "没有说明原因" } else { c.evidence.trim() }
-            ));
+            let why = match c.evidence.trim() {
+                "" => lang.pick("没有说明原因", "no reason given"),
+                e => e,
+            };
+            gaps.push(tr!(lang, "自认没有达到「{criterion}」：{why}", "Reported as not met: \"{criterion}\": {why}"));
         } else if c.evidence.trim().is_empty() {
-            gaps.push(format!("「{criterion}」没有给出证据"));
+            gaps.push(tr!(lang, "「{criterion}」没有给出证据", "\"{criterion}\" gives no evidence"));
         }
         if let Some(raw) = &c.method_error {
-            gaps.push(invalid_method(i, criterion, raw));
+            gaps.push(invalid_method(i, criterion, raw, lang));
         }
     }
     if is_verifier && verdict == Some(Verdict::Approved) && checks.iter().take(accept.len()).any(|c| !c.passed) {
-        gaps.push("verdict 写了 approved，但有验收标准填了 passed: false，请统一判定与逐条结论".to_string());
+        gaps.push(tr!(
+            lang,
+            "verdict 写了 approved，但有验收标准填了 passed: false，请统一判定与逐条结论",
+            "verdict says approved, but a criterion has passed: false; make the verdict and the checks agree"
+        ));
     }
     gaps
 }
 
 /// The criterion as it reads in a reminder; an empty one is named as such instead of as「」.
-fn criterion_name(criterion: &str) -> &str {
-    if criterion.trim().is_empty() { "（没有写明标准）" } else { criterion.trim() }
+fn criterion_name(criterion: &str, lang: Lang) -> &str {
+    if criterion.trim().is_empty() {
+        lang.pick("（没有写明标准）", "(criterion not written)")
+    } else {
+        criterion.trim()
+    }
 }
 
-fn invalid_method(index: usize, criterion: &str, raw: &str) -> String {
-    let allowed = Method::ALL.iter().map(|m| m.as_str()).collect::<Vec<_>>().join("、");
-    format!("第 {} 条验收标准「{criterion}」的证据方法「{raw}」不是允许值，只能是 {allowed}", index + 1)
+fn invalid_method(index: usize, criterion: &str, raw: &str, lang: Lang) -> String {
+    let allowed = Method::ALL.iter().map(|m| m.as_str()).collect::<Vec<_>>().join(lang.pick("、", ", "));
+    let n = index + 1;
+    tr!(
+        lang,
+        "第 {n} 条验收标准「{criterion}」的证据方法「{raw}」不是允许值，只能是 {allowed}",
+        "Acceptance criterion #{n} \"{criterion}\" names the evidence method \"{raw}\", which is not allowed; it must be one of {allowed}"
+    )
 }
 
 #[cfg(test)]
@@ -358,7 +431,7 @@ mod tests {
     }
 
     fn gaps(accept: &[String], summary: &str, checks: &[Check]) -> Vec<String> {
-        gaps_for(accept, summary, checks, false, None, None)
+        gaps_for(accept, summary, checks, false, None, None, Lang::Zh)
     }
 
     #[test]
@@ -372,7 +445,7 @@ mod tests {
         ] {
             let c = check("标准1", Some(raw), "证据");
             assert_eq!(c.method, Method::parse(raw), "{raw}");
-            assert_eq!(c.method_label(), label);
+            assert_eq!(c.method_label(Lang::Zh), label);
             assert_eq!(
                 serde_json::to_value(&c).unwrap()["method"],
                 json!(raw),
@@ -386,13 +459,13 @@ mod tests {
         let c = check("标准1", None, "看起来没问题");
         assert_eq!(c.method, None);
         assert_eq!(c.method_error, None);
-        assert_eq!(c.method_label(), "未说明");
+        assert_eq!(c.method_label(Lang::Zh), "未说明");
         // A check without a method is recorded without the field.
         assert!(serde_json::to_value(&c).unwrap().get("method").is_none());
 
         let s = Summary::of(&accept(2), &[c, check("标准2", Some("test"), "cargo test 通过")]);
         assert_eq!((s.criteria, s.passed, s.unspecified), (2, 2, 1));
-        assert_eq!(s.counts(), "测试 1 条、未说明 1 条");
+        assert_eq!(s.counts(Lang::Zh), "测试 1 条、未说明 1 条");
         assert!(s.reminders.iter().any(|r| r.contains("没有说明证据方法")), "{:?}", s.reminders);
         assert!(
             gaps(&accept(2), "完成", &[check("标准1", None, "说明"), check("标准2", None, "说明")]).is_empty(),
@@ -409,7 +482,7 @@ mod tests {
             assert_eq!(c.method, None, "never mapped onto an allowed method: {raw}");
             let written = raw.as_str().map(str::to_owned).unwrap_or_else(|| raw.to_string());
             assert_eq!(c.method_error.as_deref(), Some(written.as_str()));
-            assert!(c.method_label().contains("不合法"), "{}", c.method_label());
+            assert!(c.method_label(Lang::Zh).contains("不合法"), "{}", c.method_label(Lang::Zh));
 
             let g = gaps(&accept(1), "完成", &[c]);
             assert_eq!(g.len(), 1, "{g:?}");
@@ -455,12 +528,12 @@ mod tests {
         let s = Summary::of(&accept(6), &checks);
         assert!(gaps(&accept(6), "完成", &checks).is_empty(), "reminders never fail the result");
         assert_eq!((s.criteria, s.passed, s.unspecified), (6, 6, 1));
-        assert_eq!(s.counts(), "测试 1 条、命令 1 条、检查 1 条、推理判断 1 条、未核实 1 条、未说明 1 条");
+        assert_eq!(s.counts(Lang::Zh), "测试 1 条、命令 1 条、检查 1 条、推理判断 1 条、未核实 1 条、未说明 1 条");
         assert_eq!(s.reminders.len(), 3, "{:?}", s.reminders);
         assert!(s.reminders.iter().any(|r| r.contains("推理判断") && r.contains("不是运行得到的结果")));
         assert!(s.reminders.iter().any(|r| r.contains("未核实") && r.contains("本机没有 Xcode")));
         assert!(s.reminders.iter().any(|r| r.contains("没有说明证据方法")));
-        let lines = s.lines();
+        let lines = s.lines(Lang::Zh);
         assert_eq!(lines[0], "验收标准：6 条");
         assert_eq!(lines[1], "通过：6 条");
         assert!(lines[2].starts_with("证据：测试 1 条"), "{lines:?}");
@@ -474,25 +547,33 @@ mod tests {
         }));
         // A read-only verifier reporting a real defect with evidence has completed its review.
         assert!(
-            gaps_for(&accept(1), "发现阻断缺陷", std::slice::from_ref(&unmet), true, Some(Verdict::Rejected), None)
-                .is_empty()
+            gaps_for(
+                &accept(1),
+                "发现阻断缺陷",
+                std::slice::from_ref(&unmet),
+                true,
+                Some(Verdict::Rejected),
+                None,
+                Lang::Zh
+            )
+            .is_empty()
         );
         assert_eq!(effective_verdict(None, 1, std::slice::from_ref(&unmet)), Verdict::Rejected);
         // Without evidence, even a negative check is incomplete.
         let bare = Check::from_json(&json!({ "criterion": "标准1", "passed": false, "evidence": " " }));
         assert!(
-            gaps_for(&accept(1), "发现问题", &[bare], true, Some(Verdict::Rejected), None)
+            gaps_for(&accept(1), "发现问题", &[bare], true, Some(Verdict::Rejected), None, Lang::Zh)
                 .iter()
                 .any(|g| g.contains("没有给出证据"))
         );
         // Contradicting `approved` with `passed: false` or naming an unknown verdict fails the check.
         assert!(
-            gaps_for(&accept(1), "没问题", &[unmet], true, Some(Verdict::Approved), None)
+            gaps_for(&accept(1), "没问题", &[unmet], true, Some(Verdict::Approved), None, Lang::Zh)
                 .iter()
                 .any(|g| g.contains("approved"))
         );
         assert!(
-            gaps_for(&accept(1), "存疑", &[check("标准1", Some("test"), "ok")], true, None, Some("maybe"))
+            gaps_for(&accept(1), "存疑", &[check("标准1", Some("test"), "ok")], true, None, Some("maybe"), Lang::Zh)
                 .iter()
                 .any(|g| g.contains("不是允许值"))
         );
@@ -500,5 +581,22 @@ mod tests {
             effective_verdict(Some(Verdict::Rejected), 1, &[check("标准1", Some("test"), "已完成核查")]),
             Verdict::Rejected
         );
+    }
+
+    #[test]
+    fn an_english_run_reads_the_evidence_in_english() {
+        let checks =
+            vec![check("Tests pass", Some("test"), "cargo test"), check("Docs", Some("reasoning"), "only caller")];
+        let s = Summary::of_in(&accept(2), &checks, Lang::En);
+        assert_eq!(s.counts(Lang::En), "test 1, reasoning 1");
+        assert!(s.reminders[0].contains("rests on reasoning"), "{:?}", s.reminders);
+        assert_eq!(checks[0].line(Lang::En), "✓ [test] Tests pass: cargo test");
+        assert_eq!(Summary::of(&accept(2), &checks).methods[0].label, "测试", "the app's record stays as it was");
+        let g = gaps_for(&accept(1), "", &[], false, None, None, Lang::En);
+        assert!(
+            g.iter().any(|x| x.contains("has no summary")) && g.iter().any(|x| x.contains("was not checked")),
+            "{g:?}"
+        );
+        assert_eq!(Verdict::Rejected.label_in(Lang::En), "needs changes");
     }
 }

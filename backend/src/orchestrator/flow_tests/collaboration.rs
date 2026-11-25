@@ -194,7 +194,7 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
     assert!(task_event(&events(&h.app, &run), "task.skipped_by_decision", "SHIP"));
     // C-07: Verifier `V1` gets scoped diff artifact, edited files, weak-evidence reminders and risks.
     let v1_prompt = prompt_of("V1");
-    assert!(v1_prompt.contains("专属 diff 产物：") && v1_prompt.contains("T1-a1.diff"), "{v1_prompt}");
+    assert!(v1_prompt.contains("它的改动（diff）：") && v1_prompt.contains("T1-a1.diff"), "{v1_prompt}");
     assert!(v1_prompt.contains("执行者实际改动的文件：api.rs"), "{v1_prompt}");
     assert!(v1_prompt.contains("执行者证据较弱的条目") && v1_prompt.contains("推理判断"), "{v1_prompt}");
     assert!(v1_prompt.contains("执行者上报的风险") && v1_prompt.contains("空字符串边界尚未压测"), "{v1_prompt}");

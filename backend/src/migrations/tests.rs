@@ -510,8 +510,8 @@ fn runs_lose_their_budget_ceilings() {
         })
         .unwrap();
     assert_eq!((seq, kind.as_str()), (2, "run.interrupted"));
-    assert_eq!(config, json!({ "team": [], "tokenLimit": 1000 }), "only the cost ceiling goes");
-    assert_eq!(row("done"), ("delivered".to_string(), json!({ "team": [] })));
+    assert_eq!(config, json!({ "team": [], "tokenLimit": 1000, "lang": "zh" }), "only the cost ceiling goes");
+    assert_eq!(row("done"), ("delivered".to_string(), json!({ "team": [], "lang": "zh" })));
 }
 
 /// Runs made before Loops were the person's own; a Loop's dispatch key is unique in its workspace.

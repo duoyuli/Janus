@@ -42,7 +42,11 @@ fn shared_cases_give_the_expected_numbers() {
         let l = ledger(&events);
         let want = &case["expect"];
         assert_eq!(l.run.tokens.total, want["runTotal"].as_i64(), "{name}: run total");
-        assert_eq!(l.run.completeness.label(), want["completeness"].as_str().unwrap(), "{name}: completeness");
+        assert_eq!(
+            l.run.completeness.label_in(Lang::Zh),
+            want["completeness"].as_str().unwrap(),
+            "{name}: completeness"
+        );
         assert_eq!(l.text, want["summary"].as_str().unwrap(), "{name}: summary line");
         for (task, total) in want["tasks"].as_object().into_iter().flatten() {
             assert_eq!(l.task(task).and_then(|t| t.tokens.total), total.as_i64(), "{name}: task {task}");
@@ -66,7 +70,7 @@ fn shared_cases_give_the_expected_numbers() {
                 .iter()
                 .find(|a| format!("{}#{}", a.task, a.n) == *key)
                 .unwrap_or_else(|| panic!("{name}: attempt {key}"));
-            assert_eq!(a.state.label(), state.as_str().unwrap(), "{name}: attempt {key}");
+            assert_eq!(a.state.label_in(Lang::Zh), state.as_str().unwrap(), "{name}: attempt {key}");
         }
         assert_eq!(
             l.reminders.len(),
@@ -161,7 +165,7 @@ fn quota_rows_by_model_replace_the_main_loop_usage() {
     assert_eq!(l.run.tokens.total, Some(7560), "6600 + 900 from the quota, then 60 from a turn without it");
     assert_eq!((l.run.tokens.cached_read, l.run.tokens.cached_write), (Some(5000), Some(100)));
     assert_eq!(
-        breakdown_text(&l.run.tokens).as_deref(),
+        breakdown_text(&l.run.tokens, Lang::Zh).as_deref(),
         Some("构成：输入 2,050 · 缓存读取 5,000 · 缓存写入 100 · 输出 410")
     );
 }
@@ -200,7 +204,7 @@ fn context_snapshots_never_become_tokens_even_when_repeated() {
         (l.run.context.used, l.run.context.peak, l.run.context.size, l.run.context.reports),
         (Some(52000), Some(61000), Some(200000), 5)
     );
-    let line = context_text(&l.run.context).unwrap();
+    let line = context_text(&l.run.context, Lang::Zh).unwrap();
     assert!(line.contains("上下文 52,000 / 200,000（26%） · 峰值 61,000"), "{line}");
 }
 
@@ -214,8 +218,8 @@ fn missing_usage_is_reported_as_missing_never_as_zero() {
     assert_eq!(l.run.tokens, Tokens::default());
     assert_eq!(l.run.completeness, Completeness::Missing);
     assert!(l.text.contains("未上报") && !l.text.contains("0 tokens"), "{}", l.text);
-    assert!(l.task_lines("T1", &Names::new()).join("\n").contains("未上报"));
-    assert!(l.task_lines("T9", &Names::new())[0].contains("未开始"));
+    assert!(l.task_lines("T1", &Names::new(), Lang::Zh).join("\n").contains("未上报"));
+    assert!(l.task_lines("T9", &Names::new(), Lang::Zh)[0].contains("未开始"));
     // A turn that really used nothing is a reported 0.
     usage(
         &mut e,
@@ -272,8 +276,8 @@ fn the_lead_is_counted_and_shown_apart_from_the_collaborators() {
     assert_eq!(only_lead.run.tokens.total, Some(1500));
     assert_eq!(
         (
-            tokens_text(&only_lead.lead.tokens, only_lead.lead.completeness),
-            tokens_text(&only_lead.collaborators.tokens, only_lead.collaborators.completeness)
+            tokens_text(&only_lead.lead.tokens, only_lead.lead.completeness, Lang::Zh),
+            tokens_text(&only_lead.collaborators.tokens, only_lead.collaborators.completeness, Lang::Zh)
         ),
         ("1,500 tokens（完整）".to_string(), "未上报".to_string())
     );
@@ -303,12 +307,16 @@ fn attempts_keep_their_state_and_all_count_into_the_task() {
     );
     assert_eq!(l.attempts[1].state, AttemptState::Succeeded);
     assert_eq!(l.task("T1").unwrap().tokens.total, Some(1600), "a failed attempt's usage still counts");
-    let lines = l.task_lines("T1", &Names::new());
+    let lines = l.task_lines("T1", &Names::new(), Lang::Zh);
     assert!(lines.iter().any(|x| x.starts_with("尝试 1：m1 · 失败")), "{lines:?}");
     assert!(
         lines.iter().any(|x| x == "成员 m1：1,600 tokens · 模型 未知模型 1,600"),
         "a session that named no model: {lines:?}"
     );
+    // An English run reads the same lines in English.
+    let en = l.task_lines("T1", &Names::new(), Lang::En);
+    assert!(en.iter().any(|x| x.starts_with("Attempt 1: m1 · failed")), "{en:?}");
+    assert!(en[0].starts_with("Usage: 1,600 tokens"), "{en:?}");
 }
 
 #[test]
@@ -361,7 +369,7 @@ fn waits_are_kept_apart_from_the_wall_clock() {
         (l.run.duration_ms, l.run.wait_ms, l.task("T1").unwrap().wait_ms),
         (Some(59_000), Some(30_000), Some(30_000))
     );
-    assert!(l.task_lines("T1", &Names::new())[0].contains("（其中等待用户 30 秒）"));
+    assert!(l.task_lines("T1", &Names::new(), Lang::Zh)[0].contains("（其中等待用户 30 秒）"));
 }
 
 #[test]

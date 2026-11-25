@@ -7,11 +7,12 @@
 
 use super::{Body, Item, ItemKind, place_skill};
 use crate::agents::Runtime;
+use crate::lang::Lang;
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn skills(items: &[Item]) -> impl Iterator<Item = &Item> {
     items.iter().filter(|i| i.body == Body::Skill)
@@ -24,9 +25,17 @@ pub const MCP_ROUTER: &str = "janus-tools";
 
 /// Copy a member's skills into its bundle, under `janus-skills/.skills/`, hidden from the agent's
 /// own scan; `janus-skills` is the catalog of them (`skill_router`). The session's prompt so gets
-/// one description however many skills the library holds. A member with no skill gets no bundle.
+/// one description however many skills the library holds, in the run's language (`lang`). A member
+/// with no skill gets no bundle.
 // @project-doc docs/domains/20261116-resource_library.md#skill_router
-pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], uses: &HashMap<String, u64>, dir: &Path) -> Result<()> {
+pub fn bundle(
+    store: &Path,
+    runtime: Runtime,
+    items: &[Item],
+    uses: &HashMap<String, u64>,
+    dir: &Path,
+    lang: Lang,
+) -> Result<()> {
     let routed: Vec<&Item> = skills(items).collect();
     if routed.is_empty() {
         return Ok(());
@@ -35,22 +44,15 @@ pub fn bundle(store: &Path, runtime: Runtime, items: &[Item], uses: &HashMap<Str
     for item in &routed {
         place_skill(store, item, &router.join(".skills").join(&item.name))?;
     }
-    super::skill_router::write(&router, &routed, uses)?;
+    super::skill_router::write(&router, &routed, uses, lang)?;
     if runtime.bundle_is_plugin() {
         let manifest = dir.join(".claude-plugin").join("plugin.json");
         std::fs::create_dir_all(manifest.parent().unwrap())?;
-        let plugin = json!({ "name": "janus", "description": "Janus 资源库的 Skill" });
+        let plugin =
+            json!({ "name": "janus", "description": lang.pick("Janus 资源库的 Skill", "Janus library skills") });
         std::fs::write(manifest, serde_json::to_vec_pretty(&plugin)?)?;
     }
     Ok(())
-}
-
-/// The router's SKILL.md in a member's bundle, when the member has skills. Janus's instructions
-/// for the session name it, so the agent finds the library's skills even when its own skill
-/// listing has no room left for the router's description.
-pub fn skill_router_md(runtime: Runtime, items: &[Item], bundle: &Path) -> Option<PathBuf> {
-    skills(items).next()?;
-    Some(bundle.join(runtime.skills_dir()).join(SKILL_ROUTER).join("SKILL.md"))
 }
 
 /// How one resource reached a session, or why it did not.
@@ -210,25 +212,22 @@ mod tests {
         };
         let list = vec![skill("pdf"), skill("docx")];
         let claude = root.join("claude");
-        bundle(&store, Runtime::Claude, &list, &HashMap::new(), &claude).unwrap();
+        bundle(&store, Runtime::Claude, &list, &HashMap::new(), &claude, Lang::Zh).unwrap();
         assert!(claude.join(".claude-plugin/plugin.json").is_file());
         let router = std::fs::read_to_string(claude.join("skills/janus-skills/SKILL.md")).unwrap();
         assert!(router.starts_with("---\nname: janus-skills\n"), "{router}");
         assert!(router.contains("- pdf：d") && router.contains("- docx：d"), "{router}");
-        let path = skill_router_md(Runtime::Claude, &list, &claude).unwrap();
-        assert_eq!(path, claude.join("skills/janus-skills/SKILL.md"));
-        assert_eq!(skill_router_md(Runtime::Claude, &items()[1..], &claude), None, "no skill, no router");
         let md = std::fs::read_to_string(claude.join("skills/janus-skills/.skills/pdf/SKILL.md")).unwrap();
         assert!(md.starts_with("---\nname: pdf\n"), "the library's name: {md}");
         assert!(!claude.join("skills/pdf").exists() && !claude.join("skills/docx").exists());
         let codex = root.join("codex");
-        bundle(&store, Runtime::Codex, &list[..1], &HashMap::new(), &codex).unwrap();
+        bundle(&store, Runtime::Codex, &list[..1], &HashMap::new(), &codex, Lang::Zh).unwrap();
         let copy = codex.join(".agents/skills/janus-skills/.skills/pdf/SKILL.md");
         assert!(copy.is_file());
         std::fs::write(&copy, "changed").unwrap();
         assert!(std::fs::read_to_string(store.join(&rev).join("SKILL.md")).unwrap().contains("original"));
         let empty = root.join("empty");
-        bundle(&store, Runtime::Codex, &items()[1..], &HashMap::new(), &empty).unwrap();
+        bundle(&store, Runtime::Codex, &items()[1..], &HashMap::new(), &empty, Lang::Zh).unwrap();
         assert!(!empty.exists());
         let _ = std::fs::remove_dir_all(&root);
     }

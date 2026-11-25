@@ -258,7 +258,10 @@ final class AppStore {
                     for try await item in stream {
                         guard let self else { return }
                         switch item {
-                        case .named("ready", _), .lagged: await self.readAll()
+                        case .named("ready", _):
+                            await self.sendLanguage()
+                            await self.readAll()
+                        case .lagged: await self.readAll()
                         case .named("run", let c):
                             self.note(c["run"].str, lists: true)
                             // A run a Loop dispatched changed: that Loop's counts and list did too.
@@ -292,6 +295,15 @@ final class AppStore {
         if type == .userMessage, let chat = store.chats.first(where: { $0["id"].str == run }) { return chat["goal"].str.isEmpty }
         return !store.attention.contains { $0["id"].str == run } && !store.chats.contains { $0["id"].str == run } && !store.runs.contains { $0["id"].str == run }
             && !store.loops.contains { $0["run"].str == run }
+    }
+
+    /// Tell the service the language the app is used in (`PUT /api/language`): what it tells agents
+    /// in the runs created from now on is in this language. Sent whenever the stream opens (the
+    /// service may have restarted or be new) and when the person picks another language.
+    // @project-doc docs/domains/20261031-goal_mode.md#prompt_language
+    func sendLanguage() async {
+        let code = L.language.locale.identifier.hasPrefix("en") ? "en" : "zh"
+        _ = try? await api.put("/api/language", ["language": .string(code)])
     }
 
     private func readAll() async {

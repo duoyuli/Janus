@@ -52,10 +52,11 @@ class Ctx:
         self.lock = threading.Lock()
 
     @contextlib.contextmanager
-    def private(self, name, **env):
+    def private(self, name, settings=None, **env):
         """A Janus home, server and app of this scenario's own, set up like the shared ones but
-        for `env`: for a scenario that restarts its server or needs other settings, so it runs
-        beside the others instead of after them. Its pictures join the others in report/app."""
+        for `env` (and the app's local `settings`): for a scenario that restarts its server or needs
+        other settings, so it runs beside the others instead of after them. Its pictures join the
+        others in report/app."""
         home = self.path(name, "home")
         stand_in_adapters(home, self.python)
         addr = free_addr()
@@ -64,7 +65,8 @@ class Ctx:
         try:
             server.start()
             if not self.no_app:
-                app = App(self.app_bin, home, addr, os.path.join(self.report, f"app-{name}"), os.path.join(self.report, f"app-{name}.log"))
+                app = App(self.app_bin, home, addr, os.path.join(self.report, f"app-{name}"), os.path.join(self.report, f"app-{name}.log"),
+                          settings=settings)
                 app.until(lambda s: s.get("connections") is not None, "应用连上服务", timeout=90)
             c = copy.copy(self)
             c.home, c.addr, c.server, c.app = home, addr, server, app
@@ -251,4 +253,4 @@ def jsonl(text):
 
 
 # The scenario modules register themselves on import, in this order.
-from scenarios import setup, journeys, review, decisions, failures, controls, sessions, chats, skills, adapters, worktrees, queue, seats, loops, memory, host_env, restart, app_server, real  # noqa: E402,F401
+from scenarios import setup, journeys, review, decisions, failures, controls, sessions, chats, skills, adapters, worktrees, queue, seats, loops, memory, host_env, restart, app_server, language, real  # noqa: E402,F401

@@ -34,13 +34,14 @@ A prompt that is not a task's and names "[write <file>]" appends to that file in
 edit as a tool call and ends the turn (a lead asked for more work after delivery); with "[commit]" in it too, the agent commits everything there first.
 A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
 prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
-A workspace Loop's session (its system layer names "a Loop in the workspace") logs "loop wake <n>" for each wake
+A workspace Loop's session (its system layer names "a Loop in the workspace", or 「的值班（Loop）」 in Chinese) logs "loop wake <n>" for each wake
 and answers "看过了：<first line>"; on its first wake it titles the session ("标题：<the prompt's last line>",
 as `session_info_update`, which must not name the Loop); "[write <file>]" in the Loop's prompt appends to that file in the workspace first,
 and "[hold]" keeps the turn going until FAKE_DIR/loop-go exists (then removes it). Each wake's prompt is logged
 ("loop prompt <json>"); with a `loop-exit` file in FAKE_DIR the agent removes it and exits in the middle of the wake.
 The person's own messages to a Loop are answered "回复：<prompt>".
-A consolidation of a workspace's team memory (its system layer says "consolidating this workspace's team memory")
+A consolidation of a workspace's team memory (its system layer says "consolidating this workspace's team memory", or
+「整理这个工作区的团队记忆」 in Chinese)
 logs "dream prompt <json>" and keeps its one turn going until FAKE_DIR/dream-go exists, then ends it with that file's
 text (and removes it), so a test can call the memory tools meanwhile.
 With a `content.json` in FAKE_DIR the agent says and writes what the file gives it (e2e/screenshots.py stages
@@ -291,7 +292,7 @@ def content_turn(sid, task, d):
 def prompt(msg):
     sid = msg["params"]["sessionId"]
     text = msg["params"]["prompt"][0]["text"]
-    if "a Loop in the workspace" in SYSTEM.get(sid, ""):
+    if re.search(r"a Loop in the workspace|的值班（Loop）", SYSTEM.get(sid, "")):
         # A wake sends the Loop's prompt as it is; the tests talk to a Loop as the person with "[me] ".
         if text.startswith("[me] "):
             say(sid, "回复：" + text[len("[me] "):])
@@ -318,7 +319,7 @@ def prompt(msg):
         given = content()
         say(sid, (given.get("loops") or {}).get(text.strip().splitlines()[0]) or given.get("loop_default") or "看过了：" + text.splitlines()[0])
         return {"stopReason": "end_turn"}
-    if "consolidating this workspace's team memory" in SYSTEM.get(sid, ""):
+    if re.search(r"consolidating this workspace's team memory|整理这个工作区的团队记忆", SYSTEM.get(sid, "")):
         log("dream prompt " + json.dumps(text, ensure_ascii=False))
         go = os.path.join(DIR, "dream-go")
         while not os.path.exists(go):
@@ -332,7 +333,7 @@ def prompt(msg):
             return {"stopReason": "cancelled"}
         say(sid, "回复：" + text)
         return {"stopReason": "end_turn"}
-    if text.startswith("[Janus] 你的这一轮已经结束"):
+    if text.startswith(("[Janus] 你的这一轮已经结束", "[Janus] Your turn has ended")):
         # Janus asks whether a goal that never settled is done.
         log("goal check")
         say(sid, "GOAL_DONE\n" + open(os.path.join(DIR, "lead-go")).read())
@@ -341,8 +342,9 @@ def prompt(msg):
         # A lead whose agent dies whenever it starts on its goal.
         log("lead dies")
         os._exit(1)
-    if text.startswith("[Janus] Janus restarted while you were working on this goal.") or text.startswith(
-            "[Janus] Your session broke off while you were working on this goal"):
+    if text.startswith(("[Janus] Janus restarted while you were working on this goal.",
+                        "[Janus] Your session broke off while you were working on this goal",
+                        "[Janus] 你推进这个目标时 Janus 重启了", "[Janus] 你推进这个目标时会话中断了")):
         # A lead whose own session was loaded after a restart: told what happened, it carries on
         # with its goal (kept with the session) until lead-go, then reports it met.
         log("lead resumed " + sid + " " + json.dumps(text, ensure_ascii=False))
@@ -383,7 +385,7 @@ def prompt(msg):
         say(sid, given["report"])
         return {"stopReason": "end_turn", "usage": tokens(given.get("tokens", 1500))}
     w = re.search(r"\[write (\S+)\]", text)
-    if w and not re.search(r"你的子任务 (\S+)：", text):
+    if w and not subtask_of(text):
         # A follow-up asking for a file: written in the session's directory, the turn ends.
         with open(w.group(1), "a") as f:
             f.write("follow-up\n")
@@ -398,11 +400,11 @@ def prompt(msg):
             subprocess.run(["git", "-c", "user.name=fake", "-c", "user.email=fake@fake", "commit", "-q", "-m", "follow-up"], check=True)
         say(sid, f"已写 {w.group(1)}")
         return {"stopReason": "end_turn"}
-    m = re.search(r"你的子任务 (\S+)：", text)
+    m = subtask_of(text)
     known = remembered(sid)
-    task = m.group(1) if m else TASKS.get(sid, known.get("task", "unknown"))
+    task = m or TASKS.get(sid, known.get("task", "unknown"))
     TASKS[sid] = task
-    c = re.search(r"验收标准：\n((?:- .*\n?)+)", text) if m else None
+    c = re.search(r"(?:验收标准：|Acceptance criteria:)\n((?:- .*\n?)+)", text) if m else None
     if c:
         CRITERIA[sid] = [line[2:].strip() for line in c.group(1).splitlines() if line.startswith("- ")]
     elif sid not in CRITERIA and known.get("criteria"):
@@ -431,7 +433,7 @@ def prompt(msg):
             ]}
             return {"stopReason": "end_turn", "usage": tokens(1500), "_meta": {"quota": quota}}
         # Two turns in one session: the first asks a question, the answered turn reports its own, larger number.
-        if "你的问题已得到回答" in text:
+        if answered(text) is not None:
             say(sid, result(sid, summary=f"{task} 按回答完成"))
             return {"stopReason": "end_turn", "usage": tokens(2500)}
         say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
@@ -456,18 +458,19 @@ def prompt(msg):
         if wait_cancel(2):
             return {"stopReason": "cancelled"}
     if outcome.startswith("skill:"):
-        # Like an agent using a library skill: the system layer names janus-skills' SKILL.md, the
-        # catalog there says where each skill's SKILL.md is; read both, as Claude Code's Read does.
+        # Like an agent using a library skill: it loads janus-skills from the bundle session/new
+        # handed it (`BUNDLE`); the catalog there says where each skill's SKILL.md is; read both,
+        # as Claude Code's Read does.
         name = outcome.split(":", 1)[1]
-        system = SYSTEM.get(sid) or json.loads(os.environ.get("CODEX_CONFIG") or "{}").get("developer_instructions", "")
-        router = re.search(r"read (\S+/janus-skills/SKILL\.md)", system)
+        routers = [os.path.join(b, d, "janus-skills", "SKILL.md") for b in BUNDLE.get(sid, []) for d in ("skills", ".agents/skills")]
+        router = next((r for r in routers if os.path.isfile(r)), None)
         found = False
         if router:
-            catalog = open(router.group(1)).read()
-            base = re.search(r"每个 Skill 的 SKILL\.md 在 `(\S+)/<名字>/SKILL\.md`", catalog)
+            catalog = open(router).read()
+            base = re.search(r"`(\S+)/<(?:名字|name)>/SKILL\.md`", catalog)
             path = os.path.join(base.group(1), name, "SKILL.md") if base else ""
-            found = f"- {name}：" in catalog and os.path.isfile(path)
-            for i, p in enumerate([router.group(1)] + ([path] if found else [])):
+            found = bool(re.search(rf"^- {re.escape(name)}[：:]", catalog, re.M)) and os.path.isfile(path)
+            for i, p in enumerate([router] + ([path] if found else [])):
                 send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
                     "sessionUpdate": "tool_call", "toolCallId": f"skill-{task}-{i}", "title": f"Read {os.path.basename(p)}",
                     "kind": "read", "status": "completed", "locations": [{"path": p}], "rawInput": {"file_path": p}}}})
@@ -606,8 +609,8 @@ def prompt(msg):
     if outcome == "ask":
         say(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
         return {"stopReason": "end_turn"}
-    if outcome == "ok" and "你的问题已得到回答" in text:
-        answer = text.split("你的问题已得到回答：", 1)[1].split("\n", 1)[0]
+    if outcome == "ok" and answered(text) is not None:
+        answer = answered(text)
         say(sid, result(sid, summary=f"{task} 按回答 {answer} 完成"))
         return {"stopReason": "end_turn"}
     say(sid, result(sid, summary=f"{task} 完成"))
@@ -615,14 +618,34 @@ def prompt(msg):
 
 
 SYSTEM = {}  # session id -> what Janus put in its system layer (`system_layer`)
+BUNDLE = {}  # session id -> the skill bundles session/new or session/load handed it (`bundles`)
 TITLED = set()  # sessions that titled themselves (a Loop's first wake)
 CHATS = set()  # session ids of chats with one digital employee: their prompts are answered "回复：<text>"
+
+
+def subtask_of(text):
+    """The subtask id a task prompt gives, in either language ("你的子任务 T1：" / "Your subtask T1:")."""
+    m = re.search(r"你的子任务 (\S+)：|Your subtask (\S+):", text)
+    return (m.group(1) or m.group(2)) if m else None
+
+
+def answered(text):
+    """The answer in a prompt telling the agent its question was answered, in either language; None otherwise."""
+    m = re.search(r"你的问题已得到回答：(.*)|Your question has been answered: (.*)", text)
+    return (m.group(1) if m.group(1) is not None else m.group(2)) if m else None
 
 
 def system_layer(params):
     """Claude Code's `_meta.systemPrompt.append`, else Codex's `developer_instructions` from the environment."""
     return ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append") or json.loads(
         os.environ.get("CODEX_CONFIG") or "{}").get("developer_instructions", "")
+
+
+def bundles(params):
+    """The bundles of skills Janus hands a session in `_meta`: Claude Code's local plugins, Codex's additional roots."""
+    meta = params.get("_meta") or {}
+    plugins = ((meta.get("claudeCode") or {}).get("options") or {}).get("plugins") or []
+    return [p["path"] for p in plugins if p.get("path")] + list(meta.get("additionalRoots") or [])
 
 
 def log_layer(method, sid, params):
@@ -634,8 +657,8 @@ def log_brief(params):
     """A lead's brief arrives in the system layer: Claude Code's `_meta.systemPrompt.append`. A chat's
     session is logged with its working directory ("chat session <cwd>")."""
     system = ((params.get("_meta") or {}).get("systemPrompt") or {}).get("append", "")
-    if "janus.orchestrate" in system:
-        log("brief ok" + (" resumed" if "Resuming after an interruption." in system else ""))
+    if "你是 Janus 团队的负责人" in system or "You are the lead of the Janus team" in system:
+        log("brief ok" + (" resumed" if "从中断处继续。" in system or "Resuming after an interruption." in system else ""))
     if "/chats/" in params.get("cwd", ""):
         # A chat: Janus adds no instructions of its own; the role's, if any, follow.
         log("chat session " + params.get("cwd", "") + (" janus-brief" if "There is no team" in system else ""))
@@ -664,6 +687,7 @@ for line in sys.stdin:
             log("mcp " + json.dumps(msg["params"].get("mcpServers", []), sort_keys=True))
             res = {"sessionId": "s-" + str(os.getpid()), "configOptions": config_options()}
             SYSTEM[res["sessionId"]] = system_layer(msg["params"])
+            BUNDLE[res["sessionId"]] = bundles(msg["params"])
             log_layer("new", res["sessionId"], msg["params"])
             if chat:
                 CHATS.add(res["sessionId"])
@@ -673,6 +697,7 @@ for line in sys.stdin:
             sid = msg["params"]["sessionId"]
             log(f"load {sid}")
             SYSTEM[sid] = system_layer(msg["params"])
+            BUNDLE[sid] = bundles(msg["params"])
             log_layer("load", sid, msg["params"])
             if log_brief(msg["params"]):
                 CHATS.add(sid)

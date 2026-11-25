@@ -106,10 +106,11 @@ Codex：
 一个会话的系统层（`system_layer`）依次由下面几部分组成，在整个会话中都有效，优先级高于任务说明：
 
 1. **Janus 的说明**：负责人会话是负责人说明（`goal_brief`，交付后的对话是 `conversation_brief`），协作者会话是协作约定（`collaborator_rules`），见[目标模式](../domains/20261031-goal_mode.md#collaborator_rules)。对话没有这一段，新开会话时换成最近的对话（`chat_brief`）。
-2. **Skill 目录在哪里**：成员有资源库 Skill 时一句话，写明 `janus-skills` 的 `SKILL.md` 的绝对路径，开始任务时先读它（`skills_note`）；负责人、协作者和对话都有，见 [Skill 路由](../domains/20261116-resource_library.md#skill_router)。
-3. **用户的长期要求**：Provider 的「自定义提示词」和角色的「指令」，`standing_instructions` 把两者合成一段（Provider 在前，角色在后）。
+2. **用户的长期要求**：Provider 的「自定义提示词」和角色的「指令」，`standing_instructions` 把两者合成一段（Provider 在前，角色在后）。
 
-Janus 编写的系统层说明和段落标签始终用英文，独立于界面语言。数字员工指令、Provider 自定义提示词、共享资料、用户留言和历史对话保留原文。
+系统层不写 MCP 工具和 Skill 的用法：看板、值班、团队记忆和资源库的工具由 Agent 从 `mcpServers` 自己加载，用法只在各工具的说明里；资源库的 Skill 经 `janus-skills` 由 Agent 按自己的 Skill 机制加载，见 [ADR：Janus 只注入协作规则](../decisions/20261125-collaboration_only_injection.md)。
+
+Janus 编写的说明、段落标签、工具说明和看板消息按 Run 的语言（中文或英文）给出，见[注入的语言](../domains/20261031-goal_mode.md#prompt_language)。数字员工指令、Provider 自定义提示词、共享资料、用户留言和历史对话保留原文。
 
 `Runtime::instruction_channel` 按运行时选择注入方式（`InstructionChannel`，`backend/src/agents/runtime.rs`）：
 
@@ -118,7 +119,7 @@ Janus 编写的系统层说明和段落标签始终用英文，独立于界面�
 | Claude Code | 系统提示 | `session/new`、`session/load` 的 `_meta.systemPrompt.append` |
 | Codex | 开发者指令 | 适配器启动时读取环境变量 `CODEX_CONFIG`（JSON），合并进 `thread/start` 和 `thread/resume` 的配置。Janus 每个会话启动一个适配器进程，把 `developer_instructions` 写进这个进程的 `CODEX_CONFIG`，与网关配置合并；成员权限模式对应的线程审批和沙箱设置也一起写进去（`member_spec`，见[会话控制项与权限模式](../domains/20261031-agents_and_roles.md#permission_modes)） |
 
-Janus 把注入的内容记成 `session.prompt` 事件，都带 `via`（`system` 或 `developer`），会话页可以展开查看。Agent Team 的会话记两条：协作指令（`channel` 为 `system`，负责人说明或协作约定，会话页标为「团队协作指令」）和用户的长期要求（`channel` 为 `instructions`，会话页标为「数字员工的指令」）。对话只记数字员工的指令；新开会话接着之前的对话时，最近的对话另记一条（`channel` 为 `history`，标为「之前的对话」）。有资源库 Skill 时，不论哪种会话都另记一条 Skill 目录的位置（`channel` 为 `skills`）。
+Janus 把注入的内容记成 `session.prompt` 事件，都带 `via`（`system` 或 `developer`），会话页可以展开查看。Agent Team 的会话记两条：协作指令（`channel` 为 `system`，负责人说明或协作约定，会话页标为「团队协作指令」）和用户的长期要求（`channel` 为 `instructions`，会话页标为「数字员工的指令」）。对话只记数字员工的指令；新开会话接着之前的对话时，最近的对话另记一条（`channel` 为 `history`，标为「之前的对话」）。
 
 <a id="reload_system_layer"></a>
 ### 恢复会话时的系统层

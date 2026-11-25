@@ -84,6 +84,15 @@ pub(super) async fn host_env(State(app): State<Arc<App>>, headers: HeaderMap) ->
     reply(app.host_env()?)
 }
 
+// @project-doc docs/domains/20261031-goal_mode.md#prompt_language
+pub(super) async fn language(State(app): State<Arc<App>>) -> ApiResult {
+    reply(json!({ "language": app.language() }))
+}
+
+pub(super) async fn save_language(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.save_language(&body)?)
+}
+
 pub(super) async fn save_host_env(
     State(app): State<Arc<App>>,
     headers: HeaderMap,

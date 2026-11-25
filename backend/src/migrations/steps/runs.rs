@@ -83,3 +83,12 @@ pub(crate) fn rename_member_connection(tx: &Transaction) -> Result<usize> {
         true
     })
 }
+
+/// Data version 24: a run records the language its sessions are told things in (`lang`); runs from
+/// before were told them in Chinese and English mixed, and go on in Chinese.
+pub(crate) fn add_run_lang(tx: &Transaction) -> Result<usize> {
+    Ok(tx.execute(
+        "UPDATE runs SET config = json_set(config, '$.lang', 'zh') WHERE json_extract(config, '$.lang') IS NULL",
+        [],
+    )?)
+}

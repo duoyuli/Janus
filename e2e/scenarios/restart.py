@@ -72,7 +72,7 @@ def restart(ctx, c):
         c(f"load {lead_sid}" in calls and calls.count("goal 跨越重启的目标") == 1,
           "负责人恢复原来的会话（session/load），没有重发 /goal")
         told = next(line for line in calls.splitlines() if line.startswith(f"lead resumed {lead_sid} "))
-        c("T1 (" in told and "· done" in told and "T2 (" in told and "it was at work when Janus stopped" in told,
+        c("T1 (" in told and "· 已完成" in told and "T2 (" in told and "Janus 停下时它正在工作" in told,
           "恢复提示列出重启时的看板：T1 已完成，T2 正在执行、接回自己的会话继续")
         c(any(e["type"] == "session.prompt" and e["data"].get("channel") == "resume" and e["data"].get("session") == lead_sid
               for e in run.events()), "恢复提示记在负责人原来的会话里（channel resume）")

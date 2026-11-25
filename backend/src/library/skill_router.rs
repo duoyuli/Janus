@@ -1,6 +1,7 @@
 //! `janus-skills`, the one skill through which a member's library skills reach its agent. Its
-//! description is the only part the agent always sees, so it says when to open it and names as
-//! many skills, with a piece of each description, as fit. Its body is the catalog: one line per
+//! description is the only part the agent always sees, so it says first when to read it (at the
+//! start of each task) and names as many skills, with a piece of each description, as fit. It is
+//! written in the run's language. Its body is the catalog: one line per
 //! skill while the catalog is small; past that, the names only, with the descriptions in
 //! `catalog.txt` for the agent to search with grep, so reading the router costs about the same
 //! however large the library grows. The skills most used so far come first, so they are the ones
@@ -8,6 +9,7 @@
 // @project-doc docs/domains/20261116-resource_library.md#skill_router
 
 use super::{Item, skill};
+use crate::lang::{Lang, tr};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
@@ -61,16 +63,16 @@ impl Entry {
         }
     }
 
-    fn line(&self, sep: &str) -> String {
-        let manual = if self.manual { " （只在用户或负责人点名时使用）" } else { "" };
+    fn line(&self, sep: &str, lang: Lang) -> String {
+        let manual = if self.manual { lang.pick("（只在点名时使用）", " (only when named)") } else { "" };
         format!("{}{sep}{}{manual}", self.name, self.about)
     }
 }
 
 /// Write `janus-skills/SKILL.md`, and `catalog.txt` for a large library, into `router`, whose
-/// `.skills/<name>/` already holds each item's files. `uses` counts the sessions that read each
-/// item before (`Db::skill_uses`), by item id: the most used come first, then by name.
-pub(super) fn write(router: &Path, items: &[&Item], uses: &HashMap<String, u64>) -> Result<()> {
+/// `.skills/<name>/` already holds each item's files, in `lang`. `uses` counts the sessions that
+/// read each item before (`Db::skill_uses`), by item id: the most used come first, then by name.
+pub(super) fn write(router: &Path, items: &[&Item], uses: &HashMap<String, u64>, lang: Lang) -> Result<()> {
     let mut entries = vec![];
     for item in items {
         let md = std::fs::read_to_string(router.join(".skills").join(&item.name).join("SKILL.md"))?;
@@ -78,28 +80,30 @@ pub(super) fn write(router: &Path, items: &[&Item], uses: &HashMap<String, u64>)
     }
     entries.sort_by(|(a_uses, a), (b_uses, b)| b_uses.cmp(a_uses).then_with(|| a.name.cmp(&b.name)));
     let entries: Vec<Entry> = entries.into_iter().map(|(_, e)| e).collect();
+    let (name, about, n) = (super::SKILL_ROUTER, description(&entries, lang), entries.len());
     let skills = router.join(".skills");
-    let mut body = format!(
-        "---\nname: {}\ndescription: {}\n---\n\n# Janus 资源库的 Skill\n\n这里是 Janus 资源库中 {} 个 Skill 的目录。开始一项任务时，先按任务找出描述相符的 Skill，读它的 SKILL.md 再照着做，SKILL.md 提到的其他文件在它所在的目录中；没有相符的就不用。标着「点名时使用」的 Skill，只在用户或负责人点名时使用。\n\n每个 Skill 的 SKILL.md 在 `{}/<名字>/SKILL.md`。\n",
-        super::SKILL_ROUTER,
-        description(&entries),
-        entries.len(),
-        skills.display()
+    let skills = skills.display();
+    let mut body = tr!(
+        lang,
+        "---\nname: {name}\ndescription: {about}\n---\n\n# Janus 资源库的 Skill\n\n这里是 Janus 资源库中 {n} 个 Skill 的目录。按任务找出描述相符的 Skill，读它的 SKILL.md 再照着做，SKILL.md 提到的其他文件在它所在的目录中；没有相符的就不用。标着「只在点名时使用」的 Skill，只在用户或负责人点名时使用。\n\n每个 Skill 的 SKILL.md 在 `{skills}/<名字>/SKILL.md`。\n",
+        "---\nname: {name}\ndescription: {about}\n---\n\n# Janus library skills\n\nThis is the catalog of the {n} skills in the Janus library. Find the skills whose description fits your task, read their SKILL.md and follow it; the other files a SKILL.md mentions are in its directory. If none fits, use none. Use a skill marked (only when named) only when the user or the lead names it.\n\nEach skill's SKILL.md is at `{skills}/<name>/SKILL.md`.\n"
     );
-    if listed(&entries) {
-        let lines: Vec<String> = entries.iter().map(list_line).collect();
+    if listed(&entries, lang) {
+        let lines: Vec<String> = entries.iter().map(|e| list_line(e, lang)).collect();
         body.push_str(&format!("\n{}\n", lines.join("\n")));
     } else {
         let catalog = router.join(CATALOG);
-        let text: String = entries.iter().map(|e| e.line("\t") + "\n").collect();
+        let text: String = entries.iter().map(|e| e.line("\t", lang) + "\n").collect();
         std::fs::write(&catalog, text)?;
-        body.push_str(&format!(
+        let catalog = catalog.display();
+        body.push_str(&tr!(
+            lang,
             "\nSkill 较多，描述不在这里，在 `{catalog}` 中，每行一个 Skill：名字、制表符、描述。先按任务想几个关键词，中文、英文和同义词都试，用 grep 查找，再读最相符的一两个 Skill 的 SKILL.md：\n\n```\ngrep -i -E '关键词1|keyword2|同义词' {catalog}\n```\n",
-            catalog = catalog.display()
+            "\nThere are many skills, so their descriptions are not here but in `{catalog}`, one skill per line: name, a tab, the description. Think of a few keywords for your task, in English, other languages and synonyms, search with grep, then read the SKILL.md of the one or two that fit best:\n\n```\ngrep -i -E 'keyword1|关键词2|synonym' {catalog}\n```\n"
         ));
-        let names = entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>().join("、");
+        let names = entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>().join(lang.pick("、", ", "));
         if names.len() <= INLINE_MAX {
-            body.push_str(&format!("\n全部 Skill 的名字：{names}\n"));
+            body.push_str(&tr!(lang, "\n全部 Skill 的名字：{names}\n", "\nAll skill names: {names}\n"));
         }
     }
     std::fs::write(router.join("SKILL.md"), body)?;
@@ -108,41 +112,45 @@ pub(super) fn write(router: &Path, items: &[&Item], uses: &HashMap<String, u64>)
 
 /// Whether the router's body lists every skill with its description; otherwise the agent
 /// searches `catalog.txt`. The library shows which, judged the same way.
-pub(super) fn listed<'a>(entries: impl IntoIterator<Item = &'a Entry>) -> bool {
-    entries.into_iter().map(|e| list_line(e).len() + 1).sum::<usize>() <= INLINE_MAX
+pub(super) fn listed<'a>(entries: impl IntoIterator<Item = &'a Entry>, lang: Lang) -> bool {
+    entries.into_iter().map(|e| list_line(e, lang).len() + 1).sum::<usize>() <= INLINE_MAX
 }
 
-fn list_line(e: &Entry) -> String {
-    format!("- {}", e.line("：")).replace('\n', " ")
+fn list_line(e: &Entry, lang: Lang) -> String {
+    format!("- {}", e.line(lang.pick("：", ": "), lang)).replace('\n', " ")
 }
 
-/// The router's description: when to open it, then every skill with as long a piece of its
+/// The router's description: when to read it first, then every skill with as long a piece of its
 /// description as lets them all fit; when even the names do not fit, as many names as do.
-fn description(entries: &[Entry]) -> String {
-    let head = format!(
-        "Janus 资源库中 {} 个 Skill 的目录。开始一项任务时先读它，看有没有适用的 Skill，适用就读那个 Skill 的 SKILL.md 照着做。包括：",
-        entries.len()
+fn description(entries: &[Entry], lang: Lang) -> String {
+    let n = entries.len();
+    let head = tr!(
+        lang,
+        "每项任务开始时，先读这份目录，看 Janus 资源库的 {n} 个 Skill 中有没有适用的；有就读那个 Skill 的 SKILL.md 照着做。包括：",
+        "At the start of each task, read this catalog to see whether one of the {n} skills in the Janus library fits; if one does, read its SKILL.md and follow it. Includes: "
     );
-    for n in SNIPPETS {
+    let sep = lang.pick("、", ", ");
+    for len in SNIPPETS {
         let list = entries
             .iter()
             .map(|e| {
-                if n == 0 || e.about.is_empty() {
+                if len == 0 || e.about.is_empty() {
                     e.name.clone()
                 } else {
-                    format!("{}（{}）", e.name, crate::text::clip(&e.about, n.saturating_sub(1)))
+                    let about = crate::text::clip(&e.about, len.saturating_sub(1));
+                    tr!(lang, "{}（{about}）", "{} ({about})", e.name)
                 }
             })
             .collect::<Vec<_>>()
-            .join("、");
+            .join(sep);
         if head.len() + list.len() <= DESCRIPTION_MAX {
             return head + &list;
         }
     }
-    let more = format!(" 等 {} 个", entries.len());
+    let more = tr!(lang, " 等 {n} 个", ", {n} in all");
     let mut out = head;
     for (i, e) in entries.iter().enumerate() {
-        let next = format!("{}{}", if i == 0 { "" } else { "、" }, e.name);
+        let next = format!("{}{}", if i == 0 { "" } else { sep }, e.name);
         if out.len() + next.len() + more.len() > DESCRIPTION_MAX {
             break;
         }
@@ -192,6 +200,10 @@ mod tests {
 
     /// A router over `skills`, each a (name, SKILL.md) pair, written into a fresh directory.
     fn router(tag: &str, skills: &[(String, String)]) -> std::path::PathBuf {
+        router_in(tag, skills, Lang::Zh)
+    }
+
+    fn router_in(tag: &str, skills: &[(String, String)], lang: Lang) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("janus-skill-router-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (name, md) in skills {
@@ -200,7 +212,7 @@ mod tests {
             std::fs::write(d.join("SKILL.md"), md).unwrap();
         }
         let items: Vec<Item> = skills.iter().map(|(n, _)| item(n)).collect();
-        write(&dir, &items.iter().collect::<Vec<_>>(), &HashMap::new()).unwrap();
+        write(&dir, &items.iter().collect::<Vec<_>>(), &HashMap::new(), lang).unwrap();
         dir
     }
 
@@ -237,11 +249,11 @@ mod tests {
                 && md.contains("Use when a PDF is attached. The user mentions forms."),
             "{md}"
         );
-        assert!(md.contains("- deploy：Deploy to production. （只在用户或负责人点名时使用）"), "{md}");
+        assert!(md.contains("- deploy：Deploy to production.（只在点名时使用）"), "{md}");
         assert!(md.contains(&format!("`{}/<名字>/SKILL.md`", dir.join(".skills").display())), "{md}");
         assert!(md.find("- deploy").unwrap() < md.find("- pdf").unwrap(), "by name");
         let desc = front(&md);
-        assert!(desc.starts_with("Janus 资源库中 2 个 Skill 的目录。开始一项任务时先读它"), "{desc}");
+        assert!(desc.starts_with("每项任务开始时，先读这份目录"), "when to read it comes first: {desc}");
         assert!(desc.contains("deploy（Deploy to production.") && desc.contains("pdf（Fill PDF forms."), "{desc}");
         assert!(!dir.join(CATALOG).exists());
         let _ = std::fs::remove_dir_all(&dir);
@@ -285,11 +297,38 @@ mod tests {
                 })
                 .collect()
         };
-        let some = description(&entries(10));
+        let some = description(&entries(10), Lang::Zh);
         assert!(some.len() <= DESCRIPTION_MAX, "{some}");
         assert!(some.contains(&format!("s9（{}…）", "a".repeat(49))), "shorter pieces: {some}");
-        let many = description(&entries(60));
+        let many = description(&entries(60), Lang::Zh);
         assert!(many.len() <= DESCRIPTION_MAX && many.ends_with("s59") && !many.contains('（'), "names only: {many}");
+    }
+
+    /// A run in English gets the router in English: when to read it first in its description, the
+    /// catalog's lines, the marks and the search.
+    #[test]
+    fn an_english_run_gets_the_router_in_english() {
+        let skills = [(
+            "deploy".to_string(),
+            "---\nname: deploy\ndescription: Deploy to production.\ndisable-model-invocation: true\n---\n".to_string(),
+        )];
+        let dir = router_in("english", &skills, Lang::En);
+        let md = std::fs::read_to_string(dir.join("SKILL.md")).unwrap();
+        let desc = front(&md);
+        assert!(desc.starts_with("At the start of each task, read this catalog"), "{desc}");
+        assert!(desc.contains("deploy (Deploy to production."), "{desc}");
+        assert!(md.contains("- deploy: Deploy to production. (only when named)"), "{md}");
+        assert!(md.contains(&format!("`{}/<name>/SKILL.md`", dir.join(".skills").display())), "{md}");
+        assert!(!md.contains("Skill 的目录"), "{md}");
+        let _ = std::fs::remove_dir_all(&dir);
+        let many: Vec<(String, String)> = (0..300)
+            .map(|i| (format!("s-{i:03}"), format!("---\nname: s-{i:03}\ndescription: {}\n---\n", "y".repeat(200))))
+            .collect();
+        let dir = router_in("english-large", &many, Lang::En);
+        let md = std::fs::read_to_string(dir.join("SKILL.md")).unwrap();
+        assert!(md.contains("grep -i -E 'keyword1|") && md.contains("All skill names: s-000, s-001"), "{md}");
+        assert!(front(&md).ends_with(", 300 in all"), "{}", front(&md));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The skills used most come first, in the catalog and in the description.
@@ -305,7 +344,7 @@ mod tests {
                 .unwrap();
         }
         let uses = HashMap::from([("gamma".to_string(), 5), ("beta".to_string(), 2)]);
-        write(&dir, &items.iter().collect::<Vec<_>>(), &uses).unwrap();
+        write(&dir, &items.iter().collect::<Vec<_>>(), &uses, Lang::Zh).unwrap();
         let md = std::fs::read_to_string(dir.join("SKILL.md")).unwrap();
         let at = |s: &str| md.rfind(s).unwrap();
         assert!(at("- gamma") < at("- beta") && at("- beta") < at("- alpha"), "{md}");

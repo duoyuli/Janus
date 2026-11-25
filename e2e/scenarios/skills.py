@@ -1,7 +1,9 @@
-"""Library skills reach agents only through janus-skills: the catalog a session is pointed at, the
-reads it leads to, and what the library shows of them (docs/domains/20261116-resource_library.md#skill_router)."""
+"""Library skills reach agents only through janus-skills: the catalog the agent loads from the bundle its
+session is handed, the reads it leads to, and what the library shows of them
+(docs/domains/20261116-resource_library.md#skill_router)."""
 
-import re
+import glob
+import os
 
 from scenarios import read_file, scenario, task
 from lib import drawn
@@ -9,7 +11,7 @@ from lib import drawn
 
 @scenario("skills")
 def skills(ctx, c):
-    """Skill 路由：会话说明指向 janus-skills 的目录，Agent 从目录找到 Skill 再读；读取记为 skill.used，资源库显示用过几次和描述的改进提示"""
+    """Skill 路由：Agent 从会话拿到的资源包加载 janus-skills 的目录，从目录找到 Skill 再读；读取记为 skill.used，资源库显示用过几次和描述的改进提示"""
     good = ctx.api("POST", "/api/library/skills", {
         "name": "e2e-minutes", "description": "把会议记录整理成决定、待办和负责人。在用户要整理会议记录或会议纪要时使用",
         "content": "按决定、待办、负责人三段写。\n"})
@@ -20,14 +22,16 @@ def skills(ctx, c):
     run.orchestrate(task("T1", m1))
     run.wait_event("task.succeeded", task="T1")
     t.fake.wait_call("skill e2e-minutes read")
-    c(True, "协作者照系统层的指路读 janus-skills 的目录，在目录里找到 e2e-minutes，再读它的 SKILL.md")
+    c(True, "协作者从会话拿到的资源包加载 janus-skills 的目录，在目录里找到 e2e-minutes，再读它的 SKILL.md")
 
-    pointers = {e.get("to"): e["data"]["prompt"] for e in run.events() if e["type"] == "session.prompt" and e["data"].get("channel") == "skills"}
-    c({"lead", m1} <= set(pointers), f"负责人和协作者的系统层都写明 janus-skills 的目录在哪里：{sorted(pointers)}")
-    md = read_file(re.search(r"read (\S+/janus-skills/SKILL\.md)", pointers[m1]).group(1))
+    pointers = [e for e in run.events() if e["type"] == "session.prompt" and e["data"].get("channel") == "skills"]
+    c(not pointers, "系统层不再写 janus-skills 的位置：Agent 按自己的方式加载 Skill")
+    routers = glob.glob(os.path.join(ctx.home, "data", "runs", run.id, "bundle", m1, "**", "janus-skills", "SKILL.md"), recursive=True)
+    c(len(routers) == 1, f"协作者的资源包里有一个 janus-skills：{routers}")
+    md = read_file(routers[0])
     desc = next(line for line in md.splitlines() if line.startswith("description: "))
-    c("开始一项任务时先读它" in desc and "e2e-minutes（把会议记录整理成决定" in desc,
-      f"janus-skills 的描述写明什么时候读它，带上各个 Skill 的描述片段：{desc[:160]}")
+    c(desc.startswith("description: 每项任务开始时，先读这份目录") and "e2e-minutes（把会议记录整理成决定" in desc,
+      f"janus-skills 的描述先写什么时候读它，再带上各个 Skill 的描述片段：{desc[:160]}")
     c("- e2e-minutes：把会议记录整理成决定、待办和负责人。在用户要整理会议记录或会议纪要时使用" in md, "目录里每个 Skill 一行，写着完整描述")
 
     used = run.has("skill.used", task="T1")

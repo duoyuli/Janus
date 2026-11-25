@@ -398,8 +398,9 @@ class App:
         self.dir, self.n, self.lock = snap_dir, 0, threading.Lock()
         os.makedirs(snap_dir, exist_ok=True)
         self.suite = f"janus-e2e-{os.getpid()}-{next(App.count)}"
-        # Local settings the app starts with (`janus.language`, for one).
-        for key, value in (settings or {}).items():
+        # Local settings the app starts with. Its language is Chinese unless asked otherwise, so what
+        # the service tells agents (in the language the app reports) does not depend on the machine.
+        for key, value in dict({"janus.language": "zh-Hans"}, **(settings or {})).items():
             subprocess.run(["defaults", "write", self.suite, key, value], check=True)
         e = dict(os.environ, JANUS_HOME=home, JANUS_ADDR=addr, JANUS_SNAPSHOT_DIR=snap_dir,
                  JANUS_DEFAULTS_SUITE=self.suite, **(env or {}))

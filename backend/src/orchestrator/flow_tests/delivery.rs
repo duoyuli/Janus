@@ -3,6 +3,7 @@
 //! that ended is reopened by the next message.
 
 use super::*;
+use crate::lang::Lang;
 
 async fn delivered(h: &Harness) -> String {
     let run = start(h, json!([task("T1", "m1", json!({}))])).await;
@@ -159,8 +160,9 @@ fn history_leaves_out_the_message_still_waiting() {
         e(4, "user.message", "还在吗？", json!({ "id": "b" })),
         e(5, "message.routed", "", json!({ "id": "b", "delivery": "next" })),
     ];
-    let history = crate::orchestrator::lead::recent_exchanges(&events, "Lead");
-    assert_eq!(history, "User: 先做这个\nLead: 做好了");
+    use crate::orchestrator::lead::{Speakers, recent_exchanges};
+    assert_eq!(recent_exchanges(&events, Speakers::Lead, Lang::En), "User: 先做这个\nLead: 做好了");
+    assert_eq!(recent_exchanges(&events, Speakers::Lead, Lang::Zh), "用户：先做这个\n负责人：做好了");
 }
 
 /// Outside Git there is no branch to compare with: the lead's own edits after a delivery are what

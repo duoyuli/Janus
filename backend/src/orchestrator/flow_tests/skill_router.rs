@@ -1,7 +1,7 @@
 //! Library skills reach a session only through `janus-skills`
-//! (docs/domains/20261116-resource_library.md#skill_router): the session's system layer names the
-//! router's SKILL.md, the agent finds a skill in its catalog and reads that skill's SKILL.md, and
-//! Janus records the read (`skill.used`). The library counts it, and the next run's catalog puts
+//! (docs/domains/20261116-resource_library.md#skill_router): the agent loads the router from the
+//! bundle `session/new` hands it (no system-layer pointer), finds a skill in its catalog and reads
+//! that skill's SKILL.md, and Janus records the read (`skill.used`). The library counts it, and the next run's catalog puts
 //! the skill first.
 
 use super::*;
@@ -23,20 +23,17 @@ async fn a_skill_found_in_the_catalog_is_read_recorded_and_counted() {
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
     let evs = events(&h.app, &run);
-    // Each session's system layer says where the catalog is, the collaborator's and the lead's.
-    let pointer = |to: &str| {
-        evs.iter()
-            .find(|e| {
-                e.kind.as_str() == "session.prompt"
-                    && e.to.as_deref() == Some(to)
-                    && e.data.as_ref().unwrap()["channel"] == "skills"
-            })
-            .map(|e| e.data.as_ref().unwrap()["prompt"].as_str().unwrap().to_string())
-            .unwrap_or_else(|| panic!("no skills pointer for {to}"))
-    };
+    // No system layer points at the catalog: the agent loads it natively from its bundle.
+    assert!(
+        !evs.iter().any(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().unwrap()["channel"] == "skills"),
+        "no skills pointer"
+    );
     let router = h.app.cfg.layout.run(RunKind::Goal, &run).bundle("m1").join("skills/janus-skills/SKILL.md");
-    assert!(pointer("m1").contains(&format!("read {}", router.display())), "{}", pointer("m1"));
-    assert!(pointer("lead").contains("/bundle/lead/skills/janus-skills/SKILL.md"), "{}", pointer("lead"));
+    let md = std::fs::read_to_string(&router).unwrap();
+    assert!(
+        md.contains("description: 每项任务开始时，先读这份目录"),
+        "the run's language, when to read it first: {md}"
+    );
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     assert!(calls.contains("skill notes read"), "the agent found notes in the catalog: {calls}");
 
@@ -59,9 +56,15 @@ async fn a_skill_found_in_the_catalog_is_read_recorded_and_counted() {
     // The next run's catalog lists the used skill first, though alpha comes first by name.
     let team = h.app.run(&run).unwrap().team.clone();
     let next = h.app.cfg.layout.run(RunKind::Goal, "next");
-    h.app.bundle_team(&next, &team).unwrap();
+    h.app.bundle_team(&next, &team, crate::lang::Lang::Zh).unwrap();
     let md = std::fs::read_to_string(next.bundle("m1").join("skills/janus-skills/SKILL.md")).unwrap();
     assert!(md.find("- notes：").unwrap() < md.find("- alpha：").unwrap(), "{md}");
+    // A run in English gets its catalog in English.
+    let english = h.app.cfg.layout.run(RunKind::Goal, "english");
+    h.app.bundle_team(&english, &team, crate::lang::Lang::En).unwrap();
+    let md = std::fs::read_to_string(english.bundle("m1").join("skills/janus-skills/SKILL.md")).unwrap();
+    assert!(md.contains("description: At the start of each task, read this catalog"), "{md}");
+    assert!(md.find("- notes: ").unwrap() < md.find("- alpha: ").unwrap(), "{md}");
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;

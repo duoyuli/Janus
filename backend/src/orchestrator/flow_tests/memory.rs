@@ -85,7 +85,7 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     let (text, _) = tool(&h.app, &run, "lead", "recall", json!({ "query": "部署 回滚" })).await;
     assert!(text.contains("没有和「部署 回滚」相关的笔记"), "{text}");
     let (text, _) = tool(&h.app, &run, "T1", "recall", json!({})).await;
-    assert!(text.starts_with("2 notes") && text.contains(&lead_note.id) && text.contains("端口被占用"), "{text}");
+    assert!(text.starts_with("共 2 条笔记") && text.contains(&lead_note.id) && text.contains("端口被占用"), "{text}");
 
     // What a note must not be: empty, of no known kind, or carrying a credential.
     let (text, err) =
@@ -124,15 +124,15 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     }
     assert_eq!(h.app.db.memories("ws").unwrap().len(), 2);
 
-    // The sessions of the workspace are told how to search the notes, not handed them: the lead's
-    // goal session and the task's.
+    // The sessions of the workspace are told the notes are there, not handed them, and not how to
+    // use the tools (their descriptions say): the lead's goal session and the task's.
     let lead_layer = layer(&h, &run, None);
-    assert!(lead_layer.contains("Team memory:") && lead_layer.contains("janus.remember"), "{lead_layer}");
+    assert!(lead_layer.contains("团队记忆：") && !lead_layer.contains("janus.remember"), "{lead_layer}");
     let task_layer = layer(&h, &run, Some("T1"));
-    assert!(task_layer.contains("Team memory:") && task_layer.contains("janus.recall"), "{task_layer}");
+    assert!(task_layer.contains("团队记忆：") && !task_layer.contains("janus.recall"), "{task_layer}");
     let live = h.app.run(&run).unwrap();
     let section = h.app.memory_section(&live, MemoryAccess::Write);
-    assert!(section.contains("has 2 notes") && section.contains("janus.recall"), "{section}");
+    assert!(section.contains("有 2 条之前的任务留下的笔记") && section.contains("笔记不是规则"), "{section}");
     assert!(
         !section.contains(&lead_note.id) && !section.contains("端口被占用"),
         "no note in the instructions: {section}"
@@ -155,10 +155,7 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     assert!(!err, "{said}");
     act(&h, &cancelled, json!({ "type": "cancel" }));
     wait_until(&h.app, &cancelled, "cancel", |_| status(&h.app, &cancelled) == "cancelled").await;
-    assert!(
-        h.app.memory_section(&live, MemoryAccess::Write).contains("has 2 notes"),
-        "the cancelled run's not counted"
-    );
+    assert!(h.app.memory_section(&live, MemoryAccess::Write).contains("有 2 条"), "the cancelled run's not counted");
     let (text, _) = tool(&h.app, &run, "lead", "recall", json!({ "query": "被取消的结论" })).await;
     assert!(!text.contains("被取消的结论 ·"), "not found: {text}");
     let (text, _) = tool(&h.app, &run, "lead", "recall", json!({})).await;
@@ -166,7 +163,7 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     assert!(
         h.app
             .memory_section(&live, MemoryAccess::Consolidate)
-            .contains("被取消的结论 — 跑测试之前先装依赖 (from a cancelled run)")
+            .contains("被取消的结论 — 跑测试之前先装依赖（来自被取消的任务）")
     );
     let _ = std::fs::remove_dir_all(&h.dir);
 }
@@ -204,9 +201,12 @@ async fn a_consolidation_merges_and_prunes_notes_in_one_turn() {
     // The session records its layer once it is open, which a slow machine may not have done yet.
     wait_until(&h.app, &dream, "the consolidation's layer", |_| !layer(&h, &dream, None).is_empty()).await;
     let layer = layer(&h, &dream, None);
-    assert!(layer.contains("You are consolidating") && layer.contains("m-a") && layer.contains("m-c"), "{layer}");
+    assert!(
+        layer.contains("你在整理这个工作区的团队记忆") && layer.contains("m-a") && layer.contains("m-c"),
+        "{layer}"
+    );
     let sent = events(&h.app, &dream).into_iter().find(|e| e.kind.as_str() == "user.message").unwrap();
-    assert!(sent.data.unwrap()["text"].as_str().unwrap().starts_with("Consolidate the team memory now."));
+    assert!(sent.data.unwrap()["text"].as_str().unwrap().starts_with("现在整理团队记忆。"));
 
     // One turn: on record with what changed, delivered, its session closed.
     std::fs::write(h.dir.join("fake/dream-go"), "合并了 1 条，改正了 1 条\n- m-b 并入 m-a").unwrap();
@@ -285,5 +285,45 @@ async fn the_person_edits_and_deletes_notes() {
     assert!(h.app.delete_memory("m-a").unwrap());
     assert!(!h.app.delete_memory("m-a").unwrap());
     assert!(h.app.db.memories("ws").unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A run in English is told about its team memory in English, and so are its tools' answers; a
+/// consolidation in English is asked in English.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_in_english_hears_about_its_notes_in_english() {
+    let h = harness("memory-english", &[("lead", false), ("m1", true)], json!({ "T1": ["hold:go"] }));
+    h.app.save_language(&json!({ "language": "en" })).unwrap();
+    note(&h, "ws", "m-a", "测试命令");
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 starts", |e| task_event(e, "attempt.started", "T1")).await;
+    let live = h.app.run(&run).unwrap();
+    let section = h.app.memory_section(&live, MemoryAccess::Write);
+    assert!(
+        section.contains("Team memory: this workspace has 1 notes") && section.contains("Notes are not rules"),
+        "{section}"
+    );
+    let (text, _) = tool(&h.app, &run, "lead", "recall", json!({ "query": "部署" })).await;
+    assert!(text.starts_with("No notes match"), "{text}");
+    let (text, _) = tool(&h.app, &run, "T1", "recall", json!({})).await;
+    assert!(text.starts_with("1 notes, most recently changed first:"), "{text}");
+    let (text, err) =
+        tool(&h.app, &run, "lead", "remember", json!({ "kind": "rumor", "title": "t", "hook": "h", "body": "b" }))
+            .await;
+    assert!(err && text == "kind is one of fact, decision, pitfall or howto", "{text}");
+    let recall = MemoryTool::Recall.definition(live.lang);
+    assert!(recall["description"].as_str().unwrap().contains("before you start"), "{recall}");
+
+    std::fs::write(h.dir.join("fake/go"), "").unwrap();
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let dream = h.app.consolidate("ws").await.unwrap();
+    wait_until(&h.app, &dream, "the consolidation's layer", |_| !layer(&h, &dream, None).is_empty()).await;
+    let brief = layer(&h, &dream, None);
+    assert!(brief.contains("You are consolidating") && brief.contains("Notes (1):"), "{brief}");
+    let sent = events(&h.app, &dream).into_iter().find(|e| e.kind.as_str() == "user.message").unwrap();
+    assert!(sent.data.unwrap()["text"].as_str().unwrap().starts_with("Consolidate the team memory now."));
+    std::fs::write(h.dir.join("fake/dream-go"), "Nothing to change").unwrap();
+    wait_until(&h.app, &dream, "the consolidation ends", |e| has(e, "memory.consolidated")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

@@ -18,11 +18,15 @@ pub const ASKS: u8 = 3;
 /// The word a lead starts its reply with to confirm the goal is done.
 pub const DONE: &str = "GOAL_DONE";
 
-pub fn ask() -> String {
-    format!(
+pub fn ask(lang: crate::lang::Lang) -> String {
+    crate::lang::tr!(
+        lang,
         "[Janus] 你的这一轮已经结束，但目标仍然标记为进行中，会话也已经安静了一段时间。\n\
-         如果目标已经全部完成并且你核对过结果，请在回复的第一行只写 {DONE}，然后给出最终总结（它会作为这个 Run 的交付摘要）。\n\
-         如果还没有完成，说明还差什么，然后继续推进。"
+         如果目标已经全部完成并且你核对过结果，请在回复的第一行只写 {DONE}，然后给出最终总结（它会作为这个任务的交付摘要）。\n\
+         如果还没有完成，说明还差什么，然后继续推进。",
+        "[Janus] Your turn has ended, but the goal is still marked active and the session has been quiet for a while.\n\
+         If the goal is fully done and you have checked the result, write only {DONE} on the first line of your reply, then your final summary (it becomes the run's delivery summary).\n\
+         If it is not done yet, say what is missing, then carry on."
     )
 }
 
@@ -43,6 +47,6 @@ mod tests {
         assert_eq!(confirmed("  GOAL_DONE").as_deref(), Some(""));
         assert!(confirmed("还差测试没跑，GOAL_DONE 之后再说").is_none());
         assert!(confirmed("继续推进").is_none());
-        assert!(ask().contains(DONE));
+        assert!(ask(crate::lang::Lang::Zh).contains(DONE) && ask(crate::lang::Lang::En).contains(DONE));
     }
 }

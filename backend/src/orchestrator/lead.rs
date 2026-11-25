@@ -4,15 +4,29 @@
 use super::actions::reached_agent;
 use super::chat::chat_brief;
 use super::*;
+use crate::lang::{Lang, tr};
+
+/// A heading Janus asks the lead for in its run's language and reads back in either.
+pub(super) struct Heading {
+    pub zh: &'static str,
+    pub en: &'static str,
+}
+
+impl Heading {
+    pub(super) fn in_(&self, lang: Lang) -> &'static str {
+        lang.pick(self.zh, self.en)
+    }
+}
 
 /// The heading the lead puts its suggested additions to the shared material under (see `goal_brief`).
-pub(super) const BRIEF_HEADING: &str = "Suggested Updates to Shared Context";
+pub(super) const BRIEF_HEADING: Heading =
+    Heading { zh: "建议更新共享资料", en: "Suggested Updates to Shared Context" };
 
 /// The heading of the lead's conclusion in its final reply, a sentence or two (see `goal_brief`).
-pub(super) const HEADLINE_HEADING: &str = "Conclusion";
+pub(super) const HEADLINE_HEADING: Heading = Heading { zh: "结论", en: "Conclusion" };
 
 /// The heading of the questions the lead's final reply leaves for the person (see `goal_brief`).
-pub(super) const DECISIONS_HEADING: &str = "Needs Your Decision";
+pub(super) const DECISIONS_HEADING: Heading = Heading { zh: "需要你决定", en: "Needs Your Decision" };
 
 wire_enum! {
     /// What Janus puts in a session's system layer before the person's standing instructions.
@@ -22,8 +36,6 @@ wire_enum! {
         Collaboration = "system",
         /// A chat reopened: its recent exchanges, so the new session knows the conversation.
         History = "history",
-        /// Where the member's library skills are listed (`janus-skills`), when it has any.
-        Skills = "skills",
     }
 }
 
@@ -280,9 +292,11 @@ impl App {
         if entries.is_empty() {
             return;
         }
-        let text = format!(
-            "[Janus 看板推送] 看板上有需要你处理的新消息。它们已经算作读过，不会再出现在 janus.wait 里：\n{}",
-            entries.join("\n")
+        let entries = entries.join("\n");
+        let text = tr!(
+            run.lang,
+            "[Janus 看板推送] 看板上有需要你处理的新消息。它们已经算作读过，不会再出现在 janus.wait 里：\n{entries}",
+            "[Janus board push] New board messages need you. They count as read and will not come back in janus.wait:\n{entries}"
         );
         static NEXT: AtomicI64 = AtomicI64::new(0);
         let id = format!("push{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
@@ -356,7 +370,7 @@ impl App {
             None => (String::new(), BrokeOff::Restart),
         };
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
-        let standing = standing_instructions(&lead);
+        let standing = standing_instructions(&lead, run.lang);
         let channel = lead.runtime.instruction_channel();
         // Continuing after a restart: the lead's own session comes back when its agent can load it,
         // with everything it did and was told; otherwise a new one is told where things stand.
@@ -367,13 +381,12 @@ impl App {
         // starts; the notes are taken only once the session is open.
         // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
         let (notes, note_ids) = self.peek_notes(run, "lead");
-        let resume = if resumed { resume_brief(&board, &broke, &events) } else { String::new() };
+        let resume = if resumed { resume_brief(&board, &broke, &events, run.lang) } else { String::new() };
         let brief = format!("{}{resume}{}{notes}", self.goal_brief(run), self.memory_section(run, MemoryAccess::Write));
-        let skills = skills_note(self.skill_router_md(run, &lead));
-        let system = system_layer(&[&brief, &skills, &standing]);
+        let system = system_layer(&[&brief, &standing]);
         let old_session = if resumed { last_lead_session(&events) } else { None };
         let old = old_session.as_deref().map(|sid| {
-            let kept = recorded_system(&events, sid).unwrap_or_else(|| system_layer(&[&skills, &standing]));
+            let kept = recorded_system(&events, sid).unwrap_or_else(|| standing.clone());
             (sid, kept)
         });
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
@@ -424,10 +437,9 @@ impl App {
             // A loaded session has its system layer already and got it again unchanged: nothing new
             // went in. It is told what happened instead of being given the goal again.
             let (mut prompt, mut opening) = if loaded {
-                (resume_prompt(&board, &broke, &notes), Some(PromptChannel::Resume))
+                (resume_prompt(&board, &broke, &notes, run.lang), Some(PromptChannel::Resume))
             } else {
                 self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
-                self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
                 self.record_instructions(run, &ctx, &sid, &channel, &standing);
                 (format!("/goal {}", goal_condition(&run.goal)), None)
             };
@@ -461,7 +473,12 @@ impl App {
                     prompt = if delivered {
                         next
                     } else {
-                        format!("{next}\n\n请结合这些信息继续推进目标：{}", run.goal)
+                        let goal = &run.goal;
+                        tr!(
+                            run.lang,
+                            "{next}\n\n请结合这些信息继续推进目标：{goal}",
+                            "{next}\n\nTake this into account and go on with the goal: {goal}"
+                        )
                     };
                     continue;
                 }
@@ -552,7 +569,7 @@ impl App {
         // A chat and a Loop's session: one member, no board to run, no delivery.
         let chat = run.kind.single_session();
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
-        let standing = standing_instructions(&lead);
+        let standing = standing_instructions(&lead, run.lang);
         let channel = lead.runtime.instruction_channel();
         let events = self.db.events(&run.id, 0).unwrap_or_default();
         let old_session = last_lead_session(&events);
@@ -567,11 +584,10 @@ impl App {
             RunKind::Dream => self.dream_brief(run),
             RunKind::Chat => String::new(),
         };
-        let history = if chat { chat_brief(&events) } else { String::new() };
-        let skills = skills_note(self.skill_router_md(run, &lead));
-        let fresh = system_layer(&[&guide, &history, &skills, &standing]);
+        let history = if chat { chat_brief(&events, run.lang) } else { String::new() };
+        let fresh = system_layer(&[&guide, &history, &standing]);
         let old = old_session.as_deref().map(|sid| {
-            let kept = recorded_system(&events, sid).unwrap_or_else(|| system_layer(&[&skills, &standing]));
+            let kept = recorded_system(&events, sid).unwrap_or_else(|| standing.clone());
             (sid, kept)
         });
         let owner = Owner { session: SessionKey::Lead, attempt: 0 };
@@ -640,7 +656,6 @@ impl App {
                 if !history.is_empty() {
                     self.record_system(run, &ctx, &sid, &channel, SystemPart::History, &history);
                 }
-                self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
                 self.record_instructions(run, &ctx, &sid, &channel, &standing);
             }
 
@@ -944,7 +959,6 @@ impl App {
             SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
             SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
             SystemPart::History => "向 Agent 注入之前的对话",
-            SystemPart::Skills => "告诉 Agent 资源库 Skill 的目录在哪里",
         };
         self.emit(
             run,
@@ -998,41 +1012,81 @@ impl App {
     /// the collaborators comes from here (and the `team` tool, which repeats it).
     // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
     pub(super) fn goal_brief(&self, run: &Run) -> String {
-        let mut p = format!(
+        let lang = run.lang;
+        let cwd = run.cwd.display();
+        let git = workdir_brief(run);
+        let team = team_lines(run);
+        let brief = brief_section(&run.brief, Wins::Goal, lang);
+        let (heading, headline, decisions) =
+            (BRIEF_HEADING.in_(lang), HEADLINE_HEADING.in_(lang), DECISIONS_HEADING.in_(lang));
+        let teamwork = crate::teamwork::lead_guide(lang);
+        let mut p = tr!(
+            lang,
+            "你是 Janus 团队的负责人，负责达成用户的目标。先判断目标是否小到你在这个会话里自己就能做完；是的话自己做，不派子任务。否则把其中的部分交给下面的协作者，由你决定让谁参与、怎样分工。
+
+一旦派出任何子任务，这个目标余下的部分你只做管理：计划、看看板、做决定、核对和交付。从那时起不再修改工作目录里的文件，读和检查可以。派出子任务后你改的每个文件，Janus 都会写到看板上，并在交付中列为风险。派出子任务后，资源库的工具和 Skill 只用来查看（读、查询、检查），有副作用的事交给子任务。
+
+工作目录：{cwd}。你和协作者都直接在这个目录里工作，改动对所有人立即可见。{git}
+
+协作者：
+{team}
+
+你在做别的事时，需要你处理的看板消息会由 Janus 直接推进你的会话：协作者的提问、失败、停滞、阻塞、同时改了同一个文件、用户的回答。先处理会卡住别人的事，再接着做。
+
+谁来做决定：
+- 目标范围内的做法和取舍由你自己决定。
+- 对目标或需求的不同理解会带来明显不同的结果、需要用户的账号、凭据、花费或外部资源，或者操作不可逆、会影响工作目录之外而用户没有要求时，用 janus.ask_user 交给用户，给出选项和建议。不依赖这个决定的工作继续做。
+- 用户已经直接回答过的问题，按用户的回答做。
+- 协作者的结论和你的决定冲突时，用 janus.amend 修订，让下游用同一份结论。
+
+验收标准（子任务的 accept）：
+- 每个子任务都写可核对的验收标准：预期的结果和怎样认出它，不写做法的步骤。
+- 执行者自己决定怎样核对每条标准，并回报是否达到、证据和可选的证据方法；推理、未核实和没写方法的条目会在完成消息里标出。需要特定的核对方式时，写进标准或说明。
+- 执行者回报某条没达到或漏了某条时，Janus 在原会话里给它一次补的机会。仍然不够时，你决定接受、返工或取消。
+- 执行者的证据是它自己的说法。交付会标出改了文件却没有独立验证的子任务；对每一个，你的最终回复要说明是否核对过、怎样核对的。
+
+最终回复（用户凭它验收）：
+- 以标题「## {headline}」开头，写一两句话：目标是否达成，以及最重要的结果。
+- 用户需要对结果做决定时，加标题「## {decisions}」，最多列三个用户能直接回答的问题，一行一个。协作者的风险里需要用户处理的放在这里，其余留在他们的报告里。没有要决定的事就不写这个标题。
+- 然后写改了什么、怎样核对的、还有什么没做。写结果，不写过程。
+- 交付后用户再找你、你又改了东西时，那一轮的回复也这样结尾：下一次交付只显示那一轮的工作。
+
+协作：
+- 协作者看不到你的对话。每个子任务的说明里写全背景、具体要做的事和验收标准。
+- 一个协作者实例同一时间只做一个子任务，多派给它的会排队。会改同一批文件的工作用依赖排成先后；同时进行的子任务改了同一个文件时，看板会报冲突，由你处理。
+- 派出子任务后，绝不自己接手它的工作，哪怕只改一行：发回原执行者返工、换人重新编排、谁都做不了时问用户，或者取消并在交付里写明缺口。要改正在执行的子任务，用 janus.reply 告诉它。
+- 协作者提问后会等你回答，用 janus.reply 回答。
+- 目标达成才结束。
+- 只有用户要求时（在目标里、回答里或之后的消息里）才 commit、push、部署或发布，并且只做到要求的程度：要求提交不等于要求推送。这是用户的决定，照做时不再询问；没有要求就都不做。子任务要做其中一件时，在它的说明里写明。
+
+{teamwork}
+
+工作区共享资料：
+- 共享资料由用户为这个工作区维护，可能包括产品定位、目标用户、约定、过去的决定和重要文件的位置。所有协作者都会收到。和本次目标冲突时以本次目标为准。
+- 已经记下的事实直接用，不再安排调研，也不再问用户。
+- 这次确定或修正了值得长期保留的事实时，在最终回复末尾加标题「## {heading}」，一行一条完整、可复用的陈述，只写新增或修正的。没有就不写这个标题。保留哪些由用户决定。{brief}",
             "You are the lead of the Janus team and are responsible for achieving the user's goal. First decide whether the goal is small enough to finish yourself in this session; if it is, do it yourself without delegating. Otherwise delegate parts of it to the collaborators below, deciding whom to involve and how to divide the work.
 
-Once you submit any subtask, you only manage for the rest of the goal: plan, read the board, decide, verify, and deliver. Do not edit files in the working directory from then on; reading files, running tests, and inspecting diffs are fine. Janus reports every file you edit after delegating, on the board and as a risk in the delivery. The workspace's resource library (the janus-tools MCP server and the janus-skills skill) is open to you and to every collaborator; after you delegate, use it only to look (read, query, check) and leave anything with side effects to a subtask.
+Once you submit any subtask, you only manage for the rest of the goal: plan, read the board, decide, verify, and deliver. Do not edit files in the working directory from then on; reading and checking are fine. Janus reports every file you edit after delegating, on the board and as a risk in the delivery. After you delegate, use the resource library's tools and skills only to look (read, query, check) and leave anything with side effects to a subtask.
 
 Working directory: {cwd}. You and the collaborators work directly in this directory, where changes are immediately visible to everyone. {git}
 
 Collaborators:
 {team}
 
-Use the janus MCP tools and the shared board to coordinate with collaborators:
-- janus.orchestrate: Submit a plan as a set of subtasks with an id, title, complete instructions, assignee, dependencies, acceptance criteria, and optional owns, verifies, and continues. Janus validates the entire plan and returns all errors so you can correct and resubmit it. Valid subtasks are added to the board and scheduled by dependency. You can submit multiple plans and depend on subtasks from earlier plans.
-- janus.wait: Wait for new board activity: subtask starts, completions (summaries, evidence, risks, and artifacts), failures, collaborator progress, blockers, split proposals, collaborator questions, and user answers. It returns as soon as a subtask completes or something needs you; starts, progress, and other informational entries come along with that return or at the timeout. Each wait lasts at most 180 seconds (120 seconds by default). Longer waits can return live progress for running subtasks. Before waiting again, check whether intervention is needed. If work is progressing normally, keep waiting. Completion entries summarize the result and indicate truncation.
-- janus.task_detail: Read a subtask's complete instructions, result, amendments, changed files, board questions and answers, and upstream and downstream subtasks by id.
-- janus.reply: Answer a collaborator's question or send new instructions to a running collaborator. The message is delivered immediately by steering the current turn where supported, or by interrupting the turn and then sending the message.
-- janus.retry: Send an ended subtask back to its assignee: a failed or cancelled one, or a completed one that needs rework, for example after a verification rejected it. Always choose the session: session=\"continue\" goes back into that subtask's own session, which keeps its context (rework on review findings, filling gaps, finishing interrupted work); session=\"new\" starts a fresh one (a different approach, a polluted context, a broken process). Set from to the verification whose findings it should act on; Janus hands them over verbatim, so add only your own decision in note. You can also revise its instructions and acceptance criteria. Once it is done, its verifications and from check the new result again. Blocked subtasks resume automatically after it succeeds, without another plan.
-- janus.accept: Accept a result the assignee reported as falling short if your own review establishes that the result is acceptable. This lets dependent subtasks proceed.
-- janus.amend: Overturn or correct a completed subtask's findings. Dependent subtasks receive the amendment. Record the change here so it reaches the rest of the team.
-- janus.cancel: Cancel a subtask you no longer need. Janus stops it if it is running and cancels its dependent subtasks.
-- janus.ask_user: Escalate decisions only the user can make. The answer appears in janus.wait.
-- janus.team: See the collaborators and the current status of all subtasks on the board.
-
-When you are doing other work, Janus pushes board messages that need your attention directly into your session. These include collaborator questions, failures, stalls, blockers, concurrent file edits, and user answers. Pushed messages do not reappear in janus.wait. Address anything blocking others first, then resume your work.
+While you do other work, Janus pushes board messages that need you straight into your session: collaborator questions, failures, stalls, blockers, concurrent edits of one file, and user answers. Deal first with anything that blocks others, then carry on.
 
 Decision ownership:
-- Decide technical choices, implementation details, and trade-offs yourself. Explain your reasoning when answering collaborators.
+- Decide how the work is done and the trade-offs within the goal yourself.
 - Use janus.ask_user when different interpretations of the goal or requirements would lead to materially different results, when you need the user's account, credentials, spending, or external resources, or when an action is irreversible or affects anything outside the working directory and the user has not asked for it. Give options and a recommendation. Continue work that does not depend on the decision.
 - If the user has already answered a question directly, proceed with the user's answer.
 - When a collaborator's findings conflict with your decision, use janus.amend so downstream work uses the same findings.
 
 Acceptance criteria (the subtask's accept field):
-- Write verifiable criteria for every subtask. State the expected outcome and how to recognize it. Describe behavior, such as revealing a tile and showing the number of adjacent mines when clicked, or covering empty input with a new passing test. Avoid prescribing a specific command as the criterion.
-- The assignee chooses how to verify each criterion and reports the status, evidence, and optional method (test, command, inspection, reasoning, or unverified). The method identifies the evidence type. Reasoning, unverified results, and unspecified methods are flagged in completion messages. Check critical results yourself, starting from the evidence. If a particular verification method is required, include it in the criteria or instructions and still assess the outcome.
-- If the assignee reports an unmet criterion or omits one, Janus gives it one chance to address the gap in the original session. If it still falls short, use janus.accept when the result is acceptable, janus.retry when the work or criteria need revision, or janus.cancel when the subtask is no longer needed.
-- The assignee's evidence is its report. Before you finish, make sure every subtask that changed files was checked: by an independent verification you arranged, or by your own checks (reading its evidence and the changed files, and running what the evidence does not cover). The delivery marks each subtask that changed files without an independent verification; for each of them, your final summary must say how you checked it, what you ran or read and what you saw.
+- Write verifiable criteria for every subtask: the expected outcome and how to recognize it, not the steps to get there.
+- The assignee chooses how to verify each criterion and reports the status, evidence, and optional method; reasoning, unverified results, and unspecified methods are flagged in completion messages. If a particular verification method is required, include it in the criteria or instructions.
+- If the assignee reports an unmet criterion or omits one, Janus gives it one chance to address the gap in the original session. If it still falls short, you decide whether to accept, rework or cancel.
+- The assignee's evidence is its own report. The delivery marks each subtask that changed files without an independent verification; for each of them, your final reply says whether and how it was checked.
 
 Final reply (the user reviews the delivery from it):
 - Begin with the heading '## {headline}' and one or two sentences: whether the goal is achieved, and the result that matters most.
@@ -1042,10 +1096,10 @@ Final reply (the user reviews the delivery from it):
 
 Coordination:
 - Collaborators cannot see your conversation. Include the context, exact work, and acceptance criteria in each subtask's instructions.
-- Each collaborator instance handles one subtask at a time. Extra subtasks assigned to the same collaborator queue. Use dependencies to serialize work that will edit the same files. When simultaneous subtasks edit the same file, the board reports a conflict for you to resolve.
-- After you delegate, never take over a subtask's work yourself, not even a one-line fix. Send it back with janus.retry (session=\"continue\" keeps its context), reassign it with janus.cancel and janus.orchestrate, use janus.ask_user when no collaborator can do it, or cancel it and report the gap in the delivery. Use janus.reply to change the work of a running subtask.
+- Each collaborator instance handles one subtask at a time; extra subtasks assigned to it queue. Use dependencies to serialize work that will edit the same files. When simultaneous subtasks edit the same file, the board reports a conflict for you to resolve.
+- After you delegate, never take over a subtask's work yourself, not even a one-line fix: send it back for rework, reassign it, ask the user when no collaborator can do it, or cancel it and report the gap in the delivery. Use janus.reply to change the work of a running subtask.
 - When a collaborator asks a question, it waits for your answer. Respond with janus.reply.
-- Check collaborators' results yourself, and finish only when the goal is achieved. Read their evidence and the changed files first; run checks only for what no evidence covers, what changed after the evidence was made, or what you have a concrete reason to doubt. Running a suite a collaborator or verifier already ran on the same files gives the same output and only costs time.
+- Finish only when the goal is achieved.
 - Commit, push, deploy, or release only when the user asks for it, in the goal, in an answer, or in a later message, and only as far as asked: a request to commit is not one to push. That request is the user's decision, so carry it out without asking again; otherwise do none of them. When a subtask is to do one of them, say so in its instructions.
 
 {teamwork}
@@ -1053,19 +1107,13 @@ Coordination:
 Shared workspace context:
 - The user maintains this context for the workspace. It can include product positioning, target users, conventions, past decisions, and important files. All collaborators receive it. The current goal takes precedence if they conflict.
 - Use the facts already recorded without assigning new research or asking the user again.
-- If you establish or revise facts worth keeping, end your final reply with the heading '## {heading}' and list one complete, reusable statement per line. Include only new or revised facts. Omit the heading if there are no suggestions. The user decides what to keep.{brief}",
-            cwd = run.cwd.display(),
-            git = workdir_brief(run),
-            team = team_lines(run),
-            brief = brief_section(&run.brief, "the current goal"),
-            heading = BRIEF_HEADING,
-            headline = HEADLINE_HEADING,
-            decisions = DECISIONS_HEADING,
-            teamwork = crate::teamwork::lead_guide(),
+- If you establish or revise facts worth keeping, end your final reply with the heading '## {heading}' and list one complete, reusable statement per line. Include only new or revised facts. Omit the heading if there are no suggestions. The user decides what to keep.{brief}"
         );
         if !run.goal_images.is_empty() {
             let images = crate::attachments::lines(&run.goal_images);
-            p.push_str(&format!(
+            p.push_str(&tr!(
+                lang,
+                "\n\n用户给目标附了图片。开始前用读图的工具看一遍：\n{images}\n需要这些图片的协作者，在子任务说明里写上路径。",
                 "\n\nThe user attached images to the goal. Use an image-reading tool to review them before starting:\n{images}\nInclude the paths in subtask instructions for collaborators who need these images."
             ));
         }
@@ -1108,9 +1156,10 @@ impl App {
 }
 
 fn board_on_resume(run: &Run, events: &[Event]) -> String {
+    let lang = run.lang;
     let st = run.st.lock().unwrap();
     if st.tasks.is_empty() {
-        return "No subtasks were assigned to collaborators.".into();
+        return lang.pick("还没有给协作者派过子任务。", "No subtasks were assigned to collaborators.").into();
     }
     let lines: Vec<String> = st
         .tasks
@@ -1123,8 +1172,11 @@ fn board_on_resume(run: &Run, events: &[Event]) -> String {
                 TaskStatus::Succeeded => {
                     let summary = t.result.as_ref().map(|r| clip(&r.summary, 200)).unwrap_or_default();
                     parts.push(match t.verdict() {
-                        Some(vd) => format!("done, verdict {}: {summary}", vd.as_str()),
-                        None => format!("done: {summary}"),
+                        Some(vd) => {
+                            let vd = vd.as_str();
+                            tr!(lang, "已完成，判定 {vd}：{summary}", "done, verdict {vd}: {summary}")
+                        }
+                        None => tr!(lang, "已完成：{summary}", "done: {summary}"),
                     });
                 }
                 TaskStatus::Pending => {
@@ -1138,39 +1190,63 @@ fn board_on_resume(run: &Run, events: &[Event]) -> String {
                         .and_then(|e| e.data.as_ref());
                     match reopened.and_then(Reopen::of_event) {
                         Some(Reopen::Retry { session, from, note, .. }) => {
-                            let mut why = format!("you sent it back with janus.retry (session={})", session.as_str());
+                            let session = session.as_str();
+                            let mut why = tr!(
+                                lang,
+                                "你用 janus.retry 把它发回返工（session={session}）",
+                                "you sent it back with janus.retry (session={session})"
+                            );
                             if let Some(v) = from {
-                                why.push_str(&format!(" on {v}'s findings"));
+                                why.push_str(&tr!(lang, "，依据 {v} 的意见", " on {v}'s findings"));
                             }
                             if let Some(n) = note {
-                                why.push_str(&format!("; your note: {}", clip(&n, 300)));
+                                let n = clip(&n, 300);
+                                why.push_str(&tr!(lang, "；你的说明：{n}", "; your note: {n}"));
                             }
                             parts.push(why);
                         }
-                        Some(Reopen::Reverify { target }) => parts.push(format!("checks {target} again after its rework")),
+                        Some(Reopen::Reverify { target }) => {
+                            parts.push(tr!(lang, "在 {target} 返工后重新验证", "checks {target} again after its rework"))
+                        }
                         None => {}
                     }
                     parts.push(if let Some(reload) = st.resume_session.get(id) {
                         match &reload.broke {
-                            BrokeOff::Restart => "it was at work when Janus stopped and reopens its own session to carry on (a new session if its agent cannot load it)".into(),
-                            BrokeOff::Failure(err) => format!(
-                                "its last attempt broke off ({}) and goes back into its own session to carry on (a new session if that cannot be loaded or is nearly full)",
-                                clip(err, 160)
-                            ),
+                            BrokeOff::Restart => lang.pick(
+                                "Janus 停下时它正在工作，会打开自己原来的会话接着做（Agent 加载不了时新开会话）",
+                                "it was at work when Janus stopped and reopens its own session to carry on (a new session if its agent cannot load it)",
+                            ).into(),
+                            BrokeOff::Failure(err) => {
+                                let err = clip(err, 160);
+                                tr!(
+                                    lang,
+                                    "它上一次尝试中断了（{err}），会回到自己原来的会话接着做（加载不了或快满时新开会话）",
+                                    "its last attempt broke off ({err}) and goes back into its own session to carry on (a new session if that cannot be loaded or is nearly full)"
+                                )
+                            }
                         }
                     } else if t.attempts == 0 {
-                        "not started yet".into()
+                        lang.pick("还没开始", "not started yet").into()
                     } else {
-                        "starts again".into()
+                        lang.pick("会重新开始", "starts again").into()
                     });
                     if let Some(r) = &t.result {
-                        let verdict = t.last_verdict().map(|v| format!(" (verdict {})", v.as_str())).unwrap_or_default();
-                        parts.push(format!("result of an earlier attempt{verdict}: {}", clip(&r.summary, 160)));
+                        let summary = clip(&r.summary, 160);
+                        parts.push(match t.last_verdict() {
+                            Some(v) => {
+                                let v = v.as_str();
+                                tr!(lang, "之前一次尝试的结果（判定 {v}）：{summary}", "result of an earlier attempt (verdict {v}): {summary}")
+                            }
+                            None => tr!(lang, "之前一次尝试的结果：{summary}", "result of an earlier attempt: {summary}"),
+                        });
                     }
                 }
-                TaskStatus::Blocked => parts.push(format!("blocked by {}", t.blocked_by().unwrap_or("a dependency"))),
-                TaskStatus::Failed => parts.push("failed".into()),
-                TaskStatus::SkippedByDecision => parts.push("cancelled by you".into()),
+                TaskStatus::Blocked => {
+                    let by = t.blocked_by().unwrap_or(lang.pick("某个依赖", "a dependency"));
+                    parts.push(tr!(lang, "被 {by} 挡住", "blocked by {by}"))
+                }
+                TaskStatus::Failed => parts.push(lang.pick("失败", "failed").into()),
+                TaskStatus::SkippedByDecision => parts.push(lang.pick("被你取消", "cancelled by you").into()),
                 other => parts.push(other.as_str().into()),
             }
             if !t.status().terminal()
@@ -1179,7 +1255,8 @@ fn board_on_resume(run: &Run, events: &[Event]) -> String {
                     .filter(mine)
                     .rfind(|e| e.kind() == EventKind::UserMessage && e.actor == "lead")
             {
-                parts.push(format!("your last message to it: {}", clip(told.text.trim(), 200)));
+                let told = clip(told.text.trim(), 200);
+                parts.push(tr!(lang, "你最后对它说：{told}", "your last message to it: {told}"));
             }
             format!("- {id} ({}): {} · {}", t.agent, t.def.title, parts.join(" · "))
         })
@@ -1189,29 +1266,42 @@ fn board_on_resume(run: &Run, events: &[Event]) -> String {
 
 /// What a lead in a new session after a restart or a failure is told, in its brief: its old session is gone,
 /// so where the board stands and what it and the person last said.
-fn resume_brief(board: &str, broke: &BrokeOff, events: &[Event]) -> String {
-    let recent = recent_exchanges(events, "You");
-    let (why, when) = match broke {
-        BrokeOff::Restart => ("Janus restarted while you were working on this goal".to_string(), "when Janus stopped"),
-        BrokeOff::Failure(err) => {
-            (format!("Your session broke off while you were working on this goal ({})", clip(err, 300)), "now")
-        }
-    };
-    format!(
-        "\n\nResuming after an interruption. {why}, and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board {when}:\n{}\n\nYour recent conversation with the user, oldest first:\n{}",
-        board,
-        if recent.is_empty() { "(none)" } else { recent.as_str() },
-    )
+fn resume_brief(board: &str, broke: &BrokeOff, events: &[Event], lang: Lang) -> String {
+    let recent = recent_exchanges(events, Speakers::You, lang);
+    let recent = if recent.is_empty() { lang.pick("（无）", "(none)").to_string() } else { recent };
+    match (broke, lang) {
+        (BrokeOff::Restart, Lang::Zh) => format!(
+            "\n\n从中断处继续。你推进这个目标时 Janus 重启了，这是一个新会话：之前做过、读过的都不在里面。已经做的改动还在工作目录里。从现状接着做，不要重做已经完成的工作。\n\nJanus 停下时看板上的子任务：\n{board}\n\n你和用户最近的对话，按时间先后：\n{recent}"
+        ),
+        (BrokeOff::Restart, Lang::En) => format!(
+            "\n\nResuming after an interruption. Janus restarted while you were working on this goal, and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}\n\nYour recent conversation with the user, oldest first:\n{recent}"
+        ),
+        (BrokeOff::Failure(err), Lang::Zh) => format!(
+            "\n\n从中断处继续。你推进这个目标时会话中断了（{}），这是一个新会话：之前做过、读过的都不在里面。已经做的改动还在工作目录里。从现状接着做，不要重做已经完成的工作。\n\n现在看板上的子任务：\n{board}\n\n你和用户最近的对话，按时间先后：\n{recent}",
+            clip(err, 300)
+        ),
+        (BrokeOff::Failure(err), Lang::En) => format!(
+            "\n\nResuming after an interruption. Your session broke off while you were working on this goal ({}), and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board now:\n{board}\n\nYour recent conversation with the user, oldest first:\n{recent}",
+            clip(err, 300)
+        ),
+    }
 }
 
 /// What a lead whose own session was loaded again is told first: it remembers its work, so only
 /// what broke it off, where the board stands and the messages left for it meanwhile.
-fn resume_prompt(board: &str, broke: &BrokeOff, notes: &str) -> String {
-    match broke {
-        BrokeOff::Restart => format!(
-            "[Janus] Janus restarted while you were working on this goal. Your session was restored, so what you did and read before is still here; the collaborators' sessions were closed. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}{notes}\n\njanus.wait brings only what happens from here on.",
+fn resume_prompt(board: &str, broke: &BrokeOff, notes: &str, lang: Lang) -> String {
+    match (broke, lang) {
+        (BrokeOff::Restart, Lang::Zh) => format!(
+            "[Janus] 你推进这个目标时 Janus 重启了。你的会话已经恢复，之前做过、读过的都还在；协作者的会话都已关闭。从停下的地方接着推进目标，不要重做已经完成的工作。\n\nJanus 停下时看板上的子任务：\n{board}{notes}\n\n从现在起，janus.wait 只带来之后发生的事。"
         ),
-        BrokeOff::Failure(err) => format!(
+        (BrokeOff::Restart, Lang::En) => format!(
+            "[Janus] Janus restarted while you were working on this goal. Your session was restored, so what you did and read before is still here; the collaborators' sessions were closed. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}{notes}\n\njanus.wait brings only what happens from here on."
+        ),
+        (BrokeOff::Failure(err), Lang::Zh) => format!(
+            "[Janus] 你推进这个目标时会话中断了（{}）。会话已经恢复，之前做过、读过的都还在；协作者一直在工作。从停下的地方接着推进目标，不要重做已经完成的工作。\n\n现在看板上的子任务：\n{board}{notes}\n\n从现在起，janus.wait 只带来之后发生的事。",
+            clip(err, 300)
+        ),
+        (BrokeOff::Failure(err), Lang::En) => format!(
             "[Janus] Your session broke off while you were working on this goal ({}). It was restored, so what you did and read before is still here; the collaborators kept working. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board now:\n{board}{notes}\n\njanus.wait brings only what happens from here on.",
             clip(err, 300)
         ),
@@ -1233,10 +1323,16 @@ pub(super) fn team_lines(run: &Run) -> String {
         .filter(|m| !m.lead)
         .map(|m| {
             let desc = m.desc.trim();
-            format!("- {}: {} · Responsibilities: {}", m.id, m.name, if desc.is_empty() { "Unspecified" } else { desc })
+            let desc = if desc.is_empty() { run.lang.pick("未填写", "Unspecified") } else { desc };
+            let (id, name) = (&m.id, &m.name);
+            tr!(run.lang, "- {id}：{name} · 职责：{desc}", "- {id}: {name} · Responsibilities: {desc}")
         })
         .collect();
-    if lines.is_empty() { "- No collaborators. Complete the work yourself.".into() } else { lines.join("\n") }
+    if lines.is_empty() {
+        run.lang.pick("- 没有协作者，自己完成全部工作。", "- No collaborators. Complete the work yourself.").into()
+    } else {
+        lines.join("\n")
+    }
 }
 
 /// The `/goal` text: the user's goal alone (Claude Code judges completion against it), within
@@ -1300,10 +1396,20 @@ impl App {
 /// What the lead hears when the person who interrupted it hands the turn back: before the goal is
 /// delivered, to go on with it; after, to go on with what the person asked.
 fn resume_after_hold(run: &Run, delivered: bool) -> String {
-    if delivered {
-        "人工介入结束。请结合上面的对话，继续处理用户的要求。".to_string()
-    } else {
-        format!("人工介入结束。请结合上面的对话，继续推进目标直到完成：{}", run.goal)
+    let goal = &run.goal;
+    match delivered {
+        true => run
+            .lang
+            .pick(
+                "人工介入结束。请结合上面的对话，继续处理用户的要求。",
+                "The person has handed the session back. Taking the conversation above into account, go on with what the user asked.",
+            )
+            .into(),
+        false => tr!(
+            run.lang,
+            "人工介入结束。请结合上面的对话，继续推进目标直到完成：{goal}",
+            "The person has handed the session back. Taking the conversation above into account, carry the goal on to completion: {goal}"
+        ),
     }
 }
 
@@ -1343,11 +1449,38 @@ pub(super) fn lead_summary(text: &str) -> String {
 /// The workspace's shared material as a section of a prompt; nothing when the workspace has none.
 /// `wins` names what takes precedence when the two disagree.
 // @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief
-pub(super) fn brief_section(brief: &str, wins: &str) -> String {
-    if brief.trim().is_empty() {
+pub(super) fn brief_section(brief: &str, wins: Wins, lang: Lang) -> String {
+    let brief = brief.trim();
+    if brief.is_empty() {
         return String::new();
     }
-    format!("\n\nShared workspace context (maintained by the user). In a conflict, follow {wins}.\n{}\n", brief.trim())
+    let wins = wins.label(lang);
+    tr!(
+        lang,
+        "\n\n工作区共享资料（由用户维护）。有冲突时以{wins}为准。\n{brief}\n",
+        "\n\nShared workspace context (maintained by the user). In a conflict, follow {wins}.\n{brief}\n"
+    )
+}
+
+/// What takes precedence over the shared material where they disagree.
+#[derive(Clone, Copy)]
+pub(super) enum Wins {
+    /// The lead's goal.
+    Goal,
+    /// A collaborator's subtask instructions.
+    Task,
+    /// A Loop's prompt.
+    Loop,
+}
+
+impl Wins {
+    fn label(self, lang: Lang) -> &'static str {
+        match self {
+            Wins::Goal => lang.pick("本次目标", "the current goal"),
+            Wins::Task => lang.pick("子任务说明", "the subtask instructions"),
+            Wins::Loop => lang.pick("值班的提示", "this Loop's prompt"),
+        }
+    }
 }
 
 /// The lead's last message taken apart: the sections it ends with by the lead's brief
@@ -1367,9 +1500,10 @@ pub(super) struct LeadReport {
 
 impl LeadReport {
     pub(super) fn of(text: &str) -> LeadReport {
-        let (rest, headline) = take_section(text, &[HEADLINE_HEADING, "结论"]);
-        let (rest, decisions) = take_section(&rest, &[DECISIONS_HEADING, "需要你决定"]);
-        let (rest, brief) = take_section(&rest, &[BRIEF_HEADING, "建议更新共享资料"]);
+        let names = |h: &Heading| [h.zh, h.en];
+        let (rest, headline) = take_section(text, &names(&HEADLINE_HEADING));
+        let (rest, decisions) = take_section(&rest, &names(&DECISIONS_HEADING));
+        let (rest, brief) = take_section(&rest, &names(&BRIEF_HEADING));
         LeadReport { summary: lead_summary(&rest), headline: headline.join("\n"), decisions, brief }
     }
 }
@@ -1484,19 +1618,40 @@ impl App {
 /// Context for a conversation in a new lead session: the goal, the delivery, and the last things
 /// said. Used when the adapter cannot load the original session.
 pub(super) fn conversation_brief(run: &Run, events: &[Event]) -> String {
+    let lang = run.lang;
     let summary = delivery_summary(events);
-    let recent = recent_exchanges(events, "Lead");
-    format!(
-        "This goal has been delivered and the user is continuing the conversation. Use the history below to pick up where you left off.\n\nGoal:\n{}\n\nPrevious delivery summary:\n{}\n\nRecent conversation:\n{}",
-        run.goal,
-        if summary.is_empty() { "(No summary recorded)" } else { summary.as_str() },
-        recent
+    let summary = if summary.is_empty() {
+        lang.pick("（没有记录摘要）", "(No summary recorded)").to_string()
+    } else {
+        summary
+    };
+    let recent = recent_exchanges(events, Speakers::Lead, lang);
+    let recent = if recent.is_empty() { lang.pick("（无）", "(none)").to_string() } else { recent };
+    let goal = &run.goal;
+    tr!(
+        lang,
+        "这个目标已经交付，用户在继续对话。用下面的记录接上之前的进度。\n\n目标：\n{goal}\n\n上次交付的摘要：\n{summary}\n\n最近的对话：\n{recent}",
+        "This goal has been delivered and the user is continuing the conversation. Use the history below to pick up where you left off.\n\nGoal:\n{goal}\n\nPrevious delivery summary:\n{summary}\n\nRecent conversation:\n{recent}"
     )
+}
+
+/// What the agent of the main session is called in its recent exchanges.
+#[derive(Clone, Copy)]
+pub(super) enum Speakers {
+    /// It reads its own words.
+    You,
+    /// The lead of a delivered goal.
+    Lead,
 }
 
 /// The last twelve things the person and the main session's agent (called `agent`) said, one
 /// line each, for a new session that cannot load the old one.
-pub(super) fn recent_exchanges(events: &[Event], agent: &str) -> String {
+pub(super) fn recent_exchanges(events: &[Event], speakers: Speakers, lang: Lang) -> String {
+    let agent = match speakers {
+        Speakers::You => lang.pick("你：", "You: "),
+        Speakers::Lead => lang.pick("负责人：", "Lead: "),
+    };
+    let user = lang.pick("用户：", "User: ");
     // A message still waiting for the agent is not history: it is the prompt the new session gets.
     let waiting = |i: usize, e: &Event| {
         e.kind() == EventKind::UserMessage
@@ -1509,9 +1664,9 @@ pub(super) fn recent_exchanges(events: &[Event], agent: &str) -> String {
         .filter(|&(i, e)| e.task.is_none() && e.attempt.is_none() && !waiting(i, e))
         .filter_map(|(_, e)| match e.kind() {
             EventKind::AgentMessage if !e.text.trim().is_empty() => {
-                Some(format!("{agent}: {}", clip(e.text.trim(), 500)))
+                Some(format!("{agent}{}", clip(e.text.trim(), 500)))
             }
-            EventKind::UserMessage if !e.text.trim().is_empty() => Some(format!("User: {}", clip(e.text.trim(), 500))),
+            EventKind::UserMessage if !e.text.trim().is_empty() => Some(format!("{user}{}", clip(e.text.trim(), 500))),
             _ => None,
         })
         .take(12)

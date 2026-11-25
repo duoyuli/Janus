@@ -101,7 +101,7 @@ impl App {
                 };
                 DeliveryMerge::Merged { text, data: merged_data(w, a) }
             }
-            Err(err) => match merge_handback(&err, MergeAt::Delivery) {
+            Err(err) => match merge_handback(&err, MergeAt::Delivery, self.run_lang(run_id)) {
                 Some(prompt) => DeliveryMerge::HandBack(prompt),
                 None => DeliveryMerge::Failed(format!("{err:#}")),
             },

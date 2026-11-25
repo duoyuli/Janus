@@ -61,6 +61,14 @@ async fn goal_mode_orchestrates_through_the_board() {
         .unwrap();
     // The board's ten, and the team memory's two (`forget` is a consolidation's).
     assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 12);
+    // No server-level instructions: each tool's description says how it is used.
+    let init = h
+        .app
+        .mcp(&run, &token, "lead", json!({ "jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {} }))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(init["result"]["serverInfo"]["name"] == "janus" && init["result"].get("instructions").is_none(), "{init}");
     let member = h
         .app
         .mcp(&run, &member_token, "T1", json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
@@ -303,10 +311,10 @@ async fn goal_mode_resumes_the_leads_own_session() {
     assert!(resumed.starts_with(&format!("lead resumed {lead_sid} ")), "{resumed}");
     for told in [
         "T1 (m1): 第一步",
-        "you sent it back with janus.retry (session=new); your note: 按新要求再做一遍",
-        "it was at work when Janus stopped and reopens its own session",
-        "result of an earlier attempt: T1 完成",
-        "Additional information from the user",
+        "你用 janus.retry 把它发回返工（session=new）；你的说明：按新要求再做一遍",
+        "Janus 停下时它正在工作，会打开自己原来的会话接着做",
+        "之前一次尝试的结果：T1 完成",
+        "用户补充的信息",
         "先别急着交付",
     ] {
         assert!(resumed.contains(told), "{told}: {resumed}");
@@ -389,9 +397,9 @@ async fn goal_mode_resumes_in_a_new_session_when_the_lead_cannot_load() {
         .find(|e| e.kind.as_str() == "session.prompt" && e.data.as_ref().is_some_and(|d| d["channel"] == "system"))
         .and_then(|e| e.data.as_ref()?["prompt"].as_str().map(str::to_owned))
         .unwrap();
-    assert!(brief.contains("this is a new session"), "{brief}");
-    assert!(brief.contains("- T1 (m1): 第一步 · done: T1 完成"), "{brief}");
-    assert!(brief.contains("Your recent conversation with the user"), "{brief}");
+    assert!(brief.contains("这是一个新会话"), "{brief}");
+    assert!(brief.contains("- T1 (m1): 第一步 · 已完成：T1 完成"), "{brief}");
+    assert!(brief.contains("你和用户最近的对话"), "{brief}");
     assert!(evs[restart..].iter().any(|e| e.kind.as_str() == "agent.status" && e.text.contains("新开会话")));
     // An app update waits for it: its lead is at work.
     assert_eq!(app2.at_work(), vec![run.clone()]);
@@ -550,10 +558,7 @@ async fn a_lead_that_breaks_off_goes_back_into_its_session() {
         .unwrap();
     assert!(log.contains(&format!("load {sid}")), "the lead's own session is loaded again: {log}");
     let resumed = log.lines().find(|l| l.starts_with("lead resumed")).unwrap();
-    assert!(
-        resumed.contains("Your session broke off") && resumed.contains("the collaborators kept working"),
-        "{resumed}"
-    );
+    assert!(resumed.contains("你推进这个目标时会话中断了") && resumed.contains("协作者一直在工作"), "{resumed}");
     assert_eq!(log.matches("goal 测试").count(), 1, "the goal is not given again");
     finish_lead(&h);
     wait_until(&h.app, &run, "delivered", |e| has(e, "run.delivered")).await;

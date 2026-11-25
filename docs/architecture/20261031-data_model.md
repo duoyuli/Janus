@@ -62,7 +62,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
-| `configs` | `(kind, id)` | 设置对象，种类是 `db.rs` 的枚举 `ConfigKind`；数字员工（`Role`）、工作区（`Workspace`）、值班（`LoopDef`）、资源库的资源和来源按结构体读写（`Setting`：`Db::get`、`list`、`put`），Agent 连接的字段由 Agent 目录（`kinds`）和配置检查决定，仍按 JSON 读写：`connection`、`role`、`workspace`、`loop`（[工作区值班](../domains/20261121-loops.md#loop_model)，按 `LoopDef` 读写），资源库的 `library_item`、`library_source`，以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
+| `configs` | `(kind, id)` | 设置对象，种类是 `db.rs` 的枚举 `ConfigKind`；数字员工（`Role`）、工作区（`Workspace`）、值班（`LoopDef`）、资源库的资源和来源按结构体读写（`Setting`：`Db::get`、`list`、`put`），Agent 连接的字段由 Agent 目录（`kinds`）和配置检查决定，仍按 JSON 读写：`connection`、`role`、`workspace`、`loop`（[工作区值班](../domains/20261121-loops.md#loop_model)，按 `LoopDef` 读写），资源库的 `library_item`、`library_source`，应用的语言 `language`（一行，见[注入的语言](../domains/20261031-goal_mode.md#prompt_language)），以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
 | `memories` | `id` | 工作区的[团队记忆](../domains/20261123-team_memory.md#memory_model)：`workspace`、`kind`（`fact`、`decision`、`pitfall`、`howto`）、`title`、`hook`、`body`，最后写它的 `run_id`、`who`（成员 id，用户是 `user`）和 `author`，`created_at`、`updated_at`；删除工作区时一并删除 |
 | `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入（`state` 为 `running`），生效后改为 `done`，失败时删除；服务启动时把还是 `running` 的改为 `interrupted`（`CommandState`）。用于按 `commandId` 只执行一次 |
@@ -114,6 +114,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 21 | 本机环境改为默认镜像用户目录、只挡列出的路径：删除原来逐项共享的 `host_link` 记录，见 [ADR：Agent 的用户目录镜像用户自己的](../decisions/20261122-mirror_host_home.md) |
 | 22 | 新增 `memories` 表（工作区的团队记忆：类型、标题、摘要、正文，最后写它的 Run、成员和名字，创建和修改时间）和索引 `memories_workspace`，见[团队记忆](../domains/20261123-team_memory.md) |
 | 23 | Run 快照的成员按意思命名字段：`runtime`（存的是 Agent 连接的 id）改名 `connection`，`runtime_name` 改名 `connection_name`，`kind`（Codex 或 Claude Code）改名 `runtime` |
+| 24 | Run 快照记下给 Agent 的文字用的语言（`config.lang`），以前的 Run 记为 `zh`，见[注入的语言](../domains/20261031-goal_mode.md#prompt_language) |
 
 <a id="snapshots"></a>
 ## Run 快照

@@ -204,6 +204,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "Run 快照的成员按它的意思命名字段：Agent 连接是 connection（原来叫 runtime），连接的名字是 connection_name，Codex 或 Claude Code 是 runtime（原来叫 kind）",
         steps: &[Step::Custom(steps::runs::rename_member_connection)],
     },
+    Migration {
+        version: 24,
+        name: "Run 快照记下会话用的语言（lang），以前的 Run 记为中文",
+        steps: &[Step::Custom(steps::runs::add_run_lang)],
+    },
 ];
 
 /// The data version this build reads and writes.

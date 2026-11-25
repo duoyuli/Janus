@@ -1,6 +1,7 @@
 //! One attempt of a task: its session, its result check, the changes it made and its artifacts.
 
 use super::*;
+use crate::lang::{Lang, tr};
 
 /// A session whose context is fuller than this is not continued: a follow-up task, a retry into
 /// the task's own session or a re-verification opens a new one instead.
@@ -23,12 +24,12 @@ wire_enum! {
 
 impl Fallback {
     /// The reason in the lead's words, on the board.
-    pub(super) fn reason(self) -> &'static str {
+    pub(super) fn reason(self, lang: Lang) -> &'static str {
         match self {
-            Fallback::ContextOverLimit => "上下文已经超过 75%",
-            Fallback::Unsupported => "这个 Agent 不支持加载会话",
-            Fallback::LoadFailed => "加载失败",
-            Fallback::NoSession => "它从来没开过会话",
+            Fallback::ContextOverLimit => lang.pick("上下文已经超过 75%", "its context is over 75%"),
+            Fallback::Unsupported => lang.pick("这个 Agent 不支持加载会话", "this agent cannot load sessions"),
+            Fallback::LoadFailed => lang.pick("加载失败", "loading failed"),
+            Fallback::NoSession => lang.pick("它从来没开过会话", "it never opened a session"),
         }
     }
 }
@@ -183,7 +184,8 @@ impl App {
                         vt.artifacts.iter().rev().find(|a| a["kind"] == "git_diff").and_then(|a| a["path"].as_str());
                     let edited_files: Vec<String> = st.traces.files(&vt.def.id).into_iter().collect();
                     let vr = vt.result.as_ref();
-                    let weak_checks = vr.map(|r| Summary::of(&vt.def.accept, &r.checks).reminders).unwrap_or_default();
+                    let weak_checks =
+                        vr.map(|r| Summary::of_in(&vt.def.accept, &r.checks, run.lang).reminders).unwrap_or_default();
                     let risks = vr.map(|r| r.risks.as_slice()).unwrap_or(&[]);
                     let vc = crate::teamwork::VerifiedContext {
                         def: &vt.def,
@@ -193,13 +195,14 @@ impl App {
                         weak_checks: &weak_checks,
                         risks,
                     };
-                    crate::teamwork::task_section(&t.def, Some(&vc))
+                    crate::teamwork::task_section(&t.def, Some(&vc), run.lang)
                 }
-                None => crate::teamwork::task_section(&t.def, None),
+                None => crate::teamwork::task_section(&t.def, None, run.lang),
             };
             // What an upstream task hands this one: a line for the prompt and the handoff record.
             // A verification whose findings the lead's retry hands over (`from`) is described the
             // same way.
+            let lang = run.lang;
             let describe = |u: &Task| -> (String, Value) {
                 let r = u.result.clone().unwrap_or_default();
                 let files: Vec<String> =
@@ -208,16 +211,29 @@ impl App {
                 let amended = if u.amendments.is_empty() {
                     String::new()
                 } else {
-                    format!("\n  负责人修订了这个结论，以修订为准：{}", u.amendments.join("；"))
+                    let amendments = u.amendments.join(lang.pick("；", "; "));
+                    tr!(
+                        lang,
+                        "\n  负责人修订了这个结论，以修订为准：{amendments}",
+                        "\n  The lead amended this result; the amendment holds: {amendments}"
+                    )
                 };
-                let handoff_note = r.handoff.as_deref().map(|h| format!("\n  交接说明：{h}")).unwrap_or_default();
+                let handoff_note = r
+                    .handoff
+                    .as_deref()
+                    .map(|h| tr!(lang, "\n  交接说明：{h}", "\n  Handoff: {h}"))
+                    .unwrap_or_default();
                 let risk_note = if r.risks.is_empty() {
                     String::new()
                 } else {
-                    format!(
-                        "\n  上游风险：{}",
-                        r.risks.iter().take(5).map(|x| clip(x, INLINE_ITEM)).collect::<Vec<_>>().join("；")
-                    )
+                    let risks = r
+                        .risks
+                        .iter()
+                        .take(5)
+                        .map(|x| clip(x, INLINE_ITEM))
+                        .collect::<Vec<_>>()
+                        .join(lang.pick("；", "; "));
+                    tr!(lang, "\n  上游风险：{risks}", "\n  Upstream risks: {risks}")
                 };
                 // Where to look, not only what it said: the files it changed, and which of them
                 // others changed after it finished.
@@ -228,39 +244,53 @@ impl App {
                     if edited.is_empty() {
                         String::new()
                     } else {
-                        format!("\n  改过的文件：{}（以工作目录里的现状为准）", edited.join("、"))
+                        let files = edited.join(lang.pick("、", ", "));
+                        tr!(
+                            lang,
+                            "\n  改过的文件：{files}（以工作目录里的现状为准）",
+                            "\n  Files it changed: {files} (what is in the working directory now holds)"
+                        )
                     },
-                    if stale.is_empty() { String::new() } else { format!("\n  {}", crate::traces::stale_note(&stale)) }
+                    if stale.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n  {}", crate::traces::stale_note(&stale, lang))
+                    }
                 );
                 let verdict = u.last_verdict();
                 let review = verdict
                     .map(|v| {
-                        let mut note = format!("\n  独立验证判定：{}（{}）", v.label(), v.as_str());
+                        let mut note = match lang {
+                            Lang::Zh => format!("\n  独立验证判定：{}（{}）", v.label(), v.as_str()),
+                            Lang::En => format!("\n  Independent verification verdict: {}", v.as_str()),
+                        };
                         for c in r.checks.iter().filter(|c| !c.passed) {
-                            note.push_str(&format!(
-                                "\n  未通过：[{}] {}：{}",
-                                c.method_label(),
-                                clip(&c.criterion, INLINE_ITEM),
-                                clip(&c.evidence, INLINE_SUMMARY)
+                            let method = c.method_label(lang);
+                            let (criterion, evidence) =
+                                (clip(&c.criterion, INLINE_ITEM), clip(&c.evidence, INLINE_SUMMARY));
+                            note.push_str(&tr!(
+                                lang,
+                                "\n  未通过：[{method}] {criterion}：{evidence}",
+                                "\n  Not met: [{method}] {criterion}: {evidence}"
                             ));
                         }
                         note
                     })
                     .unwrap_or_default();
-                let line = format!(
-                    "- {} {}（{}，状态 {}）：{}{review}{handoff_note}{risk_note}{amended}{traces}\n  产物：{}",
-                    u.def.id,
-                    u.def.title,
-                    u.agent,
-                    u.status(),
-                    clip(&r.summary, INLINE_SUMMARY),
-                    if files.is_empty() { "无".into() } else { files.join("，") }
+                let (uid, title, agent, status) = (&u.def.id, &u.def.title, &u.agent, u.status());
+                let summary = clip(&r.summary, INLINE_SUMMARY);
+                let artifacts =
+                    if files.is_empty() { lang.pick("无", "none").into() } else { files.join(lang.pick("，", ", ")) };
+                let line = tr!(
+                    lang,
+                    "- {uid} {title}（{agent}，状态 {status}）：{summary}{review}{handoff_note}{risk_note}{amended}{traces}\n  产物：{artifacts}",
+                    "- {uid} {title} ({agent}, status {status}): {summary}{review}{handoff_note}{risk_note}{amended}{traces}\n  Artifacts: {artifacts}"
                 );
                 let mut handoff = json!({
                     "from": u.def.id, "fromAgent": u.agent, "status": u.status(), "summary": r.summary,
                     "handoff": r.handoff, "artifacts": names, "risks": r.risks.len(), "riskItems": r.risks,
                     "amendments": u.amendments, "files": edited,
-                    "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by })).collect::<Vec<_>>()
+                    "stale": stale.iter().map(|(p, by)| json!({ "path": p, "by": by.label(Lang::Zh) })).collect::<Vec<_>>()
                 });
                 if let Some(v) = verdict {
                     handoff["verdict"] = json!(v.as_str());
@@ -281,7 +311,7 @@ impl App {
                 Some(Reopen::Retry { .. }) => from.map(|v| describe(v).0).map(Review::Findings),
                 Some(Reopen::Reverify { target }) => {
                     st.tasks.iter().find(|x| &x.def.id == target).map(|vt| Review::Recheck {
-                        own: previous_verdict(&t.def, t.result.as_ref()),
+                        own: previous_verdict(&t.def, t.result.as_ref(), run.lang),
                         target: describe(vt).0,
                         diffs: vt
                             .artifacts
@@ -324,14 +354,13 @@ impl App {
                 .collect()
         };
         let member = run.member(&agent).context("member missing")?.clone();
-        let standing = standing_instructions(&member);
+        let standing = standing_instructions(&member, run.lang);
         let channel = member.runtime.instruction_channel();
         // The collaborator rules, then the person's standing rules, in the system layer. Codex and
         // Claude Code both take HTTP MCP servers, so their sessions always have the board.
         // @project-doc docs/domains/20261031-goal_mode.md#collaborator_rules
-        let rules = format!("{}{}", collaborator_rules(true), self.memory_section(run, MemoryAccess::Write));
-        let skills = skills_note(self.skill_router_md(run, &member));
-        let system_text = system_layer(&[&rules, &skills, &standing]);
+        let rules = format!("{}{}", collaborator_rules(run.lang), self.memory_section(run, MemoryAccess::Write));
+        let system_text = system_layer(&[&rules, &standing]);
         let spec = member_spec(self.spec_for(&member.connection)?, &member, &system_text);
         let system = (channel == InstructionChannel::System).then_some(system_text.as_str());
         let started_ms = now_ms();
@@ -446,14 +475,26 @@ impl App {
         .map_err(|_| anyhow!("打开 ACP 会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
         let (session, applied, resumed, followup_from, continuation) = opened;
         let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
+        let lang = run.lang;
         let prompt = if let Some(broke) = &resumed {
             let why = match broke {
-                BrokeOff::Restart => "编排器中断后，这个会话已经恢复。".to_string(),
-                BrokeOff::Failure(err) => format!("上一次尝试因为「{}」中断，这个会话已经恢复，之前做过和读过的都还在。", clip(err, 300)),
+                BrokeOff::Restart => {
+                    lang.pick("Janus 重启过，这个会话已经恢复。", "Janus restarted, and this session was restored. ").to_string()
+                }
+                BrokeOff::Failure(err) => {
+                    let err = clip(err, 300);
+                    tr!(
+                        lang,
+                        "上一次尝试因为「{err}」中断，这个会话已经恢复，之前做过和读过的都还在。",
+                        "The last attempt broke off ({err}); this session was restored, and what you did and read before is still here. "
+                    )
+                }
             };
-            format!(
-                "{why}请从中断的地方继续完成原来的子任务，不要重做已经完成的部分，完成后按最初的要求以 ```json 结构化结果结束。{}",
-                self.take_notes(run, &agent, Some(id))
+            let notes = self.take_notes(run, &agent, Some(id));
+            tr!(
+                lang,
+                "{why}请从中断的地方继续完成原来的子任务，不要重做已经完成的部分，完成后按最初的要求以 ```json 结构化结果结束。{notes}",
+                "{why}Carry on with your subtask from where it stopped; do not redo finished parts, and end with the ```json structured result as first asked.{notes}"
             )
         } else {
             let notes = self.take_notes(run, &agent, Some(id));
@@ -461,16 +502,20 @@ impl App {
                 // Back in its own session, the agent has the task and what it did: only what is
                 // new goes in.
                 (Some(from), Some(reopen)) if from == id => {
-                    continued_prompt(&def, n, reopen, review.as_ref(), last_error.as_deref(), &notes)
+                    continued_prompt(&def, n, reopen, review.as_ref(), last_error.as_deref(), &notes, run.lang)
                 }
-                (Some(from), _) => format!(
-                    "你在子任务 {from} 的原会话中继续工作，之前的上下文和文件阅读记录仍在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{}{team_note}{notes}",
-                    task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
-                ),
+                (Some(from), _) => {
+                    let task = task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref());
+                    tr!(
+                        lang,
+                        "你在子任务 {from} 的原会话中继续工作，之前的上下文和读过的文件都还在。请按下面新的子任务要求和验收标准执行，完成后以 ```json 结构化结果结束。\n\n{task}{team_note}{notes}",
+                        "You go on working in the session of subtask {from}; its context and the files you read are still here. Do the new subtask below to its acceptance criteria, and end with the ```json structured result.\n\n{task}{team_note}{notes}"
+                    )
+                }
                 (None, _) => format!(
                     "{}{team_note}{}{notes}",
                     task_prompt(run, &member, &def, &upstream, &peers, last_error.as_deref()),
-                    reopen.as_ref().map(|r| reopen_section(r, review.as_ref())).unwrap_or_default(),
+                    reopen.as_ref().map(|r| reopen_section(r, review.as_ref(), run.lang)).unwrap_or_default(),
                 ),
             }
         };
@@ -530,7 +575,6 @@ impl App {
         // nothing new went in, so nothing new is recorded.
         if resumed.is_none() && followup_from.is_none() {
             self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &rules);
-            self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);
         }
         self.watch_session(run, &owner.session, n);
@@ -584,7 +628,7 @@ impl App {
                 }
                 if ctl.held_by_person() {
                     let session = PromptSession { conn: &conn, rx: &mut rx, sid: &sid };
-                    next = self.wait_for_person(run, &session, &mut ctl, &ctx, RELEASE_PROMPT).await?;
+                    next = self.wait_for_person(run, &session, &mut ctl, &ctx, release_prompt(run.lang)).await?;
                     continue;
                 }
                 let parsed = parse_result(&text);
@@ -623,9 +667,13 @@ impl App {
                             Decision::Answer { answer, note } => (answer, note),
                             other => bail!("提问收到的不是回答：{other:?}"),
                         };
-                        next = Some(format!(
-                            "你的问题已得到回答：{answer}\n补充说明：{}\n请据此继续完成子任务。完成后同样以 ```json 结构化结果结束。",
-                            if note.is_empty() { "无" } else { &note }
+                        let note = if note.is_empty() { String::new() } else {
+                            tr!(lang, "\n补充说明：{note}", "\nNote: {note}")
+                        };
+                        next = Some(tr!(
+                            lang,
+                            "你的问题已得到回答：{answer}{note}\n请据此继续完成子任务。完成后同样以 ```json 结构化结果结束。",
+                            "Your question has been answered: {answer}{note}\nGo on with the subtask accordingly, and end with the ```json structured result as before."
                         ));
                     }
                     cmd = ctl.rx.recv() => {
@@ -690,9 +738,11 @@ impl App {
                 Ok(()) => break 'session result,
                 Err(err) if fixes == 0 && !ctl.finishing() && err.is::<VerificationFailed>() => {
                     fixes += 1;
-                    let prompt = format!(
-                        "你的结果还没有满足验收标准：\n{}\n\n请继续：没有达到的标准，修复后重新验证；没有核对或缺少证据的，补上验证和证据。如果某条标准在当前条件下确实无法达到，如实写 passed: false 并说明原因和你能提供的证据。完成后同样以 ```json 结构化结果结束，checks 逐条更新。",
-                        verification_output(run, id)
+                    let gaps = verification_output(run, id);
+                    let prompt = tr!(
+                        lang,
+                        "你的结果还没有满足验收标准：\n{gaps}\n\n请继续：没有达到的标准，修复后重新核对；没有核对或缺少证据的，补上核对和证据。某条标准在当前条件下确实无法达到时，如实写 passed: false，说明原因和你能提供的证据。完成后同样以 ```json 结构化结果结束，checks 逐条更新。",
+                        "Your result does not meet the acceptance criteria yet:\n{gaps}\n\nGo on: fix what is not met and check it again; add the checks and evidence that are missing. If a criterion really cannot be met here, set passed: false honestly with the reason and whatever evidence you have. End with the ```json structured result as before, with checks updated for every criterion."
                     );
                     self.record_session_prompt(run, &ctx, &sid, PromptChannel::Fix, &prompt);
                     next = Some(prompt);
@@ -726,7 +776,7 @@ impl App {
             st.tasks
                 .iter()
                 .find(|t| t.def.id == id)
-                .map(|t| crate::traces::gaps(&t.def, &st.traces.files(id), changed.as_ref()))
+                .map(|t| crate::traces::gaps(&t.def, &st.traces.files(id), changed.as_ref(), run.lang))
                 .unwrap_or_default()
         };
 
@@ -863,6 +913,7 @@ impl App {
             def.verifies.is_some(),
             result.verdict,
             result.verdict_error.as_deref(),
+            run.lang,
         );
         // The numbers and the weaker evidence that only warrants a reminder, recorded with the
         // verdict so the app and a resumed run do not have to rebuild them differently.
@@ -920,7 +971,9 @@ impl App {
             st.tasks.iter().find(|t| t.def.id == target).and_then(|t| t.result.as_ref()?.files.clone())
         };
         match (earlier, run.git.then(|| crate::git::FilesState::of(&run.cwd)).flatten()) {
-            (Some(earlier), Some(now)) => crate::teamwork::FilesSince::of(&earlier, &now).for_verifier(target),
+            (Some(earlier), Some(now)) => {
+                crate::teamwork::FilesSince::of(&earlier, &now).for_verifier(target, run.lang)
+            }
             _ => String::new(),
         }
     }

@@ -2,6 +2,7 @@
 //! agent's requests.
 
 use super::*;
+use crate::lang::tr;
 
 impl App {
     /// Stream one prompt turn: bridge ACP updates into events, route permission requests to the user,
@@ -57,7 +58,7 @@ impl App {
             tokio::select! {
                 _ = settle => {
                     asks += 1;
-                    let text = crate::goal_settle::ask();
+                    let text = crate::goal_settle::ask(run.lang);
                     self.record_session_prompt(run, ctx, sid, PromptChannel::GoalCheck, &text);
                     self.flush_thought(run, &mut turn.thought, ctx);
                     self.flush_message(run, &out, &mut flushed, ctx);
@@ -404,7 +405,12 @@ impl App {
                     .data(json!({ "other": other, "paths": files })),
             );
             for (me, them) in [(task, other.as_str()), (other.as_str(), task)] {
-                self.notify(run, me, &format!("[Janus 提醒] 子任务 {them}（{}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时用 janus.board_post 写一条 blocker 告诉负责人。", name(them)));
+                let (who, list) = (name(them), files.join(run.lang.pick("、", ", ")));
+                self.notify(run, me, &tr!(
+                    run.lang,
+                    "[Janus 提醒] 子任务 {them}（{who}）也在修改 {list}。你们都直接在同一个工作目录里改文件：再改这些文件前先重新读取最新内容，不要覆盖对方的改动；分工不清楚时写一条 blocker 告诉负责人。",
+                    "[Janus notice] Subtask {them} ({who}) is also changing {list}. You both edit files directly in the same working directory: read the latest content before you change these files again, and do not overwrite its changes; if the split of work is unclear, post a blocker to tell the lead."
+                ));
             }
         }
         for (other, files) in owned {
@@ -416,7 +422,12 @@ impl App {
                     .to("lead")
                     .data(json!({ "other": other, "paths": files, "owned": true })),
             );
-            self.notify(run, task, &format!("[Janus 提醒] {list} 归子任务 {other}（{}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，用 janus.board_post 写一条 blocker 说明原因，由负责人协调。", name(&other)));
+            let (who, list) = (name(&other), files.join(run.lang.pick("、", ", ")));
+            self.notify(run, task, &tr!(
+                run.lang,
+                "[Janus 提醒] {list} 归子任务 {other}（{who}）负责，它可能正在改。不要再改这些文件，也不要覆盖对方的改动；确实需要改时，写一条 blocker 说明原因，由负责人协调。",
+                "[Janus notice] {list} belongs to subtask {other} ({who}), which may be changing it. Do not change these files again and do not overwrite its changes; if you really need to, post a blocker with the reason and let the lead coordinate."
+            ));
         }
     }
 
@@ -500,8 +511,10 @@ impl App {
             self.notify(
                 run,
                 &other,
-                &format!(
-                    "[Janus 提醒] 负责人刚刚修改了归你负责的 {list}。继续修改前先重新读取最新内容，以负责人的改动为准。"
+                &tr!(
+                    run.lang,
+                    "[Janus 提醒] 负责人刚刚修改了归你负责的 {list}。继续修改前先重新读取最新内容，以负责人的改动为准。",
+                    "[Janus notice] The lead has just changed {list}, which you own. Read the latest content before you go on; the lead's changes hold."
                 ),
             );
         }
@@ -517,8 +530,10 @@ impl App {
             self.notify(
                 run,
                 &other,
-                &format!(
-                    "[Janus 提醒] 负责人刚刚也修改了 {list}。再改这些文件前先重新读取最新内容，不要覆盖负责人的改动。"
+                &tr!(
+                    run.lang,
+                    "[Janus 提醒] 负责人刚刚也修改了 {list}。再改这些文件前先重新读取最新内容，不要覆盖负责人的改动。",
+                    "[Janus notice] The lead has just changed {list} too. Read the latest content before you change these files again, and do not overwrite the lead's changes."
                 ),
             );
         }

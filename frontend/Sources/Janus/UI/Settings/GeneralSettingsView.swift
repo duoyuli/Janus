@@ -45,6 +45,7 @@ struct GeneralSettingsView: View {
                 .pickerStyle(.menu)
                 .controlSize(.large)
                 .frame(width: 166)
+                .onChange(of: LanguageSettings.shared.selection) { Task { await store.sendLanguage() } }
                 // The menu picker is an AppKit pop-up button that keeps the bezel it was drawn with when
                 // `NSApp.appearance` changes; rebuilding it makes it follow the new appearance.
                 .id(appearance)
