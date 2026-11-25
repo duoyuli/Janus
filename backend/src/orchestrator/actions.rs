@@ -750,7 +750,11 @@ impl App {
                     && interrupted_attempt
                     && let Some(sid) = last_session
                 {
-                    run.st.lock().unwrap().resume_session.insert(id.clone(), sid);
+                    run.st
+                        .lock()
+                        .unwrap()
+                        .resume_session
+                        .insert(id.clone(), Reload { session: sid, broke: BrokeOff::Restart });
                 }
             }
             // A recorded negative gate is evidence of ordering even in logs written before plannedSeq.

@@ -94,7 +94,23 @@ pub const STALL_AFTER: Duration = Duration::from_secs(10 * 60);
 pub const IDLE_AFTER: Duration = Duration::from_secs(10 * 60);
 /// A failed attempt is tried again after this long, not at once: what made it fail (an adapter
 /// that did not start, a dropped connection) often lasts a moment (AT-10).
-pub const RETRY_AFTER: Duration = Duration::from_secs(3);
+pub const RETRY_AFTER: Duration = Duration::from_secs(30);
+
+/// The session a task's next attempt loads, and what broke it off.
+#[derive(Clone, Debug)]
+pub(super) struct Reload {
+    pub session: String,
+    pub broke: BrokeOff,
+}
+
+/// What ended a session its task goes back into.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum BrokeOff {
+    /// The orchestrator restarted while the attempt was working.
+    Restart,
+    /// The attempt failed (its agent exited, the provider returned an error …), with the reason.
+    Failure(String),
+}
 /// The watchdog tells the lead about an attempt that made the same tool call this many times in a row.
 const LOOP_REPEAT: u32 = 5;
 /// Board events that need the lead are gathered this long before they go into its session, so
@@ -650,8 +666,9 @@ struct RunState {
     notes: HashMap<String, Vec<Note>>,
     /// Why each task's last result did not pass its acceptance check, for the fix round and the lead.
     last_verification: HashMap<String, String>,
-    /// Sessions to reload when an interrupted task starts again, by task id.
-    resume_session: HashMap<String, String>,
+    /// Sessions a task's next attempt loads instead of starting over, by task id: the one a
+    /// restart or a failure broke off.
+    resume_session: HashMap<String, Reload>,
     /// Working in place: the working-tree diff last saved as an artifact, so a task that changed
     /// nothing does not repeat what an earlier one changed.
     last_diff: String,

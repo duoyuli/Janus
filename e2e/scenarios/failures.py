@@ -6,7 +6,7 @@ from scenarios import scenario, task
 
 @scenario("failures")
 def failures(ctx, c):
-    """失败与处理：重试后下游恢复、没通过验收由负责人接受、取消连带下游、验证者判定不通过不能放行而是回到原会话返工并复审、返工时提醒基于旧结果的下游、不合法的证据方法"""
+    """失败与处理：尝试失败后回到原会话重试、重试后下游恢复、没通过验收由负责人接受、取消连带下游、验证者判定不通过不能放行而是回到原会话返工并复审、返工时提醒基于旧结果的下游、不合法的证据方法"""
     t = ctx.team("failures", members=("m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"), script={
         "T1": ["fail", "fail", "ok"], "T2": ["ok"], "T3": ["unmet", "unmet"], "T4": ["fail", "fail"],
         "T5": ["ok"], "T6": ["handoff", "ok"], "V6": ["reject", "approve"], "D6": ["slow", "ok"], "T7": ["badmethod", "badmethod"]})
@@ -22,6 +22,9 @@ def failures(ctx, c):
     # T2 is blocked right after T1's last failure, in the next board entry: wait for it too.
     board = run.read_board(lambda b: all(x in b for x in ("[失败] T1", "[无法开始] T2", "[失败] T4", "[没通过验收] T3", "[验证未通过] V6")), timeout=120)
     c("[尝试失败] T1" in board, "第一次失败后自动重试（[尝试失败]）")
+    t1 = [e["data"] for e in run.has("attempt.started", task="T1")]
+    c(len(t1) >= 2 and t1[1]["session"] == t1[0]["session"] and t1[1]["resumed"] and "上一次尝试因为" in t1[1]["prompt"],
+      "自动重试回到断掉的会话，告诉它上次为什么中断，不重发任务")
     c("[无法开始] T2" in board, "依赖失败的下游标为无法开始")
     failed = run.has("task.failed", task="T3")
     c(failed and failed[-1]["data"]["reason"] == "verification", "没达到验收标准：原会话补一次仍不行，交给负责人")

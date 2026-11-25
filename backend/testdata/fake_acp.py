@@ -25,6 +25,8 @@ As a goal-mode lead it logs whether its brief arrived in the system layer (`_met
 as Janus gives Claude Code: "brief ok", "brief ok resumed"), then works on "/goal …" until FAKE_DIR/lead-go
 exists and ends with the text of that file. A lead whose session was loaded after a restart gets Janus's resume
 prompt instead: it logs "lead resumed <sid> <prompt as JSON>", works until lead-go, then reports its goal cleared.
+With a `lead-exit` file the lead's process exits once on its "/goal" prompt (the file is removed), as an agent that dies mid-goal;
+with a `lead-dies` file it exits on every "/goal" and every Janus resume prompt.
 With a `mute` file in FAKE_DIR it never answers `initialize`, like an agent that hangs at startup.
 With a `steer` file in FAKE_DIR it declares `_session/steering`: a steer that arrives during
 a prompt is logged ("steer <text>") and answered "injected".
@@ -335,7 +337,12 @@ def prompt(msg):
         log("goal check")
         say(sid, "GOAL_DONE\n" + open(os.path.join(DIR, "lead-go")).read())
         return {"stopReason": "end_turn"}
-    if text.startswith("[Janus] Janus restarted while you were working on this goal."):
+    if os.path.exists(os.path.join(DIR, "lead-dies")) and (text.startswith("/goal ") or text.startswith("[Janus] ")):
+        # A lead whose agent dies whenever it starts on its goal.
+        log("lead dies")
+        os._exit(1)
+    if text.startswith("[Janus] Janus restarted while you were working on this goal.") or text.startswith(
+            "[Janus] Your session broke off while you were working on this goal"):
         # A lead whose own session was loaded after a restart: told what happened, it carries on
         # with its goal (kept with the session) until lead-go, then reports it met.
         log("lead resumed " + sid + " " + json.dumps(text, ensure_ascii=False))
@@ -349,6 +356,12 @@ def prompt(msg):
         return {"stopReason": "end_turn"}
     if text.startswith("/goal "):
         log("goal " + text[len("/goal "):])
+        broken = os.path.join(DIR, "lead-exit")
+        if os.path.exists(broken):
+            # The lead's agent dies once in the middle of its goal (its session stays on record).
+            remember(sid, "lead", [])
+            os.remove(broken)
+            os._exit(1)
         sticky = os.path.exists(os.path.join(DIR, "goal-sticky"))
         if sticky:
             # Like Claude Code whose own check never runs: the goal is reported active and stays so.
@@ -511,6 +524,13 @@ def prompt(msg):
             return {"stopReason": "cancelled"}
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
             "sessionUpdate": "tool_call_update", "toolCallId": f"busy-{task}", "status": "completed"}}})
+    if outcome == "high-ctx-fail":
+        # A session nearly full that then breaks off: a retry does not go back into it.
+        snapshot(sid, 160000, 200000)
+        # Let the snapshot be read before the failed reply ends the turn.
+        import time
+        time.sleep(0.3)
+        raise RuntimeError("scripted failure")
     if outcome == "high-ctx":
         snapshot(sid, 160000, 200000)
         say(sid, result(sid, summary=f"{task} 高上下文完成"))

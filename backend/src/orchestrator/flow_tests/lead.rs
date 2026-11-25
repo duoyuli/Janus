@@ -522,3 +522,61 @@ async fn a_silent_lead_is_reported_to_the_person() {
     assert_eq!(stalls(&events(&h.app, &run), true), 1, "withdrawn once the lead moves");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A lead whose agent dies in the middle of its goal goes back into its own session after a pause,
+/// told what broke it off and where the board stands, and carries the goal to delivery.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lead_that_breaks_off_goes_back_into_its_session() {
+    let h = harness_with("lead-reopen", &[("lead", false), ("m1", true)], json!({}), |c| {
+        c.retry_after = Duration::from_millis(300)
+    });
+    std::fs::write(h.dir.join("fake/lead-exit"), "").unwrap();
+    let run =
+        h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
+    wait_until(&h.app, &run, "the lead reopened", |e| has(e, "lead.failed")).await;
+    let calls = h.dir.join("fake/calls.log");
+    for _ in 0..100 {
+        if std::fs::read_to_string(&calls).unwrap_or_default().contains("lead resumed") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let log = std::fs::read_to_string(&calls).unwrap();
+    let failed = events(&h.app, &run).into_iter().find(|e| e.kind == "lead.failed").unwrap();
+    assert_eq!(failed.data.as_ref().unwrap()["next"], "reopen");
+    let sid = events(&h.app, &run)
+        .iter()
+        .find_map(|e| (e.actor == "lead").then(|| e.data.as_ref()?["session"].as_str().map(str::to_owned)).flatten())
+        .unwrap();
+    assert!(log.contains(&format!("load {sid}")), "the lead's own session is loaded again: {log}");
+    let resumed = log.lines().find(|l| l.starts_with("lead resumed")).unwrap();
+    assert!(
+        resumed.contains("Your session broke off") && resumed.contains("the collaborators kept working"),
+        "{resumed}"
+    );
+    assert_eq!(log.matches("goal 测试").count(), 1, "the goal is not given again");
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivered", |e| has(e, "run.delivered")).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A lead that breaks off again without having done anything since it was reopened is not
+/// reopened forever: the run fails and waits for the person, as before.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lead_that_keeps_breaking_off_stops() {
+    let h = harness_with("lead-dies", &[("lead", false), ("m1", true)], json!({}), |c| {
+        c.retry_after = Duration::from_millis(300)
+    });
+    std::fs::write(h.dir.join("fake/lead-dies"), "").unwrap();
+    let run =
+        h.app.create_run(NewRun { goal: "测试".into(), workspace: "ws".into(), ..Default::default() }).await.unwrap();
+    wait_until(&h.app, &run, "the run failed", |e| has(e, "run.failed")).await;
+    let next: Vec<String> = events(&h.app, &run)
+        .iter()
+        .filter(|e| e.kind == "lead.failed")
+        .map(|e| e.data.as_ref().unwrap()["next"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(next, ["reopen", "stop"]);
+    assert_eq!(status(&h.app, &run), "failed");
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

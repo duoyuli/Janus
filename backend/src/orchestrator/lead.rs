@@ -99,30 +99,62 @@ impl App {
         }
         self.set_status(run, RunStatus::Running);
         // Where the board stood when Janus stopped, taken before the scheduler starts tasks again.
-        let board = resumed.then(|| board_on_resume(run, &self.db.events(&run.id, 0).unwrap_or_default()));
+        let board = resumed.then(|| LeadResume {
+            board: board_on_resume(run, &self.db.events(&run.id, 0).unwrap_or_default()),
+            broke: BrokeOff::Restart,
+        });
         let (app, r) = (self.clone(), run.clone());
         tokio::spawn(async move { app.push_loop(&r).await });
         let (app, r) = (self.clone(), run.clone());
         tokio::spawn(async move {
-            let outcome = app.lead_goal(&r, board).await;
+            let mut outcome = app.lead_goal(&r, board).await;
+            // A lead whose session broke off before the goal was done goes back into it, as after a
+            // restart, after a pause for whatever made it fail (a dropped connection, an error from
+            // the provider). It gives up when it fails again without having done anything since.
+            // @project-doc docs/domains/20261031-goal_mode.md#failures_in_goal_mode
+            let mut since = None;
+            while let Err(err) = &outcome {
+                if r.st.lock().unwrap().cancelled() || err.downcast_ref::<Cancelled>().is_some() {
+                    return;
+                }
+                let worked = since.is_none_or(|seq| app.lead_worked_since(&r, seq));
+                let again =
+                    worked && err.downcast_ref::<GoalRefused>().is_none() && !r.st.lock().unwrap().lead.goal.ended();
+                let error = format!("{err:#}");
+                let text = if again {
+                    format!(
+                        "负责人的会话异常结束：{}。{} 秒后回到它的会话继续推进目标",
+                        clip(&error, 120),
+                        app.cfg.retry_after.as_secs()
+                    )
+                } else {
+                    format!("负责人的会话异常结束：{}", clip(&error, 120))
+                };
+                app.emit(
+                    &r,
+                    ev(EventKind::LeadFailed, "janus", text)
+                        .data(json!({ "error": error, "next": if again { "reopen" } else { "stop" } })),
+                );
+                if !again {
+                    break;
+                }
+                tokio::time::sleep(app.cfg.retry_after).await;
+                if r.st.lock().unwrap().cancelled() {
+                    return;
+                }
+                since = Some(r.seq.load(Ordering::SeqCst));
+                // It is told where the board stands now; `wait` brings only what happens next.
+                r.st.lock().unwrap().lead.cursor = r.seq.load(Ordering::SeqCst);
+                let board = board_on_resume(&r, &app.db.events(&r.id, 0).unwrap_or_default());
+                outcome = app.lead_goal(&r, Some(LeadResume { board, broke: BrokeOff::Failure(error) })).await;
+            }
             if r.st.lock().unwrap().cancelled() {
                 return;
             }
             let done = match outcome {
                 Ok(text) => LeadGoal::Done(app.lead_report(&r, &text)),
                 Err(err) if err.downcast_ref::<Cancelled>().is_some() => return,
-                Err(err) => {
-                    app.emit(
-                        &r,
-                        ev(
-                            EventKind::LeadFailed,
-                            "janus",
-                            format!("负责人的会话异常结束：{}", clip(&format!("{err:#}"), 120)),
-                        )
-                        .data(json!({ "error": format!("{err:#}") })),
-                    );
-                    LeadGoal::Failed(format!("{err:#}"))
-                }
+                Err(err) => LeadGoal::Failed(format!("{err:#}")),
             };
             // The lead sets this when its first goal completes, while the session stays open for
             // conversation. Do not replace the delivered summary with a later chat reply.
@@ -315,11 +347,14 @@ impl App {
 
     /// The lead's goal session: `/goal <goal>` in the workspace directory, with the team and the
     /// board tools in reach. Open to the person like any session: steering, takeover, messages.
-    /// `board` is set when the run continues after a restart: where its subtasks stood
-    /// (`board_on_resume`).
-    pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, board: Option<String>) -> Result<String> {
-        let resumed = board.is_some();
-        let board = board.unwrap_or_default();
+    /// `resume` is set when the lead goes back into its goal after a restart or after its session
+    /// broke off: where its subtasks stand (`board_on_resume`) and what broke it off.
+    pub(super) async fn lead_goal(self: &Arc<Self>, run: &Arc<Run>, resume: Option<LeadResume>) -> Result<String> {
+        let resumed = resume.is_some();
+        let (board, broke) = match resume {
+            Some(LeadResume { board, broke }) => (board, broke),
+            None => (String::new(), BrokeOff::Restart),
+        };
         let lead = run.team.iter().find(|m| m.lead).context("no lead")?.clone();
         let standing = standing_instructions(&lead);
         let channel = lead.runtime.instruction_channel();
@@ -418,7 +453,7 @@ impl App {
                     .await?;
                 self.run_changes_after_turn(run);
                 if let Some(reason) = goal_refused(&text) {
-                    bail!("{} 拒绝了 /goal：{reason}", lead.connection_name);
+                    return Err(GoalRefused(format!("{} 拒绝了 /goal：{reason}", lead.connection_name)).into());
                 }
                 if !ctl.held_by_person() && !ctl.queued.is_empty() {
                     let next =
@@ -1050,6 +1085,28 @@ fn has_controls(controls: &Value) -> bool {
 /// back and with what note, and the last thing the lead told the ones still open. A result from an
 /// earlier attempt is marked as such, so it is not taken for the current state.
 // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
+/// The lead's agent turned `/goal` down: going back into the session would only hear it again.
+#[derive(Debug)]
+struct GoalRefused(String);
+
+impl std::fmt::Display for GoalRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for GoalRefused {}
+
+impl App {
+    /// Whether the lead did anything in run `run` after event `seq`: spoke, called a tool, put
+    /// tasks on the board.
+    fn lead_worked_since(&self, run: &Run, seq: i64) -> bool {
+        self.db
+            .events(&run.id, seq)
+            .is_ok_and(|evs| evs.iter().any(|e| e.actor == "lead" && e.kind().is_agent_progress()))
+    }
+}
+
 fn board_on_resume(run: &Run, events: &[Event]) -> String {
     let st = run.st.lock().unwrap();
     if st.tasks.is_empty() {
@@ -1093,8 +1150,14 @@ fn board_on_resume(run: &Run, events: &[Event]) -> String {
                         Some(Reopen::Reverify { target }) => parts.push(format!("checks {target} again after its rework")),
                         None => {}
                     }
-                    parts.push(if st.resume_session.contains_key(id) {
-                        "it was at work when Janus stopped and reopens its own session to carry on (a new session if its agent cannot load it)".into()
+                    parts.push(if let Some(reload) = st.resume_session.get(id) {
+                        match &reload.broke {
+                            BrokeOff::Restart => "it was at work when Janus stopped and reopens its own session to carry on (a new session if its agent cannot load it)".into(),
+                            BrokeOff::Failure(err) => format!(
+                                "its last attempt broke off ({}) and goes back into its own session to carry on (a new session if that cannot be loaded or is nearly full)",
+                                clip(err, 160)
+                            ),
+                        }
                     } else if t.attempts == 0 {
                         "not started yet".into()
                     } else {
@@ -1124,23 +1187,41 @@ fn board_on_resume(run: &Run, events: &[Event]) -> String {
     lines.join("\n")
 }
 
-/// What a lead in a new session after a restart is told, in its brief: its old session is gone,
+/// What a lead in a new session after a restart or a failure is told, in its brief: its old session is gone,
 /// so where the board stands and what it and the person last said.
-fn resume_brief(board: &str, events: &[Event]) -> String {
+fn resume_brief(board: &str, broke: &BrokeOff, events: &[Event]) -> String {
     let recent = recent_exchanges(events, "You");
+    let (why, when) = match broke {
+        BrokeOff::Restart => ("Janus restarted while you were working on this goal".to_string(), "when Janus stopped"),
+        BrokeOff::Failure(err) => {
+            (format!("Your session broke off while you were working on this goal ({})", clip(err, 300)), "now")
+        }
+    };
     format!(
-        "\n\nResuming after an interruption. Janus restarted while you were working on this goal, and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{}\n\nYour recent conversation with the user, oldest first:\n{}",
+        "\n\nResuming after an interruption. {why}, and this is a new session: what you did and read before is not in it. The changes made so far remain in the working directory. Continue from where things stand; do not redo finished work.\n\nSubtasks on the board {when}:\n{}\n\nYour recent conversation with the user, oldest first:\n{}",
         board,
         if recent.is_empty() { "(none)" } else { recent.as_str() },
     )
 }
 
-/// What a lead whose own session was loaded after a restart is told first: it remembers its work,
-/// so only what the restart changed and the messages left for it meanwhile.
-fn resume_prompt(board: &str, notes: &str) -> String {
-    format!(
-        "[Janus] Janus restarted while you were working on this goal. Your session was restored, so what you did and read before is still here; the collaborators' sessions were closed. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}{notes}\n\njanus.wait brings only what happens from here on.",
-    )
+/// What a lead whose own session was loaded again is told first: it remembers its work, so only
+/// what broke it off, where the board stands and the messages left for it meanwhile.
+fn resume_prompt(board: &str, broke: &BrokeOff, notes: &str) -> String {
+    match broke {
+        BrokeOff::Restart => format!(
+            "[Janus] Janus restarted while you were working on this goal. Your session was restored, so what you did and read before is still here; the collaborators' sessions were closed. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board when Janus stopped:\n{board}{notes}\n\njanus.wait brings only what happens from here on.",
+        ),
+        BrokeOff::Failure(err) => format!(
+            "[Janus] Your session broke off while you were working on this goal ({}). It was restored, so what you did and read before is still here; the collaborators kept working. Continue the goal from where you stopped; do not redo finished work.\n\nSubtasks on the board now:\n{board}{notes}\n\njanus.wait brings only what happens from here on.",
+            clip(err, 300)
+        ),
+    }
+}
+
+/// Where a lead goes back into its goal from: the board as it stands and what broke it off.
+pub(super) struct LeadResume {
+    pub board: String,
+    pub broke: BrokeOff,
 }
 
 /// One line per collaborator, as the lead is told about them: who it is and what it is responsible

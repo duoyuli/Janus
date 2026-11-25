@@ -1671,6 +1671,6 @@
 "负责人在解决合并冲突" = "Lead resolving a merge conflict";
 "负责人在处理你的消息" = "Lead working on your message";
 "%@ 改了文件，没有独立验证" = "%@ changed files with no independent verification";
-"恢复会话 · 编排器重启后接着推进目标" = "Session Restored · Continuing the Goal After a Restart";
+"恢复会话 · 从中断处接着推进目标" = "Session Restored · Continuing the Goal Where It Stopped";
 "现在更新 Janus？" = "Update Janus now?";
 "还有任务或对话在跑。更新会重开 Janus 并中断它们，重开后任务自动接着做。" = "Runs or chats are still going. Updating reopens Janus and interrupts them; runs pick up on their own after it reopens.";

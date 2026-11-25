@@ -130,7 +130,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 每次尝试是一个新的 ACP 子进程和会话（`App::attempt`）：
 
 1. 打开会话（或续接原会话），默认调用 `session/new`，有两种续接：
-   - 从中断处恢复未完成的尝试：Agent 支持 `loadSession` 时直接 `session/load` 加载被中断的会话，不看上下文占用；加载失败或不支持时新建会话。
+   - 回到断掉的会话（`SessionResume::BrokeOff`）：服务重启时正在执行的尝试，Agent 支持 `loadSession` 时直接 `session/load` 加载被中断的会话，不看上下文占用；上一次尝试失败的，原会话上下文不超过 75% 时加载它（见[重试、返工与失败](#retry)）。加载失败或不支持时新建会话。
    - 续接已经结束的会话：任务声明了 `continues`（只在首次尝试，加载前置任务的会话）；负责人 `retry` 选了 `session: "continue"`（加载这个任务自己上一次的会话）；独立验证因被验证的任务返工而复审（加载验证者自己上一次的会话）。目标会话最新上下文占用严格大于 75%（`CONTINUE_CONTEXT_LIMIT`）、Agent 不支持 `loadSession`、加载失败，或要接着的任务从来没开过会话（例如开始前就被取消）时新建会话，否则 `session/load` 复用原会话；新建还是复用、新建的原因都记在 `attempt.started` 的 `data.continuation`（原因是 `Fallback`，见 [ADR：热会话续接](../decisions/20261118-session_continuation.md)）。负责人的 `retry` 选了 `continue` 而原会话已超过 75% 时，`retry` 当场拒绝，不会走到这里，见[重试、返工与失败](#retry)。其余原因新建会话时，看板上这次尝试的「开始」写明没能回到原会话和原因，负责人需要时用 `reply` 补上下文。这次尝试为什么开始（负责人的重试或复审）记在 `data.reopen`。
 
    接入角色配置的 MCP 服务器；Agent 声明支持 HTTP MCP 时，还接入共享看板。
@@ -182,7 +182,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 <a id="retry"></a>
 ## 重试、返工与失败
 
-- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、超时、自行取消等，不含验证没通过）后还有剩余次数时，先等 3 秒（`RETRY_AFTER`，即 `Config.retry_after`），让启动失败、连接中断这类短暂的原因过去，再让任务回到 `pending`，下一次尝试带上上次失败的原因（`task.retry_scheduled`），新开会话。等待期间负责人的取消或重试照常生效。
+- 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、服务商报错、连接中断、自行取消等，不含验证没通过）后还有剩余次数时，先等 30 秒（`RETRY_AFTER`，即 `Config.retry_after`），让启动失败、连接中断、服务商短暂故障这类原因过去，再让任务回到 `pending`（`task.retry_scheduled`）。下一次尝试回到这个任务最近打开的会话（`Reload`，`BrokeOff::Failure` 带失败原因，和任务回到 `pending` 在同一把锁里记下）：`session/load` 后只告诉它上一次因为什么中断、之前做过和读过的都还在、从中断的地方继续，不重发任务说明。原会话上下文已超过 75%、Agent 不支持加载、加载失败，或这个任务从来没打开过会话时，新开会话，发完整的任务提示并带上上次失败的原因。等待期间负责人的取消或重试照常生效。见 [ADR：断掉的会话回到原处继续](../decisions/20261125-resume_after_failure.md)。
 - 用完次数或验证没通过后任务变为 `failed`（`task.failed`），Run 不停下，由负责人在看板上读到后用 `retry`、`accept`、`cancel` 处理。负责人已经派出了子任务，不自己接手（见[负责人的职责](20261031-goal_mode.md#lead_role)）。被它阻塞的任务不需要重新编排。
 - 只有负责人能让结束的任务再做一次（看板的 [`retry`](../interfaces/20261031-board_mcp.md#retry_tool)）：失败、已取消、被负责人取消的任务，以及已完成但需要返工的任务。重试重新给满尝试次数（`task.reopened`，`reason: "lead.retry"`），依赖它的 `blocked` 任务在它成功后自动恢复。用户想重做某个任务时，给负责人发消息。
 - **会话由负责人每次选择**：`session` 必填，`continue` 回到这个任务自己上一次的会话，`new` 新开会话（`SessionChoice`）。不设默认值，让负责人每次判断原来的上下文还有没有用。原会话上下文已超过 75% 时，`continue` 当场返回错误，说明占用多少、新会话不记得之前做过什么，让负责人改用 `new` 并在 `note` 里写清这一轮要知道的：做到哪一步、改过哪些文件、还差什么。这样负责人不会误以为执行者还记得之前的工作。一个协作者可以同时有多个会话，每个任务一个；返工回到的是被返工任务自己的会话。

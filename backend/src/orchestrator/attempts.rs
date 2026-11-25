@@ -35,8 +35,8 @@ impl Fallback {
 
 /// Why an attempt tries `session/load` instead of opening a fresh ACP session.
 enum SessionResume {
-    /// Resuming an attempt that was still open when the orchestrator restarted.
-    Interrupted(String),
+    /// Going back into the session a restart or a failure broke off.
+    BrokeOff(Reload),
     /// Continuing a finished upstream task's session (`continues`), the task's own last session
     /// (a retry with `session: "continue"`, or a verification checking reworked work).
     Followup { from: String, session: String },
@@ -90,7 +90,17 @@ impl App {
                             Next::Failed => t.set_phase(TaskPhase::Failed),
                             _ => {}
                         }
-                        (next, t.def.max_attempts)
+                        let max_attempts = t.def.max_attempts;
+                        // The next attempt goes back into the session this one broke off from: what
+                        // the agent read and did is still there, so it picks up instead of starting
+                        // over. A task that never opened a session starts a new one.
+                        if matches!(next, Next::Retry)
+                            && let Some(session) = self.last_task_session(&run.id, id)
+                        {
+                            st.resume_session
+                                .insert(id.to_string(), Reload { session, broke: BrokeOff::Failure(msg.clone()) });
+                        }
+                        (next, max_attempts)
                     }
                 }
             };
@@ -140,7 +150,7 @@ impl App {
                         )
                         .task(id)
                         .data(json!({
-                            "next": n + 1, "strategy": "新建 ACP 会话，注入子任务说明、上游结果和上次失败原因"
+                            "next": n + 1, "strategy": "回到原来的会话从中断处继续；回不去时新建会话，注入子任务说明、上游结果和上次失败原因"
                         })),
                     );
                 } else {
@@ -335,8 +345,8 @@ impl App {
         // verification checking reworked work load the earlier session when context headroom allows.
         let resume = {
             let mut st = run.st.lock().unwrap();
-            if let Some(old) = st.resume_session.remove(id) {
-                Some(SessionResume::Interrupted(old))
+            if let Some(reload) = st.resume_session.remove(id) {
+                Some(SessionResume::BrokeOff(reload))
             } else {
                 drop(st);
                 let follow = |from: &str| match self.last_task_session(&run.id, from) {
@@ -353,7 +363,7 @@ impl App {
             }
         };
         let opened = tokio::time::timeout(STARTUP_TIMEOUT, async {
-            let mut resumed = false;
+            let mut resumed: Option<BrokeOff> = None;
             let mut followup_from: Option<String> = None;
             let mut continuation: Option<Value> = None;
             // Collaborators write progress and blockers to the shared board. The board is an HTTP
@@ -366,13 +376,23 @@ impl App {
             };
             let opening = self.opening(run, id, &member, &conn.capabilities, board, system);
             let session = match resume {
-                Some(SessionResume::Interrupted(old)) if conn.capabilities["loadSession"] == true => {
+                // A session a failure broke off is only worth going back to with room left in it;
+                // one a restart broke off was working fine and goes on whatever its size.
+                Some(SessionResume::BrokeOff(Reload { session: old, broke }))
+                    if matches!(broke, BrokeOff::Failure(_)) && self.session_too_full(run, &old).is_some() =>
+                {
+                    continuation = Some(
+                        json!({ "from": id, "session": old, "loaded": false, "fallback": Fallback::ContextOverLimit.as_str() }),
+                    );
+                    new_session(&conn, &workspace, &opening).await?
+                }
+                Some(SessionResume::BrokeOff(Reload { session: old, broke })) if conn.capabilities["loadSession"] == true => {
                     match conn.request("session/load", opening.load_params(&old, &workspace)).await {
                         Ok(r) => {
                             // The reload replays history as updates; it is already in the event log.
                             // Updates can trail the response, so wait until the agent goes quiet.
                             drain_replay(&conn, &mut rx).await;
-                            resumed = true;
+                            resumed = Some(broke);
                             let mut r = if r.is_object() { r } else { json!({}) };
                             r["sessionId"] = json!(old);
                             r
@@ -423,9 +443,13 @@ impl App {
         .map_err(|_| anyhow!("打开 ACP 会话超过 {} 分钟没有完成", STARTUP_TIMEOUT.as_secs() / 60))??;
         let (session, applied, resumed, followup_from, continuation) = opened;
         let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
-        let prompt = if resumed {
+        let prompt = if let Some(broke) = &resumed {
+            let why = match broke {
+                BrokeOff::Restart => "编排器中断后，这个会话已经恢复。".to_string(),
+                BrokeOff::Failure(err) => format!("上一次尝试因为「{}」中断，这个会话已经恢复，之前做过和读过的都还在。", clip(err, 300)),
+            };
             format!(
-                "编排器中断后，这个会话已经恢复。请从中断的地方继续完成原来的子任务，完成后按最初的要求以 ```json 结构化结果结束。{}",
+                "{why}请从中断的地方继续完成原来的子任务，不要重做已经完成的部分，完成后按最初的要求以 ```json 结构化结果结束。{}",
                 self.take_notes(run, &agent, Some(id))
             )
         } else {
@@ -456,8 +480,14 @@ impl App {
         )?;
         let mut started_data = json!({
             "attemptId": attempt_id, "session": sid, "workspace": format!("工作目录 {}", workspace.display()), "path": workspace, "runtime": spec.name, "kind": spec.kind, "agentInfo": conn.agent_info,
-            "config": applied, "enforcement": enforcement(&applied), "prompt": prompt, "resumed": resumed
+            "config": applied, "enforcement": enforcement(&applied), "prompt": prompt, "resumed": resumed.is_some()
         });
+        if let Some(broke) = &resumed {
+            started_data["brokeOff"] = json!(match broke {
+                BrokeOff::Restart => "restart",
+                BrokeOff::Failure(_) => "failure",
+            });
+        }
         if let Some(cont) = continuation {
             started_data["continuation"] = cont;
         }
@@ -476,7 +506,7 @@ impl App {
                 .data(started_data),
         );
         // What each upstream task handed to this session: the fact behind "who used whose result".
-        if !resumed {
+        if resumed.is_none() {
             for h in handoffs {
                 let from = h["from"].as_str().unwrap_or_default().to_string();
                 let actor = h["fromAgent"].as_str().unwrap_or("janus").to_string();
@@ -495,7 +525,7 @@ impl App {
         self.show(run, (EventKind::SessionControls, "会话选项".into(), crate::acp_view::controls(&session, &applied)), &ctx);
         // A loaded session is the same member's, so its system layer is the same as when it opened:
         // nothing new went in, so nothing new is recorded.
-        if !resumed && followup_from.is_none() {
+        if resumed.is_none() && followup_from.is_none() {
             self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &rules);
             self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
             self.record_instructions(run, &ctx, &sid, &channel, &standing);

@@ -86,7 +86,9 @@ async fn a_reply_for_a_task_waits_for_that_task() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
-/// A failed attempt is tried again after a pause, not the moment it fails (AT-10).
+/// A failed attempt is tried again after a pause, not the moment it fails (AT-10), and in the
+/// session it broke off from: the agent is told why it stopped and goes on from there instead of
+/// being given the task again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_attempt_is_retried_after_a_pause() {
     let h = harness_with("retry-pause", &[("lead", false), ("m1", true)], json!({ "T1": ["fail", "ok"] }), |c| {
@@ -101,6 +103,41 @@ async fn a_failed_attempt_is_retried_after_a_pause() {
         .map(|e| e.ts)
         .collect();
     assert!(started.len() == 2 && started[1] - started[0] >= 1400, "attempts started at {started:?}");
+    let opened: Vec<&Value> = evs
+        .iter()
+        .filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1"))
+        .map(|e| e.data.as_ref().unwrap())
+        .collect();
+    assert_eq!(opened[1]["session"], opened[0]["session"], "the retry goes back into the session that broke off");
+    assert_eq!(opened[1]["resumed"], true);
+    let prompt = opened[1]["prompt"].as_str().unwrap();
+    assert!(prompt.contains("上一次尝试因为") && prompt.contains("scripted failure"), "it is told why: {prompt}");
+    assert!(!prompt.contains("验收标准"), "the task is not given again: {prompt}");
+    let sid = opened[0]["session"].as_str().unwrap();
+    assert!(std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap().contains(&format!("load {sid}")));
+    let scheduled = evs.iter().find(|e| e.kind.as_str() == "task.retry_scheduled").unwrap();
+    assert!(scheduled.data.as_ref().unwrap()["strategy"].as_str().unwrap().starts_with("回到原来的会话"));
+    finish_lead(&h);
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A retry does not go back into a session that broke off nearly full: it starts a new one with
+/// the whole task and the reason the last attempt failed, and says why on record.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_retry_starts_afresh_when_the_broken_session_was_full() {
+    let h = harness("retry-full", &[("lead", false), ("m1", true)], json!({ "T1": ["high-ctx-fail", "ok"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
+    let evs = events(&h.app, &run);
+    let opened: Vec<&Value> = evs
+        .iter()
+        .filter(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T1"))
+        .map(|e| e.data.as_ref().unwrap())
+        .collect();
+    assert_ne!(opened[1]["session"], opened[0]["session"]);
+    assert_eq!(opened[1]["continuation"]["fallback"], "context_over_75pct");
+    let prompt = opened[1]["prompt"].as_str().unwrap();
+    assert!(prompt.contains("scripted failure"), "the new session hears why the last attempt failed: {prompt}");
     finish_lead(&h);
     let _ = std::fs::remove_dir_all(&h.dir);
 }
