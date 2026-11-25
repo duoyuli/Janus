@@ -1674,3 +1674,7 @@
 "恢复会话 · 从中断处接着推进目标" = "Session Restored · Continuing the Goal Where It Stopped";
 "现在更新 Janus？" = "Update Janus now?";
 "还有任务或对话在跑。更新会重开 Janus 并中断它们，重开后任务自动接着做。" = "Runs or chats are still going. Updating reopens Janus and interrupts them; runs pick up on their own after it reopens.";
+"执行 %@" = "work %@";
+"验证 %@" = "verification %@";
+"返工 %@" = "rework %@";
+"每次尝试从开始到结束的时间相加；同时进行的尝试各算各的。验证是独立验证的尝试，返工是失败后或负责人发回后的再次尝试" = "Each attempt's time from start to end, added up; attempts that ran side by side each count. Verification is the independent checks; rework is any attempt after a failure or one the lead sent back.";

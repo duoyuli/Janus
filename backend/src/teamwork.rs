@@ -257,6 +257,65 @@ pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>) -> St
     p
 }
 
+/// How the files now compare with those a task handed its result in on.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FilesSince {
+    Same,
+    /// Changed since: whether the commit moved, and the files that differ.
+    Changed {
+        commit: bool,
+        paths: Vec<String>,
+    },
+}
+
+impl FilesSince {
+    pub fn of(earlier: &crate::git::FilesState, now: &crate::git::FilesState) -> FilesSince {
+        let commit = earlier.head != now.head;
+        let paths = now.changed_since(earlier);
+        if !commit && paths.is_empty() { FilesSince::Same } else { FilesSince::Changed { commit, paths } }
+    }
+
+    fn changes(commit: bool, paths: &[String]) -> String {
+        let mut parts = vec![];
+        if commit {
+            parts.push("提交变了".to_string());
+        }
+        if !paths.is_empty() {
+            let shown: Vec<&str> = paths.iter().take(12).map(String::as_str).collect();
+            let more =
+                if paths.len() > shown.len() { format!(" 等 {} 个文件", paths.len()) } else { String::new() };
+            parts.push(format!("改了 {}{more}", shown.join("、")));
+        }
+        parts.join("，")
+    }
+
+    /// What a verifier is told about the files it checks, against those `target` handed its
+    /// result in on: the same files give the same results to the same checks.
+    // @project-doc docs/domains/20261031-goal_mode.md#evidence_reuse
+    pub fn for_verifier(&self, target: &str) -> String {
+        match self {
+            FilesSince::Same => format!(
+                "\n文件状态：和 {target} 提交结果时完全相同（同一个提交，改动过的文件内容一致）。它在这些文件上跑过的命令，你再跑一遍会得到同样的输出：先读它的证据，只补跑你的判定依赖、而它的证据缺少、较弱或你有具体理由怀疑的部分；独立验证的价值在于它没覆盖的地方，例如复现它声称的行为、边界情况、它没跑的检查。checks 里写明哪些条目采信了它的证据（引用它的命令和输出）、哪些是你自己核实的。"
+            ),
+            FilesSince::Changed { commit, paths } => format!(
+                "\n文件状态：{target} 提交结果之后又有变化（{}）。和这些变化相关的检查要重新做；其余条目它的证据仍可参考。",
+                Self::changes(*commit, paths)
+            ),
+        }
+    }
+
+    /// The line on the board under a finished verification: whether it checked the files the
+    /// verified task handed in.
+    pub fn for_lead(&self, target: &str) -> String {
+        match self {
+            FilesSince::Same => format!("核对时的文件和 {target} 提交结果时相同"),
+            FilesSince::Changed { commit, paths } => {
+                format!("核对时的文件和 {target} 提交结果时不同（{}）", Self::changes(*commit, paths))
+            }
+        }
+    }
+}
+
 /// Why `accept` is refused for a task, if it verifies another one: a failed verification is
 /// settled by fixing and verifying again, or by cancelling obsolete downstream work on the record.
 pub fn accept_refused(def: &TaskDef) -> Option<String> {
@@ -271,10 +330,12 @@ pub fn accept_refused(def: &TaskDef) -> Option<String> {
 pub fn lead_guide() -> &'static str {
     "Organizing the team:
 - Estimate the scope first. If the whole goal is something one person can finish in a turn, do it yourself without delegating. Otherwise delegate, keeping in mind that you no longer edit files once you do: give work with tightly coupled steps to one subtask instead of splitting it, and divide work cleanly by file, module, or question. Keep parallel work within the available collaborator instances and give each subtask an independently verifiable change.
+- Match the process to the size and risk of the work, and keep independent work running side by side. Subtasks with different assignees and no dependency between them run at the same time; chain subtasks only when one needs the other's result. A small, low-risk change needs one implementer and at most one check, not a product, development, QA and acceptance pipeline. Documents, research, and analysis are reviewed once against what the goal needs; add another round only when the review found real problems. A check after rework covers the findings and what the rework touched, not everything again.
 - Establish shared contracts first. When parallel modules share data structures, signatures, routes, or event protocols, define those contracts and types in an upstream subtask or implement them yourself before dispatching the parallel work.
 - State what each subtask owns, what it must leave untouched, and what counts as done. Use owns for files or directories relative to the working directory. A directory covers all files below it. Janus rejects overlaps between subtasks that could run at the same time.
 - Collaborators can call janus.claim before editing files outside owns. The board reports claims and out-of-scope edits to files another active subtask owns. If a subtask needs splitting, the collaborator can propose a split with janus.request_split, and you decide whether to revise the plan.
 - On completion, Janus checks each result against the subtask's edits. The completion entry flags missing changes to owned files, changes outside the assigned scope, and edits made by a verifier. Inspect the current working directory before relying on a summary.
+- Evidence is made on specific files. Janus records the files each result was handed in on, tells a verifier whether they are still the same, and states under a finished verification whether it checked those files. The same checks on the same files give the same output, so a verifier spends its effort on what the implementer did not cover, and reruns only what changed or what it has a concrete reason to doubt.
 - Arrange independent verification for important changes. Assign another collaborator a subtask with verifies set to the id being verified. The verification subtask starts after the target finishes. The verifier inspects the result without changing files and returns an approved, rejected, or inconclusive verdict. You cannot bypass an unsuccessful verification with janus.accept. Decide which subtask the problem lies in and send it back with janus.retry, from set to the verification: the assignee gets the findings verbatim, and the verification checks the reworked result again on its own. Use session=\"continue\" when the earlier context helps (fixing review findings in the same work) and session=\"new\" when it does not. Orchestrate a new subtask only for different work or a different assignee, or cancel the downstream tasks that no longer need to run and state why. A completed verification retains its verdict until it checks again.
 - Choose a session for every follow-up. One collaborator may hold several sessions, one per subtask, for example a backend one and a frontend one. A new subtask that builds on an earlier subtask's context can set continues to that subtask's id; work in a different area starts in a fresh session. If a second collaborator is unavailable, verify the result yourself."
 }

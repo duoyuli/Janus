@@ -79,6 +79,60 @@ pub async fn fetch(cwd: &Path, args: &[&str], limit: Duration) -> Result<String>
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// What the files of a working tree were at one moment, read without writing anything to the
+/// repository: the commit checked out, and a hash of every file that differs from it or is not
+/// tracked (modified, deleted, untracked; ignored files are left out). Two equal states mean the
+/// same files, so a check made on one still holds on the other.
+// @project-doc docs/domains/20261031-goal_mode.md#evidence_reuse
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FilesState {
+    pub head: String,
+    pub files: std::collections::BTreeMap<String, String>,
+}
+
+/// Past this many changed files the state is not taken: hashing them all on every result would
+/// cost more than the reruns it saves.
+const STATE_FILES: usize = 2000;
+
+impl FilesState {
+    /// The state of `cwd` now; `None` when it is not a Git working tree or changes too many files.
+    pub fn of(cwd: &Path) -> Option<FilesState> {
+        use sha2::{Digest, Sha256};
+        let head = read(cwd, &["rev-parse", "HEAD"])?.trim().to_string();
+        let listed = read(cwd, &["ls-files", "-z", "--modified", "--deleted", "--others", "--exclude-standard"])?;
+        let paths: std::collections::BTreeSet<&str> = listed.split('\0').filter(|p| !p.is_empty()).collect();
+        if paths.len() > STATE_FILES {
+            return None;
+        }
+        let files = paths
+            .into_iter()
+            .map(|p| {
+                let hash = match std::fs::read(cwd.join(p)) {
+                    Ok(bytes) => Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect(),
+                    Err(_) => "deleted".to_string(),
+                };
+                (p.to_string(), hash)
+            })
+            .collect();
+        Some(FilesState { head, files })
+    }
+
+    /// The files that are not the same as in `earlier`, by path. A different commit is named by
+    /// the caller; the paths it changed are not listed here.
+    pub fn changed_since(&self, earlier: &FilesState) -> Vec<String> {
+        let mut paths: Vec<String> = self
+            .files
+            .iter()
+            .filter(|(p, h)| earlier.files.get(*p) != Some(*h))
+            .map(|(p, _)| p.clone())
+            .chain(earlier.files.keys().filter(|p| !self.files.contains_key(*p)).cloned())
+            .collect();
+        paths.sort();
+        paths.dedup();
+        paths
+    }
+}
+
 /// What could point git at another repository than `cwd`, or add settings to it, when Janus was
 /// itself started from git (a hook, an editor's terminal): never passed on.
 const INHERITED: [&str; 10] = [

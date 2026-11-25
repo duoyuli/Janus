@@ -529,6 +529,11 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 ),
                 _ => format!("- [完成] {task}「{title}」· {name}：{}", clip(&r.summary, INLINE_SUMMARY)),
             };
+            if let Some(ms) = d["durationMs"].as_i64() {
+                let context =
+                    d["contextRatio"].as_f64().map(|r| format!(" · 会话上下文 {:.0}%", r * 100.0)).unwrap_or_default();
+                msg.push_str(&format!("\n  用时：{}{context}", crate::usage::duration(ms)));
+            }
             msg.push_str(&format!("\n  验收标准：{} 条，通过 {} 条", totals.criteria, totals.passed));
             msg.push_str(&format!("\n  证据：{}", totals.counts()));
             if !reminders.is_empty() {
@@ -542,6 +547,14 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             }
             if !verifiers.is_empty() {
                 msg.push_str(&format!("\n  独立验证：{}", verifiers.join("、")));
+            }
+            // A verification says whether it checked the files the verified task handed in.
+            if let Some(target) = &verifies
+                && let Some(now) = &r.files
+                && let Some(earlier) =
+                    st.tasks.iter().find(|x| &x.def.id == target).and_then(|x| x.result.as_ref()?.files.as_ref())
+            {
+                msg.push_str(&format!("\n  {}", crate::teamwork::FilesSince::of(earlier, now).for_lead(target)));
             }
             if !risks.is_empty() {
                 msg.push_str(&format!("\n  风险：{risks}"));

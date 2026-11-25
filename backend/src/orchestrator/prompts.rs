@@ -229,6 +229,8 @@ pub(super) fn collaborator_rules(board: bool) -> String {
 
 Acceptance: Verify each criterion before finishing. Choose a method that can establish the result, such as running tests, observing the running program, inspecting code, or comparing outputs. File existence alone is insufficient. In checks, report each criterion in order with its pass status, evidence (what you did and observed), and an optional method: test (automated test), command (command or script), inspection (code, files, UI, or actual state), reasoning (inference or judgment), or unverified (missing, irreproducible, or currently unverifiable evidence). The method identifies the evidence type. Report unverified when you cannot verify a result and use test only for an automated test you ran. For unmet criteria, set passed: false and explain why. If a criterion is unreasonable or impossible to verify in the current environment, ask the lead to revise it in question.
 
+Checks take time: while you work, run the narrowest check that tells you whether a change works, and run a heavy check (a whole test suite, an end-to-end run) once, on the finished work, not after every edit. Evidence another member produced on the same files still holds: when Janus tells you the files have not changed since a result was handed in, rerunning the checks in its evidence gives the same output, so cite that evidence and run only what your conclusion needs and it does not cover.
+
 Working directory: Work directly in the project's working directory. Your changes take effect immediately and are visible to other members. Do not modify files outside the working directory. Commit, push, or deploy only when your subtask's instructions ask for it, and only as far as they ask.",
     );
     if board {
@@ -352,6 +354,7 @@ pub(super) fn result_from_event(d: &Value) -> TaskResult {
         verdict,
         verdict_error,
         question: None,
+        files: serde_json::from_value(d["files"].clone()).ok(),
     }
 }
 
@@ -375,6 +378,7 @@ pub(super) fn parse_result(text: &str) -> TaskResult {
                 verdict_error,
                 question: Some(v["question"].clone())
                     .filter(|q| q.is_object() || q.as_str().is_some_and(|s| !s.trim().is_empty())),
+                files: None,
             }
         }
         None => TaskResult {

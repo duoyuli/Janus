@@ -303,6 +303,9 @@ enum Snapshots {
                     "inbox": JSON.array(s.inbox.map { ["kind": JSON($0.kind), "key": JSON($0.key), "task": JSON($0.task)] }),
                     "agents": .object(s.agents.mapValues { JSON($0.phase) }),
                     "tokens": r.usage.run.tokens.total.map { JSON($0) } ?? .null,
+                    // The collaborators' time as the usage section words it, and the numbers behind it.
+                    "subtaskTime": JSON(r.usage.time.value),
+                    "subtaskMs": ["work": JSON(r.usage.time.workMs), "verify": JSON(r.usage.time.verifyMs), "rework": JSON(r.usage.time.reworkMs)],
                     // The run card's wall-clock time right now, from the same displayed ledger and
                     // live judgement as the view: the end-to-end test checks it advances by the
                     // second without new events (docs/operations/20261031-testing.md#product_e2e).

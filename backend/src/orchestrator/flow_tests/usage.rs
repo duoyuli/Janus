@@ -26,6 +26,11 @@ async fn usage_ledger_covers_a_run_and_survives_a_restart() {
     wait_until(&h.app, &run, "all done", |e| e.iter().filter(|e| e.kind.as_str() == "task.succeeded").count() == 3)
         .await;
 
+    // The lead reads each finished subtask's time and how full its session got.
+    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+    let t1 = board.split("[完成] T1").nth(1).expect("T1 on the board");
+    assert!(t1.contains("\n  用时：") && t1.contains("会话上下文 30%"), "{board}");
+
     use crate::usage::Completeness;
     let l = crate::usage::ledger(&events(&h.app, &run));
     // The quota rows replace the main-loop usage: 1500 for the main model and 500 for a subagent.

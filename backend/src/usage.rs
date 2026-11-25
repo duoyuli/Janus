@@ -429,12 +429,59 @@ impl AttemptState {
     }
 }
 
+/// What an attempt's time went to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttemptKind {
+    /// The first attempt at a task that does the work.
+    #[default]
+    Work,
+    /// Any attempt of an independent verification (`verifies`), its re-checks too.
+    Verify,
+    /// The work again: a retry after a failure, or the lead sending it back (`janus.retry`).
+    Rework,
+}
+
+/// Where the collaborators' time went, from their attempts. Each sum is wall-clock per attempt,
+/// so attempts that ran side by side add up to more than `span_ms`.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeSplit {
+    pub work_ms: i64,
+    pub verify_ms: i64,
+    pub rework_ms: i64,
+    /// From the first attempt's start to the last one's end.
+    pub span_ms: i64,
+}
+
+impl TimeSplit {
+    pub fn total_ms(&self) -> i64 {
+        self.work_ms + self.verify_ms + self.rework_ms
+    }
+
+    /// `子任务 42 分（执行 20 分 · 验证 15 分 · 返工 7 分）`, or nothing before any attempt.
+    pub fn text(&self) -> Option<String> {
+        if self.total_ms() == 0 {
+            return None;
+        }
+        let mut parts = vec![format!("执行 {}", duration(self.work_ms))];
+        if self.verify_ms > 0 {
+            parts.push(format!("验证 {}", duration(self.verify_ms)));
+        }
+        if self.rework_ms > 0 {
+            parts.push(format!("返工 {}", duration(self.rework_ms)));
+        }
+        Some(format!("子任务 {}（{}）", duration(self.total_ms()), parts.join(" · ")))
+    }
+}
+
 /// One attempt's usage and outcome.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attempt {
     pub task: String,
     pub n: i64,
+    pub kind: AttemptKind,
     pub actor: String,
     pub state: AttemptState,
     /// Why it ended, in one line (a failure, the result check, a cancel).
@@ -519,6 +566,8 @@ pub struct Ledger {
     pub tasks: Vec<Scope>,
     pub members: Vec<Scope>,
     pub attempts: Vec<Attempt>,
+    /// The collaborators' time by what it went to.
+    pub time: TimeSplit,
     pub sessions: Vec<Session>,
     /// Read-only reminders. The app words them in its own language (`Reminder::text` is the
     /// orchestrator's wording).
@@ -547,12 +596,16 @@ impl Ledger {
     }
 
     fn run_line(&self) -> String {
-        format!(
+        let mut line = format!(
             "{} · {} · 耗时 {}",
             tokens_text(&self.run.tokens, self.run.completeness),
             cost_text(&self.run.cost),
             duration_text(self.run.duration_ms)
-        )
+        );
+        if let Some(time) = self.time.text() {
+            line.push_str(&format!(" · {time}"));
+        }
+        line
     }
 
     /// The usage part of `task_detail`: the task, its makeup and context, each attempt and the
@@ -780,6 +833,10 @@ struct AttemptBuild {
     started_ms: i64,
     ended_ms: Option<i64>,
     last_ms: i64,
+    /// The lead sent the task back with `janus.retry`.
+    sent_back: bool,
+    /// It went back into a session a restart broke off: the same work as the attempt before it.
+    restarted: bool,
 }
 
 /// One pass over the events.
@@ -795,6 +852,8 @@ struct Scan {
     order: Vec<String>,
     attempts: HashMap<(String, i64), AttemptBuild>,
     attempt_order: Vec<(String, i64)>,
+    /// Tasks that verify another one (`verifies`).
+    verifiers: HashSet<String>,
     tasks: Vec<String>,
     task_span: HashMap<String, (i64, i64)>,
     waits: Vec<Wait>,
@@ -830,6 +889,10 @@ impl Scan {
                     && let (Some(task), Some(n)) = (&e.task, e.attempt)
                 {
                     self.attempt(task, n, &actor, e.ts);
+                    if let Some(a) = self.attempts.get_mut(&(task.clone(), n)) {
+                        a.sent_back = data["reopen"]["reason"] == "lead.retry";
+                        a.restarted = data["brokeOff"] == "restart";
+                    }
                 }
             }
             EventKind::SessionUsage => self.usage(e, data, cost),
@@ -880,6 +943,9 @@ impl Scan {
                 for t in data["tasks"].as_array().into_iter().flatten() {
                     if let Some(id) = t["id"].as_str() {
                         self.note_task(id);
+                        if t["verifies"].as_str().is_some_and(|v| !v.is_empty()) {
+                            self.verifiers.insert(id.to_string());
+                        }
                     }
                     if let Some(agent) = t["agent"].as_str() {
                         self.collaborators.insert(agent.to_string());
@@ -924,6 +990,8 @@ impl Scan {
                 started_ms: ts,
                 ended_ms: None,
                 last_ms: ts,
+                sent_back: false,
+                restarted: false,
             }
         });
         a.last_ms = a.last_ms.max(ts);
@@ -1021,6 +1089,18 @@ impl Scan {
             a.note = Some(note.into());
             a.ended_ms = Some(a.ended_ms.map_or(at, |end| end.max(at)));
         }
+        // An attempt with no end of its own (a restart cut it off) ran until the next attempt at
+        // its task started.
+        let mut next_start: HashMap<&str, i64> = HashMap::new();
+        for key in self.attempt_order.iter().rev() {
+            let Some(a) = self.attempts.get_mut(key) else { continue };
+            if a.ended_ms.is_none()
+                && let Some(next) = next_start.get(key.0.as_str())
+            {
+                a.ended_ms = Some(*next);
+            }
+            next_start.insert(key.0.as_str(), a.started_ms);
+        }
         // A request nobody answered yet waits until the last event.
         for (start, task, actor) in std::mem::take(&mut self.open_waits).into_values() {
             self.waits.push(Wait { ms: end.saturating_sub(start), task, actor });
@@ -1084,6 +1164,25 @@ impl Scan {
                 Scope::over(actor, sessions.iter().filter(|s| s.actor == *actor), None, wait_of(&|w| w.actor == *actor))
             })
             .collect();
+        // What each attempt's time went to, in the order they started: a verification's are all
+        // checking; the first attempt at a task is work, any later one rework, except one that
+        // only went on after a restart, which is whatever the attempt before it was.
+        let mut kinds: HashMap<(String, i64), AttemptKind> = HashMap::new();
+        let mut last: HashMap<&str, AttemptKind> = HashMap::new();
+        for key in &self.attempt_order {
+            let Some(b) = self.attempts.get(key) else { continue };
+            let kind = if self.verifiers.contains(&b.task) {
+                AttemptKind::Verify
+            } else if b.restarted {
+                last.get(b.task.as_str()).copied().unwrap_or_default()
+            } else if b.n > 1 || b.sent_back {
+                AttemptKind::Rework
+            } else {
+                AttemptKind::Work
+            };
+            last.insert(&b.task, kind);
+            kinds.insert(key.clone(), kind);
+        }
         let attempts: Vec<Attempt> = self
             .attempt_order
             .iter()
@@ -1098,6 +1197,7 @@ impl Scan {
                 Attempt {
                     task: b.task.clone(),
                     n: b.n,
+                    kind: kinds.get(&(b.task.clone(), b.n)).copied().unwrap_or_default(),
                     actor: b.actor.clone(),
                     state: b.state,
                     note: b.note.clone(),
@@ -1118,6 +1218,7 @@ impl Scan {
             })
             .collect();
 
+        let time = time_split(&attempts);
         let mut ledger = Ledger {
             text: String::new(),
             run,
@@ -1126,6 +1227,7 @@ impl Scan {
             tasks,
             members,
             attempts,
+            time,
             sessions,
             reminders: vec![],
         };
@@ -1133,6 +1235,25 @@ impl Scan {
         ledger.text = ledger.summary_line();
         ledger
     }
+}
+
+/// The collaborators' time by what each attempt went to, and the span they covered.
+fn time_split(attempts: &[Attempt]) -> TimeSplit {
+    let mut t = TimeSplit::default();
+    for a in attempts {
+        let ms = a.duration_ms.unwrap_or_default();
+        match a.kind {
+            AttemptKind::Work => t.work_ms += ms,
+            AttemptKind::Verify => t.verify_ms += ms,
+            AttemptKind::Rework => t.rework_ms += ms,
+        }
+    }
+    let start = attempts.iter().map(|a| a.started_ms).min();
+    let end = attempts.iter().map(|a| a.started_ms + a.duration_ms.unwrap_or_default()).max();
+    if let (Some(start), Some(end)) = (start, end) {
+        t.span_ms = end - start;
+    }
+    t
 }
 
 /// A read-only reminder about a run's usage, with the numbers behind it. Nothing changes because

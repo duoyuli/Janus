@@ -373,6 +373,8 @@ struct TaskResult {
     /// An unknown `verdict` string kept verbatim so `verify_result` reports it instead of coercing it.
     verdict_error: Option<String>,
     question: Option<Value>,
+    /// The files as they were when the result was handed in (Git working trees only).
+    files: Option<crate::git::FilesState>,
 }
 
 /// Where a task is, with what only that state has: the attempt a running task is on, the failed

@@ -25,6 +25,7 @@ struct UsageSection: View {
         L.text("耗时"): L.text("总时长：从任务创建到最后一条事件；等你的时间单独列出"),
         L.text("上下文"): L.text("上下文快照只看最近值和峰值，不算进 Token 总量"),
         L.text("小计"): L.text("总计含负责人；负责人和协作者分开列"),
+        L.text("子任务"): L.text("每次尝试从开始到结束的时间相加；同时进行的尝试各算各的。验证是独立验证的尝试，返工是失败后或负责人发回后的再次尝试"),
     ] }
 
     var body: some View {
@@ -35,6 +36,9 @@ struct UsageSection: View {
             Divider()
             ForEach(u.run.summaryRows) { row in
                 UsageRow(label: row.label, value: row.value).help(rowHelp[row.label] ?? "")
+            }
+            if let time = u.time.value {
+                UsageRow(label: L.text("子任务"), value: time).help(rowHelp[L.text("子任务")] ?? "")
             }
             UsageRow(label: subtotal.label, value: subtotal.value).help(rowHelp[subtotal.label] ?? "")
             HStack(spacing: 8) {

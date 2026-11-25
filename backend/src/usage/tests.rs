@@ -1,5 +1,5 @@
-//! Usage ledger tests: what the ledger counts, how it reads each event, and the shared cases in
-//! `testdata/usage_cases.json` the app reads too.
+//! Usage ledger tests: what the ledger counts, how it reads each event, and the cases in
+//! `testdata/usage_cases.json`.
 
 use super::*;
 use serde_json::json;
@@ -31,7 +31,7 @@ fn started(e: &mut Vec<Event>, seq: i64, ts: i64, actor: &str, task: &str, n: i6
     e.push(ev(seq, ts, "attempt.started", actor, Some(task), Some(n), json!({ "session": sid })));
 }
 
-/// The cases the app's ledger must agree with (`UsageLedgerTests.swift` reads the same file).
+/// The ledger's numbers for whole runs, as the app shows them (it reads `GET /api/runs/{id}/usage`).
 #[test]
 fn shared_cases_give_the_expected_numbers() {
     let cases: Value = serde_json::from_str(include_str!("../../testdata/usage_cases.json")).unwrap();
@@ -466,4 +466,62 @@ fn aggregating_a_large_log_stays_fast() {
     println!("usage::ledger over {} events took {elapsed:?}", e.len());
     assert_eq!((l.tasks.len(), l.attempts.len()), (40, 120));
     assert!(elapsed.as_secs() < 5, "{elapsed:?}");
+}
+
+/// Each attempt's time goes to work, verification or rework: a verification's attempts are all
+/// checking, a task's first attempt is work and any later one rework, and an attempt that only went
+/// back into its session after a restart is whatever the attempt before it was.
+#[test]
+fn attempts_split_time_into_work_verification_and_rework() {
+    let mut e = vec![];
+    created(&mut e);
+    e.push(ev(
+        2,
+        1_000,
+        "orchestration.accepted",
+        "lead",
+        None,
+        None,
+        json!({ "tasks": [{ "id": "T1", "agent": "m1" }, { "id": "V1", "agent": "m2", "verifies": "T1" }] }),
+    ));
+    let start = |e: &mut Vec<Event>, seq, ts, task: &str, n, data: Value| {
+        e.push(ev(seq, ts, "attempt.started", "janus", Some(task), Some(n), data));
+    };
+    let done = |e: &mut Vec<Event>, seq, ts, task: &str, n| {
+        e.push(ev(seq, ts, "task.succeeded", "m", Some(task), Some(n), json!({})));
+    };
+    start(&mut e, 3, 10_000, "T1", 1, json!({ "session": "a" }));
+    done(&mut e, 4, 70_000, "T1", 1);
+    start(&mut e, 5, 70_000, "V1", 1, json!({ "session": "b" }));
+    done(&mut e, 6, 100_000, "V1", 1);
+    // Sent back by the lead, cut off by a restart, then picked up again in its session.
+    start(
+        &mut e,
+        7,
+        100_000,
+        "T1",
+        2,
+        json!({ "session": "a", "reopen": { "reason": "lead.retry", "session": "continue" } }),
+    );
+    start(&mut e, 8, 120_000, "T1", 3, json!({ "session": "a", "brokeOff": "restart" }));
+    done(&mut e, 9, 140_000, "T1", 3);
+    start(&mut e, 10, 140_000, "V1", 2, json!({ "session": "b", "reopen": { "reason": "target.reworked" } }));
+    done(&mut e, 11, 150_000, "V1", 2);
+    let l = ledger(&e);
+    let kinds: Vec<(String, AttemptKind)> =
+        l.attempts.iter().map(|a| (format!("{}#{}", a.task, a.n), a.kind)).collect();
+    assert_eq!(
+        kinds,
+        [
+            ("T1#1".to_string(), AttemptKind::Work),
+            ("V1#1".to_string(), AttemptKind::Verify),
+            ("T1#2".to_string(), AttemptKind::Rework),
+            ("T1#3".to_string(), AttemptKind::Rework),
+            ("V1#2".to_string(), AttemptKind::Verify),
+        ]
+    );
+    assert_eq!(l.time.work_ms, 60_000);
+    assert_eq!(l.time.verify_ms, 40_000);
+    assert_eq!(l.time.span_ms, 140_000);
+    assert!(l.text.ends_with("子任务 2 分 20 秒（执行 1 分 00 秒 · 验证 40 秒 · 返工 40 秒）"), "{}", l.text);
 }

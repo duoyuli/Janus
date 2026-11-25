@@ -230,6 +230,31 @@ enum UsageReminder: Equatable {
     }
 }
 
+/// Where the collaborators' time went (`TimeSplit` in the server): each attempt's wall-clock time
+/// as work, verification or rework, and the span they covered.
+struct UsageTime: Equatable {
+    var workMs = 0
+    var verifyMs = 0
+    var reworkMs = 0
+    var spanMs = 0
+
+    var totalMs: Int { workMs + verifyMs + reworkMs }
+
+    static func server(_ j: JSON) -> UsageTime {
+        UsageTime(workMs: j["workMs"].int ?? 0, verifyMs: j["verifyMs"].int ?? 0, reworkMs: j["reworkMs"].int ?? 0,
+                  spanMs: j["spanMs"].int ?? 0)
+    }
+
+    /// 「42 分：执行 20 分 · 验证 15 分 · 返工 7 分」, the usage card's 「子任务」 row; nothing before any attempt.
+    var value: String? {
+        guard totalMs > 0 else { return nil }
+        var parts = [L.text("执行 \(L.dur(Double(workMs)))")]
+        if verifyMs > 0 { parts.append(L.text("验证 \(L.dur(Double(verifyMs)))")) }
+        if reworkMs > 0 { parts.append(L.text("返工 \(L.dur(Double(reworkMs)))")) }
+        return L.text("\(L.dur(Double(totalMs)))：\(parts.joined(separator: " · "))")
+    }
+}
+
 /// The run's ledger: every range over the same events, plus reminders that change nothing.
 struct UsageLedger: Equatable {
     var run = UsageScope(id: "run")
@@ -238,6 +263,7 @@ struct UsageLedger: Equatable {
     var tasks: [UsageScope] = []
     var members: [UsageScope] = []
     var attempts: [UsageAttempt] = []
+    var time = UsageTime()
     var sessions: [UsageSession] = []
     var reminders: [UsageReminder] = []
 
@@ -247,7 +273,8 @@ struct UsageLedger: Equatable {
     static func server(_ j: JSON) -> UsageLedger {
         UsageLedger(run: .server(j["run"]), lead: .server(j["lead"]), collaborators: .server(j["collaborators"]),
                     tasks: j["tasks"].array.map(UsageScope.server), members: j["members"].array.map(UsageScope.server),
-                    attempts: j["attempts"].array.map(UsageAttempt.server), sessions: j["sessions"].array.map(UsageSession.server),
+                    attempts: j["attempts"].array.map(UsageAttempt.server), time: .server(j["time"]),
+                    sessions: j["sessions"].array.map(UsageSession.server),
                     reminders: j["reminders"].array.compactMap(UsageReminder.server))
     }
 

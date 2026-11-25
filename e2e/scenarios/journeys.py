@@ -180,7 +180,7 @@ def goal_claude(ctx, c):
 
 @scenario("usage")
 def usage(ctx, c):
-    """用量账本：按模型上报、只报上下文、多轮相加；接口、账单与应用的数字一致"""
+    """用量账本：按模型上报、只报上下文、多轮相加、子任务用时按执行验证返工拆开；接口、账单与应用的数字一致"""
     t = ctx.team("usage", members=("m1", "m2", "m3"), script={"T1": ["usage"], "T2": ["usage-quiet"], "T3": ["usage-turns"]})
     run = t.run("统计用量")
     run.orchestrate(task("T1", t.member("m1")), task("T2", t.member("m2")), task("T3", t.member("m3")))
@@ -206,5 +206,12 @@ def usage(ctx, c):
     want = ledger["run"]["tokens"]["total"]
     ctx.ui(c, run.id, lambda r, s: r.get("tokens") == want, f"应用算出的 Run 用量与服务一致（{want} tokens）",
            pages=("fold usage open", "task:T1"))
+    # Where the subtasks' time went: three first attempts, all work, no verification or rework.
+    tm = ledger["time"]
+    c(tm["workMs"] > 0 and tm["verifyMs"] == 0 and tm["reworkMs"] == 0 and "子任务" in ledger["text"],
+      f"账本把子任务的时间记为执行（{tm}），用量行写出子任务用时：{ledger['text']}")
+    ctx.ui(c, run.id, lambda r, s: r.get("subtaskMs") == {"work": tm["workMs"], "verify": 0, "rework": 0}
+           and bool(r.get("subtaskTime")),
+           "应用的用量明细写出子任务用时，数字与服务一致", pages=("board", "fold usage open"))
     if ctx.app:
         ctx.app.do("open settings:usage", "shot usage-bill", "close-sheet")

@@ -367,7 +367,7 @@ impl App {
         // starts; the notes are taken only once the session is open.
         // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
         let (notes, note_ids) = self.peek_notes(run, "lead");
-        let resume = if resumed { resume_brief(&board, &events) } else { String::new() };
+        let resume = if resumed { resume_brief(&board, &broke, &events) } else { String::new() };
         let brief = format!("{}{resume}{}{notes}", self.goal_brief(run), self.memory_section(run, MemoryAccess::Write));
         let skills = skills_note(self.skill_router_md(run, &lead));
         let system = system_layer(&[&brief, &skills, &standing]);
@@ -424,7 +424,7 @@ impl App {
             // A loaded session has its system layer already and got it again unchanged: nothing new
             // went in. It is told what happened instead of being given the goal again.
             let (mut prompt, mut opening) = if loaded {
-                (resume_prompt(&board, &notes), Some(PromptChannel::Resume))
+                (resume_prompt(&board, &broke, &notes), Some(PromptChannel::Resume))
             } else {
                 self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
                 self.record_system(run, &ctx, &sid, &channel, SystemPart::Skills, &skills);
@@ -1030,9 +1030,9 @@ Decision ownership:
 
 Acceptance criteria (the subtask's accept field):
 - Write verifiable criteria for every subtask. State the expected outcome and how to recognize it. Describe behavior, such as revealing a tile and showing the number of adjacent mines when clicked, or covering empty input with a new passing test. Avoid prescribing a specific command as the criterion.
-- The assignee chooses how to verify each criterion and reports the status, evidence, and optional method (test, command, inspection, reasoning, or unverified). The method identifies the evidence type. Reasoning, unverified results, and unspecified methods are flagged in completion messages. Verify critical results yourself. If a particular verification method is required, include it in the criteria or instructions and still assess the outcome.
+- The assignee chooses how to verify each criterion and reports the status, evidence, and optional method (test, command, inspection, reasoning, or unverified). The method identifies the evidence type. Reasoning, unverified results, and unspecified methods are flagged in completion messages. Check critical results yourself, starting from the evidence. If a particular verification method is required, include it in the criteria or instructions and still assess the outcome.
 - If the assignee reports an unmet criterion or omits one, Janus gives it one chance to address the gap in the original session. If it still falls short, use janus.accept when the result is acceptable, janus.retry when the work or criteria need revision, or janus.cancel when the subtask is no longer needed.
-- The assignee's evidence is its report. Before you finish, make sure every subtask that changed files was checked: by an independent verification you arranged, or by your own checks (inspecting code, running tests, observing behavior). The delivery marks each subtask that changed files without an independent verification; for each of them, your final summary must say how you checked it, what you ran or read and what you saw.
+- The assignee's evidence is its report. Before you finish, make sure every subtask that changed files was checked: by an independent verification you arranged, or by your own checks (reading its evidence and the changed files, and running what the evidence does not cover). The delivery marks each subtask that changed files without an independent verification; for each of them, your final summary must say how you checked it, what you ran or read and what you saw.
 
 Final reply (the user reviews the delivery from it):
 - Begin with the heading '## {headline}' and one or two sentences: whether the goal is achieved, and the result that matters most.
@@ -1045,7 +1045,7 @@ Coordination:
 - Each collaborator instance handles one subtask at a time. Extra subtasks assigned to the same collaborator queue. Use dependencies to serialize work that will edit the same files. When simultaneous subtasks edit the same file, the board reports a conflict for you to resolve.
 - After you delegate, never take over a subtask's work yourself, not even a one-line fix. Send it back with janus.retry (session=\"continue\" keeps its context), reassign it with janus.cancel and janus.orchestrate, use janus.ask_user when no collaborator can do it, or cancel it and report the gap in the delivery. Use janus.reply to change the work of a running subtask.
 - When a collaborator asks a question, it waits for your answer. Respond with janus.reply.
-- Check collaborators' results yourself, by reading changed files or running tests, and finish only when the goal is achieved.
+- Check collaborators' results yourself, and finish only when the goal is achieved. Read their evidence and the changed files first; run checks only for what no evidence covers, what changed after the evidence was made, or what you have a concrete reason to doubt. Running a suite a collaborator or verifier already ran on the same files gives the same output and only costs time.
 - Commit, push, deploy, or release only when the user asks for it, in the goal, in an answer, or in a later message, and only as far as asked: a request to commit is not one to push. That request is the user's decision, so carry it out without asking again; otherwise do none of them. When a subtask is to do one of them, say so in its instructions.
 
 {teamwork}

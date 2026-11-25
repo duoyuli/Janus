@@ -306,6 +306,8 @@ impl App {
                 review,
             )
         };
+        // A verification hears whether the files are still those the task it checks handed in.
+        let team_note = format!("{team_note}{}", self.files_note(run, &def));
         let peers: Vec<String> = {
             let st = run.st.lock().unwrap();
             st.tasks
@@ -332,7 +334,8 @@ impl App {
         let system_text = system_layer(&[&rules, &skills, &standing]);
         let spec = member_spec(self.spec_for(&member.connection)?, &member, &system_text);
         let system = (channel == InstructionChannel::System).then_some(system_text.as_str());
-        self.db.start_attempt(&run.id, id, n, &agent, &spec.id, now_ms())?;
+        let started_ms = now_ms();
+        self.db.start_attempt(&run.id, id, n, &agent, &spec.id, started_ms)?;
 
         let workspace = run.cwd.clone();
         let log = self.dirs(run).log(&format!("{id}-a{n}.log"));
@@ -654,10 +657,18 @@ impl App {
             if result.evidence.is_empty() {
                 result.evidence.push(format!("最终回复：{id}-a{n}-report.md"));
             }
+            // The files its checks were made on: a verifier, the lead and a later check compare
+            // against this to know whether those checks still hold.
+            if run.git {
+                result.files = crate::git::FilesState::of(&run.cwd);
+            }
             let mut submitted_data = json!({
                 "attemptId": attempt_id,
                 "summary": result.summary, "evidence": result.evidence, "risks": result.risks, "checks": result.checks
             });
+            if let Some(files) = &result.files {
+                submitted_data["files"] = json!(files);
+            }
             if let Some(h) = &result.handoff {
                 submitted_data["handoff"] = json!(h);
             }
@@ -689,7 +700,7 @@ impl App {
                 Err(err) => return Err(err),
             }
         };
-        Ok::<_, anyhow::Error>(result)
+        Ok::<_, anyhow::Error>((result, sid))
         }
         .await;
         // The agent stops before its changes are recorded, so nothing moves under the record.
@@ -700,7 +711,7 @@ impl App {
             let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
             self.recover_native_usage(run, &turn, &ctx);
         }
-        let result = outcome?;
+        let (result, sid) = outcome?;
         self.check_aborted(run, id, &mut ctl)?;
         self.record_changes(run, id, n, &agent, &workspace)?;
         // The result against what the task left in the workspace: the lead sees where they differ.
@@ -758,6 +769,15 @@ impl App {
         });
         if let Some(h) = &result.handoff {
             succeeded_data["handoff"] = json!(h);
+        }
+        if let Some(files) = &result.files {
+            succeeded_data["files"] = json!(files);
+        }
+        // What the attempt cost in time and how full its session is: the lead weighs a rework in
+        // the same session against starting afresh, and sees where the run's time goes.
+        succeeded_data["durationMs"] = json!(now_ms().saturating_sub(started_ms));
+        if let Some(ratio) = self.session_context_ratio(run, &sid) {
+            succeeded_data["contextRatio"] = json!(ratio);
         }
         if def.verifies.is_some() {
             let vd = crate::evidence::effective_verdict(result.verdict, def.accept.len(), &result.checks);
@@ -889,6 +909,20 @@ impl App {
                 .data(json!({ "attemptId": attempt_id, "checks": result.checks, "acceptance": summary })),
         );
         Ok(())
+    }
+
+    /// For a verification: how the files now compare with those the verified task handed its
+    /// result in on. Nothing outside Git, or when either state is unknown.
+    fn files_note(&self, run: &Run, def: &TaskDef) -> String {
+        let Some(target) = def.verifies.as_deref() else { return String::new() };
+        let earlier = {
+            let st = run.st.lock().unwrap();
+            st.tasks.iter().find(|t| t.def.id == target).and_then(|t| t.result.as_ref()?.files.clone())
+        };
+        match (earlier, run.git.then(|| crate::git::FilesState::of(&run.cwd)).flatten()) {
+            (Some(earlier), Some(now)) => crate::teamwork::FilesSince::of(&earlier, &now).for_verifier(target),
+            _ => String::new(),
+        }
     }
 
     /// The failure of the previous attempt, if the previous attempt failed. A task that succeeded

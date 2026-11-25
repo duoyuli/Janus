@@ -123,3 +123,50 @@ async fn an_illegal_evidence_method_fails_the_result_check() {
     );
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A verification hears whether the files are still those the verified task handed its result in
+/// on: the same files give its checks the same results, so it reruns only what its verdict needs.
+/// Files changed in between are named, and the lead reads on the board which it was.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_verification_knows_whether_the_files_changed_since_the_result() {
+    let h = harness(
+        "evidence-files",
+        &[("lead", false), ("m1", true), ("m2", true), ("m3", true)],
+        json!({ "T1": ["write:a.txt"], "T2": ["write:b.txt"], "V1": ["approve"], "V2": ["approve"] }),
+    );
+    let run = start(
+        &h,
+        json!([
+            task("T1", "m1", json!({})),
+            task("V1", "m2", json!({ "verifies": "T1" })),
+            task("T2", "m1", json!({ "deps": ["V1"] })),
+            task("V2", "m3", json!({ "verifies": "T1", "deps": ["T2"] }))
+        ]),
+    )
+    .await;
+    wait_until(&h.app, &run, "both verified", |e| {
+        task_event(e, "task.succeeded", "V1") && task_event(e, "task.succeeded", "V2")
+    })
+    .await;
+    let evs = events(&h.app, &run);
+    let prompt = |task: &str| {
+        evs.iter()
+            .find(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some(task))
+            .and_then(|e| e.data.as_ref()?["prompt"].as_str().map(str::to_owned))
+            .unwrap()
+    };
+    let submitted =
+        evs.iter().find(|e| e.kind.as_str() == "result.submitted" && e.task.as_deref() == Some("T1")).unwrap();
+    assert!(
+        submitted.data.as_ref().unwrap()["files"]["files"]["a.txt"].is_string(),
+        "the files T1 handed in are on record"
+    );
+    assert!(prompt("V1").contains("和 T1 提交结果时完全相同"), "{}", prompt("V1"));
+    let v2 = prompt("V2");
+    assert!(v2.contains("T1 提交结果之后又有变化") && v2.contains("b.txt"), "{v2}");
+    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
+    assert!(board.contains("核对时的文件和 T1 提交结果时相同"), "{board}");
+    assert!(board.contains("核对时的文件和 T1 提交结果时不同（改了 b.txt）"), "{board}");
+    finish_lead(&h);
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
