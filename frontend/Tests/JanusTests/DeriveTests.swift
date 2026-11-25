@@ -622,6 +622,33 @@ private func goalRun() -> Log {
     #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("干活中", "Working"))
 }
 
+/// A Loop's session marks each wake: which one, when and why; then when it ended, how long it took
+/// and when the next one is.
+@Test func aLoopsSessionMarksWhenEachWakeStartsAndEnds() {
+    var log = Log()
+    log.add("run.created", actor: "user", data: ["kind": "loop", "cwd": "/tmp/ws", "git": false])
+    log.add("loop.woke", data: ["reason": "timer", "n": 3])
+    log.add("agent.message", actor: "lead", data: ["text": "看过了"])
+    log.add("loop.slept", data: ["until": JSON(floatLiteral: 9_000_000), "reason": "self", "summary": "看过了"])
+    log.add("loop.woke", data: ["reason": "manual", "n": 4])
+    log.add("loop.slept", data: ["until": .null, "reason": .null, "summary": ""])
+    let st = derive(log.events)
+    let shown = agentSession(st, "lead").evs.map(\.type).filter { $0 != .agentMessage }
+    #expect(shown == [.runCreated, .loopWoke, .loopSlept, .loopWoke, .loopSlept])
+    // It has no goal: the session opens with its first wake.
+    #expect(!ChatItem.visible(log.events[0], st: st) && ChatItem.visible(log.events[1], st: st))
+    let (woke, slept) = (log.events[1], log.events[3])
+    #expect(LoopText.woke(woke).hasPrefix(expectedCopy("第 3 次开工 · ", "Wake 3 · ")))
+    #expect(LoopText.woke(woke).hasSuffix(expectedCopy(" · 按时间表", " · on schedule")))
+    #expect(LoopText.wake(before: slept, in: st.events)?.seq == woke.seq)
+    #expect(LoopText.slept(slept, woke: woke).contains(expectedCopy("收工（2 秒）· 下次开工：", " (2 sec) · next wake: ")))
+    #expect(LoopText.slept(slept, woke: woke).hasSuffix(expectedCopy("（它约的）", " (it asked)")))
+    // No time ahead: it waits to be called.
+    let last = log.events[5]
+    #expect(LoopText.wake(before: last, in: st.events)?.seq == log.events[4].seq)
+    #expect(LoopText.slept(last, woke: log.events[4]).hasSuffix(expectedCopy("收工（1 秒）· 下次等你叫它", " (1 sec) · next when you call it")))
+}
+
 /// A workspace's Loops, the ones to look at first on top: failed, at work, sleeping by when they
 /// wake (one without a time after those with one), paused last; ties keep their order.
 @Test func loopsAreListedByWhatNeedsALook() {

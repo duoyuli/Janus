@@ -1679,3 +1679,14 @@
 "验证 %@" = "verification %@";
 "返工 %@" = "rework %@";
 "每次尝试从开始到结束的时间相加；同时进行的尝试各算各的。验证是独立验证的尝试，返工是失败后或负责人发回后的再次尝试" = "Each attempt's time from start to end, added up; attempts that ran side by side each count. Verification is the independent checks; rework is any attempt after a failure or one the lead sent back.";
+"按时间表" = "on schedule";
+"它约的时间到了" = "at the time it asked for";
+"你让它开工" = "you woke it";
+"你回答了它的问题" = "you answered its question";
+"派出的任务结束了" = "a run it dispatched ended";
+"第 %lld 次开工 · %@ · %@" = "Wake %1$lld · %2$@ · %3$@";
+"下次开工：%@（它约的）" = "next wake: %@ (it asked)";
+"下次开工：%@" = "next wake: %@";
+"下次等你叫它" = "next when you call it";
+"%@ 收工 · %@" = "Ended %1$@ · %2$@";
+"%@ 收工（%@）· %@" = "Ended %1$@ (%2$@) · %3$@";

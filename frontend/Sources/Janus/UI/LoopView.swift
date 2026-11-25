@@ -22,6 +22,35 @@ enum LoopText {
         return why.isEmpty ? L.text("它约了 \(when(at)) 再看一次") : L.text("它约了 \(when(at)) 再看一次：\(why)")
     }
 
+    /// Why a wake started (`loop.woke`'s `reason`).
+    static func wakeReason(_ reason: String) -> String {
+        switch reason {
+        case "timer": return L.text("按时间表")
+        case "self": return L.text("它约的时间到了")
+        case "manual": return L.text("你让它开工")
+        case "answer": return L.text("你回答了它的问题")
+        case "dispatch": return L.text("派出的任务结束了")
+        default: return reason
+        }
+    }
+
+    /// The line a wake starts with in its session: which wake, when and why.
+    static func woke(_ e: Event) -> String {
+        L.text("第 \(e.data["n"].int ?? 0) 次开工 · \(L.dateTime(e.ts)) · \(wakeReason(e.data["reason"].str))")
+    }
+
+    /// The wake a `loop.slept` ends: the last one before it.
+    static func wake(before e: Event, in evs: [Event]) -> Event? { evs.last { $0.type == .loopWoke && $0.seq < e.seq } }
+
+    /// The line a wake ends with: when, how long it took, and when the next one is (none when it
+    /// waits to be called: no schedule, or paused).
+    static func slept(_ e: Event, woke: Event?) -> String {
+        let next = e.data["until"].double.map { e.data["reason"].str == "self" ? L.text("下次开工：\(when($0))（它约的）") : L.text("下次开工：\(when($0))") }
+            ?? L.text("下次等你叫它")
+        guard let woke else { return L.text("\(L.dateTime(e.ts)) 收工 · \(next)") }
+        return L.text("\(L.dateTime(e.ts)) 收工（\(L.dur(e.ts - woke.ts))）· \(next)")
+    }
+
     /// How many runs it dispatched, from the server's counts by status.
     static func dispatchedCount(_ l: JSON) -> Int { l["status"]["dispatched"].object.values.reduce(0) { $0 + ($1.int ?? 0) } }
 

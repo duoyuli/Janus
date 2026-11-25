@@ -3,6 +3,9 @@ import SwiftUI
 /// Event types a session shows.
 let sessionTypes: Set<EventKind> = [.agentThought, .agentPlan, .sessionControls, .sessionControl, .sessionCommands, .sessionUsage, .attemptStarted, .sessionPrompt, .contextHandoff, .boardPosted, .taskConflict, .agentMessage, .userMessage, .messageRouted, .messageDelivered, .toolCall, .toolStarted, .toolCompleted, .questionAsked, .questionAnswered, .approvalRequested, .approvalGranted, .approvalDenied, .inputRequested, .inputAnswered, .controlTaken, .controlReleased, .sessionInterrupted, .resultSubmitted, .attemptFailed, .leadEdited, .leadRouted]
 
+/// Janus's own events that belong in the lead's session: the run it works on and a Loop's wakes.
+let leadMarks: Set<EventKind> = [.runCreated, .loopWoke, .loopSlept, .loopFailed]
+
 func isSessionEvent(_ e: Event) -> Bool { sessionTypes.contains(e.type) || (e.type == .agentStatus && e.data["turn"].str == "idle") }
 
 /// Who a session view is about: a task's attempts, or everything one agent did in the run.
@@ -61,7 +64,8 @@ enum SessionComposer: Equatable {
 
 /// Everything one agent did in this run, and where a message to it goes right now.
 func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
-    let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && e.type == .runCreated) }
+    // The lead's session also opens with the run and, in a Loop's, marks where each wake starts and ends.
+    let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && leadMarks.contains(e.type)) }
     let open = st.orderedTasks.contains { $0.agent == id && $0.live } || (id == "lead" && (st.run.status == .planning || st.run.status == .running))
     // The same turn rule as each task's session (`SessionTurn.after`), over this agent's events.
     let turn = evs.reduce(SessionTurn.opened) { $0.after($1) }
@@ -473,6 +477,8 @@ struct ChatItem: View {
     static func visible(_ e: Event, st: RunState) -> Bool {
         switch e.type {
         case .userMessage: return !e.data["id"].exists
+        // A Loop has no goal to open its session with; each wake is marked where it starts.
+        case .runCreated: return e.data["kind"].str != "loop"
         // Shown beside the conversation (plan, controls, commands, usage), not in it.
         case .agentPlan, .sessionControls, .sessionCommands, .sessionUsage: return false
         // Stepping on another task's files says more than "both edited it": show only that.
@@ -601,6 +607,10 @@ struct ChatItem: View {
             .padding(8)
             .background(Tone.green.color.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
         case .agentStatus: note("◌ \(e.text)", .amber)
+        // A Loop's wake: when it started and why, then when it ended, how long it took and when the next one is.
+        case .loopWoke: divider(LoopText.woke(e))
+        case .loopSlept: note("○ " + LoopText.slept(e, woke: LoopText.wake(before: e, in: st.events)), nil)
+        case .loopFailed: note("⚠ \(L.dateTime(e.ts)) · \(e.text)", .amber)
         // A request still waiting is answered right here, with the same card as the inbox.
         case .approvalRequested, .inputRequested:
             if let item = st.inbox.first(where: { $0.key == d["key"].str }) { RequestCard(run: run, st: st, item: item) }

@@ -8,7 +8,7 @@ from scenarios import scenario
 
 @scenario("loops")
 def loops(ctx, c):
-    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次开工自己起名，开工的消息只有值班的提示；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；值班只能给自己派出、进行中的任务转话；派出的任务结束时以 dispatch 唤醒值班，结果写进醒来的提示；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（待处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量）都与服务端一致"""
+    """工作区值班：时间表由服务端检查并算出接下来的时刻；新建后醒来一次并按时间表睡到下一个整点，第一次开工自己起名，开工的消息只有值班的提示；会话只有值班的工具，凭据不能冒充别的会话；派发按 key 只派一次，派出的任务带来源；值班只能给自己派出、进行中的任务转话；派出的任务结束时以 dispatch 唤醒值班，结果写进醒来的提示；提问进收件箱和值班页，在应用里回答后唤醒它，回答写进醒来的提示；暂停、手动唤醒、删除；应用的工作区页（待处理里的值班、不重复的任务记录）、侧栏的数字和值班页（派出的任务和数量、会话里每次开工和收工的时刻）都与服务端一致"""
     t = ctx.team("loops", members=("m1",))
     ws = t.ws["id"]
     preview = ctx.api("GET", "/api/loops/schedule?cron=0+9+*+*+1-5&tz=Asia/Shanghai")
@@ -110,6 +110,24 @@ def loops(ctx, c):
         page = ctx.app.until(lambda s: ((s.get("run") or {}).get("loop") or {}).get("dispatched") == listed
                              and s["run"]["loop"]["dispatchedCount"] == len(listed), "值班页列出派出的任务", f"open run:{run}")
         c(page["run"]["loop"]["title"] == v["title"], "应用：值班页的派出任务、数量和名字与服务端一致")
+        # Each wake is marked in its session where the server recorded it: which one, when and why it
+        # started; when it ended, how long it took and when the next one is.
+        def marked(s):
+            server = [e for e in events() if e["type"] in ("loop.woke", "loop.slept")]
+            got = ((s.get("run") or {}).get("loop") or {}).get("marks") or []
+            return [(m["seq"], m["type"]) for m in got] == [(e["seq"], e["type"]) for e in server] and (server, got)
+        page = ctx.app.until(marked, "值班页的会话标出每次开工和收工", f"open run:{run}")
+        server, got = marked(page)
+        woke, slept = server[0], server[1]
+        c(got[0]["text"].startswith((f"第 {woke['data']['n']} 次开工 · ", f"Wake {woke['data']['n']} · "))
+          and got[0]["text"].endswith(("· 你让它开工", "· you woke it")),
+          f"应用：开工的分隔线写第几次、几点、为什么开工（{got[0]['text']}）")
+        c(got[1]["tookMs"] == slept["ts"] - woke["ts"] and ("收工（" in got[1]["text"] or got[1]["text"].startswith("Ended "))
+          and ("下次开工：" in got[1]["text"] or "next wake: " in got[1]["text"]),
+          f"应用：收工一行写几点收工、用了多久（与服务端 ts 之差相同）和下次开工（{got[1]['text']}）")
+        drawn_rows = {r["id"] for r in page["run"]["conversation"]["rows"]}
+        c(any(m["seq"] in drawn_rows for m in got), "应用：开工和收工的行画在会话里")
+        ctx.app.do("shot loop-session")
 
     # A question goes to the inbox; the answer wakes the Loop.
     text, err = janus.call("ask_user", {"question": "先修哪个？", "why": "只有你知道优先级", "options": ["导出", "设置"]})

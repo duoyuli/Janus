@@ -280,7 +280,14 @@ enum Snapshots {
                         let l = store.loop(ofRun: r.id) ?? .null
                         return ["id": l["id"], "title": l["title"], "phase": l["status"]["phase"], "state": l["state"],
                                 "dispatchedCount": JSON(LoopText.dispatchedCount(l)),
-                                "dispatched": JSON.array(r.loopDispatched.map { ["id": $0["id"], "key": $0["dispatchKey"], "status": $0["status"]] })]
+                                "dispatched": JSON.array(r.loopDispatched.map { ["id": $0["id"], "key": $0["dispatchKey"], "status": $0["status"]] }),
+                                // Where each wake starts and ends in its session, with the lines drawn there.
+                                "marks": JSON.array(chatSession(s, live: r.live).evs.filter { [.loopWoke, .loopSlept].contains($0.type) }.map { e in
+                                    let woke = LoopText.wake(before: e, in: s.events)
+                                    return ["seq": JSON(e.seq), "type": JSON(e.type.rawValue),
+                                            "text": JSON(e.type == .loopWoke ? LoopText.woke(e) : LoopText.slept(e, woke: woke)),
+                                            "tookMs": e.type == .loopSlept ? woke.map { JSON(floatLiteral: e.ts - $0.ts) } ?? .null : .null]
+                                })]
                     }() : .null,
                     // What each session's composer holds, by session key.
                     "drafts": .object(r.sessionDrafts.mapValues { JSON($0) }),
