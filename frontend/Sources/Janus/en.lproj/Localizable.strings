@@ -564,7 +564,7 @@
 "授权后系统要是要求重启，等任务结束再重开 Janus，并开新的 Agent 会话。" = "If macOS asks for a restart after granting, wait for runs to finish, reopen Janus, and start new Agent sessions.";
 "排队 · 这一轮结束后发送" = "Queued · Sends after this turn";
 "接入一个 Agent" = "Connect an Agent";
-"接受 %@ 的结果：%@" = "Accept the result for %@: %@";
+"修订 %@：%@" = "Amend %@: %@";
 "接受风险并验收" = "Accepted risks and approved delivery";
 "交付时合并到你的分支" = "Merged into your branch on delivery";
 "接管" = "Take Over";
@@ -682,6 +682,7 @@
 "查看内容" = "Show Contents";
 "查看原因后继续，或者忽略" = "Review the cause, then resume the run or ignore it";
 "查看团队和子任务状态" = "View team and subtask status";
+"查看 %@ 的全部信息" = "View everything about %@";
 "查看完整目标" = "Show Full Goal";
 "查看这个任务交付、保存或提到的 Markdown 文档" = "View Markdown documents delivered, saved, or mentioned in this run";
 "标记完成前已提交结构化结果和证据" = "Structured results and evidence precede completion";
@@ -870,7 +871,6 @@
 "视图" = "View";
 "计划" = "Plan";
 "认证" = "Authentication";
-"认领了：%@" = "Claimed: %@";
 "让 Agent 按任务需要更新、替换或移除应用程序。" = "Lets agents update, replace, or remove apps when needed for a task.";
 "让 Agent 按任务需要访问受保护的文件。文件自身的读写权限和系统保护仍然生效。" = "Lets agents access protected files when needed for a task. File permissions and system protections still apply.";
 "让 Agent 的截屏工具读取屏幕内容。检查权限时不会截图。" = "Lets agents capture the screen. The permission check itself takes no screenshots.";
@@ -1439,6 +1439,8 @@
 "上次：%@" = "Last time: %@";
 "新建值班" = "New Loop";
 "编辑值班" = "Edit Loop";
+"名字" = "Name";
+"不填就用提示的第一行" = "Leave empty to use the prompt's first line";
 "要它做什么" = "What it does";
 "只创建" = "Create Only";
 "创建并马上开工" = "Create and Wake Once";
@@ -1451,7 +1453,6 @@
 "会话已结束：%@ · 下次开工时再接上" = "Session ended: %@ · picks up at the next wake";
 "派出的任务" = "Dispatched Runs";
 "还没有派出过任务" = "No runs dispatched yet";
-"它记下的状态" = "Its Saved State";
 "保存值班失败：%@" = "Could not save the Loop: %@";
 "删除值班「%@」？" = "Delete the Loop “%@”?";
 "它的会话和记录一起删掉，找不回来；派出的任务保留。" = "Its session and records are deleted for good; the runs it dispatched stay.";
@@ -1462,7 +1463,7 @@
 "值班改了文件" = "Loop Changed Files";
 "每小时" = "Every hour";
 "值班的工作方式 · %@" = "How a Loop works · %@";
-"值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料和它记下的状态。" = "Loop rules: never edits files itself, dispatches work as runs, asks you only when unsure; plus shared context and the state it saved.";
+"值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料。" = "Loop rules: never edits files itself, dispatches work as runs, asks you only when unsure; plus shared context.";
 "摸鱼中，等下次开工或你的消息" = "Waiting for its next wake, or your message";
 "会话已结束，下次开工时再接上" = "Session ended · picks up at the next wake";
 
@@ -1477,7 +1478,7 @@
 "在「%@」值班，由负责人「%@」来跑" = "On duty in “%1$@”, run by the lead “%2$@”";
 "每次开工都把这段话交给它。写清楚看哪里、什么情况派成任务、什么情况问你。" = "It gets this every time it wakes. Say where to look, what to dispatch as runs, and what to ask you.";
 "从示例开始：" = "Start from an example:";
-"它自己不改文件，要改的事派成任务，结果到收件箱；名字等它第一次开工时自己起。" = "It does not change files itself; what needs changing is dispatched as runs, and results come to the inbox. It names itself the first time it wakes.";
+"它自己不改文件，要改的事派成任务，结果到收件箱。" = "It does not change files itself; what needs changing is dispatched as runs, and results come to the inbox.";
 "更早的任务…" = "Earlier runs…";
 "只在你叫它时" = "Only when you call it";
 "它约了 %@ 再看一次" = "It asked to look again at %@";

@@ -598,8 +598,8 @@ fn the_board_speaks_the_runs_language() {
     let wait = LeadTool::Wait.definition(Lang::En);
     let about = wait["description"].as_str().unwrap();
     assert!(about.contains("at most 180") && about.contains("pushed into your session"), "{about}");
-    let accept = LeadTool::Accept.definition(Lang::Zh);
-    assert!(accept["description"].as_str().unwrap().contains("独立验证没通过不能用它放行"), "{accept}");
+    let amend = LeadTool::Amend.definition(Lang::Zh);
+    assert!(amend["description"].as_str().unwrap().contains("独立验证子任务的判定和结论不能用它改"), "{amend}");
 
     let mut run = test_run(2);
     run.lang = Lang::En;

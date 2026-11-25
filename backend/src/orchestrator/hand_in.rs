@@ -102,20 +102,30 @@ impl App {
     }
 
     /// `janus.ask`: a question for the lead. It goes to the lead when the turn ends; the answer
-    /// comes as the next prompt.
+    /// comes as the next prompt. A split proposal with it goes to the lead at once.
     pub(super) fn board_ask(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<String, String> {
         let lang = run.lang;
         let (attempt, _) = self.running(run, task)?;
         if args["text"].as_str().is_none_or(|t| t.trim().is_empty()) {
             return Err(lang.pick("text 不能为空", "text cannot be empty").into());
         }
+        let split = !args["split"].is_null();
+        if split {
+            self.propose_split(run, task, &args["split"])?;
+        }
         run.st.lock().unwrap().handed.insert(task.to_string(), Handed::Question { attempt, question: args.clone() });
-        Ok(lang
-            .pick(
+        Ok(if split {
+            lang.pick(
+                "拆分提议已发给负责人；问题在你结束这一轮后转给它，回答会作为下一条消息送来。",
+                "The split proposal went to the lead; the question goes to it when you end your turn, and the answer comes as your next message.",
+            )
+        } else {
+            lang.pick(
                 "已记下。结束这一轮后转给负责人，回答会作为下一条消息送来。",
                 "Noted. It goes to the lead when you end your turn, and the answer comes as your next message.",
             )
-            .into())
+        }
+        .into())
     }
 
     /// What the session of task `task` handed in during attempt `attempt`, taken for good.

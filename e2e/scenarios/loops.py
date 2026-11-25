@@ -61,16 +61,16 @@ def loops(ctx, c):
       and slept["until"] % 3_600_000 == 0 and v["status"]["nextWakeReason"] == "timer",
       "值班睡到时间表的下一个整点，下次醒来的时刻就是 loop.slept 记下的")
     layer = next(e for e in events() if e["type"] == "session.prompt" and (e.get("data") or {}).get("channel") == "system")["data"]["prompt"]
-    c(v["name"] == "" and "janus.set_name" in layer, "会话标题不当名字；还没有名字时，值班的工作方式里请它自己起名")
+    c(v["name"] == "" and v["title"] == "看看有什么新 issue" and "janus.dispatch" in layer,
+      "会话标题不当名字；没起名时用提示的第一行称呼，值班的工作方式里列出它的工具")
     c((v["status"]["lastSummary"] or "").startswith("看过了："), f"这次醒来的摘要是最后一条消息的第一行（{v['status']['lastSummary']}）")
 
     janus = t.fake.board(run, "lead")
     names = sorted(janus.tools())
-    c(names == ["ask_user", "dispatch", "dispatches", "next_wake", "note_dispatch", "recall", "remember", "save_state", "set_name"],
+    c(names == ["ask_user", "dispatch", "next_wake", "recall", "remember"],
       f"值班的会话只有值班的工具和团队记忆的读写（{names}）")
-    text, err = janus.call("set_name", {"name": "issue 分拣"})
-    v = view()
-    c(not err and v["name"] == v["title"] == "issue 分拣", f"值班用 set_name 给自己起名（{v['name']}）")
+    v = ctx.api("PUT", f"/api/loops/{loop_id}", {"name": "issue 分拣", "prompt": v["prompt"], "schedule": v["schedule"]})
+    c(v["name"] == v["title"] == "issue 分拣", f"用户给值班起名（{v['name']}）")
     # With the URL its session was given: the board's tools are refused, and so is another session's name.
     text, err = janus.call("orchestrate", {"tasks": []})
     c(err and "没有这个工具" in text, f"值班的会话调用看板工具被拒绝（{text[:40]}）")
@@ -88,12 +88,10 @@ def loops(ctx, c):
     c(not err and dispatched in text and len(ctx.api("GET", f"/api/runs?loop={loop_id}")["runs"]) == 1, "同一个 key 不再派发，告诉值班已有的任务")
     # While the run works, what the Loop knows goes to its lead; only to its own runs.
     wait(lambda: ctx.api("GET", f"/api/runs/{dispatched}")["run"]["status"] == "running", "派出的任务开始干活", 60)
-    text, err = janus.call("note_dispatch", {"run": dispatched, "text": "文件名里可能有全角空格"})
+    text, err = janus.call("dispatch", {"goal": "文件名里可能有全角空格", "key": "github:o/r#7"})
     told = [e for e in ctx.api("GET", f"/api/runs/{dispatched}")["events"] if e["type"] == "user.message" and e["actor"] == "janus"]
     c(not err and told and "来自工作区的值班" in told[-1]["data"]["text"] and "全角空格" in told[-1]["data"]["text"],
-      f"值班把补充转给进行中的派出任务的负责人，写明来自值班（{text[:40]}）")
-    text, err = janus.call("note_dispatch", {"run": run, "text": "x"})
-    c(err and "不是这个值班派出的" in text, f"不是它派出的任务收不到值班的话（{text[:40]}）")
+      f"同一个 key 再派时，值班的补充转给进行中的派出任务的负责人，写明来自值班（{text[:40]}）")
     if ctx.app:
         def row(s):
             return next((r for r in (s.get("histories") or {}).get(ws, []) if r["id"] == dispatched), None)

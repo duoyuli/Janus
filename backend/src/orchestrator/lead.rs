@@ -1013,7 +1013,7 @@ impl App {
 }
 
 /// What the lead knows about its team and how to work with it. Everything it learns about
-/// the collaborators comes from here (and the `team` tool, which repeats it).
+/// the collaborators comes from here (and `janus.board`, which repeats it).
 // @project-doc docs/domains/20261031-goal_mode.md#lead_brief
 pub(super) fn goal_brief(run: &Run) -> String {
     let lang = run.lang;
@@ -1060,10 +1060,10 @@ pub(super) fn goal_brief(run: &Run) -> String {
 协作工具（janus MCP 服务器；每个工具的详细用法和限制写在它自己的说明里，用到时再看）：
 - janus.orchestrate：把一组子任务派给协作者，写明执行者、依赖、验收标准，可选负责的文件、独立验证和续接会话。
 - janus.wait：读看板，等子任务完成或有需要你处理的消息。
-- janus.team、janus.task_detail：看团队和所有子任务的状态；看一个子任务的全部信息。
+- janus.board：看团队和所有子任务的状态；传 task 看一个子任务的全部信息。
 - janus.reply：回答协作者的提问，或给正在执行的子任务补充指示。
-- janus.retry、janus.accept、janus.cancel：让结束的子任务返工；接受没完全达标但可以接受的结果；取消不再需要的子任务。
-- janus.amend：修订已完成子任务的结论，让下游用修订后的。
+- janus.retry、janus.cancel：让结束的子任务返工；取消不再需要的子任务。
+- janus.amend：修订已完成子任务的结论，让下游用修订后的；或接受没完全达标但可以接受的结果。
 - janus.ask_user：把只有用户能做的决定交给用户。
 - janus.recall、janus.remember：查团队记忆；记下之后的任务还用得上的事。{brief}",
         "You are the lead of the Janus team, responsible for achieving the user's goal. Decide first: if the goal is small enough to finish yourself in this session, do it yourself; otherwise hand the work to the collaborators below.
@@ -1101,10 +1101,10 @@ Decisions:
 Collaboration tools (the janus MCP server; each tool's own description has its full usage and limits, so read it when you need the tool):
 - janus.orchestrate: hand a set of subtasks to collaborators, with assignee, dependencies, and acceptance criteria, and optionally owned files, independent verification, and a continued session.
 - janus.wait: read the board, waiting for a subtask to finish or for a message that needs you.
-- janus.team, janus.task_detail: see the team and every subtask's status; see everything about one subtask.
+- janus.board: see the team and every subtask's status; with task, everything about one subtask.
 - janus.reply: answer a collaborator's question, or add instructions to a running subtask.
-- janus.retry, janus.accept, janus.cancel: send an ended subtask back for rework; accept a result that falls short but is acceptable; cancel a subtask no longer needed.
-- janus.amend: correct a finished subtask's findings so downstream work uses the correction.
+- janus.retry, janus.cancel: send an ended subtask back for rework; cancel a subtask no longer needed.
+- janus.amend: correct a finished subtask's findings so downstream work uses the correction, or accept a result that falls short but is acceptable.
 - janus.ask_user: hand a decision only the user can make to the user.
 - janus.recall, janus.remember: search the team memory; keep what later runs will need.{brief}"
     );

@@ -542,7 +542,7 @@ struct ChatItem: View {
                 : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("提醒交结果 · 这一轮结束了还没交"), "board": L.text("看板推送 · 插入正在进行的这一轮"), "goal_check": L.text("目标确认 · 负责人停了，但目标还没完成"), "resume": L.text("恢复会话 · 从中断处接着推进目标")][d["channel"].str] ?? L.text("Janus 提示")
             let hint = [
                 "instructions": L.text("数字员工的指令 + Agent 的自定义提示词。一对一对话只带这一份。"),
-                "system": run.isLoop ? L.text("值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料和它记下的状态。")
+                "system": run.isLoop ? L.text("值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料。")
                     : run.isDream ? L.text("只动笔记：合并重复的、改正过时的、删掉没用的；附带全部笔记的索引。")
                     : L.text("团队任务专属：分工、看板、派工和验证规则。"),
                 "history": L.text("重开对话时带上最近的聊天，接着聊。"),
@@ -708,10 +708,10 @@ struct ToolRow: View {
         case "janus.wait": return (L.text("等待看板上的进展"), first)
         case "janus.reply": return (L.text("回复 \(a["task"].str)：\(a["text"].str)"), first)
         case "janus.retry": return (L.text("重新执行 \(a["task"].str)\(a["instructions"].truthy ? L.text("（改了说明）") : "")\(a["accept"].truthy ? L.text("（改了验收标准）") : "")"), first)
-        case "janus.accept": return (L.text("接受 \(a["task"].str) 的结果：\(a["reason"].str)"), first)
+        case "janus.amend": return (L.text("修订 \(a["task"].str)：\(a["text"].str)"), first)
         case "janus.cancel": return (L.text("取消 \(a["tasks"].strings.joined(separator: L.text("、")))\(a["reason"].truthy ? L.text("：\(a["reason"].str)") : "")"), first)
         case "janus.ask_user": return (L.text("等你拍板：\(a["question"].str)"), first)
-        case "janus.team": return (L.text("查看团队和子任务状态"), "")
+        case "janus.board": return (a["task"].truthy ? L.text("查看 \(a["task"].str) 的全部信息") : L.text("查看团队和子任务状态"), "")
         case "janus.board_post": return (L.text("写回看板：\(a["text"].str)"), "")
         default: return (tool, first)
         }

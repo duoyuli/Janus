@@ -802,16 +802,6 @@ impl App {
                 .filter(|e| e.seq > since)
                 .filter_map(|e| e.data.as_ref().and_then(|d| d["text"].as_str().map(str::to_owned)))
                 .collect();
-            for p in mine(EventKind::TaskClaimed)
-                .iter()
-                .filter_map(|e| e.data.as_ref()?["paths"].as_array().cloned())
-                .flatten()
-                .filter_map(|p| p.as_str().map(str::to_owned))
-            {
-                if !task.def.owns.contains(&p) {
-                    task.def.owns.push(p);
-                }
-            }
             tasks.push(task);
         }
         run.st.lock().unwrap().tasks = tasks;

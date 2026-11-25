@@ -27,7 +27,7 @@ def goal_codex(ctx, c):
     c(("你是 Janus 团队的负责人" in brief or "You are the lead of the Janus team" in brief) and "janus.orchestrate：" in brief,
       "负责人说明在系统层注入，先于 /goal；「协作工具」一节一行一个工具，用法在工具说明里")
     c("[Image 1]" in brief and "/attachments/" in brief, "随目标粘贴的图片以路径写进负责人说明")
-    c(len(lead.tools()) == 12, "负责人有 10 个看板工具和团队记忆的 2 个工具")
+    c(len(lead.tools()) == 10, "负责人有 8 个看板工具和团队记忆的 2 个工具")
 
     # Validation first: every problem at once, and nothing starts.
     text, err = lead.call("orchestrate", {"tasks": [
@@ -42,8 +42,8 @@ def goal_codex(ctx, c):
 
     # Each session's board URL is bound to its owner.
     t1 = t.fake.board(run.id, "T1")
-    c(t1.tools() == ["board_post", "claim", "peers", "request_split", "submit", "ask", "recall", "remember"],
-      "协作者只有自己的 6 个工具（含交结果的 submit 和提问的 ask）和团队记忆的读写")
+    c(t1.tools() == ["board_post", "board", "submit", "ask", "recall", "remember"],
+      "协作者只有自己的 4 个工具（含交结果的 submit 和提问的 ask）和团队记忆的读写")
     text, err = t1.call("board_post", {"kind": "progress", "text": "笔记写了一半"})
     c(not err, "协作者写回进展")
     c(Mcp(t1.url.rsplit("/", 1)[0] + "/lead").post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0] == 403,
@@ -64,8 +64,8 @@ def goal_codex(ctx, c):
     c(answered == [True], "负责人在看板上回答协作者的提问")
     c("[进展] T1" in board and "[完成] T1" in board and "按回答 alpha 完成" in board, "回答回到 T2 的会话，T2 按回答完成")
     c(not run.has("question.escalated"), "协作者的提问先到负责人，不打扰用户")
-    detail, err = lead.call("task_detail", {"task": "T1"})
-    c(not err and "notes.md" in detail, "task_detail 列出 T1 改过的文件")
+    detail, err = lead.call("board", {"task": "T1"})
+    c(not err and "notes.md" in detail, "janus.board 传 task 列出 T1 改过的文件")
 
     c(read_file(f"{run.cwd()}/notes.md") == "T1\n" and not os.path.exists(f"{t.repo}/notes.md"),
       "T1 在这个任务单独的副本里写了文件，交付前工作区目录不受影响")

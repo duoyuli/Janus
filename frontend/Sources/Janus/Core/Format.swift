@@ -48,7 +48,7 @@ enum L {
         .sessionPrompt: "→", .resultAmended: "✎", .runRecovered: "↻", .messageRouted: "↪", .decisionWithdrawn: "↩",
         .agentMessage: "❝", .userMessage: "✎",
         .messageDelivered: "↪", .sessionParked: "◌", .controlTaken: "✋", .controlReleased: "↻", .sessionInterrupted: "‖",
-        .taskConflict: "⚠", .leadStalled: "⏳", .taskStalled: "⏳", .taskClaimed: "⚐", .taskSplitRequested: "✂",
+        .taskConflict: "⚠", .leadStalled: "⏳", .taskStalled: "⏳", .taskSplitRequested: "✂",
     ]
 
     private static let toneTable: [Tone: [EventKind]] = [

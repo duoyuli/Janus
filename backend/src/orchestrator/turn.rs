@@ -341,7 +341,7 @@ impl App {
     /// - another task running at the same time edited one of them: both work in the same
     ///   directory and may overwrite each other; both sides whose agent takes steering get a
     ///   notice in their running turn.
-    /// - one of them belongs to another open task that may run alongside (`owns`, or a claim):
+    /// - one of them belongs to another open task that may run alongside (`owns`):
     ///   `data.owned` is true, and only the task that stepped over hears about it.
     // @project-doc docs/domains/20261031-goal_mode.md#conflicts
     pub(super) fn record_edits(&self, run: &Run, task: &str, paths: &[String], seq: i64) {

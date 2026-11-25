@@ -51,22 +51,21 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
         .unwrap();
     assert!(layer.starts_with("你是工作区「") && !layer.contains("看看有什么新 issue"), "{layer}");
     // Its tools are named once, one line each; how a tool is used is in its own description.
-    for tool in ["janus.dispatch：", "janus.save_state：", "janus.next_wake：", "janus.set_name："] {
+    for tool in ["janus.dispatch：", "janus.ask_user：", "janus.next_wake："] {
         assert_eq!(layer.matches(tool).count(), 1, "{tool}: {layer}");
     }
     assert!(!layer.contains("github:owner/repo"), "the key's example is in the tool's description: {layer}");
 
-    // Its system layer asks it to name itself while it has no name; a session title (the fake agent
-    // gives one) does not name it.
-    assert!(layer.contains("你还没有名字"), "{layer}");
-    assert_eq!(h.app.loop_def(&id).unwrap().name, "");
-    let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "  issue 分拣\n多余的行" })).await;
-    assert!(!err, "{said}");
+    // The person names it; until then the first line of its prompt stands in, and a session title
+    // (the fake agent gives one) does not name it.
+    assert_eq!(h.app.loop_def(&id).unwrap().title(), "看看有什么新 issue");
+    let named =
+        json!({ "name": "  issue 分拣\n多余的行", "prompt": "看看有什么新 issue", "schedule": cron("0 * * * *") });
+    h.app.update_loop(&id, &named).unwrap();
     assert_eq!(h.app.loop_def(&id).unwrap().name, "issue 分拣");
     assert_eq!(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["goal"], "issue 分拣");
-    assert!(has(&events(&h.app, &run), "loop.named"));
-    let (said, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "别的名字" })).await;
-    assert!(err && said.contains("只起一次"), "{said}");
+    let unnamed = json!({ "name": "", "prompt": "看看有什么新 issue", "schedule": cron("0 * * * *") });
+    assert_eq!(h.app.update_loop(&id, &unnamed).unwrap()["title"], "看看有什么新 issue");
 
     // Its session has the Loop's tools, not the board's.
     let (text, err) = tool(&h.app, &run, "lead", "orchestrate", json!({ "tasks": [] })).await;
@@ -95,8 +94,6 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
         tool(&h.app, &run, "lead", "dispatch", json!({ "goal": "再修一次", "key": "github:o/r#1" })).await;
     assert!(!err && text.contains(&goal_run), "{text}");
     assert_eq!(h.app.db.dispatched_runs(&id, None, 10).unwrap().len(), 1, "one run per key");
-    let (text, _) = tool(&h.app, &run, "lead", "dispatches", json!({})).await;
-    assert!(text.contains(&goal_run) && text.contains("github:o/r#1"), "{text}");
     let (_, err) = tool(&h.app, &run, "lead", "dispatch", json!({ "goal": "", "key": "k" })).await;
     assert!(err, "a dispatch needs a goal");
     // A question to the person does not hold the Loop; the answer wakes it.
@@ -110,11 +107,14 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     wait_until(&h.app, &run, "the answer wakes it", |e| count(e, "loop.slept") == 2).await;
     let second = events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "loop.woke").nth(1).unwrap();
     assert_eq!(second.data.unwrap()["reason"], "answer");
-
-    // What the Loop saves comes back in its system layer.
-    let (_, err) = tool(&h.app, &run, "lead", "save_state", json!({ "text": "看到 #1 为止" })).await;
-    assert!(!err);
-    assert!(h.app.loop_brief(&live).contains("看到 #1 为止"));
+    // Each wake names the runs it dispatched, still at work or ended since.
+    let prompt = events(&h.app, &run)
+        .into_iter()
+        .filter(|e| e.kind.as_str() == "user.message" && e.actor == "janus")
+        .nth(1)
+        .and_then(|e| e.data?["text"].as_str().map(str::to_owned))
+        .unwrap();
+    assert!(prompt.contains(&format!("- {goal_run}（key github:o/r#1）")), "{prompt}");
 
     // The person talking to it is a turn of its own, not a wake: the clock does not move.
     let before = h.app.loop_view(&h.app.loop_def(&id).unwrap()).unwrap()["status"]["nextWakeAt"].clone();
@@ -371,8 +371,8 @@ async fn a_restart_keeps_when_it_wakes_after_a_new_schedule_or_a_pause() {
 }
 
 /// A run a Loop dispatched owns its goal until it ends: the Loop can pass it what it knows while
-/// it works (`note_dispatch`, only to its own runs), and its end wakes the Loop with what it came
-/// to. A paused Loop is not woken, and hears of it in its next wake.
+/// it works (`dispatch` with the same key, only to its own runs), and its end wakes the Loop with
+/// what it came to. A paused Loop is not woken, and hears of it in its next wake.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     let h = harness("loops-ended", &[("lead", false), ("m1", false)], json!({}));
@@ -397,22 +397,22 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     })
     .await;
 
-    // While it works, what the Loop knows goes to its lead, said to come from the Loop.
+    // While it works, the same key passes what the Loop knows to its lead, said to come from the
+    // Loop; nothing new is dispatched.
     let (text, err) =
-        tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": a, "text": "导出要支持 UTF-8 BOM" })).await;
-    assert!(!err, "{text}");
+        tool(&h.app, &run, "lead", "dispatch", json!({ "goal": "导出要支持 UTF-8 BOM", "key": "a" })).await;
+    assert!(!err && text.contains("转告给它的负责人"), "{text}");
     let note = events(&h.app, &a).into_iter().rfind(|e| e.kind.as_str() == "user.message").unwrap();
     assert_eq!((note.actor.as_str(), note.to.as_deref()), ("janus", Some("lead")));
-    assert!(note.data.unwrap()["text"].as_str().unwrap().contains("来自工作区的值班"), "says who it is from");
-    // Only to its own runs: another Loop's run, its own session, or nothing at all are refused.
+    let said = note.data.unwrap()["text"].as_str().unwrap().to_string();
+    assert!(said.contains("来自工作区的值班") && said.contains("UTF-8 BOM"), "says who it is from: {said}");
+    assert_eq!(h.app.db.dispatched_runs(&id, None, 10).unwrap().len(), 2, "a and b");
+    // Only to its own runs: another Loop of the workspace with the same key passes nothing on.
     let (_, other) = new_loop(&h, "盯着别的", Value::Null, true).await;
     wait_until(&h.app, &other, "the other wake", |e| has(e, "loop.slept")).await;
-    let (text, err) = tool(&h.app, &other, "lead", "note_dispatch", json!({ "run": a, "text": "冒充" })).await;
-    assert!(err && text.contains("不是这个值班派出的"), "{text}");
-    let (text, err) = tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": run, "text": "x" })).await;
-    assert!(err && text.contains("不是这个值班派出的"), "{text}");
-    let (_, err) = tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": a, "text": " " })).await;
-    assert!(err, "a note needs text");
+    let (text, err) = tool(&h.app, &other, "lead", "dispatch", json!({ "goal": "冒充", "key": "a" })).await;
+    assert!(!err && text.contains("不是你派出的"), "{text}");
+    assert!(!events(&h.app, &a).iter().any(|e| e.kind.as_str() == "user.message" && e.text.contains("冒充")));
 
     // Cancelled by the person: the Loop wakes, told it was their decision.
     h.app.request_action(&b, &req(json!({ "type": "cancel" }))).await.unwrap();
@@ -420,8 +420,10 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     let woke = events(&h.app, &run).into_iter().rfind(|e| e.kind.as_str() == "loop.woke").unwrap();
     assert_eq!(woke.data.unwrap()["reason"], "dispatch");
     let prompt = wake_prompts(&h).pop().unwrap();
-    assert!(prompt.starts_with("盯着导出\n\n上次醒来后结束的、你派出的任务"), "{prompt}");
-    assert!(prompt.contains(&format!("- {b}（key b）：被用户取消")) && !prompt.contains(&a), "{prompt}");
+    let at_work =
+        format!("盯着导出\n\n你派出、还在进行的任务：\n- {a}（key a）：进行中\n\n上次醒来后结束的、你派出的任务");
+    assert!(prompt.starts_with(&at_work), "{prompt}");
+    assert!(prompt.contains(&format!("- {b}（key b）：被用户取消")), "{prompt}");
 
     // Delivered: woken with the delivery's summary; a run that ended takes no more notes.
     finish_lead(&h);
@@ -433,8 +435,8 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
         prompt.contains(&format!("- {a}（key a）：已交付，用户在收件箱里验收\n  {}", clip(summary.trim(), 600))),
         "{prompt}"
     );
-    let (text, err) = tool(&h.app, &run, "lead", "note_dispatch", json!({ "run": a, "text": "还有" })).await;
-    assert!(err && text.contains("不在进行中"), "{text}");
+    let (text, err) = tool(&h.app, &run, "lead", "dispatch", json!({ "goal": "还有", "key": "a" })).await;
+    assert!(!err && text.contains("没有再派") && text.contains(summary.trim()), "{text}");
 
     // Paused: the end is noted but does not wake it; the next wake tells it.
     h.app.pause_loop(&id, true).unwrap();
@@ -447,12 +449,12 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     let prompt = wake_prompts(&h).pop().unwrap();
     assert!(prompt.contains(&format!("- {c}（key c）：已交付")) && !prompt.contains(&b), "{prompt}");
 
-    // Its system layer says the run owns its goal and its end wakes the Loop; note_dispatch's
+    // Its system layer says the run owns its goal and its end wakes the Loop; dispatch's
     // description says how to pass on what it knows.
     let layer = h.app.loop_brief(&h.app.run(&run).unwrap());
     assert!(layer.contains("在结束前对自己的目标负责") && layer.contains("它结束时会唤醒你"), "{layer}");
-    let note = LoopTool::NoteDispatch.definition(crate::lang::Lang::Zh);
-    assert!(note["description"].as_str().unwrap().contains("代替为同一件事再派一个任务"), "{note}");
+    let dispatch = LoopTool::Dispatch.definition(crate::lang::Lang::Zh);
+    assert!(dispatch["description"].as_str().unwrap().contains("转告给它的负责人"), "{dispatch}");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
@@ -467,7 +469,7 @@ async fn a_loop_in_english_is_told_everything_in_english() {
     let live = h.app.run(&run).unwrap();
     assert_eq!(live.lang, crate::lang::Lang::En);
     let layer = h.app.loop_brief(&live);
-    assert!(layer.starts_with("You are the Loop of the workspace") && layer.contains("- janus.set_name: "), "{layer}");
+    assert!(layer.starts_with("You are the Loop of the workspace") && layer.contains("- janus.next_wake: "), "{layer}");
     assert!(!layer.contains("值班"), "{layer}");
     let tools = Caller::Loop.tools(live.lang);
     let about =
@@ -475,9 +477,7 @@ async fn a_loop_in_english_is_told_everything_in_english() {
     assert!(about("dispatch").starts_with("Start a goal run") && about("recall").starts_with("Search the workspace"));
     let (text, err) = tool(&h.app, &run, "lead", "dispatch", json!({ "goal": "", "key": "k" })).await;
     assert!(err && text == "goal and key must both be given", "{text}");
-    let (text, err) = tool(&h.app, &run, "lead", "set_name", json!({ "name": "Queue watch" })).await;
-    assert!(!err && text == "OK, your name is \"Queue watch\".", "{text}");
-    let (text, err) = tool(&h.app, &run, "lead", "dispatches", json!({})).await;
-    assert!(!err && text == "No runs dispatched yet.", "{text}");
+    let (text, err) = tool(&h.app, &run, "lead", "next_wake", json!({ "after_seconds": 120, "reason": "x" })).await;
+    assert!(err && text == "This is not a wake: only a wake's turn can set when to wake next", "{text}");
     let _ = std::fs::remove_dir_all(&h.dir);
 }

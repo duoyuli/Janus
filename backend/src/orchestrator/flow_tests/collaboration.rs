@@ -2,7 +2,7 @@
 //! `wait` + live task pulse, verifier `verdict` + targeted context, structured `handoff`, multi-step
 //! loop detection, Lead edit conflict/stale tracking, warm session continuation (`continues` /
 //! `retry` with `session: "continue"`, rework on a verification's findings), role `slots` + concurrency cap, observational token budget, collaborator
-//! `request_split`, and abnormal-session usage capture.
+//! split proposals, and abnormal-session usage capture.
 
 use super::*;
 
@@ -157,7 +157,7 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
         call_with_cred(&h.app, &run, &t1_token, &t1_seat, "orchestrate", json!({ "tasks": [] })).await.unwrap();
     assert!(is_err && denied.contains("没有这个工具"), "{denied}");
     assert!(
-        call_with_cred(&h.app, &run, &t1_token, &Seat::Lead, "team", json!({})).await.is_err(),
+        call_with_cred(&h.app, &run, &t1_token, &Seat::Lead, "board", json!({})).await.is_err(),
         "forging who=lead with collaborator token must fail authentication"
     );
 
@@ -442,7 +442,7 @@ async fn alternating_tool_loops_and_lead_edit_conflicts_reach_the_board() {
     assert!(board.contains("连续 4 轮重复同一组调用"), "{board}");
     assert!(board.contains("[冲突] T3") && board.contains("你改了它负责或正在改的"), "{board}");
 
-    let (detail, _) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T3" })).await;
+    let (detail, _) = tool(&h.app, &run, "lead", "board", json!({ "task": "T3" })).await;
     assert!(detail.contains("负责人改了这个子任务的文件：owned.rs"), "{detail}");
 
     let (_, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T3", "text": "alpha" })).await;
@@ -589,14 +589,14 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
     wait_until(&h.app, &run, "T1 asks", |e| task_event(e, "question.asked", "T1")).await;
 
     let (t1_token, _) = client_mcp_cred(&h, "T1").await;
-    // Negative path check on `request_split`.
+    // Negative path check on a split proposal (`ask` with `split`).
     let (bad_path, is_err) = call_with_cred(
         &h.app,
         &run,
         &t1_token,
         &Seat::Task("T1".into()),
-        "request_split",
-        json!({ "reason": "太大", "subtasks": [{ "title": "越界", "owns": ["../outside"] }] }),
+        "ask",
+        json!({ "text": "要拆吗", "split": { "reason": "太大", "subtasks": [{ "title": "越界", "owns": ["../outside"] }] } }),
     )
     .await
     .unwrap();
@@ -608,15 +608,15 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
         &run,
         &t1_token,
         &Seat::Task("T1".into()),
-        "request_split",
-        json!({
+        "ask",
+        json!({ "text": "按这样拆可以吗", "split": {
             "reason": "涉及解析器与代码生成两个独立子系统",
             "completed": "已完成 AST 定义",
             "subtasks": [
                 { "title": "实现解析器", "owns": ["src/parser.rs"], "accept": ["单测通过"] },
                 { "title": "实现代码生成", "owns": ["src/codegen.rs"], "accept": ["单测通过"] }
             ]
-        }),
+        } }),
     )
     .await
     .unwrap();
@@ -629,15 +629,15 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
     assert!(!err);
     wait_until(&h.app, &run, "V1 asks", |e| task_event(e, "question.asked", "V1")).await;
 
-    // Rule 1 negative check: verifier `V1` calling `request_split` with its own credential is refused.
+    // Rule 1 negative check: verifier `V1` proposing a split with its own credential is refused.
     let (v1_token, _) = client_mcp_cred(&h, "V1").await;
     let (refused, is_err) = call_with_cred(
         &h.app,
         &run,
         &v1_token,
         &Seat::Task("V1".into()),
-        "request_split",
-        json!({ "reason": "想拆", "subtasks": [{ "title": "子项" }] }),
+        "ask",
+        json!({ "text": "要拆吗", "split": { "reason": "想拆", "subtasks": [{ "title": "子项" }] } }),
     )
     .await
     .unwrap();

@@ -5,7 +5,7 @@
 //! tasks that may run at the same time cannot be given the same files; the conflict detection in
 //! `record_edits` stays as the backstop for what was not declared. A verification task
 //! (`verifies`) is done by another member, starts after the task it checks, changes no files,
-//! and its failure cannot be waved through with `accept`: the lead orchestrates a fix and a new
+//! and its failure cannot be waved through with `amend`: the lead orchestrates a fix and a new
 //! verification, or cancels obsolete downstream work on the record. None of this adds task states or
 //! event types; it is the orchestration's own data, checked when it is submitted.
 // @project-doc docs/domains/20261031-goal_mode.md#team_structure
@@ -212,39 +212,6 @@ pub fn owner_of<'a>(path: &str, me: &str, board: &[(&'a TaskDef, TaskStatus)]) -
         .map(|(d, _)| d.id.as_str())
 }
 
-/// A collaborator claims `paths` while it works (`janus.claim`): ownership taken when the work
-/// shows what it needs, not only what the lead guessed up front. It lapses when the task ends,
-/// as all ownership does. Refused for a verifier, which changes no files, and for a path an
-/// open task that may run alongside owns. Returns the paths not already the task's own.
-pub fn claim(
-    me: &TaskDef,
-    paths: &[String],
-    board: &[(&TaskDef, TaskStatus)],
-    lang: Lang,
-) -> Result<Vec<String>, String> {
-    let id = &me.id;
-    if me.verifies.is_some() {
-        return Err(tr!(
-            lang,
-            "{id} 是验证子任务，不能认领文件",
-            "{id} is a verification subtask and cannot claim files"
-        ));
-    }
-    let taken: Vec<String> = paths
-        .iter()
-        .filter_map(|p| owner_of(p, &me.id, board).map(|o| tr!(lang, "{p} 归 {o} 负责", "{p} belongs to {o}")))
-        .collect();
-    if !taken.is_empty() {
-        let taken = taken.join(lang.pick("；", "; "));
-        return Err(tr!(
-            lang,
-            "不能认领：{taken}。需要改它们时，用 janus.board_post 写一条 blocker",
-            "Cannot claim: {taken}. If you need to change them, post a blocker with janus.board_post"
-        ));
-    }
-    Ok(paths.iter().filter(|p| !me.owns.iter().any(|o| covers(o, p))).cloned().collect())
-}
-
 /// Targeted workspace facts handed to an independent verifier about the task it checks: its scoped
 /// diff artifact, the files it actually edited, any trace discrepancies, weak-evidence reminders
 /// (`reasoning` / `unverified` / unspecified), and risks the executor reported.
@@ -270,8 +237,8 @@ pub fn task_section(def: &TaskDef, verified: Option<&VerifiedContext<'_>>, lang:
         let owns = def.owns.join(sep);
         p.push_str(&tr!(
             lang,
-            "\n\n你负责的文件：{owns}。只改这些；要改别的文件，先认领，或向负责人提问。",
-            "\n\nFiles you own: {owns}. Change only these; to change another file, claim it first or ask the lead."
+            "\n\n你负责的文件：{owns}。只改这些；要改别的文件，先问负责人。",
+            "\n\nFiles you own: {owns}. Change only these; ask the lead before you change another file."
         ));
     }
     if let Some(vc) = verified {
@@ -398,15 +365,16 @@ impl FilesSince {
     }
 }
 
-/// Why `accept` is refused for a task, if it verifies another one: a failed verification is
-/// settled by fixing and verifying again (the tool's description says how), or by cancelling.
-pub fn accept_refused(def: &TaskDef, lang: Lang) -> Option<String> {
+/// Why `amend` is refused for a task, if it verifies another one: neither its verdict nor its
+/// conclusion is the lead's to rewrite. A failed verification is settled by fixing and verifying
+/// again (the tool's description says how), or by cancelling.
+pub fn amend_refused(def: &TaskDef, lang: Lang) -> Option<String> {
     let target = def.verifies.as_deref()?;
     let id = &def.id;
     Some(tr!(
         lang,
-        "{id} 是 {target} 的独立验证，janus.accept 不能放行它的判定",
-        "{id} independently verifies {target}; janus.accept cannot pass its verdict"
+        "{id} 是 {target} 的独立验证，janus.amend 不能改它的判定和结论",
+        "{id} independently verifies {target}; janus.amend cannot change its verdict or conclusion"
     ))
 }
 
@@ -511,10 +479,10 @@ mod tests {
         let board = [(def("T1", "m1", &[], &[], None), TaskStatus::Succeeded)];
         assert!(errors(&mut [def("V1", "m2", &[], &[], Some("T1"))], &board).is_empty());
         assert!(
-            accept_refused(&def("V1", "m2", &["T1"], &[], Some("T1")), Lang::Zh)
+            amend_refused(&def("V1", "m2", &["T1"], &[], Some("T1")), Lang::Zh)
                 .is_some_and(|x| x.contains("V1 是 T1 的独立验证"))
         );
-        assert!(accept_refused(&def("T1", "m1", &[], &[], None), Lang::Zh).is_none());
+        assert!(amend_refused(&def("T1", "m1", &[], &[], None), Lang::Zh).is_none());
     }
 
     #[test]
@@ -538,27 +506,6 @@ mod tests {
         assert_eq!(owner_of("docs/x.md", "B", &board), Some("C"), "pending but unordered with B");
         assert_eq!(owner_of("lib.rs", "B", &board), None, "a finished task's ownership has lapsed");
         assert_eq!(owner_of("srcx/a.rs", "B", &board), None);
-    }
-
-    #[test]
-    fn claims_take_free_files_and_are_refused_for_taken_ones() {
-        let (a, mut b, v) = (
-            def("A", "m1", &[], &["src"], None),
-            def("B", "m2", &[], &["docs"], None),
-            def("V", "m3", &[], &[], Some("A")),
-        );
-        let board = [(&a, TaskStatus::Running), (&b, TaskStatus::Running), (&v, TaskStatus::Pending)];
-        assert_eq!(
-            claim(&b, &["README.md".into(), "docs/a.md".into()], &board, Lang::Zh).unwrap(),
-            vec!["README.md"],
-            "docs/a.md is already B's"
-        );
-        let e = claim(&b, &["src/a.rs".into(), "x".into()], &board, Lang::Zh).unwrap_err();
-        assert!(e.contains("src/a.rs 归 A 负责") && e.contains("blocker"), "{e}");
-        assert!(claim(&v, &["y".into()], &board, Lang::Zh).unwrap_err().contains("验证子任务"));
-        b.owns.clear();
-        let done = [(&a, TaskStatus::Succeeded)];
-        assert_eq!(claim(&b, &["src/a.rs".into()], &done, Lang::Zh).unwrap(), vec!["src/a.rs"], "A is done");
     }
 
     #[test]

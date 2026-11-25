@@ -374,7 +374,7 @@ async fn lead_resolves_failed_tasks() {
     let (text, err) = tool(&h.app, &run, "lead", "reply", json!({ "task": "T1", "text": "继续" })).await;
     assert!(err && text.contains("已经结束"), "{text}");
     let (text, err) =
-        tool(&h.app, &run, "lead", "accept", json!({ "task": "T1", "reason": "我打开过页面，可以用" })).await;
+        tool(&h.app, &run, "lead", "amend", json!({ "task": "T1", "text": "我打开过页面，可以用" })).await;
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "T2 after accept", |e| task_event(e, "task.succeeded", "T2")).await;
 

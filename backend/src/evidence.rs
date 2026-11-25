@@ -1,5 +1,5 @@
 //! Acceptance evidence: the method behind each check, the rules that decide whether a result
-//! passes, and the summary the board, `task_detail` and the delivery show.
+//! passes, and the summary the board, `janus.board` and the delivery show.
 //!
 //! A check may name how it was verified (`method`). A check that names none is shown as
 //! 「未说明」 and is never read as `reasoning` or as a failure. A value outside [`Method::ALL`] is kept as written in `Check::method_error` and fails
@@ -140,7 +140,7 @@ pub struct MethodCount {
 }
 
 /// The numbers and reminders behind one task's checks, shown after them on the board, in
-/// `task_detail` and in the delivery.
+/// `janus.board` and in the delivery.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Summary {
     pub criteria: usize,

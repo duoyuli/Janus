@@ -586,7 +586,7 @@ impl Ledger {
         self.tasks.iter().find(|t| t.id == id)
     }
 
-    /// `用量：… · 费用：… · 耗时 …`, as `team` reads it.
+    /// `用量：… · 费用：… · 耗时 …`, as `janus.board` reads it.
     pub fn summary_line(&self) -> String {
         format!("用量：{}", self.run_line())
     }
@@ -609,7 +609,7 @@ impl Ledger {
         line
     }
 
-    /// The usage part of `task_detail`: the task, its makeup and context, each attempt and the
+    /// The usage part of `janus.board` on one task: the task, its makeup and context, each attempt and the
     /// members that spent it.
     pub fn task_lines(&self, task: &str, names: &Names, lang: Lang) -> Vec<String> {
         let Some(scope) = self.task(task).filter(|s| s.sessions > 0) else {

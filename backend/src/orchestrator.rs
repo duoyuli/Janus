@@ -118,7 +118,7 @@ const LOOP_REPEAT: u32 = 5;
 /// Board events that need the lead are gathered this long before they go into its session, so
 /// a burst arrives as one message.
 const PUSH_SETTLE: Duration = Duration::from_secs(2);
-/// How much of a result the board inlines; the rest is one `task_detail` call away.
+/// How much of a result the board inlines; the rest is one `janus.board` call away.
 const INLINE_SUMMARY: usize = 300;
 const INLINE_ITEM: usize = 160;
 const INLINE_ITEMS: usize = 3;

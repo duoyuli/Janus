@@ -44,12 +44,9 @@ async fn collaborator_input_has_limits() {
     assert!(err && text.contains("8000"), "{text}");
     let (text, err) = tool(&h.app, &run, "T1", "board_post", json!({ "text": "长".repeat(8000) })).await;
     assert!(!err, "{text}");
-    let many: Vec<String> = (0..101).map(|i| format!("src/f{i}.rs")).collect();
-    let (text, err) = tool(&h.app, &run, "T1", "claim", json!({ "paths": many })).await;
-    assert!(err && text.contains("100"), "{text}");
     let subtasks: Vec<Value> = (0..9).map(|i| json!({ "title": format!("部分 {i}") })).collect();
-    let (text, err) =
-        tool(&h.app, &run, "T1", "request_split", json!({ "reason": "太大", "subtasks": subtasks })).await;
+    let split = json!({ "text": "要拆吗", "split": { "reason": "太大", "subtasks": subtasks } });
+    let (text, err) = tool(&h.app, &run, "T1", "ask", split).await;
     assert!(err && text.contains('8'), "{text}");
     std::fs::write(h.dir.join("fake/go"), "").unwrap();
     finish_lead(&h);

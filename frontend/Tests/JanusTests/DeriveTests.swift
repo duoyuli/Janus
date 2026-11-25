@@ -164,13 +164,10 @@ private func goalRun() -> Log {
 
 @Test func tracesOpenOnTheBoardUntilTheLeadActs() {
     var log = goalRun()
-    log.add("task.claimed", actor: "researcher", to: "lead", task: "T1", data: ["paths": ["notes.md"]])
     log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"], "owned": true])
     var st = derive(log.events)
-    #expect(st.tasks["T1"]?.owns == ["notes.md"], "a claim adds to what the task owns")
     var f = boardFacts(st) { $0 }
     #expect(f.open.contains { $0.title == expectedCopy("T1 改了 T2 负责的文件", "T1 edited files owned by T2") && $0.text == "calc.py" && !$0.you })
-    #expect(f.handoffs.contains { $0.summary == expectedCopy("认领：notes.md", "Claimed: notes.md") })
     // The same edit also seen as both tasks editing one file: the overstep says it all.
     log.add("task.conflict", actor: "janus", to: "lead", task: "T1", data: ["other": "T2", "paths": ["calc.py"]])
     f = boardFacts(derive(log.events)) { $0 }

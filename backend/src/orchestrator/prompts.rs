@@ -343,11 +343,9 @@ pub(super) fn collaborator_rules(lang: Lang) -> String {
 
 协作工具（janus MCP 服务器；每个工具的详细用法和限制写在它自己的说明里，用到时再看）：
 - janus.submit：交子任务的结果。
-- janus.ask：向负责人提问。
+- janus.ask：向负责人提问；子任务远超预期时，附上拆分提议。
 - janus.board_post：在看板上写进展、阻塞或备注；阻塞会立即推给负责人。
-- janus.claim：改负责范围以外的文件前先认领。
-- janus.peers：看其他子任务的状态、负责和改过的文件，以及某个子任务的完整结果。
-- janus.request_split：子任务远超预期时，向负责人提出拆分。
+- janus.board：看其他子任务的状态、负责和改过的文件，以及某个子任务的完整结果。
 - janus.recall、janus.remember：查团队记忆；记下之后的任务还用得上的事。",
         "You are a collaborator on the Janus team: do the subtask the lead gives you and report as below.
 
@@ -362,11 +360,9 @@ When you finish: Hand in your result, reporting each acceptance criterion in ord
 
 Collaboration tools (the janus MCP server; each tool's own description has its full usage and limits, so read it when you need the tool):
 - janus.submit: hand in your subtask's result.
-- janus.ask: ask the lead a question.
+- janus.ask: ask the lead a question; when the subtask is far bigger than expected, add a split proposal.
 - janus.board_post: post progress, a blocker, or a note on the board; a blocker reaches the lead at once.
-- janus.claim: claim files outside your scope before you change them.
-- janus.peers: see the other subtasks' status, owned and changed files, and any subtask's full result.
-- janus.request_split: propose a split to the lead when the subtask is far bigger than expected.
+- janus.board: see the other subtasks' status, owned and changed files, and any subtask's full result.
 - janus.recall, janus.remember: search the team memory; keep what later runs will need.",
     )
     .to_string()

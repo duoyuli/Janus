@@ -85,7 +85,7 @@ def restart(ctx, c):
         c("[完成] T2" in board, "中断的 T2 重新执行并完成，下游 T3 随后完成")
         c(not [e for e in run.has("attempt.started") if e.get("task") == "T1"][1:], "已完成的 T1 不重跑")
         lead = run.lead()
-        detail, _ = lead.call("task_detail", {"task": "T1"})
+        detail, _ = lead.call("board", {"task": "T1"})
         c("a.txt" in detail, "重启后 T1 改过的文件（痕迹）仍在")
         run.finish("重启后也完成了")
         c(run.status() == "delivered", "恢复的 Run 交付")

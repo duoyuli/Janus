@@ -18,15 +18,13 @@ pub(super) fn board_act() -> Value {
 wire_enum! {
     /// A tool on the lead's board.
     pub(super) enum LeadTool {
-        Team = "team",
+        Board = "board",
         Orchestrate = "orchestrate",
         Wait = "wait",
         Reply = "reply",
         Retry = "retry",
-        Accept = "accept",
         Amend = "amend",
         Cancel = "cancel",
-        TaskDetail = "task_detail",
         AskUser = "ask_user",
     }
 }
@@ -38,12 +36,12 @@ impl LeadTool {
     pub(super) fn definition(self, lang: Lang) -> Value {
         let t = |zh, en| lang.pick(zh, en);
         let mut d = match self {
-            LeadTool::Team => json!({
+            LeadTool::Board => json!({
                 "description": t(
-                    "查看协作者（名字和职责）和共享看板上所有子任务的当前状态。",
-                    "See the collaborators (names and responsibilities) and the current status of every subtask on the shared board."
+                    "查看共享看板。不传 task：协作者（名字和职责）和所有子任务的当前状态。传 task：这个子任务的全部信息：说明、验收标准、用量、完整结果（逐条验收、证据方法、全部证据、风险）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游子任务。janus.wait 里的完成消息只有摘要，需要细节时传 task。",
+                    "See the shared board. Without task: the collaborators (names and responsibilities) and the current status of every subtask. With task: everything the board holds on that subtask: instructions, acceptance criteria, usage, the full result (each check, the evidence methods, all evidence, risks), independent verification results, your revisions, files changed, artifacts, progress and questions on the board, and its upstream and downstream subtasks. Completion messages in janus.wait carry only a summary; pass task for the details."
                 ),
-                "inputSchema": { "type": "object", "properties": {} },
+                "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
                 "annotations": board_read()
             }),
             LeadTool::Orchestrate => json!({
@@ -153,32 +151,17 @@ impl LeadTool {
                 },
                 "annotations": board_act()
             }),
-            LeadTool::Accept => json!({
-                "description": t(
-                    "接受一个没有通过验收核对的子任务的结果：执行者自认没有完全达到某条标准，但你核对后认为可以接受。子任务算作完成，没达到的部分作为风险记录，依赖它的子任务继续执行。独立验证没通过不能用它放行：用 janus.retry 让有问题的子任务返工，from 指向这个验证。",
-                    "Accept the result of a subtask that failed its acceptance check: the assignee reported falling short of a criterion, and after checking you find the result acceptable. The subtask counts as done, the shortfall is recorded as a risk, and subtasks that depend on it go on. It cannot pass a failed independent verification: rework the subtask at fault with janus.retry, from set to that verification."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["task", "reason"],
-                    "properties": { "task": { "type": "string" }, "reason": { "type": "string", "description": t(
-                        "你核对了什么，为什么没达到的部分不影响目标",
-                        "What you checked, and why the shortfall does not affect the goal"
-                    ) } }
-                },
-                "annotations": board_act()
-            }),
             LeadTool::Amend => json!({
                 "description": t(
-                    "修订一个已完成子任务的结论（例如推翻它的判断），之后以修订为准。正在执行的下游子任务立即收到修订，还没开始的在交接时拿到；已经基于旧结论完成的下游子任务会列出来，由你决定是否重做。",
-                    "Revise the conclusion of a finished subtask (for example, overturn its judgment); the revision then stands. Running downstream subtasks get it at once, those not started get it at handoff; downstream subtasks already finished on the old conclusion are listed for you to decide whether to redo them."
+                    "修订一个子任务的结论，之后以修订为准。已完成的子任务：修订它的结论（例如推翻它的判断）；正在执行的下游子任务立即收到修订，还没开始的在交接时拿到，已经基于旧结论完成的下游子任务会列出来，由你决定是否重做。没通过验收核对的子任务（执行者自认没达到某条标准）：你核对后认为结果可以接受时，用它接受这个结果；子任务算作完成，没达到的部分记为风险，依赖它的子任务继续执行。独立验证子任务的判定和结论不能用它改：验证没通过时，用 janus.retry 让有问题的子任务返工，from 指向这个验证。",
+                    "Revise a subtask's conclusion; the revision then stands. For a finished subtask, revise its conclusion (for example, overturn its judgment): running downstream subtasks get it at once, those not started get it at handoff, and downstream subtasks already finished on the old conclusion are listed for you to decide whether to redo them. For a subtask that failed its acceptance check (the assignee reported falling short of a criterion), use it to accept the result once you have checked it and find it acceptable: the subtask counts as done, the shortfall is recorded as a risk, and subtasks that depend on it go on. It cannot change an independent verification's verdict or conclusion: when a verification fails, rework the subtask at fault with janus.retry, from set to that verification."
                 ),
                 "inputSchema": {
                     "type": "object",
                     "required": ["task", "text"],
                     "properties": { "task": { "type": "string" }, "text": { "type": "string", "description": t(
-                        "修订后的结论，以及和原结论的区别",
-                        "The revised conclusion, and how it differs from the original"
+                        "修订后的结论，以及和原结论的区别；接受没达到标准的结果时，写你核对了什么、为什么没达到的部分不影响目标",
+                        "The revised conclusion, and how it differs from the original; when accepting a result that fell short, what you checked and why the shortfall does not affect the goal"
                     ) } }
                 },
                 "annotations": board_act()
@@ -197,14 +180,6 @@ impl LeadTool {
                     }
                 },
                 "annotations": board_act()
-            }),
-            LeadTool::TaskDetail => json!({
-                "description": t(
-                    "查看看板上一个子任务的全部信息：说明、验收标准、用量、完整结果（逐条验收、证据方法、全部证据、风险）、独立验证的结果、你的修订、改过的文件、产物、看板上的进展和问答，以及它的上游和下游子任务。janus.wait 里的完成消息只有摘要，需要细节时用它。",
-                    "See everything the board holds on one subtask: instructions, acceptance criteria, usage, the full result (each check, the evidence methods, all evidence, risks), independent verification results, your revisions, files changed, artifacts, progress and questions on the board, and its upstream and downstream subtasks. Completion messages in janus.wait carry only a summary; use this for the details."
-                ),
-                "inputSchema": { "type": "object", "required": ["task"], "properties": { "task": { "type": "string" } } },
-                "annotations": board_read()
             }),
             LeadTool::AskUser => json!({
                 "description": t(
@@ -235,16 +210,13 @@ impl LeadTool {
 /// What one collaborator call may put on the board: enough for any real report, not enough to
 /// flood the database or the lead's context (AT-17). The tools' schemas state them too.
 pub(super) const POST_MAX_CHARS: usize = 8000;
-pub(super) const CLAIM_MAX_PATHS: usize = 100;
 pub(super) const SPLIT_MAX_SUBTASKS: usize = 8;
 
 wire_enum! {
     /// A tool a collaborator has on the board.
     pub(super) enum MemberTool {
         BoardPost = "board_post",
-        Claim = "claim",
-        Peers = "peers",
-        RequestSplit = "request_split",
+        Board = "board",
         Submit = "submit",
         Ask = "ask",
     }
@@ -276,27 +248,10 @@ impl MemberTool {
                 },
                 "annotations": board_read()
             }),
-            MemberTool::Claim => json!({
+            MemberTool::Board => json!({
                 "description": t(
-                    "改你负责范围以外的文件之前先认领：认领后它们归你的子任务负责，到子任务结束为止，别的子任务再改它们时 Janus 会提醒对方和负责人。你改了别的子任务也在改或负责的文件时，Janus 同样会提醒你。子任务结束时，Janus 拿你实际改过的文件核对负责范围。已经归另一个可能同时进行的子任务负责的文件不能认领，会返回负责它的子任务。验证子任务不改文件，不能认领。",
-                    "Claim files outside your scope before you change them: they then belong to your subtask until it ends, and Janus warns any other subtask that changes them, and the lead. Janus likewise warns you when you change files another subtask is changing or owns. When your subtask ends, Janus checks the files you actually changed against your scope. Files already owned by another subtask that may run at the same time cannot be claimed; the owning subtask is returned. Verification subtasks change no files and cannot claim."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["paths"],
-                    "properties": {
-                        "paths": { "type": "array", "items": { "type": "string" }, "maxItems": CLAIM_MAX_PATHS, "description": t(
-                            "相对工作目录的文件或目录，目录包含其下所有文件；文件多时认领所在的目录",
-                            "Files or directories relative to the working directory, a directory covering every file below it; for many files, claim their directory"
-                        ) }
-                    }
-                },
-                "annotations": board_read()
-            }),
-            MemberTool::Peers => json!({
-                "description": t(
-                    "查看看板上其他子任务：状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的子任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task 查看某个子任务的完整说明、结果和负责人的修订，例如上游子任务的证据。",
-                    "See the other subtasks on the board: status, owned files, how they relate to yours (your upstream, depends on you, changed the same files), files running subtasks changed, files changed by others after a subtask finished, and what was recently written to the board. Pass task to see one subtask's full instructions, result and the lead's revisions, for example an upstream subtask's evidence."
+                    "查看共享看板。不传 task：其他子任务的状态、负责的文件、和你的关系（你的上游、依赖你、和你改了同一批文件）、正在执行的子任务改过的文件、完成后又被别人改过的文件，以及最近写回看板的内容。传 task：这个子任务的完整说明、结果和负责人的修订，例如上游子任务的证据。",
+                    "See the shared board. Without task: the other subtasks' status, owned files, how they relate to yours (your upstream, depends on you, changed the same files), files running subtasks changed, files changed by others after a subtask finished, and what was recently written to the board. With task: that subtask's full instructions, result and the lead's revisions, for example an upstream subtask's evidence."
                 ),
                 "inputSchema": { "type": "object", "properties": { "task": { "type": "string" } } },
                 "annotations": board_read()
@@ -347,8 +302,8 @@ impl MemberTool {
             }),
             MemberTool::Ask => json!({
                 "description": t(
-                    "向负责人提问：需要超出你权限的决定才能继续时用。问题在这一轮结束时转给负责人；调用后结束这一轮，回答会作为下一条消息送来。",
-                    "Ask the lead a question when you need a decision beyond your authority to go on. The question goes to the lead when your turn ends; end your turn after calling this, and the answer comes as your next message."
+                    "向负责人提问：需要超出你权限的决定才能继续时用。问题在这一轮结束时转给负责人；调用后结束这一轮，回答会作为下一条消息送来。子任务规模远超预期、需要拆成多个子任务或调整负责边界时，附上 split 拆分提议：负责人立即收到，由它决定是否调整编排。验证子任务不能提拆分。",
+                    "Ask the lead a question when you need a decision beyond your authority to go on. The question goes to the lead when your turn ends; end your turn after calling this, and the answer comes as your next message. When your subtask turns out far larger than expected and should be split into several or have its ownership boundaries changed, add a split proposal: the lead gets it at once and decides whether to change the orchestration. Verification subtasks cannot propose a split."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -356,45 +311,39 @@ impl MemberTool {
                     "properties": {
                         "text": { "type": "string", "description": t("问题", "The question") },
                         "options": { "type": "array", "items": { "type": "string" }, "description": t("可选的答案", "Possible answers") },
-                        "recommend": { "type": "string", "description": t("你建议的选项", "The option you recommend") }
-                    }
-                },
-                "annotations": board_act()
-            }),
-            MemberTool::RequestSplit => json!({
-                "description": t(
-                    "子任务规模远超预期、需要拆成多个子任务或调整负责边界时，向负责人提交拆分提议。负责人立即收到，由它决定是否调整编排。验证子任务不能请求拆分。",
-                    "When your subtask turns out far larger than expected and should be split into several or have its ownership boundaries changed, propose a split to the lead. The lead gets it at once and decides whether to change the orchestration. Verification subtasks cannot request a split."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["reason", "subtasks"],
-                    "properties": {
-                        "reason": { "type": "string", "description": t(
-                            "为什么需要拆分或调整边界",
-                            "Why a split or a boundary change is needed"
-                        ) },
-                        "completed": { "type": "string", "description": t(
-                            "当前已经完成、可保留的前置部分（可选）",
-                            "The part already done that can be kept (optional)"
-                        ) },
-                        "subtasks": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": SPLIT_MAX_SUBTASKS,
-                            "items": {
-                                "type": "object",
-                                "required": ["title"],
-                                "properties": {
-                                    "title": { "type": "string" },
-                                    "owns": { "type": "array", "items": { "type": "string" } },
-                                    "accept": { "type": "array", "items": { "type": "string" } }
+                        "recommend": { "type": "string", "description": t("你建议的选项", "The option you recommend") },
+                        "split": {
+                            "type": "object",
+                            "description": t("拆分提议（可选）", "A split proposal (optional)"),
+                            "required": ["reason", "subtasks"],
+                            "properties": {
+                                "reason": { "type": "string", "description": t(
+                                    "为什么需要拆分或调整边界",
+                                    "Why a split or a boundary change is needed"
+                                ) },
+                                "completed": { "type": "string", "description": t(
+                                    "当前已经完成、可保留的前置部分（可选）",
+                                    "The part already done that can be kept (optional)"
+                                ) },
+                                "subtasks": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": SPLIT_MAX_SUBTASKS,
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["title"],
+                                        "properties": {
+                                            "title": { "type": "string" },
+                                            "owns": { "type": "array", "items": { "type": "string" } },
+                                            "accept": { "type": "array", "items": { "type": "string" } }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 },
-                "annotations": board_read()
+                "annotations": board_act()
             }),
         };
         d["name"] = json!(self.as_str());
@@ -547,7 +496,7 @@ pub(super) fn wakes_board_wait(e: &Event) -> bool {
 
 /// Board events that end an active `janus.wait` at once: what the lead has to act on
 /// (`needs_lead`), a finished task (what comes next may depend on it) and the Run being
-/// cancelled. Entries that only inform (a start, progress, a note, a claim, a failed attempt
+/// cancelled. Entries that only inform (a start, progress, a note, a failed attempt
 /// that is retried, a wait on the person, the lead's own answer or cancel) are handed over with
 /// the next of these, or when the wait times out, so they cost the lead no turn of their own.
 // @project-doc docs/interfaces/20261031-board_mcp.md#wait
@@ -752,7 +701,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             line
         }
         // Inlined up to a budget: enough to decide what to do next; the full result stays one
-        // `task_detail` call away, so a long run does not fill the lead's context.
+        // `janus.board` call away, so a long run does not fill the lead's context.
         EventKind::TaskSucceeded => {
             let st = run.st.lock().unwrap();
             let t = st.tasks.iter().find(|t| t.def.id == task)?;
@@ -891,8 +840,8 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             if clipped {
                 msg.push_str(&tr!(
                     lang,
-                    "\n  （有删节，完整结果见 janus.task_detail {task}）",
-                    "\n  (Clipped; janus.task_detail {task} has the full result)"
+                    "\n  （有删节，完整结果见 janus.board {task}）",
+                    "\n  (Clipped; janus.board {task} has the full result)"
                 ));
             }
             msg
@@ -911,14 +860,6 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 lang,
                 "- [越界] {it}· {name} 改了 {other} 负责的 {paths}，两个子任务可能同时在改。确认分工后用 janus.reply 告诉它。",
                 "- [Out of scope] {it} · {name} changed {paths}, which {other} owns; both subtasks may be changing them at once. Settle the split and tell it with janus.reply."
-            )
-        }
-        EventKind::TaskClaimed => {
-            let paths = paths(&d, lang);
-            tr!(
-                lang,
-                "- [认领] {it}· {name} 认领了 {paths}，到子任务结束为止归它负责。",
-                "- [Claimed] {it} · {name} claimed {paths} until its subtask ends."
             )
         }
         EventKind::TaskConflict => {

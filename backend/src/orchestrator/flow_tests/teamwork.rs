@@ -1,6 +1,5 @@
 //! How collaborators work together on the board: shared material, amended conclusions,
-//! independent verification, edits that conflict, traces checked against results, and claims on
-//! files outside a task's own.
+//! independent verification, edits that conflict and traces checked against results.
 
 use super::*;
 
@@ -146,8 +145,8 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     assert!(board.contains("[无法开始] D1") && board.contains("验证 V1 判定「需要修改」"), "{board}");
     let blocked = evs.iter().find(|e| e.kind.as_str() == "task.blocked" && e.task.as_deref() == Some("D1")).unwrap();
     assert_eq!(blocked.data.as_ref().unwrap()["verdict"], "rejected", "{blocked:?}");
-    let (text, err) = tool(&h.app, &run, "lead", "accept", json!({ "task": "V1", "reason": "我看过了" })).await;
-    assert!(err && text.contains("janus.accept 不能放行"), "{text}");
+    let (text, err) = tool(&h.app, &run, "lead", "amend", json!({ "task": "V1", "text": "我看过了" })).await;
+    assert!(err && text.contains("janus.amend 不能改"), "{text}");
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -195,11 +194,11 @@ async fn conflicting_edits_reach_the_lead_and_both_sides() {
         "one report per file and pair"
     );
 
-    let (detail, err) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
+    let (detail, err) = tool(&h.app, &run, "lead", "board", json!({ "task": "T1" })).await;
     assert!(!err && detail.contains("改过的文件：shared.txt") && detail.contains("[冲突] 和 T2"), "{detail}");
-    let (peers, err) = tool(&h.app, &run, "T2", "peers", json!({})).await;
+    let (peers, err) = tool(&h.app, &run, "T2", "board", json!({})).await;
     assert!(!err && peers.contains("T1") && peers.contains("和你都改了 shared.txt"), "{peers}");
-    let (full, _) = tool(&h.app, &run, "T2", "peers", json!({ "task": "T1" })).await;
+    let (full, _) = tool(&h.app, &run, "T2", "board", json!({ "task": "T1" })).await;
     assert!(full.contains("验收标准"), "{full}");
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
@@ -283,7 +282,7 @@ async fn traces_check_results_and_mark_stale_conclusions() {
     while r.st.lock().unwrap().mcp_token.is_empty() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let (detail, _) = tool(&app2, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
+    let (detail, _) = tool(&app2, &run, "lead", "board", json!({ "task": "T1" })).await;
     assert!(
         detail.contains("负责的文件：a.txt")
             && detail.contains("改过的文件：a.txt")
@@ -291,68 +290,11 @@ async fn traces_check_results_and_mark_stale_conclusions() {
             && detail.contains("[越界] T2"),
         "{detail}"
     );
-    let (detail, _) = tool(&app2, &run, "lead", "task_detail", json!({ "task": "T2" })).await;
+    let (detail, _) = tool(&app2, &run, "lead", "board", json!({ "task": "T2" })).await;
     assert!(detail.contains("痕迹核对"), "{detail}");
-    let (peers, _) = tool(&app2, &run, "T4", "peers", json!({})).await;
+    let (peers, _) = tool(&app2, &run, "T4", "board", json!({})).await;
     assert!(peers.contains("完成后 a.txt 又被改过"), "{peers}");
     finish_lead(&h);
     wait_until(&app2, &run, "delivery", |e| has(e, "run.delivered")).await;
-    let _ = std::fs::remove_dir_all(&h.dir);
-}
-
-/// A collaborator claims files before changing them: free files become its own until the
-/// task ends, files another open task owns are refused, a verifier claims nothing, and later
-/// orchestrations respect the claim.
-#[tokio::test(flavor = "multi_thread")]
-async fn collaborators_claim_files_before_changing_them() {
-    let h = harness(
-        "claim",
-        &[("lead", false), ("m1", true), ("m2", true), ("m3", true)],
-        json!({ "T1": ["slow"], "T2": ["slow"] }),
-    );
-    let run = start(
-        &h,
-        json!([
-            task("T1", "m1", json!({ "owns": ["src"] })),
-            task("T2", "m2", json!({})),
-            task("V1", "m3", json!({ "verifies": "T1" })),
-        ]),
-    )
-    .await;
-    wait_until(&h.app, &run, "both running", |e| {
-        task_event(e, "attempt.started", "T1") && task_event(e, "attempt.started", "T2")
-    })
-    .await;
-    let (text, err) = tool(&h.app, &run, "T2", "claim", json!({ "paths": ["src/x.rs"] })).await;
-    assert!(err && text.contains("src/x.rs 归 T1 负责"), "{text}");
-    let (text, err) = tool(&h.app, &run, "T2", "claim", json!({ "paths": ["docs", "../x"] })).await;
-    assert!(err && text.contains("不在工作目录内"), "{text}");
-    let (text, err) = tool(&h.app, &run, "T2", "claim", json!({ "paths": ["docs/"] })).await;
-    assert!(!err && text.contains("已认领 docs"), "{text}");
-    let (text, err) = tool(&h.app, &run, "T2", "claim", json!({ "paths": ["docs/a.md"] })).await;
-    assert!(!err && text.contains("已经由你的子任务负责"), "{text}");
-    let (text, err) = tool(&h.app, &run, "T1", "claim", json!({ "paths": ["docs/b.md"] })).await;
-    assert!(err && text.contains("归 T2 负责"), "{text}");
-    let (text, err) = tool(&h.app, &run, "V1", "claim", json!({ "paths": ["x"] })).await;
-    assert!(err && text.contains("验证子任务"), "{text}");
-    assert_eq!(events(&h.app, &run).iter().filter(|e| e.kind.as_str() == "task.claimed").count(), 1);
-    let (board, _) = tool(&h.app, &run, "lead", "wait", json!({ "timeout_sec": 1 })).await;
-    assert!(board.contains("[认领] T2") && board.contains("docs"), "{board}");
-    let (peers, _) = tool(&h.app, &run, "T1", "peers", json!({})).await;
-    assert!(peers.contains("负责 docs"), "{peers}");
-    let (text, err) = tool(
-        &h.app,
-        &run,
-        "lead",
-        "orchestrate",
-        json!({ "tasks": [task("T5", "m3", json!({ "owns": ["docs/z.md"] }))] }),
-    )
-    .await;
-    assert!(err && text.contains("T2 和 T5"), "{text}");
-    let (text, err) =
-        tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["T1", "T2"], "reason": "测试结束" })).await;
-    assert!(!err, "{text}");
-    finish_lead(&h);
-    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
     let _ = std::fs::remove_dir_all(&h.dir);
 }

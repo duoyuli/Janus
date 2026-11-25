@@ -20,25 +20,23 @@
 - 目标小到一个人一轮能做完时，负责人自己做；一旦派出第一个子任务，它只做管理，不再改工作目录里的文件，也不接手做不下去的子任务。
 - 独立验证不强制：负责人可以派协作者验证，也可以自己核对；自己核对不单独记录，交付时由它在摘要里交代。
 - 负责人只看到协作者的名字和职责，按职责选人。
-- 协作者之间不直接沟通，一切经过负责人（星形）；`peers` 让协作者看到别人做了什么。
+- 协作者之间不直接沟通，一切经过负责人（星形）；看板工具 `board` 让协作者看到别人做了什么。
 - 团队在 Run 中固定，缺什么能力由负责人告诉用户。
 - 用户可以直接介入协作者的会话，负责人会在看板上读到。
 
 <a id="lead"></a>
 ## 负责人
 
-负责人用 `/goal` 推进目标（见[负责人会话](20261031-goal_mode.md#lead_session)），通过 10 个看板工具管理团队。
+负责人用 `/goal` 推进目标（见[负责人会话](20261031-goal_mode.md#lead_session)），通过 8 个看板工具管理团队。
 
 | 用途 | 工具 | 做什么 |
 | --- | --- | --- |
-| 看 | [`team`](../interfaces/20261031-board_mcp.md#lead_tools) | 协作者（名字和职责）和看板上所有子任务的状态 |
+| 看 | [`board`](../interfaces/20261031-board_mcp.md#task_detail) | 不传 `task`：协作者（名字和职责）和看板上所有子任务的状态；传 `task`：一个子任务的完整说明、结果、证据、验证结论、修订、改过的文件和问答 |
 | | [`wait`](../interfaces/20261031-board_mcp.md#wait) | 取看板新消息；有子任务完成或需要它处理的事时立即返回，否则最多等 180 秒 |
-| | [`task_detail`](../interfaces/20261031-board_mcp.md#task_detail) | 一个子任务的完整说明、结果、证据、验证结论、修订、改过的文件和问答 |
 | 派活 | [`orchestrate`](../interfaces/20261031-board_mcp.md#orchestrate) | 提交一组子任务：执行者、依赖、验收标准，可选 `owns`（负责的文件）、`verifies`（独立验证哪个子任务）、`continues`（接着哪个子任务的会话） |
 | 跟进进行中的子任务 | [`reply`](../interfaces/20261031-board_mcp.md#lead_tools) | 回答协作者的提问，或给正在执行的协作者补充指示 |
 | 处理结束的子任务 | [`retry`](../interfaces/20261031-board_mcp.md#retry_tool) | 让结束的子任务再做一次：失败、取消的，或已完成但要返工的。`session` 必填（回到原会话或新开会话），可带 `from`（依据哪个独立验证的意见）和 `note` |
-| | [`accept`](../interfaces/20261031-board_mcp.md#accept_tool) | 接受一个没通过验收核对的结果，没达到的部分记为风险；对独立验证任务无效 |
-| | [`amend`](../interfaces/20261031-board_mcp.md#amend_tool) | 修订一个已完成子任务的结论，不重跑；下游以修订为准 |
+| | [`amend`](../interfaces/20261031-board_mcp.md#amend_tool) | 修订一个已完成子任务的结论，不重跑，下游以修订为准；或接受一个没通过验收核对的结果，没达到的部分记为风险。对独立验证任务无效 |
 | | [`cancel`](../interfaces/20261031-board_mcp.md#cancel_tool) | 取消不再需要的子任务，依赖它的一起取消 |
 | 找用户 | [`ask_user`](../interfaces/20261031-board_mcp.md#ask_user_tool) | 把只有用户能做的决定交给用户；不等待，回答出现在 `wait` 里 |
 
@@ -54,16 +52,14 @@
 <a id="collaborator"></a>
 ## 协作者
 
-协作者在自己的 ACP 会话中做一个子任务，协作约定在会话的系统层中（[协作者的约定](20261031-goal_mode.md#collaborator_rules)）。它有 6 个看板工具，其中两个用来交结果和提问。
+协作者在自己的 ACP 会话中做一个子任务，协作约定在会话的系统层中（[协作者的约定](20261031-goal_mode.md#collaborator_rules)）。它有 4 个看板工具，其中两个用来交结果和提问。
 
 | 用途 | 工具或字段 | 做什么 |
 | --- | --- | --- |
 | 报告 | [`board_post`](../interfaces/20261031-board_mcp.md#member_tools) | 把进展、阻塞或需要负责人注意的事写到看板，不停下来 |
-| 文件归属 | [`claim`](../interfaces/20261031-board_mcp.md#claim) | 改负责范围以外的文件前先认领；验证任务不能认领 |
-| 看别人 | [`peers`](../interfaces/20261031-board_mcp.md#peers) | 看其他子任务的状态、负责的文件和改过的文件；传 `task` 看某个子任务的完整结果和修订 |
-| 范围不对 | [`request_split`](../interfaces/20261031-board_mcp.md#request_split) | 子任务太大时向负责人提拆分建议；验证任务不能用 |
+| 看别人 | [`board`](../interfaces/20261031-board_mcp.md#peers) | 看其他子任务的状态、负责的文件和改过的文件；传 `task` 看某个子任务的完整结果和修订 |
 | 交结果 | [`submit`](../interfaces/20261031-board_mcp.md#submit) | `summary`、`handoff`（给下游的交接说明）、逐条 `checks`（标准、是否通过、证据、方法）、`evidence`、`risks`；独立验证任务另填 `verdict`（`approved`、`rejected` 或 `inconclusive`）。格式不对当场退回；有标准没达到时提醒一次可以修好再交。交上后结束这一轮，子任务才算交了 |
-| 提问 | [`ask`](../interfaces/20261031-board_mcp.md#ask) | 需要负责人做决定才能继续时提问并结束这一轮；回答作为下一轮发回同一个会话 |
+| 提问 | [`ask`](../interfaces/20261031-board_mcp.md#ask) | 需要负责人做决定才能继续时提问并结束这一轮；回答作为下一轮发回同一个会话。子任务太大时附上拆分提议（`split`），负责人立即收到；验证任务不能提。要改负责范围以外的文件，也先问负责人 |
 
 `board_post` 的阻塞不会让协作者停下，`ask` 会；需要等负责人决定时用 `ask`。审批和表单请求是 Agent 自己发起的，由编排器交给用户，见下文。
 

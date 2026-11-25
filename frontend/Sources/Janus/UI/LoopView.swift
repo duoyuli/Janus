@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Workspace Loops in the app: the section on a workspace's home, the form to make or change one,
-/// and its page (its session, what it dispatched, its notes).
+/// and its page (its session and what it dispatched).
 // @project-doc docs/architecture/20261031-frontend.md#loops
 
 /// What the app says about a Loop: its schedule and what it is doing now.
@@ -160,12 +160,13 @@ struct LoopSection: View {
 
 /// Make a Loop, or change one: what it does each time it wakes, and when it wakes: on a schedule
 /// (a common shape or a cron expression, with the next times the server reads from it) or only when
-/// called. It has no name to type: its agent titles its session the first time it wakes.
+/// called. Its name is optional: the first line of its prompt stands in for it.
 // @project-doc docs/architecture/20261031-frontend.md#loops
 struct LoopEditor: View {
     let store: AppStore
     let original: JSON
     @Environment(\.dismiss) private var dismiss
+    @Local private var name = ""
     @Local private var prompt = ""
     @Local private var scheduled = true
     /// Which shape of schedule: minutes, hours, daily, weekdays, weekly, monthly or cron.
@@ -202,8 +203,14 @@ struct LoopEditor: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 // How a Loop works, under the title: read before writing what it should do.
-                Text(L.text("它自己不改文件，要改的事派成任务，结果到收件箱；名字等它第一次开工时自己起。"))
+                Text(L.text("它自己不改文件，要改的事派成任务，结果到收件箱。"))
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L.text("名字")).font(.headline)
+                TextField(L.text("不填就用提示的第一行"), text: $name)
+                    .textFieldStyle(.roundedBorder)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -376,6 +383,7 @@ struct LoopEditor: View {
 
     /// The form set from the Loop it edits.
     private func load() {
+        name = original["name"].str
         prompt = original["prompt"].str
         guard let cron = original["schedule"]["cron"].string else { scheduled = false; return }
         let parsed = LoopSchedule(cron: cron)
@@ -417,7 +425,7 @@ struct LoopEditor: View {
     private func save(wakeNow: Bool) {
         saving = true
         let when: JSON = scheduled ? ["cron": JSON(schedule.cron), "tz": JSON(TimeZone.current.identifier)] : .null
-        let body: JSON = ["prompt": JSON(prompt), "schedule": when, "wakeNow": JSON(wakeNow)]
+        let body: JSON = ["name": JSON(name), "prompt": JSON(prompt), "schedule": when, "wakeNow": JSON(wakeNow)]
         Task {
             if await store.saveLoop(original, body) { dismiss() }
             saving = false
@@ -426,7 +434,7 @@ struct LoopEditor: View {
 }
 
 /// A Loop's page: what it is and does now, its session (the same conversation card as a chat:
-/// talk to it any time, which does not change when it wakes), what it dispatched and its notes.
+/// talk to it any time, which does not change when it wakes), and what it dispatched.
 // @project-doc docs/architecture/20261031-frontend.md#loops
 struct LoopView: View {
     let run: RunModel
@@ -515,10 +523,6 @@ struct LoopView: View {
                                 }
                             }
                         }
-                    }
-                    if let saved = st.events.last(where: { $0.type == .loopStateSaved })?.data["text"].str, !saved.isEmpty {
-                        Text(L.text("它记下的状态")).font(.headline).padding(.top, 6)
-                        Text(saved).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }
                 }
                 .frame(width: 280, alignment: .topLeading)

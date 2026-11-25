@@ -60,8 +60,8 @@ async fn goal_mode_orchestrates_through_the_board() {
         .await
         .unwrap()
         .unwrap();
-    // The board's ten, and the team memory's two (`forget` is a consolidation's).
-    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 12);
+    // The board's eight, and the team memory's two (`forget` is a consolidation's).
+    assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 10);
     // No server-level instructions: each tool's description says how it is used.
     let init = h
         .app
@@ -78,9 +78,9 @@ async fn goal_mode_orchestrates_through_the_board() {
         .unwrap();
     let names: Vec<&str> =
         member["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert_eq!(names, ["board_post", "claim", "peers", "request_split", "submit", "ask", "recall", "remember"]);
-    // Claims are a collaborator's: the lead assigns files through `owns` instead.
-    let (text, err) = tool(&h.app, &run, "lead", "claim", json!({ "paths": ["x"] })).await;
+    assert_eq!(names, ["board_post", "board", "submit", "ask", "recall", "remember"]);
+    // Posting progress is a collaborator's: the lead has no task to post for.
+    let (text, err) = tool(&h.app, &run, "lead", "board_post", json!({ "text": "x" })).await;
     assert!(err && text.contains("没有这个工具"), "{text}");
     assert!(
         h.app.mcp(&run, "wrong", &lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })).await.is_err()

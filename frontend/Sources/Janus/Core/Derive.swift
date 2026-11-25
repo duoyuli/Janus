@@ -462,7 +462,6 @@ func derive(_ events: [Event]) -> RunState {
             t.status = .ready
             let a = ag(t.agent); a.phase = "error"; a.note = d["error"].str; a.progress = nil
         case .resultAmended: t?.amendments.append(d["text"].str)
-        case .taskClaimed: if let t { t.owns += d["paths"].strings.filter { !t.owns.contains($0) } }
         case .sessionPrompt: if let t, d["channel"].str == "fix" { t.status = .running }
         case .taskReopened:
             guard let t else { break }
@@ -611,8 +610,6 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             if let task = e.task {
                 conflicts.append((seq: e.seq, task: task, other: d["other"].str, paths: d["paths"].strings, owned: d["owned"].truthy, byLead: d["byLead"].truthy))
             }
-        case .taskClaimed:
-            f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("认领了：\(d["paths"].strings.joined(separator: L.text("、")))"), artifacts: []))
         case .taskSplitRequested:
             let reason = d["reason"].string ?? e.text
             let count = d["subtasks"].array.count

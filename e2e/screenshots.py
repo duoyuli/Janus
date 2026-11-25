@@ -461,8 +461,7 @@ def stage(lang, server_bin, app_bin, node, raw):
         # Two Loops in the ledger workspace; the first has dispatched a run that is at work.
         tz = os.path.realpath("/etc/localtime").split("zoneinfo/")[-1]
         for i, (name, prompt, cron, _) in enumerate(t["loops"]):
-            made = api("POST", "/api/workspaces/ledger/loops", {"prompt": prompt, "schedule": {"cron": cron, "tz": tz}, "wakeNow": True})
-            lead(made["run"], "set_name", {"name": name})
+            made = api("POST", "/api/workspaces/ledger/loops", {"name": name, "prompt": prompt, "schedule": {"cron": cron, "tz": tz}, "wakeNow": True})
             if i == 0:
                 lead(made["run"], "dispatch", {"goal": t["dispatch"], "key": "github:acme/ledger#415", "source_url": "https://github.com/acme/ledger/issues/415"})
         time.sleep(3)

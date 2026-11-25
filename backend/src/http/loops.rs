@@ -49,7 +49,7 @@ pub(super) async fn get(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String
     reply(app.loop_view(&app.loop_def(&id)?)?)
 }
 
-/// Change a Loop's `prompt` and `schedule`.
+/// Change a Loop's `name`, `prompt` and `schedule`.
 pub(super) async fn update(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<String>,

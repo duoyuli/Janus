@@ -37,13 +37,13 @@ def failures(ctx, c):
     c(not err, "负责人重试 T1")
     run.wait_event("task.succeeded", task="T2", timeout=60)
     c(True, "T1 重试成功后，被它阻塞的 T2 自动继续并完成")
-    text, err = lead.call("accept", {"task": "T3", "reason": "人工核对过，不影响目标"})
-    c(not err and run.has("task.succeeded", task="T3", actor="lead"), "负责人接受没通过验收的 T3，未达到的部分记为风险")
+    text, err = lead.call("amend", {"task": "T3", "text": "人工核对过，不影响目标"})
+    c(not err and run.has("task.succeeded", task="T3", actor="lead"), "负责人用 amend 接受没通过验收的 T3，未达到的部分记为风险")
     text, err = lead.call("cancel", {"tasks": ["T4"], "reason": "这部分不做了，写进交付风险"})
     skipped = {e["task"] for e in run.has("task.skipped_by_decision")}
     c(not err and {"T4", "T5"} <= skipped, f"取消 T4，依赖它的 T5 一并取消（{sorted(skipped)}）")
-    text, err = lead.call("accept", {"task": "V6", "reason": "就这样吧"})
-    c(err, f"验证者判定不通过时，负责人不能用 accept 放行（{text[:60]}）")
+    text, err = lead.call("amend", {"task": "V6", "text": "就这样吧"})
+    c(err, f"验证者判定不通过时，负责人不能用 amend 放行（{text[:60]}）")
     verdict = run.has("task.succeeded", task="V6")
     c(verdict and verdict[-1]["data"].get("verdict") == "rejected", "V6 的判定 rejected 记在任务结论里")
     # The lead sends T6 back into its own session on V6's findings; V6 checks the rework again.

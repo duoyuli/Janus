@@ -1,7 +1,7 @@
 # ADR：协作者认领文件，Janus 读回工作目录里的痕迹
 
-- 状态：已采纳（accepted），记录于 2026-11-12。
-- 相关文档：[工作目录里的痕迹](../domains/20261031-goal_mode.md#traces)、[团队结构](../domains/20261031-goal_mode.md#team_structure)、[同时改同一个文件](../domains/20261031-goal_mode.md#conflicts)、[`claim`](../interfaces/20261031-board_mcp.md#claim)、[ADR：通过 MCP 看板协作](20261031-board_over_mcp.md)、[ADR：任务直接在工作目录中运行](20261031-in_place_workspaces.md)。
+- 状态：部分被取代（superseded），记录于 2026-11-12。2026-11-25 起，协作者认领文件（第 2 条、第 1 条中的「认领」、取舍的第一条和后果中的 `claim`、`task.claimed`）已被 [ADR：精简 Agent 的协作工具](20261125-fewer_agent_tools.md) 取代：没有 `claim` 工具和 `task.claimed` 事件，负责范围只由负责人的 `owns` 定下，协作者要改别的文件先问负责人。读回痕迹的部分（越界报告、对账、diff 范围、过期标记、从事件重建）仍然有效。
+- 相关文档：[工作目录里的痕迹](../domains/20261031-goal_mode.md#traces)、[团队结构](../domains/20261031-goal_mode.md#team_structure)、[同时改同一个文件](../domains/20261031-goal_mode.md#conflicts)、[协作者工具](../interfaces/20261031-board_mcp.md#member_tools)、[ADR：通过 MCP 看板协作](20261031-board_over_mcp.md)、[ADR：任务直接在工作目录中运行](20261031-in_place_workspaces.md)。
 
 ## 背景
 
@@ -20,7 +20,7 @@ Janus 的协作者都在同一个工作目录中工作，工作目录本身就�
 ## 决策
 
 1. **分工**：看板只放读不出来的东西：动手前的承诺（`owns`、认领）、意图和理由（`board_post`、`amend`）、裁决（`accept`、`cancel`、`ask_user`）。能从工作目录读出来的事实由 Janus 读回，不要求协作者汇报。
-2. **认领**：协作者用 `claim` 在动手前认领文件，写 `task.claimed`，认领并入任务的 `owns`，到任务结束为止有效。已归另一个可能同时执行的未结束任务负责的文件不能认领；验证任务不能认领。
+2. ~~**认领**：协作者用 `claim` 在动手前认领文件，写 `task.claimed`，认领并入任务的 `owns`，到任务结束为止有效。已归另一个可能同时执行的未结束任务负责的文件不能认领；验证任务不能认领。~~（2026-11-25 已被 [ADR：精简 Agent 的协作工具](20261125-fewer_agent_tools.md) 取代：认领几乎没人用，负责范围只由负责人定下。）
 3. **越界立即报告**：任务改了另一个可能同时执行的未结束任务负责的文件，Janus 立即写 `task.conflict`（`data.owned: true`），提醒越界的一方停下。
 4. **结果与痕迹对账**：任务完成时，Janus 拿它负责的文件、改过的文件和工作目录相对 `HEAD` 的改动对账，不一致写进 `task.succeeded` 的 `data.traceGaps` 并推送给负责人。
 5. **diff 只含自己的文件**：diff 产物限定在任务负责和改过的文件。

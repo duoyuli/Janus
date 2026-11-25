@@ -1,10 +1,10 @@
-//! Flow tests of acceptance evidence: evidence methods on the board, in `task_detail` and in the
+//! Flow tests of acceptance evidence: evidence methods on the board, in `janus.board` and in the
 //! delivery, after a restart, and an illegal method failing the result check
 //! (docs/interfaces/20261031-events.md#evidence_methods).
 
 use super::*;
 
-/// Every criterion records how it was checked. The board message, `task_detail` and the
+/// Every criterion records how it was checked. The board message, `janus.board` and the
 /// delivery keep all checks, all evidence and the independent verification, and a restart
 /// reads the same values back from the event log.
 #[tokio::test(flavor = "multi_thread")]
@@ -46,8 +46,8 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     );
     assert!(board.contains("独立验证：V1 判定「通过」"), "{board}");
 
-    // `task_detail`: each criterion with its method, and the verifier's own result apart.
-    let (detail, _) = tool(&h.app, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
+    // `janus.board` on T1: each criterion with its method, and the verifier's own result apart.
+    let (detail, _) = tool(&h.app, &run, "lead", "board", json!({ "task": "T1" })).await;
     assert!(
         detail.contains("✓ [测试]")
             && detail.contains("✓ [检查]")
@@ -63,7 +63,7 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
-    let (detail, _) = tool(&app2, &run, "lead", "task_detail", json!({ "task": "T1" })).await;
+    let (detail, _) = tool(&app2, &run, "lead", "board", json!({ "task": "T1" })).await;
     for method in ["[测试]", "[命令]", "[检查]", "[推理判断]", "[未核实]"] {
         assert!(detail.contains(method), "{method} survives a restart: {detail}");
     }

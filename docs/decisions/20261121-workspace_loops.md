@@ -1,6 +1,6 @@
 # ADR：工作区值班派发独立的 Run
 
-- 状态：已采纳（accepted），记录于 2026-11-21。
+- 状态：已采纳（accepted），记录于 2026-11-21。第 9 条中「名字由它自己起」（`set_name`）、第 5 条中的 `note_dispatch` 和取舍中的 `save_state` 已被 [ADR：精简 Agent 的协作工具](20261125-fewer_agent_tools.md) 取代（superseded，2026-11-25）：名字由用户在应用里起，可以不填；补充给派出的 Run 的话用同一个 key 再调用 `dispatch`；值班不另存状态，靠同一个会话和团队记忆。其余各条仍然有效。
 - 相关文档：[工作区值班](../domains/20261121-loops.md)、[派发队列](../domains/20261031-run_lifecycle.md#dispatch_queue)、[看板 MCP 工具：值班的工具](../interfaces/20261031-board_mcp.md#loop_tools)、[HTTP API：值班](../interfaces/20261031-http_api.md#loops)、[macOS 应用：值班](../architecture/20261031-frontend.md#loops)、[安全边界：工作区值班](../operations/20261031-security.md#loops)、[ADR：所有目标 Run 经过一个派发队列](20261121-dispatch_queue.md)、[ADR：和一名数字员工的对话是一种 Run](20261120-chats_as_runs.md)。
 
 ## 背景

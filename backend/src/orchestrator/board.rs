@@ -178,23 +178,22 @@ impl App {
                 None => missing(),
             },
             Caller::Lead => match LeadTool::parse(name) {
-                Some(LeadTool::Team) => Ok(self.board_team(run)),
+                Some(LeadTool::Board) => match args["task"].as_str().map(str::trim).filter(|t| !t.is_empty()) {
+                    Some(task) => self.task_detail(run, task),
+                    None => Ok(self.board_team(run)),
+                },
                 Some(LeadTool::Orchestrate) => self.board_orchestrate(run, args),
                 Some(LeadTool::Wait) => Ok(self.board_wait(run, args).await),
                 Some(LeadTool::Reply) => self.board_reply(run, args),
                 Some(LeadTool::Retry) => self.board_retry(run, args),
-                Some(LeadTool::Accept) => self.board_accept(run, args),
                 Some(LeadTool::Amend) => self.board_amend(run, args),
                 Some(LeadTool::Cancel) => self.board_cancel(run, args),
                 Some(LeadTool::AskUser) => self.board_ask_user(run, args),
-                Some(LeadTool::TaskDetail) => self.task_detail(run, args["task"].as_str().unwrap_or("").trim()),
                 None => missing(),
             },
             Caller::Member => match MemberTool::parse(name) {
                 Some(MemberTool::BoardPost) => self.board_post(run, who, args),
-                Some(MemberTool::Peers) => self.board_peers(run, who, args),
-                Some(MemberTool::Claim) => self.board_claim(run, who, args),
-                Some(MemberTool::RequestSplit) => self.board_request_split(run, who, args),
+                Some(MemberTool::Board) => self.board_peers(run, who, args),
                 Some(MemberTool::Submit) => self.board_submit(run, who, args),
                 Some(MemberTool::Ask) => self.board_ask(run, who, args),
                 None => missing(),
@@ -706,26 +705,10 @@ impl App {
         Ok(reply)
     }
 
-    /// The lead accepts a result that failed only its verification (for example a command that
-    /// does not fit the workspace). The task counts as done; the failure stays on record as a risk.
-    pub(super) fn board_accept(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
+    /// `amend` on a task that failed its acceptance check: the lead accepts the result it handed
+    /// in. The task counts as done; the failure stays on record as a risk, with `reason`.
+    fn accept_result(&self, run: &Arc<Run>, task: &str, reason: &str) -> std::result::Result<String, String> {
         let lang = run.lang;
-        let task = args["task"].as_str().unwrap_or("").trim();
-        let reason = args["reason"].as_str().unwrap_or("").trim();
-        if reason.is_empty() {
-            return Err(tr!(lang, "reason 不能为空", "reason cannot be empty"));
-        }
-        let refused = run
-            .st
-            .lock()
-            .unwrap()
-            .tasks
-            .iter()
-            .find(|t| t.def.id == task)
-            .and_then(|t| crate::teamwork::accept_refused(&t.def, lang));
-        if let Some(why) = refused {
-            return Err(why);
-        }
         let events = self.db.events(&run.id, 0).map_err(|e| format!("{e:#}"))?;
         let mine = |kind: EventKind| events.iter().rev().find(|e| e.kind() == kind && e.task.as_deref() == Some(task));
         let failed =
@@ -898,13 +881,26 @@ impl App {
 
     /// The lead corrects the conclusion of a finished task. Tasks that build on it hear about it:
     /// running ones right away, ones that have not started with their handoff. Finished ones are
-    /// named in the reply so the lead can decide whether they need redoing.
+    /// named in the reply so the lead can decide whether they need redoing. On a task that failed
+    /// its acceptance check, the lead accepts its result instead (`accept_result`). A verification
+    /// is never amended: its verdict changes only when it verifies again.
     pub(super) fn board_amend(&self, run: &Arc<Run>, args: &Value) -> std::result::Result<String, String> {
         let lang = run.lang;
         let task = args["task"].as_str().unwrap_or("").trim();
         let text = args["text"].as_str().unwrap_or("").trim();
         if text.is_empty() {
             return Err(tr!(lang, "text 不能为空", "text cannot be empty"));
+        }
+        let (status, refused) = {
+            let st = run.st.lock().unwrap();
+            let t = st.tasks.iter().find(|t| t.def.id == task);
+            (t.map(|t| t.status()), t.and_then(|t| crate::teamwork::amend_refused(&t.def, lang)))
+        };
+        if let Some(why) = refused {
+            return Err(why);
+        }
+        if status == Some(TaskStatus::Failed) {
+            return self.accept_result(run, task, text);
         }
         let takers = {
             let mut st = run.st.lock().unwrap();
@@ -915,8 +911,8 @@ impl App {
                 let status = t.status().label_in(lang);
                 return Err(tr!(
                     lang,
-                    "{task} 现在是「{status}」，只能修订已完成子任务的结论；还在执行的用 janus.reply",
-                    "{task} is {status}; only a finished subtask's conclusion can be revised. For one still running, use janus.reply"
+                    "{task} 现在是「{status}」：只能修订已完成子任务的结论，或接受没通过验收核对的结果；还在执行的用 janus.reply",
+                    "{task} is {status}: only a finished subtask's conclusion can be revised, or the result of one that failed its acceptance check accepted. For one still running, use janus.reply"
                 ));
             }
             t.amendments.push(text.to_string());
@@ -1298,7 +1294,6 @@ impl App {
                         "- [冲突] 和 {other} 同时改了 {paths}",
                         "- [Conflict] Changed {paths} at the same time as {other}"
                     )),
-                    EventKind::TaskClaimed => Some(tr!(lang, "- [认领] {paths}", "- [Claimed] {paths}")),
                     EventKind::TaskSplitRequested => {
                         let reason = d["reason"].as_str().unwrap_or(&e.text);
                         let n = d["subtasks"].as_array().map(Vec::len).unwrap_or(0);
@@ -1438,65 +1433,11 @@ impl App {
         Ok(lang.pick("已写到看板。", "Written to the board.").into())
     }
 
-    /// A collaborator claims files it is about to change (`teamwork::claim`); the lead sees it on
-    /// the board, and the claim counts as `owns` until the task ends.
-    // @project-doc docs/interfaces/20261031-board_mcp.md#claim
-    pub(super) fn board_claim(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<String, String> {
-        let lang = run.lang;
-        let mut errors = vec![];
-        let paths = crate::teamwork::read_owns(&args["paths"], "paths", &mut errors, lang);
-        if !errors.is_empty() {
-            return Err(errors.join("\n"));
-        }
-        if paths.is_empty() {
-            return Err(tr!(lang, "paths 不能为空", "paths cannot be empty"));
-        }
-        if paths.len() > CLAIM_MAX_PATHS {
-            return Err(tr!(
-                lang,
-                "一次最多认领 {CLAIM_MAX_PATHS} 个路径",
-                "At most {CLAIM_MAX_PATHS} paths per claim"
-            ));
-        }
-        let (agent, fresh) = {
-            let mut guard = run.st.lock().unwrap();
-            let st = &mut *guard;
-            let me = st.tasks.iter().find(|t| t.def.id == task).ok_or_else(|| no_task(lang, task))?;
-            let board: Vec<(&TaskDef, TaskStatus)> = st.tasks.iter().map(|t| (&t.def, t.status())).collect();
-            let fresh = crate::teamwork::claim(&me.def, &paths, &board, lang)?;
-            let agent = me.agent.clone();
-            if let Some(t) = Run::task_mut(st, task) {
-                t.def.owns.extend(fresh.iter().cloned());
-            }
-            (agent, fresh)
-        };
-        if fresh.is_empty() {
-            return Ok(tr!(lang, "这些文件已经由你的子任务负责。", "Your subtask already owns these files."));
-        }
-        self.emit(
-            run,
-            ev(EventKind::TaskClaimed, &agent, format!("认领 {}", clip(&fresh.join("、"), 80)))
-                .task(task)
-                .to("lead")
-                .data(json!({ "paths": fresh })),
-        );
-        let claimed = fresh.join(list_sep(lang));
-        Ok(tr!(
-            lang,
-            "已认领 {claimed}，到子任务结束为止归你负责。",
-            "Claimed {claimed}; they are yours until your subtask ends."
-        ))
-    }
-
-    /// A collaborator proposes splitting an oversized task into smaller subtasks; only the lead
-    /// may actually submit an orchestration (`janus.orchestrate`).
-    // @project-doc docs/interfaces/20261031-board_mcp.md#request_split
-    pub(super) fn board_request_split(
-        &self,
-        run: &Run,
-        task: &str,
-        args: &Value,
-    ) -> std::result::Result<String, String> {
+    /// A collaborator's question comes with a proposal to split its oversized task into smaller
+    /// subtasks (`janus.ask`, `split`); only the lead may actually submit an orchestration
+    /// (`janus.orchestrate`). The lead gets the proposal at once.
+    // @project-doc docs/interfaces/20261031-board_mcp.md#ask
+    pub(super) fn propose_split(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<(), String> {
         let lang = run.lang;
         let reason = args["reason"].as_str().unwrap_or("").trim();
         if reason.is_empty() {
@@ -1519,8 +1460,8 @@ impl App {
             if me.def.verifies.is_some() {
                 return Err(tr!(
                     lang,
-                    "{task} 是验证子任务，不能请求拆分",
-                    "{task} is a verification subtask and cannot request a split"
+                    "{task} 是验证子任务，不能提拆分",
+                    "{task} is a verification subtask and cannot propose a split"
                 ));
             }
             me.agent.clone()
@@ -1562,7 +1503,7 @@ impl App {
                 .to("lead")
                 .data(data),
         );
-        Ok(tr!(lang, "拆分提议已发给负责人。", "The split proposal went to the lead."))
+        Ok(())
     }
 }
 

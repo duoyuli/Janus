@@ -122,7 +122,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 独立验证任务判定 `rejected` 或 `inconclusive` 时自身是 `succeeded`，但被验证的工作没有得到确认。在判定写入之前就编排好、依赖这个验证任务的任务，是按「验证会通过」安排的，同样变为 `blocked`（`task.blocked` 带 `data.verdict`），不会在没确认的工作上继续；负责人读到判定之后再编排、依赖它的任务（例如修复任务）照常开始。判断依据是任务写入看板时的事件序号（`Task::planned_seq`）和验证任务 `task.succeeded` 的序号（`DepGate::holds`），重启后从 `orchestration.accepted` 的序号重建。
 
-尝试结束、负责人 `cancel` / `retry` / `accept` 都会改任务状态。尝试结束时，确认这次尝试仍是任务当前的尝试（`running` 状态带的尝试 id）和写入结果在同一把锁内完成；负责人已经取消或重试了这个任务时，这次尝试的结果按过期处理（`attempt.late_result`），尝试记录标为 `cancelled`，不会覆盖负责人的决定。
+尝试结束、负责人 `cancel` / `retry` / `amend`（接受没通过验收核对的结果）都会改任务状态。尝试结束时，确认这次尝试仍是任务当前的尝试（`running` 状态带的尝试 id）和写入结果在同一把锁内完成；负责人已经取消或重试了这个任务时，这次尝试的结果按过期处理（`attempt.late_result`），尝试记录标为 `cancelled`，不会覆盖负责人的决定。
 
 <a id="attempt"></a>
 ## 一次尝试
@@ -163,7 +163,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
   - **当场核对格式**：`summary` 为空、漏了某条标准、某条没有证据、`method` 不是允许值、`verdict` 不是允许值或和 `checks` 矛盾时，工具不收下，返回全部问题（`evidence::gaps_for`），Agent 在同一轮里改好再交。
   - **没达到的标准多给一次机会**：收下的结果里有标准写了 `passed: false` 时，第一次交会提醒它可以修好后再交一次，做不到就结束这一轮；同一次尝试里再交就照收。
   - 收下后，这一轮结束时这份结果才算交上；同一轮里再交会替换上一份。
-- **`janus.ask`**：向负责人提问，参数是 `text`、`options`、`recommend`。问题在这一轮结束时转给负责人（`question.asked`），回答作为下一轮提示发回同一个会话。同一次尝试最多连续普通提问 4 轮（伴有 `request_split` 拆分提议的暂停不计入这 4 轮，总暂停硬上限为 8 轮）。提问由谁回答见[提问的流转](20261031-goal_mode.md#question_routing)。
+- **`janus.ask`**：向负责人提问，参数是 `text`、`options`、`recommend`。问题在这一轮结束时转给负责人（`question.asked`），回答作为下一轮提示发回同一个会话。可以附上拆分提议 `split`，提议当场送到负责人那里，见 [`ask`](../interfaces/20261031-board_mcp.md#ask)。同一次尝试最多连续普通提问 4 轮（伴有拆分提议的暂停不计入这 4 轮，总暂停硬上限为 8 轮）。提问由谁回答见[提问的流转](20261031-goal_mode.md#question_routing)。
 - **什么也没交**：这一轮结束时既没交结果也没提问，提醒一次（`session.prompt`，`channel: "fix"`，「还没有交结果」）；下一轮仍然没交，这次尝试失败，按重试策略处理。
 - 用户在会话中直接以当前结果结束时，有交上来的结果就用它，没有就取回复第一行当摘要，并记一条风险「Agent 没有交结果」。
 
@@ -177,15 +177,15 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 - `summary` 不能为空。
 - 普通执行任务：每条验收标准都有对应的 check（按顺序），check 有证据，且没有 `passed: false`。
 - 独立验证任务（带 `verifies`）：每条标准都必须核对并给出具体证据，`verdict` 若填写必须是允许值，且 `verdict: "approved"` 不能与 `passed: false` 矛盾。只读验证者发现真实缺陷并给出可复现证据、填 `passed: false` 或 `verdict: "rejected"` / `"inconclusive"` 时，它的核查工作已经完成，通过核对并标记验证任务完成（`task.succeeded`）；同时在看板和交付中把目标产物标为未通过确认（`[验证未通过]`、`Verification.passed == false`），唤醒负责人派修复任务和复验任务。
-- `reasoning`、`unverified` 和没有 `method` 只记提醒，不阻断：提醒随核对结果记录在 `verification.*` 和 `task.succeeded` 的 `data.acceptance` 中，看板的完成消息、`task_detail` 和交付都显示。
+- `reasoning`、`unverified` 和没有 `method` 只记提醒，不阻断：提醒随核对结果记录在 `verification.*` 和 `task.succeeded` 的 `data.acceptance` 中，看板的完成消息、`board` 的任务详情和交付都显示。
 
-格式问题在 `janus.submit` 时已经当场退回，所以这里没通过的只会是自认没达到的标准，而交的时候已经提醒过一次可以修好再交。没通过时任务失败（`task.failed`，`reason: "verification"`），不再另开一轮修复，也不自动开新会话重试，由负责人决定接受结果、修改后重试（可以选回到这个会话）还是取消，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md#accept_tool)。
+格式问题在 `janus.submit` 时已经当场退回，所以这里没通过的只会是自认没达到的标准，而交的时候已经提醒过一次可以修好再交。没通过时任务失败（`task.failed`，`reason: "verification"`），不再另开一轮修复，也不自动开新会话重试，由负责人决定接受结果（`amend`）、修改后重试（可以选回到这个会话）还是取消，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md#amend_tool)。
 
 <a id="retry"></a>
 ## 重试、返工与失败
 
 - 每个任务最多尝试 2 次（`MAX_ATTEMPTS`）。尝试失败（Agent 进程退出、服务商报错、连接中断、自行取消等，不含验证没通过）后还有剩余次数时，先等 30 秒（`RETRY_AFTER`，即 `Config.retry_after`），让启动失败、连接中断、服务商短暂故障这类原因过去，再让任务回到 `pending`（`task.retry_scheduled`）。下一次尝试回到这个任务最近打开的会话（`Reload`，`BrokeOff::Failure` 带失败原因，和任务回到 `pending` 在同一把锁里记下）：`session/load` 后只告诉它上一次因为什么中断、之前做过和读过的都还在、从中断的地方继续，不重发任务说明。原会话上下文已超过 75%、Agent 不支持加载、加载失败，或这个任务从来没打开过会话时，新开会话，发完整的任务提示并带上上次失败的原因。等待期间负责人的取消或重试照常生效。见 [ADR：断掉的会话回到原处继续](../decisions/20261125-resume_after_failure.md)。
-- 用完次数或验证没通过后任务变为 `failed`（`task.failed`），Run 不停下，由负责人在看板上读到后用 `retry`、`accept`、`cancel` 处理。负责人已经派出了子任务，不自己接手（见[负责人的职责](20261031-goal_mode.md#lead_role)）。被它阻塞的任务不需要重新编排。
+- 用完次数或验证没通过后任务变为 `failed`（`task.failed`），Run 不停下，由负责人在看板上读到后用 `retry`、`amend`（接受没通过验收核对的结果）、`cancel` 处理。负责人已经派出了子任务，不自己接手（见[负责人的职责](20261031-goal_mode.md#lead_role)）。被它阻塞的任务不需要重新编排。
 - 只有负责人能让结束的任务再做一次（看板的 [`retry`](../interfaces/20261031-board_mcp.md#retry_tool)）：失败、已取消、被负责人取消的任务，以及已完成但需要返工的任务。重试重新给满尝试次数（`task.reopened`，`reason: "lead.retry"`），依赖它的 `blocked` 任务在它成功后自动恢复。用户想重做某个任务时，给负责人发消息。
 - **会话由负责人每次选择**：`session` 必填，`continue` 回到这个任务自己上一次的会话，`new` 新开会话（`SessionChoice`）。不设默认值，让负责人每次判断原来的上下文还有没有用。原会话上下文已超过 75% 时，`continue` 当场返回错误，说明占用多少、新会话不记得之前做过什么，让负责人改用 `new` 并在 `note` 里写清这一轮要知道的：做到哪一步、改过哪些文件、还差什么。这样负责人不会误以为执行者还记得之前的工作。一个协作者可以同时有多个会话，每个任务一个；返工回到的是被返工任务自己的会话。
 - **返工**：独立验证判定没通过时，Janus 不自动返工，由负责人判断问题出在哪个任务，用 `retry` 发回原来的执行者，`from` 指向这个验证。验证的判定、没通过的标准和证据、交接说明和风险原样进入提示，负责人只在 `note` 里写自己的判断，不新建子任务。
@@ -242,7 +242,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 任务失败不会让 Run 停下来等用户。负责人结束时还有协作者在等负责人回答的，提问转给用户，见[目标模式与共享看板](20261031-goal_mode.md#question_routing)。
 
-交付时 `run.delivered` 的 `data.usage` 是一行用量摘要（token 及完整性、费用状态、总时长），和 Run 页、`task_detail`、`GET /api/runs/{id}/usage` 读同一份账本，见[用量口径](../interfaces/20261031-events.md#usage_accounting)。用量不是交付条件：没有会话上报 token、费用缺失或口径未知时，摘要写「未上报」「部分上报」「口径未知」，Run 照常交付。
+交付时 `run.delivered` 的 `data.usage` 是一行用量摘要（token 及完整性、费用状态、总时长），和 Run 页、看板 `board` 的任务详情、`GET /api/runs/{id}/usage` 读同一份账本，见[用量口径](../interfaces/20261031-events.md#usage_accounting)。用量不是交付条件：没有会话上报 token、费用缺失或口径未知时，摘要写「未上报」「部分上报」「口径未知」，Run 照常交付。
 
 交付后负责人的会话不结束，而是保留为常规对话：用户可以直接写下一轮任务，或用 `/goal` 设置新的目标。负责人空闲等消息时不接收看板推送，协作者的提问转给用户；处理一条消息的这一轮里，看板推送和提问照第一个目标处理（见[提问的流转](20261031-goal_mode.md#question_routing)）。它在对话中通过看板提交的新任务会重新启动调度循环，完成后再次交付。
 
@@ -295,7 +295,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 
 自动继续、用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run_by` 从 `runs.config` 重建团队，从事件日志重建任务；在 worktree 中的 Run，worktree 不在了就先重建。恢复、验收历史交付（`accept_archived`）和删除一个不在运行的 Run 先拿 `App.revival`，一次只做一件：两条消息同时发给已中断或已交付的 Run 时，第二条等第一条把 Run 恢复好，再发进同一个 Run，不会各自恢复出一个负责人会话；恢复期间到达的验收按运行中的 Run 处理：
 
-- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。Token 参考值只用于显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人 `accept` 的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`task_detail` 和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（负责人重试时选的会话和 `from`、复审的对象都从最后一条 `task.reopened` 重建，复审对象被加回验证的依赖）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
+- 从所有 `orchestration.accepted` 事件重建看板任务（含 `owns`、`verifies`、`continues`）。编排事件的 `plannedSeq` 保存任务加入看板时的事件序号，恢复后沿用同一序号判断依赖的验证结论。旧事件缺少该字段时采用接纳前的序号，若已有明确的验证阻塞记录则保留该阻塞。Token 参考值只用于显示。已成功的任务从它的 `task.succeeded` 读回完整结果（摘要、`handoff`、验证判定 `verdict`、证据、风险、`traceGaps`、`checks` 及每条的证据方法，负责人用 `amend` 接受的还有接受理由），证据方法计数和提醒随之重建，所以重启后看板、`board` 的任务详情和交付给出的证据汇总不变；没有完成的任务读回最后一次 `result.submitted`。失败和阻塞的任务保持原状态，被连带取消的任务记住是因哪个上游取消的，未完成的任务重新开始（负责人重试时选的会话和 `from`、复审的对象都从最后一条 `task.reopened` 重建，复审对象被加回验证的依赖）；重启前仍在进行的尝试，Agent 支持 `session/load` 时重新打开原会话。协作者和负责人的文件改动痕迹（`Actor::Task` 与 `Actor::Lead`）及已报告的冲突一并从事件日志恢复。
 - 排队但还没送达的消息保留下来。
 - 负责人接着推进目标（`lead_goal`，看板的状况在调度重新开始任务之前取下，`board_on_resume`）。Agent 支持 `loadSession` 时用 `session/load` 加载负责人原来的会话，用的是它打开时的那份系统层（`recorded_system`，和交付后的对话相同，见[恢复会话时的系统层](../interfaces/20261031-acp_integration.md#reload_system_layer)），不再发 `/goal`：目标随会话保留（Claude Code 从会话记录中恢复），Janus 按目标进行中跟随会话。第一条提示（`session.prompt`，`channel: "resume"`）告诉它编排器重启过、之前的上下文都在、不要重做已完成的部分，列出重启时看板上每个子任务的状况，附上这期间留给它的消息。加载失败或不支持时新建会话，重新发 `/goal`，负责人说明中写明这是新会话、之前做过和读过的都不在了，列出同样的看板状况和最近与用户的对话（`recent_exchanges`）。
 - 看板状况逐个子任务写：已完成的写摘要（独立验证带判定）；未完成的写负责人 `retry` 发回的会话选择、依据哪个验证和 `note`，或在复审谁，重启时是否正在执行（接回自己的会话继续，不能加载时新开），以及更早一次尝试的结果（标明是更早的，不是现在的状态）；还没结束的子任务附上负责人最后一次对它说的话。
