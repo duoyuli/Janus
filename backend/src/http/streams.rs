@@ -4,7 +4,7 @@
 use super::runs::After;
 use super::{ApiError, ApiResult, reply};
 use crate::db;
-use crate::orchestrator::{App, Change, Seat};
+use crate::orchestrator::{App, Change, SessionKey};
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::StatusCode;
@@ -98,13 +98,13 @@ fn mcp_reply(answer: anyhow::Result<Option<Value>>) -> ApiResult {
 
 /// The shared board as an MCP server (streamable HTTP, JSON responses) for the sessions of one
 /// run: the lead's orchestration tools, or a collaborator's. The token keeps other runs and
-/// other local processes out; the path says whose session it is (`Seat`).
+/// other local processes out; the path says whose session it is (`SessionKey`).
 pub(super) async fn lead_board(
     State(app): State<Arc<App>>,
     UrlPath((run, token)): UrlPath<(String, String)>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    mcp_reply(app.mcp(&run, &token, &Seat::Lead, body).await)
+    mcp_reply(app.mcp(&run, &token, &SessionKey::Lead, body).await)
 }
 
 pub(super) async fn task_board(
@@ -112,7 +112,7 @@ pub(super) async fn task_board(
     UrlPath((run, token, task)): UrlPath<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    mcp_reply(app.mcp(&run, &token, &Seat::Task(task), body).await)
+    mcp_reply(app.mcp(&run, &token, &SessionKey::Task(task), body).await)
 }
 
 /// The run's MCP router (`janus-tools`): the library's servers for everyone.
@@ -122,7 +122,7 @@ pub(super) async fn lead_tools(
     UrlPath((run, token)): UrlPath<(String, String)>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    mcp_reply(app.mcp_tools(&run, &token, &Seat::Lead, body).await)
+    mcp_reply(app.mcp_tools(&run, &token, &SessionKey::Lead, body).await)
 }
 
 pub(super) async fn task_tools(
@@ -130,7 +130,7 @@ pub(super) async fn task_tools(
     UrlPath((run, token, task)): UrlPath<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    mcp_reply(app.mcp_tools(&run, &token, &Seat::Task(task), body).await)
+    mcp_reply(app.mcp_tools(&run, &token, &SessionKey::Task(task), body).await)
 }
 
 /// No server-initiated stream: every response comes back on its POST.

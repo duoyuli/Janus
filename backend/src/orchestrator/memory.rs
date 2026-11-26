@@ -163,20 +163,19 @@ impl App {
         out
     }
 
-    /// One of the memory tools, called by a session with `access` to the notes. `who` is the
-    /// session ("lead" or a collaborator's task).
+    /// One of the memory tools, called by the session `seat` with `access` to the notes.
     // @project-doc docs/interfaces/20261031-board_mcp.md#memory_tools
     pub(super) fn memory_tool(
         &self,
         run: &Run,
-        who: &str,
+        seat: &SessionKey,
         access: MemoryAccess,
         tool: MemoryTool,
         args: &Value,
     ) -> std::result::Result<String, String> {
         match tool {
             MemoryTool::Recall => self.recall(run, access, args),
-            MemoryTool::Remember => self.remember(run, who, args),
+            MemoryTool::Remember => self.remember(run, seat, args),
             MemoryTool::Forget => self.forget(run, args),
         }
     }
@@ -266,7 +265,7 @@ impl App {
         Ok(found.iter().take(FOUND_MAX).map(|(_, m)| full(m)).collect::<Vec<_>>().join("\n\n---\n\n"))
     }
 
-    fn remember(&self, run: &Run, who: &str, args: &Value) -> std::result::Result<String, String> {
+    fn remember(&self, run: &Run, seat: &SessionKey, args: &Value) -> std::result::Result<String, String> {
         let workspace = self.session_workspace(run)?;
         let lang = run.lang;
         let field = |k: &str| args[k].as_str().unwrap_or("").trim().to_string();
@@ -293,18 +292,18 @@ impl App {
                 "The note looks like it holds a credential (a key or token). Team memory keeps no credentials: take it out and try again"
             ));
         }
-        // The member who wrote it: the lead, or the collaborator holding this task.
-        let member = if who == "lead" {
-            "lead".to_string()
-        } else {
-            run.st
+        // The member who wrote it: the main session's, or the collaborator holding this task.
+        let member = match seat {
+            SessionKey::Lead => "lead".to_string(),
+            SessionKey::Task(task) => run
+                .st
                 .lock()
                 .unwrap()
                 .tasks
                 .iter()
-                .find(|t| t.def.id == who)
+                .find(|t| t.def.id == *task)
                 .map(|t| t.agent.clone())
-                .ok_or_else(|| tr!(lang, "看板上没有子任务 {who}", "No subtask {who} on the board"))?
+                .ok_or_else(|| tr!(lang, "看板上没有子任务 {task}", "No subtask {task} on the board"))?,
         };
         let author = run.member(&member).map(|m| m.name.clone()).unwrap_or_else(|| member.clone());
         let write = MemoryWrite {

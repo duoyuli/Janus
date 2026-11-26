@@ -78,18 +78,18 @@ pub(super) enum Caller {
 impl Caller {
     /// The caller in a run of `kind` at `seat`; `hires` is whether the run's member proposes
     /// digital employees, which only a chat reads.
-    pub(super) fn of(kind: RunKind, seat: &Seat, hires: bool) -> Option<Caller> {
+    pub(super) fn of(kind: RunKind, seat: &SessionKey, hires: bool) -> Option<Caller> {
         match (kind, seat) {
             (RunKind::Chat, _) => hires.then_some(Caller::Hiring),
             (RunKind::Loop, _) => Some(Caller::Loop),
             (RunKind::Dream, _) => Some(Caller::Consolidation),
-            (RunKind::Goal, Seat::Lead) => Some(Caller::Lead),
-            (RunKind::Goal, Seat::Task(_)) => Some(Caller::Member),
+            (RunKind::Goal, SessionKey::Lead) => Some(Caller::Lead),
+            (RunKind::Goal, SessionKey::Task(_)) => Some(Caller::Member),
         }
     }
 
     /// The caller of one of `run`'s sessions.
-    pub(super) fn of_run(run: &Run, seat: &Seat) -> Option<Caller> {
+    pub(super) fn of_run(run: &Run, seat: &SessionKey) -> Option<Caller> {
         Caller::of(run.kind, seat, run.team.first().is_some_and(|m| m.hires))
     }
 
@@ -216,7 +216,7 @@ impl Caller {
 
 impl App {
     /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
-    pub(super) fn mcp_server(&self, run: &Run, seat: &Seat) -> Value {
+    pub(super) fn mcp_server(&self, run: &Run, seat: &SessionKey) -> Value {
         self.session_server(run, seat, "janus", "")
     }
 
@@ -224,7 +224,13 @@ impl App {
     /// with the run's kind, says which tools the session has (`Caller`). Notifications get no
     /// response.
     // @project-doc docs/interfaces/20261031-board_mcp.md#transport
-    pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, seat: &Seat, req: Value) -> Result<Option<Value>> {
+    pub async fn mcp(
+        self: &Arc<Self>,
+        run_id: &str,
+        token: &str,
+        seat: &SessionKey,
+        req: Value,
+    ) -> Result<Option<Value>> {
         let run = self.session_run(run_id, token, seat)?;
         // A chat's agent holds a valid token for its library router; the same token must not
         // reach a board, which a chat does not have, nor a tool its digital employee lacks.
@@ -251,7 +257,7 @@ impl App {
     async fn janus_tool_call(
         self: &Arc<Self>,
         run: &Arc<Run>,
-        seat: &Seat,
+        seat: &SessionKey,
         caller: Caller,
         name: &str,
         args: &Value,
@@ -264,7 +270,7 @@ impl App {
             "callId": call_id, "tool": tool, "input": input, "args": args, "status": "pending"
         }));
         self.emit(run, started.in_session(seat));
-        let result = match self.janus_tool(run, who, caller, name, args).await {
+        let result = match self.janus_tool(run, seat, caller, name, args).await {
             Ok(text) => tool_text(&text, false),
             Err(text) => tool_text(&text, true),
         };
@@ -283,7 +289,7 @@ impl App {
     async fn janus_tool(
         self: &Arc<Self>,
         run: &Arc<Run>,
-        who: &str,
+        seat: &SessionKey,
         caller: Caller,
         name: &str,
         args: &Value,
@@ -291,7 +297,7 @@ impl App {
         let missing = || Err(tr!(run.lang, "没有这个工具：{name}", "No such tool: {name}"));
         if let Some(tool) = MemoryTool::parse(name) {
             return match caller.memory().filter(|access| tool.allowed(*access)) {
-                Some(access) => self.memory_tool(run, who, access, tool, args),
+                Some(access) => self.memory_tool(run, seat, access, tool, args),
                 None => missing(),
             };
         }
@@ -319,13 +325,16 @@ impl App {
                 Some(LeadTool::AskUser) => self.board_ask_user(run, args),
                 None => missing(),
             },
-            Caller::Member => match MemberTool::parse(name) {
-                Some(MemberTool::BoardPost) => self.board_post(run, who, args),
-                Some(MemberTool::Board) => self.board_peers(run, who, args),
-                Some(MemberTool::Submit) => self.board_submit(run, who, args),
-                Some(MemberTool::Ask) => self.board_ask(run, who, args),
-                None => missing(),
-            },
+            Caller::Member => {
+                let SessionKey::Task(task) = seat else { return missing() };
+                match MemberTool::parse(name) {
+                    Some(MemberTool::BoardPost) => self.board_post(run, task, args),
+                    Some(MemberTool::Board) => self.board_peers(run, task, args),
+                    Some(MemberTool::Submit) => self.board_submit(run, task, args),
+                    Some(MemberTool::Ask) => self.board_ask(run, task, args),
+                    None => missing(),
+                }
+            }
         }
     }
 

@@ -93,10 +93,10 @@ fn helper() -> Result<PathBuf> {
 }
 
 impl App {
-    /// The skills with code the session `who` can call: those in its member's snapshot with a
+    /// The skills with code the session `seat` can call: those in its member's snapshot with a
     /// `code.js`, by name.
-    pub(super) fn code_skills(&self, run: &Run, who: &str) -> Vec<CodeSkill> {
-        let mut out: Vec<CodeSkill> = session_member(run, who)
+    pub(super) fn code_skills(&self, run: &Run, seat: &SessionKey) -> Vec<CodeSkill> {
+        let mut out: Vec<CodeSkill> = session_member(run, seat)
             .into_iter()
             .flat_map(|m| m.resources.iter().filter(|i| i.kind() == ItemKind::Skill))
             .filter_map(|i| {
@@ -114,7 +114,7 @@ impl App {
     pub(super) async fn run_code(
         self: &Arc<Self>,
         run: &Arc<Run>,
-        seat: &Seat,
+        seat: &SessionKey,
         args: &Value,
         stop: &CancellationToken,
     ) -> Value {
@@ -134,13 +134,12 @@ impl App {
             Ok(exe) => exe,
             Err(err) => return said(format!("{err:#}"), true),
         };
-        let who = seat.who().to_string();
-        let tools = self.routed_tools(run, &who, tokio::time::Instant::now() + LIST_WAIT, false).await;
+        let tools = self.routed_tools(run, seat, tokio::time::Instant::now() + LIST_WAIT, false).await;
         let script = Script {
             code: code.to_string(),
             args: args.get("args").filter(|a| !a.is_null()).cloned(),
             tools: tools.iter().map(|t| t.name.clone()).collect(),
-            skills: self.code_skills(run, &who).into_iter().map(|k| Skill { name: k.name, code: k.code }).collect(),
+            skills: self.code_skills(run, seat).into_iter().map(|k| Skill { name: k.name, code: k.code }).collect(),
         };
         let (app, r, s, token) = (self.clone(), run.clone(), seat.clone(), stop.clone());
         let tools = Arc::new(tools);
@@ -150,7 +149,7 @@ impl App {
                 let tool = match find::named(&tools, &name) {
                     Some(t) => t.clone(),
                     // A tool added since the script was given its names is still found.
-                    None => match app.named_tool(&run, seat.who(), &name).await {
+                    None => match app.named_tool(&run, &seat, &name).await {
                         (Some(t), _) => t,
                         (None, now) => {
                             let close: Vec<String> =

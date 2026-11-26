@@ -75,7 +75,6 @@ use board::*;
 use board_tools::*;
 use lead::*;
 pub use loops::{LoopDef, WakeReason};
-pub use mcp_server::Seat;
 use mcp_server::*;
 use messages::Delivery;
 use prompts::*;
@@ -912,10 +911,12 @@ pub struct Run {
     records: StdMutex<HashMap<String, crate::agent_records::Reader>>,
 }
 
-/// Whose open ACP session something belongs to: the lead's, or a task's. The two never share a
-/// namespace, so a task may be called anything the board allows, `lead` included.
+/// Whose session something belongs to: the run's main session (its lead, a chat's, a Loop's or a
+/// consolidation's agent) or one subtask's. The two never share a namespace, so a subtask may be
+/// called anything the board allows, `lead` included. The MCP URLs say which (`…/lead`,
+/// `…/task/<id>`), so such a subtask still gets a subtask's tools and its own token.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum SessionKey {
+pub enum SessionKey {
     Lead,
     Task(String),
 }
@@ -923,6 +924,24 @@ enum SessionKey {
 impl SessionKey {
     fn task(id: &str) -> SessionKey {
         SessionKey::Task(id.to_string())
+    }
+
+    /// The session's name inside the run, as events and the board show it: `lead`, or the
+    /// subtask's id. Only for showing and recording; code that decides by session matches on the
+    /// key, because a subtask may be called `lead`.
+    pub(super) fn who(&self) -> &str {
+        match self {
+            SessionKey::Lead => "lead",
+            SessionKey::Task(id) => id,
+        }
+    }
+
+    /// Its part of an MCP URL, after the token.
+    fn path(&self) -> String {
+        match self {
+            SessionKey::Lead => "lead".into(),
+            SessionKey::Task(id) => format!("task/{id}"),
+        }
     }
 }
 

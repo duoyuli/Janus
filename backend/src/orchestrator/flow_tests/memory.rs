@@ -172,6 +172,19 @@ async fn members_keep_notes_for_later_runs_and_never_for_another_workspace() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// A subtask may be called `lead`: its notes are still its collaborator's, never the lead's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_subtask_named_lead_keeps_notes_as_its_collaborator() {
+    let h = harness("memory-named-lead", &[("lead", false), ("m1", true)], json!({ "lead": ["hold:go"] }));
+    let run = start(&h, json!([task("lead", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "the subtask starts", |e| task_event(e, "attempt.started", "lead")).await;
+    let seat = SessionKey::Task("lead".into());
+    let (said, err) = tool_as(&h.app, &run, &seat, "remember", remember("子任务记下的")).await;
+    assert!(!err, "{said}");
+    let notes = h.app.db.memories("ws").unwrap();
+    assert_eq!(notes.iter().map(|m| m.who.as_str()).collect::<Vec<_>>(), ["m1"]);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_consolidation_merges_and_prunes_notes_in_one_turn() {
     let h = harness("memory-dream", &[("lead", false), ("m1", true)], json!({}));

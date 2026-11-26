@@ -51,7 +51,7 @@ async fn goal_mode_orchestrates_through_the_board() {
 
     // The board's MCP surface, and its token.
     let secret = h.app.run(&run).unwrap().st.lock().unwrap().mcp_token.clone();
-    let (lead, t1) = (Seat::Lead, Seat::Task("T1".into()));
+    let (lead, t1) = (SessionKey::Lead, SessionKey::Task("T1".into()));
     let token = session_token(&secret, &lead);
     let member_token = session_token(&secret, &t1);
     let tools = h
@@ -103,7 +103,7 @@ async fn goal_mode_orchestrates_through_the_board() {
             .mcp(
                 &run,
                 &member_token,
-                &Seat::Task("T2".into()),
+                &SessionKey::Task("T2".into()),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" })
             )
             .await

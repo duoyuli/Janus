@@ -74,16 +74,16 @@ pub(super) struct McpRouter {
     sweeping: AtomicBool,
     /// The run stopped: every server is stopped and none starts again.
     closed: AtomicBool,
-    /// The tool calls in progress, by session (`who`) and the id the agent gave the request, so
+    /// The tool calls in progress, by session and the id the agent gave the request, so
     /// the agent's `notifications/cancelled` reaches the server doing the work: every call a
     /// `run_code` script makes goes with its request.
-    calls: StdMutex<HashMap<(String, String), CancellationToken>>,
+    calls: StdMutex<HashMap<(SessionKey, String), CancellationToken>>,
 }
 
 /// A request in progress, until it ends; `cancel` with its session and request id stops it.
 struct Calling<'a> {
     router: &'a McpRouter,
-    key: (String, String),
+    key: (SessionKey, String),
     stop: CancellationToken,
 }
 
@@ -97,9 +97,9 @@ impl Drop for Calling<'_> {
 type Slot = tokio::sync::Mutex<Option<Arc<Backend>>>;
 
 impl McpRouter {
-    /// A call of `who`'s request `id` starts; it can be cancelled until the returned value drops.
-    fn calling(&self, who: &str, id: &Value) -> Calling<'_> {
-        let key = (who.to_string(), id.to_string());
+    /// A call of `seat`'s request `id` starts; it can be cancelled until the returned value drops.
+    fn calling(&self, seat: &SessionKey, id: &Value) -> Calling<'_> {
+        let key = (seat.clone(), id.to_string());
         let stop = CancellationToken::new();
         self.calls.lock().unwrap().insert(key.clone(), stop.clone());
         Calling { router: self, key, stop }
@@ -107,8 +107,8 @@ impl McpRouter {
 
     /// The agent gave up on its request `id` (`notifications/cancelled`): the call stops waiting
     /// and tells the server. A request already answered, or never seen, is nothing to stop.
-    fn cancel(&self, who: &str, id: &Value) {
-        if let Some(stop) = self.calls.lock().unwrap().get(&(who.to_string(), id.to_string())) {
+    fn cancel(&self, seat: &SessionKey, id: &Value) {
+        if let Some(stop) = self.calls.lock().unwrap().get(&(seat.clone(), id.to_string())) {
             stop.cancel();
         }
     }
@@ -199,19 +199,21 @@ fn said(text: String, failed: bool) -> Value {
     tool_text(&text, failed)
 }
 
-/// The member whose snapshot serves the session `who`: the lead's, or that of the member the task
+/// The member whose snapshot serves the session `seat`: the lead's, or that of the member the task
 /// is assigned to.
-fn session_member<'a>(run: &'a Run, who: &str) -> Option<&'a Member> {
-    if who == "lead" {
-        return run.team.iter().find(|m| m.lead);
+fn session_member<'a>(run: &'a Run, seat: &SessionKey) -> Option<&'a Member> {
+    match seat {
+        SessionKey::Lead => run.team.iter().find(|m| m.lead),
+        SessionKey::Task(task) => {
+            let agent = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == *task).map(|t| t.agent.clone());
+            agent.and_then(|a| run.member(&a))
+        }
     }
-    let agent = run.st.lock().unwrap().tasks.iter().find(|t| t.def.id == who).map(|t| t.agent.clone());
-    agent.and_then(|a| run.member(&a))
 }
 
 impl App {
     /// The router's entry for a session in `seat`, beside the board's: same token rule.
-    pub(super) fn tools_server(&self, run: &Run, seat: &Seat) -> Value {
+    pub(super) fn tools_server(&self, run: &Run, seat: &SessionKey) -> Value {
         self.session_server(run, seat, crate::library::MCP_ROUTER, "/tools")
     }
 
@@ -281,14 +283,14 @@ impl App {
         }
     }
 
-    /// The servers the router serves the session `who`: the MCP servers in its member's snapshot
+    /// The servers the router serves the session `seat`: the MCP servers in its member's snapshot
     /// (the lead's, or that of the member the task is assigned to), by their name in the snapshot,
     /// each as the library has it now. The snapshot decides which servers a run has (one added to
     /// the library later is not among them); the library decides how each runs (an edited command,
     /// address or value takes effect at its next start); one deleted from the library is gone from
     /// running runs too, neither listed nor started again.
     // @project-doc docs/domains/20261116-resource_library.md#delivery
-    fn routed_servers(&self, run: &Run, who: &str) -> BTreeMap<String, Item> {
+    fn routed_servers(&self, run: &Run, seat: &SessionKey) -> BTreeMap<String, Item> {
         let now: std::collections::HashMap<String, Item> = match self.items() {
             Ok(items) => items.into_iter().map(|i| (i.id.clone(), i)).collect(),
             Err(err) => {
@@ -296,7 +298,7 @@ impl App {
                 return BTreeMap::new();
             }
         };
-        session_member(run, who)
+        session_member(run, seat)
             .into_iter()
             .flat_map(|m| m.resources.iter().filter(|i| i.kind() == ItemKind::Mcp))
             .filter_map(|i| {
@@ -411,13 +413,13 @@ impl App {
     async fn cards(
         self: &Arc<Self>,
         run: &Arc<Run>,
-        who: &str,
+        seat: &SessionKey,
         until: tokio::time::Instant,
         fresh: bool,
     ) -> Vec<(Item, Card)> {
         let mut out = vec![];
         let mut asking = vec![];
-        for item in self.routed_servers(run, who).into_values() {
+        for item in self.routed_servers(run, seat).into_values() {
             let running = if fresh { None } else { run.router.running(&item.id) };
             let known = if fresh { None } else { self.card(&item) };
             let listed = match (running, known) {
@@ -447,15 +449,15 @@ impl App {
         out
     }
 
-    /// Every tool behind the router for the session `who`, as `cards` finds them.
+    /// Every tool behind the router for the session `seat`, as `cards` finds them.
     async fn routed_tools(
         self: &Arc<Self>,
         run: &Arc<Run>,
-        who: &str,
+        seat: &SessionKey,
         until: tokio::time::Instant,
         fresh: bool,
     ) -> Vec<Routed> {
-        self.cards(run, who, until, fresh)
+        self.cards(run, seat, until, fresh)
             .await
             .into_iter()
             .flat_map(|(item, card)| {
@@ -469,8 +471,8 @@ impl App {
 
     /// The servers behind the router as its words name them: what each is for (the library's
     /// description, else what the server says of itself), its title and its tools.
-    async fn described(self: &Arc<Self>, run: &Arc<Run>, who: &str, wait: Duration) -> Vec<say::Server> {
-        self.cards(run, who, tokio::time::Instant::now() + wait, false)
+    async fn described(self: &Arc<Self>, run: &Arc<Run>, seat: &SessionKey, wait: Duration) -> Vec<say::Server> {
+        self.cards(run, seat, tokio::time::Instant::now() + wait, false)
             .await
             .into_iter()
             .map(|(item, card)| say::Server {
@@ -497,10 +499,15 @@ impl App {
 
     /// The tool `name` means for the session: among the tools it can find now, else among what the
     /// servers give when asked again (a tool added since a card was written down).
-    async fn named_tool(self: &Arc<Self>, run: &Arc<Run>, who: &str, name: &str) -> (Option<Routed>, Vec<Routed>) {
+    async fn named_tool(
+        self: &Arc<Self>,
+        run: &Arc<Run>,
+        seat: &SessionKey,
+        name: &str,
+    ) -> (Option<Routed>, Vec<Routed>) {
         let mut tools = vec![];
         for (wait, fresh) in [(LIST_WAIT, false), (START_WAIT, true)] {
-            tools = self.routed_tools(run, who, tokio::time::Instant::now() + wait, fresh).await;
+            tools = self.routed_tools(run, seat, tokio::time::Instant::now() + wait, fresh).await;
             if let Some(t) = find::named(&tools, name) {
                 return (Some(t.clone()), tools);
             }
@@ -515,7 +522,7 @@ impl App {
     async fn call_routed(
         self: &Arc<Self>,
         run: &Arc<Run>,
-        seat: &Seat,
+        seat: &SessionKey,
         tool: &Routed,
         args: Value,
         stop: &CancellationToken,
@@ -546,7 +553,7 @@ impl App {
         // After handing out subtasks the lead only looks: a call it makes is put in front of it on
         // the board, once per tool, and goes on the delivery as a risk.
         // @project-doc docs/domains/20261031-goal_mode.md#lead_role
-        let after_plan = who == "lead" && {
+        let after_plan = *seat == SessionKey::Lead && {
             let mut st = run.st.lock().unwrap();
             !st.tasks.is_empty() && st.traces.record_lead_tool_after_plan(&tool.name)
         };
@@ -561,45 +568,44 @@ impl App {
         outcome.unwrap_or_else(|err| said(format!("{err:#}"), true))
     }
 
-    /// One MCP request to the router from a session of this run (`who` as for the board).
+    /// One MCP request to the router from a session of this run (`seat` as for the board).
     pub async fn mcp_tools(
         self: &Arc<Self>,
         run_id: &str,
         token: &str,
-        seat: &Seat,
+        seat: &SessionKey,
         req: Value,
     ) -> Result<Option<Value>> {
         let run = self.session_run(run_id, token, seat)?;
-        let who = seat.who();
         let Some(id) = req.get("id").cloned() else {
             if req["method"] == "notifications/cancelled" {
-                run.router.cancel(who, &req["params"]["requestId"]);
+                run.router.cancel(seat, &req["params"]["requestId"]);
             }
             return Ok(None);
         };
         let lang = run.lang;
         let result = match req["method"].as_str().unwrap_or("") {
             "initialize" => {
-                let servers = self.described(&run, who, DESCRIBE_WAIT).await;
+                let servers = self.described(&run, seat, DESCRIBE_WAIT).await;
                 let code = self.code_on(&servers);
                 initialize(&req, crate::library::MCP_ROUTER, &say::instructions(&servers, lang, code))
             }
             "ping" => json!({}),
             "tools/list" => {
-                let servers = self.described(&run, who, LIST_WAIT).await;
+                let servers = self.described(&run, seat, LIST_WAIT).await;
                 let mut tools = find::specs(say::find_description(&servers, lang), lang).to_vec();
                 if self.code_on(&servers) {
-                    tools.push(code::spec(&self.code_skills(&run, who), lang));
+                    tools.push(code::spec(&self.code_skills(&run, seat), lang));
                 }
                 json!({ "tools": tools })
             }
             "tools/call" => {
                 // From now on the agent can cancel it, even while the tool is still looked up.
-                let calling = run.router.calling(who, &id);
+                let calling = run.router.calling(seat, &id);
                 let args = &req["params"]["arguments"];
                 match req["params"]["name"].as_str().unwrap_or_default() {
                     find::FIND => {
-                        let tools = self.routed_tools(&run, who, tokio::time::Instant::now() + LIST_WAIT, false).await;
+                        let tools = self.routed_tools(&run, seat, tokio::time::Instant::now() + LIST_WAIT, false).await;
                         let (text, failed) = find::find(&tools, args, lang);
                         said(text, failed)
                     }
@@ -616,14 +622,14 @@ impl App {
                                 true,
                             )
                         } else {
-                            match self.named_tool(&run, who, &name).await {
+                            match self.named_tool(&run, seat, &name).await {
                                 (Some(tool), _) => self.call_routed(&run, seat, &tool, inner, &calling.stop).await,
                                 (None, tools) => said(find::no_such(&tools, &name, lang), true),
                             }
                         }
                     }
                     // A tool's own routed name still runs it, whatever was listed.
-                    name => match self.named_tool(&run, who, name).await {
+                    name => match self.named_tool(&run, seat, name).await {
                         (Some(tool), _) => self.call_routed(&run, seat, &tool, args.clone(), &calling.stop).await,
                         // A name nothing gives is a protocol error (MCP: unknown tool, -32602).
                         (None, tools) => {

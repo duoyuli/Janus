@@ -403,11 +403,11 @@ impl App {
             // MCP server; an agent that declares no HTTP MCP works without it and reports through
             // its result and questions.
             let board: Vec<Value> = if conn.capabilities["mcpCapabilities"]["http"] == true {
-                vec![self.mcp_server(run, &Seat::Task(id.to_string()))]
+                vec![self.mcp_server(run, &SessionKey::Task(id.to_string()))]
             } else {
                 vec![]
             };
-            let opening = self.opening(run, &Seat::Task(id.to_string()), &member, &conn.capabilities, board, system);
+            let opening = self.opening(run, &SessionKey::Task(id.to_string()), &member, &conn.capabilities, board, system);
             let session = match resume {
                 // A session a failure broke off is only worth going back to with room left in it;
                 // one a restart broke off was working fine and goes on whatever its size.

@@ -8,7 +8,7 @@ use super::*;
 
 /// Extract the `(token, who)` credential handed to a session over ACP (`mcp [...]` in `calls.log`),
 /// never reading `RunState::mcp_token` directly (`AGENTS.md` Rule 1).
-async fn client_mcp_cred(h: &Harness, expected_who: &str) -> (String, Seat) {
+async fn client_mcp_cred(h: &Harness, expected_who: &str) -> (String, SessionKey) {
     let calls = h.dir.join("fake/calls.log");
     for _ in 0..200 {
         let content = std::fs::read_to_string(&calls).unwrap_or_default();
@@ -31,7 +31,7 @@ async fn call_with_cred(
     app: &Arc<App>,
     run: &str,
     token: &str,
-    seat: &Seat,
+    seat: &SessionKey,
     name: &str,
     args: Value,
 ) -> Result<(String, bool)> {
@@ -152,12 +152,12 @@ async fn verifier_receives_targeted_evidence_and_drives_warm_fix_and_reverify() 
 
     // Rule 1 negative auth check: collaborator's real MCP URL token cannot call lead tools or spoof `who="lead"`.
     let (t1_token, t1_seat) = client_mcp_cred(&h, "T1").await;
-    assert_eq!(t1_seat, Seat::Task("T1".into()));
+    assert_eq!(t1_seat, SessionKey::Task("T1".into()));
     let (denied, is_err) =
         call_with_cred(&h.app, &run, &t1_token, &t1_seat, "orchestrate", json!({ "tasks": [] })).await.unwrap();
     assert!(is_err && denied.contains("没有这个工具"), "{denied}");
     assert!(
-        call_with_cred(&h.app, &run, &t1_token, &Seat::Lead, "board", json!({})).await.is_err(),
+        call_with_cred(&h.app, &run, &t1_token, &SessionKey::Lead, "board", json!({})).await.is_err(),
         "forging who=lead with collaborator token must fail authentication"
     );
 
@@ -594,7 +594,7 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
         &h.app,
         &run,
         &t1_token,
-        &Seat::Task("T1".into()),
+        &SessionKey::Task("T1".into()),
         "ask",
         json!({ "text": "要拆吗", "split": { "reason": "太大", "subtasks": [{ "title": "越界", "owns": ["../outside"] }] } }),
     )
@@ -607,7 +607,7 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
         &h.app,
         &run,
         &t1_token,
-        &Seat::Task("T1".into()),
+        &SessionKey::Task("T1".into()),
         "ask",
         json!({ "text": "按这样拆可以吗", "split": {
             "reason": "涉及解析器与代码生成两个独立子系统",
@@ -635,7 +635,7 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
         &h.app,
         &run,
         &v1_token,
-        &Seat::Task("V1".into()),
+        &SessionKey::Task("V1".into()),
         "ask",
         json!({ "text": "要拆吗", "split": { "reason": "想拆", "subtasks": [{ "title": "子项" }] } }),
     )

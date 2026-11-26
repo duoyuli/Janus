@@ -906,15 +906,16 @@ impl App {
         channel: &InstructionChannel,
         system: &str,
     ) -> Opening {
-        let board =
-            if Caller::of_run(run, &Seat::Lead).is_some() && conn.capabilities["mcpCapabilities"]["http"] == true {
-                vec![self.mcp_server(run, &Seat::Lead)]
-            } else {
-                vec![]
-            };
+        let board = if Caller::of_run(run, &SessionKey::Lead).is_some()
+            && conn.capabilities["mcpCapabilities"]["http"] == true
+        {
+            vec![self.mcp_server(run, &SessionKey::Lead)]
+        } else {
+            vec![]
+        };
         self.opening(
             run,
-            &Seat::Lead,
+            &SessionKey::Lead,
             lead,
             &conn.capabilities,
             board,

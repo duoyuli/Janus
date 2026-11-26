@@ -28,12 +28,12 @@ async fn sessions_open_with_the_members_resources() {
     m.resources = vec![skill, server];
     let caps = json!({ "mcpCapabilities": { "http": true } });
     let board = json!({ "type": "http", "name": "janus", "url": "http://board" });
-    let o = app.opening(&run, &Seat::Lead, &m, &caps, vec![board.clone()], Some("规则"));
+    let o = app.opening(&run, &SessionKey::Lead, &m, &caps, vec![board.clone()], Some("规则"));
     let bundle = app.dirs(&run).bundle(&m.id);
     assert_eq!(o.meta["claudeCode"]["options"]["plugins"], json!([{ "type": "local", "path": bundle }]));
     assert_eq!(o.meta["claudeCode"]["options"]["settings"]["permissions"]["allow"], json!(["mcp__janus"]));
     assert_eq!(o.meta["systemPrompt"]["append"], "规则");
-    assert_eq!(o.mcp_servers, vec![app.tools_server(&run, &Seat::Lead), board]);
+    assert_eq!(o.mcp_servers, vec![app.tools_server(&run, &SessionKey::Lead), board]);
     let load = o.load_params("s1", Path::new("/w"));
     assert_eq!(
         (load["sessionId"].as_str(), &load["_meta"], &load["mcpServers"]),
@@ -43,7 +43,7 @@ async fn sessions_open_with_the_members_resources() {
     assert!(!opened.contains("Bearer t"), "values reach neither the session nor the record");
 
     m.runtime = Runtime::Codex;
-    let o = app.opening(&run, &Seat::Lead, &m, &caps, vec![], Some("规则"));
+    let o = app.opening(&run, &SessionKey::Lead, &m, &caps, vec![], Some("规则"));
     assert_eq!(o.meta, json!({ "additionalRoots": [bundle] }), "Codex has its system layer in its environment");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -543,7 +543,7 @@ fn each_caller_lists_its_own_tools_once() {
     let names = |c: Caller| -> Vec<String> {
         c.tools(crate::lang::Lang::Zh).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>()
     };
-    let (lead, t1) = (Seat::Lead, Seat::Task("T1".into()));
+    let (lead, t1) = (SessionKey::Lead, SessionKey::Task("T1".into()));
     for (kind, seat) in [(RunKind::Goal, &lead), (RunKind::Goal, &t1), (RunKind::Loop, &lead), (RunKind::Dream, &lead)]
     {
         let c = Caller::of(kind, seat, false).unwrap();
@@ -559,7 +559,7 @@ fn each_caller_lists_its_own_tools_once() {
     let member = names(Caller::of(RunKind::Goal, &t1, false).unwrap());
     assert!(["board_post", "submit", "ask"].iter().all(|t| member.contains(&t.to_string())), "{member:?}");
     // A subtask whose id is `lead` is still a subtask: its seat says so, not its id.
-    let named_lead = names(Caller::of(RunKind::Goal, &Seat::Task("lead".into()), false).unwrap());
+    let named_lead = names(Caller::of(RunKind::Goal, &SessionKey::Task("lead".into()), false).unwrap());
     assert!(named_lead.contains(&"submit".to_string()) && !named_lead.contains(&"orchestrate".to_string()));
     assert!(names(Caller::of(RunKind::Loop, &lead, false).unwrap()).contains(&"dispatch".to_string()));
     assert!(Caller::of(RunKind::Chat, &lead, false).is_none(), "a chat has no tools of its own");
@@ -679,7 +679,7 @@ fn the_board_speaks_the_runs_language() {
 /// token, which does not open the lead's seat, and the lead's does not open the subtask's.
 #[test]
 fn a_subtask_named_lead_has_its_own_seat() {
-    let (lead, task) = (Seat::Lead, Seat::Task("lead".into()));
+    let (lead, task) = (SessionKey::Lead, SessionKey::Task("lead".into()));
     let (a, b) = (session_token("secret", &lead), session_token("secret", &task));
     assert_ne!(a, b);
     assert_eq!(task.who(), "lead", "inside the run it is still the subtask called lead");

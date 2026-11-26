@@ -485,20 +485,20 @@ async fn an_unmet_criterion_may_be_handed_in_once_more() {
 
 /// The run, token and seat in a session's MCP URL (`…/mcp/<run>/<token>/lead[/tools]` or
 /// `…/mcp/<run>/<token>/task/<id>[/tools]`): the credential a real client holds.
-pub(super) fn mcp_credential(url: &str) -> Option<(String, String, Seat)> {
+pub(super) fn mcp_credential(url: &str) -> Option<(String, String, SessionKey)> {
     let rest = url.split("/mcp/").nth(1)?;
     let rest = rest.strip_suffix("/tools").unwrap_or(rest);
     let mut parts = rest.splitn(3, '/');
     let (run, token, seat) = (parts.next()?, parts.next()?, parts.next()?);
     let seat = match seat {
-        "lead" => Seat::Lead,
-        task => Seat::Task(task.strip_prefix("task/")?.to_string()),
+        "lead" => SessionKey::Lead,
+        task => SessionKey::Task(task.strip_prefix("task/")?.to_string()),
     };
     Some((run.to_string(), token.to_string(), seat))
 }
 
 /// Call a board tool from the session in `seat`.
-async fn tool_as(app: &Arc<App>, run: &str, seat: &Seat, name: &str, args: Value) -> (String, bool) {
+async fn tool_as(app: &Arc<App>, run: &str, seat: &SessionKey, name: &str, args: Value) -> (String, bool) {
     // A run that was just started or resumed gets its board token when its lead starts.
     let r = app.run(run).unwrap();
     for _ in 0..600 {
@@ -516,7 +516,7 @@ async fn tool_as(app: &Arc<App>, run: &str, seat: &Seat, name: &str, args: Value
 
 /// Call a board tool as the lead (`lead`) or as the session of subtask `who`.
 async fn tool(app: &Arc<App>, run: &str, who: &str, name: &str, args: Value) -> (String, bool) {
-    let seat = if who == "lead" { Seat::Lead } else { Seat::Task(who.to_string()) };
+    let seat = if who == "lead" { SessionKey::Lead } else { SessionKey::Task(who.to_string()) };
     tool_as(app, run, &seat, name, args).await
 }
 

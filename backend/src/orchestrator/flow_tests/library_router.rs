@@ -9,7 +9,7 @@ use super::*;
 
 /// The router's address as a session got it in `session/new` (`mcp [...]` in `calls.log`): the
 /// credential a real client holds, never read from the run's state (AGENTS.md rule 1).
-async fn router_url(h: &Harness, who: &str) -> (String, String, Seat) {
+async fn router_url(h: &Harness, who: &str) -> (String, String, SessionKey) {
     let calls = h.dir.join("fake/calls.log");
     for _ in 0..200 {
         let content = std::fs::read_to_string(&calls).unwrap_or_default();
@@ -28,14 +28,14 @@ async fn router_url(h: &Harness, who: &str) -> (String, String, Seat) {
     panic!("no router for {who} in {}", std::fs::read_to_string(&calls).unwrap_or_default());
 }
 
-async fn call(h: &Harness, at: &(String, String, Seat), method: &str, params: Value) -> Result<Value> {
+async fn call(h: &Harness, at: &(String, String, SessionKey), method: &str, params: Value) -> Result<Value> {
     Ok(reply(h, at, json!(1), method, params).await?["result"].clone())
 }
 
 /// The whole JSON-RPC reply to request `id`, error and all.
 async fn reply(
     h: &Harness,
-    (run, token, seat): &(String, String, Seat),
+    (run, token, seat): &(String, String, SessionKey),
     id: Value,
     method: &str,
     params: Value,
@@ -45,23 +45,23 @@ async fn reply(
 }
 
 /// A name no server has is answered as MCP says for an unknown tool: a protocol error, -32602.
-async fn unknown(h: &Harness, at: &(String, String, Seat), name: &str) {
+async fn unknown(h: &Harness, at: &(String, String, SessionKey), name: &str) {
     let r = reply(h, at, json!(1), "tools/call", json!({ "name": name, "arguments": {} })).await.unwrap();
     assert!(r["error"]["code"] == -32602 && r["error"]["message"].as_str().unwrap().contains("没有叫"), "{r}");
 }
 
-async fn tool(h: &Harness, at: &(String, String, Seat), name: &str, args: Value) -> Value {
+async fn tool(h: &Harness, at: &(String, String, SessionKey), name: &str, args: Value) -> Value {
     call(h, at, "tools/call", json!({ "name": name, "arguments": args })).await.unwrap()
 }
 
 /// The tools the session is given: the router's own, never the servers'.
-async fn listed(h: &Harness, at: &(String, String, Seat)) -> Vec<String> {
+async fn listed(h: &Harness, at: &(String, String, SessionKey)) -> Vec<String> {
     let r = call(h, at, "tools/list", json!({})).await.unwrap();
     r["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str().map(str::to_owned)).collect()
 }
 
 /// Every tool behind the router, as `find_tools` with no query names them.
-async fn found(h: &Harness, at: &(String, String, Seat)) -> Vec<String> {
+async fn found(h: &Harness, at: &(String, String, SessionKey)) -> Vec<String> {
     let said = text(&tool(h, at, "find_tools", json!({})).await);
     said.lines()
         .filter_map(|l| l.strip_prefix("- "))
@@ -224,7 +224,7 @@ async fn command_servers_are_served_by_the_runs_router() {
     let (r, token, _) = &at;
     assert!(
         h.app
-            .mcp_tools(r, token, &Seat::Lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
+            .mcp_tools(r, token, &SessionKey::Lead, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
             .await
             .is_err()
     );

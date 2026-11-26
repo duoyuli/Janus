@@ -160,7 +160,7 @@ impl App {
     pub(super) fn opening(
         &self,
         run: &Run,
-        seat: &Seat,
+        seat: &SessionKey,
         m: &Member,
         caps: &Value,
         extra: Vec<Value>,
