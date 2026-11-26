@@ -83,7 +83,7 @@ struct ProposalSheetView: View {
             Text(L.text("由谁来做")).foregroundStyle(.secondary)
             Picker("Agent", selection: Binding(get: { sheet?.connection ?? "" }, set: { store.proposalSheet?.connection = $0 })) {
                 Text(L.text("稍后再选")).tag("")
-                ForEach(store.connections, id: \.self) { c in Text(c["name"].str).tag(c["id"].str) }
+                ForEach(store.okConnections, id: \.self) { c in Text(c["name"].str).tag(c["id"].str) }
             }
             .labelsHidden()
             .frame(maxWidth: 200)

@@ -201,6 +201,6 @@ private func kinds(_ rows: [ChatTurns.Row]) -> [String] {
     #expect(kinds(ChatTurns.rows(l.events, .init(detail: true, busy: true))) == ["head:open", "activity:4:-"])
     // Opened by hand, the summary lists them all like the detail.
     guard case .activity(let id, _, _) = ChatTurns.rows(l.events, .init(busy: true))[1] else { return }
-    let opened = ChatTurns.rows(l.events, .init(busy: true, open: [-(id * 8 + 2): true]))
+    let opened = ChatTurns.rows(l.events, .init(busy: true, open: [ChatTurns.Row.activityId(id): true]))
     #expect(kinds(opened) == ["head:open", "activity:4:-"])
 }

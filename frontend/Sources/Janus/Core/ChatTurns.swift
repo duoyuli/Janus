@@ -67,12 +67,18 @@ enum ChatTurns {
         var id: Int {
             switch self {
             case .section(let e, _), .item(let e): return e.seq
-            case .head(let t, _): return -(t.id * 8 + 1)
-            case .activity(let id, _, _): return -(id * 8 + 2)
+            case .head(let t, _): return Self.headId(t.id)
+            case .activity(let id, _, _): return Self.activityId(id)
             case .text(let es, _): return es[0].seq
-            case .edits(let id, _): return -(id * 8 + 3)
+            case .edits(let id, _): return Self.editsId(id)
             }
         }
+
+        // Rows made of several events take negative ids from the seq they start at, one slot of
+        // eight per seq, so they never meet an event's own (positive) seq or each other.
+        static func headId(_ turn: Int) -> Int { -(turn * 8 + 1) }
+        static func activityId(_ seq: Int) -> Int { -(seq * 8 + 2) }
+        static func editsId(_ seq: Int) -> Int { -(seq * 8 + 3) }
     }
 
     /// A file a turn changed: its path and the change of each call that edited it, in order.
@@ -249,7 +255,7 @@ enum ChatTurns {
         let work = Array(t.items[..<(reply ?? t.items.count)])
         let hasWork = work.contains { ![.pinned, .opener].contains(role($0)) }
         // A turn cut off or with nothing but calls has no reply to show instead: it stays open.
-        let headId = -(t.id * 8 + 1)
+        let headId = Row.headId(t.id)
         let open = o.open[headId] ?? (o.detail || t.running || reply == nil)
         if hasWork || reply != nil { rows.append(.head(t, open: hasWork ? open : nil)) }
         rows += workRows(work, open: open || !hasWork, running: t.running, o)
@@ -275,7 +281,7 @@ enum ChatTurns {
         var text: [Event] = []
         func flushGroup() {
             guard let first = group.first else { return }
-            rows.append(.activity(id: first.seq, events: group, open: o.open[-(first.seq * 8 + 2)] ?? o.detail))
+            rows.append(.activity(id: first.seq, events: group, open: o.open[Row.activityId(first.seq)] ?? o.detail))
             group = []
         }
         func flushText() { if !text.isEmpty { rows.append(.text(text, reply: false)); text = [] } }
@@ -300,7 +306,7 @@ enum ChatTurns {
         let last = rows.lastIndex { if case .activity = $0 { return true } else { return false } }
         // The summary of a running turn: its newest calls fold too, all but the step the agent is
         // on, so switching levels changes what is in view at the bottom, not only rows above it.
-        if running, !o.detail, let k = last, case .activity(let id, let es, _) = rows[k], es.count > 2, o.open[-(id * 8 + 2)] == nil {
+        if running, !o.detail, let k = last, case .activity(let id, let es, _) = rows[k], es.count > 2, o.open[Row.activityId(id)] == nil {
             let now = es[es.count - 1]
             rows.replaceSubrange(k...k, with: [.activity(id: id, events: Array(es.dropLast()), open: false), .activity(id: now.seq, events: [now], open: nil)])
             return rows
@@ -310,7 +316,7 @@ enum ChatTurns {
             return [.activity(id: id, events: es, open: nil)]
         }
         // While the turn runs, its newest calls are open: that is where the agent is now.
-        if running, let k = last, case .activity(let id, let es, _) = rows[k], o.open[-(id * 8 + 2)] == nil {
+        if running, let k = last, case .activity(let id, let es, _) = rows[k], o.open[Row.activityId(id)] == nil {
             rows[k] = .activity(id: id, events: es, open: true)
         }
         return rows
