@@ -4,6 +4,7 @@ mod adapters;
 mod agents;
 mod attachments;
 mod bill;
+mod coderun;
 mod config;
 mod data_shape;
 mod db;
@@ -89,6 +90,8 @@ pub const VERSION: &str = match option_env!("JANUS_VERSION") {
 async fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
+        // Hidden: the MCP router's code mode runs each script in this, before anything else starts.
+        Some(coderun::COMMAND) => std::process::exit(coderun::main()),
         Some("--version" | "-V") => {
             println!("janus {VERSION}");
             return Ok(());

@@ -1196,7 +1196,7 @@
 "目录" = "Catalog";
 "相符的 2 行" = "2 matching lines";
 "只多一个入口" = "One Entry Point";
-"会话只拿到 janus-tools：它的说明列出各服务器和工具，Agent 用 find_tools 查、call_tool 调用。" = "A session gets only janus-tools: its instructions name each server and its tools, and the agent looks tools up with find_tools and runs them with call_tool.";
+"会话只拿到 janus-tools：它的说明列出各服务器和工具，Agent 用 find_tools 查、call_tool 调用，run_code 一步串起多次调用。" = "A session gets only janus-tools: its instructions name each server and its tools, the agent looks tools up with find_tools and runs them with call_tool, and run_code chains several calls in one step.";
 "用到才启动" = "Started on First Use";
 "同一个任务共用" = "Shared Within a Run";
 "负责人和子任务共用同一个服务器，一个任务只运行一份。" = "The lead and subtasks share each server: one copy per run.";
@@ -1207,7 +1207,7 @@
 "1 条描述" = "1 description";
 "任务用得上 %@" = "Task needs %@";
 "子任务 T%lld" = "Subtask T%lld";
-"两个工具" = "Two tools";
+"三个工具" = "Three tools";
 "未启动" = "Not started";
 "启动" = "Starting";
 "运行中 · 共用" = "Running · Shared";
@@ -1720,3 +1720,5 @@
 "只启用这个分组里绑定了 Agent 的数字员工，其中能担任负责人的当负责人" = "Turn on only this group’s digital employees that have an Agent; one that can lead becomes the lead";
 "不知道怎么写职责和指令？和招聘顾问聊聊你要做的事，它帮你设计好，你确认后创建。" = "Not sure what duty and instructions to write? Tell the Recruiter what you need done; it designs them and you create the ones you approve.";
 "找招聘顾问" = "Ask the Recruiter";
+"代码模式" = "Code Mode";
+"Agent 可以用 run_code 写一段调用这些工具的 JavaScript，一步完成多次调用。" = "Agents can use run_code to write JavaScript that calls these tools, making several calls in one step.";

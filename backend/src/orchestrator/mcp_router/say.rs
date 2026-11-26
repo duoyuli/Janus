@@ -1,6 +1,6 @@
 //! What `janus-tools` says of the servers behind it, after magpie's MCP router (`HubLine`,
 //! `hubDetails`): a line naming each server and what it is for, then a line for each with its
-//! tools, within a budget. The agent sees only `find_tools` and `call_tool`, so these
+//! tools, within a budget. The agent sees only `find_tools`, `call_tool` and `run_code`, so these
 //! words, in `initialize`'s instructions and in `find_tools`' description, are how its model
 //! learns what there is to find.
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
@@ -209,19 +209,28 @@ fn server_line(s: &Server, room: usize, lang: Lang) -> String {
     if about.is_empty() { String::new() } else { cut(&say(&about, &[], 0), room) }
 }
 
-/// How the agent reaches the tools, said once at the end of the instructions.
-fn how(lang: Lang) -> String {
-    tr!(
+/// How the agent reaches the tools, said once at the end of the instructions; `code` is whether
+/// `run_code` is given.
+fn how(lang: Lang, code: bool) -> String {
+    let mut s = tr!(
         lang,
         "这些工具不直接列出：find_tools 按要做的事或工具名查找，给出工具的说明和参数；call_tool 按名字（服务器__工具）调用它。",
         "These tools are not listed one by one: find_tools finds them by what you want done or by name, with their descriptions and parameters, and call_tool runs one by its name (server__tool)."
-    )
+    );
+    if code {
+        s += &tr!(
+            lang,
+            "run_code 运行一段调用这些工具的 JavaScript，只交回它返回和打印的内容：几次调用，或只要结果的一部分时，一步完成。",
+            " run_code runs JavaScript that calls these tools and gives back only what it returns and logs: several calls, or the part of an answer you need, in one step."
+        );
+    }
+    s
 }
 
 /// `initialize`'s instructions: the line naming every server, a line for each, then how to reach
 /// their tools, within `SAY_MAX`.
-pub(super) fn instructions(servers: &[Server], lang: Lang) -> String {
-    let tail = how(lang);
+pub(super) fn instructions(servers: &[Server], lang: Lang, code: bool) -> String {
+    let tail = how(lang, code);
     if servers.is_empty() {
         return tr!(
             lang,
@@ -277,7 +286,7 @@ mod tests {
                 &[("resolve-library-id", "Find a library's id"), ("get-library-docs", "Fetch docs")],
             ),
         ];
-        let say = instructions(&servers, Lang::En);
+        let say = instructions(&servers, Lang::En, true);
         assert!(say.starts_with("Tools of the Janus library's MCP servers: exa (Web search and crawling), context7 (Up-to-date docs for libraries)."), "{say}");
         assert!(
             say.contains(
@@ -285,9 +294,10 @@ mod tests {
             ),
             "{say}"
         );
-        assert!(say.contains("find_tools") && say.contains("call_tool"), "{say}");
-        let zh = instructions(&servers, Lang::Zh);
+        assert!(say.contains("find_tools") && say.contains("call_tool") && say.contains("run_code"), "{say}");
+        let zh = instructions(&servers, Lang::Zh, false);
         assert!(zh.starts_with("Janus 资源库的 MCP 服务器：exa（Web search and crawling）、context7（"), "{zh}");
+        assert!(!zh.contains("run_code"), "no code mode, no word of it");
     }
 
     #[test]
@@ -302,7 +312,7 @@ mod tests {
                 tools: tools.clone(),
             })
             .collect();
-        let say = instructions(&servers, Lang::En);
+        let say = instructions(&servers, Lang::En, true);
         assert!(len(&say) <= SAY_MAX, "{} characters", len(&say));
         assert!(len(line(&servers, Lang::En).as_str()) <= LINE_MAX);
         assert!(say.contains("more"), "what does not fit is counted: {say}");

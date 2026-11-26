@@ -148,10 +148,10 @@ def setup(ctx, c):
     def rpc(method, params, at=path):
         return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
     say = rpc("initialize", {"protocolVersion": "2025-06-18"}).get("instructions") or ""
-    c("e2e-route（路由测试）" in say and "e2e-http（HTTP 路由测试）" in say and "find_tools" in say,
+    c("e2e-route（路由测试）" in say and "e2e-http（HTTP 路由测试）" in say and "find_tools" in say and "run_code" in say,
       f"MCP 路由的 instructions 列出每个服务器和它做什么、怎样找工具：{say[:200]}")
     tools = rpc("tools/list", {})["tools"]
-    c([t["name"] for t in tools] == ["find_tools", "call_tool"], f"会话只拿到路由自己的两个工具：{[t['name'] for t in tools]}")
+    c([t["name"] for t in tools] == ["find_tools", "call_tool", "run_code"], f"会话只拿到路由自己的三个工具：{[t['name'] for t in tools]}")
     every = rpc("tools/call", {"name": "find_tools", "arguments": {}})["content"][0]["text"]
     names = [line[2:].split(":")[0] for line in every.splitlines() if line.startswith("- ")]
     c("e2e-route__cwd" in names and "e2e-http__whoami" in names and "e2e-route__hang" in names,
@@ -164,6 +164,8 @@ def setup(ctx, c):
     got = rpc("tools/call", {"name": "call_tool", "arguments": {"name": "e2e-route__cwd", "arguments": {}}})
     rpc("tools/call", {"name": "call_tool", "arguments": {"name": "e2e-route__echo", "arguments": {"text": "again"}}})
     c(started() == 2, f"第一次调用才启动，之后的调用用同一个进程（{started()} 次）")
+    ran = rpc("tools/call", {"name": "run_code", "arguments": {"code": 'const a = await tools.e2e_route__echo({text: "x"}); return a + "!"'}})
+    c(ran["content"][0]["text"] == "x!" and not ran.get("isError"), f"run_code 在一段脚本里调用路由的工具：{ran}")
     c(got["content"][0]["text"] == run.cwd(), "路由背后的服务器在 Run 的工作目录（worktree）里启动")
     seen = json.loads(rpc("tools/call", {"name": "call_tool", "arguments": {"name": "e2e-http__whoami"}})["content"][0]["text"])
     c(seen.get("authorization") == "Bearer good", f"Janus 带着保存的 header 调用 HTTP 服务器：{seen}")
@@ -204,6 +206,15 @@ def setup_settings(ctx, c):
     # The servers added: one card, a server a line, with no group around them.
     ctx.app.do("size 1280x1600", "open settings:library:mcp", "shot settings-library-mcp-servers")
     c(_drawn(ctx, "settings-library-mcp-servers"), "应用：资源库 MCP 标签的服务器列表画出来了，一个服务器一行，不再套一层组")
+    # The code-mode switch, under the router guide: on by default, and the server keeps what it says.
+    server = lambda: ctx.api("GET", "/api/library")["mcpRouter"]["code"]  # noqa: E731
+    st = ctx.app.do("open settings:library:mcp")
+    c(st["mcp"]["codeMode"] is True and server() is True, f"应用：代码模式默认开着，和服务端一致（{st['mcp']['codeMode']}）")
+    st = ctx.app.do("code-mode off", "open settings:library:mcp", "shot settings-library-code-mode-off")
+    c(st["mcp"]["codeMode"] is False and server() is False and _drawn(ctx, "settings-library-code-mode-off"),
+      "应用：关掉代码模式后服务端记下，开关画出来了")
+    st = ctx.app.do("code-mode on")
+    c(st["mcp"]["codeMode"] is True and server() is True, "应用：再打开代码模式")
     # Settings › 通用 › 更新: automatic updates are on until turned off, and the switch keeps it.
     state = ctx.app.do("open settings:updates")
     c(state["autoUpdate"] is True, f"应用：自动更新默认开着（{state['autoUpdate']}）")

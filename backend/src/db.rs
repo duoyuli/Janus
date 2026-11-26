@@ -58,6 +58,9 @@ wire_enum! {
         HostEnv = "host_env",
         /// The language the app is used in (`lang`), one row; none means Chinese.
         Language = "language",
+        /// The MCP router's settings (`code`: whether it gives `run_code`), one row; none means
+        /// code mode on.
+        McpRouter = "mcp_router",
         /// Janus's own marks, such as `seeded` once the default roles were written.
         Meta = "meta",
     }

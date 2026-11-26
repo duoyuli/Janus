@@ -125,6 +125,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/library/skills/import", post(library::import_skill))
         .route("/api/library/skills/{id}", put(library::edit_skill))
         .route("/api/library/mcp", post(library::create_mcp))
+        .route("/api/library/router", put(library::save_router))
         .route("/api/library/mcp/import", post(library::import_mcp))
         .route("/api/library/mcp/{id}", put(library::edit_mcp))
         .route("/api/library/mcp/{id}/warm", post(library::warm_mcp))

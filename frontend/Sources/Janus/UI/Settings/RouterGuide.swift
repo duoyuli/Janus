@@ -104,7 +104,7 @@ struct RouterGuide: View {
             (L.text("用到再读"), L.text("找到合适的 Skill 再读 SKILL.md 照做；每次读取都会计数。")),
         ]
         case .mcp: return [
-            (L.text("只多一个入口"), L.text("会话只拿到 janus-tools：它的说明列出各服务器和工具，Agent 用 find_tools 查、call_tool 调用。")),
+            (L.text("只多一个入口"), L.text("会话只拿到 janus-tools：它的说明列出各服务器和工具，Agent 用 find_tools 查、call_tool 调用，run_code 一步串起多次调用。")),
             (L.text("用到才启动"), L.text("第一次调用时才启动：命令型在隔离环境里跑，HTTP / SSE 由 Janus 连接。")),
             (L.text("同一个任务共用"), L.text("负责人和子任务共用同一个服务器，一个任务只运行一份。")),
             (L.text("闲置就停"), L.text("闲置 10 分钟自动停，下次用到再启动；任务结束时全停。")),
@@ -296,7 +296,7 @@ private struct McpRouteScene: View {
                 ForEach(agents.indices, id: \.self) { i in
                     Node(title: i == 0 ? L.text("负责人") : L.text("子任务 T\(i)"), width: 76).position(agents[i])
                 }
-                Node(title: "janus-tools", caption: L.text("两个工具"), lit: true, width: 92).position(hub)
+                Node(title: "janus-tools", caption: L.text("三个工具"), lit: true, width: 92).position(hub)
                 ForEach(boxes.indices, id: \.self) { i in
                     let on = i == 0 ? running : 0
                     Node(title: servers[i], caption: i == 0 ? serverState : L.text("未启动"), lit: on > 0.5, tone: green, width: 84)

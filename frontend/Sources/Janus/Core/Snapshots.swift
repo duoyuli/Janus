@@ -287,6 +287,8 @@ enum Snapshots {
                      }),
                      "reason": a["job"]["detail"], "recent": JSON.array(AdapterText.recentNotes(a).map(JSON.init))]
                 }),
+                // The library's MCP tab as shown: the code-mode switch.
+                "mcp": ["codeMode": JSON(store.codeMode)],
                 // The library's skill tab as shown: the router guide's catalog mode and order, the
                 // groups by where the skills came from, and each skill's usage line and hints.
                 "skills": [
@@ -370,6 +372,8 @@ enum Snapshots {
         case "send-key": SendKeySetting.shared.value = SendKey(rawValue: arg) ?? .standard
         // The automatic update switch, as Settings › 通用 › 更新 saves it.
         case "auto-update": Updater.shared.automatic = arg != "off"
+        // The MCP tab's code-mode switch, as the library saves it.
+        case "code-mode": await store.setCodeMode(arg != "off")
         // A key press in the first composer of the key window, through the same handler as typing.
         case "press":
             let flags: NSEvent.ModifierFlags = arg == "shift-return" ? .shift : arg == "command-return" ? .command : []

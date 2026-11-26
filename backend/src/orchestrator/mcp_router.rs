@@ -1,8 +1,9 @@
 //! The MCP router (`janus-tools`): one MCP endpoint per run serving each session the MCP servers
 //! pinned in its member's snapshot (the whole library), whatever their transport, in place of
 //! handing each server to each session. After magpie's MCP router, the agent is given three tools
-//! and never the servers' own: `find_tools` finds them (`find`) and `call_tool` runs one by name;
-//! `initialize`'s instructions name each server, what it is for and its tools (`say`). A server starts (or is connected) on its first call; a
+//! and never the servers' own: `find_tools` finds them (`find`), `call_tool` runs one by name, and
+//! `run_code` runs a script that calls them (`code`); `initialize`'s instructions name each server,
+//! what it is for and its tools (`say`). A server starts (or is connected) on its first call; a
 //! command runs in the run's working directory and a sandbox like an agent's. The run's sessions
 //! share one backend of each, stopped after `IDLE` unused. What a server said of itself and the
 //! tools it listed are kept on disk by revision (a card), so describing and listing start nothing
@@ -17,6 +18,7 @@ use crate::library::{Item, ItemKind, McpServer};
 use std::sync::atomic::AtomicBool;
 use tokio_util::sync::CancellationToken;
 
+mod code;
 mod find;
 mod say;
 
@@ -73,7 +75,8 @@ pub(super) struct McpRouter {
     /// The run stopped: every server is stopped and none starts again.
     closed: AtomicBool,
     /// The tool calls in progress, by session (`who`) and the id the agent gave the request, so
-    /// the agent's `notifications/cancelled` reaches the server doing the work.
+    /// the agent's `notifications/cancelled` reaches the server doing the work: every call a
+    /// `run_code` script makes goes with its request.
     calls: StdMutex<HashMap<(String, String), CancellationToken>>,
 }
 
@@ -487,6 +490,11 @@ impl App {
             .collect()
     }
 
+    /// Whether the session is given `run_code`: code mode is on and some server has a tool.
+    fn code_on(&self, servers: &[say::Server]) -> bool {
+        self.code_mode() && servers.iter().any(|s| !s.tools.is_empty())
+    }
+
     /// The tool `name` means for the session: among the tools it can find now, else among what the
     /// servers give when asked again (a tool added since a card was written down).
     async fn named_tool(self: &Arc<Self>, run: &Arc<Run>, who: &str, name: &str) -> (Option<Routed>, Vec<Routed>) {
@@ -573,12 +581,17 @@ impl App {
         let result = match req["method"].as_str().unwrap_or("") {
             "initialize" => {
                 let servers = self.described(&run, who, DESCRIBE_WAIT).await;
-                initialize(&req, crate::library::MCP_ROUTER, &say::instructions(&servers, lang))
+                let code = self.code_on(&servers);
+                initialize(&req, crate::library::MCP_ROUTER, &say::instructions(&servers, lang, code))
             }
             "ping" => json!({}),
             "tools/list" => {
                 let servers = self.described(&run, who, LIST_WAIT).await;
-                json!({ "tools": find::specs(say::find_description(&servers, lang), lang) })
+                let mut tools = find::specs(say::find_description(&servers, lang), lang).to_vec();
+                if self.code_on(&servers) {
+                    tools.push(code::spec(&self.code_skills(&run, who), lang));
+                }
+                json!({ "tools": tools })
             }
             "tools/call" => {
                 // From now on the agent can cancel it, even while the tool is still looked up.
@@ -590,6 +603,7 @@ impl App {
                         let (text, failed) = find::find(&tools, args, lang);
                         said(text, failed)
                     }
+                    code::CODE => self.run_code(&run, seat, args, &calling.stop).await,
                     find::CALL => {
                         let (name, inner) = find::call_args(args);
                         if name.is_empty() {

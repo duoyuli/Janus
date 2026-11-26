@@ -195,6 +195,18 @@ final class AppStore {
 
     var sourceUpdates: [JSON] { librarySources.filter { $0["updateAvailable"].truthy } }
 
+    /// Whether the MCP router gives agents `run_code` (code mode); on unless turned off.
+    var codeMode: Bool { library?["mcpRouter"]["code"].bool ?? true }
+
+    /// Turn code mode on or off for the sessions that start from now on.
+    // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+    func setCodeMode(_ on: Bool) async {
+        do {
+            let r = try await api.put("/api/library/router", ["code": JSON(on)])
+            library?["mcpRouter"] = ["code": r["code"]]
+        } catch { show(error.localizedDescription) }
+    }
+
     /// Sources being fetched, so every screen shows the same progress.
     var updatingSources: Set<String> = []
 
@@ -272,6 +284,8 @@ final class AppStore {
                         case .named("loop", let c): await self.loadLoop(c["loop"].str)
                         // A workspace's team memory changed: read it again if its page has shown.
                         case .named("memory", let c): if self.memories[c["workspace"].str] != nil { await self.loadMemories(c["workspace"].str) }
+                        // An agent saved a script as a skill: read the library again if it has shown.
+                        case .named("library", _): if self.library != nil { await self.loadLibrary() }
                         case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(EventKind(wire: n["type"].str), run: n["run"].str, store: self))
                         default: break
                         }

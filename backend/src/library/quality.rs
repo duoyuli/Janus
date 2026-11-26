@@ -124,7 +124,14 @@ mod tests {
     use super::*;
 
     fn entry(name: &str, about: &str, when: bool) -> (String, Entry) {
-        let e = Entry { name: name.into(), about: about.into(), full_len: about.chars().count(), when, manual: false };
+        let e = Entry {
+            name: name.into(),
+            about: about.into(),
+            full_len: about.chars().count(),
+            when,
+            manual: false,
+            code: false,
+        };
         (format!("id-{name}"), e)
     }
 

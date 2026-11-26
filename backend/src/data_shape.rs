@@ -45,6 +45,8 @@ pub const SHAPES: &[Shape] = &[
     Shape { kind: ConfigKind::HostEnv, required: &["paths"], optional: &[] },
     // The language the app is used in (`lang`), one row; none means Chinese.
     Shape { kind: ConfigKind::Language, required: &["language"], optional: &[] },
+    // The MCP router's code mode (`run_code`), one row; none means on.
+    Shape { kind: ConfigKind::McpRouter, required: &["code"], optional: &[] },
     Shape {
         kind: ConfigKind::Connection,
         required: &["id", "kind", "base", "name", "auth", "bin", "prompt", "env", "status", "createdAt"],
@@ -96,6 +98,7 @@ pub fn check(kind: ConfigKind, data: &Value) -> Vec<String> {
         | ConfigKind::Workspace
         | ConfigKind::HostEnv
         | ConfigKind::Language
+        | ConfigKind::McpRouter
         | ConfigKind::Connection => {
             let shape = SHAPES.iter().find(|s| s.kind == kind).expect("every plain JSON kind has a shape");
             let extra = if kind == ConfigKind::Connection { connection_fields() } else { vec![] };

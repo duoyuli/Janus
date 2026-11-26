@@ -304,12 +304,30 @@ struct LibraryView: View {
 
     /// Three parts, top to bottom: how the MCP router works; the servers added, with the way to add
     /// one; the community's picks.
+    /// Code mode: whether the router gives agents `run_code`, a script that calls the servers' tools.
+    private var codeModeRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L.text("代码模式")).font(.callout.weight(.semibold))
+                Text(L.text("Agent 可以用 run_code 写一段调用这些工具的 JavaScript，一步完成多次调用。"))
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Toggle(L.text("代码模式"), isOn: Binding(get: { store.codeMode }, set: { on in Task { await store.setCodeMode(on) } }))
+                .labelsHidden().toggleStyle(.switch).controlSize(.small)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
+    }
+
     // @project-doc docs/domains/20261116-resource_library.md#mcp_router
     @ViewBuilder private var mcpTab: some View {
         let servers = items(.mcp)
         RouterGuide(kind: .mcp, names: servers.map { $0["name"].str }, now: servers.isEmpty
             ? L.text("还没有 MCP 服务器。加进来就全员可用。")
             : L.text("\(servers.count) 个服务器全员可用，经 janus-tools 一个入口取用。"))
+        codeModeRow
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(L.text("已添加"), count: servers.count, caption: L.text("全员可用，经 janus-tools 取用")) {
                 Button(L.text("添加服务器")) { Task { await store.editMcp(nil) } }

@@ -134,6 +134,13 @@ fn resolve_skill_folder(path: &str) -> Result<PathBuf> {
 
 /// The board MCP's and the router's names are reserved, in any case and with any punctuation
 /// around them.
+/// The file beside a skill's SKILL.md that `run_code` runs as `skills.<name>(args)`, and the
+/// largest one read: a script, not a bundle.
+pub const SKILL_CODE: &str = "code.js";
+const SKILL_CODE_MAX: u64 = 256 * 1024;
+/// The id of the MCP router's one row of settings.
+const ROUTER: &str = "settings";
+
 pub(crate) fn reserved_mcp_name(name: &str) -> bool {
     ["janus", MCP_ROUTER]
         .iter()
@@ -256,7 +263,8 @@ impl App {
         Ok(item)
     }
 
-    /// Only skills written in Janus are edited here; others change where they came from.
+    /// Only skills written in Janus are edited here; others change where they came from. A skill
+    /// saved from `run_code` keeps its code.
     pub async fn edit_skill(&self, id: &str, body: &Value) -> Result<Item> {
         let _guard = self.library.lock.lock().await;
         let mut item = self.item(id)?;
@@ -265,7 +273,12 @@ impl App {
         }
         let (name, description, text) = editor_skill(body)?;
         self.check_free_name(ItemKind::Skill, &name, Some(id))?;
-        item.revision = store::put_text(&self.store_dir(), &[("SKILL.md", &text)])?;
+        let code = self.skill_code(&item);
+        let mut files = vec![("SKILL.md", text.as_str())];
+        if let Some(code) = &code {
+            files.push((SKILL_CODE, code));
+        }
+        item.revision = store::put_text(&self.store_dir(), &files)?;
         item.name = name;
         item.description = skill::short(&description);
         item.updated_at = now_ms();
@@ -382,6 +395,58 @@ impl App {
     /// A skill's SKILL.md as stored.
     pub fn skill_text(&self, item: &Item) -> Result<String> {
         std::fs::read_to_string(self.store_dir().join(&item.revision).join("SKILL.md")).context("读取 SKILL.md 失败")
+    }
+
+    /// A skill's `code.js`, when it has one no larger than `SKILL_CODE_MAX`: a function the MCP
+    /// router's `run_code` calls as `skills.<name>(args)`.
+    // @project-doc docs/domains/20261116-resource_library.md#mcp_router
+    pub fn skill_code(&self, item: &Item) -> Option<String> {
+        let path = self.store_dir().join(&item.revision).join(SKILL_CODE);
+        let meta = std::fs::metadata(&path).ok()?;
+        (item.body == Body::Skill && meta.is_file() && meta.len() <= SKILL_CODE_MAX)
+            .then(|| std::fs::read_to_string(&path).ok())
+            .flatten()
+    }
+
+    /// Save a script `run_code` ran without an error as a skill written in Janus (`save_as`): a
+    /// SKILL.md saying how to run it, in the app's language, and the script as its `code.js`.
+    /// Like every library skill it is for every digital employee, from the next run. A name the
+    /// library has is refused, never written over. The app hears of it (`Change::Library`).
+    pub async fn save_code_skill(&self, name: &str, description: &str, code: &str) -> Result<Item> {
+        let name = skill::skill_name(name).ok_or_else(|| anyhow!("Skill 名称只能用小写字母、数字和 -：{name}"))?;
+        if description.trim().is_empty() {
+            bail!("Skill 需要一句描述：写明它做什么、什么时候用、要哪些 args");
+        }
+        if code.len() as u64 > SKILL_CODE_MAX {
+            bail!("代码超过 {} KB，存不成 Skill", SKILL_CODE_MAX / 1024);
+        }
+        crate::coderun::skill_source(code)?;
+        let _guard = self.library.lock.lock().await;
+        self.check_free_name(ItemKind::Skill, &name, None)?;
+        let key = name.replace('-', "_");
+        let body = crate::lang::tr!(
+            self.language(),
+            "用 Janus 的 MCP 路由运行：它的 run_code 工具以 `skills.{key}(args)` 调用这个 Skill，args 按上面的描述；代码自己调用路由的工具。代码是这个目录里的 {SKILL_CODE}。",
+            "Run it through Janus's MCP router: its run_code tool calls this skill as `skills.{key}(args)`, with the args its description names, and the code calls the router's tools itself. Its code is {SKILL_CODE}, in this folder."
+        );
+        let text = format!("{}\n", skill::with_identity(&body, &name, description).trim_end());
+        let revision = store::put_text(&self.store_dir(), &[("SKILL.md", &text), (SKILL_CODE, code)])?;
+        let item = self.new_item(name, skill::short(description), Origin::Created, revision, Body::Skill);
+        self.put_item(&item)?;
+        let _ = self.changes.send(crate::orchestrator::Change::Library);
+        Ok(item)
+    }
+
+    /// Whether the MCP router gives `run_code` (code mode); on until the person turns it off.
+    pub fn code_mode(&self) -> bool {
+        self.db.get_config(ConfigKind::McpRouter, ROUTER).ok().flatten().is_none_or(|v| v["code"] != false)
+    }
+
+    /// Turn code mode on or off, for the sessions that start from now on.
+    pub fn save_code_mode(&self, body: &Value) -> Result<Value> {
+        let code = body["code"].as_bool().ok_or_else(|| anyhow!("code 只能是 true 或 false"))?;
+        self.db.put_config(ConfigKind::McpRouter, ROUTER, &json!({ "code": code }), now_ms())?;
+        Ok(json!({ "code": code }))
     }
 
     // ---- MCP servers
@@ -523,7 +588,12 @@ impl App {
         let items: Vec<Value> = all.iter().map(|i| self.item_json(i, &sources, &notes)).collect::<Result<_>>()?;
         let sources: Vec<Value> = sources.iter().map(|s| self.source_json(s)).collect::<Result<_>>()?;
         let catalog = if notes.listed { "list" } else { "search" };
-        Ok(json!({ "items": items, "sources": sources, "skillRouter": { "catalog": catalog } }))
+        Ok(json!({
+            "items": items,
+            "sources": sources,
+            "skillRouter": { "catalog": catalog },
+            "mcpRouter": { "code": self.code_mode() },
+        }))
     }
 
     /// One item, with its SKILL.md when it is a skill.

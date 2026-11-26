@@ -53,6 +53,39 @@ async fn editor_skills_are_stored_and_edited() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A script `run_code` saved is a skill written in Janus with its `code.js`, which an edit keeps;
+/// one without a default export, a bad name, no description or a taken name is refused. Code mode
+/// is on until turned off, and takes only true or false.
+#[tokio::test]
+async fn skills_with_code_are_saved_and_kept_through_edits() {
+    let (app, dir) = app("code");
+    let code = "export default async (args) => args.n + 1\n";
+    let item = app.save_code_skill("add-one", "Add one to args.n", code).await.unwrap();
+    assert_eq!((item.origin.clone(), app.skill_code(&item).as_deref()), (Origin::Created, Some(code)));
+    assert!(app.skill_text(&item).unwrap().contains("skills.add_one(args)"));
+    for (name, about, code, why) in [
+        ("no-export", "d", "const x = 1", "export default"),
+        ("！！", "d", code, "Skill 名称"),
+        ("quiet", " ", code, "描述"),
+        ("add-one", "d", code, "已经有"),
+    ] {
+        let err = app.save_code_skill(name, about, code).await.unwrap_err().to_string();
+        assert!(err.contains(why), "{name}: {err}");
+    }
+    let text = app.skill_text(&item).unwrap();
+    let edited =
+        app.edit_skill(&item.id, &json!({ "name": "add-one", "content": text + "\n更多说明。" })).await.unwrap();
+    assert_ne!(edited.revision, item.revision);
+    assert_eq!(app.skill_code(&edited).as_deref(), Some(code), "the edit keeps the code");
+
+    assert!(app.code_mode());
+    assert!(app.save_code_mode(&json!({ "code": "no" })).is_err(), "only true or false");
+    assert!(app.code_mode(), "a refused change changes nothing");
+    app.save_code_mode(&json!({ "code": false })).unwrap();
+    assert!(!app.code_mode());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A folder is copied once; refreshing copies it again. Only editor skills are edited in place.
 #[tokio::test]
 async fn folder_skills_are_copied_and_refreshed() {

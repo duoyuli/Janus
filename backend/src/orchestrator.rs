@@ -1149,6 +1149,9 @@ pub enum Change {
     Loop(String),
     /// A workspace's team memory: a note, its consolidation.
     Memory { workspace: String },
+    /// The library changed without the app asking: an agent saved a script as a skill
+    /// (`run_code`'s `save_as`).
+    Library,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.

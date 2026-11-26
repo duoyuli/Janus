@@ -121,7 +121,7 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert_eq!(init["protocolVersion"], "2025-06-18", "a version Janus speaks is agreed to");
     let newer = call(&h, &at, "initialize", json!({ "protocolVersion": "2099-01-01" })).await.unwrap();
     assert_eq!(newer["protocolVersion"], "2025-11-25", "one it doesn't is answered with its newest");
-    assert_eq!(listed(&h, &at).await, ["find_tools", "call_tool"], "the servers' tools are not listed");
+    assert_eq!(listed(&h, &at).await, ["find_tools", "call_tool", "run_code"], "the servers' tools are not listed");
     let names = found(&h, &at).await;
     // The second page (`nextCursor`) is read too.
     let probe_tools = [
@@ -354,6 +354,83 @@ async fn url_servers_are_reached_by_the_router_with_their_values() {
     let live = h.app.run(&run).unwrap();
     h.app.action(&live, &action_of(json!({ "type": "cancel" }))).unwrap();
     eventually("stopping the run ends the server's session", || lines().contains(&"delete".to_string())).await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// Code mode: `run_code` runs a script against the routed tools, each call recorded as the
+/// router's; a script that ran is saved as a skill with code, which the next run calls on
+/// `skills`. Turned off in the library, the router gives the two other tools only.
+#[tokio::test(flavor = "multi_thread")]
+async fn code_mode_runs_scripts_and_keeps_them_as_skills() {
+    let h = harness("library-router-code", &[("lead", false), ("m1", true)], json!({ "T1": ["slow"], "T2": ["slow"] }));
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/fake_mcp.py");
+    let config = json!({ "mcpServers": { "probe": { "command": "python3", "args": [script] } } });
+    h.app.import_mcp_config(&config.to_string()).await.unwrap();
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
+    let at = router_url(&h, "T1").await;
+    let init = call(&h, &at, "initialize", json!({})).await.unwrap();
+    assert!(init["instructions"].as_str().unwrap().contains("run_code"), "{init}");
+
+    let code = r#"
+        const [a, b] = await Promise.all([tools.probe__echo({ text: args.first }), tools["probe__echo"]({ text: "two" })]);
+        console.log("got", a);
+        return `${a}+${b}`;
+    "#;
+    let ran = tool(
+        &h,
+        &at,
+        "run_code",
+        json!({ "code": code, "args": { "first": "one" },
+        "save_as": { "name": "echo-twice", "description": "Echo two texts; args.first is the first" } }),
+    )
+    .await;
+    assert_ne!(ran["isError"], true, "{ran}");
+    let said: Vec<&str> = ran["content"].as_array().unwrap().iter().filter_map(|c| c["text"].as_str()).collect();
+    assert_eq!(said[0], "got one\none+two", "the logs, then what it returned: {ran}");
+    assert!(said.last().unwrap().contains("echo-twice"), "saved: {ran}");
+    let routed = events(&h.app, &run).into_iter().filter(|e| e.kind.as_str() == "mcp.routed").count();
+    assert_eq!(routed, 2, "each call the script made is recorded");
+    let missing = tool(&h, &at, "run_code", json!({ "code": "return await tools.probe__ecko({})" })).await;
+    assert!(missing["isError"] == true && text(&missing).contains("probe__echo"), "{missing}");
+    // What is not saved: a script that failed, a name the library has, code past the limit.
+    let save = |name: &str| json!({ "name": name, "description": "d" });
+    let said =
+        |r: &Value| -> String { r["content"].as_array().unwrap().iter().filter_map(|c| c["text"].as_str()).collect() };
+    let failed = tool(&h, &at, "run_code", json!({ "code": "throw new Error('no')", "save_as": save("broken") })).await;
+    assert!(said(&failed).contains("没有存成 Skill：代码没有跑通"), "{failed}");
+    let taken = tool(&h, &at, "run_code", json!({ "code": "return 1", "save_as": save("echo-twice") })).await;
+    assert!(said(&taken).contains("没有存成 Skill") && said(&taken).contains("echo-twice"), "{taken}");
+    let big = format!("return {:?}", "x".repeat(300 * 1024));
+    let large = tool(&h, &at, "run_code", json!({ "code": big, "save_as": save("too-big") })).await;
+    assert!(
+        said(&large).ends_with("没有存成 Skill：代码超过 256 KB，存不成 Skill"),
+        "{}",
+        said(&large).chars().rev().take(80).collect::<String>()
+    );
+    let names: Vec<String> = h.app.items().unwrap().into_iter().map(|i| i.name).collect();
+    assert!(!names.iter().any(|n| n == "broken" || n == "too-big"), "{names:?}");
+
+    // The skill is the library's, with its code, for every digital employee from the next run.
+    let saved = h.app.items().unwrap().into_iter().find(|i| i.name == "echo-twice").unwrap();
+    assert!(h.app.skill_code(&saved).unwrap().contains("export default async (args)"));
+    let second = start(&h, json!([task("T2", "m1", json!({}))])).await;
+    wait_until(&h.app, &second, "T2 running", |e| task_event(e, "attempt.started", "T2")).await;
+    let other = router_url(&h, "T2").await;
+    let tools = call(&h, &other, "tools/list", json!({})).await.unwrap();
+    assert!(tools["tools"][2]["description"].as_str().unwrap().contains("skills.echo_twice"), "{tools}");
+    let again = tool(&h, &other, "run_code", json!({ "code": "return await skills.echo_twice({ first: 'x' })" })).await;
+    assert_eq!(text(&again), "got x\nx+two", "the skill logs as the script did: {again}");
+
+    // Code mode off: the two other tools only, and the instructions say nothing of it.
+    h.app.save_code_mode(&json!({ "code": false })).unwrap();
+    assert_eq!(listed(&h, &other).await, ["find_tools", "call_tool"]);
+    let init = call(&h, &other, "initialize", json!({})).await.unwrap();
+    assert!(!init["instructions"].as_str().unwrap().contains("run_code"));
+    assert_eq!(h.app.library_view().unwrap()["mcpRouter"]["code"], false);
+    for r in [&run, &second] {
+        h.app.action(&h.app.run(r).unwrap(), &action_of(json!({ "type": "cancel" }))).unwrap();
+    }
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

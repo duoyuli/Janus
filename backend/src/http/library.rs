@@ -15,6 +15,12 @@ pub(super) async fn library(State(app): State<Arc<App>>) -> ApiResult {
     reply(app.library_view()?)
 }
 
+/// The MCP router's settings: whether it gives `run_code` (code mode).
+// @project-doc docs/interfaces/20261031-http_api.md#library
+pub(super) async fn save_router(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.save_code_mode(&body)?)
+}
+
 pub(super) async fn item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     reply(app.item_view(&id)?)
 }

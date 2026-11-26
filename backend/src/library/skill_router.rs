@@ -40,6 +40,8 @@ pub(super) struct Entry {
     pub when: bool,
     /// The skill asks to be used only when someone names it (`disable-model-invocation: true`).
     pub manual: bool,
+    /// The skill has a `code.js`: the MCP router's `run_code` calls it as `skills.<name>(args)`.
+    pub code: bool,
 }
 
 impl Entry {
@@ -60,12 +62,23 @@ impl Entry {
             about: crate::text::clip(&about, ABOUT_MAX - 1),
             when: when.is_some(),
             manual,
+            code: false,
         }
     }
 
     fn line(&self, sep: &str, lang: Lang) -> String {
         let manual = if self.manual { lang.pick("（只在点名时使用）", " (only when named)") } else { "" };
-        format!("{}{sep}{}{manual}", self.name, self.about)
+        let code = if self.code {
+            let key = self.name.replace('-', "_");
+            tr!(
+                lang,
+                "（带代码：MCP 路由的 run_code 里用 skills.{key}(args) 调用）",
+                " (with code: skills.{key}(args) in the MCP router's run_code)"
+            )
+        } else {
+            String::new()
+        };
+        format!("{}{sep}{}{manual}{code}", self.name, self.about)
     }
 }
 
@@ -75,8 +88,10 @@ impl Entry {
 pub(super) fn write(router: &Path, items: &[&Item], uses: &HashMap<String, u64>, lang: Lang) -> Result<()> {
     let mut entries = vec![];
     for item in items {
-        let md = std::fs::read_to_string(router.join(".skills").join(&item.name).join("SKILL.md"))?;
-        entries.push((uses.get(&item.id).copied().unwrap_or(0), Entry::read(item, &md)));
+        let dir = router.join(".skills").join(&item.name);
+        let md = std::fs::read_to_string(dir.join("SKILL.md"))?;
+        let entry = Entry { code: dir.join(super::SKILL_CODE).is_file(), ..Entry::read(item, &md) };
+        entries.push((uses.get(&item.id).copied().unwrap_or(0), entry));
     }
     entries.sort_by(|(a_uses, a), (b_uses, b)| b_uses.cmp(a_uses).then_with(|| a.name.cmp(&b.name)));
     let entries: Vec<Entry> = entries.into_iter().map(|(_, e)| e).collect();
@@ -210,6 +225,9 @@ mod tests {
             let d = dir.join(".skills").join(name);
             std::fs::create_dir_all(&d).unwrap();
             std::fs::write(d.join("SKILL.md"), md).unwrap();
+            if md.contains("with code") {
+                std::fs::write(d.join(crate::library::SKILL_CODE), "export default async () => 1").unwrap();
+            }
         }
         let items: Vec<Item> = skills.iter().map(|(n, _)| item(n)).collect();
         write(&dir, &items.iter().collect::<Vec<_>>(), &HashMap::new(), lang).unwrap();
@@ -240,6 +258,7 @@ mod tests {
                     "---\nname: deploy\ndescription: Deploy to production.\ndisable-model-invocation: true\n---\n"
                         .into(),
                 ),
+                ("echo-twice".into(), "---\nname: echo-twice\ndescription: Echo, with code.\n---\n".into()),
             ],
         );
         let md = std::fs::read_to_string(dir.join("SKILL.md")).unwrap();
@@ -250,6 +269,12 @@ mod tests {
             "{md}"
         );
         assert!(md.contains("- deploy：Deploy to production.（只在点名时使用）"), "{md}");
+        assert!(
+            md.contains(
+                "- echo-twice：Echo, with code.（带代码：MCP 路由的 run_code 里用 skills.echo_twice(args) 调用）"
+            ),
+            "{md}"
+        );
         assert!(md.contains(&format!("`{}/<名字>/SKILL.md`", dir.join(".skills").display())), "{md}");
         assert!(md.find("- deploy").unwrap() < md.find("- pdf").unwrap(), "by name");
         let desc = front(&md);
@@ -294,6 +319,7 @@ mod tests {
                     full_len: 300,
                     when: false,
                     manual: false,
+                    code: false,
                 })
                 .collect()
         };

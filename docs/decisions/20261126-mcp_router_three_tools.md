@@ -2,7 +2,7 @@
 
 - 状态：已采纳（accepted），记录于 2026-11-26。
 - 取代：[ADR：资源库默认给所有数字员工，经 MCP 路由和 Skill 路由提供](20261119-library_routing.md) 第 3 条中的「有状态的服务器选每个会话单独运行」和「路由列出完整的工具列表」，以及取舍中的「不做 Janus 自己的工具搜索」；[ADR：Janus 只注入协作规则](20261125-collaboration_only_injection.md) 第 5 条中「MCP 服务器都不返回 `instructions`」和「负责人说明和协作者约定各有一节协作工具」。
-- 相关文档：[资源库：MCP 路由](../domains/20261116-resource_library.md#mcp_router)、[看板 MCP](../interfaces/20261031-board_mcp.md#transport)、[调研：MCP 路由的通行做法](../research/20261120-mcp_router_practices.md)、[研究：magpie 的资源库](../research/20261116-magpie_library.md)。
+- 相关文档：[资源库：MCP 路由](../domains/20261116-resource_library.md#mcp_router)、[看板 MCP](../interfaces/20261031-board_mcp.md#transport)、[ADR：MCP 路由的代码模式](20261126-run_code.md)、[调研：MCP 路由的通行做法](../research/20261120-mcp_router_practices.md)、[研究：magpie 的资源库](../research/20261116-magpie_library.md)。
 
 ## 背景
 
@@ -29,7 +29,7 @@
 2. **只给三个工具**：`tools/list` 固定给 `find_tools`、`call_tool`，代码模式开着时再加 `run_code`，不论背后有多少服务器、多少工具。
    - `find_tools {query, server?}` 照 magpie 的匹配规则：去掉停用词；中日韩文本在换文字处切开，再在「我、帮、个」这类字处切开；至少命中三分之二的关键词，其中一个在名字里。返回最相符的 5 个工具的完整定义，再列最多 15 个名字。没有命中时列出各服务器和它们的工具，并说明不要调用只是名字相近的工具。它的描述也带上服务器清单（最多 1200 个字符），给不展示 `instructions` 的 Agent 看。
    - `call_tool {name, arguments}` 依次按路由名、服务器内的同名工具、Agent 自己加了前缀的名字查找；`arguments` 收到 JSON 字符串时先解析。找不到时报工具错误，列出名字相近的工具。`tools/call` 直接用路由名调用也照样执行。
-   - `run_code`（代码模式）让 Janus 运行模型写的脚本，扩大了信任边界，另写一份 ADR，和它的实现一起提交。
+   - `run_code` 见 [ADR：MCP 路由的代码模式](20261126-run_code.md)。
 3. **按 Run 运行**：去掉资源的 `process`，每个服务器同一个 Run 一个进程，闲置 10 分钟停掉，Run 结束时全部停止。数据版本 29 删除资源和 Run 快照里的 `process`。
 4. **调用等 50 秒**：一次调用最多等 50 秒，短于 Claude Code 和 Codex 给 MCP 调用的 60 秒，Agent 收到的是路由的回答，而不是它自己的超时。
 
@@ -45,6 +45,6 @@
 
 ## 后果
 
-- 后端：`mcp_router` 拆出 `say`（自我介绍）、`find`（`find_tools` 和按名字查找）；工具缓存改为「名片」（服务器的标题、一句话用途和工具），仍在 `cache/mcp-tools/<资源 id>/<revision>.json`，旧格式的缓存读不出时当作没有，下次用到时重新列出。`McpProcess` 和 `stop_session` 删除；看板的 `Caller::instructions` 列出工具。
+- 后端：`mcp_router` 拆出 `say`（自我介绍）、`find`（`find_tools` 和按名字查找）和 `code`（`run_code`）；工具缓存改为「名片」（服务器的标题、一句话用途和工具），仍在 `cache/mcp-tools/<资源 id>/<revision>.json`，旧格式的缓存读不出时当作没有，下次用到时重新列出。`McpProcess` 和 `stop_session` 删除；看板的 `Caller::instructions` 列出工具。
 - 应用：MCP 编辑器和精选库去掉「每个会话单独运行」；路由说明卡片改为三个工具。
 - 文档：资源库的「MCP 路由」、看板 MCP 的「传输」、负责人说明和协作者约定的分节、值班和团队记忆的系统层、ACP 集成的系统层说明随之更新。
