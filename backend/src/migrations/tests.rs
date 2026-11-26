@@ -124,7 +124,7 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     let members: Vec<crate::orchestrator::Member> =
         serde_json::from_value(team["team"].clone()).unwrap_or_else(|e| panic!("the past run's team reads: {e}"));
     assert!(!members.is_empty());
-    for id in ["pmo", "marketing", "product-manager", "developer", "qa", "generalist", "friend"] {
+    for id in ["pmo", "marketing", "product-manager", "developer", "qa", "generalist", "friend", "recruiter"] {
         assert_eq!(config(&conn, "role", id)["seed"]["id"], id, "{id} knows its origin");
     }
     drop(conn);
@@ -610,7 +610,10 @@ fn default_roles_join_their_groups() {
     let path = old_database("groups");
     open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
-    for (id, group) in [("pmo", "产品上线"), ("qa", "产品上线"), ("generalist", "通用"), ("rmwm60uas", "")] {
+    for (id, group) in
+        [("pmo", "产品上线"), ("qa", "产品上线"), ("generalist", "通用"), ("rmwm60uas", ""), ("recruiter", "对话")]
+    {
         assert_eq!(config(&conn, "role", id)["group"], group, "{id}");
     }
+    assert_eq!(config(&conn, "role", "recruiter")["seed"]["id"], "recruiter", "招聘顾问 arrives as a default role");
 }

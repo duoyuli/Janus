@@ -1693,7 +1693,9 @@
 "%@ 收工（%@）· %@" = "Ended %1$@ (%2$@) · %3$@";
 "Janus 的界面语言。打开文件夹等系统对话框在重新打开 Janus 后换成这个语言" = "The language Janus uses. System dialogs, such as choosing a folder, switch to it after you reopen Janus";
 
-/* Digital employees by group, role files */
+/* Digital employees by group, role files, 招聘顾问 */
+"找招聘顾问…" = "Ask the Recruiter…";
+"和招聘顾问聊聊你要做的事，它为你设计一组数字员工，聊完在对话里导入" = "Tell the Recruiter what you need done; it designs a set of digital employees that you import from the chat";
 "导入…" = "Import…";
 "从文件夹或 .md 文件导入数字员工" = "Import digital employees from a folder or a .md file";
 "重命名分组" = "Rename Group";
@@ -1730,5 +1732,9 @@
 "导入 %lld 位" = "Import (%lld)";
 "读取" = "Read";
 "选一个放着数字员工文件的文件夹，或其中一个 .md 文件" = "Choose a folder of digital employee files, or one .md file";
+"对话目录里有 %lld 位数字员工的文件" = "Digital employee files in this chat’s folder: %lld";
+"导入数字员工…" = "Import Digital Employees…";
 "按分组选…" = "Choose by Group…";
 "只启用这个分组里绑定了 Agent 的数字员工，其中能担任负责人的当负责人" = "Turn on only this group’s digital employees that have an Agent; one that can lead becomes the lead";
+"不知道怎么写职责和指令？和招聘顾问聊聊你要做的事，它帮你设计好再导入。" = "Not sure what duty and instructions to write? Tell the Recruiter what you need done; it designs them for you to import.";
+"找招聘顾问" = "Ask the Recruiter";

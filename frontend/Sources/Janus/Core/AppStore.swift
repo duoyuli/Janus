@@ -640,6 +640,30 @@ final class AppStore {
         } catch { roleImport?.error = error.localizedDescription }
     }
 
+    /// The default digital employee who designs teams in a chat (`backend/roles/recruiter.md`).
+    static let recruiter = "recruiter"
+
+    /// Talk with 招聘顾问 about the team to build; it writes role files into the chat's folder,
+    /// which the chat offers to import. Without an agent it opens the employee to pick one.
+    func chatWithRecruiter() async {
+        guard let r = role(Self.recruiter) else { return }
+        if let why = ChatsView.unavailable(r, connection: connection) {
+            show(why)
+            editRole(r.json)
+            return
+        }
+        closeRoleEditor()
+        showingSettings = false
+        chatRole = r.id
+        await createChat(role: r.id)
+    }
+
+    /// Whether adding a digital employee by hand (`draft`, the editor's) offers 招聘顾问 instead:
+    /// only for a new one, while 招聘顾问 is still around.
+    func offersRecruiter(_ draft: JSON) -> Bool {
+        !draft["id"].truthy && role(Self.recruiter) != nil
+    }
+
     /// Start a chat with a digital employee and open it; its session starts right away and waits
     /// for the person's first message.
     // @project-doc docs/domains/20261120-chats.md#chat_app

@@ -116,6 +116,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 23 | Run 快照的成员按意思命名字段：`runtime`（存的是 Agent 连接的 id）改名 `connection`，`runtime_name` 改名 `connection_name`，`kind`（Codex 或 Claude Code）改名 `runtime` |
 | 24 | Run 快照记下给 Agent 的文字用的语言（`config.lang`），以前的 Run 记为 `zh`，见[注入的语言](../domains/20261031-goal_mode.md#prompt_language) |
 | 25 | 数字员工加分组（`group`）：默认数字员工归入各自的组（产品上线、通用、对话），其余为空，见[分组](../domains/20261031-agents_and_roles.md#role_groups) |
+| 26 | 默认数字员工加上招聘顾问（`add_seed`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 
 <a id="snapshots"></a>
 ## Run 快照

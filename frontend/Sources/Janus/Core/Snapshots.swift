@@ -114,7 +114,7 @@ enum Snapshots {
         case "reload":
             await store.loadSetup(); await store.loadLibrary(); await store.loadLoops(); await store.loadRuns(); await store.loadAdapters(quiet: true)
         // The editor is a sheet of the settings panel, as when a person opens it from there.
-        case "role": if let r = store.role(arg) { store.editRole(r.json) }
+        case "role": if arg == "new" { store.newRole() } else if let r = store.role(arg) { store.editRole(r.json) }
         case "workspace": store.editingWorkspace = store.workspace(arg)?.json
         // 本机环境 as the person changes it: `host-hide <path> on|off`, `host-defaults`, `host-try <command>`.
         case "host-hide":
@@ -169,6 +169,8 @@ enum Snapshots {
         case "group-rename":
             let p = arg.components(separatedBy: "|")
             if p.count == 2 { await store.renameRoleGroup(p[0], to: p[1]) }
+        // Settings › 数字员工 › 找招聘顾问….
+        case "recruiter-chat": await store.chatWithRecruiter()
         case "close-sheet":
             store.closeRoleEditor(); store.roleImport = nil; store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
@@ -218,6 +220,8 @@ enum Snapshots {
                 // Whether this app would update itself: never while a test drives it.
                 "updateEnabled": JSON(Updater.shared.enabled),
                 // Settings › 数字员工 as listed: each group's title and its employees, in order.
+                // The digital employee being edited, and whether its editor offers 招聘顾问 (a new one).
+                "editingRole": store.editingRole.map { ["id": $0["id"], "offersRecruiter": JSON(store.offersRecruiter($0))] } ?? .null,
                 // The new-chat page and the workspace editor list them the same way.
                 "roleGroups": JSON.array(store.roleSections.map { section in
                     ["group": JSON(section.group), "title": JSON(AppStore.groupTitle(section.group)), "roles": JSON.array(section.roles.map { JSON($0.id) })]
@@ -300,6 +304,8 @@ enum Snapshots {
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "readOnly": .bool(r.readOnly), "page": JSON(String(describing: r.page)),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
+                    // A chat's offer to import the role files in its folder.
+                    "designedRoles": JSON(r.designedRoles),
                     // A consolidation's outcome as its page shows it.
                     "consolidated": s.events.last { $0.type == .memoryConsolidated }.map { $0.data } ?? .null,
                     // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.

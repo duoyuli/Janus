@@ -1,4 +1,4 @@
-"""Digital employees by group, as role files in and out
+"""Digital employees by group, as role files in and out, and 招聘顾问 designing a team in a chat
 (docs/domains/20261031-agents_and_roles.md#role_groups, #role_files)."""
 
 import os
@@ -50,11 +50,11 @@ def write(root, rel, text):
 
 @scenario("roles")
 def roles(ctx, c):
-    """数字员工按分组列出：默认数字员工各在自己的组；从文件夹导入（带 subagent 文件）、整组改名和换 Agent、导出成文件"""
+    """数字员工按分组列出：默认数字员工各在自己的组；从文件夹导入（带 subagent 文件）、整组改名和换 Agent、导出成文件；招聘顾问在对话里写出的团队从对话里导入"""
     t = ctx.team("roles", members=("m1",))
     setup = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
-    groups = {rid: setup[rid]["group"] for rid in ("pmo", "generalist", "friend", t.member("m1"))}
-    c(groups == {"pmo": "产品上线", "generalist": "通用", "friend": "对话", t.member("m1"): ""},
+    groups = {rid: setup[rid]["group"] for rid in ("pmo", "generalist", "friend", "recruiter", t.member("m1"))}
+    c(groups == {"pmo": "产品上线", "generalist": "通用", "friend": "对话", "recruiter": "对话", t.member("m1"): ""},
       f"默认数字员工各在自己的组，自己建的不分组（{groups}）")
 
     # A folder of role files: two by hand under legal/, a Claude Code subagent, a README.
@@ -132,3 +132,37 @@ def roles(ctx, c):
         st = ctx.app.do("close-sheet", "open chats", "shot chats-by-group")
         c("chats" in st["screen"] and drawn(ctx.app.picture("chats-by-group")), "应用：新建对话页按分组列出数字员工（chats-by-group.png）")
 
+    # 招聘顾问: a chat whose agent writes role files into its folder, which the chat offers to import.
+    ctx.api("POST", "/api/setup/roles", dict({k: v for k, v in setup["recruiter"].items() if k != "seedUpdates"}, connection=t.member_conn["id"]))
+    write(t.fake.dir, "team/电商运营/shop-lead.md", COUNSEL.replace("法务顾问", "店铺负责人").replace("律所", "电商运营"))
+    write(t.fake.dir, "team/电商运营/copywriter.md", PARALEGAL.replace("律师助理", "文案").replace("律所", "电商运营").replace("paralegal", "copywriter"))
+    if ctx.app:
+        # Adding someone by hand offers 招聘顾问 instead; editing someone does not.
+        st = ctx.app.do("role new", "shot role-editor-new")
+        c(st["editingRole"]["offersRecruiter"] is True and drawn(ctx.app.picture("role-editor-new")),
+          "应用：新建数字员工的表单里有去找招聘顾问的入口（role-editor-new.png）")
+        st = ctx.app.do("close-sheet", f"role {counsel['id']}")
+        c(st["editingRole"]["offersRecruiter"] is False, "应用：编辑已有的数字员工时不提示招聘顾问")
+        ctx.app.do("close-sheet")
+        # A chat starts only on an agent that passed its check, as in Settings.
+        ctx.api("POST", f"/api/connections/{t.member_conn['id']}/test")
+        wait(lambda: {x["id"]: x["phase"] for x in ctx.api("GET", "/api/setup")["connections"]}.get(t.member_conn["id"]) == "ok", "Agent 检查通过", 90)
+        st = ctx.app.until(lambda s: (s.get("run") or {}).get("chat"), "应用打开和招聘顾问的对话", "reload", "recruiter-chat")
+        chat = st["run"]["id"]
+    else:
+        chat = ctx.api("POST", "/api/chats", {"role": "recruiter"})["id"]
+    c([m["role_id"] for m in ctx.api("GET", f"/api/runs/{chat}")["run"]["config"]["team"]] == ["recruiter"], "对话的数字员工是招聘顾问")
+    wait(lambda: [e for e in ctx.api("GET", f"/api/runs/{chat}")["events"] if e["type"] == "agent.status" and e["data"].get("turn") == "idle"],
+         "招聘顾问的会话打开", 60)
+    ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "开一家网店 [team]"})
+    cwd = ctx.api("GET", f"/api/runs/{chat}")["run"]["cwd"]
+    wait(lambda: len(ctx.api("POST", "/api/roles/import/scan", {"path": cwd})["roles"]) == 2, "招聘顾问把两位数字员工写进对话目录", 60)
+    if ctx.app:
+        ctx.ui(c, chat, lambda r, s: r.get("designedRoles") == 2, "对话页提示目录里有 2 位数字员工的文件，可以导入", pages=("density detail",))
+        st = ctx.app.do(f"roles-import {cwd}", f"roles-import-agent {t.member_conn['id']}")
+        c(sorted(f["file"] for f in st["roleImport"]["found"]) == ["电商运营/copywriter.md", "电商运营/shop-lead.md"], "应用：从对话目录打开的导入表单列出这两位")
+        ctx.app.do("roles-import-go")
+    else:
+        ctx.api("POST", "/api/roles/import", {"path": cwd, "files": ["电商运营/copywriter.md", "电商运营/shop-lead.md"], "connection": t.member_conn["id"]})
+    shop = [r for r in ctx.api("GET", "/api/setup")["roles"] if r["group"] == "电商运营"]
+    c(sorted(r["name"] for r in shop) == ["店铺负责人", "文案"], "招聘顾问设计的团队导入后成为「电商运营」组")

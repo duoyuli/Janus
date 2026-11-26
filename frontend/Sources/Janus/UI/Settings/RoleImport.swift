@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Import digital employees from role files: a folder (every `.md` with role front matter under
 /// it, grouped by the folder it is in) or one file, from anywhere — written by hand, exported from
-/// another Mac, or a Claude Code subagent. Each file is
+/// another Mac, a Claude Code subagent, or what 招聘顾问 wrote into its chat's folder. Each file is
 /// shown before anything is saved; those whose name is taken start unticked, and importing never
 /// replaces anyone. The whole batch goes on one agent, chosen here.
 // @project-doc docs/domains/20261031-agents_and_roles.md#role_files

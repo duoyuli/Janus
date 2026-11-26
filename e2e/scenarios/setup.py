@@ -26,8 +26,8 @@ def setup(ctx, c):
 
     setup_ = ctx.api("GET", "/api/setup")
     seeded = {r["id"] for r in setup_["roles"]}
-    c({"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend"} <= seeded,
-      "首次启动写入 7 个默认数字员工，包括通用数字员工和「老友」")
+    c({"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend", "recruiter"} <= seeded,
+      "首次启动写入 8 个默认数字员工，包括通用数字员工、「老友」和「招聘顾问」")
 
     # Agents of every built-in kind, checked the way Settings → Digital Employees does.
     fake = Fake(ctx.path("setup", "fake"))
@@ -236,9 +236,9 @@ def setup_editors(ctx, c):
         c(_drawn(ctx, shot), f"应用：MCP 编辑器 {cmd} 画出来了")
     # Digital employees' pictures: the default ones come with theirs; one of your own, cropped
     # and scaled by the app, replaces it; removing it shows the initials again.
-    defaults = {"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend"}
+    defaults = {"pmo", "generalist", "marketing", "product-manager", "developer", "qa", "friend", "recruiter"}
     st = ctx.app.until(lambda s: defaults <= set(s.get("avatars") or {}), "应用读到默认数字员工的头像", "reload")
-    c(all(st["avatars"][r] == 256 for r in defaults), f"应用：7 位默认数字员工都带着 256 像素的头像（{st['avatars']}）")
+    c(all(st["avatars"][r] == 256 for r in defaults), f"应用：8 位默认数字员工都带着 256 像素的头像（{st['avatars']}）")
     code, _ = ctx.api_error("PUT", "/api/roles/developer/avatar", {"data": base64.b64encode(b"GIF89a not a png").decode()})
     c(code == 400, f"不是 PNG 的头像被拒绝（{code}）")
     before = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["developer"]["avatar"]

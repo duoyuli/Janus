@@ -191,12 +191,39 @@ struct ChatView: View {
             if st.run.status == .failed && !st.run.error.isEmpty {
                 Note(text: L.text("会话已结束：\(st.run.error)"), tone: .amber)
             }
+            if run.designedRoles > 0 {
+                HStack(spacing: 10) {
+                    Image(systemName: "person.crop.rectangle.stack").foregroundStyle(.secondary)
+                    Text(L.text("对话目录里有 \(run.designedRoles) 位数字员工的文件")).font(.callout)
+                    Spacer()
+                    Button(L.text("导入数字员工…")) { Task { await run.store.openRoleImport(st.run.cwd) } }.buttonStyle(.primary)
+                }
+                .padding(10)
+                .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.line.opacity(0.6)))
+            }
             ChatCard(run: run, st: st, title: me.name, info: info, target: .agent("lead"))
                 .frame(maxHeight: .infinity)
+        }
+        // Looked at again each time a turn ends: that is when files may have been written.
+        .task(id: "\(st.run.cwd)|\(run.state.events.filter { $0.type == .agentStatus && $0.data["turn"].str == "idle" }.count)") {
+            await countDesigned(st.run.cwd)
         }
         .padding(20)
         .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity)
+    }
+}
+
+extension ChatView {
+    // @project-doc docs/domains/20261120-chats.md#chat_app
+    private func countDesigned(_ cwd: String) async {
+        var count = 0
+        if !cwd.isEmpty, FileManager.default.fileExists(atPath: cwd) {
+            count = (try? await run.store.api.post("/api/roles/import/scan", ["path": JSON(cwd)]))?["roles"].array.count ?? 0
+        }
+        // Set only on a change: every set redraws the chat, which would pull it off where it follows.
+        if run.designedRoles != count { run.designedRoles = count }
     }
 }
 

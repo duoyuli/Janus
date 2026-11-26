@@ -33,7 +33,8 @@ a prompt is logged ("steer <text>") and answered "injected".
 A prompt that is not a task's and names "[write <file>]" appends to that file in the session's directory, reports the
 edit as a tool call and ends the turn (a lead asked for more work after delivery); with "[commit]" in it too, the agent commits everything there first.
 A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
-prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled).
+prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled; "[team]" first copies FAKE_DIR/team
+into the chat's folder, as 招聘顾问 writes the role files it designed).
 A workspace Loop's session (its system layer opens "You are the Loop of the workspace", or 「你是工作区…的值班」 in Chinese) logs "loop wake <n>" for each wake
 and answers "看过了：<first line>"; on its first wake it titles the session ("标题：<the prompt's last line>",
 as `session_info_update`, which must not name the Loop); "[write <file>]" in the Loop's prompt appends to that file in the workspace first,
@@ -379,6 +380,10 @@ def prompt(msg):
     if sid in CHATS:
         if "[slow]" in text and wait_cancel(600):
             return {"stopReason": "cancelled"}
+        if "[team]" in text and os.path.isdir(os.path.join(DIR, "team")):
+            # As 招聘顾问 does: the role files it designed, written into the chat's folder.
+            import shutil
+            shutil.copytree(os.path.join(DIR, "team"), os.getcwd(), dirs_exist_ok=True)
         say(sid, "回复：" + text)
         return {"stopReason": "end_turn"}
     if text.startswith(("[Janus] 你的这一轮已经结束", "[Janus] Your turn has ended")):

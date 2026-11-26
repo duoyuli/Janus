@@ -274,8 +274,11 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         check(friend.get("name") == "老友" and friend.get("seed", {}).get("id") == "friend"
               and (friend.get("desc"), friend.get("prompt")) == current_seeds["friend"], "升级后有默认的数字员工「老友」，文本是当前版本的")
         check(all(roles[r].get("avatar") for r in current_seeds), "升级后每位默认数字员工都有默认头像")
-        groups = {rid: roles[rid].get("group") for rid in ("pmo", "qa", "generalist", "friend", tester["id"])}
-        check(groups == {"pmo": "产品上线", "qa": "产品上线", "generalist": "通用", "friend": "对话", tester["id"]: ""},
+        recruiter = roles.get("recruiter") or {}
+        check(recruiter.get("seed", {}).get("id") == "recruiter" and (recruiter.get("desc"), recruiter.get("prompt")) == current_seeds["recruiter"],
+              "升级后有默认的数字员工「招聘顾问」，文本是当前版本的")
+        groups = {rid: roles[rid].get("group") for rid in ("pmo", "qa", "generalist", "friend", "recruiter", tester["id"])}
+        check(groups == {"pmo": "产品上线", "qa": "产品上线", "generalist": "通用", "friend": "对话", "recruiter": "对话", tester["id"]: ""},
               f"升级后默认数字员工归入各自的分组，自己建的不分组（{groups}）")
         rv = roles["qa"]
         check(rv["prompt"] == "我自己写的质量要求：先跑全部测试。", "改过指令的 reviewer 保留用户的文本")

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Digital workers: who uses which model, with which instructions and tools, listed by group.
 /// A group's menu renames it, puts it on one Agent or exports it as role files; 「导入…」 reads
-/// role files back.
+/// role files back, and 招聘顾问 designs a group in a chat.
 // @project-doc docs/domains/20261031-agents_and_roles.md#role_groups
 struct RolesSection: View {
     let store: AppStore
@@ -19,6 +19,10 @@ struct RolesSection: View {
                     Text(L.text("给每位数字员工配 Agent、模型和指令；资源库全员可用。")).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if store.role(AppStore.recruiter) != nil {
+                    Button(L.text("找招聘顾问…")) { Task { await store.chatWithRecruiter() } }
+                        .help(L.text("和招聘顾问聊聊你要做的事，它为你设计一组数字员工，聊完在对话里导入"))
+                }
                 Button(L.text("导入…")) { Task { await store.openRoleImport("") } }
                     .help(L.text("从文件夹或 .md 文件导入数字员工"))
                 Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
@@ -187,6 +191,18 @@ struct RoleEditor: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if store.offersRecruiter(r) {
+                        // The shortcut from adding someone by hand to having them designed in a chat.
+                        HStack(spacing: 10) {
+                            Avatar(initials: "招聘", color: store.role(AppStore.recruiter)?.color ?? "#c2410c", size: 26, role: AppStore.recruiter)
+                            Text(L.text("不知道怎么写职责和指令？和招聘顾问聊聊你要做的事，它帮你设计好再导入。"))
+                                .font(.callout).fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Button(L.text("找招聘顾问")) { recruit() }
+                        }
+                        .padding(10)
+                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                    }
                     labeled(L.text("名称")) { TextField("Reviewer", text: bind("name")).textFieldStyle(.roundedBorder) }
                     labeled(L.text("职责")) {
                         TextField(L.text("独立检查变更，寻找风险与反例"), text: bind("desc")).textFieldStyle(.roundedBorder)
@@ -472,6 +488,12 @@ struct RoleEditor: View {
             } catch { store.show(error.localizedDescription) }
             saving = false
         }
+    }
+
+    /// Leave the new employee for a chat with 招聘顾问, asking first if something was typed.
+    private func recruit() {
+        guard r == original || confirmDiscard() else { return }
+        Task { await store.chatWithRecruiter() }
     }
 
     private func remove() {

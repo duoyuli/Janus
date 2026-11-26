@@ -122,7 +122,7 @@ Janus is developed by agents. Its own changes are written, reviewed and merged b
 | Concept | What it means |
 | --- | --- |
 | Agent | A launchable coding agent, Codex or Claude Code in this version, with its own configuration directory and credentials. |
-| Employee | A digital employee: an agent bound to a name, avatar, responsibilities, instructions, model, reasoning effort and permission mode. Its instructions go into the agent's system layer. Employees are managed in groups: move a whole group to another agent, export it as Markdown files, or import a folder of them (Claude Code subagent files work too). |
+| Employee | A digital employee: an agent bound to a name, avatar, responsibilities, instructions, model, reasoning effort and permission mode. Its instructions go into the agent's system layer. Employees are managed in groups: move a whole group to another agent, export it as Markdown files, import a folder of them (Claude Code subagent files work too), or ask the default Recruiter to design a group with you in a chat. |
 | Lead agent | The agent in charge, played by an employee with **Can Be Lead** turned on and bound to Codex or Claude Code. It drives the goal with `/goal`, decides what to do itself and what to delegate to collaborator agents, checks the results and delivers. Loops are run by it too. |
 | Collaborator agent | Any other employee on the team. It takes the subtasks the lead agent delegates. |
 | Library | Skills and MCP servers, kept once and given to every employee. Each session gets one skill, `janus-skills`, a catalog the agent searches when it needs a skill, and one MCP server, `janus-tools`, which starts or connects the real servers on first use. No agent configuration file is written. Import skills from a GitHub repository, copy them from a local folder, or write them in the app; add MCP servers with a form or pasted JSON, or in one click from Recommended. |
@@ -178,7 +178,7 @@ Then `just mac` runs the app from source and connects it to this service; `just 
 
 1. Add an agent under Settings › Employees and run the configuration check. Its runtime downloads at this step and Janus keeps it up to date on its own; when you need an older version, switch back from the runtime line on the agent's card.
    To connect Claude through an API, select **Custom API** under authentication, then click **Insert Template** or paste your `export KEY=value` lines for the endpoint, token, and models.
-2. Bind employees to agents on the same page, choose a model and permission mode, and turn on **Can Be Lead** for the ones that should lead.
+2. Bind employees to agents on the same page, choose a model and permission mode, and turn on **Can Be Lead** for the ones that should lead. If the default employees don't fit your work, choose **Ask the Recruiter…**, talk through your trade and what needs doing, and import the employees it writes from the chat.
 3. Create a workspace: choose a directory, pick its team, and choose its lead agent.
 4. Enter a goal on the workspace home page and choose **Send to Lead**.
 

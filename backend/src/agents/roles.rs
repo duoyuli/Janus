@@ -423,8 +423,8 @@ pub(crate) struct RoleSeed {
 /// header and the role's instructions as the body, and `<id>.png`, its picture (256×256). They
 /// are built into Janus,
 /// in this order: a PMO lead, the general digital worker that a default workspace pairs with it,
-/// the specialists (research and market, PRD, engineering, QA) for whoever wants them, and 老友
-/// to talk something through with in a chat.
+/// the specialists (research and market, PRD, engineering, QA) for whoever wants them, 老友
+/// to talk something through with in a chat, and 招聘顾问, who designs digital employees in one.
 const ROLE_FILES: &[(&str, &str, &[u8])] = &[
     ("pmo", include_str!("../../roles/pmo.md"), include_bytes!("../../roles/pmo.png")),
     ("marketing", include_str!("../../roles/marketing.md"), include_bytes!("../../roles/marketing.png")),
@@ -437,6 +437,7 @@ const ROLE_FILES: &[(&str, &str, &[u8])] = &[
     ("developer", include_str!("../../roles/developer.md"), include_bytes!("../../roles/developer.png")),
     ("qa", include_str!("../../roles/qa.md"), include_bytes!("../../roles/qa.png")),
     ("friend", include_str!("../../roles/friend.md"), include_bytes!("../../roles/friend.png")),
+    ("recruiter", include_str!("../../roles/recruiter.md"), include_bytes!("../../roles/recruiter.png")),
 ];
 
 // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles

@@ -214,6 +214,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "数字员工分组：默认数字员工归入各自的组（产品上线、通用、对话），其余不分组",
         steps: &[Step::Custom(steps::roles::add_role_groups)],
     },
+    Migration {
+        version: 26,
+        name: "默认数字员工加上招聘顾问：在对话里为你设计一组数字员工，写成可以导入的文件",
+        steps: &[Step::Custom(steps::roles::add_recruiter)],
+    },
 ];
 
 /// The data version this build reads and writes.
