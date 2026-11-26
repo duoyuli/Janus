@@ -114,7 +114,7 @@ private struct RoleChoice: View {
         let shape = RoundedRectangle(cornerRadius: 12)
         Button(action: pick) {
             HStack(alignment: .top, spacing: 12) {
-                Avatar(initials: role.initials.isEmpty ? String(role.name.prefix(2)) : role.initials, color: role.color, size: 36, role: role.id)
+                Avatar(initials: role.displayInitials, color: role.color, size: 36, role: role.id)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(role.name).font(.headline).lineLimit(1)

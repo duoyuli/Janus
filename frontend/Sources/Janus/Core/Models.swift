@@ -52,6 +52,19 @@ struct Role: Hashable, Identifiable {
         seedUpdates = j["seedUpdates"].object.mapValues(\.str)
     }
 
+    /// What its tile shows without a picture: its own initials, or the first two letters of its name.
+    var displayInitials: String { Role.initials(initials, name: name) }
+
+    /// A digital employee's initials, or (none given) the first two letters of its name, without
+    /// spaces and in capitals. Every avatar of a role, a member or a proposed employee uses it.
+    static func initials(_ given: String, name: String) -> String {
+        given.isEmpty ? String(name.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased() : given
+    }
+
+    /// How many of one digital employee a workspace's team may run at once
+    /// (`backend/src/agents/workspaces.rs`, `MAX_SLOTS`).
+    static let maxSlots = 8
+
     /// Bound to an agent connection Janus knows.
     @MainActor func bound(in store: AppStore) -> Bool { !connection.isEmpty && store.connection(connection) != nil }
 }

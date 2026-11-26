@@ -87,7 +87,7 @@ struct RolesSection: View {
         let facts = [Setup.permLabel(r.session, c), r.prompt.isEmpty ? "" : L.text("提示词")].filter { !$0.isEmpty }
         return Button { store.editRole(r.json) } label: {
             HStack(spacing: 12) {
-                Avatar(initials: r.initials.isEmpty ? String(r.name.prefix(2)).uppercased() : r.initials, color: r.color, size: 30, role: r.id)
+                Avatar(initials: r.displayInitials, color: r.color, size: 30, role: r.id)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) { Text(r.name).fontWeight(.semibold); if r.lead { Pill(L.text("负责人"), .violet) } }
                     Text(([r.desc.isEmpty ? L.text("还没有填写职责") : r.desc] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -147,7 +147,7 @@ struct RoleEditor: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Button { colors.toggle() } label: {
-                    Avatar(initials: r["init"].truthy ? r["init"].str : String(r["name"].str.replacingOccurrences(of: " ", with: "").prefix(2)).uppercased(), color: r["color"].str, size: 34,
+                    Avatar(initials: Role.initials(r["init"].str, name: r["name"].str), color: r["color"].str, size: 34,
                            role: picture == .remove ? "" : r["id"].str, picture: chosen)
                 }
                 .buttonStyle(.plain).help(L.text("选颜色，或拖张图片当头像")).accessibilityLabel(L.text("数字员工头像"))

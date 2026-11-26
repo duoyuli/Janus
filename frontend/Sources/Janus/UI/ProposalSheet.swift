@@ -49,7 +49,7 @@ struct ProposalSheetView: View {
             HStack(alignment: .top, spacing: 10) {
                 Toggle(L.text("创建 \(name)"), isOn: Binding(get: { sheet?.picked.contains(n) == true }, set: { if $0 { store.proposalSheet?.picked.insert(n) } else { store.proposalSheet?.picked.remove(n) } }))
                     .labelsHidden()
-                Avatar(initials: r["init"].truthy ? r["init"].str : String(name.prefix(2)).uppercased(), color: r["color"].truthy ? r["color"].str : "#64748b", size: 26)
+                Avatar(initials: Role.initials(r["init"].str, name: name), color: r["color"].truthy ? r["color"].str : "#64748b", size: 26)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(name).fontWeight(.semibold)

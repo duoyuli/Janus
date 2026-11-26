@@ -527,7 +527,7 @@ struct WorkspaceEditor: View {
                             HStack(spacing: 10) {
                                 Toggle(L.text("启用 \(r.name)"), isOn: Binding(get: { on.contains(id) }, set: { v in if v { on.insert(id) } else { on.remove(id); if lead == id { lead = "" } } }))
                                     .labelsHidden().disabled(c == nil)
-                                Avatar(initials: r.initials.isEmpty ? String(r.name.prefix(2)).uppercased() : r.initials, color: r.color, size: 24, role: r.id)
+                                Avatar(initials: r.displayInitials, color: r.color, size: 24, role: r.id)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(r.name).font(.body.weight(.medium))
                                     Text(c.map { "\($0["name"].str) · \(r.model.isEmpty ? L.text("默认模型") : r.model)" } ?? L.text("未绑定 Agent")).font(.caption).foregroundStyle(.secondary)
@@ -535,8 +535,8 @@ struct WorkspaceEditor: View {
                                 Spacer()
                                 Text(Setup.permLabel(r.session, c).isEmpty ? "—" : Setup.permLabel(r.session, c)).font(.caption).foregroundStyle(.secondary)
                                 if on.contains(id) && lead != id {
-                                    let count = min(8, max(1, slots[id] ?? 1))
-                                    Stepper(value: Binding(get: { count }, set: { slots[id] = min(8, max(1, $0)) }), in: 1...8) {
+                                    let count = min(Role.maxSlots, max(1, slots[id] ?? 1))
+                                    Stepper(value: Binding(get: { count }, set: { slots[id] = min(Role.maxSlots, max(1, $0)) }), in: 1...Role.maxSlots) {
                                         Text(verbatim: L.text("\(count) 个分身")).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                                     }
                                     .controlSize(.small)
@@ -594,7 +594,7 @@ struct WorkspaceEditor: View {
     /// Edits not saved yet, so Cancel and Esc ask before throwing them away.
     private var dirty: Bool { initial.map { $0 != snapshot } ?? false }
     private var snapshot: [String] {
-        let slotSpec = on.sorted().map { id in "\(id):\(lead == id ? 1 : min(8, max(1, slots[id] ?? 1)))" }.joined(separator: ",")
+        let slotSpec = on.sorted().map { id in "\(id):\(lead == id ? 1 : min(Role.maxSlots, max(1, slots[id] ?? 1)))" }.joined(separator: ",")
         return [name, path, lead, slotSpec]
     }
     @Local private var initial: [String]?
@@ -608,7 +608,7 @@ struct WorkspaceEditor: View {
         let members = rawMembers.map { $0["role"].str }
         var loadedSlots: [String: Int] = [:]
         for m in rawMembers {
-            loadedSlots[m["role"].str] = min(8, max(1, m["slots"].int ?? 1))
+            loadedSlots[m["role"].str] = min(Role.maxSlots, max(1, m["slots"].int ?? 1))
         }
         slots = loadedSlots
         lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0.lead && Setup.leadCapable(store.connection($0.connection)) }?.id ?? ""
@@ -649,7 +649,7 @@ struct WorkspaceEditor: View {
     private func save() {
         saving = true
         let members = store.roles.map(\.id).filter { on.contains($0) }.map { id -> JSON in
-            let n = lead == id ? 1 : min(8, max(1, slots[id] ?? 1))
+            let n = lead == id ? 1 : min(Role.maxSlots, max(1, slots[id] ?? 1))
             return n > 1 ? JSON.object(["role": JSON(id), "slots": JSON(n)]) : JSON.object(["role": JSON(id)])
         }
         // The workspace is saved whole: keep its shared material as saved now.

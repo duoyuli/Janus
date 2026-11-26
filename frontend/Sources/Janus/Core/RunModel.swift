@@ -320,7 +320,7 @@ final class RunModel {
         let name = m["name"].str
         // A chat's one member holds the main session but leads nobody: it looks like its role.
         let lead = m["lead"].truthy && !isChat
-        let initials = m["init"].truthy ? m["init"].str : lead ? "LD" : String(name.prefix(2)).uppercased()
+        let initials = Role.initials(m["init"].str, name: name)
         // A role without a color of its own is slate; the lead's is the one colored tile.
         let own = m["color"].str
         let color = Avatar.neutral.contains(own.lowercased()) ? (lead ? Avatar.lead : Avatar.slate) : own
