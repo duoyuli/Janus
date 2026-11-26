@@ -24,5 +24,5 @@
 ## 后果
 
 - 新增 `backend/src/prices.rs`、`~/.janus/prices/`、`GET /api/prices` 和 `POST /api/prices/sync`。
-- 时间段账单（`GET /api/usage`）在有价格表时带 `estimate`，每个 Agent 和模型带各自的估算；任务用量账单曾在子任务页按 `GET /api/prices` 返回的价格由应用估算，2026-11-17 已从界面移除。
+- 时间段账单（`GET /api/usage`）在有价格表时带 `estimate`，每个 Agent 和模型带各自的估算；任务用量账单曾在子任务页按 `GET /api/prices` 返回的价格由应用估算，2026-11-17 已从界面移除，`GET /api/prices` 没有了调用方，2026-11-26 删除。
 - 没有网络或 models.dev 不可用时，账单只显示 token 和 Agent 上报的费用。

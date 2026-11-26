@@ -159,33 +159,12 @@ pub(super) async fn usage_bill(State(app): State<Arc<App>>, Query(p): Query<Peri
     reply(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0), prices.as_deref())?)
 }
 
-#[derive(Deserialize)]
-pub(super) struct PriceQuery {
-    /// Model names, comma separated, as the sessions name them.
-    models: Option<String>,
-}
-
-/// List prices of the given models from the synced models.dev list (`backend/src/prices.rs`), so
-/// the app can price a task's bill; `null` for a model without a price.
+/// Download the models.dev list now instead of waiting for the daily sync: where it came from,
+/// when, and how many models it priced.
 // @project-doc docs/interfaces/20261031-http_api.md#prices
-pub(super) async fn prices(State(app): State<Arc<App>>, Query(q): Query<PriceQuery>) -> ApiResult {
-    reply(price_reply(app.prices().as_deref(), q.models.as_deref().unwrap_or("")))
-}
-
-/// Download the models.dev list now instead of waiting for the daily sync.
 pub(super) async fn sync_prices(State(app): State<Arc<App>>) -> ApiResult {
     let table = app.sync_prices(true).await?;
-    reply(price_reply(Some(&table), ""))
-}
-
-fn price_reply(table: Option<&prices::Table>, models: &str) -> Value {
-    let found: serde_json::Map<String, Value> = models
-        .split(',')
-        .map(str::trim)
-        .filter(|m| !m.is_empty())
-        .map(|m| (m.to_string(), json!(table.and_then(|t| t.get(m)))))
-        .collect();
-    json!({ "source": prices::SOURCE, "fetchedAt": table.map(|t| t.fetched_at), "count": table.map_or(0, |t| t.models.len()), "prices": found })
+    reply(json!({ "source": prices::SOURCE, "fetchedAt": table.fetched_at, "count": table.models.len() }))
 }
 
 #[derive(Deserialize)]

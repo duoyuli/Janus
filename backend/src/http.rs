@@ -156,7 +156,6 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/file", get(runs::file))
         .route("/api/stats/roles", get(setup::role_stats))
         .route("/api/usage", get(runs::usage_bill))
-        .route("/api/prices", get(runs::prices))
         .route("/api/prices/sync", post(runs::sync_prices))
         .route("/api/runs", get(runs::list).post(runs::create))
         .route("/api/chats", post(runs::create_chat))
