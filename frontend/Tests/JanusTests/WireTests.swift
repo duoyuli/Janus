@@ -49,7 +49,7 @@ private func backendEnum(_ name: String) throws -> Set<String> {
     let text = try String(contentsOf: src, encoding: .utf8)
     let names = Set(text.matches(of: try Regex(#"RunAction::\w+(?:\s*\{ \.\. \}|\(_\))? => "(\w+)""#)).compactMap { $0.output[1].substring.map(String.init) })
     let lead = SessionTarget.agent("lead")
-    let all: [RunAction] = [.answer(key: "", task: "", answer: "", note: ""), .approve(key: "", task: "", agent: "", allow: true, option: nil, label: ""),
+    let all: [RunAction] = [.answer(key: "", task: "", answer: "", note: ""), .served(["type": "approve"]),
                             .input(key: "", task: "", agent: "", action: "accept", content: [:]), .message(lead, text: "hi", images: []),
                             .control(lead, id: "mode", value: "plan", via: "mode"), .interrupt(lead), .takeover(lead), .release(lead), .finish(lead),
                             .pause, .resume, .start, .cancel, .accept, .resumeRun]

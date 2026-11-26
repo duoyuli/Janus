@@ -182,6 +182,14 @@ def goal_claude(ctx, c):
         st = ctx.app.do("shot inbox-waiting", f"ignore {key}", "shot inbox-ignored")
         c(all(e["key"] != key for e in st.get("open", []) + st.get("later", [])), "应用：忽略后，等你验收的这一项离开收件箱（inbox-ignored.png）")
         c(run.status() == "delivered", "忽略只是不再提醒，Run 仍是已交付、等你验收")
+        server = ctx.api("GET", "/api/inbox")
+        c(all(e["key"] != key for e in server["open"] + server["later"]), "服务端：忽略记在服务端，别的客户端读收件箱也没有这一项")
+        # Another client brings it back: the app follows the global stream's `inbox`, no reload.
+        ctx.api("POST", "/api/inbox/marks", {"key": key})
+        st = ctx.app.until(lambda s: any(e["key"] == key for e in s.get("open", [])), "另一个客户端拿回后，应用不刷新就重新列出")
+        server = ctx.api("GET", "/api/inbox")
+        mine = lambda es: [(e["key"], e["title"], e["sub"]) for e in es if e["run"] == run.id]
+        c(mine(st["open"]) == mine(server["open"]), f"应用收件箱里这个 Run 的条目和服务端逐项一致（{mine(st['open'])}）")
 
 
 @scenario("usage")

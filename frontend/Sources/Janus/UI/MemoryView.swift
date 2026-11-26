@@ -179,7 +179,7 @@ struct DreamView: View {
     var body: some View {
         let st = run.shown
         let me = run.who("lead")
-        let info = chatSession(st, live: run.live)
+        let info = st.session(.agent("lead"))
         let done = st.events.last { $0.type == .memoryConsolidated }
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {

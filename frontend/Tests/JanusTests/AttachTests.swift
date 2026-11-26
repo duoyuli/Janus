@@ -114,14 +114,3 @@ private func board() -> NSPasteboard { NSPasteboard(name: .init("janus-test-\(UU
     #expect(Attach.visibleText("普通消息\n附图在后面") == "普通消息\n附图在后面", "text without image lines is unchanged")
     #expect(Attach.paths(["images": [["path": "/a.png"], ["path": ""]]]) == ["/a.png"])
 }
-
-@Test func messagesKeepTheirImagesInTheDerivedState() {
-    let path = "/h/runs/r/attachments/1.png"
-    let evs = [
-        Event(["seq": 1, "ts": 1, "type": "run.created", "actor": "user", "text": "", "data": ["goal": "照着图改", "images": [["path": "/h/runs/r/attachments/0.png"]]]]),
-        Event(["seq": 2, "ts": 2, "type": "user.message", "actor": "user", "to": "lead", "text": "", "data": ["id": "m1", "text": JSON("看这里\n\nAttached images:\n[Image 1] \(path)"), "delivery": "pending", "images": [["path": JSON(path)]]]]),
-    ]
-    let st = derive(evs)
-    #expect(st.run.images == ["/h/runs/r/attachments/0.png"])
-    #expect(st.msgs["m1"]?.images == [path])
-}

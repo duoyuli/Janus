@@ -82,8 +82,8 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     let name = "实现者"
     #expect(L.text("「\(name)」等你拍板", bundle: en) == "实现者 needs your call")
     #expect(L.text("「\(name)」等你拍板", bundle: zh) == "「实现者」等你拍板")
-    let first = "T1", second = "T2", percent = 25
-    #expect(L.text("依赖的 \(first) 没有完成，\(second) 还不能开始。", bundle: en) == "T2 cannot start until its dependency T1 is complete.")
+    let first = "/tmp/x", second = "codex", percent = 25
+    #expect(L.text("在 \(first) 没有找到 \(second) 的配置。", bundle: en) == "Could not find settings for codex at /tmp/x.")
     #expect(L.text("本会话 上下文 \(percent)%", bundle: en) == "Session context: 25%")
     let key = SendKey.returnKey.symbol
     #expect(L.text("发消息给 \(name) · ⌘V 贴截图 · \(key) 发送", bundle: en) == "Message 实现者 · ⌘V to paste a screenshot · ↩ to send")

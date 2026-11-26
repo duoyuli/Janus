@@ -3,101 +3,23 @@ import Testing
 @testable import Janus
 
 // Reviewing a delivery (docs/architecture/20261031-frontend.md#review): where the run stands after
-// one, what the inbox asks for it, and what the review shows first.
+// one and what to look at are the server's (`backend/src/run_view/review.rs`), tested there. These
+// tests read the served review and the app's own numbers for a delivery.
 
-private func event(_ seq: Int, _ type: String, actor: String = "janus", to: String? = nil, task: String? = nil, data: JSON = [:]) -> Event {
-    var j: JSON = ["seq": JSON(seq), "ts": JSON(1_000_000 + seq * 1000), "type": JSON(type), "actor": JSON(actor), "text": "", "data": data]
-    if let task { j["task"] = JSON(task) }
-    if let to { j["to"] = JSON(to) }
-    return Event(j)
-}
-
-private let run: JSON = ["id": "r1", "goal": "上线支付页", "createdAt": 1_000_000, "config": ["team": [["id": "m1", "name": "实现者"]]]]
-private let idle: JSON = ["phase": "waiting_for_input", "turn": "idle"]
-
-/// The person writes to the lead after a delivery: the message, then its routing as a prompt.
-private func ask(_ seq: Int, _ text: String) -> [Event] {
-    [event(seq, "user.message", actor: "user", to: "lead", data: ["id": JSON("m\(seq)"), "text": JSON(text)]),
-     event(seq + 1, "message.routed", to: "lead", data: ["id": JSON("m\(seq)"), "delivery": "prompt"])]
-}
-
-private func delivered(_ seq: Int, _ d: JSON = ["headline": "做完了", "summary": "改了 a.rs"]) -> Event {
-    event(seq, "run.delivered", data: d)
-}
-
-private let start = [event(1, "run.created", actor: "user", data: ["mode": "goal", "goal": "上线支付页"])]
-
-@Test func aDeliveryIsReviewedOnlyWhileItWaitsForThePerson() {
-    let first = start + [delivered(2)]
-    #expect(reviewStage(derive(start), live: true) == nil, "nothing to review before a delivery")
-    #expect(reviewStage(derive(first), live: true) == .awaiting)
-    // The person asks for more: the lead works on it, and the delivery waits.
-    let working = first + ask(3, "顺便改一下文案")
-    #expect(reviewStage(derive(working), live: true) == .leadWorking)
-    #expect(reviewStage(derive(working), live: false) == .awaiting, "no lead session is there after a restart")
-    // It answered without changing anything: the same delivery waits again.
-    #expect(reviewStage(derive(working + [event(5, "agent.status", actor: "lead", data: idle)]), live: true) == .awaiting)
-    // It changed something: a second delivery, of this round.
-    let second = working + [delivered(5)]
-    let s = derive(second)
-    #expect(reviewStage(s, live: true) == .awaiting && s.result?.n == 2 && s.result?.since == 2 && s.deliveries.count == 2)
-    #expect(roundRequests(s, s.result!).map(\.text) == ["顺便改一下文案"])
-    #expect(roundRequests(s, s.deliveries[0]).isEmpty, "the first delivery answers the goal")
-    #expect(reviewStage(derive(second + [event(6, "risk.accepted", actor: "user")]), live: true) == .accepted)
-}
-
-@Test func afterADeliveryThePageSaysWhoItWaitsOn() {
-    let first = start + [delivered(2)] + ask(3, "再查一遍")
-    // The person interrupts the lead and holds it, until they hand it back.
-    let held = first + [event(5, "session.interrupted", actor: "user", to: "lead"), event(6, "agent.status", actor: "lead", data: idle)]
-    #expect(reviewStage(derive(held), live: true) == .held)
-    #expect(reviewStage(derive(held + [event(7, "control.released", actor: "user", to: "lead")]), live: true) == .leadWorking)
-    // The lead hands out subtasks: the team works, the run is running again.
-    let team = first + [event(5, "orchestration.accepted", actor: "lead", data: ["tasks": [["id": "T2", "title": "改", "agent": "m1", "deps": [], "accept": ["好"]]]])]
-    #expect(reviewStage(derive(team), live: true) == .teamWorking)
-    let approval = team + [event(6, "attempt.started", task: "T2"), event(7, "approval.requested", actor: "m1", task: "T2", data: ["key": "a-1", "command": "rm"])]
-    #expect(reviewStage(derive(approval), live: true) == .asking)
-    // The merge: the lead resolves a conflict; then it is the person's call.
-    #expect(reviewStage(derive(start + [delivered(2, ["merge": ["state": "resolving", "note": "冲突"]])]), live: true) == .resolving)
-    #expect(reviewStage(derive(start + [delivered(2, ["merge": ["state": "conflict", "note": "仍然冲突"]])]), live: true) == .blocked(conflict: true))
-    #expect(reviewStage(derive(start + [delivered(2, ["merge": ["state": "blocked", "note": "先移走"]])]), live: true) == .blocked(conflict: false))
-}
-
-/// The inbox asks for a delivery only where the person has to act, one entry per delivery.
-@Test func theInboxAsksForADeliveryByItsStage() {
-    func kinds(_ evs: [Event]) -> [String] { Inbox.review(run: run, state: derive(evs), workspace: "W", live: true).map(\.kind) }
-    let first = start + [delivered(2)]
-    let entry = Inbox.review(run: run, state: derive(first), workspace: "W", live: true)
-    #expect(entry.map(\.key) == ["r1/delivered-1"] && entry[0].text == "做完了")
-    #expect(kinds(first + ask(3, "再改")) == [], "the lead works on it")
-    let second = Inbox.review(run: run, state: derive(first + ask(3, "再改") + [delivered(5)]), workspace: "W", live: true)
-    #expect(second.map(\.key) == ["r1/delivered-2"], "a new delivery is a new entry: ignoring the first does not hide it")
-    #expect(kinds(first + ask(3, "再查") + [event(5, "session.interrupted", actor: "user", to: "lead"), event(6, "agent.status", actor: "lead", data: idle)]) == ["held"])
-    #expect(kinds(start + [delivered(2, ["merge": ["state": "conflict", "note": "仍然冲突"]])]) == ["merge_blocked"])
-    #expect(kinds(start + [delivered(2), event(3, "risk.accepted", actor: "user")]) == [])
-}
-
-/// The lead's questions come first, then what Janus found; the executors' own risks stay with
-/// their tasks.
-@Test func whatNeedsLookingAtIsTheLeadsQuestionsThenJanussFindings() {
-    let d = Delivery(RunResult(d: [
-        "decisions": ["被忽略的文件要带回吗？"],
-        "risks": [["task": "T3", "text": "T3：失败，没有交付结果"]],
-        "leadEdits": ["a.rs", "b.rs"],
-        "acceptance": [
-            ["task": "T1", "title": "改", "status": "succeeded", "criteria": 2, "passed": 1, "checks": [["criterion": "一", "passed": true], ["criterion": "二", "passed": false]], "risks": ["没跑全量"]],
-            ["task": "T2", "title": "写", "status": "succeeded", "criteria": 1, "passed": 1, "unverified": true, "traceGaps": ["改了 c.rs"], "risks": ["推断"]],
-            ["task": "T4", "title": "测", "status": "succeeded", "criteria": 1, "passed": 1, "unverified": true],
-        ],
-    ], seq: 9))
-    let s = reviewSignals(d)
-    #expect(s.first == ReviewSignal(source: .lead, text: "被忽略的文件要带回吗？"))
-    #expect(s.contains { $0.source == .janus && $0.text == "T3：失败，没有交付结果" && $0.task == "T3" })
-    #expect(s.contains { $0.text.contains("T1") && $0.task == "T1" }, "a criterion that did not pass")
-    #expect(s.contains { $0.text.contains("T2") && $0.detail == "改了 c.rs" }, "the trace gap")
-    #expect(s.contains { $0.text.hasPrefix(expectedCopy("T2、T4", "T2, T4")) }, "tasks without an independent verification, in one line")
-    #expect(s.contains { $0.detail == expectedCopy("a.rs、b.rs", "a.rs, b.rs") }, "the lead's own edits")
-    #expect(!s.contains { $0.text.contains("没跑全量") || $0.text.contains("推断") }, "the executors' own risks are not here")
+/// The served review reads back: each stage, and what to look at with who says so and where.
+@Test func theServedReviewReadsBack() {
+    for (served, conflict, stage) in [("awaiting", false, ReviewStage.awaiting), ("resolving", false, .resolving), ("blocked", true, .blocked(conflict: true)),
+                                       ("blocked", false, .blocked(conflict: false)), ("lead_working", false, .leadWorking), ("team_working", false, .teamWorking),
+                                       ("accepted", false, .accepted), ("asking", false, .asking), ("held", false, .held), ("stopped", false, .stopped)] {
+        #expect(ReviewStage(served: served, conflict: conflict) == stage, "\(served)")
+    }
+    let r = ServedReview(["stage": "awaiting", "conflict": false, "requests": [["seq": 3, "text": "顺便改一下文案"]], "signals": [
+        ["source": "lead", "kind": "decision", "text": "被忽略的文件要带回吗？", "task": .null, "count": 0],
+        ["source": "janus", "kind": "trace_gaps", "text": "T2 的结果和工作目录对不上 1 处", "detail": "改了 c.rs", "task": "T2", "count": 1],
+    ]])
+    #expect(r.stage.reviews && r.requests.map(\.text) == ["顺便改一下文案"])
+    #expect(r.signals.first?.source == .lead && r.signals.first?.task == nil)
+    #expect(r.signals[1].source == .janus && r.signals[1].detail == "改了 c.rs" && r.signals[1].task == "T2")
 }
 
 @Test func evidenceStrengthBandsTheMethods() {

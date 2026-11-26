@@ -243,6 +243,13 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "Run 的 loop_id 只表示派出它的值班：值班自己的会话 Run 不再记 loop_id，由值班的 run 找到",
         steps: &[Step::Sql("UPDATE runs SET loop_id = NULL WHERE kind = 'loop';")],
     },
+    Migration {
+        version: 31,
+        name: "收件箱的「稍后」和「忽略」记在服务端（inbox_marks），每个客户端看到同一个收件箱",
+        steps: &[Step::Sql(
+            "CREATE TABLE IF NOT EXISTS inbox_marks (key TEXT PRIMARY KEY, snoozed_until INTEGER, ignored INTEGER NOT NULL DEFAULT 0);",
+        )],
+    },
 ];
 
 /// The data version this build reads and writes.

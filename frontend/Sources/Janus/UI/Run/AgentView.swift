@@ -24,7 +24,7 @@ struct AgentView: View {
             AdaptiveColumns(side: 300) {
                 // A fixed height like the task page: the conversation scrolls inside its card,
                 // not the page around it.
-                ChatCard(run: run, st: st, title: L.text("对话"), info: agentSession(st, agentId), target: .agent(agentId))
+                ChatCard(run: run, st: st, title: L.text("对话"), info: st.session(.agent(agentId)), target: .agent(agentId))
                     .frame(height: 640)
                 Card(padding: 12) {
                     HStack { Text(L.text("负责的子任务")).font(.headline); Spacer(); Text(verbatim: L.text("\(tasks.count) 个")).font(.caption).foregroundStyle(.secondary) }

@@ -587,6 +587,7 @@ impl App {
         // A delivered run keeps its lead conversation open for more work; take the run out of the
         // live map first, then stop those sessions before the rows they could still write to are gone.
         let live = self.runs.lock().unwrap().remove(run_id);
+        self.views.forget(run_id);
         if let Some(run) = live {
             *run.emitting.lock().unwrap_or_else(|p| p.into_inner()) = true;
             let conns: Vec<Arc<AcpConn>> = {

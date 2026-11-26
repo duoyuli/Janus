@@ -176,7 +176,7 @@ struct ApprovalAsk: View {
     var body: some View {
         let agent = item.agent ?? st.tasks[item.task ?? ""]?.agent ?? ""
         let d = item.d
-        let opts = L.permissionOptions(d["options"])
+        let opts = st.actions(of: item)
         let diffs = d["content"].array.filter { $0["type"].str == "diff" }
         let operation = d["title"].truthy ? d["title"].str : L.text("执行操作")
         let title = L.text("「\(run.who(agent).name)」等你拍板：\(operation)")
@@ -190,11 +190,11 @@ struct ApprovalAsk: View {
                 ForEach(opts.indices, id: \.self) { i in
                     let o = opts[i]
                     let button = Button(o.label) {
-                        Task { await run.act(.approve(item, o)) }
+                        Task { await run.act(.served(o.body)) }
                     }
                     .disabled(!run.canAct)
                     .help(o.help)
-                    if o.kind == "allow_once" { button.buttonStyle(.primary) } else { button.buttonStyle(.bordered) }
+                    if o.prominent { button.buttonStyle(.primary) } else { button.buttonStyle(.bordered) }
                 }
             }
             if d["impact"].truthy { Text(d["impact"].str).font(.caption).foregroundStyle(.secondary) }

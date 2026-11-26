@@ -12,7 +12,7 @@ struct ResultCard: View {
     var width: CGFloat
 
     var body: some View {
-        if let r = st.result, let stage = reviewStage(st, live: run.live && !run.isReplaying) {
+        if let r = st.result, let stage = st.review?.stage {
             let d = Delivery(r)
             SectionHeader(title: L.text("交付"))
             if stage.reviews {
@@ -95,7 +95,7 @@ struct ReviewBody: View {
 
     var body: some View {
         let acceptance = d.acceptance
-        let signals = reviewSignals(d)
+        let signals = st.review?.signals ?? []
         VStack(alignment: .leading, spacing: 14) {
             header
             requests
@@ -122,7 +122,7 @@ struct ReviewBody: View {
 
     /// What the person asked for this round, quoted: the delivery answers it.
     @ViewBuilder private var requests: some View {
-        let asked = roundRequests(st, d.result)
+        let asked = st.review?.requests ?? []
         if !asked.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text(L.text("你在交付后的要求")).font(.caption).foregroundStyle(.secondary)

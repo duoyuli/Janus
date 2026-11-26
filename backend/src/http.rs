@@ -19,6 +19,7 @@ mod memory;
 mod runs;
 mod setup;
 mod streams;
+mod views;
 
 /// A refused request: its status and a message in the person's words
 /// (`docs/interfaces/20261031-http_api.md#errors`). Any `anyhow::Error` becomes a 400 with its
@@ -175,6 +176,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/runs/{id}/actions", post(runs::action))
         .route("/api/runs/{id}/export", get(runs::export))
         .route("/api/runs/{id}/usage", get(runs::usage))
+        .route("/api/runs/{id}/view", get(views::run))
+        .route("/api/inbox", get(views::inbox))
+        .route("/api/inbox/marks", post(views::mark))
         .route("/api/runs/{id}/files", get(runs::files))
         .route("/api/runs/{id}/proposal", get(runs::proposal).post(runs::create_proposed))
         .route("/api/runs/{id}/proposal/decline", post(runs::decline_proposed))

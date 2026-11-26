@@ -112,22 +112,6 @@ enum L {
         let first = g.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
         return plain(first).trimmingCharacters(in: .whitespaces)
     }
-    /// An agent's permission options in the app's words, by their ACP `kind`; the agent's own
-    /// wording stays in the help. Without options, approve or reject this once.
-    struct PermissionOption { let id, name, kind, label, help: String }
-    static func permissionOptions(_ options: JSON) -> [PermissionOption] {
-        let list = options.array.isEmpty ? [["optionId": "", "name": "", "kind": "allow_once"], ["optionId": "", "name": "", "kind": "reject_once"]] as [JSON] : options.array
-        let words = ["allow_once": L.text("允许一次"), "allow_always": L.text("始终允许"), "reject_once": L.text("拒绝"), "reject_always": L.text("始终拒绝")]
-        let notes = ["allow_always": L.text("之后同类操作不再询问"), "reject_always": L.text("之后同类操作直接拒绝")]
-        return list.map { o in
-            let kind = o["kind"].str
-            let name = o["name"].truthy ? o["name"].str : o["optionId"].str
-            let label = words[kind] ?? name
-            let help = [notes[kind], name.isEmpty || name == label ? nil : L.text("Agent 的原话：\(name)")].compactMap { $0 }.joined(separator: L.text("。"))
-            return PermissionOption(id: o["optionId"].str, name: name.isEmpty ? label : name, kind: kind, label: label, help: help)
-        }
-    }
-
     /// Paths inside the workspace written relative to it, as the agent's own interface shows them.
     static func inWorkspace(_ text: String, _ cwd: String) -> String {
         guard !cwd.isEmpty else { return text }

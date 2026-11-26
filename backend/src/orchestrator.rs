@@ -73,6 +73,7 @@ mod testkit;
 #[cfg(test)]
 mod tests;
 mod turn;
+mod views;
 
 pub use actions::{ActionReply, ActionRequest, Refused};
 use actions::{Decision, InputAction};
@@ -1221,6 +1222,8 @@ pub struct App {
     /// Previews of what sessions are writing and running, before it is on record (`live`).
     pub live: broadcast::Sender<live::Live>,
     pub runs: StdMutex<HashMap<String, Arc<Run>>>,
+    /// What each run's log comes to for the person, kept at the newest event read (`run_view`).
+    pub views: crate::run_view::Views,
     /// One change of a kind at a time (`Gates`).
     pub gates: Gates,
     pub adapter_state: crate::adapters::AdapterState,
@@ -1263,6 +1266,8 @@ pub enum Change {
     Connection(String),
     /// An adapter's install or update started or ended, or a newer version became known.
     Adapters,
+    /// The person put an inbox entry off, brought it back or ignored it, from some client.
+    Inbox,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
@@ -1376,6 +1381,7 @@ impl App {
             changes,
             live,
             runs: Default::default(),
+            views: Default::default(),
             gates: Default::default(),
             adapter_state: Default::default(),
             checks: Default::default(),

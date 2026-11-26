@@ -7,8 +7,6 @@ import Foundation
 enum RunAction: Equatable {
     /// Answer a question a task's agent (`task`), or the lead (no task), is waiting on.
     case answer(key: String, task: String, answer: String, note: String)
-    /// Decide an agent's approval request; `option` is the agent's own `optionId`, `label` its words.
-    case approve(key: String, task: String, agent: String, allow: Bool, option: String?, label: String)
     /// Answer an agent's form: `accept`, `decline` or `cancel`, with what was filled in.
     case input(key: String, task: String, agent: String, action: String, content: [String: JSON])
     case message(SessionTarget, text: String, images: [JSON])
@@ -16,12 +14,13 @@ enum RunAction: Equatable {
     case control(SessionTarget, id: String, value: String, via: String)
     case interrupt(SessionTarget), takeover(SessionTarget), release(SessionTarget), finish(SessionTarget)
     case pause, resume, start, cancel, accept, resumeRun
+    /// A request body the server prepared (a quick answer, `QuickAction.body`), sent as it is.
+    case served(JSON)
 
     /// Its `type`, as the server spells it.
     var name: String {
         switch self {
         case .answer: return "answer"
-        case .approve: return "approve"
         case .input: return "input"
         case .message: return "message"
         case .control: return "control"
@@ -35,6 +34,7 @@ enum RunAction: Equatable {
         case .cancel: return "cancel"
         case .accept: return "accept"
         case .resumeRun: return "resumeRun"
+        case .served(let b): return b["type"].str
         }
     }
 
@@ -46,18 +46,11 @@ enum RunAction: Equatable {
         }
     }
 
-    /// The answer to an approval request with one of the agent's options.
-    static func approve(_ item: InboxItem, _ o: L.PermissionOption) -> RunAction {
-        .approve(key: item.key, task: item.task ?? "", agent: item.agent ?? "", allow: o.kind.hasPrefix("allow"), option: o.id.isEmpty ? nil : o.id, label: o.name)
-    }
-
     var body: JSON {
         var b: JSON
         switch self {
         case let .answer(key, task, answer, note):
             b = ["key": JSON(key), "task": JSON(task), "answer": JSON(answer), "note": JSON(note)]
-        case let .approve(key, task, agent, allow, option, label):
-            b = ["key": JSON(key), "task": JSON(task), "agent": JSON(agent), "allow": JSON(allow), "option": option.map(JSON.init) ?? .null, "label": JSON(label)]
         case let .input(key, task, agent, action, content):
             b = ["key": JSON(key), "task": JSON(task), "agent": JSON(agent), "action": JSON(action), "content": .object(content)]
         case let .message(to, text, images):
@@ -71,6 +64,8 @@ enum RunAction: Equatable {
             b = to.body
         case .pause, .resume, .start, .cancel, .accept, .resumeRun:
             b = [:]
+        case .served(let body):
+            return body
         }
         b["type"] = JSON(name)
         return b

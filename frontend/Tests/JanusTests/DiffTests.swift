@@ -96,14 +96,14 @@ notes.md
     #expect(text.contains("T1 的改动（T1-a1.diff）") && text.contains("总体意见：整体可以"))
     #expect(text.contains("pay.js 第 2 行：`+return sdk.pay()`\n  加上错误处理"))
     #expect(text.contains("原第 2 行（已删除）"))
-    let run = Artifact(name: "run-1.diff", kind: "run_diff", path: "", desc: "", hash: "", bytes: nil, task: "", attempt: 0, seq: 1, by: "janus")
+    let run = Artifact(["name": "run-1.diff", "kind": "run_diff", "seq": 1, "by": "janus"])
     #expect(run.isDiff && run.ofRun && run.subject == "整个任务的改动")
     #expect(Diff.message(subject: run.subject, artifact: run.name, comments: [], summary: "好").hasPrefix("对整个任务的改动（run-1.diff）"))
 }
 
 /// Only what is new since the last look is announced, and nothing on the first look.
 @Test func notificationsAreForWhatIsNew() {
-    func e(_ k: String) -> InboxEntry { InboxEntry(key: k, run: "r", goal: "", workspace: "", title: k, text: "", sub: "", ts: 0, canWait: true) }
+    func e(_ k: String) -> InboxEntry { InboxEntry(["key": JSON(k), "run": "r", "title": JSON(k), "canWait": true]) }
     #expect(Notifier.fresh([e("a"), e("b")], seen: nil).isEmpty)
     #expect(Notifier.fresh([e("a"), e("b")], seen: ["a"]).map(\.key) == ["b"])
 }

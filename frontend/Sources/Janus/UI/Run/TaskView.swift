@@ -48,7 +48,7 @@ struct TaskView: View {
                 }
                 AdaptiveColumns(side: 330) {
                     VStack(alignment: .leading, spacing: 14) {
-                        ChatCard(run: run, st: st, title: L.text("会话"), info: taskSession(st, t), target: .task(t.id))
+                        ChatCard(run: run, st: st, title: L.text("会话"), info: st.session(.task(t.id)), target: .task(t.id))
                             .frame(height: 560)
                         // The full trace is long and repeats the audit log; it stays folded until asked for.
                         if !evs.isEmpty {

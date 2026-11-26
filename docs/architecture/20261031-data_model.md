@@ -65,6 +65,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | `configs` | `(kind, id)` | 设置对象，种类是 `db.rs` 的枚举 `ConfigKind`；数字员工（`Role`）、工作区（`Workspace`）、值班（`LoopDef`）、资源库的资源和来源、应用的语言和 MCP 路由的设置按结构体读写（`Setting`：`Db::get`、`list`、`put`），Agent 连接的字段由 Agent 目录（`kinds`）和配置检查决定，仍按 JSON 读写：`connection`、`role`、`workspace`、`loop`（[工作区值班](../domains/20261121-loops.md#loop_model)，按 `LoopDef` 读写），资源库的 `library_item`、`library_source`，应用的语言 `language`（一行，见[注入的语言](../domains/20261031-goal_mode.md#prompt_language)），MCP 路由的设置 `mcp_router`（一行 `{"code"}`，代码模式是否打开；没有这一行时为打开，见 [MCP 路由](../domains/20261116-resource_library.md#mcp_router)），本机环境里挡住的路径 `host_env`（见[本机环境](20261031-frontend.md#host_env)），以及 `meta` 中的标记（例如默认角色已经写入过的标记 `seeded`）；各类的字段登记在 `data_shape.rs` |
 | `verifications` | `(run_id, task, attempt, attempt_id)` | 每次验证的结果和细节 |
 | `memories` | `id` | 工作区的[团队记忆](../domains/20261123-team_memory.md#memory_model)：`workspace`、`kind`（`fact`、`decision`、`pitfall`、`howto`）、`title`、`hook`、`body`，最后写它的 `run_id`、`who`（成员 id，用户是 `user`）和 `author`，`created_at`、`updated_at`；删除工作区时一并删除 |
+| `inbox_marks` | `key` | 用户对[收件箱](20261031-frontend.md#inbox)条目做的事：`snoozed_until`（推迟到的时刻，毫秒）和 `ignored`（不再提醒）。`key` 是条目的 `<run id>/<什么>`；条目消失时它的这一行一并删掉（`Db::keep_inbox_marks`），见 [HTTP API：收件箱](../interfaces/20261031-http_api.md#inbox) |
 | `commands` | `(run_id, command_id)` | 已占用的 Run 操作 id：执行前写入（`state` 为 `running`），生效后改为 `done`，失败时删除；服务启动时把还是 `running` 的改为 `interrupted`（`CommandState`）。用于按 `commandId` 只执行一次 |
 
 约束：
@@ -121,6 +122,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 28 | 默认数字员工只留两个组：「产品上线」改名「产品研发」（组里所有人）；通用数字员工移出默认，没有工作区在用、用户也没改过时删除（连同 `data/roles/generalist/` 头像），否则去掉 `seed`、移出「通用」组留给用户（`retire_generalist`）。见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 29 | 资源和 Run 快照里命令启动的 MCP 服务器去掉 `process`（`drop_mcp_process`）：MCP 路由同一个 Run 只运行每个服务器一次，见 [ADR：MCP 路由照 magpie 只给三个工具](../decisions/20261126-mcp_router_three_tools.md)。数据版本 8 加上的这个字段由它撤回 |
 | 30 | 值班自己的会话 Run 不再记 `loop_id`，这一列只表示派出这个目标 Run 的值班；会话的值班由 `LoopDef.run` 找到（`loop_of`） |
+| 31 | 新表 `inbox_marks`：收件箱的推迟和忽略记在服务端，每个客户端看到同一个收件箱。以前记在应用本机设置（`janus.inbox.snoozed`、`janus.inbox.ignored`）里的不搬过来，升级后推迟过的条目回到「待处理」 |
 
 <a id="snapshots"></a>
 ## Run 快照

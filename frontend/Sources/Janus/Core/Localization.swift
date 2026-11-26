@@ -112,6 +112,9 @@ extension L {
 
     static var language: LanguageResources { resources(for: LanguageSettings.shared.selection) }
     static var locale: Locale { language.locale }
+    /// The app's language as the server names it (`lang`): what it writes the run views, the
+    /// inbox and what it tells agents in.
+    static var serverLanguage: String { locale.identifier.hasPrefix("en") ? "en" : "zh" }
 
     static func text(_ value: String.LocalizationValue, bundle: Bundle = language.bundle) -> String {
         String(localized: value, bundle: bundle)

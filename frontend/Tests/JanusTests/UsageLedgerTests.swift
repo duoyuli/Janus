@@ -86,7 +86,6 @@ let serverLedger: JSON = [
     run.load = .loaded(live: true)
     run.replay = events.count
     run.usage = UsageLedger.server(serverLedger)
-    #expect(run.shown.run.status == .running)
     #expect(!run.elapsedTicks, "a replayed position does not ask for a per-second timeline")
     #expect(run.usageDisplayed(at: 1_061_000).run.durationMs == 59_000, "a replay position keeps its ledger's value")
 }

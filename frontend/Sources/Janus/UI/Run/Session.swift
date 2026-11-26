@@ -1,13 +1,5 @@
 import SwiftUI
 
-/// Event types a session shows.
-let sessionTypes: Set<EventKind> = [.agentThought, .agentPlan, .sessionControls, .sessionControl, .sessionCommands, .sessionUsage, .attemptStarted, .sessionPrompt, .contextHandoff, .boardPosted, .taskConflict, .agentMessage, .userMessage, .messageRouted, .messageDelivered, .toolCall, .toolStarted, .toolCompleted, .questionAsked, .questionAnswered, .approvalRequested, .approvalGranted, .approvalDenied, .inputRequested, .inputAnswered, .controlTaken, .controlReleased, .sessionInterrupted, .resultSubmitted, .attemptFailed, .leadEdited, .leadRouted]
-
-/// Janus's own events that belong in the lead's session: the run it works on and a Loop's wakes.
-let leadMarks: Set<EventKind> = [.runCreated, .loopWoke, .loopSlept, .loopFailed]
-
-func isSessionEvent(_ e: Event) -> Bool { sessionTypes.contains(e.type) || (e.type == .agentStatus && e.data["turn"].str == "idle") }
-
 /// Who a session view is about: a task's attempts, or everything one agent did in the run. Task
 /// ids and agent ids are separate names (a task may be called `lead`), so the case is part of
 /// every key built from it: drafts, pasted images, folds and inbox entries.
@@ -27,23 +19,39 @@ enum SessionTarget: Hashable {
     var body: JSON { switch self { case .task(let t): return ["task": JSON(t), "agent": ""]; case .agent(let a): return ["task": "", "agent": JSON(a)] } }
 }
 
+/// One conversation as the server works it out (`backend/src/run_view/sessions.rs`): the events it
+/// shows, whether its session is open, whose turn it is, and what its composer offers.
+// @project-doc docs/architecture/20261031-frontend.md#session_view
 struct SessionInfo {
     var evs: [Event]
     var open: Bool
     var human: Bool
     var idle: Bool
-    var resume: Bool
-    var leave: Bool
     /// The lead's first goal is done, but its session is still open for a regular conversation;
     /// or a chat, which is always a conversation.
     var converse: Bool
     /// A chat with one digital employee: sending reopens it whenever its session is gone.
-    var chat = false
+    var chat: Bool
+    var composer: SessionComposer
+
+    init(_ j: JSON, events: [Event]) {
+        let seqs = Set(j["events"].array.compactMap(\.int))
+        evs = events.filter { seqs.contains($0.seq) }
+        open = j["open"].bool ?? false
+        human = j["human"].bool ?? false
+        idle = j["idle"].bool ?? false
+        converse = j["converse"].bool ?? false
+        chat = j["chat"].bool ?? false
+        composer = SessionComposer(served: j["composer"].str, idle: idle)
+    }
 }
 
-func taskSession(_ st: RunState, _ t: TaskState) -> SessionInfo {
-    // A conflict is recorded on the task whose edit found it; the other task's session shows it too.
-    SessionInfo(evs: st.events.filter { ($0.task == t.id || ($0.type == .taskConflict && $0.data["other"].str == t.id)) && isSessionEvent($0) }, open: t.live, human: t.human, idle: t.idle, resume: st.run.status.canResume, leave: false, converse: false)
+extension RunState {
+    /// The conversation of `target`: a task's attempts, or everything an agent did in the run (the
+    /// lead's is a chat's or a Loop's one session).
+    func session(_ target: SessionTarget) -> SessionInfo {
+        SessionInfo(sessions[target.label] ?? .null, events: events)
+    }
 }
 
 /// What a session's composer offers. Replaying shows a past position, so nothing can be sent
@@ -62,48 +70,17 @@ enum SessionComposer: Equatable {
     case leave
     case ended
 
-    init(_ info: SessionInfo, live: Bool, replaying: Bool) {
-        if replaying { self = .replay }
-        // A conversation's open session that waits for the person takes a plain message.
-        else if info.open && live && info.converse && info.idle && !info.human { self = .converse }
-        else if info.open && live { self = info.human ? .human(idle: info.idle) : .managed }
-        else if info.resume { self = .interrupted }
-        else if info.converse { self = .converse }
-        else if info.leave && live { self = .leave }
-        else { self = .ended }
+    init(served: String, idle: Bool) {
+        switch served {
+        case "replay": self = .replay
+        case "human": self = .human(idle: idle)
+        case "managed": self = .managed
+        case "interrupted": self = .interrupted
+        case "converse": self = .converse
+        case "leave": self = .leave
+        default: self = .ended
+        }
     }
-}
-
-/// Everything one agent did in this run, and where a message to it goes right now.
-func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
-    // The lead's session also opens with the run and, in a Loop's, marks where each wake starts and ends.
-    let evs = st.events.filter { e in ((e.actor == id || e.to == id) && isSessionEvent(e)) || (id == "lead" && leadMarks.contains(e.type)) }
-    let open = st.orderedTasks.contains { $0.agent == id && $0.live } || (id == "lead" && (st.run.status == .planning || st.run.status == .running))
-    // The same turn rule as each task's session (`SessionTurn.after`), over this agent's events.
-    let turn = evs.reduce(SessionTurn.opened) { $0.after($1) }
-    let human = turn.human, idle = turn.idle
-    let active = !(st.run.status.isDone || st.run.status == .cancelled)
-    let converse = id == "lead" && st.run.status.isDone
-    return SessionInfo(evs: evs, open: open, human: human, idle: idle, resume: st.run.status.canResume, leave: active, converse: converse)
-}
-
-/// A chat's one session: the employee's events; open while its session runs. Any message
-/// reopens it otherwise, so it is never interrupted or ended for the person.
-// @project-doc docs/domains/20261120-chats.md#chat_app
-func chatSession(_ st: RunState, live: Bool) -> SessionInfo {
-    var info = agentSession(st, "lead")
-    // What the person wrote is the prompt itself: it shows once, as their message.
-    info.evs.removeAll { $0.type == .sessionPrompt && PromptChannel(rawValue: $0.data["channel"].str) == .followup }
-    info.open = live && (st.run.status == .running || st.run.status == .planning)
-    // While its session is still starting a message waits for it, sent the plain way.
-    if st.run.status == .planning { info.idle = true }
-    info.resume = false
-    info.leave = false
-    info.converse = true
-    info.chat = true
-    // A chat has no takeover: stopping a turn leaves it waiting for the next message.
-    info.human = false
-    return info
 }
 
 /// One conversation view for every session.
@@ -189,7 +166,7 @@ struct ChatCard: View {
 
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
         let ph = L.text("发消息给 Agent · ⌘V 贴截图 · \(sendKey.symbol) 发送")
-        let composer = SessionComposer(info, live: live, replaying: run.isReplaying)
+        let composer = info.composer
         // A consolidation is one turn: once it ends there is nothing to send it.
         if run.isDream && !(info.open && live) && composer != .replay {
             return (L.text("整理结束"), .gray, AnyView(EmptyView()), L.text("整理只有一轮；要再整理，在工作区页点「现在整理」"), false)

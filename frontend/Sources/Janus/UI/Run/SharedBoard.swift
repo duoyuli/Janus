@@ -13,7 +13,7 @@ struct ProgressBoard: View {
     let st: RunState
 
     var body: some View {
-        let f = boardFacts(st) { run.who($0).name }
+        let f = st.board
         let now = nowMs
         let tasks = timelineTasks(f, now)
         let milestones = milestoneMarks(f)

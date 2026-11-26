@@ -177,9 +177,9 @@ enum Snapshots {
             store.closeRoleEditor(); store.proposalSheet = nil; store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
-            if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
-        case "wake-all": for e in store.inbox.later { store.inbox.wake(e.key) }
-        case "ignore": store.inbox.ignore(arg)
+            if let e = store.inbox.open.first(where: \.canWait) { await store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600), store: store) }
+        case "wake-all": for e in store.inbox.later { await store.inbox.wake(e.key, store: store) }
+        case "ignore": await store.inbox.ignore(arg, store: store)
         case "close-window": NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.close()
         // Look at both appearances without changing the system's.
         case "appearance": NSApp.appearance = arg == "light" ? NSAppearance(named: .aqua) : arg == "dark" ? NSAppearance(named: .darkAqua) : nil
@@ -188,7 +188,7 @@ enum Snapshots {
             // the settings it loaded, and what it derived for the open run (the end-to-end test
             // compares these with the server, docs/operations/20261031-testing.md#product_e2e).
             let entries = { (xs: [InboxEntry]) in
-                JSON.array(xs.map { ["key": JSON($0.key), "run": JSON($0.run), "kind": JSON($0.kind), "title": JSON($0.title),
+                JSON.array(xs.map { ["key": JSON($0.key), "run": JSON($0.run), "kind": JSON($0.kind), "title": JSON($0.title), "sub": JSON($0.sub),
                                      "canWait": JSON($0.canWait), "actions": JSON($0.actions.map(\.label))] })
             }
             let ids = { (xs: [JSON]) in JSON.array(xs.map { ["id": $0["id"], "phase": $0["phase"], "status": $0["status"], "label": JSON(runLabel($0).0), "origin": $0["origin"], "loopId": $0["loopId"]] }) }
@@ -333,7 +333,7 @@ enum Snapshots {
                                 "dispatchedCount": JSON(LoopText.dispatchedCount(l)),
                                 "dispatched": JSON.array(r.loopDispatched.map { ["id": $0["id"], "key": $0["dispatchKey"], "status": $0["status"]] }),
                                 // Where each wake starts and ends in its session, with the lines drawn there.
-                                "marks": JSON.array(chatSession(s, live: r.live).evs.filter { [.loopWoke, .loopSlept].contains($0.type) }.map { e in
+                                "marks": JSON.array(s.session(.agent("lead")).evs.filter { [.loopWoke, .loopSlept].contains($0.type) }.map { e in
                                     let woke = LoopText.wake(before: e, in: s.events)
                                     return ["seq": JSON(e.seq), "type": JSON(e.type.rawValue),
                                             "text": JSON(e.type == .loopWoke ? LoopText.woke(e) : LoopText.slept(e, woke: woke)),
@@ -345,7 +345,7 @@ enum Snapshots {
                     // Each task's conversation and the lead's, as their cards lay them out: the rows in
                     // turns at the display level chosen, what the composer suggests for its draft and the
                     // live preview (docs/architecture/20261031-frontend.md#session_turns).
-                    "conversations": .object(Dictionary(uniqueKeysWithValues: (s.orderedTasks.map { (SessionTarget.task($0.id), taskSession(s, $0)) } + [(SessionTarget.agent("lead"), agentSession(s, "lead"))]).map { target, info in
+                    "conversations": .object(Dictionary(uniqueKeysWithValues: (s.orderedTasks.map { (SessionTarget.task($0.id), s.session(.task($0.id))) } + [(SessionTarget.agent("lead"), s.session(.agent("lead")))]).map { target, info in
                         let detail = UserDefaults.janus.string(forKey: "janus.chatDensity") == ChatDensity.detail.rawValue
                         let draft = r.sessionDrafts[target] ?? ""
                         let live: ChatLive.Session? = { if case .task(let t) = target { return r.preview.of(task: t, agent: nil) } else { return r.preview.of(task: nil, agent: "lead") } }()
@@ -363,11 +363,11 @@ enum Snapshots {
                     "review": s.result.map { res -> JSON in
                         let d = Delivery(res)
                         let strings = { (xs: [String]) in JSON.array(xs.map { JSON($0) }) }
-                        let stage = reviewStage(s, live: r.live && !r.isReplaying)
+                        let stage = s.review?.stage
                         return ["stage": JSON(stage.map { String(describing: $0) }), "actions": .bool(stage.map(r.offersReview) ?? false), "n": JSON(d.n),
                                 "headline": JSON(d.headline), "decisions": strings(d.decisions), "merge": JSON(d.merge?.rawValue),
-                                "changed": strings(d.changed), "requests": strings(roundRequests(s, res).map(\.text)),
-                                "signals": JSON.array(reviewSignals(d).map { ["source": JSON(String(describing: $0.source)), "text": JSON($0.text)] }),
+                                "changed": strings(d.changed), "requests": strings((s.review?.requests ?? []).map(\.text)),
+                                "signals": JSON.array((s.review?.signals ?? []).map { ["source": JSON(String(describing: $0.source)), "text": JSON($0.text)] }),
                                 "tasks": strings(d.acceptance.map(\.task)), "facts": JSON(ReviewBody.factsLine(d.acceptance, changed: d.changed.count))]
                     } ?? .null,
                     "tasks": JSON.array(s.orderedTasks.map { t in

@@ -26,8 +26,10 @@ private var screenLocked: Bool {
     func view() -> AnyView {
         run.events = events
         run.replay = events.count
-        let st = run.shown
-        return AnyView(ChatCard(run: run, st: st, title: "负责人", info: agentSession(st, "lead"), target: .agent("lead")).frame(width: 700, height: 600))
+        // The view the server serves at the replayed position: everything is the lead's conversation.
+        let st = RunState(["run": ["status": "running", "goal": "长对话"],
+                           "sessions": ["agent:lead": ["events": .array(events.map { JSON($0.seq) }), "open": true, "composer": "replay"]]], events: events)
+        return AnyView(ChatCard(run: run, st: st, title: "负责人", info: st.session(.agent("lead")), target: .agent("lead")).frame(width: 700, height: 600))
     }
     let host = NSHostingView(rootView: view())
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 600), styleMask: [.titled], backing: .buffered, defer: false)

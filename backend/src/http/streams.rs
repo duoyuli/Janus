@@ -84,6 +84,7 @@ pub(super) async fn all(
             Ok(SseEvent::default().event("connection").data(json!({ "connection": id }).to_string()))
         }
         Ok(Change::Adapters) => Ok(SseEvent::default().event("adapters").data("{}")),
+        Ok(Change::Inbox) => Ok(SseEvent::default().event("inbox").data("{}")),
         Err(_) => lagged(),
     });
     let ready = tokio_stream::once(Ok(SseEvent::default().event("ready").data("{}")));

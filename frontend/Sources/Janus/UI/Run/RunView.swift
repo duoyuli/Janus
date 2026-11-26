@@ -217,7 +217,7 @@ extension RunModel {
         var lines: [String] = [L.text("已完成：\(L.goalTitle(state.run.goal))")]
         if state.deliveries.count > 1 { lines.append(L.text("第 \(d.n) 次交付")) }
         if !d.headline.isEmpty { lines.append(d.headline) }
-        let signals = reviewSignals(d)
+        let signals = state.review?.signals ?? []
         if !signals.isEmpty {
             lines += ["", L.text("需要你看的：")]
             lines += signals.map { "- " + $0.text + ($0.detail.isEmpty ? "" : L.text("（\($0.detail)）")) }
@@ -288,7 +288,7 @@ struct BoardView: View {
         GeometryReader { geo in
             // The card column's width: the scroll view minus the 20-point padding on both sides.
             let contentWidth = max(0, geo.size.width - 40)
-            let lead = agentSession(st, "lead")
+            let lead = st.session(.agent("lead"))
             // A run with nothing to say yet: no tasks, and the lead has only been created.
             let empty = st.order.isEmpty && !lead.evs.contains { $0.type != .runCreated }
             let heights = BoardLayout.cardHeights(
@@ -459,7 +459,7 @@ struct RunCard: View {
         default: break
         }
         if r.paused { return (L.text("已暂停"), .gray) }
-        switch reviewStage(st, live: run.live && !run.isReplaying) {
+        switch st.review?.stage {
         case .awaiting?: return (L.text("已交付 · 等你验收"), .green)
         case .blocked?: return (L.text("结果没进你的分支"), .amber)
         case .resolving?: return (L.text("负责人在解决合并冲突"), .blue)

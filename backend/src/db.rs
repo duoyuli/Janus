@@ -10,7 +10,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::sync::Mutex;
 
+mod inbox_marks;
 mod memories;
+pub use inbox_marks::InboxMark;
 pub use memories::{Memory, MemoryKind, MemoryWrite};
 
 #[derive(Serialize, Clone, Debug)]

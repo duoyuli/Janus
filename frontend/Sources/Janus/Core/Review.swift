@@ -2,7 +2,7 @@ import Foundation
 
 // Reviewing a delivery: where the run stands after one (`ReviewStage`), what the latest delivery
 // says (`Delivery`), what in it needs the person (`ReviewSignal`) and how strong each task's
-// evidence is (`EvidenceStrength`). All of it is read from the events; nothing here is stored
+// evidence is (`EvidenceStrength`). The stage and the signals are the server's
 // (docs/architecture/20261031-frontend.md#review).
 
 /// How a delivery's result reached the person's branch (`run.delivered` `merge.state`).
@@ -78,36 +78,35 @@ enum ReviewStage: Equatable {
     var reviews: Bool { if case .awaiting = self { return true }; if case .blocked = self { return true }; return false }
 }
 
-/// The run's stage after its latest delivery; nil before the first one, and for a chat or a Loop.
-/// `live`: the run is in the service's memory. Without it no lead session is there to work or to
-/// be held, whatever the last events said (a restart cut its turn off).
-func reviewStage(_ s: RunState, live: Bool) -> ReviewStage? {
-    guard let r = s.result, !s.run.singleSession else { return nil }
-    let asking = s.inbox.contains { ["question", "approval", "input"].contains($0.kind) || ($0.kind == "session" && $0.task != nil) }
-    switch s.run.status {
-    case .running, .planning: return asking ? .asking : .teamWorking
-    case .delivered, .accepted: break
-    default: return .stopped
+/// The latest delivery's review as the server works it out (`backend/src/run_view/review.rs`):
+/// its stage, what the person should look at, and what they asked for in its round.
+struct ServedReview {
+    let stage: ReviewStage
+    let signals: [ReviewSignal]
+    /// What the person asked the lead for in this round; nothing for the first delivery.
+    let requests: [(seq: Int, text: String)]
+
+    init(_ j: JSON) {
+        stage = ReviewStage(served: j["stage"].str, conflict: j["conflict"].bool ?? false)
+        signals = j["signals"].array.map(ReviewSignal.init)
+        requests = j["requests"].array.map { (seq: $0["seq"].int ?? 0, text: $0["text"].str) }
     }
-    if asking { return .asking }
-    let merge = Delivery(r).merge
-    if merge == .resolving { return .resolving }
-    let turn = live ? s.leadTurn : .agent(idle: true)
-    if turn.human { return turn.idle ? .held : .leadWorking }
-    if !turn.idle { return .leadWorking }
-    if s.run.status == .accepted { return .accepted }
-    if let merge, merge.waitsOnPerson { return .blocked(conflict: merge == .conflict) }
-    return .awaiting
 }
 
-/// What the person asked the lead for between the delivery before `r` and `r`: the requests
-/// this round answers. Nothing for the first delivery, which answers the goal.
-func roundRequests(_ s: RunState, _ r: RunResult) -> [(seq: Int, text: String)] {
-    guard r.n > 1 else { return [] }
-    return s.events.filter { e in
-        e.type == .userMessage && e.actor == "user" && e.to == "lead" && e.task == nil
-            && e.seq > r.since && e.seq < r.seq && e.data["id"].exists
-    }.map { (seq: $0.seq, text: Attach.visibleText($0.data["text"].str)) }
+extension ReviewStage {
+    init(served: String, conflict: Bool) {
+        switch served {
+        case "awaiting": self = .awaiting
+        case "resolving": self = .resolving
+        case "blocked": self = .blocked(conflict: conflict)
+        case "lead_working": self = .leadWorking
+        case "team_working": self = .teamWorking
+        case "accepted": self = .accepted
+        case "asking": self = .asking
+        case "held": self = .held
+        default: self = .stopped
+        }
+    }
 }
 
 /// One thing in a delivery the person should look at before accepting, and who says so.
@@ -120,34 +119,13 @@ struct ReviewSignal: Equatable, Identifiable {
     /// The task it is about, to open.
     var task: String?
     var id: String { "\(source)-\(text)" }
-}
 
-/// What the person should look at, in order: the lead's questions first, then what Janus found.
-/// The executors' own risks are not here: there is no bound on how many they report; the lead
-/// picks the ones that matter into its questions, and each stays with its task.
-func reviewSignals(_ d: Delivery) -> [ReviewSignal] {
-    var out = d.decisions.map { ReviewSignal(source: .lead, text: $0) }
-    out += d.risks.map { ReviewSignal(source: .janus, text: $0.text, task: $0.task) }
-    let records = d.acceptance
-    for a in records {
-        let failed = a.summary.criteria - a.summary.passed
-        if failed > 0 || a.checks.contains(where: { !$0.passed }) {
-            out.append(ReviewSignal(source: .janus, text: L.text("\(a.task) 有 \(max(failed, 1)) 条验收标准没通过"), task: a.task))
-        }
-        if !a.traceGaps.isEmpty {
-            out.append(ReviewSignal(source: .janus, text: L.text("\(a.task) 的结果和工作目录对不上 \(a.traceGaps.count) 处"), detail: a.traceGaps.joined(separator: L.text("；")), task: a.task))
-        }
+    init(_ j: JSON) {
+        source = j["source"].str == "lead" ? .lead : .janus
+        text = j["text"].str
+        detail = j["detail"].str
+        task = j["task"].string
     }
-    let unverified = records.filter(\.unverified).map(\.task)
-    if !unverified.isEmpty {
-        out.append(ReviewSignal(source: .janus, text: L.text("\(unverified.joined(separator: L.text("、"))) 改了文件，没有独立验证"),
-                                detail: L.text("负责人要在总结里写明怎么核对的"), task: unverified.count == 1 ? unverified[0] : nil))
-    }
-    if !d.leadEdits.isEmpty {
-        out.append(ReviewSignal(source: .janus, text: L.text("负责人自己改了 \(d.leadEdits.count) 个文件，没有子任务验收和独立验证"),
-                                detail: d.leadEdits.joined(separator: L.text("、"))))
-    }
-    return out
 }
 
 /// How a task's checks were verified, in three bands: run (tests, commands), read (inspection),

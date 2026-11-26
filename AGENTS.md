@@ -33,6 +33,7 @@
 - 改代码时同步更新相关文档。改名、删除功能或改变行为时，用旧名字全仓库检索，一并改掉界面文案、中英文 README、`docs/`、注释和脚本。中文文档遵循 tech-doc-style-chinese：中文与英文、数字之间加空格，引号用「」，一段一行。
 - 指令内容只写在本文件，`CLAUDE.md` 是指向它的符号链接；项目 skill 放在 `.agents/skills/`，`.claude/skills` 是指向它的符号链接。
 - 应用跟进服务端的变化用全局事件流（`/api/stream`）：收到「谁变了」再只读那一个，不新增按固定间隔、随对象数量增长的轮询，见 `LESSONS.md` 的 L-28。
+- 客户端只展示：由事件推出的状态、业务规则和这些条目的文字都在服务端（Rust）算，应用只解码和画；新功能先在服务端算出再给客户端读，不在 Swift 里新增计算。以后的 Web 客户端要和 Mac 应用对齐，见 `docs/decisions/20261126-backend_owns_derived_state.md` 和 `LESSONS.md` 的 L-48。
 - 不批准外部贡献者 Pull Request 的工作流运行，也不放松这项仓库设置：它是挡在维护者本机运行器前面的唯一一道闸，见 `docs/operations/20261031-security.md#local_runner`。
 - 不替用户 commit 或 push；需要时先确认。
 

@@ -1,0 +1,536 @@
+import Foundation
+
+// A run as the server works it out from its event log (`GET /api/runs/{id}/view`,
+// `backend/src/run_view.rs`): its tasks, agents, requests, messages, deliveries, the shared board
+// and where its delivery's review stands, with the board's words already written in the app's
+// language. The app decodes it and computes none of it
+// (docs/decisions/20261126-backend_owns_derived_state.md).
+
+struct Event: Identifiable, Hashable {
+    let seq: Int
+    let ts: Double
+    let type: EventKind
+    let actor: String
+    let to: String?
+    let task: String?
+    let attempt: Int?
+    let text: String
+    let data: JSON
+    let raw: JSON
+    var id: Int { seq }
+
+    init(_ j: JSON) {
+        raw = j
+        seq = j["seq"].int ?? 0
+        ts = j["ts"].double ?? 0
+        type = EventKind(wire: j["type"].str)
+        actor = j["actor"].str
+        to = j["to"].string
+        task = j["task"].string
+        attempt = j["attempt"].int
+        text = j["text"].str
+        data = j["data"]
+    }
+}
+
+struct Attempt {
+    let n: Int
+    let session: String
+    let workspace: String
+    let start: Double
+    let status: AttemptStatus
+    let seq: Int
+    let error: String?
+    /// When the attempt stopped running (succeeded, failed, cancelled, interrupted); nil while it runs.
+    let end: Double?
+
+    init(_ j: JSON) {
+        n = j["n"].int ?? 0
+        session = j["session"].str
+        workspace = j["workspace"].str
+        start = j["start"].double ?? 0
+        status = AttemptStatus(rawValue: j["status"].str) ?? .running
+        seq = j["seq"].int ?? 0
+        error = j["error"].string
+        end = j["end"].double
+    }
+}
+
+struct Artifact: Hashable {
+    let name, kind, path, desc, hash: String
+    let bytes: Int?
+    /// The task it belongs to; empty for the whole run's diff (`run_diff`).
+    let task: String
+    let attempt: Int
+    let seq: Int
+    let by: String
+
+    init(_ j: JSON) {
+        name = j["name"].str; kind = j["kind"].str; path = j["path"].str; desc = j["desc"].str; hash = j["hash"].str
+        bytes = j["bytes"].int
+        task = j["task"].str
+        attempt = j["attempt"].int ?? 0
+        seq = j["seq"].int ?? 0
+        by = j["by"].str
+    }
+
+    /// A diff to review: a task's (`git_diff`) or the whole run's against where it started (`run_diff`).
+    var isDiff: Bool { kind == "git_diff" || ofRun }
+    /// The whole run's diff: everything accepting brings back, the lead's own edits included.
+    var ofRun: Bool { kind == "run_diff" }
+    /// What its review is about, in the message to the agent (Janus talks to agents in Chinese).
+    var subject: String { ofRun ? "整个任务的改动" : "\(task) 的改动" }
+}
+
+struct Question {
+    let key: String
+    let question: String
+    let options: [String]
+    let blocking: Bool
+    let seq: Int
+    let from: String
+    let answer: String?
+
+    init(_ j: JSON) {
+        key = j["key"].str; question = j["question"].str; options = j["options"].strings
+        blocking = j["blocking"].bool ?? false
+        seq = j["seq"].int ?? 0
+        from = j["from"].str
+        answer = j["answer"].string
+    }
+}
+
+/// Whose turn an open session is in, and whether that turn has ended (the session waits for a
+/// message). A closed session is no `SessionTurn` at all (`TaskState.session` is nil).
+enum SessionTurn: Equatable {
+    case agent(idle: Bool)
+    case person(idle: Bool)
+
+    /// A session that just opened: the agent at work.
+    static let opened = SessionTurn.agent(idle: false)
+
+    init(_ j: JSON) {
+        let idle = j["idle"].bool ?? false
+        self = j["person"].bool == true ? .person(idle: idle) : .agent(idle: idle)
+    }
+
+    var human: Bool { if case .person = self { return true } else { return false } }
+    var idle: Bool { switch self { case .agent(let i), .person(let i): return i } }
+
+}
+
+struct TaskState {
+    let id: String
+    let title, desc, agent: String
+    let deps: [String]
+    let accept: [String]
+    let status: TaskStatus
+    let attempts: [Attempt]
+    let progress: Double
+    let artifacts: [Artifact]
+    /// Its open session's turn; nil while it has none.
+    let session: SessionTurn?
+    var live: Bool { session != nil }
+    /// The person holds the session (takeover or interrupt).
+    var human: Bool { session?.human ?? false }
+    /// The session's turn has ended and it waits for a message.
+    var idle: Bool { session?.idle ?? false }
+    let blockedBy: String
+    let checks: [Check]
+    let verificationFailures: [String]
+    let error: String
+    let question: Question?
+    let amendments: [String]
+    let summary: String
+    let evidence: [String]
+    /// The risks the executor reported with its result.
+    let risks: [String]
+    /// Files the task owns, as its orchestration gave them.
+    let owns: [String]
+    let verifies: String
+    let continues: String
+    let handoff: String
+    let verdict: Verdict?
+    /// Where the finished result disagrees with what the task left in the workspace.
+    let traceGaps: [String]
+
+    init(_ j: JSON) {
+        id = j["id"].str; title = j["title"].str; desc = j["desc"].str; agent = j["agent"].str
+        deps = j["deps"].strings
+        accept = j["accept"].strings
+        status = TaskStatus(j["status"].str)
+        attempts = j["attempts"].array.map(Attempt.init)
+        progress = j["progress"].double ?? 0
+        artifacts = j["artifacts"].array.map(Artifact.init)
+        session = j["session"].isNull ? nil : SessionTurn(j["session"])
+        blockedBy = j["blockedBy"].str
+        checks = Check.list(j["checks"])
+        verificationFailures = j["verificationFailures"].strings
+        error = j["error"].str
+        question = j["question"].isNull ? nil : Question(j["question"])
+        amendments = j["amendments"].strings
+        summary = j["summary"].str
+        evidence = j["evidence"].strings
+        risks = j["risks"].strings
+        owns = j["owns"].strings
+        verifies = j["verifies"].str
+        continues = j["continues"].str
+        handoff = j["handoff"].str
+        verdict = j["verdict"].string.flatMap(Verdict.init(rawValue:))
+        traceGaps = j["traceGaps"].strings
+    }
+}
+
+struct AgentState {
+    var phase = AgentPhase.idle
+    var note = ""
+    var progress: Double?
+    var beat: Double = 0
+    var session: String?
+
+    init() {}
+
+    init(_ j: JSON) {
+        phase = AgentPhase(j["phase"].str)
+        note = j["note"].str
+        progress = j["progress"].double
+        beat = j["beat"].double ?? 0
+        session = j["session"].string
+    }
+}
+
+/// A message sent to a session, followed from being sent to its delivery.
+struct Msg {
+    let id: String
+    let text: String
+    let by: String
+    let to: String
+    let task: String?
+    let seq: Int
+    /// Stored paths of the images sent with it; `text` still names them (see `Attach.visibleText`).
+    let images: [String]
+    let delivery: MessageDelivery
+    let routedTask: String?
+    let routedSeq: Int?
+    let deliveredSeq: Int?
+
+    init(_ j: JSON) {
+        id = j["id"].str; text = j["text"].str; by = j["by"].str; to = j["to"].str
+        task = j["task"].string
+        seq = j["seq"].int ?? 0
+        images = j["images"].strings
+        delivery = MessageDelivery(j["delivery"].str) ?? .pending
+        routedTask = j["routedTask"].string
+        routedSeq = j["routedSeq"].int
+        deliveredSeq = j["deliveredSeq"].int
+    }
+}
+
+/// Something in front of the person.
+struct InboxItem: Identifiable {
+    /// What it belongs to: a decision the backend waits on (by its key), or a session whose turn
+    /// ended and waits for the person to reply. Never read from the shape of a string.
+    enum Ref: Hashable {
+        case decision(String)
+        case session(SessionTarget)
+    }
+    let kind: String
+    let ref: Ref
+    let seq: Int
+    var task: String?
+    var agent: String?
+    /// The rest of the request: reason, recommend, question, options, schema, url, command …
+    var d: JSON = [:]
+    var id: Ref { ref }
+    /// The backend's key of the decision it answers; empty for a session's turn.
+    var key: String { if case .decision(let k) = ref { return k } else { return "" } }
+
+    init(_ j: JSON) {
+        kind = j["kind"].str
+        seq = j["seq"].int ?? 0
+        task = j["task"].string
+        agent = j["agent"].string
+        d = j["d"]
+        if kind == "session" {
+            ref = .session(task.map(SessionTarget.task) ?? .agent(agent ?? ""))
+        } else {
+            ref = .decision(j["key"].str)
+        }
+    }
+}
+
+struct RunInfo {
+    var status = RunStatus.unknown
+    var goal = ""
+    /// Stored paths of the images pasted with the goal.
+    var images: [String] = []
+    var start: Double = 0
+    var now: Double = 0
+    var paused = false
+    var cwd = ""
+    /// The repository this run's own worktree was made from; empty for a run working in place.
+    var repo = ""
+    /// The branch a run in a worktree started on, where accepting merges its result back; empty
+    /// when it started on a detached HEAD.
+    var branch = ""
+    /// Set once an acceptance merged a result back.
+    var merged = false
+    var git = false
+    var baseRef = ""
+    var workspace = ""
+    var error = ""
+    /// A conversation with one digital employee rather than a goal: no board, no delivery, and
+    /// its one member is not a lead.
+    // @project-doc docs/domains/20261120-chats.md#chat_app
+    var chat: Bool { kind == .chat }
+    /// A workspace Loop's session (`kind` `loop`): one member like a chat, woken on a rhythm.
+    var loop: Bool { kind == .loop }
+    var kind = RunKind.goal
+    /// One session and no board: a chat or a Loop. Waiting for the next message is its normal
+    /// state, and its session opening again means it is going.
+    var singleSession: Bool { chat || loop }
+
+    init() {}
+
+    init(_ j: JSON) {
+        status = RunStatus(j["status"].str)
+        goal = j["goal"].str
+        images = j["images"].strings
+        start = j["start"].double ?? 0
+        now = j["now"].double ?? 0
+        paused = j["paused"].bool ?? false
+        cwd = j["cwd"].str
+        repo = j["repo"].str
+        branch = j["branch"].str
+        merged = j["merged"].bool ?? false
+        git = j["git"].bool ?? false
+        baseRef = j["baseRef"].str
+        workspace = j["workspace"].str
+        error = j["error"].str
+        kind = RunKind(j["kind"].str)
+    }
+}
+
+/// One delivery (`run.delivered`): what the lead handed over at the end of a round.
+struct RunResult {
+    let d: JSON
+    let seq: Int
+    let accepted: Double?
+    /// Which delivery of the run it is, from 1.
+    let n: Int
+    /// The seq of the delivery before it (0 for the first): its round is what happened after that.
+    let since: Int
+
+    init(_ j: JSON) {
+        d = j["d"]
+        seq = j["seq"].int ?? 0
+        accepted = j["accepted"].double
+        n = j["n"].int ?? 1
+        since = j["since"].int ?? 0
+    }
+}
+
+struct RunState {
+    var run = RunInfo()
+    var tasks: [String: TaskState] = [:]
+    var order: [String] = []
+    var agents: [String: AgentState] = [:]
+    var inbox: [InboxItem] = []
+    var artifacts: [Artifact] = []
+    var answers: [String: JSON] = [:]
+    var msgs: [String: Msg] = [:]
+    /// Every delivery, oldest first; the last is `result`.
+    var deliveries: [RunResult] = []
+    /// The latest delivery, the one under review.
+    var result: RunResult? { deliveries.last }
+    /// The lead's own turn in its conversation, outside any task.
+    var leadTurn = SessionTurn.opened
+    var board = BoardFacts()
+    /// Where the latest delivery's review stands; nil before the first one, and for a chat or a Loop.
+    var review: ServedReview?
+    /// Each conversation as the server serves it, by `SessionTarget.label` (`RunState.session`).
+    var sessions: [String: JSON] = [:]
+    /// The newest event the server folded in.
+    var seq = 0
+    /// The events shown with it, the run's log up to the shown position (the app's own copy).
+    var events: [Event] = []
+
+    init() {}
+
+    init(_ j: JSON, events: [Event]) {
+        run = RunInfo(j["run"])
+        let ts = j["tasks"].array.map(TaskState.init)
+        order = ts.map(\.id)
+        tasks = Dictionary(ts.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        agents = j["agents"].object.mapValues(AgentState.init)
+        inbox = j["inbox"].array.map(InboxItem.init)
+        artifacts = j["artifacts"].array.map(Artifact.init)
+        answers = j["answers"].object
+        msgs = Dictionary(j["msgs"].array.map(Msg.init).map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        deliveries = j["deliveries"].array.map(RunResult.init)
+        leadTurn = SessionTurn(j["leadTurn"])
+        board = BoardFacts(j["board"])
+        review = j["review"].isNull ? nil : ServedReview(j["review"])
+        sessions = j["sessions"].object
+        seq = j["seq"].int ?? 0
+        self.events = events
+    }
+
+    var orderedTasks: [TaskState] { order.compactMap { tasks[$0] } }
+    /// The one-click answers the server gives for request `item`.
+    func actions(of item: InboxItem) -> [QuickAction] {
+        board.open.first { $0.you && $0.seq == item.seq && $0.kind == item.kind }?.actions ?? []
+    }
+    func event(_ seq: Int) -> Event? { seq >= 1 && seq <= events.count && events[seq - 1].seq == seq ? events[seq - 1] : events.first { $0.seq == seq } }
+
+    var active: Bool { !run.goal.isEmpty && !run.status.isFinished }
+
+    /// The tasks that verify `task` independently; their conclusion is shown apart from the
+    /// evidence the executor reported.
+    func verifiers(of task: String) -> [TaskState] { orderedTasks.filter { $0.verifies == task } }
+}
+
+// MARK: - Shared board
+
+/// Something that holds work up until someone acts, as the server words it.
+struct OpenFact: Identifiable {
+    let id: String
+    let seq: Int?
+    let title: String
+    let text: String
+    let tasks: [String]
+    let agents: [String]
+    let you: Bool
+    let sub: String
+    /// What it is (`question`, `approval`, `input`, `session`, `lead_stall`, `conflict` …).
+    let kind: String
+    /// Its kind in a word or two.
+    let label: String
+    /// Choices that answer the request in one click, where it is a plain choice.
+    let actions: [QuickAction]
+
+    init(_ j: JSON) {
+        id = j["key"].str
+        seq = j["seq"].int
+        title = j["title"].str
+        text = j["text"].str
+        tasks = j["tasks"].strings
+        agents = j["agents"].strings
+        you = j["you"].bool ?? false
+        sub = j["sub"].str
+        kind = j["kind"].str
+        label = j["label"].str
+        actions = j["actions"].array.map(QuickAction.init)
+    }
+}
+
+/// One click that settles a request: the request body the server prepared, sent as it is.
+struct QuickAction: Equatable {
+    let label: String
+    let help: String
+    let prominent: Bool
+    let body: JSON
+    /// An approval option's kind (`allow_once`, `allow_always` …); empty for an answer.
+    let kind: String
+
+    init(_ j: JSON) {
+        label = j["label"].str
+        help = j["help"].str
+        prominent = j["prominent"].bool ?? false
+        body = j["body"]
+        kind = j["kind"].str
+    }
+}
+
+struct ResultFact: Identifiable {
+    let key: String, seq: Int, ts: Double, by: String, task: String
+    let summary: String
+    let evidence: [String], risks: [String]
+    let checks: [Check]
+    let usedBy: [String]
+    let old: Bool
+    let amended: [String]
+    var id: String { key }
+
+    init(_ j: JSON) {
+        key = j["key"].str; seq = j["seq"].int ?? 0; ts = j["ts"].double ?? 0; by = j["by"].str; task = j["task"].str
+        summary = j["summary"].str
+        evidence = j["evidence"].strings; risks = j["risks"].strings
+        checks = Check.list(j["checks"])
+        usedBy = j["usedBy"].strings
+        old = j["old"].bool ?? false
+        amended = j["amended"].strings
+    }
+}
+
+struct HandoffFact: Identifiable {
+    let key: String, seq: Int, ts: Double, by: String
+    let from: String, to: String, agent: String
+    /// What passed, as the person reads it.
+    let summary: String
+    let artifacts: [String]
+    var id: String { key }
+
+    init(_ j: JSON) {
+        key = j["key"].str; seq = j["seq"].int ?? 0; ts = j["ts"].double ?? 0; by = j["by"].str
+        from = j["from"].str; to = j["to"].str; agent = j["agent"].str
+        summary = j["text"].str
+        artifacts = j["artifacts"].strings
+    }
+}
+
+struct ArtFact: Identifiable {
+    let a: Artifact
+    let old: Bool
+    let usedBy: [String]
+    var id: String { "a\(a.seq)" }
+
+    init(_ j: JSON) {
+        a = Artifact(j["a"])
+        old = j["old"].bool ?? false
+        usedBy = j["usedBy"].strings
+    }
+}
+
+struct DecisionFact: Identifiable {
+    let key: String, seq: Int, ts: Double, by: String
+    let title: String
+    let text: String
+    let tasks: [String]
+    let agents: [String]
+    /// A message to an agent.
+    let msg: Bool
+    let to: String?
+    /// The run is over and this message never reached its agent.
+    let lost: Bool
+    var id: String { key }
+
+    init(_ j: JSON) {
+        key = j["key"].str; seq = j["seq"].int ?? 0; ts = j["ts"].double ?? 0; by = j["by"].str
+        title = j["title"].str
+        text = j["text"].str
+        tasks = j["tasks"].strings
+        agents = j["agents"].strings
+        msg = j["kind"].str == "message"
+        to = j["to"].string
+        lost = j["lost"].bool ?? false
+    }
+}
+
+struct BoardFacts {
+    var open: [OpenFact] = []
+    var results: [ResultFact] = []
+    var arts: [ArtFact] = []
+    var handoffs: [HandoffFact] = []
+    var decisions: [DecisionFact] = []
+
+    init() {}
+
+    init(_ j: JSON) {
+        open = j["open"].array.map(OpenFact.init)
+        results = j["results"].array.map(ResultFact.init)
+        arts = j["arts"].array.map(ArtFact.init)
+        handoffs = j["handoffs"].array.map(HandoffFact.init)
+        decisions = j["decisions"].array.map(DecisionFact.init)
+    }
+}

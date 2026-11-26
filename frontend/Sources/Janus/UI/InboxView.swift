@@ -24,7 +24,7 @@ struct InboxView: View {
                 } else {
                     Card(padding: 4) {
                         ForEach(open) { e in
-                            row(e, now: inbox.now)
+                            row(e, now: L.nowMs())
                             quick(e)
                             if e != open.last { Divider() }
                         }
@@ -36,10 +36,10 @@ struct InboxView: View {
                         Card(padding: 4) {
                             ForEach(later) { e in
                                 HStack(alignment: .firstTextBaseline) {
-                                    summary(e, now: inbox.now)
+                                    summary(e, now: L.nowMs())
                                     Spacer()
-                                    Text(L.text("到 \(L.dateTime(inbox.snoozed[e.key] ?? 0))")).font(.caption).foregroundStyle(.secondary)
-                                    Button(L.text("现在处理")) { inbox.wake(e.key) }
+                                    Text(L.text("到 \(L.dateTime(e.snoozedUntil ?? 0))")).font(.caption).foregroundStyle(.secondary)
+                                    Button(L.text("现在处理")) { Task { await inbox.wake(e.key, store: store) } }
                                 }
                                 .padding(.horizontal, 10).padding(.vertical, 8)
                                 if e != later.last { Divider() }
@@ -120,7 +120,7 @@ struct InboxView: View {
                 }
                 IconButton(symbol: "eye.slash", label: L.text("忽略"), size: 13, color: .secondary,
                            help: e.canWait ? L.text("忽略：不再提醒；任务保持原样，在任务记录里还能找到") : L.text("忽略：不再提醒；对方会一直等着，在任务页还能处理")) {
-                    store.inbox.ignore(e.key)
+                    Task { await store.inbox.ignore(e.key, store: store) }
                 }
             }
             // Both buttons take the place of 「去处理」, so the glyphs line up on every row.
@@ -143,9 +143,9 @@ struct InboxView: View {
     /// Put it off: a clock that opens the times to come back at.
     private func later(_ e: InboxEntry) -> some View {
         Menu {
-            Button(L.text("1 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
-            Button(L.text("4 小时后")) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(4 * 3600)) }
-            Button(L.text("明天上午 9 点")) { store.inbox.snooze(e.key, until: Self.tomorrowMorning()) }
+            Button(L.text("1 小时后")) { Task { await store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600), store: store) } }
+            Button(L.text("4 小时后")) { Task { await store.inbox.snooze(e.key, until: Date().addingTimeInterval(4 * 3600), store: store) } }
+            Button(L.text("明天上午 9 点")) { Task { await store.inbox.snooze(e.key, until: Self.tomorrowMorning(), store: store) } }
         } label: {
             Image(systemName: "clock")
                 .font(.system(size: 13, weight: .medium))

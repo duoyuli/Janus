@@ -442,7 +442,7 @@ struct LoopView: View {
     var body: some View {
         let st = run.shown
         let loop = run.store.loop(ofRun: run.id) ?? .null
-        let info = chatSession(st, live: run.live)
+        let info = st.session(.agent("lead"))
         let (phase, tone) = LoopText.phase(loop)
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 10) {

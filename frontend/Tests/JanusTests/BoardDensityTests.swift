@@ -206,7 +206,7 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     let freshRun = RunModel(id: "fresh", store: testStore)
     freshRun.events = fresh
     freshRun.replay = fresh.count
-    let freshState = freshRun.shown
+    let freshState = RunState(["run": ["status": "running", "goal": "刚创建的目标", "start": 1_000_000, "now": 1_000_000]], events: fresh)
     try render("run-card-fresh-light", dark: false, width: 1100, RunCard(run: freshRun, st: freshState, width: 1100))
     try render("run-card-fresh-dark", dark: true, width: 1100, RunCard(run: freshRun, st: freshState, width: 1100))
     try render("run-card-fresh-narrow-light", dark: false, width: 600, RunCard(run: freshRun, st: freshState, width: 600).frame(width: 600))
@@ -244,7 +244,7 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
     add("session.usage", actor: "researcher", task: "T1", attempt: 1, ts: 1_020_000,
         data: ["inputTokens": 12000, "outputTokens": 3400, "totalTokens": 15400, "used": 52000, "size": 200000, "cost": ["amount": 0.25, "currency": "USD"]])
     add("task.succeeded", actor: "researcher", task: "T1", attempt: 1, ts: 1_100_000, data: ["summary": "三处调用方"])
-    add("run.delivered", actor: "lead", ts: 1_200_000, data: [
+    let deliveredData: JSON = [
         "headline": "工作台按新密度拆好了，两个子任务都核对过。",
         "summary": "运行卡片一行摘要，账本和逐条验收页内展开。",
         "decisions": ["旧截图要不要按新折叠位置重拍？"],
@@ -255,11 +255,25 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
         "deliverables": [["name": "工作台报告", "path": "/tmp/report.md", "seq": 6, "desc": "改动和证据"]],
         "evidence": [["text": "T1：三处调用方", "seq": 5]],
         "acceptance": [accept1, accept2],
-    ])
+    ]
+    add("run.delivered", actor: "lead", ts: 1_200_000, data: deliveredData)
     let run = RunModel(id: "delivery", store: testStore)
     run.events = events
     run.replay = events.count
-    let st = run.shown
+    // The view the server serves for these events: the delivery awaits review, with what to look at.
+    let st = RunState([
+        "run": ["status": "delivered", "goal": "把工作台的信息密度调好", "start": 1_000_000, "now": 1_200_000],
+        "tasks": [["id": "T1", "title": "调研调用方", "agent": "researcher", "status": "succeeded", "accept": ["列出调用方"]],
+                  ["id": "T2", "title": "实现一个很长的子任务标题，用来检查单行截断和数字不被截断", "agent": "impl", "status": "pending", "deps": ["T1"], "accept": ["测试通过"]]],
+        "deliveries": [["d": deliveredData, "seq": JSON(events.count), "n": 1, "since": 0]],
+        "review": ["stage": "awaiting", "conflict": false, "requests": [], "signals": [
+            ["source": "lead", "kind": "decision", "text": "旧截图要不要按新折叠位置重拍？"],
+            ["source": "janus", "kind": "risk", "text": "T2：独立验证 V2 判定为「需要修改」，结论没有得到确认", "task": "T2"],
+            ["source": "janus", "kind": "failed_checks", "text": "T2 有 2 条验收标准没通过", "task": "T2"],
+            ["source": "janus", "kind": "trace_gaps", "text": "T2 的结果和工作目录对不上 1 处", "detail": "T2 声称改了 shared.swift，但 diff 里没有", "task": "T2"],
+            ["source": "janus", "kind": "lead_edits", "text": "负责人自己改了 1 个文件，没有子任务验收和独立验证", "detail": "docs/architecture/20261031-frontend.md"],
+        ]],
+    ], events: events)
     #expect(st.result.map { Delivery($0).acceptance.count } == 2)
     try render("result-card-light", dark: false, width: 1100, ResultCard(run: run, st: st, width: 1100))
     try render("result-card-dark", dark: true, width: 1100, ResultCard(run: run, st: st, width: 1100))

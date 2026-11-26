@@ -247,17 +247,16 @@ final class AppStore {
         show(msg)
     }
 
-    /// Runs with news since the last batch, and whether the lists changed, gathered from the global
-    /// stream for one read a moment later.
-    @ObservationIgnored private var newsOf: Set<String> = []
+    /// Whether the lists changed since the last batch of news from the global stream, gathered
+    /// for one read a moment later.
     @ObservationIgnored private var listsChanged = false
     @ObservationIgnored private var batch: Task<Void, Never>?
 
     /// Follows every run through the server's global stream (`GET /api/stream`) instead of polling:
-    /// a run with a new event is read again (the inbox reads only its new events), and the lists
-    /// are read again when a run is created, changes status or a chat gets its title. When the
-    /// stream opens, lags or ends, everything is read once; then it reconnects. A clock without
-    /// requests brings snoozed inbox items back on time.
+    /// news of any run reads the inbox again (the server brings only that run up to date), and the
+    /// lists are read again when a run is created, changes status or a chat gets its title. When
+    /// the stream opens, lags or ends, everything is read once; then it reconnects. The inbox asks
+    /// again when the next entry put off comes back (`InboxModel.refresh`).
     // @project-doc docs/architecture/20261031-frontend.md#server_sync
     private func followEvents() {
         polls["events"]?.cancel()
@@ -273,7 +272,7 @@ final class AppStore {
                             await self.readAll()
                         case .lagged: await self.readAll()
                         case .named("run", let c):
-                            self.note(c["run"].str, lists: true)
+                            self.note(lists: true)
                             // A run a Loop dispatched changed: that Loop's counts and list did too.
                             if let loop = c["loop"].string, !loop.isEmpty { await self.loadLoop(loop) }
                         case .named("loop", let c): await self.loadLoop(c["loop"].str)
@@ -284,7 +283,9 @@ final class AppStore {
                         case .named("library", _): if self.library != nil { await self.loadLibrary() }
                         case .named("connection", let c): await self.connectionChanged(c["connection"].str)
                         case .named("adapters", _): if self.adapters != .null { await self.loadAdapters(quiet: true) }
-                        case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(EventKind(wire: n["type"].str), run: n["run"].str, store: self))
+                        // Another client put an inbox entry off, brought it back or ignored it.
+                        case .named("inbox", _): await self.inbox.refresh(self)
+                        case .named("event", let n): self.note(lists: Self.listChanges(EventKind(wire: n["type"].str), run: n["run"].str, store: self))
                         default: break
                         }
                     }
@@ -292,13 +293,6 @@ final class AppStore {
                 // The stream ended (the server restarted, or is gone for a moment): read once, retry.
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 await self?.readAll()
-            }
-        }
-        polls["clock"]?.cancel()
-        polls["clock"] = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-                if let self { await self.inbox.refresh(self, changed: []) }
             }
         }
     }
@@ -317,8 +311,7 @@ final class AppStore {
     /// service may have restarted or be new) and when the person picks another language.
     // @project-doc docs/domains/20261031-goal_mode.md#prompt_language
     func sendLanguage() async {
-        let code = L.language.locale.identifier.hasPrefix("en") ? "en" : "zh"
-        _ = try? await api.put("/api/language", ["language": .string(code)])
+        _ = try? await api.put("/api/language", ["language": .string(L.serverLanguage)])
     }
 
     private func readAll() async {
@@ -327,19 +320,17 @@ final class AppStore {
         await inbox.refresh(self)
     }
 
-    private func note(_ run: String, lists: Bool) {
-        newsOf.insert(run)
+    private func note(lists: Bool) {
         listsChanged = listsChanged || lists
         guard batch == nil else { return }
         batch = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard let self else { return }
-            let runs = self.newsOf, lists = self.listsChanged
-            self.newsOf = []
+            let lists = self.listsChanged
             self.listsChanged = false
             self.batch = nil
             if lists { await self.loadRuns() }
-            await self.inbox.refresh(self, changed: runs)
+            await self.inbox.refresh(self)
         }
     }
 

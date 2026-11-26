@@ -170,7 +170,7 @@ struct ChatView: View {
     var body: some View {
         let st = run.shown
         let me = run.who("lead")
-        let info = chatSession(st, live: run.live)
+        let info = st.session(.agent("lead"))
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 Avatar(initials: me.initials, color: me.color, size: 34, role: me.role)

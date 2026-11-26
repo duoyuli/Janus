@@ -62,35 +62,6 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     #expect(!ToolRow.hidden(call("tool.call", "Read calc.py", "read"), done: []))
 }
 
-/// After delivery the lead's session is a regular conversation, not a closed one; other agents stay
-/// closed.
-@Test func aDeliveredLeadStaysInConversation() {
-    var st = RunState()
-    st.run.goal = "目标"
-    st.run.status = .delivered
-    #expect(agentSession(st, "lead").converse)
-    #expect(!agentSession(st, "m1").converse)
-    st.run.status = .accepted
-    #expect(agentSession(st, "lead").converse)
-    st.run.status = .cancelled
-    #expect(!agentSession(st, "lead").converse)
-}
-
-/// Replaying a delivered or interrupted run shows its sessions read-only: the composer the live
-/// run offers there is not offered at a replayed position, so a draft is never sent into nothing.
-@Test func replayedSessionsTakeNoMessages() {
-    var st = RunState()
-    st.run.goal = "目标"
-    st.run.status = .delivered
-    let lead = agentSession(st, "lead")
-    #expect(SessionComposer(lead, live: false, replaying: false) == .converse, "a historical run reopens on send")
-    #expect(SessionComposer(lead, live: false, replaying: true) == .replay)
-    st.run.status = .interrupted
-    let interrupted = agentSession(st, "lead")
-    #expect(SessionComposer(interrupted, live: false, replaying: false) == .interrupted)
-    #expect(SessionComposer(interrupted, live: false, replaying: true) == .replay)
-}
-
 /// The session card keeps its own numbers: this session's context and the last turn, labelled apart
 /// from the run's cumulative total.
 @Test func sessionUsageIsLabelledApartFromTheRunTotal() {
@@ -163,7 +134,14 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     // The ledger the server would compute for these events (`serverLedger`, a partial run).
     run.usage = UsageLedger.server(serverLedger)
 
-    let st = run.shown
+    // The view the server would serve for them (`GET /api/runs/{id}/view`).
+    let t1 = events.filter { $0.task == "T1" }.map { JSON($0.seq) }
+    let st = RunState([
+        "run": ["status": "running", "goal": "统计这次 Run 的用量", "cwd": "/tmp/x", "start": 1_000_000, "now": .number(events.last!.ts)],
+        "tasks": [["id": "T1", "title": "调研调用方", "agent": "researcher", "status": "succeeded", "accept": ["列出调用方"], "summary": "三处调用方"],
+                  ["id": "T2", "title": "补充测试", "agent": "implementer", "status": "running", "deps": ["T1"], "accept": ["测试通过"], "session": ["person": false, "idle": false]]],
+        "sessions": ["task:T1": ["events": .array(t1), "composer": "replay"]],
+    ], events: events)
     #expect(run.usage.run.completeness == .partial, "the rendered card says partial")
     #expect(run.usage.run.summaryRows.first?.value.contains(expectedCopy("部分上报", "Partially reported")) == true)
 
@@ -188,7 +166,7 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     let runCardNarrow = try render("run-card-narrow-light.png", dark: false, RunCard(run: run, st: st, width: 560).frame(width: 560))
     let detail = try render("run-usage-detail-light.png", dark: false, Card { UsageSection(run: run, st: st) })
     // The session card's header is the other place the numbers appear: it labels them 本会话/上一轮.
-    let chat = ChatCard(run: run, st: st, title: "调研者", info: taskSession(st, st.tasks["T1"]!), target: .task("T1"))
+    let chat = ChatCard(run: run, st: st, title: "调研者", info: st.session(.task("T1")), target: .task("T1"))
         .frame(width: 560, height: 260)
     let session = try render("session-header-light.png", dark: false, chat)
     #expect(detail > 10_000 && session > 10_000)

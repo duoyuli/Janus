@@ -8,7 +8,8 @@ enum RunPage: Hashable {
     var isDetail: Bool { switch self { case .task, .agent: return true; default: return false } }
 }
 
-/// One open run: its events, live stream, the state derived from them, and the person's drafts.
+/// One open run: its events, live stream, the state the server works out from them, and the
+/// person's drafts.
 // @project-doc docs/architecture/20261031-frontend.md#server_sync
 @Observable @MainActor
 final class RunModel {
@@ -36,14 +37,14 @@ final class RunModel {
     /// Replay position (number of events shown), nil while live.
     var replay: Int? {
         didSet {
-            replayState = replay.map { n in derive(Array(events.prefix(n))) }
-            loadUsage()
+            if replay == nil { replayState = nil }
+            loadServed()
         }
     }
     private(set) var replayState: RunState?
     var shown: RunState { replayState ?? state }
     /// The usage ledger at the shown position, the live run's or the replayed prefix's, as the
-    /// server computes it (`loadUsage`).
+    /// server computes it (`loadServed`).
     var usage = UsageLedger.empty
     var isReplaying: Bool { replay != nil }
     /// Actions are possible: a live run, not replaying.
@@ -71,17 +72,42 @@ final class RunModel {
         usage.displayed(at: now, since: shown.run.start, ticking: canAct && shown.run.status.isActive)
     }
 
-    /// Read the ledger at the shown position. Asked when the run is read, after each burst of new
-    /// events and when the replay position moves; an answer for a position no longer shown is
-    /// dropped.
-    func loadUsage() {
-        let until = replay.map { n in events.prefix(n).last?.seq ?? 0 } ?? events.last?.seq ?? 0
+    /// The seq of the last event at the replayed position; nil while live.
+    private var replayedSeq: Int? { replay.map { n in events.prefix(n).last?.seq ?? 0 } }
+
+    /// Read what the server works out at the shown position: the run's view
+    /// (`GET /api/runs/{id}/view`, in the app's language) and its usage ledger. Asked when the run
+    /// is read, after each burst of new events, when the replay position moves and when the
+    /// language changes; an answer for a position no longer shown is dropped.
+    // @project-doc docs/architecture/20261031-frontend.md#event_derivation
+    func loadServed() {
+        let until = replayedSeq
+        let last = until ?? events.last?.seq ?? 0
+        viewTask?.cancel()
+        viewTask = Task { [weak self] in
+            guard let self else { return }
+            let at = until.map { "&until=\($0)" } ?? ""
+            guard let j = try? await self.api.get("/api/runs/\(self.id)/view?lang=\(L.serverLanguage)\(at)"),
+                  !Task.isCancelled, self.replayedSeq == until else { return }
+            if let until {
+                self.replayState = RunState(j, events: self.events.filter { $0.seq <= until })
+                return
+            }
+            let before = self.state.run.status
+            self.state = RunState(j, events: self.events)
+            self.findDocuments()
+            // The sidebar lists run statuses; refresh it when this one's changes.
+            if self.state.run.status != before { await self.store.loadRuns() }
+            // The server holds the run now but this page read it when it did not (a run that left
+            // the queue, a chat or a Loop whose session opened): read it again to follow it live.
+            if !self.live, j["live"].bool == true { await self.read() }
+        }
         usageTask?.cancel()
         usageTask = Task { [weak self] in
-            guard let self, until > 0 else { return }
-            guard let j = try? await self.api.get("/api/runs/\(self.id)/usage?until=\(until)"), !Task.isCancelled else { return }
-            let now = self.replay.map { n in self.events.prefix(n).last?.seq ?? 0 } ?? self.events.last?.seq ?? 0
-            if now == until { self.usage = UsageLedger.server(j) }
+            guard let self, last > 0 else { return }
+            guard let j = try? await self.api.get("/api/runs/\(self.id)/usage?until=\(last)"),
+                  !Task.isCancelled, self.replayedSeq == until else { return }
+            self.usage = UsageLedger.server(j)
         }
     }
 
@@ -118,7 +144,7 @@ final class RunModel {
     var auditActor = ""
     var highlight: Int?
 
-    /// The run's Markdown files that exist, for the 文档 menu. Found again with each derive, not
+    /// The run's Markdown files that exist, for the 文档 menu. Found again with each served view, not
     /// on every event: checking the files on each draw of the toolbar slowed busy runs down.
     private(set) var documents: [RunDocs.Doc] = []
 
@@ -129,7 +155,8 @@ final class RunModel {
     /// Markdown files found in the events so far, and how many events were scanned.
     @ObservationIgnored private var docScan: [String: RunDocs.Doc] = [:]
     @ObservationIgnored private var docScanned = 0
-    @ObservationIgnored private var deriveTask: Task<Void, Never>?
+    @ObservationIgnored private var batchTask: Task<Void, Never>?
+    @ObservationIgnored private var viewTask: Task<Void, Never>?
     @ObservationIgnored private var usageTask: Task<Void, Never>?
 
     init(id: String, store: AppStore) {
@@ -163,14 +190,12 @@ final class RunModel {
             preview = ChatLive.State(events)
             docScan = [:]
             docScanned = 0
-            // A derive scheduled before this read would land on the events it replaced.
-            deriveTask?.cancel()
-            deriveTask = nil
-            state = derive(events)
-            findDocuments()
-            loadUsage()
-            if let r = replay, r > events.count { replay = nil }
+            // A batch scheduled before this read would land on the events it replaced.
+            batchTask?.cancel()
+            batchTask = nil
             load = .loaded(live: data["live"].bool ?? false)
+            state.events = events
+            if let r = replay, r > events.count { replay = nil } else { loadServed() }
             if !workspaceId.isEmpty, store.workspace(workspaceId) != nil { store.rememberWorkspace(workspaceId) }
             subscribe()
         } catch {
@@ -178,16 +203,15 @@ final class RunModel {
         }
     }
 
+    /// The language changed: the server writes the view in the new one.
     func refreshLocalizedState() {
-        deriveTask?.cancel()
-        deriveTask = nil
-        scheduleDerive()
-        replayState = replay.map { derive(Array(events.prefix($0))) }
+        loadServed()
     }
 
     func close() {
         streamTask?.cancel()
-        deriveTask?.cancel()
+        batchTask?.cancel()
+        viewTask?.cancel()
         usageTask?.cancel()
     }
 
@@ -213,7 +237,7 @@ final class RunModel {
                         if e.seq != last + 1 { self.reload(); return }
                         self.events.append(e)
                         if [.agentMessage, .agentThought, .toolCall].contains(e.type) { self.preview.recorded(e) }
-                        self.scheduleDerive()
+                        self.scheduleLoad()
                     }
                 }
             } catch {}
@@ -241,34 +265,15 @@ final class RunModel {
         Task { [weak self] in await self?.read() }
     }
 
-    /// How many events the last derive saw, so the next one knows which are new.
-    @ObservationIgnored private var derivedUpTo = 0
-
-    /// Events arrive in bursts; derive once per burst, off the main thread: a long run takes
-    /// milliseconds that scrolling needs.
-    private func scheduleDerive() {
-        guard deriveTask == nil else { return }
-        deriveTask = Task { [weak self] in
+    /// Events arrive in bursts; ask the server once per burst. The events themselves show at once.
+    private func scheduleLoad() {
+        guard batchTask == nil else { return }
+        batchTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 60_000_000)
             guard let self, !Task.isCancelled else { return }
-            let events = self.events
-            let derived = await Task.detached(priority: .userInitiated) { derive(events) }.value
-            // Closed, or read again by `load`, whose own derive is newer.
-            guard !Task.isCancelled else { return }
-            let before = self.state.run.status
-            self.state = derived
-            self.findDocuments()
-            self.loadUsage()
-            self.deriveTask = nil
-            // Events that came in while deriving get a round of their own.
-            if self.events.count > events.count { self.scheduleDerive() }
-            // The sidebar lists run statuses; refresh it when this one's changes.
-            if derived.run.status != before { await self.store.loadRuns() }
-            // A run that left the queue is read again: being set up, then live once it started. So
-            // is a chat or a Loop whose session opened (a Loop's first wake), whose status may not change.
-            let opened = derived.run.singleSession && events[min(self.derivedUpTo, events.count)...].contains { $0.type == .agentStatus && $0.data["session"].exists }
-            self.derivedUpTo = events.count
-            if !self.live, (derived.run.status != before && derived.run.status.isActive) || opened { await self.read() }
+            self.batchTask = nil
+            self.state.events = self.events
+            self.loadServed()
         }
     }
 
