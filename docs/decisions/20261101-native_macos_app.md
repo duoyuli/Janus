@@ -1,6 +1,6 @@
 # ADR：用原生 macOS 应用做展示层
 
-- 状态：已采纳（accepted），记录于 2026-11-01；同日修订：删除 Web 工作台，应用移到 `frontend/`。
+- 状态：已采纳（accepted），记录于 2026-11-01；同日修订：删除 Web 工作台，应用移到 `frontend/`。第 4 条被 [ADR：由事件推导的状态只在服务端算](20261126-backend_owns_derived_state.md) 取代（superseded），迁移按那份 ADR 的顺序进行。
 - 相关文档：[macOS 应用](../architecture/20261031-frontend.md)、[部署方案](../operations/20261031-deployment.md#macos_app)、[CI 与发布](../operations/20261101-ci_release.md)。
 
 ## 背景
