@@ -4,7 +4,7 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
-## 2026.11.26.5
+## 2026.11.26.6
 
 - 资源库的 MCP 路由改成 magpie 的做法：数字员工只拿到 `find_tools`（按要做的事或工具名找工具，中文也能找）和 `call_tool`（按名字调用）两个工具，再加上下面的 `run_code`，资源库再大，会话里的工具也不增加。路由会介绍自己背后有哪些服务器、各做什么、有哪些工具，所以 Codex 这类开局只看服务器说明的 Agent 也知道该去用它们。
 
