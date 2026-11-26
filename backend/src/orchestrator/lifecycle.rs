@@ -399,8 +399,6 @@ impl App {
         let result = {
             // Where a finished task's result disagreed with the workspace, from its own event.
             let events = self.db.events(&run.id, 0).unwrap_or_default();
-            // The same ledger the Run page and the board read; usage is never required to deliver.
-            let usage = crate::usage::ledger(&events).delivery_line();
             let trace_gaps = |id: &str| -> Vec<String> {
                 events
                     .iter()
@@ -545,7 +543,6 @@ impl App {
                 "deliverables": deliverables,
                 "evidence": evidence,
                 "acceptance": acceptance,
-                "usage": usage,
                 "risks": risks,
                 "changed": changed,
                 "leadEdits": lead_edits,

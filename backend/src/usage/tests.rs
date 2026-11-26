@@ -47,7 +47,6 @@ fn shared_cases_give_the_expected_numbers() {
             want["completeness"].as_str().unwrap(),
             "{name}: completeness"
         );
-        assert_eq!(l.text, want["summary"].as_str().unwrap(), "{name}: summary line");
         for (task, total) in want["tasks"].as_object().into_iter().flatten() {
             assert_eq!(l.task(task).and_then(|t| t.tokens.total), total.as_i64(), "{name}: task {task}");
         }
@@ -128,7 +127,6 @@ fn every_turn_is_added_even_when_the_turns_grow() {
     assert_eq!((l.run.tokens.input, l.run.tokens.output), (Some(3900), Some(650)));
     assert_eq!(l.run.turns, 4);
     assert_eq!(l.run.completeness, Completeness::Complete);
-    assert!(l.text.contains("4,550 tokens（完整）"), "{}", l.text);
 }
 
 #[test]
@@ -217,7 +215,7 @@ fn missing_usage_is_reported_as_missing_never_as_zero() {
     let l = ledger(&e);
     assert_eq!(l.run.tokens, Tokens::default());
     assert_eq!(l.run.completeness, Completeness::Missing);
-    assert!(l.text.contains("未上报") && !l.text.contains("0 tokens"), "{}", l.text);
+    assert_eq!(tokens_text(&l.run.tokens, l.run.completeness, Lang::Zh), "未上报");
     assert!(l.task_lines("T1", &Names::new(), Lang::Zh).join("\n").contains("未上报"));
     assert!(l.task_lines("T9", &Names::new(), Lang::Zh)[0].contains("未开始"));
     // A turn that really used nothing is a reported 0.
@@ -261,7 +259,7 @@ fn cost_is_never_added_across_currencies() {
     started(&mut e, 6, 6_000, "m3", "T3", 1, "s3");
     usage(&mut e, 7, 7_000, "m3", Some("T3"), Some(1), json!({ "cost": { "amount": 5 } }));
     let l = ledger(&e);
-    let line = l.summary_line();
+    let line = cost_text(&l.run.cost, Lang::Zh);
     assert!(line.contains("费用：0.25 USD + 40 credits + 5（未标注币种）（币种或口径不同，未合并）"), "{line}");
     assert_eq!(l.task("T1").unwrap().cost.lines[0].amount, 0.25);
 }
@@ -436,11 +434,11 @@ fn numbers_and_durations_read_the_way_the_app_writes_them() {
         (num(0), num(999), num(15400), num(-1234567)),
         ("0".into(), "999".into(), "15,400".into(), "-1,234,567".into())
     );
-    assert_eq!(duration(192_000), "3 分 12 秒");
-    assert_eq!(duration(65_000), "1 分 05 秒");
-    assert_eq!(duration(44_600), "45 秒");
-    assert_eq!(duration(3_840_000), "1 小时 4 分");
-    assert_eq!(duration(400), "不到 1 秒");
+    assert_eq!(duration_in(192_000, Lang::Zh), "3 分 12 秒");
+    assert_eq!(duration_in(65_000, Lang::Zh), "1 分 05 秒");
+    assert_eq!(duration_in(44_600, Lang::Zh), "45 秒");
+    assert_eq!(duration_in(3_840_000, Lang::Zh), "1 小时 4 分");
+    assert_eq!(duration_in(400, Lang::Zh), "不到 1 秒");
 }
 
 /// Live aggregation stays linear on a large log (measured instead of adding an index).
@@ -531,7 +529,7 @@ fn attempts_split_time_into_work_verification_and_rework() {
     assert_eq!(l.time.work_ms, 60_000);
     assert_eq!(l.time.verify_ms, 40_000);
     assert_eq!(l.time.span_ms, 140_000);
-    assert!(l.text.ends_with("子任务 2 分 20 秒（执行 1 分 00 秒 · 验证 40 秒 · 返工 40 秒）"), "{}", l.text);
+    assert_eq!(l.time.rework_ms, 40_000);
 }
 
 /// A reading of the agent's records: the session's running totals by model.

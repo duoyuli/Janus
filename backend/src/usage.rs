@@ -1,8 +1,7 @@
 //! The run's usage ledger: a read-only summary derived from the event log, for the run, the lead
 //! and collaborator subtotals, each task, member, attempt and session. The rules are in
-//! `docs/interfaces/20261031-events.md#usage_accounting`; the app derives the same ledger from the same
-//! events (`frontend/Sources/Janus/Core/UsageLedger.swift`), and `backend/testdata/usage_cases.json`
-//! holds the cases both sides must agree on.
+//! `docs/interfaces/20261031-events.md#usage_accounting`. Only the server computes it: the app reads
+//! it from `/api/runs/{id}/usage` and only words it (`frontend/Sources/Janus/Core/UsageLedger.swift`).
 //!
 //! - **Tokens** come from the agent's own records of the session when Janus found them
 //!   (`source: "records"`, read by `agent_records` while a turn runs and when it ends, however it
@@ -31,8 +30,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// Default reminder thresholds; the app keeps the same values in `usageReminders`.
-/// The run reached this many tokens.
+/// Default reminder thresholds. The run reached this many tokens.
 pub const TOKEN_REMINDER: i64 = 500_000;
 /// One task holds at least this share of a run of at least [`TASK_SHARE_FLOOR`] tokens.
 pub const TASK_SHARE: f64 = 0.6;
@@ -525,27 +523,6 @@ pub struct TimeSplit {
     pub span_ms: i64,
 }
 
-impl TimeSplit {
-    pub fn total_ms(&self) -> i64 {
-        self.work_ms + self.verify_ms + self.rework_ms
-    }
-
-    /// `子任务 42 分（执行 20 分 · 验证 15 分 · 返工 7 分）`, or nothing before any attempt.
-    pub fn text(&self) -> Option<String> {
-        if self.total_ms() == 0 {
-            return None;
-        }
-        let mut parts = vec![format!("执行 {}", duration(self.work_ms))];
-        if self.verify_ms > 0 {
-            parts.push(format!("验证 {}", duration(self.verify_ms)));
-        }
-        if self.rework_ms > 0 {
-            parts.push(format!("返工 {}", duration(self.rework_ms)));
-        }
-        Some(format!("子任务 {}（{}）", duration(self.total_ms()), parts.join(" · ")))
-    }
-}
-
 /// One attempt's usage and outcome.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -630,8 +607,6 @@ struct Wait {
 /// A run's whole ledger. Every number comes from the same events.
 #[derive(Clone, Debug, Serialize)]
 pub struct Ledger {
-    /// The run in one line: `用量：15,400 tokens（部分上报） · 费用：未上报 · 耗时 3 分 12 秒（总时长）`.
-    pub text: String,
     pub run: Scope,
     pub lead: Scope,
     pub collaborators: Scope,
@@ -641,8 +616,7 @@ pub struct Ledger {
     /// The collaborators' time by what it went to.
     pub time: TimeSplit,
     pub sessions: Vec<Session>,
-    /// Read-only reminders. The app words them in its own language (`Reminder::text` is the
-    /// orchestrator's wording).
+    /// Read-only reminders; the app words them in its own language.
     pub reminders: Vec<Reminder>,
 }
 
@@ -655,29 +629,6 @@ impl Ledger {
 
     pub fn task(&self, id: &str) -> Option<&Scope> {
         self.tasks.iter().find(|t| t.id == id)
-    }
-
-    /// `用量：… · 费用：… · 耗时 …`, as `janus.board` reads it.
-    pub fn summary_line(&self) -> String {
-        format!("用量：{}", self.run_line())
-    }
-
-    /// `用量 … · 费用：… · 耗时 …`, as the delivery reads it.
-    pub fn delivery_line(&self) -> String {
-        format!("用量 {}", self.run_line())
-    }
-
-    fn run_line(&self) -> String {
-        let mut line = format!(
-            "{} · {} · 耗时 {}",
-            tokens_text(&self.run.tokens, self.run.completeness, Lang::Zh),
-            cost_text(&self.run.cost, Lang::Zh),
-            duration_text(self.run.duration_ms, Lang::Zh)
-        );
-        if let Some(time) = self.time.text() {
-            line.push_str(&format!(" · {time}"));
-        }
-        line
     }
 
     /// The usage part of `janus.board` on one task: the task, its makeup and context, each attempt and the
@@ -879,11 +830,6 @@ fn duration_text(ms: Option<i64>, lang: Lang) -> String {
         }
         None => lang.pick("没有时长记录", "no time recorded").into(),
     }
-}
-
-/// A wall-clock duration, written as the app writes it (`L.dur`).
-pub fn duration(ms: i64) -> String {
-    duration_in(ms, Lang::Zh)
 }
 
 /// A wall-clock duration in `lang`.
@@ -1370,20 +1316,9 @@ impl Scan {
             .collect();
 
         let time = time_split(&attempts);
-        let mut ledger = Ledger {
-            text: String::new(),
-            run,
-            lead,
-            collaborators,
-            tasks,
-            members,
-            attempts,
-            time,
-            sessions,
-            reminders: vec![],
-        };
+        let mut ledger =
+            Ledger { run, lead, collaborators, tasks, members, attempts, time, sessions, reminders: vec![] };
         ledger.reminders = reminders(&ledger, self.collaborators.len());
-        ledger.text = ledger.summary_line();
         ledger
     }
 }

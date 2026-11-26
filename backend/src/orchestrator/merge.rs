@@ -252,7 +252,6 @@ impl App {
             "changed": changed,
             "leadEdits": [],
             "merge": { "state": state, "note": note },
-            "usage": crate::usage::ledger(&self.db.events(run_id, 0)?).delivery_line(),
         });
         self.record(
             run_id,

@@ -15,7 +15,6 @@
     "expect": {
       "runTotal": 3111893,
       "completeness": "完整",
-      "summary": "用量：3,111,893 tokens（完整） · 费用：未上报 · 耗时 8 秒（总时长） · 子任务 3 秒（执行 3 秒）",
       "tasks": { "T1": 3500 },
       "attempts": { "T1#1": "成功" },
       "reminders": 2
@@ -37,7 +36,6 @@
     "expect": {
       "runTotal": 7500,
       "completeness": "完整",
-      "summary": "用量：7,500 tokens（完整） · 费用：0.25 USD · 耗时 3 秒（总时长）",
       "tasks": { "T1": 7500 },
       "attempts": { "T1#1": "未完成" },
       "reminders": 0
@@ -55,7 +53,6 @@
     "expect": {
       "runTotal": 900,
       "completeness": "部分上报",
-      "summary": "用量：900 tokens（部分上报） · 费用：未上报 · 耗时 4 秒（总时长）",
       "tasks": { "T1": 900, "T2": null },
       "attempts": { "T1#1": "未完成", "T2#1": "未完成" },
       "reminders": 0
@@ -71,7 +68,6 @@
     "expect": {
       "runTotal": null,
       "completeness": "未上报",
-      "summary": "用量：未上报 · 费用：未上报 · 耗时 1 分 05 秒（总时长） · 子任务 1 分 04 秒（执行 1 分 04 秒）",
       "tasks": { "T1": null },
       "attempts": { "T1#1": "已取消" },
       "reminders": 0
@@ -94,7 +90,6 @@
     "expect": {
       "runTotal": 1200,
       "completeness": "部分上报",
-      "summary": "用量：1,200 tokens（部分上报） · 费用：0.5 USD + 40 credits（币种或口径不同，未合并） · 耗时 9 秒（总时长）",
       "tasks": { "T1": null, "T2": 1200 },
       "reminders": 0
     }
@@ -115,7 +110,6 @@
     "expect": {
       "runTotal": 1500,
       "completeness": "部分上报",
-      "summary": "用量：1,500 tokens（部分上报） · 费用：未上报 · 耗时 9 秒（总时长） · 子任务 12 秒（执行 12 秒）",
       "tasks": { "T1": 1500, "T2": null, "T3": null },
       "attempts": { "T1#1": "已取消", "T2#1": "已取消", "T3#1": "失败" },
       "reminders": 0
@@ -133,7 +127,7 @@
       { "seq": 7, "ts": 6000, "type": "session.usage", "actor": "m1", "task": "T2", "attempt": 2, "data": { "totalTokens": 20, "cost": { "currency": "USD", "amount": 0.5 } } }
     ],
     "expect": {
-      "runTotal": 200, "completeness": "完整", "summary": "用量：200 tokens（完整） · 费用：3.5 USD（3 个会话） · 耗时 6 秒（总时长） · 子任务 2 秒（执行 2 秒）",
+      "runTotal": 200, "completeness": "完整",
       "tasks": { "T1": 80, "T2": 120 }, "taskUsd": { "T1": 2, "T2": 1.5 },
       "attemptUsd": { "T1#1": 2, "T2#1": 1, "T2#2": 0.5 }, "windowUsd": [4000, 6000, 1], "reminders": 0
     }
@@ -148,7 +142,7 @@
       { "seq": 5, "ts": 4000, "type": "session.usage", "actor": "m1", "task": "B", "attempt": 1, "data": { "totalTokens": 50, "cost": { "currency": "USD", "amount": 2 } } }
     ],
     "expect": {
-      "runTotal": 100, "completeness": "完整", "summary": "用量：100 tokens（完整） · 费用：3 USD（2 个会话） · 耗时 4 秒（总时长）",
+      "runTotal": 100, "completeness": "完整",
       "tasks": { "A": 50, "B": 50 }, "taskUsd": { "A": 1, "B": 2 }, "attemptUsd": { "A#1": 1, "B#1": 2 }
     }
   },
@@ -169,7 +163,7 @@
       { "seq": 12, "ts": 7000, "type": "task.succeeded", "actor": "m2", "task": "T2", "attempt": 1, "data": { "summary": "done" } }
     ],
     "expect": {
-      "runTotal": 1700, "completeness": "完整", "summary": "用量：1,700 tokens（完整） · 费用：未上报 · 耗时 7 秒（总时长） · 子任务 6 秒（执行 4 秒 · 返工 2 秒）",
+      "runTotal": 1700, "completeness": "完整",
       "tasks": { "T1": 1000, "T2": 700 }, "attempts": { "T1#1": "失败", "T1#2": "成功", "T2#1": "成功" }
     }
   }

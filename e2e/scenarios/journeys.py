@@ -88,7 +88,7 @@ def goal_codex(ctx, c):
     c(seqs[:len(before)] == before and "ndjson" in {k.lower(): v for k, v in headers.items()}.get("content-type", ""), f"导出的 NDJSON 与 Run 详情的事件一致（{len(seqs)} 条）")
     c(_sse(ctx, run.id), "SSE 事件流先发送历史事件")
     usage = ctx.api("GET", f"/api/runs/{run.id}/usage")
-    c(usage["run"]["sessions"] >= 3 and usage["text"], f"用量账本：{usage['text']}")
+    c(usage["run"]["sessions"] >= 3 and usage["run"]["tokens"]["total"], f"用量账本：{usage['run']}")
 
     code, _ = run.act_error("accept", expectedSequence=1)
     c(code == 409, "带过期 expectedSequence 的操作返回 409")
