@@ -77,7 +77,8 @@ enum Inbox {
     /// stopped. A delivered run is read like a live one, and its delivery speaks (`review`). A chat or a Loop asks none of this: its session closing between
     /// messages or wakes (`interrupted`) is how it rests, and the next message or wake reopens it.
     static func entries(row: JSON, workspace: String) -> [InboxEntry] {
-        guard row["kind"].str != "chat" && row["kind"].str != "loop" else { return [] }
+        let kind = RunKind(row["kind"].str)
+        guard kind != .chat && kind != .loop else { return [] }
         let id = row["id"].str
         let at = row["createdAt"].double ?? 0
         func entry(_ what: String, _ title: String, _ sub: String) -> InboxEntry {
@@ -85,7 +86,7 @@ enum Inbox {
         }
         // A consolidation of the team memory asks only to be looked at, and is ignored once seen.
         // @project-doc docs/domains/20261123-team_memory.md#memory_review
-        if row["kind"].str == "dream" {
+        if kind == .dream {
             switch RunStatus(row["status"].str) {
             case .delivered: return [entry("dream", L.text("团队记忆整理好了"), L.text("看看改了什么，看过就忽略"))]
             case .interrupted, .failed: return [entry("dream_failed", L.text("团队记忆没整理完"), L.text("已经改的保留；可以在工作区页重新整理"))]
@@ -162,11 +163,11 @@ final class InboxModel {
         // A consolidation's approvals and forms wait while it works; once it ends, its row says it all.
         let chats = store.chatAttention.filter { RunStatus($0["status"].str).isActive } + store.loopAttention + store.dreamAttention
         let read = { (row: JSON) in
-            RunStatus(row["status"].str).isActive || (RunStatus(row["status"].str) == .delivered && row["kind"].str != "dream") || row["kind"].str == "loop"
+            RunStatus(row["status"].str).isActive || (RunStatus(row["status"].str) == .delivered && RunKind(row["kind"].str) != .dream) || RunKind(row["kind"].str) == .loop
         }
         let live = store.attention.filter(read) + chats
         for row in store.attention + chats {
-            let ws = row["kind"].str == "chat" ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?.name ?? row["config"]["workspace"]["name"].str
+            let ws = RunKind(row["kind"].str) == .chat ? L.text("对话") : store.workspace(row["config"]["workspace"]["id"].str)?.name ?? row["config"]["workspace"]["name"].str
             guard read(row) else {
                 out += Inbox.entries(row: row, workspace: ws)
                 continue

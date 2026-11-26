@@ -93,7 +93,7 @@ func agentSession(_ st: RunState, _ id: String) -> SessionInfo {
 func chatSession(_ st: RunState, live: Bool) -> SessionInfo {
     var info = agentSession(st, "lead")
     // What the person wrote is the prompt itself: it shows once, as their message.
-    info.evs.removeAll { $0.type == .sessionPrompt && $0.data["channel"].str == "followup" }
+    info.evs.removeAll { $0.type == .sessionPrompt && PromptChannel(rawValue: $0.data["channel"].str) == .followup }
     info.open = live && (st.run.status == .running || st.run.status == .planning)
     // While its session is still starting a message waits for it, sent the plain way.
     if st.run.status == .planning { info.idle = true }
@@ -626,7 +626,7 @@ struct ChatItem: View {
         switch e.type {
         case .userMessage: return !e.data["id"].exists
         // A Loop has no goal to open its session with; each wake is marked where it starts.
-        case .runCreated: return e.data["kind"].str != "loop"
+        case .runCreated: return RunKind(e.data["kind"].str) != .loop
         // Shown beside the conversation (plan, controls, commands, usage), not in it.
         case .agentPlan, .sessionControls, .sessionCommands, .sessionUsage: return false
         // Stepping on another task's files says more than "both edited it": show only that.
@@ -639,11 +639,11 @@ struct ChatItem: View {
             }
         case .messageRouted:
             guard st.msgs[e.data["id"].str] != nil else { return false }
-            return ["steer", "prompt"].contains(e.data["delivery"].str)
+            return [.steer, .prompt].contains(MessageDelivery(e.data["delivery"].str))
         // A steered message is shown where it was inserted; applying it only updates that bubble.
         case .messageDelivered:
             guard e.data["ids"].exists else { return true }
-            return e.data["ids"].strings.contains { st.msgs[$0].map { $0.delivery != "steer" } ?? false }
+            return e.data["ids"].strings.contains { st.msgs[$0].map { $0.delivery != .steer } ?? false }
         default: return true
         }
     }
@@ -661,10 +661,10 @@ struct ChatItem: View {
                 }
                 DisclosureGroup(L.text("Janus 发出的子任务说明")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
             }
-        case .runCreated where d["kind"].str == "chat":
+        case .runCreated where RunKind(d["kind"].str) == .chat:
             divider(L.text("对话 · \(d["role"]["name"].str) · \(L.dateTime(e.ts))"))
             Text(verbatim: L.text("工作目录 \(L.tilde(d["cwd"].str)) · 对话专用，删对话时一起删")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-        case .runCreated where d["kind"].str == "dream":
+        case .runCreated where RunKind(d["kind"].str) == .dream:
             divider(L.text("整理团队记忆 · \(L.dateTime(e.ts))"))
         case .runCreated:
             divider(L.text("目标 · \(L.goalTitle(d["goal"].str))"))
@@ -681,17 +681,27 @@ struct ChatItem: View {
         case .sessionPrompt:
             let via = d["via"].str == "developer" ? L.text("开发者指令") : L.text("系统提示")
             // The system layer holds up to two sets of instructions, named by where they come from.
-            let label = d["channel"].str == "instructions" ? L.text("数字员工的指令 · \(via)")
-                : d["channel"].str == "system" ? (run.isLoop ? L.text("值班的工作方式 · \(via)") : run.isDream ? L.text("怎么整理团队记忆 · \(via)") : L.text("团队协作指令 · \(via)"))
-                : d["channel"].str == "history" ? L.text("之前的对话 · \(via)")
-                : ["context": L.text("团队上下文"), "goal": L.text("目标提示"), "followup": L.text("继续提示"), "fix": L.text("提醒交结果 · 这一轮结束了还没交"), "board": L.text("看板推送 · 插入正在进行的这一轮"), "goal_check": L.text("目标确认 · 负责人停了，但目标还没完成"), "resume": L.text("恢复会话 · 从中断处接着推进目标")][d["channel"].str] ?? L.text("Janus 提示")
-            let hint = [
-                "instructions": L.text("数字员工的指令 + Agent 的自定义提示词。一对一对话只带这一份。"),
-                "system": run.isLoop ? L.text("值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料。")
-                    : run.isDream ? L.text("只动笔记：合并重复的、改正过时的、删掉没用的；附带全部笔记的索引。")
-                    : L.text("团队任务专属：分工、看板、派工和验证规则。"),
-                "history": L.text("重开对话时带上最近的聊天，接着聊。"),
-            ][d["channel"].str]
+            let channel = PromptChannel(rawValue: d["channel"].str)
+            let label: String = switch channel {
+            case .instructions: L.text("数字员工的指令 · \(via)")
+            case .system: run.isLoop ? L.text("值班的工作方式 · \(via)") : run.isDream ? L.text("怎么整理团队记忆 · \(via)") : L.text("团队协作指令 · \(via)")
+            case .history: L.text("之前的对话 · \(via)")
+            case .goal: L.text("目标提示")
+            case .followup: L.text("继续提示")
+            case .fix: L.text("提醒交结果 · 这一轮结束了还没交")
+            case .board: L.text("看板推送 · 插入正在进行的这一轮")
+            case .goalCheck: L.text("目标确认 · 负责人停了，但目标还没完成")
+            case .resume: L.text("恢复会话 · 从中断处接着推进目标")
+            case nil: L.text("Janus 提示")
+            }
+            let hint: String? = switch channel {
+            case .instructions: L.text("数字员工的指令 + Agent 的自定义提示词。一对一对话只带这一份。")
+            case .system: run.isLoop ? L.text("值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料。")
+                : run.isDream ? L.text("只动笔记：合并重复的、改正过时的、删掉没用的；附带全部笔记的索引。")
+                : L.text("团队任务专属：分工、看板、派工和验证规则。")
+            case .history: L.text("重开对话时带上最近的聊天，接着聊。")
+            default: nil
+            }
             // One line in the flow, as the rest of Janus's own notes: what it sent, a click from its text.
             DisclosureGroup {
                 CodeBlock(text: d["prompt"].str, maxHeight: 360).padding(.top, 4)
@@ -715,17 +725,23 @@ struct ChatItem: View {
             note(L.text("⚠ 越界：\(e.task ?? "") 改了 \(d["other"].str) 负责的 \(d["paths"].strings.joined(separator: L.text("、")))。已提醒 \(e.task ?? "") 不要再改，并告诉负责人"), .amber)
         case .taskConflict: note(L.text("⚠ \(e.task ?? "") 和 \(d["other"].str) 同时在改 \(d["paths"].strings.joined(separator: L.text("、")))。已提醒双方先读最新内容，并告诉负责人"), .amber)
         case .userMessage:
-            let via = ["steer": L.text("插话 · 已插进这一轮"), "queued": L.text("排队 · 这一轮结束后发送"), "prompt": L.text("作为新一轮发送"), "next": L.text("留言 · 下次会话带给它")][d["delivery"].str] ?? ""
+            let via: String = switch MessageDelivery(d["delivery"].str) {
+            case .steer: L.text("插话 · 已插进这一轮")
+            case .queued: L.text("排队 · 这一轮结束后发送")
+            case .prompt: L.text("作为新一轮发送")
+            case .next: L.text("留言 · 下次会话带给它")
+            default: ""
+            }
             userBubble(d["text"].str, images: Attach.paths(d), via: via, insert: false)
         case .messageRouted:
             if let m = st.msgs[d["id"].str] {
-                if d["delivery"].str == "steer" { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? L.text("负责人插话") : L.text("插话")) · \(m.deliveredSeq != nil ? L.text("Agent 已读到") : L.text("插话 · 已插进这一轮，做完手头这步就会读到"))", insert: true) }
+                if MessageDelivery(d["delivery"].str) == .steer { userBubble(m.text, images: m.images, via: "\(m.by == "lead" ? L.text("负责人插话") : L.text("插话")) · \(m.deliveredSeq != nil ? L.text("Agent 已读到") : L.text("插话 · 已插进这一轮，做完手头这步就会读到"))", insert: true) }
                 else { userBubble(m.text, images: m.images, via: (m.by == "lead" ? L.text("负责人 · ") : "") + L.text("作为新一轮发送"), insert: false) }
             }
         case .messageDelivered:
             if d["ids"].exists {
-                ForEach(d["ids"].strings.compactMap { st.msgs[$0] }.filter { $0.delivery != "steer" }, id: \.id) { m in
-                    userBubble(m.text, images: m.images, via: (m.by == "lead" ? L.text("负责人 · ") : "") + (m.delivery == "next" ? L.text("留言 · 这次会话开始时已带上") : m.delivery == "interrupt" ? L.text("插话 · 打断上一轮后立刻送达") : L.text("排队 · 这一轮结束后发送")), insert: false)
+                ForEach(d["ids"].strings.compactMap { st.msgs[$0] }.filter { $0.delivery != .steer }, id: \.id) { m in
+                    userBubble(m.text, images: m.images, via: (m.by == "lead" ? L.text("负责人 · ") : "") + (m.delivery == .next ? L.text("留言 · 这次会话开始时已带上") : m.delivery == .interrupt ? L.text("插话 · 打断上一轮后立刻送达") : L.text("排队 · 这一轮结束后发送")), insert: false)
                 }
             } else { note("\(L.icon[e.type] ?? "·") \(e.text)", L.tone(of: e.type)) }
         // One line in the conversation; each criterion is a click away (and on the task page).
@@ -891,16 +907,16 @@ struct ToolRow: View {
 
     private func janusLabel(_ tool: String, _ a: JSON, _ out: String) -> (String, String) {
         let first = out.split(separator: "\n").first.map(String.init) ?? ""
-        switch tool {
-        case "janus.orchestrate": return (L.text("派出子任务：\(a["tasks"].array.map { "\($0["id"].str) \($0["title"].str) → \(run.who($0["assignee"].str).name)" }.joined(separator: L.text("；")))"), first)
-        case "janus.wait": return (L.text("等待看板上的进展"), first)
-        case "janus.reply": return (L.text("回复 \(a["task"].str)：\(a["text"].str)"), first)
-        case "janus.retry": return (L.text("重新执行 \(a["task"].str)\(a["instructions"].truthy ? L.text("（改了说明）") : "")\(a["accept"].truthy ? L.text("（改了验收标准）") : "")"), first)
-        case "janus.amend": return (L.text("修订 \(a["task"].str)：\(a["text"].str)"), first)
-        case "janus.cancel": return (L.text("取消 \(a["tasks"].strings.joined(separator: L.text("、")))\(a["reason"].truthy ? L.text("：\(a["reason"].str)") : "")"), first)
-        case "janus.ask_user": return (L.text("等你拍板：\(a["question"].str)"), first)
-        case "janus.board": return (a["task"].truthy ? L.text("查看 \(a["task"].str) 的全部信息") : L.text("查看团队和子任务状态"), "")
-        case "janus.board_post": return (L.text("写回看板：\(a["text"].str)"), "")
+        switch JanusTool(call: tool) {
+        case .orchestrate: return (L.text("派出子任务：\(a["tasks"].array.map { "\($0["id"].str) \($0["title"].str) → \(run.who($0["assignee"].str).name)" }.joined(separator: L.text("；")))"), first)
+        case .wait: return (L.text("等待看板上的进展"), first)
+        case .reply: return (L.text("回复 \(a["task"].str)：\(a["text"].str)"), first)
+        case .retry: return (L.text("重新执行 \(a["task"].str)\(a["instructions"].truthy ? L.text("（改了说明）") : "")\(a["accept"].truthy ? L.text("（改了验收标准）") : "")"), first)
+        case .amend: return (L.text("修订 \(a["task"].str)：\(a["text"].str)"), first)
+        case .cancel: return (L.text("取消 \(a["tasks"].strings.joined(separator: L.text("、")))\(a["reason"].truthy ? L.text("：\(a["reason"].str)") : "")"), first)
+        case .askUser: return (L.text("等你拍板：\(a["question"].str)"), first)
+        case .board: return (a["task"].truthy ? L.text("查看 \(a["task"].str) 的全部信息") : L.text("查看团队和子任务状态"), "")
+        case .boardPost: return (L.text("写回看板：\(a["text"].str)"), "")
         default: return (tool, first)
         }
     }
@@ -917,10 +933,10 @@ struct PendingTray: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(verbatim: L.text("待发送 \(list.count)")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(list, id: \.id) { m in
-                    let (l, tone) = Self.labels[m.delivery] ?? ("", .gray)
+                    let (l, tone) = m.delivery.trayLabel ?? ("", .gray)
                     HStack(spacing: 8) {
-                        if m.delivery == "pending" { ProgressView().controlSize(.mini) }
-                        Pill(L.catalogText(l), tone)
+                        if m.delivery == .pending { ProgressView().controlSize(.mini) }
+                        Pill(l, tone)
                         Text(m.text).font(.callout).lineLimit(2)
                     }
                 }
@@ -931,11 +947,9 @@ struct PendingTray: View {
         }
     }
 
-    static let labels: [String: (String, Tone)] = ["pending": ("发送中…", .blue), "queued": ("排队 · 这一轮结束后发送", .amber), "next": ("留言 · 下次会话带给它", .gray), "interrupt": ("正在打断这一轮，马上送达", .blue)]
-
     private var pending: [Msg] {
         st.msgs.values.filter { m in
-            guard m.deliveredSeq == nil, Self.labels[m.delivery] != nil else { return false }
+            guard m.deliveredSeq == nil, m.delivery.trayLabel != nil else { return false }
             switch target {
             case .task(let t):
                 let agent = st.tasks[t]?.agent
@@ -982,7 +996,7 @@ struct AgentView: View {
                         HStack {
                             Button(String("\(t.id) \(t.title)")) { run.show(.task(t.id)) }.buttonStyle(.link).lineLimit(2)
                             Spacer()
-                            Pill(L.catalogText(l), tone)
+                            Pill(l, tone)
                         }
                     }
                 }

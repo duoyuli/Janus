@@ -101,7 +101,7 @@ final class AppStore {
     init(api: API, permissions: MacPermissions? = nil) {
         self.api = api
         self.permissions = permissions ?? .unavailable()
-        self.chatList = RunPager(query: "kind=chat", api: api)
+        self.chatList = RunPager(query: "kind=\(RunKind.chat.rawValue)", api: api)
     }
 
     // MARK: Loading
@@ -142,9 +142,9 @@ final class AppStore {
         await chatList.refresh()
         for pager in histories.values { await pager.refresh() }
         if let r = try? await api.get("/api/runs?attention=1&limit=500"), r["runs"].array != attention { attention = r["runs"].array }
-        if let r = try? await api.get("/api/runs?kind=chat&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
-        if let r = try? await api.get("/api/runs?kind=loop&attention=1&limit=500"), r["runs"].array != loopAttention { loopAttention = r["runs"].array }
-        if let r = try? await api.get("/api/runs?kind=dream&attention=1&limit=500"), r["runs"].array != dreamAttention { dreamAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=\(RunKind.chat.rawValue)&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=\(RunKind.loop.rawValue)&attention=1&limit=500"), r["runs"].array != loopAttention { loopAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=\(RunKind.dream.rawValue)&attention=1&limit=500"), r["runs"].array != dreamAttention { dreamAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
         // An open run waiting in the queue moves up when a run ahead of it starts or goes, which
         // writes nothing to its own log: read its place again.

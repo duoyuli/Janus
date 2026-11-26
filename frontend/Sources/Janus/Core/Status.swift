@@ -101,3 +101,112 @@ enum AttemptStatus: String {
         }
     }
 }
+
+/// What a run is (`backend/src/status.rs`, `RunKind`, `runs.kind`): a goal the lead pursues
+/// with its team, a chat with one digital employee, a workspace Loop's session, or a team memory
+/// consolidation. A value this app does not know reads as a goal.
+enum RunKind: String, CaseIterable {
+    case goal, chat, loop, dream
+
+    init(_ raw: String) { self = RunKind(rawValue: raw) ?? .goal }
+}
+
+/// Who asked for a goal run (`backend/src/status.rs`, `RunOrigin`, `runs.origin`): the person,
+/// or a Loop that dispatched it.
+enum RunOrigin: String, CaseIterable {
+    case user, loop
+
+    init(_ raw: String) { self = RunOrigin(rawValue: raw) ?? .user }
+}
+
+/// What an agent's session is doing (`backend/src/status.rs`, `AgentPhase`): what its
+/// `agent.status` events say, and what the app reads from its tool calls on the way. A value this
+/// app does not know reads as idle.
+enum AgentPhase: String, CaseIterable {
+    case idle, thinking, coordinating
+    case readingFiles = "reading_files"
+    case editing
+    case runningTool = "running_tool"
+    case runningTest = "running_test"
+    case waitingForInput = "waiting_for_input"
+    case waitingForAgent = "waiting_for_agent"
+    case waitingApproval = "waiting_approval"
+    case waitingForSeat = "waiting_for_seat"
+    case error
+
+    init(_ raw: String) { self = AgentPhase(rawValue: raw) ?? .idle }
+
+    var label: (String, Tone) {
+        switch self {
+        case .idle: return (L.text("摸鱼中"), .gray)
+        case .thinking: return (L.text("思考中"), .blue)
+        case .coordinating: return (L.text("协调中"), .blue)
+        case .readingFiles: return (L.text("翻文件"), .blue)
+        case .editing: return (L.text("改文件"), .blue)
+        case .runningTool: return (L.text("用工具"), .blue)
+        case .runningTest: return (L.text("跑测试"), .blue)
+        case .waitingForInput: return (L.text("等你输入"), .amber)
+        case .waitingForAgent: return (L.text("等队友"), .amber)
+        case .waitingApproval: return (L.text("等你审批"), .amber)
+        case .waitingForSeat: return (L.text("等空位"), .amber)
+        case .error: return (L.text("出错了"), .red)
+        }
+    }
+}
+
+/// Why Janus put something into a session (`session.prompt`, `data.channel`): one of the system
+/// layer's parts (`backend/src/orchestrator/lead.rs`, `SystemPart` and the digital employee's
+/// instructions), or a prompt it sent (`PromptChannel`).
+enum PromptChannel: String, CaseIterable {
+    /// The system layer: how to work with Janus and the team, the digital employee's own
+    /// instructions, and a reopened chat's recent exchanges.
+    case system, instructions, history
+    case goal, followup, board
+    case goalCheck = "goal_check"
+    case resume, fix
+
+    /// Part of the session's system layer rather than a prompt of a turn.
+    var injected: Bool { [.system, .instructions, .history].contains(self) }
+}
+
+/// How a sent message went into a session (`message.routed` / `user.message`, `data.delivery`;
+/// `backend/src/orchestrator/messages.rs`, `Delivery`), and `pending` before the server said.
+enum MessageDelivery: String, CaseIterable {
+    case pending, steer, queued, interrupt, prompt, next
+
+    init?(_ raw: String) { self.init(rawValue: raw) }
+
+    /// Still to reach the agent: waiting for the turn to end, or for its next session.
+    var waits: Bool { self == .queued || self == .next }
+
+    /// How the tray above the composer shows a message still on its way; nil once it is in a turn.
+    var trayLabel: (String, Tone)? {
+        switch self {
+        case .pending: return (L.text("发送中…"), .blue)
+        case .queued: return (L.text("排队 · 这一轮结束后发送"), .amber)
+        case .next: return (L.text("留言 · 下次会话带给它"), .gray)
+        case .interrupt: return (L.text("正在打断这一轮，马上送达"), .blue)
+        case .steer, .prompt: return nil
+        }
+    }
+}
+
+/// One of the tools Janus's own `janus` server gives a session (`backend/src/orchestrator`: the
+/// lead's `LeadTool`, a collaborator's `MemberTool`, a Loop's `LoopTool`, the team memory's
+/// `MemoryTool` and a chat's `ChatTool`). Its calls are recorded as `janus.<name>`.
+enum JanusTool: String, CaseIterable {
+    case board, orchestrate, wait, reply, retry, amend, cancel
+    case askUser = "ask_user"
+    case boardPost = "board_post"
+    case submit, ask
+    case dispatch
+    case nextWake = "next_wake"
+    case recall, remember, forget
+    case proposeEmployees = "propose_employees"
+
+    /// The tool a recorded call names (`data.tool`), when it is one of Janus's own.
+    init?(call: String) {
+        guard call.hasPrefix("janus.") else { return nil }
+        self.init(rawValue: String(call.dropFirst("janus.".count)))
+    }
+}

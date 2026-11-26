@@ -28,14 +28,14 @@ enum ChatTurns {
         case .runCreated, .attemptStarted, .loopWoke: return .section
         case .contextHandoff: return .injected
         case .sessionPrompt:
-            switch e.data["channel"].str {
-            case "system", "instructions", "history": return .injected
+            switch PromptChannel(rawValue: e.data["channel"].str) {
+            case let c? where c.injected: return .injected
             // Pushed into the turn already running, like a message cut into it.
-            case "board": return .pinned
+            case .board: return .pinned
             default: return .opener
             }
         case .userMessage: return .opener
-        case .messageRouted: return e.data["delivery"].str == "steer" ? .pinned : .opener
+        case .messageRouted: return MessageDelivery(e.data["delivery"].str) == .steer ? .pinned : .opener
         case .messageDelivered: return e.data["ids"].exists ? .opener : .pinned
         case .toolCall, .toolStarted, .toolCompleted: return .tool
         case .agentMessage: return .message

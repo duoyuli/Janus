@@ -34,7 +34,7 @@ private func goalRun() -> Log {
     #expect(s1.tasks["T1"]?.status == .running)
     #expect(s1.tasks["T1"]?.live == true)
     #expect(s1.tasks["T2"]?.status == .pending)
-    #expect(s1.agents["researcher"]?.phase == "thinking")
+    #expect(s1.agents["researcher"]?.phase == .thinking)
 
     log.add("result.submitted", actor: "researcher", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"], "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
     log.add("task.succeeded", task: "T1", attempt: 1, data: ["summary": "三处调用", "evidence": ["calc.py:3"], "risks": [], "checks": [["criterion": "列出调用方", "passed": true, "evidence": "calc.py:3"]]])
@@ -43,7 +43,7 @@ private func goalRun() -> Log {
     #expect(s2.tasks["T1"]?.checks.first?.passed == true)
     #expect(s2.tasks["T1"]?.live == false)
     #expect(s2.tasks["T1"]?.attempts.last?.status == .succeeded)
-    #expect(s2.agents["researcher"]?.phase == "idle")
+    #expect(s2.agents["researcher"]?.phase == .idle)
 }
 
 @Test func requestsEnterAndLeaveTheInbox() {
@@ -55,7 +55,7 @@ private func goalRun() -> Log {
     #expect(s.tasks["T1"]?.status == .waitingApproval)
     #expect(s.inbox[1].task == nil)
     #expect(s.inbox[1].d["options"].strings == ["A", "B"])
-    #expect(s.agents["researcher"]?.phase == "waiting_approval")
+    #expect(s.agents["researcher"]?.phase == .waitingApproval)
 
     log.add("approval.granted", actor: "user", to: "researcher", task: "T1", data: ["key": "a-1"])
     log.add("question.answered", actor: "user", to: "lead", data: ["key": "q-lead-1", "answer": "A"])
@@ -81,10 +81,10 @@ private func goalRun() -> Log {
     var log = goalRun()
     log.add("user.message", actor: "user", to: "researcher", task: "T1", data: ["id": "m1", "text": "顺便看看测试"])
     var s = derive(log.events)
-    #expect(s.msgs["m1"]?.delivery == "pending")
+    #expect(s.msgs["m1"]?.delivery == .pending)
     log.add("message.routed", to: "researcher", task: "T1", data: ["id": "m1", "delivery": "queued"])
     s = derive(log.events)
-    #expect(s.msgs["m1"]?.delivery == "queued")
+    #expect(s.msgs["m1"]?.delivery == .queued)
     #expect(s.msgs["m1"]?.deliveredSeq == nil)
     log.add("message.delivered", to: "researcher", task: "T1", data: ["ids": ["m1"]])
     s = derive(log.events)

@@ -506,7 +506,7 @@ struct AgentsPanel: View {
 
     var body: some View {
         let members = run.team
-        let active = members.filter { phase($0["id"].str, lead: $0["lead"].truthy) != "idle" }.count
+        let active = members.filter { phase($0["id"].str, lead: $0["lead"].truthy) != .idle }.count
         VStack(alignment: .leading, spacing: 8) {
             if active > 0 { Text(verbatim: L.text("\(active) 个在干活")).font(.caption).foregroundStyle(.secondary) }
             // Rows divided by hairlines: no boxes inside the box.
@@ -526,7 +526,7 @@ struct AgentsPanel: View {
         let cur = mine.first { $0.status.isBusy }
         let next = mine.first { $0.status.isWaitingToStart }
         let phase = self.phase(id, lead: lead)
-        let (pl, pt) = L.phase(phase)
+        let (pl, pt) = phase.label
         var line: String
         if lead {
             line = !st.inbox.isEmpty ? L.text("\(st.inbox.count) 件待处理，其他子任务照常推进") : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == .delivered ? L.text("已完成最终验收") : L.text("按依赖调度子任务"))
@@ -541,7 +541,7 @@ struct AgentsPanel: View {
             line = !mine.isEmpty ? L.text("派给它的子任务都做完了") : !st.order.isEmpty ? L.text("负责人没有给它派子任务") : L.text("待命")
         }
         var meta: [String] = []
-        if phase != "idle", let beat = a?.beat, beat > 0 { meta.append(L.text("最近活动 \(L.ago(beat, st.run.now))")) }
+        if phase != .idle, let beat = a?.beat, beat > 0 { meta.append(L.text("最近活动 \(L.ago(beat, st.run.now))")) }
         if !lead, let rs = runStats(id, mine) { meta.append(rs) }
         return Button { run.page = .agent(id) } label: {
             VStack(alignment: .leading, spacing: 5) {
@@ -567,10 +567,10 @@ struct AgentsPanel: View {
     }
 
     /// A collaborator without a task in progress is idle, whatever its last status said.
-    private func phase(_ id: String, lead: Bool) -> String {
-        let p = st.run.status.isFinished ? "idle" : st.agents[id]?.phase ?? "idle"
+    private func phase(_ id: String, lead: Bool) -> AgentPhase {
+        let p = st.run.status.isFinished ? .idle : st.agents[id]?.phase ?? .idle
         let busy = st.orderedTasks.contains { $0.agent == id && $0.status.isBusy }
-        return !lead && !busy && p != "error" ? "idle" : p
+        return !lead && !busy && p != .error ? .idle : p
     }
 
     /// "本次 2/3 首次通过 · 验证没通过 1"

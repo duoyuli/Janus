@@ -97,7 +97,7 @@ enum SessionTurn: Equatable {
         case .controlTaken: return .person(idle: idle)
         case .sessionInterrupted: return d["finish"].truthy ? self : .person(idle: idle)
         case .agentStatus where d["turn"].str == "idle": return with(idle: true)
-        case .userMessage, .messageRouted: return d["delivery"].str == "prompt" ? with(idle: false) : self
+        case .userMessage, .messageRouted: return MessageDelivery(d["delivery"].str) == .prompt ? with(idle: false) : self
         case .messageDelivered: return with(idle: false)
         default: return self
         }
@@ -153,7 +153,7 @@ final class TaskState {
 }
 
 final class AgentState {
-    var phase = "idle"
+    var phase = AgentPhase.idle
     var note = ""
     var progress: Double?
     var beat: Double = 0
@@ -170,12 +170,12 @@ final class Msg {
     let seq: Int
     /// Stored paths of the images sent with it; `text` still names them (see `Attach.visibleText`).
     var images: [String] = []
-    var delivery: String
+    var delivery = MessageDelivery.pending
     var routedTask: String?
     var routedSeq: Int?
     var deliveredSeq: Int?
     init(id: String, text: String, by: String, to: String, task: String?, seq: Int, images: [String] = []) {
-        self.id = id; self.text = text; self.by = by; self.to = to; self.task = task; self.seq = seq; self.images = images; delivery = "pending"
+        self.id = id; self.text = text; self.by = by; self.to = to; self.task = task; self.seq = seq; self.images = images
     }
 }
 
@@ -222,9 +222,10 @@ struct RunInfo {
     /// A conversation with one digital employee rather than a goal (`run.created` `data.kind`): no
     /// board, no delivery, and its one member is not a lead.
     // @project-doc docs/domains/20261120-chats.md#chat_app
-    var chat = false
+    var chat: Bool { kind == .chat }
     /// A workspace Loop's session (`kind` `loop`): one member like a chat, woken on a rhythm.
-    var loop = false
+    var loop: Bool { kind == .loop }
+    var kind = RunKind.goal
     /// One session and no board: a chat or a Loop. Waiting for the next message is its normal
     /// state, and its session opening again means it is going.
     var singleSession: Bool { chat || loop }
@@ -313,16 +314,15 @@ func derive(_ events: [Event]) -> RunState {
             s.run.git = d["git"].truthy
             s.run.baseRef = d["baseRef"].str
             s.run.workspace = d["workspace"].str
-            s.run.chat = d["kind"].str == "chat"
-            s.run.loop = d["kind"].str == "loop"
-            ag("lead").phase = "thinking"
+            s.run.kind = RunKind(d["kind"].str)
+            ag("lead").phase = .thinking
         case .orchestrationAccepted:
             for x in d["tasks"].array {
                 let nt = TaskState(x)
                 if s.tasks[nt.id] == nil { s.order.append(nt.id) }
                 s.tasks[nt.id] = nt
             }
-            ag("lead").phase = "coordinating"
+            ag("lead").phase = .coordinating
             // New work after a delivery: the run is running again until it is delivered anew, so
             // the earlier delivery is not offered for acceptance meanwhile (FL-10).
             if s.run.status == .delivered || s.run.status == .accepted { s.run.status = .running }
@@ -363,10 +363,10 @@ func derive(_ events: [Event]) -> RunState {
             if let prev = t.attempts.last, prev.end == nil { prev.end = e.ts }
             t.attempts.append(Attempt(n: e.attempt ?? t.attempts.count + 1, session: d["session"].str, workspace: d["workspace"].str, start: e.ts, status: .running, seq: e.seq))
             t.session = .opened; t.status = .running; t.progress = 5
-            let a = ag(t.agent); a.session = d["session"].string; a.phase = "thinking"; a.note = ""; a.progress = 5
+            let a = ag(t.agent); a.session = d["session"].string; a.phase = .thinking; a.note = ""; a.progress = 5
         case .agentStatus:
             let a = ag(e.actor)
-            a.phase = d["phase"].str; a.note = e.text; a.progress = d["progress"].double
+            a.phase = AgentPhase(d["phase"].str); a.note = e.text; a.progress = d["progress"].double
             if d["session"].exists { a.session = d["session"].string }
             if let t, let p = d["progress"].double { t.progress = p }
             // A chat's session opened (again): the conversation is going, whatever ended the last one.
@@ -384,9 +384,9 @@ func derive(_ events: [Event]) -> RunState {
                 }
             }
         case .toolStarted:
-            let a = ag(e.actor); a.phase = d["tool"].str == "janus.wait" ? "waiting_for_agent" : "running_tool"; a.note = e.text
+            let a = ag(e.actor); a.phase = JanusTool(call: d["tool"].str) == .wait ? .waitingForAgent : .runningTool; a.note = e.text
         case .toolCompleted:
-            if ["janus.wait", "janus.reply", "janus.orchestrate"].contains(d["tool"].str) { let a = ag(e.actor); a.phase = e.actor == "lead" ? "coordinating" : "thinking"; a.note = e.text }
+            if [.wait, .reply, .orchestrate].contains(JanusTool(call: d["tool"].str)) { let a = ag(e.actor); a.phase = e.actor == "lead" ? .coordinating : .thinking; a.note = e.text }
         case .controlTaken, .sessionInterrupted: t?.session = t?.session?.after(e)
         case .controlReleased:
             if let t { t.session = t.session?.after(e); dropSess(.task(t.id)) } else if let to = e.to { dropSess(.agent(to)) }
@@ -395,12 +395,12 @@ func derive(_ events: [Event]) -> RunState {
                 s.msgs[id] = Msg(id: id, text: d["text"].str, by: e.actor, to: e.to ?? "", task: e.task, seq: e.seq, images: Attach.paths(d))
                 break
             }
-            if let t, d["delivery"].str == "prompt" { t.session = t.session?.after(e); dropSess(.task(t.id)); ag(t.agent).phase = "thinking" }
-            else if t == nil, d["delivery"].str == "prompt", let to = e.to { dropSess(.agent(to)) }
+            if let t, MessageDelivery(d["delivery"].str) == .prompt { t.session = t.session?.after(e); dropSess(.task(t.id)); ag(t.agent).phase = .thinking }
+            else if t == nil, MessageDelivery(d["delivery"].str) == .prompt, let to = e.to { dropSess(.agent(to)) }
         case .messageRouted:
-            if let m = s.msgs[d["id"].str] { m.delivery = d["delivery"].str; m.routedTask = e.task; m.routedSeq = e.seq }
-            if d["delivery"].str == "prompt" {
-                if let t { t.session = t.session?.after(e); dropSess(.task(t.id)); ag(t.agent).phase = "thinking" } else if let to = e.to { dropSess(.agent(to)) }
+            if let m = s.msgs[d["id"].str] { m.delivery = MessageDelivery(d["delivery"].str) ?? m.delivery; m.routedTask = e.task; m.routedSeq = e.seq }
+            if MessageDelivery(d["delivery"].str) == .prompt {
+                if let t { t.session = t.session?.after(e); dropSess(.task(t.id)); ag(t.agent).phase = .thinking } else if let to = e.to { dropSess(.agent(to)) }
             }
         case .messageDelivered:
             t?.session = t?.session?.after(e)
@@ -409,7 +409,7 @@ func derive(_ events: [Event]) -> RunState {
             guard let t else { break }
             t.status = .waitingInput
             t.question = Question(key: d["key"].str, question: d["question"].str, options: d["options"].strings, blocking: d["blocking"].truthy, seq: e.seq, from: e.actor)
-            let a = ag(e.actor); a.phase = "waiting_for_input"; a.note = e.text
+            let a = ag(e.actor); a.phase = .waitingForInput; a.note = e.text
         // A collaborator's question passed on to the person, or a decision the lead hands over itself (no task).
         case .questionEscalated:
             dropKey(d["key"].str)
@@ -421,22 +421,22 @@ func derive(_ events: [Event]) -> RunState {
             guard let t else { break }
             if t.status == .waitingInput { t.status = .running }
             t.question?.answer = d["answer"].str
-            ag(t.agent).phase = "thinking"
+            ag(t.agent).phase = .thinking
         case .approvalRequested:
             t?.status = .waitingApproval
             s.inbox.append(InboxItem(kind: "approval", ref: .decision(d["key"].str), seq: e.seq, task: e.task, agent: e.actor, d: d))
-            let a = ag(e.actor); a.phase = "waiting_approval"; a.note = e.text
+            let a = ag(e.actor); a.phase = .waitingApproval; a.note = e.text
         case .inputRequested:
             t?.status = .waitingInput
             s.inbox.append(InboxItem(kind: "input", ref: .decision(d["key"].str), seq: e.seq, task: e.task, agent: e.actor, d: d))
-            let a = ag(e.actor); a.phase = "waiting_for_input"; a.note = e.text
+            let a = ag(e.actor); a.phase = .waitingForInput; a.note = e.text
         case .inputAnswered:
             s.answers[d["key"].str] = d["action"]; dropKey(d["key"].str)
             if let t, t.status == .waitingInput { t.status = .running }
-            if let to = e.to { ag(to).phase = "thinking" }
+            if let to = e.to { ag(to).phase = .thinking }
         case .approvalGranted, .approvalDenied:
             s.answers[d["key"].str] = JSON(e.type == .approvalGranted ? "granted" : "denied"); dropKey(d["key"].str)
-            if let t, t.status == .waitingApproval { t.status = .running; ag(t.agent).phase = "running_tool" }
+            if let t, t.status == .waitingApproval { t.status = .running; ag(t.agent).phase = .runningTool }
         case .taskFailed:
             guard let t else { break }
             // The lead deals with a failure (it reads it on the board), so nothing waits for the person.
@@ -446,12 +446,12 @@ func derive(_ events: [Event]) -> RunState {
             // A Loop's questions outlive its session: the answer wakes it whenever it comes.
             s.run.status = .interrupted; s.inbox = s.run.loop ? s.inbox.filter { $0.kind == "question" } : []
             for x in s.orderedTasks { x.session = nil; if let at = x.attempts.last, at.end == nil { at.end = e.ts } }
-            for a in s.agents.values { a.phase = "idle" }
+            for a in s.agents.values { a.phase = .idle }
         case .sessionParked:
             // The lead's agent closed while idle to give its seat back: a chat or a Loop's session
             // reads as closed, as after a restart; a goal keeps its status. The next message opens it.
             if s.run.chat || s.run.loop { s.run.status = .interrupted }
-            let a = ag("lead"); a.phase = "idle"; a.note = e.text
+            let a = ag("lead"); a.phase = .idle; a.note = e.text
         case .runRecovered:
             s.run.status = RunStatus(d["phase"].str)
             // A resumed run schedules again: whatever pause came before the restart is over (FL-12).
@@ -468,9 +468,9 @@ func derive(_ events: [Event]) -> RunState {
             endLive(t)
             if let at = t.attempts.last { at.status = .failed; at.error = d["error"].str }
             t.status = .ready
-            let a = ag(t.agent); a.phase = "error"; a.note = d["error"].str; a.progress = nil
+            let a = ag(t.agent); a.phase = .error; a.note = d["error"].str; a.progress = nil
         case .resultAmended: t?.amendments.append(d["text"].str)
-        case .sessionPrompt: if let t, d["channel"].str == "fix" { t.status = .running }
+        case .sessionPrompt: if let t, PromptChannel(rawValue: d["channel"].str) == .fix { t.status = .running }
         case .taskReopened:
             guard let t else { break }
             t.amendments = []; t.traceGaps = []; t.verdict = nil; t.handoff = ""
@@ -491,11 +491,11 @@ func derive(_ events: [Event]) -> RunState {
             if d["acceptedBy"].str != "lead" { t.traceGaps = d["traceGaps"].strings }
             endLive(t)
             if let at = t.attempts.last, at.status == .running { at.status = .succeeded }
-            let a = ag(t.agent); a.phase = t.agent == "lead" ? "coordinating" : "idle"; a.note = ""; a.progress = nil
+            let a = ag(t.agent); a.phase = t.agent == "lead" ? .coordinating : .idle; a.note = ""; a.progress = nil
         case .runDelivered:
             let r = RunResult(d: d, seq: e.seq, n: s.deliveries.count + 1, since: s.deliveries.last?.seq ?? 0)
             s.run.status = .delivered; s.result = r; s.deliveries.append(r)
-            let a = ag("lead"); a.phase = "idle"; a.note = ""
+            let a = ag("lead"); a.phase = .idle; a.note = ""
             s.leadTurn = .agent(idle: true)
             dropSess(.agent("lead"))
         case .riskAccepted:
@@ -705,15 +705,15 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             let raw = d["text"].string ?? e.text
             let words = images == 0 ? raw : Attach.visibleText(raw)
             let text = images == 0 ? words : [words, L.text("（附 \(images) 张图片）")].filter { !$0.isEmpty }.joined(separator: " ")
-            let dup = d["delivery"].str == "prompt" && f.decisions.contains { $0.msg && $0.to == e.to && $0.text == text }
+            let dup = MessageDelivery(d["delivery"].str) == .prompt && f.decisions.contains { $0.msg && $0.to == e.to && $0.text == text }
             if !dup { f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("给 \(name(e.to ?? "")) 的补充"), text: text, tasks: [e.task].compactMap { $0 }, agents: [e.to].compactMap { $0 }, msg: true, to: e.to)) }
-            if !d["id"].exists, ["next", "queued"].contains(d["delivery"].str) { notes[e.to ?? "", default: []].append((seq: e.seq, text: text)) }
+            if !d["id"].exists, MessageDelivery(d["delivery"].str)?.waits == true { notes[e.to ?? "", default: []].append((seq: e.seq, text: text)) }
         case .messageDelivered: if !d["ids"].exists { notes[e.to ?? ""] = nil }
         default: break
         }
     }
     // Messages with ids still waiting for their agent: queued for the turn's end, or left for its next session.
-    for m in st.msgs.values where m.deliveredSeq == nil && ["queued", "next"].contains(m.delivery) { notes[m.to, default: []].append((seq: m.seq, text: m.text)) }
+    for m in st.msgs.values where m.deliveredSeq == nil && m.delivery.waits { notes[m.to, default: []].append((seq: m.seq, text: m.text)) }
     // Each result is used by whoever it was handed to; a newer attempt supersedes an older one.
     let results = f.results
     for i in f.results.indices {

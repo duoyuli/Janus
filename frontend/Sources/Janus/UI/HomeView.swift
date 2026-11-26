@@ -379,7 +379,7 @@ struct LoopMark: View {
     let run: JSON
 
     var body: some View {
-        if run["origin"].str == "loop" {
+        if RunOrigin(run["origin"].str) == .loop {
             let name = store.loops.first { $0["id"] == run["loopId"] }?["title"].string ?? L.text("已删除的值班")
             HStack(spacing: 3) {
                 Image(systemName: "clock.arrow.circlepath").accessibilityHidden(true)

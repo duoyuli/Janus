@@ -143,11 +143,12 @@ final class RunModel {
     /// again whenever any run's status changes (`AppStore.loadRuns`), so it follows runs ahead of it.
     var queuePosition: Int? { runJSON["queuePosition"].int }
     /// A conversation with one digital employee (`runs.kind`), shown as a chat page instead of the workbench.
-    var isChat: Bool { runJSON["kind"].str == "chat" }
+    var isChat: Bool { kind == .chat }
     /// A Loop's session (`runs.kind` `loop`), shown as the Loop's page.
-    var isLoop: Bool { runJSON["kind"].str == "loop" }
+    var isLoop: Bool { kind == .loop }
     /// A consolidation of a workspace's team memory (`runs.kind` `dream`), shown as its own page.
-    var isDream: Bool { runJSON["kind"].str == "dream" }
+    var isDream: Bool { kind == .dream }
+    var kind: RunKind { RunKind(runJSON["kind"].str) }
     /// A Loop's page: the runs it dispatched that the page has read, newest first, and where the
     /// next page of them starts (nil when all are read).
     var loopDispatched: [JSON] = []

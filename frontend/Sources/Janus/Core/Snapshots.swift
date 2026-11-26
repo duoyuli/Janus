@@ -368,7 +368,7 @@ enum Snapshots {
                          "git": JSON(SessionView.taskGitNote(s, t.id))]
                     }),
                     "inbox": JSON.array(s.inbox.map { ["kind": JSON($0.kind), "key": JSON($0.key), "task": JSON($0.task)] }),
-                    "agents": .object(s.agents.mapValues { JSON($0.phase) }),
+                    "agents": .object(s.agents.mapValues { JSON($0.phase.rawValue) }),
                     "tokens": r.usage.run.tokens.total.map { JSON($0) } ?? .null,
                     // The collaborators' time as the usage section words it, and the numbers behind it.
                     "subtaskTime": JSON(r.usage.time.value),

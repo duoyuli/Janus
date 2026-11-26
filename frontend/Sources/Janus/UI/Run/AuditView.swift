@@ -169,7 +169,7 @@ struct TeamView: View {
                     ForEach(run.team, id: \.self) { m in
                         let id = m["id"].str
                         let w = run.who(id)
-                        let (pl, pt) = L.phase(full.agents[id]?.phase ?? "idle")
+                        let (pl, pt) = (full.agents[id]?.phase ?? .idle).label
                         Card {
                             HStack(spacing: 10) {
                                 Avatar(initials: w.initials, color: w.color, size: 34, role: w.role)
