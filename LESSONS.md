@@ -358,6 +358,8 @@ Agent 分析出四项改进后提议先做第一项，其余以后再做（其�
 
 - 应用仍从事件推导业务状态（`Derive.swift` 的 `derive` / `boardFacts`、`Inbox.swift`、`Review.swift`），和服务端各自算一份：2026-11-25 负责人交出的提问在交付后没被撤回，服务重启后待处理决定只剩应用推导出的卡片，点哪个选项都被拒绝。当次的修复在服务端撤回这类提问（离开看板时、重启时），但两份状态的根源还在。用户要求事件和由事件推导的状态都在后端 Rust 计算、存进 SQLite，应用只展示；这推翻了 [ADR：用原生 macOS 应用做展示层](docs/decisions/20261101-native_macos_app.md) 的第 4 条，先写新的 ADR，从收件箱和待处理决定开始迁移。
 
+- 后端测试 `lead_resolves_failed_tasks` 在 CI（Linux，整套并行）偶发超时（2026-11-26 发布 2026.11.26.3 时一次）：负责人取消 T3 后 `retry`，T3 的第二次尝试启动、注入了约定，之后 60 秒没有任何事件，等不到「T3 and T4 after retry」。重跑 CI 通过，本机单独跑和整套跑都通过。可能是第一次尝试被判过期（`attempt.late_result`）和第二次尝试启动之间的竞争，要在负载下复现后查清是替身 Agent 还是调度的问题。
+
 - Agent 连接仍按 JSON 读写（服务端 `agents/connections.rs`、`checks.rs`，应用的 `AppStore.connections`）：它的字段由 Agent 目录（`kinds`）的登录方式和配置检查决定，2026-11-24 的治理只把数字员工、工作区和 Run 记录改成了结构体。应用的 Run 列表、值班、资源库条目也仍是 `JSON`。改动它们时一起改成结构体。
 
 <a id="cleanup_log"></a>
