@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.4
+
+- 修复：模型网关收下请求却一直不回复时，用 Claude Code 的值班、对话和任务会停在这一轮 10 分钟（Claude Code 自己的默认等待）才重试，看起来像卡住了。现在 Janus 默认让 Claude Code 等 2 分钟就重发；想要别的时长，在 Agent 的环境变量里写 `API_TIMEOUT_MS=<毫秒>`，写 `API_TIMEOUT_MS=` 则回到 Claude Code 自己的默认。
+
+- Fixed: when a model gateway took a request and never answered, loops, chats and runs on Claude Code sat on that turn for 10 minutes (Claude Code's own default wait) before retrying, and looked stuck. Janus now has Claude Code retry after 2 minutes by default; set `API_TIMEOUT_MS=<milliseconds>` in the agent's environment for another wait, or `API_TIMEOUT_MS=` for Claude Code's own default.
+
 ## 2026.11.26.3
 
 - 默认数字员工只留两个组：「产品研发」（PMO 和市场运营、产品经理、研发工程师、质量工程师，原来叫「产品上线」）和「对话」（老友、招聘顾问）。通用数字员工不再是默认：升级时，没有工作区在用、你也没改过的会删除；在用或改过的留下来，算作你自己的数字员工。新建工作区默认选负责人所在组里绑定了 Agent 的人。
