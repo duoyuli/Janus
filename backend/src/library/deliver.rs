@@ -125,7 +125,7 @@ pub fn launch(runtime: Runtime, items: &[Item], caps: &Value, bundle: &Path, rou
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::library::{McpProcess, McpServer, Origin};
+    use crate::library::{McpServer, Origin};
 
     fn item(id: &str, name: &str, body: Body) -> Item {
         Item {
@@ -140,12 +140,7 @@ mod tests {
     }
 
     fn items() -> Vec<Item> {
-        let stdio = McpServer::Stdio {
-            command: "node".into(),
-            args: vec![],
-            env_keys: vec!["TOKEN".into()],
-            process: McpProcess::PerRun,
-        };
+        let stdio = McpServer::Stdio { command: "node".into(), args: vec![], env_keys: vec!["TOKEN".into()] };
         let http = McpServer::Http { url: "https://e.example/mcp".into(), header_keys: vec!["Authorization".into()] };
         let sse = McpServer::Sse { url: "https://e.example/sse".into(), header_keys: vec![] };
         vec![

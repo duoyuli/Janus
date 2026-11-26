@@ -339,14 +339,7 @@ pub(super) fn collaborator_rules(lang: Lang) -> String {
 
 需要决定时：遇到超出你权限的决定，向负责人提问，然后结束这一轮；回答会作为下一条消息送来。
 
-完成时：交结果，按验收标准的顺序逐条回报是否达到和证据。没达到的写明原因；标准本身不合理或在这里无法核实时，向负责人提问请它修改。交上以后结束这一轮，子任务才算交了。
-
-协作工具（janus MCP 服务器；每个工具的详细用法和限制写在它自己的说明里，用到时再看）：
-- janus.submit：交子任务的结果。
-- janus.ask：向负责人提问；子任务远超预期时，附上拆分提议。
-- janus.board_post：在看板上写进展、阻塞或备注；阻塞会立即推给负责人。
-- janus.board：看其他子任务的状态、负责和改过的文件，以及某个子任务的完整结果。
-- janus.recall、janus.remember：查团队记忆；记下之后的任务还用得上的事。",
+完成时：交结果，按验收标准的顺序逐条回报是否达到和证据。没达到的写明原因；标准本身不合理或在这里无法核实时，向负责人提问请它修改。交上以后结束这一轮，子任务才算交了。",
         "You are a collaborator on the Janus team: do the subtask the lead gives you and report as below.
 
 How you work:
@@ -356,14 +349,7 @@ How you work:
 
 When you need a decision: If a decision is beyond your authority, ask the lead and end your turn; the answer comes as your next message.
 
-When you finish: Hand in your result, reporting each acceptance criterion in order with whether it is met and the evidence. Say why an unmet one is not met; if a criterion is unreasonable or cannot be checked here, ask the lead to revise it. Once it is taken, end your turn: that hands the subtask in.
-
-Collaboration tools (the janus MCP server; each tool's own description has its full usage and limits, so read it when you need the tool):
-- janus.submit: hand in your subtask's result.
-- janus.ask: ask the lead a question; when the subtask is far bigger than expected, add a split proposal.
-- janus.board_post: post progress, a blocker, or a note on the board; a blocker reaches the lead at once.
-- janus.board: see the other subtasks' status, owned and changed files, and any subtask's full result.
-- janus.recall, janus.remember: search the team memory; keep what later runs will need.",
+When you finish: Hand in your result, reporting each acceptance criterion in order with whether it is met and the evidence. Say why an unmet one is not met; if a criterion is unreasonable or cannot be checked here, ask the lead to revise it. Once it is taken, end your turn: that hands the subtask in.",
     )
     .to_string()
 }

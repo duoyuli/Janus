@@ -100,7 +100,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 8,
         name: "命令启动的 MCP 服务器记录 MCP 路由怎样运行它：默认同一个任务共用一个进程",
-        steps: &[Step::Custom(steps::library::record_mcp_process)],
+        steps: &[Step::UndoneBy(29)],
     },
     Migration {
         version: 9,
@@ -232,6 +232,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 28,
         name: "默认数字员工只留两个组：「产品上线」改名「产品研发」，去掉通用数字员工和「通用」组（工作区在用或改过的留给用户）",
         steps: &[Step::Home(steps::roles::retire_generalist)],
+    },
+    Migration {
+        version: 29,
+        name: "MCP 路由一个任务只运行每个服务器一次：命令启动的服务器去掉「每个会话单独运行」（process）",
+        steps: &[Step::Custom(steps::library::drop_mcp_process)],
     },
 ];
 

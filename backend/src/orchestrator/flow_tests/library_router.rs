@@ -1,8 +1,9 @@
 //! The library reaches every digital worker through the MCP router (`janus-tools`): no server is
-//! handed to a session; the run's router serves them. A command server starts on use, shared by
-//! the run's sessions (or one per session for a stateful one), in the run's working directory and
-//! a sandbox of its own, listed without starting it, stopped with everything it spawned when the
-//! run stops. A URL server, Streamable HTTP or SSE, is reached by Janus with the values saved on it.
+//! handed to a session; the run's router serves them behind `find_tools` and `call_tool`, and its
+//! instructions name each server and its tools. A command server starts on use, shared by the
+//! run's sessions, in the run's working directory and a sandbox of its own, found without starting
+//! it, stopped with everything it spawned when the run stops. A URL server, Streamable HTTP or SSE,
+//! is reached by Janus with the values saved on it.
 
 use super::*;
 
@@ -46,16 +47,26 @@ async fn reply(
 /// A name no server has is answered as MCP says for an unknown tool: a protocol error, -32602.
 async fn unknown(h: &Harness, at: &(String, String, Seat), name: &str) {
     let r = reply(h, at, json!(1), "tools/call", json!({ "name": name, "arguments": {} })).await.unwrap();
-    assert!(r["error"]["code"] == -32602 && r["error"]["message"].as_str().unwrap().contains("没有这个工具"), "{r}");
+    assert!(r["error"]["code"] == -32602 && r["error"]["message"].as_str().unwrap().contains("没有叫"), "{r}");
 }
 
 async fn tool(h: &Harness, at: &(String, String, Seat), name: &str, args: Value) -> Value {
     call(h, at, "tools/call", json!({ "name": name, "arguments": args })).await.unwrap()
 }
 
+/// The tools the session is given: the router's own, never the servers'.
 async fn listed(h: &Harness, at: &(String, String, Seat)) -> Vec<String> {
     let r = call(h, at, "tools/list", json!({})).await.unwrap();
     r["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str().map(str::to_owned)).collect()
+}
+
+/// Every tool behind the router, as `find_tools` with no query names them.
+async fn found(h: &Harness, at: &(String, String, Seat)) -> Vec<String> {
+    let said = text(&tool(h, at, "find_tools", json!({})).await);
+    said.lines()
+        .filter_map(|l| l.strip_prefix("- "))
+        .map(|l| l.split(':').next().unwrap_or_default().to_string())
+        .collect()
 }
 
 fn text(result: &Value) -> String {
@@ -89,11 +100,6 @@ async fn command_servers_are_served_by_the_runs_router() {
     } } });
     h.app.import_mcp_config(&config.to_string()).await.unwrap();
     let probe = h.app.items().unwrap().into_iter().find(|i| i.name == "probe").unwrap();
-    // A stateful one runs once per session.
-    let browser_log = h.dir.join("browser-starts.log");
-    let browser = json!({ "name": "browser", "command": "python3", "args": [script], "process": "perSession",
-        "vars": [{ "name": "FAKE_MCP_LOG", "value": browser_log }] });
-    h.app.save_mcp(None, &browser).await.unwrap();
 
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     wait_until(&h.app, &run, "T1 running", |e| task_event(e, "attempt.started", "T1")).await;
@@ -102,16 +108,21 @@ async fn command_servers_are_served_by_the_runs_router() {
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     assert!(!calls.contains("\"name\":\"probe\""), "the server is not handed to the session itself: {calls}");
     let count = || std::fs::read_to_string(&starts).unwrap_or_default().lines().count();
-    let browsers = || std::fs::read_to_string(&browser_log).unwrap_or_default().lines().count();
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!((count(), browsers()), (0, 0), "opening a session starts nothing");
+    assert_eq!(count(), 0, "opening a session starts nothing");
 
+    // The instructions name each server, what it says it is for and its tools, and how to reach
+    // them; a server that never described itself starts once to say so.
     let init = call(&h, &at, "initialize", json!({ "protocolVersion": "2025-06-18" })).await.unwrap();
-    assert!(init.get("instructions").is_none(), "no instructions: each tool says what it is: {init}");
+    let say = init["instructions"].as_str().unwrap();
+    assert!(say.starts_with("Janus 资源库的 MCP 服务器：probe（一个测试用的 MCP 服务器）。"), "{say}");
+    assert!(say.contains("- probe：一个测试用的 MCP 服务器。工具：cwd（") && say.contains("find_tools"), "{say}");
+    assert_eq!(count(), 1, "it started to say what it is");
     assert_eq!(init["protocolVersion"], "2025-06-18", "a version Janus speaks is agreed to");
     let newer = call(&h, &at, "initialize", json!({ "protocolVersion": "2099-01-01" })).await.unwrap();
     assert_eq!(newer["protocolVersion"], "2025-11-25", "one it doesn't is answered with its newest");
-    let names = listed(&h, &at).await;
+    assert_eq!(listed(&h, &at).await, ["find_tools", "call_tool"], "the servers' tools are not listed");
+    let names = found(&h, &at).await;
     // The second page (`nextCursor`) is read too.
     let probe_tools = [
         "probe__cwd",
@@ -126,11 +137,17 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert!(probe_tools.iter().all(|t| names.contains(&t.to_string())), "{names:?}");
     assert!(!names.contains(&"probe__task_only".to_string()), "a task-only tool is left out: {names:?}");
     let tools = call(&h, &at, "tools/list", json!({})).await.unwrap();
-    let echo = tools["tools"].as_array().unwrap().iter().find(|t| t["name"] == "probe__echo").unwrap();
-    assert_eq!(echo["description"], "[probe] 原样返回 text", "the server's name leads the description");
-    assert_eq!((count(), browsers()), (1, 1), "a server that never listed starts once to say its tools");
-    assert_eq!(listed(&h, &lead).await, names, "the lead sees the same tools");
-    assert_eq!((count(), browsers()), (1, 1), "listing again starts nothing: the running one, or the list kept");
+    let find = tools["tools"][0]["description"].as_str().unwrap();
+    assert!(find.contains("probe") && find.contains("echo"), "find_tools says what there is to find: {find}");
+    let echo = text(&tool(&h, &at, "find_tools", json!({ "query": "echo" })).await);
+    assert!(echo.contains("\"name\": \"probe__echo\"") && echo.contains("原样返回 text"), "{echo}");
+    assert_eq!(found(&h, &lead).await, names, "the lead finds the same tools");
+    assert_eq!(count(), 1, "finding again starts nothing: the running one, or the card kept");
+    // call_tool runs one by name, its arguments even as a string of JSON.
+    let echoed = tool(&h, &at, "call_tool", json!({ "name": "probe__echo", "arguments": "{\"text\": \"via\"}" })).await;
+    assert_eq!(text(&echoed), "via");
+    let near = tool(&h, &at, "call_tool", json!({ "name": "probe__ecko" })).await;
+    assert!(near["isError"] == true && text(&near).contains("probe__echo"), "a near name: {near}");
 
     let cwd = serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["cwd"].as_str().unwrap().to_string();
     assert_eq!(text(&tool(&h, &at, "probe__cwd", json!({})).await), cwd, "it runs in the run's working directory");
@@ -176,10 +193,7 @@ async fn command_servers_are_served_by_the_runs_router() {
     assert_eq!(count(), 1, "one process for the run");
     // A server that says its tools changed is asked again, for everyone sharing it.
     tool(&h, &at, "probe__grow", json!({})).await;
-    eventually_async(|| async { listed(&h, &lead).await.iter().any(|n| n == "probe__extra") }).await;
-    // The per-session one: the lead gets its own process.
-    tool(&h, &lead, "browser__cwd", json!({})).await;
-    assert_eq!(browsers(), 2, "one per session");
+    eventually_async(|| async { found(&h, &lead).await.iter().any(|n| n == "probe__extra") }).await;
 
     // A server that exits starts again on the next use.
     tool(&h, &at, "probe__quit", json!({})).await;
@@ -225,23 +239,21 @@ async fn command_servers_are_served_by_the_runs_router() {
     let live = h.app.run(&run).unwrap();
     assert!(live.st.lock().unwrap().traces.lead_tools_after_plan().contains("probe__echo"));
 
-    // A session's own servers end with it, with what they spawned; the shared one stays.
-    let child = text(&tool(&h, &at, "browser__spawn", json!({})).await);
+    // A session that closes leaves the run's server, and what it spawned, to the run.
     let shared_child = text(&tool(&h, &at, "probe__spawn", json!({})).await);
     let owner = Owner { session: SessionKey::task("T1"), attempt: 1 };
     h.app.close_session(&live, &owner, None, "测试关闭会话").await;
-    eventually("T1's own server stops with its session", || !process_alive(&child)).await;
-    assert!(process_alive(&shared_child), "the run's shared server keeps going");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(process_alive(&shared_child), "the run's server keeps going");
 
-    // Another run lists from the list the server last gave, starting nothing.
-    let before = std::fs::read_dir(h.app.cfg.layout.home().join("cache/mcp-tools")).unwrap().count();
-    assert!(before >= 2, "lists are written down");
+    // Another run finds from the card the server last gave, starting nothing.
+    assert!(h.app.cfg.layout.home().join("cache/mcp-tools").read_dir().unwrap().count() >= 1, "cards are written down");
     let second = start(&h, json!([task("T2", "m1", json!({}))])).await;
     wait_until(&h.app, &second, "T2 running", |e| task_event(e, "attempt.started", "T2")).await;
     let other = router_url(&h, "T2").await;
-    let b = browsers();
-    assert!(listed(&h, &other).await.iter().any(|n| n == "browser__cwd"));
-    assert_eq!(browsers(), b, "listed from what it gave last time");
+    let b = count();
+    assert!(found(&h, &other).await.iter().any(|n| n == "probe__cwd"));
+    assert_eq!(count(), b, "found from what it gave last time");
 
     // Stopping the run stops the rest at once, shared ones too, and starts nothing more.
     h.app.action(&live, &action_of(json!({ "type": "cancel" }))).unwrap();
@@ -314,7 +326,7 @@ async fn url_servers_are_reached_by_the_router_with_their_values() {
     let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
     assert!(!calls.contains("Bearer") && !calls.contains(&server.base), "the agent gets no URL server: {calls}");
 
-    let names = listed(&h, &at).await;
+    let names = found(&h, &at).await;
     for t in ["remote__whoami", "remote__expire", "legacy__whoami"] {
         assert!(names.contains(&t.to_string()), "{t} in {names:?}");
     }
@@ -449,11 +461,11 @@ async fn a_server_deleted_from_the_library_is_gone_from_running_runs() {
     let probe = h.app.items().unwrap().into_iter().find(|i| i.name == "probe").unwrap();
     let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
     let lead = router_url(&h, "lead").await;
-    assert!(listed(&h, &lead).await.iter().any(|t| t.starts_with("probe__")));
+    assert!(found(&h, &lead).await.iter().any(|t| t.starts_with("probe__")));
     assert_eq!(text(&tool(&h, &lead, "probe__echo", json!({ "text": "hi" })).await), "hi");
 
     h.app.delete_item(&probe.id).await.unwrap();
-    assert!(!listed(&h, &lead).await.iter().any(|t| t.starts_with("probe__")), "no longer listed");
+    assert!(!found(&h, &lead).await.iter().any(|t| t.starts_with("probe__")), "no longer found");
     unknown(&h, &lead, "probe__echo").await;
     let r = h.app.run(&run).unwrap();
     h.app.action(&r, &action_of(json!({ "type": "cancel" }))).unwrap();

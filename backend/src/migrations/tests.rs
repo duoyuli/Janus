@@ -143,14 +143,15 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
 
 /// Version 5 said who may use each library item and version 11 takes it back out: every item is
 /// for every digital worker, in the library and in the runs, and roles no longer pick items.
-/// Version 8: a command server says how the MCP router runs it, once per run by default.
+/// Version 29: a command server no longer says how the MCP router runs it (`process`): every
+/// server runs once per run.
 #[test]
 fn every_item_is_for_everyone() {
     let path = old_database("reach");
     let conn = Connection::open(&path).unwrap();
     let skill = json!({ "id": "i-skill", "name": "pdf", "description": "", "origin": { "type": "created" }, "revision": "r1", "updatedAt": 0, "kind": "skill" });
     let mcp = json!({ "id": "i-mcp", "name": "db", "description": "", "origin": { "type": "created" }, "revision": "r2", "updatedAt": 0, "kind": "mcp",
-        "server": { "transport": "stdio", "command": "db-mcp", "args": [], "envKeys": [] } });
+        "server": { "transport": "stdio", "command": "db-mcp", "args": [], "envKeys": [], "process": "perSession" } });
     for item in [&skill, &mcp] {
         conn.execute(
             "INSERT INTO configs (kind, id, data, updated_at) VALUES ('library_item', ?1, ?2, 0)",
@@ -176,9 +177,9 @@ fn every_item_is_for_everyone() {
     )
     .unwrap();
     assert!(team["team"][0]["resources"][0].get("reach").is_none());
-    // Version 8: command servers run once per run unless marked otherwise.
-    assert_eq!(config(&conn, "library_item", "i-mcp")["server"]["process"], "perRun");
-    assert_eq!(team["team"][0]["resources"][0]["server"]["process"], "perRun");
+    // Version 29: every server runs once per run; none says how.
+    assert!(config(&conn, "library_item", "i-mcp")["server"].get("process").is_none());
+    assert!(team["team"][0]["resources"][0]["server"].get("process").is_none());
     assert!(config(&conn, "role", "pmo").get("resources").is_none(), "roles no longer pick items");
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
 }

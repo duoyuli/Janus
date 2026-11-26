@@ -61,14 +61,18 @@ def loops(ctx, c):
       and slept["until"] % 3_600_000 == 0 and v["status"]["nextWakeReason"] == "timer",
       "值班睡到时间表的下一个整点，下次醒来的时刻就是 loop.slept 记下的")
     layer = next(e for e in events() if e["type"] == "session.prompt" and (e.get("data") or {}).get("channel") == "system")["data"]["prompt"]
-    c(v["name"] == "" and v["title"] == "看看有什么新 issue" and "janus.dispatch" in layer,
-      "会话标题不当名字；没起名时用提示的第一行称呼，值班的工作方式里列出它的工具")
+    c(v["name"] == "" and v["title"] == "看看有什么新 issue" and "janus.dispatch" not in layer,
+      "会话标题不当名字；没起名时用提示的第一行称呼，值班的系统层不列工具")
     c((v["status"]["lastSummary"] or "").startswith("看过了："), f"这次醒来的摘要是最后一条消息的第一行（{v['status']['lastSummary']}）")
 
     janus = t.fake.board(run, "lead")
     names = sorted(janus.tools())
     c(names == ["ask_user", "dispatch", "next_wake", "recall", "remember"],
       f"值班的会话只有值班的工具和团队记忆的读写（{names}）")
+    status, body = janus.post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    say = (body or {}).get("result", {}).get("instructions") or ""
+    c(status == 200 and all(f"- {t}：" in say for t in ["dispatch", "ask_user", "next_wake"]) and "orchestrate" not in say,
+      f"看板服务器的 instructions 一行一个列出值班的工具：{say[:80]}")
     v = ctx.api("PUT", f"/api/loops/{loop_id}", {"name": "issue 分拣", "prompt": v["prompt"], "schedule": v["schedule"]})
     c(v["name"] == v["title"] == "issue 分拣", f"用户给值班起名（{v['name']}）")
     # With the URL its session was given: the board's tools are refused, and so is another session's name.

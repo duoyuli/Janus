@@ -40,6 +40,48 @@ pub(super) struct Backend {
     inbox: Arc<Inbox>,
     next: AtomicU64,
     pub(super) last_used: StdMutex<std::time::Instant>,
+    /// What the server said of itself in `initialize`.
+    pub(super) said: StdMutex<Said>,
+}
+
+/// What a server says of itself in its answer to `initialize`: its title (`serverInfo.title`) and
+/// one line of what it is for, its `serverInfo.description` or else its `instructions`' first
+/// line. The rest of its instructions is not kept: the router's own instructions name every server
+/// in a budget, and how each tool is used is in its own description.
+// @project-doc docs/domains/20261116-resource_library.md#mcp_router
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct Said {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub says: String,
+}
+
+/// How much of a server's title and of what it says it is for is kept.
+const SAID_TITLE: usize = 80;
+const SAID_SAYS: usize = 300;
+
+impl Said {
+    /// What the answer to `initialize` says of its server.
+    pub(super) fn of(init: &Value) -> Said {
+        let info = &init["serverInfo"];
+        let described = info["description"].as_str().unwrap_or_default().trim();
+        let says = if described.is_empty() {
+            init["instructions"]
+                .as_str()
+                .unwrap_or_default()
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .unwrap_or("")
+        } else {
+            described
+        };
+        Said {
+            title: crate::text::one_line(info["title"].as_str().unwrap_or_default(), SAID_TITLE),
+            says: crate::text::one_line(says, SAID_SAYS),
+        }
+    }
 }
 
 /// How messages reach the server.
@@ -208,6 +250,7 @@ impl Backend {
             inbox,
             next: AtomicU64::new(1),
             last_used: StdMutex::new(std::time::Instant::now()),
+            said: StdMutex::default(),
         });
         let root = format!("file://{}", cwd.display());
         let answering = Arc::downgrade(&backend);
@@ -228,8 +271,9 @@ impl Backend {
             "capabilities": { "roots": { "listChanged": false } },
             "clientInfo": { "name": "janus", "version": crate::VERSION }
         });
-        let agreed = backend.request("initialize", init, wait).await?;
-        let agreed = agreed["protocolVersion"].as_str().unwrap_or_default();
+        let answer = backend.request("initialize", init, wait).await?;
+        *backend.said.lock().unwrap() = Said::of(&answer);
+        let agreed = answer["protocolVersion"].as_str().unwrap_or_default();
         if !VERSIONS.contains(&agreed) {
             bail!("服务器要用 MCP 协议版本「{agreed}」，Janus 支持的是 {}", VERSIONS.join("、"));
         }

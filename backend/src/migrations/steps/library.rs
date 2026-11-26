@@ -1,9 +1,9 @@
-//! The library's data versions: how the MCP router runs a command server (8), and items no
-//! longer saying who may use them (11).
+//! The library's data versions: items no longer saying who may use them (11), and command servers
+//! no longer saying how the MCP router runs them (29).
 
 use crate::db::ConfigKind;
 use anyhow::Result;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// Data version 11: every item is for every digital worker, so items, and the items pinned in
 /// runs' member snapshots, no longer say who may use them.
@@ -11,16 +11,11 @@ pub(crate) fn drop_reach(tx: &rusqlite::Transaction) -> Result<usize> {
     edit_items(tx, |o| o.remove("reach").is_some())
 }
 
-/// Data version 8: each command server says how the MCP router runs it; ones from before run
-/// once per run, the default.
-pub(crate) fn record_mcp_process(tx: &rusqlite::Transaction) -> Result<usize> {
+/// Data version 29: the MCP router runs every server once per run, so a command server no longer
+/// says how it is run (`process`, which version 8 added).
+pub(crate) fn drop_mcp_process(tx: &rusqlite::Transaction) -> Result<usize> {
     edit_items(tx, |o| {
-        let Some(server) = o.get_mut("server").and_then(Value::as_object_mut) else { return false };
-        if server.get("transport").and_then(Value::as_str) != Some("stdio") || server.contains_key("process") {
-            return false;
-        }
-        server.insert("process".into(), json!("perRun"));
-        true
+        o.get_mut("server").and_then(Value::as_object_mut).is_some_and(|s| s.remove("process").is_some())
     })
 }
 

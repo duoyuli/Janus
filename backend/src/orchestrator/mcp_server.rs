@@ -57,13 +57,17 @@ pub(super) fn random_token() -> Result<String> {
     Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
-/// The answer to `initialize`: the protocol version both sides speak, and tools only. No
-/// `instructions`: how each tool is used is in its own description.
-pub(super) fn initialize(req: &Value, name: &str) -> Value {
+/// The answer to `initialize`: the protocol version both sides speak, tools only, and what the
+/// server says of itself (`instructions`): which tools it has and what each is for. Agents show
+/// those words to the model before any tool is loaded (Claude Code under "MCP Server
+/// Instructions", Codex as the server's namespace); how each tool is used stays in its own
+/// description.
+pub(super) fn initialize(req: &Value, name: &str, instructions: &str) -> Value {
     json!({
         "protocolVersion": agreed_version(&req["params"]["protocolVersion"]),
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": name, "version": crate::VERSION },
+        "instructions": instructions,
     })
 }
 

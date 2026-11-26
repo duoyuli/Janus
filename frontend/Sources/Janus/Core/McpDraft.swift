@@ -7,7 +7,6 @@ import Foundation
 // @project-doc docs/domains/20261116-resource_library.md#mcp
 struct McpDraft: Equatable {
     enum Transport: String, CaseIterable { case stdio, http, sse }
-    enum Process: String { case perRun, perSession }
 
     /// An environment variable (stdio) or HTTP header (http, sse) and its value.
     struct Var: Equatable {
@@ -24,7 +23,6 @@ struct McpDraft: Equatable {
     var args: [String] = []
     var url = ""
     var vars: [Var] = []
-    var process: Process = .perRun
 
     init() {}
 
@@ -39,7 +37,6 @@ struct McpDraft: Equatable {
         command = s["command"].str
         args = s["args"].strings
         url = s["url"].str
-        process = Process(rawValue: s["process"].str) ?? .perRun
         vars = item["vars"].array.map { Var(name: $0["name"].str, value: values[$0["name"].str].str) }
     }
 
@@ -174,7 +171,6 @@ struct McpDraft: Equatable {
             "command": JSON(command),
             "args": JSON(args),
             "url": JSON(url.trimmingCharacters(in: .whitespaces)),
-            "process": JSON(process.rawValue),
             "vars": .array(named.map { ["name": JSON($0.name.trimmingCharacters(in: .whitespaces)), "value": JSON($0.value)] }),
         ]
     }

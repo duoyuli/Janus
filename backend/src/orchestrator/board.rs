@@ -54,8 +54,9 @@ pub(super) fn wait_limit(args: &Value) -> Duration {
 }
 
 /// Who reaches the `janus` MCP server, from the run's kind and the session's `who`: the tools it
-/// has. A chat has none, unless its digital employee proposes digital employees. The server gives
-/// no `instructions`: each tool's description says how it is used.
+/// has. A chat has none, unless its digital employee proposes digital employees. The server's
+/// `instructions` name the caller's tools, one line each (`Caller::instructions`); how each is
+/// used is in its own description.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Caller {
     /// A goal run's lead: the board.
@@ -117,6 +118,100 @@ impl Caller {
             .map(|t| t.definition(lang));
         own.into_iter().chain(memory).collect()
     }
+
+    /// What `initialize` says of the server to this caller: its tools, one line each, saying only
+    /// what each is for. Agents load MCP tools on demand (Claude Code starts with their names and
+    /// each server's instructions, Codex with each server's namespace and these words), so this is
+    /// how a session learns which tools it has; their usage and limits are in their descriptions.
+    // @project-doc docs/interfaces/20261031-board_mcp.md#transport
+    pub(super) fn instructions(self, lang: Lang) -> String {
+        let lines: &[(&str, &str)] = match self {
+            Caller::Lead => &[
+                (
+                    "orchestrate：把一组子任务派给协作者，写明执行者、依赖、验收标准，可选负责的文件、独立验证和续接会话。",
+                    "orchestrate: hand a set of subtasks to collaborators, with assignee, dependencies, and acceptance criteria, and optionally owned files, independent verification, and a continued session.",
+                ),
+                (
+                    "wait：读看板，等子任务完成或有需要你处理的消息。",
+                    "wait: read the board, waiting for a subtask to finish or for a message that needs you.",
+                ),
+                (
+                    "board：看团队和所有子任务的状态；传 task 看一个子任务的全部信息。",
+                    "board: see the team and every subtask's status; with task, everything about one subtask.",
+                ),
+                (
+                    "reply：回答协作者的提问，或给正在执行的子任务补充指示。",
+                    "reply: answer a collaborator's question, or add instructions to a running subtask.",
+                ),
+                (
+                    "retry、cancel：让结束的子任务返工；取消不再需要的子任务。",
+                    "retry, cancel: send an ended subtask back for rework; cancel a subtask no longer needed.",
+                ),
+                (
+                    "amend：修订已完成子任务的结论，让下游用修订后的；或接受没完全达标但可以接受的结果。",
+                    "amend: correct a finished subtask's findings so downstream work uses the correction, or accept a result that falls short but is acceptable.",
+                ),
+                (
+                    "ask_user：把只有用户能做的决定交给用户。",
+                    "ask_user: hand a decision only the user can make to the user.",
+                ),
+                (
+                    "recall、remember：查团队记忆；记下之后的任务还用得上的事。",
+                    "recall, remember: search the team memory; keep what later runs will need.",
+                ),
+            ],
+            Caller::Member => &[
+                ("submit：交子任务的结果。", "submit: hand in your subtask's result."),
+                (
+                    "ask：向负责人提问；子任务远超预期时，附上拆分提议。",
+                    "ask: ask the lead a question; when the subtask is far bigger than expected, add a split proposal.",
+                ),
+                (
+                    "board_post：在看板上写进展、阻塞或备注；阻塞会立即推给负责人。",
+                    "board_post: post progress, a blocker, or a note on the board; a blocker reaches the lead at once.",
+                ),
+                (
+                    "board：看其他子任务的状态、负责和改过的文件，以及某个子任务的完整结果。",
+                    "board: see the other subtasks' status, owned and changed files, and any subtask's full result.",
+                ),
+                (
+                    "recall、remember：查团队记忆；记下之后的任务还用得上的事。",
+                    "recall, remember: search the team memory; keep what later runs will need.",
+                ),
+            ],
+            Caller::Loop => &[
+                (
+                    "dispatch：把一件事派成这个工作区的一个目标任务；同一件事的任务还在进行时，把新情况转告给它。",
+                    "dispatch: start a goal run in this workspace for something; while the run for it is still at work, pass it the news instead.",
+                ),
+                (
+                    "ask_user：把只有用户能做的决定交给用户。",
+                    "ask_user: hand a decision only the person can make to them.",
+                ),
+                ("next_wake：在时间表之外约一次醒来。", "next_wake: wake once more outside your schedule."),
+                (
+                    "recall、remember：查团队记忆；记下之后还用得上的事。",
+                    "recall, remember: search the team memory; keep what later runs will need.",
+                ),
+            ],
+            Caller::Consolidation => &[
+                ("recall：搜笔记，读全文。", "recall: search the notes and read them in full."),
+                ("remember：写一条笔记，或改写已有的一条。", "remember: write a note, or rewrite one."),
+                ("forget：删一条笔记。", "forget: remove a note."),
+            ],
+            Caller::Hiring => &[(
+                "propose_employees：把你为用户设计的一批数字员工交给用户，由用户挑选后创建。",
+                "propose_employees: hand the person a set of digital employees you designed; they pick which to create.",
+            )],
+        };
+        let head = tr!(
+            lang,
+            "Janus 的协作工具。每个工具的详细用法和限制写在它自己的说明里，用到时再看：",
+            "Janus's collaboration tools. Each tool's own description has its full usage and limits; read it when you need the tool:"
+        );
+        let lines: Vec<String> = lines.iter().map(|(zh, en)| format!("- {}", lang.pick(zh, en))).collect();
+        format!("{head}\n{}", lines.join("\n"))
+    }
 }
 
 impl App {
@@ -139,7 +234,7 @@ impl App {
             return Ok(None);
         };
         let result = match req["method"].as_str().unwrap_or("") {
-            "initialize" => initialize(&req, "janus"),
+            "initialize" => initialize(&req, "janus", &caller.instructions(run.lang)),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": caller.tools(run.lang) }),
             "tools/call" => {

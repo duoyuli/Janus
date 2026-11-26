@@ -1161,7 +1161,6 @@
 "已准备好 · %lld 个工具" = "Ready · %lld tools";
 "启动失败：%@" = "Failed to start: %@";
 "重新准备" = "Prepare Again";
-"每个会话单独运行" = "Run Once per Session";
 "同一任务共用一个进程，用到才启动" = "Shared per run, starts on first use";
 "资源类型" = "Resource Type";
 "Skill %lld" = "Skills %lld";
@@ -1197,18 +1196,18 @@
 "目录" = "Catalog";
 "相符的 2 行" = "2 matching lines";
 "只多一个入口" = "One Entry Point";
-"会话只拿到 janus-tools 一个入口，不预先启动服务器；工具名带服务器前缀。" = "A session gets one entry, janus-tools, and no server starts up front. Tool names carry the server's name.";
+"会话只拿到 janus-tools：它的说明列出各服务器和工具，Agent 用 find_tools 查、call_tool 调用。" = "A session gets only janus-tools: its instructions name each server and its tools, and the agent looks tools up with find_tools and runs them with call_tool.";
 "用到才启动" = "Started on First Use";
 "同一个任务共用" = "Shared Within a Run";
-"负责人和子任务共用进程；浏览器这类有状态的服务器可以每个会话一份。" = "The lead and subtasks share the process; stateful servers such as a browser can run once per session.";
+"负责人和子任务共用同一个服务器，一个任务只运行一份。" = "The lead and subtasks share each server: one copy per run.";
 "闲置就停" = "Stopped When Idle";
-"共用的闲置 10 分钟自动停；单独的随会话结束；任务结束时全停。" = "Shared servers stop after 10 idle minutes; per-session ones end with their session; all stop when the run ends.";
+"闲置 10 分钟自动停，下次用到再启动；任务结束时全停。" = "A server stops after 10 idle minutes and starts again when next used; all stop when the run ends.";
 "还有 %lld 个" = "%lld more";
 "提示词 +1 条" = "Prompt +1";
 "1 条描述" = "1 description";
 "任务用得上 %@" = "Task needs %@";
 "子任务 T%lld" = "Subtask T%lld";
-"每个会话一个" = "One per session";
+"两个工具" = "Two tools";
 "未启动" = "Not started";
 "启动" = "Starting";
 "运行中 · 共用" = "Running · Shared";
@@ -1227,7 +1226,6 @@
 "说明" = "Description";
 "可选：它做什么、什么时候用。经 MCP 路由时，Agent 在 janus-tools 的说明里读到它。" = "Optional: what it does and when to use it. Through the MCP router, the Agent reads it in janus-tools' instructions.";
 "例如：店里的数据库，只读" = "e.g. The shop's database, read only";
-"进程" = "Process";
 "从资源库删除…" = "Delete from Library…";
 "添加 %lld 个服务器" = "Add %lld Servers";
 "+ 添加" = "+ Add";
@@ -1308,7 +1306,6 @@
 "资源库全员可用，按需取用。改动下个任务起生效。" = "Everything here is available to everyone, on demand. Changes apply from the next run.";
 "Janus 只读取仓库、列出 Skill，不执行任何文件。第三方内容先看再导入。" = "Janus only reads the repository and lists its skills; nothing in it runs. Review third-party content before importing.";
 "Janus 连接这个地址，带上下面的 header；Agent 只看到 janus-tools。" = "Janus connects to this address with the headers below; the Agent sees only janus-tools.";
-"浏览器、终端这类有状态的服务器打开这项，每个会话各开一份。" = "Turn this on for stateful servers such as a browser or terminal, so each session gets its own.";
 "已添加 %@，全员可用" = "Added %@ · available to everyone";
 "给每位数字员工配 Agent、模型和指令；资源库全员可用。" = "Give each digital employee an Agent, a model, and instructions. The library is available to everyone.";
 

@@ -457,9 +457,8 @@ struct LibraryView: View {
     private func details(_ i: JSON) -> some View {
         let mcp = i["kind"].str == "mcp"
         let vars = Library.vars(i)
-        let process = i["server"]["process"].str == "perSession" ? L.text("每个会话单独运行") : L.text("同一任务共用一个进程，用到才启动")
         let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text,
-                     i["server"]["transport"].str == "stdio" ? process : "", mcp ? "" : Library.usage(i, now: L.nowMs())].filter { !$0.isEmpty }
+                     i["server"]["transport"].str == "stdio" ? L.text("同一任务共用一个进程，用到才启动") : "", mcp ? "" : Library.usage(i, now: L.nowMs())].filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             // How findable the skill is: the agent picks it by its description alone.

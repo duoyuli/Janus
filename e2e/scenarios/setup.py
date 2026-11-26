@@ -147,20 +147,25 @@ def setup(ctx, c):
     path = "/" + router["url"].split("/", 3)[3]
     def rpc(method, params, at=path):
         return ctx.api("POST", at, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})["result"]
+    say = rpc("initialize", {"protocolVersion": "2025-06-18"}).get("instructions") or ""
+    c("e2e-route（路由测试）" in say and "e2e-http（HTTP 路由测试）" in say and "find_tools" in say,
+      f"MCP 路由的 instructions 列出每个服务器和它做什么、怎样找工具：{say[:200]}")
     tools = rpc("tools/list", {})["tools"]
-    names = [t["name"] for t in tools]
+    c([t["name"] for t in tools] == ["find_tools", "call_tool"], f"会话只拿到路由自己的两个工具：{[t['name'] for t in tools]}")
+    every = rpc("tools/call", {"name": "find_tools", "arguments": {}})["content"][0]["text"]
+    names = [line[2:].split(":")[0] for line in every.splitlines() if line.startswith("- ")]
     c("e2e-route__cwd" in names and "e2e-http__whoami" in names and "e2e-route__hang" in names,
-      f"MCP 路由列出命令和 HTTP 服务器的工具，分页的读完所有页：{names}")
-    c("e2e-route__task_only" not in names, "只能以 task 方式调用的工具不列出")
-    about = next((t["description"] for t in tools if t["name"] == "e2e-route__echo"), "")
-    c(about == "[e2e-route] 原样返回 text", f"工具说明以服务器名开头：{about}")
+      f"find_tools 找得到命令和 HTTP 服务器的工具，分页的读完所有页：{names}")
+    c("e2e-route__task_only" not in names, "只能以 task 方式调用的工具找不到")
+    echo = rpc("tools/call", {"name": "find_tools", "arguments": {"query": "echo"}})["content"][0]["text"]
+    c('"name": "e2e-route__echo"' in echo and "原样返回 text" in echo, f"find_tools 按要做的事给出工具的说明和参数：{echo[:120]}")
     started = lambda: open(starts).read().count("start")  # noqa: E731
-    c(started() == 1, f"会话打开和列工具都没有启动服务器，只有添加时预先准备的那一次（{started()} 次）")
-    got = rpc("tools/call", {"name": "e2e-route__cwd", "arguments": {}})
-    rpc("tools/call", {"name": "e2e-route__echo", "arguments": {"text": "again"}})
+    c(started() == 1, f"会话打开、介绍和查找工具都没有启动服务器，只有添加时预先准备的那一次（{started()} 次）")
+    got = rpc("tools/call", {"name": "call_tool", "arguments": {"name": "e2e-route__cwd", "arguments": {}}})
+    rpc("tools/call", {"name": "call_tool", "arguments": {"name": "e2e-route__echo", "arguments": {"text": "again"}}})
     c(started() == 2, f"第一次调用才启动，之后的调用用同一个进程（{started()} 次）")
     c(got["content"][0]["text"] == run.cwd(), "路由背后的服务器在 Run 的工作目录（worktree）里启动")
-    seen = json.loads(rpc("tools/call", {"name": "e2e-http__whoami", "arguments": {}})["content"][0]["text"])
+    seen = json.loads(rpc("tools/call", {"name": "call_tool", "arguments": {"name": "e2e-http__whoami"}})["content"][0]["text"])
     c(seen.get("authorization") == "Bearer good", f"Janus 带着保存的 header 调用 HTTP 服务器：{seen}")
     lead_path = path.rsplit("/", 2)[0] + "/lead/tools"
     code = ctx.api_error("POST", lead_path, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]
@@ -169,6 +174,8 @@ def setup(ctx, c):
     c(calls_ and calls_[0]["data"]["tool"] == "e2e-route__cwd" and "arguments" not in calls_[0]["data"], "每次路由调用记一条 mcp.routed，不记参数")
     unknown = ctx.api("POST", path, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "e2e-route__nope", "arguments": {}}})
     c((unknown.get("error") or {}).get("code") == -32602, f"未知工具按 MCP 返回 -32602：{unknown}")
+    near = rpc("tools/call", {"name": "call_tool", "arguments": {"name": "e2e-route__ecko"}})
+    c(near.get("isError") and "e2e-route__echo" in near["content"][0]["text"], f"call_tool 给错名字时列出相近的工具：{near}")
     detail = json.dumps(run.detail(), ensure_ascii=False)
     c(SECRET not in detail and SECRET not in ctx.api("GET", f"/api/runs/{run.id}/export", raw=True)[1].decode(), "Run 记录和导出中没有 MCP 的值")
     c("共享资料：用 Python 3。" in detail, "工作区共享资料进入负责人说明")

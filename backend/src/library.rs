@@ -17,7 +17,7 @@ mod sources;
 mod store;
 
 pub use deliver::{Delivery, MCP_ROUTER, SKILL_ROUTER, bundle, launch};
-pub use mcp::{McpProcess, McpServer, McpValues};
+pub use mcp::{McpServer, McpValues};
 pub use skill_router::skills_read;
 pub use sources::{CHECK_EVERY, Source};
 
@@ -426,12 +426,7 @@ impl App {
                     bail!("MCP {name} 没有启动命令");
                 }
                 let command = expand_home(&parts.remove(0));
-                // A server that keeps state between requests runs once per session.
-                let process = match str_of(body, "process") {
-                    "perSession" => McpProcess::PerSession,
-                    _ => McpProcess::PerRun,
-                };
-                McpServer::Stdio { command, args: parts, env_keys: keys, process }
+                McpServer::Stdio { command, args: parts, env_keys: keys }
             }
             t @ ("http" | "sse") => {
                 let url = str_of(body, "url").to_string();

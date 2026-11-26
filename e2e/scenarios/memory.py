@@ -58,8 +58,11 @@ def memory(ctx, c):
 
     layer = next((e["data"]["prompt"] for e in r.events() if e["type"] == "session.prompt" and e.get("task") == "T1"
                   and (e.get("data") or {}).get("channel") == "system"), "")
-    c("团队记忆：" in layer and layer.count("janus.recall") == 1 and "- janus.recall、janus.remember：" in layer and howto["id"] not in layer,
-      "协作者的会话知道有团队记忆，工具只在「协作工具」里列一行，用法在工具说明里，笔记本身不在里面")
+    c("团队记忆：" in layer and "janus.recall" not in layer and howto["id"] not in layer,
+      "协作者的会话知道有团队记忆，说明里不列工具，笔记本身不在里面")
+    status, body = t1.post({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
+    say = (body or {}).get("result", {}).get("instructions") or ""
+    c(status == 200 and "- recall、remember：" in say and "- submit：" in say, f"看板服务器的 instructions 一行一个列出协作者的工具：{say[:80]}")
     t.fake.touch("t1-go")
     r.finish()
 

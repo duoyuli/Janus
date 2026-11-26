@@ -98,7 +98,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 5 | 原来给资源和 Run 快照中的资源加 `reach`，版本 11 又整个删掉，中间的迁移都不读它，所以这一版不再做任何改动，只保留编号 |
 | 6 | 已经创建过默认数字员工的数据加上通用数字员工（`generalist`）；已被版本 28 撤销（`UndoneBy(28)`），旧数据不再得到它 |
 | 7 | 去掉预设的 Agent 类型：`deepseek-claude`、`minimax-claude`、`glm-claude` 的 Agent 改为用 API Key 登录的 `claude`，预设的变量写进它的 `env`，去掉 `endpoint`，状态改为未检查，见 [Agent 类型](../domains/20261031-agents_and_roles.md#providers) |
-| 8 | 命令启动的 MCP 服务器（资源和 Run 快照中的资源）加 `server.process`，已有的取 `perRun`（同一个 Run 共用一个进程），见 [MCP 路由](../domains/20261116-resource_library.md#mcp_router) |
+| 8 | 命令启动的 MCP 服务器（资源和 Run 快照中的资源）加 `server.process`，已有的取 `perRun`（同一个 Run 共用一个进程）。已被数据版本 29 撤回，迁移里只留编号和名字 |
 | 9 | 去掉「自定义命令」的 Agent：删除 `base` 为 `custom` 的 Agent，绑定它的数字员工改为没有绑定 Agent，Run 快照中用它的成员记为 `claude`（只能查看，不能继续），见 [ADR](../decisions/20261120-codex_and_claude_code_only.md) |
 | 10 | worktree 中的 Run 的快照加 `worktree.branch`：取升级时工作目录检出的分支，这个分支的历史不含 Run 的起点（`baseRef`）时取 `null`，见 [ADR：验收时把结果合并回任务开始时的分支](../decisions/20261120-merge_back_on_accept.md) |
 | 11 | 每项资源都给所有数字员工：资源和 Run 快照中的资源删除 `reach`，数字员工删除 `resources`，见 [ADR：资源库的每项资源都给所有数字员工，只经两个路由提供](../decisions/20261120-library_routed_only.md) |
@@ -119,6 +119,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 26 | 默认数字员工加上招聘顾问（`add_seed`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 27 | 数字员工加 `hires`（能不能在对话里提议数字员工），默认的招聘顾问（`seed.id` 为 `recruiter`）为 `true`，其余为 `false`（`recruiter_hires`）；Run 快照的成员加 `hires`，已有的为 `false`。见[角色](../domains/20261031-agents_and_roles.md#roles) |
 | 28 | 默认数字员工只留两个组：「产品上线」改名「产品研发」（组里所有人）；通用数字员工移出默认，没有工作区在用、用户也没改过时删除（连同 `data/roles/generalist/` 头像），否则去掉 `seed`、移出「通用」组留给用户（`retire_generalist`）。见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
+| 29 | 资源和 Run 快照里命令启动的 MCP 服务器去掉 `process`（`drop_mcp_process`）：MCP 路由同一个 Run 只运行每个服务器一次，见 [ADR：MCP 路由照 magpie 只给三个工具](../decisions/20261126-mcp_router_three_tools.md)。数据版本 8 加上的这个字段由它撤回 |
 
 <a id="snapshots"></a>
 ## Run 快照

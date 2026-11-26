@@ -62,14 +62,20 @@ async fn goal_mode_orchestrates_through_the_board() {
         .unwrap();
     // The board's eight, and the team memory's two (`forget` is a consolidation's).
     assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 10);
-    // No server-level instructions: each tool's description says how it is used.
+    // The server's instructions name the lead's tools, one line each; how each is used is in its
+    // own description.
     let init = h
         .app
         .mcp(&run, &token, &lead, json!({ "jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {} }))
         .await
         .unwrap()
         .unwrap();
-    assert!(init["result"]["serverInfo"]["name"] == "janus" && init["result"].get("instructions").is_none(), "{init}");
+    let say = init["result"]["instructions"].as_str().unwrap_or_default();
+    assert!(init["result"]["serverInfo"]["name"] == "janus", "{init}");
+    assert!(
+        say.contains("- orchestrate：") && say.contains("- recall、remember：") && !say.contains("submit"),
+        "{say}"
+    );
     let member = h
         .app
         .mcp(&run, &member_token, &t1, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))

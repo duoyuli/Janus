@@ -50,9 +50,12 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
         .and_then(|e| e.data.as_ref().unwrap()["prompt"].as_str().map(str::to_owned))
         .unwrap();
     assert!(layer.starts_with("你是工作区「") && !layer.contains("看看有什么新 issue"), "{layer}");
-    // Its tools are named once, one line each; how a tool is used is in its own description.
-    for tool in ["janus.dispatch：", "janus.ask_user：", "janus.next_wake："] {
-        assert_eq!(layer.matches(tool).count(), 1, "{tool}: {layer}");
+    // Its tools are named in the server's instructions, one line each, not in the layer; how a
+    // tool is used is in its own description.
+    let say = Caller::Loop.instructions(crate::lang::Lang::Zh);
+    for tool in ["- dispatch：", "- ask_user：", "- next_wake："] {
+        assert_eq!(say.matches(tool).count(), 1, "{tool}: {say}");
+        assert!(!layer.contains(&format!("janus.{}", &tool[2..])), "{tool}: {layer}");
     }
     assert!(!layer.contains("github:owner/repo"), "the key's example is in the tool's description: {layer}");
 
@@ -469,7 +472,8 @@ async fn a_loop_in_english_is_told_everything_in_english() {
     let live = h.app.run(&run).unwrap();
     assert_eq!(live.lang, crate::lang::Lang::En);
     let layer = h.app.loop_brief(&live);
-    assert!(layer.starts_with("You are the Loop of the workspace") && layer.contains("- janus.next_wake: "), "{layer}");
+    assert!(layer.starts_with("You are the Loop of the workspace"), "{layer}");
+    assert!(Caller::Loop.instructions(live.lang).contains("- next_wake: "));
     assert!(!layer.contains("值班"), "{layer}");
     let tools = Caller::Loop.tools(live.lang);
     let about =

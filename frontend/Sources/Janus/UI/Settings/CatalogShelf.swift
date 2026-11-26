@@ -72,8 +72,7 @@ struct CatalogShelf: View {
     private var serverTiles: [Tile] {
         Catalog.servers.filter { matches("\($0.title) \($0.name) \($0.publisher) \(L.catalogText($0.blurb))") }.map { s in
             let tags = [s.transport == .stdio ? L.text("命令") : "HTTP",
-                        s.inputs.contains(where: \.required) ? L.text("需要 API key") : s.inputs.isEmpty ? "" : L.text("API key 可选"),
-                        s.process == .perSession ? L.text("每个会话单独运行") : ""].filter { !$0.isEmpty }
+                        s.inputs.contains(where: \.required) ? L.text("需要 API key") : s.inputs.isEmpty ? "" : L.text("API key 可选")].filter { !$0.isEmpty }
             return Tile(id: s.id, icon: s.transport == .stdio ? "terminal" : "globe", title: s.title, byline: s.publisher, blurb: L.catalogText(s.blurb), tags: tags,
                         have: Catalog.item(for: s, items: store.libraryItems) != nil) { addServer(s) }
         }

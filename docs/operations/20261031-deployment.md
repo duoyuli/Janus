@@ -60,7 +60,7 @@
 │   ├── adapters/<id>/<版本>/        # ACP 适配器，按需下载，自动升级时保留旧版本
 │   ├── adapters/<id>/pinned          # 用户切回并固定的版本号，自动升级不再动它
 │   ├── prices.json                  # 从 models.dev 同步的模型价格，每天更新
-│   ├── mcp-tools/<资源>/<revision>.json  # MCP 服务器最近一次列出的工具，只留当前 revision
+│   ├── mcp-tools/<资源>/<revision>.json  # MCP 服务器的名片：最近一次说的标题、用途和列出的工具，只留当前 revision
 │   └── updates/                     # 应用内更新：<版本>/ 下载中的新版本，previous/ 上一个版本（应用写）
 ├── tmp/                             # 每次启动 Janus 时清空
 │   ├── agents/<agent>/              # Agent 的 TMPDIR，配置检查用的空目录
@@ -73,7 +73,7 @@
     ├── adapters/<id>.log            # 适配器的安装和升级记录
     ├── agents/<agent>/              # 配置检查（test.log）和登录（login.log）的输出
     ├── library/<资源>.log           # 预先准备命令服务器时它的 stderr
-    ├── runs/<run>/                  # 每个 ACP 子进程的 stderr，MCP 路由启动的服务器的 mcp-<run 或会话>-<资源名>.log
+    ├── runs/<run>/                  # 每个 ACP 子进程的 stderr，MCP 路由启动的服务器的 mcp-<资源名>.log
     ├── chats/<对话>/                # 同上，对话的
     ├── loops/<run>/                 # 同上，值班会话的（loop.log）
     └── dreams/<run>/                # 同上，整理会话的（dream.log）

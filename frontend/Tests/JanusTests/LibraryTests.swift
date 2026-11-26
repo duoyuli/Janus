@@ -75,12 +75,12 @@ private let docs: JSON = [
 @Test func mcpServersReadTheSameAsFormOrJson() throws {
     let item: JSON = [
         "id": "i1", "name": "github", "description": "代码托管",
-        "server": ["transport": "stdio", "command": "npx", "args": ["-y", "gh mcp"], "process": "perSession"],
+        "server": ["transport": "stdio", "command": "npx", "args": ["-y", "gh mcp"]],
         "vars": [["name": "GITHUB_TOKEN", "set": true], ["name": "EMPTY", "set": false]],
     ]
     var d = McpDraft(item: item, values: ["GITHUB_TOKEN": "ghp-1"])
     #expect(d.line == "npx -y 'gh mcp'")
-    #expect(d.process == .perSession && d.vars == [McpDraft.Var(name: "GITHUB_TOKEN", value: "ghp-1"), McpDraft.Var(name: "EMPTY")])
+    #expect(d.vars == [McpDraft.Var(name: "GITHUB_TOKEN", value: "ghp-1"), McpDraft.Var(name: "EMPTY")])
     #expect(d.json.contains(#""GITHUB_TOKEN": "ghp-1""#), "the JSON shows the value")
 
     // Out as JSON and back: the same server.
@@ -91,6 +91,7 @@ private let docs: JSON = [
     #expect(back == d, "nothing changes on a round trip")
     #expect(back.body["vars"] == [["name": "GITHUB_TOKEN", "value": "ghp-1"], ["name": "EMPTY", "value": ""]], "every value goes as it stands")
     #expect(back.body["args"] == ["-y", "gh mcp"], "arguments go as a list, not split again")
+    #expect(back.body["process"] == .null, "every server runs once per run: no process mode")
 
     // A typed command line, quotes and all; an unclosed quote doesn't lose what is typed.
     d.setLine(#"uvx  mcp-server-fetch --ua "Janus bot""#)

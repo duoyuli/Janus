@@ -24,8 +24,8 @@ def goal_codex(ctx, c):
     lead = run.lead()
     system = [e for e in run.events() if e["type"] == "session.prompt" and e.get("to") == "lead" and e["data"].get("channel") == "system"]
     brief = json.dumps(system[:1], ensure_ascii=False)
-    c(("你是 Janus 团队的负责人" in brief or "You are the lead of the Janus team" in brief) and "janus.orchestrate：" in brief,
-      "负责人说明在系统层注入，先于 /goal；「协作工具」一节一行一个工具，用法在工具说明里")
+    c(("你是 Janus 团队的负责人" in brief or "You are the lead of the Janus team" in brief) and "janus.orchestrate" not in brief,
+      "负责人说明在系统层注入，先于 /goal；说明里不列工具，工具由看板服务器的 instructions 列出")
     c("[Image 1]" in brief and "/attachments/" in brief, "随目标粘贴的图片以路径写进负责人说明")
     c(len(lead.tools()) == 10, "负责人有 8 个看板工具和团队记忆的 2 个工具")
 

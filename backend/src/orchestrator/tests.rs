@@ -191,22 +191,21 @@ fn a_codex_session_starts_with_its_instructions_and_its_modes_settings() {
 /// and Codex gets both as developer instructions. The task prompt carries only the task.
 #[test]
 fn the_system_layer_holds_janus_rules_then_the_persons() {
-    // The board's tools explain themselves: the rules hold no tool list and no skills sentence.
+    // The board names its tools itself (its instructions): the rules hold no tool list and no
+    // skills sentence.
     let rules = collaborator_rules(Lang::En);
     assert!(
         !rules.contains("```json")
-            && rules.contains("- janus.submit: ")
-            && rules.contains("Collaboration tools")
-            && rules.contains("- janus.board_post: ")
+            && !rules.contains("Collaboration tools")
+            && !rules.contains("janus.board_post")
             && !rules.contains("janus-skills"),
         "{rules}"
     );
+    let say = Caller::Member.instructions(Lang::En);
+    assert!(say.contains("- submit: ") && say.contains("- board_post: ") && say.is_ascii(), "{say}");
     assert!(rules.is_ascii(), "{rules}");
     let zh = collaborator_rules(Lang::Zh);
-    assert!(
-        zh.starts_with("你是 Janus 团队的协作者，") && zh.contains("- janus.submit：") && !zh.contains("```json"),
-        "{zh}"
-    );
+    assert!(zh.starts_with("你是 Janus 团队的协作者，") && !zh.contains("协作工具") && !zh.contains("```json"), "{zh}");
     // Committing, pushing and deploying follow the subtask's instructions, not a ban of Janus's own.
     assert!(rules.contains("Commit, push, or deploy only when your subtask's instructions ask for it"), "{rules}");
     assert!(!rules.contains("Do not commit"), "{rules}");

@@ -1,6 +1,6 @@
 # ADR：Janus 只注入协作规则，做事方法写在数字员工的指令里
 
-- 状态：已采纳（accepted），记录于 2026-11-25。取代 [ADR：按验收标准自行验证](20261101-criteria_over_commands.md) 的第 5 条（负责人自己核对关键结果、改了代码的目标安排独立评审），以及 [ADR：Skill 路由是一份按需查找的目录](20261120-skill_catalog.md) 的第 1 条（系统层指路）。
+- 状态：已采纳（accepted），记录于 2026-11-25。取代 [ADR：按验收标准自行验证](20261101-criteria_over_commands.md) 的第 5 条（负责人自己核对关键结果、改了代码的目标安排独立评审），以及 [ADR：Skill 路由是一份按需查找的目录](20261120-skill_catalog.md) 的第 1 条（系统层指路）。第 5 条中「MCP 服务器都不返回 `instructions`」和「负责人说明和协作者约定各有一节协作工具」被 [ADR：MCP 路由照 magpie 只给三个工具](20261126-mcp_router_three_tools.md) 取代（2026-11-26）：`instructions` 是服务器的自我介绍，不是注入系统层的提示词，Janus 的每个 MCP 服务器都在其中列出工具，各说明里的「协作工具」一节删除。
 - 相关文档：[目标模式与共享看板](../domains/20261031-goal_mode.md#lead_brief)、[协作者的约定](../domains/20261031-goal_mode.md#collaborator_rules)、[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles)、[验收标准](../interfaces/20261031-board_mcp.md#acceptance_criteria)。
 
 ## 背景

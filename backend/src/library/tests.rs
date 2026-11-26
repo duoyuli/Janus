@@ -175,7 +175,7 @@ async fn folder_selection_keeps_successes_when_one_copy_fails() {
 async fn mcp_values_stay_out_of_records() {
     let (app, dir) = app("mcp");
     let body = json!({
-        "name": "github", "transport": "stdio", "command": "npx -y gh-mcp", "process": "perSession",
+        "name": "github", "transport": "stdio", "command": "npx -y gh-mcp",
         "vars": [{ "name": "GITHUB_TOKEN", "value": "ghp-secret" }, { "name": "UNSET", "value": "" }]
     });
     let item = app.save_mcp(None, &body).await.unwrap();
@@ -186,7 +186,6 @@ async fn mcp_values_stay_out_of_records() {
                 command: "npx".into(),
                 args: vec!["-y".into(), "gh-mcp".into()],
                 env_keys: vec!["GITHUB_TOKEN".into(), "UNSET".into()],
-                process: McpProcess::PerSession,
             }
         }
     );

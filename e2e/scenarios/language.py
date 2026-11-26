@@ -22,20 +22,22 @@ def language(ctx, c):
         lead = run.lead()
         brief = next(e["data"]["prompt"] for e in run.events()
                      if e["type"] == "session.prompt" and e.get("to") == "lead" and e["data"].get("channel") == "system")
-        c(brief.startswith("You are the lead of the Janus team") and "Collaboration tools" in brief and "- janus.orchestrate: " in brief,
-          "负责人说明是英文，「协作工具」一节一行一个工具")
+        c(brief.startswith("You are the lead of the Janus team") and "Collaboration tools" not in brief and "janus.orchestrate" not in brief,
+          "负责人说明是英文，不列工具：工具由看板服务器的 instructions 列出")
         status, body = lead.post({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         tools = {x["name"]: x["description"] for x in body["result"]["tools"]}
         c(status == 200 and tools and not any(HAN.search(d) for d in tools.values()),
           f"看板工具的说明是英文：{sorted(tools)}")
         status, body = lead.post({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
-        c(status == 200 and not (body["result"].get("instructions") or ""), "看板服务器不返回 instructions，用法只在工具说明里")
+        say = body["result"].get("instructions") or ""
+        c(status == 200 and "- orchestrate: " in say and "- recall, remember: " in say and not HAN.search(say),
+          f"看板服务器的 instructions 用英文一行一个列出负责人的工具，用法在工具说明里：{say[:80]}")
 
         run.orchestrate(task("T1", m1))
         run.wait_event("task.succeeded", task="T1")
         rules = next(e["data"]["prompt"] for e in run.events()
                      if e["type"] == "session.prompt" and e.get("task") == "T1" and e["data"].get("channel") == "system")
-        c(rules.startswith("You are a collaborator on the Janus team") and "- janus.board_post: " in rules,
-          "协作者约定是英文，「协作工具」一节一行一个工具")
+        c(rules.startswith("You are a collaborator on the Janus team") and "janus.board_post" not in rules,
+          "协作者约定是英文，不列工具")
         first = run.has("attempt.started", task="T1")[0]["data"]["prompt"]
         c("Your subtask T1:" in first and "Acceptance criteria:" in first, "协作者的任务提示是英文")

@@ -381,7 +381,7 @@ async fn deleting_a_chat_waits_for_a_log_being_made() {
             held_tx.send(()).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(300));
             let waited = logs.exists();
-            std::fs::write(logs.join("mcp-run-probe.log"), "started").unwrap();
+            std::fs::write(logs.join("mcp-probe.log"), "started").unwrap();
             waited
         })
     };

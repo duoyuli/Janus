@@ -8,18 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-/// How the MCP router runs a command server for a run: one process the run's sessions share
-/// (most servers answer each request on its own), or one per session for a server that keeps
-/// state between requests and would mix up sessions sharing it.
-// @project-doc docs/domains/20261116-resource_library.md#mcp_router
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum McpProcess {
-    #[default]
-    PerRun,
-    PerSession,
-}
-
 /// How an agent reaches a server. Only variable and header names live here; their values are in
 /// the server's own secrets file.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,9 +19,6 @@ pub enum McpServer {
         args: Vec<String>,
         #[serde(default)]
         env_keys: Vec<String>,
-        /// How the MCP router runs it for a run's sessions: one process for the whole run, or one
-        /// per session for a server that remembers state (a browser, a terminal).
-        process: McpProcess,
     },
     /// Streamable HTTP.
     Http {
@@ -161,8 +146,7 @@ fn parse_server(name: &str, def: &Value) -> Result<Found> {
             .as_array()
             .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
             .unwrap_or_default();
-        let server =
-            McpServer::Stdio { command, args, env_keys: env.keys().cloned().collect(), process: McpProcess::PerRun };
+        let server = McpServer::Stdio { command, args, env_keys: env.keys().cloned().collect() };
         (server, McpValues { env, ..Default::default() })
     } else {
         check_url(&url)?;
@@ -239,7 +223,6 @@ mod tests {
             command: "node".into(),
             args: vec!["s.js".into()],
             env_keys: vec!["TOKEN".into(), "EMPTY".into()],
-            process: McpProcess::PerRun,
         };
         let values = McpValues {
             env: BTreeMap::from([
@@ -252,10 +235,7 @@ mod tests {
         assert_eq!(server.set_values(&values), [("TOKEN".to_string(), "v".to_string())]);
         assert_eq!(values.clone().kept_for(&server).env.len(), 2);
         let text = serde_json::to_string(&server).unwrap();
-        assert_eq!(
-            text,
-            r#"{"transport":"stdio","command":"node","args":["s.js"],"envKeys":["TOKEN","EMPTY"],"process":"perRun"}"#
-        );
+        assert_eq!(text, r#"{"transport":"stdio","command":"node","args":["s.js"],"envKeys":["TOKEN","EMPTY"]}"#);
         let http = McpServer::Http { url: "https://x/mcp".into(), header_keys: vec!["Authorization".into()] };
         let v =
             McpValues { headers: BTreeMap::from([("Authorization".into(), "Bearer t".into())]), ..Default::default() };

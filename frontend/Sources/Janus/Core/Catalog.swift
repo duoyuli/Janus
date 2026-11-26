@@ -44,7 +44,6 @@ enum Catalog {
         let transport: McpDraft.Transport
         var command: [String] = []
         var url = ""
-        var process: McpDraft.Process = .perRun
         var inputs: [Input] = []
         var id: String { name }
 
@@ -61,7 +60,6 @@ enum Catalog {
             d.command = command.first ?? ""
             d.args = Array(command.dropFirst())
             d.url = url
-            d.process = process
             d.vars = inputs.filter(\.required).map { McpDraft.Var(name: $0.key, value: $0.format.replacingOccurrences(of: "{}", with: "")) }
             return d
         }
@@ -140,7 +138,7 @@ enum Catalog {
                homepage: "https://github.com/github/github-mcp-server", transport: .http, url: "https://api.githubcopilot.com/mcp/",
                inputs: [Input(key: "Authorization", label: "Personal access token", hint: "在 github.com/settings/personal-access-tokens 创建", format: "Bearer {}")]),
         Server(name: "chrome-devtools", title: "Chrome DevTools", publisher: "Google", blurb: "控制和检查一个真实的 Chrome：控制台、网络、性能追踪和截图。",
-               homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp", transport: .stdio, command: ["npx", "-y", "chrome-devtools-mcp@latest"], process: .perSession),
+               homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp", transport: .stdio, command: ["npx", "-y", "chrome-devtools-mcp@latest"]),
         Server(name: "huggingface", title: "Hugging Face", publisher: "Hugging Face", blurb: "搜索 Hugging Face 上的模型、数据集、Spaces 和论文。",
                homepage: "https://huggingface.co/settings/mcp", transport: .http, url: "https://huggingface.co/mcp"),
         Server(name: "firecrawl", title: "Firecrawl", publisher: "Firecrawl", blurb: "抓取、爬取和搜索网页，转成干净的 Markdown。",

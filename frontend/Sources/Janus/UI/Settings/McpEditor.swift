@@ -44,7 +44,6 @@ struct McpEditor: View {
                     field(L.text("说明"), hint: L.text("可选：它做什么、什么时候用。经 MCP 路由时，Agent 在 janus-tools 的说明里读到它。")) {
                         TextField(L.text("例如：店里的数据库，只读"), text: $d.description).textFieldStyle(.roundedBorder)
                     }
-                    if d.transport == .stdio { processField }
                 }
             }
             .padding(.horizontal, 22).padding(.vertical, 18)
@@ -136,13 +135,6 @@ struct McpEditor: View {
             field("") {
                 Note(text: L.text("JSON 里有 \(several.count) 个服务器：\(several.map(\.name).joined(separator: L.text("、")))。保存时全部添加，重名自动加后缀。"), tone: .blue)
             }
-        }
-    }
-
-    private var processField: some View {
-        field(L.text("进程"), hint: L.text("浏览器、终端这类有状态的服务器打开这项，每个会话各开一份。")) {
-            Toggle(L.text("每个会话单独运行"), isOn: Binding(get: { d.process == .perSession }, set: { d.process = $0 ? .perSession : .perRun }))
-                .toggleStyle(.switch).controlSize(.small)
         }
     }
 

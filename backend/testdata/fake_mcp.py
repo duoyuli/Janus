@@ -60,7 +60,8 @@ for line in sys.stdin:
         continue
     if method == "initialize":
         send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": os.environ.get("FAKE_MCP_VERSION", "2025-06-18"), "capabilities": {"tools": {}},
-                                                       "serverInfo": {"name": "fake", "version": "1"}}})
+                                                       "serverInfo": {"name": "fake", "title": "Probe", "version": "1"},
+                                                       "instructions": "一个测试用的 MCP 服务器。\n其余的用法说明不交给 Agent。"}})
     elif method == "tools/list":
         if (msg.get("params") or {}).get("cursor") == "page-2":
             send({"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS[PAGE:]}})
