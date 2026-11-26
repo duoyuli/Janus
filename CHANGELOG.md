@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.9
+
+- 修复：任务进行中切换「详细 / 摘要」时，正看着的底部没有变化，看起来按钮没反应。现在「摘要」档把进行中这一轮最新的一组调用也收成一行（例如「运行 12 条命令 · 读 3 个文件」），只露出 Agent 此刻在做的一步；「详细」档列出每一步。
+
+- 修复：带长表格、比窗口还高的回复出现后，对话有时停在离底部几百点的地方，不再跟随新内容；机器忙时还会直接放弃跟随，只剩「回到最新」按钮。现在会话最下面几行始终画好，视图准确落到最新一行。
+
+- Fixed: switching between Detail and Summary while a task ran changed nothing at the bottom where you were looking, so the buttons seemed not to work. Summary now folds the running turn's newest group of calls to one line too (for example "Ran 12 commands · Read 3 files") and shows only the step the agent is on; Detail lists every step.
+
+- Fixed: after a reply taller than the window (with a long table), a conversation sometimes stopped hundreds of points short of the end and no longer followed new content; on a busy Mac it gave up following altogether, leaving only the Back to Latest button. The bottom rows of a conversation are now always laid out, and the view lands exactly on the newest one.
+
 ## 2026.11.26.8
 
 - 修复：工作目录不是 Git 仓库时，交付的文件（例如负责人说的 `FINAL_REPORT.md`）在任务页右侧哪里都看不到；这一轮最后一个子任务被负责人取消时，交付里连子任务的回复也没有。现在右侧「产物」最上面列出「交付物」：交付的回复和这一轮改了的文档，点「查看」打开；工具栏「文档」菜单的交付物也包括它们。
