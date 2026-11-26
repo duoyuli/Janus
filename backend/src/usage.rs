@@ -113,6 +113,18 @@ impl Tokens {
         t
     }
 
+    /// The block as `session.usage` writes it, the inverse of `read`; a count not reported is `null`.
+    pub(crate) fn write(&self) -> Value {
+        serde_json::json!({
+            "inputTokens": self.input,
+            "outputTokens": self.output,
+            "totalTokens": self.total,
+            "cachedReadTokens": self.cached_read,
+            "cachedWriteTokens": self.cached_write,
+            "thoughtTokens": self.thought,
+        })
+    }
+
     /// The tokens of one turn by model: the quota rows when the agent sent them (they name their
     /// model), else `usage` on the session's current model (`None` as model). Empty when the event
     /// carries no token count (a context snapshot).

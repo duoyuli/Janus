@@ -131,15 +131,16 @@ pub fn prompt_usage(res: &Value) -> Option<Shown> {
 /// `_meta.quota` spells cache reads `cachedInputTokens`, cache writes `cachedWriteTokens` (Claude
 /// Code) or `cacheWriteInputTokens` (Codex), and reasoning `reasoningOutputTokens`.
 fn token_counts(c: &Value) -> Value {
-    let pick = |names: &[&str]| names.iter().map(|n| &c[*n]).find(|v| v.is_number()).cloned().unwrap_or(Value::Null);
-    json!({
-        "inputTokens": pick(&["inputTokens"]),
-        "outputTokens": pick(&["outputTokens"]),
-        "totalTokens": pick(&["totalTokens"]),
-        "cachedReadTokens": pick(&["cachedReadTokens", "cachedInputTokens"]),
-        "cachedWriteTokens": pick(&["cachedWriteTokens", "cacheWriteInputTokens"]),
-        "thoughtTokens": pick(&["thoughtTokens", "reasoningOutputTokens"]),
-    })
+    let pick = |names: &[&str]| names.iter().find_map(|n| c[*n].as_i64());
+    crate::usage::Tokens {
+        input: pick(&["inputTokens"]),
+        output: pick(&["outputTokens"]),
+        total: pick(&["totalTokens"]),
+        cached_read: pick(&["cachedReadTokens", "cachedInputTokens"]),
+        cached_write: pick(&["cachedWriteTokens", "cacheWriteInputTokens"]),
+        thought: pick(&["thoughtTokens", "reasoningOutputTokens"]),
+    }
+    .write()
 }
 
 /// A tool call the agent just started, shown while it runs; `input` is its summary.

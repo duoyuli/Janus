@@ -14,56 +14,63 @@
 //! Files are only read, from where the last read stopped; a line still being written waits for the
 //! next read. The readings are cumulative per session and model, recorded as `session.usage` with
 //! `source: "records"`; the usage ledger turns them into increments.
-// @project-doc docs/interfaces/20261031-events.md#usage_accounting
+// @project-doc docs/interfaces/20261031-events.md#usage_records
 
 use crate::agents::Runtime;
+use crate::usage::Tokens;
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+
+/// Where Claude Code keeps its sessions' transcripts, and their environments.
+const CLAUDE_PROJECTS: &str = "projects";
+const CLAUDE_SESSION_ENV: &str = "session-env";
+/// Where Codex keeps its threads' rollouts.
+const CODEX_SESSIONS: &str = "sessions";
 
 /// How often a running turn's records are read.
 pub const EVERY: std::time::Duration = std::time::Duration::from_secs(20);
 
+/// Remove what the agent kept of `sessions` in its configuration directory `config`: Claude
+/// Code's `projects/<project>/<session>.jsonl` (with `<session>/` beside it) and
+/// `session-env/<session>/`, Codex's `sessions/<date>/rollout-<time>-<session>.jsonl`.
+pub fn forget(config: &Path, sessions: &HashSet<String>) {
+    fn walk(dir: &Path, sessions: &HashSet<String>, depth: u8) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if sessions.iter().any(|s| of_session(&name, s)) {
+                crate::layout::remove(&e.path());
+            } else if depth > 0 && e.file_type().is_ok_and(|t| t.is_dir()) {
+                walk(&e.path(), sessions, depth - 1);
+            }
+        }
+    }
+    if sessions.is_empty() {
+        return;
+    }
+    for top in [CLAUDE_PROJECTS, CLAUDE_SESSION_ENV, CODEX_SESSIONS] {
+        walk(&config.join(top), sessions, 4);
+    }
+}
+
 /// Whether a file or directory name in the agent's configuration directory is session `sid`'s:
 /// `<sid>`, `<sid>.jsonl`, or Codex's `rollout-<time>-<sid>.jsonl`.
-pub fn of_session(name: &str, sid: &str) -> bool {
+fn of_session(name: &str, sid: &str) -> bool {
     let file = name.strip_suffix(".jsonl").unwrap_or(name);
     !sid.is_empty() && (file == sid || file.strip_suffix(sid).is_some_and(|rest| rest.ends_with('-')))
 }
 
-/// Token counts under the ACP names: `input` without the cache, `total` of all four parts,
-/// `thought` part of `output`.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct Counts {
-    input: i64,
-    output: i64,
-    cache_read: i64,
-    cache_write: i64,
-    thought: i64,
-    total: i64,
-}
-
-impl Counts {
-    fn add(&mut self, o: &Counts) {
-        self.input += o.input;
-        self.output += o.output;
-        self.cache_read += o.cache_read;
-        self.cache_write += o.cache_write;
-        self.thought += o.thought;
-        self.total += o.total;
-    }
-
-    fn row(&self, model: &str) -> Value {
-        json!({
-            "model": model,
-            "inputTokens": self.input,
-            "outputTokens": self.output,
-            "cachedReadTokens": self.cache_read,
-            "cachedWriteTokens": self.cache_write,
-            "thoughtTokens": self.thought,
-            "totalTokens": self.total,
-        })
+/// Counts a record line gives: every part reported, so adding them never leaves one unreported.
+fn counts(input: i64, output: i64, cache_read: i64, cache_write: i64, thought: i64, total: i64) -> Tokens {
+    Tokens {
+        input: Some(input),
+        output: Some(output),
+        cached_read: Some(cache_read),
+        cached_write: Some(cache_write),
+        thought: Some(thought),
+        total: Some(total),
     }
 }
 
@@ -95,14 +102,22 @@ impl Tail {
 /// What the lines of one runtime's records add up to.
 enum Totals {
     /// Each response's last usage, by `(message id, request id)`, with its model.
-    Claude(HashMap<(String, String), (String, Counts)>),
+    Claude(HashMap<(String, String), (String, Tokens)>),
     /// The thread's running total as last read, the model in use, and what each model used.
-    Codex { last: Option<Value>, model: String, by_model: BTreeMap<String, Counts> },
+    Codex { last: Option<Value>, model: String, by_model: BTreeMap<String, Tokens> },
+}
+
+impl Totals {
+    fn runtime(&self) -> Runtime {
+        match self {
+            Totals::Claude(_) => Runtime::Claude,
+            Totals::Codex { .. } => Runtime::Codex,
+        }
+    }
 }
 
 /// A reader of one session's records, kept between its turns so each read takes only what is new.
 pub struct Reader {
-    runtime: Runtime,
     config: PathBuf,
     sid: String,
     files: Vec<Tail>,
@@ -124,7 +139,7 @@ impl Reader {
             Runtime::Claude => Totals::Claude(HashMap::new()),
             Runtime::Codex => Totals::Codex { last: None, model: String::new(), by_model: BTreeMap::new() },
         };
-        Some(Reader { runtime, config, sid: sid.into(), files: vec![], totals, anonymous: 0, shown: None })
+        Some(Reader { config, sid: sid.into(), files: vec![], totals, anonymous: 0, shown: None })
     }
 
     /// The session read.
@@ -146,7 +161,7 @@ impl Reader {
         }
         if rewritten {
             // A file shrank: read everything again from the start.
-            let runtime = self.runtime;
+            let runtime = self.totals.runtime();
             *self = Reader { shown: self.shown.take(), ..Reader::new(runtime, self.config.clone(), &self.sid)? };
             return self.reading(ended);
         }
@@ -176,11 +191,11 @@ impl Reader {
                 files.push(Tail { path, offset: 0 });
             }
         };
-        match self.runtime {
+        match self.totals.runtime() {
             Runtime::Claude => {
                 if self.files.is_empty() {
                     let name = format!("{}.jsonl", self.sid);
-                    match find(&self.config.join("projects"), 2, &|n| n == name) {
+                    match find(&self.config.join(CLAUDE_PROJECTS), 2, &|n| n == name) {
                         Some(main) => follow(&mut self.files, main),
                         None => return,
                     }
@@ -202,7 +217,7 @@ impl Reader {
             Runtime::Codex if self.files.is_empty() => {
                 let sid = self.sid.clone();
                 if let Some(p) =
-                    find(&self.config.join("sessions"), 4, &|n| n.starts_with("rollout-") && of_session(n, &sid))
+                    find(&self.config.join(CODEX_SESSIONS), 4, &|n| n.starts_with("rollout-") && of_session(n, &sid))
                 {
                     follow(&mut self.files, p);
                 }
@@ -227,14 +242,9 @@ impl Reader {
                     n("cache_read_input_tokens"),
                     n("cache_creation_input_tokens"),
                 );
-                let counts = Counts {
-                    input,
-                    output,
-                    cache_read,
-                    cache_write,
-                    thought: usage["output_tokens_details"]["thinking_tokens"].as_i64().unwrap_or(0),
-                    total: input + output + cache_read + cache_write,
-                };
+                let thought = usage["output_tokens_details"]["thinking_tokens"].as_i64().unwrap_or(0);
+                let counts =
+                    counts(input, output, cache_read, cache_write, thought, input + output + cache_read + cache_write);
                 let request = v["requestId"].as_str().or_else(|| v["requestRef"].as_str()).unwrap_or("");
                 let key = match v["message"]["id"].as_str().filter(|id| !id.is_empty()) {
                     Some(id) => (id.to_owned(), request.to_owned()),
@@ -274,19 +284,19 @@ impl Reader {
                         delta("cache_write_input_tokens"),
                         delta("output_tokens"),
                     );
-                    let added = Counts {
-                        input: (input - cached - cache_write).max(0),
+                    let added = counts(
+                        (input - cached - cache_write).max(0),
                         output,
-                        cache_read: cached,
+                        cached,
                         cache_write,
-                        thought: delta("reasoning_output_tokens"),
-                        total: match delta("total_tokens") {
+                        delta("reasoning_output_tokens"),
+                        match delta("total_tokens") {
                             0 => input + output,
                             t => t,
                         },
-                    };
+                    );
                     *last = Some(total.clone());
-                    if added != Counts::default() {
+                    if added != counts(0, 0, 0, 0, 0, 0) {
                         by_model.entry(model.clone()).or_default().add(&added);
                     }
                 }
@@ -297,9 +307,9 @@ impl Reader {
 
     /// The running totals by model, models without any tokens left out.
     fn rows(&self) -> Vec<Value> {
-        let by_model: BTreeMap<String, Counts> = match &self.totals {
+        let by_model: BTreeMap<String, Tokens> = match &self.totals {
             Totals::Claude(responses) => {
-                let mut out: BTreeMap<String, Counts> = BTreeMap::new();
+                let mut out: BTreeMap<String, Tokens> = BTreeMap::new();
                 for (model, c) in responses.values() {
                     out.entry(model.clone()).or_default().add(c);
                 }
@@ -307,7 +317,15 @@ impl Reader {
             }
             Totals::Codex { by_model, .. } => by_model.clone(),
         };
-        by_model.iter().filter(|(_, c)| c.total > 0).map(|(m, c)| c.row(m)).collect()
+        by_model
+            .iter()
+            .filter(|(_, c)| c.total.is_some_and(|t| t > 0))
+            .map(|(model, c)| {
+                let mut row = c.write();
+                row["model"] = json!(model);
+                row
+            })
+            .collect()
     }
 }
 

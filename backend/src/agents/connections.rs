@@ -36,31 +36,12 @@ impl App {
         out
     }
 
-    /// Remove what the agent itself kept of these sessions in its configuration directory: Claude
-    /// Code's `projects/<project>/<session>.jsonl` (with `<session>/` beside it) and
-    /// `session-env/<session>/`, Codex's `sessions/<date>/rollout-<time>-<session>.jsonl`.
+    /// Remove what the agent itself kept of these sessions in its configuration directory
+    /// (`agent_records::forget`).
     // @project-doc docs/interfaces/20261031-http_api.md#run_delete
     pub(crate) fn forget_sessions(&self, id: &str, sessions: &std::collections::HashSet<String>) -> Result<()> {
-        fn walk(dir: &Path, sessions: &std::collections::HashSet<String>, depth: u8) -> Result<()> {
-            let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
-            for e in entries.flatten() {
-                let name = e.file_name().to_string_lossy().into_owned();
-                if sessions.iter().any(|s| crate::agent_records::of_session(&name, s)) {
-                    crate::layout::remove(&e.path());
-                } else if depth > 0 && e.file_type().is_ok_and(|t| t.is_dir()) {
-                    walk(&e.path(), sessions, depth - 1)?;
-                }
-            }
-            Ok(())
-        }
         check_id(id)?;
-        if sessions.is_empty() {
-            return Ok(());
-        }
-        let config = self.agent_config(id);
-        for top in ["projects", "session-env", "sessions"] {
-            walk(&config.join(top), sessions, 4)?;
-        }
+        crate::agent_records::forget(&self.agent_config(id), sessions);
         Ok(())
     }
 

@@ -16,7 +16,7 @@ pub(super) struct RecordsTurn<'a> {
 impl App {
     /// The records of session `sid` for the turn about to start, in the member's agent configuration
     /// directory.
-    // @project-doc docs/interfaces/20261031-events.md#usage_accounting
+    // @project-doc docs/interfaces/20261031-events.md#usage_records
     pub(super) fn records_turn<'a>(&'a self, run: &'a Run, ctx: &'a Ctx<'a>, sid: &str) -> RecordsTurn<'a> {
         let reader = run.records.lock().unwrap().remove(sid).or_else(|| {
             let member = run.member(ctx.agent)?;
