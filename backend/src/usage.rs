@@ -1034,11 +1034,7 @@ impl Scan {
                     self.open_waits.insert(key.to_string(), (e.ts, e.task.clone(), e.actor.clone()));
                 }
             }
-            EventKind::QuestionAnswered
-            | EventKind::ApprovalGranted
-            | EventKind::ApprovalDenied
-            | EventKind::InputAnswered
-            | EventKind::DecisionWithdrawn => {
+            kind if EventKind::SETTLES_REQUEST.contains(&kind) => {
                 if let Some((start, task, actor)) = data["key"].as_str().and_then(|k| self.open_waits.remove(k)) {
                     self.waits.push(Wait { ms: e.ts.saturating_sub(start), task, actor });
                 }

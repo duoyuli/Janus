@@ -199,6 +199,11 @@ pub struct RunRow {
     pub queue_position: Option<i64>,
 }
 
+/// Event kinds as a SQL list, `'a', 'b'`: queries name kinds through `EventKind`, never as text.
+fn sql_kinds(kinds: &[EventKind]) -> String {
+    kinds.iter().map(|k| format!("'{}'", k.as_str())).collect::<Vec<_>>().join(", ")
+}
+
 /// An `events` row.
 fn event_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     Ok(Event {
@@ -425,10 +430,8 @@ impl Db {
     /// nobody has answered or withdrawn since, oldest first: the cards the app shows from the log.
     pub fn open_requests(&self) -> Result<Vec<Event>> {
         use EventKind as K;
-        let list = |kinds: &[K]| kinds.iter().map(|k| format!("'{}'", k.as_str())).collect::<Vec<_>>().join(", ");
-        let asked = list(&[K::QuestionEscalated, K::ApprovalRequested, K::InputRequested]);
-        let settled =
-            list(&[K::QuestionAnswered, K::ApprovalGranted, K::ApprovalDenied, K::InputAnswered, K::DecisionWithdrawn]);
+        let asked = sql_kinds(&[K::QuestionEscalated, K::ApprovalRequested, K::InputRequested]);
+        let settled = sql_kinds(&K::SETTLES_REQUEST);
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(&format!(
             "SELECT run_id, seq, ts, type, actor, to_agent, task, attempt, text, data
@@ -460,13 +463,15 @@ impl Db {
     /// bill over a period: those that reported usage and those that never did (their sessions
     /// count as not reported). `events_type_ts` keeps this from reading every event.
     pub fn runs_with_usage(&self, from: i64, to: i64) -> Result<Vec<(String, Value)>> {
+        use EventKind as K;
+        let at_work = sql_kinds(&[K::SessionUsage, K::SessionPrompt, K::AgentMessage]);
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare(&format!(
             "SELECT id, config FROM runs WHERE id IN
                (SELECT DISTINCT run_id FROM events
-                 WHERE type IN ('session.usage', 'session.prompt', 'agent.message') AND ts >= ?1 AND ts < ?2)
-             ORDER BY created_at",
-        )?;
+                 WHERE type IN ({at_work}) AND ts >= ?1 AND ts < ?2)
+             ORDER BY created_at"
+        ))?;
         let rows = stmt.query_map(params![from, to], |r| {
             Ok((r.get::<_, String>(0)?, serde_json::from_str::<Value>(&r.get::<_, String>(1)?).unwrap_or(Value::Null)))
         })?;
@@ -478,12 +483,13 @@ impl Db {
     // @project-doc docs/domains/20261116-resource_library.md#skill_uses
     pub fn skill_uses(&self) -> Result<std::collections::HashMap<String, (u64, i64)>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let used = sql_kinds(&[EventKind::SkillUsed]);
+        let mut stmt = conn.prepare(&format!(
             "SELECT item, COUNT(*), MAX(ts) FROM (
-               SELECT json_extract(data, '$.item') AS item, MAX(ts) AS ts FROM events WHERE type = 'skill.used'
+               SELECT json_extract(data, '$.item') AS item, MAX(ts) AS ts FROM events WHERE type IN ({used})
                GROUP BY item, run_id, actor, task, attempt
-             ) WHERE item IS NOT NULL GROUP BY item",
-        )?;
+             ) WHERE item IS NOT NULL GROUP BY item"
+        ))?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)? as u64, r.get(2)?))))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -578,11 +584,12 @@ impl Db {
     /// when it starts thinking). Their transcripts in the agents' own folders go with the run.
     pub fn run_sessions(&self, run_id: &str) -> Result<std::collections::HashSet<String>> {
         let conn = self.0.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let opened = sql_kinds(&[EventKind::AttemptStarted, EventKind::AgentStatus, EventKind::SessionPrompt]);
+        let mut stmt = conn.prepare(&format!(
             "SELECT json_extract(data, '$.session') FROM events WHERE run_id = ?1
-               AND type IN ('attempt.started', 'agent.status', 'session.prompt')
-               AND json_extract(data, '$.session') IS NOT NULL",
-        )?;
+               AND type IN ({opened})
+               AND json_extract(data, '$.session') IS NOT NULL"
+        ))?;
         let found = stmt.query_map(params![run_id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()?;
         Ok(found)
     }

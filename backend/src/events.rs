@@ -115,6 +115,15 @@ wire_enum! {
 }
 
 impl EventKind {
+    /// What answers or withdraws a request (`data.key`): a question, an approval or a form.
+    pub const SETTLES_REQUEST: [EventKind; 5] = [
+        EventKind::QuestionAnswered,
+        EventKind::ApprovalGranted,
+        EventKind::ApprovalDenied,
+        EventKind::InputAnswered,
+        EventKind::DecisionWithdrawn,
+    ];
+
     /// An agent did something in the run: spoke, called a tool, handed in a result or put
     /// tasks on the board. Opening a session, Janus's own notes and usage readings are not work.
     pub fn is_agent_progress(self) -> bool {
