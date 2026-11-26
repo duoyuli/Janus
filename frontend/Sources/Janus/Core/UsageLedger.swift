@@ -280,9 +280,6 @@ struct UsageLedger: Equatable {
 
     func task(_ id: String) -> UsageScope? { tasks.first { $0.id == id } }
 
-    /// The run's tokens, cost and wall-clock time in one line.
-    var runLine: String { L.text("\(run.tokensText) · \(run.costText) · 耗时 \(run.durationText)") }
-
     /// Whether any session reported usage (tokens, a context snapshot or a cost): only then is
     /// there a ledger to open. A session that opened and reported nothing is not one.
     var hasUsage: Bool {

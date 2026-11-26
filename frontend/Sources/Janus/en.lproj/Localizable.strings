@@ -27,7 +27,6 @@
 "%@ tokens · %lld 轮" = "%@ tokens · Turns: %lld";
 "%@ tokens（%@）" = "%@ tokens (%@)";
 "%@ · %@ · %@\n%@\n点按在审计日志中查看" = "%@ · %@ · %@\n%@\nClick to view in the audit log";
-"%@ · %@ · 耗时 %@" = "%@ · %@ · Elapsed: %@";
 "%@ · %@，点按打开子任务页" = "%@ · %@, open subtask";
 "%@ · %lld 个会话" = "%@ · Sessions: %lld";
 "%@ · 尝试 %lld · sha256 %@…" = "%@ · Attempt %lld · SHA-256 %@…";
@@ -86,7 +85,6 @@
 "%lld 分 %@ 秒" = "%lld min %@ sec";
 "%lld 分钟" = "%lld min";
 "%lld 分钟前" = "%lld min ago";
-"%lld 处对不上" = "Mismatches: %lld";
 "%lld 小时" = "%lld hr";
 "%lld 小时 %lld 分" = "%lld hr %lld min";
 "%lld 小时前" = "%lld hr ago";
@@ -94,7 +92,6 @@
 "%lld 条 · 通过 %lld 条" = "Criteria: %lld · Passed: %lld";
 "%lld 条事件" = "Events: %lld";
 "%lld 条意见" = "Comments: %lld";
-"%lld 条标准没通过" = "Failed criteria: %lld";
 "%lld 条系统规则没满足" = "%lld system rules broken";
 "%lld 条，基于 %lld 条事件" = "Invariants: %lld · Events checked: %lld";
 "%lld 次完成" = "Completions: %lld";
@@ -102,12 +99,9 @@
 "%lld 秒" = "%lld sec";
 "%lld 秒前" = "%lld sec ago";
 "%lld 轮没有价格（%@），没有计入估算。" = "Turns without pricing were excluded from the estimate: %lld (%@).";
-"%lld 项独立验证未确认" = "Unconfirmed independent reviews: %lld";
 "%lld 件待处理" = "%lld pending";
 "%lld/%lld 通过" = "%lld/%lld passed";
-"- %@（事件 #%@）" = "- %@ (event #%@)";
 "- %@：通过 %lld/%lld · 证据：%@" = "- %@: passed %lld of %lld · Evidence: %@";
-"- 无" = "- None";
 "1 小时后" = "In 1 hour";
 "4 小时后" = "In 4 hours";
 "? 问负责人：%@%@ · 负责人会回答，不需要你处理" = "? Question for the lead: %@%@ · The lead will answer";
@@ -147,7 +141,6 @@
 "update.json 不完整" = "update.json is incomplete";
 "yyyy年M月d日" = "MMM d, yyyy";
 "yyyy年M月d日 HH:mm" = "MMM d, yyyy, HH:mm";
-"· %lld 个操作" = "· Operations: %lld";
 "↳ 负责人 Agent 转交给你：%@" = "↳ The lead forwarded this to you: %@";
 "⇄ 上游子任务 %@ 的结果已带入本次子任务" = "⇄ Results from upstream subtask %@ were included in this subtask";
 "⇪ 提交结果：%@" = "⇪ Result submitted: %@";
@@ -156,7 +149,6 @@
 "⚠ 有 %lld 个未提交改动（不会带进任务）" = "⚠ Uncommitted changes: %lld. Tasks start without them.";
 "⚠ 越界：%@ 改了 %@ 负责的 %@。已提醒 %@ 不要再改，并告诉负责人" = "⚠ %1$@ edited %3$@, which belongs to %2$@. Janus asked %4$@ to stop editing these files and notified the lead.";
 "✓ Git 仓库 · 当前分支 %@ · %@" = "✓ Git repository · Branch: %@ · %@";
-"✓ 你已于 %@ 验收" = "✓ You accepted delivery at %@";
 "、" = ", ";
 "。" = ". ";
 "「%@」" = "“%@”";
@@ -362,7 +354,6 @@
 "回答 %@ 的提问" = "Answered %@’s question";
 "回答会记入日志，并发回给 Agent。%@" = "Your answer is logged and sent back to the Agent.%@";
 "团队" = "Team";
-"团队上下文" = "Team Context";
 "团队与权限" = "Team & Permissions";
 "团队干活中" = "Team working";
 "图片 %@" = "Image %@";
@@ -408,9 +399,7 @@
 "子任务产物" = "Subtask Artifacts";
 "子任务状态只由 Janus 改变" = "Only Janus changes subtask state";
 "子任务里已有的改动会照常记录成 diff。" = "Existing changes will still be recorded in the diff.";
-"子任务风险 %lld 条" = "Subtask risks: %lld";
 "安装" = "Install";
-"下载新版、校验签名、替换并重开，一步完成。" = "Downloads, verifies the signature, replaces the app, and reopens, all in one go.";
 "完成" = "Done";
 "完整" = "Complete";
 "完整磁盘访问" = "Full Disk Access";
@@ -434,8 +423,6 @@
 "展开 %@ 的验收证据" = "Expand Acceptance Evidence for %@";
 "展开全文" = "Show Full Summary";
 "展开全部" = "Show All";
-"展开全部 %lld 条（余下 %lld 条）" = "Show all %lld (%lld more)";
-"展开全部任务级风险" = "Show all run-level risks";
 "按时间看谁做了什么、交给了谁" = "Who did what, and handed it to whom, over time";
 "展开子任务与成员明细" = "Expand Subtask and Member Details";
 "展开用量明细" = "Expand Usage Details";
@@ -514,7 +501,6 @@
 "待命" = "Standing by";
 "待处理" = "Pending";
 "最近活动 %@" = "Last active %@";
-"思考 · %@" = "Thinking · %@";
 "总体意见（可选）" = "Overall Feedback (optional)";
 "成功" = "Succeeded";
 "成功平均 %@ 分钟" = "Average successful run: %@ min";
@@ -590,10 +576,8 @@
 "收起完整目标" = "Collapse Full Goal";
 "收起明细" = "Collapse Details";
 "收起用量明细" = "Collapse Usage Details";
-"收起任务级风险，只列前 %lld 条" = "Show only the first %lld run-level risks";
 "收起这个子任务的验收证据" = "Collapse the acceptance evidence for this subtask";
 "收起进展" = "Collapse Progress";
-"收起，只看前 %lld 条" = "Collapse to the first %lld";
 "改了 %lld 个文件" = "Files changed: %lld";
 "改动 %lld" = "Changes %lld";
 "稍后：先放一放，到点再提醒。没人在等，推迟不会卡住任务" = "Later: set it aside until later. Nothing is waiting on it, so the run won't stall";
@@ -641,7 +625,6 @@
 "最新的发布 %@ 没有 update.json，只能下载 DMG 手动安装" = "The latest release, %@, has no update.json. Download the DMG to install it manually.";
 "最近 %lld 个任务：%@" = "Last %lld runs: %@";
 "最近一次核对没有通过：\n%@" = "The most recent verification failed:\n%@";
-"有 %@。逐条核对后再验收。" = "Review each issue before accepting delivery. %@.";
 "有新消息" = "New Messages";
 "有新消息，回到最新" = "New messages, jump to latest";
 "有新版本" = "New Version Available";
@@ -679,7 +662,6 @@
 "构成" = "Breakdown";
 "查找 Skill" = "Find Skills";
 "查看" = "View";
-"查看内容" = "Show Contents";
 "查看原因后继续，或者忽略" = "Review the cause, then resume the run or ignore it";
 "查看团队和子任务状态" = "View team and subtask status";
 "查看 %@ 的全部信息" = "View everything about %@";
@@ -688,9 +670,6 @@
 "标记完成前已提交结构化结果和证据" = "Structured results and evidence precede completion";
 "忽略" = "Ignore";
 "核对中" = "Verifying";
-"核对后接受风险并验收" = "Accept Delivery and Risks";
-"核对证据后验收。" = "Review the evidence before accepting delivery.";
-"核对证据和风险后验收" = "Review the evidence and risks before accepting delivery";
 "根据推理或自我判断得到的结果，不是运行得到的结果" = "Result based on reasoning or judgment without an executed check";
 "检查" = "Inspection";
 "检查 Agent" = "Check Agent";
@@ -958,8 +937,6 @@
 "运行时路径" = "Runtime Path";
 "跑测试" = "Running tests";
 "运行环境" = "Runtime Environment";
-"任务级 %lld 条" = "Run-level: %lld";
-"任务级风险 %lld 条" = "Run-level risks: %lld";
 "运行自动化测试得到的结果" = "Result from an automated test";
 "近 30 天" = "Last 30 Days";
 "近 7 天" = "Last 7 Days";
@@ -1041,7 +1018,6 @@
 "预览" = "Preview";
 "风险" = "Risks";
 "风险 %lld 条" = "Risks: %lld";
-"风险与限制" = "Risks & Limitations";
 "风险（协作者自报）" = "Risks (self-reported)";
 "风险：" = "Risks:";
 "风险：%@" = "Risks: %@";
@@ -1049,7 +1025,6 @@
 "首次通过 %@" = "Passed first time: %@";
 "首次通过：第一次尝试就完成，且验证一次通过" = "Passed first time means the first attempt completed and passed verification on its first check";
 "验收标准" = "Acceptance Criteria";
-"验收概览：%@" = "Acceptance Overview: %@";
 "验收通过" = "Accept Delivery";
 "提醒交结果 · 这一轮结束了还没交" = "Reminded to hand in · the turn ended without a result";
 "验证没通过" = "Verification failed";
@@ -1132,7 +1107,6 @@
 "新开会话（这个子任务之前没有会话）" = "New session (this subtask had no session before)";
 "⚠ 派出子任务后改了文件：%@ · 交付时会单独列出" = "⚠ Edited files after handing out subtasks: %@ · listed on their own in the delivery";
 "没有独立验证" = "No independent verification";
-"%lld 个子任务没有独立验证" = "Without independent verification: %lld";
 " · 没有独立验证" = " · No independent verification";
 "%@的记录、子任务、产物和日志都会删除，找不回来。没提交的改动先存成补丁；你的目录和已合并的结果不受影响。" = "The records, subtasks, artifacts, and logs of %@ are deleted for good. Uncommitted changes are saved as a patch first; your folder and merged results stay as they are.";
 "Git 仓库 %@" = "Git repository %@";

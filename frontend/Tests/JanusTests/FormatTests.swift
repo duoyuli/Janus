@@ -110,8 +110,6 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     #expect(missing.costDetail == expectedCopy("未上报", "Not reported"))
     #expect(missing.durationText == expectedCopy("没有时长记录", "No duration recorded"))
     #expect(missing.contextDetail == nil)
-    // An empty ledger keeps the words, so the run card cannot show "0 tokens".
-    #expect(UsageLedger.empty.runLine == expectedCopy("未上报 · 费用：未上报 · 耗时 没有时长记录", "Not reported · Cost: Not reported · Elapsed: No duration recorded"))
     #expect(UsageLedger.empty.remindersLine == nil)
 }
 
