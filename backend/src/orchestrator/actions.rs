@@ -715,8 +715,8 @@ impl App {
                 .and_then(|d| d["traceGaps"].as_array())
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
                 .unwrap_or_default();
-            let artifacts: Vec<Value> =
-                mine(EventKind::ArtifactCreated).iter().filter_map(|e| e.data.clone()).collect();
+            let artifacts: Vec<Artifact> =
+                mine(EventKind::ArtifactCreated).iter().filter_map(|e| Artifact::of_event(e)).collect();
             let last_session = mine(EventKind::AttemptStarted)
                 .last()
                 .and_then(|e| e.data.as_ref().and_then(|d| d["session"].as_str().map(str::to_owned)));

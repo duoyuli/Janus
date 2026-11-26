@@ -206,7 +206,7 @@ impl App {
             let team_note = match v_task {
                 Some(vt) => {
                     let diff_path =
-                        vt.artifacts.iter().rev().find(|a| a["kind"] == "git_diff").and_then(|a| a["path"].as_str());
+                        vt.artifacts.iter().rev().find(|a| a.kind == ArtifactKind::GitDiff).map(|a| a.path.as_str());
                     let edited_files: Vec<String> = st.traces.files(&vt.def.id).into_iter().collect();
                     let vr = vt.result.as_ref();
                     let weak_checks =
@@ -231,9 +231,8 @@ impl App {
             let lang = run.lang;
             let describe = |u: &Task| -> (String, Value) {
                 let r = u.result.clone().unwrap_or_default();
-                let files: Vec<String> =
-                    u.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
-                let names: Vec<&str> = u.artifacts.iter().filter_map(|a| a["name"].as_str()).collect();
+                let files: Vec<String> = u.artifacts.iter().map(|a| a.path.clone()).collect();
+                let names: Vec<&str> = u.artifacts.iter().map(|a| a.name.as_str()).collect();
                 let amended = if u.amendments.is_empty() {
                     String::new()
                 } else {
@@ -343,8 +342,8 @@ impl App {
                             .artifacts
                             .iter()
                             .rev()
-                            .filter(|a| a["kind"] == "git_diff")
-                            .filter_map(|a| a["path"].as_str().map(str::to_owned))
+                            .filter(|a| a.kind == ArtifactKind::GitDiff)
+                            .map(|a| a.path.clone())
                             .take(2)
                             .collect(),
                     })
@@ -618,7 +617,7 @@ impl App {
                                 attempt: n,
                                 agent: &agent,
                                 name: &format!("{id}-a{n}-report{suffix}.md"),
-                                kind: "report",
+                                kind: ArtifactKind::Report,
                                 bytes: text.as_bytes(),
                                 desc: "Agent 这一轮的最终回复",
                             },
@@ -1077,7 +1076,7 @@ impl App {
                 attempt: n,
                 agent,
                 name: &format!("{id}-a{n}.diff"),
-                kind: "git_diff",
+                kind: ArtifactKind::GitDiff,
                 bytes: diff.as_bytes(),
                 desc: &desc,
             },
@@ -1133,7 +1132,7 @@ impl App {
                 attempt: 0,
                 agent: "janus",
                 name: &name,
-                kind: "run_diff",
+                kind: ArtifactKind::RunDiff,
                 bytes: diff.as_bytes(),
                 desc: &desc,
             },
@@ -1143,7 +1142,7 @@ impl App {
     }
 
     /// Store an artifact and announce it; returns it as the run's state and the delivery list it.
-    pub(super) fn save_artifact(&self, run: &Run, artifact: NewArtifact<'_>) -> Result<Value> {
+    pub(super) fn save_artifact(&self, run: &Run, artifact: NewArtifact<'_>) -> Result<Artifact> {
         let NewArtifact { task, attempt: n, agent, name, kind, bytes, desc } = artifact;
         let dirs = self.dirs(run);
         let dir = task.map_or_else(|| dirs.changes(), |t| dirs.artifacts(t));
@@ -1157,7 +1156,7 @@ impl App {
             task: task.unwrap_or_default(),
             attempt: n,
             name,
-            kind,
+            kind: kind.as_str(),
             path: &path.to_string_lossy(),
             sha256: &sha,
             bytes: bytes.len() as i64,
@@ -1170,10 +1169,17 @@ impl App {
             e = e.task(t).attempt(n);
         }
         let seq = self.emit(run, e);
-        let artifact = json!({ "name": name, "kind": kind, "desc": desc, "path": path, "seq": seq });
+        let artifact = Artifact {
+            name: name.to_string(),
+            kind,
+            desc: desc.to_string(),
+            path: path.to_string_lossy().into_owned(),
+            seq,
+        };
         let mut st = run.st.lock().unwrap();
         if let Some(t) = task.and_then(|t| Run::task_mut(&mut st, t)) {
-            t.artifacts.retain(|a| a["kind"] != kind || kind == "report");
+            // A task's reports add up; its latest diff stands for its work.
+            t.artifacts.retain(|a| a.kind != kind || kind == ArtifactKind::Report);
             t.artifacts.push(artifact.clone());
         }
         Ok(artifact)

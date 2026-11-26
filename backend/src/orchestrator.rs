@@ -107,6 +107,43 @@ pub(super) struct Reload {
     pub broke: BrokeOff,
 }
 
+wire_enum! {
+    /// What an artifact is (`artifacts.kind`, `artifact.created` `data.kind`).
+    pub(super) enum ArtifactKind {
+        /// A task's final reply in a turn.
+        Report = "report",
+        /// What a task changed in its attempt.
+        GitDiff = "git_diff",
+        /// What the whole run changed that is not back on its source yet.
+        RunDiff = "run_diff",
+    }
+}
+
+/// An artifact saved in the run, as the board, the delivery and the next attempts name it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct Artifact {
+    pub name: String,
+    pub kind: ArtifactKind,
+    pub desc: String,
+    pub path: String,
+    /// Its `artifact.created` event.
+    pub seq: i64,
+}
+
+impl Artifact {
+    /// The artifact an `artifact.created` event announced.
+    fn of_event(e: &Event) -> Option<Artifact> {
+        let d = e.data.as_ref()?;
+        Some(Artifact {
+            name: d["name"].as_str()?.to_string(),
+            kind: ArtifactKind::parse(d["kind"].as_str()?)?,
+            desc: d["desc"].as_str().unwrap_or_default().to_string(),
+            path: d["path"].as_str()?.to_string(),
+            seq: e.seq,
+        })
+    }
+}
+
 /// What ended a session its task goes back into.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum BrokeOff {
@@ -451,7 +488,7 @@ struct Task {
     /// The seq of its latest `task.succeeded`: kept after it is reopened, since what others took
     /// from that result is judged against it. Whether it is succeeded now is `status()`.
     last_success_seq: Option<i64>,
-    artifacts: Vec<Value>,
+    artifacts: Vec<Artifact>,
     /// Attempts made before the current retry budget started (a user retry).
     retry_base: i64,
     /// The lead's corrections to this task's conclusion, handed on with it (`result.amended`).
@@ -720,7 +757,7 @@ struct RunState {
     last_diff: String,
     /// The last diff of the whole run saved (`record_run_changes`): its hash, so an unchanged
     /// directory saves nothing, and its artifact, which the delivery lists first.
-    run_diff: Option<(String, Value)>,
+    run_diff: Option<(String, Artifact)>,
     /// Secret in this run's MCP URL, so only its lead reaches the team tools.
     mcp_token: String,
     lead: LeadState,
@@ -1306,7 +1343,7 @@ struct NewArtifact<'a> {
     attempt: i64,
     agent: &'a str,
     name: &'a str,
-    kind: &'a str,
+    kind: ArtifactKind,
     bytes: &'a [u8],
     desc: &'a str,
 }

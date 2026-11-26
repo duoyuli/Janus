@@ -425,7 +425,7 @@ impl App {
             let tasks: Vec<&Task> = st.tasks.iter().filter(|t| round.contains(t.def.id.as_str())).collect();
             // Everything the round changed comes first: with a lead that did the work itself, it
             // is the only diff there is.
-            let mut deliverables: Vec<Value> = st.run_diff.iter().map(|(_, a)| a.clone()).collect();
+            let mut deliverables: Vec<Value> = st.run_diff.iter().map(|(_, a)| json!(a)).collect();
             let mut evidence = vec![];
             let mut risks = vec![];
             let mut acceptance = vec![];
@@ -442,10 +442,8 @@ impl App {
                     risks.push(format!("{}：{state}，没有交付结果", t.def.id));
                 }
                 let r = t.result.clone().unwrap_or_default();
-                for a in &t.artifacts {
-                    if a["kind"] == "git_diff" {
-                        deliverables.push(a.clone());
-                    }
+                for a in t.artifacts.iter().filter(|a| a.kind == ArtifactKind::GitDiff) {
+                    deliverables.push(json!(a));
                 }
                 // Every piece of evidence the task reported, not only the first.
                 for e in &r.evidence {
@@ -465,7 +463,7 @@ impl App {
                         let verdict = v.verdict();
                         Verification {
                             task: v.def.id.clone(),
-                            status: v.status().as_str(),
+                            status: v.status(),
                             label: v.status().label(),
                             verdict,
                             passed: verdict == Some(Verdict::Approved),
@@ -486,8 +484,8 @@ impl App {
                 let gaps = if t.trace_gaps.is_empty() { trace_gaps(&t.def.id) } else { t.trace_gaps.clone() };
                 // A finished task that changed files and that no verification checks: the lead may
                 // have checked it itself, which its summary has to say.
-                let changed =
-                    !st.traces.files(&t.def.id).is_empty() || t.artifacts.iter().any(|a| a["kind"] == "git_diff");
+                let changed = !st.traces.files(&t.def.id).is_empty()
+                    || t.artifacts.iter().any(|a| a.kind == ArtifactKind::GitDiff);
                 let unverified = t.def.verifies.is_none()
                     && t.status() == TaskStatus::Succeeded
                     && changed
@@ -497,7 +495,7 @@ impl App {
                 acceptance.push(TaskAcceptance {
                     task: t.def.id.clone(),
                     title: t.def.title.clone(),
-                    status: t.status().as_str(),
+                    status: t.status(),
                     label: t.status().label(),
                     summary: Summary::of(&t.def.accept, &r.checks),
                     checks: r.checks.clone(),
@@ -520,9 +518,9 @@ impl App {
             // The newest final reply of the round: a last task the lead cancelled, or one that
             // never answered, leaves none of its own, and the delivery must not come out empty.
             if let Some(report) =
-                tasks.iter().rev().find_map(|t| t.artifacts.iter().rev().find(|a| a["kind"] == "report"))
+                tasks.iter().rev().find_map(|t| t.artifacts.iter().rev().find(|a| a.kind == ArtifactKind::Report))
             {
-                deliverables.push(report.clone());
+                deliverables.push(json!(report));
             }
             // Without Git, the files come from the edits the lead and the round's tasks reported.
             let changed: Vec<String> = unmerged.unwrap_or_else(|| {

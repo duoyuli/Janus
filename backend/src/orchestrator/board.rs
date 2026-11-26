@@ -1350,7 +1350,7 @@ impl App {
                 "Trace check (where the result and the working directory disagree):\n{gaps}"
             ));
         }
-        let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
+        let arts: Vec<String> = t.artifacts.iter().map(|a| a.path.clone()).collect();
         if !arts.is_empty() {
             let arts = arts.join(sep);
             out.push(tr!(lang, "产物：{arts}", "Artifacts: {arts}"));

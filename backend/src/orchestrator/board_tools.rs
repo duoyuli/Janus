@@ -725,7 +725,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             let st = run.st.lock().unwrap();
             let t = st.tasks.iter().find(|t| t.def.id == task)?;
             let r = t.result.clone().unwrap_or_default();
-            let arts: Vec<String> = t.artifacts.iter().filter_map(|a| a["path"].as_str().map(str::to_owned)).collect();
+            let arts: Vec<String> = t.artifacts.iter().map(|a| a.path.clone()).collect();
             let checks: Vec<String> = r.checks.iter().map(|c| clip(&c.line(lang), 60 + INLINE_ITEM)).collect();
             let (evidence, more_evidence) = inline_list(&r.evidence, lang);
             let (risks, more_risks) = inline_list(&r.risks, lang);

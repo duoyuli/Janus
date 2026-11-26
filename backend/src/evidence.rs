@@ -283,7 +283,7 @@ pub fn effective_verdict(verdict: Option<Verdict>, accept_len: usize, checks: &[
 #[derive(Clone, Debug, Serialize)]
 pub struct Verification {
     pub task: String,
-    pub status: &'static str,
+    pub status: crate::status::TaskStatus,
     pub label: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verdict: Option<Verdict>,
@@ -302,7 +302,7 @@ pub struct Verification {
 pub struct TaskAcceptance {
     pub task: String,
     pub title: String,
-    pub status: &'static str,
+    pub status: crate::status::TaskStatus,
     pub label: &'static str,
     #[serde(flatten)]
     pub summary: Summary,
