@@ -45,12 +45,7 @@ impl App {
             let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
             for e in entries.flatten() {
                 let name = e.file_name().to_string_lossy().into_owned();
-                let of = |s: &String| {
-                    let file = name.strip_suffix(".jsonl").unwrap_or(&name);
-                    !s.is_empty()
-                        && (file == s || file.strip_suffix(s.as_str()).is_some_and(|rest| rest.ends_with('-')))
-                };
-                if sessions.iter().any(of) {
+                if sessions.iter().any(|s| crate::agent_records::of_session(&name, s)) {
                     crate::layout::remove(&e.path());
                 } else if depth > 0 && e.file_type().is_ok_and(|t| t.is_dir()) {
                     walk(&e.path(), sessions, depth - 1)?;

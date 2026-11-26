@@ -372,7 +372,6 @@ impl App {
         let log = self.dirs(run).log(&format!("{id}-a{n}.log"));
         let owner = Owner { session: SessionKey::task(id), attempt: n };
         let (conn, mut rx, mut ctl) = self.open_session(run, &owner, &agent, &spec, &log, "Agent ").await?;
-        let mut native_turn = None;
         let outcome = async {
         // A task interrupted by a restart reopens its old session; a follow-up task (`continues`),
         // a retry the lead sent back into its own session (`session: "continue"`) and a
@@ -591,7 +590,6 @@ impl App {
         let result = {
             let mut result = loop {
                 if let Some(p) = next.take() {
-                    native_turn = self.native_turn(run, &member, &sid, native_turn.take().and_then(|t: NativeTurn| t.path));
                     text = self
                         .stream_prompt(
                             run,
@@ -760,12 +758,6 @@ impl App {
         .await;
         // The agent stops before its changes are recorded, so nothing moves under the record.
         self.close_session(run, &owner, Some(&conn), &format!("{id} 的这次尝试已经结束，撤回待处理的请求")).await;
-        if outcome.is_err()
-            && let Some(turn) = native_turn
-        {
-            let ctx = Ctx { agent: &agent, task: Some(id), attempt: Some(n), goal: false };
-            self.recover_native_usage(run, &turn, &ctx);
-        }
         let (result, sid) = outcome?;
         self.check_aborted(run, id, &mut ctl)?;
         self.record_changes(run, id, n, &agent, &workspace)?;
@@ -1032,59 +1024,6 @@ impl App {
         })
     }
 
-    /// Mark the transcript and event stream immediately before sending this prompt. A follow-up
-    /// or retry can reuse the same native session and must only recover its own turn.
-    pub(super) fn native_turn(
-        &self,
-        run: &Run,
-        member: &Member,
-        sid: &str,
-        known_path: Option<PathBuf>,
-    ) -> Option<NativeTurn> {
-        if !member.runtime.native_transcript() || sid.is_empty() || Path::new(sid).file_name()?.to_str()? != sid {
-            return None;
-        }
-        let projects = self.cfg.layout.agent_config(&member.connection).join("projects");
-        let path = known_path.or_else(|| find_session_jsonl(&projects, &format!("{sid}.jsonl"), 3));
-        let offset = match &path {
-            Some(p) => p.metadata().ok()?.len(),
-            None => 0,
-        };
-        Some(NativeTurn { projects, sid: sid.into(), path, offset, after_seq: run.seq.load(Ordering::SeqCst) })
-    }
-
-    pub(super) fn recover_native_usage(&self, run: &Run, turn: &NativeTurn, ctx: &Ctx<'_>) {
-        use std::io::{Read, Seek, SeekFrom};
-        let Some(path) =
-            turn.path.clone().or_else(|| find_session_jsonl(&turn.projects, &format!("{}.jsonl", turn.sid), 3))
-        else {
-            return;
-        };
-        let Ok(mut file) = std::fs::File::open(path) else { return };
-        if !file.metadata().is_ok_and(|m| m.len() > turn.offset) || file.seek(SeekFrom::Start(turn.offset)).is_err() {
-            return;
-        }
-        // A cancelled prompt may still have returned its usage. A previous fallback for this
-        // turn is also a report. Context-only snapshots do not count.
-        let Ok(events) = self.db.events(&run.id, turn.after_seq) else { return };
-        if events.iter().any(|e| {
-            e.kind() == EventKind::SessionUsage
-                && e.actor == ctx.agent
-                && e.task.as_deref() == ctx.task
-                && e.attempt == ctx.attempt
-                && e.data.as_ref().is_some_and(|d| !crate::usage::Tokens::of_turn(d).is_empty())
-        }) {
-            return;
-        }
-        let mut content = String::new();
-        if file.read_to_string(&mut content).is_ok()
-            && let Some(mut data) = parse_claude_session_jsonl(&content)
-        {
-            data["session"] = json!(turn.sid);
-            self.show(run, (EventKind::SessionUsage, "从隔离会话日志补齐本轮用量".into(), data), ctx);
-        }
-    }
-
     /// Working in place there is nothing to commit. In a Git directory, keep what the working
     /// tree now differs from HEAD by whenever a task leaves it different, as that task's diff.
     /// Tasks running side by side share the directory, so the diff can include their changes too.
@@ -1264,138 +1203,4 @@ pub(super) fn working_diff(cwd: &Path, against: &str, scope: &[String]) -> Strin
         diff.push_str(&format!("\n# 未跟踪的新文件\n{}", untracked.replace('\0', "\n")));
     }
     diff
-}
-
-pub(super) struct NativeTurn {
-    projects: PathBuf,
-    sid: String,
-    path: Option<PathBuf>,
-    offset: u64,
-    after_seq: i64,
-}
-
-fn find_session_jsonl(dir: &Path, filename: &str, depth: u8) -> Option<PathBuf> {
-    if depth == 0 {
-        return None;
-    }
-    let direct = dir.join(filename);
-    if std::fs::symlink_metadata(&direct).is_ok_and(|m| m.is_file()) {
-        return Some(direct);
-    }
-    if depth == 1 {
-        return None;
-    }
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let path = entry.path();
-        if entry.file_type().is_ok_and(|t| t.is_dir())
-            && let Some(found) = find_session_jsonl(&path, filename, depth - 1)
-        {
-            return Some(found);
-        }
-    }
-    None
-}
-
-/// Parse an isolated Claude Code `<sid>.jsonl` transcript into a single `session.usage` payload,
-/// deduplicating repeated streaming entries that share the same `message.id` (keeping the final
-/// usage snapshot of each message).
-pub(super) fn parse_claude_session_jsonl(content: &str) -> Option<Value> {
-    #[derive(Clone, Default)]
-    struct MsgUsage {
-        model: String,
-        input: i64,
-        output: i64,
-        cache_read: i64,
-        cache_write: i64,
-    }
-    let mut order: Vec<String> = vec![];
-    let mut by_id: HashMap<String, MsgUsage> = HashMap::new();
-    for (idx, line) in content.lines().enumerate() {
-        let Ok(v) = serde_json::from_str::<Value>(line.trim()) else { continue };
-        let msg = &v["message"];
-        let usage = &msg["usage"];
-        if !usage.is_object() {
-            continue;
-        }
-        let input = usage["input_tokens"].as_i64().unwrap_or(0);
-        let output = usage["output_tokens"].as_i64().unwrap_or(0);
-        let cache_read = usage["cache_read_input_tokens"].as_i64().unwrap_or(0);
-        let cache_write = usage["cache_creation_input_tokens"].as_i64().unwrap_or(0);
-        if input + output + cache_read + cache_write <= 0 {
-            continue;
-        }
-        let key =
-            msg["id"].as_str().filter(|s| !s.is_empty()).map(str::to_owned).unwrap_or_else(|| format!("anon-{idx}"));
-        let model = msg["model"].as_str().unwrap_or("").to_string();
-        if !by_id.contains_key(&key) {
-            order.push(key.clone());
-        }
-        by_id.insert(key, MsgUsage { model, input, output, cache_read, cache_write });
-    }
-    if order.is_empty() {
-        return None;
-    }
-    let (mut tot_in, mut tot_out, mut tot_read, mut tot_write) = (0i64, 0i64, 0i64, 0i64);
-    let mut per_model: BTreeMap<String, (i64, i64, i64, i64)> = BTreeMap::new();
-    for key in &order {
-        let m = &by_id[key];
-        tot_in += m.input;
-        tot_out += m.output;
-        tot_read += m.cache_read;
-        tot_write += m.cache_write;
-        let e = per_model.entry(m.model.clone()).or_default();
-        e.0 += m.input;
-        e.1 += m.output;
-        e.2 += m.cache_read;
-        e.3 += m.cache_write;
-    }
-    let total = tot_in + tot_out + tot_read + tot_write;
-    let mut data = json!({
-        "inputTokens": tot_in,
-        "outputTokens": tot_out,
-        "cachedReadTokens": tot_read,
-        "cachedWriteTokens": tot_write,
-        "totalTokens": total,
-        "source": "native_log",
-    });
-    if per_model.keys().any(|model| !model.is_empty()) {
-        let models: Vec<Value> = per_model
-            .into_iter()
-            .map(|(model, (i, o, cr, cw))| {
-                json!({
-                    "model": model,
-                    "inputTokens": i,
-                    "outputTokens": o,
-                    "cachedReadTokens": cr,
-                    "cachedWriteTokens": cw,
-                    "totalTokens": i + o + cr + cw,
-                })
-            })
-            .collect();
-        data["models"] = json!(models);
-    }
-    Some(data)
-}
-
-#[cfg(test)]
-mod native_usage_tests {
-    use super::*;
-
-    #[test]
-    fn claude_jsonl_deduplicates_message_ids_and_groups_by_model() {
-        let log = [
-            json!({ "type": "assistant", "message": { "id": "msg_1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 100, "output_tokens": 10, "cache_read_input_tokens": 500, "cache_creation_input_tokens": 50 } } }).to_string(),
-            json!({ "type": "assistant", "message": { "id": "msg_1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 100, "output_tokens": 45, "cache_read_input_tokens": 500, "cache_creation_input_tokens": 50 } } }).to_string(),
-            json!({ "type": "assistant", "message": { "id": "msg_2", "model": "claude-haiku-4-5", "usage": { "input_tokens": 80, "output_tokens": 20, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 } } }).to_string(),
-        ]
-        .join("\n");
-        let parsed = parse_claude_session_jsonl(&log).unwrap();
-        assert_eq!(parsed["inputTokens"], 180);
-        assert_eq!(parsed["outputTokens"], 65);
-        assert_eq!(parsed["cachedReadTokens"], 500);
-        assert_eq!(parsed["cachedWriteTokens"], 50);
-        assert_eq!(parsed["totalTokens"], 795);
-        assert_eq!(parsed["source"], "native_log");
-        assert_eq!(parsed["models"].as_array().unwrap().len(), 2);
-    }
 }

@@ -206,10 +206,4 @@ impl Runtime {
     pub fn trusts_workspaces(self) -> bool {
         self == Runtime::Claude
     }
-
-    /// The runtime keeps its own transcript of each session that Janus can read back (Claude
-    /// Code's `projects/<dir>/<session>.jsonl` in the agent's config directory).
-    pub fn native_transcript(self) -> bool {
-        self == Runtime::Claude
-    }
 }

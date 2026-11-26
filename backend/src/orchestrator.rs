@@ -52,6 +52,7 @@ mod mcp_router;
 mod mcp_server;
 mod memory;
 mod merge;
+mod records;
 use chat::ChatTool;
 use loops::LoopTool;
 use memory::{MemoryAccess, MemoryTool};
@@ -907,6 +908,8 @@ pub struct Run {
     /// The watchdog's view of each open session. Its own lock: session updates touch it often,
     /// and nothing else is held while it is.
     watch: StdMutex<HashMap<SessionKey, Watch>>,
+    /// Where reading each native session's records stopped, kept between its turns (`records`).
+    records: StdMutex<HashMap<String, crate::agent_records::Reader>>,
 }
 
 /// Whose open ACP session something belongs to: the lead's, or a task's. The two never share a
@@ -1018,6 +1021,7 @@ impl Run {
             lead_nudge: Notify::new(),
             board_wake: Notify::new(),
             watch: Default::default(),
+            records: Default::default(),
             router: Default::default(),
         }
     }

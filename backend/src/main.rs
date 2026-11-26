@@ -1,6 +1,7 @@
 mod acp;
 mod acp_view;
 mod adapters;
+mod agent_records;
 mod agents;
 mod attachments;
 mod bill;

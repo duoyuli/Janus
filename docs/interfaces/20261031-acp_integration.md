@@ -158,19 +158,21 @@ Janus 把会话的更新转成事件（`acp_view.rs`），应用照着显示，�
 | `current_mode_update` | `session.control` | Agent 自己切换了模式 |
 | `config_option_update` | `session.controls` | 选项变了，记录整份新的选项 |
 | `usage_update`；`session/prompt` 返回的 `usage` 和 `_meta.quota.model_usage` | `session.usage` | 上下文快照（`used`、`size`、可选 `cost`）；一轮的 token（`inputTokens`、`outputTokens`、`totalTokens`、`cachedReadTokens`、`cachedWriteTokens`、`thoughtTokens`）和按模型的 `models` |
+| 不经 ACP：Agent 自己的会话记录 | `session.usage`（`data.source: "records"`） | 会话到目前为止按模型的累计 token，这一轮进行中每 20 秒读一次、有变化才记，这一轮结束时（包括出错、超时和被打断）再记一次，见[用量口径](20261031-events.md#usage_accounting) |
 
 会话打开时，Janus 还把它提供的选项（模型、推理强度、其他下拉控制项，按 `agents::session_options` 整理，当前值是应用角色设置之后的值）记为一条 `session.controls`。
 
 ### 用量字段的口径
 
-`session.usage` 的两种形态含义不同，Janus 原样记录，口径由用量账本统一处理：
+`session.usage` 的几种形态含义不同，Janus 原样记录，口径由用量账本统一处理：
 
 - `usage_update`：`used` 是此刻在上下文里的 token，`size` 是上下文窗口大小，`cost` 带 `amount` 和 `currency`，是会话的累计费用，但不是所有适配器都发。快照按更新原样记录，不去重。
 - `session/prompt` 返回的 `usage`：这一轮提示自己的 token。ACP v1 的 `Usage` 注释写「across session」，与 `PromptResponse` 的「Token usage for this turn」矛盾；v2 改为「the completed work」，Claude Code 和 Codex 适配器也都按每轮实现（Claude Code 在每轮开始清零，Codex 取这一轮前后的会话总量之差）。
 - 返回值的 `_meta.quota.model_usage`：Claude Code 和 Codex 适配器按模型给出这一轮的计数（`token_count` 里缓存读取叫 `cachedInputTokens`，缓存写入叫 `cachedWriteTokens` 或 `cacheWriteInputTokens`，推理叫 `reasoningOutputTokens`）。Claude Code 的 `usage` 只算主循环，`model_usage` 还算子 Agent 和压缩，所以 Janus 把它按 ACP 的字段名记为 `models`，账本优先用它（`acp_view::prompt_usage`）。
 - 缺的字段写 `null`，不写 0。
+- `session/prompt` 返回的 token 只在这一轮正常返回时才有：进行中的一轮看不到，崩溃、超时或被杀掉的一轮永远没有。所以 Janus 还读 Agent 自己的会话记录（`agent_records`），找到记录的会话只按记录计 token，返回值里的 token 照常记下但不再计入，见[用量口径](20261031-events.md#usage_accounting)。
 
-每轮相加、按模型归集、费用和提醒的规则见[用量口径](20261031-events.md#usage_accounting)。会话卡片的「本会话 上下文」「上一轮 N tokens」读的是这个会话最后一条 `session.usage`，和 Run 累计值分开，见 [macOS 应用](../architecture/20261031-frontend.md#usage_ledger)。
+每轮相加、按模型归集、费用和提醒的规则见[用量口径](20261031-events.md#usage_accounting)。会话卡片的「本会话 上下文」「上一轮 N tokens」读的是这个会话最后一条带上下文或顶层 `totalTokens` 的 `session.usage`（会话记录的读数只有按模型的累计值，不改变它们），和 Run 累计值分开，见 [macOS 应用](../architecture/20261031-frontend.md#usage_ledger)。
 
 Janus 仍然声明不提供文件读写和终端（`clientCapabilities.fs`、`terminal` 都是 `false`）：Agent 直接在工作目录里读写、运行命令，输出随工具调用回来。
 

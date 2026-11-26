@@ -39,6 +39,8 @@ impl App {
         let mut asked_at: Option<usize> = None;
         // However the turn ends, the app drops what it previewed of it.
         let _live_end = LiveEnd { app: self, run, ctx };
+        // The agent's own records of the session: read while the turn runs and as it ends.
+        let mut records = self.records_turn(run, ctx, sid);
         loop {
             let steer = async {
                 match ctl.as_mut() {
@@ -64,8 +66,16 @@ impl App {
                     None => std::future::pending().await,
                 }
             };
+            let records_due = records.due();
+            let records_tick = async move {
+                match records_due {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            };
             tokio::select! {
                 _ = live_tick => self.live_frame(run, ctx, &out[flushed..], &mut turn),
+                _ = records_tick => records.poll(),
                 _ = settle => {
                     asks += 1;
                     let text = crate::goal_settle::ask(run.lang);

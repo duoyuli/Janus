@@ -651,45 +651,38 @@ async fn collaborator_split_request_wakes_lead_and_refuses_verifiers() {
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 
+/// Tokens come from the agent's own records in its isolated config directory: a turn that crashes
+/// still counts what it used, and a turn that also reports usage in its prompt response is not
+/// counted twice.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_crashed_attempt_recovers_its_isolated_native_usage() {
-    let h = harness("collab-abnormal-usage", &[("lead", false), ("m1", true)], json!({ "T_CRASH": ["fail"] }));
-    let run = start(&h, json!([task("T_CRASH", "m1", json!({}))])).await;
-    wait_until(&h.app, &run, "T_CRASH failed", |e| task_event(e, "task.failed", "T_CRASH")).await;
-
-    // `recover_native_usage` reads Janus's isolated `<agents_dir>/fake/home/projects/.../<sid>.jsonl`
-    // (the agent's `CLAUDE_CONFIG_DIR` is `<agents_dir>/fake/home`)
-    // when an attempt crashed without reporting ACP usage, and never double-counts once reported.
-    // Janus recovers usage as the attempt ends, while its session is the agent's current one: the last attempt's.
-    let crash_sid = events(&h.app, &run)
+async fn tokens_come_from_the_agents_records_even_when_the_turn_crashes() {
+    let h = harness(
+        "collab-records",
+        &[("lead", false), ("m1", true)],
+        json!({ "T_CRASH": ["records-crash"], "T_OK": ["records"] }),
+    );
+    let run = start(&h, json!([task("T_CRASH", "m1", json!({})), task("T_OK", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T_CRASH failed, T_OK done", |e| {
+        task_event(e, "task.failed", "T_CRASH") && task_event(e, "task.succeeded", "T_OK")
+    })
+    .await;
+    let readings: Vec<Event> = events(&h.app, &run)
         .into_iter()
-        .rfind(|e| e.kind.as_str() == "attempt.started" && e.task.as_deref() == Some("T_CRASH"))
-        .and_then(|e| e.data?["session"].as_str().map(str::to_owned))
-        .unwrap();
-    let proj_dir = h.app.cfg.layout.agent_config("fake").join("projects/demo");
-    std::fs::create_dir_all(&proj_dir).unwrap();
-    let r = h.app.run(&run).unwrap();
-    let member = r.member("m1").unwrap().clone();
-    let ctx = Ctx { agent: "m1", task: Some("T_CRASH"), attempt: Some(1), goal: false };
-    let path = proj_dir.join(format!("{crash_sid}.jsonl"));
-    let prior = json!({"message":{"id":"prior","usage":{"input_tokens":80}}}).to_string();
-    std::fs::write(&path, format!("{prior}\n")).unwrap();
-    h.app.show(&r, (EventKind::SessionUsage, "上一轮".into(), json!({"totalTokens":80, "session":crash_sid})), &ctx);
-    let turn = h.app.native_turn(&r, &member, &crash_sid, None).unwrap();
-    std::fs::write(
-        &path,
-        format!(
-            "{prior}\n{}\n{}\n",
-            json!({ "type": "assistant", "message": { "id": "m1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 300, "output_tokens": 50, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 0 } } }),
-            json!({ "type": "assistant", "message": { "id": "m1", "model": "claude-sonnet-4-5", "usage": { "input_tokens": 300, "output_tokens": 80, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 0 } } })
-        ),
-    )
-    .unwrap();
-    h.app.recover_native_usage(&r, &turn, &ctx);
-    // Calling a second time is a no-op: the ledger already has the recovered turn for this session.
-    h.app.recover_native_usage(&r, &turn, &ctx);
-    let ledger = h.app.usage(&r);
-    assert_eq!(ledger.task("T_CRASH").unwrap().tokens.total, Some(560));
+        .filter(|e| e.kind.as_str() == "session.usage" && e.data.as_ref().is_some_and(|d| d["source"] == "records"))
+        .collect();
+    assert!(
+        readings.iter().all(|e| e.data.as_ref().unwrap()["turnEnded"] == true),
+        "turns this short end before the first poll: {readings:?}"
+    );
+    let ledger = h.app.usage(&h.app.run(&run).unwrap());
+    // 300 + 80 + 100 for the main response's last line, 80 for the subagent's.
+    assert_eq!(ledger.task("T_CRASH").unwrap().tokens.total, Some(560), "the crashed turn is counted");
+    assert_eq!(ledger.task("T_OK").unwrap().tokens.total, Some(560), "the prompt response's 1500 is not added");
+    let bill = ledger.task_bill("T_OK", &Default::default(), crate::lang::Lang::Zh);
+    let models: Vec<(&str, Option<i64>, usize)> =
+        bill[0].models.iter().map(|m| (m.model.as_str(), m.tokens.total, m.turns)).collect();
+    assert_eq!(models, vec![("claude-main", Some(480), 1), ("claude-sub", Some(80), 1)]);
+    assert_eq!(bill[0].turns, 1);
 
     finish_lead(&h);
     wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;

@@ -533,3 +533,92 @@ fn attempts_split_time_into_work_verification_and_rework() {
     assert_eq!(l.time.span_ms, 140_000);
     assert!(l.text.ends_with("子任务 2 分 20 秒（执行 1 分 00 秒 · 验证 40 秒 · 返工 40 秒）"), "{}", l.text);
 }
+
+/// A reading of the agent's records: the session's running totals by model.
+fn records(sid: &str, ended: bool, rows: &[(&str, i64)]) -> Value {
+    let models: Vec<Value> = rows
+        .iter()
+        .map(|(model, total)| json!({ "model": model, "inputTokens": total / 2, "outputTokens": total - total / 2, "totalTokens": total }))
+        .collect();
+    json!({ "source": RECORDS_SOURCE, "session": sid, "turnEnded": ended, "models": models })
+}
+
+#[test]
+fn records_readings_count_each_increment_where_it_is_read() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "warm");
+    usage(&mut e, 3, 3_000, "m1", Some("T1"), Some(1), records("warm", false, &[("opus", 400)]));
+    usage(&mut e, 4, 4_000, "m1", Some("T1"), Some(1), records("warm", false, &[("opus", 400)]));
+    usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), records("warm", true, &[("opus", 700)]));
+    // The next task continues the same native session: only what came after is its own.
+    started(&mut e, 6, 6_000, "m1", "T2", 1, "warm");
+    usage(&mut e, 7, 7_000, "m1", Some("T2"), Some(1), records("warm", true, &[("opus", 1000), ("haiku", 50)]));
+    let l = ledger(&e);
+    assert_eq!(l.task("T1").unwrap().tokens.total, Some(700));
+    assert_eq!(l.task("T2").unwrap().tokens.total, Some(350));
+    assert_eq!((l.task("T1").unwrap().turns, l.task("T2").unwrap().turns), (1, 1), "a turn is counted as it ends");
+    let bill = l.task_bill("T1", &Names::new(), Lang::Zh);
+    let lines: Vec<(&str, Option<i64>, usize)> =
+        bill[0].models.iter().map(|m| (m.model.as_str(), m.tokens.total, m.turns)).collect();
+    assert_eq!(lines, [("opus", Some(700), 1)], "two readings of one turn are one turn of the model");
+    assert_eq!(bill[0].turns, 1);
+    // A bill over part of the session takes the increments read in it.
+    let early: i64 =
+        l.sessions_of("warm").flat_map(|s| &s.spend).filter(|x| x.ts < 4_500).filter_map(|x| x.tokens.total).sum();
+    assert_eq!(early, 400);
+}
+
+#[test]
+fn a_session_with_records_counts_no_prompt_response_tokens() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    // The prompt response comes before the turn's last reading, and once after it.
+    usage(
+        &mut e,
+        3,
+        3_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "totalTokens": 9000, "models": [{ "model": "opus", "totalTokens": 9000 }] }),
+    );
+    usage(&mut e, 4, 3_100, "m1", Some("T1"), Some(1), records("s1", true, &[("opus", 1200)]));
+    usage(
+        &mut e,
+        5,
+        4_000,
+        "m1",
+        Some("T1"),
+        Some(1),
+        json!({ "totalTokens": 800, "used": 5000, "size": 200000, "cost": { "amount": 0.5, "currency": "USD" } }),
+    );
+    // Another member's session without records keeps its prompt responses.
+    e.push(ev(6, 5_000, "attempt.started", "janus", Some("T2"), Some(1), json!({ "session": "s2" })));
+    e.last_mut().unwrap().to = Some("m2".into());
+    usage(&mut e, 7, 6_000, "m2", Some("T2"), Some(1), json!({ "totalTokens": 300 }));
+    let l = ledger(&e);
+    let t1 = l.task("T1").unwrap();
+    assert_eq!(t1.tokens.total, Some(1200), "the records alone");
+    assert_eq!((t1.context.used, t1.cost.lines[0].amount), (Some(5000), 0.5), "context and cost as before");
+    assert_eq!(t1.turns, 1);
+    assert_eq!(l.task("T2").unwrap().tokens.total, Some(300));
+    assert_eq!(l.run.completeness, Completeness::Complete);
+}
+
+#[test]
+fn a_crashed_turn_is_counted_from_its_records() {
+    let mut e = vec![];
+    created(&mut e);
+    started(&mut e, 2, 2_000, "m1", "T1", 1, "s1");
+    usage(&mut e, 3, 22_000, "m1", Some("T1"), Some(1), records("s1", false, &[("opus", 500)]));
+    usage(&mut e, 4, 30_000, "m1", Some("T1"), Some(1), records("s1", true, &[("opus", 650)]));
+    e.push(ev(5, 30_100, "attempt.failed", "m1", Some("T1"), Some(1), json!({ "error": "Agent 进程意外退出" })));
+    // Before the turn ends, its tokens so far are already there, and reported.
+    let running = ledger(&e[..3]);
+    assert_eq!((running.run.tokens.total, running.run.completeness), (Some(500), Completeness::Complete));
+    let l = ledger(&e);
+    let a = &l.attempts[0];
+    assert_eq!((a.state, a.tokens.total, a.completeness), (AttemptState::Failed, Some(650), Completeness::Complete));
+}

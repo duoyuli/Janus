@@ -4,7 +4,11 @@
 //! events (`frontend/Sources/Janus/Core/UsageLedger.swift`), and `backend/testdata/usage_cases.json`
 //! holds the cases both sides must agree on.
 //!
-//! - **Tokens** come only from `session/prompt` responses. Each one is the work of that prompt
+//! - **Tokens** come from the agent's own records of the session when Janus found them
+//!   (`source: "records"`, read by `agent_records` while a turn runs and when it ends, however it
+//!   ends): running totals by model, of which each reading's increment counts where that reading
+//!   was taken, as cost readings do. A session with records counts nothing else for tokens.
+//! - Otherwise tokens come from `session/prompt` responses. Each one is the work of that prompt
 //!   (ACP's `usage`; the Claude Code and Codex adapters start it again at every prompt), so the
 //!   turns of a session are added up. When the response carries `_meta.quota.model_usage`, its rows
 //!   also count subagents and compaction, and they replace `usage` for that turn.
@@ -41,6 +45,9 @@ pub const COST_BLIND_TOKENS: i64 = 100_000;
 
 /// The lead's actor in the events.
 pub const LEAD: &str = "lead";
+
+/// `session.usage`'s `source` for a reading of the agent's own records (`agent_records`).
+pub const RECORDS_SOURCE: &str = "records";
 
 /// Agent ids to display names, given by the caller (the ledger only knows actors).
 pub type Names = HashMap<String, String>;
@@ -132,6 +139,20 @@ impl Tokens {
         let (input, read) = (self.input?, self.cached_read?);
         let prompt = input + read + self.cached_write.unwrap_or(0);
         (prompt > 0).then(|| read as f64 / prompt as f64)
+    }
+
+    /// The increment of this running total over `previous`, which becomes this reading; each
+    /// count as `rise` takes it. A count this reading lacks stays unreported.
+    fn rise(&self, previous: &mut Tokens) -> Tokens {
+        let up = |p: &mut Option<i64>, r: Option<i64>| r.map(|r| rise(p.get_or_insert(0), r));
+        Tokens {
+            total: up(&mut previous.total, self.total),
+            input: up(&mut previous.input, self.input),
+            output: up(&mut previous.output, self.output),
+            cached_read: up(&mut previous.cached_read, self.cached_read),
+            cached_write: up(&mut previous.cached_write, self.cached_write),
+            thought: up(&mut previous.thought, self.thought),
+        }
     }
 
     /// Add another range's counts; a count neither side reported stays unreported.
@@ -238,15 +259,38 @@ enum CostSession {
     Attempt(Option<String>, Option<i64>),
 }
 
-/// Convert cumulative native-session readings into deltas before assigning them to tasks.
-/// The running scheduler and historical bills consume the same ordered events.
-#[derive(Default)]
-pub(crate) struct SessionCosts {
-    current: HashMap<(String, Option<String>, Option<i64>), String>,
-    previous: HashMap<(String, CostSession, String), f64>,
+/// The increment of a running total over its `previous` reading, which becomes this one. A reading
+/// below the previous one means the total started again (`/clear`, a rewritten record), so what
+/// was reached before stays and all of this reading is new; a zero after a positive reading is an
+/// abnormal result and is ignored.
+fn rise<T: Copy + Default + PartialOrd + std::ops::Sub<Output = T>>(previous: &mut T, reading: T) -> T {
+    let zero = T::default();
+    if reading <= zero && *previous > zero {
+        return zero;
+    }
+    let delta = if reading < *previous { reading } else { reading - *previous };
+    *previous = reading;
+    delta
 }
 
-impl SessionCosts {
+/// Convert cumulative native-session readings (reported cost, and tokens from the agent's records)
+/// into increments before assigning them to tasks: an increment counts for the task, attempt and
+/// time of the reading that shows it. The running scheduler and historical bills consume the same
+/// ordered events.
+#[derive(Default)]
+pub(crate) struct SessionReadings {
+    current: HashMap<(String, Option<String>, Option<i64>), String>,
+    previous: HashMap<(String, CostSession, String), f64>,
+    /// Native sessions (actor, session id) with records readings: their prompt responses' tokens
+    /// are in the records already.
+    recorded: HashSet<(String, String)>,
+    /// Each recorded session's last reading by model (actor, session id, model as recorded).
+    tokens: HashMap<(String, String, String), Tokens>,
+    /// The models that used tokens in each recorded session's turn so far.
+    turn_models: HashMap<(String, String), HashSet<String>>,
+}
+
+impl SessionReadings {
     fn sid<'a>(&'a self, e: &'a Event, actor: &str) -> Option<&'a str> {
         e.data
             .as_ref()
@@ -278,17 +322,41 @@ impl SessionCosts {
                     None => CostSession::Attempt(e.task.clone(), e.attempt),
                 };
                 let previous = self.previous.entry((actor.into(), session, currency.into())).or_default();
-                let delta = if amount <= 0.0 && *previous > 0.0 {
-                    0.0 // A zero after a positive reading is an abnormal result.
-                } else {
-                    let delta = if amount < *previous { amount } else { amount - *previous };
-                    *previous = amount;
-                    delta
-                };
-                Some((currency.into(), delta))
+                Some((currency.into(), rise(previous, amount)))
             }
             _ => None,
         }
+    }
+
+    /// Whether the session of `e`, a prompt response, has its tokens in the agent's records.
+    fn recorded(&self, e: &Event, actor: &str) -> bool {
+        self.sid(e, actor).is_some_and(|sid| self.recorded.contains(&(actor.to_owned(), sid.to_owned())))
+    }
+
+    /// A records reading's increments by model, each a bill row (`model` names a row the records
+    /// left without one), and whether the reading ends a turn.
+    fn records(&mut self, e: &Event, actor: &str, data: &Value, model: &str) -> (Vec<Spend>, bool) {
+        let Some(sid) = data["session"].as_str() else { return (vec![], false) };
+        let native = (actor.to_owned(), sid.to_owned());
+        let seen = self.turn_models.entry(native).or_default();
+        let opened = seen.is_empty();
+        let mut spend: Vec<Spend> = vec![];
+        for (named, reading) in Tokens::of_turn(data) {
+            let recorded = named.clone().unwrap_or_default();
+            let previous = self.tokens.entry((actor.to_owned(), sid.to_owned(), recorded)).or_default();
+            let tokens = reading.rise(previous);
+            if tokens.total.unwrap_or(0) == 0 {
+                continue;
+            }
+            let model = named.unwrap_or_else(|| model.to_owned());
+            let first = opened && spend.is_empty();
+            spend.push(Spend { ts: e.ts, model_first: seen.insert(model.clone()), model, tokens, first });
+        }
+        let ended = data["turnEnded"] == true;
+        if ended {
+            seen.clear();
+        }
+        (spend, ended)
     }
 }
 
@@ -301,6 +369,8 @@ pub struct Spend {
     pub tokens: Tokens,
     /// The first row of its turn, so a bill counts turns once.
     pub first: bool,
+    /// The first row of its model in its turn, so a model line counts each turn once.
+    pub model_first: bool,
 }
 
 /// The model name of a turn the agent did not report by model and whose session named none.
@@ -348,7 +418,7 @@ impl BillGroup {
             }
         };
         line.tokens.add(&s.tokens);
-        line.turns += 1;
+        line.turns += usize::from(s.model_first);
     }
 
     /// Most tokens first, for the groups of a bill and the models of a group.
@@ -532,7 +602,8 @@ impl Scope {
         let mut s = Scope::new(id);
         for session in sessions {
             s.sessions += 1;
-            if session.turns > 0 {
+            // A turn still running already shows its tokens when the agent's records do.
+            if session.turns > 0 || session.tokens.total.is_some() {
                 s.reported_sessions += 1;
             } else {
                 s.missing_sessions += 1;
@@ -695,6 +766,15 @@ impl Ledger {
 /// The ledger of a slice of the event log. The same events always give the same numbers.
 pub fn ledger(events: &[Event]) -> Ledger {
     let mut scan = Scan::default();
+    // A session with records counts them alone, whether its prompt responses come before or after.
+    scan.costs.recorded = events
+        .iter()
+        .filter(|e| e.kind() == EventKind::SessionUsage)
+        .filter_map(|e| {
+            let d = e.data.as_ref().filter(|d| d["source"] == RECORDS_SOURCE)?;
+            Some((session_actor(e).to_owned(), d["session"].as_str()?.to_owned()))
+        })
+        .collect();
     for event in events {
         scan.event(event);
     }
@@ -897,7 +977,7 @@ struct Scan {
     created_ms: Option<i64>,
     last_ms: Option<i64>,
     /// Each actor's current ACP session, for the events that do not name one.
-    costs: SessionCosts,
+    costs: SessionReadings,
     /// Each actor's current model, from its session's controls.
     current_model: HashMap<String, String>,
     sessions: HashMap<String, SessionBuild>,
@@ -1063,23 +1143,42 @@ impl Scan {
         }
     }
 
-    /// One `session.usage`: a turn's tokens, a context snapshot, a cost reading, or several.
+    /// One `session.usage`: a turn's tokens, a records reading, a context snapshot, a cost
+    /// reading, or several.
     fn usage(&mut self, e: &Event, data: &Value, cost: Option<(String, f64)>) {
-        let rows = Tokens::of_turn(data);
-        let (used, size) = (data["used"].as_i64(), data["size"].as_i64());
-        if rows.is_empty() && used.is_none() && size.is_none() && cost.is_none() {
-            return;
-        }
         let actor = session_actor(e).to_string();
         let model = self.current_model.get(&actor).cloned().unwrap_or_else(|| UNKNOWN_MODEL.into());
+        let (spend, turn) = if data["source"] == RECORDS_SOURCE {
+            self.costs.records(e, &actor, data, &model)
+        } else if self.costs.recorded(e, &actor) {
+            (vec![], false)
+        } else {
+            let spend: Vec<Spend> = Tokens::of_turn(data)
+                .into_iter()
+                .enumerate()
+                .map(|(i, (named, tokens))| Spend {
+                    ts: e.ts,
+                    model: named.unwrap_or_else(|| model.clone()),
+                    tokens,
+                    first: i == 0,
+                    model_first: true,
+                })
+                .collect();
+            let turn = !spend.is_empty();
+            (spend, turn)
+        };
+        let (used, size) = (data["used"].as_i64(), data["size"].as_i64());
+        if spend.is_empty() && !turn && used.is_none() && size.is_none() && cost.is_none() {
+            return;
+        }
         let key = self.touch(e, &actor);
         let s = self.sessions.get_mut(&key).expect("touched above");
-        if !rows.is_empty() {
+        if turn {
             s.turns += 1;
         }
-        for (i, (named, tokens)) in rows.into_iter().enumerate() {
-            s.tokens.add(&tokens);
-            s.spend.push(Spend { ts: e.ts, model: named.unwrap_or_else(|| model.clone()), tokens, first: i == 0 });
+        for x in spend {
+            s.tokens.add(&x.tokens);
+            s.spend.push(x);
         }
         if used.is_some() || size.is_some() {
             s.context.snapshot(used, size);

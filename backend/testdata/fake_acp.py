@@ -18,6 +18,11 @@ carries 1200 input / 300 output / 1500 total for the main loop plus `_meta.quota
 (1500) and a subagent (500), the shape the Claude Code and Codex adapters send; "usage-quiet" reports a context snapshot
 but no token usage at all; "usage-turns" asks a question in the first turn (1000 tokens) and reports 2500 for the
 answered turn: per-turn numbers that grow, which add up to 3500.
+Records outcomes write the session's transcript as Claude Code does, into
+`$CLAUDE_CONFIG_DIR/projects/<cwd>/<sid>.jsonl`: one response streamed on two lines (its last one counts: 300 input,
+80 output, 100 cache reads, 480 in all) and a subagent's response in `<sid>/subagents/` (80 in all). "records" then
+hands in and returns a prompt response claiming 1500 tokens, which must not count again; "records-crash" exits
+mid-turn without answering, as an agent that dies.
 session/set_mode is logged ("mode <id>"), and the resource links of each prompt ("links <name>…").
 With a `goal-sticky` file the lead reports its /goal active and never clears it; Janus's ask whether
 it is done is answered "GOAL_DONE" with the lead-go text, and `_session/goal` clear is logged ("goal clear").
@@ -114,6 +119,23 @@ METHOD_EVIDENCE = {
     "reasoning": "根据调用方推断不会影响其他路径",
     "unverified": "本机没有 Xcode，暂时无法核实界面",
 }
+
+
+def write_records(sid):
+    """The session's transcript in the agent's config directory, as Claude Code keeps it."""
+    project = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "projects", re.sub(r"[^A-Za-z0-9]", "-", os.getcwd()))
+    os.makedirs(os.path.join(project, sid, "subagents"), exist_ok=True)
+
+    def line(mid, model, output, **usage):
+        return json.dumps({"type": "assistant", "requestId": "req-" + mid, "message": {"id": mid, "model": model, "usage": {
+            "input_tokens": usage.get("input", 0), "output_tokens": output,
+            "cache_read_input_tokens": usage.get("read", 0), "cache_creation_input_tokens": 0}}}) + "\n"
+    with open(os.path.join(project, sid + ".jsonl"), "a") as f:
+        f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "go"}}) + "\n")
+        f.write(line("m1", "claude-main", 50, input=300, read=100))
+        f.write(line("m1", "claude-main", 80, input=300, read=100))
+    with open(os.path.join(project, sid, "subagents", "agent-1.jsonl"), "a") as f:
+        f.write(line("m2", "claude-sub", 20, input=60))
 
 
 def result(sid=None, unmet=False, methods=None, **fields):
@@ -493,6 +515,12 @@ def prompt(msg):
             return {"stopReason": "end_turn", "usage": tokens(2500)}
         hand_in(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
         return {"stopReason": "end_turn", "usage": tokens(1000)}
+    if outcome in ("records", "records-crash"):
+        write_records(sid)
+        if outcome == "records-crash":
+            os._exit(1)
+        hand_in(sid, result(sid))
+        return {"stopReason": "end_turn", "usage": tokens(1500)}
     if outcome == "content":
         return content_turn(sid, task, content()["tasks"][task])
     if outcome == "fail":

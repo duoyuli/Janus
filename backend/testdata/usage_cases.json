@@ -151,5 +151,26 @@
       "runTotal": 100, "completeness": "完整", "summary": "用量：100 tokens（完整） · 费用：3 USD（2 个会话） · 耗时 4 秒（总时长）",
       "tasks": { "A": 50, "B": 50 }, "taskUsd": { "A": 1, "B": 2 }, "attemptUsd": { "A#1": 1, "B#1": 2 }
     }
+  },
+  {
+    "name": "records readings count their increments where they are taken, and nothing else of their session",
+    "events": [
+      { "seq": 1, "ts": 0, "type": "run.created", "actor": "user" },
+      { "seq": 2, "ts": 1000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 1, "data": { "session": "warm" } },
+      { "seq": 3, "ts": 2000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "source": "records", "session": "warm", "turnEnded": false, "models": [{ "model": "opus", "inputTokens": 200, "outputTokens": 200, "totalTokens": 400 }] } },
+      { "seq": 4, "ts": 2400, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 1, "data": { "source": "records", "session": "warm", "turnEnded": true, "models": [{ "model": "opus", "inputTokens": 300, "outputTokens": 300, "totalTokens": 600 }] } },
+      { "seq": 5, "ts": 2500, "type": "attempt.failed", "actor": "m1", "task": "T1", "attempt": 1, "data": { "error": "Agent 进程意外退出" } },
+      { "seq": 6, "ts": 3000, "type": "attempt.started", "actor": "janus", "to": "m1", "task": "T1", "attempt": 2, "data": { "session": "warm" } },
+      { "seq": 7, "ts": 4000, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 2, "data": { "totalTokens": 5000 } },
+      { "seq": 8, "ts": 4100, "type": "session.usage", "actor": "m1", "task": "T1", "attempt": 2, "data": { "source": "records", "session": "warm", "turnEnded": true, "models": [{ "model": "opus", "inputTokens": 450, "outputTokens": 450, "totalTokens": 900 }, { "model": "haiku", "inputTokens": 50, "outputTokens": 50, "totalTokens": 100 }] } },
+      { "seq": 9, "ts": 5000, "type": "task.succeeded", "actor": "m1", "task": "T1", "attempt": 2, "data": { "summary": "done" } },
+      { "seq": 10, "ts": 5000, "type": "attempt.started", "actor": "janus", "to": "m2", "task": "T2", "attempt": 1, "data": { "session": "plain" } },
+      { "seq": 11, "ts": 6000, "type": "session.usage", "actor": "m2", "task": "T2", "attempt": 1, "data": { "totalTokens": 700 } },
+      { "seq": 12, "ts": 7000, "type": "task.succeeded", "actor": "m2", "task": "T2", "attempt": 1, "data": { "summary": "done" } }
+    ],
+    "expect": {
+      "runTotal": 1700, "completeness": "完整", "summary": "用量：1,700 tokens（完整） · 费用：未上报 · 耗时 7 秒（总时长） · 子任务 6 秒（执行 4 秒 · 返工 2 秒）",
+      "tasks": { "T1": 1000, "T2": 700 }, "attempts": { "T1#1": "失败", "T1#2": "成功", "T2#1": "成功" }
+    }
   }
 ]
