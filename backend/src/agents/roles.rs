@@ -432,9 +432,9 @@ pub(crate) struct RoleSeed {
 /// The default roles, two files each in `backend/roles/`: `<id>.md` with the metadata in a `---`
 /// header and the role's instructions as the body, and `<id>.png`, its picture (256×256). They
 /// are built into Janus,
-/// in this order: a PMO lead, the general digital worker that a default workspace pairs with it,
-/// the specialists (research and market, PRD, engineering, QA) for whoever wants them, 老友
-/// to talk something through with in a chat, and 招聘顾问, who designs digital employees in one.
+/// in this order: the 产品研发 group, a PMO lead and the specialists (research and market, PRD,
+/// engineering, QA) a default workspace starts with; then the 对话 group, 老友 to talk something
+/// through with in a chat and 招聘顾问, who designs digital employees in one.
 const ROLE_FILES: &[(&str, &str, &[u8])] = &[
     ("pmo", include_str!("../../roles/pmo.md"), include_bytes!("../../roles/pmo.png")),
     ("marketing", include_str!("../../roles/marketing.md"), include_bytes!("../../roles/marketing.png")),
@@ -443,7 +443,6 @@ const ROLE_FILES: &[(&str, &str, &[u8])] = &[
         include_str!("../../roles/product-manager.md"),
         include_bytes!("../../roles/product-manager.png"),
     ),
-    ("generalist", include_str!("../../roles/generalist.md"), include_bytes!("../../roles/generalist.png")),
     ("developer", include_str!("../../roles/developer.md"), include_bytes!("../../roles/developer.png")),
     ("qa", include_str!("../../roles/qa.md"), include_bytes!("../../roles/qa.png")),
     ("friend", include_str!("../../roles/friend.md"), include_bytes!("../../roles/friend.png")),

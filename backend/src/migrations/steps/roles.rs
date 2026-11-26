@@ -1,5 +1,6 @@
 //! The default roles' data versions: where a default came from (2), defaults added after the
-//! person's data was seeded (6, 15, 26), the defaults' new ids (17), groups (25) and who proposes digital employees (27). Defaults are named as they
+//! person's data was seeded (15, 26), the defaults' new ids (17), groups (25), who proposes digital
+//! employees (27) and the general digital worker leaving the defaults (28, which undoes 6). Defaults are named as they
 //! were at each version and get today's text (`seed_once_named`).
 
 use crate::agents::{RoleSeed, SEEDS, text_hash};
@@ -75,11 +76,6 @@ const RENAMED: &[(&str, &str)] = &[
 pub(crate) fn seed_once_named(id: &str) -> Option<&'static RoleSeed> {
     let now = RENAMED.iter().find(|(then, _)| *then == id).map_or(id, |(_, now)| *now);
     SEEDS.iter().find(|r| r.id == now)
-}
-
-/// Data version 6: the general digital worker, for data seeded before it existed (`add_seed`).
-pub(crate) fn add_generalist(tx: &rusqlite::Transaction) -> Result<usize> {
-    add_seed(tx, "generalist")
 }
 
 /// Data version 26: 招聘顾问, for data seeded before it existed (`add_seed`).
@@ -230,4 +226,63 @@ pub(crate) fn add_role_groups(tx: &rusqlite::Transaction) -> Result<usize> {
         role.insert("group".into(), json!(group));
         true
     })
+}
+
+/// Data version 28: the defaults keep two groups. 「产品上线」 is now 「产品研发」 (everyone in it
+/// moves along, so the group stays whole). The general digital worker is no longer a default: one
+/// no workspace uses and the person never edited goes, with its picture; one in use or edited
+/// stays as the person's own, out of the 「通用」 group.
+// @project-doc docs/architecture/20261031-data_model.md#migrations
+pub(crate) fn retire_generalist(tx: &rusqlite::Transaction, home: Option<&Path>) -> Result<usize> {
+    const ID: &str = "generalist";
+    let mut used = false;
+    super::super::edit_configs(tx, ConfigKind::Workspace, |_, w| {
+        used |= w.get("lead").and_then(Value::as_str) == Some(ID)
+            || w.get("members").and_then(Value::as_array).into_iter().flatten().any(|m| m["role"] == ID);
+        false
+    })?;
+    let data: Option<String> = tx
+        .query_row(
+            "SELECT data FROM configs WHERE kind = ?1 AND id = ?2",
+            rusqlite::params![ConfigKind::Role.as_str(), ID],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let mut changed = 0;
+    if let Some(mut role) = data.map(|d| serde_json::from_str::<Value>(&d)).transpose()?
+        && role["seed"]["id"] == ID
+    {
+        let edited = ["desc", "prompt"]
+            .iter()
+            .any(|f| role["seed"][f].as_str() != Some(text_hash(role[f].as_str().unwrap_or("")).as_str()));
+        if used || edited {
+            let o = role.as_object_mut().expect("a role is an object");
+            o.remove("seed");
+            if o.get("group").and_then(Value::as_str) == Some("通用") {
+                o.insert("group".into(), json!(""));
+            }
+            tx.execute(
+                "UPDATE configs SET data = ?1 WHERE kind = ?2 AND id = ?3",
+                rusqlite::params![role.to_string(), ConfigKind::Role.as_str(), ID],
+            )?;
+        } else {
+            tx.execute(
+                "DELETE FROM configs WHERE kind = ?1 AND id = ?2",
+                rusqlite::params![ConfigKind::Role.as_str(), ID],
+            )?;
+            if let Some(home) = home {
+                // Where its picture is kept (`Layout::role`).
+                crate::layout::remove(&home.join("data/roles").join(ID));
+            }
+        }
+        changed += 1;
+    }
+    changed += super::super::edit_configs(tx, ConfigKind::Role, |_, role| {
+        if role.get("group").and_then(Value::as_str) != Some("产品上线") {
+            return false;
+        }
+        role.insert("group".into(), json!("产品研发"));
+        true
+    })?;
+    Ok(changed)
 }

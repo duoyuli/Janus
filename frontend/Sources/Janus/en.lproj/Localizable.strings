@@ -1146,7 +1146,7 @@
 "从文件夹…" = "From Folder…";
 "展开详情" = "Show Details";
 "拖入或粘贴 GitHub 链接：仓库，或其中的一个目录" = "Drop or paste a GitHub link to a repository or one of its folders";
-"先建一个负责人，再来一个通用数字员工，团队就能开工。" = "Create a lead, then a generalist, and the team is ready to go.";
+"先建一个负责人，再加几位协作者，团队就能开工。" = "Create a lead, then a few collaborators, and the team is ready to go.";
 "新建" = "New";
 "来源中已删除" = "Removed upstream";
 "还没有通过检查的 Agent。可以先编辑数字员工，Agent 通过检查后才能运行。" = "No Agent has passed its check yet. You can edit digital employees now; they run once an Agent passes.";

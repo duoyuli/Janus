@@ -124,7 +124,7 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
     let members: Vec<crate::orchestrator::Member> =
         serde_json::from_value(team["team"].clone()).unwrap_or_else(|e| panic!("the past run's team reads: {e}"));
     assert!(!members.is_empty());
-    for id in ["pmo", "marketing", "product-manager", "developer", "qa", "generalist", "friend", "recruiter"] {
+    for id in ["pmo", "marketing", "product-manager", "developer", "qa", "friend", "recruiter"] {
         assert_eq!(config(&conn, "role", id)["seed"]["id"], id, "{id} knows its origin");
     }
     drop(conn);
@@ -143,10 +143,9 @@ fn old_data_upgrades_with_a_backup_and_ends_in_the_latest_shape() {
 
 /// Version 5 said who may use each library item and version 11 takes it back out: every item is
 /// for every digital worker, in the library and in the runs, and roles no longer pick items.
-/// Version 6: data seeded before the general digital worker existed gets it, untouched by the
-/// person. Version 8: a command server says how the MCP router runs it, once per run by default.
+/// Version 8: a command server says how the MCP router runs it, once per run by default.
 #[test]
-fn every_item_is_for_everyone_and_the_general_worker_arrives() {
+fn every_item_is_for_everyone() {
     let path = old_database("reach");
     let conn = Connection::open(&path).unwrap();
     let skill = json!({ "id": "i-skill", "name": "pdf", "description": "", "origin": { "type": "created" }, "revision": "r1", "updatedAt": 0, "kind": "skill" });
@@ -180,9 +179,7 @@ fn every_item_is_for_everyone_and_the_general_worker_arrives() {
     // Version 8: command servers run once per run unless marked otherwise.
     assert_eq!(config(&conn, "library_item", "i-mcp")["server"]["process"], "perRun");
     assert_eq!(team["team"][0]["resources"][0]["server"]["process"], "perRun");
-    let general = config(&conn, "role", "generalist");
-    assert_eq!((general["name"].as_str(), general["connection"].as_str()), (Some("通用数字员工"), Some("")));
-    assert!(general.get("resources").is_none(), "roles no longer pick items");
+    assert!(config(&conn, "role", "pmo").get("resources").is_none(), "roles no longer pick items");
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
 }
 
@@ -610,9 +607,7 @@ fn default_roles_join_their_groups() {
     let path = old_database("groups");
     open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
-    for (id, group) in
-        [("pmo", "产品上线"), ("qa", "产品上线"), ("generalist", "通用"), ("rmwm60uas", ""), ("recruiter", "对话")]
-    {
+    for (id, group) in [("pmo", "产品研发"), ("qa", "产品研发"), ("rmwm60uas", ""), ("recruiter", "对话")] {
         assert_eq!(config(&conn, "role", id)["group"], group, "{id}");
     }
     assert_eq!(config(&conn, "role", "recruiter")["seed"]["id"], "recruiter", "招聘顾问 arrives as a default role");
@@ -625,7 +620,7 @@ fn only_the_recruiter_proposes_employees() {
     let path = old_database("hires");
     open(&path).unwrap();
     let conn = Connection::open(&path).unwrap();
-    for (id, hires) in [("recruiter", true), ("pmo", false), ("generalist", false), ("rmwm60uas", false)] {
+    for (id, hires) in [("recruiter", true), ("pmo", false), ("rmwm60uas", false)] {
         assert_eq!(config(&conn, "role", id)["hires"], hires, "{id}");
     }
     let teams: Vec<String> = conn
@@ -641,4 +636,85 @@ fn only_the_recruiter_proposes_employees() {
         .collect();
     assert!(!members.is_empty() && members.iter().all(|m| m["hires"] == false), "{members:?}");
     assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
+}
+
+/// Version 28: the defaults keep the groups 产品研发 (renamed from 产品上线, with everyone in it)
+/// and 对话. The general digital worker, a default until now, goes when no workspace uses it and
+/// the person never edited it, picture and all; used or edited, it stays as the person's own, out
+/// of the 通用 group. Data from before it existed (version 6, undone) never gets it.
+#[test]
+fn the_general_worker_leaves_the_defaults() {
+    let (seed_desc, seed_prompt) = ("通用", "什么都做");
+    let general = |prompt: &str| {
+        json!({ "id": "generalist", "name": "通用数字员工", "desc": seed_desc, "group": "通用", "prompt": prompt,
+            "connection": "", "model": "", "effort": "", "session": {}, "lead": false, "hires": false, "color": "#64748b",
+            "init": "通用", "avatar": "abc", "seed": { "id": "generalist", "desc": crate::agents::text_hash(seed_desc),
+            "prompt": crate::agents::text_hash(seed_prompt) } })
+    };
+    // At data version 27, as the last release left it.
+    let at_27 = |name: &str, role: Value, workspace: Option<Value>| {
+        let path = temp_path(name);
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(BASELINE).unwrap();
+        conn.execute_batch(include_str!("../../testdata/upgrade/v0.sql")).unwrap();
+        drop(conn);
+        open(&path).unwrap();
+        conn = Connection::open(&path).unwrap();
+        conn.execute("DELETE FROM configs WHERE kind = 'role' AND id = 'generalist'", []).unwrap();
+        conn.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES ('role', 'generalist', ?1, 0)",
+            params![role.to_string()],
+        )
+        .unwrap();
+        let mine = crate::agents::test_role("mine", json!({ "group": "产品上线" }));
+        conn.execute(
+            "INSERT INTO configs (kind, id, data, updated_at) VALUES ('role', 'mine', ?1, 0)",
+            params![mine.to_string()],
+        )
+        .unwrap();
+        if let Some(w) = workspace {
+            conn.execute(
+                "INSERT INTO configs (kind, id, data, updated_at) VALUES ('workspace', 'w', ?1, 0)",
+                params![w.to_string()],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "UPDATE configs SET data = json_set(data, '$.group', '产品上线') WHERE kind = 'role' AND id = 'pmo'",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 27).unwrap();
+        let picture = home_of(&path).join("data/roles/generalist/avatar.png");
+        std::fs::create_dir_all(picture.parent().unwrap()).unwrap();
+        std::fs::write(&picture, b"png").unwrap();
+        drop(conn);
+        open(&path).unwrap();
+        (Connection::open(&path).unwrap(), picture)
+    };
+    let exists = |conn: &Connection| {
+        conn.query_row("SELECT 1 FROM configs WHERE kind = 'role' AND id = 'generalist'", [], |_| Ok(())).is_ok()
+    };
+
+    let (conn, picture) = at_27("generalist-unused", general(seed_prompt), None);
+    assert!(!exists(&conn) && !picture.exists(), "unused and untouched: it goes, picture and all");
+    assert_eq!(config(&conn, "role", "pmo")["group"], "产品研发");
+    assert_eq!(config(&conn, "role", "mine")["group"], "产品研发", "the person's own in the group move along");
+    assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
+
+    let (conn, picture) = at_27("generalist-edited", general("我自己的写法"), None);
+    let kept = config(&conn, "role", "generalist");
+    assert!(kept.get("seed").is_none() && kept["group"] == "" && kept["prompt"] == "我自己的写法" && picture.exists());
+
+    let team = json!({ "id": "w", "name": "W", "path": "/tmp/w", "lead": "pmo", "brief": "",
+        "members": [{ "role": "pmo" }, { "role": "generalist", "slots": 3 }] });
+    let (conn, _) = at_27("generalist-used", general(seed_prompt), Some(team));
+    let kept = config(&conn, "role", "generalist");
+    assert!(kept.get("seed").is_none() && kept["group"] == "", "a workspace uses it: it stays, the person's own");
+    assert_eq!(config(&conn, "workspace", "w")["members"][1]["role"], "generalist");
+
+    // Data from before version 6 never had it, and does not get it now.
+    let path = old_database("generalist-never");
+    open(&path).unwrap();
+    assert!(!exists(&Connection::open(&path).unwrap()));
 }

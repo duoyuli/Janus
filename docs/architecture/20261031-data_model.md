@@ -92,11 +92,11 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 版本 | 内容 |
 | --- | --- |
 | 1 | 删除数字员工的「定位」（`role`），删除 Run 快照成员的 `role` 和 `model_label` |
-| 2 | 默认数字员工记录来源（`seed`），见[默认角色：产品上线团队](../domains/20261031-agents_and_roles.md#product_launch_roles) |
+| 2 | 默认数字员工记录来源（`seed`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 3 | `commands` 表加 `state` 列（`running`、`done`、`interrupted`），已有的行取 `done` |
 | 4 | 删除 `leases` 表：Run 租约和目录锁重复，持有者按进程号判断存活，旧进程号被其他进程复用时会误拒恢复 |
 | 5 | 原来给资源和 Run 快照中的资源加 `reach`，版本 11 又整个删掉，中间的迁移都不读它，所以这一版不再做任何改动，只保留编号 |
-| 6 | 已经创建过默认数字员工的数据加上通用数字员工（`generalist`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
+| 6 | 已经创建过默认数字员工的数据加上通用数字员工（`generalist`）；已被版本 28 撤销（`UndoneBy(28)`），旧数据不再得到它 |
 | 7 | 去掉预设的 Agent 类型：`deepseek-claude`、`minimax-claude`、`glm-claude` 的 Agent 改为用 API Key 登录的 `claude`，预设的变量写进它的 `env`，去掉 `endpoint`，状态改为未检查，见 [Agent 类型](../domains/20261031-agents_and_roles.md#providers) |
 | 8 | 命令启动的 MCP 服务器（资源和 Run 快照中的资源）加 `server.process`，已有的取 `perRun`（同一个 Run 共用一个进程），见 [MCP 路由](../domains/20261116-resource_library.md#mcp_router) |
 | 9 | 去掉「自定义命令」的 Agent：删除 `base` 为 `custom` 的 Agent，绑定它的数字员工改为没有绑定 Agent，Run 快照中用它的成员记为 `claude`（只能查看，不能继续），见 [ADR](../decisions/20261120-codex_and_claude_code_only.md) |
@@ -118,6 +118,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 25 | 数字员工加分组（`group`）：默认数字员工归入各自的组（产品上线、通用、对话），其余为空，见[分组](../domains/20261031-agents_and_roles.md#role_groups) |
 | 26 | 默认数字员工加上招聘顾问（`add_seed`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 27 | 数字员工加 `hires`（能不能在对话里提议数字员工），默认的招聘顾问（`seed.id` 为 `recruiter`）为 `true`，其余为 `false`（`recruiter_hires`）；Run 快照的成员加 `hires`，已有的为 `false`。见[角色](../domains/20261031-agents_and_roles.md#roles) |
+| 28 | 默认数字员工只留两个组：「产品上线」改名「产品研发」（组里所有人）；通用数字员工移出默认，没有工作区在用、用户也没改过时删除（连同 `data/roles/generalist/` 头像），否则去掉 `seed`、移出「通用」组留给用户（`retire_generalist`）。见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 
 <a id="snapshots"></a>
 ## Run 快照

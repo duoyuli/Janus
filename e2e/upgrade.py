@@ -280,9 +280,14 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         recruiter = roles.get("recruiter") or {}
         check(recruiter.get("seed", {}).get("id") == "recruiter" and (recruiter.get("desc"), recruiter.get("prompt")) == current_seeds["recruiter"],
               "升级后有默认的数字员工「招聘顾问」，文本是当前版本的")
-        groups = {rid: roles[rid].get("group") for rid in ("pmo", "qa", "generalist", "friend", "recruiter", tester["id"])}
-        check(groups == {"pmo": "产品上线", "qa": "产品上线", "generalist": "通用", "friend": "对话", "recruiter": "对话", tester["id"]: ""},
-              f"升级后默认数字员工归入各自的分组，自己建的不分组（{groups}）")
+        groups = {rid: roles[rid].get("group") for rid in ("pmo", "qa", "friend", "recruiter", tester["id"])}
+        check(groups == {"pmo": "产品研发", "qa": "产品研发", "friend": "对话", "recruiter": "对话", tester["id"]: ""},
+              f"升级后默认数字员工只在「产品研发」和「对话」两个组，自己建的不分组（{groups}）")
+        # The general digital worker left the defaults: gone when nothing used it, else the person's own.
+        general = roles.get("generalist")
+        used = any(m["role"] == "generalist" or w["lead"] == "generalist" for w in setup["workspaces"] for m in w["members"])
+        check(general is None and not used or general is not None and "seed" not in general and general.get("group") != "通用",
+              f"通用数字员工不再是默认：没人用就删掉，工作区在用的留给用户（{'保留' if general else '删除'}，工作区{'在用' if used else '没用'}）")
         hires = {rid: r.get("hires") for rid, r in roles.items()}
         check(hires.get("recruiter") is True and not any(v for rid, v in hires.items() if rid != "recruiter"),
               f"升级后只有招聘顾问能在对话里提议数字员工（{hires}）")

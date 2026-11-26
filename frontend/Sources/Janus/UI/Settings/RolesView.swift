@@ -31,7 +31,7 @@ struct RolesSection: View {
             if store.roles.isEmpty {
                 Card(padding: 20) {
                     Text(L.text("还没有数字员工")).font(.display(.title3))
-                    Text(L.text("先建一个负责人，再来一个通用数字员工，团队就能开工。")).foregroundStyle(.secondary)
+                    Text(L.text("先建一个负责人，再加几位协作者，团队就能开工。")).foregroundStyle(.secondary)
                     HStack {
                         Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
                     }

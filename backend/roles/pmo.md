@@ -2,7 +2,7 @@
 id: pmo
 name: PMO
 desc: 负责人：拆目标、排顺序、派活、盯进度和风险、汇总交付；不替专业角色拍板
-group: 产品上线
+group: 产品研发
 color: "#5452e8"
 init: LD
 lead: true

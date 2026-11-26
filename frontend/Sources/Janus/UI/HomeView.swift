@@ -612,20 +612,16 @@ struct WorkspaceEditor: View {
         slots = loadedSlots
         lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0.lead && Setup.leadCapable(store.connection($0.connection)) }?.id ?? ""
         on = Set(isNew ? Self.preset(store.roles, lead: lead) : members)
-        if isNew && on.contains(Self.generalist) { slots[Self.generalist] = 3 }
     }
 
-    /// The general digital worker (`GENERALIST` in `backend/src/agents/roles.rs`): with the library open to every worker,
-    /// one kind of worker run three at a time handles most subtasks.
-    static let generalist = "generalist"
-
-    /// What a new workspace starts with: the lead and three general workers when the general
-    /// worker has an Agent; otherwise every role that has one.
+    /// What a new workspace starts with: the lead's group (the lead and everyone in its group who
+    /// has an Agent, 产品研发 by default); a lead in no group, or no lead, takes every role that has
+    /// an Agent.
     // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
     static func preset(_ roles: [Role], lead: String) -> [String] {
-        let bound = roles.filter { !$0.connection.isEmpty }.map(\.id)
-        guard bound.contains(generalist) else { return bound }
-        return [lead, generalist].filter { !$0.isEmpty }
+        let bound = roles.filter { !$0.connection.isEmpty }
+        guard let group = roles.first(where: { $0.id == lead })?.group, !group.isEmpty else { return bound.map(\.id) }
+        return bound.filter { $0.group == group || $0.id == lead }.map(\.id)
     }
 
     /// Take group `g` as the team: its members bound to an Agent, one of them that can lead as

@@ -19,8 +19,8 @@ def roles(ctx, c):
     """数字员工按分组列出：默认数字员工各在自己的组；整组改名和换 Agent、导出成文件；招聘顾问在对话里用工具交出团队，用户在对话里勾选后创建"""
     t = ctx.team("roles", members=("m1",))
     setup = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
-    groups = {rid: setup[rid]["group"] for rid in ("pmo", "generalist", "friend", "recruiter", t.member("m1"))}
-    c(groups == {"pmo": "产品上线", "generalist": "通用", "friend": "对话", "recruiter": "对话", t.member("m1"): ""},
+    groups = {rid: setup[rid]["group"] for rid in ("pmo", "qa", "friend", "recruiter", t.member("m1"))}
+    c(groups == {"pmo": "产品研发", "qa": "产品研发", "friend": "对话", "recruiter": "对话", t.member("m1"): ""},
       f"默认数字员工各在自己的组，自己建的不分组（{groups}）")
 
     # Two of the person's own in a group, saved as the editor saves them.

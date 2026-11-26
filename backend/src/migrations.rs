@@ -90,7 +90,7 @@ pub const MIGRATIONS: &[Migration] = &[
         steps: &[Step::UndoneBy(11)],
     },
     Migration {
-        version: 6, name: "新增默认的通用数字员工", steps: &[Step::Custom(steps::roles::add_generalist)]
+        version: 6, name: "新增默认的通用数字员工", steps: &[Step::UndoneBy(28)]
     },
     Migration {
         version: 7,
@@ -227,6 +227,11 @@ pub const MIGRATIONS: &[Migration] = &[
             Step::Custom(steps::roles::recruiter_hires),
             Step::Add { at: Target::RunMember, field: "hires", default: || serde_json::json!(false) },
         ],
+    },
+    Migration {
+        version: 28,
+        name: "默认数字员工只留两个组：「产品上线」改名「产品研发」，去掉通用数字员工和「通用」组（工作区在用或改过的留给用户）",
+        steps: &[Step::Home(steps::roles::retire_generalist)],
     },
 ];
 

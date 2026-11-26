@@ -2,7 +2,7 @@
 id: qa
 name: 质量工程师
 desc: 设计和跑测试、独立验证别人的改动、给出质量结论；验证时只看不改
-group: 产品上线
+group: 产品研发
 color: "#b0670a"
 init: QA
 lead: false
