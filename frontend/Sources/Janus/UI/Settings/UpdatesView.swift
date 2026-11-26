@@ -22,17 +22,33 @@ struct UpdatesView: View {
                     .labelsHidden().toggleStyle(.switch)
                     .disabled(!updater.enabled)
             }
+            HStack(spacing: 22) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L.text("更新渠道")).font(.headline)
+                    Text(channelNote).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Picker(L.text("更新渠道"), selection: $updater.channel) {
+                    ForEach(Updater.Channel.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .disabled(!updater.enabled)
+            }
             Card(padding: 22) {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(verbatim: "Janus \(version)").font(.display(.title3))
+                        HStack(spacing: 8) {
+                            Text(verbatim: "Janus \(version)").font(.display(.title3))
+                            if Updater.isCandidate(updater.current) { Pill(L.text("测试版"), .amber) }
+                        }
                         Text(status.text).font(.callout).foregroundStyle(status.tone)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 12)
                     HStack(spacing: 8) {
                         if case .available = updater.state, let rel = updater.latest {
-                            Button(L.text("更新到 \(rel.version)")) { Task { if await updater.mayInterrupt() { await updater.install() } } }
+                            Button(L.text("更新到 \(Updater.label(rel.version))")) { Task { if await updater.mayInterrupt() { await updater.install() } } }
                                 .buttonStyle(.primary)
                         }
                         if updater.state == .ready {
@@ -88,9 +104,9 @@ struct UpdatesView: View {
         case .upToDate:
             return (L.text("已是最新版本。") + checked, .secondary)
         case .available:
-            return (L.text("有新版本 \(updater.latest?.version ?? "")。") + checked, Color.accent)
+            return (L.text("有新版本 \(Updater.label(updater.latest?.version ?? ""))。") + checked, Color.accent)
         case .ready:
-            let v = updater.latest?.version ?? ""
+            let v = Updater.label(updater.latest?.version ?? "")
             return (updater.automatic
                 ? L.text("\(v) 已下载，没有任务和对话在跑时自动重开换上。")
                 : L.text("\(v) 已下载，点「现在更新」重开换上。"), Color.accent)
@@ -98,6 +114,18 @@ struct UpdatesView: View {
             return (updater.state.workingText ?? L.text("正在更新…"), .secondary)
         case .failed(let text):
             return (text, Tone.red.color)
+        }
+    }
+
+    /// What following each channel means, and that leaving RC waits for the next stable version.
+    private var channelNote: String {
+        switch updater.channel {
+        case .stable where Updater.isCandidate(updater.current):
+            return L.text("现在装的是测试版 \(updater.current)，不会退回旧的稳定版；下一个稳定版发布后自动升过去。")
+        case .stable:
+            return L.text("只收日常发布的稳定版本。")
+        case .rc:
+            return L.text("还在测试的版本先发到这里，可能不稳定；更新的稳定版也照样收到。")
         }
     }
 

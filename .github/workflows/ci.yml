@@ -1,11 +1,12 @@
-# Every push to main and every pull request: orchestrator lints and tests, and the macOS app's build and tests.
+# Every push to main or to an rc/ branch (release candidates are tagged there) and every pull request:
+# orchestrator lints and tests, and the macOS app's build and tests.
 # Run by hand with leg=local to try the app's tests on the local runner alone.
 # See docs/operations/20261101-ci_release.md.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "rc/**"]
   pull_request:
   workflow_dispatch:
     inputs:

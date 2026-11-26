@@ -1,8 +1,8 @@
 # 更新记录 / Changelog
 
-Janus 的版本按日期命名，新版本写在最上面，每节列出这一版的变化：用户能看到的变化，以及缺陷修复、性能优化和稳定性改进（包括内部的），先中文后英文。发布前先在 `CHANGELOG.md` 写下这一版的 change log：`Release` 工作流把对应小节作为 GitHub Release 的说明，找不到「`## <版本>`」这一节时发布失败。格式和发布步骤见 [CI 与发布](docs/operations/20261101-ci_release.md#release)。
+Janus 的版本按日期命名，新版本写在最上面，每节列出这一版的变化：用户能看到的变化，以及缺陷修复、性能优化和稳定性改进（包括内部的），先中文后英文。发布前先在 `CHANGELOG.md` 写下这一版的 change log：`Release` 工作流把对应小节作为 GitHub Release 的说明，找不到「`## <版本>`」这一节时发布失败。测试版（RC）也写一节，标题是它的版本号（`## 2026.11.27-rc.1`）；这些改动随稳定版发布时，把对应的 RC 小节合并进稳定版那一节。格式和发布步骤见 [CI 与发布](docs/operations/20261101-ci_release.md#release)。
 
-Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
+Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
 ## 2026.11.26.9
 

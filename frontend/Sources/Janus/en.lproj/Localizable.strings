@@ -1756,3 +1756,12 @@
 "Skill" = "Skills";
 "Agent 命令" = "Agent commands";
 "用看板 %lld 次" = "Used the board %lld times";
+"稳定版" = "Stable";
+"测试版（RC）" = "Release candidates (RC)";
+"测试版" = "RC";
+"%@（测试版）" = "%@ (RC)";
+"更新渠道" = "Update channel";
+"现在装的是测试版 %@，不会退回旧的稳定版；下一个稳定版发布后自动升过去。" = "This is release candidate %@. It won't go back to an older stable version; it moves to the next stable version once that is out.";
+"只收日常发布的稳定版本。" = "Only the regular stable releases.";
+"还在测试的版本先发到这里，可能不稳定；更新的稳定版也照样收到。" = "Versions still being tested come here first and may be unstable; newer stable versions arrive too.";
+"GitHub 上还没有可以安装的发布" = "GitHub has no release to install yet";

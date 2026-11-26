@@ -12,7 +12,7 @@ import SwiftUI
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
 ///     inbox-act <entry key>:<action> (clicks a quick answer of that inbox entry, actions from 0) | density detail|summary | draft <task or agent> <text>
-///     send-key commandReturn|return | press return|shift-return|command-return (into the first composer)
+///     send-key commandReturn|return | press return|shift-return|command-return (into the first composer) | update-channel stable|rc
 @MainActor
 enum Snapshots {
     /// The window `shot` pictures when set: the first visible one whose title starts with it.
@@ -219,6 +219,7 @@ enum Snapshots {
                 "sendKey": JSON(SendKeySetting.shared.value.rawValue),
                 // Settings › 通用 › 更新: whether updates install themselves.
                 "autoUpdate": JSON(Updater.shared.automatic),
+                "updateChannel": JSON(Updater.shared.channel.rawValue),
                 // Whether this app would update itself: never while a test drives it.
                 "updateEnabled": JSON(Updater.shared.enabled),
                 // Settings › 数字员工 as listed: each group's title and its employees, in order.
@@ -391,6 +392,7 @@ enum Snapshots {
         case "send-key": SendKeySetting.shared.value = SendKey(rawValue: arg) ?? .standard
         // The automatic update switch, as Settings › 通用 › 更新 saves it.
         case "auto-update": Updater.shared.automatic = arg != "off"
+        case "update-channel": Updater.shared.channel = Updater.Channel(rawValue: arg) ?? .stable
         // The MCP tab's code-mode switch, as the library saves it.
         case "code-mode": await store.setCodeMode(arg != "off")
         // A key press in the first composer of the key window, through the same handler as typing.

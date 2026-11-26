@@ -67,6 +67,24 @@ final class Updater {
         let minimumSystemVersion: String
         let notes: String
         let page: URL?
+        /// A release candidate (`2026.11.27-rc.1`): only the RC channel gets it.
+        var candidate: Bool { Updater.isCandidate(version) }
+    }
+
+    /// Which releases this Mac follows. Stable: the date releases from main, GitHub's latest
+    /// release. RC: the newest of those and the release candidates (prereleases) tagged on test
+    /// branches. Leaving RC never goes back to an older stable version: the build stays until a
+    /// stable one is newer, as an older server refuses data a newer one has upgraded.
+    // @project-doc docs/architecture/20261031-frontend.md#update_channels
+    enum Channel: String, CaseIterable, Identifiable {
+        case stable, rc
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .stable: L.text("稳定版")
+            case .rc: L.text("测试版（RC）")
+            }
+        }
     }
 
     private(set) var state: State = .idle
@@ -90,6 +108,19 @@ final class Updater {
         }
     }
 
+    /// The channel this Mac follows, saved in the app's preferences; stable unless chosen.
+    var channel: Channel {
+        didSet {
+            guard channel != oldValue else { return }
+            defaults.set(channel.rawValue, forKey: Self.channelKey)
+            // What was found on the other channel no longer applies; a staged version stays.
+            if state != .ready && !state.isWorking {
+                latest = nil
+                Task { await check() }
+            }
+        }
+    }
+
     let current: String
     let repo: String?
     let bundle: URL
@@ -102,6 +133,7 @@ final class Updater {
     /// and twelve checks an hour stay well inside GitHub's 60 unauthenticated requests per hour.
     static let checkEvery: UInt64 = 5 * 60
     static let automaticKey = "janus.autoUpdate"
+    static let channelKey = "janus.updateChannel"
     /// How often a staged version looks whether nothing is at work.
     static let quietCheck: UInt64 = 30
     /// Checks in a row with nothing at work before swapping in: a task that is only starting
@@ -111,6 +143,7 @@ final class Updater {
     init(defaults: UserDefaults = .janus) {
         self.defaults = defaults
         automatic = defaults.object(forKey: Self.automaticKey) as? Bool ?? true
+        channel = defaults.string(forKey: Self.channelKey).flatMap(Channel.init(rawValue:)) ?? .stable
         let info = Bundle.main.infoDictionary ?? [:]
         current = info["CFBundleShortVersionString"] as? String ?? "0"
         repo = (info["JanusUpdateRepo"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -164,7 +197,7 @@ final class Updater {
         if state.isWorking || state == .ready { return }
         state = .checking
         do {
-            let rel = try await Self.fetchLatest(repo: repo)
+            let rel = try await Self.fetchNewest(repo: repo, channel: channel)
             checkedAt = Date()
             if Self.isNewer(rel.version, than: current) && Self.systemAllows(rel.minimumSystemVersion) {
                 latest = rel
@@ -179,13 +212,46 @@ final class Updater {
         }
     }
 
-    nonisolated static func fetchLatest(repo: String) async throws -> Release {
-        var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
+    /// The newest release of `channel`: GitHub's latest release (never a prerelease) for stable;
+    /// for RC, the newest version among the recent releases, candidates included. One request
+    /// either way, then the release's update.json.
+    nonisolated static func fetchNewest(repo: String, channel: Channel) async throws -> Release {
+        switch channel {
+        case .stable:
+            return try await manifest(of: get("https://api.github.com/repos/\(repo)/releases/latest"))
+        case .rc:
+            let list = try await get("https://api.github.com/repos/\(repo)/releases?per_page=20")
+            guard let rel = newest(list) else { throw UpdateError(L.text("GitHub 上还没有可以安装的发布")) }
+            return try await manifest(of: rel)
+        }
+    }
+
+    /// The newest release in a GitHub list that can be installed: published (not a draft), with
+    /// update.json, the version read from its tag.
+    nonisolated static func newest(_ list: JSON) -> JSON? {
+        let installable = list.array.filter { r in
+            !r["draft"].truthy && r["assets"].array.contains { $0["name"].str == "update.json" }
+        }
+        return installable.max { a, b in isNewer(version(of: b), than: version(of: a)) }
+    }
+
+    /// A release's version: its tag without the leading `v`.
+    nonisolated static func version(of release: JSON) -> String {
+        let tag = release["tag_name"].str
+        return tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+    }
+
+    private nonisolated static func get(_ url: String) async throws -> JSON {
+        var req = URLRequest(url: URL(string: url)!)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 20
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError(L.text("GitHub 返回 \((resp as? HTTPURLResponse)?.statusCode ?? 0)")) }
-        let rel = try JSON.parse(data)
+        return try JSON.parse(data)
+    }
+
+    /// The release's update.json, read into a `Release`.
+    private nonisolated static func manifest(of rel: JSON) async throws -> Release {
         var assets: [String: URL] = [:]
         for a in rel["assets"].array { if let u = URL(string: a["browser_download_url"].str) { assets[a["name"].str] = u } }
         guard let manifestURL = assets["update.json"] else { throw UpdateError(L.text("最新的发布 \(rel["tag_name"].str) 没有 update.json，只能下载 DMG 手动安装")) }
@@ -206,14 +272,41 @@ final class Updater {
         return Release(version: m["version"].str, parts: parts, minimumSystemVersion: m["minimumSystemVersion"].string ?? "15.0", notes: notes, page: page)
     }
 
-    /// Dotted versions compared number by number: 2026.11.01.2 is newer than 2026.11.01.
+    /// Dotted versions compared number by number: 2026.11.01.2 is newer than 2026.11.01. A
+    /// release candidate comes before its version: 2026.11.27-rc.1 < 2026.11.27-rc.2 < 2026.11.27.
     nonisolated static func isNewer(_ a: String, than b: String) -> Bool {
-        let pa = a.split(separator: ".").map { Int($0) ?? 0 }, pb = b.split(separator: ".").map { Int($0) ?? 0 }
-        for i in 0..<max(pa.count, pb.count) {
-            let x = i < pa.count ? pa[i] : 0, y = i < pb.count ? pb[i] : 0
+        let (ba, ra) = split(a), (bb, rb) = split(b)
+        if let order = compare(ba, bb) { return order }
+        switch (ra, rb) {
+        case (nil, nil): return false
+        case (nil, _): return true
+        case (_, nil): return false
+        case let (x?, y?): return compare(x, y) ?? false
+        }
+    }
+
+    /// Whether `version` is a release candidate.
+    nonisolated static func isCandidate(_ version: String) -> Bool { split(version).1 != nil }
+
+    /// A version as the app writes it: a release candidate says it is one.
+    nonisolated static func label(_ version: String) -> String {
+        isCandidate(version) ? L.text("\(version)（测试版）") : version
+    }
+
+    /// A version's numbers, and its candidate's numbers (`rc.2` → [2]) if it is one.
+    private nonisolated static func split(_ v: String) -> ([Int], [Int]?) {
+        let numbers = { (s: Substring) in s.split(separator: ".").map { Int($0) ?? 0 } }
+        guard let dash = v.firstIndex(of: "-") else { return (numbers(v[...]), nil) }
+        return (numbers(v[..<dash]), numbers(v[v.index(after: dash)...].drop { !$0.isNumber }))
+    }
+
+    /// Number by number, missing ones as 0; nil when equal.
+    private nonisolated static func compare(_ a: [Int], _ b: [Int]) -> Bool? {
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
             if x != y { return x > y }
         }
-        return false
+        return nil
     }
 
     nonisolated static func systemAllows(_ minimum: String) -> Bool {

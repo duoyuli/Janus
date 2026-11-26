@@ -224,6 +224,12 @@ def setup_settings(ctx, c):
     c(state["autoUpdate"] is False and _drawn(ctx, "settings-auto-update-off"), "应用：关掉自动更新后状态跟着变，更新一节画出来了")
     state = ctx.app.do("auto-update on")
     c(state["autoUpdate"] is True, "应用：再打开自动更新")
+    # The update channel (docs/operations/20261101-ci_release.md#channels): stable by default, RC by choice.
+    c(state["updateChannel"] == "stable", f"应用：默认跟随稳定版（{state['updateChannel']}）")
+    state = ctx.app.do("update-channel rc", "open settings:updates", "shot settings-update-channel-rc")
+    c(state["updateChannel"] == "rc" and _drawn(ctx, "settings-update-channel-rc"), "应用：改跟随测试版（RC），更新一节画出来了")
+    state = ctx.app.do("update-channel stable")
+    c(state["updateChannel"] == "stable", "应用：再改回稳定版")
 
 
 @scenario("setup-editors", needs="setup")

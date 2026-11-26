@@ -325,14 +325,14 @@ struct UpdateBadge: View {
         switch updater.state {
         case .available:
             Button { open() } label: {
-                Label(L.text("Janus \(updater.latest?.version ?? "") 可以更新"), systemImage: "arrow.down.app.fill")
+                Label(L.text("Janus \(Updater.label(updater.latest?.version ?? "")) 可以更新"), systemImage: "arrow.down.app.fill")
                     .font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor)
             }
             .buttonStyle(.plain)
             .help(L.text("去「设置 › 通用 › 更新」看更新内容并安装"))
         case .ready:
             Button { open() } label: {
-                Label(L.text("Janus \(updater.latest?.version ?? "") 已下载，空闲时更新"), systemImage: "arrow.down.app")
+                Label(L.text("Janus \(Updater.label(updater.latest?.version ?? "")) 已下载，空闲时更新"), systemImage: "arrow.down.app")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)

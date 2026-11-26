@@ -10,6 +10,33 @@ import Testing
     #expect(!Updater.isNewer("0.1.0", than: "2026.11.01"))
 }
 
+/// A release candidate comes before the version it leads to, after any earlier one, and after
+/// the candidates before it; a stable version later than a candidate is newer than it.
+@Test func aCandidateComesBeforeItsVersion() {
+    #expect(Updater.isNewer("2026.11.27", than: "2026.11.27-rc.2"))
+    #expect(Updater.isNewer("2026.11.27-rc.2", than: "2026.11.27-rc.1"))
+    #expect(Updater.isNewer("2026.11.27-rc.10", than: "2026.11.27-rc.9"))
+    #expect(Updater.isNewer("2026.11.27-rc.1", than: "2026.11.26.9"))
+    #expect(!Updater.isNewer("2026.11.26.9", than: "2026.11.27-rc.1"), "leaving RC never goes back to an older stable")
+    #expect(!Updater.isNewer("2026.11.27-rc.1", than: "2026.11.27-rc.1"))
+    #expect(Updater.isCandidate("2026.11.27-rc.1") && !Updater.isCandidate("2026.11.27.2"))
+}
+
+/// The RC channel takes the newest installable release of a GitHub list: candidates and stable
+/// versions alike, never a draft nor one without update.json.
+@Test func theCandidateChannelTakesTheNewestInstallableRelease() {
+    func rel(_ tag: String, draft: Bool = false, manifest: Bool = true, prerelease: Bool = false) -> JSON {
+        ["tag_name": JSON(tag), "draft": JSON(draft), "prerelease": JSON(prerelease),
+         "assets": manifest ? [["name": "update.json"]] : []]
+    }
+    let list: JSON = [rel("v2026.11.26.9"), rel("v2026.11.27-rc.1", prerelease: true), rel("v2026.11.27-rc.3", draft: true, prerelease: true),
+                      rel("v2026.11.28-rc.1", manifest: false, prerelease: true), rel("v2026.11.26.8")]
+    #expect(Updater.newest(list).map(Updater.version(of:)) == "2026.11.27-rc.1")
+    let shipped: JSON = [rel("v2026.11.27"), rel("v2026.11.27-rc.2", prerelease: true)]
+    #expect(Updater.newest(shipped).map(Updater.version(of:)) == "2026.11.27", "the stable version a candidate led to wins")
+    #expect(Updater.newest([]) == nil)
+}
+
 private func release(node: String) throws -> Updater.Release {
     let m: JSON = ["version": "2026.11.02", "minimumSystemVersion": "14.0", "parts": [
         ["name": "app", "file": "Janus-2026.11.02-app.tar.gz", "sha256": JSON(String(repeating: "a", count: 64)), "size": 5_000_000, "content": "2026.11.02"],
@@ -135,6 +162,18 @@ private func install(in dir: URL, newArrives: Bool) throws -> (opened: String, l
     #expect(Updater(defaults: defaults).automatic, "on by default")
     Updater(defaults: defaults).automatic = false
     #expect(!Updater(defaults: defaults).automatic, "kept across launches")
+}
+
+/// A Mac follows the stable channel until the person picks RC, and the choice is kept.
+@MainActor @Test func theStableChannelUntilRCIsPicked() throws {
+    let suite = "janus.tests.channel.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    #expect(Updater(defaults: defaults).channel == .stable)
+    Updater(defaults: defaults).channel = .rc
+    #expect(Updater(defaults: defaults).channel == .rc, "kept across launches")
+    #expect(Updater.label("2026.11.27-rc.1") == expectedCopy("2026.11.27-rc.1（测试版）", "2026.11.27-rc.1 (RC)"))
+    #expect(Updater.label("2026.11.27") == "2026.11.27")
 }
 
 /// A staged version is swapped in only after enough checks in a row with nothing at work: one

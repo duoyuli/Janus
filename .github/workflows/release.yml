@@ -1,5 +1,7 @@
 # Pushing a tag v<version> builds Janus.app for Apple silicon with the server and Node.js inside,
-# packs it into Janus-<version>.dmg and publishes it on the GitHub release of that tag.
+# packs it into Janus-<version>.dmg and publishes it on the GitHub release of that tag: a stable
+# version (v<YYYY.MM.DD>[.N], from main) as the latest release, a release candidate
+# (v<YYYY.MM.DD>[.N]-rc.K, from any branch) as a prerelease that only the RC channel installs.
 # Running the workflow by hand builds the DMG as a workflow artifact only.
 # See docs/operations/20261101-ci_release.md.
 name: Release
@@ -59,6 +61,14 @@ jobs:
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${{ inputs.version }}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      # Stable from main, candidates from any branch, checked before anything is built.
+      - name: Channel
+        id: ch
+        if: steps.claim.outputs.work == 'true' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/release-channel.sh "${GITHUB_REF_NAME}" "${GITHUB_SHA}"
 
       # The self-signed certificate (frontend/scripts/make-signing-cert.sh) gives every release the
       # same identity; without the secrets the app is signed ad hoc.
@@ -139,7 +149,7 @@ jobs:
                 completed*) echo "CI for ${GITHUB_SHA} ended with ${r#completed }: $2. Fix it (or rerun it) and run this workflow again."; exit 1 ;;
               esac
             elif [ "$i" -ge 30 ]; then
-              echo "No CI run for ${GITHUB_SHA}: push the commit to main before tagging it."; exit 1
+              echo "No CI run for ${GITHUB_SHA}: push the commit (to main, or to an rc/ branch for a candidate) before tagging it."; exit 1
             fi
             sleep 20
           done
@@ -164,12 +174,21 @@ jobs:
           fi
           install="下载 Janus-${version}.dmg，打开后把 Janus 拖进「应用程序」。安装包没有用 Apple 开发者证书签名，第一次打开时需要在「系统设置 › 隐私与安全性」中点「仍要打开」；之后可在应用内一键更新。macOS 的资源访问权限仍可能需要重新授权，可在「设置 › 通用 › macOS 权限」逐项处理。只支持 Apple 芯片（M 系列）的 Mac，macOS 15 以上。安装包自带 Node.js，只需要装好你要用的 Agent CLI，见仓库 docs/operations/20261031-deployment.md。"
           install_en="Download Janus-${version}.dmg, open it and drag Janus into Applications. The package is not signed with an Apple developer certificate, so on first launch choose Open Anyway under System Settings › Privacy & Security; later versions update inside the app. macOS resource permissions may still need renewed authorization; use Settings › General › macOS Permissions to review them. Apple silicon Macs (M series) only, macOS 15 or later. The package bundles Node.js; you only need the agent CLIs you plan to use, see docs/operations/20261031-deployment.md in the repository."
+          # A candidate is a prerelease: GitHub's latest release, which the stable channel reads, skips it.
+          flags=()
+          if [ "${{ steps.ch.outputs.channel }}" = rc ]; then
+            flags=(--prerelease)
+            rc="这是测试版（RC）：只有在「设置 › 通用 › 更新」里选了「测试版」渠道的 Janus 会更新到它。"
+            rc_en="This is a release candidate: only a Janus that follows the RC channel (Settings › General › Updates) updates to it."
+            install="$(printf '%s\n\n%s' "$rc" "$install")"
+            install_en="$(printf '%s\n\n%s' "$rc_en" "$install_en")"
+          fi
           body="$(printf '%s\n\n---\n\n%s\n\n%s' "$notes" "$install" "$install_en")"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --clobber
-            gh release edit "$tag" --notes "$body"
+            gh release edit "$tag" --notes "$body" "${flags[@]}"
           else
-            gh release create "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --title "Janus ${version}" --notes "$body"
+            gh release create "$tag" dist/Janus-*.dmg dist/Janus-*.tar.gz dist/update.json dist/SHA256SUMS.txt --title "Janus ${version}" --notes "$body" "${flags[@]}"
           fi
 
       # GitHub's machine is thrown away after the job; the maintainer's is not.

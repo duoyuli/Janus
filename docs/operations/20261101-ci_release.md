@@ -6,6 +6,7 @@
 
 - [持续集成](#ci)：修改 CI 检查时阅读。
 - [发布](#release)：发布新版本时阅读。
+- [发布渠道](#channels)：发测试版（RC）、判断一个标签该怎样发布时阅读。
 - [版本号](#versioning)：确定新版本号时阅读。
 - [更新部分](#update_parts)：修改增量更新包时阅读。
 - [签名](#signing)：修改签名证书和流程时阅读。
@@ -14,7 +15,7 @@
 <a id="ci"></a>
 ## 持续集成
 
-`.github/workflows/ci.yml` 在推送到 `main` 和每个 Pull Request 时运行，同一分支的新推送会取消还在跑的旧任务：
+`.github/workflows/ci.yml` 在推送到 `main`、推送到 `rc/` 开头的分支（测试版在这些分支上打标签，见[发布渠道](#channels)）和每个 Pull Request 时运行，同一分支的新推送会取消还在跑的旧任务：
 
 | 任务 | 运行环境 | 内容 |
 | --- | --- | --- |
@@ -33,14 +34,15 @@
 
 `.github/workflows/release.yml` 在推送 `v*` 标签时运行：
 
-1. 安装 Rust。运行环境 `macos-15` 是 Apple 芯片，构建出的都是 arm64。不用 Rust 缓存：标签上存的缓存只有这个标签自己能读，下一次发布用不上，main 上的缓存是 debug 的，对 release 构建没用。
-2. 不在这里跑测试：测试是 CI 的，标签指向的提交推到 main 时 CI 已经在跑，和这里的打包同时进行；发布前一步等这个提交在 main 上的 CI 给出结论（任务「CI result」，见[本机运行器](#local_runner)），没通过（失败、被取消）或找不到这个提交的 CI 时不发布。
-3. 有 `MACOS_SIGNING_P12` secret 时，把证书导入临时钥匙串，设置 `JANUS_SIGN_IDENTITY` 和 `JANUS_SIGN_KEYCHAIN`，见[签名](#signing)；没有时用 ad-hoc 签名。
-4. 执行 `frontend/scripts/package.sh --version <标签去掉 v>`（服务和应用互不依赖，同时编译），得到 `dist/Janus.app`、`dist/Janus-<版本>.dmg` 和[更新部分](#update_parts)。
-5. 检查应用、服务和内置 Node.js 都是 arm64，校验签名；把两个更新部分重新拼装成应用再校验一次签名（更新器就是这样拼装的）；计算 SHA-256 写入 `SHA256SUMS.txt`（只写文件名，下载后在同一目录执行 `shasum -a 256 -c SHA256SUMS.txt` 即可核对）。
-6. 上传为工作流产物；等这个提交的 CI 通过（见第 2 步）后创建同名的 GitHub Release（已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节（中英双语）加上中英文的首次打开步骤和系统权限提示组成；找不到这一节时工作流失败。首次打开的 Gatekeeper 放行与资源访问授权分别说明，升级后可在「设置 › 通用 › macOS 权限」处理后者。
+1. 判断标签属于哪个渠道、能不能发布（`.github/scripts/release-channel.sh`），不行就在打包之前失败，见[发布渠道](#channels)。
+2. 安装 Rust。运行环境 `macos-15` 是 Apple 芯片，构建出的都是 arm64。不用 Rust 缓存：标签上存的缓存只有这个标签自己能读，下一次发布用不上，main 上的缓存是 debug 的，对 release 构建没用。
+3. 不在这里跑测试：测试是 CI 的，标签指向的提交推到 main 时 CI 已经在跑，和这里的打包同时进行；发布前一步等这个提交在 main 上的 CI 给出结论（任务「CI result」，见[本机运行器](#local_runner)），没通过（失败、被取消）或找不到这个提交的 CI 时不发布。测试版的提交推到 `rc/` 分支时同样会跑 CI。
+4. 有 `MACOS_SIGNING_P12` secret 时，把证书导入临时钥匙串，设置 `JANUS_SIGN_IDENTITY` 和 `JANUS_SIGN_KEYCHAIN`，见[签名](#signing)；没有时用 ad-hoc 签名。
+5. 执行 `frontend/scripts/package.sh --version <标签去掉 v>`（服务和应用互不依赖，同时编译），得到 `dist/Janus.app`、`dist/Janus-<版本>.dmg` 和[更新部分](#update_parts)。
+6. 检查应用、服务和内置 Node.js 都是 arm64，校验签名；把两个更新部分重新拼装成应用再校验一次签名（更新器就是这样拼装的）；计算 SHA-256 写入 `SHA256SUMS.txt`（只写文件名，下载后在同一目录执行 `shasum -a 256 -c SHA256SUMS.txt` 即可核对）。
+7. 上传为工作流产物；等这个提交的 CI 通过（见第 3 步）后创建同名的 GitHub Release（测试版是 prerelease；已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节（中英双语）加上中英文的首次打开步骤和系统权限提示组成；找不到这一节时工作流失败。首次打开的 Gatekeeper 放行与资源访问授权分别说明，升级后可在「设置 › 通用 › macOS 权限」处理后者。
 
-发布一个版本（版本号按日期，见[版本号](#versioning)）：
+发布一个稳定版本（版本号按日期，见[版本号](#versioning)；测试版见[发布渠道](#channels)）：
 
 ```sh
 # 先在 CHANGELOG.md 最上面写下这一版的「## 2026.11.01」一节
@@ -54,10 +56,39 @@ git push origin v2026.11.01
 
 在 GitHub 的 Actions 页面手动运行 Release 工作流（填写版本号）只构建 DMG 并作为工作流产物上传，不创建 Release，用来试打包。`leg` 选 `local` 时只有本机运行器这条腿，不等托管机器，用来单独试[本机运行器](#local_runner)上的打包和签名（`gh workflow run release.yml -f version=0.0.0-dev -f leg=local`）。
 
+<a id="channels"></a>
+## 发布渠道
+
+发布分两个渠道，应用在「设置 › 通用 › 更新」里选跟随哪一个（见 [macOS 应用：更新渠道](../architecture/20261031-frontend.md#update_channels)），设计见 [ADR](../decisions/20261126-release_channels.md)：
+
+| 渠道 | 标签 | 从哪里打 | GitHub Release | 谁会更新到它 |
+| --- | --- | --- | --- | --- |
+| 稳定版 | `v<年>.<月>.<日>[.<序号>]` | 只能是 main 上的提交 | 正式版，即 `releases/latest` | 所有应用 |
+| 测试版（RC） | 稳定版的写法加 `-rc.<序号>`，例如 `v2026.11.27-rc.1` | 任意分支，约定叫 `rc/<名字>` | prerelease | 只有选了测试版渠道的应用 |
+
+`release-channel.sh` 在打包前检查：
+
+- 稳定版的提交必须在 `origin/main` 上，否则提示先合并到 main，或改打 RC 标签。
+- RC 的版本号（去掉 `-rc.<序号>`）必须比最新的稳定版新：同一个版本号的正式版比它的 RC 新，比最新稳定版旧的 RC 没人收得到。
+- RC 相对 main 改了数据迁移（`backend/src/migrations.rs`、`backend/src/migrations/`）时，必须建在最新的 main 之上，迁移的版本号才会接在 main 后面；合并回 main 时版本号也不能变，见合并前检查第 13 条。
+- 标签既不是稳定版也不是 RC 的写法时失败。
+
+发一个测试版：
+
+```sh
+git switch -c rc/<名字>            # 或在已有的 rc 分支上继续
+# 在 CHANGELOG.md 最上面写下「## 2026.11.27-rc.1」一节
+git push origin rc/<名字>          # CI 在这个提交上运行
+git tag v2026.11.27-rc.1
+git push origin v2026.11.27-rc.1
+```
+
+测试版的发布说明同样取 `CHANGELOG.md` 里同名的一节，前面加一句「这是测试版，只有选了测试版渠道的 Janus 会更新到它」。这些改动合进 main、随稳定版发布时，把对应的 RC 小节合并进稳定版那一节，删掉 RC 小节。
+
 <a id="versioning"></a>
 ## 版本号
 
-- 发布版本按日期命名：标签 `v<年>.<月>.<日>`，例如 `v2026.11.01`，安装包为 `Janus-2026.11.01.dmg`。同一天再发布时加序号：`v2026.11.01.2`。
+- 发布版本按日期命名：标签 `v<年>.<月>.<日>`，例如 `v2026.11.01`，安装包为 `Janus-2026.11.01.dmg`。同一天再发布时加序号：`v2026.11.01.2`。测试版在后面加 `-rc.<序号>`，排在同一个版本号的正式版之前：`2026.11.27-rc.1` < `2026.11.27-rc.2` < `2026.11.27`，见[发布渠道](#channels)。
 - 安装包的版本取自标签（去掉 `v`），写入 `Info.plist` 的 `CFBundleShortVersionString`；`CFBundleVersion` 是提交数，每次构建都递增。
 - 本地打包不指定 `--version` 时，使用 `backend/Cargo.toml` 的版本；服务的 `janus --version` 也是它，与发布的日期版本无关。
 
