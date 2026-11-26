@@ -154,6 +154,14 @@ enum Snapshots {
                 let png = p[1] == "none" ? nil : (try? Data(contentsOf: URL(fileURLWithPath: p[1]))).flatMap { AvatarImages.square($0) }
                 if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
             }
+        // The import sheet for role files, driven as the person does: `roles-import <path>` opens and
+        // reads it, `roles-import-toggle <file>` ticks or unticks one, `roles-import-agent <id>`
+        // picks the agent, `roles-import-go` imports.
+        case "roles-import": await store.openRoleImport(arg)
+        case "roles-import-toggle":
+            if store.roleImport?.picked.contains(arg) == true { store.roleImport?.picked.remove(arg) } else { store.roleImport?.picked.insert(arg) }
+        case "roles-import-agent": store.roleImport?.connection = arg
+        case "roles-import-go": await store.finishRoleImport()
         // A group's menu: `group-bind <group>|<agent>`, `group-rename <from>|<to>`.
         case "group-bind":
             let p = arg.components(separatedBy: "|")
@@ -162,7 +170,7 @@ enum Snapshots {
             let p = arg.components(separatedBy: "|")
             if p.count == 2 { await store.renameRoleGroup(p[0], to: p[1]) }
         case "close-sheet":
-            store.closeRoleEditor(); store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
+            store.closeRoleEditor(); store.roleImport = nil; store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
@@ -214,6 +222,13 @@ enum Snapshots {
                 "roleGroups": JSON.array(store.roleSections.map { section in
                     ["group": JSON(section.group), "title": JSON(AppStore.groupTitle(section.group)), "roles": JSON.array(section.roles.map { JSON($0.id) })]
                 }),
+                // The import sheet as shown: where it reads, each file found (name, group, lead,
+                // whether the name is taken) and which are ticked.
+                "roleImport": store.roleImport.map { im in
+                    ["path": JSON(im.path), "error": im.error.map(JSON.init) ?? .null, "connection": JSON(im.connection),
+                     "picked": JSON.array(im.picked.sorted().map(JSON.init)),
+                     "found": JSON.array(im.found.map { ["file": $0["file"], "name": $0["name"], "group": $0["group"], "lead": $0["lead"], "existing": $0["existing"]] })]
+                } ?? .null,
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
                     JSON(img.representations.first.map { $0.pixelsWide } ?? 0)

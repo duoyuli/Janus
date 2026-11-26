@@ -86,6 +86,8 @@ final class AppStore {
     var hostEnv: JSON?
     /// The last command tried as the person and as an agent (`tryOnHost`).
     var hostTry: JSON?
+    /// The import sheet for role files, while it is open.
+    var roleImport: RoleImport?
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
     /// so it opens only through `editRole`, which opens the panel too.
     private(set) var editingRole: JSON?
@@ -535,6 +537,16 @@ final class AppStore {
         } catch { show(L.text("创建失败：\(error.localizedDescription)")) }
     }
 
+    /// The import sheet: where it reads, what it found there, and which files are ticked.
+    struct RoleImport {
+        var path: String
+        var connection: String
+        var scan: JSON?
+        var picked: Set<String> = []
+        var error: String?
+        var found: [JSON] { scan?["roles"].array ?? [] }
+    }
+
     // MARK: Groups and role files
     // @project-doc docs/domains/20261031-agents_and_roles.md#role_groups
 
@@ -593,6 +605,39 @@ final class AppStore {
             show(L.text("已导出 \(members.count) 位数字员工到 \(L.tilde(dir.path))"))
             NSWorkspace.shared.activateFileViewerSelecting([dir])
         } catch { show(L.text("导出失败：\(error.localizedDescription)")) }
+    }
+
+    /// Open the import sheet on `path` (a folder or a file; empty to pick one first) and read it.
+    func openRoleImport(_ path: String) async {
+        roleImport = RoleImport(path: path, connection: okConnections.first?["id"].str ?? "")
+        if !path.isEmpty { await scanRoleImport() }
+    }
+
+    /// Read the role files where the import sheet points; those whose name is taken start unticked.
+    func scanRoleImport() async {
+        guard let path = roleImport?.path, !path.isEmpty else { return }
+        do {
+            let scan = try await api.post("/api/roles/import/scan", ["path": JSON(path)])
+            roleImport?.scan = scan
+            roleImport?.picked = Set(scan["roles"].array.filter { !$0["existing"].truthy }.map { $0["file"].str })
+            roleImport?.error = nil
+        } catch {
+            roleImport?.scan = nil
+            roleImport?.error = error.localizedDescription
+        }
+    }
+
+    /// Make digital employees of the ticked files; closes the sheet and shows them when it worked.
+    func finishRoleImport() async {
+        guard let im = roleImport else { return }
+        let files = im.found.map { $0["file"].str }.filter { im.picked.contains($0) }
+        do {
+            let made = try await api.post("/api/roles/import", ["path": JSON(im.path), "files": .array(files.map { JSON($0) }), "connection": JSON(im.connection)])
+            await loadSetup()
+            roleImport = nil
+            show(L.text("已导入 \(made.array.count) 位数字员工"))
+            openSettings(.agents)
+        } catch { roleImport?.error = error.localizedDescription }
     }
 
     /// Start a chat with a digital employee and open it; its session starts right away and waits

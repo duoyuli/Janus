@@ -1694,6 +1694,8 @@
 "Janus 的界面语言。打开文件夹等系统对话框在重新打开 Janus 后换成这个语言" = "The language Janus uses. System dialogs, such as choosing a folder, switch to it after you reopen Janus";
 
 /* Digital employees by group, role files */
+"导入…" = "Import…";
+"从文件夹或 .md 文件导入数字员工" = "Import digital employees from a folder or a .md file";
 "重命名分组" = "Rename Group";
 "分组名" = "Group name";
 "重命名" = "Rename";
@@ -1711,5 +1713,22 @@
 "会在这里新建文件夹「%@」，每位数字员工一个 .md 文件" = "A folder “%@” is created here, with one .md file per digital employee";
 "已导出 %lld 位数字员工到 %@" = "Exported digital employees: %1$lld, to %2$@";
 "导出失败：%@" = "Export failed: %@";
+"已导入 %lld 位数字员工" = "Imported digital employees: %lld";
+"导入数字员工" = "Import Digital Employees";
+"每位数字员工一个 Markdown 文件：开头是名字、职责和分组，正文是指令。Claude Code 的 subagent 文件也能直接导入。" = "One Markdown file per digital employee: its name, duty and group at the top, its instructions below. Claude Code subagent files import as they are.";
+"还没有选择文件夹" = "No folder chosen yet";
+"选择文件夹或文件…" = "Choose Folder or File…";
+"这里没有数字员工文件：每个文件开头要有 --- 包起来的 name 和职责，后面是指令。" = "No digital employee files here: each file starts with a name and duty between --- lines, followed by its instructions.";
+"文件太多或目录太深，只列出了一部分；可以选更具体的文件夹。" = "Too many files or folders too deep: only some are listed. Choose a more specific folder.";
+"读不了的文件：" = "Files that could not be read: ";
+"导入 %@" = "Import %@";
+"已有同名" = "Name taken";
+"导入前看看它的指令" = "Read its instructions before importing";
+"稍后再选" = "Choose later";
+"这一批都用这个 Agent 的默认模型和权限，导入后可以逐个改" = "All of them use this Agent’s default model and permissions; change each one after importing";
+"正在导入…" = "Importing…";
+"导入 %lld 位" = "Import (%lld)";
+"读取" = "Read";
+"选一个放着数字员工文件的文件夹，或其中一个 .md 文件" = "Choose a folder of digital employee files, or one .md file";
 "按分组选…" = "Choose by Group…";
 "只启用这个分组里绑定了 Agent 的数字员工，其中能担任负责人的当负责人" = "Turn on only this group’s digital employees that have an Agent; one that can lead becomes the lead";

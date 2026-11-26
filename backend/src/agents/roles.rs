@@ -384,7 +384,7 @@ fn seed_updates(role: &Role) -> serde_json::Map<String, Value> {
 
 /// The hash a default text is remembered by: the first 16 hex digits of its SHA-256.
 /// A picture is at most this large: the app sends 256×256 PNGs, far smaller.
-const MAX_AVATAR_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_AVATAR_BYTES: usize = 1024 * 1024;
 
 /// Write a picture whole: a new file renamed over the old one.
 fn write_avatar(file: &Path, bytes: &[u8]) -> Result<()> {

@@ -183,6 +183,27 @@ pub(super) async fn remove_role_avatar(State(app): State<Arc<App>>, UrlPath(id):
     reply(app.set_role_avatar(&id, None)?)
 }
 
+/// The role files at a folder (or a file) the person chose: `{path}`.
+// @project-doc docs/domains/20261031-agents_and_roles.md#role_files
+pub(super) async fn scan_role_files(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    reply(app.scan_role_files(&chosen_path(&body)?)?)
+}
+
+/// Make digital employees of the chosen role files: `{path, files, connection}`, `files` as the
+/// scan listed them. Returns the new employees.
+pub(super) async fn import_roles(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    let files =
+        Vec::<String>::deserialize(&body["files"]).map_err(|_| ApiError::bad_request("files 必须是文件路径的列表"))?;
+    reply(app.import_roles(&chosen_path(&body)?, &files, body["connection"].as_str().unwrap_or(""))?)
+}
+
+fn chosen_path(body: &Value) -> Result<PathBuf, ApiError> {
+    match body["path"].as_str().map(str::trim) {
+        Some(p) if !p.is_empty() => Ok(PathBuf::from(expand_home(p))),
+        _ => Err(ApiError::bad_request("缺少 path")),
+    }
+}
+
 /// A digital employee as a role file, `text/markdown`, for export.
 pub(super) async fn role_file(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     Ok(([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], app.role_file(&id)?).into_response())

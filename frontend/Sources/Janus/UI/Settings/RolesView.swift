@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// Digital workers: who uses which model, with which instructions and tools, listed by group.
-/// A group's menu renames it, puts it on one Agent or exports it as role files.
+/// A group's menu renames it, puts it on one Agent or exports it as role files; 「导入…」 reads
+/// role files back.
 // @project-doc docs/domains/20261031-agents_and_roles.md#role_groups
 struct RolesSection: View {
     let store: AppStore
@@ -18,6 +19,8 @@ struct RolesSection: View {
                     Text(L.text("给每位数字员工配 Agent、模型和指令；资源库全员可用。")).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button(L.text("导入…")) { Task { await store.openRoleImport("") } }
+                    .help(L.text("从文件夹或 .md 文件导入数字员工"))
                 Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
             }
             if store.okConnections.isEmpty && !store.connections.isEmpty {
@@ -27,7 +30,10 @@ struct RolesSection: View {
                 Card(padding: 20) {
                     Text(L.text("还没有数字员工")).font(.display(.title3))
                     Text(L.text("先建一个负责人，再来一个通用数字员工，团队就能开工。")).foregroundStyle(.secondary)
-                    Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
+                    HStack {
+                        Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
+                        Button(L.text("导入…")) { Task { await store.openRoleImport("") } }
+                    }
                 }
             } else {
                 ForEach(store.roleSections, id: \.group) { section in group(section.group, section.roles) }
