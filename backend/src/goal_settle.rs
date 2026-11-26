@@ -7,6 +7,8 @@
 //! directly; a lead that confirms gets its goal cleared through `_session/goal`, and the run
 //! goes on to delivery. A lead that is not done goes on working; after a few asks the watchdog
 //! is left to tell the person.
+//! A marker in the reply rather than a tool: this is a patch for an agent's own check not running,
+//! and a reply without it only keeps Janus waiting (docs/decisions/20261126-lead_report_in_prose.md).
 // @project-doc docs/domains/20261031-goal_mode.md#goal_settle
 
 use std::time::Duration;

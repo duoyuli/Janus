@@ -1,6 +1,8 @@
 //! The lead's report of a round: its final reply, split into the conclusion, the decisions it
 //! leaves the person and what it suggests adding to the workspace's shared material, under the
 //! headings its brief asks for; and the delivery's text as later sessions are told it.
+//! The split is for showing the report in parts: a section not found stays empty and the whole
+//! reply is still the delivery (docs/decisions/20261126-lead_report_in_prose.md).
 // @project-doc docs/domains/20261031-goal_mode.md#delivery_in_goal_mode
 
 use super::*;
