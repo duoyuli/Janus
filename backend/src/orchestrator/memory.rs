@@ -421,7 +421,7 @@ impl App {
                 .run(&run_id)
                 .ok()
                 .flatten()
-                .filter(|r| r.kind == RunKind::Goal)
+                .filter(|r| r.kind.delivers())
                 .and_then(|_| app.run_workspace(&run_id))
             else {
                 return;

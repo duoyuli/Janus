@@ -249,7 +249,7 @@ impl App {
                         };
                     }
                     // It just left the queue and is being set up.
-                    Some(RunStatus::Planning) if run_kind == RunKind::Goal => {
+                    Some(RunStatus::Planning) if run_kind.delivers() => {
                         return Err(Refused::Conflict("这个任务正在开始，稍后再试".into()));
                     }
                     _ => match action {
@@ -410,10 +410,8 @@ impl App {
         self.resolve(run, key, Decision::Answer { answer: answer.to_string(), note: note.to_string() })?;
         if task.is_empty() {
             // A Loop does not wait for the answer to its question: the answer wakes it.
-            if run.kind == RunKind::Loop
-                && let Some(id) = self.db.run(&run.id)?.and_then(|r| r.loop_id.clone())
-            {
-                self.wake_loop_later(&id, WakeReason::Answer);
+            if let Some(def) = self.loop_of(&run.id) {
+                self.wake_loop_later(&def.id, WakeReason::Answer);
             }
             return Ok(());
         }
@@ -536,7 +534,7 @@ impl App {
 
     /// A goal run that left the queue but never got its snapshot (`config.team`).
     fn never_started(&self, run_id: &str) -> Result<bool> {
-        Ok(self.db.run(run_id)?.is_some_and(|r| r.kind == RunKind::Goal && r.config["team"].is_null()))
+        Ok(self.db.run(run_id)?.is_some_and(|r| r.kind.delivers() && r.config["team"].is_null()))
     }
 
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
@@ -873,7 +871,7 @@ impl App {
                 }
             }
         }
-        if kind == RunKind::Loop {
+        if kind.questions_outlive_session() {
             self.restore_loop_questions(&run, &events);
         }
         self.runs.lock().unwrap().insert(run_id.to_string(), run.clone());
@@ -917,7 +915,7 @@ impl App {
     // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
     fn goes_on_after_restart(&self, run_id: &str) -> Result<AfterRestart> {
         let Some(row) = self.db.run(run_id)? else { return Ok(AfterRestart::Person) };
-        if row.kind != RunKind::Goal {
+        if !row.kind.delivers() {
             return Ok(AfterRestart::Person);
         }
         let seq = |kind| self.db.latest_event(run_id, kind).map(|e| e.map(|e| e.seq).unwrap_or(0));

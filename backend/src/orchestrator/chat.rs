@@ -89,7 +89,7 @@ impl App {
 
     /// A chat is listed by its first message: the first one the person sends titles it.
     pub(super) fn title_chat(&self, run: &Run, text: &str) -> Result<()> {
-        if run.kind != RunKind::Chat || self.db.run(&run.id)?.is_some_and(|r| !r.goal.is_empty()) {
+        if !run.kind.titled_by_first_message() || self.db.run(&run.id)?.is_some_and(|r| !r.goal.is_empty()) {
             return Ok(());
         }
         let title = match text.trim() {

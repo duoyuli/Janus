@@ -54,6 +54,13 @@ pub struct LoopDef {
     pub run: String,
 }
 
+impl crate::db::Setting for LoopDef {
+    const KIND: ConfigKind = ConfigKind::Loop;
+    fn id(&self) -> &str {
+        &self.id
+    }
+}
+
 /// Each Loop's clock, in memory: rebuilt from the events when the service starts.
 #[derive(Default)]
 pub struct LoopClock {
@@ -133,28 +140,25 @@ impl LoopDef {
 
 impl App {
     pub(crate) fn loop_def(&self, id: &str) -> Result<LoopDef> {
-        let stored = self.db.get_config(ConfigKind::Loop, id)?.with_context(|| format!("值班 {id} 不存在"))?;
-        Ok(serde_json::from_value(stored)?)
+        self.db.get::<LoopDef>(id)?.with_context(|| format!("值班 {id} 不存在"))
     }
 
     fn save_loop(&self, def: &LoopDef) -> Result<()> {
-        self.db.put_config(ConfigKind::Loop, &def.id, &serde_json::to_value(def)?, now_ms())?;
+        self.db.put(def, now_ms())?;
         let _ = self.changes.send(Change::Loop(def.id.clone()));
         Ok(())
     }
 
-    /// The Loop a run belongs to: its own session's run, or one it dispatched.
+    /// The Loop whose session run `run_id` is.
     pub(super) fn loop_of(&self, run_id: &str) -> Option<LoopDef> {
-        let id = self.db.run(run_id).ok()??.loop_id?;
-        self.loop_def(&id).ok()
+        self.db.list::<LoopDef>().ok()?.into_iter().find(|d| d.run == run_id)
     }
 
     /// Every Loop (of one workspace), with what it is doing now.
     // @project-doc docs/interfaces/20261031-http_api.md#loops
     pub fn loops(&self, workspace: Option<&str>) -> Result<Vec<Value>> {
         let mut out = vec![];
-        for stored in self.db.list_config(ConfigKind::Loop)? {
-            let def: LoopDef = serde_json::from_value(stored)?;
+        for def in self.db.list::<LoopDef>()? {
             if workspace.is_none_or(|w| w == def.workspace) {
                 out.push(self.loop_view(&def)?);
             }
@@ -232,7 +236,6 @@ impl App {
         let config = json!({ "workspace": { "id": ws.id, "name": ws.name } });
         // Its session lives in the workspace's directory; it opens the first time the Loop wakes.
         self.single_member_run(RunKind::Loop, &run_id, member, cwd.clone(), &title, config)?;
-        self.db.set_run_loop(&run_id, &id)?;
         self.record(
             &run_id,
             ev(EventKind::RunCreated, "user", format!("新建值班：{title}")).data(json!({
@@ -314,7 +317,7 @@ impl App {
     /// deleting it deletes the Loop.
     // @project-doc docs/interfaces/20261031-http_api.md#run_delete
     pub async fn delete_run_or_loop(self: &Arc<Self>, run_id: &str) -> Result<(), Refused> {
-        match self.loop_of(run_id).filter(|d| d.run == run_id) {
+        match self.loop_of(run_id) {
             Some(def) => Ok(self.delete_loop(&def.id).await?),
             None => self.delete_run(run_id).await,
         }
@@ -586,7 +589,7 @@ impl App {
         let run_id = run_id.to_string();
         tokio::spawn(async move {
             let Ok(Some(row)) = app.db.run(&run_id) else { return };
-            let Some(loop_id) = row.loop_id.as_deref().filter(|_| row.kind == RunKind::Goal) else { return };
+            let Some(loop_id) = row.loop_id.as_deref() else { return };
             let Ok(def) = app.loop_def(loop_id) else { return };
             let key = row.dispatch_key.as_deref().unwrap_or("");
             let _ = app.note(
@@ -708,8 +711,7 @@ impl App {
     /// should have woken while the service was down wakes once now, however many times it missed.
     // @project-doc docs/domains/20261121-loops.md#waking
     pub fn start_loops(self: &Arc<Self>) -> Result<()> {
-        for stored in self.db.list_config(ConfigKind::Loop)? {
-            let def: LoopDef = serde_json::from_value(stored)?;
+        for def in self.db.list::<LoopDef>()? {
             if def.state == LoopState::Paused {
                 continue;
             }

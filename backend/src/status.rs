@@ -73,6 +73,19 @@ impl RunKind {
         self != RunKind::Goal
     }
 
+    /// Whether it pursues a goal to a delivery: it goes through the dispatch queue, has a
+    /// snapshot of its team, records what it changed for the delivery, counts towards its
+    /// workspace's team memory, carries on by itself after a restart, and is stopped before it
+    /// is deleted.
+    pub fn delivers(self) -> bool {
+        self == RunKind::Goal
+    }
+
+    /// Whether the first message the person sends names it in the lists: a chat.
+    pub fn titled_by_first_message(self) -> bool {
+        self == RunKind::Chat
+    }
+
     /// The folder its files sit in, in every category of Janus home (`data/<dir>/<id>`, ...).
     pub fn dir(self) -> &'static str {
         match self {

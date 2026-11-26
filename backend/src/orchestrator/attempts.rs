@@ -1092,7 +1092,7 @@ impl App {
     /// one; once everything is back, the delivery lists none.
     // @project-doc docs/domains/20261031-goal_mode.md#traces
     pub(super) fn record_run_changes(&self, run: &Run) -> Result<()> {
-        if run.kind != RunKind::Goal || !run.git || run.base_ref.is_empty() {
+        if !run.kind.delivers() || !run.git || run.base_ref.is_empty() {
             return Ok(());
         }
         // What the delivery brings: since the last merge-back, without the branch's own commits.

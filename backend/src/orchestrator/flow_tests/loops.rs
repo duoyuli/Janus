@@ -24,7 +24,8 @@ async fn a_loop_wakes_dispatches_once_per_key_and_sleeps() {
     let h = harness("loops", &[("lead", false), ("m1", false)], json!({}));
     let (id, run) = new_loop(&h, "看看有什么新 issue", cron("0 * * * *"), true).await;
     assert_eq!(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["kind"], "loop");
-    assert_eq!(serde_json::to_value(h.app.db.run(&run).unwrap().unwrap()).unwrap()["loopId"], id.as_str());
+    assert_eq!(h.app.loop_of(&run).map(|d| d.id).as_deref(), Some(id.as_str()), "found from the Loop");
+    assert!(h.app.db.run(&run).unwrap().unwrap().loop_id.is_none(), "loop_id names only a dispatching Loop");
 
     // One wake: the prompt goes in as a turn from Janus, the turn ends, the Loop sleeps until its
     // schedule comes round.
@@ -343,7 +344,7 @@ async fn a_loops_session_is_not_a_task_to_pause_stop_or_delete_alone() {
         let refused = h.app.request_action(&run, &req(json!({ "type": kind }))).await;
         assert!(refused.is_err(), "{kind}");
     }
-    assert_eq!(h.app.loop_of(&run).filter(|d| d.run == run).map(|d| d.id).as_deref(), Some(id.as_str()));
+    assert_eq!(h.app.loop_of(&run).map(|d| d.id).as_deref(), Some(id.as_str()));
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

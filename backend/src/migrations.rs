@@ -238,6 +238,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "MCP 路由一个任务只运行每个服务器一次：命令启动的服务器去掉「每个会话单独运行」（process）",
         steps: &[Step::Custom(steps::library::drop_mcp_process)],
     },
+    Migration {
+        version: 30,
+        name: "Run 的 loop_id 只表示派出它的值班：值班自己的会话 Run 不再记 loop_id，由值班的 run 找到",
+        steps: &[Step::Sql("UPDATE runs SET loop_id = NULL WHERE kind = 'loop';")],
+    },
 ];
 
 /// The data version this build reads and writes.

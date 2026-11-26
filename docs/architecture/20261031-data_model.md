@@ -58,7 +58,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 | 表 | 主键 | 内容 |
 | --- | --- | --- |
-| `runs` | `id` | 类型（`kind`：`goal` 目标、`chat` [对话](../domains/20261120-chats.md)、`loop` [值班](../domains/20261121-loops.md) 的会话或 `dream` [团队记忆的整理](../domains/20261123-team_memory.md#dream)）；为谁做（`origin`：`user` 或 `loop`，`loop_id` 是派出它的值班，值班的会话也记它的值班）、值班派发的 `dispatch_key` 和 `source_url`（`runs_dispatch_key`：同一工作区的 key 唯一）、目标（对话是第一条消息）、工作目录（Git 仓库上的 Run 是它自己的 worktree `work/runs/<run>`，对话是 `work/chats/<run>`）、状态、创建时间；`config` 是 Run 开始时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
+| `runs` | `id` | 类型（`kind`：`goal` 目标、`chat` [对话](../domains/20261120-chats.md)、`loop` [值班](../domains/20261121-loops.md) 的会话或 `dream` [团队记忆的整理](../domains/20261123-team_memory.md#dream)）；为谁做（`origin`：`user` 或 `loop`，`loop_id` 只表示派出它的值班；值班自己的会话 Run 不记，由值班的 `run` 找到）、值班派发的 `dispatch_key` 和 `source_url`（`runs_dispatch_key`：同一工作区的 key 唯一）、目标（对话是第一条消息）、工作目录（Git 仓库上的 Run 是它自己的 worktree `work/runs/<run>`，对话是 `work/chats/<run>`）、状态、创建时间；`config` 是 Run 开始时的快照（团队、权限摘要、是否 Git、基线、工作区，worktree 中的 Run 另有 `worktree.repo` 和 `worktree.branch`） |
 | `events` | `(run_id, seq)` | 事件日志，Run 的唯一事实来源 |
 | `attempts` | `(run_id, task, n)` | 每次尝试的执行者、运行时、会话、工作目录、状态、错误、起止时间 |
 | `artifacts` | 无 | 产物的路径、类型、SHA-256、大小 |
@@ -120,6 +120,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 27 | 数字员工加 `hires`（能不能在对话里提议数字员工），默认的招聘顾问（`seed.id` 为 `recruiter`）为 `true`，其余为 `false`（`recruiter_hires`）；Run 快照的成员加 `hires`，已有的为 `false`。见[角色](../domains/20261031-agents_and_roles.md#roles) |
 | 28 | 默认数字员工只留两个组：「产品上线」改名「产品研发」（组里所有人）；通用数字员工移出默认，没有工作区在用、用户也没改过时删除（连同 `data/roles/generalist/` 头像），否则去掉 `seed`、移出「通用」组留给用户（`retire_generalist`）。见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
 | 29 | 资源和 Run 快照里命令启动的 MCP 服务器去掉 `process`（`drop_mcp_process`）：MCP 路由同一个 Run 只运行每个服务器一次，见 [ADR：MCP 路由照 magpie 只给三个工具](../decisions/20261126-mcp_router_three_tools.md)。数据版本 8 加上的这个字段由它撤回 |
+| 30 | 值班自己的会话 Run 不再记 `loop_id`，这一列只表示派出这个目标 Run 的值班；会话的值班由 `LoopDef.run` 找到（`loop_of`） |
 
 <a id="snapshots"></a>
 ## Run 快照

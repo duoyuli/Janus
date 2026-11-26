@@ -573,9 +573,8 @@ impl App {
             if err.downcast_ref::<Cancelled>().is_some() || run.st.lock().unwrap().cancelled() {
                 return;
             }
-            if run.kind == RunKind::Loop {
-                app.loop_session_ended(&run, &format!("{err:#}"));
-            }
+            // A Loop's session ending ends its wake (nothing for another kind: it has no Loop).
+            app.loop_session_ended(&run, &format!("{err:#}"));
             if run.kind.single_session() && !run.driving.active() {
                 app.runs.lock().unwrap().remove(&run.id);
                 app.emit(

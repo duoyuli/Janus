@@ -1,5 +1,5 @@
 {
-  "dataVersion": 29,
+  "dataVersion": 30,
   "tables": [
     "CREATE INDEX events_type_ts ON events (type, ts)",
     "CREATE INDEX memories_workspace ON memories (workspace, updated_at)",

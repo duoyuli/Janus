@@ -191,7 +191,8 @@ pub struct RunRow {
     pub created_at: i64,
     pub kind: RunKind,
     pub origin: RunOrigin,
-    /// The Loop that dispatched it (`origin` `loop`), or whose session it is.
+    /// The Loop that dispatched it (`origin` `loop`). A Loop's own session is found from the Loop
+    /// (`LoopDef.run`), not from here.
     pub loop_id: Option<String>,
     pub dispatch_key: Option<String>,
     pub source_url: Option<String>,
@@ -308,12 +309,6 @@ impl Db {
         Ok(Some(event))
     }
 
-    /// The Loop a run of kind `loop` is the session of.
-    pub fn set_run_loop(&self, id: &str, loop_id: &str) -> Result<()> {
-        self.0.lock().unwrap().execute("UPDATE runs SET loop_id = ?2 WHERE id = ?1", params![id, loop_id])?;
-        Ok(())
-    }
-
     /// The run a workspace already has for a Loop's dispatch key, and its status.
     pub fn dispatched(&self, workspace: &str, key: &str) -> Result<Option<(String, String)>> {
         Ok(self
@@ -332,7 +327,7 @@ impl Db {
     pub fn dispatched_runs(&self, loop_id: &str, status: Option<RunStatus>, limit: usize) -> Result<Vec<RunRow>> {
         let conn = self.0.lock().unwrap();
         let mut stmt = conn.prepare(select_runs!(
-            "WHERE loop_id = ?1 AND kind = 'goal' AND (?2 IS NULL OR status = ?2) ORDER BY created_at DESC, id DESC LIMIT ?3"
+            "WHERE loop_id = ?1 AND (?2 IS NULL OR status = ?2) ORDER BY created_at DESC, id DESC LIMIT ?3"
         ))?;
         let rows = stmt.query_map(params![loop_id, status.map(|s| s.as_str()), limit as i64], run_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -341,8 +336,7 @@ impl Db {
     /// How many runs a Loop dispatched, by status.
     pub fn dispatched_counts(&self, loop_id: &str) -> Result<Value> {
         let conn = self.0.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT status, COUNT(*) FROM runs WHERE loop_id = ?1 AND kind = 'goal' GROUP BY status")?;
+        let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM runs WHERE loop_id = ?1 GROUP BY status")?;
         let rows = stmt.query_map(params![loop_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
         let mut out = serde_json::Map::new();
         for row in rows {

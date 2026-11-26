@@ -1463,8 +1463,7 @@ impl App {
 
     /// Tell the global stream a run's status changed, with the Loop that dispatched it.
     fn run_changed(&self, run_id: &str, status: RunStatus) {
-        let loop_id =
-            self.db.run(run_id).ok().flatten().filter(|r| r.kind == RunKind::Goal).and_then(|r| r.loop_id.clone());
+        let loop_id = self.db.run(run_id).ok().flatten().and_then(|r| r.loop_id);
         let _ = self.changes.send(Change::Run { run: run_id.into(), status, loop_id });
     }
 

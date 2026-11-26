@@ -62,6 +62,32 @@ fn a_new_database_starts_at_the_latest_version_without_a_backup() {
     assert!(!home_of(&path).join("backups").exists());
 }
 
+/// Version 30: a Loop's own session no longer names its Loop in `runs.loop_id`; a run the Loop
+/// dispatched still does.
+#[test]
+fn loop_id_names_only_the_loop_that_dispatched_a_run() {
+    let path = temp_path("loop-id");
+    drop(open(&path).unwrap());
+    let conn = Connection::open(&path).unwrap();
+    for (id, kind) in [("r-session", "loop"), ("r-dispatched", "goal")] {
+        conn.execute(
+            "INSERT INTO runs (id, kind, goal, cwd, config, status, created_at, origin, loop_id)
+             VALUES (?1, ?2, 'g', '/w', '{}', 'running', 0, 'loop', 'l1')",
+            params![id, kind],
+        )
+        .unwrap();
+    }
+    conn.pragma_update(None, "user_version", 29).unwrap();
+    drop(conn);
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    let loop_of = |id: &str| -> Option<String> {
+        conn.query_row("SELECT loop_id FROM runs WHERE id = ?1", params![id], |r| r.get(0)).unwrap()
+    };
+    assert_eq!(loop_of("r-session"), None);
+    assert_eq!(loop_of("r-dispatched").as_deref(), Some("l1"));
+}
+
 /// What 2026.11.18 wrote reaches the latest shape: the role label is gone from roles and run
 /// members, default roles know their origin, the custom command agent is gone, everything else
 /// is as it was.
