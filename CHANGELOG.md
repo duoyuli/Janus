@@ -4,6 +4,12 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.25.7
+
+- 修复：负责人交给你拍板的问题，它没等到回答就交付了，卡片却一直留在收件箱；服务重启后点卡片上的任何选项，都只提示「这个子任务已经中断」。现在负责人交付（或交付后的一轮结束）时撤回它没得到回答的提问，你想补充的话直接给负责人发消息；服务启动时也会撤回重启前留下、已经没人在等的提问、审批和表单，已经卡住的卡片升级后重启一次就会消失。值班的提问不受影响，回答照样会唤醒它。对已经不在进行的任务操作时，提示改为说明这个任务已经不在进行。
+
+- Fixed: when the lead handed you a decision and then delivered without waiting for your answer, the card stayed in the inbox, and after a restart every option on it only said the subtask had been interrupted. Now the lead's unanswered questions are withdrawn when it delivers (or when a turn after delivery ends); to add something, message the lead. When the service starts it also withdraws questions, approvals and forms left over from before the restart that nobody waits on any more, so cards already stuck disappear after upgrading. A Loop's questions are unaffected: answering still wakes it. Acting on a run that is no longer going on now says so.
+
 ## 2026.11.25.6
 
 - 数字员工可以分组：编辑时填一个分组或从已有的里选，「设置 › 数字员工」、新建对话页和工作区编辑器都按组列出，「未分组」排最后。每组标题右边的菜单可以整组改用一个 Agent、改组名、导出成文件；新建或编辑工作区时可以「按分组选…」，一次选好这组的人和负责人。分组只用来管理，负责人和任何会话都看不到。已有的默认数字员工自动归组：PMO 和 4 个专职角色在「产品上线」，通用数字员工在「通用」，老友在「对话」，你自己建的不分组。
