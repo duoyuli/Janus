@@ -205,6 +205,11 @@ Janus 还设置 `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`：Claude Code 的 auto memor
 
 官方 Claude Code 适配器不提供 `dontAsk` 权限模式。选了这个模式的角色会以 Agent 当前的模式运行（实际生效的模式记在 `agent.status` 的 `data.config` 中），需要在角色设置中重新选择。
 
+<a id="request_timeout"></a>
+### 模型请求的超时
+
+Janus 默认设置 `API_TIMEOUT_MS=120000`：Claude Code 自己默认等模型回复 10 分钟，网关收下请求却不回复时，会话会停在这一轮 10 分钟才重试；改成 2 分钟后，同样的情况 2 分钟就重发。这个值只是默认值，Agent 上填写的 `API_TIMEOUT_MS` 会替换它，`API_TIMEOUT_MS=` 会去掉它。
+
 <a id="user_request_replies"></a>
 ## 用户请求的回复
 

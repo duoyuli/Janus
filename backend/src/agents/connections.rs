@@ -283,11 +283,13 @@ impl App {
         let s = read_secrets(&self.cfg.layout.agent_secrets(id))?;
         let secret = |k: &str| s[k].as_str().unwrap_or("").to_string();
         let home = self.agent_config(id).to_string_lossy().to_string();
-        // Sandbox first, then the variables configured on this agent (an empty value unsets one),
-        // then its isolation and credentials, so nothing the user typed can point the agent back
-        // at the host's own directories.
+        // Sandbox first, then the runtime's defaults and the variables configured on this agent
+        // (an empty value unsets one), then its isolation and credentials, so nothing the user
+        // typed can point the agent back at the host's own directories.
         // @project-doc docs/domains/20261031-agents_and_roles.md#agent_env
+        let runtime = Runtime::of(str_of(&c, "base"))?;
         let mut env = self.sandbox_env(id)?;
+        env.extend(runtime.default_env().into_iter().map(|(k, v)| (k.to_string(), v.to_string())));
         for (k, v) in c["env"].as_object().into_iter().flatten().filter(|(k, _)| !is_sandbox_var(k)) {
             let value = v
                 .as_str()
@@ -298,7 +300,6 @@ impl App {
         for (k, v) in s["importedEnv"].as_object().into_iter().flatten().filter(|(k, _)| !is_sandbox_var(k)) {
             override_env(&mut env, k, v.as_str().unwrap_or(""));
         }
-        let runtime = Runtime::of(str_of(&c, "base"))?;
         env.push((runtime.config_dir_var().to_string(), home));
         // The adapter bundles the agent's CLI. A path chosen on the agent overrides it.
         if let Some(b) = configured_bin(&c) {

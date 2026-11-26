@@ -96,6 +96,17 @@ impl Runtime {
         }
     }
 
+    /// Defaults the agent's own variables can replace or unset (`KEY=`).
+    // @project-doc docs/interfaces/20261031-acp_integration.md#request_timeout
+    pub fn default_env(self) -> Vec<(&'static str, &'static str)> {
+        match self {
+            Runtime::Codex => vec![],
+            // Claude Code waits 10 minutes for a model response by default. A gateway that took
+            // the request and never answers would hold the session that long before a retry.
+            Runtime::Claude => vec![("API_TIMEOUT_MS", "120000")],
+        }
+    }
+
     /// The variables this runtime's sessions get on top of the isolation: the credentials of the
     /// connection's sign-in method (`secret` reads one of its saved secrets) and the settings Janus
     /// relies on.

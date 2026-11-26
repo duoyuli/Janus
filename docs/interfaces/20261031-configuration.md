@@ -53,13 +53,14 @@ Agent 子进程的环境由 `spec_for` 完整构造，按以下顺序叠加，�
    - 指向 Agent 自己目录的：`HOME`、`XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_STATE_HOME`、`XDG_CACHE_HOME`、`TMPDIR`。
    - `JANUS_AGENT_ID`。
    - 隔离的 `HOME` 是用户目录的镜像，只挡「挡住的路径」，见[安全边界：本机环境](../operations/20261031-security.md#host_env)。
-2. **用户配置的变量**：Agent 设置中的环境变量文本，以及「复制本机配置」带来的凭据变量。沙箱变量不能被这里覆盖。
-3. **运行时变量**：
+2. **运行时默认值**（`Runtime::default_env`）：Claude Code 为 `API_TIMEOUT_MS=120000`（见[模型请求的超时](20261031-acp_integration.md#request_timeout)），Codex 没有。
+3. **用户配置的变量**：Agent 设置中的环境变量文本，以及「复制本机配置」带来的凭据变量。可以改写或用空值去掉第 2 步的默认值，沙箱变量不能被这里覆盖。
+4. **运行时变量**：
 
 | 运行时 | 变量 |
 | --- | --- |
 | Codex | `CODEX_HOME`、`CODEX_PATH`；自定义 API 时 `OPENAI_API_KEY`，填写 Base URL 时还有 `CODEX_CONFIG`、`MODEL_PROVIDER` |
-| Claude Code | `CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_EXECUTABLE`、`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`、`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。订阅登录时设置 `CLAUDE_CODE_OAUTH_TOKEN`。选择「自定义 API」时，服务地址、模型和凭据均取自第 2 步，可使用 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY` |
+| Claude Code | `CLAUDE_CONFIG_DIR`、`CLAUDE_CODE_EXECUTABLE`、`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`、`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`。订阅登录时设置 `CLAUDE_CODE_OAUTH_TOKEN`。选择「自定义 API」时，服务地址、模型和凭据均取自第 3 步，可使用 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY` |
 
 <a id="adapter_paths"></a>
 ## 适配器路径

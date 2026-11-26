@@ -146,4 +146,19 @@ mod tests {
         assert!(!saved.to_string().contains("private-value"));
         assert!(!std::fs::read_to_string(&file).unwrap().contains("new-test-key"));
     }
+
+    #[test]
+    fn claude_gives_up_on_a_silent_model_request_after_two_minutes_unless_the_agent_says_otherwise() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::orchestrator::test_app(dir.path());
+        let timeout = |env_text: &str| {
+            let body = json!({ "id": "gateway", "kind": "claude", "auth": "apikey", "envText": env_text });
+            app.save_connection(&body).unwrap();
+            let env: HashMap<_, _> = app.spec_for("gateway").unwrap().env.into_iter().collect();
+            env.get("API_TIMEOUT_MS").cloned()
+        };
+        assert_eq!(timeout("ANTHROPIC_MODEL=m").as_deref(), Some("120000"));
+        assert_eq!(timeout("API_TIMEOUT_MS=600000").as_deref(), Some("600000"));
+        assert_eq!(timeout("API_TIMEOUT_MS="), None, "an empty value unsets the default");
+    }
 }
