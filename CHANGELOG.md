@@ -4,6 +4,24 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.25.6
+
+- 数字员工可以分组：编辑时填一个分组或从已有的里选，「设置 › 数字员工」、新建对话页和工作区编辑器都按组列出，「未分组」排最后。每组标题右边的菜单可以整组改用一个 Agent、改组名、导出成文件；新建或编辑工作区时可以「按分组选…」，一次选好这组的人和负责人。分组只用来管理，负责人和任何会话都看不到。已有的默认数字员工自动归组：PMO 和 4 个专职角色在「产品上线」，通用数字员工在「通用」，老友在「对话」，你自己建的不分组。
+
+- 用文件导入导出数字员工：一位数字员工就是一个 Markdown 文件，开头写名字、职责、分组，后面是指令，旁边同名的 PNG 是头像；Claude Code 的 subagent 文件也能直接导入。「设置 › 数字员工 › 导入…」选一个文件夹或文件，逐个列出、可以展开看指令，勾选并给这一批选一个 Agent 后才保存。已有同名的默认不勾选，导入永远不覆盖已有的人。
+
+- 新的默认数字员工「招聘顾问」：在对话里问清你的行业和要做的事，为你设计一组数字员工，写成文件放进对话目录；每轮结束时对话上方提示「导入数字员工…」，一键打开导入表单。入口在「设置 › 数字员工」标题栏的「找招聘顾问…」和新建数字员工表单的顶部。升级后自动加上它。
+
+- 修复：资源库读取 Skill 的元数据时，双引号里的转义（`\"`、`\n`）和单引号里的 `''` 原样留在了名字和描述里，现在按 YAML 的写法读出。
+
+- Digital employees can be grouped: type a group when editing one or pick an existing group. Settings › Digital Employees, the new-chat page and the workspace editor list them by group, with "No Group" last. Each group's menu moves the whole group to one agent, renames it or exports it as files; making or editing a workspace offers "Choose by Group…" to take a group's people and lead at once. Groups are only for managing people: no lead or session ever sees them. The default employees you already have are grouped for you: the PMO and the four specialists in 产品上线, the general digital worker in 通用 and 老友 in 对话; your own start in no group.
+
+- Import and export digital employees as files: each one is a Markdown file with its name, duty and group at the top and its instructions below, and a PNG of the same name is its picture; Claude Code subagent files import as they are. Settings › Digital Employees › Import… reads a folder or a file and lists every employee in it, with its instructions to read; nothing is saved until you tick them and choose an agent for the batch. Those whose name is taken start unticked, and importing never replaces anyone.
+
+- A new default digital employee, the Recruiter: in a chat it asks about your trade and the work, designs a set of digital employees for it and writes them as files into the chat's folder; when a turn ends the chat offers "Import Digital Employees…", which opens the import sheet on them. Start it from "Ask the Recruiter…" in Settings › Digital Employees or from the top of the new-employee form. Upgrading adds it.
+
+- Fixed: escapes in double-quoted values (`\"`, `\n`) and `''` in single-quoted ones stayed in a skill's name and description as written; they are now read the way YAML means them.
+
 ## 2026.11.25.5
 
 - Agent 的协作工具从 23 个减到 15 个，每个都按实际使用逐个审过，重复或几乎不用的合并或删掉。负责人：`team` 和 `task_detail` 合成 `janus.board`（不传子任务看全队，传了看那一个的全部信息），`accept` 并进 `amend`（对没通过验收核对的子任务，修订就是接受它的结果）。协作者：`peers` 改叫 `janus.board`，`request_split` 成了 `janus.ask` 的可选拆分提议，`claim` 删掉，要改负责范围以外的文件就问负责人。
