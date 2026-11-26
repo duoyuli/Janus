@@ -88,6 +88,9 @@ final class AppStore {
     var hostTry: JSON?
     /// The sheet that creates the digital employees a chat proposed, while it is open.
     var proposalSheet: ProposalSheet?
+    /// Automatic updates already shown: leaving the settings page and coming back does not show
+    /// "已自动更新" again (docs/architecture/20261031-adapters.md#update_check).
+    var autoUpdateSeen: Set<String> = []
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
     /// so it opens only through `editRole`, which opens the panel too.
     private(set) var editingRole: JSON?
@@ -95,7 +98,9 @@ final class AppStore {
     /// What every run is waiting on the person for, across workspaces.
     let inbox = InboxModel()
 
-    @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
+    /// The background reads in flight, by name, so a second start replaces the first; the
+    /// extensions in `AppStore+*.swift` start them too.
+    @ObservationIgnored var polls: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
     init(api: API, permissions: MacPermissions? = nil) {
@@ -551,134 +556,6 @@ final class AppStore {
         } catch { show(L.text("创建失败：\(error.localizedDescription)")) }
     }
 
-    /// The sheet for a chat's proposal: the proposal as the server gave it, which employees are
-    /// ticked (by number) and the agent they will run on.
-    struct ProposalSheet {
-        var chat: String
-        var proposal: JSON
-        var connection: String
-        var picked: Set<String> = []
-        var error: String?
-        var roles: [JSON] { proposal["roles"].array }
-    }
-
-    // MARK: Groups and role files
-    // @project-doc docs/domains/20261031-agents_and_roles.md#role_groups
-
-    /// The groups digital employees are listed under: named ones in order, then "" (no group).
-    var roleGroups: [String] {
-        let named = Set(roles.map(\.group)).subtracting([""]).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        return roles.contains { $0.group.isEmpty } ? named + [""] : named
-    }
-
-    /// The digital employees group by group, in `roleGroups` order: how Settings › 数字员工, the
-    /// new-chat page and the workspace editor list them.
-    var roleSections: [(group: String, roles: [Role])] {
-        roleGroups.map { g in (g, roles.filter { $0.group == g }) }
-    }
-
-    /// A group's name as the lists show it.
-    static func groupTitle(_ group: String) -> String { group.isEmpty ? L.text("未分组") : group }
-
-    func renameRoleGroup(_ from: String, to: String) async {
-        do {
-            _ = try await api.post("/api/role-groups/rename", ["from": JSON(from), "to": JSON(to)])
-            await loadSetup()
-        } catch { show(error.localizedDescription) }
-    }
-
-    /// Put a whole group on one agent; each takes the agent's default model unless it was on it already.
-    func bindRoleGroup(_ group: String, connection: String) async {
-        do {
-            let bound = try await api.post("/api/role-groups/bind", ["group": JSON(group), "connection": JSON(connection)])
-            await loadSetup()
-            show(L.text("\(Self.groupTitle(group)) 的 \(bound.array.count) 位数字员工改用 \(self.connection(connection)?["name"].str ?? connection)"))
-        } catch { show(error.localizedDescription) }
-    }
-
-    /// Write a group's digital employees as role files (`<id>.md`, and `<id>.png` for a picture)
-    /// into a folder named after the group, inside a folder the person picks.
-    func exportRoleGroup(_ group: String) async {
-        let p = NSOpenPanel()
-        p.canChooseDirectories = true
-        p.canChooseFiles = false
-        p.canCreateDirectories = true
-        p.prompt = L.text("导出到这里")
-        p.message = L.text("会在这里新建文件夹「\(group)」，每位数字员工一个 .md 文件")
-        guard p.runModal() == .OK, let base = p.url else { return }
-        let dir = base.appendingPathComponent(group, isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let members = roles.filter { $0.group == group }
-            for r in members {
-                let text = try await api.text("/api/roles/\(API.q(r.id))/file")
-                try text.write(to: dir.appendingPathComponent("\(r.id).md"), atomically: true, encoding: .utf8)
-                if !r.avatar.isEmpty, let png = try? await api.data("/api/roles/\(API.q(r.id))/avatar") {
-                    try png.write(to: dir.appendingPathComponent("\(r.id).png"))
-                }
-            }
-            show(L.text("已导出 \(members.count) 位数字员工到 \(L.tilde(dir.path))"))
-            NSWorkspace.shared.activateFileViewerSelecting([dir])
-        } catch { show(L.text("导出失败：\(error.localizedDescription)")) }
-    }
-
-    /// Open the sheet on the digital employees chat `run` proposed, as the server has them now;
-    /// those whose name is taken start unticked.
-    // @project-doc docs/domains/20261120-chats.md#proposed_employees
-    func openProposal(_ run: RunModel) async {
-        await run.loadProposal()
-        guard let p = run.proposal else { return }
-        proposalSheet = ProposalSheet(chat: run.id, proposal: p, connection: okConnections.first?["id"].str ?? "",
-                                      picked: Set(p["roles"].array.filter { !$0["existing"].truthy }.map { $0["n"].str }))
-    }
-
-    /// Create the ticked employees of the open proposal; closes the sheet and says so when it
-    /// worked. They stay out of the way: the person is in the chat.
-    func createProposed() async {
-        guard let sheet = proposalSheet else { return }
-        let picks = JSON.array(sheet.roles.map { $0["n"].str }.filter { sheet.picked.contains($0) }.map { JSON($0) })
-        do {
-            let made = try await api.post("/api/runs/\(API.q(sheet.chat))/proposal", ["proposal": sheet.proposal["proposal"], "picks": picks, "connection": JSON(sheet.connection)])
-            await loadSetup()
-            proposalSheet = nil
-            show(L.text("已创建 \(made.array.count) 位数字员工，在「设置 › 数字员工」里可以改"))
-        } catch { proposalSheet?.error = error.localizedDescription }
-    }
-
-    /// Create none of what chat `run` proposed.
-    func declineProposal(_ run: RunModel) async {
-        guard let p = run.proposal else { return }
-        do {
-            _ = try await api.post("/api/runs/\(API.q(run.id))/proposal/decline", ["proposal": p["proposal"]])
-            await run.loadProposal()
-        } catch { show(error.localizedDescription) }
-    }
-
-    /// The default digital employee who designs teams in a chat (`backend/roles/recruiter.md`).
-    static let recruiter = "recruiter"
-
-    /// Talk with 招聘顾问 about the team to build; it proposes the digital employees it designs,
-    /// which the chat shows for the person to create. Without an agent it opens the employee to
-    /// pick one.
-    func chatWithRecruiter() async {
-        guard let r = role(Self.recruiter) else { return }
-        if let why = ChatsView.unavailable(r, connection: connection) {
-            show(why)
-            editRole(r.json)
-            return
-        }
-        closeRoleEditor()
-        showingSettings = false
-        chatRole = r.id
-        await createChat(role: r.id)
-    }
-
-    /// Whether adding a digital employee by hand (`draft`, the editor's) offers 招聘顾问 instead:
-    /// only for a new one, while 招聘顾问 is still around.
-    func offersRecruiter(_ draft: JSON) -> Bool {
-        !draft["id"].truthy && role(Self.recruiter) != nil
-    }
-
     /// Start a chat with a digital employee and open it; its session starts right away and waits
     /// for the person's first message.
     // @project-doc docs/domains/20261120-chats.md#chat_app
@@ -745,128 +622,6 @@ final class AppStore {
         await inbox.refresh(self)
         if case .run(let shown) = screen, shown == id { open(.chats) }
         show(L.text("已删除对话"))
-    }
-
-    // MARK: Agent checks and logins run on the server; the app only polls.
-
-    func testConnection(_ id: String) async {
-        do { _ = try await api.post("/api/connections/\(id)/test") } catch { show(L.text("没法开始检查：\(error.localizedDescription)")); return }
-        await loadSetup()
-        watchChecks()
-    }
-
-    func watchChecks() {
-        guard polls["checks"] == nil else { return }
-        var before = Set(connections.filter { $0["status"].str == "testing" }.map { $0["id"].str })
-        guard !before.isEmpty else { return }
-        polls["checks"] = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                guard let self else { return }
-                await self.loadSetup()
-                let now = Set(self.connections.filter { $0["status"].str == "testing" }.map { $0["id"].str })
-                for id in before.subtracting(now) {
-                    guard let c = self.connection(id) else { continue }
-                    switch c["status"].str {
-                    case "ok": self.show(L.text("\(c["name"].str) 检查通过"))
-                    case "error": self.show(L.text("\(c["name"].str) 检查未通过：\(c["error"].str)"))
-                    // Replaced by a save of the connection, or cut off by a restart: no result.
-                    default: self.show(L.text("\(c["name"].str) 的检查没有完成，需要时重新检查"))
-                    }
-                }
-                before = now
-                if now.isEmpty { self.polls["checks"] = nil; return }
-            }
-        }
-    }
-
-    func login(_ id: String) async {
-        do { _ = try await api.post("/api/connections/\(id)/login") } catch { show(error.localizedDescription); return }
-        show(L.text("已开始登录：按卡片上的提示操作，完成后自动检查。"))
-        polls["login"]?.cancel()
-        polls["login"] = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self else { return }
-                await self.loadSetup()
-                let c = self.connection(id)
-                if c == nil || c?["login"]["state"].str != "running" {
-                    if c?["loggedIn"].truthy == true { await self.testConnection(id) }
-                    self.polls["login"] = nil
-                    return
-                }
-            }
-        }
-    }
-
-    // MARK: Adapters: installs run in the background; the settings page polls until they end.
-
-    /// Automatic updates already shown: leaving the settings page and coming back does not show
-    /// "已自动更新" again (docs/architecture/20261031-adapters.md#update_check).
-    var autoUpdateSeen: Set<String> = []
-
-    /// Called when an Agent card's runtime line goes away: the person has seen this update's word.
-    func acknowledgeAutoUpdate(_ a: JSON) {
-        guard a["job"]["action"].str == "auto", a["job"]["state"].str == "ok", a["job"]["ended"].truthy else { return }
-        autoUpdateSeen.insert(AdapterText.autoUpdatedKey(a))
-    }
-
-    /// Keep the runtime lines current while 「设置 › 数字员工」 is open: the server checks and
-    /// updates adapters on its own, and nothing else wakes this page when it does. Runs only while
-    /// the page is on screen — the view's `.task` cancels it when the page or settings close — so
-    /// there is no app-wide polling and nothing grows with the number of Agents
-    /// (docs/architecture/20261031-adapters.md#update_check).
-    func watchAdapters() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard !Task.isCancelled else { return }
-            await loadAdapters(quiet: true)
-        }
-    }
-
-    /// `quiet` for the background refresh: a failed read keeps what was shown and says nothing.
-    func loadAdapters(quiet: Bool = false) async {
-        do {
-            let a = try await api.get("/api/adapters")
-            // Polled in the background: an unchanged list leaves the sidebar alone.
-            if a != adapters { adapters = a }
-        } catch {
-            if quiet { return }
-            adapters = ["adapters": [], "dir": ""]
-            show(L.text("读取运行组件失败：\(error.localizedDescription)"))
-            return
-        }
-        let busy = adapters["adapters"].array.contains { $0["job"]["state"].str == "running" }
-        if busy && polls["adapters"] == nil {
-            polls["adapters"] = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    guard let self else { return }
-                    guard let a = try? await self.api.get("/api/adapters") else { continue }
-                    self.adapters = a
-                    if !a["adapters"].array.contains(where: { $0["job"]["state"].str == "running" }) {
-                        // An automatic update finishes silently; only what the person asked for
-                        // confirms itself with a toast.
-                        for x in a["adapters"].array where x["job"]["action"].str != "auto" && (x["job"]["ended"].double ?? 0) > L.nowMs() - 2500 {
-                            self.show(L.text("\(x["name"].str)：\(x["job"]["detail"].str)"))
-                        }
-                        self.polls["adapters"] = nil
-                        return
-                    }
-                }
-            }
-        }
-    }
-
-    /// What `/api/adapters/{id}/{action}` does with an adapter: install (the newest, or a named
-    /// version; on a pinned adapter this resumes automatic updates) or switch to an installed one
-    /// and pin it.
-    enum AdapterAction: String { case install, use }
-
-    func adapterAction(_ id: String, _ action: AdapterAction, version: String? = nil) async {
-        do { adapters = try await api.post("/api/adapters/\(API.q(id))/\(action.rawValue)", version.map { ["version": JSON($0)] } ?? [:]) } catch { show(error.localizedDescription); return }
-        if action == .use, let version { show(L.text("已切到 \(version)，下个会话开始用")) }
-        await loadAdapters()
     }
 
     // MARK: Toast
