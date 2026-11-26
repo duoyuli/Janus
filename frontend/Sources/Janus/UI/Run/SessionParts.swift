@@ -186,12 +186,7 @@ struct SessionControls: View {
 
     private func set(_ c: SessionView.Control, _ value: String) {
         guard value != c.current else { return }
-        var body = target.body
-        body["type"] = "control"
-        body["id"] = JSON(c.id)
-        body["value"] = JSON(value)
-        body["via"] = JSON(c.via)
-        Task { await run.act(body) }
+        Task { await run.act(.control(target, id: c.id, value: value, via: c.via)) }
     }
 }
 

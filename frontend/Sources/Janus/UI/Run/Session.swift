@@ -171,7 +171,7 @@ struct ChatCard: View {
                 let draft = Binding(get: { run.sessionDrafts[target] ?? "" }, set: { run.sessionDrafts[target] = $0 })
                 if enabled { Suggestions(run: run, draft: draft, commands: commands, picker: picker) }
                 Composer(text: draft, images: Binding(get: { run.sessionImages[target] ?? [] }, set: { run.sessionImages[target] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: target == .agent("lead") ? run.leadFocus : 0,
-                         onNavigate: { picker.handle($0, draft: draft) }, ghost: SessionView.argumentHint(draft.wrappedValue, commands)) { send("message") }
+                         onNavigate: { picker.handle($0, draft: draft) }, ghost: SessionView.argumentHint(draft.wrappedValue, commands)) { send(.message) }
                 HStack(spacing: 10) {
                     if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
                     if let u = SessionView.usage(info.evs) { ContextMeter(usage: u) }
@@ -198,24 +198,24 @@ struct ChatCard: View {
         case .replay:
             return (L.text("回放中"), .gray, AnyView(EmptyView()), L.text("回放中只能看，回到实时再发消息"), false)
         case .human(idle: true):
-            return (L.text("人工接管 · 等你回话"), .amber, AnyView(HStack { btn("finish", L.text("以当前结果完成")); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
+            return (L.text("人工接管 · 等你回话"), .amber, AnyView(HStack { btn(.finish, L.text("以当前结果完成")); btn(.release, L.text("交还托管")); btn(.message, L.text("发送"), true) }), ph, true)
         case .human(idle: false):
-            return (L.text("人工接管 · 正在处理"), .blue, AnyView(HStack { btn("interrupt", L.text("打断这一轮"), danger: true); btn("release", L.text("交还托管")); btn("sessSend", L.text("发送"), true) }), ph, true)
+            return (L.text("人工接管 · 正在处理"), .blue, AnyView(HStack { btn(.interrupt, L.text("打断这一轮"), danger: true); btn(.release, L.text("交还托管")); btn(.message, L.text("发送"), true) }), ph, true)
         case .managed where info.chat:
             // A chat at work: say so (a model may think for minutes before it writes anything),
             // and offer only to stop the turn or add to it.
-            return (L.text("正在处理"), .blue, AnyView(HStack { btn("interrupt", L.text("停止这一轮"), danger: true); btn("sessSend", L.text("插话"), true) }), L.text("补充或更正，会插入正在进行的这一轮"), true)
+            return (L.text("正在处理"), .blue, AnyView(HStack { btn(.interrupt, L.text("停止这一轮"), danger: true); btn(.message, L.text("插话"), true) }), L.text("补充或更正，会插入正在进行的这一轮"), true)
         case .managed:
-            return (L.text("托管中 · Agent 自主推进"), .blue, AnyView(HStack { btn("interrupt", L.text("打断并接管"), danger: true); btn("takeover", L.text("接管")); btn("sessSend", L.text("插话"), true) }), ph, true)
+            return (L.text("托管中 · Agent 自主推进"), .blue, AnyView(HStack { btn(.interrupt, L.text("打断并接管"), danger: true); btn(.takeover, L.text("接管")); btn(.message, L.text("插话"), true) }), ph, true)
         case .interrupted:
-            return (L.text("已中断"), .gray, AnyView(HStack { Button(L.text("从中断处继续")) { Task { await run.act(["type": "resumeRun"]) } }; btn("sessSend", L.text("发送并继续"), true) }), L.text("补充信息或直接写「继续」，发送后从中断处继续"), true)
+            return (L.text("已中断"), .gray, AnyView(HStack { Button(L.text("从中断处继续")) { Task { await run.act(.resumeRun) } }; btn(.message, L.text("发送并继续"), true) }), L.text("补充信息或直接写「继续」，发送后从中断处继续"), true)
         case .converse where info.chat:
             // A chat waits for the next message; a chat whose session is gone reopens with it.
             return (
                 run.isLoop ? (info.open && live ? L.text("摸鱼中，等下次开工或你的消息") : L.text("会话已结束，下次开工时再接上"))
                     : info.open && live ? L.text("等你回话") : L.text("会话已结束"),
                 .gray,
-                AnyView(btn("sessSend", L.text("发送"), true)),
+                AnyView(btn(.message, L.text("发送"), true)),
                 info.open && live ? L.text("发消息给 \(title) · ⌘V 贴截图 · \(sendKey.symbol) 发送") : L.text("发送后重新打开和 \(title) 的会话"),
                 true
             )
@@ -226,21 +226,24 @@ struct ChatCard: View {
             return (
                 live ? L.text("可以继续对话") : L.text("可以继续对话"),
                 .gray,
-                AnyView(btn("sessSend", L.text("发送"), true)),
+                AnyView(btn(.message, L.text("发送"), true)),
                 live ? L.text("接下来做什么？也可以用 /goal 换个目标") : L.text("写下任务，发送后恢复负责人会话"),
                 true
             )
         case .leave:
-            return (L.text("当前没有会话"), .gray, AnyView(btn("sessSend", L.text("留言"), true)), L.text("留言 · 下次会话带给它"), true)
+            return (L.text("当前没有会话"), .gray, AnyView(btn(.message, L.text("留言"), true)), L.text("留言 · 下次会话带给它"), true)
         case .ended:
             return (L.text("会话已结束"), .gray, AnyView(EmptyView()), live ? L.text("会话已结束") : L.text("只读查看"), false)
         }
     }
 
-    private func btn(_ act: String, _ label: String, _ primary: Bool = false, danger: Bool = false) -> some View {
+    /// What a composer button does to its session: send the draft, or one of the session actions.
+    enum Verb { case message, interrupt, takeover, release, finish }
+
+    private func btn(_ act: Verb, _ label: String, _ primary: Bool = false, danger: Bool = false) -> some View {
         Group {
             if primary {
-                Button(label) { send(act == "sessSend" ? "message" : act) }.buttonStyle(.primary)
+                Button(label) { send(act) }.buttonStyle(.primary)
                     .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? L.text("写点什么，或者贴张图") : sendKey.symbol)
             }
             // ⌘. stops the turn, as it stops a running command elsewhere on the Mac.
@@ -252,16 +255,19 @@ struct ChatCard: View {
     private var draft: String { (run.sessionDrafts[target] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
     private var images: [PastedImage] { run.sessionImages[target] ?? [] }
 
-    private func send(_ type: String) {
-        if type == "finish" && !confirm(L.text("用当前产出完成这个子任务？"), L.text("子任务里已有的改动会照常记录成 diff。"), ok: L.text("完成"), destructive: false) { return }
-        var body = target.body
-        body["type"] = JSON(type)
-        if type == "message" {
+    private func send(_ verb: Verb) {
+        switch verb {
+        case .interrupt: Task { await run.act(.interrupt(target)) }
+        case .takeover: Task { await run.act(.takeover(target)) }
+        case .release: Task { await run.act(.release(target)) }
+        case .finish:
+            guard confirm(L.text("用当前产出完成这个子任务？"), L.text("子任务里已有的改动会照常记录成 diff。"), ok: L.text("完成"), destructive: false) else { return }
+            Task { await run.act(.finish(target)) }
+        case .message:
             let text = draft
             let images = images
             guard !text.isEmpty || !images.isEmpty else { return }
-            body["text"] = JSON(text)
-            if !images.isEmpty { body["images"] = .array(images.map(\.json)) }
+            let message = RunAction.message(target, text: text, images: images.map(\.json))
             let key = target
             run.sessionDrafts[key] = ""
             run.sessionImages[key] = []
@@ -269,15 +275,13 @@ struct ChatCard: View {
             // A message that did not go out comes back into the composer, unless the person has
             // started another one meanwhile.
             Task {
-                if await run.act(body) { return }
+                if await run.act(message) { return }
                 if (run.sessionDrafts[key] ?? "").isEmpty && (run.sessionImages[key] ?? []).isEmpty {
                     run.sessionDrafts[key] = text
                     run.sessionImages[key] = images
                 }
             }
-            return
         }
-        Task { await run.act(body) }
     }
 
     /// The conversation in turns (`ChatTurns`): the events it shows, folded as the display level

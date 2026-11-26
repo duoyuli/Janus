@@ -275,18 +275,18 @@ final class RunModel {
     /// A Run action (docs/interfaces/20261031-http_api.md#run_actions): de-duplicated by `commandId`,
     /// guarded by `expectedSequence`; a 409 refreshes once and tries again.
     @discardableResult
-    func act(_ body: JSON) async -> Bool {
+    func act(_ action: RunAction) async -> Bool {
         guard replay == nil else { return false }
-        var body = body
+        var body = action.body
         body["commandId"] = JSON(UUID().uuidString)
         for attempt in 0..<2 {
             body["expectedSequence"] = JSON(events.last?.seq ?? 0)
             do {
                 _ = try await api.post("/api/runs/\(id)/actions", body)
                 // Resuming (or messaging an interrupted run) makes it live again: reconnect.
-                if !live, ["resumeRun", "message"].contains(body["type"].str) {
+                if !live, action.reopens {
                     await read()
-                    store.show(body["type"].str == "resumeRun" ? L.text("已从中断处继续") : L.text("正在接上会话"))
+                    store.show(action == .resumeRun ? L.text("已从中断处继续") : L.text("正在接上会话"))
                 }
                 return true
             } catch let err as APIError where err.status == 409 && attempt == 0 {

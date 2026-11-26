@@ -148,8 +148,8 @@ struct QueuedView: View {
                     Text(L.text("并行任务已满，排队中。前面的任务结束或暂停后自动开始。"))
                         .font(.callout).foregroundStyle(.secondary)
                     HStack {
-                        Button(L.text("取消任务"), role: .destructive) { Task { await run.act(["type": "cancel"]) } }
-                        Button(L.text("马上开工")) { Task { await run.act(["type": "start"]) } }
+                        Button(L.text("取消任务"), role: .destructive) { Task { await run.act(.cancel) } }
+                        Button(L.text("马上开工")) { Task { await run.act(.start) } }
                             .buttonStyle(.primary)
                             .help(L.text("跳过排队，马上开工"))
                     }
@@ -206,7 +206,7 @@ extension RunModel {
     }
 
     func togglePause() async {
-        await act(["type": JSON(state.run.paused ? "resume" : "pause")])
+        await act(state.run.paused ? .resume : .pause)
     }
 
     /// The delivery under review as text: the conclusion, what needs looking at, where the result
@@ -342,7 +342,7 @@ struct RunCard: View {
                 HStack {
                     Text(verbatim: L.text("\(r.status == .interrupted ? L.text("Janus 服务重启，任务中断了。做完的保留，没做完的接着做。") : L.text("可以从失败处继续。")) 也可以点右侧的 Agent，补充信息后再继续。")).font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button(L.text("从中断处继续")) { Task { await run.act(["type": "resumeRun"]) } }.buttonStyle(.primary)
+                    Button(L.text("从中断处继续")) { Task { await run.act(.resumeRun) } }.buttonStyle(.primary)
                 }
                 .padding(10)
                 .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))

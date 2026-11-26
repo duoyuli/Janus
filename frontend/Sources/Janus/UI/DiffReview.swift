@@ -189,7 +189,7 @@ struct DiffReviewView: View {
         let list = comments.values.sorted { ($0.file, $0.line.id) < ($1.file, $1.line.id) }.map { Diff.Comment(file: $0.file, line: $0.line, text: $0.text) }
         let text = Diff.message(subject: artifact.subject, artifact: artifact.name, comments: list, summary: summary)
         Task {
-            if await run.act(["type": "message", "agent": JSON(agent), "text": JSON(text)]) {
+            if await run.act(.message(.agent(agent), text: text, images: [])) {
                 comments = [:]; summary = ""; sent = L.text("已发给\(label)")
             }
         }

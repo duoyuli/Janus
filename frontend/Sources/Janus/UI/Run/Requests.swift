@@ -130,7 +130,7 @@ struct QuestionAsk: View {
 
     func answer(task: String) {
         guard let a = run.picks[item.key] else { return }
-        Task { await run.act(["type": "answer", "key": JSON(item.key), "task": JSON(task), "answer": JSON(a), "note": JSON((run.notes[item.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines))]) }
+        Task { await run.act(.answer(key: item.key, task: task, answer: a, note: (run.notes[item.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines))) }
     }
 }
 
@@ -163,7 +163,7 @@ struct LeadAsk: View {
         // A free-form decision (no options) is answered with the text itself.
         if answer.isEmpty && !note.isEmpty { answer = note; note = "" }
         guard !answer.isEmpty else { return }
-        Task { await run.act(["type": "answer", "key": JSON(item.key), "task": "", "answer": JSON(answer), "note": JSON(note)]) }
+        Task { await run.act(.answer(key: item.key, task: "", answer: answer, note: note)) }
     }
 }
 
@@ -190,7 +190,7 @@ struct ApprovalAsk: View {
                 ForEach(opts.indices, id: \.self) { i in
                     let o = opts[i]
                     let button = Button(o.label) {
-                        Task { await run.act(["type": "approve", "key": JSON(item.key), "task": JSON(item.task ?? ""), "agent": JSON(item.agent ?? ""), "allow": JSON(o.kind.hasPrefix("allow")), "option": o.id.isEmpty ? .null : JSON(o.id), "label": JSON(o.name)]) }
+                        Task { await run.act(.approve(item, o)) }
                     }
                     .disabled(!run.canAct)
                     .help(o.help)
@@ -259,7 +259,7 @@ struct InputAsk: View {
     func send(_ action: String) {
         let content = content
         if action == "accept" && !missingRequired.isEmpty { return }
-        Task { await run.act(["type": "input", "key": JSON(item.key), "task": JSON(item.task ?? ""), "agent": JSON(item.agent ?? ""), "action": JSON(action), "content": .object(content)]) }
+        Task { await run.act(.input(key: item.key, task: item.task ?? "", agent: item.agent ?? "", action: action, content: content)) }
     }
 }
 
@@ -395,7 +395,7 @@ struct SessionAsk: View {
 
 @MainActor
 func cancelRun(_ run: RunModel) {
-    if confirm(L.text("停止这个任务？"), L.text("所有会话都会结束，已有改动保留。停了就不能再继续。"), ok: L.text("停止")) { Task { await run.act(["type": "cancel"]) } }
+    if confirm(L.text("停止这个任务？"), L.text("所有会话都会结束，已有改动保留。停了就不能再继续。"), ok: L.text("停止")) { Task { await run.act(.cancel) } }
 }
 
 struct CodeBlock: View {

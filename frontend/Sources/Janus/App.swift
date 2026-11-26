@@ -178,7 +178,7 @@ struct JanusCommands: Commands {
             Button(r?.paused == true ? L.text("继续") : L.text("暂停")) { Task { await run?.togglePause() } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(!active || !(r?.status == .running || r?.paused == true))
-            Button(L.text("从中断处继续")) { Task { await run?.act(["type": "resumeRun"]) } }
+            Button(L.text("从中断处继续")) { Task { await run?.act(.resumeRun) } }
                 .disabled(!(onGoal && run?.canAct == true && r?.status.canResume == true))
             Button(L.text("停止任务…")) { if let run { cancelRun(run) } }.disabled(!active)
             Button(run?.isChat == true && onRun ? L.text("删除对话…") : run?.isLoop == true && onRun ? L.text("删除值班…") : L.text("删除任务…"), role: .destructive) {

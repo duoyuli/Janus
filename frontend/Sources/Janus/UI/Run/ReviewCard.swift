@@ -47,10 +47,10 @@ struct ReviewLine: View {
             }
             if stage == .held && run.canAct {
                 HStack(spacing: 8) {
-                    Button(L.text("让它接着做")) { Task { await run.act(["type": "release", "agent": "lead", "task": ""]) } }
+                    Button(L.text("让它接着做")) { Task { await run.act(.release(.agent("lead"))) } }
                         .buttonStyle(.primary)
                         .help(L.text("交还负责人，它接着做你交代的事"))
-                    Button(L.text("按现在的样子交付")) { Task { await run.act(["type": "finish", "agent": "lead", "task": ""]) } }
+                    Button(L.text("按现在的样子交付")) { Task { await run.act(.finish(.agent("lead"))) } }
                         .help(L.text("这一轮做到哪里就交付到哪里，交付时合并"))
                 }
             }
@@ -260,13 +260,13 @@ struct ReviewBody: View {
         HStack(spacing: 10) {
             switch stage {
             case .blocked(conflict: true):
-                Button(L.text("让负责人再解决")) { Task { await run.act(["type": "accept"]) } }.buttonStyle(.primary)
+                Button(L.text("让负责人再解决")) { Task { await run.act(.accept) } }.buttonStyle(.primary)
                     .help(L.text("把冲突交给负责人，它在任务的副本里解决后再次交付"))
             case .blocked(conflict: false):
-                Button(L.text("处理好了，合并并验收")) { Task { await run.act(["type": "accept"]) } }.buttonStyle(.primary)
+                Button(L.text("处理好了，合并并验收")) { Task { await run.act(.accept) } }.buttonStyle(.primary)
                     .help(L.text("你那边挡路的东西处理掉之后，验收时把结果合并到你的分支"))
             default:
-                Button(signals.isEmpty ? L.text("验收") : L.text("看过了，验收")) { Task { await run.act(["type": "accept"]) } }.buttonStyle(.primary)
+                Button(signals.isEmpty ? L.text("验收") : L.text("看过了，验收")) { Task { await run.act(.accept) } }.buttonStyle(.primary)
             }
             Button(L.text("让负责人改…")) { run.leadFocus += 1 }
                 .help(L.text("在下面负责人的对话里写下要改什么；它改完会再交付一次"))

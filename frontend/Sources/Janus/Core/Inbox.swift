@@ -223,7 +223,7 @@ final class InboxModel {
     /// Answer a request with one of its quick actions, as the run page would.
     func act(_ e: InboxEntry, _ a: QuickAction, store: AppStore) async {
         answering.insert(e.key)
-        var body = a.body
+        var body = a.action.body
         body["commandId"] = JSON(UUID().uuidString)
         do {
             _ = try await store.api.post("/api/runs/\(e.run)/actions", body)

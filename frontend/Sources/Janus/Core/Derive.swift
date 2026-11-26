@@ -558,12 +558,13 @@ struct OpenFact: Identifiable {
     var id: String { key.text }
 }
 
-/// One click that settles a request: the body of `POST /api/runs/{id}/actions`.
+/// One click that settles a request.
 struct QuickAction: Equatable {
     let label: String
     var help = ""
     var prominent = false
-    let body: JSON
+    let action: RunAction
+    var body: JSON { action.body }
 }
 
 struct ResultFact: Identifiable {
@@ -739,17 +740,17 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         case "question" where i.task != nil:
             title = L.text("「\(who)」问你一个问题")
             actions = (t?.question?.options ?? []).map { o in
-                QuickAction(label: o, prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": JSON(i.task ?? ""), "answer": JSON(o), "note": ""])
+                QuickAction(label: o, prominent: o == i.d["recommend"].str, action: .answer(key: i.key, task: i.task ?? "", answer: o, note: ""))
             }
         case "question":
             title = L.text("负责人等你拍板：\(L.short(i.d["question"].str, 40))")
             actions = i.d["options"].strings.map { o in
-                QuickAction(label: o, help: o == i.d["recommend"].str ? L.text("负责人建议") : "", prominent: o == i.d["recommend"].str, body: ["type": "answer", "key": JSON(i.key), "task": "", "answer": JSON(o), "note": ""])
+                QuickAction(label: o, help: o == i.d["recommend"].str ? L.text("负责人建议") : "", prominent: o == i.d["recommend"].str, action: .answer(key: i.key, task: "", answer: o, note: ""))
             }
         case "approval":
             title = L.text("「\(who)」等你拍板")
             actions = L.permissionOptions(i.d["options"]).map { o in
-                QuickAction(label: o.label, help: o.help, prominent: o.kind == "allow_once", body: ["type": "approve", "key": JSON(i.key), "task": JSON(i.task ?? ""), "agent": JSON(i.agent ?? ""), "allow": JSON(o.kind.hasPrefix("allow")), "option": o.id.isEmpty ? .null : JSON(o.id), "label": JSON(o.name)])
+                QuickAction(label: o.label, help: o.help, prominent: o.kind == "allow_once", action: .approve(i, o))
             }
         case "input":
             title = i.d["mode"].str == "url" ? L.text("「\(who)」需要你打开一个链接") : L.text("「\(who)」需要你填一张表")

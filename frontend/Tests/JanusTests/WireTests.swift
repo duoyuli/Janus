@@ -41,6 +41,23 @@ private func backendEnum(_ name: String) throws -> Set<String> {
     #expect(Set(MessageDelivery.allCases.map(\.rawValue)) == (try backendEnum("Delivery")).union(["pending"]))
 }
 
+/// Every action the app sends is one the server takes (`RunAction::name` in `actions.rs`), and a
+/// session's actions carry the session the way `SessionTarget` reads it.
+@Test func runActionsMatchTheBackend() throws {
+    let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../../../backend/src/orchestrator/actions.rs").standardizedFileURL
+    let text = try String(contentsOf: src, encoding: .utf8)
+    let names = Set(text.matches(of: try Regex(#"RunAction::\w+(?:\s*\{ \.\. \}|\(_\))? => "(\w+)""#)).compactMap { $0.output[1].substring.map(String.init) })
+    let lead = SessionTarget.agent("lead")
+    let all: [RunAction] = [.answer(key: "", task: "", answer: "", note: ""), .approve(key: "", task: "", agent: "", allow: true, option: nil, label: ""),
+                            .input(key: "", task: "", agent: "", action: "accept", content: [:]), .message(lead, text: "hi", images: []),
+                            .control(lead, id: "mode", value: "plan", via: "mode"), .interrupt(lead), .takeover(lead), .release(lead), .finish(lead),
+                            .pause, .resume, .start, .cancel, .accept, .resumeRun]
+    #expect(Set(all.map(\.name)) == names)
+    #expect(RunAction.message(.task("T1"), text: "hi", images: []).body == ["type": "message", "task": "T1", "agent": "", "text": "hi"])
+    #expect(RunAction.release(lead).body == ["type": "release", "task": "", "agent": "lead"])
+}
+
 @Test func janusToolsMatchTheBackend() throws {
     var tools: Set<String> = []
     for name in ["LeadTool", "MemberTool", "LoopTool", "MemoryTool", "ChatTool"] { tools.formUnion(try backendEnum(name)) }
