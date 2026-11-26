@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.2
+
+- 修复：负责人等看板消息（`janus.wait`）时，只要一分钟内没有新消息就报「The operation timed out.」，拿不到子任务的实时进展。原因是 Janus 最多等 3 分钟，而 Claude Code 和 Codex 等一次工具调用只给 60 秒。负责人因此会去翻工作目录，把协作者还没交的半成品当成已交付、提前要求返工，Run 也因每次报错多花一轮模型调用而变慢。现在每次最多等 50 秒。
+
+- 负责人编排子任务时，工具说明提醒它：一次提交的内容太长会被模型的单次输出上限截断、整份作废，子任务多或说明长时分几次提交；工作目录里已有的资料写路径，不整段抄进说明。
+
+- Fixed: while the lead waited for board messages (`janus.wait`), any minute without news ended in "The operation timed out." and it never saw its subtasks' live progress. Janus held the call for up to 3 minutes, while Claude Code and Codex give a tool call 60 seconds. The lead then read the working directory instead, could take a collaborator's unfinished report as delivered and ask for rework early, and every failed wait cost the run another model turn. A wait now lasts at most 50 seconds.
+
+- When the lead orchestrates subtasks, the tool now reminds it that a submission too long for one model reply is cut off and lost whole, so many subtasks or long instructions go in over several calls, and that material already in the working directory is pointed to by its path rather than copied into the instructions.
+
 ## 2026.11.26
 
 - 招聘顾问聊完后直接交出它设计的数字员工，不再写成 Markdown 文件：对话上方出现「招聘顾问提议了 N 位数字员工」，点「查看并创建…」逐个看指令、勾选要的人、选好由哪个 Agent 来做，点「创建」才保存；不要就点「不用了」。让它调整后再交一批，会替换还没处理的那一批。
