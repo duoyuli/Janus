@@ -327,8 +327,7 @@ impl App {
             "[Janus 看板推送] 看板上有需要你处理的新消息。它们已经算作读过，不会再出现在 janus.wait 里：\n{entries}",
             "[Janus board push] New board messages need you. They count as read and will not come back in janus.wait:\n{entries}"
         );
-        static NEXT: AtomicI64 = AtomicI64::new(0);
-        let id = format!("push{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+        let id = crate::util::new_id("push");
         if tx.send(Steer::Message(Msg { id, text: text.clone() })).is_err() {
             // The session ended in between: the entries were not seen, so `wait` still brings them (AT-03).
             let mut st = run.st.lock().unwrap();

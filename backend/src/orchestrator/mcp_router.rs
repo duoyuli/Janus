@@ -379,13 +379,8 @@ impl App {
     fn remember_card(&self, item: &Item, card: &Card) {
         let path = self.card_path(item);
         let dir = self.cfg.layout.mcp_tools(&item.id);
-        // Written whole, then moved in place: a run reading it meanwhile never sees half a card.
-        static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let partial = dir.join(format!(".{}.{}", item.revision, WRITES.fetch_add(1, Ordering::SeqCst)));
-        let saved = std::fs::create_dir_all(&dir)
-            .and_then(|_| std::fs::write(&partial, serde_json::to_vec(card).unwrap_or_default()))
-            .and_then(|_| std::fs::rename(&partial, &path));
-        if let Err(err) = saved {
+        // Written whole: a run reading it meanwhile never sees half a card.
+        if let Err(err) = crate::util::write_whole(&path, &serde_json::to_vec(card).unwrap_or_default()) {
             crate::config::log(format!("janus: 记不下 {} 的工具列表：{err:#}", item.name));
         }
         for old in std::fs::read_dir(&dir)

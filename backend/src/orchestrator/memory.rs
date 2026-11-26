@@ -330,7 +330,7 @@ impl App {
                         "This workspace already has {NOTES_MAX} notes, the most it keeps. Update the related one (pass its id) instead of adding one"
                     ));
                 }
-                let id = crate::agents::new_id("m");
+                let id = crate::util::new_id("m");
                 self.db.insert_memory(&id, &workspace, &write, now_ms()).map_err(failed)?;
                 (id, true)
             }
@@ -464,7 +464,7 @@ impl App {
         let role = self.db.get::<Role>(&ws.lead)?.ok_or_else(|| anyhow!("工作区的负责人已被删除"))?;
         let member = self.single_member(&role)?;
         let runs = self.delivered_runs_since(workspace, dreams.first())?;
-        let id = crate::agents::new_id("r");
+        let id = crate::util::new_id("r");
         let dir = self.cfg.layout.run(RunKind::Dream, &id).work;
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("创建整理目录 {} 失败", dir.display()))

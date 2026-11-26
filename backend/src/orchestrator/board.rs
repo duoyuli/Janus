@@ -1179,8 +1179,7 @@ impl App {
             .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
             .unwrap_or_default();
         let recommend = args["recommend"].as_str().unwrap_or("");
-        static NEXT: AtomicI64 = AtomicI64::new(0);
-        let key = format!("q-lead-{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+        let key = crate::util::new_id("q-lead-");
         // Nobody awaits the answer here: it reaches the lead through `wait`.
         self.add_pending(run, &key, Owner { session: SessionKey::Lead, attempt: 0 }, Ask::Question)
             .map_err(|e| format!("{e:#}"))?;

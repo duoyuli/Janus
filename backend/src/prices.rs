@@ -274,9 +274,7 @@ fn fetch(file: &Path, now: i64) -> Result<Table> {
     if table.models.is_empty() {
         bail!("models.dev 的列表里没有读到任何价格");
     }
-    let tmp = dir.join("prices.json.part");
-    std::fs::write(&tmp, serde_json::to_vec(&table)?)?;
-    std::fs::rename(&tmp, file)?;
+    crate::util::write_whole(file, &serde_json::to_vec(&table)?)?;
     Ok(table)
 }
 

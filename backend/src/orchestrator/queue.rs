@@ -75,7 +75,7 @@ impl App {
         let ws = self.workspace(workspace)?;
         let (cwd, _) = self.startable_team(&ws)?;
         // Unique even for runs created in the same millisecond (side by side, as the e2e test does).
-        let id = crate::agents::new_id("r");
+        let id = crate::util::new_id("r");
         let dirs = self.cfg.layout.run(RunKind::Goal, &id);
         let goal_images = crate::attachments::save(&dirs, images).inspect_err(|_| {
             crate::layout::remove(&dirs.data);

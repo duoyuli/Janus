@@ -21,9 +21,10 @@ pub use mcp::{McpServer, McpValues};
 pub use skill_router::skills_read;
 pub use sources::{CHECK_EVERY, Source};
 
-use crate::agents::{new_id, str_of, write_private};
+use crate::agents::{str_of, write_private};
 use crate::db::ConfigKind;
 use crate::orchestrator::App;
+use crate::util::new_id;
 use crate::util::{expand_home, now_ms};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};

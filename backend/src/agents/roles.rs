@@ -222,7 +222,7 @@ impl App {
         if bytes.len() > MAX_AVATAR_BYTES {
             bail!("头像超过 {} KB", MAX_AVATAR_BYTES / 1024);
         }
-        write_avatar(&self.cfg.layout.role_avatar(&role.id), bytes)?;
+        crate::util::write_whole(&self.cfg.layout.role_avatar(&role.id), bytes)?;
         role.avatar = avatar_hash(bytes);
         self.db.put(&role, now_ms())?;
         Ok(role)
@@ -331,7 +331,7 @@ impl App {
 
     /// Give a default role the picture this build ships, recording it as the one it was given.
     fn ship_avatar(&self, r: &RoleSeed, role: &mut Role) -> Result<()> {
-        write_avatar(&self.cfg.layout.role_avatar(&r.id), r.avatar)?;
+        crate::util::write_whole(&self.cfg.layout.role_avatar(&r.id), r.avatar)?;
         let hash = avatar_hash(r.avatar);
         role.avatar = hash.clone();
         if let Some(seed) = role.seed.as_mut() {
@@ -392,15 +392,6 @@ fn seed_updates(role: &Role) -> serde_json::Map<String, Value> {
 /// The hash a default text is remembered by: the first 16 hex digits of its SHA-256.
 /// A picture is at most this large: the app sends 256×256 PNGs, far smaller.
 pub(super) const MAX_AVATAR_BYTES: usize = 1024 * 1024;
-
-/// Write a picture whole: a new file renamed over the old one.
-fn write_avatar(file: &Path, bytes: &[u8]) -> Result<()> {
-    std::fs::create_dir_all(file.parent().context("头像没有所在目录")?)?;
-    let tmp = file.with_extension("png.part");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, file)?;
-    Ok(())
-}
 
 fn avatar_hash(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};

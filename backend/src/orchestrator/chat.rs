@@ -16,7 +16,7 @@ impl App {
     pub async fn create_chat(self: &Arc<Self>, req: NewChat) -> Result<String> {
         let role = self.role(&req.role)?;
         let member = self.single_member(&role)?;
-        let id = crate::agents::new_id("r");
+        let id = crate::util::new_id("r");
         let dir = self.cfg.layout.run(RunKind::Chat, &id).work;
         std::fs::create_dir_all(&dir).with_context(|| format!("创建对话目录 {} 失败", dir.display()))?;
         // The path the agent's own tools report, so the files it names resolve against it.

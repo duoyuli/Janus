@@ -50,8 +50,7 @@ impl App {
         text: &str,
         images: &[Value],
     ) -> Msg {
-        static NEXT: AtomicI64 = AtomicI64::new(0);
-        let id = format!("m{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+        let id = crate::util::new_id("m");
         let mut data = json!({ "id": id, "text": text, "delivery": "pending" });
         if !images.is_empty() {
             data["images"] = json!(images);

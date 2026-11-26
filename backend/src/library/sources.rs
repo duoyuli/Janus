@@ -207,7 +207,7 @@ impl App {
         if self.sources()?.iter().any(|s| s.repo == at.repo && s.git_ref == at.git_ref && s.path == at.path) {
             bail!("已经添加过这个来源");
         }
-        let id = crate::agents::new_id("s");
+        let id = crate::util::new_id("s");
         let dir = self.source_dir(&id)?;
         let added = async {
             let commit = fetch(&dir, clone_url, &at.git_ref).await?;

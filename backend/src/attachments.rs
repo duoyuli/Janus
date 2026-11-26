@@ -10,14 +10,12 @@
 
 // @project-doc docs/domains/20261031-run_lifecycle.md#attachments
 use crate::layout::{Layout, RunDirs};
-use crate::util::now_ms;
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// At most this many images in one goal or message, each at most this large after decoding.
 pub const MAX_IMAGES: usize = 10;
@@ -43,7 +41,6 @@ fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
 /// Decode and store the images of one goal or message. Returns, for each, `{path, mimeType,
 /// name, size}`; nothing is stored when any of them is refused.
 pub fn save(run: &RunDirs, images: &[Value]) -> Result<Vec<Value>> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
     if images.len() > MAX_IMAGES {
         bail!("一次最多附 {MAX_IMAGES} 张图片");
     }
@@ -67,7 +64,7 @@ pub fn save(run: &RunDirs, images: &[Value]) -> Result<Vec<Value>> {
     std::fs::create_dir_all(&dir)?;
     let mut out = vec![];
     for (bytes, mime, ext, name) in decoded {
-        let path = dir.join(format!("{}-{}.{ext}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst)));
+        let path = dir.join(format!("{}.{ext}", crate::util::new_id("")));
         std::fs::write(&path, &bytes)?;
         out.push(json!({ "path": path, "mimeType": mime, "name": name, "size": bytes.len() }));
     }

@@ -217,8 +217,8 @@ impl App {
         if !cwd.is_dir() {
             bail!("工作目录不存在：{}", cwd.display());
         }
-        let id = crate::agents::new_id("l");
-        let run_id = crate::agents::new_id("r");
+        let id = crate::util::new_id("l");
+        let run_id = crate::util::new_id("r");
         let def = LoopDef {
             id: id.clone(),
             workspace: workspace.into(),

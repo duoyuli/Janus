@@ -571,8 +571,7 @@ impl App {
             st.steerable.contains(&key).then(|| st.live.get(&key).cloned()).flatten()
         };
         let Some(tx) = tx else { return };
-        static NEXT: AtomicI64 = AtomicI64::new(0);
-        let id = format!("notice{}-{}", now_ms(), NEXT.fetch_add(1, Ordering::SeqCst));
+        let id = crate::util::new_id("notice");
         let _ = tx.send(Steer::Message(Msg { id, text: text.to_string() }));
     }
 
