@@ -130,7 +130,7 @@ final class TaskState {
     var evidence: [String] = []
     /// The risks the executor reported with its result.
     var risks: [String] = []
-    /// Files the task owns: from its orchestration, plus what it claimed while working.
+    /// Files the task owns, as its orchestration gave them.
     var owns: [String] = []
     var verifies = ""
     var continues = ""
@@ -549,7 +549,7 @@ struct OpenFact: Identifiable {
     let agents: [String]
     let you: Bool
     var sub: String = ""
-    /// For the person's items: the request kind (`question`, `approval`, `input`, `budget`,
+    /// For the person's items: the request kind (`question`, `approval`, `input`,
     /// `session`) or `lead_stall`, so the inbox knows which can wait.
     var kind: String = ""
     /// Choices that answer the request in one click, where it is a plain choice: an approval's

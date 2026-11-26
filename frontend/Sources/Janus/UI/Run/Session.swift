@@ -303,16 +303,17 @@ struct ChatCard: View {
     }
 }
 
-/// The conversation itself, newest at the bottom. While the person is at the bottom it follows what
-/// arrives; once they scroll up it stays where they are, and a button takes them back to the
-/// newest. Rows are built lazily: a lead's session runs to thousands of events.
-// @project-doc docs/architecture/20261031-frontend.md#session_view
 /// How much of an agent's work a conversation shows: every tool call, or only what was said,
 /// asked and delivered.
 enum ChatDensity: String {
     case detail, summary
 }
 
+/// The conversation itself, newest at the bottom. While the person is at the bottom it follows what
+/// arrives; once they scroll up it stays where they are, and a button takes them back to the
+/// newest. Older rows are built lazily (a lead's session runs to thousands of events); the newest
+/// few are always built, so the bottom edge is measured, not estimated.
+// @project-doc docs/architecture/20261031-frontend.md#session_view
 struct ChatScroll: View {
     let run: RunModel
     let st: RunState
@@ -367,12 +368,12 @@ struct ChatScroll: View {
             let now = phase == .tracking || phase == .interacting || phase == .decelerating
             if now != person { person = now }
         }
-        // How much content lies below the visible area, reported on every scroll and every change
-        // of the content's size; the state changes only when the answer does.
         // Where the end is, as an offset of the content: what the scroll to the end goes to.
         .onScrollGeometryChange(for: CGFloat.self) { g in
             g.contentOffset.y + g.contentSize.height - g.visibleRect.maxY
         } action: { _, end in endOffset = end }
+        // How much content lies below the visible area, reported on every scroll and every change
+        // of the content's size; the state changes only when the answer does.
         .onScrollGeometryChange(for: CGFloat.self) { g in
             g.contentSize.height - g.visibleRect.maxY
         } action: { _, below in
@@ -514,9 +515,10 @@ struct LiveSlot: View {
     }
 }
 
-/// Whether a conversation follows what arrives: only while its end is in view. Only the person's
-/// own scrolling lets go of the end or takes it up again; scrolled up, they keep their place, and
-/// what arrived meanwhile is noted for the way back.
+/// Whether a conversation follows what arrives: only while its end is in view. The person's own
+/// scrolling lets go of the end or takes it up again, and so does a way to the end that never
+/// lands (`landingTries`, `landingTime`); scrolled up, the person keeps their place, and what
+/// arrived meanwhile is noted for the way back.
 struct ChatFollow: Equatable {
     /// The newest item is in view, so what moves the end is followed.
     var following = true
