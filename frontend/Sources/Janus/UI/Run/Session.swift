@@ -171,6 +171,8 @@ struct ChatCard: View {
         }
         .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
+        // A new level applies to every turn: what the person opened or folded by hand gives way to it.
+        .onChange(of: density) { run.chatOpen = [:] }
     }
 
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
