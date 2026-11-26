@@ -1,9 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// Digital workers: who uses which model, with which instructions and tools.
+/// Digital workers: who uses which model, with which instructions and tools, listed by group.
+/// A group's menu renames it, puts it on one Agent or exports it as role files.
+// @project-doc docs/domains/20261031-agents_and_roles.md#role_groups
 struct RolesSection: View {
     let store: AppStore
+    /// The group being renamed, and its new name.
+    @Local private var renaming: String?
+    @Local private var newName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -25,13 +30,48 @@ struct RolesSection: View {
                     Button(L.text("新建数字员工")) { store.newRole() }.buttonStyle(.primary)
                 }
             } else {
-                VStack(spacing: 0) {
-                    ForEach(store.roles, id: \.self) { r in row(r); Divider() }
-                }
-                .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
+                ForEach(store.roleSections, id: \.group) { section in group(section.group, section.roles) }
             }
         }
+        .alert(L.text("重命名分组"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField(L.text("分组名"), text: $newName)
+            Button(L.text("取消"), role: .cancel) { renaming = nil }
+            Button(L.text("重命名")) {
+                if let from = renaming { Task { await store.renameRoleGroup(from, to: newName) } }
+                renaming = nil
+            }
+        }
+    }
+
+    private func group(_ g: String, _ members: [Role]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(AppStore.groupTitle(g)).font(.headline)
+                Text(verbatim: "\(members.count)").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Spacer()
+                Menu {
+                    Menu(L.text("整组改用 Agent")) {
+                        ForEach(store.connections, id: \.self) { c in
+                            Button(c["name"].str) { Task { await store.bindRoleGroup(g, connection: c["id"].str) } }
+                        }
+                    }
+                    .disabled(store.connections.isEmpty)
+                    if !g.isEmpty {
+                        Button(L.text("重命名…")) { newName = g; renaming = g }
+                        Button(L.text("导出为文件…")) { Task { await store.exportRoleGroup(g) } }
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help(L.text("\(AppStore.groupTitle(g)) 的整组操作"))
+                .accessibilityLabel(L.text("\(AppStore.groupTitle(g)) 的整组操作"))
+            }
+            VStack(spacing: 0) {
+                ForEach(members, id: \.self) { r in row(r); Divider() }
+            }
+            .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
+        }
+        .padding(.top, 4)
     }
 
     private func row(_ r: Role) -> some View {
@@ -147,6 +187,19 @@ struct RoleEditor: View {
                         Text(L.text("写它擅长什么、交付什么，负责人据此派活。")).font(.caption).foregroundStyle(.secondary)
                     }
                     seedUpdate("desc", L.text("默认职责有新版本。你改过这一项，所以升级时没有替换。"))
+                    labeled(L.text("分组")) {
+                        HStack(spacing: 6) {
+                            TextField(L.text("不分组"), text: bind("group")).textFieldStyle(.roundedBorder)
+                            Menu {
+                                ForEach(store.roleGroups.filter { !$0.isEmpty }, id: \.self) { g in Button(g) { r["group"] = JSON(g) } }
+                            } label: { Image(systemName: "chevron.down") }
+                            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                            .disabled(store.roleGroups.allSatisfy(\.isEmpty))
+                            .help(L.text("选一个已有的分组"))
+                            .accessibilityLabel(L.text("选一个已有的分组"))
+                        }
+                        Text(L.text("按团队或行业归类，只用来管理，负责人看不到。")).font(.caption).foregroundStyle(.secondary)
+                    }
                     Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L.text("可以担任负责人"))

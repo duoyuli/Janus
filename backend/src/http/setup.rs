@@ -183,6 +183,23 @@ pub(super) async fn remove_role_avatar(State(app): State<Arc<App>>, UrlPath(id):
     reply(app.set_role_avatar(&id, None)?)
 }
 
+/// A digital employee as a role file, `text/markdown`, for export.
+pub(super) async fn role_file(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    Ok(([(header::CONTENT_TYPE, "text/markdown; charset=utf-8")], app.role_file(&id)?).into_response())
+}
+
+/// Rename a group of digital employees: `{from, to}`.
+pub(super) async fn rename_role_group(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    let text = |k: &str| body[k].as_str().unwrap_or("").to_string();
+    reply(json!({ "moved": app.rename_role_group(&text("from"), &text("to"))? }))
+}
+
+/// Put a whole group on one agent: `{group, connection}` (`group` empty: those in no group).
+pub(super) async fn bind_role_group(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
+    let text = |k: &str| body[k].as_str().unwrap_or("").to_string();
+    reply(app.bind_role_group(&text("group"), &text("connection"))?)
+}
+
 #[derive(Deserialize)]
 pub(super) struct PreviewQuery {
     kind: String,

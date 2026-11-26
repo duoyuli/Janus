@@ -1,5 +1,5 @@
 {
-  "dataVersion": 24,
+  "dataVersion": 25,
   "tables": [
     "CREATE INDEX events_type_ts ON events (type, ts)",
     "CREATE INDEX memories_workspace ON memories (workspace, updated_at)",
@@ -20,6 +20,7 @@
         "id",
         "name",
         "desc",
+        "group",
         "prompt",
         "connection",
         "model",

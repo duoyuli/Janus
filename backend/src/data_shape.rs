@@ -22,6 +22,8 @@ pub const SHAPES: &[Shape] = &[
             "id",
             "name",
             "desc",
+            // The group it is listed under; empty for none.
+            "group",
             "prompt",
             "connection",
             "model",

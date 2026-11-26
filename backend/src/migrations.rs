@@ -209,6 +209,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "Run 快照记下会话用的语言（lang），以前的 Run 记为中文",
         steps: &[Step::Custom(steps::runs::add_run_lang)],
     },
+    Migration {
+        version: 25,
+        name: "数字员工分组：默认数字员工归入各自的组（产品上线、通用、对话），其余不分组",
+        steps: &[Step::Custom(steps::roles::add_role_groups)],
+    },
 ];
 
 /// The data version this build reads and writes.

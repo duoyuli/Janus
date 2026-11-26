@@ -142,6 +142,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/setup/{kind}", post(setup::save))
         .route("/api/setup/{kind}/{id}", delete(setup::remove))
         .route("/api/roles/{id}/seed", post(setup::seed_choice))
+        .route("/api/roles/{id}/file", get(setup::role_file))
+        .route("/api/role-groups/rename", post(setup::rename_role_group))
+        .route("/api/role-groups/bind", post(setup::bind_role_group))
         .route("/api/connections/{id}/test", post(setup::test_connection))
         .route("/api/connections/{id}/env", get(setup::connection_env))
         .route(

@@ -8,7 +8,7 @@
 //! kept when the description runs out of room.
 // @project-doc docs/domains/20261116-resource_library.md#skill_router
 
-use super::{Item, skill};
+use super::Item;
 use crate::lang::{Lang, tr};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ pub(super) struct Entry {
 impl Entry {
     /// From a skill's SKILL.md as the agent gets it (`place_skill`).
     pub(super) fn read(item: &Item, md: &str) -> Entry {
-        let field = |key| skill::field(md, key).map(|v| one_line(&v)).filter(|v| !v.is_empty());
+        let field = |key| crate::front_matter::field(md, key).map(|v| one_line(&v)).filter(|v| !v.is_empty());
         let when = field("when_to_use");
         let about = [field("description").or_else(|| Some(one_line(&item.description))), when.clone()]
             .into_iter()

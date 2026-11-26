@@ -154,6 +154,13 @@ enum Snapshots {
                 let png = p[1] == "none" ? nil : (try? Data(contentsOf: URL(fileURLWithPath: p[1]))).flatMap { AvatarImages.square($0) }
                 if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
             }
+        // A group's menu: `group-bind <group>|<agent>`, `group-rename <from>|<to>`.
+        case "group-bind":
+            let p = arg.components(separatedBy: "|")
+            if p.count == 2 { await store.bindRoleGroup(p[0], connection: p[1]) }
+        case "group-rename":
+            let p = arg.components(separatedBy: "|")
+            if p.count == 2 { await store.renameRoleGroup(p[0], to: p[1]) }
         case "close-sheet":
             store.closeRoleEditor(); store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
@@ -202,6 +209,11 @@ enum Snapshots {
                 "autoUpdate": JSON(Updater.shared.automatic),
                 // Whether this app would update itself: never while a test drives it.
                 "updateEnabled": JSON(Updater.shared.enabled),
+                // Settings › 数字员工 as listed: each group's title and its employees, in order.
+                // The new-chat page and the workspace editor list them the same way.
+                "roleGroups": JSON.array(store.roleSections.map { section in
+                    ["group": JSON(section.group), "title": JSON(AppStore.groupTitle(section.group)), "roles": JSON.array(section.roles.map { JSON($0.id) })]
+                }),
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
                     JSON(img.representations.first.map { $0.pixelsWide } ?? 0)

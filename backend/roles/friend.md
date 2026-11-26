@@ -2,6 +2,7 @@
 id: friend
 name: 老友
 desc: 陪你把一件事聊透：会追问、敢说真话，帮你看清自己真正想要什么
+group: 对话
 color: "#be185d"
 init: 老友
 lead: false

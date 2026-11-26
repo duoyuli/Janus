@@ -1692,3 +1692,24 @@
 "%@ 收工 · %@" = "Ended %1$@ · %2$@";
 "%@ 收工（%@）· %@" = "Ended %1$@ (%2$@) · %3$@";
 "Janus 的界面语言。打开文件夹等系统对话框在重新打开 Janus 后换成这个语言" = "The language Janus uses. System dialogs, such as choosing a folder, switch to it after you reopen Janus";
+
+/* Digital employees by group, role files */
+"重命名分组" = "Rename Group";
+"分组名" = "Group name";
+"重命名" = "Rename";
+"整组改用 Agent" = "Move Group to Agent";
+"重命名…" = "Rename…";
+"导出为文件…" = "Export as Files…";
+"%@ 的整组操作" = "Actions for %@";
+"分组" = "Group";
+"不分组" = "No group";
+"选一个已有的分组" = "Choose an existing group";
+"按团队或行业归类，只用来管理，负责人看不到。" = "Sort people by team or trade. It is only for managing them; the lead never sees it.";
+"未分组" = "No Group";
+"%@ 的 %lld 位数字员工改用 %@" = "%1$@: %2$lld digital employees now on %3$@";
+"导出到这里" = "Export Here";
+"会在这里新建文件夹「%@」，每位数字员工一个 .md 文件" = "A folder “%@” is created here, with one .md file per digital employee";
+"已导出 %lld 位数字员工到 %@" = "Exported digital employees: %1$lld, to %2$@";
+"导出失败：%@" = "Export failed: %@";
+"按分组选…" = "Choose by Group…";
+"只启用这个分组里绑定了 Agent 的数字员工，其中能担任负责人的当负责人" = "Turn on only this group’s digital employees that have an Agent; one that can lead becomes the lead";

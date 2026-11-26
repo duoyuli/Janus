@@ -9,6 +9,7 @@ mod data_shape;
 mod db;
 mod events;
 mod evidence;
+mod front_matter;
 mod git;
 mod goal_settle;
 mod host_env;

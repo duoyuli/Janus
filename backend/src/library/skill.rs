@@ -1,5 +1,6 @@
 //! A skill is a folder with a `SKILL.md` whose front matter gives its name and description.
 
+use crate::front_matter::{field, yaml as front_matter};
 use anyhow::{Context, Result};
 use std::path::Path;
 
@@ -22,47 +23,10 @@ pub(super) fn parse_meta(text: &str, folder: &str) -> Meta {
     Meta { name, description: field(text, "description").unwrap_or_default() }
 }
 
-/// A top-level front matter field of a `SKILL.md`, as text. YAML block scalars (`>`, `|`, `>-`)
-/// continue on the indented lines that follow and are folded into one line.
-pub(super) fn field(text: &str, key: &str) -> Option<String> {
-    let lines: Vec<&str> = front_matter(text)?.lines().collect();
-    let prefix = format!("{key}:");
-    let i = lines.iter().position(|l| l.starts_with(&prefix))?;
-    let value = unquote(&lines[i][prefix.len()..]);
-    if !matches!(value.as_str(), ">" | "|" | ">-" | "|-" | ">+" | "|+") {
-        return Some(value);
-    }
-    let block: Vec<&str> =
-        lines[i + 1..].iter().take_while(|l| l.starts_with(' ') || l.is_empty()).map(|l| l.trim()).collect();
-    Some(block.join(" ").trim().to_string())
-}
-
-fn unquote(v: &str) -> String {
-    v.trim().trim_matches(['"', '\'']).trim().to_string()
-}
-
-/// The YAML between the opening `---` and the next `---` line.
-fn front_matter(text: &str) -> Option<&str> {
-    let rest = text.strip_prefix("---")?;
-    let end = rest.find("\n---")?;
-    Some(&rest[..end])
-}
-
 /// A name every agent takes for a skill: lowercase ASCII letters, digits and `-`, at most 64.
 /// None when nothing usable is left (a name in another script).
 pub(super) fn skill_name(raw: &str) -> Option<String> {
-    let mut out = String::new();
-    for c in raw.trim().chars() {
-        let c = c.to_ascii_lowercase();
-        if c.is_ascii_lowercase() || c.is_ascii_digit() {
-            out.push(c);
-        } else if !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    let out: String = out.trim_matches('-').chars().take(64).collect();
-    let out = out.trim_end_matches('-').to_string();
-    (!out.is_empty()).then_some(out)
+    crate::text::slug(raw, 64)
 }
 
 /// The `SKILL.md` an agent is given: the library's name in the front matter (the library may have

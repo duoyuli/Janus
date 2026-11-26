@@ -12,6 +12,9 @@ pub struct Role {
     pub name: String,
     /// What it is responsible for, shown to the lead.
     pub desc: String,
+    /// The group it is listed under, to manage people by team or trade; empty for none. Only
+    /// the app shows it: no session is told.
+    pub group: String,
     /// Its standing instructions.
     pub prompt: String,
     /// The agent connection it runs on; empty until one is bound.
@@ -58,6 +61,7 @@ pub struct RoleInput {
     pub id: String,
     pub name: String,
     pub desc: String,
+    pub group: String,
     pub prompt: String,
     pub connection: String,
     pub model: String,
@@ -66,6 +70,26 @@ pub struct RoleInput {
     pub lead: bool,
     pub color: String,
     pub init: String,
+}
+
+impl From<&Role> for RoleInput {
+    /// The role as its editor would send it back unchanged.
+    fn from(r: &Role) -> RoleInput {
+        RoleInput {
+            id: r.id.clone(),
+            name: r.name.clone(),
+            desc: r.desc.clone(),
+            group: r.group.clone(),
+            prompt: r.prompt.clone(),
+            connection: r.connection.clone(),
+            model: r.model.clone(),
+            effort: r.effort.clone(),
+            session: r.session.clone(),
+            lead: r.lead,
+            color: r.color.clone(),
+            init: r.init.clone(),
+        }
+    }
 }
 
 impl Role {
@@ -131,6 +155,7 @@ impl App {
             id: id.clone(),
             name: name.to_string(),
             desc: input.desc.clone(),
+            group: super::role_files::group_name(&input.group)?,
             prompt: input.prompt.trim().to_string(),
             connection: input.connection.clone(),
             model: input.model.clone(),
@@ -168,24 +193,31 @@ impl App {
         check_id(id)?;
         let mut role = self.role(id)?;
         let file = self.cfg.layout.role_avatar(id);
-        role.avatar = match png {
+        match png {
             Some(data) => {
                 let data = data.split_once(";base64,").map_or(data, |(_, d)| d).trim();
                 let bytes = base64::engine::general_purpose::STANDARD.decode(data).context("头像不是有效的 base64")?;
-                if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-                    bail!("头像要是 PNG 图片");
-                }
-                if bytes.len() > MAX_AVATAR_BYTES {
-                    bail!("头像超过 {} KB", MAX_AVATAR_BYTES / 1024);
-                }
-                write_avatar(&file, &bytes)?;
-                avatar_hash(&bytes)
+                self.put_role_avatar(role, &bytes)
             }
             None => {
                 crate::layout::remove(&file);
-                String::new()
+                role.avatar = String::new();
+                self.db.put(&role, now_ms())?;
+                Ok(role)
             }
-        };
+        }
+    }
+
+    /// Save `bytes`, a PNG, as the picture of `role`.
+    pub(super) fn put_role_avatar(&self, mut role: Role, bytes: &[u8]) -> Result<Role> {
+        if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            bail!("头像要是 PNG 图片");
+        }
+        if bytes.len() > MAX_AVATAR_BYTES {
+            bail!("头像超过 {} KB", MAX_AVATAR_BYTES / 1024);
+        }
+        write_avatar(&self.cfg.layout.role_avatar(&role.id), bytes)?;
+        role.avatar = avatar_hash(bytes);
         self.db.put(&role, now_ms())?;
         Ok(role)
     }
@@ -237,20 +269,21 @@ impl App {
         if self.db.get_config(ConfigKind::Meta, "seeded")?.is_none() {
             for r in SEEDS.iter() {
                 let input = RoleInput {
-                    id: r.id.into(),
-                    name: r.name.into(),
-                    desc: r.desc.into(),
-                    prompt: r.prompt.into(),
+                    id: r.id.clone(),
+                    name: r.name.clone(),
+                    desc: r.desc.clone(),
+                    group: r.group.clone(),
+                    prompt: r.prompt.clone(),
                     lead: r.lead,
-                    color: r.color.into(),
-                    init: r.init.into(),
+                    color: r.color.clone(),
+                    init: r.init.clone(),
                     ..Default::default()
                 };
                 let mut role = self.save_role(&input)?;
                 role.seed = Some(SeedMark {
-                    id: r.id.into(),
-                    desc: text_hash(r.desc),
-                    prompt: text_hash(r.prompt),
+                    id: r.id.clone(),
+                    desc: text_hash(&r.desc),
+                    prompt: text_hash(&r.prompt),
                     avatar: None,
                 });
                 self.ship_avatar(r, &mut role)?;
@@ -260,7 +293,7 @@ impl App {
         }
         for (r, mut role) in self.seeded_roles()? {
             let mut changed = false;
-            for (field, text) in [("desc", r.desc), ("prompt", r.prompt)] {
+            for (field, text) in [("desc", r.desc.as_str()), ("prompt", r.prompt.as_str())] {
                 let shipped = text_hash(text);
                 let seed = role.seed.as_mut().expect("a seeded role");
                 let given = seed.field(field).to_string();
@@ -291,7 +324,7 @@ impl App {
 
     /// Give a default role the picture this build ships, recording it as the one it was given.
     fn ship_avatar(&self, r: &RoleSeed, role: &mut Role) -> Result<()> {
-        write_avatar(&self.cfg.layout.role_avatar(r.id), r.avatar)?;
+        write_avatar(&self.cfg.layout.role_avatar(&r.id), r.avatar)?;
         let hash = avatar_hash(r.avatar);
         role.avatar = hash.clone();
         if let Some(seed) = role.seed.as_mut() {
@@ -305,7 +338,7 @@ impl App {
         Ok(SEEDS
             .iter()
             .filter_map(|r| {
-                let role = self.db.get::<Role>(r.id).ok().flatten()?;
+                let role = self.db.get::<Role>(&r.id).ok().flatten()?;
                 role.seed.as_ref().is_some_and(|s| s.id == r.id).then_some((r, role))
             })
             .collect())
@@ -320,8 +353,8 @@ impl App {
             .find(|(r, _)| r.id == id)
             .ok_or_else(|| anyhow!("{id} 不是默认数字员工"))?;
         let text = match field {
-            "desc" => r.desc,
-            "prompt" => r.prompt,
+            "desc" => r.desc.as_str(),
+            "prompt" => r.prompt.as_str(),
             _ => bail!("只能更新职责（desc）或指令（prompt）"),
         };
         if adopt {
@@ -339,7 +372,7 @@ fn seed_updates(role: &Role) -> serde_json::Map<String, Value> {
     let mut out = serde_json::Map::new();
     let Some(seed) = &role.seed else { return out };
     if let Some(r) = SEEDS.iter().find(|r| seed.id == r.id) {
-        for (field, text, now) in [("desc", r.desc, &role.desc), ("prompt", r.prompt, &role.prompt)] {
+        for (field, text, now) in [("desc", &r.desc, &role.desc), ("prompt", &r.prompt, &role.prompt)] {
             let shipped = text_hash(text);
             if seed.field(field) != shipped && text_hash(now) != shipped {
                 out.insert(field.into(), json!(text));
@@ -374,13 +407,14 @@ pub(crate) fn text_hash(text: &str) -> String {
 
 /// A default role, created on a first start with no agent bound yet.
 pub(crate) struct RoleSeed {
-    pub(crate) id: &'static str,
-    pub(crate) name: &'static str,
-    pub(crate) desc: &'static str,
-    pub(crate) color: &'static str,
-    pub(crate) init: &'static str,
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) desc: String,
+    pub(crate) group: String,
+    pub(crate) color: String,
+    pub(crate) init: String,
     pub(crate) lead: bool,
-    pub(crate) prompt: &'static str,
+    pub(crate) prompt: String,
     /// Its picture, a square PNG.
     pub(crate) avatar: &'static [u8],
 }
@@ -416,30 +450,26 @@ pub(crate) static SEEDS: std::sync::LazyLock<Vec<RoleSeed>> = std::sync::LazyLoc
 });
 
 impl RoleSeed {
-    /// A role file: `---`, a `key: value` line for each of `id`, `name`, `desc`, `color`, `init`
-    /// and `lead` (a value may be in double quotes), `---`, then the instructions.
-    fn parse(text: &'static str, avatar: &'static [u8]) -> Result<RoleSeed, String> {
-        let rest = text.strip_prefix("---\n").ok_or("第一行应当是 ---")?;
-        let (head, body) = rest.split_once("\n---\n").ok_or("元数据之后应当有一行 ---")?;
-        let field = |key: &str| {
-            head.lines()
-                .find_map(|line| line.strip_prefix(key)?.strip_prefix(':'))
-                .map(|v| v.trim().trim_matches('"'))
-                .filter(|v| !v.is_empty())
-                .ok_or(format!("缺少 {key}"))
-        };
-        let (id, name, desc, color, init) =
-            (field("id")?, field("name")?, field("desc")?, field("color")?, field("init")?);
-        let lead = match field("lead")? {
-            "true" => true,
-            "false" => false,
-            other => return Err(format!("lead 应当是 true 或 false，而不是 {other}")),
-        };
-        let prompt = body.trim();
-        if prompt.is_empty() {
-            return Err("没有指令正文".into());
+    /// A role file (`RoleFile`) that also names its `id`, `desc`, `color` and `init`: a default
+    /// role leaves nothing to fill in.
+    fn parse(text: &str, avatar: &'static [u8]) -> Result<RoleSeed, String> {
+        let f = super::role_files::RoleFile::parse(text)?;
+        for (key, value) in [("id", &f.id), ("desc", &f.desc), ("color", &f.color), ("init", &f.init)] {
+            if value.is_empty() {
+                return Err(format!("缺少 {key}"));
+            }
         }
-        Ok(RoleSeed { id, name, desc, color, init, lead, prompt, avatar })
+        Ok(RoleSeed {
+            id: f.id,
+            name: f.name,
+            desc: f.desc,
+            group: f.group,
+            color: f.color,
+            init: f.init,
+            lead: f.lead,
+            prompt: f.prompt,
+            avatar,
+        })
     }
 }
 
@@ -500,8 +530,8 @@ mod seed_tests {
         let (app, dir) = app("seed-avatars");
         app.sync_seeds().unwrap();
         for r in SEEDS.iter() {
-            assert_eq!(role(&app, r.id).unwrap()["avatar"], json!(avatar_hash(r.avatar)), "{}", r.id);
-            assert_eq!(app.role_avatar(r.id).unwrap().as_deref(), Some(r.avatar));
+            assert_eq!(role(&app, &r.id).unwrap()["avatar"], json!(avatar_hash(r.avatar)), "{}", r.id);
+            assert_eq!(app.role_avatar(&r.id).unwrap().as_deref(), Some(r.avatar));
         }
         // As if seeded before pictures: no picture, nothing recorded as given.
         let mut old = role(&app, "developer").unwrap();
@@ -543,11 +573,14 @@ mod seed_tests {
         assert_eq!(files, listed, "add each new file to ROLE_FILES in roles.rs");
         for ((file, _, _), r) in ROLE_FILES.iter().zip(SEEDS.iter()) {
             assert_eq!(r.id, *file, "the id is the file's name");
-            check_id(r.id).unwrap();
+            check_id(&r.id).unwrap();
         }
-        let ids: std::collections::HashSet<_> = SEEDS.iter().map(|r| r.id).collect();
+        let ids: std::collections::HashSet<_> = SEEDS.iter().map(|r| r.id.as_str()).collect();
         assert_eq!(ids.len(), SEEDS.len());
-        assert!(RoleSeed::parse("---\nid: x\n---\n\n指令", b"").err().is_some_and(|e| e.contains("缺少 name")));
+        assert!(RoleSeed::parse("---\nid: x\n---\n\n指令", b"").err().is_some_and(|e| e.contains("name")));
+        assert!(
+            RoleSeed::parse("---\nid: x\nname: n\n---\n\n指令", b"").err().is_some_and(|e| e.contains("缺少 desc"))
+        );
         assert!(RoleSeed::parse("id: x", b"").is_err());
         for r in SEEDS.iter() {
             assert!(r.avatar.starts_with(b"\x89PNG\r\n\x1a\n") && r.avatar.len() <= MAX_AVATAR_BYTES, "{}.png", r.id);
@@ -559,10 +592,10 @@ mod seed_tests {
         let (app, dir) = app("fresh");
         app.sync_seeds().unwrap();
         for r in SEEDS.iter() {
-            let role = role(&app, r.id).unwrap();
+            let role = role(&app, &r.id).unwrap();
             assert_eq!(
                 (role["prompt"].as_str().unwrap(), role["seed"]["prompt"].as_str().unwrap()),
-                (r.prompt, text_hash(r.prompt).as_str())
+                (r.prompt.as_str(), text_hash(&r.prompt).as_str())
             );
         }
         // A deleted default role stays deleted on the next start.
@@ -594,7 +627,10 @@ mod seed_tests {
         app.sync_seeds().unwrap();
 
         let r = role(&app, "developer").unwrap();
-        assert_eq!((r["desc"].as_str().unwrap(), r["prompt"].as_str().unwrap()), (developer.desc, developer.prompt));
+        assert_eq!(
+            (r["desc"].as_str().unwrap(), r["prompt"].as_str().unwrap()),
+            (developer.desc.as_str(), developer.prompt.as_str())
+        );
         assert!(seed_updates(&crate::agents::input(r.clone())).is_empty());
         let qa = SEEDS.iter().find(|r| r.id == "qa").unwrap();
         let r = role(&app, "qa").unwrap();
@@ -619,7 +655,7 @@ mod seed_tests {
         assert!(seed_updates(&crate::agents::input(r.clone())).is_empty());
 
         // Taking the new text replaces it.
-        given(&app, "qa", qa.desc, "又改了一次");
+        given(&app, "qa", &qa.desc, "又改了一次");
         let taken = app.seed_choice("qa", "prompt", true).unwrap();
         assert_eq!(taken.prompt, qa.prompt);
         assert!(app.seed_choice("qa", "name", true).is_err(), "only desc and prompt have default text");

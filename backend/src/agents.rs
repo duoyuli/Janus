@@ -28,6 +28,7 @@ mod checks;
 mod connections;
 mod environment;
 mod local_config;
+mod role_files;
 mod roles;
 mod runtime;
 mod session_options;
@@ -254,7 +255,7 @@ pub(crate) fn test_connection(id: &str, kind: &str, base: &str, extra: Value) ->
 #[cfg(test)]
 pub(crate) fn test_role(id: &str, extra: Value) -> Value {
     let mut r = json!({
-        "id": id, "name": id, "desc": "", "prompt": "", "connection": "", "model": "", "effort": "",
+        "id": id, "name": id, "desc": "", "group": "", "prompt": "", "connection": "", "model": "", "effort": "",
         "session": {}, "lead": false, "color": "#64748b", "init": "", "avatar": "",
     });
     for (k, v) in extra.as_object().cloned().unwrap_or_default() {

@@ -502,10 +502,26 @@ struct WorkspaceEditor: View {
                     TextField(L.text("名称（可选，默认用目录名）"), text: $name).textFieldStyle(.roundedBorder)
 
 
-                    Text(L.text("启用的数字员工")).font(.headline).padding(.top, 6)
+                    HStack {
+                        Text(L.text("启用的数字员工")).font(.headline)
+                        Spacer()
+                        if store.roleGroups.count > 1 {
+                            Menu(L.text("按分组选…")) {
+                                ForEach(store.roleGroups, id: \.self) { g in Button(AppStore.groupTitle(g)) { useGroup(g) } }
+                            }
+                            .fixedSize()
+                            .help(L.text("只启用这个分组里绑定了 Agent 的数字员工，其中能担任负责人的当负责人"))
+                        }
+                    }
+                    .padding(.top, 6)
                     if store.roles.isEmpty { Note(text: L.text("还没有数字员工，先去「设置 › 数字员工」建一个。")) }
-                    VStack(spacing: 0) {
-                        ForEach(store.roles, id: \.self) { r in
+                    // By group, each headed by its name when there is more than one.
+                    let ordered = store.roleSections.flatMap(\.roles)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(ordered.enumerated()), id: \.element) { i, r in
+                            if store.roleGroups.count > 1, i == 0 || ordered[i - 1].group != r.group {
+                                Text(AppStore.groupTitle(r.group)).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 10).padding(.bottom, 2)
+                            }
                             let id = r.id
                             let c = store.connection(r.connection)
                             HStack(spacing: 10) {
@@ -610,6 +626,15 @@ struct WorkspaceEditor: View {
         let bound = roles.filter { !$0.connection.isEmpty }.map(\.id)
         guard bound.contains(generalist) else { return bound }
         return [lead, generalist].filter { !$0.isEmpty }
+    }
+
+    /// Take group `g` as the team: its members bound to an Agent, one of them that can lead as
+    /// the lead (the current lead when it is in the group).
+    private func useGroup(_ g: String) {
+        let members = store.roles.filter { $0.group == g && store.connection($0.connection) != nil }
+        on = Set(members.map(\.id))
+        let leads = members.filter { $0.lead && Setup.leadCapable(store.connection($0.connection)) }
+        lead = leads.first { $0.id == lead }?.id ?? leads.first?.id ?? ""
     }
 
     private func pickFolder() {

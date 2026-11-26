@@ -2,6 +2,7 @@
 id: marketing
 name: 市场运营
 desc: 用户研究、竞品分析、发布与增长；需要外部证据或对外内容时找它
+group: 产品上线
 color: "#7c3aed"
 init: MK
 lead: false

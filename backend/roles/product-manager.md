@@ -2,6 +2,7 @@
 id: product-manager
 name: 产品经理
 desc: 理清需求和优先级，写带验收标准的 PRD，产品问题由它拍板
+group: 产品上线
 color: "#2563eb"
 init: PD
 lead: false

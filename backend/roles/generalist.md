@@ -2,6 +2,7 @@
 id: generalist
 name: 通用数字员工
 desc: 什么都能接：调研、需求、编码、测试、文档、独立验证
+group: 通用
 color: "#0f766e"
 init: GN
 lead: false

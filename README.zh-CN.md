@@ -121,7 +121,7 @@ Janus 由 Agent 开发：仓库的改动由编码 Agent 按 [AGENTS.md](AGENTS.m
 | 概念 | 说明 |
 | --- | --- |
 | Agent | 一个可启动的编码 Agent，当前版本是 Codex 或 Claude Code，各有独立的配置目录和凭据。 |
-| 数字员工 | 绑定一个 Agent，指定名字、头像、职责、指令、模型、推理强度和权限模式。指令放在 Agent 的系统层。 |
+| 数字员工 | 绑定一个 Agent，指定名字、头像、职责、指令、模型、推理强度和权限模式。指令放在 Agent 的系统层。数字员工按分组管理，可以整组换 Agent、导出成 Markdown 文件。 |
 | 负责人 Agent | 带队的 Agent，由一名开启「可以担任负责人」的数字员工担任，绑定 Codex 或 Claude Code。它用 `/goal` 推进目标，决定自己做还是派给协作者 Agent，检查结果后交付。值班也由它执行。 |
 | 协作者 Agent | 团队里负责人 Agent 以外的数字员工，接负责人 Agent 派出的子任务。 |
 | 资源库 | Skill 和 MCP 服务器只保存一份，给所有数字员工。每个会话只拿到一个 Skill `janus-skills`（一份目录，Agent 需要时在里面查找）和一个 MCP 服务器 `janus-tools`（背后的服务器在第一次用到时由 Janus 启动或连接），不写任何 Agent 的配置文件。Skill 可以从 GitHub 仓库导入、从本机文件夹复制或在应用中写；MCP 服务器填写表单、粘贴 JSON，或从「推荐」一键添加。 |

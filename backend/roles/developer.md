@@ -2,6 +2,7 @@
 id: developer
 name: 研发工程师
 desc: 写方案、写代码、修 bug、补测试；改代码和配置的活儿交给它
+group: 产品上线
 color: "#11845a"
 init: RD
 lead: false

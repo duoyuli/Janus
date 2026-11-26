@@ -31,6 +31,23 @@ pub fn span(ms: i64) -> String {
     if ms < 60_000 { format!("{} 秒", ms / 1000) } else { format!("{} 分钟", ms / 60_000) }
 }
 
+/// A name made for a file or an id: lowercase ASCII letters, digits and single `-`, at most `max`
+/// characters. None when nothing usable is left (a name in another script).
+pub fn slug(raw: &str, max: usize) -> Option<String> {
+    let mut out = String::new();
+    for c in raw.trim().chars() {
+        let c = c.to_ascii_lowercase();
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            out.push(c);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let out: String = out.trim_matches('-').chars().take(max).collect();
+    let out = out.trim_end_matches('-').to_string();
+    (!out.is_empty()).then_some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

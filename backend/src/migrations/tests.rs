@@ -602,3 +602,15 @@ fn shared_host_paths_go() {
         .unwrap();
     assert_eq!(left, 0);
 }
+
+/// Digital employees are listed by group: the default ones join the group they ship in, the
+/// person's own start in none.
+#[test]
+fn default_roles_join_their_groups() {
+    let path = old_database("groups");
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    for (id, group) in [("pmo", "产品上线"), ("qa", "产品上线"), ("generalist", "通用"), ("rmwm60uas", "")] {
+        assert_eq!(config(&conn, "role", id)["group"], group, "{id}");
+    }
+}

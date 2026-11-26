@@ -10,6 +10,8 @@ struct Role: Hashable, Identifiable {
     let name: String
     /// What it is responsible for.
     let desc: String
+    /// The group it is listed under; empty for none.
+    let group: String
     /// Its standing instructions.
     let prompt: String
     /// The agent connection it runs on; empty until one is bound.
@@ -36,6 +38,7 @@ struct Role: Hashable, Identifiable {
         id = j["id"].str
         name = j["name"].str
         desc = j["desc"].str
+        group = j["group"].str
         prompt = j["prompt"].str
         connection = j["connection"].str
         model = j["model"].str

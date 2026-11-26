@@ -1,5 +1,5 @@
 //! The default roles' data versions: where a default came from (2), defaults added after the
-//! person's data was seeded (6, 15), and the defaults' new ids (17). Defaults are named as they
+//! person's data was seeded (6, 15), the defaults' new ids (17) and groups (25). Defaults are named as they
 //! were at each version and get today's text (`seed_once_named`).
 
 use crate::agents::{RoleSeed, SEEDS, text_hash};
@@ -44,7 +44,7 @@ pub(crate) fn record_seed_origins(tx: &rusqlite::Transaction) -> Result<usize> {
         }
         // Under the id it had then: data version 17 moves it to the current one.
         let mut seed = json!({ "id": id });
-        for (field, text) in [("desc", r.desc), ("prompt", r.prompt)] {
+        for (field, text) in [("desc", &r.desc), ("prompt", &r.prompt)] {
             let shipped = text_hash(text);
             let history: Vec<&str> =
                 SEED_HISTORY.iter().filter(|h| h.0 == id && h.1 == field).flat_map(|h| h.2.iter().copied()).collect();
@@ -172,7 +172,7 @@ pub(crate) fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
         return Ok(0);
     }
     let r = seed_once_named(id).expect("a default role");
-    let origin = json!({ "id": id, "desc": text_hash(r.desc), "prompt": text_hash(r.prompt) });
+    let origin = json!({ "id": id, "desc": text_hash(&r.desc), "prompt": text_hash(&r.prompt) });
     let existing: Option<String> = tx
         .query_row(
             "SELECT data FROM configs WHERE kind = ?1 AND id = ?2",
@@ -190,7 +190,7 @@ pub(crate) fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
             role
         }
         None => json!({
-            "id": id, "name": r.name, "desc": r.desc, "prompt": r.prompt, "connection": "",
+            "id": id, "name": r.name, "desc": r.desc, "group": r.group, "prompt": r.prompt, "connection": "",
             "model": "", "effort": "", "session": {}, "lead": r.lead, "color": r.color, "init": r.init, "avatar": "", "seed": origin
         }),
     };
@@ -199,4 +199,18 @@ pub(crate) fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
         rusqlite::params![ConfigKind::Role.as_str(), id, role.to_string(), crate::util::now_ms()],
     )?;
     Ok(1)
+}
+
+/// Data version 25: digital employees are listed by group. A default role takes the group it
+/// ships in (its `seed` says which default it is); everyone else starts in no group.
+pub(crate) fn add_role_groups(tx: &rusqlite::Transaction) -> Result<usize> {
+    super::super::edit_configs(tx, ConfigKind::Role, |_, role| {
+        if role.contains_key("group") {
+            return false;
+        }
+        let seed = role.get("seed").and_then(|s| s["id"].as_str());
+        let group = seed.and_then(|id| SEEDS.iter().find(|r| r.id == id)).map_or("", |r| r.group.as_str());
+        role.insert("group".into(), json!(group));
+        true
+    })
 }

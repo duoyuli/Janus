@@ -28,10 +28,19 @@ struct ChatsView: View {
                         Button(L.text("打开数字员工设置")) { store.openSettings(.agents) }
                     }
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12, alignment: .top)], spacing: 12) {
-                        ForEach(roles, id: \.self) { r in
-                            RoleChoice(store: store, role: r, selected: chosen?.id == r.id, starting: starting == r.id,
-                                       pick: { store.chatRole = r.id }, start: { start(r) })
+                    // By group, as in Settings › 数字员工; a single group needs no heading.
+                    let sections = store.roleSections
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(sections, id: \.group) { section in
+                            VStack(alignment: .leading, spacing: 8) {
+                                if sections.count > 1 { Text(AppStore.groupTitle(section.group)).font(.headline) }
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12, alignment: .top)], spacing: 12) {
+                                    ForEach(section.roles, id: \.self) { r in
+                                        RoleChoice(store: store, role: r, selected: chosen?.id == r.id, starting: starting == r.id,
+                                                   pick: { store.chatRole = r.id }, start: { start(r) })
+                                    }
+                                }
+                            }
                         }
                     }
                     .disabled(starting != nil)
