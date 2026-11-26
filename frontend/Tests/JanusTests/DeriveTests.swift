@@ -438,7 +438,7 @@ private func goalRun() -> Log {
         "risks": ["旧版本没有回归测试"],
     ]
     var log = goalRun()
-    log.add("run.delivered", data: ["summary": "完成", "evidence": [["text": "T1：cargo test 96 passed", "seq": 3]], "acceptance": [record], "risks": ["T1：旧版本没有回归测试"]])
+    log.add("run.delivered", data: ["summary": "完成", "evidence": [["text": "T1：cargo test 96 passed", "seq": 3]], "acceptance": [record], "risks": [["task": "T1", "text": "T1：旧版本没有回归测试"]]])
     let st = derive(log.events)
     let records = st.result.map { Delivery($0).acceptance } ?? []
     #expect(records.count == 1)

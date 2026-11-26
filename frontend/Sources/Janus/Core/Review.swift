@@ -41,8 +41,8 @@ struct Delivery {
     /// The files the lead changed itself this round: no subtask's acceptance covers them.
     var leadEdits: [String] { d["leadEdits"].strings }
     /// What Janus found: unfinished tasks, independent verifications that did not confirm a task,
-    /// library tools the lead called after delegating.
-    var risks: [String] { d["risks"].strings }
+    /// library tools the lead called after delegating; each with the task it is about, if any.
+    var risks: [(task: String?, text: String)] { d["risks"].array.map { ($0["task"].string, $0["text"].str) }.filter { !$0.text.isEmpty } }
     var evidence: [JSON] { d["evidence"].array }
     var deliverables: [JSON] { d["deliverables"].array }
     var acceptance: [DeliveryAcceptance] { d["acceptance"].array.compactMap(DeliveryAcceptance.init) }
@@ -127,11 +127,7 @@ struct ReviewSignal: Equatable, Identifiable {
 /// picks the ones that matter into its questions, and each stays with its task.
 func reviewSignals(_ d: Delivery) -> [ReviewSignal] {
     var out = d.decisions.map { ReviewSignal(source: .lead, text: $0) }
-    out += d.risks.map { r in
-        // Janus writes 「T1：…」 whatever the app's language.
-        let parts = r.split(separator: "：", maxSplits: 1).map(String.init)
-        return ReviewSignal(source: .janus, text: r, task: parts.count == 2 && !parts[0].contains(" ") ? parts[0] : nil)
-    }
+    out += d.risks.map { ReviewSignal(source: .janus, text: $0.text, task: $0.task) }
     let records = d.acceptance
     for a in records {
         let failed = a.summary.criteria - a.summary.passed

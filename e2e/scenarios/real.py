@@ -97,7 +97,7 @@ def real(ctx, c):
         # A real lead may still try a library tool after delegating (the goal names one): Janus
         # does not block it, it puts it in front of the lead and lists it as a delivery risk.
         lead_tools = [e["data"]["tool"] for e in events if e["type"] == "lead.routed"]
-        risks = " ".join(next((e["data"].get("risks", []) for e in events if e["type"] == "run.delivered"), []))
+        risks = " ".join(r["text"] for r in next((e["data"].get("risks", []) for e in events if e["type"] == "run.delivered"), []))
         c(all(t in risks for t in lead_tools),
           f"负责人派出后调用的资源库工具写进了交付风险：{lead_tools or '没有调用'}")
         routed = [e for e in events if e["type"] == "mcp.routed" and (e.get("data") or {}).get("tool") == "probe__echo"]

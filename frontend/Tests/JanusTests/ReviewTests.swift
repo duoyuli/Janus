@@ -82,7 +82,7 @@ private let start = [event(1, "run.created", actor: "user", data: ["mode": "goal
 @Test func whatNeedsLookingAtIsTheLeadsQuestionsThenJanussFindings() {
     let d = Delivery(RunResult(d: [
         "decisions": ["被忽略的文件要带回吗？"],
-        "risks": ["T3：失败，没有交付结果"],
+        "risks": [["task": "T3", "text": "T3：失败，没有交付结果"]],
         "leadEdits": ["a.rs", "b.rs"],
         "acceptance": [
             ["task": "T1", "title": "改", "status": "succeeded", "criteria": 2, "passed": 1, "checks": [["criterion": "一", "passed": true], ["criterion": "二", "passed": false]], "risks": ["没跑全量"]],

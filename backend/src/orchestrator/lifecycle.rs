@@ -427,7 +427,7 @@ impl App {
             // is the only diff there is.
             let mut deliverables: Vec<Value> = st.run_diff.iter().map(|(_, a)| json!(a)).collect();
             let mut evidence = vec![];
-            let mut risks = vec![];
+            let mut risks: Vec<Value> = vec![];
             let mut acceptance = vec![];
             for t in &tasks {
                 let unfinished = match t.status() {
@@ -439,7 +439,7 @@ impl App {
                     _ => None,
                 };
                 if let Some(state) = unfinished {
-                    risks.push(format!("{}：{state}，没有交付结果", t.def.id));
+                    risks.push(json!({ "task": t.def.id, "text": format!("{}：{state}，没有交付结果", t.def.id) }));
                 }
                 let r = t.result.clone().unwrap_or_default();
                 for a in t.artifacts.iter().filter(|a| a.kind == ArtifactKind::GitDiff) {
@@ -479,7 +479,10 @@ impl App {
                         Some(vd) => format!("判定为「{}」", vd.label()),
                         None => format!("状态是 {}", v.label),
                     };
-                    risks.push(format!("{}：独立验证 {} {why}，结论没有得到确认", t.def.id, v.task));
+                    risks.push(json!({
+                        "task": t.def.id,
+                        "text": format!("{}：独立验证 {} {why}，结论没有得到确认", t.def.id, v.task),
+                    }));
                 }
                 let gaps = if t.trace_gaps.is_empty() { trace_gaps(&t.def.id) } else { t.trace_gaps.clone() };
                 // A finished task that changed files and that no verification checks: the lead may
@@ -510,10 +513,10 @@ impl App {
             let lead_edits = st.traces.lead_edited_since(since);
             let lead_tools = st.traces.lead_tools_after_plan();
             if !lead_tools.is_empty() {
-                risks.push(format!(
+                risks.push(json!({ "text": format!(
                     "负责人在派出子任务后自己调用了资源库工具：{}。它们做的事没有经过子任务的验收和独立验证",
                     lead_tools.iter().cloned().collect::<Vec<_>>().join("、")
-                ));
+                ) }));
             }
             // The newest final reply of the round: a last task the lead cancelled, or one that
             // never answered, leaves none of its own, and the delivery must not come out empty.

@@ -157,7 +157,11 @@ async fn verifiers_check_others_work_and_cannot_be_waved_through() {
     assert_eq!(t1["verifications"][0]["verdict"], "rejected", "{t1}");
     assert_eq!(t1["verifications"][0]["passed"], false, "a rejected verdict is not a pass: {t1}");
     assert!(
-        d["risks"].as_array().unwrap().iter().any(|r| r.as_str().is_some_and(|r| r.contains("独立验证 V1"))),
+        d["risks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["task"] == "T1" && r["text"].as_str().is_some_and(|r| r.contains("独立验证 V1"))),
         "{d}"
     );
     assert!(
