@@ -6,7 +6,7 @@
 
 use super::prompts::result_from_json;
 use super::*;
-use crate::lang::{Lang, tr};
+use crate::lang::tr;
 
 /// What a collaborator's session handed in during its attempt, kept until the turn ends.
 #[derive(Clone, Debug)]
@@ -14,7 +14,7 @@ pub(super) enum Handed {
     /// Its result; `warned` once Janus told it a criterion is unmet and it may hand in once more.
     Result { attempt: String, result: TaskResult, warned: bool },
     /// A question for the lead.
-    Question { attempt: String, question: Value },
+    Question { attempt: String, question: Question },
 }
 
 impl Handed {
@@ -25,18 +25,31 @@ impl Handed {
     }
 }
 
-/// A question as the attempt asks it: its text and options.
-pub(super) fn question_parts(q: &Value, lang: Lang) -> (String, Vec<String>) {
-    let text = q["text"]
-        .as_str()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .unwrap_or(lang.pick("需要你的决定", "A decision is needed"));
-    let options = q["options"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|o| o.as_str().map(str::to_owned)).collect())
-        .unwrap_or_default();
-    (text.to_string(), options)
+/// A question for the lead, as the session asked it with `janus.ask`.
+#[derive(Clone, Debug)]
+pub(super) struct Question {
+    pub text: String,
+    pub options: Vec<String>,
+    /// The option the collaborator recommends, if any.
+    pub recommend: Option<String>,
+}
+
+impl Question {
+    fn of(args: &Value) -> Option<Question> {
+        let text = args["text"].as_str().map(str::trim).filter(|t| !t.is_empty())?.to_string();
+        let options = args["options"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|o| o.as_str().map(str::trim))
+                    .filter(|o| !o.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let recommend = args["recommend"].as_str().map(str::trim).filter(|r| !r.is_empty()).map(str::to_owned);
+        Some(Question { text, options, recommend })
+    }
 }
 
 impl App {
@@ -106,14 +119,14 @@ impl App {
     pub(super) fn board_ask(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<String, String> {
         let lang = run.lang;
         let (attempt, _) = self.running(run, task)?;
-        if args["text"].as_str().is_none_or(|t| t.trim().is_empty()) {
+        let Some(question) = Question::of(args) else {
             return Err(lang.pick("text 不能为空", "text cannot be empty").into());
-        }
+        };
         let split = !args["split"].is_null();
         if split {
             self.propose_split(run, task, &args["split"])?;
         }
-        run.st.lock().unwrap().handed.insert(task.to_string(), Handed::Question { attempt, question: args.clone() });
+        run.st.lock().unwrap().handed.insert(task.to_string(), Handed::Question { attempt, question });
         Ok(if split {
             lang.pick(
                 "拆分提议已发给负责人；问题在你结束这一轮后转给它，回答会作为下一条消息送来。",

@@ -690,7 +690,7 @@ def prompt(msg):
         hand_in(sid, body)
         return {"stopReason": "end_turn"}
     if outcome == "ask":
-        hand_in(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"]}))
+        hand_in(sid, result(sid, summary="需要确认", question={"text": "用哪个名字？", "options": ["alpha", "beta"], "recommend": "alpha"}))
         return {"stopReason": "end_turn"}
     if outcome == "ok" and answered(text) is not None:
         answer = answered(text)

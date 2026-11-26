@@ -216,11 +216,14 @@ async fn a_follow_up_goal_keeps_questions_with_the_lead_while_it_works() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(logged("steer [Janus 看板推送]") && logged("[提问] T2"), "the working lead hears of the question");
+    assert!(logged("建议：alpha"), "with the option the collaborator recommends");
     assert!(!has(&events(&h.app, &run), "question.escalated"), "the lead answers while it works");
 
     // The lead's turn ends: it waits for the person, and so does the question.
     finish_lead(&h);
     wait_until(&h.app, &run, "escalation", |e| has(e, "question.escalated")).await;
+    let escalated = events(&h.app, &run).into_iter().find(|e| e.kind.as_str() == "question.escalated").unwrap();
+    assert_eq!(escalated.data.unwrap()["recommend"], "alpha", "the person sees the recommendation too");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

@@ -1,6 +1,6 @@
 //! One attempt of a task: its session, its result check, the changes it made and its artifacts.
 
-use super::hand_in::{Handed, question_parts};
+use super::hand_in::Handed;
 use super::*;
 use crate::lang::{Lang, tr};
 
@@ -661,11 +661,10 @@ impl App {
                     bail!("连续 4 轮仍在提问，没有完成子任务");
                 }
                 let key = format!("q-{id}-{n}-{round}");
-                let (question, options) = question_parts(&q, lang);
                 last_question_seq = self.emit(
                     run,
-                    ev(EventKind::QuestionAsked, &agent, clip(&question, 60)).task(id).attempt(n).to("lead").data(json!({
-                        "key": key, "question": question, "options": options, "blocking": true
+                    ev(EventKind::QuestionAsked, &agent, clip(&q.text, 60)).task(id).attempt(n).to("lead").data(json!({
+                        "key": key, "question": q.text, "options": q.options, "recommend": q.recommend, "blocking": true
                     })),
                 );
                 // The lead answers questions on the board (it reads them with `wait` or has them

@@ -382,7 +382,8 @@ impl App {
             let esc = ev(EventKind::QuestionEscalated, "janus", "负责人已经结束，协作者的提问转交给你")
                 .to("user")
                 .data(json!({
-                    "key": key, "reason": "负责人的会话已经结束，没有人在看板上回答这个问题。"
+                    "key": key, "reason": "负责人的会话已经结束，没有人在看板上回答这个问题。",
+                    "recommend": e.data.as_ref().map_or(&Value::Null, |d| &d["recommend"]),
                 }));
             self.emit(run, esc.task(e.task.as_deref().unwrap_or_default()));
         }

@@ -971,6 +971,10 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 let options = options.join(" / ");
                 tr!(lang, "（选项：{options}）", " (options: {options})")
             };
+            let options = match d["recommend"].as_str() {
+                Some(r) => options + &tr!(lang, "，建议：{r}", "; recommends: {r}"),
+                None => options,
+            };
             tr!(
                 lang,
                 "- [提问] {it}· {name} 等你回答：{question}{options}",
