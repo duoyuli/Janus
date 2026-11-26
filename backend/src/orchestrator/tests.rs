@@ -1,5 +1,6 @@
 //! Unit tests of the orchestrator's helpers.
 
+use super::lead_tools::wait_limit;
 use super::*;
 use crate::lang::Lang;
 

@@ -39,11 +39,14 @@ mod actions;
 mod attempts;
 mod board;
 mod board_tools;
+mod board_views;
 mod chat;
+mod conversation;
 #[cfg(test)]
 mod flow_tests;
 mod hand_in;
 mod lead;
+mod lead_tools;
 mod lifecycle;
 mod live;
 mod loops;
@@ -53,6 +56,8 @@ mod mcp_server;
 mod memory;
 mod merge;
 mod records;
+mod report;
+mod resume;
 use chat::ChatTool;
 use loops::LoopTool;
 use memory::{MemoryAccess, MemoryTool};
@@ -62,6 +67,7 @@ mod parking;
 mod prompts;
 mod queue;
 mod session;
+mod stats;
 #[cfg(test)]
 mod testkit;
 #[cfg(test)]
@@ -73,11 +79,15 @@ use actions::{Decision, InputAction};
 use attempts::*;
 use board::*;
 use board_tools::*;
+use conversation::*;
 use lead::*;
+use lead_tools::WAIT_MAX_SECS;
 pub use loops::{LoopDef, WakeReason};
 use mcp_server::*;
 use messages::Delivery;
 use prompts::*;
+use report::*;
+use resume::*;
 
 use session::*;
 #[cfg(test)]

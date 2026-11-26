@@ -160,7 +160,7 @@ fn history_leaves_out_the_message_still_waiting() {
         e(4, "user.message", "还在吗？", json!({ "id": "b" })),
         e(5, "message.routed", "", json!({ "id": "b", "delivery": "next" })),
     ];
-    use crate::orchestrator::lead::{Speakers, recent_exchanges};
+    use crate::orchestrator::conversation::{Speakers, recent_exchanges};
     assert_eq!(recent_exchanges(&events, Speakers::Lead, Lang::En), "User: 先做这个\nLead: 做好了");
     assert_eq!(recent_exchanges(&events, Speakers::Lead, Lang::Zh), "用户：先做这个\n负责人：做好了");
 }

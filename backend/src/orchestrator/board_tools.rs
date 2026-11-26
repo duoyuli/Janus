@@ -1,6 +1,7 @@
 //! What the board offers and says: the tool schemas, the orchestration check, and the board
 //! messages the lead reads.
 
+use super::board_views::verification_output;
 use super::*;
 use crate::lang::{Lang, tr};
 

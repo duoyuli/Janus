@@ -4,9 +4,10 @@
 //! handed in is taken by the attempt when the turn ends.
 // @project-doc docs/domains/20261031-run_lifecycle.md#structured_result
 
+use super::board::no_task;
 use super::prompts::result_from_json;
 use super::*;
-use crate::lang::tr;
+use crate::lang::{Lang, tr};
 
 /// What a collaborator's session handed in during its attempt, kept until the turn ends.
 #[derive(Clone, Debug)]
@@ -148,5 +149,121 @@ impl App {
             Some(h) if h.attempt() == attempt => st.handed.remove(task),
             _ => None,
         }
+    }
+}
+
+impl App {
+    /// A collaborator writes progress, a blocker or a note to the board while it works.
+    pub(super) fn board_post(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<String, String> {
+        let lang = run.lang;
+        let text = args["text"].as_str().unwrap_or("").trim();
+        if text.is_empty() {
+            return Err(tr!(lang, "text 不能为空", "text cannot be empty"));
+        }
+        if text.chars().count() > POST_MAX_CHARS {
+            return Err(tr!(lang, "text 超过 {POST_MAX_CHARS} 个字符", "text is over {POST_MAX_CHARS} characters"));
+        }
+        let kind = match args["kind"].as_str().map(|k| (k, PostKind::parse(k))) {
+            None => PostKind::Progress,
+            Some((_, Some(kind))) => kind,
+            Some((other, None)) => {
+                return Err(tr!(
+                    lang,
+                    "kind 只能是 progress、blocker 或 note，不能是 {other}",
+                    "kind must be progress, blocker or note, not {other}"
+                ));
+            }
+        };
+        let agent = run
+            .st
+            .lock()
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|t| t.def.id == task)
+            .map(|t| t.agent.clone())
+            .ok_or_else(|| no_task(lang, task))?;
+        let label = kind.label(Lang::Zh);
+        self.emit(
+            run,
+            ev(EventKind::BoardPosted, &agent, format!("{label}：{}", clip(text, 80)))
+                .task(task)
+                .to("lead")
+                .data(json!({ "kind": kind, "text": text })),
+        );
+        Ok(lang.pick("已写到看板。", "Written to the board.").into())
+    }
+
+    /// A collaborator's question comes with a proposal to split its oversized task into smaller
+    /// subtasks (`janus.ask`, `split`); only the lead may actually submit an orchestration
+    /// (`janus.orchestrate`). The lead gets the proposal at once.
+    // @project-doc docs/interfaces/20261031-board_mcp.md#ask
+    pub(super) fn propose_split(&self, run: &Run, task: &str, args: &Value) -> std::result::Result<(), String> {
+        let lang = run.lang;
+        let reason = args["reason"].as_str().unwrap_or("").trim();
+        if reason.is_empty() {
+            return Err(tr!(lang, "reason 不能为空", "reason cannot be empty"));
+        }
+        let completed = args["completed"].as_str().map(str::trim).filter(|s| !s.is_empty());
+        let Some(items) = args["subtasks"].as_array().filter(|a| !a.is_empty()) else {
+            return Err(tr!(lang, "subtasks 必须是非空数组", "subtasks must be a non-empty array"));
+        };
+        if items.len() > SPLIT_MAX_SUBTASKS {
+            return Err(tr!(
+                lang,
+                "一次最多建议 {SPLIT_MAX_SUBTASKS} 个子任务",
+                "At most {SPLIT_MAX_SUBTASKS} subtasks per proposal"
+            ));
+        }
+        let agent = {
+            let st = run.st.lock().unwrap();
+            let me = st.tasks.iter().find(|t| t.def.id == task).ok_or_else(|| no_task(lang, task))?;
+            if me.def.verifies.is_some() {
+                return Err(tr!(
+                    lang,
+                    "{task} 是验证子任务，不能提拆分",
+                    "{task} is a verification subtask and cannot propose a split"
+                ));
+            }
+            me.agent.clone()
+        };
+        let mut errors = vec![];
+        let mut subtasks = vec![];
+        for (i, item) in items.iter().enumerate() {
+            let title = item["title"].as_str().unwrap_or("").trim();
+            let n = i + 1;
+            if title.is_empty() {
+                errors.push(tr!(lang, "第 {n} 个建议子任务缺少 title", "Proposed subtask #{n} has no title"));
+                continue;
+            }
+            let label = tr!(lang, "建议子任务 {title}", "Proposed subtask {title}");
+            let owns = crate::teamwork::read_owns(&item["owns"], &label, &mut errors, lang);
+            let accept: Vec<String> = item["accept"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::trim))
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            subtasks.push(json!({ "title": title, "owns": owns, "accept": accept }));
+        }
+        if !errors.is_empty() {
+            return Err(errors.join("\n"));
+        }
+        let mut data = json!({ "reason": reason, "subtasks": subtasks });
+        if let Some(c) = completed {
+            data["completed"] = json!(c);
+        }
+        self.emit(
+            run,
+            ev(EventKind::TaskSplitRequested, &agent, format!("请求拆分子任务：{}", clip(reason, 80)))
+                .task(task)
+                .to("lead")
+                .data(data),
+        );
+        Ok(())
     }
 }
