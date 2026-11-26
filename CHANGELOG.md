@@ -4,15 +4,19 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
-## 2026.11.26.10
+## 2026.11.26.11
 
 - 新增更新渠道：「设置 › 通用 › 更新」可以选「稳定版」或「测试版（RC）」，默认稳定版。日常版本发到稳定版；还在测试的功能先以测试版（例如 2026.11.27-rc.1）发出，只有选了测试版的 Janus 会更新到它，也照样收到更新的稳定版。从测试版切回稳定版不会退回旧版本，下一个稳定版发布后自动升过去。测试版的版本号在应用里标着「测试版」。
 
 - 发布流程分渠道：稳定版只能从 main 发布；测试版从 `rc/` 分支打 `-rc.<序号>` 标签，发布为 GitHub 的 prerelease。发布前自动检查标签是否在对的地方、测试版是否比最新稳定版新、改了数据迁移的测试版是否建在最新的 main 上。
 
+- 修复：在 macOS 15 上，滑到对话底部附近时视图会被带回上面几千点，新回复也不再跟随（2026.11.26.9 引入）。
+
 - New update channels: Settings › General › Updates offers Stable or Release candidates (RC), Stable by default. Regular versions go to Stable; features still being tested ship first as release candidates (for example 2026.11.27-rc.1), which only a Janus following RC updates to, while it still gets newer stable versions. Switching from RC back to Stable never goes back to an older version: it moves to the next stable version once that is out. Release candidate versions are marked RC in the app.
 
 - Releases follow the channels: stable versions only come from main; release candidates are `-rc.<n>` tags on `rc/` branches, published as GitHub prereleases. Before publishing, a check makes sure the tag is in the right place, a candidate is newer than the latest stable version, and a candidate that changes data migrations is built on the latest main.
+
+- Fixed: on macOS 15, a conversation scrolled near its end jumped back thousands of points and stopped following new replies (introduced in 2026.11.26.9).
 
 ## 2026.11.26.9
 
