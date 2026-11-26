@@ -37,9 +37,10 @@ const WARM_WAIT: Duration = Duration::from_secs(10 * 60);
 const LIST_WAIT: Duration = Duration::from_secs(8);
 /// How long `initialize` waits for servers that never described themselves, to name their tools.
 const DESCRIBE_WAIT: Duration = Duration::from_secs(5);
-/// How long one tool call may take: under the 60 seconds Claude Code and Codex give an MCP call,
-/// so the agent gets the router's answer and not its own time-out.
-const CALL_WAIT: Duration = Duration::from_secs(50);
+/// How long one tool call may take: as long as a whole `run_code` script, under the 60 seconds
+/// Claude Code and Codex give an MCP call, so the agent gets the router's answer and not its own
+/// time-out.
+const CALL_WAIT: Duration = crate::coderun::Limits::DEFAULT.wait;
 /// What separates a server's name from its tool's in the names the router gives.
 const SEP: &str = "__";
 /// The longest name the router gives: models take tool names of at most 64 characters, and
@@ -192,11 +193,6 @@ fn stopped(lang: Lang) -> anyhow::Error {
 /// `required`, MCP 2025-11-25) needs task-augmented calls, which the router does not make.
 fn callable(tool: &Value) -> bool {
     tool["execution"]["taskSupport"] != "required"
-}
-
-/// A result of the router's own, as text; `failed` marks it an error the model can act on.
-fn said(text: String, failed: bool) -> Value {
-    tool_text(&text, failed)
 }
 
 /// The member whose snapshot serves the session `seat`: the lead's, or that of the member the task
@@ -560,7 +556,7 @@ impl App {
                     .data(json!({ "tool": tool.name, "server": tool.item.name })),
             );
         }
-        outcome.unwrap_or_else(|err| said(format!("{err:#}"), true))
+        outcome.unwrap_or_else(|err| tool_text(&format!("{err:#}"), true))
     }
 
     /// One MCP request to the router from a session of this run (`seat` as for the board).
@@ -602,14 +598,14 @@ impl App {
                     find::FIND => {
                         let tools = self.routed_tools(&run, seat, tokio::time::Instant::now() + LIST_WAIT, false).await;
                         let (text, failed) = find::find(&tools, args, lang);
-                        said(text, failed)
+                        tool_text(&text, failed)
                     }
                     code::CODE => self.run_code(&run, seat, args, &calling.stop).await,
                     find::CALL => {
                         let (name, inner) = find::call_args(args);
                         if name.is_empty() {
-                            said(
-                                tr!(
+                            tool_text(
+                                &tr!(
                                     lang,
                                     "call_tool 要写明调用哪个工具；find_tools 给出工具的名字。",
                                     "call_tool needs the name of the tool to run; find_tools gives the tools' names."
@@ -619,7 +615,7 @@ impl App {
                         } else {
                             match self.named_tool(&run, seat, &name).await {
                                 (Some(tool), _) => self.call_routed(&run, seat, &tool, inner, &calling.stop).await,
-                                (None, tools) => said(find::no_such(&tools, &name, lang), true),
+                                (None, tools) => tool_text(&find::no_such(&tools, &name, lang), true),
                             }
                         }
                     }

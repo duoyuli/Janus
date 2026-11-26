@@ -121,8 +121,8 @@ impl App {
         let lang = run.lang;
         let code = args["code"].as_str().unwrap_or_default();
         if code.trim().is_empty() {
-            return said(
-                tr!(
+            return tool_text(
+                &tr!(
                     lang,
                     "run_code 需要 code：一个 async 函数的函数体，调用 tools[\"<服务器>__<工具>\"](args) 并 return 你要的结果。",
                     "run_code needs code: the body of an async function that calls tools[\"<server>__<tool>\"](args) and returns what you need."
@@ -132,7 +132,7 @@ impl App {
         }
         let exe = match helper() {
             Ok(exe) => exe,
-            Err(err) => return said(format!("{err:#}"), true),
+            Err(err) => return tool_text(&format!("{err:#}"), true),
         };
         let tools = self.routed_tools(run, seat, tokio::time::Instant::now() + LIST_WAIT, false).await;
         let script = Script {
@@ -151,15 +151,7 @@ impl App {
                     // A tool added since the script was given its names is still found.
                     None => match app.named_tool(&run, &seat, &name).await {
                         (Some(t), _) => t,
-                        (None, now) => {
-                            let close: Vec<String> =
-                                find::near(&now, &name).into_iter().take(5).map(|t| t.name.clone()).collect();
-                            let mut why = format!("no tool is called {name}");
-                            if !close.is_empty() {
-                                why += &format!("; close to it: {}", close.join(", "));
-                            }
-                            bail!(why)
-                        }
+                        (None, now) => bail!(find::no_such(&now, &name, run.lang)),
                     },
                 };
                 Ok(app.call_routed(&run, &seat, &tool, inner, &stop).await)
@@ -167,7 +159,7 @@ impl App {
         };
         let res = tokio::select! {
             res = crate::coderun::run(&exe, script, Limits::DEFAULT, call) => res,
-            () = stop.cancelled() => return said(tr!(lang, "调用已取消", "The call was cancelled"), true),
+            () = stop.cancelled() => return tool_text(&tr!(lang, "调用已取消", "The call was cancelled"), true),
         };
         match args["save_as"].as_object() {
             Some(save) => self.save_script(res, save, code, lang).await,
