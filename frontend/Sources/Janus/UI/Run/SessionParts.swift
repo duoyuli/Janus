@@ -247,11 +247,11 @@ struct ContextMeter: View {
                 .frame(width: 12, height: 12)
                 Text(verbatim: "\(p)%")
             } else {
-                Text(verbatim: "\(SessionView.tokens(u.tokens ?? u.used ?? 0)) tokens")
+                Text(verbatim: "\(usageCompact(u.tokens ?? u.used ?? 0)) tokens")
             }
         }
         .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-        .help(([u.labels].compactMap { $0 } + [u.used.map { L.text("上下文已用 \(SessionView.tokens($0))") }, u.size.map { L.text("共 \(SessionView.tokens($0))") }].compactMap { $0 }).joined(separator: " · ") + L.text("\n本会话的数字不计入任务累计用量"))
+        .help(([u.labels].compactMap { $0 } + [u.used.map { L.text("上下文已用 \(usageCompact($0))") }, u.size.map { L.text("共 \(usageCompact($0))") }].compactMap { $0 }).joined(separator: " · ") + L.text("\n本会话的数字不计入任务累计用量"))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(u.labels ?? "")
     }

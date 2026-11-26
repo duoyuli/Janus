@@ -155,8 +155,6 @@ enum SessionView {
         }
     }
 
-    static func tokens(_ n: Int) -> String { n >= 1000 ? String(format: "%.1fk", Double(n) / 1000) : "\(n)" }
-
     /// The Git facts a session works with, in one line: the repository, the branch accepting
     /// merges back into and the commit; where Janus keeps its copy is not the person's concern.
     /// `nil` for a run outside a worktree.

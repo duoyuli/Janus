@@ -347,21 +347,18 @@ extension UsageScope {
     /// `费用：未上报`, `费用：0.25 USD`, `费用：0.25 USD + 40 credits（币种或口径不同，未合并）`.
     var costText: String { L.text("费用：\(costDetail)") }
 
-    var costDetail: String {
-        let parts = cost.lines.map { l -> String in
-            if l.currency.isEmpty { return L.text("\(usageMoney(l.amount))（未标注币种）") }
-            return l.sessions > 1 ? L.text("\(usageMoney(l.amount)) \(l.currency)（\(l.sessions) 个会话）") : "\(usageMoney(l.amount)) \(l.currency)"
-        }
-        if parts.isEmpty { return L.text("未上报") }
-        if parts.count == 1, !cost.lines[0].currency.isEmpty { return parts[0] }
-        return parts.joined(separator: " + ") + L.text("（币种或口径不同，未合并）")
-    }
+    var costDetail: String { costAmounts(sessions: true) ?? L.text("未上报") }
 
     /// The reported amounts without the 「N 个会话」 note `costText` adds: the run card's compact
     /// line leaves the session count to the expanded ledger (W1 F2).
-    var costAmountsText: String? {
-        let parts = cost.lines.map { l in
-            l.currency.isEmpty ? L.text("\(usageMoney(l.amount))（未标注币种）") : "\(usageMoney(l.amount)) \(l.currency)"
+    var costAmountsText: String? { costAmounts(sessions: false) }
+
+    /// Each reported amount with its currency (and, with `sessions`, how many sessions it sums),
+    /// joined when there are several: they are never added up across currencies.
+    private func costAmounts(sessions: Bool) -> String? {
+        let parts = cost.lines.map { l -> String in
+            if l.currency.isEmpty { return L.text("\(usageMoney(l.amount))（未标注币种）") }
+            return sessions && l.sessions > 1 ? L.text("\(usageMoney(l.amount)) \(l.currency)（\(l.sessions) 个会话）") : "\(usageMoney(l.amount)) \(l.currency)"
         }
         guard !parts.isEmpty else { return nil }
         if parts.count == 1 { return parts[0] }
